@@ -1,0 +1,42 @@
+import std.spark
+import std.scrolls
+import std.tally
+import std.atlas
+import std.oracle
+
+weave main into int:
+  calling spark.println with "=== Test All 5 ==="
+  
+  # 1. spark
+  calling spark.println with "spark ok"
+  
+  # 2. scrolls
+  var s as string is "  pengu script  "
+  var st as string is calling s.trim
+  var su as string is calling s.upper
+  calling spark.println with su
+  
+  # 3. tally
+  var nums as list of int is list of int with capacity 4
+  calling nums.push with 10
+  calling nums.push with 20
+  var nlen as int is calling nums.len
+  if nlen == 2:
+    calling spark.println with "tally list len ok"
+    
+  # 4. atlas
+  var dict as map of string to int is map of string to int
+  calling dict.put with "alpha" and 100
+  var aval as int is calling dict.get with "alpha"
+  if aval == 100:
+    calling spark.println with "atlas map get ok"
+    
+  # 5. oracle
+  var opt as MaybeString is calling oracle.maybe_some_string with "valor"
+  var val as string is calling opt.unwrap_or with "default"
+  calling spark.println with val
+  
+  var res as ResultString is calling oracle.result_ok_string with "all std ok"
+  var msg as string is calling res.unwrap
+  calling spark.println with msg
+  return 0

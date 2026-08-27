@@ -1,0 +1,37 @@
+# tests_std/test_precis.pengu
+import std.spark
+import std.oracle
+import std.precis
+
+weave main into void:
+    calling spark.println with "=== Testing Precis ==="
+
+    # 1. URL encode & decode
+    var enc as string is calling precis.url_encode with "hello world & foo=bar"
+    calling spark.println with "encoded: " + enc
+    if enc == "hello%20world%20%26%20foo%3Dbar":
+        calling spark.println with "url encode ok"
+
+    var dec as string is calling precis.url_decode with enc
+    if dec == "hello world & foo=bar":
+        calling spark.println with "url decode ok"
+
+    # 2. Query parsing
+    var q_map as map of string to string is calling precis.parse_query with "user=merlin&role=wizard&level=99"
+    var user_val as string is calling q_map.get with "user"
+    if user_val == "merlin":
+        calling spark.println with "query parsed user ok"
+
+    # 3. DNS Lookup
+    var ip_m as maybe string is calling precis.dns_lookup with "127.0.0.1"
+    if ip_m is present:
+        if ip_m.value == "127.0.0.1":
+            calling spark.println with "dns lookup ok"
+
+    # 4. Response Rune
+    var hdrs as map of string to string is map of string to string
+    var resp as Response is calling precis.response with 200 and "Hello World" and hdrs
+    if resp.status_code == 200:
+        calling spark.println with "response rune ok"
+
+    calling spark.println with "=== Precis OK ==="

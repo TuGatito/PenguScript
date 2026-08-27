@@ -1,0 +1,90 @@
+# std/chronicle.pengu - The Chronicle (Time)
+# Provides time, dates, timestamps, monotonic clocks, and delays.
+
+import std.spark
+import std.oracle
+
+declare pengu_c_time into float
+declare pengu_c_time_monotonic into float
+declare pengu_c_sleep_ms with ms as int into void
+declare pengu_c_sleep_sec with sec as float into void
+declare pengu_c_strftime with fmt as string and timestamp as float into string
+declare pengu_c_strptime with s as string and fmt as string into maybe float
+
+declare pengu_c_get_utc_year with ts as float into int
+declare pengu_c_get_utc_month with ts as float into int
+declare pengu_c_get_utc_day with ts as float into int
+declare pengu_c_get_utc_hour with ts as float into int
+declare pengu_c_get_utc_minute with ts as float into int
+declare pengu_c_get_utc_second with ts as float into int
+declare pengu_c_get_utc_weekday with ts as float into int
+declare pengu_c_get_utc_yearday with ts as float into int
+declare pengu_c_get_utc_is_dst with ts as float into bool
+
+declare pengu_c_get_local_year with ts as float into int
+declare pengu_c_get_local_month with ts as float into int
+declare pengu_c_get_local_day with ts as float into int
+declare pengu_c_get_local_hour with ts as float into int
+declare pengu_c_get_local_minute with ts as float into int
+declare pengu_c_get_local_second with ts as float into int
+declare pengu_c_get_local_weekday with ts as float into int
+declare pengu_c_get_local_yearday with ts as float into int
+declare pengu_c_get_local_is_dst with ts as float into bool
+
+weave time into float:
+    return calling pengu_c_time
+
+weave monotonic into float:
+    return calling pengu_c_time_monotonic
+
+weave sleep_ms with ms as int into void:
+    calling pengu_c_sleep_ms with ms
+
+weave sleep with sec as float into void:
+    calling pengu_c_sleep_sec with sec
+
+weave format with fmt as string and timestamp as float into string:
+    return calling pengu_c_strftime with fmt and timestamp
+
+weave format_now with fmt as string into string:
+    var now as float is calling time
+    return calling format with fmt and now
+
+weave parse with s as string and fmt as string into maybe float:
+    return calling pengu_c_strptime with s and fmt
+
+weave utc_year with ts as float into int:
+    return calling pengu_c_get_utc_year with ts
+
+weave utc_month with ts as float into int:
+    return calling pengu_c_get_utc_month with ts
+
+weave utc_day with ts as float into int:
+    return calling pengu_c_get_utc_day with ts
+
+weave utc_hour with ts as float into int:
+    return calling pengu_c_get_utc_hour with ts
+
+weave utc_minute with ts as float into int:
+    return calling pengu_c_get_utc_minute with ts
+
+weave utc_second with ts as float into int:
+    return calling pengu_c_get_utc_second with ts
+
+weave local_year with ts as float into int:
+    return calling pengu_c_get_local_year with ts
+
+weave local_month with ts as float into int:
+    return calling pengu_c_get_local_month with ts
+
+weave local_day with ts as float into int:
+    return calling pengu_c_get_local_day with ts
+
+weave local_hour with ts as float into int:
+    return calling pengu_c_get_local_hour with ts
+
+weave local_minute with ts as float into int:
+    return calling pengu_c_get_local_minute with ts
+
+weave local_second with ts as float into int:
+    return calling pengu_c_get_local_second with ts

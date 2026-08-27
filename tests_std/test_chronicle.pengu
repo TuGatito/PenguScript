@@ -1,0 +1,13 @@
+import std.spark
+import std.chronicle
+
+weave main into int:
+  calling spark.println with "=== Test Chronicle ==="
+  var t as float is calling chronicle.time
+  if t > 0.0:
+    calling spark.println with "time ok"
+  var y as int is calling chronicle.utc_year with t
+  if y >= 2024:
+    calling spark.println with "utc_year ok"
+  calling spark.println with "chronicle ok"
+  return 0

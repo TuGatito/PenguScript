@@ -1,0 +1,195 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "PenguScript",
+  "scopeName": "source.pengus",
+  "fileTypes": [
+    "pengu",
+    "pengus"
+  ],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#constants" },
+    { "include": "#self_reference" },
+    { "include": "#function_definition" },
+    { "include": "#type_definition" },
+    { "include": "#builtin_types" },
+    { "include": "#keywords_control" },
+    { "include": "#keywords_declaration" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.block.pengus",
+          "begin": "##",
+          "end": "##"
+        },
+        {
+          "name": "comment.line.number-sign.pengus",
+          "match": "#.*$"
+        },
+        {
+          "name": "comment.line.double-slash.pengus",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.pengus",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.pengus",
+              "match": "\\\\."
+            },
+            {
+              "name": "meta.embedded.line.pengus",
+              "begin": "\\{",
+              "end": "\\}",
+              "beginCaptures": {
+                "0": { "name": "punctuation.section.embedded.begin.pengus" }
+              },
+              "endCaptures": {
+                "0": { "name": "punctuation.section.embedded.end.pengus" }
+              },
+              "patterns": [
+                { "include": "$self" }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.pengus",
+          "match": "\\b0[xX][0-9a-fA-F]+\\b"
+        },
+        {
+          "name": "constant.numeric.float.pengus",
+          "match": "\\b[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.pengus",
+          "match": "\\b[0-9]+\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.pengus",
+          "match": "\\b(true|false)\\b"
+        },
+        {
+          "name": "constant.language.maybe-none.pengus",
+          "match": "\\bmaybe\\s+none\\b"
+        },
+        {
+          "name": "constant.language.error.pengus",
+          "match": "\\berror\\b"
+        }
+      ]
+    },
+    "self_reference": {
+      "patterns": [
+        {
+          "match": "\\b(self)(->)",
+          "captures": {
+            "1": { "name": "variable.language.self.pengus" },
+            "2": { "name": "punctuation.accessor.arrow.pengus" }
+          }
+        },
+        {
+          "name": "variable.language.self.pengus",
+          "match": "\\bself\\b"
+        }
+      ]
+    },
+    "function_definition": {
+      "patterns": [
+        {
+          "match": "\\b(inline\\s+)?(weave)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.modifier.inline.pengus" },
+            "2": { "name": "keyword.declaration.function.pengus" },
+            "3": { "name": "entity.name.function.pengus" }
+          }
+        },
+        {
+          "match": "\\b(calling)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.control.calling.pengus" },
+            "2": { "name": "entity.name.function.call.pengus" }
+          }
+        }
+      ]
+    },
+    "type_definition": {
+      "patterns": [
+        {
+          "match": "\\b(rune|echo|omen|alias|enchanting)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.type.pengus" },
+            "2": { "name": "entity.name.type.class.pengus" }
+          }
+        }
+      ]
+    },
+    "builtin_types": {
+      "patterns": [
+        {
+          "name": "storage.type.primitive.pengus",
+          "match": "\\b(int|i32|i64|float|f32|f64|bool|string|void|opaque)\\b"
+        },
+        {
+          "name": "storage.type.collection.pengus",
+          "match": "\\b(array\\s+of|slice\\s+of|list\\s+of|map\\s+of|maybe|result\\s+of|ref\\s+to)\\b"
+        }
+      ]
+    },
+    "keywords_control": {
+      "patterns": [
+        {
+          "name": "keyword.control.pengus",
+          "match": "\\b(if|then|else|unless|while|for|from|to|step|in|with|judge|when|or|return|break|continue|defer|errdefer|banish|try)\\b"
+        }
+      ]
+    },
+    "keywords_declaration": {
+      "patterns": [
+        {
+          "name": "keyword.other.declaration.pengus",
+          "match": "\\b(var|let|const|set|declare|import|include|link|sigil|essence|of|is|as|into|and|capacity|size|transmute|present)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "punctuation.accessor.arrow.pengus",
+          "match": "->"
+        },
+        {
+          "name": "keyword.operator.comparison.pengus",
+          "match": "(==|!=|<=|>=|<|>)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.pengus",
+          "match": "(\\+|-|\\*|/|%|\\|\\||&&|\\||&|\\^|<<|>>|~)"
+        },
+        {
+          "name": "keyword.operator.logical.pengus",
+          "match": "\\b(not)\\b"
+        }
+      ]
+    }
+  }
+}

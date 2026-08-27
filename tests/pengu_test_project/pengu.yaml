@@ -1,0 +1,25 @@
+project:
+  name: "pengu_test_project"
+  version: "0.1.0"
+  entry: "main.pengu"
+  output: "exe"
+  output_name: "pengu_test_project"
+
+build:
+  build_dir: "build"
+  includes: []
+  links: []
+  lib_dirs: []
+  include_dirs: []
+  cflags: ["-Wall", "-std=c11"]
+  ldflags: []
+  defines: []
+  cc: "gcc"
+
+profiles:
+  debug:
+    cflags: ["-g", "-O0", "-Wall"]
+    defines: ["DEBUG"]
+  release:
+    cflags: ["-O3", "-DNDEBUG"]
+    defines: ["NDEBUG"]

@@ -1,0 +1,40 @@
+# tests_std/test_loom.pengu - Integration test for Loom module
+import std.spark
+import std.loom
+
+weave main into void:
+    calling spark.println with "=== Test Loom ==="
+
+    var nums as list of int is calling loom.range with 1 and 6 and 1
+    calling spark.println with "range len: " + nums.len
+
+    var sum_val as int is calling loom.sum with nums
+    calling spark.println with "sum: " + sum_val
+
+    var prod_val as int is calling loom.product_num with nums
+    calling spark.println with "product: " + prod_val
+
+    var max_val as int is calling loom.max_int with nums
+    var min_val as int is calling loom.min_int with nums
+    calling spark.println with "max: " + max_val
+    calling spark.println with "min: " + min_val
+
+    var first_two as list of int is calling loom.take with nums and 2
+    calling spark.println with "take 2 len: " + first_two.len
+
+    var skipped as list of int is calling loom.skip with nums and 2
+    calling spark.println with "skip 2 len: " + skipped.len
+
+    var chained as list of int is calling loom.chain with first_two and skipped
+    calling spark.println with "chain len: " + chained.len
+
+    var repeated as list of int is calling loom.repeat with 42 and 3
+    calling spark.println with "repeat len: " + repeated.len
+
+    var chunk_list as list of list of int is calling loom.chunks with nums and 2
+    calling spark.println with "chunks count: " + chunk_list.len
+
+    var win_list as list of list of int is calling loom.windows with nums and 3
+    calling spark.println with "windows count: " + win_list.len
+
+    calling spark.println with "=== Loom OK ==="

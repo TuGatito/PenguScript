@@ -1,0 +1,139 @@
+# std/seal.pengu - The Seal (Compression & Hashing)
+# Provides cryptographic hashing (MD5, SHA1, SHA256, SHA512), CRC32,
+# and compression/decompression (gzip, zlib deflate/inflate).
+
+import std.spark
+import std.oracle
+import std.scrolls
+import std.archivum
+
+# ----------------------------------------------------------------------------
+# External C Functions (from Runtime)
+# ----------------------------------------------------------------------------
+
+declare pengu_c_seal_crc32 with data as string into int
+declare pengu_c_seal_md5 with data as string into string
+declare pengu_c_seal_sha1 with data as string into string
+declare pengu_c_seal_sha256 with data as string into string
+declare pengu_c_seal_sha512 with data as string into string
+declare pengu_c_seal_gzip with data as string into maybe string
+declare pengu_c_seal_unzip with data as string into maybe string
+declare pengu_c_seal_zlib_compress with data as string into maybe string
+declare pengu_c_seal_zlib_decompress with data as string into maybe string
+declare pengu_c_seal_hash_file with path as string and hash_type as string into maybe string
+
+# ----------------------------------------------------------------------------
+# Public API - CRC32 Checksum
+# ----------------------------------------------------------------------------
+
+weave crc32 with data as string into int:
+    return calling pengu_c_seal_crc32 with data
+
+weave crc32_file with path as string into MaybeInt:
+    var content as maybe string is calling archivum.read_file with path
+    if content is present:
+        var val as int is calling pengu_c_seal_crc32 with content.value
+        return calling oracle.maybe_some_int with val
+    return calling oracle.maybe_none_int
+
+# ----------------------------------------------------------------------------
+# Public API - Hashes (MD5, SHA1, SHA256, SHA512)
+# ----------------------------------------------------------------------------
+
+weave md5 with data as string into string:
+    return calling pengu_c_seal_md5 with data
+
+weave md5_file with path as string into maybe string:
+    return calling pengu_c_seal_hash_file with path and "md5"
+
+weave sha1 with data as string into string:
+    return calling pengu_c_seal_sha1 with data
+
+weave sha1_file with path as string into maybe string:
+    return calling pengu_c_seal_hash_file with path and "sha1"
+
+weave sha256 with data as string into string:
+    return calling pengu_c_seal_sha256 with data
+
+weave sha256_file with path as string into maybe string:
+    return calling pengu_c_seal_hash_file with path and "sha256"
+
+weave sha512 with data as string into string:
+    return calling pengu_c_seal_sha512 with data
+
+weave sha512_file with path as string into maybe string:
+    return calling pengu_c_seal_hash_file with path and "sha512"
+
+# ----------------------------------------------------------------------------
+# Public API - Gzip Compression
+# ----------------------------------------------------------------------------
+
+weave gzip with data as string into maybe string:
+    return calling pengu_c_seal_gzip with data
+
+weave unzip with data as string into maybe string:
+    return calling pengu_c_seal_unzip with data
+
+weave gzip_file with path as string and output_path as string into bool:
+    var content as maybe string is calling archivum.read_file with path
+    if content is present:
+        var comp as maybe string is calling pengu_c_seal_gzip with content.value
+        if comp is present:
+            return calling archivum.write_file with output_path and comp.value
+    return false
+
+weave unzip_file with path as string and output_path as string into bool:
+    var content as maybe string is calling archivum.read_file with path
+    if content is present:
+        var decomp as maybe string is calling pengu_c_seal_unzip with content.value
+        if decomp is present:
+            return calling archivum.write_file with output_path and decomp.value
+    return false
+
+# ----------------------------------------------------------------------------
+# Public API - Raw Zlib Deflate / Inflate
+# ----------------------------------------------------------------------------
+
+weave zlib_compress with data as string into maybe string:
+    return calling pengu_c_seal_zlib_compress with data
+
+weave zlib_decompress with data as string into maybe string:
+    return calling pengu_c_seal_zlib_decompress with data
+
+# ----------------------------------------------------------------------------
+# Public API - Hash Verification
+# ----------------------------------------------------------------------------
+
+weave verify_hash with data as string and hash_type as string and expected as string into bool:
+    var computed as string is ""
+    if hash_type == "md5":
+        set computed is calling md5 with data
+    else if hash_type == "sha1":
+        set computed is calling sha1 with data
+    else if hash_type == "sha256":
+        set computed is calling sha256 with data
+    else if hash_type == "sha512":
+        set computed is calling sha512 with data
+    return computed == expected
+
+weave verify_hash_file with path as string and hash_type as string and expected as string into bool:
+    var computed as maybe string is calling pengu_c_seal_hash_file with path and hash_type
+    if computed is present:
+        return computed.value == expected
+    return false
+
+# ----------------------------------------------------------------------------
+# Result / Error Handling Wrappers
+# ----------------------------------------------------------------------------
+
+weave try_gzip with data as string into ResultString:
+    var comp as maybe string is calling pengu_c_seal_gzip with data
+    if comp is present:
+        return calling oracle.result_ok_string with comp.value
+    return calling oracle.result_err_string with "Gzip compression failed"
+
+weave try_unzip with data as string into ResultString:
+    var decomp as maybe string is calling pengu_c_seal_unzip with data
+    if decomp is present:
+        return calling oracle.result_ok_string with decomp.value
+    return calling oracle.result_err_string with "Gzip decompression failed"

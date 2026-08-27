@@ -1,0 +1,79 @@
+# std/whisper.pengu - The Whisper (Logging)
+# Provides structured logging with severity levels: trace, debug, info, warn, error, fatal.
+
+import std.spark
+
+const LOG_TRACE as int is 0
+const LOG_DEBUG as int is 1
+const LOG_INFO as int is 2
+const LOG_WARN as int is 3
+const LOG_ERROR as int is 4
+const LOG_FATAL as int is 5
+
+const COLOR_RESET as string is "\033[0m"
+const COLOR_GRAY as string is "\033[90m"
+const COLOR_CYAN as string is "\033[36m"
+const COLOR_GREEN as string is "\033[32m"
+const COLOR_YELLOW as string is "\033[33m"
+const COLOR_RED as string is "\033[31m"
+const COLOR_BRIGHT_RED as string is "\033[91m"
+
+declare pengu_log_set_level with level as int into void
+declare pengu_log_get_level into int
+
+weave set_level with level as int into void:
+    calling pengu_log_set_level with level
+
+weave get_level into int:
+    return calling pengu_log_get_level
+
+weave get_level_name with level as int into string:
+    if level == LOG_TRACE:
+        return "TRACE"
+    if level == LOG_DEBUG:
+        return "DEBUG"
+    if level == LOG_INFO:
+        return "INFO"
+    if level == LOG_WARN:
+        return "WARN"
+    if level == LOG_ERROR:
+        return "ERROR"
+    return "FATAL"
+
+weave get_level_color with level as int into string:
+    if level == LOG_TRACE:
+        return COLOR_GRAY
+    if level == LOG_DEBUG:
+        return COLOR_CYAN
+    if level == LOG_INFO:
+        return COLOR_GREEN
+    if level == LOG_WARN:
+        return COLOR_YELLOW
+    if level == LOG_ERROR:
+        return COLOR_RED
+    return COLOR_BRIGHT_RED
+
+weave log with level as int and msg as string into void:
+    var current_level as int is calling get_level
+    if level >= current_level:
+        var name as string is calling get_level_name with level
+        var color as string is calling get_level_color with level
+        calling spark.println with color + "[" + name + "] " + msg + COLOR_RESET
+
+weave trace with msg as string into void:
+    calling log with LOG_TRACE and msg
+
+weave debug with msg as string into void:
+    calling log with LOG_DEBUG and msg
+
+weave info with msg as string into void:
+    calling log with LOG_INFO and msg
+
+weave warn with msg as string into void:
+    calling log with LOG_WARN and msg
+
+weave error with msg as string into void:
+    calling log with LOG_ERROR and msg
+
+weave fatal with msg as string into void:
+    calling log with LOG_FATAL and msg

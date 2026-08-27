@@ -1,0 +1,50 @@
+import std.spark
+import std.tally
+
+weave main into int:
+  calling spark.println with "=== Test Tally ==="
+  
+  # list of int
+  var nums as list of int is list of int with capacity 4
+  var empty as bool is calling nums.is_empty
+  if empty:
+    calling spark.println with "init empty ok"
+    
+  calling nums.push with 10
+  calling nums.append with 20
+  calling nums.push with 30
+  
+  var nlen as int is calling nums.len
+  if nlen == 3:
+    calling spark.println with "len 3 ok"
+    
+  var has20 as bool is calling nums.contains with 20
+  if has20:
+    calling spark.println with "contains 20 ok"
+    
+  var has99 as bool is calling nums.contains with 99
+  if has99 == false:
+    calling spark.println with "not contains 99 ok"
+    
+  var idx as int is calling nums.index_of with 20
+  if idx == 1:
+    calling spark.println with "index_of 20 ok"
+    
+  var popped as int is calling nums.pop
+  if popped == 30:
+    calling spark.println with "pop 30 ok"
+    
+  var nlen2 as int is calling nums.len
+  if nlen2 == 2:
+    calling spark.println with "len 2 ok"
+    
+  # list of string
+  var words as list of string is list of string with capacity 4
+  calling words.push with "hello"
+  calling words.append with "pengu"
+  var wlen as int is calling words.len
+  if wlen == 2:
+    calling spark.println with "words len 2 ok"
+    
+  calling spark.println with "tally ok"
+  return 0

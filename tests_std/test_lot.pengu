@@ -1,0 +1,12 @@
+import std.spark
+import std.lot
+
+weave main into int:
+  calling spark.println with "=== Test Lot ==="
+  calling lot.seed with 42
+  var r as int is calling lot.rand_range with 1 and 10
+  if r >= 1:
+    if r <= 10:
+      calling spark.println with "rand_range ok"
+  calling spark.println with "lot ok"
+  return 0

@@ -1,0 +1,46 @@
+# tests_std/test_compass.pengu - Integration test for Compass module
+import std.spark
+import std.compass
+import std.oracle
+
+weave main into void:
+    calling spark.println with "=== Test Compass ==="
+    
+    var sep as string is calling compass.separator
+    var is_win as bool is calling compass.is_windows
+    var is_unx as bool is calling compass.is_unix
+    calling spark.println with "separator: " + sep
+
+    var p as Path is calling compass.path with "foo/bar/baz.txt"
+    var p_name as string is calling p.name
+    var p_stem as string is calling p.stem
+    var p_suffix as string is calling p.suffix
+    var has_ext as bool is calling p.has_suffix
+    calling spark.println with "name: " + p_name
+    calling spark.println with "stem: " + p_stem
+    calling spark.println with "suffix: " + p_suffix
+    if has_ext:
+        calling spark.println with "has extension: true"
+
+    var parts as list of string is list of string
+    calling parts.push with "alpha"
+    calling parts.push with "beta"
+    calling parts.push with "gamma.txt"
+    var joined as string is calling compass.join with parts
+    calling spark.println with "joined: " + joined
+
+    var base_str as string is calling compass.basename with "alpha/beta/gamma.txt"
+    var dir_str as string is calling compass.dirname with "alpha/beta/gamma.txt"
+    calling spark.println with "basename: " + base_str
+    calling spark.println with "dirname: " + dir_str
+
+    var norm as string is calling compass.normalize with "foo/../bar/./baz.txt"
+    calling spark.println with "normalized: " + norm
+
+    var new_ext as string is calling compass.change_ext with "hello.txt" and "json"
+    calling spark.println with "change_ext: " + new_ext
+
+    var added_ext as string is calling compass.add_ext with "archive" and "tar"
+    calling spark.println with "add_ext: " + added_ext
+
+    calling spark.println with "=== Compass OK ==="

@@ -1,0 +1,16 @@
+import std.spark
+import std.arithmancy
+
+weave main into int:
+  calling spark.println with "=== Test Arithmancy ==="
+  var sq as float is calling arithmancy.sqrt with 16.0
+  if sq == 4.0:
+    calling spark.println with "sqrt ok"
+  var is_p as bool is calling arithmancy.is_prime with 17
+  if is_p:
+    calling spark.println with "prime ok"
+  var g as int is calling arithmancy.gcd with 24 and 36
+  if g == 12:
+    calling spark.println with "gcd ok"
+  calling spark.println with "arithmancy ok"
+  return 0

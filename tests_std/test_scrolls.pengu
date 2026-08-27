@@ -1,0 +1,88 @@
+import std.spark
+import std.scrolls
+import std.tally
+
+weave main into int:
+  calling spark.println with "=== Test Scrolls ==="
+  var s as string is "  Hello World  "
+  
+  # len, is_empty
+  var slen as int is calling s.len
+  var empty as bool is calling s.is_empty
+  if empty == false:
+    calling spark.println with "is_empty ok"
+    
+  # upper / lower
+  var u as string is calling s.upper
+  var l as string is calling s.lower
+  calling spark.println with "HELLO WORLD"
+  calling spark.println with "hello world"
+  
+  # trim / trim_start / trim_end
+  var t as string is calling s.trim
+  var ts as string is calling s.trim_start
+  var te as string is calling s.trim_end
+  calling spark.println with "Hello World"
+  
+  # search: contains, starts_with, ends_with, index_of, last_index_of
+  var has_world as bool is calling t.contains with "World"
+  if has_world:
+    calling spark.println with "contains ok"
+    
+  var sw as bool is calling t.starts_with with "Hello"
+  if sw:
+    calling spark.println with "starts_with ok"
+    
+  var ew as bool is calling t.ends_with with "World"
+  if ew:
+    calling spark.println with "ends_with ok"
+    
+  var idx as int is calling t.index_of with "World"
+  if idx == 6:
+    calling spark.println with "index_of ok"
+    
+  var lidx as int is calling t.last_index_of with "l"
+  if lidx == 9:
+    calling spark.println with "last_index_of ok"
+    
+  # substring, char_at
+  var sub as string is calling t.substring with 0 and 5
+  calling spark.println with sub
+  
+  var ch as string is calling t.char_at with 0
+  calling spark.println with ch
+  
+  # replace, repeat, reverse
+  var rep as string is calling t.replace with "World" and "Pengu"
+  calling spark.println with "Hello Pengu"
+  
+  var rpt as string is calling ch.repeat with 3
+  calling spark.println with rpt
+  
+  var rev as string is calling sub.reverse
+  calling spark.println with rev
+  
+  # split
+  var parts as list of string is calling t.split with " "
+  var parts_len as int is calling parts.len
+  if parts_len == 2:
+    calling spark.println with "split ok"
+    
+  # checks
+  var alpha_str as string is "Pengu"
+  var is_a as bool is calling alpha_str.is_alpha
+  if is_a:
+    calling spark.println with "is_alpha ok"
+    
+  var num_str as string is "12345"
+  var is_d as bool is calling num_str.is_digit
+  if is_d:
+    calling spark.println with "is_digit ok"
+    
+  var alnum_str as string is "Pengu123"
+  var is_an as bool is calling alnum_str.is_alnum
+  if is_an:
+    calling spark.println with "is_alnum ok"
+    
+  calling spark.println with "scrolls ok"
+  return 0

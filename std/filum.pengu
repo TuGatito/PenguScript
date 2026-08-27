@@ -1,0 +1,234 @@
+# std/filum.pengu - The Filum (Concurrency)
+# Provides concurrency primitives: threads, channels, mutexes, wait groups, atomics.
+
+import std.spark
+import std.oracle
+
+# ----------------------------------------------------------------------------
+# Type Definitions
+# ----------------------------------------------------------------------------
+
+rune Mutex:
+    _ptr as opaque
+
+rune WaitGroup:
+    _ptr as opaque
+
+rune Once:
+    _ptr as opaque
+
+rune Cond:
+    _ptr as opaque
+
+rune AtomicInt:
+    _ptr as opaque
+
+rune Chan:
+    _ptr as opaque
+    buffered as bool
+    cap as int
+
+# ----------------------------------------------------------------------------
+# External C Declarations
+# ----------------------------------------------------------------------------
+
+declare pengu_c_filum_go with f as opaque into void
+declare pengu_c_filum_chan_new with elem_size as int and cap as int into opaque
+declare pengu_c_filum_chan_send with c as opaque and value as opaque into bool
+declare pengu_c_filum_chan_recv with c as opaque and out as opaque into bool
+declare pengu_c_filum_chan_close with c as opaque into void
+declare pengu_c_filum_chan_len with c as opaque into int
+declare pengu_c_filum_chan_cap with c as opaque into int
+
+declare pengu_c_filum_mutex_new into opaque
+declare pengu_c_filum_mutex_lock with m as opaque into void
+declare pengu_c_filum_mutex_unlock with m as opaque into void
+declare pengu_c_filum_mutex_try_lock with m as opaque into bool
+
+declare pengu_c_filum_wait_group_new into opaque
+declare pengu_c_filum_wait_group_add with wg as opaque and delta as int into void
+declare pengu_c_filum_wait_group_done with wg as opaque into void
+declare pengu_c_filum_wait_group_wait with wg as opaque into void
+
+declare pengu_c_filum_once_new into opaque
+declare pengu_c_filum_once_do with o as opaque and f as opaque into void
+
+declare pengu_c_filum_cond_new into opaque
+declare pengu_c_filum_cond_wait with c as opaque and m as opaque into void
+declare pengu_c_filum_cond_signal with c as opaque into void
+declare pengu_c_filum_cond_broadcast with c as opaque into void
+
+declare pengu_c_filum_atomic_int_new with initial as int into opaque
+declare pengu_c_filum_atomic_int_load with a as opaque into int
+declare pengu_c_filum_atomic_int_store with a as opaque and val as int into void
+declare pengu_c_filum_atomic_int_add with a as opaque and delta as int into int
+declare pengu_c_filum_atomic_int_swap with a as opaque and new_val as int into int
+declare pengu_c_filum_atomic_int_compare_swap with a as opaque and old_val as int and new_val as int into bool
+
+declare pengu_c_filum_sleep with ms as int into void
+declare pengu_c_filum_num_cpu into int
+declare pengu_c_filum_goroutine_id into int
+
+# ----------------------------------------------------------------------------
+# Mutex Functional API & Enchanting
+# ----------------------------------------------------------------------------
+
+weave mutex into Mutex:
+    var m as Mutex is with _ptr is calling pengu_c_filum_mutex_new
+    return m
+
+weave lock with m as ref to Mutex into void:
+    calling pengu_c_filum_mutex_lock with m->_ptr
+
+weave unlock with m as ref to Mutex into void:
+    calling pengu_c_filum_mutex_unlock with m->_ptr
+
+weave try_lock with m as ref to Mutex into bool:
+    return calling pengu_c_filum_mutex_try_lock with m->_ptr
+
+enchanting Mutex:
+    weave lock into void:
+        calling pengu_c_filum_mutex_lock with self->_ptr
+
+    weave unlock into void:
+        calling pengu_c_filum_mutex_unlock with self->_ptr
+
+    weave try_lock into bool:
+        return calling pengu_c_filum_mutex_try_lock with self->_ptr
+
+# ----------------------------------------------------------------------------
+# WaitGroup Functional API & Enchanting
+# ----------------------------------------------------------------------------
+
+weave wait_group into WaitGroup:
+    var wg as WaitGroup is with _ptr is calling pengu_c_filum_wait_group_new
+    return wg
+
+weave add with wg as ref to WaitGroup and delta as int into void:
+    calling pengu_c_filum_wait_group_add with wg->_ptr and delta
+
+weave done with wg as ref to WaitGroup into void:
+    calling pengu_c_filum_wait_group_done with wg->_ptr
+
+weave wait with wg as ref to WaitGroup into void:
+    calling pengu_c_filum_wait_group_wait with wg->_ptr
+
+enchanting WaitGroup:
+    weave add with delta as int into void:
+        calling pengu_c_filum_wait_group_add with self->_ptr and delta
+
+    weave done into void:
+        calling pengu_c_filum_wait_group_done with self->_ptr
+
+    weave wait into void:
+        calling pengu_c_filum_wait_group_wait with self->_ptr
+
+# ----------------------------------------------------------------------------
+# Once Functional API & Enchanting
+# ----------------------------------------------------------------------------
+
+weave once into Once:
+    var o as Once is with _ptr is calling pengu_c_filum_once_new
+    return o
+
+weave do_once with o as ref to Once and f as opaque into void:
+    calling pengu_c_filum_once_do with o->_ptr and f
+
+enchanting Once:
+    weave do_action with f as opaque into void:
+        calling pengu_c_filum_once_do with self->_ptr and f
+
+# ----------------------------------------------------------------------------
+# Cond Functional API & Enchanting
+# ----------------------------------------------------------------------------
+
+weave cond into Cond:
+    var c as Cond is with _ptr is calling pengu_c_filum_cond_new
+    return c
+
+weave cond_wait with c as ref to Cond and m as ref to Mutex into void:
+    calling pengu_c_filum_cond_wait with c->_ptr and m->_ptr
+
+weave signal with c as ref to Cond into void:
+    calling pengu_c_filum_cond_signal with c->_ptr
+
+weave broadcast with c as ref to Cond into void:
+    calling pengu_c_filum_cond_broadcast with c->_ptr
+
+enchanting Cond:
+    weave wait_mutex with m as ref to Mutex into void:
+        calling pengu_c_filum_cond_wait with self->_ptr and m->_ptr
+
+    weave signal into void:
+        calling pengu_c_filum_cond_signal with self->_ptr
+
+    weave broadcast into void:
+        calling pengu_c_filum_cond_broadcast with self->_ptr
+
+# ----------------------------------------------------------------------------
+# AtomicInt Functional API & Enchanting
+# ----------------------------------------------------------------------------
+
+weave atomic_int with initial as int is 0 into AtomicInt:
+    var a as AtomicInt is with _ptr is calling pengu_c_filum_atomic_int_new with initial
+    return a
+
+weave load with a as ref to AtomicInt into int:
+    return calling pengu_c_filum_atomic_int_load with a->_ptr
+
+weave store with a as ref to AtomicInt and val as int into void:
+    calling pengu_c_filum_atomic_int_store with a->_ptr and val
+
+weave add_atomic with a as ref to AtomicInt and delta as int into int:
+    return calling pengu_c_filum_atomic_int_add with a->_ptr and delta
+
+weave swap with a as ref to AtomicInt and new_val as int into int:
+    return calling pengu_c_filum_atomic_int_swap with a->_ptr and new_val
+
+weave compare_swap with a as ref to AtomicInt and old_val as int and new_val as int into bool:
+    return calling pengu_c_filum_atomic_int_compare_swap with a->_ptr and old_val and new_val
+
+weave inc with a as ref to AtomicInt into int:
+    var old as int is calling pengu_c_filum_atomic_int_add with a->_ptr and 1
+    return old + 1
+
+weave dec with a as ref to AtomicInt into int:
+    var old as int is calling pengu_c_filum_atomic_int_add with a->_ptr and -1
+    return old - 1
+
+enchanting AtomicInt:
+    weave load into int:
+        return calling pengu_c_filum_atomic_int_load with self->_ptr
+
+    weave store with val as int into void:
+        calling pengu_c_filum_atomic_int_store with self->_ptr and val
+
+    weave add with delta as int into int:
+        return calling pengu_c_filum_atomic_int_add with self->_ptr and delta
+
+    weave swap with new_val as int into int:
+        return calling pengu_c_filum_atomic_int_swap with self->_ptr and new_val
+
+    weave compare_swap with old_val as int and new_val as int into bool:
+        return calling pengu_c_filum_atomic_int_compare_swap with self->_ptr and old_val and new_val
+
+    weave inc into int:
+        var old as int is calling pengu_c_filum_atomic_int_add with self->_ptr and 1
+        return old + 1
+
+    weave dec into int:
+        var old as int is calling pengu_c_filum_atomic_int_add with self->_ptr and -1
+        return old - 1
+
+# ----------------------------------------------------------------------------
+# System & Time
+# ----------------------------------------------------------------------------
+
+weave sleep with ms as int into void:
+    calling pengu_c_filum_sleep with ms
+
+weave num_cpu into int:
+    return calling pengu_c_filum_num_cpu
+
+weave goroutine_id into int:
+    return calling pengu_c_filum_goroutine_id

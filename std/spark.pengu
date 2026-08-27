@@ -1,0 +1,75 @@
+# std/spark.pengu - The Spark (Core)
+# Provides fundamental functions for printing, input, conversions, range generation, and panic.
+
+const SPARK_VERSION as string is "0.6.0-spark"
+const STD_VERSION as string is "0.6.0"
+
+declare pengu_print with s as string into void
+declare pengu_println with s as string into void
+declare pengu_input with prompt as string into string
+declare pengu_parse_int with s as string into maybe int
+declare pengu_parse_float with s as string into maybe float
+declare pengu_panic with msg as string into void
+
+weave spark_version into string:
+    return SPARK_VERSION
+
+weave print with s as string into void:
+    calling pengu_print with s
+
+weave println with s as string into void:
+    calling pengu_println with s
+
+weave print_line with s as string into void:
+    calling pengu_println with s
+
+weave eprint_line with s as string into void:
+    calling pengu_println with s
+
+weave assert with cond as bool into void:
+    if cond == false:
+        calling pengu_panic with "Assertion failed"
+
+weave assert_msg with cond as bool and msg as string into void:
+    if cond == false:
+        calling pengu_panic with msg
+
+weave len_string with s as string into int:
+    return s length
+
+weave bool_to_string with b as bool into string:
+    if b:
+        return "true"
+    return "false"
+
+weave input with prompt as string into string:
+    return calling pengu_input with prompt
+
+weave str with value as string into string:
+    return value
+
+weave str_int with value as int into string:
+    return value to string
+
+weave str_float with value as float into string:
+    return value to string
+
+weave str_bool with value as bool into string:
+    return value to string
+
+weave parse_int with s as string into maybe int:
+    return calling pengu_parse_int with s
+
+weave parse_float with s as string into maybe float:
+    return calling pengu_parse_float with s
+
+weave range with start as int and end_val as int and step as int is 1 into list of int:
+    var result as list of int is list of int with capacity 16
+    var i as int is start
+    while i < end_val:
+        calling result.push with i
+        set i is i + step
+    return result
+
+weave panic with msg as string into void:
+    calling pengu_panic with msg

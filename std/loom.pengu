@@ -1,0 +1,146 @@
+# std/loom.pengu - The Loom (Itertools & Collection Utilities)
+# Provides algorithms and functional transformations for collections.
+
+import std.spark
+import std.oracle
+import std.tally
+import std.atlas
+import std.scrolls
+
+weave range with start as int and end as int and step as int is 1 into list of int:
+    var result as list of int is list of int
+    var cur as int is start
+    if step > 0:
+        while cur < end:
+            calling result.push with cur
+            set cur is cur + step
+    else if step < 0:
+        while cur > end:
+            calling result.push with cur
+            set cur is cur + step
+    return result
+
+weave repeat with value as int and times as int into list of int:
+    var result as list of int is list of int
+    var i as int is 0
+    while i < times:
+        calling result.push with value
+        set i is i + 1
+    return result
+
+weave take with items as list of int and n as int into list of int:
+    var result as list of int is list of int
+    var count as int is n
+    if count > items.len:
+        set count is items.len
+    var i as int is 0
+    while i < count:
+        var val as int is items at i
+        calling result.push with val
+        set i is i + 1
+    return result
+
+weave skip with items as list of int and n as int into list of int:
+    var result as list of int is list of int
+    var start as int is n
+    if start < 0:
+        set start is 0
+    var i as int is start
+    while i < items.len:
+        var val as int is items at i
+        calling result.push with val
+        set i is i + 1
+    return result
+
+weave chain with a as list of int and b as list of int into list of int:
+    var result as list of int is list of int
+    var i as int is 0
+    while i < a.len:
+        var val as int is a at i
+        calling result.push with val
+        set i is i + 1
+    var j as int is 0
+    while j < b.len:
+        var val as int is b at j
+        calling result.push with val
+        set j is j + 1
+    return result
+
+weave chunks with items as list of int and n as int into list of list of int:
+    var result as list of list of int is list of list of int
+    if n <= 0:
+        return result
+    var i as int is 0
+    while i < items.len:
+        var chunk as list of int is list of int
+        var j as int is 0
+        while j < n:
+            if i + j >= items.len:
+                break
+            var val as int is items at (i + j)
+            calling chunk.push with val
+            set j is j + 1
+        calling result.push with chunk
+        set i is i + n
+    return result
+
+weave windows with items as list of int and n as int into list of list of int:
+    var result as list of list of int is list of list of int
+    if n <= 0:
+        return result
+    if n > items.len:
+        return result
+    var i as int is 0
+    var limit as int is items.len - n
+    while i <= limit:
+        var window as list of int is list of int
+        var j as int is 0
+        while j < n:
+            var val as int is items at (i + j)
+            calling window.push with val
+            set j is j + 1
+        calling result.push with window
+        set i is i + 1
+    return result
+
+weave sum with nums as list of int into int:
+    var total as int is 0
+    var i as int is 0
+    while i < nums.len:
+        var n as int is nums at i
+        set total is total + n
+        set i is i + 1
+    return total
+
+weave product_num with nums as list of int into int:
+    var total as int is 1
+    var i as int is 0
+    while i < nums.len:
+        var n as int is nums at i
+        set total is total * n
+        set i is i + 1
+    return total
+
+weave max_int with items as list of int into int:
+    if items.len == 0:
+        return 0
+    var best as int is items at 0
+    var i as int is 1
+    while i < items.len:
+        var cur as int is items at i
+        if cur > best:
+            set best is cur
+        set i is i + 1
+    return best
+
+weave min_int with items as list of int into int:
+    if items.len == 0:
+        return 0
+    var best as int is items at 0
+    var i as int is 1
+    while i < items.len:
+        var cur as int is items at i
+        if cur < best:
+            set best is cur
+        set i is i + 1
+    return best

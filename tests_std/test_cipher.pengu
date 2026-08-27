@@ -1,0 +1,42 @@
+# tests_std/test_cipher.pengu - Integration test for Cipher module
+import std.spark
+import std.oracle
+import std.cipher
+
+weave main into void:
+    calling spark.println with "=== Test Cipher ==="
+
+    # Base64 test
+    var original as string is "Hello Pengu World!"
+    var encoded as string is calling cipher.encode_base64 with original
+    calling spark.println with "encoded: " + encoded
+
+    var decoded_res as maybe string is calling cipher.decode_base64 with encoded
+    if decoded_res.is_present:
+        calling spark.println with "decoded: " + decoded_res.value
+
+    var is_b64 as bool is calling cipher.is_base64 with encoded
+    if is_b64:
+        calling spark.println with "is_base64: true"
+
+    # JSON test
+    var m as map of string to string is map of string to string
+    calling m.put with "name" and "Pengu"
+    calling m.put with "lang" and "PenguScript"
+
+    var str_json as maybe string is calling cipher.stringify_json with m
+    if str_json.is_present:
+        calling spark.println with "stringify_json: ok"
+        var parsed_map as maybe map of string to string is calling cipher.parse_json with str_json.value
+        if parsed_map.is_present:
+            calling spark.println with "parse_json: ok"
+    
+    var pretty as maybe string is calling cipher.pretty_json with m and 2
+    if pretty.is_present:
+        calling spark.println with "pretty_json: ok"
+
+    var val_res as maybe string is calling cipher.parse_value with "12345"
+    if val_res.is_present:
+        calling spark.println with "parse_value: " + val_res.value
+
+    calling spark.println with "=== Cipher OK ==="

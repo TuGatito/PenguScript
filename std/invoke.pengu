@@ -1,0 +1,200 @@
+# std/invoke.pengu - The Invocation (Command-Line Argument Parsing)
+# Provides command-line parsing for CLI applications.
+
+import std.spark
+import std.oracle
+import std.scrolls
+import std.tally
+import std.atlas
+import std.rites
+
+rune Flag:
+    long as string
+    short as string
+    help as string
+    default as bool
+
+rune Positional:
+    name as string
+    help as string
+    required as bool
+    default as string
+
+rune Option:
+    long as string
+    short as string
+    help as string
+    required as bool
+    default as string
+
+rune Parser:
+    name as string
+    description as string
+    positionals as list of Positional
+    options as list of Option
+    flags as list of Flag
+
+rune ParseResult:
+    values as map of string to string
+    flags as map of string to bool
+    errors as list of string
+
+weave new_parser with name as string and description as string into Parser:
+    var p as list of Positional is list of Positional
+    var o as list of Option is list of Option
+    var f as list of Flag is list of Flag
+    return with name is name and description is description and positionals is p and options is o and flags is f
+
+enchanting Parser:
+    weave add_positional with name as string and help as string and required as bool is true and default as string is "" into void:
+        var pos as Positional is with name is name and help is help and required is required and default is default
+        calling self->positionals.push with pos
+
+    weave add_option with long as string and short as string and help as string and required as bool is false and default as string is "" into void:
+        var opt as Option is with long is long and short is short and help is help and required is required and default is default
+        calling self->options.push with opt
+
+    weave add_flag with long as string and short as string and help as string and default as bool is false into void:
+        var flg as Flag is with long is long and short is short and help is help and default is default
+        calling self->flags.push with flg
+
+    weave print_help into void:
+        calling spark.println with "Usage: " + self->name + " [OPTIONS] [ARGS]"
+        if self->description != "":
+            calling spark.println with self->description
+
+    weave parse with argv as list of string into ParseResult:
+        var vals as map of string to string is map of string to string
+        var flgs as map of string to bool is map of string to bool
+        var errs as list of string is list of string
+        var pos_idx as int is 0
+        var i as int is 1
+        while i < argv.len:
+            var arg as string is argv at i
+            if arg == "--help":
+                calling self.print_help
+                calling rites.exit with 0
+            else if arg == "-h":
+                calling self.print_help
+                calling rites.exit with 0
+            
+            var is_long as bool is calling scrolls.starts_with with arg and "--"
+            var is_short as bool is calling scrolls.starts_with with arg and "-"
+            if is_long:
+                var opt_name as string is calling scrolls.substring with arg and 2 and arg.len
+                var found_flg as bool is false
+                var fi as int is 0
+                while fi < self->flags.len:
+                    var f as Flag is self->flags at fi
+                    if f.long == opt_name:
+                        calling flgs.put with f.long and true
+                        set found_flg is true
+                        break
+                    set fi is fi + 1
+                if not found_flg:
+                    var found_opt as bool is false
+                    var oi as int is 0
+                    while oi < self->options.len:
+                        var opt as Option is self->options at oi
+                        if opt.long == opt_name:
+                            set found_opt is true
+                            if i + 1 < argv.len:
+                                set i is i + 1
+                                var opt_val as string is argv at i
+                                calling vals.put with opt.long and opt_val
+                            else:
+                                calling errs.push with "Option --" + opt_name + " requires a value"
+                            break
+                        set oi is oi + 1
+                    if not found_opt:
+                        calling errs.push with "Unknown option: " + arg
+            else if is_short:
+                var s_name as string is calling scrolls.substring with arg and 1 and arg.len
+                var found_flg as bool is false
+                var fi as int is 0
+                while fi < self->flags.len:
+                    var f as Flag is self->flags at fi
+                    if f.short == s_name:
+                        calling flgs.put with f.long and true
+                        set found_flg is true
+                        break
+                    set fi is fi + 1
+                if not found_flg:
+                    var found_opt as bool is false
+                    var oi as int is 0
+                    while oi < self->options.len:
+                        var opt as Option is self->options at oi
+                        if opt.short == s_name:
+                            set found_opt is true
+                            if i + 1 < argv.len:
+                                set i is i + 1
+                                var opt_val as string is argv at i
+                                calling vals.put with opt.long and opt_val
+                            else:
+                                calling errs.push with "Option -" + s_name + " requires a value"
+                            break
+                        set oi is oi + 1
+                    if not found_opt:
+                        calling errs.push with "Unknown option: " + arg
+            else:
+                if pos_idx < self->positionals.len:
+                    var pos as Positional is self->positionals at pos_idx
+                    calling vals.put with pos.name and arg
+                    set pos_idx is pos_idx + 1
+                else:
+                    calling errs.push with "Unexpected positional argument: " + arg
+            set i is i + 1
+
+        # Check required positionals
+        var pi as int is 0
+        while pi < self->positionals.len:
+            var pos as Positional is self->positionals at pi
+            if not (calling vals.contains with pos.name):
+                if pos.required:
+                    calling errs.push with "Missing required positional: " + pos.name
+                else if pos.default != "":
+                    calling vals.put with pos.name and pos.default
+            set pi is pi + 1
+
+        # Check required options
+        var oi as int is 0
+        while oi < self->options.len:
+            var opt as Option is self->options at oi
+            if not (calling vals.contains with opt.long):
+                if opt.required:
+                    calling errs.push with "Missing required option: --" + opt.long
+                else if opt.default != "":
+                    calling vals.put with opt.long and opt.default
+            set oi is oi + 1
+
+        # Default flags
+        var fi as int is 0
+        while fi < self->flags.len:
+            var f as Flag is self->flags at fi
+            if not (calling flgs.contains with f.long):
+                calling flgs.put with f.long and f.default
+            set fi is fi + 1
+
+        return with values is vals and flags is flgs and errors is errs
+
+enchanting ParseResult:
+    weave get with name as string into string:
+        if calling self->values.contains with name:
+            return calling self->values.get with name
+        return ""
+
+    weave get_or with name as string and fallback as string into string:
+        if calling self->values.contains with name:
+            return calling self->values.get with name
+        return fallback
+
+    weave is_set with name as string into bool:
+        if calling self->flags.contains with name:
+            return calling self->flags.get with name
+        return false
+
+    weave is_ok into bool:
+        return self->errors.len == 0
+
+    weave is_err into bool:
+        return self->errors.len > 0

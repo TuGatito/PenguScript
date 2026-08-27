@@ -1,0 +1,85 @@
+# std/trial.pengu - The Trial (Test Runner & Framework)
+# Provides test suites, individual tests, and test reporting.
+
+import std.spark
+import std.oracle
+import std.ward
+
+# ----------------------------------------------------------------------------
+# Re-exported Assertions from std.ward
+# ----------------------------------------------------------------------------
+
+weave assert with cond as bool into void:
+    calling ward.assert with cond
+
+weave assert_msg with cond as bool and msg as string into void:
+    calling ward.assert_msg with cond and msg
+
+weave assert_eq_int with a as int and b as int into void:
+    calling ward.assert_eq_int with a and b
+
+weave assert_eq_string with a as string and b as string into void:
+    calling ward.assert_eq_string with a and b
+
+weave assert_ne_int with a as int and b as int into void:
+    calling ward.assert_ne_int with a and b
+
+weave assert_ne_string with a as string and b as string into void:
+    calling ward.assert_ne_string with a and b
+
+weave assert_true with cond as bool into void:
+    calling ward.assert_true with cond
+
+weave assert_false with cond as bool into void:
+    calling ward.assert_false with cond
+
+weave assert_present_int with m as MaybeInt into void:
+    calling ward.assert_present_int with m
+
+weave assert_ok_int with r as ResultInt into void:
+    calling ward.assert_ok_int with r
+
+# ----------------------------------------------------------------------------
+# Test Runner Core
+# ----------------------------------------------------------------------------
+
+rune TestSuite:
+    name as string
+    total as int
+    passed as int
+    failed as int
+
+weave new_suite with name as string into TestSuite:
+    calling spark.println with "=== Suite: " + name + " ==="
+    var s as TestSuite is with name is name and total is 0 and passed is 0 and failed is 0
+    return s
+
+weave test_case with s as ref to TestSuite and name as string and passed as bool and err_msg as string is "" into void:
+    set s->total is s->total + 1
+    if passed:
+        set s->passed is s->passed + 1
+        calling spark.println with "  [PASS] " + name
+    else:
+        set s->failed is s->failed + 1
+        calling spark.println with "  [FAIL] " + name + " - " + err_msg
+
+weave test with s as ref to TestSuite and name as string and fn as weave into void into void:
+    set s->total is s->total + 1
+    calling fn
+    set s->passed is s->passed + 1
+    calling spark.println with "  [PASS] " + name
+
+weave summary with s as ref to TestSuite into bool:
+    calling spark.println with ""
+    calling spark.println with "=========================================="
+    calling spark.println with "Suite: " + s->name
+    calling spark.println with "Total Tests: " + (s->total to string)
+    calling spark.println with "Passed: " + (s->passed to string)
+    calling spark.println with "Failed: " + (s->failed to string)
+    calling spark.println with "=========================================="
+    if s->failed == 0:
+        calling spark.println with "ALL TESTS PASSED!"
+        return true
+    else:
+        calling spark.println with "SOME TESTS FAILED."
+        return false

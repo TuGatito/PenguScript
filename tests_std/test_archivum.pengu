@@ -1,0 +1,74 @@
+# tests_std/test_archivum.pengu - Integration test for Archivum module
+import std.spark
+import std.oracle
+import std.archivum
+
+weave main into void:
+    calling spark.println with "=== Test Archivum ==="
+
+    var test_dir as string is "tmp_archivum_test"
+    var ok_dir as bool is calling archivum.create_dir with test_dir and true
+    if ok_dir:
+        calling spark.println with "create_dir: true"
+
+    var test_file as string is test_dir + "/hello.txt"
+    var ok_w as bool is calling archivum.write_file with test_file and "Hello Pengu!"
+    if ok_w:
+        calling spark.println with "write_file: true"
+
+    var ok_ex as bool is calling archivum.exists with test_file
+    if ok_ex:
+        calling spark.println with "exists: true"
+
+    var is_f as bool is calling archivum.is_file with test_file
+    var is_d as bool is calling archivum.is_dir with test_dir
+    if is_f:
+        calling spark.println with "is_file: true"
+    if is_d:
+        calling spark.println with "is_dir: true"
+
+    var read_res as maybe string is calling archivum.read_file with test_file
+    if read_res.is_present:
+        calling spark.println with "content: " + read_res.value
+
+    var ok_app as bool is calling archivum.append_file with test_file and "\nAppended line"
+    if ok_app:
+        calling spark.println with "append_file: true"
+
+    var lines_res as maybe list of string is calling archivum.read_lines with test_file
+    if lines_res.is_present:
+        calling spark.println with "read_lines: ok"
+
+    var meta_res as maybe map of string to string is calling archivum.metadata with test_file
+    if meta_res.is_present:
+        calling spark.println with "metadata: ok"
+
+    var cp_dst as string is test_dir + "/copy.txt"
+    var ok_cp as bool is calling archivum.copy_file with test_file and cp_dst and true
+    if ok_cp:
+        calling spark.println with "copy_file: true"
+
+    var mv_dst as string is test_dir + "/moved.txt"
+    var ok_mv as bool is calling archivum.move_file with cp_dst and mv_dst and true
+    if ok_mv:
+        calling spark.println with "move_file: true"
+
+    var ren_file as string is test_dir + "/renamed.txt"
+    var ok_ren as bool is calling archivum.rename with mv_dst and ren_file
+    if ok_ren:
+        calling spark.println with "rename: true"
+
+    var ok_touch as bool is calling archivum.touch with test_file
+    if ok_touch:
+        calling spark.println with "touch: true"
+
+    var dir_entries as maybe list of string is calling archivum.read_dir with test_dir
+    if dir_entries.is_present:
+        calling spark.println with "read_dir: ok"
+
+    # Cleanup test dir
+    var ok_rm as bool is calling archivum.remove_dir with test_dir and true
+    if ok_rm:
+        calling spark.println with "remove_dir: true"
+
+    calling spark.println with "=== Archivum OK ==="

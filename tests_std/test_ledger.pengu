@@ -1,0 +1,56 @@
+# tests_std/test_ledger.pengu - Integration test for Ledger CSV/TSV module
+import std.spark
+import std.oracle
+import std.ledger
+
+weave main into void:
+    calling spark.println with "=== Test Ledger ==="
+
+    var csv_data as string is "name,role,level\nAlice,Admin,10\nBob,User,5\nCharlie,Guest,1"
+    var parsed_rows as maybe list of list of string is calling ledger.parse_csv with csv_data and "," and true
+    if parsed_rows.is_present:
+        calling spark.println with "parse_csv: ok"
+
+    var detected_delim as maybe string is calling ledger.detect_delimiter with csv_data
+    if detected_delim.is_present:
+        calling spark.println with "detected_delim: " + detected_delim.value
+
+    var single_line as string is "alpha,beta,gamma delta"
+    var line_fields as maybe list of string is calling ledger.parse_line with single_line and ","
+    if line_fields.is_present:
+        calling spark.println with "parse_line: ok"
+
+    var esc_str as string is calling ledger.escape_field with "Hello, World!" and ","
+    calling spark.println with "escaped: " + esc_str
+
+    # Create rows and generate CSV
+    var rows as list of list of string is list of list of string
+    var r1 as list of string is list of string
+    calling r1.push with "id"
+    calling r1.push with "item"
+    calling rows.push with r1
+
+    var r2 as list of string is list of string
+    calling r2.push with "1"
+    calling r2.push with "Sword"
+    calling rows.push with r2
+
+    var gen_csv as maybe string is calling ledger.to_csv_string with rows and ","
+    if gen_csv.is_present:
+        calling spark.println with "to_csv_string: ok"
+
+    var gen_tsv as maybe string is calling ledger.to_tsv_string with rows
+    if gen_tsv.is_present:
+        calling spark.println with "to_tsv_string: ok"
+
+    # Test file I/O
+    var test_file as string is "test_ledger_output.csv"
+    var ok_write as bool is calling ledger.write_csv with test_file and rows and ","
+    if ok_write:
+        calling spark.println with "write_csv: true"
+    
+    var read_file_res as maybe list of list of string is calling ledger.read_csv with test_file and true and ","
+    if read_file_res.is_present:
+        calling spark.println with "read_csv: ok"
+
+    calling spark.println with "=== Ledger OK ==="

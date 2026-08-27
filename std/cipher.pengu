@@ -1,0 +1,70 @@
+# std/cipher.pengu - The Cipher (JSON & Base64 Encoding)
+# Provides JSON serialization/deserialization and Base64 encoding/decoding.
+
+import std.spark
+import std.oracle
+import std.scrolls
+import std.archivum
+
+# ----------------------------------------------------------------------------
+# External C Runtime Declarations
+# ----------------------------------------------------------------------------
+
+declare pengu_c_cipher_encode_base64 with data as string into string
+declare pengu_c_cipher_decode_base64 with data as string into maybe string
+declare pengu_c_cipher_parse_json with json as string into maybe map of string to string
+declare pengu_c_cipher_stringify_json with data as map of string to string into maybe string
+declare pengu_c_cipher_parse_value with json as string into maybe string
+declare pengu_c_cipher_stringify_value with value as string into maybe string
+declare pengu_c_cipher_pretty_json with data as map of string to string and indent as int into maybe string
+
+# ----------------------------------------------------------------------------
+# JSON API
+# ----------------------------------------------------------------------------
+
+weave parse_json with json as string into maybe map of string to string:
+    return calling pengu_c_cipher_parse_json with json
+
+weave stringify_json with data as map of string to string into maybe string:
+    return calling pengu_c_cipher_stringify_json with data
+
+weave parse_value with json as string into maybe string:
+    return calling pengu_c_cipher_parse_value with json
+
+weave stringify_value with value as string into maybe string:
+    return calling pengu_c_cipher_stringify_value with value
+
+weave pretty_json with data as map of string to string and indent as int is 2 into maybe string:
+    return calling pengu_c_cipher_pretty_json with data and indent
+
+weave read_json_file with path as string into maybe map of string to string:
+    var content as maybe string is calling archivum.read_file with path
+    if content.is_present:
+        return calling pengu_c_cipher_parse_json with content.value
+    return maybe none
+
+weave write_json_file with path as string and data as map of string to string into bool:
+    var json as maybe string is calling pengu_c_cipher_stringify_json with data
+    if json.is_present:
+        return calling archivum.write_file with path and json.value
+    return false
+
+weave write_json_file_pretty with path as string and data as map of string to string and indent as int is 2 into bool:
+    var json as maybe string is calling pengu_c_cipher_pretty_json with data and indent
+    if json.is_present:
+        return calling archivum.write_file with path and json.value
+    return false
+
+# ----------------------------------------------------------------------------
+# Base64 API
+# ----------------------------------------------------------------------------
+
+weave encode_base64 with data as string into string:
+    return calling pengu_c_cipher_encode_base64 with data
+
+weave decode_base64 with data as string into maybe string:
+    return calling pengu_c_cipher_decode_base64 with data
+
+weave is_base64 with data as string into bool:
+    var decoded as maybe string is calling pengu_c_cipher_decode_base64 with data
+    return decoded.is_present

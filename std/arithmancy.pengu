@@ -1,0 +1,134 @@
+# std/arithmancy.pengu - Arithmancy (Mathematics)
+# Provides comprehensive mathematical functions.
+
+import std.spark
+
+declare pengu_c_fabs with x as float into float
+declare pengu_c_sqrt with x as float into float
+declare pengu_c_pow with x as float and y as float into float
+declare pengu_c_floor with x as float into float
+declare pengu_c_ceil with x as float into float
+declare pengu_c_round with x as float into float
+declare pengu_c_trunc with x as float into float
+declare pengu_c_fmod with x as float and y as float into float
+declare pengu_c_sin with x as float into float
+declare pengu_c_cos with x as float into float
+declare pengu_c_tan with x as float into float
+declare pengu_c_asin with x as float into float
+declare pengu_c_acos with x as float into float
+declare pengu_c_atan with x as float into float
+declare pengu_c_atan2 with y as float and x as float into float
+declare pengu_c_exp with x as float into float
+declare pengu_c_log with x as float into float
+declare pengu_c_log10 with x as float into float
+declare pengu_c_log2 with x as float into float
+declare pengu_c_sinh with x as float into float
+declare pengu_c_cosh with x as float into float
+declare pengu_c_tanh with x as float into float
+declare pengu_c_asinh with x as float into float
+declare pengu_c_acosh with x as float into float
+declare pengu_c_atanh with x as float into float
+declare pengu_c_is_prime with n as int into bool
+declare pengu_c_gcd with a as int and b as int into int
+declare pengu_c_lcm with a as int and b as int into int
+
+const PI as float is 3.141592653589793
+const TAU as float is 6.283185307179586
+const E as float is 2.718281828459045
+
+weave abs with x as float into float:
+    return calling pengu_c_fabs with x
+
+weave abs_i with x as int into int:
+    if x < 0:
+        return -x
+    return x
+
+weave sqrt with x as float into float:
+    return calling pengu_c_sqrt with x
+
+weave pow with x as float and y as float into float:
+    return calling pengu_c_pow with x and y
+
+weave floor with x as float into float:
+    return calling pengu_c_floor with x
+
+weave ceil with x as float into float:
+    return calling pengu_c_ceil with x
+
+weave round with x as float into float:
+    return calling pengu_c_round with x
+
+weave trunc with x as float into float:
+    return calling pengu_c_trunc with x
+
+weave fmod with x as float and y as float into float:
+    return calling pengu_c_fmod with x and y
+
+weave sin with x as float into float:
+    return calling pengu_c_sin with x
+
+weave cos with x as float into float:
+    return calling pengu_c_cos with x
+
+weave tan with x as float into float:
+    return calling pengu_c_tan with x
+
+weave asin with x as float into float:
+    return calling pengu_c_asin with x
+
+weave acos with x as float into float:
+    return calling pengu_c_acos with x
+
+weave atan with x as float into float:
+    return calling pengu_c_atan with x
+
+weave atan2 with y as float and x as float into float:
+    return calling pengu_c_atan2 with y and x
+
+weave exp with x as float into float:
+    return calling pengu_c_exp with x
+
+weave log with x as float into float:
+    return calling pengu_c_log with x
+
+weave log10 with x as float into float:
+    return calling pengu_c_log10 with x
+
+weave log2 with x as float into float:
+    return calling pengu_c_log2 with x
+
+weave is_prime with n as int into bool:
+    return calling pengu_c_is_prime with n
+
+weave gcd with a as int and b as int into int:
+    return calling pengu_c_gcd with a and b
+
+weave lcm with a as int and b as int into int:
+    return calling pengu_c_lcm with a and b
+
+weave min with a as float and b as float into float:
+    if a < b:
+        return a
+    return b
+
+weave max with a as float and b as float into float:
+    if a > b:
+        return a
+    return b
+
+weave clamp with val as float and min_val as float and max_val as float into float:
+    if val < min_val:
+        return min_val
+    if val > max_val:
+        return max_val
+    return val
+
+weave lerp with a as float and b as float and t as float into float:
+    return a + (b - a) * t
+
+weave deg_to_rad with deg as float into float:
+    return deg * (PI / 180.0)
+
+weave rad_to_deg with rad as float into float:
+    return rad * (180.0 / PI)

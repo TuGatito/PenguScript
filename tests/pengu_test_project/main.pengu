@@ -1,0 +1,35 @@
+import std.spark
+import std.ward
+
+# Top-level global constant
+const MAX_SPEED as float is 120.0
+
+# Composite Struct
+rune Vehicle:
+    model as string
+    speed as float
+    is_running as bool
+
+# Method attachment (self is always passed as ref to Vehicle)
+enchanting Vehicle:
+    weave accelerate with delta as float into void:
+        if self->is_running:
+            set self->speed is self->speed + delta
+            if self->speed > MAX_SPEED:
+                set self->speed is MAX_SPEED
+
+    weave status into string:
+        return self->model + " traveling at " + (self->speed to string) + " km/h"
+
+weave main into void:
+    # Struct initialization with scoped properties
+    var car as Vehicle is with model is "PenguMobile" and speed is 0.0 and is_running is true
+
+    # Invoke method
+    calling car.accelerate with 45.5
+
+    # Print output using standard library
+    calling spark.println with calling car.status
+
+    # Assert condition
+    calling ward.assert with car.speed > 0.0

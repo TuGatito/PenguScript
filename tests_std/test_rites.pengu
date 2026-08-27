@@ -1,0 +1,12 @@
+import std.spark
+import std.rites
+
+weave main into int:
+  calling spark.println with "=== Test Rites ==="
+  var pid as int is calling rites.getpid
+  if pid > 0:
+    calling spark.println with "pid ok"
+  var un as string is calling rites.uname
+  calling spark.println with un
+  calling spark.println with "rites ok"
+  return 0

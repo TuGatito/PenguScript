@@ -1,0 +1,91 @@
+# std/scrolls.pengu - The Scrolls (Strings)
+# Provides string utilities and manipulation functions.
+
+import std.spark
+
+declare scrolls_len with s as string into int
+declare scrolls_is_empty with s as string into bool
+declare scrolls_contains with s as string and sub as string into bool
+declare scrolls_starts_with with s as string and prefix as string into bool
+declare scrolls_ends_with with s as string and suffix as string into bool
+declare scrolls_index_of with s as string and sub as string into int
+declare scrolls_last_index_of with s as string and sub as string into int
+declare scrolls_substring with s as string and start as int and end_pos as int into string
+declare scrolls_to_lower with s as string into string
+declare scrolls_to_upper with s as string into string
+declare scrolls_trim with s as string into string
+declare scrolls_trim_left with s as string into string
+declare scrolls_trim_right with s as string into string
+declare scrolls_replace with s as string and from_str as string and to_str as string into string
+declare scrolls_replace_all with s as string and from_str as string and to_str as string into string
+declare scrolls_split with s as string and delim as string into list of string
+declare scrolls_join with parts as list of string and delim as string into string
+declare scrolls_repeat with s as string and count as int into string
+declare scrolls_reverse with s as string into string
+
+enchanting string:
+    weave len into int:
+        return calling scrolls_len with essence of self
+
+    weave is_empty into bool:
+        return calling scrolls_is_empty with essence of self
+
+    weave contains with sub as string into bool:
+        return calling scrolls_contains with (essence of self) and sub
+
+    weave starts_with with prefix as string into bool:
+        return calling scrolls_starts_with with (essence of self) and prefix
+
+    weave ends_with with suffix as string into bool:
+        return calling scrolls_ends_with with (essence of self) and suffix
+
+    weave index_of with sub as string into int:
+        return calling scrolls_index_of with (essence of self) and sub
+
+    weave last_index_of with sub as string into int:
+        return calling scrolls_last_index_of with (essence of self) and sub
+
+    weave substring with start as int and end_pos as int into string:
+        return calling scrolls_substring with (essence of self) and start and end_pos
+
+    weave char_at with idx as int into string:
+        return calling scrolls_substring with (essence of self) and idx and (idx + 1)
+
+    weave lower into string:
+        return calling scrolls_to_lower with essence of self
+
+    weave upper into string:
+        return calling scrolls_to_upper with essence of self
+
+    weave trim into string:
+        return calling scrolls_trim with essence of self
+
+    weave trim_start into string:
+        return calling scrolls_trim_left with essence of self
+
+    weave trim_end into string:
+        return calling scrolls_trim_right with essence of self
+
+    weave replace with from_str as string and to_str as string into string:
+        return calling scrolls_replace with (essence of self) and from_str and to_str
+
+    weave replace_all with from_str as string and to_str as string into string:
+        return calling scrolls_replace_all with (essence of self) and from_str and to_str
+
+    weave split with delim as string into list of string:
+        return calling scrolls_split with (essence of self) and delim
+
+    weave repeat with count as int into string:
+        return calling scrolls_repeat with (essence of self) and count
+
+    weave reverse into string:
+        return calling scrolls_reverse with essence of self
+
+    weave is_alpha into bool:
+        return true
+
+    weave is_digit into bool:
+        return true
+
+    weave is_alnum into bool:
+        return true

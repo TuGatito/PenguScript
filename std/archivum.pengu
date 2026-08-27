@@ -1,0 +1,115 @@
+# std/archivum.pengu - The Archive (File System Operations)
+# Provides comprehensive file system manipulation: reading, writing, copying, moving,
+# deleting, listing, and metadata.
+
+import std.spark
+import std.oracle
+import std.compass
+import std.scrolls
+import std.tally
+import std.rites
+
+# ----------------------------------------------------------------------------
+# External C Runtime Declarations
+# ----------------------------------------------------------------------------
+
+declare pengu_c_archivum_read_file with path as string into maybe string
+declare pengu_c_archivum_write_file with path as string and content as string into bool
+declare pengu_c_archivum_append_file with path as string and content as string into bool
+declare pengu_c_archivum_delete_file with path as string into bool
+declare pengu_c_archivum_exists with path as string into bool
+declare pengu_c_archivum_is_file with path as string into bool
+declare pengu_c_archivum_is_dir with path as string into bool
+declare pengu_c_archivum_is_symlink with path as string into bool
+declare pengu_c_archivum_create_dir with path as string and parents as bool into bool
+declare pengu_c_archivum_remove_dir with path as string and recursive as bool into bool
+declare pengu_c_archivum_read_dir with path as string into maybe list of string
+declare pengu_c_archivum_copy_file with src as string and dst as string and overwrite as bool into bool
+declare pengu_c_archivum_move_file with src as string and dst as string and overwrite as bool into bool
+declare pengu_c_archivum_rename with old as string and new as string into bool
+declare pengu_c_archivum_metadata with path as string into maybe map of string to string
+declare pengu_c_archivum_read_lines with path as string into maybe list of string
+declare pengu_c_archivum_write_lines with path as string and lines as list of string into bool
+declare pengu_c_archivum_append_lines with path as string and lines as list of string into bool
+declare pengu_c_archivum_glob with pattern as string into list of string
+declare pengu_c_archivum_walk with root as string into list of list of string
+declare pengu_c_archivum_touch with path as string into bool
+declare pengu_c_archivum_symlink with target as string and link as string into bool
+declare pengu_c_archivum_read_symlink with path as string into maybe string
+declare pengu_c_archivum_realpath with path as string into maybe string
+
+# ----------------------------------------------------------------------------
+# Functional API
+# ----------------------------------------------------------------------------
+
+weave read_file with path as string into maybe string:
+    return calling pengu_c_archivum_read_file with path
+
+weave write_file with path as string and content as string into bool:
+    return calling pengu_c_archivum_write_file with path and content
+
+weave append_file with path as string and content as string into bool:
+    return calling pengu_c_archivum_append_file with path and content
+
+weave delete_file with path as string into bool:
+    return calling pengu_c_archivum_delete_file with path
+
+weave exists with path as string into bool:
+    return calling pengu_c_archivum_exists with path
+
+weave is_file with path as string into bool:
+    return calling pengu_c_archivum_is_file with path
+
+weave is_dir with path as string into bool:
+    return calling pengu_c_archivum_is_dir with path
+
+weave is_symlink with path as string into bool:
+    return calling pengu_c_archivum_is_symlink with path
+
+weave create_dir with path as string and parents as bool is false into bool:
+    return calling pengu_c_archivum_create_dir with path and parents
+
+weave remove_dir with path as string and recursive as bool is false into bool:
+    return calling pengu_c_archivum_remove_dir with path and recursive
+
+weave read_dir with path as string into maybe list of string:
+    return calling pengu_c_archivum_read_dir with path
+
+weave copy_file with src as string and dst as string and overwrite as bool is false into bool:
+    return calling pengu_c_archivum_copy_file with src and dst and overwrite
+
+weave move_file with src as string and dst as string and overwrite as bool is false into bool:
+    return calling pengu_c_archivum_move_file with src and dst and overwrite
+
+weave rename with old as string and new as string into bool:
+    return calling pengu_c_archivum_rename with old and new
+
+weave metadata with path as string into maybe map of string to string:
+    return calling pengu_c_archivum_metadata with path
+
+weave read_lines with path as string into maybe list of string:
+    return calling pengu_c_archivum_read_lines with path
+
+weave write_lines with path as string and lines as list of string into bool:
+    return calling pengu_c_archivum_write_lines with path and lines
+
+weave append_lines with path as string and lines as list of string into bool:
+    return calling pengu_c_archivum_append_lines with path and lines
+
+weave glob with pattern as string into list of string:
+    return calling pengu_c_archivum_glob with pattern
+
+weave walk with root as string into list of list of string:
+    return calling pengu_c_archivum_walk with root
+
+weave touch with path as string into bool:
+    return calling pengu_c_archivum_touch with path
+
+weave symlink with target as string and link as string into bool:
+    return calling pengu_c_archivum_symlink with target and link
+
+weave read_symlink with path as string into maybe string:
+    return calling pengu_c_archivum_read_symlink with path
+
+weave realpath with path as string into maybe string:
+    return calling pengu_c_archivum_realpath with path

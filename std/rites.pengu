@@ -1,0 +1,71 @@
+# std/rites.pengu - The Rites (OS & System)
+# Provides process, environment, and system utilities.
+
+import std.spark
+import std.oracle
+import std.tally
+
+declare pengu_c_getenv with name as string into maybe string
+declare pengu_c_setenv with name as string and value as string and overwrite as bool into bool
+declare pengu_c_unsetenv with name as string into bool
+declare pengu_c_get_argc into int
+declare pengu_c_get_argv with idx as int into string
+declare pengu_c_get_args into list of string
+declare pengu_c_getpid into int
+declare pengu_c_getppid into int
+declare pengu_c_getcwd into maybe string
+declare pengu_c_chdir with path as string into bool
+declare pengu_c_exit with code as int into void
+declare pengu_c_exec with cmd as string and args as list of string into int
+declare pengu_c_spawn with cmd as string and args as list of string into int
+declare pengu_c_uname into string
+declare pengu_c_hostname into string
+declare pengu_c_get_env_keys into list of string
+
+weave getenv with name as string into maybe string:
+    return calling pengu_c_getenv with name
+
+weave setenv with name as string and value as string and overwrite as bool is true into bool:
+    return calling pengu_c_setenv with name and value and overwrite
+
+weave unsetenv with name as string into bool:
+    return calling pengu_c_unsetenv with name
+
+weave get_argc into int:
+    return calling pengu_c_get_argc
+
+weave get_argv with idx as int into string:
+    return calling pengu_c_get_argv with idx
+
+weave get_args into list of string:
+    return calling pengu_c_get_args
+
+weave getpid into int:
+    return calling pengu_c_getpid
+
+weave getppid into int:
+    return calling pengu_c_getppid
+
+weave getcwd into maybe string:
+    return calling pengu_c_getcwd
+
+weave chdir with path as string into bool:
+    return calling pengu_c_chdir with path
+
+weave exit with code as int into void:
+    calling pengu_c_exit with code
+
+weave exec with cmd as string and args as list of string into int:
+    return calling pengu_c_exec with cmd and args
+
+weave spawn with cmd as string and args as list of string into int:
+    return calling pengu_c_spawn with cmd and args
+
+weave uname into string:
+    return calling pengu_c_uname
+
+weave hostname into string:
+    return calling pengu_c_hostname
+
+weave get_env_keys into list of string:
+    return calling pengu_c_get_env_keys

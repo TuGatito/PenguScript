@@ -1,0 +1,50 @@
+# tests_std/test_filum.pengu - Integration test for Filum concurrency module
+import std.spark
+import std.oracle
+import std.filum
+
+weave main into void:
+    calling spark.println with "=== Test Filum ==="
+
+    var m as Mutex is calling filum.mutex
+    calling filum.lock with sigil of m
+    var locked as bool is calling filum.try_lock with sigil of m
+    calling filum.unlock with sigil of m
+    calling spark.println with "mutex: ok"
+
+    var wg as WaitGroup is calling filum.wait_group
+    calling filum.add with sigil of wg and 1
+    calling filum.done with sigil of wg
+    calling filum.wait with sigil of wg
+    calling spark.println with "waitgroup: ok"
+
+    var ai as AtomicInt is calling filum.atomic_int with 10
+    var loaded as int is calling filum.load with sigil of ai
+    if loaded == 10:
+        calling spark.println with "atomic load: 10"
+
+    var inc_val as int is calling filum.inc with sigil of ai
+    if inc_val == 11:
+        calling spark.println with "atomic inc: 11"
+
+    calling filum.store with sigil of ai and 20
+    var swapped as int is calling filum.swap with sigil of ai and 30
+    if swapped == 20:
+        calling spark.println with "atomic swap: 20"
+
+    var c_swapped as bool is calling filum.compare_swap with sigil of ai and 30 and 40
+    if c_swapped:
+        calling spark.println with "atomic compare_swap: ok"
+
+    var cpus as int is calling filum.num_cpu
+    if cpus > 0:
+        calling spark.println with "num_cpu: ok"
+
+    var gid as int is calling filum.goroutine_id
+    if gid > 0:
+        calling spark.println with "goroutine_id: ok"
+
+    calling filum.sleep with 1
+    calling spark.println with "sleep: ok"
+
+    calling spark.println with "=== Filum OK ==="

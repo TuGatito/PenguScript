@@ -1,0 +1,124 @@
+# std/parchment.pengu - The Parchment (XML / HTML Processing)
+# Provides parsing, manipulation, and serialization of XML and HTML documents.
+
+import std.spark
+import std.oracle
+
+# ----------------------------------------------------------------------------
+# Type Definitions
+# ----------------------------------------------------------------------------
+
+rune Node:
+    tag as string
+    text as string
+    _ptr as opaque
+
+rune Document:
+    root as Node
+    version as string
+    encoding as string
+
+# ----------------------------------------------------------------------------
+# External C Declarations
+# ----------------------------------------------------------------------------
+
+declare pengu_c_parchment_parse_xml with data as string into maybe Document
+declare pengu_c_parchment_parse_html with data as string into maybe Document
+declare pengu_c_parchment_to_string with node as ref to Node and pretty as bool into maybe string
+declare pengu_c_parchment_find with node as ref to Node and query as string into maybe Node
+declare pengu_c_parchment_find_all with node as ref to Node and query as string into list of Node
+declare pengu_c_parchment_attr with node as ref to Node and name as string into maybe string
+declare pengu_c_parchment_set_attr with node as ref to Node and name as string and value as string into void
+declare pengu_c_parchment_text with node as ref to Node into maybe string
+declare pengu_c_parchment_set_text with node as ref to Node and text as string into void
+declare pengu_c_parchment_create_element with tag as string into ref to Node
+declare pengu_c_parchment_create_text with text as string into ref to Node
+declare pengu_c_parchment_append_child with parent as ref to Node and child as ref to Node into void
+declare pengu_c_parchment_escape_text with text as string into string
+declare pengu_c_parchment_unescape_text with text as string into string
+
+# ----------------------------------------------------------------------------
+# Functional API
+# ----------------------------------------------------------------------------
+
+weave parse_xml with data as string into maybe Document:
+    return calling pengu_c_parchment_parse_xml with data
+
+weave parse_html with data as string into maybe Document:
+    return calling pengu_c_parchment_parse_html with data
+
+weave to_string with node as ref to Node and pretty as bool is false into maybe string:
+    return calling pengu_c_parchment_to_string with node and pretty
+
+weave doc_to_string with doc as ref to Document and pretty as bool is false into maybe string:
+    return calling pengu_c_parchment_to_string with sigil of doc->root and pretty
+
+weave find with node as ref to Node and query as string into maybe Node:
+    return calling pengu_c_parchment_find with node and query
+
+weave find_all with node as ref to Node and query as string into list of Node:
+    return calling pengu_c_parchment_find_all with node and query
+
+weave attr with node as ref to Node and name as string into maybe string:
+    return calling pengu_c_parchment_attr with node and name
+
+weave set_attr with node as ref to Node and name as string and value as string into void:
+    calling pengu_c_parchment_set_attr with node and name and value
+
+weave text with node as ref to Node into maybe string:
+    return calling pengu_c_parchment_text with node
+
+weave set_text with node as ref to Node and text as string into void:
+    calling pengu_c_parchment_set_text with node and text
+
+weave create_element with tag as string into ref to Node:
+    return calling pengu_c_parchment_create_element with tag
+
+weave create_text with text as string into ref to Node:
+    return calling pengu_c_parchment_create_text with text
+
+weave append_child with parent as ref to Node and child as ref to Node into void:
+    calling pengu_c_parchment_append_child with parent and child
+
+weave escape_text with text as string into string:
+    return calling pengu_c_parchment_escape_text with text
+
+weave unescape_text with text as string into string:
+    return calling pengu_c_parchment_unescape_text with text
+
+weave is_valid_xml with data as string into bool:
+    var doc as maybe Document is calling pengu_c_parchment_parse_xml with data
+    return doc.is_present
+
+weave is_valid_html with data as string into bool:
+    var doc as maybe Document is calling pengu_c_parchment_parse_html with data
+    return doc.is_present
+
+# ----------------------------------------------------------------------------
+# Object Methods (enchanting)
+# ----------------------------------------------------------------------------
+
+enchanting Node:
+    weave find with query as string into maybe Node:
+        return calling pengu_c_parchment_find with self and query
+
+    weave find_all with query as string into list of Node:
+        return calling pengu_c_parchment_find_all with self and query
+
+    weave attr with name as string into maybe string:
+        return calling pengu_c_parchment_attr with self and name
+
+    weave set_attr with name as string and value as string into void:
+        calling pengu_c_parchment_set_attr with self and name and value
+
+    weave text into maybe string:
+        return calling pengu_c_parchment_text with self
+
+    weave set_text with text as string into void:
+        calling pengu_c_parchment_set_text with self and text
+
+    weave append_child with child as ref to Node into void:
+        calling pengu_c_parchment_append_child with self and child
+
+    weave to_string with pretty as bool is false into maybe string:
+        return calling pengu_c_parchment_to_string with self and pretty

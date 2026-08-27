@@ -1,0 +1,12 @@
+import std.spark
+import std.coven
+
+weave main into int:
+  calling spark.println with "=== Test Coven ==="
+  var s as SetString is calling coven.new_set_string
+  calling s.add with "element1"
+  var has1 as bool is calling s.contains with "element1"
+  if has1:
+    calling spark.println with "set contains ok"
+  calling spark.println with "coven ok"
+  return 0

@@ -1,0 +1,182 @@
+# std/compass.pengu - The Compass (Path Manipulation)
+# Provides comprehensive file system path manipulation.
+
+import std.spark
+import std.oracle
+import std.scrolls
+import std.rites
+
+declare pengu_c_path_join with parts as list of string into string
+declare pengu_c_path_basename with path as string into string
+declare pengu_c_path_dirname with path as string into string
+declare pengu_c_path_ext with path as string into string
+declare pengu_c_path_stem with path as string into string
+declare pengu_c_path_is_absolute with path as string into bool
+declare pengu_c_path_normalize with path as string into string
+declare pengu_c_path_parent with path as string into maybe string
+declare pengu_c_path_split with path as string into list of string
+declare pengu_c_path_has_ext with path as string into bool
+declare pengu_c_path_separator into string
+declare pengu_c_path_alt_separator into maybe string
+declare pengu_c_path_is_root with path as string into bool
+declare pengu_c_path_drive with path as string into string
+declare pengu_c_path_change_ext with path as string and new_ext as string into string
+declare pengu_c_path_add_ext with path as string and ext as string into string
+declare pengu_c_path_relative_to with target as string and base as string into maybe string
+declare pengu_c_path_has_suffix with path as string and suffix as string into bool
+declare pengu_c_path_suffixes with path as string into list of string
+
+rune Path:
+    raw as string
+
+enchanting Path:
+    weave to_string into string:
+        return self->raw
+
+    weave name into string:
+        return calling pengu_c_path_basename with self->raw
+
+    weave parent into maybe string:
+        return calling pengu_c_path_parent with self->raw
+
+    weave stem into string:
+        return calling pengu_c_path_stem with self->raw
+
+    weave suffix into string:
+        return calling pengu_c_path_ext with self->raw
+
+    weave suffixes into list of string:
+        return calling pengu_c_path_suffixes with self->raw
+
+    weave drive into string:
+        return calling pengu_c_path_drive with self->raw
+
+    weave parts into list of string:
+        return calling pengu_c_path_split with self->raw
+
+    weave is_absolute into bool:
+        return calling pengu_c_path_is_absolute with self->raw
+
+    weave is_relative into bool:
+        var abs as bool is calling pengu_c_path_is_absolute with self->raw
+        return not abs
+
+    weave is_root into bool:
+        return calling pengu_c_path_is_root with self->raw
+
+    weave has_suffix into bool:
+        return calling pengu_c_path_has_ext with self->raw
+
+    weave has_suffix_with with suffix as string into bool:
+        return calling pengu_c_path_has_suffix with self->raw and suffix
+
+    weave is_empty into bool:
+        return self->raw == ""
+
+    weave normalize into Path:
+        var res as string is calling pengu_c_path_normalize with self->raw
+        return with raw is res
+
+    weave relative_to with base as string into maybe string:
+        return calling pengu_c_path_relative_to with self->raw and base
+
+    weave with_suffix with new_ext as string into Path:
+        var res as string is calling pengu_c_path_change_ext with self->raw and new_ext
+        return with raw is res
+
+    weave with_name with new_name as string into Path:
+        var parent_str as string is calling pengu_c_path_dirname with self->raw
+        if parent_str == "":
+            return with raw is new_name
+        var parts as list of string is list of string
+        calling parts.push with parent_str
+        calling parts.push with new_name
+        var res as string is calling pengu_c_path_join with parts
+        return with raw is res
+
+    weave add_suffix with ext as string into Path:
+        var res as string is calling pengu_c_path_add_ext with self->raw and ext
+        return with raw is res
+
+    weave without_suffix into Path:
+        var res as string is calling pengu_c_path_change_ext with self->raw and ""
+        return with raw is res
+
+weave join with parts as list of string into string:
+    return calling pengu_c_path_join with parts
+
+weave join_all with parts as list of string into string:
+    return calling pengu_c_path_join with parts
+
+weave basename with path as string into string:
+    return calling pengu_c_path_basename with path
+
+weave dirname with path as string into string:
+    return calling pengu_c_path_dirname with path
+
+weave ext with path as string into string:
+    return calling pengu_c_path_ext with path
+
+weave stem with path as string into string:
+    return calling pengu_c_path_stem with path
+
+weave is_absolute with path as string into bool:
+    return calling pengu_c_path_is_absolute with path
+
+weave is_relative with path as string into bool:
+    var abs as bool is calling pengu_c_path_is_absolute with path
+    return not abs
+
+weave normalize with path as string into string:
+    return calling pengu_c_path_normalize with path
+
+weave parent with path as string into maybe string:
+    return calling pengu_c_path_parent with path
+
+weave split with path as string into list of string:
+    return calling pengu_c_path_split with path
+
+weave has_ext with path as string into bool:
+    return calling pengu_c_path_has_ext with path
+
+weave separator into string:
+    return calling pengu_c_path_separator
+
+weave alt_separator into maybe string:
+    return calling pengu_c_path_alt_separator
+
+weave is_root with path as string into bool:
+    return calling pengu_c_path_is_root with path
+
+weave drive with path as string into string:
+    return calling pengu_c_path_drive with path
+
+weave change_ext with path as string and new_ext as string into string:
+    return calling pengu_c_path_change_ext with path and new_ext
+
+weave add_ext with path as string and ext as string into string:
+    return calling pengu_c_path_add_ext with path and ext
+
+weave relative_to with target as string and base as string into maybe string:
+    return calling pengu_c_path_relative_to with target and base
+
+weave has_suffix with path as string and suffix as string into bool:
+    return calling pengu_c_path_has_suffix with path and suffix
+
+weave suffixes with path as string into list of string:
+    return calling pengu_c_path_suffixes with path
+
+weave path with raw as string into Path:
+    return with raw is raw
+
+weave path_join with parts as list of string into Path:
+    var joined as string is calling pengu_c_path_join with parts
+    return with raw is joined
+
+weave is_windows into bool:
+    var sep as string is calling pengu_c_path_separator
+    return sep == "\\"
+
+weave is_unix into bool:
+    var sep as string is calling pengu_c_path_separator
+    return sep == "/"

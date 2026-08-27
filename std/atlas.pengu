@@ -1,0 +1,8 @@
+# std/atlas.pengu - The Atlas (Maps)
+# Hash map key-value store utilities.
+
+import std.spark
+
+# Map helper utilities
+weave map_len_str_int with m as map of string to int into int:
+    return calling m.len

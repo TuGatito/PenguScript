@@ -1,0 +1,128 @@
+# std/oracle.pengu - The Oracle (Maybe & Result)
+# Provides optional and result types with comprehensive methods.
+
+import std.spark
+
+rune MaybeInt:
+    is_present as bool
+    value as int
+
+rune MaybeFloat:
+    is_present as bool
+    value as float
+
+rune MaybeString:
+    is_present as bool
+    value as string
+
+rune ResultInt:
+    is_ok as bool
+    value as int
+    error_msg as string
+
+rune ResultString:
+    is_ok as bool
+    value as string
+    error_msg as string
+
+weave maybe_some_int with val as int into MaybeInt:
+    return with is_present is true and value is val
+
+weave maybe_none_int into MaybeInt:
+    return with is_present is false and value is 0
+
+weave maybe_some_string with val as string into MaybeString:
+    return with is_present is true and value is val
+
+weave maybe_none_string into MaybeString:
+    return with is_present is false and value is ""
+
+weave result_ok_int with val as int into ResultInt:
+    return with is_ok is true and value is val and error_msg is ""
+
+weave result_err_int with msg as string into ResultInt:
+    return with is_ok is false and value is 0 and error_msg is msg
+
+weave result_ok_string with val as string into ResultString:
+    return with is_ok is true and value is val and error_msg is ""
+
+weave result_err_string with msg as string into ResultString:
+    return with is_ok is false and value is "" and error_msg is msg
+
+enchanting MaybeInt:
+    weave is_present into bool:
+        return self->is_present
+
+    weave is_none into bool:
+        return (self->is_present) == false
+
+    weave unwrap into int:
+        if self->is_present:
+            return self->value
+        calling spark.panic with "Unwrapped none MaybeInt"
+        return 0
+
+    weave unwrap_or with default_val as int into int:
+        if self->is_present:
+            return self->value
+        return default_val
+
+enchanting MaybeString:
+    weave is_present into bool:
+        return self->is_present
+
+    weave is_none into bool:
+        return (self->is_present) == false
+
+    weave unwrap into string:
+        if self->is_present:
+            return self->value
+        calling spark.panic with "Unwrapped none MaybeString"
+        return ""
+
+    weave unwrap_or with default_val as string into string:
+        if self->is_present:
+            return self->value
+        return default_val
+
+enchanting ResultInt:
+    weave is_ok into bool:
+        return self->is_ok
+
+    weave is_err into bool:
+        return (self->is_ok) == false
+
+    weave unwrap into int:
+        if self->is_ok:
+            return self->value
+        calling spark.panic with self->error_msg
+        return 0
+
+    weave unwrap_err into string:
+        return self->error_msg
+
+    weave unwrap_or with default_val as int into int:
+        if self->is_ok:
+            return self->value
+        return default_val
+
+enchanting ResultString:
+    weave is_ok into bool:
+        return self->is_ok
+
+    weave is_err into bool:
+        return (self->is_ok) == false
+
+    weave unwrap into string:
+        if self->is_ok:
+            return self->value
+        calling spark.panic with self->error_msg
+        return ""
+
+    weave unwrap_err into string:
+        return self->error_msg
+
+    weave unwrap_or with default_val as string into string:
+        if self->is_ok:
+            return self->value
+        return default_val

@@ -1,0 +1,35 @@
+# tests_std/test_invoke.pengu - Integration test for Invoke CLI parsing
+import std.spark
+import std.invoke
+
+weave main into void:
+    calling spark.println with "=== Test Invoke ==="
+
+    var parser as Parser is calling invoke.new_parser with "myapp" and "A sample CLI application"
+    calling parser.add_positional with "target" and "Target destination" and true and ""
+    calling parser.add_option with "config" and "c" and "Config path" and false and "default.cfg"
+    calling parser.add_flag with "verbose" and "v" and "Enable verbose logging" and false
+
+    # Simulate argv
+    var argv as list of string is list of string
+    calling argv.push with "myapp"
+    calling argv.push with "--config"
+    calling argv.push with "custom.cfg"
+    calling argv.push with "-v"
+    calling argv.push with "build_output"
+
+    var res as ParseResult is calling parser.parse with argv
+    var is_ok as bool is calling res.is_ok
+    if is_ok:
+        calling spark.println with "parse status: OK"
+    
+    var cfg_val as string is calling res.get with "config"
+    var tgt_val as string is calling res.get with "target"
+    var v_set as bool is calling res.is_set with "verbose"
+
+    calling spark.println with "config: " + cfg_val
+    calling spark.println with "target: " + tgt_val
+    if v_set:
+        calling spark.println with "verbose: true"
+
+    calling spark.println with "=== Invoke OK ==="

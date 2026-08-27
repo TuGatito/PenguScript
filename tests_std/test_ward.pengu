@@ -1,0 +1,55 @@
+# tests_std/test_ward.pengu
+import std.spark
+import std.oracle
+import std.ward
+
+weave main into void:
+    calling spark.println with "=== Testing Ward ==="
+
+    # 1. Truth assertions
+    calling ward.assert with true
+    calling ward.assert_msg with true and "condition must be true"
+    calling ward.assert_true with true
+    calling ward.assert_false with false
+    calling spark.println with "truth assertions ok"
+
+    # 2. Equality assertions
+    calling ward.assert_eq_int with 42 and 42
+    calling ward.assert_eq_string with "hello" and "hello"
+    calling ward.assert_eq_bool with true and true
+    calling spark.println with "equality assertions ok"
+
+    # 3. Inequality assertions
+    calling ward.assert_ne_int with 10 and 20
+    calling ward.assert_ne_string with "alpha" and "beta"
+    calling ward.assert_ne_bool with true and false
+    calling spark.println with "inequality assertions ok"
+
+    # 4. Maybe & Result assertions
+    var some_val as MaybeInt is calling oracle.maybe_some_int with 100
+    calling ward.assert_present_int with some_val
+
+    var none_val as MaybeInt is calling oracle.maybe_none_int
+    calling ward.assert_none_int with none_val
+
+    var res_ok as ResultInt is calling oracle.result_ok_int with 200
+    calling ward.assert_ok_int with res_ok
+
+    var res_err as ResultInt is calling oracle.result_err_int with "err"
+    calling ward.assert_err_int with res_err
+    calling spark.println with "maybe and result assertions ok"
+
+    # 5. Non-panicking check functions
+    var c1 as ResultString is calling ward.check with true and "should pass"
+    if c1.is_ok:
+        calling spark.println with "check ok"
+
+    var c2 as ResultString is calling ward.check_eq_int with 5 and 5 and "equal"
+    if c2.is_ok:
+        calling spark.println with "check_eq_int ok"
+
+    var c3 as ResultString is calling ward.check_eq_string with "magic" and "magic" and "equal string"
+    if c3.is_ok:
+        calling spark.println with "check_eq_string ok"
+
+    calling spark.println with "=== Ward OK ==="

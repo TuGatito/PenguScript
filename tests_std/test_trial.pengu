@@ -1,0 +1,31 @@
+# tests_std/test_trial.pengu
+import std.spark
+import std.oracle
+import std.ward
+import std.trial
+
+weave dummy_test_1 into void:
+    calling ward.assert_eq_int with 1 + 1 and 2
+
+weave dummy_test_2 into void:
+    calling ward.assert_eq_string with "pengu" + "script" and "penguscript"
+
+weave main into void:
+    calling spark.println with "=== Testing Trial ==="
+
+    # 1. Test suite initialization
+    var my_suite as TestSuite is calling trial.new_suite with "Math & String Tests"
+
+    # 2. Register and run tests
+    calling trial.test with sigil of my_suite and "1 + 1 == 2" and dummy_test_1
+    calling trial.test with sigil of my_suite and "string concat" and dummy_test_2
+
+    # 3. Direct test cases
+    calling trial.test_case with sigil of my_suite and "manual boolean check" and true and ""
+
+    # 4. Suite summary
+    var ok as bool is calling trial.summary with sigil of my_suite
+    if ok:
+        calling spark.println with "trial summary ok"
+
+    calling spark.println with "=== Trial OK ==="

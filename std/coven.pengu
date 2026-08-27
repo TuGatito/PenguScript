@@ -1,0 +1,57 @@
+# std/coven.pengu - The Coven (Sets)
+# Provides dynamic unique set collections.
+
+import std.spark
+import std.atlas
+
+rune SetString:
+    items as map of string to int
+
+rune SetInt:
+    items as map of string to int
+
+weave new_set_string into SetString:
+    var m as map of string to int is map of string to int
+    return with items is m
+
+weave new_set_int into SetInt:
+    var m as map of string to int is map of string to int
+    return with items is m
+
+enchanting SetString:
+    weave add with item as string into void:
+        calling self->items.put with item and 1
+
+    weave contains with item as string into bool:
+        return calling self->items.contains with item
+
+    weave remove with item as string into bool:
+        return calling self->items.remove with item
+
+    weave len into int:
+        return calling self->items.len
+
+    weave clear into void:
+        calling self->items.clear
+
+    weave is_empty into bool:
+        return calling self->items.is_empty
+
+enchanting SetInt:
+    weave add with item as int into void:
+        calling self->items.put with (item to string) and 1
+
+    weave contains with item as int into bool:
+        return calling self->items.contains with (item to string)
+
+    weave remove with item as int into bool:
+        return calling self->items.remove with (item to string)
+
+    weave len into int:
+        return calling self->items.len
+
+    weave clear into void:
+        calling self->items.clear
+
+    weave is_empty into bool:
+        return calling self->items.is_empty

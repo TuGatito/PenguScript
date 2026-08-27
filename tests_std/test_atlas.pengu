@@ -1,0 +1,60 @@
+import std.spark
+import std.atlas
+
+weave main into int:
+  calling spark.println with "=== Test Atlas ==="
+  
+  var m as map of string to int is map of string to int
+  var empty as bool is calling m.is_empty
+  if empty:
+    calling spark.println with "init empty ok"
+    
+  calling m.put with "one" and 1
+  calling m.set with "two" and 2
+  calling m.insert with "three" and 3
+  
+  var mlen as int is calling m.len
+  if mlen == 3:
+    calling spark.println with "len 3 ok"
+    
+  var v1 as int is calling m.get with "one"
+  if v1 == 1:
+    calling spark.println with "get one ok"
+    
+  var v2 as int is calling m.get with "two"
+  if v2 == 2:
+    calling spark.println with "get two ok"
+    
+  var v3 as int is calling m.get with "three"
+  if v3 == 3:
+    calling spark.println with "get three ok"
+    
+  var has_two as bool is calling m.contains_key with "two"
+  if has_two:
+    calling spark.println with "contains_key two ok"
+    
+  var has_foo as bool is calling m.has with "foo"
+  if has_foo == false:
+    calling spark.println with "not has foo ok"
+    
+  # Update existing key
+  calling m.put with "two" and 22
+  var v2_updated as int is calling m.get with "two"
+  if v2_updated == 22:
+    calling spark.println with "update two ok"
+    
+  # Remove key
+  var removed as bool is calling m.remove with "two"
+  if removed:
+    calling spark.println with "remove two ok"
+    
+  var mlen_after as int is calling m.len
+  if mlen_after == 2:
+    calling spark.println with "len after remove ok"
+    
+  var has_two_now as bool is calling m.contains with "two"
+  if has_two_now == false:
+    calling spark.println with "not contains two after remove ok"
+    
+  calling spark.println with "atlas ok"
+  return 0

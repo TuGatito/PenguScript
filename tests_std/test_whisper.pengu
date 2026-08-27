@@ -1,0 +1,12 @@
+import std.spark
+import std.whisper
+
+weave main into int:
+  calling spark.println with "=== Test Whisper ==="
+  calling whisper.set_level with whisper.LOG_INFO
+  var lvl as int is calling whisper.get_level
+  if lvl == whisper.LOG_INFO:
+    calling spark.println with "whisper level ok"
+  calling whisper.info with "This is an info message"
+  calling spark.println with "whisper ok"
+  return 0

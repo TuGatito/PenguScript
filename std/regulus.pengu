@@ -1,0 +1,113 @@
+# std/regulus.pengu - The Regulus (Regular Expressions)
+# Provides regular expression compilation, matching, searching, replacing, and splitting.
+
+import std.spark
+import std.oracle
+
+# ----------------------------------------------------------------------------
+# Type Definitions
+# ----------------------------------------------------------------------------
+
+rune Match:
+    start as int
+    end as int
+    matched as string
+
+rune Regex:
+    pattern as string
+    flags as string
+    _ptr as opaque
+
+# ----------------------------------------------------------------------------
+# External C Declarations
+# ----------------------------------------------------------------------------
+
+declare pengu_c_regulus_compile with pattern as string and flags as string into maybe Regex
+declare pengu_c_regulus_match with regex as ref to Regex and text as string into maybe Match
+declare pengu_c_regulus_search with regex as ref to Regex and text as string into maybe Match
+declare pengu_c_regulus_find_all with regex as ref to Regex and text as string into list of Match
+declare pengu_c_regulus_replace with regex as ref to Regex and text as string and replacement as string into string
+declare pengu_c_regulus_split with regex as ref to Regex and text as string and limit as int into list of string
+declare pengu_c_regulus_escape with text as string into string
+declare pengu_c_regulus_is_valid with regex as ref to Regex into bool
+
+# ----------------------------------------------------------------------------
+# Functional API
+# ----------------------------------------------------------------------------
+
+weave compile with pattern as string and flags as string is "" into maybe Regex:
+    return calling pengu_c_regulus_compile with pattern and flags
+
+weave is_match with regex as ref to Regex and text as string into bool:
+    var m as maybe Match is calling pengu_c_regulus_search with regex and text
+    return m.is_present
+
+weave is_full_match with regex as ref to Regex and text as string into bool:
+    var m as maybe Match is calling pengu_c_regulus_match with regex and text
+    return m.is_present
+
+weave search with regex as ref to Regex and text as string into maybe Match:
+    return calling pengu_c_regulus_search with regex and text
+
+weave match with regex as ref to Regex and text as string into maybe Match:
+    return calling pengu_c_regulus_match with regex and text
+
+weave find_all with regex as ref to Regex and text as string into list of Match:
+    return calling pengu_c_regulus_find_all with regex and text
+
+weave replace with regex as ref to Regex and text as string and replacement as string into string:
+    return calling pengu_c_regulus_replace with regex and text and replacement
+
+weave split with regex as ref to Regex and text as string and limit as int is 0 into list of string:
+    return calling pengu_c_regulus_split with regex and text and limit
+
+weave escape with text as string into string:
+    return calling pengu_c_regulus_escape with text
+
+weave is_valid with regex as ref to Regex into bool:
+    return calling pengu_c_regulus_is_valid with regex
+
+weave quick_match with pattern as string and text as string and flags as string is "" into maybe Match:
+    var re as maybe Regex is calling pengu_c_regulus_compile with pattern and flags
+    if re.is_present:
+        var r_val as Regex is re.value
+        return calling pengu_c_regulus_search with sigil of r_val and text
+    return maybe none
+
+weave quick_replace with pattern as string and text as string and replacement as string and flags as string is "" into string:
+    var re as maybe Regex is calling pengu_c_regulus_compile with pattern and flags
+    if re.is_present:
+        var r_val as Regex is re.value
+        return calling pengu_c_regulus_replace with sigil of r_val and text and replacement
+    return text
+
+# ----------------------------------------------------------------------------
+# Object Methods (enchanting)
+# ----------------------------------------------------------------------------
+
+enchanting Regex:
+    weave is_match with text as string into bool:
+        var m as maybe Match is calling pengu_c_regulus_search with self and text
+        return m.is_present
+
+    weave is_full_match with text as string into bool:
+        var m as maybe Match is calling pengu_c_regulus_match with self and text
+        return m.is_present
+
+    weave search with text as string into maybe Match:
+        return calling pengu_c_regulus_search with self and text
+
+    weave match with text as string into maybe Match:
+        return calling pengu_c_regulus_match with self and text
+
+    weave find_all with text as string into list of Match:
+        return calling pengu_c_regulus_find_all with self and text
+
+    weave replace with text as string and replacement as string into string:
+        return calling pengu_c_regulus_replace with self and text and replacement
+
+    weave split with text as string and limit as int is 0 into list of string:
+        return calling pengu_c_regulus_split with self and text and limit
+
+    weave is_valid into bool:
+        return calling pengu_c_regulus_is_valid with self

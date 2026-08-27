@@ -1,0 +1,58 @@
+# tests_std/test_seal.pengu
+import std.spark
+import std.oracle
+import std.seal
+
+weave main into void:
+    calling spark.println with "=== Testing Seal ==="
+
+    # 1. Hashes
+    var md5_res as string is calling seal.md5 with "hello"
+    calling spark.println with "md5: " + md5_res
+    if md5_res == "5d41402abc4b2a76b9719d911017c592":
+        calling spark.println with "md5 ok"
+
+    var sha1_res as string is calling seal.sha1 with "hello"
+    calling spark.println with "sha1: " + sha1_res
+    if sha1_res == "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d":
+        calling spark.println with "sha1 ok"
+
+    var sha256_res as string is calling seal.sha256 with "hello"
+    calling spark.println with "sha256: " + sha256_res
+    if sha256_res == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824":
+        calling spark.println with "sha256 ok"
+
+    var sha512_res as string is calling seal.sha512 with "hello"
+    if sha512_res.len == 128:
+        calling spark.println with "sha512 len ok"
+
+    # 2. CRC32
+    var crc as int is calling seal.crc32 with "hello"
+    if crc != 0:
+        calling spark.println with "crc32 ok"
+
+    # 3. Gzip Compression / Decompression
+    var sample as string is "PenguScript magic compression test string"
+    var gz_m as maybe string is calling seal.gzip with sample
+    if gz_m is present:
+        calling spark.println with "gzip compressed ok"
+        var ungz_m as maybe string is calling seal.unzip with gz_m.value
+        if ungz_m is present:
+            if ungz_m.value == sample:
+                calling spark.println with "gzip decompressed match ok"
+
+    # 4. Raw Zlib Deflate / Inflate
+    var z_m as maybe string is calling seal.zlib_compress with sample
+    if z_m is present:
+        calling spark.println with "zlib compressed ok"
+        var unz_m as maybe string is calling seal.zlib_decompress with z_m.value
+        if unz_m is present:
+            if unz_m.value == sample:
+                calling spark.println with "zlib decompressed match ok"
+
+    # 5. Verify Hash
+    var ok as bool is calling seal.verify_hash with "hello" and "sha256" and "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+    if ok:
+        calling spark.println with "verify hash ok"
+
+    calling spark.println with "=== Seal OK ==="

@@ -1,0 +1,42 @@
+# std/lot.pengu - The Lot (Randomness)
+# Provides pseudorandom number generation and distributions.
+
+import std.spark
+
+declare pengu_c_srand with seed as int into void
+declare pengu_c_rand into int
+declare pengu_c_rand_max into int
+declare pengu_c_rand_double into float
+declare pengu_c_rand_range with min as int and max as int into int
+declare pengu_c_rand_range_float with min as float and max as float into float
+declare pengu_c_rand_normal with mean as float and stddev as float into float
+declare pengu_c_rand_exp with lambda as float into float
+declare pengu_c_rand_bool with probability as float into bool
+declare pengu_c_rand_poisson with lambda as float into int
+
+weave seed with s as int into void:
+    calling pengu_c_srand with s
+
+weave rand_int into int:
+    return calling pengu_c_rand
+
+weave rand_float into float:
+    return calling pengu_c_rand_double
+
+weave rand_range with min_val as int and max_val as int into int:
+    return calling pengu_c_rand_range with min_val and max_val
+
+weave rand_range_float with min_val as float and max_val as float into float:
+    return calling pengu_c_rand_range_float with min_val and max_val
+
+weave rand_normal with mean as float and stddev as float into float:
+    return calling pengu_c_rand_normal with mean and stddev
+
+weave rand_exp with lambda as float into float:
+    return calling pengu_c_rand_exp with lambda
+
+weave rand_bool with probability as float is 0.5 into bool:
+    return calling pengu_c_rand_bool with probability
+
+weave rand_poisson with lambda as float into int:
+    return calling pengu_c_rand_poisson with lambda

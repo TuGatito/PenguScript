@@ -1,0 +1,41 @@
+# tests_std/test_parchment.pengu - Integration test for Parchment XML/HTML module
+import std.spark
+import std.oracle
+import std.parchment
+
+weave main into void:
+    calling spark.println with "=== Test Parchment ==="
+
+    var doc_m as maybe Document is calling parchment.parse_xml with "<root><item>Hello</item></root>"
+    if doc_m.is_present:
+        calling spark.println with "parse_xml: ok"
+        var doc as Document is doc_m.value
+        var root_node as Node is doc.root
+        calling spark.println with "root tag: " + root_node.tag
+
+        var to_str as maybe string is calling parchment.to_string with sigil of root_node and false
+        if to_str.is_present:
+            calling spark.println with "to_string: ok"
+
+        var found as maybe Node is calling parchment.find with sigil of root_node and "item"
+        if found.is_present:
+            calling spark.println with "find: ok"
+
+        var all_nodes as list of Node is calling parchment.find_all with sigil of root_node and "item"
+        if all_nodes.len > 0:
+            calling spark.println with "find_all: ok"
+
+    var elem as ref to Node is calling parchment.create_element with "div"
+    calling spark.println with "create_element: " + elem->tag
+
+    var txt_node as ref to Node is calling parchment.create_text with "some text"
+    calling spark.println with "create_text: " + txt_node->tag
+
+    calling parchment.append_child with elem and txt_node
+    calling spark.println with "append_child: ok"
+
+    var is_xml as bool is calling parchment.is_valid_xml with "<valid>xml</valid>"
+    if is_xml:
+        calling spark.println with "is_valid_xml: true"
+
+    calling spark.println with "=== Parchment OK ==="

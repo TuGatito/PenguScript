@@ -1,0 +1,40 @@
+# std/tally.pengu - The Tally (Lists)
+# Dynamic list utilities and algorithms.
+
+import std.spark
+
+weave is_empty with l as list of int into bool:
+    return (calling l.len) == 0
+
+weave sum with l as list of int into int:
+    var total as int is 0
+    var i as int is 0
+    var n as int is calling l.len
+    while i < n:
+        set total is total + (l at i)
+        set i is i + 1
+    return total
+
+weave max_val with l as list of int into int:
+    var n as int is calling l.len
+    if n == 0:
+        return 0
+    var m as int is l at 0
+    var i as int is 1
+    while i < n:
+        if (l at i) > m:
+            set m is l at i
+        set i is i + 1
+    return m
+
+weave min_val with l as list of int into int:
+    var n as int is calling l.len
+    if n == 0:
+        return 0
+    var m as int is l at 0
+    var i as int is 1
+    while i < n:
+        if (l at i) < m:
+            set m is l at i
+        set i is i + 1
+    return m

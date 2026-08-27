@@ -1,0 +1,22 @@
+import std.spark
+
+weave main into int:
+  calling spark.println with "=== Test Spark ==="
+  var v as string is calling spark.spark_version
+  calling spark.println with v
+  calling spark.println with "0.6.0-spark"
+  
+  calling spark.assert with true
+  calling spark.assert_msg with true and "should not fail"
+  
+  var s as string is "HOLA PERGAMINO"
+  calling spark.println with s
+  var slen as int is calling spark.len_string with s
+  if slen == 14:
+    calling spark.println with "len_string ok"
+    
+  var bstr as string is calling spark.bool_to_string with true
+  calling spark.println with bstr
+  
+  calling spark.println with "spark ok"
+  return 0

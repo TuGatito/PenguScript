@@ -1,0 +1,44 @@
+# tests_std/test_regulus.pengu - Integration test for Regulus regex module
+import std.spark
+import std.oracle
+import std.regulus
+
+weave main into void:
+    calling spark.println with "=== Test Regulus ==="
+
+    var re as maybe Regex is calling regulus.compile with "abc" and "i"
+    if re.is_present:
+        calling spark.println with "compile: ok"
+        var r as Regex is re.value
+
+        var matched as bool is calling regulus.is_match with sigil of r and "123abcdef"
+        if matched:
+            calling spark.println with "is_match: true"
+
+        var m_res as maybe Match is calling regulus.search with sigil of r and "xyzabc123"
+        if m_res.is_present:
+            calling spark.println with "search: ok"
+
+        var full_m as bool is calling regulus.is_full_match with sigil of r and "abc"
+        if full_m:
+            calling spark.println with "is_full_match: true"
+
+        var matches as list of Match is calling regulus.find_all with sigil of r and "abc_abc_abc"
+        if matches.len > 0:
+            calling spark.println with "find_all: ok"
+
+        var rep as string is calling regulus.replace with sigil of r and "hello abc world" and "pengu"
+        calling spark.println with "replace: " + rep
+
+        var sp as list of string is calling regulus.split with sigil of r and "oneabctwoabcthree" and 0
+        if sp.len > 0:
+            calling spark.println with "split: ok"
+
+    var qm as maybe Match is calling regulus.quick_match with "test" and "quick test here" and ""
+    if qm.is_present:
+        calling spark.println with "quick_match: ok"
+
+    var qr as string is calling regulus.quick_replace with "cat" and "the cat sleeps" and "dog" and ""
+    calling spark.println with "quick_replace: " + qr
+
+    calling spark.println with "=== Regulus OK ==="

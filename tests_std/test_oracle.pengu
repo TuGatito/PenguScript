@@ -1,0 +1,64 @@
+import std.spark
+import std.oracle
+
+weave main into int:
+  calling spark.println with "=== Test Oracle ==="
+  
+  # MaybeString
+  var some_s as MaybeString is calling oracle.maybe_some_string with "pengu value"
+  var is_p as bool is calling some_s.is_present
+  if is_p:
+    calling spark.println with "some_s is_present ok"
+    
+  var val as string is calling some_s.unwrap
+  calling spark.println with val
+  
+  var none_s as MaybeString is calling oracle.maybe_none_string
+  var is_n as bool is calling none_s.is_none
+  if is_n:
+    calling spark.println with "none_s is_none ok"
+    
+  var dflt as string is calling none_s.unwrap_or with "fallback"
+  calling spark.println with dflt
+  
+  # MaybeInt
+  var some_i as MaybeInt is calling oracle.maybe_some_int with 42
+  var i_val as int is calling some_i.unwrap_or with 0
+  if i_val == 42:
+    calling spark.println with "some_i unwrap_or ok"
+    
+  var none_i as MaybeInt is calling oracle.maybe_none_int
+  var i_dflt as int is calling none_i.unwrap_or with 99
+  if i_dflt == 99:
+    calling spark.println with "none_i unwrap_or ok"
+    
+  # ResultString
+  var res_ok as ResultString is calling oracle.result_ok_string with "success"
+  var ok as bool is calling res_ok.is_ok
+  if ok:
+    calling spark.println with "res_ok is_ok ok"
+    
+  var ok_val as string is calling res_ok.unwrap
+  calling spark.println with ok_val
+  
+  var res_err as ResultString is calling oracle.result_err_string with "file not found"
+  var is_e as bool is calling res_err.is_err
+  if is_e:
+    calling spark.println with "res_err is_err ok"
+    
+  var err_msg as string is calling res_err.unwrap_err
+  calling spark.println with err_msg
+  
+  # ResultInt
+  var res_ok_i as ResultInt is calling oracle.result_ok_int with 100
+  var r_val as int is calling res_ok_i.unwrap_or with -1
+  if r_val == 100:
+    calling spark.println with "res_ok_i unwrap_or ok"
+    
+  var res_err_i as ResultInt is calling oracle.result_err_int with "math error"
+  var r_err_val as int is calling res_err_i.unwrap_or with -1
+  if r_err_val == -1:
+    calling spark.println with "res_err_i unwrap_or ok"
+    
+  calling spark.println with "oracle ok"
+  return 0

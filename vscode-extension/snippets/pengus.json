@@ -1,0 +1,118 @@
+{
+  "Main Weave Entry Point": {
+    "prefix": "main",
+    "body": [
+      "weave main into void:",
+      "  var msg as string is \"Hello from PenguScript!\"",
+      "  calling print with msg",
+      "  ${0}"
+    ],
+    "description": "PenguScript main function entry point"
+  },
+  "Rune Struct Definition": {
+    "prefix": "rune",
+    "body": [
+      "rune ${1:Name}:",
+      "  ${2:x} as ${3:float}",
+      "  ${4:y} as ${3:float}",
+      "${0}"
+    ],
+    "description": "Declare a struct (rune)"
+  },
+  "Echo Union Definition": {
+    "prefix": "echo",
+    "body": [
+      "echo ${1:Value}:",
+      "  ${2:i} as int",
+      "  ${3:f} as float",
+      "${0}"
+    ],
+    "description": "Declare a tagged union (echo)"
+  },
+  "Omen Algebraic Data Type": {
+    "prefix": "omen",
+    "body": [
+      "omen ${1:Result}:",
+      "  Ok with value as ${2:int}",
+      "  Err with msg as string",
+      "${0}"
+    ],
+    "description": "Declare an algebraic data type (omen)"
+  },
+  "Weave Function": {
+    "prefix": "weave",
+    "body": [
+      "weave ${1:name} with ${2:a as int and b as int} into ${3:int}:",
+      "  return ${4:a + b}",
+      "${0}"
+    ],
+    "description": "Declare a function (weave)"
+  },
+  "Enchanting Methods": {
+    "prefix": "enchanting",
+    "body": [
+      "enchanting ${1:TypeName}:",
+      "  weave ${2:method} into ${3:void}:",
+      "    ${0}"
+    ],
+    "description": "Attach methods to a type"
+  },
+  "With Block": {
+    "prefix": "with",
+    "body": [
+      "with ${1:target}:",
+      "  set ${2:x} is ${3:10}",
+      "  set ${4:y} is ${5:20}",
+      "  ${0}"
+    ],
+    "description": "Scoped field access with block"
+  },
+  "If Statement": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condition}:",
+      "  ${0}"
+    ],
+    "description": "If conditional statement"
+  },
+  "Unless Statement": {
+    "prefix": "unless",
+    "body": [
+      "unless ${1:condition}:",
+      "  ${0}"
+    ],
+    "description": "Unless negative conditional statement"
+  },
+  "For In Loop": {
+    "prefix": "for",
+    "body": [
+      "for ${1:item} in ${2:collection}:",
+      "  ${0}"
+    ],
+    "description": "For-in collection loop"
+  },
+  "For Range Loop": {
+    "prefix": "for_range",
+    "body": [
+      "for ${1:i} from ${2:0} to ${3:10}:",
+      "  ${0}"
+    ],
+    "description": "For from-to range loop"
+  },
+  "Judge Pattern Match": {
+    "prefix": "judge",
+    "body": [
+      "judge ${1:expr}:",
+      "  when ${2:pattern} -> ${3:result}",
+      "  else -> ${0}"
+    ],
+    "description": "Pattern matching judge expression"
+  },
+  "Import Module": {
+    "prefix": "import",
+    "body": [
+      "import ${1:module.submodule}"
+    ],
+    "description": "Import a PenguScript module"
+  }
+}

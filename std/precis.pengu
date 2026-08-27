@@ -1,0 +1,152 @@
+# std/precis.pengu - The Precis (Networking, HTTP Client/Server & Sockets)
+# Provides HTTP client, embedded HTTP server, TCP sockets, DNS resolution,
+# and URL encoding/decoding utilities.
+
+import std.spark
+import std.oracle
+import std.scrolls
+import std.archivum
+import std.compass
+
+# ----------------------------------------------------------------------------
+# Core Types
+# ----------------------------------------------------------------------------
+
+rune ClientResponse:
+    status_code as int
+    headers as map of string to string
+    body as MaybeString
+    url as string
+
+rune Request:
+    method as string
+    path as string
+    headers as map of string to string
+    query as map of string to string
+    body as MaybeString
+
+rune Response:
+    status_code as int
+    headers as map of string to string
+    body as MaybeString
+
+rune TCPSocket:
+    _ptr as opaque
+
+# ----------------------------------------------------------------------------
+# External C Functions (from Runtime)
+# ----------------------------------------------------------------------------
+
+declare pengu_c_precis_http_get with url as string and headers as map of string to string into maybe ClientResponse
+declare pengu_c_precis_http_post with url as string and headers as map of string to string and body as string into maybe ClientResponse
+declare pengu_c_precis_http_put with url as string and headers as map of string to string and body as string into maybe ClientResponse
+declare pengu_c_precis_http_delete with url as string and headers as map of string to string into maybe ClientResponse
+declare pengu_c_precis_http_request with method as string and url as string and headers as map of string to string and body as maybe string into maybe ClientResponse
+
+declare pengu_c_precis_serve_http with port as int and handler as opaque into void
+
+declare pengu_c_precis_tcp_connect with host as string and port as int into maybe TCPSocket
+declare pengu_c_precis_tcp_send with sock as ref to TCPSocket and data as string into bool
+declare pengu_c_precis_tcp_recv with sock as ref to TCPSocket and max_bytes as int into maybe string
+declare pengu_c_precis_tcp_close with sock as ref to TCPSocket into void
+
+declare pengu_c_precis_dns_lookup with host as string into maybe string
+
+declare pengu_c_precis_url_encode with s as string into string
+declare pengu_c_precis_url_decode with s as string into string
+declare pengu_c_precis_parse_query with s as string into map of string to string
+
+# ----------------------------------------------------------------------------
+# HTTP Client API
+# ----------------------------------------------------------------------------
+
+weave get with url as string and headers as map of string to string into maybe ClientResponse:
+    return calling pengu_c_precis_http_get with url and headers
+
+weave post with url as string and headers as map of string to string and body as string into maybe ClientResponse:
+    return calling pengu_c_precis_http_post with url and headers and body
+
+weave put with url as string and headers as map of string to string and body as string into maybe ClientResponse:
+    return calling pengu_c_precis_http_put with url and headers and body
+
+weave delete with url as string and headers as map of string to string into maybe ClientResponse:
+    return calling pengu_c_precis_http_delete with url and headers
+
+weave request with method as string and url as string and headers as map of string to string and body as maybe string into maybe ClientResponse:
+    return calling pengu_c_precis_http_request with method and url and headers and body
+
+# ----------------------------------------------------------------------------
+# HTTP Server API
+# ----------------------------------------------------------------------------
+
+weave serve_http with port as int and handler as opaque into void:
+    calling pengu_c_precis_serve_http with port and handler
+
+weave response with status_code as int and body as string and headers as map of string to string into Response:
+    var m_body as MaybeString is calling oracle.maybe_some_string with body
+    var res as Response is with status_code is status_code and headers is headers and body is m_body
+    return res
+
+weave serve_file with path as string into Response:
+    var content as maybe string is calling archivum.read_file with path
+    var hdrs as map of string to string is map of string to string
+    if content is present:
+        var ext_str as string is calling compass.ext with path
+        var mime as string is "application/octet-stream"
+        if ext_str == ".html":
+            set mime is "text/html"
+        if ext_str == ".htm":
+            set mime is "text/html"
+        if ext_str == ".css":
+            set mime is "text/css"
+        if ext_str == ".js":
+            set mime is "application/javascript"
+        if ext_str == ".json":
+            set mime is "application/json"
+        if ext_str == ".png":
+            set mime is "image/png"
+        if ext_str == ".jpg":
+            set mime is "image/jpeg"
+        if ext_str == ".jpeg":
+            set mime is "image/jpeg"
+        if ext_str == ".txt":
+            set mime is "text/plain"
+        calling hdrs.set with "Content-Type" and mime
+        return calling response with 200 and content.value and hdrs
+    return calling response with 404 and "File not found" and hdrs
+
+# ----------------------------------------------------------------------------
+# TCP Sockets API
+# ----------------------------------------------------------------------------
+
+weave connect_tcp with host as string and port as int into maybe TCPSocket:
+    return calling pengu_c_precis_tcp_connect with host and port
+
+weave tcp_send with sock as ref to TCPSocket and data as string into bool:
+    return calling pengu_c_precis_tcp_send with sock and data
+
+weave tcp_recv with sock as ref to TCPSocket and max_bytes as int into maybe string:
+    return calling pengu_c_precis_tcp_recv with sock and max_bytes
+
+weave tcp_close with sock as ref to TCPSocket into void:
+    calling pengu_c_precis_tcp_close with sock
+
+# ----------------------------------------------------------------------------
+# DNS Lookup API
+# ----------------------------------------------------------------------------
+
+weave dns_lookup with host as string into maybe string:
+    return calling pengu_c_precis_dns_lookup with host
+
+# ----------------------------------------------------------------------------
+# URL & Query Utilities
+# ----------------------------------------------------------------------------
+
+weave url_encode with s as string into string:
+    return calling pengu_c_precis_url_encode with s
+
+weave url_decode with s as string into string:
+    return calling pengu_c_precis_url_decode with s
+
+weave parse_query with s as string into map of string to string:
+    return calling pengu_c_precis_parse_query with s
