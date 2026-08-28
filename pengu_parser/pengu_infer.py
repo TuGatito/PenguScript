@@ -6,8 +6,9 @@ from lark import Tree, Token
 from .pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ListType, MapType, MaybeType,
     RuneType, EchoType, OmenType, ResultType, FnType, OPAQUE_TYPE, AliasType, AnyType,
-    TypeParam, INT_TYPE, I32_TYPE, I64_TYPE, FLOAT_TYPE, F32_TYPE, F64_TYPE, BOOL_TYPE,
-    STRING_TYPE, VOID_TYPE, ERROR_TYPE, ast_to_type, is_opaque_type
+    TypeParam, INT_TYPE, I32_TYPE, I64_TYPE, U32_TYPE, U64_TYPE, CHAR_TYPE, BYTE_TYPE,
+    U8_TYPE, I8_TYPE, U16_TYPE, I16_TYPE, USIZE_TYPE, ISIZE_TYPE, FLOAT_TYPE, F32_TYPE,
+    F64_TYPE, DOUBLE_TYPE, BOOL_TYPE, STRING_TYPE, VOID_TYPE, ERROR_TYPE, ast_to_type, is_opaque_type
 )
 from .pengu_symbols import SymbolTable, Symbol, Scope
 from .pengu_errors import (
@@ -49,6 +50,8 @@ class ConstFolder:
                 return float(str(node))
             elif node.type == "STRING":
                 return str(node).strip('"')
+            elif node.type == "CHAR_LIT":
+                return str(node)
             elif node.type == "NAME":
                 sym = self.symbols.lookup(str(node))
                 if sym and sym.kind == "const" and hasattr(sym, "const_val"):
@@ -63,6 +66,8 @@ class ConstFolder:
             return int(str(node.children[0]), 0)
         elif rule == "float_lit":
             return float(str(node.children[0]))
+        elif rule == "char_lit":
+            return str(node.children[0])
         elif rule == "string_lit":
             return str(node.children[0]).strip('"')
         elif rule == "true_lit":
@@ -196,6 +201,8 @@ class TypeInferrer:
                 return INT_TYPE
             elif node.type == "FLOAT":
                 return FLOAT_TYPE
+            elif node.type == "CHAR_LIT":
+                return CHAR_TYPE
             elif node.type == "STRING":
                 self._check_string_interpolation(str(node), line, col, node)
                 return STRING_TYPE
@@ -235,6 +242,8 @@ class TypeInferrer:
             return INT_TYPE
         elif rule == "float_lit":
             return FLOAT_TYPE
+        elif rule == "char_lit":
+            return CHAR_TYPE
         elif rule == "string_lit":
             str_val = str(node.children[0]) if node.children else ""
             self._check_string_interpolation(str_val, line, col, node)
@@ -998,7 +1007,13 @@ class TypeInferrer:
             target_type_node = node.children[0]
             resolved_t = ast_to_type(target_type_node, self.symbols.lookup_type)
             if isinstance(resolved_t, RuneType) and resolved_t.name not in self.symbols.runes:
-                if resolved_t.name not in ("int", "i32", "i64", "float", "f32", "f64", "bool", "string", "void", "opaque"):
+                if resolved_t.name not in (
+                    "int", "i32", "i64", "float", "f32", "f64", "bool", "string", "void", "opaque", "any",
+                    "char", "byte", "u8", "i8", "u16", "i16", "u32", "u64", "int8", "uint8",
+                    "int16", "uint16", "int32", "uint32", "int64", "uint64", "usize", "isize",
+                    "size_t", "short", "ushort", "long", "ulong", "double", "int8_t", "uint8_t",
+                    "int16_t", "uint16_t", "int32_t", "uint32_t", "int64_t", "uint64_t", "uint"
+                ):
                     if not self.symbols.lookup_type(resolved_t.name):
                         raise self._make_error(
                             UndefinedIdentifierError,

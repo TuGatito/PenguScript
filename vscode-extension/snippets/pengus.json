@@ -1,31 +1,52 @@
 {
-  "Main Weave Entry Point": {
+  "Main Weave Entry Point (int)": {
     "prefix": "main",
     "body": [
-      "weave main into void:",
-      "  var msg as string is \"Hello from PenguScript!\"",
-      "  calling print with msg",
-      "  ${0}"
+      "weave main into int:",
+      "    var msg as string is \"Hello from PenguScript!\"",
+      "    calling spark.println with msg",
+      "    return 0",
+      "    ${0}"
     ],
-    "description": "PenguScript main function entry point"
+    "description": "PenguScript main function returning int"
+  },
+  "Main Weave Entry Point (void)": {
+    "prefix": "main_void",
+    "body": [
+      "weave main into void:",
+      "    var msg as string is \"Hello from PenguScript!\"",
+      "    calling spark.println with msg",
+      "    ${0}"
+    ],
+    "description": "PenguScript main function returning void"
   },
   "Rune Struct Definition": {
     "prefix": "rune",
     "body": [
       "rune ${1:Name}:",
-      "  ${2:x} as ${3:float}",
-      "  ${4:y} as ${3:float}",
-      "${0}"
+      "    ${2:x} as ${3:float}",
+      "    ${4:y} as ${3:float}",
+      "    ${0}"
     ],
     "description": "Declare a struct (rune)"
   },
-  "Echo Union Definition": {
+  "Generic Rune Struct": {
+    "prefix": "rune_gen",
+    "body": [
+      "rune ${1:Name} shard ${2:T}:",
+      "    ${3:value} as ${2:T}",
+      "    ${4:id} as int",
+      "    ${0}"
+    ],
+    "description": "Declare a generic struct with type parameter (shard)"
+  },
+  "Echo Tagged Union Definition": {
     "prefix": "echo",
     "body": [
       "echo ${1:Value}:",
-      "  ${2:i} as int",
-      "  ${3:f} as float",
-      "${0}"
+      "    ${2:i} as int",
+      "    ${3:f} as float",
+      "    ${0}"
     ],
     "description": "Declare a tagged union (echo)"
   },
@@ -33,86 +54,335 @@
     "prefix": "omen",
     "body": [
       "omen ${1:Result}:",
-      "  Ok with value as ${2:int}",
-      "  Err with msg as string",
+      "    Ok with value as ${2:int}",
+      "    Err with msg as string",
+      "    ${0}"
+    ],
+    "description": "Declare an algebraic data type (omen) with payload"
+  },
+  "Omen Simple Enum": {
+    "prefix": "omen_enum",
+    "body": [
+      "omen ${1:Status}:",
+      "    ${2:IDLE}",
+      "    ${3:RUNNING}",
+      "    ${4:DONE}",
+      "    ${0}"
+    ],
+    "description": "Declare a simple enumeration without payload (omen)"
+  },
+  "Type Alias": {
+    "prefix": "alias",
+    "body": [
+      "alias ${1:NewTypeName} is ${2:TargetType}",
       "${0}"
     ],
-    "description": "Declare an algebraic data type (omen)"
+    "description": "Declare a type alias (alias)"
   },
   "Weave Function": {
     "prefix": "weave",
     "body": [
       "weave ${1:name} with ${2:a as int and b as int} into ${3:int}:",
-      "  return ${4:a + b}",
-      "${0}"
+      "    return ${4:a + b}",
+      "    ${0}"
     ],
     "description": "Declare a function (weave)"
   },
-  "Enchanting Methods": {
+  "Generic Weave Function": {
+    "prefix": "weave_gen",
+    "body": [
+      "weave ${1:name} shard ${2:T} with ${3:item as T} into ${4:T}:",
+      "    return ${3:item}",
+      "    ${0}"
+    ],
+    "description": "Declare a generic function with type parameter (shard)"
+  },
+  "Inline Weave Function": {
+    "prefix": "weave_inline",
+    "body": [
+      "inline weave ${1:name} with ${2:a as int} into ${3:int}:",
+      "    return ${4:a * 2}",
+      "    ${0}"
+    ],
+    "description": "Declare an inlined function (inline weave)"
+  },
+  "External C Declaration": {
+    "prefix": "declare",
+    "body": [
+      "declare ${1:c_function_name} with ${2:arg as int} into ${3:void}",
+      "${0}"
+    ],
+    "description": "Declare an external C function binding"
+  },
+  "Calling Function": {
+    "prefix": "calling",
+    "body": [
+      "calling ${1:function_name} with ${2:args}",
+      "${0}"
+    ],
+    "description": "Invoke a function or method with calling"
+  },
+  "Calling Generic Function": {
+    "prefix": "calling_gen",
+    "body": [
+      "calling ${1:function_name} of ${2:type} with ${3:args}",
+      "${0}"
+    ],
+    "description": "Invoke a generic function specialized with of"
+  },
+  "Enchanting Methods Block": {
     "prefix": "enchanting",
     "body": [
       "enchanting ${1:TypeName}:",
-      "  weave ${2:method} into ${3:void}:",
-      "    ${0}"
+      "    weave ${2:method_name} with ${3:arg as int} into ${4:void}:",
+      "        set self->${5:field} is ${3:arg}",
+      "        ${0}"
     ],
-    "description": "Attach methods to a type"
+    "description": "Attach receiver methods to a type (enchanting)"
   },
-  "With Block": {
+  "With Scoped Mutation Block": {
     "prefix": "with",
     "body": [
       "with ${1:target}:",
-      "  set ${2:x} is ${3:10}",
-      "  set ${4:y} is ${5:20}",
-      "  ${0}"
+      "    set ${2:field1} is ${3:value1}",
+      "    set ${4:field2} is ${5:value2}",
+      "    ${0}"
     ],
     "description": "Scoped field access with block"
+  },
+  "Variable Declaration (Mutable)": {
+    "prefix": "var",
+    "body": [
+      "var ${1:name} as ${2:int} is ${3:0}",
+      "${0}"
+    ],
+    "description": "Declare a mutable local variable (var)"
+  },
+  "Binding Declaration (Immutable)": {
+    "prefix": "let",
+    "body": [
+      "let ${1:name} as ${2:int} is ${3:0}",
+      "${0}"
+    ],
+    "description": "Declare an immutable local binding (let)"
+  },
+  "Constant Declaration (Top-Level)": {
+    "prefix": "const",
+    "body": [
+      "const ${1:NAME} as ${2:int} is ${3:0}",
+      "${0}"
+    ],
+    "description": "Declare a top-level constant (const)"
+  },
+  "Set Mutation": {
+    "prefix": "set",
+    "body": [
+      "set ${1:variable} is ${2:value}",
+      "${0}"
+    ],
+    "description": "Mutate a variable with set"
   },
   "If Statement": {
     "prefix": "if",
     "body": [
       "if ${1:condition}:",
-      "  ${0}"
+      "    ${0}"
     ],
     "description": "If conditional statement"
+  },
+  "If-Else Statement": {
+    "prefix": "ifelse",
+    "body": [
+      "if ${1:condition}:",
+      "    ${2:pass}",
+      "else:",
+      "    ${0}"
+    ],
+    "description": "If-else conditional statement"
   },
   "Unless Statement": {
     "prefix": "unless",
     "body": [
       "unless ${1:condition}:",
-      "  ${0}"
+      "    ${0}"
     ],
     "description": "Unless negative conditional statement"
   },
   "For In Loop": {
-    "prefix": "for",
+    "prefix": "for_in",
     "body": [
       "for ${1:item} in ${2:collection}:",
-      "  ${0}"
+      "    ${0}"
     ],
-    "description": "For-in collection loop"
+    "description": "For-in collection iteration loop"
   },
   "For Range Loop": {
     "prefix": "for_range",
     "body": [
       "for ${1:i} from ${2:0} to ${3:10}:",
-      "  ${0}"
+      "    ${0}"
     ],
-    "description": "For from-to range loop"
+    "description": "For from-to integer range loop"
+  },
+  "For Range Loop with Step": {
+    "prefix": "for_step",
+    "body": [
+      "for ${1:i} from ${2:0} to ${3:10} step ${4:2}:",
+      "    ${0}"
+    ],
+    "description": "For from-to loop with custom step"
+  },
+  "For Comprehension": {
+    "prefix": "for_comp",
+    "body": [
+      "for ${1:x} in ${2:collection} when ${3:condition} then ${4:expression}"
+    ],
+    "description": "For comprehension expression"
+  },
+  "While Loop": {
+    "prefix": "while",
+    "body": [
+      "while ${1:condition}:",
+      "    ${0}"
+    ],
+    "description": "While loop statement"
   },
   "Judge Pattern Match": {
     "prefix": "judge",
     "body": [
       "judge ${1:expr}:",
-      "  when ${2:pattern} -> ${3:result}",
-      "  else -> ${0}"
+      "    when ${2:pattern} -> ${3:result}",
+      "    else -> ${0}"
     ],
     "description": "Pattern matching judge expression"
+  },
+  "Try Expression": {
+    "prefix": "try",
+    "body": [
+      "try ${1:fallible_expr}"
+    ],
+    "description": "Unwrap a Result or propagate error with try"
+  },
+  "Or Else Fallback": {
+    "prefix": "or_else",
+    "body": [
+      "${1:expr} or else ${2:fallback_value}"
+    ],
+    "description": "Fallback value expression with or else"
+  },
+  "Or Return Guard": {
+    "prefix": "or_return",
+    "body": [
+      "${1:expr} or return ${2:early_exit_value}"
+    ],
+    "description": "Early return guard with or return"
+  },
+  "Defer Statement": {
+    "prefix": "defer",
+    "body": [
+      "defer:",
+      "    ${0}"
+    ],
+    "description": "Execute cleanup at scope exit (defer)"
+  },
+  "Errdefer Statement": {
+    "prefix": "errdefer",
+    "body": [
+      "errdefer:",
+      "    ${0}"
+    ],
+    "description": "Execute cleanup only when returning an error (errdefer)"
+  },
+  "Banish Memory Deallocation": {
+    "prefix": "banish",
+    "body": [
+      "banish ${1:ptr}",
+      "${0}"
+    ],
+    "description": "Explicitly free heap-allocated memory (banish)"
+  },
+  "Sigil Address-of Reference": {
+    "prefix": "sigil",
+    "body": [
+      "sigil of ${1:variable}"
+    ],
+    "description": "Take address/pointer reference of variable (&)"
+  },
+  "Essence Dereference": {
+    "prefix": "essence",
+    "body": [
+      "essence of ${1:pointer}"
+    ],
+    "description": "Dereference a pointer value (*)"
+  },
+  "Transmute Memory Cast": {
+    "prefix": "transmute",
+    "body": [
+      "transmute ${1:expr} to ${2:target_type}"
+    ],
+    "description": "Raw bitwise memory reinterpretation"
+  },
+  "Size Of Expression": {
+    "prefix": "sizeof",
+    "body": [
+      "size of ${1:type}"
+    ],
+    "description": "Get size of a type in bytes (sizeof)"
   },
   "Import Module": {
     "prefix": "import",
     "body": [
-      "import ${1:module.submodule}"
+      "import ${1:std.spark}",
+      "${0}"
     ],
     "description": "Import a PenguScript module"
+  },
+  "Include C Header": {
+    "prefix": "include",
+    "body": [
+      "include \"${1:stdio.h}\"",
+      "${0}"
+    ],
+    "description": "Include an external C header file"
+  },
+  "Link C Library": {
+    "prefix": "link",
+    "body": [
+      "link \"${1:m}\"",
+      "${0}"
+    ],
+    "description": "Link an external C library"
+  },
+  "Spark Printline": {
+    "prefix": "println",
+    "body": [
+      "calling spark.println with \"${1:message}\"",
+      "${0}"
+    ],
+    "description": "Print formatted string with newline using std.spark"
+  },
+  "Ward Assert True": {
+    "prefix": "assert_true",
+    "body": [
+      "calling ward.assert_true with ${1:condition}",
+      "${0}"
+    ],
+    "description": "Assert condition is true using std.ward"
+  },
+  "Ward Assert Equal Int": {
+    "prefix": "assert_eq_int",
+    "body": [
+      "calling ward.assert_eq_int with ${1:actual} and ${2:expected}",
+      "${0}"
+    ],
+    "description": "Assert integer equality using std.ward"
+  },
+  "Ward Assert Equal String": {
+    "prefix": "assert_eq_string",
+    "body": [
+      "calling ward.assert_eq_string with ${1:actual} and ${2:expected}",
+      "${0}"
+    ],
+    "description": "Assert string equality using std.ward"
   }
 }

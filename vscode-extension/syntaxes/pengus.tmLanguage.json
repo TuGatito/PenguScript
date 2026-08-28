@@ -9,6 +9,7 @@
   "patterns": [
     { "include": "#comments" },
     { "include": "#strings" },
+    { "include": "#characters" },
     { "include": "#numbers" },
     { "include": "#constants" },
     { "include": "#self_reference" },
@@ -63,6 +64,14 @@
               ]
             }
           ]
+        }
+      ]
+    },
+    "characters": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.pengus",
+          "match": "'(?:[^'\\\\]|\\\\.)*'"
         }
       ]
     },
@@ -124,7 +133,7 @@
           }
         },
         {
-          "match": "\\b(calling)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+          "match": "\\b(calling)\\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*)*)",
           "captures": {
             "1": { "name": "keyword.control.calling.pengus" },
             "2": { "name": "entity.name.function.call.pengus" }
@@ -147,11 +156,11 @@
       "patterns": [
         {
           "name": "storage.type.primitive.pengus",
-          "match": "\\b(int|i32|i64|float|f32|f64|bool|string|void|opaque)\\b"
+          "match": "\\b(char|byte|u8|i8|u16|i16|u32|i32|u64|i64|int|int8|int16|int32|int64|uint|uint8|uint16|uint32|uint64|usize|isize|size_t|short|ushort|long|ulong|float|f32|f64|double|bool|string|void|opaque|error|any|Any)\\b"
         },
         {
           "name": "storage.type.collection.pengus",
-          "match": "\\b(array\\s+of|slice\\s+of|list\\s+of|map\\s+of|maybe|result\\s+of|ref\\s+to)\\b"
+          "match": "\\b(array\\s+of|slice\\s+of|list\\s+of|map\\s+of|maybe|result\\s+of|ref\\s+to|array|slice|list|map|result|ref)\\b"
         }
       ]
     },
@@ -159,7 +168,7 @@
       "patterns": [
         {
           "name": "keyword.control.pengus",
-          "match": "\\b(if|then|else|unless|while|for|from|to|step|in|with|judge|when|or|return|break|continue|defer|errdefer|banish|try)\\b"
+          "match": "\\b(if|then|else|unless|while|for|from|to|step|in|with|judge|when|or\\s+else|or\\s+return|or|return|break|continue|defer|errdefer|banish|try)\\b"
         }
       ]
     },
@@ -167,7 +176,7 @@
       "patterns": [
         {
           "name": "keyword.other.declaration.pengus",
-          "match": "\\b(var|let|const|set|declare|import|include|link|sigil|essence|of|is|as|into|and|capacity|size|transmute|present)\\b"
+          "match": "\\b(var|let|const|set|declare|import|include|link|sigil|essence|shard|of|is|as|into|and|capacity|size|length|at|transmute|present|not\\s+present)\\b"
         }
       ]
     },

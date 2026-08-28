@@ -202,20 +202,26 @@ class AnyType(Type):
 
 @dataclass
 class BaseType(Type):
-    """Primitive base type in PenguScript (int, i32, i64, float, f32, f64, bool, string, void, opaque, error)."""
+    """Primitive base type in PenguScript."""
     name: str
 
     def is_numeric(self) -> bool:
-        """Returns True for numeric primitives (int, i32, i64, float, f32, f64)."""
-        return self.name in ("int", "i32", "i64", "float", "f32", "f64")
+        """Returns True for numeric primitives (integers, chars, bytes, and floats)."""
+        return self.is_int() or self.is_float()
 
     def is_int(self) -> bool:
-        """Returns True for integer primitives (int, i32, i64)."""
-        return self.name in ("int", "i32", "i64")
+        """Returns True for integer and character/byte primitives."""
+        return self.name in (
+            "int", "i32", "i64", "u32", "u64", "char", "byte", "u8", "i8",
+            "u16", "i16", "int8", "uint8", "int16", "uint16", "int32", "uint32",
+            "int64", "uint64", "usize", "isize", "size_t", "short", "ushort",
+            "long", "ulong", "int8_t", "uint8_t", "int16_t", "uint16_t",
+            "int32_t", "uint32_t", "int64_t", "uint64_t", "uint"
+        )
 
     def is_float(self) -> bool:
-        """Returns True for float primitives (float, f32, f64)."""
-        return self.name in ("float", "f32", "f64")
+        """Returns True for float primitives (float, f32, f64, double)."""
+        return self.name in ("float", "f32", "f64", "double")
 
     def is_string(self) -> bool:
         """Returns True for string primitive."""
@@ -267,9 +273,20 @@ class BaseType(Type):
 INT_TYPE = BaseType("int")
 I32_TYPE = BaseType("i32")
 I64_TYPE = BaseType("i64")
+U32_TYPE = BaseType("u32")
+U64_TYPE = BaseType("u64")
+CHAR_TYPE = BaseType("char")
+BYTE_TYPE = BaseType("byte")
+U8_TYPE = BaseType("u8")
+I8_TYPE = BaseType("i8")
+U16_TYPE = BaseType("u16")
+I16_TYPE = BaseType("i16")
+USIZE_TYPE = BaseType("usize")
+ISIZE_TYPE = BaseType("isize")
 FLOAT_TYPE = BaseType("float")
 F32_TYPE = BaseType("f32")
 F64_TYPE = BaseType("f64")
+DOUBLE_TYPE = BaseType("double")
 BOOL_TYPE = BaseType("bool")
 STRING_TYPE = BaseType("string")
 VOID_TYPE = BaseType("void")
@@ -893,7 +910,13 @@ def ast_to_type(type_node: Any, symbol_lookup_fn: Optional[Any] = None) -> Type:
 
     if isinstance(type_node, Token):
         text = str(type_node)
-        if text in ("int", "i32", "i64", "float", "f32", "f64", "bool", "string", "void"):
+        if text in (
+            "int", "i32", "i64", "float", "f32", "f64", "bool", "string", "void",
+            "char", "byte", "u8", "i8", "u16", "i16", "u32", "u64", "int8", "uint8",
+            "int16", "uint16", "int32", "uint32", "int64", "uint64", "usize", "isize",
+            "size_t", "short", "ushort", "long", "ulong", "double", "int8_t", "uint8_t",
+            "int16_t", "uint16_t", "int32_t", "uint32_t", "int64_t", "uint64_t", "uint"
+        ):
             return BaseType(text)
         if text in ("any", "Any"):
             return AnyType()

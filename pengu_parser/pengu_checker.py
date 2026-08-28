@@ -6,8 +6,9 @@ from lark import Tree, Token
 from .pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ListType, MapType, MaybeType,
     RuneType, EchoType, OmenType, ResultType, FnType, OPAQUE_TYPE, AliasType, AnyType,
-    TypeParam, INT_TYPE, I32_TYPE, I64_TYPE, FLOAT_TYPE, F32_TYPE, F64_TYPE, BOOL_TYPE,
-    STRING_TYPE, VOID_TYPE, ERROR_TYPE, ast_to_type
+    TypeParam, INT_TYPE, I32_TYPE, I64_TYPE, U32_TYPE, U64_TYPE, CHAR_TYPE, BYTE_TYPE,
+    U8_TYPE, I8_TYPE, U16_TYPE, I16_TYPE, USIZE_TYPE, ISIZE_TYPE, FLOAT_TYPE, F32_TYPE,
+    F64_TYPE, DOUBLE_TYPE, BOOL_TYPE, STRING_TYPE, VOID_TYPE, ERROR_TYPE, ast_to_type
 )
 from .pengu_symbols import SymbolTable, Symbol, Scope, resolve_imports, find_module_path
 from .pengu_infer import TypeInferrer, ConstFolder
@@ -1229,7 +1230,13 @@ class PenguChecker:
                         note="All generic types must be instantiated with 'of' before use."
                     )
                     self._record_error(err)
-                elif t_name not in ("int", "i32", "i64", "float", "f32", "f64", "bool", "string", "void", "opaque", "any") and self.symbols.lookup(t_name) is None and self.symbols.lookup_type(t_name) is None and not (t_name.isupper() and self.symbols.has_includes):
+                elif t_name not in (
+                    "int", "i32", "i64", "float", "f32", "f64", "bool", "string", "void", "opaque", "any",
+                    "char", "byte", "u8", "i8", "u16", "i16", "u32", "u64", "int8", "uint8",
+                    "int16", "uint16", "int32", "uint32", "int64", "uint64", "usize", "isize",
+                    "size_t", "short", "ushort", "long", "ulong", "double", "int8_t", "uint8_t",
+                    "int16_t", "uint16_t", "int32_t", "uint32_t", "int64_t", "uint64_t", "uint"
+                ) and self.symbols.lookup(t_name) is None and self.symbols.lookup_type(t_name) is None and not (t_name.isupper() and self.symbols.has_includes):
                     err = self._make_error(
                         TypeParamOutsideGenericError,
                         f"Type parameter '{t_name}' can only be used within a generic declaration (shard).",

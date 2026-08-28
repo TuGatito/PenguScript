@@ -48,13 +48,31 @@ class CTypeMapper:
 
         if isinstance(t, BaseType):
             name = t.name
-            if name in ("int", "i32"):
+            if name in ("int", "i32", "int32", "int32_t"):
                 return f"{prefix}int32_t"
-            elif name == "i64":
+            elif name in ("i64", "int64", "int64_t", "long"):
                 return f"{prefix}int64_t"
+            elif name in ("u32", "uint32", "uint32_t", "uint"):
+                return f"{prefix}uint32_t"
+            elif name in ("u64", "uint64", "uint64_t", "ulong"):
+                return f"{prefix}uint64_t"
+            elif name in ("i16", "int16", "int16_t", "short"):
+                return f"{prefix}int16_t"
+            elif name in ("u16", "uint16", "uint16_t", "ushort"):
+                return f"{prefix}uint16_t"
+            elif name in ("i8", "int8", "int8_t"):
+                return f"{prefix}int8_t"
+            elif name in ("byte", "u8", "uint8", "uint8_t"):
+                return f"{prefix}uint8_t"
+            elif name == "char":
+                return f"{prefix}char"
+            elif name in ("usize", "size_t"):
+                return f"{prefix}size_t"
+            elif name in ("isize", "ssize_t"):
+                return f"{prefix}intptr_t"
             elif name in ("float", "f32"):
                 return f"{prefix}float"
-            elif name == "f64":
+            elif name in ("double", "f64"):
                 return f"{prefix}double"
             elif name == "bool":
                 return f"{prefix}bool"
@@ -230,6 +248,8 @@ class PenguCodegen:
         elif isinstance(val, float):
             return f"{val}f" if abs(val) < 1e7 else str(val)
         elif isinstance(val, str):
+            if val.startswith("'") and val.endswith("'"):
+                return val
             return f'pengu_string_from_cstr("{val}")'
         return str(val)
 
@@ -1539,6 +1559,8 @@ class PenguCodegen:
                 return val
             elif node.type == "FLOAT":
                 return val
+            elif node.type == "CHAR_LIT":
+                return val
             elif node.type == "STRING":
                 return self._translate_string_lit(val.strip('"'))
             elif node.type == "NAME":
@@ -1565,6 +1587,8 @@ class PenguCodegen:
         if rule == "int_lit":
             return str(node.children[0])
         elif rule == "float_lit":
+            return str(node.children[0])
+        elif rule == "char_lit":
             return str(node.children[0])
         elif rule == "string_lit":
             return self._translate_string_lit(str(node.children[0]).strip('"'))
@@ -1896,18 +1920,35 @@ class PenguCodegen:
                             arg_t = self._lookup_var_type(args[0])
 
                         if isinstance(arg_t, BaseType):
-                            if arg_t.name in ("int", "i32", "i64", "u32", "u64", "int32", "int64"):
+                            if arg_t.name == "char":
+                                return f'printf("%c\\n", (char)({args[0]}))'
+                            elif arg_t.name in ("u64", "uint64", "uint64_t", "ulong"):
+                                return f'printf("%llu\\n", (unsigned long long)({args[0]}))'
+                            elif arg_t.name in ("i64", "int64", "int64_t", "long"):
+                                return f'printf("%lld\\n", (long long)({args[0]}))'
+                            elif arg_t.name in ("u32", "uint32", "uint32_t", "uint", "u16", "uint16", "uint16_t", "byte", "u8", "uint8", "uint8_t", "usize", "size_t"):
+                                return f'printf("%u\\n", (uint32_t)({args[0]}))'
+                            elif arg_t.name in ("int", "i32", "i16", "int16", "i8", "int8", "isize"):
                                 return f'printf("%d\\n", (int32_t)({args[0]}))'
-                            elif arg_t.name in ("float", "f32", "f64"):
+                            elif arg_t.name in ("float", "f32", "f64", "double"):
                                 return f'printf("%f\\n", (double)({args[0]}))'
                             elif arg_t.name in ("bool",):
                                 return f'printf("%s\\n", ({args[0]}) ? "true" : "false")'
                             elif arg_t.name in ("string",):
                                 return f'printf("%s\\n", ({args[0]}).data)'
+                        elif isinstance(arg_t, RefType):
+                            if isinstance(arg_t.target, BaseType) and arg_t.target.name == "char":
+                                return f'printf("%s\\n", (const char*)({args[0]}))'
+                            return f'printf("%p\\n", (void*)({args[0]}))'
 
                         lv_t = self.local_vars.get(args[0])
-                        if lv_t and isinstance(lv_t, BaseType) and lv_t.name in ("int", "i32", "i64"):
-                            return f'printf("%d\\n", (int32_t)({args[0]}))'
+                        if lv_t and isinstance(lv_t, BaseType):
+                            if lv_t.name == "char":
+                                return f'printf("%c\\n", (char)({args[0]}))'
+                            elif lv_t.name in ("int", "i32", "i16", "i8"):
+                                return f'printf("%d\\n", (int32_t)({args[0]}))'
+                            elif lv_t.name in ("u32", "u16", "u8", "byte"):
+                                return f'printf("%u\\n", (uint32_t)({args[0]}))'
 
                         return f'printf("%s\\n", {args[0]}.data)'
                     return 'printf("\\n")'

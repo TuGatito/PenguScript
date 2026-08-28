@@ -1367,6 +1367,11 @@ static inline PenguString pengu_string_from_float(double val) {
     snprintf(buf, sizeof(buf), "%g", val);
     return pengu_string_new(buf);
 }
+static inline PenguString pengu_string_from_char(char c) {
+    char buf[2] = { c, '\0' };
+    return pengu_string_from_cstr(buf);
+}
+
 static inline PenguString pengu_string_from_bool(bool val) {
     return val ? pengu_string_from_cstr("true") : pengu_string_from_cstr("false");
 }
@@ -1374,8 +1379,17 @@ static inline PenguString pengu_string_from_bool(bool val) {
 static inline PenguString pengu_string_identity(PenguString s) { return s; }
 
 #define pengu_to_string(x) _Generic((x), \
+    char: pengu_string_from_char, \
+    signed char: pengu_string_from_char, \
+    unsigned char: pengu_string_from_int, \
+    short: pengu_string_from_int, \
+    unsigned short: pengu_string_from_int, \
     int: pengu_string_from_int, \
+    unsigned int: pengu_string_from_int, \
+    long: pengu_string_from_int, \
+    unsigned long: pengu_string_from_int, \
     long long: pengu_string_from_int, \
+    unsigned long long: pengu_string_from_int, \
     double: pengu_string_from_float, \
     float: pengu_string_from_float, \
     bool: pengu_string_from_bool, \

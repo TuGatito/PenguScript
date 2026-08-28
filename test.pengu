@@ -1,6 +1,0 @@
-include "stdio.h"
-
-weave main into int:
-  calling printf with "Hello, World!\n" and 0
-  return 0
-

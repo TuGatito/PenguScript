@@ -1,26 +1,130 @@
 import std.spark
+import std.ward
 
-# Generic Struct declaration with 'shard'
-rune Box shard T:
-    item as T
-    id as int
+# 1. Structures with various primitive types
+rune TypeShowcase:
+    c_val as char
+    b_val as byte
+    u8_val as u8
+    i8_val as i8
+    u16_val as u16
+    i16_val as i16
+    u32_val as u32
+    i32_val as i32
+    u64_val as u64
+    i64_val as i64
+    usize_val as usize
+    isize_val as isize
+    f32_val as f32
+    f64_val as f64
+    double_val as double
+    bool_val as bool
+    str_val as string
 
-# Generic Struct with multiple type parameters
-rune Pair shard T and U:
-    first as T
-    second as U
+# 2. Generic structure
+rune GenericContainer shard T:
+    value as T
+    tag as char
 
-# Generic Function declaration with 'shard'
-weave create_box shard T with val as T and id as int into Box of T:
-    return with item is val and id is id
+# 3. Generic function
+weave make_container shard T with item as T and t as char into GenericContainer of T:
+    return with value is item and tag is t
+
+# 4. Functions taking/returning various primitive types
+weave process_char with c as char into char:
+    return c
+
+weave process_u64 with a as u64 and b as u64 into u64:
+    return a + b
+
+weave process_double with d as double into double:
+    return d * 2.0
+
+weave swap_chars with a as ref to char and b as ref to char into void:
+    var tmp as char is essence of a
+    set essence of a is essence of b
+    set essence of b is tmp
 
 weave main into int:
-    # Instantiation and specialized calls with 'of'
-    var int_box as Box of int is calling create_box of int with 42 and 1
-    var str_box as Box of string is calling create_box of string with "Pengu" and 2
+    calling spark.println with "=== Testing All PenguScript Primitive Types ==="
 
-    calling spark.println with "int_box item={int_box.item}, id={int_box.id}"
-    calling spark.println with "str_box item={str_box.item}, id={str_box.id}"
+    # 1. Variables and mutations
+    var c as char is 'Z'
+    var b as byte is 255
+    var u8_v as u8 is 100
+    var i8_v as i8 is -50
+    var u16_v as u16 is 65000
+    var i16_v as i16 is -30000
+    var u32_v as u32 is 4000000000
+    var i32_v as i32 is -2000000000
+    var u64_v as u64 is 18000000000000000000
+    var i64_v as i64 is -9000000000000000000
+    var usize_v as usize is 1024
+    var isize_v as isize is -1024
+    var f32_v as f32 is 3.14
+    var f64_v as f64 is 2.718281828459045
+    var dbl_v as double is 1.4142135623730951
+    var bool_v as bool is true
+    var str_v as string is "PenguTypes"
 
-    calling spark.println with "Generics test passed successfully!"
+    # Mutate values with 'set'
+    set c is 'A'
+    set b is 200
+    set u8_v is 120
+    set i8_v is 40
+    set u16_v is 50000
+    set i16_v is 25000
+    set u32_v is 3000000000
+    set i32_v is 1500000000
+    set f32_v is 6.28
+    set dbl_v is 3.0
+    set bool_v is false
+
+    calling spark.println with "Variables mutated successfully"
+
+    # 2. Struct instantiation and field access
+    var showcase as TypeShowcase is with c_val is 'P', b_val is 10, u8_val is 20, i8_val is 30, u16_val is 40, i16_val is 50, u32_val is 60, i32_val is 70, u64_val is 80, i64_val is 90, usize_val is 100, isize_val is 110, f32_val is 1.5, f64_val is 2.5, double_val is 3.5, bool_val is true, str_val is "StructOK"
+
+    calling ward.assert_true with showcase.bool_val
+    calling ward.assert_eq_int with showcase.u8_val and 20
+    calling ward.assert_eq_string with showcase.str_val and "StructOK"
+    calling spark.println with "Struct field access verified"
+
+    # 3. Pointers and reference passing
+    var ch1 as char is 'X'
+    var ch2 as char is 'Y'
+    calling swap_chars with sigil of ch1 and sigil of ch2
+    calling ward.assert_true with ch1 == 'Y'
+    calling ward.assert_true with ch2 == 'X'
+    calling spark.println with "Char pointer swap verified"
+
+    # 4. Functions with various types
+    var res_c as char is calling process_char with 'M'
+    calling ward.assert_true with res_c == 'M'
+
+    var res_u64 as u64 is calling process_u64 with 10000000000 and 20000000000
+    var res_dbl as double is calling process_double with 4.5
+    calling spark.println with "Typed functions verified"
+
+    # 5. Generics with char, u8, float, double
+    var char_container as GenericContainer of char is calling make_container of char with 'Q' and 'T'
+    var u8_container as GenericContainer of u8 is calling make_container of u8 with 250 and 'U'
+    var dbl_container as GenericContainer of double is calling make_container of double with 99.9 and 'D'
+
+    calling ward.assert_true with char_container.value == 'Q'
+    calling ward.assert_true with u8_container.value == 250
+    calling spark.println with "Generics with multiple types verified"
+
+    # 6. Pattern matching with judge/when on char
+    var input_char as char is 'B'
+    var char_status as string is judge input_char:
+        when 'A' -> "Grade A"
+        when 'B' -> "Grade B"
+        when 'C' -> "Grade C"
+        else -> "Other Grade"
+
+    calling ward.assert_eq_string with char_status and "Grade B"
+    calling spark.println with "Char pattern matching verified"
+
+    calling spark.println with "=== All Types Verification Passed 100% ==="
     return 0

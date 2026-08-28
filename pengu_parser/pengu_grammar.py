@@ -131,6 +131,7 @@ else_clause: "else" "->" expr _NEWLINE
 when_pattern: INT
             | FLOAT
             | STRING
+            | CHAR_LIT
             | "true"
             | "false"
             | "maybe" "none"
@@ -149,7 +150,7 @@ when_pattern: INT
      | custom_type
      | "(" type ")"
 
-!base_type: "int" | "i32" | "i64" | "float" | "f32" | "f64" | "bool" | "string" | "void"
+!base_type: "int" | "i32" | "i64" | "float" | "f32" | "f64" | "bool" | "string" | "void" | "char" | "byte" | "u8" | "i8" | "u16" | "i16" | "u32" | "u64" | "int8" | "uint8" | "int16" | "uint16" | "int32" | "uint32" | "int64" | "uint64" | "usize" | "isize" | "size_t" | "short" | "ushort" | "long" | "ulong" | "double" | "int8_t" | "uint8_t" | "int16_t" | "uint16_t" | "int32_t" | "uint32_t" | "int64_t" | "uint64_t" | "uint"
 custom_type: dotted_path ["of" type (("," | "and") type)*]
 !opaque_type: "opaque"
 ref_type: "ref" "to" type
@@ -275,6 +276,7 @@ slice_range: unary_no_cast "to" unary_no_cast
         | INT                             -> int_lit
         | FLOAT                           -> float_lit
         | STRING                          -> string_lit
+        | CHAR_LIT                        -> char_lit
         | "true"                          -> true_lit
         | "false"                         -> false_lit
         | "maybe" "none"                  -> maybe_none
@@ -307,5 +309,6 @@ _NEWLINE: /(\r?\n[\t ]*)+/
 
 NAME: /[a-zA-Z_][a-zA-Z0-9_]*/
 STRING: /"([^"\\]|\\.|{[a-zA-Z_][a-zA-Z0-9_]*})*"/
+CHAR_LIT: /'([^'\\]|\\.)'/
 ARROW: "->"
 """
