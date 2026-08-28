@@ -149,6 +149,14 @@ def assemble_distribution(dist_dir: Path):
         print(f"  [INC] Copied dependency headers to {dst_inc}")
 
 
+def get_version() -> str:
+    """Reads project version from VERSION file."""
+    version_file = ROOT_DIR / "VERSION"
+    if version_file.exists():
+        return version_file.read_text(encoding="utf-8").strip()
+    return "0.1.0"
+
+
 def package_with_pyinstaller(py_exe: Path, dist_dir: Path):
     """Packages pengu_project.py into a standalone pengu / pengu.exe binary."""
     entry_point = ROOT_DIR / "pengu_project.py"
@@ -157,6 +165,45 @@ def package_with_pyinstaller(py_exe: Path, dist_dir: Path):
     add_data = [
         f"{str(STD_DIR)}{data_sep}std",
         f"{str(ROOT_DIR / 'pengu_runtime.h')}{data_sep}.",
+        f"{str(ROOT_DIR / 'VERSION')}{data_sep}.",
+    ]
+
+    # Hidden imports that PyInstaller may not auto-detect
+    hidden_imports = [
+        "pygls",
+        "pygls.lsp",
+        "pygls.lsp.server",
+        "pygls.protocol",
+        "pygls.capabilities",
+        "lsprotocol",
+        "lsprotocol.types",
+        "lsprotocol.converters",
+        "cattrs",
+        "attrs",
+        "lark",
+        "lark.parsers",
+        "lark.parsers.lalr_parser",
+        "pengu_lsp",
+        "pengu_lsp.server",
+        "pengu_lsp.completions",
+        "pengu_lsp.hover",
+        "pengu_parser",
+        "pengu_parser.pengu_parser",
+        "pengu_parser.pengu_checker",
+        "pengu_parser.pengu_codegen",
+        "pengu_parser.pengu_symbols",
+        "pengu_parser.pengu_types",
+        "pengu_parser.pengu_errors",
+        "pengu_parser.pengu_infer",
+        "pengu_parser.pengu_grammar",
+    ]
+
+    # Collect all submodules for packages with many internal modules
+    collect_submodules = [
+        "lsprotocol",
+        "pygls",
+        "cattrs",
+        "attrs",
     ]
 
     cmd = [
@@ -173,6 +220,12 @@ def package_with_pyinstaller(py_exe: Path, dist_dir: Path):
 
     for item in add_data:
         cmd.extend(["--add-data", item])
+
+    for imp in hidden_imports:
+        cmd.extend(["--hidden-import", imp])
+
+    for pkg in collect_submodules:
+        cmd.extend(["--collect-submodules", pkg])
 
     cmd.append(str(entry_point))
     run_cmd(cmd)
@@ -262,6 +315,8 @@ def build_vscode_extension(dist_dir: Path):
 
 def generate_release_readme(dist_dir: Path):
     """Creates README_RELEASE.md explaining how to use the distribution."""
+    version = get_version()
+    vsix_name = f"pengus-{version}.vsix"
     readme_content = f"""# PenguScript Standalone Release Package
 
 This directory contains the standalone distribution of the **PenguScript Compiler, Project Manager, Standard Library, and Visual Studio Code Extension**.
@@ -273,7 +328,7 @@ This directory contains the standalone distribution of the **PenguScript Compile
 ```
 {dist_dir.name}/
 ├── pengu{' .exe' if IS_WINDOWS else ''}                # Standalone PenguScript CLI (Compiler + Build Manager + LSP)
-├── pengus-0.6.0.vsix         # VS Code Extension (Syntax, LSP, Go-To-Definition, Cargo Commands)
+├── {vsix_name}         # VS Code Extension (Syntax, LSP, Go-To-Definition, Cargo Commands)
 ├── std/                      # Complete Standard Library (24 modules)
 │   ├── spark.pengu
 │   ├── oracle.pengu
@@ -297,7 +352,7 @@ Add `{dist_dir.resolve()}` to your system `PATH` environment variable to access 
 1. Open Visual Studio Code.
 2. Go to **Extensions** (`Ctrl+Shift+X`).
 3. Click the `...` menu (Views and More Actions) in the top-right corner.
-4. Select **Install from VSIX...** and choose `{dist_dir.resolve() / 'pengus-0.6.0.vsix'}`.
+4. Select **Install from VSIX...** and choose `{dist_dir.resolve() / vsix_name}`.
 
 ### 3. Create a new project
 ```bash
@@ -373,10 +428,11 @@ def main():
         verify_executable(dist_dir)
 
     exe_name = "pengu.exe" if IS_WINDOWS else "pengu"
+    vsix_name = f"pengus-{get_version()}.vsix"
     print("\n================================================================")
     print(f"  SUCCESS! PenguScript release packaged at: {dist_dir}")
     print(f"  Executable: {dist_dir / exe_name}")
-    print(f"  VS Code Extension: {dist_dir / 'pengus-0.6.0.vsix'}")
+    print(f"  VS Code Extension: {dist_dir / vsix_name}")
     print("================================================================\n")
 
 

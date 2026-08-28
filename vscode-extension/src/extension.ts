@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as cp from 'child_process';
 import * as os from 'os';
-import { LanguageClient, LanguageClientOptions, ServerOptions } from 'vscode-languageclient/node';
+import { LanguageClient, LanguageClientOptions, ServerOptions, State } from 'vscode-languageclient/node';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
@@ -24,13 +24,18 @@ function getLspServerOptions(workspaceFolder: string): ServerOptions | undefined
   const exeName = isWindows ? 'pengu.exe' : 'pengu';
 
   // 1. User specified explicit path
-  if (userPath && fs.existsSync(userPath)) {
-    outputChannel.appendLine(`[LSP] Using user-configured executable: ${userPath}`);
-    return {
-      command: userPath,
-      args: ['lsp', '--stdio'],
-      options: { cwd: workspaceFolder }
-    };
+  if (userPath) {
+    if (fs.existsSync(userPath)) {
+      outputChannel.appendLine(`[LSP] Using user-configured executable: ${userPath}`);
+      return {
+        command: userPath,
+        args: ['lsp', '--stdio'],
+        options: { cwd: workspaceFolder }
+      };
+    } else {
+      outputChannel.appendLine(`[LSP WARNING] User-configured path does not exist: ${userPath}`);
+      // Continue to fallback, but we'll show a warning later.
+    }
   }
 
   // 2. Look in workspace or parent build directories
@@ -38,8 +43,6 @@ function getLspServerOptions(workspaceFolder: string): ServerOptions | undefined
     path.join(workspaceFolder, 'pengucc_build', exeName),
     path.join(workspaceFolder, '..', 'pengucc_build', exeName),
     path.join(workspaceFolder, 'bin', exeName),
-    // Known default build directory if opened in sibling folder
-    path.join('d:', 'Proyectos', 'PenguScript', 'pengucc_build', exeName),
     path.join(os.homedir(), '.pengu', 'bin', exeName),
   ];
 
@@ -100,6 +103,7 @@ function getLspServerOptions(workspaceFolder: string): ServerOptions | undefined
 
 /**
  * Resolves the CLI command to run pengu build/run/clean/init.
+ * Now also respects the user-configured executable path.
  */
 function getPenguCli(workspaceFolder: string): ExecutableInfo {
   const config = vscode.workspace.getConfiguration('pengus');
@@ -107,6 +111,7 @@ function getPenguCli(workspaceFolder: string): ExecutableInfo {
   const isWindows = process.platform === 'win32';
   const exeName = isWindows ? 'pengu.exe' : 'pengu';
 
+  // 1. User specified explicit path (for CLI as well)
   if (userPath && fs.existsSync(userPath)) {
     return { command: userPath, args: [] };
   }
@@ -114,7 +119,6 @@ function getPenguCli(workspaceFolder: string): ExecutableInfo {
   const candidates = [
     path.join(workspaceFolder, 'pengucc_build', exeName),
     path.join(workspaceFolder, '..', 'pengucc_build', exeName),
-    path.join('d:', 'Proyectos', 'PenguScript', 'pengucc_build', exeName),
     path.join(os.homedir(), '.pengu', 'bin', exeName),
   ];
 
@@ -181,6 +185,30 @@ function runInOutputChannel(workspaceFolder: string, args: string[]) {
   });
 }
 
+// Flag to prevent showing "stopped" message on deactivation
+let isDeactivating = false;
+
+// State change handler function
+function handleStateChange(event: { oldState: State; newState: State }) {
+  outputChannel.appendLine(`[LSP] State changed: ${State[event.oldState]} -> ${State[event.newState]}`);
+  if (event.newState === State.Stopped) {
+    if (!isDeactivating) {
+      vscode.window.showErrorMessage(
+        'PenguScript Language Server stopped unexpectedly. Check the output channel for details.',
+        'Restart LSP'
+      ).then((selection) => {
+        if (selection === 'Restart LSP') {
+          vscode.commands.executeCommand('pengus.restartLsp');
+        }
+      });
+    }
+  } else if (event.newState === State.Starting) {
+    outputChannel.appendLine('[LSP] Server is starting...');
+  } else if (event.newState === State.Running) {
+    outputChannel.appendLine('[LSP] Server is running.');
+  }
+}
+
 export function activate(context: vscode.ExtensionContext) {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
   outputChannel = vscode.window.createOutputChannel('PenguScript');
@@ -210,7 +238,21 @@ export function activate(context: vscode.ExtensionContext) {
   };
 
   client = new LanguageClient('pengus', 'PenguScript LSP', serverOptions, clientOptions);
-  client.start();
+
+  // Listen for state changes to notify user of issues
+  client.onDidChangeState(handleStateChange);
+
+  // Start the client with error handling
+  outputChannel.appendLine(`[LSP] Starting language server...`);
+  outputChannel.appendLine(`[LSP] Command: ${JSON.stringify(serverOptions)}`);
+  client.start().then(() => {
+    outputChannel.appendLine('[LSP] Language server started successfully.');
+  }).catch((err: Error) => {
+    outputChannel.appendLine(`[LSP ERROR] Failed to start language server: ${err.message}`);
+    vscode.window.showErrorMessage(
+      `PenguScript LSP failed to start: ${err.message}. Check the 'PenguScript' output channel for details.`
+    );
+  });
 
   // 2. Status Bar Item
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -263,8 +305,13 @@ export function activate(context: vscode.ExtensionContext) {
       const newServerOpts = getLspServerOptions(workspaceFolder);
       if (newServerOpts) {
         client = new LanguageClient('pengus', 'PenguScript LSP', newServerOpts, clientOptions);
-        client.start();
-        vscode.window.showInformationMessage('PenguScript Language Server restarted.');
+        // Re-attach state listener
+        client.onDidChangeState(handleStateChange);
+        client.start().then(() => {
+          vscode.window.showInformationMessage('PenguScript Language Server restarted.');
+        }).catch((err: Error) => {
+          vscode.window.showErrorMessage(`Failed to restart LSP: ${err.message}`);
+        });
       }
     }
   });
@@ -286,6 +333,7 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate(): Thenable<void> | undefined {
+  isDeactivating = true;
   if (statusBarItem) {
     statusBarItem.dispose();
   }

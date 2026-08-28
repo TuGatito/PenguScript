@@ -9,7 +9,7 @@ This directory contains the standalone distribution of the **PenguScript Compile
 ```
 pengucc_build/
 ├── pengu .exe                # Standalone PenguScript CLI (Compiler + Build Manager + LSP)
-├── pengus-0.6.0.vsix         # VS Code Extension (Syntax, LSP, Go-To-Definition, Cargo Commands)
+├── pengus-0.1.0.vsix         # VS Code Extension (Syntax, LSP, Go-To-Definition, Cargo Commands)
 ├── std/                      # Complete Standard Library (24 modules)
 │   ├── spark.pengu
 │   ├── oracle.pengu
@@ -33,7 +33,7 @@ Add `D:\Proyectos\PenguScript\pengucc_build` to your system `PATH` environment v
 1. Open Visual Studio Code.
 2. Go to **Extensions** (`Ctrl+Shift+X`).
 3. Click the `...` menu (Views and More Actions) in the top-right corner.
-4. Select **Install from VSIX...** and choose `D:\Proyectos\PenguScript\pengucc_build\pengus-0.6.0.vsix`.
+4. Select **Install from VSIX...** and choose `D:\Proyectos\PenguScript\pengucc_build\pengus-0.1.0.vsix`.
 
 ### 3. Create a new project
 ```bash

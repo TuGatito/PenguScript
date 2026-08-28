@@ -1,7 +1,20 @@
 """PenguScript LSP Server Main Entry Point."""
 
 import argparse
+import asyncio
 import sys
+
+# --- Critical: Force SelectorEventLoopPolicy on Windows ---
+# Must be set before importing server (which instantiates the LanguageServer).
+if sys.platform == "win32":
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        try:
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        except AttributeError:
+            pass
+
 from .server import server
 
 
@@ -15,11 +28,21 @@ def main():
 
     args = parser.parse_args()
 
-    if args.tcp:
-        print(f"Starting PenguScript LSP server on {args.host}:{args.port}...", file=sys.stderr)
-        server.start_tcp(args.host, args.port)
-    else:
-        server.start_io()
+    try:
+        if args.tcp:
+            print(f"Starting PenguScript LSP server on {args.host}:{args.port}...", file=sys.stderr)
+            server.start_tcp(args.host, args.port)
+        else:
+            server.start_io()
+    except (BrokenPipeError, ConnectionResetError, ValueError) as e:
+        # Graceful shutdown: these occur when the client disconnects or
+        # stdin/stdout are closed in PyInstaller-frozen environment.
+        if "I/O operation on closed file" in str(e) or "Broken pipe" in str(e):
+            pass
+        else:
+            print(f"[LSP] Server stopped: {e}", file=sys.stderr)
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":

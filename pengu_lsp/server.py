@@ -1,9 +1,24 @@
-"""PenguScript v0.6 Language Server Implementation using pygls."""
+"""PenguScript Language Server Implementation using pygls."""
 
+import asyncio
 import os
+import sys
 import urllib.parse
 import urllib.request
 from typing import Dict, List, Optional
+
+# --- Critical: Force SelectorEventLoopPolicy on Windows ---
+# Python 3.14+ defaults to ProactorEventLoop, which causes hangs with pygls
+# in PyInstaller-frozen executables. Must be set before any asyncio usage.
+# The API is deprecated in 3.14 and slated for removal in 3.16; we guard against that.
+if sys.platform == "win32":
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        try:
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        except AttributeError:
+            pass  # API removed in future Python; pygls may handle this internally
 
 from pygls.lsp.server import LanguageServer
 from lsprotocol.types import (
@@ -130,22 +145,30 @@ class PenguLanguageServer(LanguageServer):
         self._docs: Dict[str, str] = {}
 
     def publish_diagnostics(self, uri: str, diagnostics: List[Diagnostic]) -> None:
-        """Publishes LSP diagnostics to the client using pygls protocol handler."""
-        import sys
+        """Publishes LSP diagnostics to the client using the native pygls method."""
         print(f"[LSP] Publishing {len(diagnostics)} diagnostics for {uri}", file=sys.stderr)
-        params = PublishDiagnosticsParams(uri=uri, diagnostics=diagnostics)
         try:
-            if hasattr(super(), "publish_diagnostics"):
-                getattr(super(), "publish_diagnostics")(uri, diagnostics)
-            elif hasattr(self, "text_document_publish_diagnostics"):
-                self.text_document_publish_diagnostics(params)
-            elif hasattr(self, "protocol") and hasattr(self.protocol, "notify"):
-                self.protocol.notify("textDocument/publishDiagnostics", params)
+            self.text_document_publish_diagnostics(
+                PublishDiagnosticsParams(uri=uri, diagnostics=diagnostics)
+            )
         except Exception as e:
             print(f"[LSP ERROR] Failed to publish diagnostics for {uri}: {e}", file=sys.stderr)
 
 
-server = PenguLanguageServer("pengus-lsp", "v0.6.0")
+def _get_version() -> str:
+    """Reads version from VERSION file."""
+    version_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "VERSION")
+    meipass = getattr(sys, "_MEIPASS", "")
+    if meipass:
+        version_file = os.path.join(meipass, "VERSION")
+    try:
+        with open(version_file, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return "0.1.0"
+
+
+server = PenguLanguageServer("pengus-lsp", f"v{_get_version()}")
 
 
 def validate_document(uri: str, source: str) -> None:
