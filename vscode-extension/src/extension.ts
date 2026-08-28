@@ -15,7 +15,7 @@ interface ExecutableInfo {
 }
 
 /**
- * Finds the pengu executable or suitable python fallback.
+ * Finds the pengu executable or suitable python fallback for LSP.
  */
 function getLspServerOptions(workspaceFolder: string): ServerOptions | undefined {
   const config = vscode.workspace.getConfiguration('pengus');
@@ -23,7 +23,7 @@ function getLspServerOptions(workspaceFolder: string): ServerOptions | undefined
   const isWindows = process.platform === 'win32';
   const exeName = isWindows ? 'pengu.exe' : 'pengu';
 
-  // 1. User specified explicit path
+  // 1. User-configured explicit path from settings
   if (userPath) {
     if (fs.existsSync(userPath)) {
       outputChannel.appendLine(`[LSP] Using user-configured executable: ${userPath}`);
@@ -34,11 +34,26 @@ function getLspServerOptions(workspaceFolder: string): ServerOptions | undefined
       };
     } else {
       outputChannel.appendLine(`[LSP WARNING] User-configured path does not exist: ${userPath}`);
-      // Continue to fallback, but we'll show a warning later.
     }
   }
 
-  // 2. Look in workspace or parent build directories
+  // 2. Check system PATH for `pengu` or `pengu.exe`
+  try {
+    const checkCmd = isWindows ? 'where.exe pengu' : 'which pengu';
+    const resolvedPath = cp.execSync(checkCmd, { encoding: 'utf-8' }).split(/\r?\n/)[0].trim();
+    if (resolvedPath && fs.existsSync(resolvedPath)) {
+      outputChannel.appendLine(`[LSP] Found pengu in system PATH: ${resolvedPath}`);
+      return {
+        command: resolvedPath,
+        args: ['lsp', '--stdio'],
+        options: { cwd: workspaceFolder }
+      };
+    }
+  } catch {
+    // Not found in system PATH
+  }
+
+  // 3. Look in workspace or parent build directories
   const candidates = [
     path.join(workspaceFolder, 'pengucc_build', exeName),
     path.join(workspaceFolder, '..', 'pengucc_build', exeName),
@@ -57,23 +72,7 @@ function getLspServerOptions(workspaceFolder: string): ServerOptions | undefined
     }
   }
 
-  // 3. Check system PATH for `pengu`
-  try {
-    const checkCmd = isWindows ? 'where.exe pengu' : 'which pengu';
-    const resolvedPath = cp.execSync(checkCmd, { encoding: 'utf-8' }).split(/\r?\n/)[0].trim();
-    if (resolvedPath && fs.existsSync(resolvedPath)) {
-      outputChannel.appendLine(`[LSP] Found pengu in system PATH: ${resolvedPath}`);
-      return {
-        command: resolvedPath,
-        args: ['lsp', '--stdio'],
-        options: { cwd: workspaceFolder }
-      };
-    }
-  } catch {
-    // Not in system PATH
-  }
-
-  // 4. Python venv fallback
+  // 4. Fallback to Python virtualenv or system python interpreter
   const venvPython = isWindows
     ? path.join(workspaceFolder, '.venv', 'Scripts', 'python.exe')
     : path.join(workspaceFolder, '.venv', 'bin', 'python');
@@ -103,7 +102,6 @@ function getLspServerOptions(workspaceFolder: string): ServerOptions | undefined
 
 /**
  * Resolves the CLI command to run pengu build/run/clean/init.
- * Now also respects the user-configured executable path.
  */
 function getPenguCli(workspaceFolder: string): ExecutableInfo {
   const config = vscode.workspace.getConfiguration('pengus');
@@ -111,11 +109,23 @@ function getPenguCli(workspaceFolder: string): ExecutableInfo {
   const isWindows = process.platform === 'win32';
   const exeName = isWindows ? 'pengu.exe' : 'pengu';
 
-  // 1. User specified explicit path (for CLI as well)
+  // 1. User specified explicit path
   if (userPath && fs.existsSync(userPath)) {
     return { command: userPath, args: [] };
   }
 
+  // 2. Check system PATH
+  try {
+    const checkCmd = isWindows ? 'where.exe pengu' : 'which pengu';
+    const resolvedPath = cp.execSync(checkCmd, { encoding: 'utf-8' }).split(/\r?\n/)[0].trim();
+    if (resolvedPath && fs.existsSync(resolvedPath)) {
+      return { command: resolvedPath, args: [] };
+    }
+  } catch {
+    // Not in PATH
+  }
+
+  // 3. Workspace candidates
   const candidates = [
     path.join(workspaceFolder, 'pengucc_build', exeName),
     path.join(workspaceFolder, '..', 'pengucc_build', exeName),
@@ -128,17 +138,7 @@ function getPenguCli(workspaceFolder: string): ExecutableInfo {
     }
   }
 
-  try {
-    const checkCmd = isWindows ? 'where.exe pengu' : 'which pengu';
-    const resolvedPath = cp.execSync(checkCmd, { encoding: 'utf-8' }).split(/\r?\n/)[0].trim();
-    if (resolvedPath && fs.existsSync(resolvedPath)) {
-      return { command: resolvedPath, args: [] };
-    }
-  } catch {
-    // Not in PATH
-  }
-
-  // Fallback to python pengu_project.py
+  // 4. Python project script fallback
   const venvPython = isWindows
     ? path.join(workspaceFolder, '.venv', 'Scripts', 'python.exe')
     : path.join(workspaceFolder, '.venv', 'bin', 'python');
@@ -149,11 +149,11 @@ function getPenguCli(workspaceFolder: string): ExecutableInfo {
     return { command: py, args: [projectScript] };
   }
 
-  return { command: 'pengu', args: [] };
+  return { command: exeName, args: [] };
 }
 
 /**
- * Runs a command in the output channel.
+ * Runs a CLI build/clean/init command in the PenguScript output channel.
  */
 function runInOutputChannel(workspaceFolder: string, args: string[]) {
   const cli = getPenguCli(workspaceFolder);
@@ -166,15 +166,15 @@ function runInOutputChannel(workspaceFolder: string, args: string[]) {
     shell: true,
   });
 
-  proc.stdout.on('data', (data) => {
+  proc.stdout.on('data', (data: Buffer) => {
     outputChannel.append(data.toString());
   });
 
-  proc.stderr.on('data', (data) => {
+  proc.stderr.on('data', (data: Buffer) => {
     outputChannel.append(data.toString());
   });
 
-  proc.on('close', (code) => {
+  proc.on('close', (code: number | null) => {
     if (code === 0) {
       outputChannel.appendLine(`[SUCCESS] Process completed with code 0.`);
       vscode.window.showInformationMessage(`PenguScript: '${args[0]}' succeeded.`);
@@ -185,10 +185,9 @@ function runInOutputChannel(workspaceFolder: string, args: string[]) {
   });
 }
 
-// Flag to prevent showing "stopped" message on deactivation
+// Flag to prevent showing "stopped" message on intentional deactivation
 let isDeactivating = false;
 
-// State change handler function
 function handleStateChange(event: { oldState: State; newState: State }) {
   outputChannel.appendLine(`[LSP] State changed: ${State[event.oldState]} -> ${State[event.newState]}`);
   if (event.newState === State.Stopped) {
@@ -305,7 +304,6 @@ export function activate(context: vscode.ExtensionContext) {
       const newServerOpts = getLspServerOptions(workspaceFolder);
       if (newServerOpts) {
         client = new LanguageClient('pengus', 'PenguScript LSP', newServerOpts, clientOptions);
-        // Re-attach state listener
         client.onDidChangeState(handleStateChange);
         client.start().then(() => {
           vscode.window.showInformationMessage('PenguScript Language Server restarted.');

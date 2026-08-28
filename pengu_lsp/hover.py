@@ -96,7 +96,7 @@ def format_symbol_hover(sym: Symbol, custom_types: Optional[Dict[str, Type]] = N
         params_formatted = []
         for p_name, p_type in fn_t.params:
             p_sz = estimate_size(p_type, custom_types)
-            sz_str = f" /* {p_sz}B */" if p_sz > 0 else ""
+            sz_str = f" /* {p_sz * 8} bits / {p_sz} bytes */" if p_sz > 0 else ""
             if p_name:
                 params_formatted.append(f"{p_name} as {p_type}{sz_str}")
             else:
@@ -105,7 +105,7 @@ def format_symbol_hover(sym: Symbol, custom_types: Optional[Dict[str, Type]] = N
         param_str = f" with {', '.join(params_formatted)}" if params_formatted else ""
         ret_t = fn_t.return_type
         ret_sz = estimate_size(ret_t, custom_types)
-        ret_sz_str = f" /* {ret_sz}B */" if ret_sz > 0 else ""
+        ret_sz_str = f" /* {ret_sz * 8} bits / {ret_sz} bytes */" if ret_sz > 0 else ""
         decl_kind = "declare" if (kind == "declare" or sym.is_defined_in_c) else "weave"
 
         doc_lines.append("```pengus")
@@ -125,13 +125,13 @@ def format_symbol_hover(sym: Symbol, custom_types: Optional[Dict[str, Type]] = N
         fields_lines = []
         for f_name, f_type in fields_dict.items():
             f_sz = estimate_size(f_type, custom_types)
-            fields_lines.append(f"  {f_name} as {f_type}  // {f_sz} bytes")
+            fields_lines.append(f"  {f_name} as {f_type}  // {f_sz * 8} bits / {f_sz} bytes")
 
         fields_str = "\n".join(fields_lines) if fields_lines else "  // (opaque or empty)"
         doc_lines.append("```pengus")
-        doc_lines.append(f"rune {sym.name} ({total_sz} bytes):\n{fields_str}")
+        doc_lines.append(f"rune {sym.name} ({total_sz * 8} bits / {total_sz} bytes):\n{fields_str}")
         doc_lines.append("```")
-        doc_lines.append(f"**Composite Struct Type** (Total size: {total_sz} bytes)")
+        doc_lines.append(f"**Composite Struct Type** (Total size: {total_sz * 8} bits / {total_sz} bytes)")
 
     # 3. Echos (Tagged Unions)
     elif kind == "echo" or isinstance(sym.type, EchoType):
@@ -141,13 +141,13 @@ def format_symbol_hover(sym: Symbol, custom_types: Optional[Dict[str, Type]] = N
         fields_lines = []
         for f_name, f_type in fields_dict.items():
             f_sz = estimate_size(f_type, custom_types)
-            fields_lines.append(f"  {f_name} as {f_type}  // {f_sz} bytes")
+            fields_lines.append(f"  {f_name} as {f_type}  // {f_sz * 8} bits / {f_sz} bytes")
 
         fields_str = "\n".join(fields_lines) if fields_lines else "  // (opaque or empty)"
         doc_lines.append("```pengus")
-        doc_lines.append(f"echo {sym.name} ({total_sz} bytes):\n{fields_str}")
+        doc_lines.append(f"echo {sym.name} ({total_sz * 8} bits / {total_sz} bytes):\n{fields_str}")
         doc_lines.append("```")
-        doc_lines.append(f"**Tagged Union Type** (Total size: {total_sz} bytes)")
+        doc_lines.append(f"**Tagged Union Type** (Total size: {total_sz * 8} bits / {total_sz} bytes)")
 
     # 4. Omens (Algebraic Data Types)
     elif kind == "omen" or isinstance(sym.type, OmenType):
@@ -156,15 +156,18 @@ def format_symbol_hover(sym: Symbol, custom_types: Optional[Dict[str, Type]] = N
         total_sz = estimate_size(sym.type, custom_types)
         variant_lines = []
         for v_name, v_fields in variants_dict.items():
-            vf_parts = [f"{fn} as {ft} ({estimate_size(ft, custom_types)}B)" for fn, ft in v_fields.items()]
+            vf_parts = []
+            for fn, ft in v_fields.items():
+                v_sz = estimate_size(ft, custom_types)
+                vf_parts.append(f"{fn} as {ft} ({v_sz * 8} bits / {v_sz} bytes)")
             vf_str = f" with {', '.join(vf_parts)}" if vf_parts else ""
             variant_lines.append(f"  {v_name}{vf_str}")
 
         variants_str = "\n".join(variant_lines) if variant_lines else "  // (variants)"
         doc_lines.append("```pengus")
-        doc_lines.append(f"omen {sym.name} ({total_sz} bytes):\n{variants_str}")
+        doc_lines.append(f"omen {sym.name} ({total_sz * 8} bits / {total_sz} bytes):\n{variants_str}")
         doc_lines.append("```")
-        doc_lines.append(f"**Algebraic Data Type / Enum** (Total size: {total_sz} bytes)")
+        doc_lines.append(f"**Algebraic Data Type / Enum** (Total size: {total_sz * 8} bits / {total_sz} bytes)")
 
     # 5. Modules
     elif kind == "import":
@@ -185,7 +188,7 @@ def format_symbol_hover(sym: Symbol, custom_types: Optional[Dict[str, Type]] = N
         mut_str = "mut " if sym.is_mutable else ""
 
         doc_lines.append("```pengus")
-        doc_lines.append(f"{kind} {mut_str}{sym.name} as {type_str} ({sz} bytes){const_str}")
+        doc_lines.append(f"{kind} {mut_str}{sym.name} as {type_str} ({sz * 8} bits / {sz} bytes){const_str}")
         doc_lines.append("```")
 
         if sym.is_defined_in_c:

@@ -142,7 +142,24 @@ class PenguLanguageServer(LanguageServer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._symbols: Dict[str, SymbolTable] = {}
-        self._docs: Dict[str, str] = {}
+
+    def get_document_source(self, uri: str) -> str:
+        """Retrieves text document source code from pygls workspace or filesystem fallback."""
+        try:
+            if hasattr(self.workspace, "get_text_document"):
+                return self.workspace.get_text_document(uri).source
+            if hasattr(self.workspace, "get_document"):
+                return self.workspace.get_document(uri).source
+        except Exception:
+            pass
+        file_path = uri_to_path(uri)
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    return f.read()
+            except Exception:
+                pass
+        return ""
 
     def publish_diagnostics(self, uri: str, diagnostics: List[Diagnostic]) -> None:
         """Publishes LSP diagnostics to the client using the native pygls method."""
@@ -180,7 +197,6 @@ def validate_document(uri: str, source: str) -> None:
     """
     import sys
     print(f"[LSP] validate_document called for {uri} ({len(source)} chars)", file=sys.stderr)
-    server._docs[uri] = source
     file_path = uri_to_path(uri)
     base_dir = os.path.dirname(file_path) if os.path.exists(file_path) else os.getcwd()
 
@@ -224,7 +240,7 @@ def validate_document(uri: str, source: str) -> None:
 def did_open(params: DidOpenTextDocumentParams):
     """Handles textDocument/didOpen notifications."""
     uri = params.text_document.uri
-    source = params.text_document.text
+    source = server.get_document_source(uri) or params.text_document.text
     validate_document(uri, source)
 
 
@@ -232,22 +248,18 @@ def did_open(params: DidOpenTextDocumentParams):
 def did_change(params: DidChangeTextDocumentParams):
     """Handles textDocument/didChange notifications."""
     uri = params.text_document.uri
-    if params.content_changes:
+    source = server.get_document_source(uri)
+    if not source and params.content_changes:
         source = params.content_changes[0].text
-        validate_document(uri, source)
+    validate_document(uri, source)
 
 
 @server.feature(TEXT_DOCUMENT_DID_SAVE)
 def did_save(params: DidSaveTextDocumentParams):
     """Handles textDocument/didSave notifications."""
     uri = params.text_document.uri
-    source = server._docs.get(uri)
-    if source is None:
-        file_path = uri_to_path(uri)
-        if os.path.exists(file_path):
-            with open(file_path, "r", encoding="utf-8") as f:
-                source = f.read()
-    if source is not None:
+    source = server.get_document_source(uri)
+    if source:
         validate_document(uri, source)
 
 
@@ -266,7 +278,7 @@ def completions(params: CompletionParams):
     """Handles textDocument/completion requests."""
     uri = params.text_document.uri
     symbols = server._symbols.get(uri)
-    doc_text = server._docs.get(uri, "")
+    doc_text = server.get_document_source(uri)
     lines = doc_text.splitlines() if doc_text else []
     line_prefix = ""
     if 0 <= params.position.line < len(lines):
@@ -280,7 +292,7 @@ def hover(params: HoverParams):
     """Handles textDocument/hover requests."""
     uri = params.text_document.uri
     symbols = server._symbols.get(uri)
-    doc_text = server._docs.get(uri, "")
+    doc_text = server.get_document_source(uri)
     return get_hover(uri, params.position, symbols, doc_text)
 
 
@@ -290,7 +302,7 @@ def definition(params: DefinitionParams):
     import re
     uri = params.text_document.uri
     symbols = server._symbols.get(uri)
-    doc_text = server._docs.get(uri, "")
+    doc_text = server.get_document_source(uri)
     if not symbols or not doc_text:
         return None
 
