@@ -234,7 +234,8 @@ def path_to_uri(path: str) -> str:
     try:
         return Path(os.path.abspath(path)).as_uri()
     except Exception:
-        return f"file:///{path.replace('\\', '/')}"
+        normalized_path = path.replace("\\", "/")
+        return f"file:///{normalized_path}"
 
 
 @server.feature(TEXT_DOCUMENT_COMPLETION)
