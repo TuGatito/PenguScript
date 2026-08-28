@@ -54,6 +54,13 @@ weave main into void:
     builder = PenguBuilder(cfg)
     bundle_path, _ = builder.bundle(output_file="build/test_real_libs_bundle.c")
 
+    if not os.path.exists("build/lib/libpengu_runtime.a"):
+        try:
+            import build_runtime
+            build_runtime.main()
+        except Exception:
+            pass
+
     exe_path = "build/test_real_libs.exe" if os.name == "nt" else "build/test_real_libs"
     compile_cmd = [
         "gcc", bundle_path, "-I.", "-Ibuild", "-Ibuild/include", "-Lbuild/lib",
@@ -128,6 +135,13 @@ weave main into void:
     cfg = ProjectConfig(entry=test_file, base_dir=".", output="c")
     builder = PenguBuilder(cfg)
     bundle_path, _ = builder.bundle(output_file="build/test_real_filum_bundle.c")
+
+    if not os.path.exists("build/lib/libpengu_runtime.a"):
+        try:
+            import build_runtime
+            build_runtime.main()
+        except Exception:
+            pass
 
     exe_path = "build/test_real_filum.exe" if os.name == "nt" else "build/test_real_filum"
     compile_cmd = [

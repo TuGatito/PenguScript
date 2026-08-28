@@ -18,6 +18,12 @@ class TestStdlib:
 
         exe_path = f"build/{bin_name}.exe" if os.name == "nt" else f"build/{bin_name}"
         compile_cmd = ["gcc", bundle_path, "-I.", "-Ibuild", "-Ibuild/include", "-Lbuild/lib"]
+        if not os.path.exists("build/lib/libpengu_runtime.a"):
+            try:
+                import build_runtime
+                build_runtime.main()
+            except Exception:
+                pass
         if os.path.exists("build/lib/libpengu_runtime.a"):
             compile_cmd += [
                 "-lpengu_runtime", "-lpcre2-8", "-lxml2", "-lcurl",
