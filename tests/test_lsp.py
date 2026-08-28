@@ -207,7 +207,7 @@ weave main into void:
         completions = get_completions("file:///test.pengu", Position(line=3, character=16), symbols=self.checker.symbols, line_prefix="  calling spark.")
         labels = [item.label for item in completions.items]
         self.assertIn("println", labels)
-        self.assertIn("print", labels)
+        self.assertIn("print_line", labels)
 
         # Test hover on 'spark.println'
         hover_println = get_hover("file:///test.pengu", Position(line=3, character=17), symbols=self.checker.symbols, text=code)
@@ -253,6 +253,45 @@ weave main into void:
         self.assertIsNotNone(loc_mod)
         self.assertTrue(loc_mod.uri.endswith("spark.pengu"))
 
+    def test_scoped_and_dot_field_completions(self):
+        """Verifies local variable suggestions and rune dot field completions."""
+        code = """rune Character:
+    name as string
+    hp as int
+    is_alive as bool
+
+weave main into void:
+    var player as Character is with name is "Hero" and hp is 100 and is_alive is true
+    var outer_secret as int is 42
+    if outer_secret > 0:
+        var inner_flag as bool is true
+        calling print with player.name
+"""
+        tree = self.parser.parse(code)
+        self.checker.check(tree, source=code, filename="test.pengu")
+
+        # 1. Scoped local completion inside if block (line 10, 0-indexed line 9)
+        res_if = get_completions("file:///test.pengu", Position(line=9, character=8), symbols=self.checker.symbols, line_prefix="        ")
+        labels_if = [it.label for it in res_if.items]
+        self.assertIn("player", labels_if)
+        self.assertIn("outer_secret", labels_if)
+        self.assertIn("inner_flag", labels_if)
+
+        # 2. Dot completion on 'player.' (exclusive field completion)
+        res_dot = get_completions("file:///test.pengu", Position(line=9, character=30), symbols=self.checker.symbols, line_prefix="        calling print with player.")
+        fields = [(it.label, it.detail) for it in res_dot.items]
+        self.assertEqual(len(fields), 3)
+        self.assertIn(("name", "string"), fields)
+        self.assertIn(("hp", "int"), fields)
+        self.assertIn(("is_alive", "bool"), fields)
+
+        # 3. Arrow completion on 'player->'
+        res_arrow = get_completions("file:///test.pengu", Position(line=9, character=31), symbols=self.checker.symbols, line_prefix="        calling print with player->")
+        arrow_fields = [it.label for it in res_arrow.items]
+        self.assertIn("name", arrow_fields)
+        self.assertIn("hp", arrow_fields)
+
 
 if __name__ == "__main__":
     unittest.main()
+

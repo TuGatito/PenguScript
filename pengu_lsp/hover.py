@@ -273,7 +273,8 @@ def get_hover(
             )
 
     # 2. Direct symbol lookup
-    sym = symbols.lookup(word)
+    cursor_line = position.line + 1
+    sym = symbols.lookup_at(word, cursor_line) if hasattr(symbols, "lookup_at") else symbols.lookup(word)
     if sym:
         return Hover(
             contents=MarkupContent(

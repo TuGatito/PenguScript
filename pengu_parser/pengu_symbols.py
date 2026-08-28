@@ -62,6 +62,8 @@ class Scope:
         return_type: Optional[Type] = None,
         in_loop: bool = False,
         in_or_block: bool = False,
+        start_line: int = 0,
+        end_line: int = 0,
     ):
         """Initializes a new lexical scope.
 
@@ -75,6 +77,8 @@ class Scope:
             return_type: Expected return type of enclosing weave.
             in_loop: True if scope is inside a loop.
             in_or_block: True if scope is inside an or: error block.
+            start_line: Starting 1-indexed source line of the scope.
+            end_line: Ending 1-indexed source line of the scope.
         """
         self.kind = kind
         self.parent = parent
@@ -86,6 +90,8 @@ class Scope:
         self.return_type = return_type
         self.in_loop = in_loop
         self.in_or_block = in_or_block
+        self.start_line = start_line
+        self.end_line = end_line
 
     def define(self, symbol: Symbol) -> None:
         """Defines a symbol in this local scope.
@@ -127,8 +133,9 @@ class SymbolTable:
 
     def __init__(self):
         """Initializes global scope, builtins, and symbol registries."""
-        self.global_scope = Scope(kind="global")
+        self.global_scope = Scope(kind="global", start_line=0, end_line=9999999)
         self.current_scope = self.global_scope
+        self.all_scopes: List[Scope] = [self.global_scope]
         self.runes: Dict[str, RuneType] = {}
         self.echos: Dict[str, EchoType] = {}
         self.omens: Dict[str, OmenType] = {}
@@ -191,7 +198,7 @@ class SymbolTable:
 
         Args:
             kind: Type of scope ('weave', 'enchanting', 'with', 'if', 'while', 'for', 'or_block').
-            **kwargs: Overriding parameters (return_type, enchanting_type, with_type, with_target_var_name, in_loop, etc.).
+            **kwargs: Overriding parameters (return_type, enchanting_type, with_type, with_target_var_name, in_loop, start_line, end_line, etc.).
 
         Returns:
             The newly created and entered Scope.
@@ -200,6 +207,8 @@ class SymbolTable:
         in_or_block = kwargs.get("in_or_block", self.current_scope.in_or_block or (kind == "or_block"))
         return_type = kwargs.get("return_type", self.current_scope.return_type)
         enchanting_type = kwargs.get("enchanting_type", self.current_scope.enchanting_type)
+        start_line = kwargs.get("start_line", 0)
+        end_line = kwargs.get("end_line", 0)
 
         if kind == "with":
             with_type = kwargs.get("with_type", None)
@@ -224,8 +233,12 @@ class SymbolTable:
             return_type=return_type,
             in_loop=in_loop,
             in_or_block=in_or_block,
+            start_line=start_line,
+            end_line=end_line,
         )
         self.current_scope = new_scope
+        if new_scope not in self.all_scopes:
+            self.all_scopes.append(new_scope)
 
         if enchanting_type is not None and kind == "enchanting":
             self.current_scope.define(Symbol(
@@ -236,17 +249,51 @@ class SymbolTable:
             ))
         return new_scope
 
-    def pop_scope(self) -> Scope:
+    def pop_scope(self, end_line: Optional[int] = None) -> Scope:
         """Exits the current scope and restores parent scope.
+
+        Args:
+            end_line: Optional ending source line for the scope block.
 
         Returns:
             The popped Scope.
         """
         if self.current_scope.parent is not None:
             old = self.current_scope
+            if end_line is not None and end_line > 0:
+                old.end_line = end_line
+            if old not in self.all_scopes:
+                self.all_scopes.append(old)
             self.current_scope = self.current_scope.parent
             return old
         return self.current_scope
+
+    def lookup_at(self, name: str, line: int) -> Optional[Symbol]:
+        """Looks up a symbol at a specific source line by checking matching scopes.
+
+        Args:
+            name: Identifier name to search.
+            line: Source line number (1-indexed).
+
+        Returns:
+            Matching Symbol or None.
+        """
+        # Find all scopes that contain the line, sorted by most specific (narrowest span) first
+        matching_scopes = []
+        for scope in self.all_scopes:
+            if scope.start_line <= line <= scope.end_line:
+                span = (scope.end_line - scope.start_line) if (scope.end_line >= scope.start_line and scope.start_line > 0) else 999999
+                matching_scopes.append((span, scope))
+
+        # Sort by narrowest span first
+        matching_scopes.sort(key=lambda s: s[0])
+
+        for _, scope in matching_scopes:
+            if name in scope.symbols:
+                return scope.symbols[name]
+
+        # Fallback to global symbol table lookup
+        return self.lookup(name)
 
     def define(self, symbol: Symbol) -> None:
         """Defines a symbol in the current scope.

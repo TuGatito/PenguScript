@@ -146,6 +146,30 @@ class PenguChecker:
                         return cl, cc
         return None, None
 
+    def _get_node_span(self, node: Any) -> Tuple[int, int]:
+        """Extracts (start_line, end_line) from an AST node."""
+        if isinstance(node, Token):
+            l = getattr(node, "line", 0) or 0
+            el = getattr(node, "end_line", l) or l
+            return l, el
+        if isinstance(node, Tree):
+            start_l = 0
+            end_l = 0
+            if hasattr(node, "meta") and node.meta:
+                start_l = getattr(node.meta, "line", 0) or 0
+                end_l = getattr(node.meta, "end_line", 0) or 0
+            lines = []
+            for t in node.scan_values(lambda v: isinstance(v, Token)):
+                if getattr(t, "line", None):
+                    lines.append(t.line)
+                if getattr(t, "end_line", None):
+                    lines.append(t.end_line)
+            if lines:
+                start_l = start_l or min(lines)
+                end_l = max(lines) if not end_l else max(end_l, max(lines))
+            return start_l, max(start_l, end_l)
+        return 0, 0
+
     def _make_error(self, err_cls, message: str, node: Any = None, **kwargs) -> PenguError:
         """Creates a specialized semantic error with line, snippet, and span context.
 
@@ -704,7 +728,8 @@ class PenguChecker:
                 )
                 self._record_error(err)
 
-            self.symbols.push_scope(kind="enchanting", enchanting_type=target_type)
+            span_start, span_end = self._get_node_span(node)
+            self.symbols.push_scope(kind="enchanting", enchanting_type=target_type, start_line=span_start, end_line=span_end)
             for tp in type_params:
                 self.symbols.define(Symbol(name=tp, type=TypeParam(tp), kind="type"))
 
@@ -714,7 +739,7 @@ class PenguChecker:
                 else:
                     self._check_node(child)
 
-            self.symbols.pop_scope()
+            self.symbols.pop_scope(end_line=span_end)
             return
 
         # 3. Weave Function Bodies
@@ -1346,7 +1371,8 @@ class PenguChecker:
             elif isinstance(child, Tree) and child.data in ("stmt", "var_decl", "let_decl", "set_stmt", "return_stmt", "if_stmt", "while_stmt", "for_range_stmt", "for_in_stmt", "with_stmt", "expr_stmt"):
                 stmt_children.append(child)
 
-        self.symbols.push_scope(kind="weave", return_type=ret_type)
+        span_start, span_end = self._get_node_span(node)
+        self.symbols.push_scope(kind="weave", return_type=ret_type, start_line=span_start, end_line=span_end)
         for tp in type_params:
             self.symbols.define(Symbol(name=tp, type=TypeParam(tp), kind="type"))
 
@@ -1408,7 +1434,7 @@ class PenguChecker:
                 except SemanticError as e:
                     self._record_error(e)
 
-        self.symbols.pop_scope()
+        self.symbols.pop_scope(end_line=span_end)
 
     def _check_symbol_escape(self, sym_name: str, stmts: List[Tree]) -> bool:
         """Determines if a local variable escapes its function scope via pointer, return, or assignment.
@@ -1547,7 +1573,8 @@ class PenguChecker:
         if isinstance(self_type, RuneType):
             self_type.methods[fn_name] = method_fn_type
 
-        self.symbols.push_scope(kind="weave", return_type=ret_type, enchanting_type=self_type)
+        span_start, span_end = self._get_node_span(node)
+        self.symbols.push_scope(kind="weave", return_type=ret_type, enchanting_type=self_type, start_line=span_start, end_line=span_end)
         self.symbols.define(Symbol(name="self", type=RefType(target=self_type), kind="param", is_mutable=False, line=line, column=col))
         for tp in tp_list:
             self.symbols.define(Symbol(name=tp, type=TypeParam(tp), kind="type"))
@@ -1577,7 +1604,7 @@ class PenguChecker:
                 except SemanticError as e:
                     self._record_error(e)
 
-        self.symbols.pop_scope()
+        self.symbols.pop_scope(end_line=span_end)
 
     def _check_if_stmt(self, node: Tree) -> None:
         """Checks if-statement branches and detects unreachable dead code branches.
@@ -1592,7 +1619,8 @@ class PenguChecker:
 
         folded_cond = self.const_folder.fold(cond_node)
 
-        self.symbols.push_scope(kind="if")
+        span_start, span_end = self._get_node_span(block_node)
+        self.symbols.push_scope(kind="if", start_line=span_start, end_line=span_end)
 
         if isinstance(cond_node, Tree) and cond_node.data == "if_cond_binding_present":
             bind_name = str(cond_node.children[0])
@@ -1634,15 +1662,16 @@ class PenguChecker:
             self.warnings.append("[W0004] Unreachable code in then branch")
         else:
             self._check_node(block_node)
-        self.symbols.pop_scope()
+        self.symbols.pop_scope(end_line=span_end)
 
         if else_node is not None:
             if folded_cond is True:
                 self.warnings.append("[W0004] Unreachable code in else branch")
             else:
-                self.symbols.push_scope(kind="if")
+                e_start, e_end = self._get_node_span(else_node)
+                self.symbols.push_scope(kind="if", start_line=e_start, end_line=e_end)
                 self._check_node(else_node)
-                self.symbols.pop_scope()
+                self.symbols.pop_scope(end_line=e_end)
 
     def _check_unless_stmt(self, node: Tree) -> None:
         """Checks unless-statement condition and blocks.
@@ -1655,7 +1684,8 @@ class PenguChecker:
         block_node = node.children[1]
         else_node = node.children[2] if len(node.children) > 2 else None
 
-        self.symbols.push_scope(kind="if")
+        span_start, span_end = self._get_node_span(block_node)
+        self.symbols.push_scope(kind="if", start_line=span_start, end_line=span_end)
         try:
             c_type = self.inferrer.infer(cond_node)
             if not c_type.is_compatible(BOOL_TYPE) and not isinstance(c_type, AnyType):
@@ -1672,12 +1702,13 @@ class PenguChecker:
             self._record_error(e)
 
         self._check_node(block_node)
-        self.symbols.pop_scope()
+        self.symbols.pop_scope(end_line=span_end)
 
         if else_node is not None:
-            self.symbols.push_scope(kind="if")
+            e_start, e_end = self._get_node_span(else_node)
+            self.symbols.push_scope(kind="if", start_line=e_start, end_line=e_end)
             self._check_node(else_node)
-            self.symbols.pop_scope()
+            self.symbols.pop_scope(end_line=e_end)
 
     def _check_while_stmt(self, node: Tree) -> None:
         """Checks while-loop condition and body statements.
@@ -1704,9 +1735,10 @@ class PenguChecker:
         except SemanticError as e:
             self._record_error(e)
 
-        self.symbols.push_scope(kind="while", in_loop=True)
+        span_start, span_end = self._get_node_span(node)
+        self.symbols.push_scope(kind="while", in_loop=True, start_line=span_start, end_line=span_end)
         self._check_node(block_node)
-        self.symbols.pop_scope()
+        self.symbols.pop_scope(end_line=span_end)
 
     def _check_for_range_stmt(self, node: Tree) -> None:
         """Checks numeric range for-loop bounds and step expressions.
@@ -1759,10 +1791,11 @@ class PenguChecker:
         except SemanticError as e:
             self._record_error(e)
 
-        self.symbols.push_scope(kind="for", in_loop=True)
+        span_start, span_end = self._get_node_span(node)
+        self.symbols.push_scope(kind="for", in_loop=True, start_line=span_start, end_line=span_end)
         self.symbols.define(Symbol(name=var_name, type=INT_TYPE, kind="var", is_mutable=False, line=line, column=col))
         self._check_node(block_node)
-        self.symbols.pop_scope()
+        self.symbols.pop_scope(end_line=span_end)
 
     def _check_for_in_stmt(self, node: Tree) -> None:
         """Checks collection iterator for-loop and element binding.
@@ -1792,10 +1825,11 @@ class PenguChecker:
         except SemanticError as e:
             self._record_error(e)
 
-        self.symbols.push_scope(kind="for", in_loop=True)
+        span_start, span_end = self._get_node_span(node)
+        self.symbols.push_scope(kind="for", in_loop=True, start_line=span_start, end_line=span_end)
         self.symbols.define(Symbol(name=var_name, type=elem_type, kind="var", is_mutable=False, line=line, column=col))
         self._check_node(block_node)
-        self.symbols.pop_scope()
+        self.symbols.pop_scope(end_line=span_end)
 
     def _check_with_stmt(self, node: Tree) -> None:
         """Checks with-statement binding and sets desugar annotations.
@@ -1823,10 +1857,11 @@ class PenguChecker:
         except SemanticError as e:
             self._record_error(e)
 
-        self.symbols.push_scope(kind="with", with_type=target_type, with_is_mutable=is_mut, with_target_var_name=target_var_name)
+        span_start, span_end = self._get_node_span(node)
+        self.symbols.push_scope(kind="with", with_type=target_type, with_is_mutable=is_mut, with_target_var_name=target_var_name, start_line=span_start, end_line=span_end)
         for b in block_node:
             self._check_node(b)
-        self.symbols.pop_scope()
+        self.symbols.pop_scope(end_line=span_end)
 
     def _check_return_stmt(self, node: Tree) -> None:
         """Checks return statement value against enclosing function return type.
@@ -1872,8 +1907,9 @@ class PenguChecker:
         Args:
             node: AST Tree for or-block statement.
         """
-        self.symbols.push_scope(kind="or_block", in_or_block=True)
+        span_start, span_end = self._get_node_span(node)
+        self.symbols.push_scope(kind="or_block", in_or_block=True, start_line=span_start, end_line=span_end)
         for child in node.children:
             if isinstance(child, Tree):
                 self._check_node(child)
-        self.symbols.pop_scope()
+        self.symbols.pop_scope(end_line=span_end)

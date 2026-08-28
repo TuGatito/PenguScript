@@ -10,6 +10,7 @@ from lsprotocol.types import (
     Position,
 )
 from pengu_parser.pengu_symbols import SymbolTable, Symbol
+from pengu_parser.pengu_types import RuneType, EchoType, OmenType, RefType
 
 
 BASE_KEYWORDS = [
@@ -92,38 +93,119 @@ def get_completions(
     Returns:
         CompletionList for VSCode LSP.
     """
-    # 0. Check for module dot context completion (e.g. `spark.` or `ledger.`)
+    cursor_line = position.line + 1
+
+    # 0. Dot / Arrow Completion (Fields of Rune/Echo/Omen or Module members)
     if symbols and line_prefix:
-        dot_match = re.search(r"([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\.$", line_prefix)
+        dot_match = re.search(r"([a-zA-Z_][a-zA-Z0-9_]*)(?:\.|->)$", line_prefix)
         if dot_match:
-            target_path = dot_match.group(1)
-            mod_name = target_path.split(".")[-1]
-            sym = symbols.lookup(mod_name)
-            if sym and sym.module_scope:
-                mod_items: List[CompletionItem] = []
-                for name, m_sym in sym.module_scope.symbols.items():
-                    if name.startswith("_"):
-                        continue
-                    kind = (
-                        CompletionItemKind.Class if m_sym.kind == "rune"
-                        else CompletionItemKind.Function if m_sym.kind in ("weave", "function", "declare")
-                        else CompletionItemKind.Enum if m_sym.kind == "echo"
-                        else CompletionItemKind.Interface if m_sym.kind == "omen"
-                        else CompletionItemKind.TypeParameter if m_sym.kind == "alias"
-                        else CompletionItemKind.Constant if m_sym.kind == "const"
-                        else CompletionItemKind.Variable
-                    )
-                    t_str = f" {m_sym.type}" if getattr(m_sym, "type", None) else ""
-                    mod_items.append(
-                        CompletionItem(
-                            label=name,
-                            kind=kind,
-                            detail=f"{m_sym.kind}{t_str}",
-                            documentation=m_sym.doc or None,
-                            insert_text=name,
+            var_name = dot_match.group(1)
+            sym = symbols.lookup_at(var_name, cursor_line) if hasattr(symbols, "lookup_at") else symbols.lookup(var_name)
+
+            if not sym and var_name == "self":
+                sym = symbols.lookup("self")
+
+            if sym:
+                actual_type = sym.type
+                while isinstance(actual_type, RefType):
+                    actual_type = actual_type.target
+
+                # Module members: suggest exported symbols from imported modules
+                if getattr(sym, "module_scope", None) and sym.module_scope.symbols:
+                    mod_items: List[CompletionItem] = []
+                    for name, m_sym in sym.module_scope.symbols.items():
+                        if name.startswith("_"):
+                            continue
+                        if getattr(m_sym, "kind", "") == "type" and name in ("int", "i32", "i64", "float", "f32", "f64", "bool", "string", "void", "opaque"):
+                            continue
+                        kind = (
+                            CompletionItemKind.Class if m_sym.kind == "rune"
+                            else CompletionItemKind.Function if m_sym.kind in ("weave", "function", "declare")
+                            else CompletionItemKind.Enum if m_sym.kind == "echo"
+                            else CompletionItemKind.Interface if m_sym.kind == "omen"
+                            else CompletionItemKind.TypeParameter if m_sym.kind == "alias"
+                            else CompletionItemKind.Constant if m_sym.kind == "const"
+                            else CompletionItemKind.Variable
                         )
-                    )
-                return CompletionList(is_incomplete=False, items=mod_items)
+                        t_str = f" {m_sym.type}" if getattr(m_sym, "type", None) else ""
+                        mod_items.append(
+                            CompletionItem(
+                                label=name,
+                                kind=kind,
+                                detail=f"{m_sym.kind}{t_str}",
+                                documentation=m_sym.doc or None,
+                                insert_text=name,
+                            )
+                        )
+                    return CompletionList(is_incomplete=False, items=mod_items)
+
+                field_items: List[CompletionItem] = []
+
+                # RuneType: suggest fields and attached methods
+                if isinstance(actual_type, RuneType):
+                    for f_name, f_type in actual_type.fields.items():
+                        field_items.append(
+                            CompletionItem(
+                                label=f_name,
+                                kind=CompletionItemKind.Field,
+                                detail=str(f_type),
+                                insert_text=f_name,
+                            )
+                        )
+                    for m_name, m_type in getattr(actual_type, "methods", {}).items():
+                        field_items.append(
+                            CompletionItem(
+                                label=m_name,
+                                kind=CompletionItemKind.Method,
+                                detail=f"method {m_type}",
+                                insert_text=m_name,
+                            )
+                        )
+                    return CompletionList(is_incomplete=False, items=field_items)
+
+                # EchoType: suggest fields
+                elif isinstance(actual_type, EchoType):
+                    for f_name, f_type in actual_type.fields.items():
+                        field_items.append(
+                            CompletionItem(
+                                label=f_name,
+                                kind=CompletionItemKind.Field,
+                                detail=str(f_type),
+                                insert_text=f_name,
+                            )
+                        )
+                    return CompletionList(is_incomplete=False, items=field_items)
+
+                # OmenType: suggest variants
+                elif isinstance(actual_type, OmenType):
+                    for v_name, v_fields in actual_type.variants.items():
+                        v_detail = f"variant with {', '.join(f'{fn} as {ft}' for fn, ft in v_fields.items())}" if v_fields else "variant"
+                        field_items.append(
+                            CompletionItem(
+                                label=v_name,
+                                kind=CompletionItemKind.EnumMember,
+                                detail=v_detail,
+                                insert_text=v_name,
+                            )
+                        )
+                    return CompletionList(is_incomplete=False, items=field_items)
+
+            # Check if var_name is a type name directly (e.g. Rune.field or Omen.Variant)
+            if hasattr(symbols, "runes") and var_name in symbols.runes:
+                r_type = symbols.runes[var_name]
+                field_items = [
+                    CompletionItem(label=fn, kind=CompletionItemKind.Field, detail=str(ft), insert_text=fn)
+                    for fn, ft in r_type.fields.items()
+                ]
+                return CompletionList(is_incomplete=False, items=field_items)
+
+            if hasattr(symbols, "omens") and var_name in symbols.omens:
+                o_type = symbols.omens[var_name]
+                variant_items = [
+                    CompletionItem(label=vn, kind=CompletionItemKind.EnumMember, detail="variant", insert_text=vn)
+                    for vn in o_type.variants.keys()
+                ]
+                return CompletionList(is_incomplete=False, items=variant_items)
 
     items: List[CompletionItem] = []
 
@@ -150,7 +232,7 @@ def get_completions(
             )
         )
 
-    # 3. Dynamic Symbols from SymbolTable
+    # 3. Dynamic Global Symbols from SymbolTable
     if symbols:
         table_dict = getattr(symbols, "table", None)
         if table_dict is None and hasattr(symbols, "global_scope"):
@@ -179,6 +261,23 @@ def get_completions(
                             insert_text=name,
                         )
                     )
+
+        # 4. Dynamic Local Variables from Active Scopes around cursor_line
+        if hasattr(symbols, "all_scopes"):
+            for scope in symbols.all_scopes:
+                if scope.start_line <= cursor_line <= scope.end_line:
+                    for sym in scope.symbols.values():
+                        if getattr(sym, "kind", "") in ("var", "let", "param") and sym.name:
+                            if not any(it.label == sym.name for it in items):
+                                t_str = f" {sym.type}" if getattr(sym, "type", None) else ""
+                                items.append(
+                                    CompletionItem(
+                                        label=sym.name,
+                                        kind=CompletionItemKind.Variable,
+                                        detail=f"{sym.kind}{t_str}",
+                                        insert_text=sym.name,
+                                    )
+                                )
 
         # Collect custom runes/types registered in symbols
         for r_name in getattr(symbols, "runes", {}):
@@ -215,3 +314,4 @@ def get_completions(
                 )
 
     return CompletionList(is_incomplete=False, items=items)
+

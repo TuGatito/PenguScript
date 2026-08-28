@@ -252,10 +252,19 @@ def did_open(params: DidOpenTextDocumentParams):
 def did_change(params: DidChangeTextDocumentParams):
     """Handles textDocument/didChange notifications."""
     uri = params.text_document.uri
+    
+    # 1. Usar el helper robusto en lugar de get_text_document directamente
     source = server.get_document_source(uri)
-    if not source and params.content_changes:
-        source = params.content_changes[0].text
-    validate_document(uri, source)
+
+    # 2. Mantener tu lógica de Full Sync por si acaso
+    if params.content_changes:
+        first_change = params.content_changes[0]
+        if not getattr(first_change, 'range', None):
+            source = first_change.text
+
+    if source:
+        server._docs[uri] = source
+        validate_document(uri, source)
 
 
 @server.feature(TEXT_DOCUMENT_DID_SAVE)
@@ -350,7 +359,8 @@ def definition(params: DefinitionParams):
 
     # 3. Fallback to direct symbol lookup
     if not target_sym:
-        target_sym = symbols.lookup(word)
+        cursor_line = params.position.line + 1
+        target_sym = symbols.lookup_at(word, cursor_line) if hasattr(symbols, "lookup_at") else symbols.lookup(word)
         if target_sym and target_sym.file_path:
             target_uri = path_to_uri(target_sym.file_path)
 
