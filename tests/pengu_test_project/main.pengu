@@ -1,35 +1,26 @@
 import std.spark
-import std.ward
 
-# Top-level global constant
-const MAX_SPEED as float is 120.0
+# Generic Struct declaration with 'shard'
+rune Box shard T:
+    item as T
+    id as int
 
-# Composite Struct
-rune Vehicle:
-    model as string
-    speed as float
-    is_running as bool
+# Generic Struct with multiple type parameters
+rune Pair shard T and U:
+    first as T
+    second as U
 
-# Method attachment (self is always passed as ref to Vehicle)
-enchanting Vehicle:
-    weave accelerate with delta as float into void:
-        if self->is_running:
-            set self->speed is self->speed + delta
-            if self->speed > MAX_SPEED:
-                set self->speed is MAX_SPEED
+# Generic Function declaration with 'shard'
+weave create_box shard T with val as T and id as int into Box of T:
+    return with item is val and id is id
 
-    weave status into string:
-        return self->model + " traveling at " + (self->speed to string) + " km/h"
+weave main into int:
+    # Instantiation and specialized calls with 'of'
+    var int_box as Box of int is calling create_box of int with 42 and 1
+    var str_box as Box of string is calling create_box of string with "Pengu" and 2
 
-weave main into void:
-    # Struct initialization with scoped properties
-    var car as Vehicle is with model is "PenguMobile" and speed is 0.0 and is_running is true
+    calling spark.println with "int_box item={int_box.item}, id={int_box.id}"
+    calling spark.println with "str_box item={str_box.item}, id={str_box.id}"
 
-    # Invoke method
-    calling car.accelerate with 45.5
-
-    # Print output using standard library
-    calling spark.println with calling car.status
-
-    # Assert condition
-    calling ward.assert with car.speed > 0.0
+    calling spark.println with "Generics test passed successfully!"
+    return 0

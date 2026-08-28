@@ -274,7 +274,7 @@ This directory contains the standalone distribution of the **PenguScript Compile
 {dist_dir.name}/
 ├── pengu{' .exe' if IS_WINDOWS else ''}                # Standalone PenguScript CLI (Compiler + Build Manager + LSP)
 ├── pengus-0.6.0.vsix         # VS Code Extension (Syntax, LSP, Go-To-Definition, Cargo Commands)
-├── std/                      # Complete Standard Library (25 modules)
+├── std/                      # Complete Standard Library (24 modules)
 │   ├── spark.pengu
 │   ├── oracle.pengu
 │   ├── ward.pengu

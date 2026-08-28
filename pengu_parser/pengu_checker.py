@@ -426,6 +426,14 @@ class PenguChecker:
                 self.symbols.global_scope.define(Symbol(
                     name=o_name, type=omen_t, kind="omen", line=line, column=col, doc=doc, file_path=self.filename
                 ))
+                for v_name in variants:
+                    self.symbols.global_scope.define(Symbol(
+                        name=f"{o_name}_{v_name}", type=omen_t, kind="omen_variant", is_mutable=False, line=line, column=col, file_path=self.filename
+                    ))
+                    if self.symbols.lookup(v_name) is None:
+                        self.symbols.global_scope.define(Symbol(
+                            name=v_name, type=omen_t, kind="omen_variant", is_mutable=False, line=line, column=col, file_path=self.filename
+                        ))
 
             elif rule == "alias_decl":
                 a_name = str(stmt.children[0])

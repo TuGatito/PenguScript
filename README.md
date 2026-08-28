@@ -27,18 +27,19 @@ PenguScript compiles directly to highly optimized C99/C11 source code, enabling 
   - `const` is **strictly global** (top-level) and translates directly to `#define`.
   - `var` (mutable) and `let` (immutable) are **strictly local** inside function bodies, preventing accidental mutable global state.
 - **Zero-Cost C Transpilation**: Outputs clean, readable, dependency-free C code compiled with GCC, Clang, or MSVC.
-- **Expressive Type System**:
+- **Expressive Type System & Generics**:
   - `rune` (composite structs) and `enchanting` (method receiver blocks with `self->`).
   - `echo` (C-compatible tagged unions) and `omen` (algebraic data types / enums with payloads).
-  - `maybe T` (null-safe optional container) and `result of T to E` (functional error handling).
-  - Collections: fixed-size `array of T`, `slice of T`, dynamic `list of T`, and hash `map of K to V`.
+  - `maybe T` (null-safe optional container) and `or:` error handling blocks.
+  - Zero-overhead Generics with `shard` (declaration) and `of` (specialization).
+  - Collections: fixed-size `array of T`, `slice of T`, dynamic `list of T`, and hash `map of K to V` accessed with `at`.
 - **Memory Safety & Deterministic Cleanup**:
   - `defer` (LIFO execution upon scope exit) and `errdefer` (execution only when an error is returned).
   - `banish` (explicit heap memory deallocation).
   - `sigil of` (`&x` address-of) and `essence of` (`*ptr` dereference).
-- **Comprehensive Standard Library**: 25 built-in standard modules covering terminal I/O, regex, XML/HTML, cryptography, compression, HTTP client/server, unit testing, and math.
+- **Comprehensive Standard Library**: 24 built-in standard modules covering terminal I/O, regex, XML/HTML, cryptography, compression, HTTP client/server, unit testing, and math.
 - **Cargo-Style Project Manager (`pengu`)**: Single command to create, build, run, clean, and launch the Language Server.
-- **Full Language Server Protocol (LSP)**: Real-time diagnostics, documentation extracted from `#` and `##` comments, type sizing hover in bytes, and module-scoped autocomplete. (Not working, under construction)
+- **Language Server Protocol (LSP)**: Real-time diagnostics, documentation extracted from `#` and `##` comments, type sizing hover in bytes, and module-scoped autocomplete.
 
 ---
 
@@ -80,6 +81,24 @@ weave main into void:
 
     # Assert condition
     calling ward.assert with car.speed > 0.0
+```
+
+### Generics with `shard` and `of`
+
+```pengu
+# Generic Struct declaration
+rune Box shard T:
+    item as T
+    id as int
+
+# Generic Function declaration
+weave create_box shard T with val as T and id as int into Box of T:
+    return with item is val and id is id
+
+weave demo_generics into void:
+    # Monomorphized zero-overhead specialization
+    var int_box as Box of int is calling create_box of int with 42 and 1
+    var str_box as Box of string is calling create_box of string with "Pengu" and 2
 ```
 
 ---
@@ -149,35 +168,34 @@ defines = ["NDEBUG"]
 
 ## 📦 Standard Library Overview
 
-PenguScript comes equipped with **25 high-performance standard library modules**:
+PenguScript comes equipped with **24 high-performance standard library modules**:
 
-| Module        | Import                 | Description                                                                                     |
-| ------------- | ---------------------- | ----------------------------------------------------------------------------------------------- |
-| **spark**     | `import std.spark`     | Fast terminal I/O (`print`, `println`, `read_line`, ANSI color formatting).                     |
-| **oracle**    | `import std.oracle`    | String conversions, parsing integers/floats, string interpolation.                              |
-| **chronicle** | `import std.chronicle` | High-precision time, timestamps, date/time formatting, sleep, stopwatch.                        |
-| **whisper**   | `import std.whisper`   | File system operations (`read_file`, `write_file`, `append_file`, `exists`).                    |
-| **filum**     | `import std.filum`     | Advanced string manipulation (`split`, `join`, `replace`, `trim`).                              |
-| **atlas**     | `import std.atlas`     | System environment variables, CLI arguments, process execution.                                 |
-| **tally**     | `import std.tally`     | Advanced math functions (`min`, `max`, `abs`, `clamp`, `sqrt`, `sin`, `cos`, `pow`).            |
-| **ledger**    | `import std.ledger`    | High-performance CSV & TSV parsing, delimiter detection, row serializer.                        |
-| **vault**     | `import std.vault`     | Key-value memory stores, configuration dictionary mappings.                                     |
-| **parchment** | `import std.parchment` | XML / HTML document tree parser and XPath navigation (powered by `libxml2`).                    |
-| **regulus**   | `import std.regulus`   | High-speed regular expressions (powered by `PCRE2 10.47`).                                      |
-| **seal**      | `import std.seal`      | Cryptographic hashing (`MD5`, `SHA1`, `SHA256`, `SHA512`, `CRC32`) & `zlib`/`gzip` compression. |
-| **precis**    | `import std.precis`    | HTTP client (`GET`, `POST`, `PUT`, `DELETE`), embedded HTTP micro-server, TCP sockets.          |
-| **ward**      | `import std.ward`      | Runtime assertions (`assert`, `assert_eq`, `assert_ne`, `assert_ok`, `panic`).                  |
-| **trial**     | `import std.trial`     | Automated testing framework (suites, test cases, before/after hooks, summary report).           |
-| **alembic**   | `import std.alembic`   | Data encoding/decoding (`Base64`, `Hex`, `URL encoding`).                                       |
-| **prism**     | `import std.prism`     | Color space transformations (`RGB`, `HEX`, `HSL`, `HSV`).                                       |
-| **matrix**    | `import std.matrix`    | 2D/3D math vectors, matrix multiplication, transformation helpers.                              |
-| **loom**      | `import std.loom`      | Multi-threading primitives, worker tasks, and synchronization mutexes.                          |
-| **fable**     | `import std.fable`     | Pseudo-random number generators, seeds, random range, shuffle algorithms.                       |
-| **forge**     | `import std.forge`     | Binary data buffers, byte swapping, endianness conversions.                                     |
-| **scroll**    | `import std.scroll`    | JSON serialization and deserialization helpers.                                                 |
-| **beacon**    | `import std.beacon`    | Structured logging framework (`debug`, `info`, `warn`, `error`, `fatal`).                       |
-| **harbor**    | `import std.harbor`    | Cross-platform directory traversing, file watcher notifications.                                |
-| **quarry**    | `import std.quarry`    | In-memory query engine and array filtering/sorting algorithms.                                  |
+| Module | Import | Description |
+|---|---|---|
+| **spark** | `import std.spark` | Core runtime and terminal I/O (`print`, `println`, `read_line`, ANSI styling, basic conversions, panic). |
+| **scrolls** | `import std.scrolls` | Comprehensive string manipulation (`split`, `join`, `replace`, `trim`, `starts_with`, `ends_with`, `contains`, case conversions). |
+| **oracle** | `import std.oracle` | Null-safe optional and functional error types (`MaybeInt`, `MaybeFloat`, `MaybeString`, `ResultInt`, `ResultString`, `is_present`, `is_ok`). |
+| **tally** | `import std.tally` | Dynamic array and list manipulation utilities, element indexing, sorting, and transformations. |
+| **atlas** | `import std.atlas` | Hash map key-value store structures and mapping utilities. |
+| **coven** | `import std.coven` | Dynamic unique set collections (`insert`, `contains`, `remove`, union, intersection, difference). |
+| **compass** | `import std.compass` | Cross-platform file path manipulation (`join`, `basename`, `dirname`, `ext`, normalization, absolute paths). |
+| **archivum** | `import std.archivum` | Complete file system operations: reading, writing, appending, copying, moving, deleting, directory listing, and metadata. |
+| **arithmancy** | `import std.arithmancy` | Advanced mathematical functions: trigonometry (`sin`, `cos`, `tan`), powers, roots, logarithms, rounding, and clamping. |
+| **chronicle** | `import std.chronicle` | High-precision time, timestamps, date/time formatting, monotonic clocks, sleep delays, and stopwatch benchmarking. |
+| **lot** | `import std.lot` | Pseudorandom number generation, seeds, range-bounded integers/floats, and collection shuffling. |
+| **rites** | `import std.rites` | Operating system interface: process execution, environment variables, command running, and exit codes. |
+| **invoke** | `import std.invoke` | Command-line argument parsing for CLI applications (flags, options, positional arguments, and automated `--help`). |
+| **ledger** | `import std.ledger` | High-performance CSV and TSV parsing, delimiter detection, and tabular row serialization. |
+| **cipher** | `import std.cipher` | JSON serialization/deserialization and Base64 encoding/decoding. |
+| **parchment** | `import std.parchment` | XML and HTML DOM parsing, node traversal, attribute manipulation, and serialization (powered by `libxml2`). |
+| **regulus** | `import std.regulus` | High-performance regular expression compilation, matching, search, replace, and capture groups (powered by `PCRE2 10.47`). |
+| **seal** | `import std.seal` | Cryptographic hashing (`MD5`, `SHA1`, `SHA256`, `SHA512`, `CRC32`) and gzip/zlib compression (`deflate`/`inflate`). |
+| **precis** | `import std.precis` | Full networking stack: HTTP client (`GET`, `POST`, `PUT`, `DELETE`), embedded HTTP micro-server, TCP sockets, and URL encoding. |
+| **filum** | `import std.filum` | Concurrency primitives: thread spawning, communication channels, mutexes, wait groups, and atomics. |
+| **loom** | `import std.loom` | Functional collection utilities and iterators (`map`, `filter`, `reduce`, `zip`, chunking, flattening). |
+| **ward** | `import std.ward` | Runtime assertions and invariant validations (`assert`, `assert_eq`, `assert_ne`, `assert_present`, `assert_ok`, `panic`). |
+| **trial** | `import std.trial` | Automated unit testing framework (suites, test cases, before/after lifecycle hooks, and colored reporting). |
+| **whisper** | `import std.whisper` | Structured logging framework with severity levels (`trace`, `debug`, `info`, `warn`, `error`, `fatal`). |
 
 ---
 

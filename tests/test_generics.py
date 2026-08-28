@@ -296,6 +296,30 @@ weave main into void:
         t4 = ResultType(ok_type=INT_TYPE, err_type=STRING_TYPE)
         self.assertEqual(mangle_type(t4), "result_int_string")
 
+    def test_generic_explicit_type_arguments_call_and_monomorphization(self):
+        code = """rune Box shard T:
+  item as T
+  id as int
+
+weave create_box shard T with val as T and id as int into Box of T:
+  return with item is val and id is id
+
+weave main into void:
+  var int_box as Box of int is calling create_box of int with 42 and 1
+  var str_box as Box of string is calling create_box of string with "Pengu" and 2
+"""
+        tree = self._check(code)
+        codegen = PenguCodegen(self.checker.symbols, ["main.pengu"], ".")
+        codegen.collect_declarations([("main.pengu", tree)])
+        c_code = codegen.generate_bundle()
+        self.assertIn("struct Box_int", c_code)
+        self.assertIn("struct Box_string", c_code)
+        self.assertIn("Box_int create_box_int(int32_t val, int32_t id)", c_code)
+        self.assertIn("Box_string create_box_string(PenguString val, int32_t id)", c_code)
+        self.assertIn("create_box_int(42, 1)", c_code)
+        self.assertIn("create_box_string(pengu_string_from_cstr(\"Pengu\"), 2)", c_code)
+
 
 if __name__ == "__main__":
     unittest.main()
+

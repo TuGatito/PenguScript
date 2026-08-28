@@ -241,6 +241,23 @@ class TypeInferrer:
             return STRING_TYPE
         elif rule in ("true_lit", "false_lit"):
             return BOOL_TYPE
+        elif rule == "array_lit":
+            if not node.children:
+                elem_type = expected_type.element if (expected_type and isinstance(expected_type, ArrayType)) else AnyType()
+                return ArrayType(element=elem_type, size=0)
+            elem_types = [self.infer(c) for c in node.children]
+            first_t = elem_types[0]
+            for t in elem_types[1:]:
+                if not t.is_compatible(first_t):
+                    raise self._make_error(
+                        TypeMismatchError,
+                        f"Array literal elements must have compatible types, got '{first_t}' and '{t}'",
+                        node,
+                        code="E0005",
+                        help="Ensure all elements in the array literal match.",
+                        note="Array elements must be homogenous."
+                    )
+            return ArrayType(element=first_t, size=len(node.children))
         elif rule == "maybe_none":
             if expected_type is not None and isinstance(expected_type, MaybeType):
                 return expected_type
@@ -325,6 +342,8 @@ class TypeInferrer:
                     if c_sym and c_sym.type:
                         return c_sym.type
                     return INT_TYPE
+                if sym and isinstance(sym.type, OmenType) and field_name in sym.type.variants:
+                    return sym.type
 
             if isinstance(target_node, Tree) and target_node.data == "self_ref":
                 raise self._make_error(
@@ -385,6 +404,18 @@ class TypeInferrer:
                         note=f"Echo '{target_type.name}' only exposes its declared fields."
                     )
                 return target_type.fields[field_name]
+
+            elif isinstance(target_type, OmenType):
+                if field_name in target_type.variants:
+                    return target_type
+                raise self._make_error(
+                    SemanticError,
+                    f"Omen '{target_type.name}' has no variant '{field_name}'",
+                    node,
+                    code="E0013",
+                    help=f"Check variant spelling or verify definition of omen '{target_type.name}'.",
+                    note=f"Omen '{target_type.name}' only exposes its declared variants."
+                )
             elif isinstance(target_type, (SliceType, ListType)) or (isinstance(target_type, BaseType) and target_type.name == "string"):
                 if field_name in ("length", "len", "capacity", "cap", "data"):
                     return INT_TYPE
@@ -512,14 +543,31 @@ class TypeInferrer:
                     sym_t = self.symbols.lookup_type(unwrapped_expected.name)
                     if isinstance(sym_t, RuneType) and sym_t.fields:
                         expected_fields = sym_t.fields
+            elif isinstance(unwrapped_expected, EchoType):
+                expected_fields = unwrapped_expected.fields
+                if not expected_fields and self.symbols:
+                    sym_t = self.symbols.lookup_type(unwrapped_expected.name)
+                    if isinstance(sym_t, EchoType) and sym_t.fields:
+                        expected_fields = sym_t.fields
+            elif isinstance(unwrapped_expected, OmenType):
+                variants = unwrapped_expected.variants
+                if not variants and self.symbols:
+                    sym_t = self.symbols.lookup_type(unwrapped_expected.name)
+                    if isinstance(sym_t, OmenType) and sym_t.variants:
+                        variants = sym_t.variants
+                for v_name, v_f in variants.items():
+                    expected_fields[v_name] = RuneType(name=v_name, fields=v_f)
 
             for child in node.children:
                 if isinstance(child, Tree) and child.data == "field_init":
                     f_name = str(child.children[0])
-                    f_expr = child.children[1]
-                    exp_f_type = expected_fields.get(f_name)
-                    f_type = self.infer(f_expr, expected_type=exp_f_type)
-                    field_inits[f_name] = f_type
+                    if len(child.children) > 1 and child.children[1] is not None:
+                        f_expr = child.children[1]
+                        exp_f_type = expected_fields.get(f_name)
+                        f_type = self.infer(f_expr, expected_type=exp_f_type)
+                        field_inits[f_name] = f_type
+                    else:
+                        field_inits[f_name] = VOID_TYPE
 
             # If expected_type is provided
             if expected_type is not None and not isinstance(expected_type, AnyType):
@@ -991,7 +1039,14 @@ class TypeInferrer:
         # Calling function or method
         elif rule == "calling_expr":
             target_node = node.children[0]
-            args_tree = node.children[1] if len(node.children) > 1 else None
+            explicit_type_args = []
+            args_tree = None
+            for ch in node.children[1:]:
+                if isinstance(ch, Tree):
+                    if ch.data == "generic_args":
+                        explicit_type_args = [ast_to_type(c, self.symbols.lookup_type) for c in ch.children if c is not None]
+                    elif ch.data == "arg_list":
+                        args_tree = ch
 
             fn_type, method_self_type = self._resolve_call_target(target_node)
             if fn_type is None:
@@ -1043,6 +1098,9 @@ class TypeInferrer:
             if fn_name and ((fn_name in self.symbols.generic_functions) or (fn_type and fn_type.type_params)):
                 type_params = self.symbols.generic_functions[fn_name][0] if (fn_name in self.symbols.generic_functions) else fn_type.type_params
                 subst_map: Dict[str, Type] = {}
+                if explicit_type_args:
+                    for tp, ta in zip(type_params, explicit_type_args):
+                        subst_map[tp] = ta
 
                 def unify(param_t: Type, arg_t: Type):
                     if isinstance(param_t, TypeParam):
@@ -1468,7 +1526,11 @@ class TypeInferrer:
                     note="Leading dot method calls require an active 'with' context."
                 )
 
-            t_name = with_type.name
+            base_with_type = with_type
+            while isinstance(base_with_type, (RefType, AliasType)):
+                base_with_type = base_with_type.target
+
+            t_name = getattr(base_with_type, "name", str(base_with_type))
             if (t_name, method_name) in self.symbols.methods:
                 return self.symbols.methods[(t_name, method_name)], with_type
 

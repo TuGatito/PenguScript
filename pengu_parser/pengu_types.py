@@ -77,6 +77,10 @@ class Type:
             return True
         if isinstance(other, TypeParam) or isinstance(self, TypeParam):
             return True
+        if isinstance(other, AliasType):
+            return self.is_compatible(other.target)
+        if isinstance(self, AliasType):
+            return self.target.is_compatible(other)
         if (isinstance(self, BaseType) and self.name.isupper()) or (isinstance(other, BaseType) and other.name.isupper()):
             return True
         return self == other
@@ -221,6 +225,8 @@ class BaseType(Type):
         """Checks strict compatibility for base primitives without implicit numeric conversion."""
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
+        if isinstance(other, AliasType):
+            return self.is_compatible(other.target)
         if isinstance(other, BaseType):
             if self.name == other.name:
                 return True
@@ -658,6 +664,19 @@ class OmenType(Type):
     def is_generic(self) -> bool:
         return bool(self.type_params) and not bool(self.type_args)
 
+    @property
+    def is_algebraic(self) -> bool:
+        """Returns True if at least one variant has associated payload fields."""
+        return any(bool(fields) for fields in self.variants.values())
+
+    def is_numeric(self) -> bool:
+        """Simple traditional enums without payload map to C integers."""
+        return not self.is_algebraic
+
+    def is_int(self) -> bool:
+        """Simple traditional enums without payload map to C integers."""
+        return not self.is_algebraic
+
     def get_mangled_name(self) -> str:
         return mangle_type(self)
 
@@ -956,7 +975,20 @@ def ast_to_type(type_node: Any, symbol_lookup_fn: Optional[Any] = None) -> Type:
 
     elif rule == "array_type":
         element = ast_to_type(type_node.children[0], symbol_lookup_fn)
-        return ArrayType(element=element)
+        size = None
+        if len(type_node.children) > 1 and type_node.children[1] is not None:
+            sz_tok = type_node.children[1]
+            if isinstance(sz_tok, Token) and sz_tok.type == "INT":
+                try:
+                    size = int(str(sz_tok), 0)
+                except ValueError:
+                    pass
+            elif isinstance(sz_tok, Token):
+                sz_name = str(sz_tok)
+                sym = symbol_lookup_fn(sz_name) if symbol_lookup_fn else None
+                if sym and hasattr(sym, "const_val") and isinstance(sym.const_val, int):
+                    size = sym.const_val
+        return ArrayType(element=element, size=size)
 
     elif rule == "slice_type":
         element = ast_to_type(type_node.children[0], symbol_lookup_fn)

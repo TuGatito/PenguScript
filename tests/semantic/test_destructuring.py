@@ -43,6 +43,26 @@ weave main into void:
         tree = self.parser.parse(code)
         self.checker.check(tree)
 
+    def test_destructuring_codegen(self):
+        code = """rune Vec2:
+  x as float
+  y as float
+
+weave test_destructure into void:
+  var v as Vec2 is with x is 10.5 and y is 20.5
+  let vx, vy is v
+"""
+        from pengu_parser.pengu_codegen import PenguCodegen
+        tree = self.parser.parse(code)
+        self.checker.check(tree, source=code, filename="test_destruct.pengu")
+        codegen = PenguCodegen(self.checker.symbols, ["test_destruct.pengu"], ".")
+        codegen.collect_declarations([("test_destruct.pengu", tree)])
+        c_code = codegen.generate_function_definitions()
+
+        self.assertIn("const float vx = _destruct_1.x;", c_code)
+        self.assertIn("const float vy = _destruct_1.y;", c_code)
+
 
 if __name__ == "__main__":
     unittest.main()
+

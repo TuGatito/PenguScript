@@ -134,7 +134,7 @@ when_pattern: INT
             | "true"
             | "false"
             | "maybe" "none"
-            | NAME
+            | NAME ("." NAME)*
 
 ?type: ref_type
      | fn_type
@@ -156,7 +156,7 @@ ref_type: "ref" "to" type
 fn_type: "weave" ["with" fn_param_list] ["into" type]
 fn_param_list: fn_param (("," | "and") fn_param)*
 fn_param: [NAME "as"] type
-array_type: "array" "of" type
+array_type: "array" "of" type ["with" "size" (INT | NAME)]
 slice_type: "slice" "of" type
 list_type: "list" "of" type
 map_type: "map" "of" type "to" type
@@ -227,7 +227,8 @@ for_comp_expr: "for" NAME "in" expr ["when" expr] "then" expr -> for_comp
       | calling_expr
       | postfix
 
-calling_expr: "calling" (with_target | normal_target) ["with" arg_list]
+calling_expr: "calling" (with_target | normal_target) [generic_args] ["with" arg_list]
+generic_args: "of" type (("and" | ",") type)*
 arg_list: arg (("," | "and") arg)*
 arg: NAME "is" expr -> named_arg
    | expr           -> pos_arg
@@ -237,12 +238,12 @@ arg: NAME "is" expr -> named_arg
 
 ?postfix_no_cast: primary
                 | postfix_no_cast "at" slice_range        -> slice_at_expr
-                | postfix_no_cast "at" expr_no_cast       -> at_expr
+                | postfix_no_cast "at" unary_no_cast      -> at_expr
                 | postfix_no_cast "length"                -> length_expr
                 | postfix_no_cast "." NAME                -> field_access
                 | postfix_no_cast "->" NAME               -> arrow_access
 
-slice_range: expr_no_cast "to" expr_no_cast
+slice_range: unary_no_cast "to" unary_no_cast
 
 ?expr_no_cast: logic_or_no_cast (("==" | "!=" | "<=" | ">=" | "<" | ">") logic_or_no_cast)*
 ?logic_or_no_cast: logic_or_no_cast "|" logic_and_no_cast -> bitwise_or
@@ -283,10 +284,12 @@ slice_range: expr_no_cast "to" expr_no_cast
         | list_init_expr
         | map_init_expr
         | array_init_expr
+        | array_lit
 
 struct_init: "with" field_init (("and" | ",") field_init)*
 field_init: NAME "is" expr
 
+array_lit: "[" [expr (("," | "and") expr)*] "]"
 list_init_expr: "list" "of" type ["with" "capacity" expr]
 map_init_expr: "map" "of" type "to" type
 array_init_expr: "array" "of" type "with" "size" expr
