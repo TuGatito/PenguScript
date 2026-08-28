@@ -1880,7 +1880,7 @@ class PenguCodegen:
 
                 if target_str == "print":
                     if args:
-                        arg_expr = args_node.children[0] if args_node and args_node.children else None
+                        arg_expr = node.children[1].children[0] if len(node.children) > 1 and node.children[1].children else None
                         if isinstance(arg_expr, Tree) and arg_expr.data in ("pos_arg", "named_arg"):
                             arg_expr = arg_expr.children[-1]
                         inferrer = TypeInferrer(self.symbols)
