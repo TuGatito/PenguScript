@@ -184,9 +184,9 @@ weave main into void:
         hover_player = get_hover("file:///test.pengu", Position(line=0, character=7), symbols=self.checker.symbols, text=code)
         self.assertIsNotNone(hover_player)
         self.assertIn("21 bytes", hover_player.contents.value)
-        self.assertIn("name as string  // 16 bytes", hover_player.contents.value)
-        self.assertIn("health as int  // 4 bytes", hover_player.contents.value)
-        self.assertIn("is_alive as bool  // 1 bytes", hover_player.contents.value)
+        self.assertIn("name as string  // 128 bits / 16 bytes", hover_player.contents.value)
+        self.assertIn("health as int  // 32 bits / 4 bytes", hover_player.contents.value)
+        self.assertIn("is_alive as bool  // 8 bits / 1 bytes", hover_player.contents.value)
 
     def test_module_completion_and_hover(self):
         """Verifies module-scoped completions and hover for stdlib modules."""

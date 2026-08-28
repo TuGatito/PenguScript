@@ -142,9 +142,10 @@ class PenguLanguageServer(LanguageServer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._symbols: Dict[str, SymbolTable] = {}
+        self._docs: Dict[str, str] = {}
 
     def get_document_source(self, uri: str) -> str:
-        """Retrieves text document source code from pygls workspace or filesystem fallback."""
+        """Retrieves text document source code from pygls workspace, test cache, or filesystem fallback."""
         try:
             if hasattr(self.workspace, "get_text_document"):
                 return self.workspace.get_text_document(uri).source
@@ -152,6 +153,8 @@ class PenguLanguageServer(LanguageServer):
                 return self.workspace.get_document(uri).source
         except Exception:
             pass
+        if hasattr(self, "_docs") and uri in self._docs:
+            return self._docs[uri]
         file_path = uri_to_path(uri)
         if os.path.exists(file_path):
             try:
@@ -197,6 +200,7 @@ def validate_document(uri: str, source: str) -> None:
     """
     import sys
     print(f"[LSP] validate_document called for {uri} ({len(source)} chars)", file=sys.stderr)
+    server._docs[uri] = source
     file_path = uri_to_path(uri)
     base_dir = os.path.dirname(file_path) if os.path.exists(file_path) else os.getcwd()
 
