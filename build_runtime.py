@@ -73,10 +73,18 @@ def build_zlib(cc, ar, rebuild=False):
     obj_dir = BUILD_DIR / "obj_zlib"
     obj_dir.mkdir(parents=True, exist_ok=True)
 
+    flags = [
+        "-O2", "-I" + str(zlib_dir),
+        "-Wno-implicit-function-declaration",
+        "-Wno-incompatible-pointer-types"
+    ]
+    if not sys.platform.startswith("win"):
+        flags.extend(["-DHAVE_UNISTD_H", "-DHAVE_SYS_TYPES_H"])
+
     for src in sources:
         src_path = zlib_dir / src
         obj_path = obj_dir / f"{src_path.stem}.o"
-        cmd = [cc, "-O2", "-I" + str(zlib_dir), "-c", str(src_path), "-o", str(obj_path)]
+        cmd = [cc] + flags + ["-c", str(src_path), "-o", str(obj_path)]
         run_cmd(cmd)
         obj_files.append(str(obj_path))
 
@@ -124,7 +132,10 @@ def build_pcre2(cc, ar, rebuild=False):
 
     flags = [
         "-O2", "-DHAVE_CONFIG_H", "-DPCRE2_CODE_UNIT_WIDTH=8",
-        "-DPCRE2_STATIC", "-DSUPPORT_UNICODE", "-I" + str(src_dir)
+        "-DPCRE2_STATIC", "-DSUPPORT_UNICODE",
+        "-Wno-implicit-function-declaration",
+        "-Wno-incompatible-pointer-types",
+        "-I" + str(src_dir)
     ]
 
     for src in sources:
@@ -155,28 +166,40 @@ def build_libxml2(cc, ar, rebuild=False):
 #define HAVE_STDARG_H
 #define HAVE_ERRNO_H
 #define HAVE_STDINT_H
+#define HAVE_STDLIB_H
+#define HAVE_STRING_H
+#define HAVE_TIME_H
+#define HAVE_FCNTL_H
+#define HAVE_SYS_STAT_H
+#define HAVE_STAT
 
 #if defined(_WIN32) || defined(_WIN64) || defined(__CYGWIN__) || defined(__MINGW32__)
 #define HAVE_MALLOC_H
-#define HAVE_SYS_STAT_H
 #define HAVE__STAT
-#define HAVE_STAT
-#define HAVE_STDLIB_H
-#define HAVE_TIME_H
-#define HAVE_FCNTL_H
 #include <io.h>
 #include <direct.h>
 #else
-#define HAVE_SYS_STAT_H
-#define HAVE_STAT
-#define HAVE_STDLIB_H
-#define HAVE_TIME_H
-#define HAVE_FCNTL_H
 #define HAVE_UNISTD_H
 #define HAVE_SYS_TYPES_H
+#define HAVE_SYS_SOCKET_H
+#define HAVE_NETINET_IN_H
+#define HAVE_ARPA_INET_H
+#define HAVE_NETDB_H
+#define HAVE_SYS_SELECT_H
+#define HAVE_SYS_TIME_H
+#define HAVE_STRINGS_H
+#define HAVE_GETADDRINFO
+#define HAVE_GETTIMEOFDAY
+#define HAVE_POLL_H
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <sys/select.h>
+#include <sys/time.h>
 #endif
 
 #include <libxml/xmlversion.h>
