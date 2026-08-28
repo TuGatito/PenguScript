@@ -73,18 +73,10 @@ def build_zlib(cc, ar, rebuild=False):
     obj_dir = BUILD_DIR / "obj_zlib"
     obj_dir.mkdir(parents=True, exist_ok=True)
 
-    flags = [
-        "-O2", "-I" + str(zlib_dir),
-        "-Wno-implicit-function-declaration",
-        "-Wno-incompatible-pointer-types"
-    ]
-    if not sys.platform.startswith("win"):
-        flags.extend(["-DHAVE_UNISTD_H", "-DHAVE_SYS_TYPES_H"])
-
     for src in sources:
         src_path = zlib_dir / src
         obj_path = obj_dir / f"{src_path.stem}.o"
-        cmd = [cc] + flags + ["-c", str(src_path), "-o", str(obj_path)]
+        cmd = [cc, "-O2", "-I" + str(zlib_dir), "-c", str(src_path), "-o", str(obj_path)]
         run_cmd(cmd)
         obj_files.append(str(obj_path))
 
@@ -132,10 +124,7 @@ def build_pcre2(cc, ar, rebuild=False):
 
     flags = [
         "-O2", "-DHAVE_CONFIG_H", "-DPCRE2_CODE_UNIT_WIDTH=8",
-        "-DPCRE2_STATIC", "-DSUPPORT_UNICODE",
-        "-Wno-implicit-function-declaration",
-        "-Wno-incompatible-pointer-types",
-        "-I" + str(src_dir)
+        "-DPCRE2_STATIC", "-DSUPPORT_UNICODE", "-I" + str(src_dir)
     ]
 
     for src in sources:
@@ -159,76 +148,12 @@ def build_libxml2(cc, ar, rebuild=False):
 
     config_path = xml_dir / "config.h"
     if not config_path.exists() or rebuild:
-        config_content = """#ifndef __LIBXML_CONFIG_H__
-#define __LIBXML_CONFIG_H__
-
-#define HAVE_CTYPE_H
-#define HAVE_STDARG_H
-#define HAVE_ERRNO_H
-#define HAVE_STDINT_H
-#define HAVE_STDLIB_H
-#define HAVE_STRING_H
-#define HAVE_TIME_H
-#define HAVE_FCNTL_H
-#define HAVE_SYS_STAT_H
-#define HAVE_STAT
-
-#if defined(_WIN32) || defined(_WIN64) || defined(__CYGWIN__) || defined(__MINGW32__)
-#define HAVE_MALLOC_H
-#define HAVE__STAT
-#include <io.h>
-#include <direct.h>
-#else
-#define HAVE_UNISTD_H
-#define HAVE_SYS_TYPES_H
-#define HAVE_SYS_SOCKET_H
-#define HAVE_NETINET_IN_H
-#define HAVE_ARPA_INET_H
-#define HAVE_NETDB_H
-#define HAVE_SYS_SELECT_H
-#define HAVE_SYS_TIME_H
-#define HAVE_STRINGS_H
-#define HAVE_GETADDRINFO
-#define HAVE_GETTIMEOFDAY
-#define HAVE_POLL_H
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <sys/select.h>
-#include <sys/time.h>
-#endif
-
-#include <libxml/xmlversion.h>
-
-#ifndef ICONV_CONST
-#define ICONV_CONST
-#endif
-
-#define HAVE_ISINF
-#define HAVE_ISNAN
-#include <math.h>
-
-#if defined(_MSC_VER)
-#define mkdir(p,m) _mkdir(p)
-#define snprintf _snprintf
-#elif defined(__MINGW32__)
-#define mkdir(p,m) _mkdir(p)
-#endif
-
-#if !defined(FALSE)
-#define FALSE 0
-#endif
-#if !defined(TRUE)
-#define TRUE (!(FALSE))
-#endif
-
-#endif /* __LIBXML_CONFIG_H__ */
-"""
-        config_path.write_text(config_content, encoding="utf-8")
+        if (xml_dir / "win32" / "VC10" / "config.h").exists():
+            content = (xml_dir / "win32" / "VC10" / "config.h").read_text(encoding="utf-8")
+            content = content.replace("#define ICONV_CONST const", "#define ICONV_CONST")
+            config_path.write_text(content, encoding="utf-8")
+        elif (xml_dir / "config.h.in").exists():
+            shutil.copy2(xml_dir / "config.h.in", config_path)
 
     xml_include_dst = INCLUDE_DIR / "libxml"
     xml_include_dst.mkdir(parents=True, exist_ok=True)
@@ -373,83 +298,7 @@ def build_curl(cc, ar, rebuild=False):
     cfg_h = lib_dir / "curl_config.h"
     if not cfg_h.exists() or rebuild:
         if (lib_dir / "config-win32.h").exists():
-            win32_cfg = (lib_dir / "config-win32.h").read_text(encoding="utf-8")
-        else:
-            win32_cfg = ""
-        cfg_content = f"""#ifndef HEADER_CURL_CONFIG_H
-#define HEADER_CURL_CONFIG_H
-
-#if defined(_WIN32) || defined(_WIN64) || defined(__CYGWIN__) || defined(__MINGW32__)
-{win32_cfg}
-#else
-#define OS "posix"
-#define HAVE_ARPA_INET_H 1
-#define HAVE_ASSERT_H 1
-#define HAVE_ERRNO_H 1
-#define HAVE_FCNTL_H 1
-#define HAVE_GETADDRINFO 1
-#define HAVE_GETTIMEOFDAY 1
-#define HAVE_INTTYPES_H 1
-#define HAVE_NETDB_H 1
-#define HAVE_NETINET_IN_H 1
-#define HAVE_NET_IF_H 1
-#define HAVE_POLL_H 1
-#define HAVE_PTHREAD_H 1
-#define HAVE_SELECT 1
-#define HAVE_SETJMP_H 1
-#define HAVE_SIGNAL_H 1
-#define HAVE_SOCKET 1
-#define HAVE_STDBOOL_H 1
-#define HAVE_STDINT_H 1
-#define HAVE_STDLIB_H 1
-#define HAVE_STRCASECMP 1
-#define HAVE_STRDUP 1
-#define HAVE_STRING_H 1
-#define HAVE_STRINGS_H 1
-#define HAVE_STRSTR 1
-#define HAVE_STRTOK_R 1
-#define HAVE_SYS_IOCTL_H 1
-#define HAVE_SYS_PARAM_H 1
-#define HAVE_SYS_POLL_H 1
-#define HAVE_SYS_SELECT_H 1
-#define HAVE_SYS_SOCKET_H 1
-#define HAVE_SYS_STAT_H 1
-#define HAVE_SYS_TIME_H 1
-#define HAVE_SYS_TYPES_H 1
-#define HAVE_SYS_UIO_H 1
-#define HAVE_SYS_UN_H 1
-#define HAVE_SYS_WAIT_H 1
-#define HAVE_TIME_H 1
-#define HAVE_UNISTD_H 1
-#define HAVE_UTIME 1
-#define HAVE_UTIME_H 1
-#define HAVE_SYS_UTIME_H 1
-#define HAVE_WRITEV 1
-#define HAVE_STRUCT_TIMEVAL 1
-#define HAVE_SIGACTION 1
-#define HAVE_ALARM 1
-#define HAVE_CLOCK_GETTIME_MONOTONIC 1
-#define HAVE_INET_PTON 1
-#define HAVE_INET_NTOP 1
-#define HAVE_GETHOSTNAME 1
-#define HAVE_FREEADDRINFO 1
-#define HAVE_GETPEERNAME 1
-#define HAVE_GETSOCKNAME 1
-#define SIZEOF_CURL_OFF_T 8
-#define SIZEOF_INT 4
-#define SIZEOF_LONG 8
-#define SIZEOF_OFF_T 8
-#define SIZEOF_SIZE_T 8
-#define SIZEOF_TIME_T 8
-#define STDC_HEADERS 1
-#define USE_THREADS_POSIX 1
-#define CURL_DISABLE_LDAP 1
-#define CURL_DISABLE_LDAPS 1
-#endif
-
-#endif
-"""
-        cfg_h.write_text(cfg_content, encoding="utf-8")
+            shutil.copy2(lib_dir / "config-win32.h", cfg_h)
 
     if target_lib.exists() and not rebuild:
         print(f"[CURL] {target_lib.name} is up to date.")
@@ -472,28 +321,23 @@ def build_curl(cc, ar, rebuild=False):
         "mprintf.c", "multi.c", "multi_ev.c", "multi_ntfy.c", "netrc.c", "parsedate.c",
         "peer.c", "progress.c", "protocol.c", "proxy.c", "rand.c", "ratelimit.c", "request.c", "select.c",
         "sendf.c", "setopt.c", "sha256.c", "slist.c", "socketpair.c", "socks.c",
-        "splay.c", "strcase.c", "strequal.c", "strerror.c",
+        "splay.c", "strcase.c", "strequal.c", "strerror.c", "system_win32.c",
         "thrdpool.c", "thrdqueue.c", "transfer.c", "uint-bset.c", "uint-hash.c",
         "uint-spbset.c", "uint-table.c", "url.c", "urlapi.c", "version.c", "ws.c"
     ]
-    if sys.platform.startswith("win"):
-        sources.append("system_win32.c")
-
     obj_files = []
     obj_dir = BUILD_DIR / "obj_curl"
     obj_dir.mkdir(parents=True, exist_ok=True)
 
     flags = [
         "-O2", "-DBUILDING_LIBCURL", "-DCURL_STATICLIB", "-DHTTP_ONLY",
-        "-DHAVE_CONFIG_H",
+        "-DUSE_WIN32_LARGE_FILES", "-DHAVE_CONFIG_H",
         "-Wno-incompatible-pointer-types",
         "-Wno-implicit-function-declaration",
         "-I" + str(curl_dir / "include"),
         "-I" + str(lib_dir),
         "-I" + str(curl_dir)
     ]
-    if sys.platform.startswith("win"):
-        flags.append("-DUSE_WIN32_LARGE_FILES")
 
     for src in sources:
         src_path = lib_dir / src
@@ -508,7 +352,8 @@ def build_curl(cc, ar, rebuild=False):
         sub_path = lib_dir / subdir
         if sub_path.exists():
             for src_path in sub_path.glob("*.c"):
-                if subdir == "vtls" and src_path.stem in ["openssl", "rustls", "gtls", "wolfssl", "mbedtls", "apple", "schannel"]:
+                # Skip third party TLS/QUIC wrappers not built
+                if subdir == "vtls" and src_path.stem in ["openssl", "rustls", "gtls", "wolfssl", "mbedtls", "apple"]:
                     continue
                 if subdir == "vquic" and src_path.stem in ["cf-ngtcp2", "cf-ngtcp2-cmn", "cf-ngtcp2-proxy", "cf-quiche"]:
                     continue
@@ -533,53 +378,12 @@ def build_microhttpd(cc, ar, rebuild=False):
     # Prepare MHD_config.h
     cfg_h = mhd_dir / "MHD_config.h"
     if not cfg_h.exists() or rebuild:
-        cfg_content = """#ifndef MHD_CONFIG_H
-#define MHD_CONFIG_H
-
-#if defined(_WIN32) || defined(_WIN64) || defined(__CYGWIN__) || defined(__MINGW32__)
-#define _MHD_static_inline static inline
-#define MHD_W32LIB 1
-#define HAVE_WINDOWS_H 1
-#define HAVE_WINSOCK2_H 1
-#define HAVE_WS2TCPIP_H 1
-#else
-#define _MHD_static_inline static inline
-#define HAVE_PTHREAD_H 1
-#define HAVE_UNISTD_H 1
-#define HAVE_SYS_SOCKET_H 1
-#define HAVE_NETINET_IN_H 1
-#define HAVE_ARPA_INET_H 1
-#define HAVE_SYS_TIME_H 1
-#define HAVE_SYS_SELECT_H 1
-#define HAVE_POLL_H 1
-#define HAVE_SYS_POLL_H 1
-#define HAVE_SYS_TYPES_H 1
-#define HAVE_SYS_STAT_H 1
-#define HAVE_FCNTL_H 1
-#define HAVE_ERRNO_H 1
-#define HAVE_SIGNAL_H 1
-#define HAVE_STDBOOL_H 1
-#define HAVE_STDINT_H 1
-#define HAVE_STDLIB_H 1
-#define HAVE_STRING_H 1
-#define HAVE_TIME_H 1
-#define HAVE_PTHREAD_PRIO_INHERIT 1
-#define HAVE_POLL 1
-#define HAVE_SELECT 1
-#define HAVE_SOCKET 1
-#define HAVE_ACCEPT 1
-#define HAVE_BIND 1
-#define HAVE_LISTEN 1
-#define HAVE_CLOCK_GETTIME 1
-#define MHD_POSIX_SOCKETS 1
-#define MHD_SUPPORT_THREADS 1
-#define _GNU_SOURCE 1
-#endif
-
-#endif
-"""
-        cfg_h.write_text(cfg_content, encoding="utf-8")
-        (mhd_dir / "src" / "include" / "MHD_config.h").write_text(cfg_content, encoding="utf-8")
+        w32_cfg = mhd_dir / "w32" / "common" / "MHD_config.h"
+        if w32_cfg.exists():
+            content = w32_cfg.read_text(encoding="utf-8")
+            content = content.replace("#define _MHD_static_inline static __forceinline", "#define _MHD_static_inline static inline")
+            cfg_h.write_text(content, encoding="utf-8")
+            (mhd_dir / "src" / "include" / "MHD_config.h").write_text(content, encoding="utf-8")
 
     # Copy headers
     INCLUDE_DIR.mkdir(parents=True, exist_ok=True)
@@ -602,15 +406,13 @@ def build_microhttpd(cc, ar, rebuild=False):
     obj_dir.mkdir(parents=True, exist_ok=True)
 
     flags = [
-        "-O2", "-D_REENTRANT",
+        "-O2", "-DMHD_W32LIB", "-D_REENTRANT",
         "-Wno-incompatible-pointer-types",
         "-Wno-implicit-function-declaration",
         "-I" + str(mhd_dir / "src" / "include"),
         "-I" + str(src_dir),
         "-I" + str(mhd_dir)
     ]
-    if sys.platform.startswith("win"):
-        flags.append("-DMHD_W32LIB")
 
     for src in sources:
         src_path = src_dir / src
