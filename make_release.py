@@ -297,13 +297,15 @@ def build_vscode_extension(dist_dir: Path):
         return
 
     # 1. npm install and compile
-    print("  [VSCODE] Installing npm dependencies and compiling TypeScript...")
+    print("  [VSCODE] Installing npm dependencies...")
     run_cmd([npm_cmd, "install"], cwd=str(ext_dir))
-    run_cmd([npm_cmd, "run", "compile"], cwd=str(ext_dir))
+
+    print("  [VSCODE] Bundling extension with esbuild...")
+    run_cmd([npm_cmd, "run", "bundle"], cwd=str(ext_dir))
 
     # 2. Package .vsix
     print("  [VSCODE] Generating .vsix package with vsce...")
-    run_cmd([npx_cmd, "-y", "@vscode/vsce", "package", "--no-dependencies"], cwd=str(ext_dir))
+    run_cmd([npx_cmd, "-y", "@vscode/vsce", "package"], cwd=str(ext_dir))
 
     # 3. Copy .vsix to dist_dir
     vsix_files = list(ext_dir.glob("*.vsix"))

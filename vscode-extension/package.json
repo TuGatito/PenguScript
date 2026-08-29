@@ -117,8 +117,9 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run bundle",
     "compile": "tsc -p ./",
+    "bundle": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
     "watch": "tsc -watch -p ./",
     "package": "npx @vscode/vsce package"
   },
@@ -126,6 +127,7 @@
     "@types/node": "^18.14.6",
     "@types/vscode": "^1.80.0",
     "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.20.0",
     "typescript": "^5.1.6"
   },
   "dependencies": {
