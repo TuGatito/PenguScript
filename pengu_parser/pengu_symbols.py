@@ -303,6 +303,22 @@ class SymbolTable:
         """
         self.current_scope.define(symbol)
 
+    def get_all_visible_names(self) -> List[str]:
+        """Returns all identifier names accessible from current scope and global tables."""
+        names = set()
+        sc = self.current_scope
+        while sc is not None:
+            names.update(sc.symbols.keys())
+            sc = sc.parent
+        names.update(self.global_scope.symbols.keys())
+        names.update(self.functions.keys())
+        names.update(self.runes.keys())
+        names.update(self.echos.keys())
+        names.update(self.omens.keys())
+        names.update(self.aliases.keys())
+        names.update(self.consts.keys())
+        return list(names)
+
     def lookup(self, name: str) -> Optional[Symbol]:
         """Looks up symbol in current and enclosing scopes or uppercase C defines.
 

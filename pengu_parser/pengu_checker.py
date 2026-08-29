@@ -16,7 +16,7 @@ from .pengu_errors import (
     PenguError, ErrorReporter, SemanticError, ConstInsideWeaveError, VarLetTopLevelError,
     SelfDotAccessError, UndefinedIdentifierError, TypeMismatchError, MutabilityError,
     InvalidControlFlowError, InvalidMemoryOpError, InvalidWithTargetError,
-    GenericTypeMissingArgsError, TypeParamOutsideGenericError
+    GenericTypeMissingArgsError, TypeParamOutsideGenericError, suggest_similar_identifier
 )
 
 
@@ -121,10 +121,10 @@ class PenguChecker:
         return self.errors
 
     def _get_loc(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
-        """Retrieves source line and column numbers from AST node.
+        """Retrieves 1-indexed line and column numbers from AST node.
 
         Args:
-            node: Lark Tree or Token.
+            node: AST node or Token.
 
         Returns:
             Tuple of (line, column) or (None, None).
@@ -188,6 +188,16 @@ class PenguChecker:
         if "col" in kwargs and kwargs["col"] is not None:
             col = kwargs.pop("col")
 
+        if "span_start" not in kwargs and col is not None:
+            kwargs["span_start"] = col
+        if "span_end" not in kwargs and col is not None:
+            if isinstance(node, Token):
+                kwargs["span_end"] = col + len(str(node.value))
+            elif isinstance(node, Tree) and hasattr(node, "meta") and getattr(node.meta, "end_column", None):
+                kwargs["span_end"] = getattr(node.meta, "end_column")
+            elif isinstance(node, Tree) and len(node.children) > 0 and isinstance(node.children[0], Token):
+                kwargs["span_end"] = col + len(str(node.children[0].value))
+
         snippet = None
         if self.source_code and line is not None:
             lines = self.source_code.splitlines()
@@ -197,6 +207,65 @@ class PenguChecker:
         kwargs.setdefault("file", self.filename)
         kwargs.setdefault("snippet", snippet)
         return err_cls(message, line=line, col=col, **kwargs)
+
+    def _make_undefined_error(
+        self,
+        name: str,
+        node: Any = None,
+        code: str = "E0004",
+        candidates: Optional[List[str]] = None,
+        entity_kind: str = "identifier"
+    ) -> UndefinedIdentifierError:
+        """Constructs an UndefinedIdentifierError with fuzzy name suggestions."""
+        if candidates is None:
+            candidates = self.symbols.get_all_visible_names() if hasattr(self.symbols, "get_all_visible_names") else []
+        suggestions = suggest_similar_identifier(name, candidates)
+        if suggestions:
+            suggested = suggestions[0]
+            help_msg = f"A similar name exists in scope: '{suggested}'. Did you mean '{suggested}'?"
+        else:
+            help_msg = f"Check if '{name}' is misspelled or declare it before use."
+
+        return self._make_error(
+            UndefinedIdentifierError,
+            f"Undefined {entity_kind} '{name}'",
+            node,
+            code=code,
+            help=help_msg,
+            note=f"All {entity_kind}s must be defined before use.",
+            label="not found in this scope"
+        )
+
+    def _make_type_mismatch_error(
+        self,
+        expected_type: Any,
+        found_type: Any,
+        node: Any = None,
+        expr_str: Optional[str] = None,
+        custom_message: Optional[str] = None,
+        code: str = "E0005",
+        note: Optional[str] = None,
+    ) -> TypeMismatchError:
+        """Constructs a TypeMismatchError with expected/found format and conversion help."""
+        msg = custom_message or f"Mismatched types: expected '{expected_type}', found '{found_type}'"
+        expr_repr = expr_str or "value"
+        is_num_src = str(found_type) in ("int", "i32", "i64", "float", "f32", "f64", "u8", "i8", "u16", "i16", "u32", "u64", "usize", "isize")
+        is_num_tgt = str(expected_type) in ("int", "i32", "i64", "float", "f32", "f64", "u8", "i8", "u16", "i16", "u32", "u64", "usize", "isize")
+
+        if is_num_src and is_num_tgt:
+            help_msg = f"Consider converting the value explicitly using '{expr_repr} to {expected_type}'"
+        else:
+            help_msg = f"Ensure the value type matches the expected type '{expected_type}' or use explicit conversion 'to {expected_type}'."
+
+        return self._make_error(
+            TypeMismatchError,
+            msg,
+            node,
+            code=code,
+            help=help_msg,
+            note=note or "PenguScript requires type safety and explicit conversions.",
+            label=f"expected '{expected_type}'"
+        )
 
     def _record_error(self, err: PenguError) -> None:
         """Records a semantic error in the error accumulator.
@@ -906,12 +975,11 @@ class PenguChecker:
         try:
             inferred = self.inferrer.infer(c_expr, expected_type=c_type)
             if c_type is not None and not inferred.is_compatible(c_type):
-                err = self._make_error(
-                    TypeMismatchError,
-                    f"Constant '{c_name}' declared as '{c_type}', but initialized with '{inferred}'",
-                    node,
-                    code="E0005",
-                    help=f"Ensure initial value matches type '{c_type}'.",
+                err = self._make_type_mismatch_error(
+                    expected_type=c_type,
+                    found_type=inferred,
+                    node=c_expr,
+                    custom_message=f"Constant '{c_name}' declared as '{c_type}', but initialized with '{inferred}'",
                     note="Constants must match their declared type."
                 )
                 self._record_error(err)
@@ -947,12 +1015,11 @@ class PenguChecker:
         try:
             inferred = self.inferrer.infer(v_expr, expected_type=v_type)
             if v_type is not None and not inferred.is_compatible(v_type):
-                err = self._make_error(
-                    TypeMismatchError,
-                    f"Variable '{v_name}' declared as '{v_type}', but initialized with '{inferred}'",
-                    node,
-                    code="E0005",
-                    help=f"Ensure initial value matches declared type '{v_type}'.",
+                err = self._make_type_mismatch_error(
+                    expected_type=v_type,
+                    found_type=inferred,
+                    node=v_expr,
+                    custom_message=f"Variable '{v_name}' declared as '{v_type}', but initialized with '{inferred}'",
                     note="Variables must match their declared type."
                 )
                 self._record_error(err)
@@ -976,15 +1043,14 @@ class PenguChecker:
             self._record_error(e)
 
     def _check_let_decl(self, node: Tree) -> None:
-        """Checks local immutable binding or destructuring declaration for type validity.
+        """Checks immutable let binding declaration, supports destructuring.
 
         Args:
             node: AST Tree for let declaration.
         """
         line, col = self._get_loc(node)
-        name_list_tree = node.children[0]
-        names = [str(t) for t in name_list_tree.children]
-
+        names_node = node.children[0]
+        names: List[str] = [str(c) for c in names_node.children] if isinstance(names_node, Tree) else [str(names_node)]
         l_type = None
         l_expr = None
 
@@ -1004,12 +1070,11 @@ class PenguChecker:
             if len(names) == 1:
                 v_name = names[0]
                 if l_type is not None and not inferred.is_compatible(l_type):
-                    err = self._make_error(
-                        TypeMismatchError,
-                        f"Immutable binding '{v_name}' declared as '{l_type}', but initialized with '{inferred}'",
-                        node,
-                        code="E0005",
-                        help=f"Ensure initial value matches declared type '{l_type}'.",
+                    err = self._make_type_mismatch_error(
+                        expected_type=l_type,
+                        found_type=inferred,
+                        node=l_expr,
+                        custom_message=f"Immutable binding '{v_name}' declared as '{l_type}', but initialized with '{inferred}'",
                         note="Immutable bindings must match their declared type."
                     )
                     self._record_error(err)
@@ -1154,14 +1219,7 @@ class PenguChecker:
                                 )
                             target_type = with_t.fields[first_str]
                         else:
-                            raise self._make_error(
-                                UndefinedIdentifierError,
-                                f"Undefined variable '{first_str}'",
-                                target_node,
-                                code="E0004",
-                                help=f"Define variable '{first_str}' before assigning to it.",
-                                note="All variables must be defined before use."
-                            )
+                            raise self._make_undefined_error(first_str, target_node, entity_kind="variable")
 
                     elif len(target_node.children) == 1:
 

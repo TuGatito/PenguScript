@@ -10,7 +10,7 @@ from lsprotocol.types import (
     Position,
 )
 from pengu_parser.pengu_symbols import SymbolTable, Symbol
-from pengu_parser.pengu_types import RuneType, EchoType, OmenType, RefType
+from pengu_parser.pengu_types import RuneType, EchoType, OmenType, RefType, FnType
 
 
 BASE_KEYWORDS = [
@@ -97,13 +97,31 @@ def get_completions(
 
     # 0. Dot / Arrow Completion (Fields of Rune/Echo/Omen or Module members)
     if symbols and line_prefix:
-        dot_match = re.search(r"([a-zA-Z_][a-zA-Z0-9_]*)(?:\.|->)$", line_prefix)
+        dot_match = re.search(r"([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)(?:\.|->)$", line_prefix)
         if dot_match:
-            var_name = dot_match.group(1)
-            sym = symbols.lookup_at(var_name, cursor_line) if hasattr(symbols, "lookup_at") else symbols.lookup(var_name)
+            full_path = dot_match.group(1)
+            parts = full_path.split(".")
 
-            if not sym and var_name == "self":
-                sym = symbols.lookup("self")
+            curr_sym = None
+            for i, part in enumerate(parts):
+                if i == 0:
+                    curr_sym = symbols.lookup_at(part, cursor_line) if hasattr(symbols, "lookup_at") else symbols.lookup(part)
+                    if not curr_sym and part == "self":
+                        curr_sym = symbols.lookup("self")
+                else:
+                    if curr_sym and getattr(curr_sym, "module_scope", None):
+                        curr_sym = curr_sym.module_scope.symbols.get(part)
+                    elif curr_sym:
+                        c_type = curr_sym.type
+                        while isinstance(c_type, RefType):
+                            c_type = c_type.target
+                        if isinstance(c_type, (RuneType, EchoType)) and part in c_type.fields:
+                            field_type = c_type.fields[part]
+                            curr_sym = Symbol(name=part, type=field_type, kind="var")
+                        else:
+                            curr_sym = None
+
+            sym = curr_sym
 
             if sym:
                 actual_type = sym.type
@@ -190,26 +208,82 @@ def get_completions(
                         )
                     return CompletionList(is_incomplete=False, items=field_items)
 
-            # Check if var_name is a type name directly (e.g. Rune.field or Omen.Variant)
-            if hasattr(symbols, "runes") and var_name in symbols.runes:
-                r_type = symbols.runes[var_name]
+            # Check if full_path is a type name directly (e.g. Rune.field or Omen.Variant)
+            if hasattr(symbols, "runes") and full_path in symbols.runes:
+                r_type = symbols.runes[full_path]
                 field_items = [
                     CompletionItem(label=fn, kind=CompletionItemKind.Field, detail=str(ft), insert_text=fn)
                     for fn, ft in r_type.fields.items()
                 ]
                 return CompletionList(is_incomplete=False, items=field_items)
 
-            if hasattr(symbols, "omens") and var_name in symbols.omens:
-                o_type = symbols.omens[var_name]
+            if hasattr(symbols, "omens") and full_path in symbols.omens:
+                o_type = symbols.omens[full_path]
                 variant_items = [
                     CompletionItem(label=vn, kind=CompletionItemKind.EnumMember, detail="variant", insert_text=vn)
                     for vn in o_type.variants.keys()
                 ]
                 return CompletionList(is_incomplete=False, items=variant_items)
 
+    # 1. Calling Context Completion (e.g. `calling ` or `calling`)
+    if symbols and (line_prefix.strip().endswith("calling") or re.search(r"\bcalling\s+$", line_prefix)):
+        call_items: List[CompletionItem] = []
+        added_labels = set()
+
+        # 1a. Callable local variables in active scopes
+        if hasattr(symbols, "all_scopes"):
+            for scope in symbols.all_scopes:
+                if scope.start_line <= cursor_line <= scope.end_line:
+                    for sym in scope.symbols.values():
+                        if sym.name and sym.name not in added_labels:
+                            if isinstance(getattr(sym, "type", None), FnType):
+                                call_items.append(
+                                    CompletionItem(
+                                        label=sym.name,
+                                        kind=CompletionItemKind.Function,
+                                        detail=f"function {sym.type}",
+                                        insert_text=sym.name,
+                                    )
+                                )
+                                added_labels.add(sym.name)
+
+        # 1b. Global functions, declarations, and imported modules
+        table_dict = getattr(symbols, "table", None)
+        if table_dict is None and hasattr(symbols, "global_scope"):
+            table_dict = symbols.global_scope.symbols
+
+        if table_dict:
+            for name, sym in table_dict.items():
+                if name not in added_labels:
+                    if sym.kind in ("weave", "function", "declare"):
+                        t_str = f" {sym.type}" if getattr(sym, "type", None) else ""
+                        call_items.append(
+                            CompletionItem(
+                                label=name,
+                                kind=CompletionItemKind.Function,
+                                detail=f"{sym.kind}{t_str}",
+                                documentation=sym.doc or None,
+                                insert_text=name,
+                            )
+                        )
+                        added_labels.add(name)
+                    elif sym.kind == "import" or getattr(sym, "module_scope", None):
+                        call_items.append(
+                            CompletionItem(
+                                label=name,
+                                kind=CompletionItemKind.Module,
+                                detail=f"module {name}",
+                                documentation=sym.doc or None,
+                                insert_text=name,
+                            )
+                        )
+                        added_labels.add(name)
+
+        return CompletionList(is_incomplete=False, items=call_items)
+
     items: List[CompletionItem] = []
 
-    # 1. Base Keywords and Snippets
+    # 2. Base Keywords and Snippets
     for kw, template, detail, kind in BASE_KEYWORDS:
         items.append(
             CompletionItem(
@@ -221,7 +295,7 @@ def get_completions(
             )
         )
 
-    # 2. Base Types
+    # 3. Base Types
     for t_name, t_doc in BASE_TYPES:
         items.append(
             CompletionItem(
@@ -232,7 +306,7 @@ def get_completions(
             )
         )
 
-    # 3. Dynamic Global Symbols from SymbolTable
+    # 4. Dynamic Global Symbols from SymbolTable
     if symbols:
         table_dict = getattr(symbols, "table", None)
         if table_dict is None and hasattr(symbols, "global_scope"):
@@ -262,7 +336,7 @@ def get_completions(
                         )
                     )
 
-        # 4. Dynamic Local Variables from Active Scopes around cursor_line
+        # 5. Dynamic Local Variables from Active Scopes around cursor_line
         if hasattr(symbols, "all_scopes"):
             for scope in symbols.all_scopes:
                 if scope.start_line <= cursor_line <= scope.end_line:

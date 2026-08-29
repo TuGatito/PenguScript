@@ -5,7 +5,7 @@ import os
 import sys
 import urllib.parse
 import urllib.request
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 # --- Critical: Force SelectorEventLoopPolicy on Windows ---
 # Python 3.14+ defaults to ProactorEventLoop, which causes hangs with pygls
@@ -28,12 +28,37 @@ from lsprotocol.types import (
     TEXT_DOCUMENT_COMPLETION,
     TEXT_DOCUMENT_HOVER,
     TEXT_DOCUMENT_DEFINITION,
+    TEXT_DOCUMENT_SIGNATURE_HELP,
+    TEXT_DOCUMENT_RENAME,
+    TEXT_DOCUMENT_DOCUMENT_HIGHLIGHT,
+    TEXT_DOCUMENT_FORMATTING,
+    TEXT_DOCUMENT_DOCUMENT_SYMBOL,
+    TEXT_DOCUMENT_FOLDING_RANGE,
     DidOpenTextDocumentParams,
     DidChangeTextDocumentParams,
     DidSaveTextDocumentParams,
     CompletionParams,
+    CompletionOptions,
     HoverParams,
     DefinitionParams,
+    SignatureHelpParams,
+    SignatureHelp,
+    SignatureInformation,
+    ParameterInformation,
+    SignatureHelpOptions,
+    RenameParams,
+    WorkspaceEdit,
+    TextEdit,
+    DocumentHighlightParams,
+    DocumentHighlight,
+    DocumentHighlightKind,
+    DocumentFormattingParams,
+    DocumentSymbolParams,
+    DocumentSymbol,
+    SymbolKind,
+    FoldingRangeParams,
+    FoldingRange,
+    FoldingRangeKind,
     PublishDiagnosticsParams,
     Diagnostic,
     DiagnosticSeverity,
@@ -46,6 +71,7 @@ from pengu_parser.pengu_parser import PenguParser
 from pengu_parser.pengu_checker import PenguChecker
 from pengu_parser.pengu_errors import PenguError
 from pengu_parser.pengu_symbols import SymbolTable
+from pengu_parser.pengu_types import FnType
 
 from .completions import get_completions
 from .hover import get_hover, get_word_at_position
@@ -286,7 +312,10 @@ def path_to_uri(path: str) -> str:
         return f"file:///{normalized_path}"
 
 
-@server.feature(TEXT_DOCUMENT_COMPLETION)
+@server.feature(
+    TEXT_DOCUMENT_COMPLETION,
+    CompletionOptions(trigger_characters=[".", ">"])
+)
 def completions(params: CompletionParams):
     """Handles textDocument/completion requests."""
     uri = params.text_document.uri
@@ -375,3 +404,408 @@ def definition(params: DefinitionParams):
             )
         )
     return None
+
+
+@server.feature(
+    TEXT_DOCUMENT_SIGNATURE_HELP,
+    SignatureHelpOptions(trigger_characters=["(", ",", " "])
+)
+def signature_help(params: SignatureHelpParams) -> Optional[SignatureHelp]:
+    """Handles textDocument/signatureHelp requests."""
+    import re
+    uri = params.text_document.uri
+    symbols = server._symbols.get(uri)
+    doc_text = server.get_document_source(uri)
+    if not symbols or not doc_text:
+        return None
+
+    lines = doc_text.splitlines()
+    if not (0 <= params.position.line < len(lines)):
+        return None
+
+    line_str = lines[params.position.line][:params.position.character]
+
+    # Detecta llamadas tipo `calling func with a, b` o `calling mod.func with a` o `func(a, b`
+    calling_m = re.search(r"\bcalling\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)(?:\s+with\s+|\s+)?(.*)$", line_str)
+    paren_m = re.search(r"([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s*\(([^()]*)$", line_str)
+
+    func_path = None
+    args_sub = ""
+    if calling_m:
+        func_path = calling_m.group(1)
+        args_sub = calling_m.group(2) or ""
+    elif paren_m:
+        func_path = paren_m.group(1)
+        args_sub = paren_m.group(2) or ""
+    else:
+        return None
+
+    # Contar argumentos activos según comas o la palabra 'and'
+    active_param = 0
+    if args_sub.strip():
+        active_param = max(0, len(re.split(r",|\band\b", args_sub)) - 1)
+
+    # Buscar el símbolo de la función
+    sym = None
+    if "." in func_path:
+        parts = func_path.split(".")
+        mod_sym = symbols.lookup(parts[0])
+        if mod_sym and getattr(mod_sym, "module_scope", None):
+            sym = mod_sym.module_scope.symbols.get(parts[1])
+    else:
+        cursor_line = params.position.line + 1
+        sym = symbols.lookup_at(func_path, cursor_line) if hasattr(symbols, "lookup_at") else symbols.lookup(func_path)
+
+    if not sym:
+        return None
+
+    fn_type = getattr(sym, "type", None)
+    if not isinstance(fn_type, FnType) and not hasattr(fn_type, "params"):
+        return None
+
+    # Construir información de los parámetros
+    param_infos = []
+    param_labels = []
+    for p in fn_type.params:
+        p_name = p[0] if isinstance(p, (tuple, list)) else getattr(p, "name", "arg")
+        p_type = p[1] if isinstance(p, (tuple, list)) else getattr(p, "type", "any")
+        label = f"{p_name} as {p_type}"
+        param_labels.append(label)
+        param_infos.append(ParameterInformation(label=label))
+
+    ret_str = f" into {fn_type.return_type}" if getattr(fn_type, "return_type", None) else ""
+    decl_label = f"weave {sym.name} with {', '.join(param_labels)}{ret_str}"
+
+    sig_info = SignatureInformation(
+        label=decl_label,
+        documentation=sym.doc or None,
+        parameters=param_infos
+    )
+
+    return SignatureHelp(
+        signatures=[sig_info],
+        active_signature=0,
+        active_parameter=min(max(0, active_param), max(0, len(param_infos) - 1))
+    )
+
+
+@server.feature(TEXT_DOCUMENT_DOCUMENT_HIGHLIGHT)
+def document_highlight(params: DocumentHighlightParams) -> Optional[List[DocumentHighlight]]:
+    """Handles textDocument/documentHighlight requests."""
+    import re
+    uri = params.text_document.uri
+    doc_text = server.get_document_source(uri)
+    if not doc_text:
+        return None
+
+    word = get_word_at_position(doc_text, params.position)
+    if not word:
+        return None
+
+    # Limpiar posibles prefijos como `self->`
+    clean_word = word.replace("self->", "").replace(".", "").strip()
+    if not clean_word:
+        return None
+
+    highlights: List[DocumentHighlight] = []
+    lines = doc_text.splitlines()
+
+    pattern = re.compile(rf"\b{re.escape(clean_word)}\b")
+    for line_idx, line in enumerate(lines):
+        for match in pattern.finditer(line):
+            start_col = match.start()
+            end_col = match.end()
+            
+            # Detectar si es una escritura (declaración o set)
+            prefix = line[:start_col].strip()
+            kind = DocumentHighlightKind.Read
+            if prefix.startswith(("var ", "let ", "const ", "set ")) or " is " in line:
+                kind = DocumentHighlightKind.Write
+
+            highlights.append(
+                DocumentHighlight(
+                    range=Range(
+                        start=Position(line=line_idx, character=start_col),
+                        end=Position(line=line_idx, character=end_col)
+                    ),
+                    kind=kind
+                )
+            )
+
+    return highlights
+
+
+@server.feature(TEXT_DOCUMENT_RENAME)
+def rename_symbol(params: RenameParams) -> Optional[WorkspaceEdit]:
+    """Handles textDocument/rename requests."""
+    import re
+    uri = params.text_document.uri
+    doc_text = server.get_document_source(uri)
+    if not doc_text:
+        return None
+
+    old_word = get_word_at_position(doc_text, params.position)
+    if not old_word:
+        return None
+
+    clean_old = old_word.replace("self->", "").replace(".", "").strip()
+    new_name = params.new_name.strip()
+    if not clean_old or not new_name or clean_old == new_name:
+        return None
+
+    lines = doc_text.splitlines()
+    edits: List[TextEdit] = []
+    pattern = re.compile(rf"\b{re.escape(clean_old)}\b")
+
+    for line_idx, line in enumerate(lines):
+        for match in pattern.finditer(line):
+            edits.append(
+                TextEdit(
+                    range=Range(
+                        start=Position(line=line_idx, character=match.start()),
+                        end=Position(line=line_idx, character=match.end())
+                    ),
+                    new_text=new_name
+                )
+            )
+
+    return WorkspaceEdit(changes={uri: edits})
+
+
+@server.feature(TEXT_DOCUMENT_FORMATTING)
+def document_formatting(params: DocumentFormattingParams) -> Optional[List[TextEdit]]:
+    """Handles textDocument/formatting requests."""
+    import re
+    uri = params.text_document.uri
+    doc_text = server.get_document_source(uri)
+    if not doc_text:
+        return None
+
+    lines = doc_text.splitlines()
+    formatted_lines = []
+    tab_size = params.options.tab_size if hasattr(params, "options") and params.options else 2
+    indent_unit = " " * tab_size if getattr(params.options, "insert_spaces", True) else "\t"
+
+    for line in lines:
+        stripped_right = line.rstrip()
+        if not stripped_right:
+            formatted_lines.append("")
+            continue
+
+        # Normalizar sangría inicial
+        leading_spaces = len(stripped_right) - len(stripped_right.lstrip(" "))
+        leading_tabs = len(stripped_right) - len(stripped_right.lstrip("\t"))
+        
+        indent_level = 0
+        if leading_tabs > 0:
+            indent_level = leading_tabs
+        elif leading_spaces > 0:
+            indent_level = leading_spaces // tab_size
+
+        content = stripped_right.strip()
+
+        # Pequeños ajustes cosméticos de espaciado estándar si no es un comentario
+        if not content.startswith("#"):
+            content = re.sub(r"\s+is\s+", " is ", content)
+            content = re.sub(r"\s+as\s+", " as ", content)
+            content = re.sub(r"\s+into\s+", " into ", content)
+            content = re.sub(r",\s*", ", ", content)
+
+        formatted_lines.append((indent_unit * indent_level) + content)
+
+    new_full_text = "\n".join(formatted_lines) + ("\n" if doc_text.endswith("\n") else "")
+    
+    # Reemplazar todo el documento con el texto formateado
+    last_line = max(0, len(lines) - 1)
+    last_char = len(lines[last_line]) if lines else 0
+
+    return [
+        TextEdit(
+            range=Range(
+                start=Position(line=0, character=0),
+                end=Position(line=last_line, character=last_char)
+            ),
+            new_text=new_full_text
+        )
+    ]
+
+
+@server.feature(TEXT_DOCUMENT_DOCUMENT_SYMBOL)
+def document_symbols(params: DocumentSymbolParams) -> Optional[List[DocumentSymbol]]:
+    """Generates document symbols for the outline and breadcrumbs view."""
+    uri = params.text_document.uri
+    symbols = server._symbols.get(uri)
+    doc_text = server.get_document_source(uri)
+    if not symbols or not doc_text:
+        return None
+
+    lines = doc_text.splitlines()
+    doc_symbols: List[DocumentSymbol] = []
+
+    table_dict = getattr(symbols, "table", None)
+    if table_dict is None and hasattr(symbols, "global_scope"):
+        table_dict = symbols.global_scope.symbols
+
+    if not table_dict:
+        return None
+
+    for name, sym in table_dict.items():
+        if sym.line is None:
+            continue
+
+        sym_line = max(0, sym.line - 1)
+        sym_col = max(0, (sym.column or 1) - 1)
+        line_len = len(lines[sym_line]) if sym_line < len(lines) else 1
+
+        sym_range = Range(
+            start=Position(line=sym_line, character=0),
+            end=Position(line=sym_line, character=line_len)
+        )
+        selection_range = Range(
+            start=Position(line=sym_line, character=sym_col),
+            end=Position(line=sym_line, character=sym_col + len(sym.name))
+        )
+
+        kind = SymbolKind.Variable
+        detail = ""
+        children: List[DocumentSymbol] = []
+
+        if sym.kind in ("weave", "function", "declare"):
+            kind = SymbolKind.Function
+            detail = f"into {sym.type.return_type}" if getattr(sym, "type", None) and hasattr(sym.type, "return_type") else "function"
+        elif sym.kind == "rune":
+            kind = SymbolKind.Struct
+            detail = "rune"
+            if hasattr(sym.type, "fields"):
+                for f_name, f_type in sym.type.fields.items():
+                    children.append(
+                        DocumentSymbol(
+                            name=f_name,
+                            kind=SymbolKind.Field,
+                            detail=str(f_type),
+                            range=sym_range,
+                            selection_range=sym_range
+                        )
+                    )
+        elif sym.kind == "echo":
+            kind = SymbolKind.Enum
+            detail = "echo"
+        elif sym.kind == "omen":
+            kind = SymbolKind.Enum
+            detail = "omen"
+            if hasattr(sym.type, "variants"):
+                for v_name in sym.type.variants.keys():
+                    children.append(
+                        DocumentSymbol(
+                            name=v_name,
+                            kind=SymbolKind.EnumMember,
+                            detail="variant",
+                            range=sym_range,
+                            selection_range=sym_range
+                        )
+                    )
+        elif sym.kind == "alias":
+            kind = SymbolKind.TypeParameter
+            detail = "alias"
+        elif sym.kind == "const":
+            kind = SymbolKind.Constant
+            detail = str(sym.type)
+        elif sym.kind == "import":
+            kind = SymbolKind.Module
+            detail = "import"
+        else:
+            continue
+
+        doc_symbols.append(
+            DocumentSymbol(
+                name=sym.name,
+                kind=kind,
+                detail=detail,
+                range=sym_range,
+                selection_range=selection_range,
+                children=children if children else None
+            )
+        )
+
+    return doc_symbols
+
+
+@server.feature(TEXT_DOCUMENT_FOLDING_RANGE)
+def folding_ranges(params: FoldingRangeParams) -> Optional[List[FoldingRange]]:
+    """Calculates code folding regions based on indentation and AST scopes."""
+    uri = params.text_document.uri
+    doc_text = server.get_document_source(uri)
+    if not doc_text:
+        return None
+
+    lines = doc_text.splitlines()
+    ranges: List[FoldingRange] = []
+    
+    # 1. Plegado basado en bloques indentados (Python/PenguScript style)
+    stack: List[Tuple[int, int]] = []  # (indent_level, start_line)
+
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        indent = len(line) - len(line.lstrip(" \t"))
+
+        while stack and stack[-1][0] >= indent:
+            _, start_line = stack.pop()
+            if idx - 1 > start_line:
+                ranges.append(
+                    FoldingRange(
+                        start_line=start_line,
+                        end_line=idx - 1,
+                        kind=FoldingRangeKind.Region
+                    )
+                )
+
+        if line.rstrip().endswith(":"):
+            stack.append((indent, idx))
+
+    while stack:
+        _, start_line = stack.pop()
+        if len(lines) - 1 > start_line:
+            ranges.append(
+                FoldingRange(
+                    start_line=start_line,
+                    end_line=len(lines) - 1,
+                    kind=FoldingRangeKind.Region
+                )
+            )
+
+    # 2. Plegado para bloques de comentarios multilínea (## ... ## o consecutivos)
+    in_comment_block = False
+    comment_start = 0
+
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            if not in_comment_block:
+                in_comment_block = True
+                comment_start = idx
+        else:
+            if in_comment_block:
+                in_comment_block = False
+                if idx - 1 > comment_start:
+                    ranges.append(
+                        FoldingRange(
+                            start_line=comment_start,
+                            end_line=idx - 1,
+                            kind=FoldingRangeKind.Comment
+                        )
+                    )
+
+    if in_comment_block and len(lines) - 1 > comment_start:
+        ranges.append(
+            FoldingRange(
+                start_line=comment_start,
+                end_line=len(lines) - 1,
+                kind=FoldingRangeKind.Comment
+            )
+        )
+
+    return ranges
+

@@ -291,7 +291,17 @@ weave main into void:
         self.assertIn("name", arrow_fields)
         self.assertIn("hp", arrow_fields)
 
+        # 4. Calling context completion on 'calling '
+        res_calling = get_completions("file:///test.pengu", Position(line=9, character=16), symbols=self.checker.symbols, line_prefix="        calling ")
+        calling_labels = [it.label for it in res_calling.items]
+        self.assertIn("print", calling_labels)
+        self.assertIn("main", calling_labels)
+        # Should not include keywords like 'while' or 'if'
+        self.assertNotIn("while", calling_labels)
+        self.assertNotIn("if", calling_labels)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

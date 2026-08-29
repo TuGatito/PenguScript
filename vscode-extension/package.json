@@ -4,6 +4,7 @@
   "description": "Language support, LSP intelligence, and cargo-like project management for PenguScript.",
   "publisher": "pengus-lang",
   "version": "0.1.0",
+  "icon": "./icons/pengu_icon.png",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -35,7 +36,18 @@
           ".pengu",
           ".pengus"
         ],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/pengu_icon.png",
+          "dark": "./icons/pengu_icon_white.png"
+        }
+      }
+    ],
+    "iconThemes": [
+      {
+        "id": "pengus-icons",
+        "label": "PenguScript Icons",
+        "path": "./icons/pengu_icon.png"
       }
     ],
     "grammars": [

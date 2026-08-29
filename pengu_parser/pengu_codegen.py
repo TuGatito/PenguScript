@@ -2433,19 +2433,3 @@ class PenguCodegen:
                 f.write(bundle_code)
 
         return bundle_code
-        sections.append(self.generate_function_prototypes())
-        sections.append(self.generate_function_definitions())
-
-
-        if not is_library:
-            entry_code = self.generate_entry_point()
-            if entry_code:
-                sections.append(entry_code)
-
-        bundle_code = "\n".join(sections)
-
-        if output_path:
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(bundle_code)
-
-        return bundle_code

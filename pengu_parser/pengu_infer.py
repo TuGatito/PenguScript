@@ -14,7 +14,7 @@ from .pengu_symbols import SymbolTable, Symbol, Scope
 from .pengu_errors import (
     PenguError, SemanticError, UndefinedIdentifierError, SelfDotAccessError, TypeMismatchError,
     ConstInsideWeaveError, VarLetTopLevelError, MutabilityError, InvalidControlFlowError,
-    InvalidMemoryOpError, InvalidWithTargetError
+    InvalidMemoryOpError, InvalidWithTargetError, suggest_similar_identifier
 )
 
 
@@ -159,9 +159,17 @@ class TypeInferrer:
     def _get_loc(self, node: Any) -> Tuple[Optional[int], Optional[int]]:
         """Retrieves source line and column numbers from AST node."""
         if isinstance(node, Token):
-            return node.line, node.column
-        if isinstance(node, Tree) and node.meta:
+            return getattr(node, "line", None), getattr(node, "column", None)
+        if isinstance(node, Tree) and getattr(node, "meta", None):
             return getattr(node.meta, 'line', None), getattr(node.meta, 'column', None)
+        if isinstance(node, Tree):
+            for child in node.children:
+                if isinstance(child, Token) and getattr(child, "line", None) is not None:
+                    return child.line, child.column
+                if isinstance(child, Tree):
+                    cl, cc = self._get_loc(child)
+                    if cl is not None:
+                        return cl, cc
         return None, None
 
     def _make_error(self, err_cls, message: str, node: Any = None, **kwargs) -> PenguError:
@@ -172,6 +180,16 @@ class TypeInferrer:
         if "col" in kwargs and kwargs["col"] is not None:
             col = kwargs.pop("col")
 
+        if "span_start" not in kwargs and col is not None:
+            kwargs["span_start"] = col
+        if "span_end" not in kwargs and col is not None:
+            if isinstance(node, Token):
+                kwargs["span_end"] = col + len(str(node.value))
+            elif isinstance(node, Tree) and hasattr(node, "meta") and getattr(node.meta, "end_column", None):
+                kwargs["span_end"] = getattr(node.meta, "end_column")
+            elif isinstance(node, Tree) and len(node.children) > 0 and isinstance(node.children[0], Token):
+                kwargs["span_end"] = col + len(str(node.children[0].value))
+
         snippet = None
         if self.source_code and line is not None:
             lines = self.source_code.splitlines()
@@ -181,6 +199,77 @@ class TypeInferrer:
         kwargs.setdefault("file", self.filename)
         kwargs.setdefault("snippet", snippet)
         return err_cls(message, line=line, col=col, **kwargs)
+
+    def _make_undefined_error(
+        self,
+        name: str,
+        node: Any = None,
+        code: str = "E0004",
+        is_c_define: bool = False,
+        candidates: Optional[List[str]] = None,
+        entity_kind: str = "identifier"
+    ) -> UndefinedIdentifierError:
+        """Constructs an UndefinedIdentifierError with fuzzy name suggestions."""
+        if is_c_define:
+            return self._make_error(
+                UndefinedIdentifierError,
+                f"C define '{name}' used without prior 'include' statement",
+                node,
+                code="E0016",
+                help=f'Add \'include "header.h"\' before using C constant \'{name}\'.',
+                note="C definitions require an explicit include to be allowed.",
+                label="requires include"
+            )
+
+        if candidates is None:
+            candidates = self.symbols.get_all_visible_names() if hasattr(self.symbols, "get_all_visible_names") else []
+        suggestions = suggest_similar_identifier(name, candidates)
+        if suggestions:
+            suggested = suggestions[0]
+            help_msg = f"A similar name exists in scope: '{suggested}'. Did you mean '{suggested}'?"
+        else:
+            help_msg = f"Check if '{name}' is misspelled or declare it before use."
+
+        return self._make_error(
+            UndefinedIdentifierError,
+            f"Undefined {entity_kind} '{name}'",
+            node,
+            code=code,
+            help=help_msg,
+            note=f"All {entity_kind}s must be defined before use.",
+            label="not found in this scope"
+        )
+
+    def _make_type_mismatch_error(
+        self,
+        expected_type: Any,
+        found_type: Any,
+        node: Any = None,
+        expr_str: Optional[str] = None,
+        custom_message: Optional[str] = None,
+        code: str = "E0005",
+        note: Optional[str] = None,
+    ) -> TypeMismatchError:
+        """Constructs a TypeMismatchError with expected/found format and conversion help."""
+        msg = custom_message or f"Mismatched types: expected '{expected_type}', found '{found_type}'"
+        expr_repr = expr_str or "value"
+        is_num_src = str(found_type) in ("int", "i32", "i64", "float", "f32", "f64", "u8", "i8", "u16", "i16", "u32", "u64", "usize", "isize")
+        is_num_tgt = str(expected_type) in ("int", "i32", "i64", "float", "f32", "f64", "u8", "i8", "u16", "i16", "u32", "u64", "usize", "isize")
+
+        if is_num_src and is_num_tgt:
+            help_msg = f"Consider converting the value explicitly using '{expr_repr} to {expected_type}'"
+        else:
+            help_msg = f"Ensure the value type matches the expected type '{expected_type}' or use explicit conversion 'to {expected_type}'."
+
+        return self._make_error(
+            TypeMismatchError,
+            msg,
+            node,
+            code=code,
+            help=help_msg,
+            note=note or "PenguScript requires type safety and explicit conversions.",
+            label=f"expected '{expected_type}'"
+        )
 
     def infer(self, node: Any, expected_type: Optional[Type] = None) -> Type:
         """Recursively infers the static type of an expression node.
@@ -214,22 +303,8 @@ class TypeInferrer:
                 if val.isupper() and self.symbols.has_includes:
                     return INT_TYPE
                 if val.isupper() and not self.symbols.has_includes:
-                    raise self._make_error(
-                        UndefinedIdentifierError,
-                        f"C define '{val}' used without prior 'include' statement",
-                        node,
-                        code="E0016",
-                        help=f'Add \'include "header.h"\' before using C constant \'{val}\'.',
-                        note="C definitions require an explicit include to be allowed."
-                    )
-                raise self._make_error(
-                    UndefinedIdentifierError,
-                    f"Undefined identifier '{val}'",
-                    node,
-                    code="E0004",
-                    help=f"Check if '{val}' is misspelled or declare it before use.",
-                    note="All variables must be defined before use."
-                )
+                    raise self._make_undefined_error(val, node, is_c_define=True)
+                raise self._make_undefined_error(val, node)
 
         if not isinstance(node, Tree):
             return AnyType()
@@ -299,22 +374,8 @@ class TypeInferrer:
             if name.isupper() and self.symbols.has_includes:
                 return INT_TYPE
             if name.isupper() and not self.symbols.has_includes:
-                raise self._make_error(
-                    UndefinedIdentifierError,
-                    f"C define '{name}' used without prior 'include' statement",
-                    node,
-                    code="E0016",
-                    help=f'Add \'include "header.h"\' before using C constant \'{name}\'.',
-                    note="C definitions require an explicit include to be allowed."
-                )
-            raise self._make_error(
-                UndefinedIdentifierError,
-                f"Undefined identifier '{name}'",
-                node,
-                code="E0004",
-                help=f"Check if '{name}' is misspelled or declare it before use.",
-                note="All variables must be defined before use."
-            )
+                raise self._make_undefined_error(name, node, is_c_define=True)
+            raise self._make_undefined_error(name, node)
 
         elif rule == "self_ref":
             if not self.symbols.is_in_enchanting():

@@ -201,6 +201,16 @@ class TypeParamOutsideGenericError(SemanticError):
         super().__init__(message, line=line, col=col, column=column, **kwargs)
 
 
+import difflib
+
+
+def suggest_similar_identifier(target: str, candidates: list[str], max_suggestions: int = 1) -> list[str]:
+    """Returns the closest identifier suggestions using fuzzy matching."""
+    if not target or not candidates:
+        return []
+    return difflib.get_close_matches(target, candidates, n=max_suggestions, cutoff=0.6)
+
+
 class ErrorReporter:
     """Renders PenguScript compiler errors and warnings in Rust-like diagnostic format."""
 
@@ -215,71 +225,56 @@ class ErrorReporter:
             return self.lines[line_num - 1]
         return ""
 
-    def report(self, err: PenguError, use_color: bool = False) -> str:
-        """Renders single error in Rust style format."""
-        source_lines = self.lines
-        if not source_lines and err.snippet:
-            source_lines = [err.snippet]
-
-        file_name = err.file if err.file else self.filename
-        line_num = err.line if err.line is not None else 1
-        col_num = err.col if err.col is not None else 1
-
+    def report(self, err: PenguError, use_color: bool = True) -> str:
         red = "\033[1;31m" if use_color else ""
-        cyan = "\033[36m" if use_color else ""
-        blue = "\033[34m" if use_color else ""
-        green = "\033[32m" if use_color else ""
+        cyan = "\033[1;36m" if use_color else ""
+        blue = "\033[1;34m" if use_color else ""
+        green = "\033[1;32m" if use_color else ""
+        bold = "\033[1m" if use_color else ""
         reset = "\033[0m" if use_color else ""
 
-        code_str = f"[{err.code}]" if err.code else ""
-        header = f"{red}error{code_str}{reset}: {err.message}"
-        loc_str = f" {cyan}-->{reset} {file_name}:{line_num}:{col_num}"
+        line_num = err.line or 1
+        col_num = err.col or 1
+        code_str = f"[{err.code}]" if getattr(err, "code", None) else ""
+        
+        header = f"{red}{bold}error{code_str}{reset}: {bold}{err.message}{reset}"
+        loc_str = f"  {blue}-->{reset} {err.file or self.filename}:{line_num}:{col_num}"
 
-        start_line = max(1, line_num - 2)
-        end_line = min(len(source_lines), line_num + 2) if source_lines else line_num
+        gutter_width = max(len(str(line_num + 1)), 2)
+        bar = f"{blue}|{reset}"
 
-        max_line_no = max(end_line, line_num)
-        gutter_w = max(len(str(max_line_no)), 1)
+        output = [header, loc_str, f"{' ' * gutter_width} {bar}"]
 
-        result: List[str] = [header, loc_str, f"{' ' * gutter_w} {blue}|{reset}"]
+        lines = self.lines if self.lines else ([err.snippet] if err.snippet else [])
+        if lines and 1 <= line_num <= len(lines):
+            line_content = lines[line_num - 1]
+            output.append(f"{str(line_num).rjust(gutter_width)} {bar} {line_content}")
 
-        if source_lines and 1 <= line_num <= len(source_lines):
-            for l_num in range(start_line, end_line + 1):
-                line_content = source_lines[l_num - 1]
-                result.append(f"{str(l_num).rjust(gutter_w)} {blue}|{reset} {line_content}")
-                if l_num == line_num:
-                    span_start = err.span_start if err.span_start is not None else col_num
-                    span_end = err.span_end
+            # Calcular ancho del subrayado
+            span_start = max(1, err.span_start or col_num)
+            span_end = err.span_end or (span_start + 1)
+            left_pad = " " * (span_start - 1)
+            width = max(1, span_end - span_start)
+            carets = f"{red}{'^' * width}{reset}"
+            label = f" {red}{err.label}{reset}" if getattr(err, "label", None) else ""
 
-                    col_idx = max(0, span_start - 1)
-                    if span_end is not None and span_end > span_start:
-                        width = span_end - span_start
-                    else:
-                        tail = len(line_content) - col_idx
-                        width = max(1, tail if tail > 0 else len(line_content.strip()) or 1)
-
-                    carets = f"{red}{'^' * max(1, width)}{reset}"
-                    label_str = f" {err.label}" if err.label else ""
-                    result.append(f"{' ' * gutter_w} {blue}|{reset} {' ' * col_idx}{carets}{label_str}")
+            output.append(f"{' ' * gutter_width} {bar} {left_pad}{carets}{label}")
         elif err.snippet:
-            result.append(f"{str(line_num).rjust(gutter_w)} {blue}|{reset} {err.snippet}")
-            span_start = err.span_start if err.span_start is not None else col_num
-            col_idx = max(0, span_start - 1)
-            carets = f"{red}{'^' * max(1, len(err.snippet.strip()) if err.snippet else 1)}{reset}"
-            label_str = f" {err.label}" if err.label else ""
-            result.append(f"{' ' * gutter_w} {blue}|{reset} {' ' * col_idx}{carets}{label_str}")
-        else:
-            result.append(f"{str(line_num).rjust(gutter_w)} {blue}|{reset} ")
-            result.append(f"{' ' * gutter_w} {blue}|{reset} {red}^{reset}")
+            output.append(f"{str(line_num).rjust(gutter_width)} {bar} {err.snippet}")
+            span_start = max(1, err.span_start or col_num)
+            left_pad = " " * (span_start - 1)
+            carets = f"{red}{'^' * max(1, (err.span_end - span_start) if err.span_end and err.span_end > span_start else len(err.snippet.strip()))}{reset}"
+            label = f" {red}{err.label}{reset}" if getattr(err, "label", None) else ""
+            output.append(f"{' ' * gutter_width} {bar} {left_pad}{carets}{label}")
 
-        result.append(f"{' ' * gutter_w} {blue}|{reset}")
+        output.append(f"{' ' * gutter_width} {bar}")
 
-        if err.help:
-            result.append(f"{' ' * gutter_w} {cyan}={reset} help: {err.help}")
-        if err.note:
-            result.append(f"{' ' * gutter_w} {green}={reset} note: {err.note}")
+        if getattr(err, "note", None):
+            output.append(f"{' ' * gutter_width} {cyan}={reset} {bold}note{reset}: {err.note}")
+        if getattr(err, "help", None):
+            output.append(f"{' ' * gutter_width} {green}={reset} {bold}help{reset}: {err.help}")
 
-        return "\n".join(result)
+        return "\n".join(output)
 
     def report_all(self, errors: List[PenguError], use_color: bool = False) -> str:
         """Renders multiple errors separated by newlines."""
