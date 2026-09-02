@@ -84,7 +84,7 @@ class TestProjectManager(unittest.TestCase):
     def test_init_by_type(self):
         proj_dir = init_project(name="my_lib", output_type="static", target_dir=self.base_dir)
         yaml_path = os.path.join(proj_dir, "pengu.yaml")
-        main_path = os.path.join(proj_dir, "main.pengu")
+        main_path = os.path.join(proj_dir, "src", "main.pengu")
         gitignore_path = os.path.join(proj_dir, ".gitignore")
         readme_path = os.path.join(proj_dir, "README.md")
 
@@ -103,7 +103,7 @@ class TestProjectManager(unittest.TestCase):
 
     def test_init_exe_template(self):
         proj_dir = init_project(name="my_game", output_type="exe", target_dir=self.base_dir)
-        main_path = os.path.join(proj_dir, "main.pengu")
+        main_path = os.path.join(proj_dir, "src", "main.pengu")
 
         with open(main_path, "r", encoding="utf-8") as f:
             content = f.read()

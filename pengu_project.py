@@ -2,8 +2,9 @@
 """PenguScript Project & Build Manager (Cargo-style CLI).
 
 Provides project configuration management, multi-target compilation (exe, c, obj, static, shared),
-custom library linking (-l), build directory isolation, incremental compilation caching,
-debug/release profiles, template initialization, and multi-platform compilation support.
+custom library linking (-l), external dependency & binding management (lib/<binding>/),
+build directory isolation, incremental compilation caching, debug/release profiles,
+template initialization, and multi-platform compilation support.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ import hashlib
 import argparse
 import subprocess
 from enum import Enum
-from typing import List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional, Any, Tuple, Set
 from dataclasses import dataclass, field
 
 try:
@@ -40,7 +41,6 @@ from pengu_parser.pengu_checker import PenguChecker
 from pengu_parser.pengu_symbols import resolve_imports
 from pengu_parser.pengu_errors import ErrorReporter, PenguError
 from pengu_parser.pengu_codegen import PenguCodegen
-
 
 
 class OutputType(Enum):
@@ -68,9 +68,30 @@ class OutputType(Enum):
         return cls.EXE
 
 
+def extract_lib_name(filename: str) -> Optional[str]:
+    """Extracts library linking name from file (e.g. libwebui.a -> webui, raylib.lib -> raylib).
+
+    Args:
+        filename: Base filename or path.
+
+    Returns:
+        Library name suitable for -l flag, or None if not recognized as library.
+    """
+    base = os.path.basename(filename)
+    name, ext = os.path.splitext(base)
+    ext_lower = ext.lower()
+    if ext_lower not in (".a", ".so", ".dylib", ".lib", ".dll"):
+        return None
+    if name.endswith(".dll"):  # e.g. libfoo.dll.a
+        name = os.path.splitext(name)[0]
+    if name.startswith("lib"):
+        name = name[3:]
+    return name if name else None
+
+
 @dataclass
 class ProjectConfig:
-    """Project configuration specifying build rules, libraries, profiles, and output target.
+    """Project configuration specifying build rules, directories, libraries, profiles, and output target.
 
     Attributes:
         name: Project or binary name.
@@ -79,6 +100,11 @@ class ProjectConfig:
         output: Target output type (exe, c, obj, static, shared).
         output_name: Base name for generated artifact.
         build_dir: Relative or absolute directory for intermediate/final build artifacts.
+        src_dir: Directory containing project .pengu sources (default: 'src').
+        lib_dir: Directory containing external bindings/dependencies (default: 'lib').
+        include_dir: Directory containing project C headers (default: 'include').
+        c_dir: Directory containing project C glue/sources (default: 'c').
+        dependencies: Dictionary mapping dependency names to source URLs or local paths.
         includes: List of C headers required by project.
         links: List of libraries to link via -l flags (without -l prefix).
         lib_dirs: List of search directories for libraries (-L flags).
@@ -93,10 +119,15 @@ class ProjectConfig:
     """
     name: str = "pengu_app"
     version: str = "0.1.0"
-    entry: str = "main.pengu"
+    entry: str = "src/main.pengu"
     output: OutputType = OutputType.EXE
     output_name: str = "app"
     build_dir: str = "build"
+    src_dir: str = "src"
+    lib_dir: str = "lib"
+    include_dir: str = "include"
+    c_dir: str = "c"
+    dependencies: Dict[str, Any] = field(default_factory=dict)
     includes: List[str] = field(default_factory=list)
     links: List[str] = field(default_factory=list)
     lib_dirs: List[str] = field(default_factory=list)
@@ -111,12 +142,31 @@ class ProjectConfig:
             "defines": ["DEBUG"],
         },
         "release": {
-            "cflags": ["-O3", "-DNDEBUG"],
+            "cflags": ["-O3", "-flto", "-DNDEBUG"],
             "defines": ["NDEBUG"],
         }
     })
     profile: str = "debug"
     base_dir: str = field(default_factory=lambda: os.path.abspath(os.getcwd()))
+
+    def resolve_entry(self) -> str:
+        """Resolves main entry file path checking configured paths, src/ directory, and root.
+
+        Returns:
+            Absolute file path to the project entry point.
+        """
+        cands = [
+            os.path.abspath(os.path.join(self.base_dir, self.entry)),
+            os.path.abspath(os.path.join(self.base_dir, self.src_dir, self.entry)),
+            os.path.abspath(os.path.join(self.base_dir, "src", self.entry)),
+            os.path.abspath(os.path.join(self.base_dir, self.src_dir, "main.pengu")),
+            os.path.abspath(os.path.join(self.base_dir, "src", "main.pengu")),
+            os.path.abspath(os.path.join(self.base_dir, "main.pengu")),
+        ]
+        for cand in cands:
+            if os.path.isfile(cand):
+                return cand
+        return os.path.abspath(os.path.join(self.base_dir, self.entry))
 
     @classmethod
     def load(cls, path_or_dir: Optional[str] = None, profile: Optional[str] = None) -> ProjectConfig:
@@ -234,15 +284,22 @@ class ProjectConfig:
         proj_sec = data.get("project", data)
         build_sec = data.get("build", data)
         profiles_sec = data.get("profiles", {})
+        deps_sec = data.get("dependencies", proj_sec.get("dependencies", {}))
 
         name = str(proj_sec.get("name", "pengu_app"))
         version = str(proj_sec.get("version", "0.1.0"))
-        entry = str(proj_sec.get("entry", "main.pengu"))
+        entry = str(proj_sec.get("entry", "src/main.pengu"))
         output_str = str(proj_sec.get("output", "exe"))
         output_type = OutputType.from_string(output_str)
         output_name = str(proj_sec.get("output_name", name))
         build_dir = str(build_sec.get("build_dir", "build"))
 
+        src_dir = str(build_sec.get("src_dir", proj_sec.get("src_dir", "src")))
+        lib_dir = str(build_sec.get("lib_dir", proj_sec.get("lib_dir", "lib")))
+        include_dir = str(build_sec.get("include_dir", proj_sec.get("include_dir", "include")))
+        c_dir = str(build_sec.get("c_dir", proj_sec.get("c_dir", "c")))
+
+        dependencies = deps_sec if isinstance(deps_sec, dict) else {}
         includes = list(build_sec.get("includes", []))
         links = list(build_sec.get("links", []))
         lib_dirs = list(build_sec.get("lib_dirs", []))
@@ -252,7 +309,6 @@ class ProjectConfig:
         defines = list(build_sec.get("defines", []))
         cc = str(build_sec.get("cc", "gcc"))
 
-        # Load custom profiles if present
         resolved_profiles = {
             "debug": {"cflags": ["-g", "-O0", "-Wall"], "defines": ["DEBUG"]},
             "release": {"cflags": ["-O3", "-flto", "-DNDEBUG"], "defines": ["NDEBUG"]},
@@ -270,6 +326,11 @@ class ProjectConfig:
             output=output_type,
             output_name=output_name,
             build_dir=build_dir,
+            src_dir=src_dir,
+            lib_dir=lib_dir,
+            include_dir=include_dir,
+            c_dir=c_dir,
+            dependencies=dependencies,
             includes=includes,
             links=links,
             lib_dirs=lib_dirs,
@@ -363,10 +424,12 @@ class PenguBuilder:
             os.path.join(self.config.base_dir, "pengu_parser", "pengu_runtime.h"),
             os.path.join(self.config.base_dir, "runtime", "pengu_runtime.h"),
             os.path.join(self.config.base_dir, "build", "include", "pengu_runtime.h"),
+            os.path.join(exe_dir, "runtime", "include", "pengu_runtime.h"),
             os.path.join(exe_dir, "runtime", "pengu_runtime.h"),
             os.path.join(exe_dir, "pengu_runtime.h"),
             os.path.join(exe_dir, "..", "runtime", "pengu_runtime.h"),
-            os.path.join(meipass, "runtime", "pengu_runtime.h") if meipass else "",
+            os.path.join(meipass, "runtime", "include") if meipass else "",
+            os.path.join(meipass, "runtime") if meipass else "",
             os.path.join(meipass, "pengu_runtime.h") if meipass else "",
             os.path.join(os.path.dirname(__file__), "pengu_runtime.h"),
             os.path.join(os.path.dirname(__file__), "pengu_parser", "pengu_runtime.h"),
@@ -389,8 +452,186 @@ class PenguBuilder:
 
         return dest_file
 
+    def collect_c_sources(self) -> List[str]:
+        """Collects all C glue/source files from project c_dir and all lib/*/c/ directories.
+
+        Returns:
+            Sorted, deduplicated list of absolute .c file paths.
+        """
+        c_files: List[str] = []
+
+        # 1. Project C sources (from config.c_dir and c/)
+        cand_c_dirs = [
+            os.path.abspath(os.path.join(self.config.base_dir, self.config.c_dir)),
+            os.path.abspath(os.path.join(self.config.base_dir, "c")),
+        ]
+        for c_dir in set(cand_c_dirs):
+            if os.path.isdir(c_dir):
+                for root, _, files in os.walk(c_dir):
+                    for f in files:
+                        if f.endswith(".c"):
+                            c_files.append(os.path.abspath(os.path.join(root, f)))
+
+        # 2. Binding C sources (lib/*/c/)
+        lib_root = os.path.abspath(os.path.join(self.config.base_dir, self.config.lib_dir))
+        if os.path.isdir(lib_root):
+            try:
+                for entry in os.scandir(lib_root):
+                    if entry.is_dir():
+                        binding_c = os.path.join(entry.path, "c")
+                        if os.path.isdir(binding_c):
+                            for root, _, files in os.walk(binding_c):
+                                for f in files:
+                                    if f.endswith(".c"):
+                                        c_files.append(os.path.abspath(os.path.join(root, f)))
+            except Exception:
+                pass
+
+        return sorted(list(set(c_files)))
+
+    def collect_include_dirs(self) -> List[str]:
+        """Collects C header include directories from project include_dir and lib/*/include/.
+
+        Returns:
+            Deduplicated list of absolute directory paths.
+        """
+        dirs: List[str] = []
+
+        # 1. Project include dir
+        cand_inc = [
+            os.path.abspath(os.path.join(self.config.base_dir, self.config.include_dir)),
+            os.path.abspath(os.path.join(self.config.base_dir, "include")),
+        ]
+        for inc in set(cand_inc):
+            if os.path.isdir(inc) and inc not in dirs:
+                dirs.append(inc)
+
+        # 2. Binding include dirs (lib/*/include/ and lib/*/)
+        lib_root = os.path.abspath(os.path.join(self.config.base_dir, self.config.lib_dir))
+        if os.path.isdir(lib_root):
+            try:
+                for entry in os.scandir(lib_root):
+                    if entry.is_dir():
+                        b_inc = os.path.join(entry.path, "include")
+                        if os.path.isdir(b_inc):
+                            abs_b_inc = os.path.abspath(b_inc)
+                            if abs_b_inc not in dirs:
+                                dirs.append(abs_b_inc)
+                        # Check if binding directory directly contains headers
+                        has_headers = any(f.endswith(".h") for f in os.listdir(entry.path) if os.path.isfile(os.path.join(entry.path, f)))
+                        if has_headers:
+                            abs_entry = os.path.abspath(entry.path)
+                            if abs_entry not in dirs:
+                                dirs.append(abs_entry)
+            except Exception:
+                pass
+
+        # 3. Configured include dirs
+        for inc in self.config.include_dirs:
+            abs_inc = os.path.abspath(os.path.join(self.config.base_dir, inc)) if not os.path.isabs(inc) else inc
+            if os.path.isdir(abs_inc) and abs_inc not in dirs:
+                dirs.append(abs_inc)
+
+        # 4. Standard runtime candidates
+        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+        meipass = getattr(sys, "_MEIPASS", "")
+        extra_inc_candidates = [
+            os.path.join(self.config.base_dir, "build", "include"),
+            os.path.join(self.config.base_dir, "runtime", "include"),
+            os.path.join(self.config.base_dir, "runtime"),
+            os.path.join(exe_dir, "runtime", "include"),
+            os.path.join(exe_dir, "runtime"),
+            os.path.join(exe_dir, "..", "runtime"),
+            os.path.join(meipass, "runtime", "include") if meipass else "",
+            os.path.join(meipass, "runtime") if meipass else "",
+        ]
+        for extra in extra_inc_candidates:
+            if extra and os.path.isdir(extra):
+                abs_e = os.path.abspath(extra)
+                if abs_e not in dirs:
+                    dirs.append(abs_e)
+
+        return dirs
+
+    def collect_lib_dirs_and_links(self) -> Tuple[List[str], List[str]]:
+        """Collects library search paths (-L) and automatically detected library names (-l) from lib/ and lib/*/lib/.
+
+        Returns:
+            Tuple of (lib_directories_list, auto_detected_library_names_list).
+        """
+        lib_dirs: List[str] = []
+        auto_links: List[str] = []
+
+        # 1. Project lib dir
+        cand_lib = [
+            os.path.abspath(os.path.join(self.config.base_dir, self.config.lib_dir)),
+            os.path.abspath(os.path.join(self.config.base_dir, "lib")),
+        ]
+        for ld in set(cand_lib):
+            if os.path.isdir(ld) and ld not in lib_dirs:
+                lib_dirs.append(ld)
+
+        # 2. Binding lib dirs (lib/*/lib/ and lib/*/)
+        lib_root = os.path.abspath(os.path.join(self.config.base_dir, self.config.lib_dir))
+        if os.path.isdir(lib_root):
+            try:
+                for entry in os.scandir(lib_root):
+                    if entry.is_dir():
+                        b_lib = os.path.join(entry.path, "lib")
+                        if os.path.isdir(b_lib):
+                            abs_b_lib = os.path.abspath(b_lib)
+                            if abs_b_lib not in lib_dirs:
+                                lib_dirs.append(abs_b_lib)
+                        has_libs = any(extract_lib_name(f) is not None for f in os.listdir(entry.path) if os.path.isfile(os.path.join(entry.path, f)))
+                        if has_libs:
+                            abs_entry = os.path.abspath(entry.path)
+                            if abs_entry not in lib_dirs:
+                                lib_dirs.append(abs_entry)
+            except Exception:
+                pass
+
+        # 3. Configured lib dirs
+        for ld in self.config.lib_dirs:
+            abs_ld = os.path.abspath(os.path.join(self.config.base_dir, ld)) if not os.path.isabs(ld) else ld
+            if os.path.isdir(abs_ld) and abs_ld not in lib_dirs:
+                lib_dirs.append(abs_ld)
+
+        # 4. Standard runtime candidates
+        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+        meipass = getattr(sys, "_MEIPASS", "")
+        extra_lib_candidates = [
+            os.path.join(self.config.base_dir, "build", "lib"),
+            os.path.join(self.config.base_dir, "runtime", "lib"),
+            os.path.join(self.config.base_dir, "runtime"),
+            os.path.join(exe_dir, "runtime", "lib"),
+            os.path.join(exe_dir, "runtime"),
+            os.path.join(exe_dir, "..", "runtime"),
+            os.path.join(meipass, "runtime", "lib") if meipass else "",
+            os.path.join(meipass, "runtime") if meipass else "",
+        ]
+        for extra in extra_lib_candidates:
+            if extra and os.path.isdir(extra):
+                abs_e = os.path.abspath(extra)
+                if abs_e not in lib_dirs:
+                    lib_dirs.append(abs_e)
+
+        # 5. Automatically detect libraries to link in all lib_dirs
+        for ld in lib_dirs:
+            if os.path.isdir(ld):
+                try:
+                    for fname in os.listdir(ld):
+                        fpath = os.path.join(ld, fname)
+                        if os.path.isfile(fpath):
+                            lname = extract_lib_name(fname)
+                            if lname and lname not in auto_links:
+                                auto_links.append(lname)
+                except Exception:
+                    pass
+
+        return lib_dirs, auto_links
+
     def is_bundle_up_to_date(self, bundle_path: str, module_order: List[str]) -> bool:
-        """Checks if bundle.c is newer than all source modules, config files, and options hash.
+        """Checks if bundle.c is newer than all source modules, C glue files, headers, and config.
 
         Args:
             bundle_path: Path to bundle.c.
@@ -420,6 +661,24 @@ class PenguBuilder:
                 if os.path.getmtime(mod_path) > bundle_mtime:
                     return False
 
+        c_files = self.collect_c_sources()
+        for cf in c_files:
+            if os.path.isfile(cf) and os.path.getmtime(cf) > bundle_mtime:
+                return False
+
+        inc_dirs = self.collect_include_dirs()
+        for inc_d in inc_dirs:
+            if os.path.isdir(inc_d):
+                try:
+                    for root, _, files in os.walk(inc_d):
+                        for f in files:
+                            if f.endswith(".h"):
+                                hp = os.path.join(root, f)
+                                if os.path.getmtime(hp) > bundle_mtime:
+                                    return False
+                except Exception:
+                    pass
+
         config_files = ["pengu.toml", "pengu.yaml", "pengu.yml", "pengu.json", "Pengu.toml"]
         for cf in config_files:
             cfp = os.path.join(self.config.base_dir, cf)
@@ -438,7 +697,6 @@ class PenguBuilder:
 
         return True
 
-
     def bundle(self, output_file: Optional[str] = None) -> Tuple[str, bool]:
         """Generates single monolithic bundle.c in build directory from modules in topological order.
 
@@ -452,12 +710,12 @@ class PenguBuilder:
         os.makedirs(build_dir, exist_ok=True)
 
         bundle_path = output_file or os.path.join(build_dir, "bundle.c")
-        entry_abs = os.path.join(self.config.base_dir, self.config.entry)
+        entry_abs = self.config.resolve_entry()
 
         # 1. Resolve module order
         module_order: List[str] = []
         if os.path.isfile(entry_abs):
-            module_order = resolve_imports(self.config.base_dir, self.config.entry, self.parser)
+            module_order = resolve_imports(self.config.base_dir, entry_abs, self.parser)
         elif self.source_code is not None:
             module_order = [entry_abs]
         else:
@@ -483,7 +741,6 @@ class PenguBuilder:
                 self.checker.check(tree, source=code, filename=mod_path, reset_symbols=(i == 0), import_order=module_order)
                 parsed_trees.append((mod_path, tree))
 
-
         # 4. Copy runtime header to build directory
         self.locate_and_copy_runtime(build_dir)
 
@@ -508,11 +765,12 @@ class PenguBuilder:
 
         return bundle_path, False
 
-
     def build_compile_commands(self, bundle_path: str, output_path: str) -> List[List[str]]:
-        """Assembles list of shell commands required to compile bundle into target artifact.
+        """Assembles list of shell commands required to compile bundle and C glue into target artifact.
 
-        Merges base compiler flags with active profile flags (debug / release).
+        Merges base compiler flags with active profile flags (debug / release),
+        includes project and binding headers, links project and binding libraries,
+        and adds project and binding C glue files.
 
         Args:
             bundle_path: Path to generated bundle.c.
@@ -552,48 +810,39 @@ class PenguBuilder:
         build_dir = self.get_build_directory()
         # Ensure build_dir is included in include search path for pengu_runtime.h
         common_flags.append(f"-I{build_dir}")
-        # Candidate include and lib paths
-        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
-        meipass = getattr(sys, "_MEIPASS", "")
-        extra_inc_candidates = [
-            os.path.join(self.config.base_dir, "build", "include"),
-            os.path.join(self.config.base_dir, "runtime", "include"),
-            os.path.join(self.config.base_dir, "runtime"),
-            os.path.join(exe_dir, "runtime", "include"),
-            os.path.join(exe_dir, "runtime"),
-            os.path.join(exe_dir, "..", "runtime"),
-            os.path.join(meipass, "runtime", "include") if meipass else "",
-            os.path.join(meipass, "runtime") if meipass else "",
-        ]
-        extra_lib_candidates = [
-            os.path.join(self.config.base_dir, "build", "lib"),
-            os.path.join(self.config.base_dir, "runtime", "lib"),
-            os.path.join(self.config.base_dir, "runtime"),
-            os.path.join(exe_dir, "runtime", "lib"),
-            os.path.join(exe_dir, "runtime"),
-            os.path.join(exe_dir, "..", "runtime"),
-            os.path.join(meipass, "runtime", "lib") if meipass else "",
-            os.path.join(meipass, "runtime") if meipass else "",
-        ]
 
-        for inc in self.config.include_dirs:
-            common_flags.append(f"-I{inc}")
-        for c_inc in extra_inc_candidates:
-            if c_inc and os.path.isdir(c_inc):
-                c_flag = f"-I{c_inc}"
-                if c_flag not in common_flags:
-                    common_flags.append(c_flag)
+        # Include directories (-I)
+        include_dirs = self.collect_include_dirs()
+        for inc in include_dirs:
+            inc_flag = f"-I{inc}"
+            if inc_flag not in common_flags:
+                common_flags.append(inc_flag)
 
-        for ldir in self.config.lib_dirs:
-            common_flags.append(f"-L{ldir}")
-        for c_ldir in extra_lib_candidates:
-            if c_ldir and os.path.isdir(c_ldir):
-                c_flag = f"-L{c_ldir}"
-                if c_flag not in common_flags:
-                    common_flags.append(c_flag)
+        # Library search directories (-L) & detected auto links
+        lib_dirs, auto_links = self.collect_lib_dirs_and_links()
+        for ldir in lib_dirs:
+            ldir_flag = f"-L{ldir}"
+            if ldir_flag not in common_flags:
+                common_flags.append(ldir_flag)
+
+        # Collect C glue/support files
+        c_sources = self.collect_c_sources()
+
+        # Merge links: config.links + checker.symbols.links + auto_links
+        all_links: List[str] = []
+        for link in self.config.links:
+            if link not in all_links:
+                all_links.append(link)
+        if hasattr(self.checker, "symbols") and self.checker.symbols:
+            for link in self.checker.symbols.links:
+                if link not in all_links:
+                    all_links.append(link)
+        for link in auto_links:
+            if link not in all_links:
+                all_links.append(link)
 
         link_flags: List[str] = []
-        for link in self.config.links:
+        for link in all_links:
             if link in ("pengu_runtime", "libpengu_runtime"):
                 link_flags.extend([
                     "-lpengu_runtime", "-lpcre2-8", "-lxml2", "-lcurl",
@@ -613,33 +862,38 @@ class PenguBuilder:
             return []
 
         elif out_type == OutputType.OBJ:
-            cmd = [cc, "-c", bundle_path, "-o", output_path] + common_flags
+            cmd = [cc, "-c", bundle_path] + c_sources + ["-o", output_path] + common_flags
             commands.append(cmd)
 
         elif out_type == OutputType.STATIC:
-            temp_obj = os.path.join(build_dir, "bundle.o")
-            cmd_compile = [cc, "-c", bundle_path, "-o", temp_obj] + common_flags
+            temp_objs = [os.path.join(build_dir, "bundle.o")]
+            cmd_bundle = [cc, "-c", bundle_path, "-o", temp_objs[0]] + common_flags
+            commands.append(cmd_bundle)
+
+            for i, c_file in enumerate(c_sources):
+                c_base = os.path.splitext(os.path.basename(c_file))[0]
+                c_obj = os.path.join(build_dir, f"{c_base}_{i}.o")
+                temp_objs.append(c_obj)
+                commands.append([cc, "-c", c_file, "-o", c_obj] + common_flags)
 
             if is_win and ("cl" in cc.lower() or "msvc" in cc.lower()):
-                cmd_ar = ["lib", f"/OUT:{output_path}", temp_obj]
+                cmd_ar = ["lib", f"/OUT:{output_path}"] + temp_objs
             else:
-                cmd_ar = ["ar", "rcs", output_path, temp_obj]
-
-            commands.append(cmd_compile)
+                cmd_ar = ["ar", "rcs", output_path] + temp_objs
             commands.append(cmd_ar)
 
         elif out_type == OutputType.SHARED:
             if is_win:
-                cmd = [cc, "-shared", bundle_path, "-o", output_path] + common_flags + link_flags
+                cmd = [cc, "-shared", bundle_path] + c_sources + ["-o", output_path] + common_flags + link_flags
             elif is_mac:
                 dyn_flag = "-dynamiclib" if "clang" in cc else "-shared"
-                cmd = [cc, "-fPIC", dyn_flag, bundle_path, "-o", output_path] + common_flags + link_flags
+                cmd = [cc, "-fPIC", dyn_flag, bundle_path] + c_sources + ["-o", output_path] + common_flags + link_flags
             else:
-                cmd = [cc, "-fPIC", "-shared", bundle_path, "-o", output_path] + common_flags + link_flags
+                cmd = [cc, "-fPIC", "-shared", bundle_path] + c_sources + ["-o", output_path] + common_flags + link_flags
             commands.append(cmd)
 
         else:  # EXE
-            cmd = [cc, bundle_path, "-o", output_path] + common_flags + link_flags
+            cmd = [cc, bundle_path] + c_sources + ["-o", output_path] + common_flags + link_flags
             commands.append(cmd)
 
         return commands
@@ -736,6 +990,226 @@ def clean_project(config_path: Optional[str] = None) -> None:
         print(f"\033[1;33m     Cleaned\033[0m nothing to clean.")
 
 
+def _update_config_dependency(base_dir: str, dep_name: str, source: str, branch: Optional[str] = None) -> None:
+    """Updates project configuration file (pengu.yaml, pengu.json, or pengu.toml) with a new dependency.
+
+    Args:
+        base_dir: Root directory of project.
+        dep_name: Name identifier for the dependency.
+        source: URL or local path.
+        branch: Optional branch name.
+    """
+    candidates = ["pengu.yaml", "pengu.yml", "pengu.toml", "pengu.json", "Pengu.toml"]
+    cfg_file = None
+    for c in candidates:
+        p = os.path.join(base_dir, c)
+        if os.path.isfile(p):
+            cfg_file = p
+            break
+
+    if cfg_file is None:
+        cfg_file = os.path.join(base_dir, "pengu.yaml")
+
+    ext = os.path.splitext(cfg_file)[1].lower()
+    dep_info: Dict[str, Any] = {"url": source}
+    if branch:
+        dep_info["branch"] = branch
+
+    if ext in (".yaml", ".yml"):
+        content = ""
+        if os.path.isfile(cfg_file):
+            with open(cfg_file, "r", encoding="utf-8") as f:
+                content = f.read()
+
+        if yaml is not None:
+            try:
+                parsed = yaml.safe_load(content) or {}
+                if "dependencies" not in parsed or not isinstance(parsed["dependencies"], dict):
+                    parsed["dependencies"] = {}
+                parsed["dependencies"][dep_name] = dep_info
+                with open(cfg_file, "w", encoding="utf-8") as f:
+                    yaml.dump(parsed, f, sort_keys=False)
+                return
+            except Exception:
+                pass
+
+        # Fallback manual YAML update
+        if "dependencies:" in content:
+            lines = content.splitlines()
+            new_lines = []
+            deps_added = False
+            for line in lines:
+                new_lines.append(line)
+                if line.strip() == "dependencies:" or line.strip().startswith("dependencies:"):
+                    new_lines.append(f"  {dep_name}:")
+                    new_lines.append(f'    url: "{source}"')
+                    if branch:
+                        new_lines.append(f'    branch: "{branch}"')
+                    deps_added = True
+            if not deps_added:
+                new_lines.append("dependencies:")
+                new_lines.append(f"  {dep_name}:")
+                new_lines.append(f'    url: "{source}"')
+                if branch:
+                    new_lines.append(f'    branch: "{branch}"')
+            with open(cfg_file, "w", encoding="utf-8") as f:
+                f.write("\n".join(new_lines) + "\n")
+        else:
+            with open(cfg_file, "a", encoding="utf-8") as f:
+                f.write(f'\ndependencies:\n  {dep_name}:\n    url: "{source}"\n')
+                if branch:
+                    f.write(f'    branch: "{branch}"\n')
+
+    elif ext == ".json":
+        data: Dict[str, Any] = {}
+        if os.path.isfile(cfg_file):
+            with open(cfg_file, "r", encoding="utf-8") as f:
+                try:
+                    data = json.load(f)
+                except Exception:
+                    data = {}
+        if "dependencies" not in data or not isinstance(data["dependencies"], dict):
+            data["dependencies"] = {}
+        data["dependencies"][dep_name] = dep_info
+        with open(cfg_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+
+    elif ext == ".toml":
+        with open(cfg_file, "a", encoding="utf-8") as f:
+            f.write(f'\n[dependencies.{dep_name}]\nurl = "{source}"\n')
+            if branch:
+                f.write(f'branch = "{branch}"\n')
+
+
+def add_dependency(
+    source: str,
+    branch: Optional[str] = None,
+    name: Optional[str] = None,
+    config_path: Optional[str] = None,
+    run_build: bool = True
+) -> str:
+    """Adds an external dependency / binding to the project in lib/<name>/.
+
+    Clones a Git repository or copies a local path into lib/<name>,
+    organizes the binding structure, executes any build scripts, and updates pengu.yaml.
+
+    Args:
+        source: Git repository URL (https://, git@, etc.) or local directory path.
+        branch: Optional git branch or tag to checkout.
+        name: Optional custom binding name override.
+        config_path: Optional path to pengu config file or project root.
+        run_build: Whether to execute build scripts (build.py, build.sh, build.bat, Makefile) if present.
+
+    Returns:
+        Path to installed binding directory.
+    """
+    config = ProjectConfig.load(config_path)
+    dep_source = source.strip()
+
+    # 1. Determine binding name
+    if name:
+        dep_name = name.strip()
+    else:
+        clean_src = dep_source.rstrip("/\\")
+        if clean_src.endswith(".git"):
+            clean_src = clean_src[:-4]
+        dep_name = os.path.basename(clean_src)
+        if not dep_name:
+            dep_name = "binding"
+
+    lib_dir = os.path.abspath(os.path.join(config.base_dir, config.lib_dir))
+    os.makedirs(lib_dir, exist_ok=True)
+    target_dir = os.path.join(lib_dir, dep_name)
+
+    print(f"\033[1;36m    Fetching\033[0m dependency '{dep_name}' from {dep_source}")
+
+    # 2. Check Git URL vs Local directory
+    is_git_url = any(dep_source.startswith(p) for p in ("http://", "https://", "git://", "git@", "ssh://")) or dep_source.endswith(".git")
+
+    if is_git_url:
+        if os.path.isdir(target_dir):
+            if os.path.isdir(os.path.join(target_dir, ".git")):
+                print(f"\033[1;33m    Updating\033[0m existing Git repository in {target_dir}")
+                cmd_fetch = ["git", "-C", target_dir, "pull"]
+                subprocess.run(cmd_fetch, check=False)
+            else:
+                shutil.rmtree(target_dir, ignore_errors=True)
+                clone_cmd = ["git", "clone"]
+                if branch:
+                    clone_cmd.extend(["-b", branch])
+                clone_cmd.extend([dep_source, target_dir])
+                res = subprocess.run(clone_cmd, capture_output=True, text=True)
+                if res.returncode != 0:
+                    raise RuntimeError(f"Git clone failed:\n{res.stderr}\n{res.stdout}")
+        else:
+            clone_cmd = ["git", "clone"]
+            if branch:
+                clone_cmd.extend(["-b", branch])
+            clone_cmd.extend([dep_source, target_dir])
+            res = subprocess.run(clone_cmd, capture_output=True, text=True)
+            if res.returncode != 0:
+                raise RuntimeError(f"Git clone failed:\n{res.stderr}\n{res.stdout}")
+    else:
+        src_path = os.path.abspath(dep_source)
+        if not os.path.exists(src_path):
+            raise FileNotFoundError(f"Dependency source path '{dep_source}' does not exist.")
+        if os.path.abspath(src_path) != os.path.abspath(target_dir):
+            if os.path.exists(target_dir):
+                shutil.rmtree(target_dir, ignore_errors=True)
+            if os.path.isdir(src_path):
+                shutil.copytree(src_path, target_dir)
+            else:
+                os.makedirs(target_dir, exist_ok=True)
+                shutil.copy(src_path, target_dir)
+
+    # 3. Standardize internal structure (pengu/, c/, include/, lib/)
+    pengu_sub = os.path.join(target_dir, "pengu")
+    c_sub = os.path.join(target_dir, "c")
+    inc_sub = os.path.join(target_dir, "include")
+    lib_sub = os.path.join(target_dir, "lib")
+    os.makedirs(pengu_sub, exist_ok=True)
+    os.makedirs(c_sub, exist_ok=True)
+    os.makedirs(inc_sub, exist_ok=True)
+    os.makedirs(lib_sub, exist_ok=True)
+
+    # Copy root .pengu files to pengu/ if they exist only in root
+    for item in os.listdir(target_dir):
+        item_p = os.path.join(target_dir, item)
+        if os.path.isfile(item_p) and item.endswith(".pengu"):
+            dest_p = os.path.join(pengu_sub, item)
+            if not os.path.exists(dest_p):
+                shutil.copy(item_p, dest_p)
+
+    # 4. Run build script if present
+    if run_build:
+        build_py = os.path.join(target_dir, "build.py")
+        build_bat = os.path.join(target_dir, "build.bat")
+        build_sh = os.path.join(target_dir, "build.sh")
+        makefile = os.path.join(target_dir, "Makefile")
+
+        build_cmd = None
+        if os.path.isfile(build_py):
+            build_cmd = [sys.executable, "build.py"]
+        elif sys.platform == "win32" and os.path.isfile(build_bat):
+            build_cmd = ["cmd.exe", "/c", "build.bat"]
+        elif sys.platform != "win32" and os.path.isfile(build_sh):
+            build_cmd = ["sh", "build.sh"]
+        elif os.path.isfile(makefile):
+            build_cmd = ["make"]
+
+        if build_cmd:
+            print(f"\033[1;36m    Building\033[0m dependency '{dep_name}' with {' '.join(build_cmd)}")
+            res = subprocess.run(build_cmd, cwd=target_dir, capture_output=True, text=True)
+            if res.returncode != 0:
+                print(f"\033[1;33m     Warning\033[0m build script returned code {res.returncode}:\n{res.stderr}", file=sys.stderr)
+
+    # 5. Update configuration file
+    _update_config_dependency(config.base_dir, dep_name, dep_source, branch)
+
+    print(f"\033[1;32m       Added\033[0m dependency '{dep_name}' to {target_dir}")
+    return target_dir
+
+
 def init_project(
     name: str = "my_game",
     output_type: str = "exe",
@@ -744,7 +1218,7 @@ def init_project(
     output_name: Optional[str] = None,
     target_dir: Optional[str] = None
 ) -> str:
-    """Initializes a new PenguScript project directory with configuration, source template, .gitignore and README.
+    """Initializes a new PenguScript project directory with Cargo-style structure (src/, lib/, include/, c/).
 
     Args:
         name: Project directory name.
@@ -761,7 +1235,16 @@ def init_project(
     out_name = output_name or name
     base_root = target_dir or os.getcwd()
     proj_dir = os.path.abspath(os.path.join(base_root, name)) if target_dir else os.path.abspath(name)
-    os.makedirs(proj_dir, exist_ok=True)
+
+    src_dir = os.path.join(proj_dir, "src")
+    lib_dir = os.path.join(proj_dir, "lib")
+    inc_dir = os.path.join(proj_dir, "include")
+    c_dir = os.path.join(proj_dir, "c")
+
+    os.makedirs(src_dir, exist_ok=True)
+    os.makedirs(lib_dir, exist_ok=True)
+    os.makedirs(inc_dir, exist_ok=True)
+    os.makedirs(c_dir, exist_ok=True)
 
     links_list = links or []
     links_formatted = json.dumps(links_list)
@@ -769,11 +1252,15 @@ def init_project(
     yaml_content = f"""project:
   name: "{name}"
   version: "0.1.0"
-  entry: "main.pengu"
+  entry: "src/main.pengu"
   output: "{out_t.value}"
   output_name: "{out_name}"
 
 build:
+  src_dir: "src"
+  lib_dir: "lib"
+  include_dir: "include"
+  c_dir: "c"
   build_dir: "build"
   includes: []
   links: {links_formatted}
@@ -783,6 +1270,8 @@ build:
   ldflags: []
   defines: []
   cc: "{cc}"
+
+dependencies: {{}}
 
 profiles:
   debug:
@@ -798,7 +1287,6 @@ profiles:
   var msg as string is "Hello from {name}!"
   calling print with msg
 """
-
     elif out_t == OutputType.C:
         main_content = f"""weave main into void:
   var msg as string is "Hello from C bundle {name}!"
@@ -826,7 +1314,6 @@ weave add with a as int, b as int into int:
   calling print with msg
 """
 
-
     gitignore_content = """build/
 *.o
 *.a
@@ -841,26 +1328,42 @@ weave add with a as int, b as int into int:
 
 A PenguScript v0.6 project targeting `{out_t.value}` output.
 
+## Project Structure
+
+```
+{name}/
+├── pengu.yaml          # Project & build configuration
+├── src/                # PenguScript source files
+│   └── main.pengu      # Main entry point
+├── lib/                # External bindings & dependencies
+├── include/            # C header files (.h)
+├── c/                  # C glue/source files (.c)
+└── build/              # Generated build artifacts
+```
+
 ## Building and Running
 
 ```bash
+# Add an external binding or library
+pengu add <git-url-or-local-path>
+
 # Build in debug profile
-python pengu_project.py build
+pengu build
 
 # Build optimized release profile
-python pengu_project.py build --profile release
+pengu build --profile release
 
 # Run executable target
-python pengu_project.py run
+pengu run
 
 # Clean build artifacts
-python pengu_project.py clean
+pengu clean
 ```
 """
 
     with open(os.path.join(proj_dir, "pengu.yaml"), "w", encoding="utf-8") as f:
         f.write(yaml_content)
-    with open(os.path.join(proj_dir, "main.pengu"), "w", encoding="utf-8") as f:
+    with open(os.path.join(src_dir, "main.pengu"), "w", encoding="utf-8") as f:
         f.write(main_content)
     with open(os.path.join(proj_dir, ".gitignore"), "w", encoding="utf-8") as f:
         f.write(gitignore_content)
@@ -892,7 +1395,6 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug") -> in
     return 0
 
 
-
 def create_cli_parser() -> argparse.ArgumentParser:
     """Constructs the Cargo-style CLI argument parser."""
     parser = argparse.ArgumentParser(
@@ -900,7 +1402,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
         description="PenguScript v0.6 Package & Build Manager",
         epilog="""Examples:
   pengu init my_game --type exe
-  pengu init my_lib --type static --links m,pthread
+  pengu add https://github.com/webui-dev/webui
+  pengu add ../local_binding -n my_binding
   pengu build --profile release
   pengu run --profile debug
   pengu clean
@@ -915,6 +1418,14 @@ def create_cli_parser() -> argparse.ArgumentParser:
     init_p.add_argument("--links", "-l", help="Comma-separated library names to link (e.g. raylib,m)")
     init_p.add_argument("--output-name", help="Custom output artifact base name")
     init_p.add_argument("--cc", default="gcc", help="C compiler command (default: gcc)")
+
+    # add
+    add_p = subparsers.add_parser("add", help="Add an external dependency or binding to the project")
+    add_p.add_argument("source", help="Git repository URL or local folder path")
+    add_p.add_argument("--branch", "-b", default=None, help="Git branch or tag to clone")
+    add_p.add_argument("--name", "-n", default=None, help="Custom binding name override")
+    add_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
+    add_p.add_argument("--no-build", action="store_true", help="Skip executing dependency build script")
 
     # build
     build_p = subparsers.add_parser("build", help="Compile the project according to configuration")
@@ -957,6 +1468,14 @@ def main():
             cc=args.cc,
             output_name=args.output_name
         )
+    elif args.command == "add":
+        add_dependency(
+            source=args.source,
+            branch=args.branch,
+            name=args.name,
+            config_path=args.config,
+            run_build=not args.no_build
+        )
     elif args.command == "build":
         build_project(
             config_path=args.config,
@@ -995,7 +1514,6 @@ def main():
             pass
     else:
         parser.print_help()
-
 
 
 if __name__ == "__main__":

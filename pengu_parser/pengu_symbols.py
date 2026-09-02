@@ -431,9 +431,16 @@ def get_stdlib_dirs(base_abs: str) -> List[str]:
 def find_module_path(base_dir: str, dot_path: str, from_dir: Optional[str] = None) -> Optional[str]:
     """Finds candidate file for a dotted import path.
 
+    Searches in:
+    1. Standard library candidate directories (if dot_path starts with 'std').
+    2. Relative to the importing file's directory (from_dir).
+    3. Project source directory (base_dir/src/).
+    4. Project external bindings directories (base_dir/lib/<binding>/pengu/ and base_dir/lib/<binding>/).
+    5. Project root directory (base_dir/).
+
     Args:
-        base_dir: Base directory path.
-        dot_path: Dotted module import path (e.g. 'std.spark' or 'my_module').
+        base_dir: Base directory path of project.
+        dot_path: Dotted module import path (e.g. 'std.spark', 'webui', or 'player').
         from_dir: Optional directory of the importing file.
 
     Returns:
@@ -443,8 +450,9 @@ def find_module_path(base_dir: str, dot_path: str, from_dir: Optional[str] = Non
     from_abs = os.path.abspath(from_dir) if from_dir else base_abs
     parts = dot_path.split(".")
     is_std = parts[0] == "std"
-    candidates = []
+    candidates: List[str] = []
 
+    # 1. Standard library
     if is_std:
         rel_without_std = parts[1:]
         stdlib_dirs = get_stdlib_dirs(base_abs)
@@ -461,11 +469,67 @@ def find_module_path(base_dir: str, dot_path: str, from_dir: Optional[str] = Non
         else:
             candidates.append(os.path.join(base_abs, "std", "__init__.pengu"))
 
+    # 2. Relative to importing directory (from_dir)
+    if from_dir:
+        candidates.extend([
+            os.path.join(from_abs, *parts) + ".pengu",
+            os.path.join(from_abs, *parts, "__init__.pengu"),
+        ])
+
+    # 3. Project src/ directory
+    src_dir = os.path.join(base_abs, "src")
+    if os.path.isdir(src_dir):
+        candidates.extend([
+            os.path.join(src_dir, *parts) + ".pengu",
+            os.path.join(src_dir, *parts, "__init__.pengu"),
+        ])
+        if parts[0] == "src":
+            candidates.extend([
+                os.path.join(base_abs, *parts) + ".pengu",
+                os.path.join(base_abs, *parts, "__init__.pengu"),
+            ])
+
+    # 4. Project lib/ directory (External Bindings)
+    lib_dir = os.path.join(base_abs, "lib")
+    if os.path.isdir(lib_dir):
+        binding_name = parts[0]
+        binding_rest = parts[1:]
+        binding_folder = os.path.join(lib_dir, binding_name)
+
+        if os.path.isdir(binding_folder):
+            if binding_rest:
+                candidates.extend([
+                    os.path.join(binding_folder, "pengu", *binding_rest) + ".pengu",
+                    os.path.join(binding_folder, "pengu", *binding_rest, "__init__.pengu"),
+                    os.path.join(binding_folder, *binding_rest) + ".pengu",
+                    os.path.join(binding_folder, *binding_rest, "__init__.pengu"),
+                ])
+            else:
+                candidates.extend([
+                    os.path.join(binding_folder, "pengu", f"{binding_name}.pengu"),
+                    os.path.join(binding_folder, "pengu", "__init__.pengu"),
+                    os.path.join(binding_folder, "pengu", "main.pengu"),
+                    os.path.join(binding_folder, f"{binding_name}.pengu"),
+                    os.path.join(binding_folder, "__init__.pengu"),
+                ])
+
+        # Also search across all lib/*/pengu/ and lib/*/ for matching module
+        try:
+            for entry in os.scandir(lib_dir):
+                if entry.is_dir():
+                    candidates.extend([
+                        os.path.join(entry.path, "pengu", *parts) + ".pengu",
+                        os.path.join(entry.path, "pengu", *parts, "__init__.pengu"),
+                        os.path.join(entry.path, *parts) + ".pengu",
+                        os.path.join(entry.path, *parts, "__init__.pengu"),
+                    ])
+        except Exception:
+            pass
+
+    # 5. Project root directory (backward compatibility)
     candidates.extend([
         os.path.join(base_abs, *parts) + ".pengu",
         os.path.join(base_abs, *parts, "__init__.pengu"),
-        os.path.join(from_abs, *parts) + ".pengu",
-        os.path.join(from_abs, *parts, "__init__.pengu"),
     ])
 
     for cand in candidates:
@@ -488,6 +552,11 @@ def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None
         parser = PenguParser()
 
     entry_abs = os.path.abspath(os.path.join(base_dir, entry_file)) if not os.path.isabs(entry_file) else os.path.abspath(entry_file)
+    if not os.path.isfile(entry_abs):
+        src_cand = os.path.abspath(os.path.join(base_dir, "src", entry_file))
+        if os.path.isfile(src_cand):
+            entry_abs = src_cand
+
     base_abs = os.path.abspath(base_dir)
 
     def extract_imports(file_path: str) -> List[str]:

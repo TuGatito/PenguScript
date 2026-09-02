@@ -3,7 +3,7 @@
   "displayName": "PenguScript",
   "description": "Language support, LSP intelligence, and cargo-like project management for PenguScript.",
   "publisher": "pengus-lang",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "icon": "./icons/pengu_icon.png",
   "license": "MIT",
   "repository": {

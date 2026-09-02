@@ -176,7 +176,7 @@
       "patterns": [
         {
           "name": "keyword.other.declaration.pengus",
-          "match": "\\b(var|let|const|set|declare|import|include|link|sigil|essence|shard|of|is|as|into|and|capacity|size|length|at|transmute|present|not\\s+present)\\b"
+          "match": "\\b(var|let|const|set|declare|import|include|link|sigil|essence|shard|many|of|is|as|into|and|capacity|size|length|at|transmute|present|not\\s+present)\\b"
         }
       ]
     },

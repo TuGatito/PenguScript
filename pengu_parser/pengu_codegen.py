@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from lark import Tree, Token
 
 from pengu_parser.pengu_types import (
-    Type, BaseType, RefType, ArrayType, SliceType, ListType, MapType, MaybeType,
+    Type, BaseType, RefType, ArrayType, SliceType, ManyType, ListType, MapType, MaybeType,
     RuneType, EchoType, OmenType, ResultType, FnType, AliasType, AnyType,
     TypeParam, INT_TYPE, I32_TYPE, I64_TYPE, FLOAT_TYPE, F32_TYPE, F64_TYPE, BOOL_TYPE,
     STRING_TYPE, VOID_TYPE, ERROR_TYPE, OPAQUE_TYPE, ast_to_type
@@ -108,7 +108,7 @@ class CTypeMapper:
             elem_str = CTypeMapper.to_c_type(t.element)
             return f"{elem_str}*"
 
-        elif isinstance(t, SliceType):
+        elif isinstance(t, (SliceType, ManyType)):
             return "PenguSlice"
 
         elif isinstance(t, ListType):
@@ -219,6 +219,59 @@ class PenguCodegen:
         """
         self.temp_counter += 1
         return f"{prefix}_{self.temp_counter}"
+
+    def _build_call_args(self, fn_params: List[Any], raw_args: List[Any]) -> List[str]:
+        """Formats and translates call arguments, filling defaults and constructing PenguSlice for ManyType."""
+        if not fn_params:
+            return [self._translate_expr(a) for a in raw_args]
+
+        has_variadic = len(fn_params) > 0 and isinstance(fn_params[-1][1], ManyType)
+        if not has_variadic:
+            args = [self._translate_expr(a) for a in raw_args]
+            if len(args) < len(fn_params):
+                for p in fn_params[len(args):]:
+                    if len(p) >= 3 and p[2] is not None:
+                        args.append(self._translate_expr(p[2]))
+            return args
+
+        fixed_params = fn_params[:-1]
+        variadic_param = fn_params[-1]
+        var_elem_type = variadic_param[1].element
+        elem_c = CTypeMapper.to_c_type(var_elem_type)
+
+        res_args = []
+        fixed_count = len(fixed_params)
+
+        for i, p in enumerate(fixed_params):
+            if i < len(raw_args):
+                res_args.append(self._translate_expr(raw_args[i]))
+            elif len(p) >= 3 and p[2] is not None:
+                res_args.append(self._translate_expr(p[2]))
+
+        var_raw_args = raw_args[fixed_count:]
+        if len(var_raw_args) == 1:
+            arg_t = self._infer_node_type(var_raw_args[0])
+            if isinstance(arg_t, (ManyType, SliceType)):
+                res_args.append(self._translate_expr(var_raw_args[0]))
+            else:
+                arg_code = self._translate_expr(var_raw_args[0])
+                tmp_arr = self.get_temp_name("_tmp_arr")
+                tmp_slice = self.get_temp_name("_tmp_slice")
+                slice_code = f"({{ {elem_c} {tmp_arr}[] = {{ {arg_code} }}; PenguSlice {tmp_slice} = (PenguSlice){{ .data = {tmp_arr}, .len = 1, .elem_size = sizeof({elem_c}) }}; {tmp_slice}; }})"
+                res_args.append(slice_code)
+        elif len(var_raw_args) == 0:
+            tmp_slice = self.get_temp_name("_tmp_slice")
+            slice_code = f"({{ PenguSlice {tmp_slice} = (PenguSlice){{ .data = NULL, .len = 0, .elem_size = sizeof({elem_c}) }}; {tmp_slice}; }})"
+            res_args.append(slice_code)
+        else:
+            elem_codes = [self._translate_expr(a) for a in var_raw_args]
+            elems_str = ", ".join(elem_codes)
+            tmp_arr = self.get_temp_name("_tmp_arr")
+            tmp_slice = self.get_temp_name("_tmp_slice")
+            slice_code = f"({{ {elem_c} {tmp_arr}[] = {{ {elems_str} }}; PenguSlice {tmp_slice} = (PenguSlice){{ .data = {tmp_arr}, .len = {len(var_raw_args)}, .elem_size = sizeof({elem_c}) }}; {tmp_slice}; }})"
+            res_args.append(slice_code)
+
+        return res_args
 
     def indent(self) -> str:
         """Returns current indentation spaces string."""
@@ -1297,7 +1350,7 @@ class PenguCodegen:
                 f"{ind}  {elem_c} {var_name} = ({col_str})[{iter_idx}];\n"
                 f"{body_str}\n{ind}}}"
             )
-        elif isinstance(col_t, SliceType):
+        elif isinstance(col_t, (SliceType, ManyType)):
             return (
                 f"{ind}for (int32_t {iter_idx} = 0; {iter_idx} < ({col_str}).len; {iter_idx}++) {{\n"
                 f"{ind}  {elem_c} {var_name} = ((({elem_c}*)({col_str}).data)[{iter_idx}]);\n"
@@ -1393,7 +1446,7 @@ class PenguCodegen:
         elif acc_node.data == "at_access":
             idx = self._translate_expr(acc_node.children[0])
             var_t = self._lookup_var_type(base_str)
-            if isinstance(var_t, SliceType):
+            if isinstance(var_t, (SliceType, ManyType)):
                 elem_t = CTypeMapper.to_c_type(var_t.element)
                 return f"((({elem_t}*)({base_str}).data)[{idx}])"
             elif isinstance(var_t, ListType):
@@ -1698,13 +1751,16 @@ class PenguCodegen:
                         args_node = ch
 
             # Translate arguments
+            raw_arg_nodes = []
             args = []
             if args_node and isinstance(args_node, Tree) and args_node.data == "arg_list":
                 for arg in args_node.children:
                     if isinstance(arg, Tree):
                         if arg.data == "pos_arg":
+                            raw_arg_nodes.append(arg.children[0])
                             args.append(self._translate_expr(arg.children[0]))
                         elif arg.data == "named_arg":
+                            raw_arg_nodes.append(arg.children[1])
                             args.append(self._translate_expr(arg.children[1]))
 
             # 1. Normal target method call: obj.method(...) or self->items.method(...)
@@ -1727,7 +1783,9 @@ class PenguCodegen:
                     if obj_sym is not None and obj_sym.kind == "import":
                         fn_name = f"{obj_name}_{m_name}" if f"{obj_name}_{m_name}" in self.fn_info else m_name
                         fn_entry = self.fn_info.get(fn_name) or self.fn_info.get(m_name)
-                        if fn_entry:
+                        if fn_entry and fn_entry.get("params"):
+                            args = self._build_call_args(fn_entry["params"], raw_arg_nodes)
+                        elif fn_entry:
                             fn_params = fn_entry["params"]
                             if len(args) < len(fn_params):
                                 for p in fn_params[len(args):]:
@@ -1842,14 +1900,13 @@ class PenguCodegen:
                         self_arg = obj_expr_str
                     else:
                         self_arg = f"&{obj_expr_str}"
-                    all_args = [self_arg] + args
                     fn_entry = self.fn_info.get(c_name) or self.fn_info.get(m_name)
-                    if fn_entry:
+                    if fn_entry and fn_entry.get("params"):
                         fn_params = fn_entry["params"]
-                        if len(all_args) < len(fn_params):
-                            for p in fn_params[len(all_args):]:
-                                if len(p) >= 3 and p[2] is not None:
-                                    all_args.append(self._translate_expr(p[2]))
+                        user_params = fn_params[1:] if (len(fn_params) > 0 and fn_params[0][0] in ("self", "restrict self")) else fn_params
+                        all_args = [self_arg] + self._build_call_args(user_params, raw_arg_nodes)
+                    else:
+                        all_args = [self_arg] + args
                     return f"{c_name}({', '.join(all_args)})"
                 else:
                     target_str = f"{obj_expr_str}->{m_name}" if isinstance(obj_type, RefType) else f"{obj_expr_str}.{m_name}"
@@ -1885,14 +1942,13 @@ class PenguCodegen:
 
                 if is_enchanting_method:
                     c_name = f"{t_name.replace(' ', '_')}_{field_name}"
-                    all_args = [self_arg] + args
                     fn_entry = self.fn_info.get(c_name) or self.fn_info.get(field_name)
-                    if fn_entry:
+                    if fn_entry and fn_entry.get("params"):
                         fn_params = fn_entry["params"]
-                        if len(all_args) < len(fn_params):
-                            for p in fn_params[len(all_args):]:
-                                if len(p) >= 3 and p[2] is not None:
-                                    all_args.append(self._translate_expr(p[2]))
+                        user_params = fn_params[1:] if (len(fn_params) > 0 and fn_params[0][0] in ("self", "restrict self")) else fn_params
+                        all_args = [self_arg] + self._build_call_args(user_params, raw_arg_nodes)
+                    else:
+                        all_args = [self_arg] + args
                     return f"{c_name}({', '.join(all_args)})"
 
                 target_str = f"{base_target}.{field_name}"
@@ -1974,14 +2030,13 @@ class PenguCodegen:
                     if t_name is not None:
                         if (hasattr(self.symbols, "methods") and (t_name, target_str) in self.symbols.methods) or any(w.get("enchanted_type") is not None and getattr(w["enchanted_type"], "name", str(w["enchanted_type"])) == t_name and w.get("name") == target_str for w in self.weaves):
                             c_name = f"{t_name.replace(' ', '_')}_{target_str}"
-                            all_args = [self_arg] + args
                             fn_entry = self.fn_info.get(c_name) or self.fn_info.get(target_str)
-                            if fn_entry:
+                            if fn_entry and fn_entry.get("params"):
                                 fn_params = fn_entry["params"]
-                                if len(all_args) < len(fn_params):
-                                    for p in fn_params[len(all_args):]:
-                                        if len(p) >= 3 and p[2] is not None:
-                                            all_args.append(self._translate_expr(p[2]))
+                                user_params = fn_params[1:] if (len(fn_params) > 0 and fn_params[0][0] in ("self", "restrict self")) else fn_params
+                                all_args = [self_arg] + self._build_call_args(user_params, raw_arg_nodes)
+                            else:
+                                all_args = [self_arg] + args
                             return f"{c_name}({', '.join(all_args)})"
 
                 if (self.symbols and target_str in self.symbols.generic_functions) or (target_str not in self.fn_info and self.symbols):
@@ -2011,7 +2066,9 @@ class PenguCodegen:
                                 target_str = matches[0]
 
                 fn_entry = self.fn_info.get(target_str)
-                if fn_entry:
+                if fn_entry and fn_entry.get("params"):
+                    args = self._build_call_args(fn_entry["params"], raw_arg_nodes)
+                elif fn_entry:
                     fn_params = fn_entry["params"]
                     if len(args) < len(fn_params):
                         for p in fn_params[len(args):]:
@@ -2102,9 +2159,9 @@ class PenguCodegen:
             if isinstance(iter_t, ArrayType) and iter_t.size is not None:
                 count_c = str(iter_t.size)
                 elem_access = f"({iter_c})[_i]"
-            elif isinstance(iter_t, (SliceType, ListType)):
+            elif isinstance(iter_t, (SliceType, ManyType, ListType)):
                 count_c = f"({iter_c}).len"
-                if isinstance(iter_t, SliceType):
+                if isinstance(iter_t, (SliceType, ManyType)):
                     elem_access = f"((({iter_elem_c}*)({iter_c}).data)[_i])"
                 else:
                     elem_access = f"(*({iter_elem_c}*)pengu_list_at(&({iter_c}), _i))"
@@ -2157,7 +2214,7 @@ class PenguCodegen:
                     b_type = self._lookup_var_type(t_base)
                     if b_type and hasattr(b_type, "name"):
                         var_t = self.runes.get(b_type.name, {}).get(t_field)
-            if isinstance(var_t, SliceType):
+            if isinstance(var_t, (SliceType, ManyType)):
                 elem_t = CTypeMapper.to_c_type(var_t.element)
                 return f"((({elem_t}*)({base}).data)[{idx}])"
             if isinstance(var_t, ListType) or (isinstance(var_t, RefType) and isinstance(var_t.target, ListType)):

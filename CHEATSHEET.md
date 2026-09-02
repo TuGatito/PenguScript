@@ -29,6 +29,7 @@
 21. [Transparent C Identifier Resolution](#21-transparent-c-identifier-resolution)
 22. [Complete Real-World Example: Raylib Game](#22-complete-real-world-example-raylib-game)
 23. [Standard Library Reference (24 Modules)](#23-standard-library-reference-24-modules)
+24. [Project Structure, Bindings & Package Manager](#24-project-structure-bindings--package-manager)
 
 ---
 
@@ -78,29 +79,35 @@
 ## 3. Imports & C Interoperability
 
 ```pengu
-# 1. Import internal/standard library modules (merged into a single bundle)
+# 1. Import standard library modules (std/)
 import std.spark
 import std.oracle
-import src.components.Player
-import src.math.Vec2
 
-# 2. Include C header files (generates #include)
+# 2. Import project source modules (src/)
+import components.player
+import math.vec2
+
+# 3. Import external bindings (lib/<binding>/pengu/)
+import webui
+import raylib
+
+# 4. Include C header files (generates #include, searches include/ and lib/*/include/)
 include "stdio.h"
-include "raylib.h"
+include "webui.h"
 
-# 3. Link external C libraries (generates -l flags for the compiler)
-link "raylib"
+# 5. Link external C libraries (generates -l flags, searches lib/ and lib/*/lib/)
+link "webui-2-static"
 link "m"
 link "pthread"
 ```
 
 ```c
 #include "stdio.h"
-#include "raylib.h"
+#include "webui.h"
 #include "pengu_runtime.h"
 
-// Bundled code from Player.pengu, Vec2.pengu, and standard modules
-// Compiler command: gcc bundle.c -lraylib -lm -lpthread -o app
+// Bundled code from components/player.pengu, math/vec2.pengu, webui.pengu, and std modules
+// Compiler command: gcc bundle.c c/*.c lib/*/c/*.c -Iinclude -Ilib/*/include -Llib/*/lib -lwebui-2-static -lm -lpthread -o app
 ```
 
 ---
@@ -467,6 +474,19 @@ inline weave fast_add with a as int and b as int into int:
 declare InitWindow with w as int and h as int and title as string into void
 declare WindowShouldClose into bool
 declare CloseWindow into void
+
+# 6. Variadic Parameters with 'many'
+weave sum_all with base as int and values as many int into int:
+    var total as int is base
+    for num in values:
+        set total is total + num
+    return total
+
+weave test_variadic into void:
+    # Passing multiple arguments
+    let total1 is calling sum_all with 10 and 20 and 30 and 40
+    # Passing zero variadic arguments
+    let total2 is calling sum_all with 5
 ```
 
 ```c
@@ -498,7 +518,31 @@ static inline int fast_add(int a, int b) {
 extern void InitWindow(int w, int h, const char* title);
 extern bool WindowShouldClose(void);
 extern void CloseWindow(void);
+
+// 6. Variadic Parameters with 'many' (translated to PenguSlice)
+int sum_all(int32_t base, PenguSlice values) {
+    int32_t total = base;
+    for (int32_t _i = 0; _i < values.len; _i++) {
+        int32_t num = (((int32_t*)values.data)[_i]);
+        total = total + num;
+    }
+    return total;
+}
+
+void test_variadic(void) {
+    // Calling with multiple arguments constructs a temporary array & PenguSlice
+    int32_t total1 = sum_all(10, ({ int32_t _tmp_arr[] = { 20, 30, 40 }; PenguSlice _tmp_slice = { .data = _tmp_arr, .len = 3, .elem_size = sizeof(int32_t) }; _tmp_slice; }));
+    
+    // Calling with 0 variadic arguments constructs an empty PenguSlice
+    int32_t total2 = sum_all(5, ({ PenguSlice _tmp_slice = { .data = NULL, .len = 0, .elem_size = sizeof(int32_t) }; _tmp_slice; }));
+}
 ```
+
+> [!NOTE]
+> **Variadic Rules & Constraints**:
+> - Only **one** `many` parameter is allowed per function (`E0023`).
+> - The `many` parameter **must be the last parameter** in the function signature (`E0024`).
+> - Inside the function, the `many` parameter behaves as a `slice of T` (`PenguSlice`), supporting `length`, indexing with `at`, and `for ... in` iteration.
 
 ---
 
@@ -1031,3 +1075,129 @@ int main(void) {
 | **ward**       | `import std.ward`       | Runtime assertions and invariant validations (`assert`, `assert_eq`, `assert_ne`, `assert_present`, `assert_ok`, `panic`).                   |
 | **trial**      | `import std.trial`      | Automated unit testing framework (suites, test cases, before/after lifecycle hooks, and colored reporting).                                  |
 | **whisper**    | `import std.whisper`    | Structured logging framework with severity levels (`trace`, `debug`, `info`, `warn`, `error`, `fatal`).                                      |
+
+---
+
+## 24. Project Structure, Bindings & Package Manager
+
+PenguScript uses a structured, scalable project layout inspired by Rust/Cargo for managing code, C glue, headers, and external bindings/dependencies.
+
+### 24.1 Project Directory Layout
+
+```text
+my_project/
+├── pengu.yaml          # Project metadata, build settings & dependencies
+├── src/                # Main PenguScript source files
+│   └── main.pengu      # Main entry point (weave main into void:)
+├── lib/                # External bindings & dependencies (installed via `pengu add`)
+│   └── webui/          # Individual binding package
+│       ├── pengu/      # PenguScript binding definitions (.pengu)
+│       │   └── webui.pengu
+│       ├── include/    # C header files (.h) provided by the binding
+│       │   └── webui.h
+│       ├── c/          # C glue/wrapper source code (.c)
+│       │   └── glue.c
+│       ├── lib/        # Precompiled native binaries (.a, .so, .dll, .lib)
+│       │   └── libwebui-2-static.a
+│       └── build.py    # Optional build script executed on `pengu add`
+├── include/            # Project-specific C headers (.h)
+├── c/                  # Project-specific C glue/source files (.c)
+└── build/              # Generated artifacts, bundle.c and binaries (gitignored)
+```
+
+### 24.2 Configuration File (`pengu.yaml`)
+
+```yaml
+project:
+  name: "my_project"
+  version: "0.1.0"
+  entry: "src/main.pengu"
+  output: "exe"               # exe | c | obj | static | shared
+  output_name: "app"
+
+build:
+  src_dir: "src"
+  lib_dir: "lib"
+  include_dir: "include"
+  c_dir: "c"
+  build_dir: "build"
+  includes: []                # Extra global C includes (e.g. ["stdio.h"])
+  links: []                   # Extra linker flags (e.g. ["m", "pthread"])
+  lib_dirs: []                # Extra -L paths
+  include_dirs: []            # Extra -I paths
+  cflags: ["-Wall", "-std=c11"]
+  ldflags: []
+  defines: []
+  cc: "gcc"
+
+dependencies:
+  webui:
+    url: "https://github.com/webui-dev/webui"
+    branch: "main"
+
+profiles:
+  debug:
+    cflags: ["-g", "-O0", "-Wall"]
+    defines: ["DEBUG"]
+  release:
+    cflags: ["-O3", "-flto", "-DNDEBUG"]
+    defines: ["NDEBUG"]
+```
+
+### 24.3 CLI Commands
+
+```bash
+# 1. Initialize a new project with Cargo-style directories
+pengu init my_game --type exe
+
+# 2. Add an external dependency / binding (Git repo or local path)
+pengu add https://github.com/webui-dev/webui
+pengu add ../my_local_binding --name my_lib
+
+# 3. Build project (debug profile by default)
+pengu build
+
+# 4. Build with release optimizations
+pengu build --profile release
+
+# 5. Build and execute target binary
+pengu run
+pengu run --profile release
+
+# 6. Clean build artifacts
+pengu clean
+```
+
+### 24.4 Complete Binding Example
+
+#### Binding definition (`lib/webui/pengu/webui.pengu`):
+```pengu
+include "webui.h"
+link "webui-2-static"
+
+# External functions wrapped for PenguScript
+weave new_window into int:
+  return webui_new_window()
+
+weave show with win as int, content as string into void:
+  webui_show(win, content.data)
+
+weave wait into void:
+  webui_wait()
+```
+
+#### Project source code (`src/main.pengu`):
+```pengu
+import webui
+
+weave main into void:
+  var win as int is calling webui.new_window
+  calling webui.show with win, "<html><h1>Hello from PenguScript!</h1></html>"
+  calling webui.wait
+```
+
+When building with `pengu build`:
+1. `PenguBuilder` automatically collects headers from `include/` and `lib/*/include/` (`-I`).
+2. Collects library archives from `lib/` and `lib/*/lib/` (`-L` and auto `-l`).
+3. Compiles all C glue files from `c/*.c` and `lib/*/c/*.c` alongside `bundle.c`.
+4. Produces the final binary in `build/`.

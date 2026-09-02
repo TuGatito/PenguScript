@@ -141,6 +141,7 @@ when_pattern: INT
      | fn_type
      | array_type
      | slice_type
+     | many_type
      | list_type
      | map_type
      | maybe_type
@@ -159,6 +160,7 @@ fn_param_list: fn_param (("," | "and") fn_param)*
 fn_param: [NAME "as"] type
 array_type: "array" "of" type ["with" "size" (INT | NAME)]
 slice_type: "slice" "of" type
+many_type: "many" type
 list_type: "list" "of" type
 map_type: "map" "of" type "to" type
 maybe_type: "maybe" type

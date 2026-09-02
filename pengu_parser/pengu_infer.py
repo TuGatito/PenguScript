@@ -4,7 +4,7 @@ from typing import Optional, List, Dict, Tuple, Any
 from lark import Tree, Token
 
 from .pengu_types import (
-    Type, BaseType, RefType, ArrayType, SliceType, ListType, MapType, MaybeType,
+    Type, BaseType, RefType, ArrayType, SliceType, ManyType, ListType, MapType, MaybeType,
     RuneType, EchoType, OmenType, ResultType, FnType, OPAQUE_TYPE, AliasType, AnyType,
     TypeParam, INT_TYPE, I32_TYPE, I64_TYPE, U32_TYPE, U64_TYPE, CHAR_TYPE, BYTE_TYPE,
     U8_TYPE, I8_TYPE, U16_TYPE, I16_TYPE, USIZE_TYPE, ISIZE_TYPE, FLOAT_TYPE, F32_TYPE,
@@ -486,7 +486,7 @@ class TypeInferrer:
                     help=f"Check variant spelling or verify definition of omen '{target_type.name}'.",
                     note=f"Omen '{target_type.name}' only exposes its declared variants."
                 )
-            elif isinstance(target_type, (SliceType, ListType)) or (isinstance(target_type, BaseType) and target_type.name == "string"):
+            elif isinstance(target_type, (SliceType, ManyType, ListType)) or (isinstance(target_type, BaseType) and target_type.name == "string"):
                 if field_name in ("length", "len", "capacity", "cap", "data"):
                     return INT_TYPE
                 raise self._make_error(
@@ -796,7 +796,7 @@ class TypeInferrer:
             target_type = self.infer(target)
             idx_type = self.infer(idx_node)
 
-            if isinstance(target_type, (ArrayType, SliceType, ListType)):
+            if isinstance(target_type, (ArrayType, SliceType, ManyType, ListType)):
                 if not idx_type.is_int():
                     raise self._make_error(
                         TypeMismatchError,
@@ -860,7 +860,7 @@ class TypeInferrer:
                     note="Slice ranges require integer bounds."
                 )
 
-            if isinstance(target_type, (ArrayType, SliceType, ListType)):
+            if isinstance(target_type, (ArrayType, SliceType, ManyType, ListType)):
                 return SliceType(element=target_type.element)
             elif target_type == STRING_TYPE:
                 return STRING_TYPE
@@ -1168,7 +1168,11 @@ class TypeInferrer:
 
             total_passed = len(pos_args) + len(named_args)
             total_params = len(fn_type.params)
-            min_params = total_params - fn_type.default_count
+            has_variadic = total_params > 0 and isinstance(fn_type.params[-1][1], ManyType)
+            if has_variadic:
+                min_params = (total_params - 1) - fn_type.default_count
+            else:
+                min_params = total_params - fn_type.default_count
 
             # Generic function / method specialization
             if fn_name and ((fn_name in self.symbols.generic_functions) or (fn_type and fn_type.type_params)):
@@ -1182,11 +1186,16 @@ class TypeInferrer:
                     if isinstance(param_t, TypeParam):
                         if param_t.name not in subst_map:
                             subst_map[param_t.name] = arg_t
+                    elif isinstance(param_t, ManyType):
+                        if isinstance(arg_t, (ManyType, SliceType, ArrayType)):
+                            unify(param_t.element, arg_t.element)
+                        else:
+                            unify(param_t.element, arg_t)
                     elif isinstance(param_t, RefType) and isinstance(arg_t, RefType):
                         unify(param_t.target, arg_t.target)
                     elif isinstance(param_t, ArrayType) and isinstance(arg_t, ArrayType):
                         unify(param_t.element, arg_t.element)
-                    elif isinstance(param_t, SliceType) and isinstance(arg_t, (SliceType, ArrayType)):
+                    elif isinstance(param_t, SliceType) and isinstance(arg_t, (SliceType, ManyType, ArrayType)):
                         unify(param_t.element, arg_t.element)
                     elif isinstance(param_t, ListType) and isinstance(arg_t, ListType):
                         unify(param_t.element, arg_t.element)
@@ -1206,6 +1215,8 @@ class TypeInferrer:
                 for i, (arg_t, _) in enumerate(pos_args):
                     if i < len(fn_type.params):
                         unify(fn_type.params[i][1], arg_t)
+                    elif has_variadic:
+                        unify(fn_type.params[-1][1], arg_t)
 
                 param_dict = {p[0]: p[1] for p in fn_type.params if p[0]}
                 for n_name, (arg_t, _) in named_args:
@@ -1253,16 +1264,27 @@ class TypeInferrer:
                         self.symbols.methods[(receiver_type.name, method_name)] = specialized_method_type
                         fn_type = specialized_method_type
 
-            if not (min_params <= total_passed <= total_params) and total_params > 0:
-                if not (self.symbols.has_includes and total_params == 0):
+            if has_variadic:
+                if total_passed < min_params:
                     raise self._make_error(
                         SemanticError,
-                        f"Function expects between {min_params} and {total_params} arguments, but received {total_passed}",
+                        f"Function expects at least {min_params} arguments, but received {total_passed}",
                         node,
                         code="E0005",
-                        help=f"Provide between {min_params} and {total_params} arguments.",
+                        help=f"Provide at least {min_params} arguments.",
                         note="Function call argument counts must match signature."
                     )
+            else:
+                if not (min_params <= total_passed <= total_params) and total_params > 0:
+                    if not (self.symbols.has_includes and total_params == 0):
+                        raise self._make_error(
+                            SemanticError,
+                            f"Function expects between {min_params} and {total_params} arguments, but received {total_passed}",
+                            node,
+                            code="E0005",
+                            help=f"Provide between {min_params} and {total_params} arguments.",
+                            note="Function call argument counts must match signature."
+                        )
 
             # Special check for ListType.push
             if isinstance(method_self_type, ListType) and method_name == "push":

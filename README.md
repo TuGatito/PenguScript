@@ -125,6 +125,9 @@ pengu clean
 
 # 6. Start the Language Server Protocol (LSP)
 pengu lsp --stdio
+
+# 7. Add Pengu library from github
+pengu add https://github.com/library-name.git
 ```
 
 ### Supported Target Types
@@ -170,32 +173,32 @@ defines = ["NDEBUG"]
 
 PenguScript comes equipped with **24 high-performance standard library modules**:
 
-| Module | Import | Description |
-|---|---|---|
-| **spark** | `import std.spark` | Core runtime and terminal I/O (`print`, `println`, `read_line`, ANSI styling, basic conversions, panic). |
-| **scrolls** | `import std.scrolls` | Comprehensive string manipulation (`split`, `join`, `replace`, `trim`, `starts_with`, `ends_with`, `contains`, case conversions). |
-| **oracle** | `import std.oracle` | Null-safe optional and functional error types (`MaybeInt`, `MaybeFloat`, `MaybeString`, `ResultInt`, `ResultString`, `is_present`, `is_ok`). |
-| **tally** | `import std.tally` | Dynamic array and list manipulation utilities, element indexing, sorting, and transformations. |
-| **atlas** | `import std.atlas` | Hash map key-value store structures and mapping utilities. |
-| **coven** | `import std.coven` | Dynamic unique set collections (`insert`, `contains`, `remove`, union, intersection, difference). |
-| **compass** | `import std.compass` | Cross-platform file path manipulation (`join`, `basename`, `dirname`, `ext`, normalization, absolute paths). |
-| **archivum** | `import std.archivum` | Complete file system operations: reading, writing, appending, copying, moving, deleting, directory listing, and metadata. |
-| **arithmancy** | `import std.arithmancy` | Advanced mathematical functions: trigonometry (`sin`, `cos`, `tan`), powers, roots, logarithms, rounding, and clamping. |
-| **chronicle** | `import std.chronicle` | High-precision time, timestamps, date/time formatting, monotonic clocks, sleep delays, and stopwatch benchmarking. |
-| **lot** | `import std.lot` | Pseudorandom number generation, seeds, range-bounded integers/floats, and collection shuffling. |
-| **rites** | `import std.rites` | Operating system interface: process execution, environment variables, command running, and exit codes. |
-| **invoke** | `import std.invoke` | Command-line argument parsing for CLI applications (flags, options, positional arguments, and automated `--help`). |
-| **ledger** | `import std.ledger` | High-performance CSV and TSV parsing, delimiter detection, and tabular row serialization. |
-| **cipher** | `import std.cipher` | JSON serialization/deserialization and Base64 encoding/decoding. |
-| **parchment** | `import std.parchment` | XML and HTML DOM parsing, node traversal, attribute manipulation, and serialization (powered by `libxml2`). |
-| **regulus** | `import std.regulus` | High-performance regular expression compilation, matching, search, replace, and capture groups (powered by `PCRE2 10.47`). |
-| **seal** | `import std.seal` | Cryptographic hashing (`MD5`, `SHA1`, `SHA256`, `SHA512`, `CRC32`) and gzip/zlib compression (`deflate`/`inflate`). |
-| **precis** | `import std.precis` | Full networking stack: HTTP client (`GET`, `POST`, `PUT`, `DELETE`), embedded HTTP micro-server, TCP sockets, and URL encoding. |
-| **filum** | `import std.filum` | Concurrency primitives: thread spawning, communication channels, mutexes, wait groups, and atomics. |
-| **loom** | `import std.loom` | Functional collection utilities and iterators (`map`, `filter`, `reduce`, `zip`, chunking, flattening). |
-| **ward** | `import std.ward` | Runtime assertions and invariant validations (`assert`, `assert_eq`, `assert_ne`, `assert_present`, `assert_ok`, `panic`). |
-| **trial** | `import std.trial` | Automated unit testing framework (suites, test cases, before/after lifecycle hooks, and colored reporting). |
-| **whisper** | `import std.whisper` | Structured logging framework with severity levels (`trace`, `debug`, `info`, `warn`, `error`, `fatal`). |
+| Module         | Import                  | Description                                                                                                                                  |
+| -------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **spark**      | `import std.spark`      | Core runtime and terminal I/O (`print`, `println`, `read_line`, ANSI styling, basic conversions, panic).                                     |
+| **scrolls**    | `import std.scrolls`    | Comprehensive string manipulation (`split`, `join`, `replace`, `trim`, `starts_with`, `ends_with`, `contains`, case conversions).            |
+| **oracle**     | `import std.oracle`     | Null-safe optional and functional error types (`MaybeInt`, `MaybeFloat`, `MaybeString`, `ResultInt`, `ResultString`, `is_present`, `is_ok`). |
+| **tally**      | `import std.tally`      | Dynamic array and list manipulation utilities, element indexing, sorting, and transformations.                                               |
+| **atlas**      | `import std.atlas`      | Hash map key-value store structures and mapping utilities.                                                                                   |
+| **coven**      | `import std.coven`      | Dynamic unique set collections (`insert`, `contains`, `remove`, union, intersection, difference).                                            |
+| **compass**    | `import std.compass`    | Cross-platform file path manipulation (`join`, `basename`, `dirname`, `ext`, normalization, absolute paths).                                 |
+| **archivum**   | `import std.archivum`   | Complete file system operations: reading, writing, appending, copying, moving, deleting, directory listing, and metadata.                    |
+| **arithmancy** | `import std.arithmancy` | Advanced mathematical functions: trigonometry (`sin`, `cos`, `tan`), powers, roots, logarithms, rounding, and clamping.                      |
+| **chronicle**  | `import std.chronicle`  | High-precision time, timestamps, date/time formatting, monotonic clocks, sleep delays, and stopwatch benchmarking.                           |
+| **lot**        | `import std.lot`        | Pseudorandom number generation, seeds, range-bounded integers/floats, and collection shuffling.                                              |
+| **rites**      | `import std.rites`      | Operating system interface: process execution, environment variables, command running, and exit codes.                                       |
+| **invoke**     | `import std.invoke`     | Command-line argument parsing for CLI applications (flags, options, positional arguments, and automated `--help`).                           |
+| **ledger**     | `import std.ledger`     | High-performance CSV and TSV parsing, delimiter detection, and tabular row serialization.                                                    |
+| **cipher**     | `import std.cipher`     | JSON serialization/deserialization and Base64 encoding/decoding.                                                                             |
+| **parchment**  | `import std.parchment`  | XML and HTML DOM parsing, node traversal, attribute manipulation, and serialization (powered by `libxml2`).                                  |
+| **regulus**    | `import std.regulus`    | High-performance regular expression compilation, matching, search, replace, and capture groups (powered by `PCRE2 10.47`).                   |
+| **seal**       | `import std.seal`       | Cryptographic hashing (`MD5`, `SHA1`, `SHA256`, `SHA512`, `CRC32`) and gzip/zlib compression (`deflate`/`inflate`).                          |
+| **precis**     | `import std.precis`     | Full networking stack: HTTP client (`GET`, `POST`, `PUT`, `DELETE`), embedded HTTP micro-server, TCP sockets, and URL encoding.              |
+| **filum**      | `import std.filum`      | Concurrency primitives: thread spawning, communication channels, mutexes, wait groups, and atomics.                                          |
+| **loom**       | `import std.loom`       | Functional collection utilities and iterators (`map`, `filter`, `reduce`, `zip`, chunking, flattening).                                      |
+| **ward**       | `import std.ward`       | Runtime assertions and invariant validations (`assert`, `assert_eq`, `assert_ne`, `assert_present`, `assert_ok`, `panic`).                   |
+| **trial**      | `import std.trial`      | Automated unit testing framework (suites, test cases, before/after lifecycle hooks, and colored reporting).                                  |
+| **whisper**    | `import std.whisper`    | Structured logging framework with severity levels (`trace`, `debug`, `info`, `warn`, `error`, `fatal`).                                      |
 
 ---
 

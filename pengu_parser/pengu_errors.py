@@ -201,6 +201,24 @@ class TypeParamOutsideGenericError(SemanticError):
         super().__init__(message, line=line, col=col, column=column, **kwargs)
 
 
+class MultipleManyParamsError(SemanticError):
+    """E0023: Multiple many parameters in a function."""
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0023")
+        kwargs.setdefault("help", "A function can only have one 'many' parameter.")
+        kwargs.setdefault("note", "PenguScript allows at most one variadic parameter per function.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+class ManyParamNotLastError(SemanticError):
+    """E0024: many parameter is not the last parameter."""
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0024")
+        kwargs.setdefault("help", "Move the 'many' parameter to the end of the parameter list.")
+        kwargs.setdefault("note", "The variadic parameter 'many' must be the final parameter.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
 import difflib
 
 

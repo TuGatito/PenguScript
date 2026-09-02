@@ -18,6 +18,8 @@ def mangle_type(t: Optional[Type]) -> str:
         return f"arr_{t.size}_{mangle_type(t.element)}"
     if isinstance(t, SliceType):
         return f"slice_{mangle_type(t.element)}"
+    if isinstance(t, ManyType):
+        return f"many_{mangle_type(t.element)}"
     if isinstance(t, ListType):
         return f"list_{mangle_type(t.element)}"
     if isinstance(t, MapType):
@@ -404,10 +406,10 @@ class SliceType(Type):
         return self.element
 
     def is_compatible(self, other: Type) -> bool:
-        """Checks slice compatibility with slices and arrays."""
+        """Checks slice compatibility with slices, many types, and arrays."""
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
-        if isinstance(other, SliceType):
+        if isinstance(other, (SliceType, ManyType)):
             return self.element.is_compatible(other.element)
         if isinstance(other, ArrayType):
             return self.element.is_compatible(other.element)
@@ -415,11 +417,52 @@ class SliceType(Type):
 
     def __eq__(self, other: Any) -> bool:
         """Checks equality based on slice element type."""
-        return isinstance(other, SliceType) and self.element == other.element
+        return isinstance(other, (SliceType, ManyType)) and self.element == other.element
 
     def __hash__(self) -> int:
         """Returns hash of slice type."""
         return hash(("slice", self.element))
+
+
+@dataclass
+class ManyType(Type):
+    """Variadic parameter type (many T), behaving as a slice of T."""
+    element: Type
+
+    @property
+    def name(self) -> str:
+        """Returns formatted variadic many type string."""
+        return f"many {self.element}"
+
+    def substitute(self, type_map: Dict[str, Type]) -> Type:
+        return ManyType(element=self.element.substitute(type_map))
+
+    def get_mangled_name(self) -> str:
+        return f"many_{self.element.get_mangled_name()}"
+
+    def is_iterable(self) -> bool:
+        """Variadic many parameters are iterable collections (like slices)."""
+        return True
+
+    def element_type(self) -> Optional[Type]:
+        """Returns contained element type."""
+        return self.element
+
+    def is_compatible(self, other: Type) -> bool:
+        """Checks compatibility with ManyType, SliceType, ArrayType."""
+        if isinstance(other, AnyType) or isinstance(other, TypeParam):
+            return True
+        if isinstance(other, (ManyType, SliceType, ArrayType)):
+            return self.element.is_compatible(other.element)
+        return False
+
+    def __eq__(self, other: Any) -> bool:
+        """Checks equality based on element type."""
+        return isinstance(other, (ManyType, SliceType)) and self.element == other.element
+
+    def __hash__(self) -> int:
+        """Returns hash of many type."""
+        return hash(("many", self.element))
 
 
 @dataclass
@@ -1017,6 +1060,10 @@ def ast_to_type(type_node: Any, symbol_lookup_fn: Optional[Any] = None) -> Type:
         element = ast_to_type(type_node.children[0], symbol_lookup_fn)
         return SliceType(element=element)
 
+    elif rule == "many_type":
+        element = ast_to_type(type_node.children[0], symbol_lookup_fn)
+        return ManyType(element=element)
+
     elif rule == "list_type":
         element = ast_to_type(type_node.children[0], symbol_lookup_fn)
         return ListType(element=element)
@@ -1101,7 +1148,7 @@ def estimate_size(t: Optional[Type], custom_types: Optional[Dict[str, Type]] = N
         elem_sz = estimate_size(t.element, custom_types, seen)
         return max(1, t.size) * elem_sz
 
-    if isinstance(t, (SliceType, ListType, MapType)):
+    if isinstance(t, (SliceType, ManyType, ListType, MapType)):
         return 24  # struct { void* ptr; size_t len; size_t cap; }
 
     if isinstance(t, MaybeType):

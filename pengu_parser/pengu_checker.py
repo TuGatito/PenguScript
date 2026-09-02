@@ -4,7 +4,7 @@ from typing import List, Set, Optional, Dict, Tuple, Any
 from lark import Tree, Token
 
 from .pengu_types import (
-    Type, BaseType, RefType, ArrayType, SliceType, ListType, MapType, MaybeType,
+    Type, BaseType, RefType, ArrayType, SliceType, ManyType, ListType, MapType, MaybeType,
     RuneType, EchoType, OmenType, ResultType, FnType, OPAQUE_TYPE, AliasType, AnyType,
     TypeParam, INT_TYPE, I32_TYPE, I64_TYPE, U32_TYPE, U64_TYPE, CHAR_TYPE, BYTE_TYPE,
     U8_TYPE, I8_TYPE, U16_TYPE, I16_TYPE, USIZE_TYPE, ISIZE_TYPE, FLOAT_TYPE, F32_TYPE,
@@ -16,7 +16,8 @@ from .pengu_errors import (
     PenguError, ErrorReporter, SemanticError, ConstInsideWeaveError, VarLetTopLevelError,
     SelfDotAccessError, UndefinedIdentifierError, TypeMismatchError, MutabilityError,
     InvalidControlFlowError, InvalidMemoryOpError, InvalidWithTargetError,
-    GenericTypeMissingArgsError, TypeParamOutsideGenericError, suggest_similar_identifier
+    GenericTypeMissingArgsError, TypeParamOutsideGenericError, MultipleManyParamsError,
+    ManyParamNotLastError, suggest_similar_identifier
 )
 
 
@@ -378,7 +379,8 @@ class PenguChecker:
                 mod_scope = Scope(kind="module")
                 mod_file = None
                 try:
-                    mod_file = find_module_path(self.base_dir, dot_path)
+                    from_d = os.path.dirname(os.path.abspath(self.filename)) if self.filename else None
+                    mod_file = find_module_path(self.base_dir, dot_path, from_dir=from_d)
                     if mod_file and os.path.isfile(mod_file):
                         with open(mod_file, "r", encoding="utf-8") as mf:
                             mod_code = mf.read()
@@ -1377,6 +1379,8 @@ class PenguChecker:
         ret_type: Type = VOID_TYPE
         stmt_children: List[Tree] = []
         has_seen_default = False
+        many_param_seen = False
+        many_count = 0
 
         for child in rem_children:
             if isinstance(child, Tree) and child.data == "param_list":
@@ -1385,13 +1389,38 @@ class PenguChecker:
                         pn = str(p.children[0])
                         pt = ast_to_type(p.children[1], lookup_tp) if len(p.children) >= 2 else AnyType()
                         has_default = len(p.children) >= 3 and p.children[2] is not None
+
+                        if isinstance(pt, ManyType):
+                            many_count += 1
+                            if many_count > 1:
+                                err = self._make_error(
+                                    MultipleManyParamsError,
+                                    f"Only one 'many' parameter is allowed in function '{fn_name}'",
+                                    p,
+                                    code="E0023",
+                                    help="A function can only have one 'many' parameter.",
+                                    note="PenguScript allows at most one variadic parameter per function."
+                                )
+                                self._record_error(err)
+                            many_param_seen = True
+                        elif many_param_seen:
+                            err = self._make_error(
+                                ManyParamNotLastError,
+                                f"The 'many' parameter must be the last parameter in function '{fn_name}'",
+                                p,
+                                code="E0024",
+                                help="Move the 'many' parameter to the end of the parameter list.",
+                                note="The variadic parameter 'many' must be the final parameter."
+                            )
+                            self._record_error(err)
+
                         if has_default:
                             has_seen_default = True
                             if type_params:
                                 def type_depends_on_tp(t: Type) -> bool:
                                     if isinstance(t, TypeParam) or (isinstance(t, BaseType) and t.name in type_params):
                                         return True
-                                    if isinstance(t, (RefType, ArrayType, SliceType, ListType, MaybeType)):
+                                    if isinstance(t, (RefType, ArrayType, SliceType, ManyType, ListType, MaybeType)):
                                         return type_depends_on_tp(getattr(t, "element", getattr(t, "target", None)))
                                     if isinstance(t, MapType):
                                         return type_depends_on_tp(t.key) or type_depends_on_tp(t.value)
@@ -1411,7 +1440,7 @@ class PenguChecker:
                                         note="Default values in generic functions cannot depend on generic type parameters."
                                     )
                                     self._record_error(err)
-                        elif has_seen_default:
+                        elif has_seen_default and not isinstance(pt, ManyType):
                             err = self._make_error(
                                 SemanticError,
                                 f"Non-default parameter '{pn}' follows default parameter in function '{fn_name}'",
@@ -1596,6 +1625,8 @@ class PenguChecker:
         stmt_children: List[Tree] = []
         default_count = 0
         has_seen_default = False
+        many_param_seen = False
+        many_count = 0
 
         for child in node.children[1:]:
             if isinstance(child, Tree) and child.data == "param_list":
@@ -1604,10 +1635,35 @@ class PenguChecker:
                         pn = str(p.children[0])
                         pt = ast_to_type(p.children[1], lookup_m_tp) if len(p.children) >= 2 else AnyType()
                         has_default = len(p.children) >= 3 and p.children[2] is not None
+
+                        if isinstance(pt, ManyType):
+                            many_count += 1
+                            if many_count > 1:
+                                err = self._make_error(
+                                    MultipleManyParamsError,
+                                    f"Only one 'many' parameter is allowed in method '{fn_name}'",
+                                    p,
+                                    code="E0023",
+                                    help="A function can only have one 'many' parameter.",
+                                    note="PenguScript allows at most one variadic parameter per function."
+                                )
+                                self._record_error(err)
+                            many_param_seen = True
+                        elif many_param_seen:
+                            err = self._make_error(
+                                ManyParamNotLastError,
+                                f"The 'many' parameter must be the last parameter in method '{fn_name}'",
+                                p,
+                                code="E0024",
+                                help="Move the 'many' parameter to the end of the parameter list.",
+                                note="The variadic parameter 'many' must be the final parameter."
+                            )
+                            self._record_error(err)
+
                         if has_default:
                             has_seen_default = True
                             default_count += 1
-                        elif has_seen_default:
+                        elif has_seen_default and not isinstance(pt, ManyType):
                             err = self._make_error(
                                 SemanticError,
                                 f"Non-default parameter '{pn}' follows default parameter in method '{fn_name}'",
