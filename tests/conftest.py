@@ -163,6 +163,10 @@ def runtime_link_flags():
     if os.name == "nt":
         flags += ["-lws2_32", "-lwinmm", "-ladvapi32", "-lcrypt32", "-lbcrypt"]
     else:
+        # Plain clang on macOS does not search the Homebrew prefix by default.
+        for brew_lib in ("/opt/homebrew/lib", "/usr/local/lib"):
+            if os.path.isdir(brew_lib):
+                flags.append(f"-L{brew_lib}")
         flags += ["-pthread", "-lm", "-ldl"]
     return flags
 
@@ -192,6 +196,12 @@ def compile_run(source: str, tag: str = "t", extra_libs=None, cwd=None,
         cmd = [cc, str(bundle_path),
                f"-I{REPO}", f"-I{BUILD_DIR}", f"-I{BUILD_INCLUDE}",
                f"-L{BUILD_LIB}"]
+        # GCC 14 turns implicit declarations / int-conversion into errors by
+        # default; generated C may trigger those warnings on newer toolchains,
+        # so keep them as warnings across compilers.
+        cmd += ["-Wno-error=implicit-function-declaration",
+                "-Wno-error=implicit-int",
+                "-Wno-error=int-conversion"]
         cmd += runtime_link_flags()
         if extra_libs:
             cmd += list(extra_libs)

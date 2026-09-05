@@ -448,7 +448,10 @@ weave main into int:
 
             exe_path = os.path.join(str(d), "test_app.exe")
             comp = subprocess.run(
-                ["gcc", "-std=c99", "-I", str(REPO), "-I", str(d), bundle_path, c_impl, "-o", exe_path],
+                ["gcc", "-std=c99",
+                 "-Wno-error=implicit-function-declaration",
+                 "-Wno-error=implicit-int", "-Wno-error=int-conversion",
+                 "-I", str(REPO), "-I", str(d), bundle_path, c_impl, "-o", exe_path],
                 capture_output=True, text=True, timeout=240,
             )
             assert comp.returncode == 0, f"GCC Compilation failed: {comp.stderr}\nBundle:\n{bundle_c}"

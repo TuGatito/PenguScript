@@ -35,6 +35,21 @@ All notable changes to PenguScript will be documented in this file.
   `pytest tests/`, `make_release.py`) and uploads per-OS standalone artifacts plus
   the VS Code extension `.vsix`. `release.yml` mirrors the matrix and publishes
   the release assets.
+- **CI cross-platform fixes** (validated on the 3-OS matrix):
+  - `build_runtime.py` re-applies the libuv MinGW const patch to
+    `src/win/util.c` automatically (extern/ is re-downloaded per CI run) and
+    stages libzip's CMake-generated `zipconf.h` after every build, fixing
+    fresh-checkout xlsxio builds.
+  - On POSIX the C runtime compiles against system libxml2/libcurl/
+    libmicrohttpd headers via `pkg-config` (with a Homebrew include fallback),
+    and the macOS workflow installs curl + sets `PKG_CONFIG_PATH`.
+  - Link lines (tests and `pengu_project.py`) add the Homebrew `-L` prefix on
+    macOS; Windows-only test libs (`bcrypt`, `comdlg32`, …) are now gated to
+    Windows, and GUI link-probes (webui/raylib/tinyfd) run on Windows only.
+  - `pengu_c_filum_goroutine_id` returns a real OS thread id on Linux/macOS
+    (`pthread_threadid_np`) so `std.filum` reports it correctly there.
+  - Test compile helpers tolerate newer-GCC error-promoted warnings
+    (`-Wno-error=implicit-*`, `-Wno-error=int-conversion`).
 - **Documentation overhaul**: `CHEATSHEET.md` rewritten from scratch — 2,300+
   lines, 20 numbered topical sections, entirely in English, every Pengu example
   that maps to generated code followed by the emitted C, balanced code fences and

@@ -584,18 +584,42 @@ def _cmake_static_lib(label, src_dir, lib_name, build_sub, extra_cmake, target=N
         return None
 
 
+def _stage_libzip_headers(src: Path) -> None:
+    """Copies zip.h and the CMake-generated zipconf.h into build/include.
+
+    zipconf.h is produced by libzip's CMake configure step, so on a fresh
+    checkout it only exists after the build directory has been generated.
+    """
+    INCLUDE_DIR.mkdir(parents=True, exist_ok=True)
+    zip_h = src / "lib" / "zip.h"
+    if zip_h.exists():
+        shutil.copy2(zip_h, INCLUDE_DIR / "zip.h")
+    zcand = list((BUILD_DIR / "libzip_cmake").rglob("zipconf.h"))
+    if not zcand:
+        # Archive may already be built while the cmake dir was cleaned; a plain
+        # configure regenerates zipconf.h without recompiling anything.
+        try:
+            cmake_cfg = ["cmake", "-S", str(src), "-B", str(BUILD_DIR / "libzip_cmake"),
+                         "-DCMAKE_BUILD_TYPE=Release", "-DENABLE_BZIP2=OFF",
+                         "-DENABLE_LZMA=OFF", "-DENABLE_ZSTD=OFF", "-DBUILD_SHARED_LIBS=OFF",
+                         "-DBUILD_TOOLS=OFF", "-DBUILD_REGRESS=OFF", "-DBUILD_DOC=OFF",
+                         "-DZLIB_INCLUDE_DIR=" + str(INCLUDE_DIR),
+                         "-DZLIB_LIBRARY=" + str(LIB_DIR / "libz.a")]
+            cmake_cfg += _cmake_generator()
+            subprocess.run(cmake_cfg, capture_output=True, text=True)
+            zcand = list((BUILD_DIR / "libzip_cmake").rglob("zipconf.h"))
+        except Exception:
+            zcand = []
+    if zcand:
+        shutil.copy2(zcand[0], INCLUDE_DIR / "zipconf.h")
+
+
 def build_libzip(cc, ar, rebuild=False):
     src = EXTERN_DIR / "libzip-1.11.3"
     if not src.exists():
         raise FileNotFoundError(f"libzip source not found: {src}")
-    headers = [src / "lib" / "zip.h"]
-    zcand = list((BUILD_DIR / "libzip_cmake").rglob("zipconf.h")) if (BUILD_DIR / "libzip_cmake").exists() else []
-    if zcand:
-        shutil.copy2(zcand[0], INCLUDE_DIR / "zipconf.h")
-    INCLUDE_DIR.mkdir(parents=True, exist_ok=True)
-    if headers[0].exists():
-        shutil.copy2(headers[0], INCLUDE_DIR / "zip.h")
     if (LIB_DIR / "libzip.a").exists() and not rebuild:
+        _stage_libzip_headers(src)
         print("[LIBZIP] libzip.a is up to date.")
         return LIB_DIR / "libzip.a"
     flags = ["-DENABLE_BZIP2=OFF", "-DENABLE_LZMA=OFF", "-DENABLE_ZSTD=OFF",
@@ -603,7 +627,9 @@ def build_libzip(cc, ar, rebuild=False):
              "-DBUILD_DOC=OFF",
              "-DZLIB_INCLUDE_DIR=" + str(INCLUDE_DIR),
              "-DZLIB_LIBRARY=" + str(LIB_DIR / "libz.a")]
-    return _cmake_static_lib("LIBZIP", src, "libzip.a", "libzip_cmake", flags, target="zip", rebuild=rebuild)
+    res = _cmake_static_lib("LIBZIP", src, "libzip.a", "libzip_cmake", flags, target="zip", rebuild=rebuild)
+    _stage_libzip_headers(src)
+    return res
 
 
 def build_libexpat(cc, ar, rebuild=False):
@@ -745,6 +771,21 @@ def build_libuv(cc, ar, rebuild=False):
     if target_lib.exists() and not rebuild:
         print(f"[LIBUV] {target_lib.name} is up to date.")
         return target_lib
+
+    # MinGW/GCC 15 const-correctness fix: uv__convert_utf16_to_utf8 expects
+    # `char**` but libuv passes `&(cpu_info->model)` (a `const char **`).
+    # extern/ is re-downloaded on every CI run, so this patch is applied here
+    # (idempotently) instead of being hand-edited in the working tree.
+    util_c = src_dir / "src" / "win" / "util.c"
+    if util_c.exists() and IS_WINDOWS:
+        text = util_c.read_text(encoding="utf-8", errors="replace")
+        already = "char **" in text or "char**" in text
+        if "&(cpu_info->model));" in text and not already:
+            patched = text.replace("&(cpu_info->model));", "(char **)&(cpu_info->model));")
+            if patched != text:
+                util_c.write_text(patched, encoding="utf-8")
+                print("[LIBUV] Applied MinGW const-correctness patch to src/win/util.c")
+
     print("[LIBUV] Building libuv with CMake...")
     bd = BUILD_DIR / "libuv_cmake"
     bd.mkdir(parents=True, exist_ok=True)
@@ -1092,11 +1133,19 @@ def build_pengu_runtime(cc, ar, rebuild=False):
     ]
     # POSIX hosts use the system libxml2/libcurl/libmicrohttpd (build_runtime
     # skips their Windows-tuned static builds there), so their headers come
-    # from the system include paths; libxml2 needs its pkg-config include dir.
+    # POSIX hosts use the system libxml2/libcurl/libmicrohttpd (build_runtime
+    # skips their Windows-tuned static builds there), so their headers come
+    # from the system include paths; libxml2 needs its pkg-config include dir,
+    # and libmicrohttpd/mbedtls may live in a Homebrew prefix (Apple Silicon).
     if IS_POSIX:
-        for tok in _pkg_config_cflags("libxml-2.0"):
-            if tok not in flags:
-                flags.append(tok)
+        for pkg in ("libxml-2.0", "libcurl", "libmicrohttpd", "mbedtls"):
+            for tok in _pkg_config_cflags(pkg):
+                if tok not in flags:
+                    flags.append(tok)
+        # Plain clang does not search the Homebrew prefix by default.
+        for brew_inc in ("/opt/homebrew/include", "/usr/local/include"):
+            if os.path.isdir(brew_inc) and f"-I{brew_inc}" not in flags:
+                flags.append(f"-I{brew_inc}")
     cmd = [cc] + flags + ["-c", str(runtime_c), "-o", str(obj_path)]
     run_cmd(cmd)
 
@@ -1119,14 +1168,21 @@ def main():
 
     built = []
 
+    # On POSIX only these genuinely optional, windowing/desktop-dependent
+    # builds may fail without aborting the whole run. Everything else (the C
+    # runtime, std wrappers and the core static libraries) is required: a
+    # failure there raises loudly so CI reports the real error instead of
+    # silently producing a runtime-less build.
+    POSIX_BEST_EFFORT = {"WEBUI", "RAYLIB"}
+
     def _build(label, fn, *a, **kw):
-        """Runs one builder; POSIX-only best-effort builds degrade to a warning."""
+        """Runs one builder; optional POSIX-only builds degrade to a warning."""
         try:
             result = fn(*a, **kw)
             if result is not None:
                 built.append(label)
-        except Exception as e:  # noqa: BLE001 - platform builds must not abort
-            if IS_POSIX:
+        except Exception as e:  # noqa: BLE001 - optional platform builds must not abort
+            if IS_POSIX and label in POSIX_BEST_EFFORT:
                 print(f"[{label}] skipped (best-effort on this platform): {str(e)[-200:]}", file=sys.stderr)
             else:
                 raise

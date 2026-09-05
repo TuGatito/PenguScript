@@ -999,7 +999,11 @@ class PenguBuilder:
                     # POSIX: prefer the static archives in build/lib (searched
                     # first via -L) but fall back to the system libraries for
                     # the ones build_runtime.py skips on this platform
-                    # (libxml2/libcurl/libmicrohttpd on Linux/macOS).
+                    # (libxml2/libcurl/libmicrohttpd on Linux/macOS). Plain
+                    # clang does not search the Homebrew prefix by default.
+                    for brew_lib in ("/opt/homebrew/lib", "/usr/local/lib"):
+                        if os.path.isdir(brew_lib) and f"-L{brew_lib}" not in link_flags:
+                            link_flags.append(f"-L{brew_lib}")
                     link_flags.extend(["-pthread", "-lm", "-ldl"])
             else:
                 link_flags.append(f"-l{link}")

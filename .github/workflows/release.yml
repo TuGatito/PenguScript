@@ -68,7 +68,7 @@ jobs:
       - name: Install macOS Build Dependencies
         if: runner.os == 'macOS'
         run: |
-          brew install cmake ninja pkg-config pcre2 libmicrohttpd mbedtls libxml2 || true
+          brew install cmake ninja pkg-config curl pcre2 libmicrohttpd mbedtls libxml2 || true
           echo "PKG_CONFIG_PATH=$(brew --prefix)/lib/pkgconfig:$(brew --prefix pcre2)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix libmicrohttpd)/lib/pkgconfig:$(brew --prefix mbedtls)/lib/pkgconfig" >> "$GITHUB_ENV"
 
       - name: Build C Runtime & Dependencies

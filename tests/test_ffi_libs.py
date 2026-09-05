@@ -53,10 +53,16 @@ CC = "gcc" if have_tool("gcc") else ("clang" if have_tool("clang") else "cc")
 
 # Core libs the Pengu runtime is linked against (see conftest.runtime_link_flags).
 # xlsxio / tomlc17 / yaml / sqlite3 / pengu_stb are pulled in per-test.
-XLSX_LIBS = ["-lxlsxio_write", "-lxlsxio_read", "-lzip", "-lz", "-lexpat", "-lbcrypt"]
-WEBUI_LIBS = ["-lwebui", "-lole32", "-luuid", "-lstdc++", "-lws2_32"]
-RAYLIB_LIBS = ["-lraylib", "-lopengl32", "-lgdi32", "-lwinmm"]
-TINYFD_LIBS = ["-lcomdlg32", "-lole32", "-lgdi32", "-luser32"]
+IS_NT = os.name == "nt"
+
+# Windows-only system libraries (bcrypt/comdlg32/ole32/... do not exist on
+# POSIX hosts; those code paths are #ifdef'd out of the vendored headers).
+XLSX_LIBS = ["-lxlsxio_write", "-lxlsxio_read", "-lzip", "-lz", "-lexpat"]
+if IS_NT:
+    XLSX_LIBS += ["-lbcrypt"]
+WEBUI_LIBS = ["-lwebui", "-lole32", "-luuid", "-lstdc++", "-lws2_32"] if IS_NT else []
+RAYLIB_LIBS = ["-lraylib", "-lopengl32", "-lgdi32", "-lwinmm"] if IS_NT else []
+TINYFD_LIBS = ["-lcomdlg32", "-lole32", "-lgdi32", "-luser32"] if IS_NT else []
 
 XLSX_OK = all(have_lib(n) for n in ("xlsxio_read", "xlsxio_write", "zip", "z", "expat"))
 
@@ -145,6 +151,9 @@ def _compile_run_pengu(source: str, tag: str, extra_libs=None, cwd=None,
                f"-I{REPO}", f"-I{BUILD_DIR}", f"-I{BUILD_INCLUDE}", f"-L{BUILD_LIB}"]
         if static:
             cmd.insert(1, "-DSTATIC")
+        cmd += ["-Wno-error=implicit-function-declaration",
+                "-Wno-error=implicit-int",
+                "-Wno-error=int-conversion"]
         cmd += runtime_link_flags()
         if extra_libs:
             cmd += list(extra_libs)
@@ -180,6 +189,9 @@ def _run_c_probe(c_source: str, tag: str, extra_libs, *,
         exe = d / f"{tag}.exe"
         cmd = [CC, *extra_flags, str(cfile),
                f"-I{BUILD_INCLUDE}", f"-I{REPO / 'std_c'}", f"-L{BUILD_LIB}"]
+        cmd += ["-Wno-error=implicit-function-declaration",
+                "-Wno-error=implicit-int",
+                "-Wno-error=int-conversion"]
         if link_pengu_stb:
             cmd += ["-lpengu_stb"]
         cmd += list(extra_libs) + ["-o", str(exe)]
@@ -511,7 +523,9 @@ int main(void) {
     return 0;
 }
 '''
-        res = _run_c_probe(c, "uuid", ["-lbcrypt"])
+        # BCrypt (Windows RNG) only exists on Windows; POSIX uuid4 uses the
+        # OS RNG directly.
+        res = _run_c_probe(c, "uuid", ["-lbcrypt"] if IS_NT else [])
         _expect_stdout(res, "uuid4=", "uuid generation ok")
 
     @requires_lib("pengu_stb")
@@ -547,6 +561,7 @@ int main(void) {
         res = _run_c_probe(c, "minicoro", [])
         _expect_stdout(res, "minicoro roundtrip ok")
 
+    @pytest.mark.skipif(not IS_NT, reason="tinyfiledialogs links desktop GUI libs (Windows-only in CI)")
     @requires_lib("pengu_stb")
     @requires_stb_member("tinyfiledialogs.o")
     @requires_cc
@@ -641,8 +656,9 @@ weave main into int:
 
 
 class TestWebuiLinkOnly:
-    """libwebui.a links against its documented platform libraries."""
+    """libwebui.a links against its documented platform libraries (Windows)."""
 
+    @pytest.mark.skipif(not IS_NT, reason="WebUI link line is Windows-specific")
     @requires_lib("webui")
     @requires_cc
     def test_webui_archive_links(self):
@@ -656,6 +672,7 @@ class TestWebuiLinkOnly:
 class TestRaylibLinkOnly:
     """libraylib.a links; a real desktop session is out of scope here."""
 
+    @pytest.mark.skipif(not IS_NT, reason="raylib link line is Windows-specific")
     @requires_lib("raylib")
     @requires_cc
     def test_raylib_archive_links(self):

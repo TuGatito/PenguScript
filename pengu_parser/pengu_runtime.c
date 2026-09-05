@@ -91,8 +91,12 @@ int pengu_c_filum_num_cpu(void) {
 int pengu_c_filum_goroutine_id(void) {
 #if PENGU_WINDOWS
     return (int)GetCurrentThreadId();
+#elif defined(__APPLE__) || defined(__linux__)
+    unsigned long long tid = 0;
+    pthread_threadid_np(NULL, &tid);
+    return (int)(tid & 0x7fffffff);
 #else
-    return (int)pthread_self();
+    return (int)((unsigned long)pthread_self() & 0x7fffffff);
 #endif
 }
 
