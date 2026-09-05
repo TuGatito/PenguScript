@@ -1004,6 +1004,8 @@ class PenguBuilder:
                     for brew_lib in ("/opt/homebrew/lib", "/usr/local/lib"):
                         if os.path.isdir(brew_lib) and f"-L{brew_lib}" not in link_flags:
                             link_flags.append(f"-L{brew_lib}")
+                    if sys.platform.startswith("linux"):
+                        link_flags += ["-lrt", "-lcrypto", "-lssl"]
                     link_flags.extend(["-pthread", "-lm", "-ldl"])
             else:
                 link_flags.append(f"-l{link}")

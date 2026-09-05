@@ -44,6 +44,9 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <unistd.h>
+#if defined(__linux__)
+#include <sys/syscall.h>
+#endif
 #endif
 
 /* =========================================================================
@@ -91,7 +94,11 @@ int pengu_c_filum_num_cpu(void) {
 int pengu_c_filum_goroutine_id(void) {
 #if PENGU_WINDOWS
     return (int)GetCurrentThreadId();
-#elif defined(__APPLE__) || defined(__linux__)
+#elif defined(__linux__)
+    /* glibc has no pthread_threadid_np; the OS thread id is the gettid. */
+    long tid = syscall(SYS_gettid);
+    return (int)((unsigned long)tid & 0x7fffffff);
+#elif defined(__APPLE__)
     unsigned long long tid = 0;
     pthread_threadid_np(NULL, &tid);
     return (int)(tid & 0x7fffffff);

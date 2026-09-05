@@ -167,6 +167,10 @@ def runtime_link_flags():
         for brew_lib in ("/opt/homebrew/lib", "/usr/local/lib"):
             if os.path.isdir(brew_lib):
                 flags.append(f"-L{brew_lib}")
+        if sys.platform.startswith("linux"):
+            # Older glibc put clock_gettime in librt; crypto/ssl only get
+            # pulled when a library actually references them.
+            flags += ["-lrt", "-lcrypto", "-lssl"]
         flags += ["-pthread", "-lm", "-ldl"]
     return flags
 

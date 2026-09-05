@@ -104,6 +104,17 @@ def run_cmd(cmd, cwd=None, env=None):
         raise RuntimeError(f"Command failed: {cmd_str}\n{res.stderr}")
     return res
 
+def _posix_unistd_flags():
+    """Forces unistd.h inclusion when compiling plain C sources on POSIX.
+
+    zlib's gzlib.c (and similar portable C) calls lseek()/read()/write()
+    relying on a config-defined HAVE_UNISTD_H; building without a configure
+    step leaves the declarations missing, which modern clang/gcc (C99+)
+    reject as an implicit function declaration error.
+    """
+    return ["-include", "unistd.h"] if IS_POSIX else []
+
+
 def build_zlib(cc, ar, rebuild=False):
     """Compiles zlib-1.3.2 into build/lib/libz.a and copies headers."""
     target_lib = LIB_DIR / "libz.a"
@@ -129,10 +140,12 @@ def build_zlib(cc, ar, rebuild=False):
     obj_dir = BUILD_DIR / "obj_zlib"
     obj_dir.mkdir(parents=True, exist_ok=True)
 
+    base_flags = ["-O2", "-I" + str(zlib_dir)] + _posix_unistd_flags()
+
     for src in sources:
         src_path = zlib_dir / src
         obj_path = obj_dir / f"{src_path.stem}.o"
-        cmd = [cc, "-O2", "-I" + str(zlib_dir), "-c", str(src_path), "-o", str(obj_path)]
+        cmd = [cc] + base_flags + ["-c", str(src_path), "-o", str(obj_path)]
         run_cmd(cmd)
         obj_files.append(str(obj_path))
 
