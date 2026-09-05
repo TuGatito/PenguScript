@@ -1,0 +1,73 @@
+# std/xlsx.pengu - XLSX spreadsheets (opt-in xlsxio write wrapper)
+# Pure-PenguScript wrapper over the xlsxio binding (std/xlsxio.d.pengu) that
+# writes real .xlsx workbooks. It is an *opt-in* module: importing std.xlsx
+# pulls the xlsxio C binding into your bundle, so your link line must add
+#   -lxlsxio_write -lxlsxio_read -lzip -lz -lexpat -lbcrypt
+# and the bundle must be compiled with -DSTATIC (xlsxio on Windows uses
+# __declspec(dllimport) unless STATIC is defined - build_runtime.py and the
+# tests always add -DSTATIC). std/ledger itself stays pure (CSV/TSV only);
+# this module is the spreadsheet counterpart.
+#
+# String-passing note (PenguScript FFI limitation, verified):
+#   a PenguScript string *variable* cannot be passed straight into a C
+#   `const char*` parameter (the codegen emits the PenguString struct). The
+#   `bytes of <string>` keyword produces a read-only pointer to the string's
+#   NUL-terminated UTF-8 data, and that pointer is accepted at the binding's
+#   `ref to char` call sites. That is exactly what write_sheet does for every
+#   path / sheet name / header / cell value below, so all of them accept
+#   runtime strings (not just literals). Generated C compiles with at most a
+#   benign "incompatible pointer type" warning.
+#
+# Exposed API:
+#   xlsx.write_sheet(path, sheet, header, rows) -> bool
+#     Creates `path` with one worksheet named `sheet`; the first row holds
+#     `header` (a list of string), followed by one row per `rows` entry (a
+#     list of list of string). Every cell is written as a string cell.
+#     Returns true when the workbook was written and closed cleanly.
+#   xlsx.write_rows(path, sheet, rows) -> bool
+#     Same, without a header row.
+
+import std.xlsxio
+
+# ---------------------------------------------------------------------------
+# Writers
+# ---------------------------------------------------------------------------
+
+# Writes a workbook with a header row followed by data rows (all string cells).
+weave write_sheet with path as string and sheet as string and header as list of string and rows as list of list of string into bool:
+    var h as ref to void is calling xlsxio.open with (bytes of path) and (bytes of sheet)
+    if h == null:
+        return false
+    var ci as int is 0
+    while ci < header.len:
+        calling xlsxio.add_cell_string with h and (bytes of (header at ci))
+        set ci is ci + 1
+    calling xlsxio.next_row with h
+    var ri as int is 0
+    while ri < rows.len:
+        var row as list of string is rows at ri
+        var cj as int is 0
+        while cj < row.len:
+            calling xlsxio.add_cell_string with h and (bytes of (row at cj))
+            set cj is cj + 1
+        calling xlsxio.next_row with h
+        set ri is ri + 1
+    var rc as int is calling xlsxio.close with h
+    return rc == 0
+
+# Writes a workbook whose rows all carry data (no header row).
+weave write_rows with path as string and sheet as string and rows as list of list of string into bool:
+    var h as ref to void is calling xlsxio.open with (bytes of path) and (bytes of sheet)
+    if h == null:
+        return false
+    var ri as int is 0
+    while ri < rows.len:
+        var row as list of string is rows at ri
+        var cj as int is 0
+        while cj < row.len:
+            calling xlsxio.add_cell_string with h and (bytes of (row at cj))
+            set cj is cj + 1
+        calling xlsxio.next_row with h
+        set ri is ri + 1
+    var rc as int is calling xlsxio.close with h
+    return rc == 0

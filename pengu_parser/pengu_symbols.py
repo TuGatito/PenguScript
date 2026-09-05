@@ -8,6 +8,7 @@ from lark import Tree
 from .pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ListType, MapType, MaybeType,
     RuneType, EchoType, OmenType, ResultType, FnType, OPAQUE_TYPE, AliasType, AnyType,
+    ConceptType, SealType,
     INT_TYPE, FLOAT_TYPE, BOOL_TYPE, STRING_TYPE, VOID_TYPE
 )
 
@@ -26,12 +27,15 @@ class Symbol:
         is_defined_in_c: True if symbol is provided by C include headers.
         is_inline: True if function should be inlined in codegen.
         is_stack_alloc: True if struct can be allocated on stack without heap escape.
+        is_ritual: True if function or symbol is considered a ritual (e.g. comptime/macro).
         const_val: Constant evaluated value if known at compile-time.
         line: Source line of declaration.
         column: Source column of declaration.
         doc: Optional documentation string extracted from preceding comments.
         module_scope: Optional Scope containing exported symbols if this symbol represents an imported module.
         file_path: Optional source file path where the symbol is declared.
+        c_name: Optional custom C identifier (e.g. from 'insignia' module prefix).
+        concept_bounds: List of concepts that this type must implement.
     """
     name: str
     type: Type
@@ -40,12 +44,20 @@ class Symbol:
     is_defined_in_c: bool = False
     is_inline: bool = False
     is_stack_alloc: bool = False
+    is_ritual: bool = False
+    is_static: bool = False
     const_val: Optional[Any] = None
     line: Optional[int] = None
     column: Optional[int] = None
     doc: Optional[str] = None
     module_scope: Optional[Scope] = None
     file_path: Optional[str] = None
+    c_name: Optional[str] = None
+    concept_bounds: List[str] = field(default_factory=list)
+
+    def get_c_name(self) -> str:
+        """Returns effective C identifier for this symbol."""
+        return self.c_name or self.name
 
 
 class Scope:
@@ -62,6 +74,7 @@ class Scope:
         return_type: Optional[Type] = None,
         in_loop: bool = False,
         in_or_block: bool = False,
+        is_ritual: bool = False,
         start_line: int = 0,
         end_line: int = 0,
     ):
@@ -77,6 +90,7 @@ class Scope:
             return_type: Expected return type of enclosing weave.
             in_loop: True if scope is inside a loop.
             in_or_block: True if scope is inside an or: error block.
+            is_ritual: True if scope is inside a ritual method.
             start_line: Starting 1-indexed source line of the scope.
             end_line: Ending 1-indexed source line of the scope.
         """
@@ -90,6 +104,7 @@ class Scope:
         self.return_type = return_type
         self.in_loop = in_loop
         self.in_or_block = in_or_block
+        self.is_ritual = is_ritual
         self.start_line = start_line
         self.end_line = end_line
 
@@ -140,6 +155,9 @@ class SymbolTable:
         self.echos: Dict[str, EchoType] = {}
         self.omens: Dict[str, OmenType] = {}
         self.aliases: Dict[str, AliasType] = {}
+        self.seals: Dict[str, SealType] = {}
+        self.concepts: Dict[str, ConceptType] = {}
+        self.concept_bindings: Dict[Tuple[str, str], Dict[str, FnType]] = {}
         self.functions: Dict[str, FnType] = {}
         self.methods: Dict[Tuple[str, str], FnType] = {}
         self.consts: Dict[str, Tuple[Optional[Type], Any]] = {}
@@ -149,6 +167,7 @@ class SymbolTable:
         self.generic_echos: Dict[str, Tuple[List[str], Any]] = {}
         self.generic_omens: Dict[str, Tuple[List[str], Any]] = {}
         self.generic_aliases: Dict[str, Tuple[List[str], Any]] = {}
+        self.generic_concepts: Dict[str, Tuple[List[str], Any]] = {}
         self.generic_functions: Dict[str, Tuple[List[str], Any]] = {}
         self.generic_methods: Dict[Tuple[str, str], Tuple[List[str], Any]] = {}
 
@@ -223,6 +242,8 @@ class SymbolTable:
             with_is_mutable = kwargs.get("with_is_mutable", self.current_scope.with_is_mutable)
             with_target_var_name = kwargs.get("with_target_var_name", self.current_scope.with_target_var_name)
 
+        is_ritual = kwargs.get("is_ritual", False)
+
         new_scope = Scope(
             kind=kind,
             parent=self.current_scope,
@@ -233,6 +254,7 @@ class SymbolTable:
             return_type=return_type,
             in_loop=in_loop,
             in_or_block=in_or_block,
+            is_ritual=is_ritual,
             start_line=start_line,
             end_line=end_line,
         )
@@ -348,7 +370,7 @@ class SymbolTable:
         return self.current_scope.lookup_local(name)
 
     def lookup_type(self, name: str) -> Optional[Type]:
-        """Resolves type name across aliases, runes, echos, and omens.
+        """Resolves type name across aliases, seals, concepts, runes, echos, and omens.
 
         Args:
             name: Name of custom type.
@@ -360,6 +382,10 @@ class SymbolTable:
             return self.monomorphized_types[name]
         if name in self.aliases:
             return self.aliases[name]
+        if name in self.seals:
+            return self.seals[name]
+        if name in self.concepts:
+            return self.concepts[name]
         if name in self.runes:
             return self.runes[name]
         if name in self.echos:
@@ -367,10 +393,28 @@ class SymbolTable:
         if name in self.omens:
             return self.omens[name]
         sym = self.lookup(name)
-        if sym and sym.kind in ("type", "rune", "echo", "omen", "alias"):
+        if sym and sym.kind in ("type", "rune", "echo", "omen", "alias", "seal", "concept"):
             return sym.type
         if name.isupper() and self.has_includes:
             return BaseType(name=name)
+        return None
+
+    def lookup_concept(self, name: str) -> Optional[ConceptType]:
+        """Looks up a concept type definition by name."""
+        if name in self.concepts:
+            return self.concepts[name]
+        sym = self.lookup(name)
+        if sym and isinstance(sym.type, ConceptType):
+            return sym.type
+        return None
+
+    def lookup_seal(self, name: str) -> Optional[SealType]:
+        """Looks up a seal type definition by name."""
+        if name in self.seals:
+            return self.seals[name]
+        sym = self.lookup(name)
+        if sym and isinstance(sym.type, SealType):
+            return sym.type
         return None
 
     def is_top_level(self) -> bool:
@@ -388,6 +432,17 @@ class SymbolTable:
     def is_in_enchanting(self) -> bool:
         """Returns True if currently within an enchanting block."""
         return self.current_scope.enchanting_type is not None
+
+    def is_in_ritual_context(self) -> bool:
+        """Returns True if current execution context is inside a ritual method."""
+        sc = self.current_scope
+        while sc is not None:
+            if getattr(sc, "is_ritual", False):
+                return True
+            if sc.kind in ("weave", "declare") and sc != self.current_scope:
+                break
+            sc = sc.parent
+        return False
 
     def current_enchanting_type(self) -> Optional[Type]:
         """Returns the type being enchanted in the current context."""
@@ -452,42 +507,39 @@ def find_module_path(base_dir: str, dot_path: str, from_dir: Optional[str] = Non
     is_std = parts[0] == "std"
     candidates: List[str] = []
 
+    def _add_candidates(prefix: str):
+        candidates.append(prefix + ".pengu")
+        candidates.append(prefix + ".d.pengu")
+        candidates.append(os.path.join(prefix, "__init__.pengu"))
+        candidates.append(os.path.join(prefix, "__init__.d.pengu"))
+
     # 1. Standard library
     if is_std:
         rel_without_std = parts[1:]
         stdlib_dirs = get_stdlib_dirs(base_abs)
         for std_dir in stdlib_dirs:
             if rel_without_std:
-                candidates.append(os.path.join(std_dir, *rel_without_std) + ".pengu")
-                candidates.append(os.path.join(std_dir, *rel_without_std, "__init__.pengu"))
+                _add_candidates(os.path.join(std_dir, *rel_without_std))
             else:
                 candidates.append(os.path.join(std_dir, "__init__.pengu"))
+                candidates.append(os.path.join(std_dir, "__init__.d.pengu"))
 
         if rel_without_std:
-            candidates.append(os.path.join(base_abs, "std", *rel_without_std) + ".pengu")
-            candidates.append(os.path.join(base_abs, "std", *rel_without_std, "__init__.pengu"))
+            _add_candidates(os.path.join(base_abs, "std", *rel_without_std))
         else:
             candidates.append(os.path.join(base_abs, "std", "__init__.pengu"))
+            candidates.append(os.path.join(base_abs, "std", "__init__.d.pengu"))
 
     # 2. Relative to importing directory (from_dir)
     if from_dir:
-        candidates.extend([
-            os.path.join(from_abs, *parts) + ".pengu",
-            os.path.join(from_abs, *parts, "__init__.pengu"),
-        ])
+        _add_candidates(os.path.join(from_abs, *parts))
 
     # 3. Project src/ directory
     src_dir = os.path.join(base_abs, "src")
     if os.path.isdir(src_dir):
-        candidates.extend([
-            os.path.join(src_dir, *parts) + ".pengu",
-            os.path.join(src_dir, *parts, "__init__.pengu"),
-        ])
+        _add_candidates(os.path.join(src_dir, *parts))
         if parts[0] == "src":
-            candidates.extend([
-                os.path.join(base_abs, *parts) + ".pengu",
-                os.path.join(base_abs, *parts, "__init__.pengu"),
-            ])
+            _add_candidates(os.path.join(base_abs, *parts))
 
     # 4. Project lib/ directory (External Bindings)
     lib_dir = os.path.join(base_abs, "lib")
@@ -498,39 +550,33 @@ def find_module_path(base_dir: str, dot_path: str, from_dir: Optional[str] = Non
 
         if os.path.isdir(binding_folder):
             if binding_rest:
-                candidates.extend([
-                    os.path.join(binding_folder, "pengu", *binding_rest) + ".pengu",
-                    os.path.join(binding_folder, "pengu", *binding_rest, "__init__.pengu"),
-                    os.path.join(binding_folder, *binding_rest) + ".pengu",
-                    os.path.join(binding_folder, *binding_rest, "__init__.pengu"),
-                ])
+                _add_candidates(os.path.join(binding_folder, "pengu", *binding_rest))
+                _add_candidates(os.path.join(binding_folder, *binding_rest))
             else:
                 candidates.extend([
                     os.path.join(binding_folder, "pengu", f"{binding_name}.pengu"),
+                    os.path.join(binding_folder, "pengu", f"{binding_name}.d.pengu"),
                     os.path.join(binding_folder, "pengu", "__init__.pengu"),
+                    os.path.join(binding_folder, "pengu", "__init__.d.pengu"),
                     os.path.join(binding_folder, "pengu", "main.pengu"),
+                    os.path.join(binding_folder, "pengu", "main.d.pengu"),
                     os.path.join(binding_folder, f"{binding_name}.pengu"),
+                    os.path.join(binding_folder, f"{binding_name}.d.pengu"),
                     os.path.join(binding_folder, "__init__.pengu"),
+                    os.path.join(binding_folder, "__init__.d.pengu"),
                 ])
 
         # Also search across all lib/*/pengu/ and lib/*/ for matching module
         try:
             for entry in os.scandir(lib_dir):
                 if entry.is_dir():
-                    candidates.extend([
-                        os.path.join(entry.path, "pengu", *parts) + ".pengu",
-                        os.path.join(entry.path, "pengu", *parts, "__init__.pengu"),
-                        os.path.join(entry.path, *parts) + ".pengu",
-                        os.path.join(entry.path, *parts, "__init__.pengu"),
-                    ])
+                    _add_candidates(os.path.join(entry.path, "pengu", *parts))
+                    _add_candidates(os.path.join(entry.path, *parts))
         except Exception:
             pass
 
     # 5. Project root directory (backward compatibility)
-    candidates.extend([
-        os.path.join(base_abs, *parts) + ".pengu",
-        os.path.join(base_abs, *parts, "__init__.pengu"),
-    ])
+    _add_candidates(os.path.join(base_abs, *parts))
 
     for cand in candidates:
         if os.path.isfile(cand):

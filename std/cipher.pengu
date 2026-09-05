@@ -1,70 +1,445 @@
 # std/cipher.pengu - The Cipher (JSON & Base64 Encoding)
-# Provides JSON serialization/deserialization and Base64 encoding/decoding.
+# JSON serialization/deserialization and Base64 encoding/decoding,
+# implemented in pure PenguScript on top of byte access (ord/chr), map/list
+# primitives, and the pengu_map_keys_string runtime helper.
 
 import std.spark
-import std.oracle
-import std.scrolls
 import std.archivum
 
 # ----------------------------------------------------------------------------
-# External C Runtime Declarations
+# Map key enumeration (runtime primitive)
 # ----------------------------------------------------------------------------
 
-declare pengu_c_cipher_encode_base64 with data as string into string
-declare pengu_c_cipher_decode_base64 with data as string into maybe string
-declare pengu_c_cipher_parse_json with json as string into maybe map of string to string
-declare pengu_c_cipher_stringify_json with data as map of string to string into maybe string
-declare pengu_c_cipher_parse_value with json as string into maybe string
-declare pengu_c_cipher_stringify_value with value as string into maybe string
-declare pengu_c_cipher_pretty_json with data as map of string to string and indent as int into maybe string
+declare pengu_map_keys_string with m as ref to map of string to string into list of string
+
+# ----------------------------------------------------------------------------
+# Base64 API (pure)
+# ----------------------------------------------------------------------------
+
+# Maps a 6-bit value (0-63) to its Base64 alphabet character.
+weave cb64_char with v as int into string:
+    if v < 26:
+        return chr (v + 65)
+    if v < 52:
+        return chr (v + 71)
+    if v < 62:
+        return chr (v - 4)
+    if v == 62:
+        return "+"
+    return "/"
+
+# Decodes a single Base64 character to its 6-bit value (-2 invalid, -1 '=').
+weave cb64_val with c as string into int:
+    var code as int is ord c
+    if code >= 65:
+        if code <= 90:
+            return code - 65
+    if code >= 97:
+        if code <= 122:
+            return code - 71
+    if code >= 48:
+        if code <= 57:
+            return code + 4
+    if code == 43:
+        return 62
+    if code == 47:
+        return 63
+    if code == 61:
+        return -1
+    return -2
+
+weave encode_base64 with data as string into string:
+    var dl as int is data length
+    if dl == 0:
+        return ""
+    var out as string is ""
+    var i as int is 0
+    while i < dl:
+        var b0 as int is ord (data at i)
+        set i is i + 1
+        var b1 as int is -1
+        var b2 as int is -1
+        if i < dl:
+            set b1 is ord (data at i)
+            set i is i + 1
+            if i < dl:
+                set b2 is ord (data at i)
+                set i is i + 1
+        var a0 as int is b0
+        var a1 as int is 0
+        var a2 as int is 0
+        if b1 >= 0:
+            set a1 is b1
+        if b2 >= 0:
+            set a2 is b2
+        var triple as int is (a0 << 16) | (a1 << 8) | a2
+        set out is out + (calling cb64_char with ((triple >> 18) & 63))
+        set out is out + (calling cb64_char with ((triple >> 12) & 63))
+        if b1 >= 0:
+            set out is out + (calling cb64_char with ((triple >> 6) & 63))
+        else:
+            set out is out + "="
+        if b2 >= 0:
+            set out is out + (calling cb64_char with (triple & 63))
+        else:
+            set out is out + "="
+    return out
+
+weave decode_base64 with data as string into maybe string:
+    var dl as int is data length
+    if dl == 0:
+        return some ""
+    var clean as string is ""
+    var ci as int is 0
+    while ci < dl:
+        var code as int is ord (data at ci)
+        if code != 32:
+            if code != 9:
+                if code != 10:
+                    if code != 13:
+                        if code != 12:
+                            if code != 11:
+                                set clean is clean + (data at ci)
+        set ci is ci + 1
+    var clen as int is clean length
+    if clen % 4 != 0:
+        return maybe none
+    var out as string is ""
+    var pos as int is 0
+    while pos < clen:
+        var v0 as int is calling cb64_val with (clean at pos)
+        var v1 as int is calling cb64_val with (clean at (pos + 1))
+        var c2 as string is clean at (pos + 2)
+        var c3 as string is clean at (pos + 3)
+        var v2 as int is calling cb64_val with c2
+        var v3 as int is calling cb64_val with c3
+        if v0 < 0:
+            return maybe none
+        if v1 < 0:
+            return maybe none
+        if v2 < 0:
+            if c2 != "=":
+                return maybe none
+        if v3 < 0:
+            if c3 != "=":
+                return maybe none
+        var t2 as int is 0
+        var t3 as int is 0
+        if v2 >= 0:
+            set t2 is v2
+        if v3 >= 0:
+            set t3 is v3
+        var triple as int is (v0 << 18) | (v1 << 12) | (t2 << 6) | t3
+        set out is out + (chr ((triple >> 16) & 255))
+        if c2 != "=":
+            set out is out + (chr ((triple >> 8) & 255))
+        if c3 != "=":
+            set out is out + (chr (triple & 255))
+        set pos is pos + 4
+    return some out
+
+weave is_base64 with data as string into bool:
+    var decoded as maybe string is calling decode_base64 with data
+    return decoded.is_present
+
+# ----------------------------------------------------------------------------
+# JSON helpers (pure PenguScript tokenizer over a string + cursor)
+# ----------------------------------------------------------------------------
+
+# Advances the cursor past whitespace.
+weave json_skip_ws with s as string and p as ref to int into void:
+    var sl as int is s length
+    var cur as int is essence of p
+    var done as bool is false
+    while cur < sl:
+        if done:
+            break
+        var code as int is ord (s at cur)
+        if code == 32:
+            set cur is cur + 1
+        else:
+            if code == 9:
+                set cur is cur + 1
+            else:
+                if code == 10:
+                    set cur is cur + 1
+                else:
+                    if code == 13:
+                        set cur is cur + 1
+                    else:
+                        set done is true
+    set essence of p is cur
+
+# Reads a quoted JSON string (without the surrounding quotes), handling escapes.
+weave json_read_str with s as string and p as ref to int into string:
+    var sl as int is s length
+    var cur as int is essence of p
+    var res as string is ""
+    if cur >= sl:
+        return ""
+    var code0 as int is ord (s at cur)
+    if code0 != 34:
+        return ""
+    set cur is cur + 1
+    var done as bool is false
+    while cur < sl:
+        if done:
+            break
+        var code as int is ord (s at cur)
+        if code == 34:
+            set cur is cur + 1
+            set done is true
+        else:
+            if code == 92:
+                set cur is cur + 1
+                if cur < sl:
+                    var ec as int is ord (s at cur)
+                    if ec == 110:
+                        set res is res + "\n"
+                    else:
+                        if ec == 116:
+                            set res is res + "\t"
+                        else:
+                            if ec == 114:
+                                set res is res + "\r"
+                            else:
+                                if ec == 34:
+                                    set res is res + "\""
+                                else:
+                                    if ec == 92:
+                                        set res is res + "\\"
+                                    else:
+                                        if ec == 47:
+                                            set res is res + "/"
+                                        else:
+                                            set res is res + (s at cur)
+                    set cur is cur + 1
+            else:
+                set res is res + (s at cur)
+                set cur is cur + 1
+    set essence of p is cur
+    return res
+
+# Reads a JSON value: quoted string, balanced {}/[] literal, or a raw token.
+weave json_read_value with s as string and p as ref to int into string:
+    var sl as int is s length
+    calling json_skip_ws with s and p
+    var cur as int is essence of p
+    if cur >= sl:
+        return ""
+    var code as int is ord (s at cur)
+    if code == 34:
+        return calling json_read_str with s and p
+    if code == 123:
+        var depth as int is 1
+        var out as string is ""
+        set cur is cur + 1
+        while cur < sl:
+            var cc as int is ord (s at cur)
+            if cc == 123:
+                set depth is depth + 1
+            else:
+                if cc == 125:
+                    set depth is depth - 1
+                    if depth == 0:
+                        set out is out + (s at cur)
+                        set cur is cur + 1
+                        break
+            set out is out + (s at cur)
+            set cur is cur + 1
+        set essence of p is cur
+        return out
+    if code == 91:
+        var depth2 as int is 1
+        var out2 as string is ""
+        set cur is cur + 1
+        while cur < sl:
+            var cc2 as int is ord (s at cur)
+            if cc2 == 91:
+                set depth2 is depth2 + 1
+            else:
+                if cc2 == 93:
+                    set depth2 is depth2 - 1
+                    if depth2 == 0:
+                        set out2 is out2 + (s at cur)
+                        set cur is cur + 1
+                        break
+            set out2 is out2 + (s at cur)
+            set cur is cur + 1
+        set essence of p is cur
+        return out2
+    var start as int is cur
+    while cur < sl:
+        var rc as int is ord (s at cur)
+        if rc == 44:
+            break
+        if rc == 125:
+            break
+        if rc == 93:
+            break
+        if rc == 32:
+            break
+        if rc == 9:
+            break
+        if rc == 10:
+            break
+        if rc == 13:
+            break
+        set cur is cur + 1
+    var val as string is s at start to cur
+    set essence of p is cur
+    return val
+
+# True when a value is a raw JSON literal (object/array/number/bool/null).
+weave json_is_literal with v as string into bool:
+    var vl as int is v length
+    if vl == 0:
+        return false
+    var c0 as int is ord (v at 0)
+    if c0 == 123:
+        return true
+    if c0 == 91:
+        return true
+    if v == "true":
+        return true
+    if v == "false":
+        return true
+    if v == "null":
+        return true
+    if c0 >= 48:
+        if c0 <= 57:
+            return true
+    if c0 == 45:
+        if vl > 1:
+            var c1 as int is ord (v at 1)
+            if c1 >= 48:
+                if c1 <= 57:
+                    return true
+    return false
 
 # ----------------------------------------------------------------------------
 # JSON API
 # ----------------------------------------------------------------------------
 
 weave parse_json with json as string into maybe map of string to string:
-    return calling pengu_c_cipher_parse_json with json
+    var m as map of string to string is map of string to string
+    var dl as int is json length
+    if dl == 0:
+        return maybe none
+    var p as int is 0
+    calling json_skip_ws with json and (sigil of p)
+    if p >= dl:
+        return maybe none
+    if ord (json at p) != 123:
+        return maybe none
+    set p is p + 1
+    var running as bool is true
+    while running:
+        calling json_skip_ws with json and (sigil of p)
+        if p >= dl:
+            return maybe none
+        var cc as int is ord (json at p)
+        if cc == 125:
+            return some m
+        if cc != 34:
+            return maybe none
+        var key as string is calling json_read_str with json and (sigil of p)
+        calling json_skip_ws with json and (sigil of p)
+        if p >= dl:
+            return maybe none
+        if ord (json at p) != 58:
+            return maybe none
+        set p is p + 1
+        var val as string is calling json_read_value with json and (sigil of p)
+        calling m.put with key and val
+        calling json_skip_ws with json and (sigil of p)
+        if p >= dl:
+            return maybe none
+        var sep as int is ord (json at p)
+        if sep == 44:
+            set p is p + 1
+        else:
+            if sep == 125:
+                return some m
+            else:
+                return maybe none
+    return maybe none
 
 weave stringify_json with data as map of string to string into maybe string:
-    return calling pengu_c_cipher_stringify_json with data
-
-weave parse_value with json as string into maybe string:
-    return calling pengu_c_cipher_parse_value with json
-
-weave stringify_value with value as string into maybe string:
-    return calling pengu_c_cipher_stringify_value with value
+    var out as string is "{"
+    var keys as list of string is calling pengu_map_keys_string with sigil of data
+    var i as int is 0
+    var first as bool is true
+    while i < keys.len:
+        var key as string is keys at i
+        var val as string is calling data.get with key
+        if first:
+            set first is false
+        else:
+            set out is out + ","
+        set out is out + "\"" + key + "\""
+        set out is out + ":"
+        if calling json_is_literal with val:
+            set out is out + val
+        else:
+            set out is out + "\"" + val + "\""
+        set i is i + 1
+    return some (out + "}")
 
 weave pretty_json with data as map of string to string and indent as int is 2 into maybe string:
-    return calling pengu_c_cipher_pretty_json with data and indent
+    var out as string is "{\n"
+    var keys as list of string is calling pengu_map_keys_string with sigil of data
+    var i as int is 0
+    var first as bool is true
+    while i < keys.len:
+        var key as string is keys at i
+        var val as string is calling data.get with key
+        if first:
+            set first is false
+        else:
+            set out is out + ",\n"
+        var sp as int is 0
+        while sp < indent:
+            set out is out + " "
+            set sp is sp + 1
+        set out is out + "\"" + key + "\":"
+        if calling json_is_literal with val:
+            set out is out + " " + val
+        else:
+            set out is out + " \"" + val + "\""
+        set i is i + 1
+    return some (out + "\n}")
+
+weave parse_value with json as string into maybe string:
+    var dl as int is json length
+    if dl == 0:
+        return maybe none
+    var p as int is 0
+    calling json_skip_ws with json and (sigil of p)
+    var val as string is calling json_read_value with json and (sigil of p)
+    if val length == 0:
+        return maybe none
+    return some val
+
+weave stringify_value with value as string into maybe string:
+    return some value
 
 weave read_json_file with path as string into maybe map of string to string:
     var content as maybe string is calling archivum.read_file with path
     if content.is_present:
-        return calling pengu_c_cipher_parse_json with content.value
+        return calling parse_json with content.value
     return maybe none
 
 weave write_json_file with path as string and data as map of string to string into bool:
-    var json as maybe string is calling pengu_c_cipher_stringify_json with data
+    var json as maybe string is calling stringify_json with data
     if json.is_present:
-        return calling archivum.write_file with path and json.value
+        var text as string is json.value
+        return calling archivum.write_file with path and text
     return false
 
 weave write_json_file_pretty with path as string and data as map of string to string and indent as int is 2 into bool:
-    var json as maybe string is calling pengu_c_cipher_pretty_json with data and indent
+    var json as maybe string is calling pretty_json with data and indent
     if json.is_present:
-        return calling archivum.write_file with path and json.value
+        var text as string is json.value
+        return calling archivum.write_file with path and text
     return false
-
-# ----------------------------------------------------------------------------
-# Base64 API
-# ----------------------------------------------------------------------------
-
-weave encode_base64 with data as string into string:
-    return calling pengu_c_cipher_encode_base64 with data
-
-weave decode_base64 with data as string into maybe string:
-    return calling pengu_c_cipher_decode_base64 with data
-
-weave is_base64 with data as string into bool:
-    var decoded as maybe string is calling pengu_c_cipher_decode_base64 with data
-    return decoded.is_present

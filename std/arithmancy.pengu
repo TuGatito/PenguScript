@@ -28,9 +28,6 @@ declare pengu_c_tanh with x as float into float
 declare pengu_c_asinh with x as float into float
 declare pengu_c_acosh with x as float into float
 declare pengu_c_atanh with x as float into float
-declare pengu_c_is_prime with n as int into bool
-declare pengu_c_gcd with a as int and b as int into int
-declare pengu_c_lcm with a as int and b as int into int
 
 const PI as float is 3.141592653589793
 const TAU as float is 6.283185307179586
@@ -99,13 +96,39 @@ weave log2 with x as float into float:
     return calling pengu_c_log2 with x
 
 weave is_prime with n as int into bool:
-    return calling pengu_c_is_prime with n
+    if n <= 1:
+        return false
+    if n <= 3:
+        return true
+    if n % 2 == 0:
+        return false
+    if n % 3 == 0:
+        return false
+    var i as int is 5
+    while i <= n / i:
+        if n % i == 0:
+            return false
+        if n % (i + 2) == 0:
+            return false
+        set i is i + 6
+    return true
 
 weave gcd with a as int and b as int into int:
-    return calling pengu_c_gcd with a and b
+    var x as int is calling abs_i with a
+    var y as int is calling abs_i with b
+    while y != 0:
+        var t as int is y
+        set y is x % y
+        set x is t
+    return x
 
 weave lcm with a as int and b as int into int:
-    return calling pengu_c_lcm with a and b
+    if a == 0:
+        return 0
+    if b == 0:
+        return 0
+    var g as int is calling gcd with a and b
+    return calling abs_i with (a / g) * b
 
 weave min with a as float and b as float into float:
     if a < b:

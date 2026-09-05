@@ -79,6 +79,7 @@ def ensure_dependencies(py_exe: Path):
         "pyyaml>=6.0",
         "pygls>=2.0.0",
         "lsprotocol>=2023.0.0",
+        "pycparser>=2.21",
         "pytest>=7.0.0",
     ]
     if sys.version_info < (3, 11):
@@ -166,6 +167,8 @@ def package_with_pyinstaller(py_exe: Path, dist_dir: Path):
         f"{str(STD_DIR)}{data_sep}std",
         f"{str(ROOT_DIR / 'pengu_runtime.h')}{data_sep}.",
         f"{str(ROOT_DIR / 'VERSION')}{data_sep}.",
+        # Stub C headers used by 'pengu bind' when preprocessing C headers.
+        f"{str(ROOT_DIR / 'c_bind_stubs')}{data_sep}c_bind_stubs",
     ]
 
     # Hidden imports that PyInstaller may not auto-detect
@@ -180,13 +183,22 @@ def package_with_pyinstaller(py_exe: Path, dist_dir: Path):
         "lsprotocol.converters",
         "cattrs",
         "attrs",
+        "pycparser",
+        "pycparser.c_parser",
+        "pycparser.c_lexer",
+        "pycparser.c_ast",
+        "pycparser.plyparser",
+        "pycparser.ast_transforms",
         "lark",
         "lark.parsers",
         "lark.parsers.lalr_parser",
+        "pengu_bind",
         "pengu_lsp",
         "pengu_lsp.server",
         "pengu_lsp.completions",
         "pengu_lsp.hover",
+        "pengu_lsp.code_actions",
+        "pengu_lsp.formatting",
         "pengu_parser",
         "pengu_parser.pengu_parser",
         "pengu_parser.pengu_checker",
@@ -256,9 +268,15 @@ def verify_executable(dist_dir: Path):
     proj_dir = test_scratch / "smoke_proj"
     assert proj_dir.exists(), "smoke_proj was not created"
 
-    # Add standard library and runtime assertion in test project
-    main_pengu = proj_dir / "main.pengu"
-    main_pengu.write_text(
+    # init creates a Cargo-style project whose configured entry point lives at
+    # src/main.pengu, so the smoke-test source must overwrite that file (a
+    # stray 'main.pengu' at the project root is ignored by 'pengu run').
+    src_main = proj_dir / "src" / "main.pengu"
+    root_main = proj_dir / "main.pengu"
+    if root_main.exists():
+        root_main.unlink()
+    src_main.parent.mkdir(parents=True, exist_ok=True)
+    src_main.write_text(
         """import std.spark
 import std.ward
 

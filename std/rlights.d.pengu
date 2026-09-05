@@ -1,0 +1,130 @@
+## PenguScript manual declaration binding for rlights.h - the raylib-6 era
+## "RLG" lighting framework vendored in std_c/rlights.h.
+## rlights: https://github.com/raysan5/raylib/blob/master/examples/shaders/
+##          shaders_lightmap.c lineage - this vendored copy is the newer
+##          context-based RLG_ API (see header's own comments / LICENSE).
+##
+## This is a declaration file (.d.pengu): it declares a curated subset of the
+## native C surface so the LSP and the semantic checker know how to call
+## rlights from PenguScript.
+##
+## IMPORTANT - why there is no `include "rlights.h"` here: rlights.h pulls in
+## raylib.h AND an OpenGL loader header (`GL_HEADER`, default
+## "external/glad.h") at the very top of the file, unconditionally. A plain
+## PenguScript bundle cannot provide that include path, and rlights only makes
+## sense inside a running raylib/OpenGL application. This module is therefore
+## a semantic REFERENCE binding: it lets `pengu check`, the LSP and editor
+## tooling see the function shapes, and it documents the API, but importing it
+## does not emit the C header and no function may be CALLED from pure Pengu
+## yet (their raylib struct/pointer arguments are not constructible in
+## PenguScript, and no implementation archive is built). Projects that want
+## real rlights use raylib C code (or a future raygui/rlights wrapper) with
+## their own `#define RLIGHTS_IMPLEMENTATION` translation unit and link
+## raylib; the vendored header then resolves `GL_HEADER` from the raylib
+## sources.
+##
+## Bound subset (declared subset expressible with plain numbers, bools, ints
+## and the opaque RLG_Context handle):
+##   - context ............ RLG_CreateContext / DestroyContext / SetContext /
+##                          GetContext (opaque handle)
+##   - view position ...... RLG_SetViewPosition(x, y, z)
+##   - parallax layers .... RLG_SetParallaxLayers / GetParallaxLayers
+##   - light control ...... RLG_UseLight / IsLightUsed / ToggleLight /
+##                          SetLightType / GetLightType / SetLightValue /
+##                          SetLightXYZ / GetLightValue / LightTranslate /
+##                          LightRotateX / LightRotateY / LightRotateZ /
+##                          SetLightTarget
+##   - shadows ............ RLG_EnableShadow / DisableShadow /
+##                          IsShadowEnabled / SetShadowBias / GetShadowBias
+##
+## INTENTIONALLY OMITTED (documented - why the subset is small):
+##   - every signature that passes a raylib struct BY VALUE or BY REF
+##     (Vector2/3, Color, Shader, MaterialMap, Material, Mesh, Model,
+##     Matrix, Texture, RLG_Skybox, RLG_DrawFunc callbacks, ...). Those
+##     types live in std/raylib.d.pengu and mixing the two modules' type
+##     namespaces is fragile, so the affected functions
+##     (RLG_SetViewPositionV/GetViewPosition, ambient color, light color,
+##     RLG_*V vec3 variants, shadow-map updates, mesh/model casting,
+##     skybox loading/drawing, map control) are left unbound.
+##   - the implementation is NOT compiled into the Pengu runtime (it needs
+##     raylib + OpenGL and only has meaning inside a windowed app).
+##
+## Enum constants (usable directly in comparisons, values from the header):
+##   RLG_LightType:      RLG_DIRLIGHT = 0, RLG_OMNILIGHT = 1, RLG_SPOTLIGHT = 2
+##   RLG_LightProperty:  RLG_LIGHT_POSITION = 0, RLG_LIGHT_DIRECTION = 1,
+##                       RLG_LIGHT_COLOR = 2, RLG_LIGHT_ENERGY = 3,
+##                       RLG_LIGHT_SPECULAR = 4, RLG_LIGHT_SIZE = 5,
+##                       RLG_LIGHT_INNER_CUTOFF = 6, RLG_LIGHT_OUTER_CUTOFF = 7,
+##                       RLG_LIGHT_DISTANCE = 8, RLG_LIGHT_ATTENUATION = 9
+##
+## Type mapping notes:
+##   - RLG_Context is `typedef void* RLG_Context` in the header, declared
+##     here as an opaque handle alias.
+##   - enum parameters/returns are typed `int`; angles/values are `f32`.
+
+# NOTE: there is deliberately NO `include "rlights.h"` in this file (see the
+# module doc comment above: the header pulls in raylib.h plus an OpenGL
+# loader, and no rlights implementation archive is built). This binding is a
+# semantic/reference module: it documents the API and satisfies `pengu check`
+# / LSP, but its functions must not be called from pure PenguScript yet -
+# calling them would emit C calls without a prototype or a definition.
+
+# ------------------------------------------------------------------
+# Types
+# ------------------------------------------------------------------
+
+alias RLG_Context as opaque
+
+# ------------------------------------------------------------------
+# Functions (real C symbol names used verbatim - no insignia)
+# ------------------------------------------------------------------
+
+declare RLG_CreateContext into RLG_Context
+
+declare RLG_DestroyContext with ctx as RLG_Context into void
+
+declare RLG_SetContext with ctx as RLG_Context into void
+
+declare RLG_GetContext into RLG_Context
+
+declare RLG_SetViewPosition with x as f32, y as f32, z as f32 into void
+
+declare RLG_SetParallaxLayers with min as int, max as int into void
+
+declare RLG_GetParallaxLayers with min as ref to int, max as ref to int into void
+
+declare RLG_UseLight with light as int, active as bool into void
+
+declare RLG_IsLightUsed with light as int into bool
+
+declare RLG_ToggleLight with light as int into void
+
+declare RLG_SetLightType with light as int, type as int into void
+
+declare RLG_GetLightType with light as int into int
+
+declare RLG_SetLightValue with light as int, property as int, value as f32 into void
+
+declare RLG_SetLightXYZ with light as int, property as int, x as f32, y as f32, z as f32 into void
+
+declare RLG_GetLightValue with light as int, property as int into f32
+
+declare RLG_LightTranslate with light as int, x as f32, y as f32, z as f32 into void
+
+declare RLG_LightRotateX with light as int, degrees as f32 into void
+
+declare RLG_LightRotateY with light as int, degrees as f32 into void
+
+declare RLG_LightRotateZ with light as int, degrees as f32 into void
+
+declare RLG_SetLightTarget with light as int, x as f32, y as f32, z as f32 into void
+
+declare RLG_EnableShadow with light as int, shadowMapResolution as int into void
+
+declare RLG_DisableShadow with light as int into void
+
+declare RLG_IsShadowEnabled with light as int into bool
+
+declare RLG_SetShadowBias with light as int, value as f32 into void
+
+declare RLG_GetShadowBias with light as int into f32

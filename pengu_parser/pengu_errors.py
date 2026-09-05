@@ -219,6 +219,96 @@ class ManyParamNotLastError(SemanticError):
         super().__init__(message, line=line, col=col, column=column, **kwargs)
 
 
+class MultipleInsigniaError(SemanticError):
+    """E0026: Multiple insignia directives in a single file."""
+    def __init__(self, message: str = "Multiple 'insignia' directives not allowed", line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0026")
+        kwargs.setdefault("help", "Only one 'insignia' directive is allowed per module file.")
+        kwargs.setdefault("note", "The 'insignia' directive defines the global C prefix for all subsequent declarations in this file.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+class DuplicateOmenValueError(SemanticError):
+    """E0027: Duplicate variant value in omen."""
+    def __init__(self, message: str = "Duplicate variant value in omen", line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0027")
+        kwargs.setdefault("help", "Ensure all omen variant values are unique.")
+        kwargs.setdefault("note", "Omen variant values must be distinct.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+class InvalidOmenPayloadValueError(SemanticError):
+    """E0028: Value assignment in algebraic omen variant with payload."""
+    def __init__(self, message: str = "Value assignment is not allowed on algebraic omen variants with payload ('with')", line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0028")
+        kwargs.setdefault("help", "Remove 'is <value>' from algebraic variants with 'with'.")
+        kwargs.setdefault("note", "Explicit numerical values are only supported on simple enums without payload.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+class InvalidOmenConstantValueError(SemanticError):
+    """E0029: Non-constant or non-integer value in omen variant."""
+    def __init__(self, message: str = "Omen variant value must be a compile-time integer constant", line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0029")
+        kwargs.setdefault("help", "Use a compile-time integer literal or constant expression.")
+        kwargs.setdefault("note", "Omen values must evaluate to an integer at compile time.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+class ConceptMethodMismatchError(SemanticError):
+    """E0030: Concept method signature mismatch in bind implementation."""
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0030")
+        kwargs.setdefault("help", "Ensure parameter and return types match the concept method declaration.")
+        kwargs.setdefault("note", "Methods in 'bind' blocks must have signatures identical to the concept definition.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+class UnimplementedConceptMethodError(SemanticError):
+    """E0031: Missing required concept method implementation."""
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0031")
+        kwargs.setdefault("help", "Implement all methods declared in the concept.")
+        kwargs.setdefault("note", "A 'bind' block must provide implementations for every method of the concept.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+class ConceptBoundNotSatisfiedError(SemanticError):
+    """E0032: Generic type argument does not implement required concept bound."""
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0032")
+        kwargs.setdefault("help", "Bind the required concept to the type using 'bind Type with Concept:'.")
+        kwargs.setdefault("note", "Generic type arguments must satisfy all concept bounds declared in the 'where' clause.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+class InvalidRitualSelfAccessError(SemanticError):
+    """E0033: Using 'self' inside a ritual (static) method."""
+    def __init__(self, message: str = "'self' cannot be used inside a 'ritual' method", line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0033")
+        kwargs.setdefault("help", "Remove 'self' or remove the 'ritual' modifier to make this an instance method.")
+        kwargs.setdefault("note", "'ritual' methods are static/associated functions and do not have an instance 'self'.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+class InvalidRitualCallError(SemanticError):
+    """E0034: Calling instance method statically or ritual method on instance."""
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0034")
+        kwargs.setdefault("help", "Call ritual methods on the type (e.g. Type.method) and instance methods on an object.")
+        kwargs.setdefault("note", "Ritual methods are associated with the type, while instance methods require an object.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+class SealTypeMismatchError(SemanticError):
+    """E0035: Incompatible assignment or operation involving distinct 'seal' type."""
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0035")
+        kwargs.setdefault("help", "Use explicit cast 'to' when converting between a sealed type and its underlying type.")
+        kwargs.setdefault("note", "Sealed types ('seal') are strictly distinct nominal types.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
 import difflib
 
 

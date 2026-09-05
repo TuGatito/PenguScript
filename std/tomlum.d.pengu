@@ -1,0 +1,42 @@
+## PenguScript manual declaration binding for the PenguScript-friendly
+## tomlc17 shim (pengu_tomlc17.h / wrappers_tomlc17.c, in libtomlc17.a).
+## tomlc17: https://github.com/cktan/tomlc17 (MIT).
+##
+## This is a declaration file (.d.pengu): it only declares the native C
+## surface so the LSP and the semantic checker know how to call the shim
+## from PenguScript. The real C declarations live in `pengu_tomlc17.h`,
+## which is `include`d below, so nothing here emits C code.
+##
+## Why a shim: tomlc17's own API (toml_parse/toml_parse_file) returns the
+## toml_result_t struct BY VALUE and hangs the parsed document off it as a
+## toml_datum_t tree - by-value opaque structs cannot be expressed from
+## PenguScript today. The shim reduces the parser to its smallest real,
+## verifiable surface:
+##   - pengu_toml_valid(text)      1 when `text` parses as valid TOML
+##   - pengu_toml_valid_file(path) 1 when the file parses as valid TOML
+## Querying keys/values from a parsed document remains C-level only.
+##
+## Type mapping notes:
+##   - The text/path argument is a C string: declared `ref to char`. Pass a
+##     PenguScript string literal directly, or a runtime string variable via
+##     `bytes of <string>`.
+##   - Return is an `int` (1 = valid, 0 = invalid/unreadable).
+##
+## Link requirement: -ltomlc17 (the shim object lives inside libtomlc17.a).
+##
+## Typical usage:
+##   import std.tomlum
+##   var ok as int is calling tomlum.pengu_toml_valid with "name = \"Pengu\""
+
+include "pengu_tomlc17.h"
+
+# ------------------------------------------------------------------
+# Functions (real C symbol names used verbatim - no insignia)
+# ------------------------------------------------------------------
+
+## Returns 1 when `text` is a valid TOML document, 0 otherwise.
+declare pengu_toml_valid with text as ref to char into int
+
+## Returns 1 when the file at `fname` is a valid TOML document,
+## 0 otherwise (unreadable file or parse error).
+declare pengu_toml_valid_file with fname as ref to char into int

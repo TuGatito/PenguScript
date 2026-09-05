@@ -98,6 +98,10 @@ class Type:
         """
         if self.is_compatible(other):
             return True
+        if isinstance(other, SealType):
+            return self.can_cast_to(other.underlying) or self.is_compatible(other.underlying)
+        if isinstance(self, SealType):
+            return self.underlying.can_cast_to(other) or self.underlying.is_compatible(other)
         if self.is_numeric() and other.is_numeric():
             return True
         if isinstance(self, RefType) and isinstance(other, RefType):
@@ -165,6 +169,7 @@ class Type:
 class TypeParam(Type):
     """Represents a generic type parameter placeholder (e.g. T, U, E)."""
     name: str
+    bounds: List[str] = field(default_factory=list)
 
     def substitute(self, type_map: Dict[str, Type]) -> Type:
         return type_map.get(self.name, self)
@@ -203,6 +208,40 @@ class AnyType(Type):
 
 
 @dataclass
+class NullType(Type):
+    """Null pointer literal type (null) compatible only with references, opaque types, and any."""
+    name: str = "null"
+
+    def is_compatible(self, other: Type) -> bool:
+        if isinstance(other, AnyType) or isinstance(other, TypeParam):
+            return True
+        if isinstance(other, NullType):
+            return True
+        if isinstance(other, RefType):
+            return True
+        if isinstance(other, BaseType) and other.name in ("opaque", "any"):
+            return True
+        if isinstance(other, AliasType):
+            return self.is_compatible(other.target)
+        return False
+
+    def can_cast_to(self, other: Type) -> bool:
+        return self.is_compatible(other)
+
+    def is_pointer(self) -> bool:
+        return True
+
+    def __eq__(self, other: Any) -> bool:
+        return isinstance(other, NullType)
+
+    def __hash__(self) -> int:
+        return hash("null")
+
+
+NULL_TYPE = NullType()
+
+
+@dataclass
 class BaseType(Type):
     """Primitive base type in PenguScript."""
     name: str
@@ -233,6 +272,8 @@ class BaseType(Type):
         """Checks strict compatibility for base primitives without implicit numeric conversion."""
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
+        if self.name in ("opaque", "any") and isinstance(other, NullType):
+            return True
         if isinstance(other, AliasType):
             return self.is_compatible(other.target)
         if isinstance(other, BaseType):
@@ -252,6 +293,8 @@ class BaseType(Type):
             return True
         if self.is_compatible(other):
             return True
+        if isinstance(other, SealType):
+            return self.can_cast_to(other.underlying) or self.is_compatible(other.underlying)
         if isinstance(other, BaseType):
             if self.is_numeric() and other.is_numeric():
                 return True
@@ -313,9 +356,13 @@ class RefType(Type):
         return f"ref_{self.target.get_mangled_name()}"
 
     def is_compatible(self, other: Type) -> bool:
-        """Checks reference compatibility allowing ref to void polymorphism."""
+        """Checks reference compatibility allowing ref to void polymorphism and null literal."""
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
+        if isinstance(other, NullType):
+            return True
+        if isinstance(other, AliasType):
+            return self.is_compatible(other.target)
         if isinstance(other, RefType):
             if self.target == VOID_TYPE or other.target == VOID_TYPE:
                 return True
@@ -623,6 +670,7 @@ class RuneType(Type):
     methods: Dict[str, FnType] = field(default_factory=dict)
     type_params: List[str] = field(default_factory=list)
     type_args: List[Type] = field(default_factory=list)
+    c_name: Optional[str] = None
 
     @property
     def is_generic(self) -> bool:
@@ -674,6 +722,7 @@ class EchoType(Type):
     fields: Dict[str, Type] = field(default_factory=dict)
     type_params: List[str] = field(default_factory=list)
     type_args: List[Type] = field(default_factory=list)
+    c_name: Optional[str] = None
 
     @property
     def is_generic(self) -> bool:
@@ -717,8 +766,10 @@ class OmenType(Type):
     """Tagged sum type enum with payload variants."""
     name: str
     variants: Dict[str, Dict[str, Type]] = field(default_factory=dict)
+    variant_values: Dict[str, int] = field(default_factory=dict)
     type_params: List[str] = field(default_factory=list)
     type_args: List[Type] = field(default_factory=list)
+    c_name: Optional[str] = None
 
     @property
     def is_generic(self) -> bool:
@@ -728,6 +779,11 @@ class OmenType(Type):
     def is_algebraic(self) -> bool:
         """Returns True if at least one variant has associated payload fields."""
         return any(bool(fields) for fields in self.variants.values())
+
+    @property
+    def is_string_valued(self) -> bool:
+        """Returns True if this omen maps its variants to string constants."""
+        return any(isinstance(v, str) for v in self.variant_values.values())
 
     def is_numeric(self) -> bool:
         """Simple traditional enums without payload map to C integers."""
@@ -752,8 +808,13 @@ class OmenType(Type):
         base_name = self.name.split("_")[0] if self.type_args else self.name
         if new_args and not any(isinstance(a, TypeParam) for a in new_args):
             mangled = f"{base_name}_{'_'.join(a.get_mangled_name() for a in new_args)}"
-            return OmenType(name=mangled, variants=new_variants, type_params=[], type_args=new_args)
-        return OmenType(name=self.name, variants=new_variants, type_params=self.type_params, type_args=new_args)
+            # A specialization is a fresh concrete type: clear the template's
+            # c_name so CTypeMapper emits the mangled specialization name
+            # (Status_string), not the generic base (Status).
+            return OmenType(name=mangled, variants=new_variants, variant_values=self.variant_values,
+                            type_params=[], type_args=new_args, c_name=None)
+        return OmenType(name=self.name, variants=new_variants, variant_values=self.variant_values,
+                        type_params=self.type_params, type_args=new_args, c_name=self.c_name)
 
     def is_compatible(self, other: Type) -> bool:
         """Checks omen sum type compatibility by nominal type name."""
@@ -780,6 +841,7 @@ class FnType(Type):
     default_count: int = 0
     type_params: List[str] = field(default_factory=list)
     type_args: List[Type] = field(default_factory=list)
+    is_ritual: bool = False
 
     @property
     def is_generic(self) -> bool:
@@ -798,7 +860,8 @@ class FnType(Type):
             return_type=new_ret,
             default_count=self.default_count,
             type_params=self.type_params,
-            type_args=new_args
+            type_args=new_args,
+            is_ritual=self.is_ritual
         )
 
     @property
@@ -811,7 +874,8 @@ class FnType(Type):
             else:
                 param_strs.append(str(p_type))
         params_formatted = f" with {', '.join(param_strs)}" if param_strs else ""
-        return f"weave{params_formatted} into {self.return_type}"
+        prefix = "ritual " if self.is_ritual else ""
+        return f"{prefix}weave{params_formatted} into {self.return_type}"
 
     def is_compatible(self, other: Type) -> bool:
         """Checks function signature parameter and return type compatibility."""
@@ -843,15 +907,119 @@ class FnType(Type):
         return hash(("fn", param_types, self.return_type))
 
 
+@dataclass
+class ConceptType(Type):
+    """Concept / Trait interface type in PenguScript defining method contracts."""
+    name: str = ""
+    methods: Dict[str, FnType] = field(default_factory=dict)
+    ritual_methods: Set[str] = field(default_factory=set)
+    type_params: List[str] = field(default_factory=list)
+    type_args: List[Type] = field(default_factory=list)
+    c_name: Optional[str] = None
+
+    @property
+    def is_generic(self) -> bool:
+        return bool(self.type_params) and not bool(self.type_args)
+
+    def get_method(self, name: str) -> Optional[FnType]:
+        return self.methods.get(name)
+
+    def get_ritual_methods(self) -> Dict[str, FnType]:
+        return {k: v for k, v in self.methods.items() if k in self.ritual_methods or getattr(v, "is_ritual", False)}
+
+    def get_instance_methods(self) -> Dict[str, FnType]:
+        return {k: v for k, v in self.methods.items() if k not in self.ritual_methods and not getattr(v, "is_ritual", False)}
+
+    def substitute(self, type_map: Dict[str, Type]) -> ConceptType:
+        if not type_map:
+            return self
+        new_methods = {k: v.substitute(type_map) for k, v in self.methods.items()}
+        new_args = [a.substitute(type_map) for a in self.type_args]
+        if not new_args and self.type_params:
+            new_args = [type_map.get(tp, TypeParam(tp)) for tp in self.type_params]
+        base_name = self.name.split("_")[0] if self.type_args else self.name
+        if new_args and not any(isinstance(a, TypeParam) for a in new_args):
+            mangled = f"{base_name}_{'_'.join(a.get_mangled_name() for a in new_args)}"
+            return ConceptType(name=mangled, methods=new_methods, ritual_methods=set(self.ritual_methods), type_params=[], type_args=new_args, c_name=self.c_name)
+        return ConceptType(name=self.name, methods=new_methods, ritual_methods=set(self.ritual_methods), type_params=self.type_params, type_args=new_args, c_name=self.c_name)
+
+    def is_compatible(self, other: Type) -> bool:
+        if isinstance(other, AnyType) or isinstance(other, TypeParam):
+            return True
+        if isinstance(other, ConceptType):
+            return self.name == other.name
+        return False
+
+    def can_cast_to(self, other: Type) -> bool:
+        return self.is_compatible(other)
+
+    def __eq__(self, other: Any) -> bool:
+        return isinstance(other, ConceptType) and self.name == other.name
+
+    def __hash__(self) -> int:
+        return hash(("concept", self.name))
+
+
+@dataclass
+class SealType(Type):
+    """Nominal distinct type (newtype) wrapping an underlying type."""
+    name: str = ""
+    underlying: Optional[Type] = None
+    c_name: Optional[str] = None
+
+    def is_compatible(self, other: Type) -> bool:
+        """Strict nominal compatibility: only compatible with same SealType."""
+        if isinstance(other, AnyType) or isinstance(other, TypeParam):
+            return True
+        if isinstance(other, SealType):
+            return self.name == other.name
+        return False
+
+    def can_cast_to(self, other: Type) -> bool:
+        """Explicit cast conversion: allows casting to/from underlying type or compatible types."""
+        if isinstance(other, AnyType) or isinstance(other, TypeParam):
+            return True
+        if isinstance(other, SealType):
+            return self.name == other.name or self.underlying.can_cast_to(other.underlying)
+        if self.underlying.can_cast_to(other) or self.underlying.is_compatible(other):
+            return True
+        return False
+
+    def is_numeric(self) -> bool:
+        return self.underlying.is_numeric()
+
+    def is_int(self) -> bool:
+        return self.underlying.is_int()
+
+    def is_float(self) -> bool:
+        return self.underlying.is_float()
+
+    def is_string(self) -> bool:
+        return self.underlying.is_string()
+
+    def substitute(self, type_map: Dict[str, Type]) -> Type:
+        if not type_map:
+            return self
+        new_underlying = self.underlying.substitute(type_map)
+        return SealType(name=self.name, underlying=new_underlying, c_name=self.c_name)
+
+    def __eq__(self, other: Any) -> bool:
+        return isinstance(other, SealType) and self.name == other.name
+
+    def __hash__(self) -> int:
+        return hash(("seal", self.name))
+
+
 class AliasType(Type):
     """Type alias representing a user-defined alias for an underlying target type."""
 
-    def __init__(self, name: str, target: Type, type_params: Optional[List[str]] = None, type_args: Optional[List[Type]] = None):
+    def __init__(self, name: str, target: Type, type_params: Optional[List[str]] = None, type_args: Optional[List[Type]] = None, c_name: Optional[str] = None):
         """Initializes a new Type alias."""
         self.name = name
         self.target = target
         self.type_params = type_params or []
         self.type_args = type_args or []
+        self.c_name = c_name
 
     @property
     def is_generic(self) -> bool:
@@ -918,6 +1086,39 @@ class AliasType(Type):
     def __hash__(self) -> int:
         """Returns hash of type alias."""
         return hash(("alias", self.name))
+
+
+def implements_concept(t: Type, concept_name: str, symbols: Any) -> bool:
+    """Checks if type t implements concept_name via registered concept bindings."""
+    if t is None or symbols is None:
+        return False
+    if isinstance(t, AnyType) or isinstance(t, TypeParam):
+        return True
+
+    t_name = getattr(t, "name", str(t))
+    base_tname = t_name.split("_")[0] if "_" in t_name else t_name
+    concept_base = concept_name.split("_")[0] if "_" in concept_name else concept_name
+
+    if hasattr(symbols, "concept_bindings"):
+        for key in [(t_name, concept_name), (base_tname, concept_base), (t_name, concept_base), (base_tname, concept_name)]:
+            if key in symbols.concept_bindings:
+                return True
+    return False
+
+
+def resolve_concept_method(t: Type, concept_name: str, method_name: str, symbols: Any) -> Optional[FnType]:
+    """Retrieves FnType for a concept method implemented on type t."""
+    if t is None or symbols is None:
+        return None
+    t_name = getattr(t, "name", str(t))
+    base_tname = t_name.split("_")[0] if "_" in t_name else t_name
+    concept_base = concept_name.split("_")[0] if "_" in concept_name else concept_name
+
+    if hasattr(symbols, "concept_bindings"):
+        for key in [(t_name, concept_name), (base_tname, concept_base), (t_name, concept_base), (base_tname, concept_name)]:
+            if key in symbols.concept_bindings and method_name in symbols.concept_bindings[key]:
+                return symbols.concept_bindings[key][method_name]
+    return None
 
 
 def is_opaque_type(t: Type) -> bool:

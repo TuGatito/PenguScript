@@ -1,56 +1,235 @@
 # std/ledger.pengu - The Ledger (CSV / TSV Processing)
-# Provides comprehensive CSV and TSV reading, writing, and parsing.
+# CSV/TSV parsing, generation and file helpers implemented in pure PenguScript.
+#
+# All quoting/parsing logic uses byte access (ord) and single-character string
+# construction (chr) from the compiler; file I/O goes through std.archivum.
+# External C code is not required for tabular processing anymore.
 
 import std.spark
-import std.oracle
-import std.scrolls
 import std.archivum
 
 # ----------------------------------------------------------------------------
-# External C Runtime Declarations
+# Quoting
 # ----------------------------------------------------------------------------
 
-declare pengu_c_ledger_parse_csv with data as string and delimiter as string and has_header as bool into maybe list of list of string
-declare pengu_c_ledger_generate_csv with rows as list of list of string and delimiter as string into maybe string
-declare pengu_c_ledger_parse_line with line as string and delimiter as string into maybe list of string
-declare pengu_c_ledger_escape_field with field as string and delimiter as string into string
-declare pengu_c_ledger_read_file with path as string and delimiter as string and has_header as bool into maybe list of list of string
-declare pengu_c_ledger_write_file with path as string and rows as list of list of string and delimiter as string into bool
-declare pengu_c_ledger_detect_delimiter with data as string into maybe string
+# Wraps a field in double quotes when it contains the delimiter, a quote, or a
+# line break; doubles embedded quotes.
+weave escape_field with field as string and delimiter as string is "," into string:
+    var delim as string is delimiter
+    if delimiter length == 0:
+        set delim is ","
+    var fl as int is field length
+    if fl == 0:
+        return ""
+    var dcode as int is ord delim
+    var need_quotes as bool is false
+    var i as int is 0
+    while i < fl:
+        var code as int is ord (field at i)
+        if code == dcode:
+            set need_quotes is true
+        else:
+            if code == 34:
+                set need_quotes is true
+            else:
+                if code == 10:
+                    set need_quotes is true
+                else:
+                    if code == 13:
+                        set need_quotes is true
+        set i is i + 1
+    if need_quotes == false:
+        return field
+    var out as string is "\""
+    var j as int is 0
+    while j < fl:
+        var code2 as int is ord (field at j)
+        if code2 == 34:
+            set out is out + "\"\""
+        else:
+            set out is out + (field at j)
+        set j is j + 1
+    return out + "\""
 
 # ----------------------------------------------------------------------------
-# CSV / TSV Functional API
+# Parsing
+# ----------------------------------------------------------------------------
+
+# Parses a single CSV/TSV line into its fields (RFC-4180 style quoting).
+weave parse_line with line as string and delimiter as string is "," into maybe list of string:
+    var delim as string is delimiter
+    if delimiter length == 0:
+        set delim is ","
+    var dcode as int is ord delim
+    var fields as list of string is list of string
+    var cur as string is ""
+    var in_q as bool is false
+    var dl as int is line length
+    var i as int is 0
+    while i < dl:
+        var ch as string is line at i
+        var code as int is ord ch
+        if code == 34:
+            if in_q:
+                if i + 1 < dl:
+                    if ord (line at (i + 1)) == 34:
+                        set cur is cur + "\""
+                        set i is i + 1
+                    else:
+                        set in_q is false
+                else:
+                    set in_q is false
+            else:
+                set in_q is true
+        else:
+            if in_q:
+                set cur is cur + ch
+            else:
+                if code == dcode:
+                    calling fields.push with cur
+                    set cur is ""
+                else:
+                    if code == 10:
+                        calling fields.push with cur
+                        return some fields
+                    else:
+                        if code == 13:
+                            calling fields.push with cur
+                            return some fields
+                        else:
+                            set cur is cur + ch
+        set i is i + 1
+    calling fields.push with cur
+    return some fields
+
+# Parses a full CSV/TSV payload into rows of fields.
+weave parse_csv with data as string and delimiter as string is "," and has_header as bool is false into maybe list of list of string:
+    var rows as list of list of string is list of list of string
+    var dl as int is data length
+    if dl == 0:
+        return some rows
+    var start as int is 0
+    var i as int is 0
+    while i <= dl:
+        if i == dl:
+            if i > start:
+                var last as string is data at start to i
+                var mlast as maybe list of string is calling parse_line with last and delimiter
+                if mlast.is_present:
+                    calling rows.push with mlast.value
+            break
+        var code as int is ord (data at i)
+        if code == 10:
+            var seg as string is data at start to i
+            var mseg as maybe list of string is calling parse_line with seg and delimiter
+            if mseg.is_present:
+                calling rows.push with mseg.value
+            set start is i + 1
+        set i is i + 1
+    return some rows
+
+# ----------------------------------------------------------------------------
+# Generation
+# ----------------------------------------------------------------------------
+
+# Serializes rows of fields into CSV/TSV text (with a trailing newline).
+weave to_csv_string with rows as list of list of string and delimiter as string is "," into maybe string:
+    var out as string is ""
+    var r as int is 0
+    while r < rows.len:
+        var row as list of string is rows at r
+        var c as int is 0
+        while c < row.len:
+            if c > 0:
+                set out is out + delimiter
+            var f as string is calling escape_field with (row at c) and delimiter
+            set out is out + f
+            set c is c + 1
+        set out is out + "\n"
+        set r is r + 1
+    return some out
+
+# ----------------------------------------------------------------------------
+# TSV conveniences
+# ----------------------------------------------------------------------------
+
+# Detects the most likely delimiter (',', '\\t', ';', '|') on the first line,
+# ignoring quoted sections.
+weave detect_delimiter with data as string into maybe string:
+    var dl as int is data length
+    if dl == 0:
+        return maybe none
+    var commas as int is 0
+    var tabs as int is 0
+    var semis as int is 0
+    var pipes as int is 0
+    var in_q as bool is false
+    var i as int is 0
+    while i < dl:
+        var code as int is ord (data at i)
+        if code == 10:
+            break
+        if code == 34:
+            if in_q:
+                set in_q is false
+            else:
+                set in_q is true
+        else:
+            if in_q == false:
+                if code == 44:
+                    set commas is commas + 1
+                else:
+                    if code == 9:
+                        set tabs is tabs + 1
+                    else:
+                        if code == 59:
+                            set semis is semis + 1
+                        else:
+                            if code == 124:
+                                set pipes is pipes + 1
+        set i is i + 1
+    var chosen as string is ","
+    var maxc as int is commas
+    if tabs > maxc:
+        set maxc is tabs
+        set chosen is "\t"
+    if semis > maxc:
+        set maxc is semis
+        set chosen is ";"
+    if pipes > maxc:
+        set chosen is "|"
+    return some chosen
+
+weave parse_tsv with data as string and has_header as bool is false into maybe list of list of string:
+    return calling parse_csv with data and "\t" and has_header
+
+weave to_tsv_string with rows as list of list of string into maybe string:
+    return calling to_csv_string with rows and "\t"
+
+# ----------------------------------------------------------------------------
+# File helpers (I/O via std.archivum)
 # ----------------------------------------------------------------------------
 
 weave read_csv with path as string and has_header as bool is false and delimiter as string is "," into maybe list of list of string:
-    return calling pengu_c_ledger_read_file with path and delimiter and has_header
+    var content as maybe string is calling archivum.read_file with path
+    if content.is_present:
+        return calling parse_csv with content.value and delimiter and has_header
+    return maybe none
 
 weave read_tsv with path as string and has_header as bool is false into maybe list of list of string:
-    return calling pengu_c_ledger_read_file with path and "\t" and has_header
+    var content as maybe string is calling archivum.read_file with path
+    if content.is_present:
+        return calling parse_tsv with content.value and has_header
+    return maybe none
 
 weave write_csv with path as string and rows as list of list of string and delimiter as string is "," into bool:
-    return calling pengu_c_ledger_write_file with path and rows and delimiter
+    var gen as maybe string is calling to_csv_string with rows and delimiter
+    if gen.is_present:
+        return calling archivum.write_file with path and gen.value
+    return false
 
 weave write_tsv with path as string and rows as list of list of string into bool:
-    return calling pengu_c_ledger_write_file with path and rows and "\t"
-
-weave parse_csv with data as string and delimiter as string is "," and has_header as bool is false into maybe list of list of string:
-    return calling pengu_c_ledger_parse_csv with data and delimiter and has_header
-
-weave parse_tsv with data as string and has_header as bool is false into maybe list of list of string:
-    return calling pengu_c_ledger_parse_csv with data and "\t" and has_header
-
-weave to_csv_string with rows as list of list of string and delimiter as string is "," into maybe string:
-    return calling pengu_c_ledger_generate_csv with rows and delimiter
-
-weave to_tsv_string with rows as list of list of string into maybe string:
-    return calling pengu_c_ledger_generate_csv with rows and "\t"
-
-weave parse_line with line as string and delimiter as string is "," into maybe list of string:
-    return calling pengu_c_ledger_parse_line with line and delimiter
-
-weave detect_delimiter with data as string into maybe string:
-    return calling pengu_c_ledger_detect_delimiter with data
-
-weave escape_field with field as string and delimiter as string is "," into string:
-    return calling pengu_c_ledger_escape_field with field and delimiter
+    var gen as maybe string is calling to_tsv_string with rows
+    if gen.is_present:
+        return calling archivum.write_file with path and gen.value
+    return false

@@ -28,9 +28,6 @@ declare pengu_c_archivum_copy_file with src as string and dst as string and over
 declare pengu_c_archivum_move_file with src as string and dst as string and overwrite as bool into bool
 declare pengu_c_archivum_rename with old as string and new as string into bool
 declare pengu_c_archivum_metadata with path as string into maybe map of string to string
-declare pengu_c_archivum_read_lines with path as string into maybe list of string
-declare pengu_c_archivum_write_lines with path as string and lines as list of string into bool
-declare pengu_c_archivum_append_lines with path as string and lines as list of string into bool
 declare pengu_c_archivum_glob with pattern as string into list of string
 declare pengu_c_archivum_walk with root as string into list of list of string
 declare pengu_c_archivum_touch with path as string into bool
@@ -88,13 +85,32 @@ weave metadata with path as string into maybe map of string to string:
     return calling pengu_c_archivum_metadata with path
 
 weave read_lines with path as string into maybe list of string:
-    return calling pengu_c_archivum_read_lines with path
+    var content as maybe string is calling read_file with path
+    if content.is_present:
+        var text as string is content.value
+        var parts as list of string is calling text.split with "\n"
+        return some parts
+    return maybe none
 
 weave write_lines with path as string and lines as list of string into bool:
-    return calling pengu_c_archivum_write_lines with path and lines
+    var out as string is ""
+    var i as int is 0
+    while i < lines.len:
+        if i > 0:
+            set out is out + "\n"
+        set out is out + (lines at i)
+        set i is i + 1
+    return calling write_file with path and (out + "\n")
 
 weave append_lines with path as string and lines as list of string into bool:
-    return calling pengu_c_archivum_append_lines with path and lines
+    var out as string is ""
+    var i as int is 0
+    while i < lines.len:
+        if i > 0:
+            set out is out + "\n"
+        set out is out + (lines at i)
+        set i is i + 1
+    return calling append_file with path and (out + "\n")
 
 weave glob with pattern as string into list of string:
     return calling pengu_c_archivum_glob with pattern
@@ -113,3 +129,74 @@ weave read_symlink with path as string into maybe string:
 
 weave realpath with path as string into maybe string:
     return calling pengu_c_archivum_realpath with path
+
+# ----------------------------------------------------------------------------
+# Recursive directory helpers (pure PenguScript over the C primitives above)
+# ----------------------------------------------------------------------------
+
+rune FsCopyTask:
+    s as string
+    d as string
+
+# Recursively copies a directory tree (files are copied byte-for-byte as text;
+# symlinks inside the tree are followed and copied as files/directories).
+weave copy_tree with src as string and dst as string into bool:
+    var src_is_dir as bool is calling is_dir with src
+    if src_is_dir == false:
+        return false
+    var made_root as bool is calling create_dir with dst and true
+    if made_root == false:
+        return false
+    var stack as list of FsCopyTask is list of FsCopyTask
+    var seed as FsCopyTask is with s is src and d is dst
+    calling stack.push with seed
+    while stack.len > 0:
+        var last as FsCopyTask is stack at (stack.len - 1)
+        calling stack.pop
+        var entries as maybe list of string is calling read_dir with last.s
+        if entries.is_present:
+            var list_e as list of string is entries.value
+            var i as int is 0
+            while i < list_e.len:
+                var name as string is list_e at i
+                var sp as string is last.s + "/" + name
+                var dp as string is last.d + "/" + name
+                if calling is_dir with sp:
+                    var made_sub as bool is calling create_dir with dp and true
+                    if made_sub == false:
+                        return false
+                    var task as FsCopyTask is with s is sp and d is dp
+                    calling stack.push with task
+                else:
+                    if calling is_file with sp:
+                        var content as maybe string is calling read_file with sp
+                        if content.is_present == false:
+                            return false
+                        var wrote as bool is calling write_file with dp and content.value
+                        if wrote == false:
+                            return false
+                set i is i + 1
+    return true
+
+# Recursively lists every file below root (directories are not included).
+weave list_files_recursive with root as string into list of string:
+    var out as list of string is list of string
+    var dirs as list of string is list of string
+    calling dirs.push with root
+    while dirs.len > 0:
+        var last_d as string is dirs at (dirs.len - 1)
+        calling dirs.pop
+        var entries as maybe list of string is calling read_dir with last_d
+        if entries.is_present:
+            var list_d as list of string is entries.value
+            var i as int is 0
+            while i < list_d.len:
+                var name as string is list_d at i
+                var p as string is last_d + "/" + name
+                if calling is_dir with p:
+                    calling dirs.push with p
+                else:
+                    if calling is_file with p:
+                        calling out.push with p
+                set i is i + 1
+    return out

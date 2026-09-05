@@ -36,6 +36,7 @@ BASE_KEYWORDS = [
     ("unless", "unless ${1:condition}:\n\t${0}", "Negative conditional statement", CompletionItemKind.Snippet),
     ("while", "while ${1:condition}:\n\t${0}", "While loop", CompletionItemKind.Snippet),
     ("for", "for ${1:item} in ${2:collection}:\n\t${0}", "For-in loop", CompletionItemKind.Snippet),
+    ("when", "when ${1:condition}:\n\t${0}", "Compile-time conditional", CompletionItemKind.Snippet),
     ("judge", "judge ${1:expr}:\n\twhen ${2:pattern} -> ${3:result}\n\telse -> ${0}", "Pattern matching expression", CompletionItemKind.Snippet),
     ("defer", "defer ${1:action}", "Defer execution to scope exit", CompletionItemKind.Snippet),
     ("errdefer", "errdefer ${1:action}", "Defer execution on error return", CompletionItemKind.Snippet),
@@ -76,6 +77,90 @@ BASE_TYPES = [
 ]
 
 
+def _type_items(symbols: Optional[SymbolTable]) -> List[CompletionItem]:
+    """Builds a completion list of every type usable after 'as' / 'into'.
+
+    Includes the built-in scalar/collection types plus every project-defined
+    rune, echo, omen, alias, seal and shard-bound generic rune.
+    """
+    items: List[CompletionItem] = []
+    seen: set = set()
+    for t_name, t_doc in BASE_TYPES:
+        seen.add(t_name)
+        items.append(
+            CompletionItem(
+                label=t_name,
+                kind=CompletionItemKind.TypeParameter,
+                detail=t_doc,
+                insert_text=t_name,
+            )
+        )
+
+    def _add(name: str, kind: CompletionItemKind, detail: str) -> None:
+        if name and name not in seen:
+            seen.add(name)
+            items.append(
+                CompletionItem(label=name, kind=kind, detail=detail, insert_text=name)
+            )
+
+    if symbols is not None:
+        for r_name in getattr(symbols, "runes", {}):
+            _add(r_name, CompletionItemKind.Class, "rune")
+        for e_name in getattr(symbols, "echos", {}):
+            _add(e_name, CompletionItemKind.Enum, "echo")
+        for o_name in getattr(symbols, "omens", {}):
+            _add(o_name, CompletionItemKind.Interface, "omen")
+        for a_name in getattr(symbols, "aliases", {}):
+            _add(a_name, CompletionItemKind.TypeParameter, "alias")
+        for s_name in getattr(symbols, "seals", {}):
+            _add(s_name, CompletionItemKind.TypeParameter, "seal")
+        for g_name in getattr(symbols, "generic_runes", {}):
+            _add(g_name, CompletionItemKind.Class, "generic rune")
+    return items
+
+
+def _when_items() -> List[CompletionItem]:
+    """Compile-time variables usable as 'when' conditions."""
+    items = [
+        CompletionItem(
+            label="main",
+            kind=CompletionItemKind.Variable,
+            detail="bool · true when this module is the program entry point",
+            documentation="True for the module executed directly (pengu run <file> or -D main); "
+                          "always false for imported modules.",
+            insert_text="main",
+        ),
+        CompletionItem(
+            label="os",
+            kind=CompletionItemKind.Variable,
+            detail="str · target OS ('windows', 'linux', 'macos', ...)",
+            insert_text="os",
+        ),
+        CompletionItem(
+            label="arch",
+            kind=CompletionItemKind.Variable,
+            detail="str · target architecture ('x64', 'x86', 'arm64', ...)",
+            insert_text="arch",
+        ),
+        CompletionItem(
+            label="compiler",
+            kind=CompletionItemKind.Variable,
+            detail="str · C compiler ('gcc', 'clang', 'msvc', ...)",
+            insert_text="compiler",
+        ),
+        CompletionItem(
+            label="defined",
+            kind=CompletionItemKind.Snippet,
+            detail="bool · true when a -D NAME macro is set",
+            insert_text="defined(${1:NAME})",
+            insert_text_format=InsertTextFormat.Snippet,
+        ),
+        CompletionItem(label="true", kind=CompletionItemKind.Keyword, detail="bool literal", insert_text="true"),
+        CompletionItem(label="false", kind=CompletionItemKind.Keyword, detail="bool literal", insert_text="false"),
+    ]
+    return items
+
+
 def get_completions(
     uri: str,
     position: Position,
@@ -94,6 +179,14 @@ def get_completions(
         CompletionList for VSCode LSP.
     """
     cursor_line = position.line + 1
+
+    # 0a. Compile-time 'when' context: suggest main / os / arch / compiler / defined.
+    if re.search(r"\bwhen\s*$", line_prefix):
+        return CompletionList(is_incomplete=False, items=_when_items())
+
+    # 0b. Type annotation contexts: after 'as' or 'into' suggest every usable type.
+    if re.search(r"(?:^|\s)(?:as|into)\s+$", line_prefix):
+        return CompletionList(is_incomplete=False, items=_type_items(symbols))
 
     # 0. Dot / Arrow Completion (Fields of Rune/Echo/Omen or Module members)
     if symbols and line_prefix:

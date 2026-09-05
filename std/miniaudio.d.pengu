@@ -1,0 +1,58 @@
+## PenguScript manual declaration binding for the miniaudio audio library
+## (miniaudio.h). miniaudio: https://github.com/mackron/miniaudio
+## (public domain / MIT-0 at your choice). Vendored version 0.11.25.
+##
+## This is a declaration file (.d.pengu): it declares a small documented
+## subset of the native C surface so the LSP and the semantic checker know
+## the shape of miniaudio from PenguScript. The real C declarations live in
+## `miniaudio.h`, which is `include`d below, so nothing here emits C code.
+##
+## Bound subset (deliberately tiny - everything that is meaningful WITHOUT an
+## audio device or backend, plus the macros every program needs):
+##   - version macros ........ MA_VERSION_MAJOR / MINOR / REVISION (0/11/25)
+##   - ma_version_string() ... "0.11.25" (const char*, never NULL)
+##   - ma_version(...) ....... writes major/minor/revision into three u32
+##                             out-pointers
+##
+## INTENTIONALLY OMITTED (documented - the reason this binding is a curated
+## subset and NOT a full binding):
+##   - Every audio-backend API (ma_context*, ma_device*, ma_engine*,
+##     ma_sound*, decoding, resampling, ring buffers, PCM converters, ...).
+##     Those functions either need a real audio device/backend (unusable on a
+##     headless host and in CI) or require caller-owned byte buffers that
+##     PenguScript cannot yet express. The single-header implementation is
+##     also NOT compiled into the Pengu runtime libraries (see
+##     std_c/wrappers notes in build_runtime.py), so the declarations below
+##     are documentation/type-checking only until a project supplies its own
+##     `#define MINIAUDIO_IMPLEMENTATION` translation unit.
+##
+## Type mapping notes:
+##   - ma_uint32 out-parameters are typed `ref to u32`; pass `sigil of` a
+##     u32 variable.
+##   - ma_result codes (MA_SUCCESS = 0, MA_ERROR = -1, MA_NO_BACKEND = -203,
+##     ...) are C enum constants and are usable directly from PenguScript.
+##
+## Typical usage:
+##   import std.miniaudio
+##   var major as u32 is 0
+##   var minor as u32 is 0
+##   var rev as u32 is 0
+##   calling miniaudio.ma_version with sigil of major and sigil of minor and sigil of rev
+
+include "miniaudio.h"
+
+# ------------------------------------------------------------------
+# Constants (semantic only; the real macros live in miniaudio.h)
+# ------------------------------------------------------------------
+
+const MA_VERSION_MAJOR as i64 is 0
+const MA_VERSION_MINOR as i64 is 11
+const MA_VERSION_REVISION as i64 is 25
+
+# ------------------------------------------------------------------
+# Functions (real C symbol names used verbatim - no insignia)
+# ------------------------------------------------------------------
+
+declare ma_version with pMajor as ref to u32, pMinor as ref to u32, pRevision as ref to u32 into void
+
+declare ma_version_string into ref to char

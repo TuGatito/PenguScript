@@ -99,7 +99,7 @@ If `bundle.c` is newer than all `.pengu` source modules and the project configur
 
 ## 4. Compilación Automatizada del Runtime Estático (`build_runtime.py`)
 
-PenguScript cuenta con un script de compilación automatizado e idempotente para compilar las bibliotecas externas (`PCRE2`, `libxml2`, `zlib`, `mbedtls`, `libcurl`, `libmicrohttpd`) y el runtime de PenguScript (`pengu_runtime.c`) como bibliotecas estáticas.
+PenguScript cuenta con un script de compilación automatizado e idempotente para compilar las bibliotecas externas (`PCRE2`, `libxml2`, `zlib`, `mbedtls`, `libcurl`, `libmicrohttpd`, **SQLite3**, **Raylib**, **WebUI**, y el paquete **single-header** `imago/scriptor/typis/pactum/datastructura/perlinum/nanosvg`) y el runtime de PenguScript (`pengu_runtime.c`) como bibliotecas estáticas.
 
 ### Ejecución
 
@@ -111,6 +111,8 @@ python build_runtime.py
 python build_runtime.py --rebuild
 ```
 
+`build_runtime.py` descarga automáticamente las fuentes externas (ver `extern_manifest.py`) y produce artefactos idempotentes: si la biblioteca ya existe no se recompila salvo con `--rebuild`. WebUI se instala desde el asset estático oficial de su release (los fuentes asumen la API UNICODE de MSVC y no compilan con mingw).
+
 ### Estructura Generada
 
 ```
@@ -120,6 +122,10 @@ build/
 │   ├── zlib.h
 │   ├── zconf.h
 │   ├── microhttpd.h
+│   ├── webui.h           # WebUI
+│   ├── raylib.h          # Raylib
+│   ├── sqlite3.h         # SQLite3
+│   ├── imago.h … perlinum.h   # STB latin-renamed single headers
 │   ├── libxml/           # Headers de libxml2
 │   ├── mbedtls/          # Headers de mbedtls (MD5, SHA1, SHA256, SHA512)
 │   ├── curl/             # Headers de libcurl
@@ -131,6 +137,10 @@ build/
     ├── libmbedcrypto.a   # mbedtls 4.2.0 (hashing criptográfico para seal)
     ├── libcurl.a         # curl 8.21.0 (cliente HTTP para precis)
     ├── libmicrohttpd.a   # libmicrohttpd 1.0.1 (servidor HTTP embebido para precis)
+    ├── libsqlite3.a      # SQLite3 3.53.4 (base de datos SQL embebida)
+    ├── libraylib.a       # Raylib 6.0 (gráficos/audio, desktop OpenGL 3.3)
+    ├── libwebui.a        # WebUI 2.5.0-beta.3 (interfaces web nativas)
+    ├── libpengu_stb.a    # single-headers STB latin + nanosvg (imago, typis, ...)
     └── libpengu_runtime.a # Runtime de PenguScript
 ```
 
@@ -152,6 +162,13 @@ include_dirs = ["build/include"]
 ```
 El sistema de compilación (`pengu_project.py`) enlazará automáticamente:
 `-lpengu_runtime -lpcre2-8 -lxml2 -lcurl -lmbedcrypto -lmicrohttpd -lz`
-Junto con las bibliotecas de sistema necesarias (`-lws2_32 -lwinmm -ladvapi32 -lcrypt32 -lbcrypt` en Windows, `-pthread -lm` en Linux/Unix).
+y auto-detecta en `build/lib` los archivos estáticos adicionales (`-lsqlite3 -lraylib -lwebui -lpengu_stb`) a medida que existan. Junto con las bibliotecas de sistema necesarias (`-lws2_32 -lwinmm -ladvapi32 -lcrypt32 -lbcrypt -lopengl32 -lgdi32 -lole32 -luuid -lshell32` en Windows, `-pthread -lm` en Linux/Unix).
+
+### Bindings disponibles en `std/`
+
+`import std.sqlite3`, `import std.raylib`, `import std.webui`, `import std.imago`,
+`std.scriptor`, `std.typis`, `std.pactum`, `std.datastructura`, `std.perlinum`,
+`std.nanosvg` y `std.nanosvgrast` declaran el surface C nativo (`.d.pengu`),
+generado con `pengu bind` y verificado con `pengu check`.
 
 

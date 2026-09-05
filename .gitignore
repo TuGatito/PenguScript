@@ -78,3 +78,18 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 desktop.ini
+# Logs, temp & misc generated files
+*.log
+*.tmp
+*.csv
+*.profraw
+*.lcov
+cscope.out
+.history
+.python-version
+.cache/
+CToPenguTest/
+
+# PyInstaller release staging
+pyinstaller_work/
+scratch/

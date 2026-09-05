@@ -12,50 +12,84 @@ file: _NEWLINE* (top_stmt _NEWLINE*)*
 top_stmt: import_stmt
         | include_stmt
         | link_stmt
+        | insignia_stmt
         | const_decl
         | rune_decl
         | omen_decl
         | echo_decl
         | alias_decl
+        | concept_decl
+        | bind_decl
+        | seal_decl
         | weave_decl
         | enchanting_decl
         | declare_stmt
         | var_decl
         | let_decl
+        | when_top_decl
+        | test_decl
 
-import_stmt: "import" dotted_path _NEWLINE
+import_stmt: "import" dotted_path ["as" NAME] _NEWLINE
 dotted_path: NAME ("." NAME)*
 
 include_stmt: "include" STRING _NEWLINE
 link_stmt: "link" STRING _NEWLINE
+insignia_stmt: "insignia" NAME _NEWLINE
 
 const_decl: "const" NAME ["as" type] "is" expr _NEWLINE
 var_decl: "var" NAME ["as" type] "is" expr [_NEWLINE]
+static_var_decl: "static" "var" NAME ["as" type] "is" expr [_NEWLINE]
 let_decl: "let" var_name_list ["as" type] "is" expr [_NEWLINE]
 var_name_list: NAME ("," NAME)*
 
-shard_params: "shard" NAME (("," | "and") NAME)*
+# Compile-time conditional declarations / statements
+when_top_decl: "when" expr ":" _NEWLINE _INDENT top_stmt+ _DEDENT [when_top_else]
+when_top_else: "else" ":" _NEWLINE _INDENT top_stmt+ _DEDENT -> when_top_else_plain
+             | "else" when_top_decl                            -> when_top_else_when
+
+when_stmt: "when" expr block [when_else]
+when_else: "else" ":" _NEWLINE _INDENT stmt+ _DEDENT -> when_else_plain
+         | "else" when_stmt                          -> when_else_when
+
+# Integrated unit tests (top-level; compiled only in --test mode)
+test_decl: "test" (STRING | NAME) ":" _NEWLINE _INDENT stmt+ _DEDENT
+
+shard_params: "shard" NAME (("," | "and") NAME)* [where_clause]
+where_clause: "where" where_bound (("," | "and") where_bound)*
+where_bound: (NAME | type) ":" custom_type
 
 rune_decl: "rune" NAME [shard_params] ":" _NEWLINE _INDENT field_decl+ _DEDENT
 echo_decl: "echo" NAME [shard_params] ":" _NEWLINE _INDENT field_decl+ _DEDENT
 field_decl: NAME "as" type _NEWLINE
 
 alias_decl: "alias" NAME [shard_params] "as" type _NEWLINE
+seal_decl: "seal" NAME "as" type _NEWLINE
 
-omen_decl: "omen" NAME [shard_params] ":" _NEWLINE _INDENT omen_variant+ _DEDENT
-omen_variant: NAME ["with" omen_field (("," | "and") omen_field)*] _NEWLINE
+RITUAL.2: "ritual"
+INLINE.2: "inline"
+weave_modifier: INLINE | RITUAL
+
+concept_decl: "concept" NAME [shard_params] ":" _NEWLINE _INDENT concept_method+ _DEDENT
+concept_method: weave_modifier* "weave" weave_modifier* NAME [shard_params] ["with" param_list] ["into" type] _NEWLINE
+
+bind_decl: "bind" type "with" custom_type [shard_params] ":" _NEWLINE _INDENT weave_decl+ _DEDENT
+
+omen_decl: "omen" NAME [shard_params] ["with" omen_string_kind] ":" _NEWLINE _INDENT omen_variant+ _DEDENT
+omen_string_kind: "string"
+omen_variant: NAME ["is" expr] ["with" omen_field (("," | "and") omen_field)*] _NEWLINE
 omen_field: NAME "as" type
 
-enchanting_decl: "enchanting" type ":" _NEWLINE _INDENT weave_decl+ _DEDENT
+enchanting_decl: "enchanting" type [shard_params] ":" _NEWLINE _INDENT weave_decl+ _DEDENT
 
-weave_decl: ["inline"] "weave" NAME [shard_params] ["with" param_list] ["into" type] ":" _NEWLINE _INDENT stmt+ _DEDENT
+weave_decl: weave_modifier* "weave" weave_modifier* NAME [shard_params] ["with" param_list] ["into" type] ":" _NEWLINE _INDENT stmt+ _DEDENT
 
 param_list: param (("," | "and") param)*
 param: NAME "as" type ["is" expr]
 
-declare_stmt: "declare" NAME [shard_params] ["with" param_list] ["into" type] _NEWLINE
+declare_stmt: weave_modifier* "declare" weave_modifier* NAME [shard_params] ["with" param_list] ["into" type] _NEWLINE
 
 stmt: var_decl
+    | static_var_decl
     | let_decl
     | const_decl
     | set_stmt
@@ -64,6 +98,7 @@ stmt: var_decl
     | unless_stmt
     | while_stmt
     | for_stmt
+    | when_stmt
     | with_stmt
     | defer_stmt
     | errdefer_stmt
@@ -120,7 +155,7 @@ unless_stmt: "unless" expr block [else_block]
 while_stmt: "while" expr block
 
 for_stmt: "for" NAME "from" expr_no_cast "to" expr_no_cast ["step" expr_no_cast] block -> for_range_stmt
-        | "for" NAME "in" expr block                           -> for_in_stmt
+        | "for" NAME ("," NAME)? "in" expr block                                   -> for_in_stmt
 
 with_stmt: "with" expr ":" _NEWLINE _INDENT stmt+ _DEDENT
 
@@ -175,11 +210,14 @@ result_type: "result" "of" type ["to" type]
 
 ?try_expr: "try" try_expr    -> try_expr
          | if_expr
+         | when_expr
          | judge_expr
          | for_comp_expr
          | comparison
 
 if_expr: "if" expr "then" expr "else" expr
+
+when_expr: "when" expr "then" expr "else" expr
 
 judge_expr: "judge" expr ":" _NEWLINE _INDENT when_clause+ [else_clause] _DEDENT
 
@@ -227,6 +265,10 @@ for_comp_expr: "for" NAME "in" expr ["when" expr] "then" expr -> for_comp
       | "transmute" unary_no_cast "to" type -> transmute
       | "size" "of" type                 -> size_of
       | "banish" unary                   -> banish_expr
+      | "some" unary                     -> some_expr
+      | "ord" unary                      -> ord_expr
+      | "chr" unary                      -> chr_expr
+      | "bytes" "of" unary               -> bytes_expr
       | calling_expr
       | postfix
 
@@ -281,6 +323,7 @@ slice_range: unary_no_cast "to" unary_no_cast
         | CHAR_LIT                        -> char_lit
         | "true"                          -> true_lit
         | "false"                         -> false_lit
+        | "null"                          -> null_lit
         | "maybe" "none"                  -> maybe_none
         | "error"                         -> error_lit
         | "(" expr ")"
@@ -289,9 +332,16 @@ slice_range: unary_no_cast "to" unary_no_cast
         | map_init_expr
         | array_init_expr
         | array_lit
+        | map_lit
+        | defined_expr
+
+defined_expr: "defined" "(" NAME ")"
 
 struct_init: "with" field_init (("and" | ",") field_init)*
 field_init: NAME "is" expr
+
+map_lit: "{" [map_entry (("," | "and") map_entry)*] "}"
+map_entry: (NAME | STRING) ":" expr
 
 array_lit: "[" [expr (("," | "and") expr)*] "]"
 list_init_expr: "list" "of" type ["with" "capacity" expr]

@@ -384,5 +384,120 @@
       "${0}"
     ],
     "description": "Assert string equality using std.ward"
+  },
+  "Insignia Module Prefix": {
+    "prefix": "insignia",
+    "body": [
+      "insignia ${1:prefix_}",
+      "${0}"
+    ],
+    "description": "Set a module prefix for C code generation (insignia)"
+  },
+  "Weave Variadic Function": {
+    "prefix": "weave_many",
+    "body": [
+      "weave ${1:name} with ${2:fixed_params} and ${3:variadic} as many ${4:int} into ${5:void}:",
+      "    for ${6:item} in ${3:variadic}:",
+      "        ${0}"
+    ],
+    "description": "Declare a variadic function with 'many' parameter"
+  },
+  "Compile-time when block": {
+    "prefix": "when",
+    "body": [
+      "when ${1:os} == \"${2:windows}\":",
+      "    ${3:// active branch}",
+      "else:",
+      "    ${4:// inactive branch}",
+      "    ${0}"
+    ],
+    "description": "Compile-time conditional statement (when)"
+  },
+  "Compile-time when expression": {
+    "prefix": "when_expr",
+    "body": [
+      "when ${1:os} == \"${2:windows}\" then ${3:value_a} else ${4:value_b}",
+      "${0}"
+    ],
+    "description": "Compile-time conditional expression"
+  },
+  "Unit test (string name)": {
+    "prefix": "test",
+    "body": [
+      "test \"${1:does something}\":",
+      "    ${2:let result is calling add with 1 and 2}",
+      "    ${0}"
+    ],
+    "description": "Integrated unit test block"
+  },
+  "Unit test (identifier name)": {
+    "prefix": "test_name",
+    "body": [
+      "test ${1:my_test}:",
+      "    ${2:calling print with \"test\"}",
+      "    ${0}"
+    ],
+    "description": "Integrated unit test with identifier name"
+  },
+  "Static function variable": {
+    "prefix": "static_var",
+    "body": [
+      "static var ${1:count} as int is ${2:0}",
+      "${0}"
+    ],
+    "description": "Function-static variable (persists between calls)"
+  },
+  "Map literal": {
+    "prefix": "map_lit",
+    "body": [
+      "let ${1:m} is { ${2:\"key\"}: ${3:value} }",
+      "${0}"
+    ],
+    "description": "Map literal with string keys"
+  },
+  "Import with alias": {
+    "prefix": "import_as",
+    "body": [
+      "import ${1:std.spark} as ${2:sp}",
+      "${0}"
+    ],
+    "description": "Import a module under an alias"
+  },
+  "Indexed for loop": {
+    "prefix": "for_i",
+    "body": [
+      "for ${1:i}, ${2:item} in ${3:collection}:",
+      "    ${0}"
+    ],
+    "description": "Iterate a collection with an index"
+  },
+  "String-valued omen": {
+    "prefix": "omen_string",
+    "body": [
+      "omen ${1:Color} with string:",
+      "    ${2:Red}",
+      "    ${3:Green}",
+      "    ${0}"
+    ],
+    "description": "Omen whose variants map to string constants"
+  },
+  "Bytes Of String": {
+    "prefix": [
+      "bytes of",
+      "bytes"
+    ],
+    "body": [
+      "bytes of ${1:my_string}"
+    ],
+    "description": "Borrow a string's characters as a read-only byte pointer (ref to byte) for native C APIs"
+  },
+  "Some Maybe Wrap": {
+    "prefix": [
+      "some"
+    ],
+    "body": [
+      "some ${1:value}"
+    ],
+    "description": "Wrap a value into a present maybe"
   }
 }

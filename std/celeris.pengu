@@ -1,0 +1,60 @@
+# std/celeris.pengu - Celeris (Swift Hash)
+# High-level wrapper over the xxHash binding (std/xxhash) for fast,
+# non-cryptographic hashing: XXH32/XXH64/XXH3-64/XXH3-128 one-shots.
+#
+# KNOWN LIMITATION (important - read before using):
+#   PenguScript cannot pass a runtime `string` VALUE where the C library
+#   expects a byte pointer: the code generator emits the PenguString struct
+#   itself, not its buffer. Only string *literals* become plain C literals
+#   (so a literal is a valid `ref to char` argument). Therefore every hash
+#   here takes the data as `ref to char` plus an explicit `length` in bytes.
+#   Example:
+#       var h as u64 is calling celeris.hash64 with "PenguScript" and 11
+#   When PenguScript gains a way to expose a string's data pointer (or fixed
+#   byte buffers), these functions will accept runtime strings unchanged.
+#
+# Seed variants: each family has a plain function (seed 0) and a *_seeded
+# function. The XXH3_128 family returns the XXH128_hash_t rune
+# (low64/high64) declared in std/xxhash.
+
+import std.xxhash
+
+# ---------------------------------------------------------------------------
+# XXH32 - 32-bit
+# ---------------------------------------------------------------------------
+
+weave hash32 with data as ref to char and length as size_t into u32:
+    return calling xxhash.XXH32 with data and length and 0
+
+weave hash32_seeded with data as ref to char and length as size_t and seed as u32 into u32:
+    return calling xxhash.XXH32 with data and length and seed
+
+# ---------------------------------------------------------------------------
+# XXH64 - 64-bit
+# ---------------------------------------------------------------------------
+
+weave hash64 with data as ref to char and length as size_t into u64:
+    return calling xxhash.XXH64 with data and length and 0
+
+weave hash64_seeded with data as ref to char and length as size_t and seed as u64 into u64:
+    return calling xxhash.XXH64 with data and length and seed
+
+# ---------------------------------------------------------------------------
+# XXH3 - 64-bit (fastest on modern CPUs)
+# ---------------------------------------------------------------------------
+
+weave hash3_64 with data as ref to char and length as size_t into u64:
+    return calling xxhash.XXH3_64bits with data and length
+
+weave hash3_64_seeded with data as ref to char and length as size_t and seed as u64 into u64:
+    return calling xxhash.XXH3_64bits_withSeed with data and length and seed
+
+# ---------------------------------------------------------------------------
+# XXH3 - 128-bit (result: XXH128_hash_t with low64/high64 fields)
+# ---------------------------------------------------------------------------
+
+weave hash3_128 with data as ref to char and length as size_t into XXH128_hash_t:
+    return calling xxhash.XXH3_128bits with data and length
+
+weave hash3_128_seeded with data as ref to char and length as size_t and seed as u64 into XXH128_hash_t:
+    return calling xxhash.XXH3_128bits_withSeed with data and length and seed

@@ -1,30 +1,562 @@
 # std/compass.pengu - The Compass (Path Manipulation)
-# Provides comprehensive file system path manipulation.
+# File-path manipulation implemented in pure PenguScript.
+#
+# High-level path logic (separator detection, basename/dirname, extension
+# handling, normalization, joining, relative paths) lives here in PenguScript.
+# The former C implementations (pengu_c_path_*) were removed from the runtime
+# header; nothing below calls the C runtime for path work.
+#
+# Internal helpers use the 'cp_' prefix so they never collide with the
+# enchanting Path methods or module-level member names in the code generator's
+# function registry.
 
-import std.spark
-import std.oracle
-import std.scrolls
-import std.rites
+# ----------------------------------------------------------------------------
+# Internal helpers (cp_*)
+# ----------------------------------------------------------------------------
 
-declare pengu_c_path_join with parts as list of string into string
-declare pengu_c_path_basename with path as string into string
-declare pengu_c_path_dirname with path as string into string
-declare pengu_c_path_ext with path as string into string
-declare pengu_c_path_stem with path as string into string
-declare pengu_c_path_is_absolute with path as string into bool
-declare pengu_c_path_normalize with path as string into string
-declare pengu_c_path_parent with path as string into maybe string
-declare pengu_c_path_split with path as string into list of string
-declare pengu_c_path_has_ext with path as string into bool
-declare pengu_c_path_separator into string
-declare pengu_c_path_alt_separator into maybe string
-declare pengu_c_path_is_root with path as string into bool
-declare pengu_c_path_drive with path as string into string
-declare pengu_c_path_change_ext with path as string and new_ext as string into string
-declare pengu_c_path_add_ext with path as string and ext as string into string
-declare pengu_c_path_relative_to with target as string and base as string into maybe string
-declare pengu_c_path_has_suffix with path as string and suffix as string into bool
-declare pengu_c_path_suffixes with path as string into list of string
+# Compile-time platform flag: baked from the target 'os' variable.
+weave cp_win into bool:
+    when os == "windows":
+        return true
+    else:
+        return false
+
+weave cp_is_sep with c as string into bool:
+    if c == "/":
+        return true
+    if c == "\\":
+        return true
+    return false
+
+weave cp_is_letter with c as string into bool:
+    var code as int is ord c
+    if code >= 65:
+        if code <= 90:
+            return true
+    if code >= 97:
+        if code <= 122:
+            return true
+    return false
+
+weave cp_sep into string:
+    if calling cp_win:
+        return "\\"
+    return "/"
+
+weave cp_is_abs with path as string into bool:
+    var pl as int is path length
+    if pl == 0:
+        return false
+    if calling cp_win:
+        if pl >= 2:
+            var d0 as string is path at 0
+            var d1 as string is path at 1
+            if calling cp_is_letter with d0:
+                if d1 == ":":
+                    return true
+        var c0 as string is path at 0
+        if calling cp_is_sep with c0:
+            return true
+        return false
+    var c0p as string is path at 0
+    if c0p == "/":
+        return true
+    return false
+
+weave cp_is_root with path as string into bool:
+    var pl as int is path length
+    if pl == 0:
+        return false
+    if pl == 1:
+        var c0 as string is path at 0
+        if calling cp_is_sep with c0:
+            return true
+    if calling cp_win:
+        if pl == 2:
+            var d0 as string is path at 0
+            var d1 as string is path at 1
+            if calling cp_is_letter with d0:
+                if d1 == ":":
+                    return true
+        if pl == 3:
+            var e0 as string is path at 0
+            var e1 as string is path at 1
+            var e2 as string is path at 2
+            if calling cp_is_letter with e0:
+                if e1 == ":":
+                    if calling cp_is_sep with e2:
+                        return true
+    return false
+
+weave cp_drive with path as string into string:
+    var pl as int is path length
+    if calling cp_win:
+        if pl >= 2:
+            var d0 as string is path at 0
+            var d1 as string is path at 1
+            if calling cp_is_letter with d0:
+                if d1 == ":":
+                    return d0 + ":"
+    return ""
+
+weave cp_basename with path as string into string:
+    var pl as int is path length
+    if pl == 0:
+        return ""
+    var e as int is pl - 1
+    while e > 0:
+        var ec as string is path at e
+        if calling cp_is_sep with ec:
+            set e is e - 1
+        else:
+            break
+    if e == 0:
+        var c0 as string is path at 0
+        if calling cp_is_sep with c0:
+            return ""
+    var s as int is e
+    while true:
+        if s < 0:
+            break
+        var sc as string is path at s
+        if calling cp_is_sep with sc:
+            break
+        if calling cp_win:
+            if s == 1:
+                var w1 as string is path at 1
+                var w0 as string is path at 0
+                if w1 == ":":
+                    if calling cp_is_letter with w0:
+                        break
+        set s is s - 1
+    set s is s + 1
+    var bl as int is e - s + 1
+    if bl <= 0:
+        return ""
+    return path at s to (e + 1)
+
+weave cp_dirname with path as string into string:
+    var pl as int is path length
+    if pl == 0:
+        return ""
+    var e as int is pl - 1
+    while e > 0:
+        var ec as string is path at e
+        if calling cp_is_sep with ec:
+            set e is e - 1
+        else:
+            break
+    var skip as bool is true
+    while skip:
+        if e < 0:
+            set skip is false
+        else:
+            var ec2 as string is path at e
+            if calling cp_is_sep with ec2:
+                set skip is false
+            else:
+                if calling cp_win:
+                    if e == 1:
+                        var w1 as string is path at 1
+                        var w0 as string is path at 0
+                        if w1 == ":":
+                            if calling cp_is_letter with w0:
+                                set skip is false
+                if skip:
+                    set e is e - 1
+    if e < 0:
+        return ""
+    var skip2 as bool is true
+    while skip2:
+        if e <= 0:
+            set skip2 is false
+        else:
+            var ec3 as string is path at e
+            if calling cp_is_sep with ec3:
+                if calling cp_win:
+                    if e == 2:
+                        var w1b as string is path at 1
+                        var w0b as string is path at 0
+                        if w1b == ":":
+                            if calling cp_is_letter with w0b:
+                                set skip2 is false
+                if skip2:
+                    set e is e - 1
+            else:
+                set skip2 is false
+    return path at 0 to (e + 1)
+
+weave cp_ext with path as string into string:
+    var base as string is calling cp_basename with path
+    var bl as int is base length
+    if bl == 0:
+        return ""
+    var last_dot as int is -1
+    var i as int is bl - 1
+    while i >= 0:
+        var ic as string is base at i
+        if ic == ".":
+            set last_dot is i
+            break
+        set i is i - 1
+    if last_dot <= 0:
+        return ""
+    return base at last_dot to bl
+
+weave cp_stem with path as string into string:
+    var base as string is calling cp_basename with path
+    var bl as int is base length
+    if bl == 0:
+        return ""
+    var last_dot as int is -1
+    var i as int is bl - 1
+    while i >= 0:
+        var ic as string is base at i
+        if ic == ".":
+            set last_dot is i
+            break
+        set i is i - 1
+    if last_dot <= 0:
+        return base
+    return base at 0 to last_dot
+
+weave cp_has_ext with path as string into bool:
+    var ex as string is calling cp_ext with path
+    var el as int is ex length
+    if el > 0:
+        return true
+    return false
+
+weave cp_has_suffix with path as string and suffix as string into bool:
+    var sl as int is path length
+    var xl as int is suffix length
+    if xl > sl:
+        return false
+    var st as int is sl - xl
+    var tail as string is path at st to sl
+    if tail == suffix:
+        return true
+    return false
+
+weave cp_suffixes with path as string into list of string:
+    var out as list of string is list of string
+    var base as string is calling cp_basename with path
+    var bl as int is base length
+    if bl == 0:
+        return out
+    var i as int is 1
+    while i < bl:
+        var ic as string is base at i
+        if ic == ".":
+            var j as int is i + 1
+            var nd as int is bl
+            var look as bool is true
+            while look:
+                if j >= bl:
+                    set look is false
+                else:
+                    var jc as string is base at j
+                    if jc == ".":
+                        set nd is j
+                        set look is false
+                    else:
+                        set j is j + 1
+            var slen as int is nd - (i + 1)
+            if slen >= 0:
+                var piece as string is base at (i + 1) to nd
+                calling out.push with piece
+        set i is i + 1
+    return out
+
+weave cp_normalize with path as string into string:
+    var pl as int is path length
+    if pl == 0:
+        return "."
+    var sep as string is calling cp_sep
+    var drv as string is ""
+    var p_idx as int is 0
+    if calling cp_win:
+        if pl >= 2:
+            var d0 as string is path at 0
+            var d1 as string is path at 1
+            if calling cp_is_letter with d0:
+                if d1 == ":":
+                    set drv is d0 + ":"
+                    set p_idx is 2
+    var is_abs as bool is false
+    if p_idx < pl:
+        var pc as string is path at p_idx
+        if calling cp_is_sep with pc:
+            set is_abs is true
+            set p_idx is p_idx + 1
+    var stack as list of string is list of string
+    var cur_start as int is p_idx
+    var i as int is p_idx
+    while i <= pl:
+        var at_end as bool is false
+        if i == pl:
+            set at_end is true
+        else:
+            var ic as string is path at i
+            if calling cp_is_sep with ic:
+                set at_end is true
+        if at_end:
+            var seg_len as int is i - cur_start
+            if seg_len > 0:
+                var seg as string is path at cur_start to i
+                if seg == ".":
+                    set i is i
+                else:
+                    if seg == "..":
+                        var stl as int is stack.len
+                        if stl > 0:
+                            var last_seg as string is stack at (stl - 1)
+                            if last_seg == "..":
+                                if is_abs == false:
+                                    calling stack.push with seg
+                            else:
+                                var popped as string is calling stack.pop
+                        else:
+                            if is_abs == false:
+                                calling stack.push with seg
+                    else:
+                        calling stack.push with seg
+            set cur_start is i + 1
+        set i is i + 1
+    var out as string is ""
+    if drv length > 0:
+        set out is drv
+    if is_abs:
+        set out is out + sep
+    var k as int is 0
+    while k < stack.len:
+        if k > 0:
+            set out is out + sep
+        else:
+            if is_abs == false:
+                if out length > 0:
+                    set out is out + sep
+        var item as string is stack at k
+        set out is out + item
+        set k is k + 1
+    if out length == 0:
+        set out is "."
+    return out
+
+weave cp_parent with path as string into maybe string:
+    if calling cp_is_root with path:
+        return maybe none
+    var dir as string is calling cp_dirname with path
+    if dir length == 0:
+        return maybe none
+    return some dir
+
+weave cp_split with path as string into list of string:
+    var out as list of string is list of string
+    var pl as int is path length
+    if pl == 0:
+        return out
+    var p_idx as int is 0
+    if calling cp_win:
+        if pl >= 2:
+            var d0 as string is path at 0
+            var d1 as string is path at 1
+            if calling cp_is_letter with d0:
+                if d1 == ":":
+                    calling out.push with (d0 + ":")
+                    set p_idx is 2
+    if p_idx < pl:
+        var pc as string is path at p_idx
+        if calling cp_is_sep with pc:
+            calling out.push with "/"
+            set p_idx is p_idx + 1
+    var cur_start as int is p_idx
+    var i as int is p_idx
+    while i <= pl:
+        var at_end as bool is false
+        if i == pl:
+            set at_end is true
+        else:
+            var ic as string is path at i
+            if calling cp_is_sep with ic:
+                set at_end is true
+        if at_end:
+            var seg_len as int is i - cur_start
+            if seg_len > 0:
+                var seg as string is path at cur_start to i
+                calling out.push with seg
+            set cur_start is i + 1
+        set i is i + 1
+    return out
+
+weave cp_join with parts as list of string into string:
+    if parts.len == 0:
+        return ""
+    var sep as string is calling cp_sep
+    var buf as string is ""
+    var i as int is 0
+    while i < parts.len:
+        var p as string is parts at i
+        if p length > 0:
+            if calling cp_is_abs with p:
+                set buf is p
+            else:
+                if buf length > 0:
+                    var last_c as string is buf at (buf length - 1)
+                    if not (calling cp_is_sep with last_c):
+                        set buf is buf + sep
+                set buf is buf + p
+        set i is i + 1
+    return calling cp_normalize with buf
+
+weave cp_change_ext with path as string and new_ext as string into string:
+    var dir as string is calling cp_dirname with path
+    var st as string is calling cp_stem with path
+    var buf as string is ""
+    if dir length > 0:
+        var sd as string is calling cp_sep
+        set buf is dir + sd + st
+    else:
+        set buf is st
+    if new_ext length > 0:
+        var n0 as string is new_ext at 0
+        if n0 == ".":
+            set buf is buf + new_ext
+        else:
+            set buf is buf + "." + new_ext
+    return buf
+
+weave cp_add_ext with path as string and ext as string into string:
+    if calling cp_has_ext with path:
+        return path
+    if ext length == 0:
+        return path
+    var e0 as string is ext at 0
+    if e0 == ".":
+        return path + ext
+    return path + "." + ext
+
+weave cp_relative_to with target as string and base as string into maybe string:
+    var nt as string is calling cp_normalize with target
+    var nb as string is calling cp_normalize with base
+    var tp as list of string is calling cp_split with nt
+    var bp as list of string is calling cp_split with nb
+    if tp.len == 0:
+        return maybe none
+    if bp.len == 0:
+        return maybe none
+    var common as int is 0
+    var cm as bool is true
+    while cm:
+        if common >= tp.len:
+            set cm is false
+        else:
+            if common >= bp.len:
+                set cm is false
+            else:
+                var p1 as string is tp at common
+                var p2 as string is bp at common
+                if p1 == p2:
+                    set common is common + 1
+                else:
+                    set cm is false
+    if common == 0:
+        if calling cp_is_abs with nt:
+            return maybe none
+    var res as list of string is list of string
+    var i as int is common
+    while i < bp.len:
+        calling res.push with ".."
+        set i is i + 1
+    var j as int is common
+    while j < tp.len:
+        var tj as string is tp at j
+        calling res.push with tj
+        set j is j + 1
+    var joined as string is calling cp_join with res
+    return some joined
+
+# ----------------------------------------------------------------------------
+# Module-level members
+# ----------------------------------------------------------------------------
+
+weave join with parts as list of string into string:
+    return calling cp_join with parts
+
+weave join_all with parts as list of string into string:
+    return calling cp_join with parts
+
+weave basename with path as string into string:
+    return calling cp_basename with path
+
+weave dirname with path as string into string:
+    return calling cp_dirname with path
+
+weave ext with path as string into string:
+    return calling cp_ext with path
+
+weave stem with path as string into string:
+    return calling cp_stem with path
+
+weave is_absolute with path as string into bool:
+    return calling cp_is_abs with path
+
+weave is_relative with path as string into bool:
+    var abs as bool is calling cp_is_abs with path
+    return not abs
+
+weave normalize with path as string into string:
+    return calling cp_normalize with path
+
+weave parent with path as string into maybe string:
+    return calling cp_parent with path
+
+weave split with path as string into list of string:
+    return calling cp_split with path
+
+weave has_ext with path as string into bool:
+    return calling cp_has_ext with path
+
+weave separator into string:
+    return calling cp_sep
+
+weave alt_separator into maybe string:
+    if calling cp_win:
+        return some "/"
+    return maybe none
+
+weave is_root with path as string into bool:
+    return calling cp_is_root with path
+
+weave drive with path as string into string:
+    return calling cp_drive with path
+
+weave change_ext with path as string and new_ext as string into string:
+    return calling cp_change_ext with path and new_ext
+
+weave add_ext with path as string and ext as string into string:
+    return calling cp_add_ext with path and ext
+
+weave relative_to with target as string and base as string into maybe string:
+    return calling cp_relative_to with target and base
+
+weave has_suffix with path as string and suffix as string into bool:
+    return calling cp_has_suffix with path and suffix
+
+weave suffixes with path as string into list of string:
+    return calling cp_suffixes with path
+
+weave is_windows into bool:
+    return calling cp_win
+
+weave is_unix into bool:
+    if calling cp_win:
+        return false
+    return true
+
+# ----------------------------------------------------------------------------
+# Path value type
+# ----------------------------------------------------------------------------
 
 rune Path:
     raw as string
@@ -34,149 +566,77 @@ enchanting Path:
         return self->raw
 
     weave name into string:
-        return calling pengu_c_path_basename with self->raw
+        return calling cp_basename with self->raw
 
     weave parent into maybe string:
-        return calling pengu_c_path_parent with self->raw
+        return calling cp_parent with self->raw
 
     weave stem into string:
-        return calling pengu_c_path_stem with self->raw
+        return calling cp_stem with self->raw
 
     weave suffix into string:
-        return calling pengu_c_path_ext with self->raw
+        return calling cp_ext with self->raw
 
     weave suffixes into list of string:
-        return calling pengu_c_path_suffixes with self->raw
+        return calling cp_suffixes with self->raw
 
     weave drive into string:
-        return calling pengu_c_path_drive with self->raw
+        return calling cp_drive with self->raw
 
     weave parts into list of string:
-        return calling pengu_c_path_split with self->raw
+        return calling cp_split with self->raw
 
     weave is_absolute into bool:
-        return calling pengu_c_path_is_absolute with self->raw
+        return calling cp_is_abs with self->raw
 
     weave is_relative into bool:
-        var abs as bool is calling pengu_c_path_is_absolute with self->raw
+        var abs as bool is calling cp_is_abs with self->raw
         return not abs
 
     weave is_root into bool:
-        return calling pengu_c_path_is_root with self->raw
+        return calling cp_is_root with self->raw
 
     weave has_suffix into bool:
-        return calling pengu_c_path_has_ext with self->raw
+        return calling cp_has_ext with self->raw
 
     weave has_suffix_with with suffix as string into bool:
-        return calling pengu_c_path_has_suffix with self->raw and suffix
+        return calling cp_has_suffix with self->raw and suffix
 
     weave is_empty into bool:
         return self->raw == ""
 
     weave normalize into Path:
-        var res as string is calling pengu_c_path_normalize with self->raw
+        var res as string is calling cp_normalize with self->raw
         return with raw is res
 
     weave relative_to with base as string into maybe string:
-        return calling pengu_c_path_relative_to with self->raw and base
+        return calling cp_relative_to with self->raw and base
 
     weave with_suffix with new_ext as string into Path:
-        var res as string is calling pengu_c_path_change_ext with self->raw and new_ext
+        var res as string is calling cp_change_ext with self->raw and new_ext
         return with raw is res
 
     weave with_name with new_name as string into Path:
-        var parent_str as string is calling pengu_c_path_dirname with self->raw
+        var parent_str as string is calling cp_dirname with self->raw
         if parent_str == "":
             return with raw is new_name
         var parts as list of string is list of string
         calling parts.push with parent_str
         calling parts.push with new_name
-        var res as string is calling pengu_c_path_join with parts
+        var res as string is calling cp_join with parts
         return with raw is res
 
     weave add_suffix with ext as string into Path:
-        var res as string is calling pengu_c_path_add_ext with self->raw and ext
+        var res as string is calling cp_add_ext with self->raw and ext
         return with raw is res
 
     weave without_suffix into Path:
-        var res as string is calling pengu_c_path_change_ext with self->raw and ""
+        var res as string is calling cp_change_ext with self->raw and ""
         return with raw is res
-
-weave join with parts as list of string into string:
-    return calling pengu_c_path_join with parts
-
-weave join_all with parts as list of string into string:
-    return calling pengu_c_path_join with parts
-
-weave basename with path as string into string:
-    return calling pengu_c_path_basename with path
-
-weave dirname with path as string into string:
-    return calling pengu_c_path_dirname with path
-
-weave ext with path as string into string:
-    return calling pengu_c_path_ext with path
-
-weave stem with path as string into string:
-    return calling pengu_c_path_stem with path
-
-weave is_absolute with path as string into bool:
-    return calling pengu_c_path_is_absolute with path
-
-weave is_relative with path as string into bool:
-    var abs as bool is calling pengu_c_path_is_absolute with path
-    return not abs
-
-weave normalize with path as string into string:
-    return calling pengu_c_path_normalize with path
-
-weave parent with path as string into maybe string:
-    return calling pengu_c_path_parent with path
-
-weave split with path as string into list of string:
-    return calling pengu_c_path_split with path
-
-weave has_ext with path as string into bool:
-    return calling pengu_c_path_has_ext with path
-
-weave separator into string:
-    return calling pengu_c_path_separator
-
-weave alt_separator into maybe string:
-    return calling pengu_c_path_alt_separator
-
-weave is_root with path as string into bool:
-    return calling pengu_c_path_is_root with path
-
-weave drive with path as string into string:
-    return calling pengu_c_path_drive with path
-
-weave change_ext with path as string and new_ext as string into string:
-    return calling pengu_c_path_change_ext with path and new_ext
-
-weave add_ext with path as string and ext as string into string:
-    return calling pengu_c_path_add_ext with path and ext
-
-weave relative_to with target as string and base as string into maybe string:
-    return calling pengu_c_path_relative_to with target and base
-
-weave has_suffix with path as string and suffix as string into bool:
-    return calling pengu_c_path_has_suffix with path and suffix
-
-weave suffixes with path as string into list of string:
-    return calling pengu_c_path_suffixes with path
 
 weave path with raw as string into Path:
     return with raw is raw
 
 weave path_join with parts as list of string into Path:
-    var joined as string is calling pengu_c_path_join with parts
+    var joined as string is calling cp_join with parts
     return with raw is joined
-
-weave is_windows into bool:
-    var sep as string is calling pengu_c_path_separator
-    return sep == "\\"
-
-weave is_unix into bool:
-    var sep as string is calling pengu_c_path_separator
-    return sep == "/"

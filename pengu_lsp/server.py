@@ -1,8 +1,10 @@
 """PenguScript Language Server Implementation using pygls."""
 
 import asyncio
+import hashlib
 import os
 import sys
+import threading
 import urllib.parse
 import urllib.request
 from typing import Dict, List, Optional, Tuple
@@ -65,6 +67,8 @@ from lsprotocol.types import (
     Position,
     Range,
     Location,
+    TEXT_DOCUMENT_CODE_ACTION,
+    CodeActionParams,
 )
 
 from pengu_parser.pengu_parser import PenguParser
@@ -75,6 +79,7 @@ from pengu_parser.pengu_types import FnType
 
 from .completions import get_completions
 from .hover import get_hover, get_word_at_position
+from .code_actions import add_missing_import_action, remove_unused_variable_action
 
 
 def uri_to_path(uri: str) -> str:
@@ -162,6 +167,12 @@ def diagnostics_from_errors(errors: List[PenguError], code: str) -> List[Diagnos
     return diags
 
 
+# Milliseconds of quiet typing to wait before revalidating a document after a
+# didChange notification. Batching keystrokes this way cuts full parse+check
+# runs from once-per-keystroke to once per pause in typing.
+VALIDATION_DEBOUNCE_S = 0.35
+
+
 class PenguLanguageServer(LanguageServer):
     """Custom language server subclass storing parsed symbols and document buffers."""
 
@@ -169,6 +180,24 @@ class PenguLanguageServer(LanguageServer):
         super().__init__(*args, **kwargs)
         self._symbols: Dict[str, SymbolTable] = {}
         self._docs: Dict[str, str] = {}
+        # Per-URI debounced validation tasks (didChange batching).
+        self._validate_tasks: Dict[str, "asyncio.Task[None]"] = {}
+        # uri -> (source content hash, last published diagnostics). Revalidating
+        # a document whose content did not change is skipped.
+        self._validation_cache: Dict[str, Tuple[str, List[Diagnostic]]] = {}
+        # Guards _symbols / _docs / _validation_cache against worker threads.
+        self._validation_lock = threading.Lock()
+
+    def cancel_pending_validation(self, uri: str) -> None:
+        """Cancels any scheduled (debounced) validation pending for a URI."""
+        task = self._validate_tasks.pop(uri, None)
+        if task is not None:
+            task.cancel()
+
+    @staticmethod
+    def _source_hash(source: str) -> str:
+        """Stable content hash used to skip redundant validations."""
+        return hashlib.sha1(source.encode("utf-8", "replace")).hexdigest()
 
     def get_document_source(self, uri: str) -> str:
         """Retrieves text document source code from pygls workspace, test cache, or filesystem fallback."""
@@ -217,15 +246,21 @@ def _get_version() -> str:
 server = PenguLanguageServer("pengus-lsp", f"v{_get_version()}")
 
 
-def validate_document(uri: str, source: str) -> None:
-    """Parses and type-checks a document, publishing diagnostics and updating symbol table.
+def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
+    """Runs parse + semantic check for one document (pure computation).
+
+    Refreshes the cached document buffer and symbol table for ``uri`` and
+    returns the diagnostics to publish. This function is called from worker
+    threads by the debounced path, so shared maps are mutated under
+    ``server._validation_lock``.
 
     Args:
         uri: Document URI.
         source: Text content of the document.
+
+    Returns:
+        List of LSP Diagnostic items (empty when the document is clean).
     """
-    import sys
-    print(f"[LSP] validate_document called for {uri} ({len(source)} chars)", file=sys.stderr)
     server._docs[uri] = source
     file_path = uri_to_path(uri)
     base_dir = os.path.dirname(file_path) if os.path.exists(file_path) else os.getcwd()
@@ -236,22 +271,21 @@ def validate_document(uri: str, source: str) -> None:
     try:
         tree = parser.parse(source)
         checker.check(tree, source=source, filename=file_path)
-        # If check succeeds without exception: clear diagnostics
-        print(f"[LSP] Validation clean (0 errors) for {uri}", file=sys.stderr)
-        server.publish_diagnostics(uri, [])
-        server._symbols[uri] = checker.symbols
+        # If check succeeds without exception: the document is clean.
+        with server._validation_lock:
+            server._symbols[uri] = checker.symbols
+        return []
 
     except PenguError as e:
         all_errs = e.all_errors if hasattr(e, "all_errors") and e.all_errors else [e]
-        print(f"[LSP] Validation found {len(all_errs)} semantic error(s) for {uri}", file=sys.stderr)
         diags = diagnostics_from_errors(all_errs, source)
-        server.publish_diagnostics(uri, diags)
-        if hasattr(checker, "symbols"):
-            server._symbols[uri] = checker.symbols
+        with server._validation_lock:
+            if hasattr(checker, "symbols"):
+                server._symbols[uri] = checker.symbols
+        return diags
 
     except Exception as e:
-        # Fallback for syntax/parser exceptions (e.g. Lark UnexpectedToken, UnexpectedCharacters)
-        print(f"[LSP] Validation caught syntax/parser error for {uri}: {e}", file=sys.stderr)
+        # Fallback for syntax/parser exceptions (Lark UnexpectedToken, ...).
         err_line = getattr(e, "line", 1) or 1
         err_col = getattr(e, "column", 1) or 1
         start_l = max(0, err_line - 1)
@@ -262,43 +296,166 @@ def validate_document(uri: str, source: str) -> None:
             severity=DiagnosticSeverity.Error,
             source="pengus"
         )
-        server.publish_diagnostics(uri, [diag])
+        return [diag]
+
+
+def _cached_diagnostics(uri: str, source: str) -> Optional[List[Diagnostic]]:
+    """Returns previously computed diagnostics when the content is unchanged."""
+    key = server._source_hash(source)
+    with server._validation_lock:
+        hit = server._validation_cache.get(uri)
+    if hit is not None and hit[0] == key:
+        return hit[1]
+    return None
+
+
+def validate_document(uri: str, source: str) -> None:
+    """Parses and type-checks a document, publishing diagnostics immediately.
+
+    Used by programmatic callers (tests, save/open handlers). When the content
+    hash is unchanged since the last validation the cached diagnostics are
+    re-published and the expensive parse+check pass is skipped.
+
+    Args:
+        uri: Document URI.
+        source: Text content of the document.
+    """
+    server._docs[uri] = source
+    cached = _cached_diagnostics(uri, source)
+    if cached is not None:
+        server.publish_diagnostics(uri, cached)
+        return
+    diags = _compute_diagnostics(uri, source)
+    with server._validation_lock:
+        server._validation_cache[uri] = (server._source_hash(source), diags)
+    server.publish_diagnostics(uri, diags)
+
+
+async def _schedule_validation(uri: str, source: str, delay: float = 0.0) -> None:
+    """Validates one document, optionally debounced.
+
+    Any previously scheduled validation for ``uri`` is cancelled first, so a
+    burst of didChange notifications collapses into a single run after the
+    latest edit.
+
+    * ``delay == 0`` (didOpen / didSave / flush): validates inline so the
+      handler only returns once diagnostics are published — subsequent client
+      requests always see fresh symbols.
+    * ``delay > 0`` (didChange): the expensive parse+check pass runs in a
+      worker thread so the asyncio event loop stays responsive for hover /
+      completion requests; diagnostics are published on the loop thread.
+
+    Args:
+        uri: Document URI.
+        source: Current text content.
+        delay: Seconds to wait for typing to settle.
+    """
+    server.cancel_pending_validation(uri)
+
+    if delay <= 0:
+        cached = _cached_diagnostics(uri, source)
+        if cached is not None:
+            server.publish_diagnostics(uri, cached)
+            return
+        diags = _compute_diagnostics(uri, source)
+        with server._validation_lock:
+            server._validation_cache[uri] = (server._source_hash(source), diags)
+        server.publish_diagnostics(uri, diags)
+        return
+
+    async def _job() -> None:
+        if delay > 0:
+            await asyncio.sleep(delay)
+        cached = _cached_diagnostics(uri, source)
+        if cached is not None:
+            server.publish_diagnostics(uri, cached)
+            return
+        loop = asyncio.get_running_loop()
+        diags = await loop.run_in_executor(None, _compute_diagnostics, uri, source)
+        with server._validation_lock:
+            server._validation_cache[uri] = (server._source_hash(source), diags)
+        server.publish_diagnostics(uri, diags)
+
+    task = asyncio.ensure_future(_job())
+    server._validate_tasks[uri] = task
+
+    def _finished(t: "asyncio.Task[None]") -> None:
+        if server._validate_tasks.get(uri) is t:
+            server._validate_tasks.pop(uri, None)
+
+    task.add_done_callback(_finished)
 
 
 
 @server.feature(TEXT_DOCUMENT_DID_OPEN)
-def did_open(params: DidOpenTextDocumentParams):
-    """Handles textDocument/didOpen notifications."""
+async def _wire_did_open(params: DidOpenTextDocumentParams):
+    """textDocument/didOpen: validate the freshly opened document right away."""
     uri = params.text_document.uri
     source = server.get_document_source(uri) or params.text_document.text
-    validate_document(uri, source)
+    if source:
+        server._docs[uri] = source
+        await _schedule_validation(uri, source, 0.0)
 
 
 @server.feature(TEXT_DOCUMENT_DID_CHANGE)
-def did_change(params: DidChangeTextDocumentParams):
-    """Handles textDocument/didChange notifications."""
+async def _wire_did_change(params: DidChangeTextDocumentParams):
+    """textDocument/didChange: debounce validation until typing settles."""
     uri = params.text_document.uri
-    
-    # 1. Usar el helper robusto en lugar de get_text_document directamente
     source = server.get_document_source(uri)
 
-    # 2. Mantener tu lógica de Full Sync por si acaso
+    # Full-sync mode: a change without a range carries the whole document text.
     if params.content_changes:
         first_change = params.content_changes[0]
-        if not getattr(first_change, 'range', None):
+        if not getattr(first_change, "range", None):
             source = first_change.text
 
+    if source:
+        server._docs[uri] = source
+        await _schedule_validation(uri, source, VALIDATION_DEBOUNCE_S)
+
+
+@server.feature(TEXT_DOCUMENT_DID_SAVE)
+async def _wire_did_save(params: DidSaveTextDocumentParams):
+    """textDocument/didSave: cancel pending debounce and validate immediately."""
+    uri = params.text_document.uri
+    source = server.get_document_source(uri)
+    if getattr(params, "text", None) is not None:
+        source = params.text
+    if source:
+        server._docs[uri] = source
+        await _schedule_validation(uri, source, 0.0)
+
+
+def did_open(params: DidOpenTextDocumentParams):
+    """Programmatic didOpen: immediate validation (used by tests/embedders)."""
+    uri = params.text_document.uri
+    source = server.get_document_source(uri) or params.text_document.text
     if source:
         server._docs[uri] = source
         validate_document(uri, source)
 
 
-@server.feature(TEXT_DOCUMENT_DID_SAVE)
-def did_save(params: DidSaveTextDocumentParams):
-    """Handles textDocument/didSave notifications."""
+def did_change(params: DidChangeTextDocumentParams):
+    """Programmatic didChange: immediate validation (used by tests/embedders)."""
     uri = params.text_document.uri
     source = server.get_document_source(uri)
+    if params.content_changes:
+        first_change = params.content_changes[0]
+        if not getattr(first_change, "range", None):
+            source = first_change.text
     if source:
+        server._docs[uri] = source
+        validate_document(uri, source)
+
+
+def did_save(params: DidSaveTextDocumentParams):
+    """Programmatic didSave: immediate validation (used by tests/embedders)."""
+    uri = params.text_document.uri
+    source = server.get_document_source(uri)
+    if getattr(params, "text", None) is not None:
+        source = params.text
+    if source:
+        server._docs[uri] = source
         validate_document(uri, source)
 
 
@@ -406,8 +563,36 @@ def definition(params: DefinitionParams):
     return None
 
 
-@server.feature(
-    TEXT_DOCUMENT_SIGNATURE_HELP,
+@server.feature(TEXT_DOCUMENT_CODE_ACTION)
+def code_action(params: CodeActionParams):
+    """Handles textDocument/codeAction requests.
+
+    Currently offers an "Add missing import" quick fix when the cursor sits on
+    an undefined identifier that some stdlib/project module exports.
+    """
+    uri = params.text_document.uri
+    source = server.get_document_source(uri)
+    if not source:
+        return []
+    symbols = server._symbols.get(uri)
+    start = params.range.start if params.range is not None else params.position
+    word = get_word_at_position(source, start)
+    if not word:
+        return []
+
+    file_path = uri_to_path(uri)
+    base_dir = os.path.dirname(file_path) if os.path.exists(file_path) else os.getcwd()
+    actions = []
+    imp_action = add_missing_import_action(uri, word, source, symbols, base_dir=base_dir)
+    if imp_action:
+        actions.append(imp_action)
+    unused_action = remove_unused_variable_action(uri, word, source, symbols)
+    if unused_action:
+        actions.append(unused_action)
+    return actions
+
+
+@server.feature(TEXT_DOCUMENT_SIGNATURE_HELP,
     SignatureHelpOptions(trigger_characters=["(", ",", " "])
 )
 def signature_help(params: SignatureHelpParams) -> Optional[SignatureHelp]:
@@ -575,47 +760,22 @@ def rename_symbol(params: RenameParams) -> Optional[WorkspaceEdit]:
 @server.feature(TEXT_DOCUMENT_FORMATTING)
 def document_formatting(params: DocumentFormattingParams) -> Optional[List[TextEdit]]:
     """Handles textDocument/formatting requests."""
-    import re
+    from .formatting import format_pengu_source
     uri = params.text_document.uri
     doc_text = server.get_document_source(uri)
     if not doc_text:
         return None
 
+    tab_size = 2
+    insert_spaces = True
+    options = getattr(params, "options", None)
+    if options is not None:
+        if getattr(options, "tab_size", None):
+            tab_size = options.tab_size
+        insert_spaces = getattr(options, "insert_spaces", True)
+
+    new_full_text = format_pengu_source(doc_text, tab_size=tab_size, insert_spaces=insert_spaces)
     lines = doc_text.splitlines()
-    formatted_lines = []
-    tab_size = params.options.tab_size if hasattr(params, "options") and params.options else 2
-    indent_unit = " " * tab_size if getattr(params.options, "insert_spaces", True) else "\t"
-
-    for line in lines:
-        stripped_right = line.rstrip()
-        if not stripped_right:
-            formatted_lines.append("")
-            continue
-
-        # Normalizar sangría inicial
-        leading_spaces = len(stripped_right) - len(stripped_right.lstrip(" "))
-        leading_tabs = len(stripped_right) - len(stripped_right.lstrip("\t"))
-        
-        indent_level = 0
-        if leading_tabs > 0:
-            indent_level = leading_tabs
-        elif leading_spaces > 0:
-            indent_level = leading_spaces // tab_size
-
-        content = stripped_right.strip()
-
-        # Pequeños ajustes cosméticos de espaciado estándar si no es un comentario
-        if not content.startswith("#"):
-            content = re.sub(r"\s+is\s+", " is ", content)
-            content = re.sub(r"\s+as\s+", " as ", content)
-            content = re.sub(r"\s+into\s+", " into ", content)
-            content = re.sub(r",\s*", ", ", content)
-
-        formatted_lines.append((indent_unit * indent_level) + content)
-
-    new_full_text = "\n".join(formatted_lines) + ("\n" if doc_text.endswith("\n") else "")
-    
-    # Reemplazar todo el documento con el texto formateado
     last_line = max(0, len(lines) - 1)
     last_char = len(lines[last_line]) if lines else 0
 

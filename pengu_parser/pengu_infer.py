@@ -6,16 +6,37 @@ from lark import Tree, Token
 from .pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ManyType, ListType, MapType, MaybeType,
     RuneType, EchoType, OmenType, ResultType, FnType, OPAQUE_TYPE, AliasType, AnyType,
-    TypeParam, INT_TYPE, I32_TYPE, I64_TYPE, U32_TYPE, U64_TYPE, CHAR_TYPE, BYTE_TYPE,
+    TypeParam, NullType, NULL_TYPE, INT_TYPE, I32_TYPE, I64_TYPE, U32_TYPE, U64_TYPE, CHAR_TYPE, BYTE_TYPE,
     U8_TYPE, I8_TYPE, U16_TYPE, I16_TYPE, USIZE_TYPE, ISIZE_TYPE, FLOAT_TYPE, F32_TYPE,
-    F64_TYPE, DOUBLE_TYPE, BOOL_TYPE, STRING_TYPE, VOID_TYPE, ERROR_TYPE, ast_to_type, is_opaque_type
+    F64_TYPE, DOUBLE_TYPE, BOOL_TYPE, STRING_TYPE, VOID_TYPE, ERROR_TYPE, ConceptType, SealType,
+    implements_concept, resolve_concept_method, ast_to_type, is_opaque_type
 )
 from .pengu_symbols import SymbolTable, Symbol, Scope
+from .pengu_comptime import CompileTimeEnv, default_env, eval_comptime
 from .pengu_errors import (
     PenguError, SemanticError, UndefinedIdentifierError, SelfDotAccessError, TypeMismatchError,
     ConstInsideWeaveError, VarLetTopLevelError, MutabilityError, InvalidControlFlowError,
-    InvalidMemoryOpError, InvalidWithTargetError, suggest_similar_identifier
+    InvalidMemoryOpError, InvalidWithTargetError, ConceptMethodMismatchError,
+    UnimplementedConceptMethodError, ConceptBoundNotSatisfiedError,
+    InvalidRitualSelfAccessError, InvalidRitualCallError, SealTypeMismatchError,
+    suggest_similar_identifier
 )
+
+
+def _node_to_name(node: Any) -> str:
+    """Extracts plain identifier / type name from Token or Tree (dotted_path, custom_type, etc.)."""
+    if isinstance(node, Token):
+        return str(node)
+    if isinstance(node, Tree):
+        if node.data == "dotted_path":
+            return ".".join(str(c) for c in node.children if isinstance(c, (Token, str)))
+        if node.data in ("custom_type", "type_param", "type", "where_bound", "base_type"):
+            if node.children:
+                return _node_to_name(node.children[0])
+        if len(node.children) == 1:
+            return _node_to_name(node.children[0])
+        return ".".join(_node_to_name(c) for c in node.children if isinstance(c, (Token, Tree)))
+    return str(node)
 
 
 class ConstFolder:
@@ -133,6 +154,28 @@ class ConstFolder:
             v = self.fold(node.children[0])
             return not bool(v) if v is not None else None
 
+        elif rule == "some_expr":
+            # Boxing must happen at run time (heap allocation); never fold it.
+            return None
+
+        elif rule == "ord_expr":
+            v = self.fold(node.children[0])
+            if isinstance(v, str) and len(v) == 1:
+                return ord(v)
+            if isinstance(v, str) and len(v) != 1:
+                return None
+            return None
+
+        elif rule == "chr_expr":
+            v = self.fold(node.children[0])
+            if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 255:
+                return chr(v)
+            return None
+
+        elif rule == "bytes_expr":
+            # Bytes view is a runtime pointer cast; never a compile-time value.
+            return None
+
         if len(node.children) == 1:
             return self.fold(node.children[0])
 
@@ -142,17 +185,20 @@ class ConstFolder:
 class TypeInferrer:
     """Performs bottom-up static type inference and semantic rule validation on AST nodes."""
 
-    def __init__(self, symbol_table: SymbolTable, source_code: str = "", filename: str = "main.pengu"):
+    def __init__(self, symbol_table: SymbolTable, source_code: str = "", filename: str = "main.pengu",
+                 compile_env: Optional[CompileTimeEnv] = None):
         """Initializes type inferrer with symbol table and source text.
 
         Args:
             symbol_table: Symbol table instance for name resolution.
             source_code: Source text for diagnostic snippets.
             filename: Active file path for diagnostics.
+            compile_env: Optional compile-time environment for 'when' expressions.
         """
         self.symbols = symbol_table
         self.source_code = source_code
         self.filename = filename
+        self.compile_env = compile_env if compile_env is not None else default_env()
         self.const_folder = ConstFolder(symbol_table)
         self.warnings: List[str] = []
 
@@ -321,10 +367,40 @@ class TypeInferrer:
             return CHAR_TYPE
         elif rule == "string_lit":
             str_val = str(node.children[0]) if node.children else ""
+            if expected_type is not None:
+                unpacked = expected_type
+                while isinstance(unpacked, AliasType) and unpacked.target:
+                    unpacked = unpacked.target
+                if isinstance(unpacked, RefType):
+                    tgt = unpacked.target
+                    while isinstance(tgt, AliasType) and tgt.target:
+                        tgt = tgt.target
+                    if isinstance(tgt, BaseType) and tgt.name in ("char", "const char"):
+                        import re
+                        raw_s = str_val[1:-1] if (str_val.startswith('"') and str_val.endswith('"') and len(str_val) >= 2) else str_val
+                        if list(re.finditer(r'\{([^}]+)\}', raw_s)):
+                            raise self._make_error(
+                                SemanticError,
+                                "String interpolation is not supported when expecting a C string literal (ref to char)",
+                                node,
+                                code="E0005",
+                                help="Use the standard 'string' type if you need string interpolation.",
+                                note="A 'ref to char' expects a static C string literal without expressions."
+                            )
+                        return expected_type
             self._check_string_interpolation(str_val, line, col, node)
             return STRING_TYPE
         elif rule in ("true_lit", "false_lit"):
             return BOOL_TYPE
+        elif rule == "null_lit":
+            if expected_type is not None:
+                unpacked = expected_type
+                while isinstance(unpacked, AliasType) and unpacked.target:
+                    unpacked = unpacked.target
+                if isinstance(unpacked, (RefType, AnyType, TypeParam)) or (isinstance(unpacked, BaseType) and unpacked.name in ("opaque", "any")):
+                    return expected_type
+                return NULL_TYPE
+            return NULL_TYPE
         elif rule == "array_lit":
             if not node.children:
                 elem_type = expected_type.element if (expected_type and isinstance(expected_type, ArrayType)) else AnyType()
@@ -342,6 +418,80 @@ class TypeInferrer:
                         note="Array elements must be homogenous."
                     )
             return ArrayType(element=first_t, size=len(node.children))
+        elif rule == "map_lit":
+            entries = [c for c in node.children if isinstance(c, Tree) and c.data == "map_entry"]
+
+            def _unify_map_value_types(types, node_ref):
+                """Returns a single value type common to all literal values."""
+                if not types:
+                    return AnyType()
+                is_str = all(isinstance(t, (BaseType, AliasType)) and (
+                    (getattr(t, "name", "") == "string") or
+                    (isinstance(t, AliasType) and t.target and getattr(t.target, "name", "") == "string")
+                ) for t in types)
+                if is_str:
+                    return STRING_TYPE
+                if all(t.is_numeric() for t in types):
+                    return FLOAT_TYPE if any(t.is_float() for t in types) else types[0]
+                first_t = types[0]
+                for t in types[1:]:
+                    if not (first_t.is_compatible(t) or t.is_compatible(first_t)):
+                        raise self._make_error(
+                            TypeMismatchError,
+                            f"Map literal values must share a common type, got '{first_t}' and '{t}'",
+                            node_ref,
+                            code="E0005",
+                            help="Ensure every value in the map literal has the same type.",
+                            note="Map values must be homogenous so the runtime can store them uniformly."
+                        )
+                return first_t
+
+            if not entries:
+                if expected_type is not None and isinstance(expected_type, MapType):
+                    return MapType(key=expected_type.key, value=expected_type.value)
+                raise self._make_error(
+                    TypeMismatchError,
+                    "Empty map literal '{}' cannot infer its type; add an explicit type annotation (e.g. 'let m as map of string to int is {}')",
+                    node,
+                    code="E0014",
+                    help="Annotate the empty map literal with 'as map of K to V'.",
+                    note="PenguScript requires explicit types for empty collections."
+                )
+
+            seen_keys: Dict[str, str] = {}
+            value_types: List[Type] = []
+            for entry in entries:
+                key_node = entry.children[0]
+                val_node = entry.children[1]
+                if isinstance(key_node, Token) and key_node.type == "STRING":
+                    key_text = str(key_node).strip('"')
+                else:
+                    key_text = str(key_node)
+                if key_text in seen_keys:
+                    raise self._make_error(
+                        SemanticError,
+                        f"Duplicate key '{key_text}' in map literal",
+                        entry,
+                        code="E0038",
+                        help="Each key in a map literal must be unique.",
+                        note="Map literal keys must not repeat."
+                    )
+                seen_keys[key_text] = key_text
+                value_types.append(self.infer(val_node, expected_type=(expected_type.value if (expected_type and isinstance(expected_type, MapType)) else None)))
+
+            value_t = _unify_map_value_types(value_types, node)
+            if expected_type is not None and isinstance(expected_type, MapType):
+                if not value_t.is_compatible(expected_type.value) and not (value_t.is_numeric() and expected_type.value.is_numeric()):
+                    raise self._make_error(
+                        TypeMismatchError,
+                        f"Map literal values have type '{value_t}', but the expected map stores '{expected_type.value}'",
+                        node,
+                        code="E0005",
+                        help=f"Annotate the map as 'map of {expected_type.key} to {value_t}' or change the values.",
+                        note="Map value types must match the declared map type."
+                    )
+                return MapType(key=expected_type.key, value=expected_type.value)
+            return MapType(key=STRING_TYPE, value=value_t)
         elif rule == "maybe_none":
             if expected_type is not None and isinstance(expected_type, MaybeType):
                 return expected_type
@@ -370,6 +520,8 @@ class TypeInferrer:
             name = str(node.children[0])
             sym = self.symbols.lookup(name)
             if sym is not None:
+                if sym.kind == "omen_variant" and isinstance(sym.type, OmenType) and sym.type.is_string_valued:
+                    return STRING_TYPE
                 return sym.type
             if name.isupper() and self.symbols.has_includes:
                 return INT_TYPE
@@ -378,6 +530,15 @@ class TypeInferrer:
             raise self._make_undefined_error(name, node)
 
         elif rule == "self_ref":
+            if self.symbols.is_in_ritual_context():
+                raise self._make_error(
+                    InvalidRitualSelfAccessError,
+                    "'self' cannot be used inside a 'ritual' method",
+                    node,
+                    code="E0033",
+                    help="Remove 'self' or remove the 'ritual' modifier to make this an instance method.",
+                    note="'ritual' methods are static functions and do not have a 'self' reference."
+                )
             if not self.symbols.is_in_enchanting():
                 raise self._make_error(
                     SemanticError,
@@ -413,6 +574,8 @@ class TypeInferrer:
                         return c_sym.type
                     return INT_TYPE
                 if sym and isinstance(sym.type, OmenType) and field_name in sym.type.variants:
+                    if sym.type.is_string_valued:
+                        return STRING_TYPE
                     return sym.type
 
             if isinstance(target_node, Tree) and target_node.data == "self_ref":
@@ -956,6 +1119,22 @@ class TypeInferrer:
                 )
             return then_type
 
+        elif rule == "when_expr":
+            # Compile-time conditional expression: only the active branch matters.
+            cond_val = eval_comptime(self.compile_env, node.children[0])
+            if cond_val is None or not isinstance(cond_val, bool):
+                raise self._make_error(
+                    TypeMismatchError,
+                    "'when' expression condition must evaluate to a compile-time boolean constant",
+                    node,
+                    code="E0039",
+                    help="Use expressions such as os == \"windows\" or defined(NAME) in 'when' expressions.",
+                    note="Compile-time 'when' expressions require constant conditions."
+                )
+            if cond_val is True:
+                return self.infer(node.children[1], expected_type=expected_type)
+            return self.infer(node.children[2], expected_type=expected_type)
+
         elif rule == "judge_expr":
             matched_type = self.infer(node.children[0])
             branch_types: List[Type] = []
@@ -1086,6 +1265,95 @@ class TypeInferrer:
                         )
             return INT_TYPE
 
+        elif rule == "some_expr":
+            # 'some expr' allocates a copy of expr on the heap and wraps it in a
+            # present Maybe container:  maybe T.
+            inner_t = self.infer(node.children[0])
+            if inner_t == VOID_TYPE:
+                raise self._make_error(
+                    TypeMismatchError,
+                    "'some' cannot wrap a void value",
+                    node,
+                    code="E0005",
+                    help="'some' requires a value of a concrete type.",
+                    note="'some' boxes a concrete value into a maybe."
+                )
+            return MaybeType(element=inner_t)
+
+        elif rule == "ord_expr":
+            # 'ord s' returns the byte code of the first (and only) character.
+            arg = node.children[0]
+            arg_t = self.infer(arg)
+            if not arg_t.is_string() and not isinstance(arg_t, AnyType):
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"'ord' expects a string of length 1, got '{arg_t}'",
+                    node,
+                    code="E0005",
+                    help="Pass a single-character string to 'ord'.",
+                    note="'ord' reads the byte code of a single character."
+                )
+            if isinstance(arg, Tree) and arg.data == "string_lit":
+                raw = str(arg.children[0]) if arg.children else ""
+                s_val = raw[1:-1] if (raw.startswith('"') and raw.endswith('"') and len(raw) >= 2) else raw
+                if len(s_val) != 1:
+                    raise self._make_error(
+                        TypeMismatchError,
+                        f"'ord' expects a string of length 1, got {len(s_val)} characters",
+                        node,
+                        code="E0005",
+                        help="Use a single-character string literal with 'ord'.",
+                        note="'ord' operates on exactly one character."
+                    )
+            return INT_TYPE
+
+        elif rule == "chr_expr":
+            # 'chr code' builds a one-character string from an int byte value.
+            arg = node.children[0]
+            arg_t = self.infer(arg)
+            if not arg_t.is_int() and not isinstance(arg_t, AnyType):
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"'chr' expects an integer byte value, got '{arg_t}'",
+                    node,
+                    code="E0005",
+                    help="Pass an integer in the range 0-255 to 'chr'.",
+                    note="'chr' maps a byte code to a one-character string."
+                )
+            folded = self.const_folder.fold(arg)
+            if folded is not None and isinstance(folded, int) and not isinstance(folded, bool):
+                if folded < 0 or folded > 255:
+                    raise self._make_error(
+                        TypeMismatchError,
+                        f"'chr' byte value {folded} is out of range 0-255",
+                        node,
+                        code="E0005",
+                        help="Use a byte value between 0 and 255.",
+                        note="'chr' only supports byte values 0-255."
+                    )
+            return STRING_TYPE
+
+        elif rule == "bytes_expr":
+            # 'bytes of s' exposes a Pengu string's character storage as a
+            # read-only 'ref to byte'; 'bytes of a' (a fixed 'array of byte')
+            # yields a writable 'ref to byte' to the first element.
+            arg_node = node.children[0]
+            arg_t = self.infer(arg_node)
+            if arg_t.is_string() or isinstance(arg_t, AnyType):
+                return RefType(target=BaseType(name="byte"))
+            if isinstance(arg_t, ArrayType):
+                elem = arg_t.element
+                if isinstance(elem, BaseType) and elem.name in ("byte", "u8", "uint8"):
+                    return RefType(target=BaseType(name="byte"))
+            raise self._make_error(
+                TypeMismatchError,
+                f"'bytes of' expects a string or an 'array of byte', got '{arg_t}'",
+                node,
+                code="E0005",
+                help="Pass a string (read-only) or an 'array of byte' (writable) to 'bytes of'.",
+                note="'bytes of' borrows the internal byte storage of the operand."
+            )
+
         elif rule == "banish_expr":
             target = node.children[0]
             if isinstance(target, Tree) and target.data == "var_ref":
@@ -1143,6 +1411,9 @@ class TypeInferrer:
                 method_name = str(target_node.children[0])
 
             seen_named = False
+            param_dict = {p[0]: p[1] for p in fn_type.params if p[0]} if fn_type and fn_type.params else {}
+            has_variadic = len(fn_type.params) > 0 and isinstance(fn_type.params[-1][1], ManyType) if fn_type and fn_type.params else False
+            pos_idx = 0
             if args_tree is not None:
                 for arg_node in args_tree.children:
                     if isinstance(arg_node, Tree):
@@ -1150,7 +1421,8 @@ class TypeInferrer:
                             seen_named = True
                             arg_name = str(arg_node.children[0])
                             arg_val = arg_node.children[1]
-                            arg_t = self.infer(arg_val)
+                            exp_t = param_dict.get(arg_name)
+                            arg_t = self.infer(arg_val, expected_type=exp_t)
                             named_args.append((arg_name, (arg_t, arg_val)))
                         elif arg_node.data == "pos_arg":
                             if seen_named:
@@ -1163,8 +1435,15 @@ class TypeInferrer:
                                     note="PenguScript requires positional args before named args for safety"
                                 )
                             arg_val = arg_node.children[0]
-                            arg_t = self.infer(arg_val)
+                            exp_t = None
+                            if fn_type and fn_type.params:
+                                if pos_idx < len(fn_type.params):
+                                    exp_t = fn_type.params[pos_idx][1]
+                                elif has_variadic:
+                                    exp_t = fn_type.params[-1][1].element if isinstance(fn_type.params[-1][1], ManyType) else None
+                            arg_t = self.infer(arg_val, expected_type=exp_t)
                             pos_args.append((arg_t, arg_val))
+                            pos_idx += 1
 
             total_passed = len(pos_args) + len(named_args)
             total_params = len(fn_type.params)
@@ -1233,6 +1512,43 @@ class TypeInferrer:
                         help="Ensure arguments provide enough type information to deduce all type parameters.",
                         note="Generic functions require all type parameters to be inferable."
                     )
+
+                def _extract_shard_params_bounds(shard_node: Tree) -> Tuple[List[str], Dict[str, List[str]]]:
+                    t_params: List[str] = []
+                    b_dict: Dict[str, List[str]] = {}
+                    if not isinstance(shard_node, Tree):
+                        return t_params, b_dict
+                    for ch in shard_node.children:
+                        if isinstance(ch, Token) and ch.type == "NAME":
+                            t_params.append(str(ch))
+                        elif isinstance(ch, Tree) and ch.data == "where_clause":
+                            for wb in ch.children:
+                                if isinstance(wb, Tree) and wb.data == "where_bound":
+                                    tp_n = _node_to_name(wb.children[0])
+                                    c_n = _node_to_name(wb.children[1])
+                                    b_dict.setdefault(tp_n, []).append(c_n)
+                    return t_params, b_dict
+
+                fn_bounds = {}
+                if fn_name and fn_name in self.symbols.generic_functions:
+                    fn_ast = self.symbols.generic_functions[fn_name][1]
+                    for ch in fn_ast.children:
+                        if isinstance(ch, Tree) and ch.data == "shard_params":
+                            _, fn_bounds = _extract_shard_params_bounds(ch)
+                            break
+
+                for tp, arg_t in subst_map.items():
+                    for bound in fn_bounds.get(tp, []):
+                        if not implements_concept(arg_t, bound, self.symbols):
+                            t_display = getattr(arg_t, "name", str(arg_t))
+                            raise self._make_error(
+                                ConceptBoundNotSatisfiedError,
+                                f"Type '{t_display}' does not implement concept '{bound}' required by generic parameter '{tp}'",
+                                node,
+                                code="E0032",
+                                help=f"Bind concept '{bound}' to type '{t_display}' using 'bind {t_display} with {bound}:'.",
+                                note=f"Generic function '{fn_name}' requires '{tp}: {bound}'."
+                            )
 
                 specialized_fn_type = fn_type.substitute(subst_map)
                 mangled_args = "_".join(subst_map[tp].get_mangled_name() for tp in type_params)
@@ -1496,6 +1812,39 @@ class TypeInferrer:
         elif rule in ("eq", "ne", "lt", "le", "gt", "ge"):
             left_t = self.infer(node.children[0])
             right_t = self.infer(node.children[1])
+            if rule in ("eq", "ne"):
+                if isinstance(left_t, NullType) or isinstance(right_t, NullType):
+                    other_t = right_t if isinstance(left_t, NullType) else left_t
+                    if isinstance(other_t, NullType):
+                        return BOOL_TYPE
+                    if isinstance(other_t, (RefType, AnyType, TypeParam)):
+                        return BOOL_TYPE
+                    if isinstance(other_t, BaseType) and other_t.name in ("opaque", "any"):
+                        return BOOL_TYPE
+                    if isinstance(other_t, AliasType):
+                        curr = other_t
+                        while isinstance(curr, AliasType) and curr.target:
+                            curr = curr.target
+                        if isinstance(curr, (RefType, AnyType, TypeParam)) or (isinstance(curr, BaseType) and curr.name in ("opaque", "any")):
+                            return BOOL_TYPE
+                    raise self._make_error(
+                        TypeMismatchError,
+                        f"Cannot compare 'null' with non-pointer type '{other_t}'",
+                        node,
+                        code="E0005",
+                        help="Only references (ref to T) and opaque types can be compared with 'null'.",
+                        note="'null' represents a null pointer and can only be compared to pointer/reference types."
+                    )
+            elif rule in ("lt", "le", "gt", "ge"):
+                if isinstance(left_t, NullType) or isinstance(right_t, NullType):
+                    raise self._make_error(
+                        TypeMismatchError,
+                        f"Ordering comparison '{rule}' is not supported for 'null'",
+                        node,
+                        code="E0005",
+                        help="Use '==' or '!=' to compare references with 'null'.",
+                        note="'null' only supports equality and inequality comparisons."
+                    )
             if not left_t.is_compatible(right_t) and not right_t.is_compatible(left_t):
                 if not (left_t.is_numeric() and right_t.is_numeric()):
                     raise self._make_error(
@@ -1577,7 +1926,7 @@ class TypeInferrer:
                     note="Pointers can only reference addressable lvalues in memory."
                 )
         if isinstance(node, Tree):
-            if node.data in ("int_lit", "float_lit", "string_lit", "true_lit", "false_lit"):
+            if node.data in ("int_lit", "float_lit", "string_lit", "true_lit", "false_lit", "null_lit", "maybe_none"):
                 raise self._make_error(
                     SemanticError,
                     "Cannot take 'sigil of' a literal or temporary expression",
@@ -1699,19 +2048,65 @@ class TypeInferrer:
                 if isinstance(method_acc, Tree) and method_acc.data == "dot_access":
                     m_name = str(method_acc.children[0])
                     obj_sym = self.symbols.lookup(obj_name)
-                    if obj_sym is not None:
+                    if obj_sym is not None and obj_sym.kind not in ("rune", "echo", "omen", "seal", "alias", "concept", "type"):
                         if obj_sym.kind == "import":
-                            fn_sym = self.symbols.lookup(f"{obj_name}_{m_name}") or self.symbols.lookup(m_name)
-                            if fn_sym and isinstance(fn_sym.type, FnType):
-                                return fn_sym.type, None
-                            return FnType(params=[], return_type=VOID_TYPE), None
+                            # Module member calls (e.g. 'calling archivum.write_file')
+                            # resolve against the import's module_scope first:
+                            # that is where the real FnType signature lives. Then
+                            # fall back to the prefixed function registry names
+                            # registered during import collection. Never silently
+                            # guess 'void' when the member simply does not exist
+                            # (that used to turn every missed member into void and
+                            # produce spurious E0020 return-type mismatches).
+                            scope = getattr(obj_sym, "module_scope", None)
+                            if scope is not None:
+                                mem_sym = scope.symbols.get(m_name)
+                                if mem_sym is not None:
+                                    m_type = getattr(mem_sym, "type", None)
+                                    if isinstance(m_type, FnType):
+                                        return m_type, None
+                                    if getattr(mem_sym, "kind", "") in ("function", "declare") and m_type is not None:
+                                        return FnType(params=[], return_type=m_type), None
+                            for cand_name in (f"{obj_name}_{m_name}", m_name):
+                                fn_t = self.symbols.functions.get(cand_name)
+                                if fn_t is not None:
+                                    return fn_t, None
+                                s = self.symbols.lookup(cand_name)
+                                if s is not None and isinstance(getattr(s, "type", None), FnType):
+                                    return s.type, None
+                            if self.symbols.has_includes:
+                                return FnType(params=[], return_type=VOID_TYPE), None
+                            raise self._make_error(
+                                UndefinedIdentifierError,
+                                f"Module '{obj_name}' has no exported member '{m_name}'",
+                                target_node,
+                                code="E0004",
+                                help=f"Check the member name or import the module that exports '{m_name}'.",
+                                note="Module member calls must resolve to a declared weave/declare in that module."
+                            )
                         obj_type = obj_sym.type
+                        if isinstance(obj_type, TypeParam):
+                            for bound in obj_type.bounds:
+                                concept_obj = self.symbols.lookup_concept(bound)
+                                if concept_obj and m_name in concept_obj.methods:
+                                    return concept_obj.methods[m_name], obj_type
+
                         if isinstance(obj_type, RefType):
                             t_name = getattr(obj_type.target, "name", str(obj_type.target))
                         else:
                             t_name = getattr(obj_type, "name", str(obj_type))
                         if (t_name, m_name) in self.symbols.methods:
-                            return self.symbols.methods[(t_name, m_name)], obj_type
+                            m_fn = self.symbols.methods[(t_name, m_name)]
+                            if getattr(m_fn, "is_ritual", False):
+                                raise self._make_error(
+                                    InvalidRitualCallError,
+                                    f"Method '{m_name}' is a 'ritual' (static) method and must be called on the type '{t_name}', not an instance",
+                                    target_node,
+                                    code="E0034",
+                                    help=f"Call as '{t_name}.{m_name}(...)' instead.",
+                                    note="Ritual methods cannot be called on instances."
+                                )
+                            return m_fn, obj_type
                         if f"{t_name}_{m_name}" in self.symbols.functions:
                             return self.symbols.functions[f"{t_name}_{m_name}"], obj_type
 
@@ -1738,6 +2133,22 @@ class TypeInferrer:
                                     subst_map = dict(zip(type_params, t_args))
                                     gm_type = gm_type.substitute(subst_map)
                                 return gm_type, obj_type
+
+                        # Concept method resolution on instance
+                        for (b_type, b_concept), b_methods in self.symbols.concept_bindings.items():
+                            if (b_type == t_name or b_type == base_tname) and m_name in b_methods:
+                                m_fn = b_methods[m_name]
+                                if getattr(m_fn, "is_ritual", False):
+                                    raise self._make_error(
+                                        InvalidRitualCallError,
+                                        f"Method '{m_name}' is a 'ritual' (static) method and must be called on the type '{t_name}', not an instance",
+                                        target_node,
+                                        code="E0034",
+                                        help=f"Call as '{t_name}.{m_name}(...)' instead.",
+                                        note="Ritual methods cannot be called on instances."
+                                    )
+                                return m_fn, obj_type
+
                         if isinstance(obj_type, ListType):
                             if m_name in ("push", "append"):
                                 return FnType(params=[("item", obj_type.element)], return_type=VOID_TYPE), obj_type
@@ -1780,4 +2191,43 @@ class TypeInferrer:
                             help=f"Declare 'weave {m_name}' inside 'enchanting {obj_type}:'.",
                             note=f"Type '{obj_type}' does not define method '{m_name}'."
                         )
+                    else:
+                        # Static / ritual method call on type name (e.g. Vec2.zero)
+                        type_resolved = self.symbols.lookup_type(obj_name)
+                        if type_resolved is not None or obj_name in self.symbols.runes or obj_name in self.symbols.seals or obj_name in self.symbols.concepts:
+                            if (obj_name, m_name) in self.symbols.methods:
+                                m_fn = self.symbols.methods[(obj_name, m_name)]
+                                return m_fn, None
+                            if f"{obj_name}_{m_name}" in self.symbols.functions:
+                                return self.symbols.functions[f"{obj_name}_{m_name}"], None
+                            for (b_type, b_concept), b_methods in self.symbols.concept_bindings.items():
+                                if b_type == obj_name and m_name in b_methods:
+                                    return b_methods[m_name], None
+                            raise self._make_error(
+                                UndefinedIdentifierError,
+                                f"Type '{obj_name}' has no ritual method '{m_name}'",
+                                target_node,
+                                code="E0004",
+                                help=f"Declare 'weave ritual {m_name}' inside 'enchanting {obj_name}:'.",
+                                note=f"Type '{obj_name}' does not define ritual method '{m_name}'."
+                            )
         return None, None
+
+    def _extract_shard_params_bounds(self, shard_node: Tree) -> Tuple[List[str], Dict[str, List[str]]]:
+        """Extracts type parameter names and optional where concept bounds from a shard_params AST node."""
+        type_params: List[str] = []
+        bounds: Dict[str, List[str]] = {}
+        if not isinstance(shard_node, Tree):
+            return type_params, bounds
+        for ch in shard_node.children:
+            if isinstance(ch, Token) and ch.type == "NAME":
+                type_params.append(str(ch))
+            elif isinstance(ch, Tree) and ch.data == "where_clause":
+                for wb in ch.children:
+                    if isinstance(wb, Tree) and wb.data == "where_bound":
+                        t_param_node = wb.children[0]
+                        t_param_name = str(t_param_node.children[0]) if isinstance(t_param_node, Tree) else str(t_param_node)
+                        concept_node = wb.children[1]
+                        concept_name = str(concept_node.children[0]) if isinstance(concept_node, Tree) else str(concept_node)
+                        bounds.setdefault(t_param_name, []).append(concept_name)
+        return type_params, bounds

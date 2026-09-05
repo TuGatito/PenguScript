@@ -1,5 +1,6 @@
 """PenguScript LSP Hover Information Logic."""
 
+import os
 import re
 from typing import Optional, Dict
 from lsprotocol.types import (
@@ -35,6 +36,45 @@ KEYWORD_DOCS = {
     "declare": "**declare**: Declares an external C function binding.",
     "import": "**import**: Imports a PenguScript module or stdlib package.",
 }
+
+
+def extract_doc_from_file(sym: Symbol) -> str:
+    """Reads '##'-doc comments directly above the symbol declaration.
+
+    Used as a fallback when a symbol points at a real source file but carries no
+    doc text yet (e.g. definitions parsed before doc extraction or C headers).
+
+    Args:
+        sym: Symbol carrying file_path and line attributes.
+
+    Returns:
+        The collected doc comment text, or an empty string.
+    """
+    fp = getattr(sym, "file_path", None)
+    line = getattr(sym, "line", None)
+    if not fp or not line or not os.path.isfile(fp):
+        return ""
+    try:
+        with open(fp, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except Exception:
+        return ""
+    idx = line - 2  # first line above the declaration
+    collected: list = []
+    while idx >= 0 and idx < len(lines):
+        stripped = lines[idx].strip()
+        if stripped.startswith("##"):
+            collected.append(stripped.lstrip("#").strip())
+            idx -= 1
+        elif stripped.startswith("#"):
+            collected.append(stripped.lstrip("#").strip())
+            idx -= 1
+        elif stripped == "" and collected:
+            idx -= 1  # allow a single blank gap before the declaration
+        else:
+            break
+    collected.reverse()
+    return "\n".join(collected)
 
 
 def get_word_at_position(text: str, position: Position) -> Optional[str]:
@@ -240,6 +280,17 @@ def get_hover(
 
     custom_types = getattr(symbols, "runes", {})
 
+    def _decorate(s: Optional[Symbol]) -> Optional[Symbol]:
+        """Attaches a source-file doc fallback when the symbol has none."""
+        if s is not None and not getattr(s, "doc", None):
+            d = extract_doc_from_file(s)
+            if d:
+                try:
+                    s.doc = d
+                except Exception:
+                    pass
+        return s
+
     # 1. Check if word is part of a module access (e.g. spark.println)
     lines = text.splitlines() if text else []
     if 0 <= position.line < len(lines):
@@ -251,7 +302,7 @@ def get_hover(
             mod_name = dot_m.group(1)
             mod_sym = symbols.lookup(mod_name)
             if mod_sym and mod_sym.module_scope and word in mod_sym.module_scope.symbols:
-                target_sym = mod_sym.module_scope.symbols[word]
+                target_sym = _decorate(mod_sym.module_scope.symbols[word])
                 return Hover(
                     contents=MarkupContent(
                         kind=MarkupKind.Markdown,
@@ -265,10 +316,11 @@ def get_hover(
         member_name = parts[-1]
         mod_sym = symbols.lookup(mod_name)
         if mod_sym and mod_sym.module_scope and member_name in mod_sym.module_scope.symbols:
+            target_sym = _decorate(mod_sym.module_scope.symbols[member_name])
             return Hover(
                 contents=MarkupContent(
                     kind=MarkupKind.Markdown,
-                    value=format_symbol_hover(mod_sym.module_scope.symbols[member_name], custom_types)
+                    value=format_symbol_hover(target_sym, custom_types)
                 )
             )
 
@@ -276,6 +328,7 @@ def get_hover(
     cursor_line = position.line + 1
     sym = symbols.lookup_at(word, cursor_line) if hasattr(symbols, "lookup_at") else symbols.lookup(word)
     if sym:
+        sym = _decorate(sym)
         return Hover(
             contents=MarkupContent(
                 kind=MarkupKind.Markdown,

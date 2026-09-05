@@ -41,6 +41,7 @@ from pengu_parser.pengu_checker import PenguChecker
 from pengu_parser.pengu_symbols import resolve_imports
 from pengu_parser.pengu_errors import ErrorReporter, PenguError
 from pengu_parser.pengu_codegen import PenguCodegen
+from pengu_parser.pengu_comptime import main_flag_requested, parse_cli_defines
 
 
 class OutputType(Enum):
@@ -344,6 +345,10 @@ class ProjectConfig:
         )
 
 
+class CompileFailedError(RuntimeError):
+    """Raised when the C compiler (gcc/clang/...) rejects the generated bundle."""
+
+
 class PenguBuilder:
     """Orchestrates parsing, semantic checking, C bundling, runtime copying, and compilation."""
 
@@ -356,14 +361,61 @@ class PenguBuilder:
         """
         self.config = config
         self.source_code = source_code
+        self.is_test_mode = False
         self.parser = PenguParser()
-        self.checker = PenguChecker(base_dir=config.base_dir)
+        self.compile_env = parse_cli_defines(config.defines)
+        # Entry-as-main mode: when enabled (pengu run <file> scripts, or an
+        # explicit -D main define), only the *entry* module is compiled with
+        # the compile-time 'main' flag true; imported modules keep it false.
+        self.entry_as_main = bool(main_flag_requested(config.defines))
+        self._entry_abs_cache: Optional[str] = None
+        if config.cc:
+            from pengu_parser.pengu_comptime import default_compiler_name
+            cc_base = os.path.basename(config.cc).lower()
+            compiler_name = "msvc" if (cc_base == "cl" or "msvc" in cc_base) else ("clang" if "clang" in cc_base else ("gcc" if ("gcc" in cc_base or "mingw" in cc_base) else (cc_base or default_compiler_name())))
+            # An explicit 'compiler=...' entry wins over config.cc.
+            explicit = any(str(d).strip().startswith("compiler=") for d in (config.defines or []))
+            if not explicit:
+                old_compiler = self.compile_env.compiler
+                if compiler_name != old_compiler:
+                    self.compile_env.compiler = compiler_name
+                    self.compile_env.defines.pop(old_compiler, None)
+                    self.compile_env.defines[compiler_name] = True
+        self.checker = PenguChecker(base_dir=config.base_dir, compile_env=self.compile_env)
+        # Verbose mode: print the resolved module order, the exact C commands
+        # being executed and phase timings.
+        self.verbose = False
+
+    # ------------------------------------------------------- verbose helpers
+
+    def _vlog(self, message: str) -> None:
+        """Prints a verbose debug line when verbose mode is enabled."""
+        if getattr(self, "verbose", False):
+            print(message, file=sys.stderr)
 
     def get_build_directory(self) -> str:
         """Returns absolute path to the designated build directory."""
         if os.path.isabs(self.config.build_dir):
             return self.config.build_dir
         return os.path.abspath(os.path.join(self.config.base_dir, self.config.build_dir))
+
+    def _is_main_file(self, mod_path: str) -> bool:
+        """Returns True when mod_path is the entry module and entry-as-main is on.
+
+        Only the file being executed as the program entry point is compiled with
+        the compile-time 'main' variable true; every imported module is compiled
+        with 'main' false regardless of the build mode.
+        """
+        if not getattr(self, "entry_as_main", False):
+            return False
+        if self._entry_abs_cache is None:
+            self._entry_abs_cache = os.path.abspath(self.config.resolve_entry())
+        try:
+            left = os.path.normcase(os.path.abspath(os.path.normpath(mod_path)))
+            right = os.path.normcase(self._entry_abs_cache)
+            return left == right
+        except Exception:
+            return False
 
     def compute_config_hash(self) -> str:
         """Computes SHA-256 hash of compilation configuration options."""
@@ -375,6 +427,8 @@ class PenguBuilder:
             "includes": sorted(self.config.includes),
             "links": sorted(self.config.links),
             "output": str(self.config.output),
+            "test_mode": bool(getattr(self, "is_test_mode", False)),
+            "entry_main": bool(getattr(self, "entry_as_main", False)),
         }, sort_keys=True)
         return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
@@ -448,7 +502,19 @@ class PenguBuilder:
 
         dest_file = os.path.join(dest_dir, "pengu_runtime.h")
         if os.path.abspath(found_src) != os.path.abspath(dest_file):
-            shutil.copy(found_src, dest_file)
+            # Windows (Defender / AV) can briefly lock a freshly written header
+            # when many tests share the build dir; retry instead of failing.
+            last_err: Optional[Exception] = None
+            for _attempt in range(6):
+                try:
+                    shutil.copy(found_src, dest_file)
+                    last_err = None
+                    break
+                except OSError as e:  # permission / sharing violations
+                    last_err = e
+                    time.sleep(0.15)
+            if last_err is not None:
+                raise last_err
 
         return dest_file
 
@@ -721,6 +787,17 @@ class PenguBuilder:
         else:
             module_order = [entry_abs]
 
+        if self.verbose:
+            self._vlog(f"[pengu] entry: {entry_abs}")
+            self._vlog(f"[pengu] module order ({len(module_order)}):")
+            for mo in module_order:
+                self._vlog(f"[pengu]   - {mo}")
+            self._vlog(f"[pengu] build dir: {build_dir}")
+            self._vlog(f"[pengu] output: {self.config.output} profile: {self.config.profile}")
+            self._vlog(f"[pengu] defines: {sorted(self.config.defines or [])}")
+
+        t_check = time.time()
+
         # 2. Check if cached bundle.c is up-to-date
         if self.source_code is None and self.is_bundle_up_to_date(bundle_path, module_order):
             self.locate_and_copy_runtime(build_dir)
@@ -729,6 +806,9 @@ class PenguBuilder:
         # 3. Check all source files with PenguChecker and collect parsed trees
         parsed_trees: List[Tuple[str, Tree]] = []
         for i, mod_path in enumerate(module_order):
+            # 'main' is a per-module compile-time variable: only the entry module
+            # sees main=true (when entry-as-main mode is on); imports see false.
+            self.compile_env.is_main = self._is_main_file(mod_path)
             if os.path.isfile(mod_path):
                 with open(mod_path, "r", encoding="utf-8") as f:
                     code = f.read()
@@ -741,19 +821,30 @@ class PenguBuilder:
                 self.checker.check(tree, source=code, filename=mod_path, reset_symbols=(i == 0), import_order=module_order)
                 parsed_trees.append((mod_path, tree))
 
+        if self.verbose:
+            self._vlog(f"[pengu] semantic check finished in {time.time() - t_check:.3f}s")
+            t_codegen = time.time()
+
         # 4. Copy runtime header to build directory
         self.locate_and_copy_runtime(build_dir)
 
         # 5. Generate bundle.c via PenguCodegen
         from pengu_parser.pengu_codegen import PenguCodegen
-        codegen = PenguCodegen(self.checker.symbols, module_order, self.config.base_dir)
+        codegen = PenguCodegen(self.checker.symbols, module_order, self.config.base_dir, compile_env=self.compile_env)
+        codegen.entry_main_mode = bool(getattr(self, "entry_as_main", False))
+        codegen.entry_file = os.path.abspath(self.config.resolve_entry())
         codegen.collect_declarations(parsed_trees)
         is_lib = self.config.output in (OutputType.STATIC, OutputType.SHARED, OutputType.OBJ)
         codegen.generate_bundle(
             custom_includes=self.config.includes,
             is_library=is_lib,
-            output_path=bundle_path
+            output_path=bundle_path,
+            is_test=self.is_test_mode
         )
+
+        if self.verbose:
+            self._vlog(f"[pengu] codegen finished in {time.time() - t_codegen:.3f}s")
+            self._vlog(f"[pengu] bundle written: {bundle_path}")
 
         # 6. Save compilation configuration hash
         hash_file = os.path.join(os.path.dirname(bundle_path), ".bundle_hash")
@@ -764,6 +855,54 @@ class PenguBuilder:
             pass
 
         return bundle_path, False
+
+    def check_sources(self) -> Tuple[bool, List[str]]:
+        """Parses and semantically checks every module without generating code.
+
+        Entry-as-main semantics are respected (the entry module compiles with
+        the compile-time 'main' variable true when entry_as_main is enabled).
+
+        Returns:
+            Tuple of (ok, messages) where each message is a human readable
+            problem line ("file:line:col [CODE] message").
+        """
+        entry_abs = self.config.resolve_entry()
+        if os.path.isfile(entry_abs):
+            module_order = resolve_imports(self.config.base_dir, entry_abs, self.parser)
+        else:
+            module_order = [entry_abs]
+
+        ok = True
+        messages: List[str] = []
+        for i, mod_path in enumerate(module_order):
+            self.compile_env.is_main = self._is_main_file(mod_path)
+            try:
+                if os.path.isfile(mod_path):
+                    with open(mod_path, "r", encoding="utf-8") as f:
+                        code = f.read()
+                elif self.source_code is not None:
+                    code = self.source_code
+                else:
+                    code = ""
+                if not code:
+                    continue
+                tree = self.parser.parse(code)
+                self.checker.check(tree, source=code, filename=mod_path, reset_symbols=(i == 0), import_order=module_order)
+                if self.verbose:
+                    self._vlog(f"[pengu] ok: {mod_path}")
+            except Exception as e:  # noqa: BLE001 - any parse/semantic failure
+                ok = False
+                sub_list = getattr(e, "all_errors", None) or [e]
+                for sub in sub_list:
+                    err_line = getattr(sub, "line", None) or 0
+                    err_col = getattr(sub, "column", None)
+                    if err_col is None:
+                        err_col = getattr(sub, "col", None) or 0
+                    err_code = getattr(sub, "code", None) or ""
+                    err_msg = getattr(sub, "message", None) or str(e)
+                    code_str = f"[{err_code}] " if err_code else ""
+                    messages.append(f"{mod_path}:{err_line}:{err_col} {code_str}{err_msg}")
+        return ok, messages
 
     def build_compile_commands(self, bundle_path: str, output_path: str) -> List[List[str]]:
         """Assembles list of shell commands required to compile bundle and C glue into target artifact.
@@ -849,11 +988,33 @@ class PenguBuilder:
                     "-lmbedcrypto", "-lmicrohttpd", "-lz"
                 ])
                 if is_win:
-                    link_flags.extend(["-lws2_32", "-lwinmm", "-ladvapi32", "-lcrypt32", "-lbcrypt"])
+                    link_flags.extend([
+                        "-lws2_32", "-lwinmm", "-ladvapi32", "-lcrypt32", "-lbcrypt",
+                        # windowing / UI platform libraries (raylib, webui, ...)
+                        "-lopengl32", "-lgdi32", "-lole32", "-luuid", "-lshell32",
+                        # libuv platform libraries (psapi/userenv/iphlpapi)
+                        "-lpsapi", "-luserenv", "-liphlpapi",
+                    ])
                 else:
-                    link_flags.extend(["-pthread", "-lm"])
+                    # POSIX: prefer the static archives in build/lib (searched
+                    # first via -L) but fall back to the system libraries for
+                    # the ones build_runtime.py skips on this platform
+                    # (libxml2/libcurl/libmicrohttpd on Linux/macOS).
+                    link_flags.extend(["-pthread", "-lm", "-ldl"])
             else:
                 link_flags.append(f"-l{link}")
+
+        # GNU ld: wrap static archives in a group so inter-archive dependencies
+        # resolve regardless of -l order (libzip needs zlib's crc32/zError, the
+        # xlsxio/zip/yaml stack has several such edges). MSVC's link.exe has no
+        # --start-group; keep the plain order there.
+        if ("cl" not in cc.lower() and "msvc" not in cc.lower()) and link_flags:
+            link_flags = ["-Wl,--start-group"] + link_flags + ["-Wl,--end-group"]
+
+        # xlsxio headers are DLL_EXPORT-only on _WIN32 unless STATIC is defined.
+        if any(l in ("xlsxio_read", "xlsxio_write") for l in all_links):
+            if "-DSTATIC" not in common_flags:
+                common_flags.append("-DSTATIC")
 
         for ldflag in self.config.ldflags:
             link_flags.append(ldflag)
@@ -924,10 +1085,20 @@ class PenguBuilder:
         commands = self.build_compile_commands(bundle_path, out_path)
 
         for cmd in commands:
+            self._vlog(f"[pengu] running C compiler: {' '.join(cmd)}")
+            t_cmd = time.time()
             res = subprocess.run(cmd, cwd=self.config.base_dir, capture_output=True, text=True)
+            if self.verbose:
+                self._vlog(f"[pengu] command finished in {time.time() - t_cmd:.3f}s (rc={res.returncode})")
             if res.returncode != 0:
-                raise RuntimeError(
-                    f"Compilation failed with command: {' '.join(cmd)}\nStderr: {res.stderr}\nStdout: {res.stdout}"
+                cmd_line = " ".join(cmd)
+                detail = f"Command: {cmd_line}\nExit code: {res.returncode}"
+                if res.stdout and res.stdout.strip():
+                    detail += f"\n\nCompiler stdout:\n{res.stdout}"
+                if res.stderr and res.stderr.strip():
+                    detail += f"\n\nCompiler stderr:\n{res.stderr}"
+                raise CompileFailedError(
+                    f"C compilation failed ({self.config.name})\n\n{detail}"
                 )
 
         return out_path, False
@@ -937,7 +1108,11 @@ def build_project(
     config_path: Optional[str] = None,
     profile: str = "debug",
     entry: Optional[str] = None,
-    output: Optional[str] = None
+    output: Optional[str] = None,
+    test: bool = False,
+    defines: Optional[List[str]] = None,
+    cc: Optional[str] = None,
+    verbose: bool = False,
 ) -> str:
     """Builds project from configuration file with status printing.
 
@@ -946,6 +1121,10 @@ def build_project(
         profile: Selected build profile ('debug' or 'release').
         entry: Optional entry file path override.
         output: Optional output file path override.
+        test: True to compile integrated unit tests in --test mode.
+        defines: Optional -D NAME / -D NAME=value compile-time defines.
+        cc: Optional C compiler override (e.g. 'clang'), wins over config.
+        verbose: True to print module order, C commands and phase timings.
 
     Returns:
         Path to generated build artifact.
@@ -957,10 +1136,17 @@ def build_project(
     if output:
         if output.endswith(".c") or output == "bundle.c":
             config.output = OutputType.C
+    if defines:
+        config.defines = list(config.defines or []) + defines
+    if cc:
+        config.cc = cc
 
-    print(f"\033[1;36m   Compiling\033[0m {config.name} v{config.version} ({config.output.value}) [{config.profile}]")
+    print(f"\033[1;36m   Compiling\033[0m {config.name} v{config.version} ({config.output.value}) [{config.profile}]"
+          + (" [test]" if test else ""))
 
     builder = PenguBuilder(config)
+    builder.is_test_mode = test
+    builder.verbose = verbose
     if output and (output.endswith(".c") or output == "bundle.c"):
         artifact, is_cached = builder.bundle(output_file=output)
     else:
@@ -972,6 +1158,118 @@ def build_project(
     else:
         print(f"\033[1;32m    Finished\033[0m [{config.profile}] target(s) in {elapsed:.2f}s -> {artifact}")
     return artifact
+
+
+def check_project(
+    config_path: Optional[str] = None,
+    profile: str = "debug",
+    entry: Optional[str] = None,
+    defines: Optional[List[str]] = None,
+    cc: Optional[str] = None,
+    verbose: bool = False,
+) -> bool:
+    """Parses and type-checks every module without generating code (CI friendly).
+
+    Args:
+        config_path: Optional path to config file or directory.
+        profile: Selected build profile ('debug' or 'release').
+        entry: Optional entry file path override.
+        defines: Optional -D NAME / -D NAME=value compile-time defines.
+        cc: Optional C compiler override (informational for 'when').
+        verbose: True to print per-file progress.
+
+    Returns:
+        True when every module passes parse + semantic checking.
+    """
+    t0 = time.time()
+    config = ProjectConfig.load(config_path, profile=profile)
+    if entry:
+        config.entry = entry
+    if defines:
+        config.defines = list(config.defines or []) + defines
+    if cc:
+        config.cc = cc
+
+    print(f"\033[1;36m   Checking\033[0m {config.name} v{config.version} [{config.profile}]")
+
+    builder = PenguBuilder(config)
+    builder.verbose = verbose
+    ok, messages = builder.check_sources()
+    elapsed = time.time() - t0
+
+    if ok:
+        print(f"\033[1;32m     Clean\033[0m no errors found in {elapsed:.2f}s")
+    else:
+        print(f"\033[1;31m   Errors\033[0m found in {elapsed:.2f}s")
+        for msg in messages:
+            print(f"  {msg}", file=sys.stderr)
+    return ok
+
+
+def _collect_pengu_files(paths: List[str]) -> List[str]:
+    """Expands file/directory CLI arguments into a sorted .pengu file list."""
+    files: List[str] = []
+    for p in paths:
+        if os.path.isdir(p):
+            for root, _, names in os.walk(p):
+                for name in sorted(names):
+                    if name.endswith(".pengu"):
+                        files.append(os.path.join(root, name))
+        elif os.path.isfile(p):
+            if not p.endswith(".pengu"):
+                raise ValueError(f"Not a PenguScript file: {p}")
+            files.append(os.path.abspath(p))
+        else:
+            raise FileNotFoundError(f"Path not found: {p}")
+    return sorted(set(files))
+
+
+def fmt_files(paths: List[str], check_only: bool = False, write: bool = True,
+              indent: int = 2, tabs: bool = False, verbose: bool = False) -> int:
+    """Formats .pengu files/directories with the standard style.
+
+    Reuses the same formatting logic as the LSP's textDocument/formatting.
+
+    Args:
+        paths: Files and/or directories to format (directories are recursive).
+        check_only: True to only report files that would change (never writes).
+        write: True to overwrite files with formatted content.
+        indent: Spaces per indentation level.
+        tabs: True to indent with tabs.
+        verbose: True to print every file considered.
+
+    Returns:
+        Number of files that changed (or would change with --check).
+    """
+    from pengu_lsp.formatting import format_pengu_source
+
+    files = _collect_pengu_files(paths)
+    changed: List[str] = []
+    for fp in files:
+        try:
+            display = os.path.relpath(fp, os.getcwd())
+        except ValueError:
+            display = fp
+        with open(fp, "r", encoding="utf-8") as f:
+            original = f.read()
+        formatted = format_pengu_source(original, tab_size=indent, insert_spaces=not tabs)
+        if verbose:
+            print(f"   fmt {display}")
+        if formatted == original:
+            continue
+        changed.append(fp)
+        if verbose or check_only:
+            print(f"\033[1;33m would format\033[0m {display}")
+        if write and not check_only:
+            with open(fp, "w", encoding="utf-8") as f:
+                f.write(formatted)
+            print(f"\033[1;32m  formatted\033[0m {display}")
+
+    if check_only:
+        print(f"\n{len(changed)} file(s) would be reformatted.")
+    elif write:
+        print(f"\n{len(changed)} file(s) formatted.")
+    return len(changed)
 
 
 def clean_project(config_path: Optional[str] = None) -> None:
@@ -1081,6 +1379,101 @@ def _update_config_dependency(base_dir: str, dep_name: str, source: str, branch:
                 f.write(f'branch = "{branch}"\n')
 
 
+def _run_dependency_build(target_dir: str, dep_name: str) -> bool:
+    """Runs the dependency's build script (build.py / build.bat / build.sh / Makefile).
+
+    Args:
+        target_dir: Installed dependency directory.
+        dep_name: Dependency display name.
+
+    Returns:
+        True when a build script was found and executed.
+    """
+    build_py = os.path.join(target_dir, "build.py")
+    build_bat = os.path.join(target_dir, "build.bat")
+    build_sh = os.path.join(target_dir, "build.sh")
+    makefile = os.path.join(target_dir, "Makefile")
+
+    build_cmd = None
+    if os.path.isfile(build_py):
+        build_cmd = [sys.executable, "build.py"]
+    elif sys.platform == "win32" and os.path.isfile(build_bat):
+        build_cmd = ["cmd.exe", "/c", "build.bat"]
+    elif sys.platform != "win32" and os.path.isfile(build_sh):
+        build_cmd = ["sh", "build.sh"]
+    elif os.path.isfile(makefile):
+        build_cmd = ["make"]
+
+    if build_cmd:
+        print(f"\033[1;36m    Building\033[0m dependency '{dep_name}' with {' '.join(build_cmd)}")
+        res = subprocess.run(build_cmd, cwd=target_dir, capture_output=True, text=True)
+        if res.returncode != 0:
+            print(f"\033[1;33m     Warning\033[0m build script returned code {res.returncode}:\n{res.stderr}", file=sys.stderr)
+        return True
+    return False
+
+
+def update_project(config_path: Optional[str] = None, verbose: bool = False) -> int:
+    """Updates every configured dependency: git pull + re-run build scripts.
+
+    Args:
+        config_path: Optional path to pengu config file or project root.
+        verbose: True to print the git commands being executed.
+
+    Returns:
+        Number of dependencies updated.
+    """
+    config = ProjectConfig.load(config_path)
+    deps = config.dependencies or {}
+    if not deps:
+        print("\033[1;33m       Update\033[0m no dependencies configured.")
+        return 0
+
+    lib_dir = os.path.abspath(os.path.join(config.base_dir, config.lib_dir))
+    updated = 0
+    for dep_name, info in deps.items():
+        if isinstance(info, dict):
+            source = info.get("url") or info.get("source") or ""
+            branch = info.get("branch")
+        else:
+            source = str(info or "")
+            branch = None
+        if not source:
+            print(f"\033[1;33m     Skipping\033[0m dependency '{dep_name}' (no source url configured).", file=sys.stderr)
+            continue
+
+        target_dir = os.path.join(lib_dir, dep_name)
+        if not os.path.isdir(target_dir):
+            print(f"\033[1;33m     Skipping\033[0m dependency '{dep_name}' (not installed at {target_dir}). "
+                  f"Run 'pengu add {source}' first.", file=sys.stderr)
+            continue
+
+        print(f"\033[1;36m    Updating\033[0m dependency '{dep_name}'")
+
+        git_dir = os.path.join(target_dir, ".git")
+        if os.path.isdir(git_dir):
+            cmd_fetch = ["git", "-C", target_dir, "pull"]
+            if branch:
+                cmd_fetch = ["git", "-C", target_dir, "pull", "origin", branch]
+            if verbose:
+                print(f"   $ {' '.join(cmd_fetch)}", file=sys.stderr)
+            res = subprocess.run(cmd_fetch, capture_output=True, text=True)
+            if res.returncode != 0:
+                print(f"\033[1;33m     Warning\033[0m git pull failed (code {res.returncode}):\n{res.stderr}", file=sys.stderr)
+            else:
+                tail = (res.stdout or res.stderr or "").strip()
+                if tail:
+                    print(f"   {tail.splitlines()[-1]}")
+        else:
+            print("   (local copy — nothing to pull)")
+
+        _run_dependency_build(target_dir, dep_name)
+        updated += 1
+
+    print(f"\033[1;32m       Updated\033[0m {updated} dependency(ies).")
+    return updated
+
+
 def add_dependency(
     source: str,
     branch: Optional[str] = None,
@@ -1182,26 +1575,7 @@ def add_dependency(
 
     # 4. Run build script if present
     if run_build:
-        build_py = os.path.join(target_dir, "build.py")
-        build_bat = os.path.join(target_dir, "build.bat")
-        build_sh = os.path.join(target_dir, "build.sh")
-        makefile = os.path.join(target_dir, "Makefile")
-
-        build_cmd = None
-        if os.path.isfile(build_py):
-            build_cmd = [sys.executable, "build.py"]
-        elif sys.platform == "win32" and os.path.isfile(build_bat):
-            build_cmd = ["cmd.exe", "/c", "build.bat"]
-        elif sys.platform != "win32" and os.path.isfile(build_sh):
-            build_cmd = ["sh", "build.sh"]
-        elif os.path.isfile(makefile):
-            build_cmd = ["make"]
-
-        if build_cmd:
-            print(f"\033[1;36m    Building\033[0m dependency '{dep_name}' with {' '.join(build_cmd)}")
-            res = subprocess.run(build_cmd, cwd=target_dir, capture_output=True, text=True)
-            if res.returncode != 0:
-                print(f"\033[1;33m     Warning\033[0m build script returned code {res.returncode}:\n{res.stderr}", file=sys.stderr)
+        _run_dependency_build(target_dir, dep_name)
 
     # 5. Update configuration file
     _update_config_dependency(config.base_dir, dep_name, dep_source, branch)
@@ -1374,18 +1748,26 @@ pengu clean
     return proj_dir
 
 
-def run_project(config_path: Optional[str] = None, profile: str = "debug") -> int:
+def run_project(config_path: Optional[str] = None, profile: str = "debug", test: bool = False,
+                defines: Optional[List[str]] = None, cc: Optional[str] = None,
+                verbose: bool = False) -> int:
     """Builds and runs binary if output target is executable.
 
     Args:
         config_path: Optional path to config file or directory.
         profile: Selected build profile ('debug' or 'release').
+        test: True to compile integrated unit tests in --test mode.
+        defines: Optional -D NAME / -D NAME=value compile-time defines.
+        cc: Optional C compiler override.
+        verbose: True to print module order, C commands and phase timings.
 
     Returns:
         Process exit code.
     """
     config = ProjectConfig.load(config_path, profile=profile)
-    artifact = build_project(config_path, profile=profile)
+    if cc:
+        config.cc = cc
+    artifact = build_project(config_path, profile=profile, test=test, defines=defines, cc=cc, verbose=verbose)
     if config.output == OutputType.EXE and os.path.isfile(artifact):
         print(f"\033[1;36m     Running\033[0m {artifact}\n")
         sys.stdout.flush()
@@ -1393,6 +1775,118 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug") -> in
         res = subprocess.run([artifact], cwd=config.base_dir)
         return res.returncode
     return 0
+
+
+def run_script(script: str, defines: Optional[List[str]] = None,
+               cc: Optional[str] = None, verbose: bool = False) -> int:
+    """Compiles and runs a standalone .pengu file directly (script mode).
+
+    The script itself is compiled as the entry point with the compile-time
+    'main' variable set to true, so 'when main:' blocks inside it are emitted.
+    Any module the script imports is compiled with 'main' false, regardless of
+    this script's own mode.
+
+    Args:
+        script: Path to the .pengu file to execute.
+        defines: Optional -D NAME / -D NAME=value compile-time defines.
+        cc: Optional C compiler override (e.g. 'clang').
+        verbose: True to print module order, C commands and phase timings.
+
+    Returns:
+        Process exit code of the executed binary.
+    """
+    script_abs = os.path.abspath(script)
+    if not os.path.isfile(script_abs):
+        raise FileNotFoundError(f"Script not found: {script}")
+    if not script_abs.endswith(".pengu"):
+        raise ValueError(f"Not a PenguScript file: {script}")
+
+    base_dir = os.getcwd()
+    rel = os.path.relpath(script_abs, base_dir)
+    entry = rel if not rel.startswith("..") else script_abs
+    out_name = os.path.splitext(os.path.basename(script_abs))[0]
+
+    cfg = ProjectConfig(
+        entry=entry,
+        base_dir=base_dir,
+        output=OutputType.EXE,
+        output_name=out_name,
+        name=out_name,
+    )
+    # Script runs get their own build sub-directory so concurrent/sequential
+    # script executions (and test suites) never fight over a shared
+    # bundle.c / pengu_runtime.h / executable in build/.
+    cfg.build_dir = os.path.join("build", f"{out_name}_run")
+    if defines:
+        cfg.defines = list(cfg.defines or []) + defines
+    if cc:
+        cfg.cc = cc
+
+    t0 = time.time()
+    print(f"\033[1;36m   Scripting\033[0m {os.path.basename(script_abs)}")
+    builder = PenguBuilder(cfg)
+    builder.is_test_mode = False
+    builder.entry_as_main = True
+    builder.verbose = verbose
+    artifact, is_cached = builder.compile()
+    elapsed = time.time() - t0
+    if is_cached:
+        print(f"\033[1;32m    Finished\033[0m (cached) in {elapsed:.2f}s -> {artifact}")
+    else:
+        print(f"\033[1;32m    Finished\033[0m in {elapsed:.2f}s -> {artifact}")
+
+    print(f"\033[1;36m     Running\033[0m {artifact}\n")
+    sys.stdout.flush()
+    sys.stderr.flush()
+    res = subprocess.run([artifact], cwd=base_dir)
+    return res.returncode
+
+
+def test_project(config_path: Optional[str] = None, profile: str = "debug", entry: Optional[str] = None,
+                 defines: Optional[List[str]] = None, cc: Optional[str] = None,
+                 verbose: bool = False) -> int:
+    """Compiles the project in --test mode and executes the integrated unit tests.
+
+    The project entry is built as an executable whose main runs every 'test'
+    block declared in the compilation units.
+
+    Args:
+        config_path: Optional path to config file or directory.
+        profile: Selected build profile ('debug' or 'release').
+        entry: Optional entry file path override.
+        defines: Optional -D NAME / -D NAME=value compile-time defines.
+        cc: Optional C compiler override.
+        verbose: True to print module order, C commands and phase timings.
+
+    Returns:
+        Test process exit code (0 when every test passed).
+    """
+    config = ProjectConfig.load(config_path, profile=profile)
+    if entry:
+        config.entry = entry
+    if defines:
+        config.defines = list(config.defines or []) + defines
+    if cc:
+        config.cc = cc
+    config.output = OutputType.EXE
+
+    t0 = time.time()
+    print(f"\033[1;36m   Testing\033[0m {config.name} v{config.version} [--test, {config.profile}]")
+    builder = PenguBuilder(config)
+    builder.is_test_mode = True
+    builder.verbose = verbose
+    artifact, is_cached = builder.compile()
+    elapsed = time.time() - t0
+    if is_cached:
+        print(f"\033[1;32m    Finished\033[0m (cached) in {elapsed:.2f}s -> {artifact}")
+    else:
+        print(f"\033[1;32m    Finished\033[0m in {elapsed:.2f}s -> {artifact}")
+
+    print(f"\033[1;36m     Running\033[0m tests\n")
+    sys.stdout.flush()
+    sys.stderr.flush()
+    res = subprocess.run([artifact], cwd=config.base_dir)
+    return res.returncode
 
 
 def create_cli_parser() -> argparse.ArgumentParser:
@@ -1405,7 +1899,14 @@ def create_cli_parser() -> argparse.ArgumentParser:
   pengu add https://github.com/webui-dev/webui
   pengu add ../local_binding -n my_binding
   pengu build --profile release
+  pengu build --cc clang --verbose
+  pengu check                       # parse + type-check without codegen (CI)
+  pengu fmt src/ tests/             # format files/directories
+  pengu fmt --check src/            # verify formatting (exit 1 if changes)
   pengu run --profile debug
+  pengu run hello.pengu             # run a standalone script (when main: enabled)
+  pengu update                      # git pull + rebuild every dependency
+  pengu bind webui.h --prefix webui_ --links webui-2-static ole32 stdc++ uuid
   pengu clean
 """
     )
@@ -1433,12 +1934,71 @@ def create_cli_parser() -> argparse.ArgumentParser:
     build_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
     build_p.add_argument("--entry", "-e", default=None, help="Override entry file path")
     build_p.add_argument("--output", "-o", default=None, help="Override output file path (e.g. build/bundle.c)")
+    build_p.add_argument("--test", action="store_true", help="Compile integrated unit tests (test blocks) into the bundle")
+    build_p.add_argument("--cc", default=None, help="C compiler override (e.g. 'clang'); wins over pengu.yaml")
+    build_p.add_argument("--verbose", action="store_true", help="Print module order, C commands and phase timings")
+    build_p.add_argument("-D", "--define", dest="defines", action="append", default=None,
+                         help="Compile-time define: -D NAME or -D os=linux / arch=x64 / compiler=clang / main (repeatable)")
 
     # run
-    run_p = subparsers.add_parser("run", help="Build and execute the project target")
+    run_p = subparsers.add_parser("run", help="Build and execute the project target, or run a standalone .pengu script")
+    run_p.add_argument("script", nargs="?", default=None,
+                       help="Optional .pengu file to run directly as a script (when main: enabled); omit to run the project")
     run_p.add_argument("--profile", "-p", default="debug", help="Build profile (e.g. debug, release)")
     run_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
     run_p.add_argument("--entry", "-e", default=None, help="Override entry file path")
+    run_p.add_argument("--test", action="store_true", help="Build in --test mode and run the unit tests")
+    run_p.add_argument("--cc", default=None, help="C compiler override (e.g. 'clang')")
+    run_p.add_argument("--verbose", action="store_true", help="Print module order, C commands and phase timings")
+    run_p.add_argument("-D", "--define", dest="defines", action="append", default=None,
+                       help="Compile-time define: -D NAME or -D os=linux / arch=x64 / compiler=clang / main (repeatable)")
+
+    # test
+    test_p = subparsers.add_parser("test", help="Compile and run the project's integrated unit tests")
+    test_p.add_argument("--profile", "-p", default="debug", help="Build profile (e.g. debug, release)")
+    test_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
+    test_p.add_argument("--entry", "-e", default=None, help="Override entry file path")
+    test_p.add_argument("--cc", default=None, help="C compiler override (e.g. 'clang')")
+    test_p.add_argument("--verbose", action="store_true", help="Print module order, C commands and phase timings")
+    test_p.add_argument("-D", "--define", dest="defines", action="append", default=None,
+                        help="Compile-time define: -D NAME or -D os=linux / arch=x64 / compiler=clang / main (repeatable)")
+
+    # check
+    check_p = subparsers.add_parser("check", help="Parse and type-check every module without generating code (CI)")
+    check_p.add_argument("--profile", "-p", default="debug", help="Build profile (e.g. debug, release)")
+    check_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
+    check_p.add_argument("--entry", "-e", default=None, help="Override entry file path")
+    check_p.add_argument("--cc", default=None, help="C compiler override (informational for 'when compiler')")
+    check_p.add_argument("--verbose", action="store_true", help="Print per-file progress")
+    check_p.add_argument("-D", "--define", dest="defines", action="append", default=None,
+                         help="Compile-time define: -D NAME or -D os=linux / arch=x64 / compiler=clang / main (repeatable)")
+
+    # update
+    update_p = subparsers.add_parser("update", help="Update dependencies: git pull + re-run build scripts")
+    update_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
+    update_p.add_argument("--verbose", action="store_true", help="Print the git commands being executed")
+
+    # bind
+    bind_p = subparsers.add_parser("bind", help="Generate a .d.pengu binding from a C header")
+    bind_p.add_argument("header", help="Path to the C header file (.h) to translate")
+    bind_p.add_argument("--prefix", default="", help="Insignia prefix added to function names (e.g. webui_)")
+    bind_p.add_argument("--links", nargs="*", default=[], help="Native libraries to emit as link \"...\" lines")
+    bind_p.add_argument("--output", default="", help="Output .d.pengu path (default: next to the header)")
+    bind_p.add_argument("--no-comments", action="store_true", help="Do not emit documentation comments")
+    bind_p.add_argument("--ignore", nargs="*", default=[], help="Symbol names / regexes to skip")
+    bind_p.add_argument("--include-paths", nargs="*", default=[], help="Extra include directories for the preprocessor")
+    bind_p.add_argument("--no-cpp", dest="use_cpp", action="store_false", default=True,
+                        help="Do not run the C preprocessor (simple headers only)")
+
+    # fmt
+    fmt_p = subparsers.add_parser("fmt", help="Format .pengu files or directories (standard style)")
+    fmt_p.add_argument("paths", nargs="+", help="Files and/or directories to format (directories are searched recursively)")
+    fmt_p.add_argument("--check", action="store_true", help="Do not write; exit non-zero when a file would change")
+    fmt_p.add_argument("--write", action="store_true", default=True, help="Write formatted output back to disk (default)")
+    fmt_p.add_argument("--indent", type=int, default=2, help="Spaces per indentation level (default: 2)")
+    fmt_p.add_argument("--tabs", action="store_true", help="Indent with tabs instead of spaces")
+    fmt_p.add_argument("--verbose", action="store_true", help="Print every file considered")
+
 
     # clean
     clean_p = subparsers.add_parser("clean", help="Remove build directory and generated artifacts")
@@ -1451,7 +2011,20 @@ def create_cli_parser() -> argparse.ArgumentParser:
     lsp_p.add_argument("--host", default="127.0.0.1", help="TCP bind host (default: 127.0.0.1)")
     lsp_p.add_argument("--port", type=int, default=2087, help="TCP bind port (default: 2087)")
 
+    # doc
+    doc_p = subparsers.add_parser("doc", help="Generate Markdown documentation from ## comments")
+    doc_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
+    doc_p.add_argument("--entry", "-e", default=None, help="Override entry file path")
+    doc_p.add_argument("--output", "-o", default=None, help="Output directory (default: <project>/docs)")
+
     return parser
+
+
+def _print_compile_error(err: "CompileFailedError") -> None:
+    """Prints a formatted C-compilation error and exits with status 1."""
+    print("\n\033[1;31mError:\033[0m", file=sys.stderr)
+    print(str(err), file=sys.stderr)
+    sys.exit(1)
 
 
 def main():
@@ -1477,14 +2050,89 @@ def main():
             run_build=not args.no_build
         )
     elif args.command == "build":
-        build_project(
+        try:
+            build_project(
+                config_path=args.config,
+                profile=args.profile,
+                entry=getattr(args, "entry", None),
+                output=getattr(args, "output", None),
+                test=getattr(args, "test", False),
+                defines=getattr(args, "defines", None),
+                cc=getattr(args, "cc", None),
+                verbose=getattr(args, "verbose", False)
+            )
+        except CompileFailedError as e:
+            _print_compile_error(e)
+    elif args.command == "run":
+        try:
+            if getattr(args, "script", None):
+                sys.exit(run_script(
+                    script=args.script,
+                    defines=getattr(args, "defines", None),
+                    cc=getattr(args, "cc", None),
+                    verbose=getattr(args, "verbose", False)
+                ))
+            sys.exit(run_project(
+                config_path=args.config,
+                profile=args.profile,
+                test=getattr(args, "test", False),
+                defines=getattr(args, "defines", None),
+                cc=getattr(args, "cc", None),
+                verbose=getattr(args, "verbose", False)
+            ))
+        except CompileFailedError as e:
+            _print_compile_error(e)
+    elif args.command == "test":
+        try:
+            sys.exit(test_project(
+                config_path=args.config,
+                profile=args.profile,
+                entry=getattr(args, "entry", None),
+                defines=getattr(args, "defines", None),
+                cc=getattr(args, "cc", None),
+                verbose=getattr(args, "verbose", False)
+            ))
+        except CompileFailedError as e:
+            _print_compile_error(e)
+    elif args.command == "check":
+        ok = check_project(
             config_path=args.config,
             profile=args.profile,
             entry=getattr(args, "entry", None),
-            output=getattr(args, "output", None)
+            defines=getattr(args, "defines", None),
+            cc=getattr(args, "cc", None),
+            verbose=getattr(args, "verbose", False)
         )
-    elif args.command == "run":
-        sys.exit(run_project(config_path=args.config, profile=args.profile))
+        sys.exit(0 if ok else 1)
+    elif args.command == "fmt":
+        changed = fmt_files(
+            paths=args.paths,
+            check_only=args.check,
+            write=args.write,
+            indent=args.indent,
+            tabs=args.tabs,
+            verbose=args.verbose
+        )
+        sys.exit(1 if (args.check and changed > 0) else 0)
+    elif args.command == "update":
+        update_project(config_path=args.config, verbose=getattr(args, "verbose", False))
+    elif args.command == "bind":
+        from pengu_bind import HeaderParseError, generate_bind_file
+        try:
+            out = generate_bind_file(
+                header=args.header,
+                output=args.output or None,
+                prefix=args.prefix,
+                links=args.links,
+                ignore=args.ignore,
+                include_paths=args.include_paths,
+                use_cpp=args.use_cpp,
+                no_comments=args.no_comments,
+            )
+            print(f"\033[1;32m     Bound\033[0m {args.header} -> {out}")
+        except (HeaderParseError, FileNotFoundError, ValueError) as e:
+            print(f"\033[1;31m       Bind\033[0m {e}", file=sys.stderr)
+            sys.exit(1)
     elif args.command == "clean":
         clean_project(config_path=args.config)
     elif args.command == "lsp":
@@ -1512,6 +2160,9 @@ def main():
                 print(f"[LSP] Server stopped: {e}", file=sys.stderr)
         except KeyboardInterrupt:
             pass
+    elif args.command == "doc":
+        from pengu_doc import doc_project
+        doc_project(config_path=args.config, output=args.output, entry=getattr(args, "entry", None))
     else:
         parser.print_help()
 

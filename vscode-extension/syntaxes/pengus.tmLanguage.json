@@ -4,7 +4,8 @@
   "scopeName": "source.pengus",
   "fileTypes": [
     "pengu",
-    "pengus"
+    "pengus",
+    "d.pengu"
   ],
   "patterns": [
     { "include": "#comments" },
@@ -18,11 +19,16 @@
     { "include": "#builtin_types" },
     { "include": "#keywords_control" },
     { "include": "#keywords_declaration" },
+    { "include": "#test_definition" },
     { "include": "#operators" }
   ],
   "repository": {
     "comments": {
       "patterns": [
+        {
+          "name": "comment.line.double-hash.pengus",
+          "match": "^##.*$"
+        },
         {
           "name": "comment.block.pengus",
           "begin": "##",
@@ -94,6 +100,10 @@
     "constants": {
       "patterns": [
         {
+          "name": "constant.language.null.pengus",
+          "match": "\\bnull\\b"
+        },
+        {
           "name": "constant.language.boolean.pengus",
           "match": "\\b(true|false)\\b"
         },
@@ -125,9 +135,9 @@
     "function_definition": {
       "patterns": [
         {
-          "match": "\\b(inline\\s+)?(weave)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+          "match": "\\b((?:(?:inline|ritual)\\s+)+)?(weave)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
           "captures": {
-            "1": { "name": "storage.modifier.inline.pengus" },
+            "1": { "name": "storage.modifier.function.pengus" },
             "2": { "name": "keyword.declaration.function.pengus" },
             "3": { "name": "entity.name.function.pengus" }
           }
@@ -144,7 +154,7 @@
     "type_definition": {
       "patterns": [
         {
-          "match": "\\b(rune|echo|omen|alias|enchanting)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+          "match": "\\b(rune|echo|omen|alias|enchanting|concept|bind|seal)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
           "captures": {
             "1": { "name": "keyword.declaration.type.pengus" },
             "2": { "name": "entity.name.type.class.pengus" }
@@ -168,7 +178,7 @@
       "patterns": [
         {
           "name": "keyword.control.pengus",
-          "match": "\\b(if|then|else|unless|while|for|from|to|step|in|with|judge|when|or\\s+else|or\\s+return|or|return|break|continue|defer|errdefer|banish|try)\\b"
+          "match": "\\b(if|then|else|unless|while|for|from|to|step|in|with|judge|when|or\\s+else|or\\s+return|or|return|break|continue|defer|errdefer|banish|try|defined|bytes\\s+of|some|ord|chr|transmute|sigil\\s+of|essence\\s+of|size\\s+of)\\b"
         }
       ]
     },
@@ -176,7 +186,18 @@
       "patterns": [
         {
           "name": "keyword.other.declaration.pengus",
-          "match": "\\b(var|let|const|set|declare|import|include|link|sigil|essence|shard|many|of|is|as|into|and|capacity|size|length|at|transmute|present|not\\s+present)\\b"
+          "match": "\\b(var|let|const|set|declare|import|include|link|sigil|essence|shard|many|of|is|as|into|and|capacity|size|length|at|transmute|present|not\\s+present|insignia|concept|bind|seal|ritual|where|static|test)\\b"
+        }
+      ]
+    },
+    "test_definition": {
+      "patterns": [
+        {
+          "match": "\\b(test)\\s+(\"[^\"]*\"|[a-zA-Z_][a-zA-Z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.other.declaration.pengus" },
+            "2": { "name": "entity.name.function.pengus" }
+          }
         }
       ]
     },

@@ -6,19 +6,80 @@ from lark import Tree, Token
 from .pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ManyType, ListType, MapType, MaybeType,
     RuneType, EchoType, OmenType, ResultType, FnType, OPAQUE_TYPE, AliasType, AnyType,
-    TypeParam, INT_TYPE, I32_TYPE, I64_TYPE, U32_TYPE, U64_TYPE, CHAR_TYPE, BYTE_TYPE,
+    TypeParam, NullType, NULL_TYPE, INT_TYPE, I32_TYPE, I64_TYPE, U32_TYPE, U64_TYPE, CHAR_TYPE, BYTE_TYPE,
     U8_TYPE, I8_TYPE, U16_TYPE, I16_TYPE, USIZE_TYPE, ISIZE_TYPE, FLOAT_TYPE, F32_TYPE,
-    F64_TYPE, DOUBLE_TYPE, BOOL_TYPE, STRING_TYPE, VOID_TYPE, ERROR_TYPE, ast_to_type
+    F64_TYPE, DOUBLE_TYPE, BOOL_TYPE, STRING_TYPE, VOID_TYPE, ERROR_TYPE, ConceptType, SealType,
+    implements_concept, resolve_concept_method, ast_to_type
 )
 from .pengu_symbols import SymbolTable, Symbol, Scope, resolve_imports, find_module_path
 from .pengu_infer import TypeInferrer, ConstFolder
+from .pengu_comptime import CompileTimeEnv, default_env, eval_comptime
 from .pengu_errors import (
     PenguError, ErrorReporter, SemanticError, ConstInsideWeaveError, VarLetTopLevelError,
     SelfDotAccessError, UndefinedIdentifierError, TypeMismatchError, MutabilityError,
     InvalidControlFlowError, InvalidMemoryOpError, InvalidWithTargetError,
     GenericTypeMissingArgsError, TypeParamOutsideGenericError, MultipleManyParamsError,
-    ManyParamNotLastError, suggest_similar_identifier
+    ManyParamNotLastError, MultipleInsigniaError, DuplicateOmenValueError,
+    InvalidOmenPayloadValueError, InvalidOmenConstantValueError,
+    ConceptMethodMismatchError, UnimplementedConceptMethodError, ConceptBoundNotSatisfiedError,
+    InvalidRitualSelfAccessError, InvalidRitualCallError, SealTypeMismatchError,
+    suggest_similar_identifier
 )
+
+
+def _node_to_name(node: Any) -> str:
+    """Extracts plain identifier / type name from Token or Tree (dotted_path, custom_type, etc.)."""
+    if isinstance(node, Token):
+        return str(node)
+    if isinstance(node, Tree):
+        if node.data == "dotted_path":
+            return ".".join(str(c) for c in node.children if isinstance(c, (Token, str)))
+        if node.data in ("custom_type", "type_param", "type", "where_bound", "base_type"):
+            if node.children:
+                return _node_to_name(node.children[0])
+        if len(node.children) == 1:
+            return _node_to_name(node.children[0])
+        return ".".join(_node_to_name(c) for c in node.children if isinstance(c, (Token, Tree)))
+    return str(node)
+
+
+def _extract_weave_modifiers(children: List[Any], start_idx: int = 0) -> Tuple[bool, bool, int]:
+    """Extracts is_inline, is_ritual and returns (is_inline, is_ritual, next_idx)."""
+    is_inline = False
+    is_ritual = False
+    idx = start_idx
+    while idx < len(children):
+        ch = children[idx]
+        if isinstance(ch, Tree) and ch.data == "weave_modifier":
+            val = str(ch.children[0])
+            if val == "inline": is_inline = True
+            elif val == "ritual": is_ritual = True
+            idx += 1
+        elif isinstance(ch, Token) and (ch.type == "WEAVE_MODIFIER" or str(ch) in ("inline", "ritual")):
+            if str(ch) == "inline": is_inline = True
+            elif str(ch) == "ritual": is_ritual = True
+            idx += 1
+        else:
+            break
+    return is_inline, is_ritual, idx
+
+
+def extract_shard_params(shard_node: Tree) -> Tuple[List[str], Dict[str, List[str]]]:
+    """Extracts type parameter names and optional where concept bounds from a shard_params AST node."""
+    type_params: List[str] = []
+    bounds: Dict[str, List[str]] = {}
+    if not isinstance(shard_node, Tree):
+        return type_params, bounds
+    for ch in shard_node.children:
+        if isinstance(ch, Token) and ch.type == "NAME":
+            type_params.append(str(ch))
+        elif isinstance(ch, Tree) and ch.data == "where_clause":
+            for wb in ch.children:
+                if isinstance(wb, Tree) and wb.data == "where_bound":
+                    t_param_name = _node_to_name(wb.children[0])
+                    concept_name = _node_to_name(wb.children[1])
+                    bounds.setdefault(t_param_name, []).append(concept_name)
+    return type_params, bounds
 
 
 class PenguChecker:
@@ -32,7 +93,8 @@ class PenguChecker:
         source: str = "",
         filename: str = "main.pengu",
         source_code: Optional[str] = None,
-        base_dir: Optional[str] = None
+        base_dir: Optional[str] = None,
+        compile_env: Optional[CompileTimeEnv] = None
     ):
         """Initializes semantic checker instance with source code and directory context.
 
@@ -41,6 +103,7 @@ class PenguChecker:
             filename: Source file path.
             source_code: Optional explicit source code text override.
             base_dir: Base directory for module import resolution.
+            compile_env: Optional compile-time environment for 'when' clauses.
         """
         self.source_code = source_code if source_code is not None else source
         self.filename = filename
@@ -50,11 +113,13 @@ class PenguChecker:
             self.base_dir = os.path.abspath(os.path.dirname(filename))
         else:
             self.base_dir = os.path.abspath(os.getcwd())
+        self.compile_env = compile_env if compile_env is not None else default_env()
 
         self.errors: List[PenguError] = []
         self.warnings: List[str] = []
         self.symbols = SymbolTable()
-        self.inferrer = TypeInferrer(self.symbols, source_code=self.source_code, filename=self.filename)
+        self.inferrer = TypeInferrer(self.symbols, source_code=self.source_code, filename=self.filename,
+                                     compile_env=self.compile_env)
         self.const_folder = ConstFolder(self.symbols)
 
     def check(
@@ -97,7 +162,8 @@ class PenguChecker:
         elif reset_symbols or not hasattr(self, "symbols") or self.symbols is None:
             self.symbols = SymbolTable()
             self._collected_files = set()
-        self.inferrer = TypeInferrer(self.symbols, source_code=self.source_code, filename=self.filename)
+        self.inferrer = TypeInferrer(self.symbols, source_code=self.source_code, filename=self.filename,
+                                     compile_env=self.compile_env)
         self.const_folder = ConstFolder(self.symbols)
         if import_order is not None:
             self.symbols.import_order = import_order
@@ -289,6 +355,8 @@ class PenguChecker:
             return None
         lines = self.source_code.splitlines()
         idx = line - 2  # 0-indexed line above declaration
+        if idx >= len(lines):
+            return None
         collected: List[str] = []
 
         while idx >= 0:
@@ -319,6 +387,81 @@ class PenguChecker:
         collected.reverse()
         return "\n".join(collected).strip()
 
+    def _eval_when_condition(self, cond_node: Any, node: Any) -> Optional[bool]:
+        """Evaluates a 'when' condition against the compile-time environment.
+
+        Returns True/False, or None (recording an error) when the condition is
+        not a constant boolean expression.
+        """
+        val = eval_comptime(self.compile_env, cond_node)
+        if val is None or not isinstance(val, bool):
+            err = self._make_error(
+                SemanticError,
+                "'when' condition must evaluate to a compile-time boolean constant",
+                node,
+                code="E0039",
+                help="Use expressions such as os == \"windows\", defined(NAME), or literal true/false.",
+                note="Compile-time 'when' conditions must be constant and side-effect free."
+            )
+            self._record_error(err)
+            return None
+        return val
+
+    def _active_when_top_items(self, node: Tree) -> List[Tree]:
+        """Returns the top_stmt wrappers belonging to the active branch of a when_top_decl.
+
+        Args:
+            node: when_top_decl AST node.
+
+        Returns:
+            List of 'top_stmt' trees that should be processed for this platform.
+        """
+        chosen: List[Tree] = []
+        if not node.children:
+            return chosen
+        val = self._eval_when_condition(node.children[0], node)
+        if val is None:
+            return chosen
+        if val:
+            for c in node.children[1:]:
+                if isinstance(c, Tree) and c.data == "top_stmt":
+                    chosen.append(c)
+        else:
+            for c in node.children[1:]:
+                if not isinstance(c, Tree):
+                    continue
+                if c.data == "when_top_else_plain":
+                    for ic in c.children:
+                        if isinstance(ic, Tree) and ic.data == "top_stmt":
+                            chosen.append(ic)
+                elif c.data == "when_top_else_when":
+                    for ic in c.children:
+                        if isinstance(ic, Tree):
+                            if ic.data == "top_stmt":
+                                chosen.append(ic)
+                            elif ic.data == "when_top_decl":
+                                chosen.append(Tree("top_stmt", [ic]))
+        return chosen
+
+    def _active_when_stmt_items(self, node: Tree) -> Tuple[Optional[Tree], Optional[Tree]]:
+        """Resolves the active branch of a statement-level when_stmt.
+
+        Returns:
+            (then_block_or_None, else_children_container_or_None). The caller
+            decides how to traverse each based on its Lark rule ('block',
+            'when_else_plain' or 'when_else_when').
+        """
+        if not node.children:
+            return None, None
+        val = self._eval_when_condition(node.children[0], node)
+        if val is None:
+            return None, None
+        then_block = node.children[1] if (len(node.children) > 1 and isinstance(node.children[1], Tree) and node.children[1].data == "block") else None
+        else_node = node.children[2] if len(node.children) > 2 and isinstance(node.children[2], Tree) else None
+        if val:
+            return then_block, None
+        return None, else_node
+
     # -------------------------------------------------------------------------
     # Pass 1: Collect Top-Level Declarations
     # -------------------------------------------------------------------------
@@ -330,6 +473,7 @@ class PenguChecker:
             import_order: Optional precomputed topological import order.
         """
         has_imports = False
+        current_insignia: Optional[str] = None
 
         file_imports: Set[str] = set()
         for child in tree.children:
@@ -348,7 +492,22 @@ class PenguChecker:
             line, col = self._get_loc(stmt)
             rule = stmt.data
 
-            if rule == "include_stmt":
+            if rule == "insignia_stmt":
+                if current_insignia is not None:
+                    err = self._make_error(
+                        MultipleInsigniaError,
+                        "Multiple 'insignia' directives not allowed",
+                        stmt,
+                        code="E0026",
+                        help="Only one 'insignia' directive is allowed per module file.",
+                        note="The 'insignia' directive sets the global C prefix for all subsequent declarations in this file."
+                    )
+                    self._record_error(err)
+                else:
+                    prefix_tok = stmt.children[0]
+                    current_insignia = str(prefix_tok)
+
+            elif rule == "include_stmt":
                 inc = str(stmt.children[0]).strip('"')
                 self.symbols.has_includes = True
                 self.symbols.includes.append(inc)
@@ -361,6 +520,9 @@ class PenguChecker:
                 has_imports = True
                 path_tree = stmt.children[0]
                 dot_path = ".".join(str(t) for t in path_tree.children)
+                alias = None
+                if len(stmt.children) > 1 and stmt.children[1] is not None:
+                    alias = str(stmt.children[1])
                 if dot_path in file_imports:
                     err = self._make_error(
                         SemanticError,
@@ -375,6 +537,42 @@ class PenguChecker:
                 self.symbols.imported_modules.add(dot_path)
                 self.symbols.imports.append(dot_path)
                 last_name = str(path_tree.children[-1])
+                bind_name = alias if alias is not None else last_name
+
+                if alias is not None:
+                    if alias == "_":
+                        err = self._make_error(
+                            SemanticError,
+                            "Import alias cannot be '_' (discard)",
+                            stmt,
+                            code="E0036",
+                            help="Use a meaningful identifier as the import alias.",
+                            note="'_' is reserved as a discard placeholder and cannot alias a module."
+                        )
+                        self._record_error(err)
+                    else:
+                        # Conflicts are only reported against built-ins or names
+                        # declared in THIS file; in a multi-module build every
+                        # module is collected into one shared table, so symbols
+                        # from other files must not trip the alias check.
+                        def _same_file(fp):
+                            if not fp:
+                                return True  # built-in / global-scope symbol
+                            try:
+                                return os.path.abspath(fp) == os.path.abspath(self.filename)
+                            except Exception:
+                                return fp == self.filename
+                        clash = self.symbols.lookup(alias)
+                        if clash is not None and _same_file(clash.file_path):
+                            err = self._make_error(
+                                SemanticError,
+                                f"Import alias '{alias}' for module '{dot_path}' conflicts with an existing symbol",
+                                stmt,
+                                code="E0036",
+                                help=f"Choose a different alias for module '{dot_path}'.",
+                                note="Import aliases must not collide with other visible names."
+                            )
+                            self._record_error(err)
 
                 mod_scope = Scope(kind="module")
                 mod_file = None
@@ -394,17 +592,23 @@ class PenguChecker:
                         for sname, sym in sub_checker.symbols.global_scope.symbols.items():
                             if sym.kind != "import":
                                 mod_scope.define(sym)
+                                eff_c_name = sym.get_c_name()
                                 if sym.kind in ("weave", "function", "declare") and isinstance(sym.type, FnType):
-                                    self.symbols.functions[f"{last_name}_{sname}"] = sym.type
+                                    self.symbols.functions[f"{bind_name}_{sname}"] = sym.type
+                                    self.symbols.functions[eff_c_name] = sym.type
                                 if sym.kind == "rune" and isinstance(sym.type, RuneType):
-                                    self.symbols.runes[f"{last_name}_{sname}"] = sym.type
+                                    self.symbols.runes[f"{bind_name}_{sname}"] = sym.type
+                                    self.symbols.runes[eff_c_name] = sym.type
+                                if sym.kind == "const":
+                                    self.symbols.consts[f"{bind_name}_{sname}"] = (sym.type, getattr(sym, "const_val", None))
+                                    self.symbols.consts[eff_c_name] = (sym.type, getattr(sym, "const_val", None))
                 except Exception:
                     pass
 
                 mod_doc = self._extract_preceding_doc(line) or f"Module `{dot_path}`"
                 self.symbols.global_scope.define(Symbol(
-                    name=last_name,
-                    type=RuneType(name=last_name),
+                    name=bind_name,
+                    type=RuneType(name=bind_name),
                     kind="import",
                     line=line, column=col,
                     doc=mod_doc,
@@ -412,12 +616,19 @@ class PenguChecker:
                     file_path=mod_file
                 ))
 
+            elif rule == "when_top_decl":
+                chosen = self._active_when_top_items(stmt)
+                if chosen:
+                    self._collect_top_level(Tree("file", chosen))
+
             elif rule == "rune_decl":
                 r_name = str(stmt.children[0])
+                c_r_name = f"{current_insignia}{r_name}" if current_insignia else r_name
                 type_params = []
+                bounds = {}
                 rem_children = [c for c in stmt.children[1:] if c is not None]
                 if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "shard_params":
-                    type_params = [str(c) for c in rem_children[0].children if isinstance(c, Token)]
+                    type_params, bounds = extract_shard_params(rem_children[0])
                     rem_children = rem_children[1:]
 
                 if len(type_params) != len(set(type_params)):
@@ -432,7 +643,7 @@ class PenguChecker:
 
                 def lookup_tp(tname: str):
                     if tname in type_params:
-                        return TypeParam(tname)
+                        return TypeParam(tname, bounds=bounds.get(tname, []))
                     return self.symbols.lookup_type(tname)
 
                 fields: Dict[str, Type] = {}
@@ -449,22 +660,26 @@ class PenguChecker:
                     rune_t = RuneType(name=r_name, fields=fields)
 
                 self.symbols.runes[r_name] = rune_t
+                if c_r_name != r_name:
+                    self.symbols.runes[c_r_name] = rune_t
                 doc = self._extract_preceding_doc(line)
                 self.symbols.global_scope.define(Symbol(
-                    name=r_name, type=rune_t, kind="rune", line=line, column=col, doc=doc, file_path=self.filename
+                    name=r_name, type=rune_t, kind="rune", line=line, column=col, doc=doc, file_path=self.filename, c_name=c_r_name
                 ))
 
             elif rule == "echo_decl":
                 e_name = str(stmt.children[0])
+                c_e_name = f"{current_insignia}{e_name}" if current_insignia else e_name
                 type_params = []
+                bounds = {}
                 rem_children = [c for c in stmt.children[1:] if c is not None]
                 if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "shard_params":
-                    type_params = [str(c) for c in rem_children[0].children if isinstance(c, Token)]
+                    type_params, bounds = extract_shard_params(rem_children[0])
                     rem_children = rem_children[1:]
 
                 def lookup_tp(tname: str):
                     if tname in type_params:
-                        return TypeParam(tname)
+                        return TypeParam(tname, bounds=bounds.get(tname, []))
                     return self.symbols.lookup_type(tname)
 
                 fields: Dict[str, Type] = {}
@@ -481,67 +696,180 @@ class PenguChecker:
                     echo_t = EchoType(name=e_name, fields=fields)
 
                 self.symbols.echos[e_name] = echo_t
+                if c_e_name != e_name:
+                    self.symbols.echos[c_e_name] = echo_t
                 doc = self._extract_preceding_doc(line)
                 self.symbols.global_scope.define(Symbol(
-                    name=e_name, type=echo_t, kind="echo", line=line, column=col, doc=doc, file_path=self.filename
+                    name=e_name, type=echo_t, kind="echo", line=line, column=col, doc=doc, file_path=self.filename, c_name=c_e_name
                 ))
 
             elif rule == "omen_decl":
                 o_name = str(stmt.children[0])
+                c_o_name = f"{current_insignia}{o_name}" if current_insignia else o_name
                 type_params = []
+                bounds = {}
                 rem_children = [c for c in stmt.children[1:] if c is not None]
                 if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "shard_params":
-                    type_params = [str(c) for c in rem_children[0].children if isinstance(c, Token)]
+                    type_params, bounds = extract_shard_params(rem_children[0])
                     rem_children = rem_children[1:]
 
                 def lookup_tp(tname: str):
                     if tname in type_params:
-                        return TypeParam(tname)
+                        return TypeParam(tname, bounds=bounds.get(tname, []))
                     return self.symbols.lookup_type(tname)
 
                 variants: Dict[str, Dict[str, Type]] = {}
+                variant_values: Dict[str, Any] = {}
+                seen_values: Dict[Any, str] = {}
+                current_value = 0
+                has_any_payload = False
+                is_string_mode = any(isinstance(c, Tree) and c.data == "omen_string_kind" for c in stmt.children[1:])
+                value_kind: Optional[str] = None  # 'int' | 'str' | None
+
+                def _record_value_kind(kind: str, v_name: str, node: Any) -> None:
+                    nonlocal value_kind
+                    if value_kind is None:
+                        value_kind = kind
+                    elif value_kind != kind:
+                        err = self._make_error(
+                            SemanticError,
+                            f"Cannot mix integer and string values in omen '{o_name}' (variant '{v_name}' uses {kind} values)",
+                            node,
+                            code="E0029",
+                            help="Use either integer values or string values for every variant, not both.",
+                            note="Omen variant values must be homogenous (all ints or all strings)."
+                        )
+                        self._record_error(err)
+
                 for var_node in rem_children:
                     if isinstance(var_node, Tree) and var_node.data == "omen_variant":
                         v_name = str(var_node.children[0])
                         v_fields: Dict[str, Type] = {}
+                        has_payload = False
+                        is_expr_node = None
+
                         for of_node in var_node.children[1:]:
                             if isinstance(of_node, Tree) and of_node.data == "omen_field":
+                                has_payload = True
+                                has_any_payload = True
                                 fn = str(of_node.children[0])
                                 ft = ast_to_type(of_node.children[1], lookup_tp)
                                 v_fields[fn] = ft
+                            elif isinstance(of_node, Tree):
+                                is_expr_node = of_node
+
+                        if has_payload and is_expr_node is not None:
+                            err = self._make_error(
+                                InvalidOmenPayloadValueError,
+                                f"Value assignment is not allowed on algebraic omen variant '{v_name}' with payload ('with')",
+                                is_expr_node,
+                                code="E0028",
+                                help="Remove 'is <value>' from algebraic variants with 'with'.",
+                                note="Explicit variant values are only supported on simple enums without payload."
+                            )
+                            self._record_error(err)
+
+                        if has_payload and is_string_mode:
+                            err = self._make_error(
+                                SemanticError,
+                                f"String-valued omen '{o_name}' cannot define payload variants like '{v_name}' ('with' fields)",
+                                var_node,
+                                code="E0029",
+                                help="Use 'with string' only for simple enums whose variants map to string constants.",
+                                note="String-valued omens are simple constant enums and do not carry payloads."
+                            )
+                            self._record_error(err)
+
+                        if not has_payload:
+                            assigned_val = None
+                            if is_string_mode:
+                                # 'omen X with string:' auto-assigns each variant its own name.
+                                assigned_val = v_name
+                                _record_value_kind("str", v_name, var_node)
+                            elif is_expr_node is not None:
+                                folded = self.const_folder.fold(is_expr_node)
+                                if folded is None or not (isinstance(folded, (int, str)) and not isinstance(folded, bool)):
+                                    err = self._make_error(
+                                        InvalidOmenConstantValueError,
+                                        f"Omen variant '{v_name}' value must be a compile-time integer constant or string literal",
+                                        is_expr_node,
+                                        code="E0029",
+                                        help="Use a compile-time integer literal, string literal, or constant expression.",
+                                        note="Omen values must evaluate to an integer or a string at compile time."
+                                    )
+                                    self._record_error(err)
+                                    assigned_val = current_value
+                                    current_value += 1
+                                    _record_value_kind("int", v_name, var_node)
+                                else:
+                                    assigned_val = folded
+                                    if isinstance(folded, str):
+                                        _record_value_kind("str", v_name, is_expr_node)
+                                    else:
+                                        _record_value_kind("int", v_name, is_expr_node)
+                                        current_value = folded + 1
+                            else:
+                                # Implicit auto-increment requires integer values only.
+                                _record_value_kind("int", v_name, var_node)
+                                assigned_val = current_value
+                                current_value += 1
+
+                            if assigned_val in seen_values:
+                                first_v = seen_values[assigned_val]
+                                err = self._make_error(
+                                    DuplicateOmenValueError,
+                                    f"Duplicate value '{assigned_val}' in omen '{o_name}': variants '{first_v}' and '{v_name}' have the same value",
+                                    var_node,
+                                    code="E0027",
+                                    help="Ensure all omen variant values are unique.",
+                                    note="Omen variant values must be distinct."
+                                )
+                                self._record_error(err)
+                            else:
+                                seen_values[assigned_val] = v_name
+                            variant_values[v_name] = assigned_val
+
                         variants[v_name] = v_fields
+
+                if has_any_payload and not is_string_mode:
+                    variant_values = {}
 
                 if type_params:
                     self.symbols.generic_omens[o_name] = (type_params, stmt)
-                    omen_t = OmenType(name=o_name, variants=variants, type_params=type_params)
+                    omen_t = OmenType(name=o_name, variants=variants, variant_values=variant_values, type_params=type_params, c_name=c_o_name)
                 else:
-                    omen_t = OmenType(name=o_name, variants=variants)
+                    omen_t = OmenType(name=o_name, variants=variants, variant_values=variant_values, c_name=c_o_name)
 
                 self.symbols.omens[o_name] = omen_t
+                if c_o_name != o_name:
+                    self.symbols.omens[c_o_name] = omen_t
                 doc = self._extract_preceding_doc(line)
                 self.symbols.global_scope.define(Symbol(
-                    name=o_name, type=omen_t, kind="omen", line=line, column=col, doc=doc, file_path=self.filename
+                    name=o_name, type=omen_t, kind="omen", line=line, column=col, doc=doc, file_path=self.filename, c_name=c_o_name
                 ))
                 for v_name in variants:
+                    c_v_name = f"{c_o_name}_{v_name}"
                     self.symbols.global_scope.define(Symbol(
-                        name=f"{o_name}_{v_name}", type=omen_t, kind="omen_variant", is_mutable=False, line=line, column=col, file_path=self.filename
+                        name=f"{o_name}_{v_name}", type=omen_t, kind="omen_variant", is_mutable=False, line=line, column=col, file_path=self.filename, c_name=c_v_name
                     ))
                     if self.symbols.lookup(v_name) is None:
                         self.symbols.global_scope.define(Symbol(
-                            name=v_name, type=omen_t, kind="omen_variant", is_mutable=False, line=line, column=col, file_path=self.filename
+                            name=v_name, type=omen_t, kind="omen_variant", is_mutable=False, line=line, column=col, file_path=self.filename, c_name=c_v_name
                         ))
 
             elif rule == "alias_decl":
                 a_name = str(stmt.children[0])
+                c_a_name = f"{current_insignia}{a_name}" if current_insignia else a_name
                 type_params = []
+                bounds = {}
                 rem_children = [c for c in stmt.children[1:] if c is not None]
                 if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "shard_params":
-                    type_params = [str(c) for c in rem_children[0].children if isinstance(c, Token)]
+                    type_params, bounds = extract_shard_params(rem_children[0])
                     rem_children = rem_children[1:]
 
                 def lookup_tp(tname: str):
                     if tname in type_params:
-                        return TypeParam(tname)
+                        return TypeParam(tname, bounds=bounds.get(tname, []))
                     return self.symbols.lookup_type(tname)
 
                 target_t = ast_to_type(rem_children[0], lookup_tp)
@@ -549,13 +877,209 @@ class PenguChecker:
                 if type_params:
                     self.symbols.generic_aliases[a_name] = (type_params, stmt)
                 self.symbols.aliases[a_name] = alias_obj
+                if c_a_name != a_name:
+                    self.symbols.aliases[c_a_name] = alias_obj
                 doc = self._extract_preceding_doc(line)
                 self.symbols.global_scope.define(Symbol(
-                    name=a_name, type=alias_obj, kind="alias", line=line, column=col, doc=doc, file_path=self.filename
+                    name=a_name, type=alias_obj, kind="alias", line=line, column=col, doc=doc, file_path=self.filename, c_name=c_a_name
                 ))
+
+            elif rule == "seal_decl":
+                s_name = str(stmt.children[0])
+                c_s_name = f"{current_insignia}{s_name}" if current_insignia else s_name
+                underlying_t = ast_to_type(stmt.children[1], self.symbols.lookup_type)
+                seal_obj = SealType(name=s_name, underlying=underlying_t, c_name=c_s_name)
+                self.symbols.seals[s_name] = seal_obj
+                if c_s_name != s_name:
+                    self.symbols.seals[c_s_name] = seal_obj
+                doc = self._extract_preceding_doc(line)
+                self.symbols.global_scope.define(Symbol(
+                    name=s_name, type=seal_obj, kind="seal", line=line, column=col, doc=doc, file_path=self.filename, c_name=c_s_name
+                ))
+
+            elif rule == "concept_decl":
+                concept_name = str(stmt.children[0])
+                c_concept_name = f"{current_insignia}{concept_name}" if current_insignia else concept_name
+                rem_children = [c for c in stmt.children[1:] if c is not None]
+                type_params = []
+                bounds = {}
+                if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "shard_params":
+                    type_params, bounds = extract_shard_params(rem_children[0])
+                    rem_children = rem_children[1:]
+
+                def lookup_tp(tname: str):
+                    if tname in type_params:
+                        return TypeParam(tname, bounds=bounds.get(tname, []))
+                    return self.symbols.lookup_type(tname)
+
+                methods: Dict[str, FnType] = {}
+                ritual_methods: Set[str] = set()
+                for m_node in rem_children:
+                    if isinstance(m_node, Tree) and m_node.data == "concept_method":
+                        m_is_inline, m_is_ritual, m_idx = _extract_weave_modifiers(m_node.children)
+                        m_name = str(m_node.children[m_idx])
+                        m_rem = [c for c in m_node.children[m_idx+1:] if c is not None]
+                        m_tparams = []
+                        if m_rem and isinstance(m_rem[0], Tree) and m_rem[0].data == "shard_params":
+                            m_tparams, _ = extract_shard_params(m_rem[0])
+                            m_rem = m_rem[1:]
+
+                        def lookup_m_tp(tname: str):
+                            if tname in m_tparams:
+                                return TypeParam(tname)
+                            return lookup_tp(tname)
+
+                        m_params: List[Tuple[Optional[str], Type]] = []
+                        m_ret: Type = VOID_TYPE
+                        for cn in m_rem:
+                            if isinstance(cn, Tree) and cn.data == "param_list":
+                                for p in cn.children:
+                                    if isinstance(p, Tree) and p.data == "param":
+                                        pn = str(p.children[0])
+                                        pt = ast_to_type(p.children[1], lookup_m_tp) if len(p.children) >= 2 else AnyType()
+                                        m_params.append((pn, pt))
+                            elif isinstance(cn, Tree) and cn.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "opaque_type", "fn_type"):
+                                m_ret = ast_to_type(cn, lookup_m_tp)
+                            elif isinstance(cn, Token) and cn.type == "NAME":
+                                m_ret = ast_to_type(cn, lookup_m_tp)
+
+                        m_fn_t = FnType(params=m_params, return_type=m_ret, is_ritual=m_is_ritual, type_params=m_tparams)
+                        methods[m_name] = m_fn_t
+                        if m_is_ritual:
+                            ritual_methods.add(m_name)
+
+                concept_obj = ConceptType(
+                    name=concept_name,
+                    methods=methods,
+                    ritual_methods=ritual_methods,
+                    type_params=type_params,
+                    c_name=c_concept_name
+                )
+                self.symbols.concepts[concept_name] = concept_obj
+                if c_concept_name != concept_name:
+                    self.symbols.concepts[c_concept_name] = concept_obj
+                if type_params:
+                    self.symbols.generic_concepts[concept_name] = (type_params, stmt)
+                doc = self._extract_preceding_doc(line)
+                self.symbols.global_scope.define(Symbol(
+                    name=concept_name, type=concept_obj, kind="concept", line=line, column=col, doc=doc, file_path=self.filename, c_name=c_concept_name
+                ))
+
+            elif rule == "bind_decl":
+                target_type_node = stmt.children[0]
+                concept_name_node = stmt.children[1]
+                rem_children = [c for c in stmt.children[2:] if c is not None]
+                type_params = []
+                bounds = {}
+                if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "shard_params":
+                    type_params, bounds = extract_shard_params(rem_children[0])
+                    rem_children = rem_children[1:]
+
+                def lookup_tp(tname: str):
+                    if tname in type_params:
+                        return TypeParam(tname, bounds=bounds.get(tname, []))
+                    return self.symbols.lookup_type(tname)
+
+                target_type = ast_to_type(target_type_node, lookup_tp)
+                concept_name = _node_to_name(concept_name_node)
+                target_name = getattr(target_type, "name", str(target_type))
+                base_tname = target_name.split("_")[0]
+
+                concept_obj = self.symbols.lookup_concept(concept_name)
+                if concept_obj is None and not self.symbols.has_includes:
+                    err = self._make_error(
+                        UndefinedIdentifierError,
+                        f"Undefined concept '{concept_name}' in bind declaration",
+                        concept_name_node,
+                        code="E0004",
+                        help=f"Define 'concept {concept_name}:' before binding it.",
+                        note=f"Concept '{concept_name}' has not been declared."
+                    )
+                    self._record_error(err)
+
+                implemented_methods: Dict[str, FnType] = {}
+                for m_decl in rem_children:
+                    if isinstance(m_decl, Tree) and m_decl.data == "weave_decl":
+                        m_is_inline, m_is_ritual, m_idx = _extract_weave_modifiers(m_decl.children)
+                        m_name = str(m_decl.children[m_idx])
+                        m_rem = [c for c in m_decl.children[m_idx+1:] if c is not None]
+                        m_tparams = []
+                        if m_rem and isinstance(m_rem[0], Tree) and m_rem[0].data == "shard_params":
+                            m_tparams, _ = extract_shard_params(m_rem[0])
+                            m_rem = m_rem[1:]
+
+                        def lookup_m_tp(tname: str):
+                            if tname in m_tparams:
+                                return TypeParam(tname)
+                            return lookup_tp(tname)
+
+                        m_params: List[Tuple[Optional[str], Type]] = []
+                        m_ret: Type = VOID_TYPE
+                        default_count = 0
+                        for cn in m_rem:
+                            if isinstance(cn, Tree) and cn.data == "param_list":
+                                for p in cn.children:
+                                    if isinstance(p, Tree) and p.data == "param":
+                                        pn = str(p.children[0])
+                                        pt = ast_to_type(p.children[1], lookup_m_tp) if len(p.children) >= 2 else AnyType()
+                                        if len(p.children) >= 3 and p.children[2] is not None:
+                                            default_count += 1
+                                        m_params.append((pn, pt))
+                            elif isinstance(cn, Tree) and cn.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "opaque_type", "fn_type"):
+                                m_ret = ast_to_type(cn, lookup_m_tp)
+                            elif isinstance(cn, Token) and cn.type == "NAME":
+                                m_ret = ast_to_type(cn, lookup_m_tp)
+
+                        impl_fn_t = FnType(params=m_params, return_type=m_ret, default_count=default_count, is_ritual=m_is_ritual, type_params=m_tparams)
+                        implemented_methods[m_name] = impl_fn_t
+                        self.symbols.methods[(target_name, m_name)] = impl_fn_t
+                        self.symbols.methods[(base_tname, m_name)] = impl_fn_t
+                        if type_params:
+                            self.symbols.generic_methods[(base_tname, m_name)] = (type_params, m_decl)
+
+                if concept_obj is not None:
+                    for c_mname, c_mfn in concept_obj.methods.items():
+                        if c_mname not in implemented_methods:
+                            err = self._make_error(
+                                UnimplementedConceptMethodError,
+                                f"Type '{target_name}' does not implement method '{c_mname}' required by concept '{concept_name}'",
+                                stmt,
+                                code="E0031",
+                                help=f"Add 'weave {c_mname} ...' implementation in the 'bind {target_name} with {concept_name}:' block.",
+                                note=f"Concept '{concept_name}' requires method '{c_mname}'."
+                            )
+                            self._record_error(err)
+                        else:
+                            impl_mfn = implemented_methods[c_mname]
+                            if len(impl_mfn.params) != len(c_mfn.params) or not impl_mfn.return_type.is_compatible(c_mfn.return_type):
+                                err = self._make_error(
+                                    ConceptMethodMismatchError,
+                                    f"Signature of method '{c_mname}' in bind block does not match concept '{concept_name}' declaration (parameter count mismatch: expected {len(c_mfn.params)}, found {len(impl_mfn.params)})",
+                                    stmt,
+                                    code="E0030",
+                                    help=f"Expected signature '{c_mfn}', found '{impl_mfn}'.",
+                                    note=f"Method '{c_mname}' signature must match concept definition."
+                                )
+                                self._record_error(err)
+                            else:
+                                for (p1_n, p1_t), (p2_n, p2_t) in zip(impl_mfn.params, c_mfn.params):
+                                    if not p1_t.is_compatible(p2_t):
+                                        err = self._make_error(
+                                            ConceptMethodMismatchError,
+                                            f"Parameter '{p1_n}' of method '{c_mname}' in bind block has type '{p1_t}', expected '{p2_t}'",
+                                            stmt,
+                                            code="E0030",
+                                            help=f"Change parameter '{p1_n}' type to '{p2_t}'.",
+                                            note=f"Concept '{concept_name}' specifies '{p2_n} as {p2_t}'."
+                                        )
+                                        self._record_error(err)
+
+                self.symbols.concept_bindings[(target_name, concept_name)] = implemented_methods
+                self.symbols.concept_bindings[(base_tname, concept_name)] = implemented_methods
 
             elif rule == "const_decl":
                 c_name = str(stmt.children[0])
+                c_c_name = f"{current_insignia}{c_name}" if current_insignia else c_name
                 c_type = None
                 c_expr = None
                 if len(stmt.children) == 3:
@@ -571,15 +1095,30 @@ class PenguChecker:
                     elif isinstance(const_val, float): c_type = FLOAT_TYPE
                     elif isinstance(const_val, str): c_type = STRING_TYPE
                 self.symbols.consts[c_name] = (c_type, const_val)
+                if c_c_name != c_name:
+                    self.symbols.consts[c_c_name] = (c_type, const_val)
                 doc = self._extract_preceding_doc(line)
-                sym = Symbol(name=c_name, type=c_type or AnyType(), kind="const", is_mutable=False, line=line, column=col, doc=doc, file_path=self.filename)
+                sym = Symbol(name=c_name, type=c_type or AnyType(), kind="const", is_mutable=False, line=line, column=col, doc=doc, file_path=self.filename, c_name=c_c_name)
                 sym.const_val = const_val
                 self.symbols.global_scope.define(sym)
 
             elif rule == "enchanting_decl":
+                if self.filename and self.filename.endswith(".d.pengu"):
+                    for m_decl in stmt.children[1:]:
+                        if isinstance(m_decl, Tree) and m_decl.data == "weave_decl":
+                            err = self._make_error(
+                                SemanticError,
+                                "Implementation body not allowed in declaration file (.d.pengu)",
+                                m_decl,
+                                code="E0025",
+                                help="Use 'declare' or type declarations instead of 'weave' in declaration files (.d.pengu).",
+                                note="Declaration files (.d.pengu) cannot contain function implementation bodies."
+                            )
+                            self._record_error(err)
                 target_type_node = stmt.children[0]
                 target_type = ast_to_type(target_type_node, self.symbols.lookup_type)
-                base_tname = target_type.name.split("_")[0]
+                target_name = getattr(target_type, "name", str(target_type))
+                base_tname = target_name.split("_")[0]
                 type_params = []
                 if base_tname in self.symbols.generic_runes:
                     type_params = self.symbols.generic_runes[base_tname][0]
@@ -588,21 +1127,58 @@ class PenguChecker:
 
                 for m_decl in stmt.children[1:]:
                     if isinstance(m_decl, Tree) and m_decl.data == "weave_decl":
-                        m_name = str(m_decl.children[0])
+                        m_inline, m_ritual, m_idx = _extract_weave_modifiers(m_decl.children)
+                        m_name = str(m_decl.children[m_idx])
+                        m_rem = [c for c in m_decl.children[m_idx+1:] if c is not None]
+                        m_tparams = []
+                        if m_rem and isinstance(m_rem[0], Tree) and m_rem[0].data == "shard_params":
+                            m_tparams, _ = extract_shard_params(m_rem[0])
+                            m_rem = m_rem[1:]
+
+                        def lookup_m_tp(tname: str):
+                            if tname in m_tparams:
+                                return TypeParam(tname)
+                            if tname in type_params:
+                                return TypeParam(tname)
+                            return self.symbols.lookup_type(tname)
+
+                        m_params: List[Tuple[Optional[str], Type]] = []
+                        m_ret: Type = VOID_TYPE
+                        default_count = 0
+                        for cn in m_rem:
+                            if isinstance(cn, Tree) and cn.data == "param_list":
+                                for p in cn.children:
+                                    if isinstance(p, Tree) and p.data == "param":
+                                        pn = str(p.children[0])
+                                        pt = ast_to_type(p.children[1], lookup_m_tp) if len(p.children) >= 2 else AnyType()
+                                        if len(p.children) >= 3 and p.children[2] is not None:
+                                            default_count += 1
+                                        m_params.append((pn, pt))
+                            elif isinstance(cn, Tree) and cn.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "opaque_type", "fn_type"):
+                                m_ret = ast_to_type(cn, lookup_m_tp)
+                            elif isinstance(cn, Token) and cn.type == "NAME":
+                                m_ret = ast_to_type(cn, lookup_m_tp)
+
+                        impl_fn_t = FnType(params=m_params, return_type=m_ret, default_count=default_count, is_ritual=m_ritual, type_params=m_tparams)
+                        self.symbols.methods[(target_name, m_name)] = impl_fn_t
+                        self.symbols.methods[(base_tname, m_name)] = impl_fn_t
                         if type_params:
                             self.symbols.generic_methods[(base_tname, m_name)] = (type_params, m_decl)
 
             elif rule == "declare_stmt":
-                fn_name = str(stmt.children[0])
+                is_inline, is_ritual, idx = _extract_weave_modifiers(stmt.children)
+                fn_name = str(stmt.children[idx])
+                c_fn_name = f"{current_insignia}{fn_name}" if current_insignia else fn_name
                 type_params = []
-                rem_children = [c for c in stmt.children[1:] if c is not None]
+                bounds = {}
+                rem_children = [c for c in stmt.children[idx+1:] if c is not None]
                 if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "shard_params":
-                    type_params = [str(c) for c in rem_children[0].children if isinstance(c, Token)]
+                    type_params, bounds = extract_shard_params(rem_children[0])
                     rem_children = rem_children[1:]
 
                 def lookup_tp(tname: str):
                     if tname in type_params:
-                        return TypeParam(tname)
+                        return TypeParam(tname, bounds=bounds.get(tname, []))
                     return self.symbols.lookup_type(tname)
 
                 params: List[Tuple[Optional[str], Type]] = []
@@ -618,24 +1194,39 @@ class PenguChecker:
                         ret_type = ast_to_type(child_n, lookup_tp)
                     elif isinstance(child_n, Token) and child_n.type == "NAME":
                         ret_type = ast_to_type(child_n, lookup_tp)
-                fn_t = FnType(params=params, return_type=ret_type, type_params=type_params)
+                fn_t = FnType(params=params, return_type=ret_type, is_ritual=is_ritual, type_params=type_params)
                 self.symbols.functions[fn_name] = fn_t
+                if c_fn_name != fn_name:
+                    self.symbols.functions[c_fn_name] = fn_t
                 doc = self._extract_preceding_doc(line)
                 self.symbols.global_scope.define(Symbol(
-                    name=fn_name, type=fn_t, kind="declare", is_mutable=False, line=line, column=col, doc=doc, file_path=self.filename
+                    name=fn_name, type=fn_t, kind="declare", is_mutable=False, is_ritual=is_ritual, line=line, column=col, doc=doc, file_path=self.filename, c_name=c_fn_name
                 ))
 
             elif rule == "weave_decl":
-                fn_name = str(stmt.children[0])
+                if self.filename and self.filename.endswith(".d.pengu"):
+                    err = self._make_error(
+                        SemanticError,
+                        "Implementation body not allowed in declaration file (.d.pengu)",
+                        stmt,
+                        code="E0025",
+                        help="Use 'declare' instead of 'weave' in declaration files (.d.pengu).",
+                        note="Declaration files (.d.pengu) cannot contain function implementation bodies."
+                    )
+                    self._record_error(err)
+                is_inline, is_ritual, idx = _extract_weave_modifiers(stmt.children)
+                fn_name = str(stmt.children[idx])
+                c_fn_name = f"{current_insignia}{fn_name}" if current_insignia else fn_name
                 type_params = []
-                rem_children = [c for c in stmt.children[1:] if c is not None]
+                bounds = {}
+                rem_children = [c for c in stmt.children[idx+1:] if c is not None]
                 if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "shard_params":
-                    type_params = [str(c) for c in rem_children[0].children if isinstance(c, Token)]
+                    type_params, bounds = extract_shard_params(rem_children[0])
                     rem_children = rem_children[1:]
 
                 def lookup_tp(tname: str):
                     if tname in type_params:
-                        return TypeParam(tname)
+                        return TypeParam(tname, bounds=bounds.get(tname, []))
                     return self.symbols.lookup_type(tname)
 
                 params: List[Tuple[Optional[str], Type]] = []
@@ -670,14 +1261,16 @@ class PenguChecker:
 
                 if type_params:
                     self.symbols.generic_functions[fn_name] = (type_params, stmt)
-                    fn_t = FnType(params=params, return_type=ret_type, default_count=default_count, type_params=type_params)
+                    fn_t = FnType(params=params, return_type=ret_type, default_count=default_count, is_ritual=is_ritual, type_params=type_params)
                 else:
-                    fn_t = FnType(params=params, return_type=ret_type, default_count=default_count)
+                    fn_t = FnType(params=params, return_type=ret_type, default_count=default_count, is_ritual=is_ritual)
 
                 self.symbols.functions[fn_name] = fn_t
+                if c_fn_name != fn_name:
+                    self.symbols.functions[c_fn_name] = fn_t
                 doc = self._extract_preceding_doc(line)
                 self.symbols.global_scope.define(Symbol(
-                    name=fn_name, type=fn_t, kind="weave", is_mutable=False, line=line, column=col, doc=doc, file_path=self.filename
+                    name=fn_name, type=fn_t, kind="weave", is_mutable=False, is_ritual=is_ritual, line=line, column=col, doc=doc, file_path=self.filename, c_name=c_fn_name
                 ))
 
         if not hasattr(self, "_collected_files") or self._collected_files is None:
@@ -747,6 +1340,10 @@ class PenguChecker:
             self._check_var_decl(node)
             return
 
+        elif rule == "static_var_decl":
+            self._check_static_var_decl(node)
+            return
+
         elif rule == "let_decl":
             if self.symbols.is_top_level():
                 err = self._make_error(
@@ -805,6 +1402,30 @@ class PenguChecker:
                 self.symbols.define(Symbol(name=tp, type=TypeParam(tp), kind="type"))
 
             for child in node.children[1:]:
+                if isinstance(child, Tree) and child.data == "weave_decl":
+                    self._check_enchanting_method(child, target_type, type_params=type_params)
+                else:
+                    self._check_node(child)
+
+            self.symbols.pop_scope(end_line=span_end)
+            return
+
+        elif rule == "bind_decl":
+            target_type_node = node.children[0]
+            concept_name_node = node.children[1]
+            rem_children = [c for c in node.children[2:] if c is not None]
+            type_params = []
+            if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "shard_params":
+                type_params, _ = extract_shard_params(rem_children[0])
+                rem_children = rem_children[1:]
+
+            target_type = ast_to_type(target_type_node, self.symbols.lookup_type)
+            span_start, span_end = self._get_node_span(node)
+            self.symbols.push_scope(kind="enchanting", enchanting_type=target_type, start_line=span_start, end_line=span_end)
+            for tp in type_params:
+                self.symbols.define(Symbol(name=tp, type=TypeParam(tp), kind="type"))
+
+            for child in rem_children:
                 if isinstance(child, Tree) and child.data == "weave_decl":
                     self._check_enchanting_method(child, target_type, type_params=type_params)
                 else:
@@ -948,6 +1569,19 @@ class PenguChecker:
             self._check_or_block(node)
             return
 
+        elif rule == "when_stmt":
+            self._check_when_stmt(node)
+            return
+
+        elif rule == "test_decl":
+            self._check_test_decl(node)
+            return
+
+        elif rule == "when_top_decl":
+            for item in self._active_when_top_items(node):
+                self._check_node(item)
+            return
+
         # Generic traversal for other nodes
         for child in node.children:
             if isinstance(child, Tree):
@@ -964,6 +1598,16 @@ class PenguChecker:
         """
         line, col = self._get_loc(node)
         c_name = str(node.children[0])
+        if c_name == "main":
+            self._record_error(self._make_error(
+                SemanticError,
+                "'main' is a reserved compile-time variable",
+                node,
+                code="E0040",
+                help="Use a different name, or use 'when main:' for conditional execution.",
+                note="'main' can only appear as the condition of a compile-time 'when'."
+            ))
+            return
         c_type = None
         c_expr = None
 
@@ -976,6 +1620,15 @@ class PenguChecker:
 
         try:
             inferred = self.inferrer.infer(c_expr, expected_type=c_type)
+            if c_type is None and isinstance(inferred, NullType):
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"Constant '{c_name}' initialized with 'null' requires an explicit type annotation (e.g. 'as ref to T' or 'as opaque')",
+                    node,
+                    code="E0014",
+                    help=f"Add an explicit type annotation: 'const {c_name} as ref to T is null'",
+                    note="'null' requires explicit type context to determine target pointer type."
+                )
             if c_type is not None and not inferred.is_compatible(c_type):
                 err = self._make_type_mismatch_error(
                     expected_type=c_type,
@@ -988,7 +1641,9 @@ class PenguChecker:
             else:
                 folded_val = self.const_folder.fold(c_expr)
                 doc = self._extract_preceding_doc(line)
-                sym = Symbol(name=c_name, type=c_type or inferred, kind="const", is_mutable=False, line=line, column=col, doc=doc, file_path=self.filename)
+                existing_sym = self.symbols.lookup(c_name)
+                c_c_name = existing_sym.c_name if existing_sym else None
+                sym = Symbol(name=c_name, type=c_type or inferred, kind="const", is_mutable=False, line=line, column=col, doc=doc, file_path=self.filename, c_name=c_c_name)
                 if folded_val is not None:
                     sym.const_val = folded_val
                 self.symbols.define(sym)
@@ -1003,6 +1658,16 @@ class PenguChecker:
         """
         line, col = self._get_loc(node)
         v_name = str(node.children[0])
+        if v_name == "main":
+            self._record_error(self._make_error(
+                SemanticError,
+                "'main' is a reserved compile-time variable",
+                node,
+                code="E0040",
+                help="Use a different name, or use 'when main:' for conditional execution.",
+                note="'main' can only appear as the condition of a compile-time 'when'."
+            ))
+            return
         v_type = None
         v_expr = None
 
@@ -1016,6 +1681,15 @@ class PenguChecker:
 
         try:
             inferred = self.inferrer.infer(v_expr, expected_type=v_type)
+            if v_type is None and isinstance(inferred, NullType):
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"Variable '{v_name}' initialized with 'null' requires an explicit type annotation (e.g. 'as ref to T' or 'as opaque')",
+                    node,
+                    code="E0014",
+                    help=f"Add an explicit type annotation: 'var {v_name} as ref to T is null'",
+                    note="'null' requires explicit type context to determine target pointer type."
+                )
             if v_type is not None and not inferred.is_compatible(v_type):
                 err = self._make_type_mismatch_error(
                     expected_type=v_type,
@@ -1044,6 +1718,113 @@ class PenguChecker:
         except SemanticError as e:
             self._record_error(e)
 
+    def _check_static_var_decl(self, node: Tree) -> None:
+        """Checks 'static var' declarations that persist across function calls.
+
+        Rules:
+        - Only allowed directly inside a function body ('weave' scope), not at top-level
+          and not nested in control-flow blocks.
+        - The variable is a mutable local ('var' semantics) but is flagged is_static so
+          codegen emits a C 'static' storage-class variable initialized once.
+        - Array-typed static variables are rejected (C arrays are not assignable).
+        """
+        line, col = self._get_loc(node)
+        if self.symbols.is_top_level():
+            err = self._make_error(
+                VarLetTopLevelError,
+                "'static var' is not allowed at top-level. Use 'const' or move inside a function.",
+                node,
+                code="E0002",
+                help="Use 'const' for global constants, or move 'static var' inside a function body.",
+                note="PenguScript forbids mutable global state to guarantee V-safety."
+            )
+            self._record_error(err)
+            return
+
+        if self.symbols.current_scope.kind not in ("weave",):
+            err = self._make_error(
+                SemanticError,
+                "'static var' is only allowed directly inside a function body (weave).",
+                node,
+                code="E0035",
+                help="Move the 'static var' declaration to the top level of the function body.",
+                note="Function-static variables must be direct children of the function body."
+            )
+            self._record_error(err)
+            return
+
+        v_name = str(node.children[0])
+        if v_name == "main":
+            self._record_error(self._make_error(
+                SemanticError,
+                "'main' is a reserved compile-time variable",
+                node,
+                code="E0040",
+                help="Use a different name, or use 'when main:' for conditional execution.",
+                note="'main' can only appear as the condition of a compile-time 'when'."
+            ))
+            return
+        v_type = None
+        v_expr = None
+
+        if len(node.children) == 3:
+            if node.children[1] is not None:
+                self._validate_type_node(node.children[1])
+                v_type = ast_to_type(node.children[1], self.symbols.lookup_type)
+            v_expr = node.children[2]
+        else:
+            v_expr = node.children[1]
+
+        try:
+            inferred = self.inferrer.infer(v_expr, expected_type=v_type)
+            if v_type is None and isinstance(inferred, NullType):
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"Static variable '{v_name}' initialized with 'null' requires an explicit type annotation (e.g. 'as ref to T' or 'as opaque')",
+                    node,
+                    code="E0014",
+                    help=f"Add an explicit type annotation: 'static var {v_name} as ref to T is null'",
+                    note="'null' requires explicit type context to determine target pointer type."
+                )
+            eff_type = v_type or inferred
+            if isinstance(eff_type, ArrayType):
+                raise self._make_error(
+                    SemanticError,
+                    f"Static variable '{v_name}' cannot have an array type ('{eff_type}')",
+                    node,
+                    code="E0035",
+                    help="Use a pointer, rune, list, or map type for function-static variables.",
+                    note="C arrays cannot be assigned at runtime, so array statics are not supported."
+                )
+            if v_type is not None and not inferred.is_compatible(v_type):
+                err = self._make_type_mismatch_error(
+                    expected_type=v_type,
+                    found_type=inferred,
+                    node=v_expr,
+                    custom_message=f"Static variable '{v_name}' declared as '{v_type}', but initialized with '{inferred}'",
+                    note="Variables must match their declared type."
+                )
+                self._record_error(err)
+
+            folded_val = self.const_folder.fold(v_expr)
+            doc = self._extract_preceding_doc(line)
+            sym = Symbol(
+                name=v_name,
+                type=eff_type,
+                kind="var",
+                is_mutable=True,
+                is_static=True,
+                is_stack_alloc=False,
+                const_val=folded_val,
+                line=line,
+                column=col,
+                doc=doc,
+                file_path=self.filename
+            )
+            self.symbols.define(sym)
+        except SemanticError as e:
+            self._record_error(e)
+
     def _check_let_decl(self, node: Tree) -> None:
         """Checks immutable let binding declaration, supports destructuring.
 
@@ -1053,6 +1834,17 @@ class PenguChecker:
         line, col = self._get_loc(node)
         names_node = node.children[0]
         names: List[str] = [str(c) for c in names_node.children] if isinstance(names_node, Tree) else [str(names_node)]
+        for nm in names:
+            if nm == "main":
+                self._record_error(self._make_error(
+                    SemanticError,
+                    "'main' is a reserved compile-time variable",
+                    node,
+                    code="E0040",
+                    help="Use a different name, or use 'when main:' for conditional execution.",
+                    note="'main' can only appear as the condition of a compile-time 'when'."
+                ))
+                return
         l_type = None
         l_expr = None
 
@@ -1071,6 +1863,15 @@ class PenguChecker:
 
             if len(names) == 1:
                 v_name = names[0]
+                if l_type is None and isinstance(inferred, NullType):
+                    raise self._make_error(
+                        TypeMismatchError,
+                        f"Immutable binding '{v_name}' initialized with 'null' requires an explicit type annotation (e.g. 'as ref to T' or 'as opaque')",
+                        node,
+                        code="E0014",
+                        help=f"Add an explicit type annotation: 'let {v_name} as ref to T is null'",
+                        note="'null' requires explicit type context to determine target pointer type."
+                    )
                 if l_type is not None and not inferred.is_compatible(l_type):
                     err = self._make_type_mismatch_error(
                         expected_type=l_type,
@@ -1130,6 +1931,45 @@ class PenguChecker:
         except SemanticError as e:
             self._record_error(e)
 
+    def _check_return_stmt(self, node: Tree) -> None:
+        """Checks explicit return statement against active function return type."""
+        curr_ret = self.symbols.current_return_type() or VOID_TYPE
+        if node.children and node.children[0] is not None:
+            ret_expr = node.children[0]
+            try:
+                ret_t = self.inferrer.infer(ret_expr, expected_type=curr_ret)
+                if curr_ret == VOID_TYPE:
+                    err = self._make_error(
+                        TypeMismatchError,
+                        "Cannot return a value from void function",
+                        ret_expr,
+                        code="E0020",
+                        help="Change return type or use 'return' without an expression.",
+                        note="Functions returning 'void' cannot return values."
+                    )
+                    self._record_error(err)
+                elif not ret_t.is_compatible(curr_ret) and not (ret_t.is_numeric() and curr_ret.is_numeric()):
+                    err = self._make_type_mismatch_error(
+                        expected_type=curr_ret,
+                        found_type=ret_t,
+                        node=ret_expr,
+                        custom_message=f"Return expression type '{ret_t}' does not match function return type '{curr_ret}'"
+                    )
+                    self._record_error(err)
+            except SemanticError as e:
+                self._record_error(e)
+        else:
+            if curr_ret != VOID_TYPE:
+                err = self._make_error(
+                    TypeMismatchError,
+                    f"Return statement missing value for non-void function returning '{curr_ret}'",
+                    node,
+                    code="E0020",
+                    help=f"Return an expression of type '{curr_ret}'.",
+                    note="Non-void functions must return a value."
+                )
+                self._record_error(err)
+
     def _check_set_stmt(self, node: Tree) -> None:
         """Checks reassignment statement for mutability and type soundness.
 
@@ -1184,6 +2024,15 @@ class PenguChecker:
                 first_str = str(first)
 
                 if first_str == "self":
+                    if self.symbols.is_in_ritual_context():
+                        raise self._make_error(
+                            InvalidRitualSelfAccessError,
+                            "'self' cannot be used inside a 'ritual' method",
+                            target_node,
+                            code="E0033",
+                            help="Remove 'self' or remove the 'ritual' modifier to make this an instance method.",
+                            note="'ritual' methods are static functions and do not have a 'self' reference."
+                        )
                     if not self.symbols.is_in_enchanting():
                         raise self._make_error(
                             SemanticError,
@@ -1361,18 +2210,32 @@ class PenguChecker:
         Args:
             node: AST Tree for weave definition.
         """
+        if self.filename and self.filename.endswith(".d.pengu"):
+            err = self._make_error(
+                SemanticError,
+                "Implementation body not allowed in declaration file (.d.pengu)",
+                node,
+                code="E0025",
+                help="Use 'declare' instead of 'weave' in declaration files (.d.pengu).",
+                note="Declaration files (.d.pengu) cannot contain function implementation bodies."
+            )
+            self._record_error(err)
+            return
+
         line, col = self._get_loc(node)
-        fn_name = str(node.children[0])
+        is_inline, is_ritual, idx = _extract_weave_modifiers(node.children)
+        fn_name = str(node.children[idx])
 
         type_params = []
-        rem_children = [c for c in node.children[1:] if c is not None]
+        bounds = {}
+        rem_children = [c for c in node.children[idx+1:] if c is not None]
         if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "shard_params":
-            type_params = [str(c) for c in rem_children[0].children if isinstance(c, Token)]
+            type_params, bounds = extract_shard_params(rem_children[0])
             rem_children = rem_children[1:]
 
         def lookup_tp(tname: str):
             if tname in type_params:
-                return TypeParam(tname)
+                return TypeParam(tname, bounds=bounds.get(tname, []))
             return self.symbols.lookup_type(tname)
 
         params: List[Tuple[str, Type]] = []
@@ -1459,7 +2322,7 @@ class PenguChecker:
                 stmt_children.append(child)
 
         span_start, span_end = self._get_node_span(node)
-        self.symbols.push_scope(kind="weave", return_type=ret_type, start_line=span_start, end_line=span_end)
+        self.symbols.push_scope(kind="weave", return_type=ret_type, is_ritual=is_ritual, start_line=span_start, end_line=span_end)
         for tp in type_params:
             self.symbols.define(Symbol(name=tp, type=TypeParam(tp), kind="type"))
 
@@ -1473,13 +2336,14 @@ class PenguChecker:
         fn_sym = self.symbols.lookup(fn_name)
         if fn_sym:
             has_loop = any(s.data in ("while_stmt", "for_range_stmt", "for_in_stmt") for s in stmt_children)
+            has_static = any(True for _ in node.iter_subtrees() if isinstance(_, Tree) and _.data == "static_var_decl")
             node_count = sum(1 for _ in node.iter_subtrees())
-            if (len(stmt_children) <= 3 or node_count <= 25) and not has_loop:
+            if (len(stmt_children) <= 3 or node_count <= 25) and not has_loop and not has_static:
                 fn_sym.is_inline = True
 
         # Escape Analysis for local variables
         for s_name, sym in list(self.symbols.current_scope.symbols.items()):
-            if sym.kind in ("var", "let"):
+            if sym.kind in ("var", "let") and not getattr(sym, "is_static", False):
                 escaped = self._check_symbol_escape(s_name, stmt_children)
                 sym.is_stack_alloc = not escaped
 
@@ -1612,7 +2476,9 @@ class PenguChecker:
             type_params: Optional list of generic type parameters.
         """
         line, col = self._get_loc(node)
-        fn_name = str(node.children[0])
+        is_inline, is_ritual, idx = _extract_weave_modifiers(node.children)
+        fn_name = str(node.children[idx])
+        rem_children = [c for c in node.children[idx+1:] if c is not None]
 
         tp_list = type_params or []
         def lookup_m_tp(tname: str):
@@ -1628,7 +2494,7 @@ class PenguChecker:
         many_param_seen = False
         many_count = 0
 
-        for child in node.children[1:]:
+        for child in rem_children:
             if isinstance(child, Tree) and child.data == "param_list":
                 for p in child.children:
                     if isinstance(p, Tree) and p.data == "param":
@@ -1681,15 +2547,16 @@ class PenguChecker:
             elif isinstance(child, Tree) and child.data in ("stmt", "var_decl", "let_decl", "set_stmt", "return_stmt", "if_stmt", "while_stmt", "for_range_stmt", "for_in_stmt", "with_stmt", "expr_stmt"):
                 stmt_children.append(child)
 
-        method_fn_type = FnType(params=params, return_type=ret_type, default_count=default_count, type_params=tp_list)
+        method_fn_type = FnType(params=params, return_type=ret_type, default_count=default_count, is_ritual=is_ritual, type_params=tp_list)
         self_t_name = getattr(self_type, "name", str(self_type))
         self.symbols.methods[(self_t_name, fn_name)] = method_fn_type
         if isinstance(self_type, RuneType):
             self_type.methods[fn_name] = method_fn_type
 
         span_start, span_end = self._get_node_span(node)
-        self.symbols.push_scope(kind="weave", return_type=ret_type, enchanting_type=self_type, start_line=span_start, end_line=span_end)
-        self.symbols.define(Symbol(name="self", type=RefType(target=self_type), kind="param", is_mutable=False, line=line, column=col))
+        self.symbols.push_scope(kind="weave", return_type=ret_type, enchanting_type=self_type, is_ritual=is_ritual, start_line=span_start, end_line=span_end)
+        if not is_ritual:
+            self.symbols.define(Symbol(name="self", type=RefType(target=self_type), kind="param", is_mutable=False, line=line, column=col))
         for tp in tp_list:
             self.symbols.define(Symbol(name=tp, type=TypeParam(tp), kind="type"))
 
@@ -1914,13 +2781,24 @@ class PenguChecker:
     def _check_for_in_stmt(self, node: Tree) -> None:
         """Checks collection iterator for-loop and element binding.
 
+        Supports both the classic single-binding form ('for v in col') and the
+        indexed form ('for i, v in col', 'for i, _ in col', 'for _, v in col').
+        A '_' binding is a discard and never creates a scope symbol.
+
         Args:
             node: AST Tree for for-in statement.
         """
         line, col = self._get_loc(node)
-        var_name = str(node.children[0])
-        iter_node = node.children[1]
-        block_node = node.children[2]
+        if len(node.children) == 4:
+            index_name = str(node.children[0])
+            elem_name = str(node.children[1])
+            iter_node = node.children[2]
+            block_node = node.children[3]
+        else:
+            index_name = None
+            elem_name = str(node.children[0])
+            iter_node = node.children[1]
+            block_node = node.children[2]
 
         elem_type: Type = AnyType()
         try:
@@ -1935,15 +2813,102 @@ class PenguChecker:
                     note="'for ... in' loops require iterable collections."
                 )
                 self._record_error(err)
-            elem_type = it.element_type() or AnyType()
+            if it == STRING_TYPE:
+                elem_type = STRING_TYPE  # iterating a string yields characters
+            else:
+                elem_type = it.element_type() or AnyType()
         except SemanticError as e:
             self._record_error(e)
 
+        if index_name is not None and index_name != "_" and elem_name != "_" and index_name == elem_name:
+            err = self._make_error(
+                SemanticError,
+                f"Loop index and element bindings cannot both be named '{index_name}'",
+                node,
+                code="E0037",
+                help="Rename one of the two loop bindings in 'for i, v in collection'.",
+                note="The index and element bindings must use distinct identifiers."
+            )
+            self._record_error(err)
+
         span_start, span_end = self._get_node_span(node)
         self.symbols.push_scope(kind="for", in_loop=True, start_line=span_start, end_line=span_end)
-        self.symbols.define(Symbol(name=var_name, type=elem_type, kind="var", is_mutable=False, line=line, column=col))
+        if index_name is not None and index_name != "_":
+            self.symbols.define(Symbol(name=index_name, type=INT_TYPE, kind="var", is_mutable=False, line=line, column=col))
+        if elem_name != "_":
+            self.symbols.define(Symbol(name=elem_name, type=elem_type, kind="var", is_mutable=False, line=line, column=col))
         self._check_node(block_node)
         self.symbols.pop_scope(end_line=span_end)
+
+    def _check_test_decl(self, node: Tree) -> None:
+        """Type-checks an integrated unit test body as a void function.
+
+        Test bodies are semantically validated in every compilation mode so
+        errors surface early; code generation only emits them in --test mode.
+        """
+        if self.filename and self.filename.endswith(".d.pengu"):
+            err = self._make_error(
+                SemanticError,
+                "'test' blocks are not allowed in declaration files (.d.pengu)",
+                node,
+                code="E0025",
+                help="Remove the test block from the declaration file.",
+                note="Declaration files (.d.pengu) cannot contain implementation code."
+            )
+            self._record_error(err)
+            return
+
+        name_tok = node.children[0]
+        if isinstance(name_tok, Tree):
+            test_name = _node_to_name(name_tok)
+        else:
+            raw = str(name_tok)
+            test_name = raw[1:-1] if (raw.startswith('"') and raw.endswith('"')) else raw
+
+        body_stmts: List[Tree] = []
+        for c in node.children[1:]:
+            if isinstance(c, Tree):
+                body_stmts.append(c)
+
+        span_start, span_end = self._get_node_span(node)
+        self.symbols.push_scope(kind="weave", return_type=VOID_TYPE, start_line=span_start, end_line=span_end)
+        for stmt in body_stmts:
+            self._check_node(stmt)
+        self.symbols.pop_scope(end_line=span_end)
+
+        if not test_name or test_name == "_":
+            err = self._make_error(
+                SemanticError,
+                "Test name must be a non-empty string or identifier",
+                node,
+                code="E0035",
+                help="Give the test a descriptive name: 'test \"does something\"' or 'test does_something'.",
+                note="Unit tests need a name for reporting."
+            )
+            self._record_error(err)
+
+    def _check_when_stmt(self, node: Tree) -> None:
+        """Checks a compile-time 'when' statement by validating only its active branch.
+
+        'when' behaves like a textual preprocessor substitution: the active
+        branch is checked directly in the enclosing scope (variables declared in
+        the active branch remain visible afterwards, exactly as if the code had
+        been written inline). The discarded branch is not semantically checked.
+        """
+        then_block, else_node = self._active_when_stmt_items(node)
+        if then_block is None and else_node is None:
+            return  # invalid / non-constant condition already reported
+        if then_block is not None:
+            self._check_node(then_block)
+        elif else_node is not None:
+            if else_node.data == "when_else_plain":
+                for c in else_node.children:
+                    if isinstance(c, Tree):
+                        self._check_node(c)
+            elif else_node.data == "when_else_when":
+                for c in else_node.children:
+                    if isinstance(c, Tree):
+                        self._check_node(c)
 
     def _check_with_stmt(self, node: Tree) -> None:
         """Checks with-statement binding and sets desugar annotations.
