@@ -156,8 +156,35 @@ def gen_bundle(source: str, filename: str = "t.pengu", extra_files=None) -> str:
 # --------------------------------------------------------------------------
 
 
+def runtime_tail_flags():
+    """Platform tail that must come AFTER every archive/extra library.
+
+    Single-pass linkers (GNU ld without --start-group, and especially macOS
+    ld64) only resolve symbols from libraries that appear later on the command
+    line, so provider libraries (-lm, -lcrypto/-lssl, frameworks) are appended
+    last: sqlite3 needs `log`, libpengu_stb needs `sqrt`, libzip (OpenSSL
+    backend) needs the EVP_* symbols, and std.uuid needs CoreFoundation.
+    """
+    if os.name == "nt":
+        return []
+    tail = []
+    if sys.platform.startswith("linux"):
+        # Older glibc put clock_gettime in librt; crypto/ssl only get pulled
+        # when a library actually references them.
+        tail += ["-lrt", "-lcrypto", "-lssl"]
+    elif sys.platform.startswith("darwin"):
+        tail += ["-framework", "CoreFoundation"]
+    tail += ["-pthread", "-lm", "-ldl"]
+    return tail
+
+
 def runtime_link_flags():
-    """Core libraries the Pengu C runtime is built against (per platform)."""
+    """Core libraries the Pengu C runtime is built against (per platform).
+
+    Does NOT include the platform tail (math/crypto/frameworks) — callers must
+    append :func:`runtime_tail_flags` after their extra libraries so providers
+    come last on the command line.
+    """
     flags = ["-lpengu_runtime", "-lpcre2-8", "-lxml2", "-lcurl",
              "-lmbedcrypto", "-lmicrohttpd", "-lz"]
     if os.name == "nt":
@@ -167,11 +194,6 @@ def runtime_link_flags():
         for brew_lib in ("/opt/homebrew/lib", "/usr/local/lib"):
             if os.path.isdir(brew_lib):
                 flags.append(f"-L{brew_lib}")
-        if sys.platform.startswith("linux"):
-            # Older glibc put clock_gettime in librt; crypto/ssl only get
-            # pulled when a library actually references them.
-            flags += ["-lrt", "-lcrypto", "-lssl"]
-        flags += ["-pthread", "-lm", "-ldl"]
     return flags
 
 
@@ -209,6 +231,7 @@ def compile_run(source: str, tag: str = "t", extra_libs=None, cwd=None,
         cmd += runtime_link_flags()
         if extra_libs:
             cmd += list(extra_libs)
+        cmd += runtime_tail_flags()
         cmd += ["-o", str(exe)]
 
         res = subprocess.run(cmd, cwd=str(cwd or REPO), capture_output=True,

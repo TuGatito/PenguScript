@@ -1004,17 +1004,31 @@ class PenguBuilder:
                     for brew_lib in ("/opt/homebrew/lib", "/usr/local/lib"):
                         if os.path.isdir(brew_lib) and f"-L{brew_lib}" not in link_flags:
                             link_flags.append(f"-L{brew_lib}")
-                    if sys.platform.startswith("linux"):
-                        link_flags += ["-lrt", "-lcrypto", "-lssl"]
-                    link_flags.extend(["-pthread", "-lm", "-ldl"])
             else:
                 link_flags.append(f"-l{link}")
+
+        if not is_win:
+            # Platform tail: provider libraries must come AFTER every archive
+            # (single-pass linkers resolve only later libraries). Math for the
+            # stb/sqlite/xlsxio objects, OpenSSL for libzip's crypto backend on
+            # Linux, and CoreFoundation for std.uuid on macOS.
+            if sys.platform.startswith("linux"):
+                link_flags += ["-lrt", "-lcrypto", "-lssl"]
+            elif sys.platform.startswith("darwin"):
+                link_flags += ["-framework", "CoreFoundation"]
+            link_flags += ["-pthread", "-lm", "-ldl"]
 
         # GNU ld: wrap static archives in a group so inter-archive dependencies
         # resolve regardless of -l order (libzip needs zlib's crc32/zError, the
         # xlsxio/zip/yaml stack has several such edges). MSVC's link.exe has no
-        # --start-group; keep the plain order there.
-        if ("cl" not in cc.lower() and "msvc" not in cc.lower()) and link_flags:
+        # --start-group, and Apple's ld64 (clang on macOS) rejects it outright,
+        # so the group is applied only on GNU-ld hosts (Windows/MinGW, Linux).
+        use_gnu_group = (
+            not is_win or "cl" not in cc.lower() and "msvc" not in cc.lower()
+        )
+        if sys.platform.startswith("darwin"):
+            use_gnu_group = False
+        if use_gnu_group and link_flags:
             link_flags = ["-Wl,--start-group"] + link_flags + ["-Wl,--end-group"]
 
         # xlsxio headers are DLL_EXPORT-only on _WIN32 unless STATIC is defined.

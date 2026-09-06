@@ -62,6 +62,7 @@ from tests.conftest import (
     requires_lib,
     requires_runtime,
     runtime_link_flags,
+    runtime_tail_flags,
 )
 
 # ---------------------------------------------------------------------------
@@ -156,6 +157,7 @@ def _compile_run(source: str, tag: str = "t", entry: str = "main.pengu",
         cmd += runtime_link_flags()
         if extra_libs:
             cmd += list(extra_libs)
+        cmd += runtime_tail_flags()
         cmd += ["-o", str(exe)]
 
         res = subprocess.run(cmd, cwd=str(REPO), capture_output=True, text=True,

@@ -43,6 +43,7 @@ from tests.conftest import (
     requires_lib,
     requires_runtime,
     runtime_link_flags,
+    runtime_tail_flags,
 )
 
 CC = "gcc" if have_tool("gcc") else ("clang" if have_tool("clang") else "cc")
@@ -157,6 +158,7 @@ def _compile_run_pengu(source: str, tag: str, extra_libs=None, cwd=None,
         cmd += runtime_link_flags()
         if extra_libs:
             cmd += list(extra_libs)
+        cmd += runtime_tail_flags()
         cmd += ["-o", str(exe)]
 
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -194,7 +196,7 @@ def _run_c_probe(c_source: str, tag: str, extra_libs, *,
                 "-Wno-error=int-conversion"]
         if link_pengu_stb:
             cmd += ["-lpengu_stb"]
-        cmd += list(extra_libs) + ["-o", str(exe)]
+        cmd += list(extra_libs) + runtime_tail_flags() + ["-o", str(exe)]
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         assert res.returncode == 0, f"C compilation failed:\n{res.stderr}\n{res.stdout}"
         if not run:

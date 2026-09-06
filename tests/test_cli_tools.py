@@ -382,7 +382,8 @@ class TestBuildRunProject:
         runtime_yaml(proj_dir, "hello_proj", "src/main.pengu")
         res = cli(["build", "-c", proj_dir])
         assert res.returncode == 0, res.stderr
-        artifact = os.path.join(proj_dir, "build", "hello_proj.exe")
+        suffix = ".exe" if os.name == "nt" else ""
+        artifact = os.path.join(proj_dir, "build", "hello_proj" + suffix)
         assert os.path.isfile(artifact)
         run_res = subprocess.run([artifact], capture_output=True, text=True,
                                  timeout=300)

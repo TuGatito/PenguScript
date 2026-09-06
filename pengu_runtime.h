@@ -14,6 +14,23 @@
 #define PENGU_RUNTIME_ORGANIZED_H
 
 /* =========================================================================
+ * Feature-test macros
+ *
+ * glibc/musl hide POSIX declarations (clock_gettime, nanosleep, timespec,
+ * setenv, gethostname, lstat, realpath, localtime_r, ...) unless a feature
+ * macro is defined; with -std=c99/c11 they would otherwise be missing and
+ * modern compilers reject their implicit use. Must precede any libc header.
+ * ========================================================================= */
+#if !defined(_WIN32) && !defined(_WIN64)
+#if !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200809L
+#endif
+#if !defined(_DEFAULT_SOURCE)
+#define _DEFAULT_SOURCE 1
+#endif
+#endif
+
+/* =========================================================================
  * 1. Standard C & Platform Headers
  * ========================================================================= */
 #include <ctype.h>
