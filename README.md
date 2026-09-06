@@ -1,6 +1,6 @@
 # PenguScript
 
-![Version](https://img.shields.io/badge/version-0.2.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+![Version](https://img.shields.io/badge/version-0.8.4-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 
 **PenguScript** is a statically typed, compiled programming language that combines the clean, indentation-based readability of **Python** (with a nod to MoonScript), the strict scoping and memory-discipline principles of **V**, and the raw speed, tiny footprint, and seamless C interoperability of **C**.
 
