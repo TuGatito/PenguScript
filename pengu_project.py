@@ -1007,11 +1007,12 @@ class PenguBuilder:
             else:
                 link_flags.append(f"-l{link}")
 
-        if not is_win:
+        if not is_win and all_links:
             # Platform tail: provider libraries must come AFTER every archive
             # (single-pass linkers resolve only later libraries). Math for the
             # stb/sqlite/xlsxio objects, OpenSSL for libzip's crypto backend on
-            # Linux, and CoreFoundation for std.uuid on macOS.
+            # Linux, and CoreFoundation for std.uuid on macOS. Only emitted
+            # when the project actually links libraries (all_links non-empty).
             if sys.platform.startswith("linux"):
                 link_flags += ["-lrt", "-lcrypto", "-lssl"]
             elif sys.platform.startswith("darwin"):
