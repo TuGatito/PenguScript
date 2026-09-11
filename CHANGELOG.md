@@ -17,6 +17,7 @@ The three production-critical defects identified in `PRODUCTION_READINESS.md` §
 - **Automated Tagging and GitHub Release**: Enhanced GitHub Actions CI workflow (`.github/workflows/ci.yml`) to automatically parse release notes, title, and version from `CHANGELOG.md` upon successful test completion across all platforms (Windows, Linux, macOS), creating the Git tag and publishing a GitHub Release with platform binaries (`.zip`, `.tar.gz`) and the VS Code extension (`.vsix`).
 - **Cross-Platform Raylib Test Guards**: Added `@requires_lib("raylib")` annotations to compile-and-run tests in `tests/test_p3_criticals.py` while keeping pure codegen verification enabled unconditionally across all platforms, resolving linker failures on POSIX CI runners where Raylib compilation is optional/best-effort.
 - **Headless OpenGL Environment Tolerance**: Added `rl.IsWindowReady()` check to `test_rlgl_coexistence_with_raylib` in `tests/test_p2_features.py`, preventing GLFW initialization crashes on headless CI runners lacking hardware OpenGL contexts.
+- **Release Smoke Test Argument Separator**: Fixed outdated pre-0.10.0 syntax in `make_release.py` where the smoke test used `and` instead of `,` as an argument separator in `calling ward.assert_eq_int with 40 + 2, 42`, which triggered `E0005: Ambiguous 'and' after a call with arguments` during the post-packaging verification step on all platforms.
 
 ### P0 toolchain hardening (production hygiene)
 

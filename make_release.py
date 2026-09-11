@@ -283,7 +283,7 @@ import std.ward
 
 weave main into void:
     calling spark.println with "Hello from Standalone PenguScript Release!"
-    calling ward.assert_eq_int with 40 + 2 and 42
+    calling ward.assert_eq_int with 40 + 2, 42
     calling spark.println with "Release smoke test passed!"
 """,
         encoding="utf-8",
