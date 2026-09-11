@@ -1,10 +1,13 @@
 name: CI (Windows / Linux / macOS)
 
-on:
+'on':
   push:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -104,3 +107,87 @@ jobs:
           name: vscode-extension-${{ matrix.os }}
           path: vscode-extension/*.vsix
           if-no-files-found: error
+
+  auto-tag-and-release:
+    name: Auto Tag and Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Extract Release Notes from CHANGELOG.md
+        id: changelog
+        run: |
+          python - << 'EOF'
+          import os
+          import re
+          from pathlib import Path
+
+          content = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          match = re.search(r"^##\s*\[([^\]]+)\](?:\s*-\s*(.*))?", content, re.MULTILINE)
+          if not match:
+              raise SystemExit("Error: Could not find version heading in CHANGELOG.md (expected '## [version]')")
+
+          version = match.group(1).strip()
+          suffix = (match.group(2) or "").strip()
+          tag = f"v{version}"
+          title = f"PenguScript v{version}" + (f" - {suffix}" if suffix and suffix != "Unreleased" else "")
+
+          start = match.end()
+          next_match = re.search(r"^##\s*\[", content[start:], re.MULTILINE)
+          body = content[start:start + next_match.start()].strip() if next_match else content[start:].strip()
+
+          Path("release_notes.md").write_text(body + "\n", encoding="utf-8")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as gh_out:
+              gh_out.write(f"version={version}\n")
+              gh_out.write(f"tag_name={tag}\n")
+              gh_out.write(f"title={title}\n")
+          EOF
+
+      - name: Create Git Tag if Not Exists
+        run: |
+          TAG="${{ steps.changelog.outputs.tag_name }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists."
+          else
+            echo "Creating and pushing tag $TAG..."
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "${{ steps.changelog.outputs.title }}"
+            git push origin "$TAG"
+          fi
+
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Organize Release Assets
+        run: |
+          mkdir -p final-assets
+          find release-assets/ -type f -name "*.zip" -exec cp {} final-assets/ \;
+          find release-assets/ -type f -name "*.tar.gz" -exec cp {} final-assets/ \;
+          find release-assets/ -type f -name "*.vsix" -exec cp {} final-assets/ \;
+          ls -lah final-assets/
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.changelog.outputs.tag_name }}
+          name: ${{ steps.changelog.outputs.title }}
+          body_path: release_notes.md
+          files: final-assets/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

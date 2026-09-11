@@ -12,6 +12,12 @@ The three production-critical defects identified in `PRODUCTION_READINESS.md` §
 - **C2: String interpolation diagnostics for non-PenguScript text (`{...}`).** Embedding text containing curly braces (such as GLSL/HLSL shader source or regexes) in normal strings previously failed with a generic `E0000` syntax error pointing at line 1 column 3 of the interpolated snippet. The type inferrer now reports `E0019` against the actual string literal location with clear context and explicit `help:` pointing to raw strings (`r"..."` or `r"""..."""`), where curly braces and escape characters are preserved verbatim.
 - **C3: Dropped unconditional `restrict` from generated parameters and `self`.** Function parameter prototypes and definitions generated for `ref to T` and `self` previously emitted `T* restrict`, introducing undefined behavior under optimization (`-O2`) for APIs that alias or overlap buffers in-place. Generated C now emits standard pointers (`T* self`, `T* p`), guaranteeing aliasing safety. The mapper retains `restrict=True` as an explicit opt-in mechanism (`CTypeMapper.to_c_decl`).
 
+### CI/CD and Cross-Platform Test Hardening
+
+- **Automated Tagging and GitHub Release**: Enhanced GitHub Actions CI workflow (`.github/workflows/ci.yml`) to automatically parse release notes, title, and version from `CHANGELOG.md` upon successful test completion across all platforms (Windows, Linux, macOS), creating the Git tag and publishing a GitHub Release with platform binaries (`.zip`, `.tar.gz`) and the VS Code extension (`.vsix`).
+- **Cross-Platform Raylib Test Guards**: Added `@requires_lib("raylib")` annotations to compile-and-run tests in `tests/test_p3_criticals.py` while keeping pure codegen verification enabled unconditionally across all platforms, resolving linker failures on POSIX CI runners where Raylib compilation is optional/best-effort.
+- **Headless OpenGL Environment Tolerance**: Added `rl.IsWindowReady()` check to `test_rlgl_coexistence_with_raylib` in `tests/test_p2_features.py`, preventing GLFW initialization crashes on headless CI runners lacking hardware OpenGL contexts.
+
 ### P0 toolchain hardening (production hygiene)
 
 The five items the readiness assessment (`PRODUCTION_READINESS.md` §7, P0) called

@@ -7,6 +7,7 @@ from tests.conftest import (
     gen_bundle,
     is_windows,
     requires_cc,
+    requires_lib,
     requires_runtime,
 )
 
@@ -25,9 +26,7 @@ RAYLIB_LIBS = (
 class TestBindingOmenVariants:
     """Bare module-qualified omen variants and constants from bindings emit unprefixed C identifiers."""
 
-    @requires_cc
-    @requires_runtime
-    def test_bare_module_qualified_variants_build_and_run(self):
+    def test_bare_module_qualified_variants_codegen(self):
         """raylib.FLAG_MSAA_4X_HINT, raylib.KEY_RIGHT and raylib.SHADER_UNIFORM_FLOAT emit unprefixed C names."""
         src = (
             "import std.raylib\n\n"
@@ -45,12 +44,22 @@ class TestBindingOmenVariants:
         assert "raylib_KEY_RIGHT" not in c_code
         assert "raylib_SHADER_UNIFORM_FLOAT" not in c_code
 
+    @requires_cc
+    @requires_runtime
+    @requires_lib("raylib")
+    def test_bare_module_qualified_variants_build_and_run(self):
+        src = (
+            "import std.raylib\n\n"
+            "weave main into int:\n"
+            "    calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT\n"
+            "    var d as bool is calling raylib.IsKeyDown with raylib.KEY_RIGHT\n"
+            "    var u as ShaderUniformDataType is raylib.SHADER_UNIFORM_FLOAT\n"
+            "    return 0\n"
+        )
         res = compile_run(src, tag="c1_bare_run", extra_libs=RAYLIB_LIBS)
         assert res.returncode == 0
 
-    @requires_cc
-    @requires_runtime
-    def test_regression_nested_unqualified_and_const_variants(self):
+    def test_regression_nested_unqualified_and_const_variants_codegen(self):
         """raylib.KeyboardKey.KEY_RIGHT, unqualified KEY_RIGHT, and raylib.RAYWHITE build and run."""
         src = (
             "import std.raylib\n\n"
@@ -64,6 +73,18 @@ class TestBindingOmenVariants:
         assert "IsKeyDown(KEY_RIGHT);" in c_code
         assert "RAYWHITE" in c_code
 
+    @requires_cc
+    @requires_runtime
+    @requires_lib("raylib")
+    def test_regression_nested_unqualified_and_const_variants_build_and_run(self):
+        src = (
+            "import std.raylib\n\n"
+            "weave main into int:\n"
+            "    var a as bool is calling raylib.IsKeyDown with raylib.KeyboardKey.KEY_RIGHT\n"
+            "    var b as bool is calling raylib.IsKeyDown with KEY_RIGHT\n"
+            "    var c as raylib.Color is raylib.RAYWHITE\n"
+            "    return 0\n"
+        )
         res = compile_run(src, tag="c1_regression_run", extra_libs=RAYLIB_LIBS)
         assert res.returncode == 0
 

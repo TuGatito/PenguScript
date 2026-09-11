@@ -360,6 +360,8 @@ class TestRlgl:
             "import std.rlgl as rlgl\n"
             "weave main into int:\n"
             "    calling rl.InitWindow with 100, 100, \"rlgl_test\"\n"
+            "    if not calling rl.IsWindowReady:\n"
+            "        return 0\n"
             "    calling rlgl.rlMatrixMode with rlgl.RL_MODELVIEW\n"
             "    calling rlgl.rlPushMatrix\n"
             "    var mat as rl.Matrix is calling rlgl.rlGetMatrixModelview\n"

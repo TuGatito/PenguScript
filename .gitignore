@@ -5,6 +5,8 @@
 # External C libraries (downloaded automatically by make_release.py / extern_manifest.py)
 extern/
 
+prompt.md
+
 # Build & Release Directories
 build/
 dist/
