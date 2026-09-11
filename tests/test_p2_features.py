@@ -125,7 +125,8 @@ class TestArray2D:
             "    return 1\n"
         )
         c_code = gen_bundle(src)
-        assert "float sum_matrix(float (* restrict m)[3])" in c_code or "float sum_matrix(float (* m)[3])" in c_code
+        assert "float sum_matrix(float (* m)[3])" in c_code
+        assert "restrict" not in c_code
         res = compile_run(src)
         assert res.returncode == 0
 

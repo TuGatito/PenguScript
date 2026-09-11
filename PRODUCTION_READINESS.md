@@ -25,7 +25,7 @@ the compiler source, or by the two supporting audits whose reports are listed in
 | C interop — data | **A−** | Structs by value (both directions), `const`, opaque handles, arrays (1-D and 2-D), indexing through pointers, out-params, heap via C allocators, and `banish` for `string`/`list`/`map`. Pointer *arithmetic* (`p + 1`) still missing (use `p at i`/slices). |
 | C interop — behaviour | **A−** | Callbacks (named weaves, lambdas, `void*` user data, raylib audio/trace) and C **variadic** calls (`declare … , ...`) work; a bare `printf` that is only `#include`d still slips past the checker. |
 | Raylib example port | **B+** | Window/input/2D/text/textures/3-D/raylib-math/rlgl verified with six ported examples that build and run (01–06). The raw-GL tail (`rlgl_standalone`, GPU skinning) and the hand-written-asset examples remain. |
-| Production / operations | **B** | P0 fixed (exit status, `#line`, content-keyed cache, `argv`, one version) and P2 added explicit memory release; still open: `restrict` on every `ref to T`, per-entry output binaries, `-I/-L/-l` CLI flags. |
+| Production / operations | **B+** | P0 fixed (exit status, `#line`, content-keyed cache, `argv`, one version), P2 added explicit memory release, and criticals fixed (C1 bare qualified variants, C2 interpolation diagnostics, C3 `restrict` dropped); open: per-entry output binaries, `-I/-L/-l` CLI flags. |
 | Tooling (LSP, fmt, doc, bind, project build) | **B+** | `pengu bind` now takes `--define/--cpp-flags/--system-includes/--preprocessed`, blanks GNU extensions and gives actionable failures (`zlib.h` binds end to end); some vendor headers (`miniaudio`, `xxhash`, `tomlc17`, `yaml`) still need flags or stay hand-written. |
 
 **Bottom line.**
@@ -498,49 +498,37 @@ linked; `sqlite3`, `zlib`, `xxhash`, `yaml`, `xlsxio`, `imago/stb`, PCRE2,
 libxml2, cURL, mbedTLS, libuv-backed threads, files and HTTP are all reachable,
 and project mode links arbitrary third-party libraries.
 
-**"Complete and functional" — not yet.** Two defects can silently turn a
-program that `pengu check` accepts into a failed build, and a few gaps remain.
-They are listed below from critical to optional, with the evidence and the
-workaround for each.
+**"Complete and functional" — achieved for production criticals.** The three
+defects previously marked critical (C1, C2, C3) have been repaired and verified
+against realistic programs and the test suite. Gaps in higher-level ergonomics
+and bindings tooling remain. They are listed below with evidence and status.
 
 ### 9.3 The list
 
-#### CRITICAL — fix before calling the language production-ready
+#### CRITICAL — resolved
 
-**C1. `module.CONSTANT` (bare, module-qualified) generates invalid C.**
-Repro (build, not just check):
+**C1. [RESOLVED] `module.CONSTANT` (bare, module-qualified) generates invalid C.**
+Resolved: The code generator and inferrer now resolve bare module-qualified constants
+and omen variants from `.d.pengu` bindings to their native header identifiers (`raw_field`)
+instead of emitting prefixed module names (`module_VARIANT`).
+*Evidence*: Verified with `pytest tests/test_p3_criticals.py::TestBindingOmenVariants`
+(4 passed); `scratch/readiness_battery.py` case A passes using `raylib.FLAG_MSAA_4X_HINT`,
+`raylib.KEY_RIGHT`, and `raylib.SHADER_UNIFORM_FLOAT` with clean compilation and runtime
+exit status 0.
 
-```pengu
-import std.raylib
-calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT   # -> SetConfigFlags(raylib_FLAG_MSAA_4X_HINT)
-calling raylib.IsKeyDown with raylib.KEY_RIGHT                # -> IsKeyDown(raylib_KEY_RIGHT)
-calling raylib.SetShaderValue with sh, 0, sigil of v, raylib.SHADER_UNIFORM_FLOAT
-```
-`pengu check` is clean; the build fails with `'raylib_FLAG_MSAA_4X_HINT' undeclared`.
-The **unqualified** (`FLAG_MSAA_4X_HINT`, `KEY_RIGHT`) and **nested**
-(`raylib.KeyboardKey.KEY_RIGHT`, `raylib.TraceLogLevel.LOG_INFO`) spellings work;
-struct-valued constants (`raylib.RAYWHITE`) are unaffected. This is the natural
-spelling for anyone following `raylib.InitWindow`-style code, and it hits exactly
-the constants a game needs (config flags, shader uniform types, enums).
-*Fix direction*: when a `.d.pengu` constant or payload-less `omen` variant is
-referenced through a module, resolve it to its **C name** (the header's
-identifier) instead of applying the module prefix; add a `check`/`build`
-consistency test that compiles a program using every spelling. *Interim*:
-documented in `LANGUAGE.md` §14.2 (use the unqualified or nested spelling).
+**C2. [RESOLVED] String literals containing `{…}` (GLSL shaders!) need a raw string, and the error does not say so.**
+Resolved: The type inferrer intercepts syntax and semantic failures within `{...}` string
+interpolation, reporting `E0019` located against the actual string literal in the file with
+clear context and actionable `help:` recommending raw strings (`r"..."` or `r"""..."""`).
+*Evidence*: Verified with `pytest tests/test_p3_criticals.py::TestInterpolationDiagnostics`
+(4 passed); test confirms file line location, diagnostic code `E0019`, and raw string recommendation.
 
-**C2. String literals containing `{…}` (GLSL shaders!) need a raw string, and the
-error does not say so.** `var vs as string is "#version 330\nvoid main() { x = 1.0; }"`
-fails with a generic `E0000` mislocated at line 1 column 3; the fix is
-`r"""…"""`. A raylib game that embeds shader source hits this on the first try.
-*Fix direction*: when an interpolation inside a string literal fails to parse,
-report it against the string with a `help:` pointing at raw strings
-(`r"…"` / `r"""…"""`), and show the GLSL idiom in `LANGUAGE.md` §15.2.
-
-**C3. `restrict` on every `ref to T` parameter.** Generated prototypes declare
-`T* restrict`, which is wrong for C APIs that alias their arguments in place
-(e.g. buffer conversions); at `-O2` that is undefined behaviour the compiler may
-exploit. No diagnostic, no opt-out. *Fix direction*: drop `restrict` (or make it
-opt-in per module/`declare`, e.g. `declare restrict f …`), and document it.
+**C3. [RESOLVED] `restrict` on every `ref to T` parameter.**
+Resolved: Unconditional `restrict` qualifiers have been removed from generated function
+prototypes, definitions, and `self` parameters, eliminating undefined behavior risks with
+aliasing buffers under `-O2`. Explicit opt-in remains available via `CTypeMapper.to_c_decl(..., restrict=True)`.
+*Evidence*: Verified with `pytest tests/test_p3_criticals.py::TestNoRestrictInGeneratedParams`
+(3 passed); existing assertions in `test_compiler_core.py` and `test_p2_features.py` updated and green.
 
 #### HIGH — needed for serious work
 

@@ -1502,11 +1502,12 @@ class PenguCodegen:
 
             if w["enchanted_type"] is not None and not w.get("is_ritual", False):
                 self_t_str = CTypeMapper.to_c_type(w["enchanted_type"])
-                param_strs.append(f"{self_t_str}* restrict self")
+                param_strs.append(f"{self_t_str}* self")
 
             for p_info in w["params"]:
                 p_name, p_type = p_info[0], p_info[1]
-                param_strs.append(CTypeMapper.to_c_decl(p_type, self._c_ident(p_name), restrict=True))
+                # restrict is opt-in: see CTypeMapper.to_c_decl
+                param_strs.append(CTypeMapper.to_c_decl(p_type, self._c_ident(p_name)))
 
             params_formatted = ", ".join(param_strs) if param_strs else "void"
             inline_pfx = "static inline __attribute__((always_inline)) " if w["is_inline"] else ""
@@ -3791,16 +3792,43 @@ class PenguCodegen:
                 if sym and sym.kind == "import":
                     if sym.module_scope:
                         mod_field_sym = sym.module_scope.lookup(raw_field)
-                        if mod_field_sym and hasattr(mod_field_sym, "get_c_name"):
-                            # Variants of omens declared in a .d.pengu keep
-                            # their simple names in the C header: emit the
-                            # plain variant name instead of the prefixed c_name.
+                        if not mod_field_sym:
+                            mod_field_sym = sym.module_scope.lookup(f"{var_name}_{raw_field}")
+                        if not mod_field_sym:
+                            for s in sym.module_scope.symbols.values():
+                                if getattr(s, "kind", "") == "omen_variant" and s.name.endswith(f"_{raw_field}"):
+                                    mod_field_sym = s
+                                    break
+                        if mod_field_sym:
                             m_sym_t = getattr(mod_field_sym, "type", None)
                             if getattr(mod_field_sym, "kind", "") == "omen_variant" and isinstance(m_sym_t, OmenType):
                                 o_logical = getattr(m_sym_t, "name", None) or var_name
-                                if o_logical in self.declaration_types:
+                                return self._get_omen_variant_c_name(o_logical, raw_field)
+                            if getattr(mod_field_sym, "kind", "") == "const":
+                                fp = getattr(mod_field_sym, "file_path", "")
+                                if fp and fp.endswith(".d.pengu"):
+                                    c_val = getattr(mod_field_sym, "const_val", None)
+                                    if c_val is not None and isinstance(m_sym_t, (RuneType, EchoType)):
+                                        return self._format_const_val(c_val)
+                                    if hasattr(mod_field_sym, "get_c_name") and mod_field_sym.get_c_name():
+                                        return mod_field_sym.get_c_name()
                                     return raw_field
-                            return mod_field_sym.get_c_name()
+                            if hasattr(mod_field_sym, "get_c_name"):
+                                return mod_field_sym.get_c_name()
+                    mod_const_key = f"{var_name}_{raw_field}"
+                    if mod_const_key in self.declaration_consts and mod_const_key in self.consts:
+                        c_type, val = self.consts[mod_const_key]
+                        if val is not None and isinstance(c_type, (RuneType, EchoType)):
+                            return self._format_const_val(val)
+                        return mod_const_key
+                    if raw_field in self.declaration_consts and raw_field in self.consts:
+                        c_type, val = self.consts[raw_field]
+                        if val is not None and isinstance(c_type, (RuneType, EchoType)):
+                            return self._format_const_val(val)
+                        return raw_field
+                    for o_name, o_vars in self.omens.items():
+                        if raw_field in o_vars and (o_name in self.declaration_types or o_name.startswith(f"{var_name}_")):
+                            return self._get_omen_variant_c_name(o_name, raw_field)
                     return f"{var_name}_{raw_field}"
                 if (sym and isinstance(sym.type, OmenType) and raw_field in sym.type.variants) or (var_name in self.omens and raw_field in self.omens[var_name]):
                     if var_name in self.omens and raw_field in self.omens[var_name]:

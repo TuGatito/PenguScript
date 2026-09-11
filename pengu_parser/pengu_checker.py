@@ -867,12 +867,15 @@ class PenguChecker:
                 self.symbols.global_scope.define(Symbol(
                     name=o_name, type=omen_t, kind="omen", line=line, column=col, doc=doc, file_path=self.filename, c_name=c_o_name
                 ))
+                is_d_pengu = bool(self.filename and self.filename.endswith(".d.pengu"))
                 for v_name in variants:
-                    c_v_name = f"{c_o_name}_{v_name}"
+                    # For declaration files (.d.pengu), C enum constants follow the
+                    # header's plain enumerator name (no insignia or omen prefix).
+                    c_v_name = v_name if is_d_pengu else f"{c_o_name}_{v_name}"
                     self.symbols.global_scope.define(Symbol(
                         name=f"{o_name}_{v_name}", type=omen_t, kind="omen_variant", is_mutable=False, line=line, column=col, file_path=self.filename, c_name=c_v_name
                     ))
-                    if self.symbols.lookup(v_name) is None:
+                    if self.symbols.global_scope.lookup(v_name) is None:
                         self.symbols.global_scope.define(Symbol(
                             name=v_name, type=omen_t, kind="omen_variant", is_mutable=False, line=line, column=col, file_path=self.filename, c_name=c_v_name
                         ))

@@ -2876,9 +2876,9 @@ weave main into void:
         assert "Vec2 Vec2_add(Vec2* self, Vec2 other);" in c
         assert "float Vec2_length(Vec2* self);" in c
         assert "void Vec2_move(Vec2* self, float dx, float dy);" in c
-        assert "Vec2 Vec2_add(Vec2* restrict self, Vec2 other) {" in c
+        assert "Vec2 Vec2_add(Vec2* self, Vec2 other) {" in c
         assert "return (Vec2){.x = (self->x + other.x), .y = (self->y + other.y)};" in c
-        assert "void Vec2_move(Vec2* restrict self, float dx, float dy) {" in c
+        assert "void Vec2_move(Vec2* self, float dx, float dy) {" in c
         assert "const Vec2 c = Vec2_add(&a, b);" in c
         assert "Vec2_move(&a, 10.0f, 0.0f);" in c
 

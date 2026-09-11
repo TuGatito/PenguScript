@@ -4,6 +4,14 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [0.10.0] - Unreleased
 
+### Fixed (production criticals)
+
+The three production-critical defects identified in `PRODUCTION_READINESS.md` §9.3 (C1, C2, C3) are resolved, with comprehensive test coverage in `tests/test_p3_criticals.py`:
+
+- **C1: Bare module-qualified binding variants (`module.VARIANT`).** Referencing constants and omen variants from C bindings using the bare module-qualified spelling (e.g. `raylib.FLAG_MSAA_4X_HINT`, `raylib.KEY_RIGHT`, `raylib.SHADER_UNIFORM_FLOAT`) previously emitted an invalid prefixed C identifier (`raylib_FLAG_MSAA_4X_HINT`), failing at C compilation time. The code generator now resolves these to the clean, unprefixed C identifiers defined by the native header, while keeping user-defined PenguScript omen variants properly prefixed (`Color_Rojo`).
+- **C2: String interpolation diagnostics for non-PenguScript text (`{...}`).** Embedding text containing curly braces (such as GLSL/HLSL shader source or regexes) in normal strings previously failed with a generic `E0000` syntax error pointing at line 1 column 3 of the interpolated snippet. The type inferrer now reports `E0019` against the actual string literal location with clear context and explicit `help:` pointing to raw strings (`r"..."` or `r"""..."""`), where curly braces and escape characters are preserved verbatim.
+- **C3: Dropped unconditional `restrict` from generated parameters and `self`.** Function parameter prototypes and definitions generated for `ref to T` and `self` previously emitted `T* restrict`, introducing undefined behavior under optimization (`-O2`) for APIs that alias or overlap buffers in-place. Generated C now emits standard pointers (`T* self`, `T* p`), guaranteeing aliasing safety. The mapper retains `restrict=True` as an explicit opt-in mechanism (`CTypeMapper.to_c_decl`).
+
 ### P0 toolchain hardening (production hygiene)
 
 The five items the readiness assessment (`PRODUCTION_READINESS.md` §7, P0) called

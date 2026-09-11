@@ -1321,20 +1321,13 @@ ways, and the first two are the ones to use:
 ```pengu
 import std.raylib
 
+calling raylib.IsKeyDown with raylib.KEY_RIGHT                # bare module-qualified ✅
 calling raylib.IsKeyDown with raylib.KeyboardKey.KEY_RIGHT   # nested: type-qualified ✅
 calling raylib.IsKeyDown with KEY_RIGHT                      # unqualified ✅
-calling raylib.SetConfigFlags with FLAG_MSAA_4X_HINT         # integer #define ✅
+calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT   # qualified #define / variant ✅
 ```
 
-> [!WARNING]
-> The **bare module-qualified** form (`raylib.KEY_RIGHT`,
-> `raylib.SHADER_UNIFORM_FLOAT`, `raylib.FLAG_MSAA_4X_HINT`) type-checks but
-> currently emits `<module>_<NAME>` in the generated C, which the C header does
-> not define (a known 0.10.0 bug, tracked as the top item in
-> `PRODUCTION_READINESS.md`). Use the unqualified name (constants and variants
-> from an imported binding are in scope) or the `Module.Omen.VARIANT` spelling
-> until it is fixed. Struct-valued constants such as `raylib.RAYWHITE` are
-> unaffected (their value is inlined).
+All three forms are supported: bare module-qualified (`raylib.KEY_RIGHT`, `raylib.FLAG_MSAA_4X_HINT`), type-qualified (`raylib.KeyboardKey.KEY_RIGHT`), and unqualified (`KEY_RIGHT`). Struct-valued constants such as `raylib.RAYWHITE` are also supported (their value is emitted as defined).
 
 
 ### 14.3 `ref to char`, `opaque`, `.d.pengu`, and `bytes of`
@@ -1466,10 +1459,11 @@ let e as string is r"""raw triple"""             # raw + triple
 > [!IMPORTANT]
 > **Use raw strings for text that is not PenguScript** — GLSL/HLSL shader source,
 > regexes, JSON templates, Windows paths. In a normal string `{…}` is an
-> *interpolation* and `\n`/`\t`/`\\` are escapes, so a shader like
-> `"#version 330\nvoid main() { gl_Position = …; }"` is a parse error (a
-> misleading one today: `E0000` at the string's line). The idiom is a raw triple
-> string, which keeps the newlines *and* the braces literal:
+> *interpolation* and `\n`/`\t`/`\\` are escapes, so unescaped syntax inside `{…}`
+> like `"#version 330\nvoid main() { gl_Position = …; }"` produces diagnostic
+> `E0019` located against the string literal with an explicit hint recommending
+> raw strings. The idiom is a raw triple string, which keeps the newlines *and*
+> the braces literal:
 >
 > ```pengu
 > var vs as string is r"""#version 330
@@ -1727,12 +1721,10 @@ native C APIs 1:1 with upstream documentation retained inline.
   vendored C libraries.
 
 Known tooling gaps (as of 0.10.0): the `pengu` CLI has no `-I`/`-L`/`-l` flags
-(use `pengu.yaml`), `build/app.exe` is a shared output path so building a
+(use `pengu.yaml`), and `build/app.exe` is a shared default output path so building a
 different entry reuses the same binary name (the cache is content-keyed, so it
-rebuilds correctly), and `ref to T` parameters are emitted with C `restrict` —
-fine for the common case, but C libraries that alias their buffer arguments
-in place should be wrapped behind a small shim or called through a
-`transmute`d non-`restrict` declaration.
+rebuilds correctly). Parameters passed as `ref to T` and `self` are emitted as
+standard C pointers without `restrict`, guaranteeing safety for aliasing buffers.
 
 Typical layout:
 

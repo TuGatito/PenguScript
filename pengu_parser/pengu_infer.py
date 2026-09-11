@@ -804,6 +804,13 @@ class TypeInferrer:
                 if sym and sym.kind == "import":
                     if sym.module_scope:
                         mod_sym = sym.module_scope.lookup(field_name)
+                        if not mod_sym:
+                            mod_sym = sym.module_scope.lookup(f"{var_name}_{field_name}")
+                        if not mod_sym:
+                            for s in sym.module_scope.symbols.values():
+                                if getattr(s, "kind", "") == "omen_variant" and s.name.endswith(f"_{field_name}"):
+                                    mod_sym = s
+                                    break
                         if mod_sym and (getattr(mod_sym, "is_public", False) is False or field_name.startswith("_")):
                             raise self._make_error(
                                 PrivateSymbolAccessError,
@@ -813,6 +820,8 @@ class TypeInferrer:
                                 help=f"Rename '{field_name}' without the leading underscore to make it public, or access it from inside module '{var_name}'.",
                                 note="Private symbols starting with '_' are not exported."
                             )
+                        if mod_sym and getattr(mod_sym, "type", None):
+                            return mod_sym.type
                     c_sym = self.symbols.lookup(f"{var_name}_{field_name}") or self.symbols.lookup(field_name)
                     if c_sym and c_sym.type:
                         return c_sym.type
@@ -2736,9 +2745,7 @@ class TypeInferrer:
                     help=f"Ensure variable '{var_err_name}' is declared before interpolating it in string.",
                     note="String interpolation expressions evaluate variables in current scope."
                 )
-            except SemanticError:
-                raise
-            except Exception:
+            except Exception as e:
                 if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', expr_str):
                     sym = self.symbols.lookup(expr_str) if self.symbols else None
                     if sym is None:
@@ -2754,14 +2761,17 @@ class TypeInferrer:
                             help=f"Ensure variable '{expr_str}' is declared before interpolating it in string.",
                             note="String interpolation expressions evaluate variables in current scope."
                         )
+                reason = getattr(e, "message", str(e))
+                reason = re.sub(r"^\[line\s+\d+,\s*col\s+\d+\]\s*", "", reason).strip()
                 raise self._make_error(
                     SemanticError,
-                    f"Invalid expression '{expr_str}' in string interpolation",
+                    f"Invalid expression inside string interpolation '{{{expr_str}}}': {reason}",
                     node,
                     line=line,
                     col=col,
                     code="E0019",
-                    help=f"Check syntax of expression inside '{{{expr_str}}}'."
+                    help='If this text is not PenguScript (GLSL/HLSL shader, regex, JSON, path), use a raw string: r"..." or r"""..."""; curly braces are treated as literals there.',
+                    note="Expressions inside '{...}' in regular strings are evaluated as string interpolation."
                 )
 
 
