@@ -9,6 +9,7 @@ PenguScript compiles directly to clean, human-readable **C99/C11** source code, 
 > **Status:** active development. CI builds the C runtime, runs `pytest tests/`, and packages a standalone release (compiler + VS Code extension) on **Windows, Linux and macOS** — see `.github/workflows/ci.yml`; tagged releases are published by `.github/workflows/release.yml`.
 
 > [!WARNING]
+>
 > ### Beta — usable, not yet production-ready
 >
 > PenguScript today is a **beta**: the language core is stable enough to write real
