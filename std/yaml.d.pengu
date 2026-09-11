@@ -1,42 +1,46 @@
-## PenguScript manual declaration binding for libyaml (yaml.h).
-## libyaml: https://github.com/yaml/libyaml (MIT).
-## Built by build_runtime.py into build/lib/libyaml.a; header staged at
-## build/include/yaml.h.
-##
-## This is a declaration file (.d.pengu): it only declares the native C
-## surface so the LSP and the semantic checker know how to call libyaml from
-## PenguScript. The real C declarations live in `yaml.h`, which is
-## `include`d below, so nothing here emits C code.
-##
-## Bound subset - the smallest genuinely-usable, verifiable surface:
-##   - get_version ........ yaml_get_version(int* major, int* minor, int* patch)
-##   - get_version_string . yaml_get_version_string() -> const char*
-##
-## YAML *parsing* remains C-level only (documented gap): the real event /
-## document API needs `yaml_parser_t` (an opaque by-value struct PenguScript
-## cannot store), caller event buffers and emitters - none expressible from
-## pure Pengu today. libyaml (parsing primitives) and libcyaml (schema-driven
-## struct binding; also C-level only, its cyaml_* entry points are `const
-## cyaml_schema_t*` driven) are both available to C extensions in std_c/.
-##
-## Type mapping notes:
-##   - Out-parameters are declared `ref to int`; pass a PenguScript int
-##     variable with `sigil of`, e.g.
-##       var mi as int is -1
-##       calling yaml.get_version with (sigil of ma) and (sigil of mi) and (sigil of pa)
-##   - get_version_string returns `ref to char` (const char*); PenguScript
-##     cannot convert a C string to a PenguScript string yet, so prefer the
-##     numeric version.
-##
-## Link requirement: -lyaml
-##
-## Typical usage:
-##   import std.yaml
-##   var ma as int is -1
-##   var mi as int is -1
-##   var pa as int is -1
-##   calling yaml.get_version with (sigil of ma) and (sigil of mi) and (sigil of pa)
-##   # ma == 0, mi == 2, pa == 5 for libyaml 0.2.5
+# PenguScript manual declaration binding for libyaml (yaml.h).
+# libyaml: https://github.com/yaml/libyaml (MIT).
+# Built by build_runtime.py into build/lib/libyaml.a; header staged at
+# build/include/yaml.h.
+#
+# This is a declaration file (.d.pengu): it only declares the native C
+# surface so the LSP and the semantic checker know how to call libyaml from
+# PenguScript. The real C declarations live in `yaml.h`, which is
+# `include`d below, so nothing here emits C code.
+#
+# Memory ownership: out-parameters are caller-provided buffers and the string
+# returned by get_version_string is a static libyaml buffer, so no returned
+# handle needs releasing.
+#
+# Bound subset - the smallest genuinely-usable, verifiable surface:
+#   - get_version ........ yaml_get_version(int* major, int* minor, int* patch)
+#   - get_version_string . yaml_get_version_string() -> const char*
+#
+# YAML *parsing* remains C-level only (documented gap): the real event /
+# document API needs `yaml_parser_t` (an opaque by-value struct PenguScript
+# cannot store), caller event buffers and emitters - none expressible from
+# pure Pengu today. libyaml (parsing primitives) and libcyaml (schema-driven
+# struct binding; also C-level only, its cyaml_* entry points are `const
+# cyaml_schema_t*` driven) are both available to C extensions in std_c/.
+#
+# Type mapping notes:
+#   - Out-parameters are declared `ref to int`; pass a PenguScript int
+#     variable with `sigil of`, e.g.
+#       var ma as int is -1
+#       calling yaml.get_version with (sigil of ma), (sigil of mi), (sigil of pa)
+#   - get_version_string returns `ref to frozen char` (C's `const char*`);
+#     PenguScript cannot convert a C string to a PenguScript string yet, so
+#     prefer the numeric version.
+#
+# Link requirement: -lyaml
+#
+# Typical usage:
+#   import std.yaml
+#   var ma as int is -1
+#   var mi as int is -1
+#   var pa as int is -1
+#   calling yaml.get_version with (sigil of ma), (sigil of mi), (sigil of pa)
+#   # ma == 0, mi == 2, pa == 5 for libyaml 0.2.5
 
 include "yaml.h"
 
@@ -46,8 +50,8 @@ include "yaml.h"
 
 insignia yaml_
 
-## Fills major/minor/patch with the libyaml version (0.2.5 -> 0, 2, 5).
-declare get_version with pmajor as ref to int and pminor as ref to int and ppatch as ref to int into void
+# Fills major/minor/patch with the libyaml version (0.2.5 -> 0, 2, 5).
+declare get_version with pmajor as ref to int , pminor as ref to int , ppatch as ref to int into void
 
-## Returns the libyaml version as a C string (e.g. "0.2.5").
-declare get_version_string into ref to char
+# Returns the libyaml version as a C string (e.g. "0.2.5").
+declare get_version_string into ref to frozen char

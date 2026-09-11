@@ -4,6 +4,14 @@
 # All quoting/parsing logic uses byte access (ord) and single-character string
 # construction (chr) from the compiler; file I/O goes through std.archivum.
 # External C code is not required for tabular processing anymore.
+#
+# Usage: import std.ledger. Parse text with parse_csv / parse_line (or the TSV
+# variants), generate text with to_csv_string / to_tsv_string, and move data
+# to and from disk through read_csv / read_tsv / write_csv / write_tsv, which
+# delegate file I/O to std.archivum.
+# Ownership: all results are owned lists, strings or maybe values that can be
+# banished or dropped normally; no result aliases the input text. Malformed
+# input or failed file I/O is reported as maybe none, not raised.
 
 import std.spark
 import std.archivum
@@ -14,7 +22,7 @@ import std.archivum
 
 # Wraps a field in double quotes when it contains the delimiter, a quote, or a
 # line break; doubles embedded quotes.
-weave escape_field with field as string and delimiter as string is "," into string:
+weave escape_field with field as string , delimiter as string is "," into string:
     var delim as string is delimiter
     if delimiter length == 0:
         set delim is ","
@@ -56,7 +64,9 @@ weave escape_field with field as string and delimiter as string is "," into stri
 # ----------------------------------------------------------------------------
 
 # Parses a single CSV/TSV line into its fields (RFC-4180 style quoting).
-weave parse_line with line as string and delimiter as string is "," into maybe list of string:
+# delimiter defaults to ","; the returned list is always present, even for a
+# blank line.
+weave parse_line with line as string , delimiter as string is "," into maybe list of string:
     var delim as string is delimiter
     if delimiter length == 0:
         set delim is ","
@@ -103,7 +113,10 @@ weave parse_line with line as string and delimiter as string is "," into maybe l
     return some fields
 
 # Parses a full CSV/TSV payload into rows of fields.
-weave parse_csv with data as string and delimiter as string is "," and has_header as bool is false into maybe list of list of string:
+# Delimiter defaults to ","; has_header is accepted for API parity: rows are
+# returned as-is, including the header row if one is present. The result is
+# always some, possibly an empty list for empty input.
+weave parse_csv with data as string , delimiter as string is "," , has_header as bool is false into maybe list of list of string:
     var rows as list of list of string is list of list of string
     var dl as int is data length
     if dl == 0:
@@ -114,14 +127,14 @@ weave parse_csv with data as string and delimiter as string is "," and has_heade
         if i == dl:
             if i > start:
                 var last as string is data at start to i
-                var mlast as maybe list of string is calling parse_line with last and delimiter
+                var mlast as maybe list of string is calling parse_line with last , delimiter
                 if mlast.is_present:
                     calling rows.push with mlast.value
             break
         var code as int is ord (data at i)
         if code == 10:
             var seg as string is data at start to i
-            var mseg as maybe list of string is calling parse_line with seg and delimiter
+            var mseg as maybe list of string is calling parse_line with seg , delimiter
             if mseg.is_present:
                 calling rows.push with mseg.value
             set start is i + 1
@@ -133,7 +146,7 @@ weave parse_csv with data as string and delimiter as string is "," and has_heade
 # ----------------------------------------------------------------------------
 
 # Serializes rows of fields into CSV/TSV text (with a trailing newline).
-weave to_csv_string with rows as list of list of string and delimiter as string is "," into maybe string:
+weave to_csv_string with rows as list of list of string , delimiter as string is "," into maybe string:
     var out as string is ""
     var r as int is 0
     while r < rows.len:
@@ -142,7 +155,7 @@ weave to_csv_string with rows as list of list of string and delimiter as string 
         while c < row.len:
             if c > 0:
                 set out is out + delimiter
-            var f as string is calling escape_field with (row at c) and delimiter
+            var f as string is calling escape_field with (row at c) , delimiter
             set out is out + f
             set c is c + 1
         set out is out + "\n"
@@ -200,36 +213,48 @@ weave detect_delimiter with data as string into maybe string:
         set chosen is "|"
     return some chosen
 
-weave parse_tsv with data as string and has_header as bool is false into maybe list of list of string:
-    return calling parse_csv with data and "\t" and has_header
+# Parses tab-separated data into rows of fields; TSV shorthand for parse_csv
+# with the tab delimiter.
+weave parse_tsv with data as string , has_header as bool is false into maybe list of list of string:
+    return calling parse_csv with data , "\t" , has_header
 
+# Serializes rows into tab-separated text with a trailing newline; TSV
+# shorthand for to_csv_string.
 weave to_tsv_string with rows as list of list of string into maybe string:
-    return calling to_csv_string with rows and "\t"
+    return calling to_csv_string with rows , "\t"
 
 # ----------------------------------------------------------------------------
 # File helpers (I/O via std.archivum)
 # ----------------------------------------------------------------------------
 
-weave read_csv with path as string and has_header as bool is false and delimiter as string is "," into maybe list of list of string:
+# Reads the file at path (via std.archivum) and parses it as CSV; maybe none
+# when the file cannot be read.
+weave read_csv with path as string , has_header as bool is false , delimiter as string is "," into maybe list of list of string:
     var content as maybe string is calling archivum.read_file with path
     if content.is_present:
-        return calling parse_csv with content.value and delimiter and has_header
+        return calling parse_csv with content.value , delimiter , has_header
     return maybe none
 
-weave read_tsv with path as string and has_header as bool is false into maybe list of list of string:
+# Reads the file at path (via std.archivum) and parses it as TSV; maybe none
+# when the file cannot be read.
+weave read_tsv with path as string , has_header as bool is false into maybe list of list of string:
     var content as maybe string is calling archivum.read_file with path
     if content.is_present:
-        return calling parse_tsv with content.value and has_header
+        return calling parse_tsv with content.value , has_header
     return maybe none
 
-weave write_csv with path as string and rows as list of list of string and delimiter as string is "," into bool:
-    var gen as maybe string is calling to_csv_string with rows and delimiter
+# Serializes rows to CSV text and writes it to path; true when the write
+# succeeded.
+weave write_csv with path as string , rows as list of list of string , delimiter as string is "," into bool:
+    var gen as maybe string is calling to_csv_string with rows , delimiter
     if gen.is_present:
-        return calling archivum.write_file with path and gen.value
+        return calling archivum.write_file with path , gen.value
     return false
 
-weave write_tsv with path as string and rows as list of list of string into bool:
+# Serializes rows to TSV text and writes it to path; true when the write
+# succeeded.
+weave write_tsv with path as string , rows as list of list of string into bool:
     var gen as maybe string is calling to_tsv_string with rows
     if gen.is_present:
-        return calling archivum.write_file with path and gen.value
+        return calling archivum.write_file with path , gen.value
     return false

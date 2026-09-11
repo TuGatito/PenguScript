@@ -1,6 +1,17 @@
 # std/seal.pengu - The Seal (Compression & Hashing)
-# Provides cryptographic hashing (MD5, SHA1, SHA256, SHA512), CRC32,
-# and compression/decompression (gzip, zlib deflate/inflate).
+# CRC32 checksums, MD5 / SHA-1 / SHA-256 / SHA-512 digests, gzip and raw zlib
+# deflate / inflate, file helpers and hash verification (zlib + mbedTLS).
+#
+# Ownership model:
+#   * Every digest helper (crc32, md5, sha1, sha256, sha512 and their *_file
+#     variants) returns an OWNED result: an int checksum, a lowercase hex
+#     string, or a MaybeInt / maybe string wrapper. Owned strings may be
+#     banished once the caller is done with them.
+#   * gzip / unzip / zlib_compress / zlib_decompress return `maybe string`: a
+#     present value is an owned fresh (binary) string the caller may banish
+#     after use; none means the operation failed.
+#   * File helpers read whole files through std.archivum and keep no
+#     persistent handles open.
 
 import std.spark
 import std.oracle
@@ -11,24 +22,40 @@ import std.archivum
 # External C Functions (from Runtime)
 # ----------------------------------------------------------------------------
 
+# Computes the CRC-32 checksum of `data` (zlib crc32) as an int.
 declare pengu_c_seal_crc32 with data as string into int
+# MD5 digest of `data`; returns an owned lowercase hex string.
 declare pengu_c_seal_md5 with data as string into string
+# SHA-1 digest of `data`; returns an owned lowercase hex string.
 declare pengu_c_seal_sha1 with data as string into string
+# SHA-256 digest of `data`; returns an owned lowercase hex string.
 declare pengu_c_seal_sha256 with data as string into string
+# SHA-512 digest of `data`; returns an owned lowercase hex string.
 declare pengu_c_seal_sha512 with data as string into string
+# gzip-compresses `data`. A present result is an owned fresh string.
 declare pengu_c_seal_gzip with data as string into maybe string
+# Decompresses a gzip/zlib stream. A present result is an owned fresh string.
 declare pengu_c_seal_unzip with data as string into maybe string
+# Raw zlib deflate of `data`. A present result is an owned fresh string.
 declare pengu_c_seal_zlib_compress with data as string into maybe string
+# Raw zlib inflate of `data`. A present result is an owned fresh string.
 declare pengu_c_seal_zlib_decompress with data as string into maybe string
-declare pengu_c_seal_hash_file with path as string and hash_type as string into maybe string
+# Digests the file at `path` with `hash_type` (md5/sha1/sha256/sha512). A
+# present result is an owned lowercase hex string.
+declare pengu_c_seal_hash_file with path as string , hash_type as string into maybe string
 
 # ----------------------------------------------------------------------------
 # Public API - CRC32 Checksum
 # ----------------------------------------------------------------------------
 
+# Computes the CRC-32 checksum of `data` (IEEE 802.3 polynomial, as used by
+# zlib / PNG) and returns it as an int. Pure value: no ownership concerns.
 weave crc32 with data as string into int:
     return calling pengu_c_seal_crc32 with data
 
+# CRC-32 of the contents of the file at `path`. Returns a MaybeInt (from
+# std.oracle): present with the checksum when the file was read successfully,
+# none when it is missing or unreadable.
 weave crc32_file with path as string into MaybeInt:
     var content as maybe string is calling archivum.read_file with path
     if content is present:
@@ -40,63 +67,101 @@ weave crc32_file with path as string into MaybeInt:
 # Public API - Hashes (MD5, SHA1, SHA256, SHA512)
 # ----------------------------------------------------------------------------
 
+# Returns the MD5 digest of `data` as a 32-character lowercase hex string
+# (owned; banish it when done).
 weave md5 with data as string into string:
     return calling pengu_c_seal_md5 with data
 
+# MD5 digest of the file at `path`, streamed by the runtime. Returns a maybe
+# string: a present value is an owned 32-character hex string; none when the
+# file is missing or unreadable.
 weave md5_file with path as string into maybe string:
-    return calling pengu_c_seal_hash_file with path and "md5"
+    return calling pengu_c_seal_hash_file with path , "md5"
 
+# Returns the SHA-1 digest of `data` as a 40-character lowercase hex string
+# (owned; banish it when done).
 weave sha1 with data as string into string:
     return calling pengu_c_seal_sha1 with data
 
+# SHA-1 digest of the file at `path`, streamed by the runtime. Returns a maybe
+# string: a present value is an owned 40-character hex string; none when the
+# file is missing or unreadable.
 weave sha1_file with path as string into maybe string:
-    return calling pengu_c_seal_hash_file with path and "sha1"
+    return calling pengu_c_seal_hash_file with path , "sha1"
 
+# Returns the SHA-256 digest of `data` as a 64-character lowercase hex string
+# (owned; banish it when done).
 weave sha256 with data as string into string:
     return calling pengu_c_seal_sha256 with data
 
+# SHA-256 digest of the file at `path`, streamed by the runtime. Returns a
+# maybe string: a present value is an owned 64-character hex string; none when
+# the file is missing or unreadable.
 weave sha256_file with path as string into maybe string:
-    return calling pengu_c_seal_hash_file with path and "sha256"
+    return calling pengu_c_seal_hash_file with path , "sha256"
 
+# Returns the SHA-512 digest of `data` as a 128-character lowercase hex string
+# (owned; banish it when done).
 weave sha512 with data as string into string:
     return calling pengu_c_seal_sha512 with data
 
+# SHA-512 digest of the file at `path`, streamed by the runtime. Returns a
+# maybe string: a present value is an owned 128-character hex string; none
+# when the file is missing or unreadable.
 weave sha512_file with path as string into maybe string:
-    return calling pengu_c_seal_hash_file with path and "sha512"
+    return calling pengu_c_seal_hash_file with path , "sha512"
 
 # ----------------------------------------------------------------------------
 # Public API - Gzip Compression
 # ----------------------------------------------------------------------------
 
+# gzip-compresses `data` into a binary stream (RFC 1952). Returns a maybe
+# string: a present value is an owned fresh string (banish after use); none
+# when compression fails.
 weave gzip with data as string into maybe string:
     return calling pengu_c_seal_gzip with data
 
+# Decompresses a gzip (or zlib-wrapped) stream such as the one produced by
+# gzip. Returns a maybe string: a present value is an owned fresh string
+# (banish after use); none when the input is not a valid stream.
 weave unzip with data as string into maybe string:
     return calling pengu_c_seal_unzip with data
 
-weave gzip_file with path as string and output_path as string into bool:
+# gzip-compresses the file at `path` and writes the result to `output_path`.
+# Returns true when the read, compression and write all succeed; false
+# otherwise (no output file is produced on failure).
+weave gzip_file with path as string , output_path as string into bool:
     var content as maybe string is calling archivum.read_file with path
     if content is present:
         var comp as maybe string is calling pengu_c_seal_gzip with content.value
         if comp is present:
-            return calling archivum.write_file with output_path and comp.value
+            return calling archivum.write_file with output_path , comp.value
     return false
 
-weave unzip_file with path as string and output_path as string into bool:
+# Decompresses the gzip file at `path` and writes the result to `output_path`.
+# Returns true when the read, decompression and write all succeed; false
+# otherwise (no output file is produced on failure).
+weave unzip_file with path as string , output_path as string into bool:
     var content as maybe string is calling archivum.read_file with path
     if content is present:
         var decomp as maybe string is calling pengu_c_seal_unzip with content.value
         if decomp is present:
-            return calling archivum.write_file with output_path and decomp.value
+            return calling archivum.write_file with output_path , decomp.value
     return false
 
 # ----------------------------------------------------------------------------
 # Public API - Raw Zlib Deflate / Inflate
 # ----------------------------------------------------------------------------
 
+# Compresses `data` with raw zlib deflate (no gzip framing). Returns a maybe
+# string: a present value is an owned fresh string (banish after use); none
+# when compression fails.
 weave zlib_compress with data as string into maybe string:
     return calling pengu_c_seal_zlib_compress with data
 
+# Decompresses a raw zlib stream produced by zlib_compress. Returns a maybe
+# string: a present value is an owned fresh string (banish after use); none
+# when the input is not a valid zlib stream.
 weave zlib_decompress with data as string into maybe string:
     return calling pengu_c_seal_zlib_decompress with data
 
@@ -104,7 +169,10 @@ weave zlib_decompress with data as string into maybe string:
 # Public API - Hash Verification
 # ----------------------------------------------------------------------------
 
-weave verify_hash with data as string and hash_type as string and expected as string into bool:
+# Computes the digest of `data` using `hash_type` ("md5", "sha1", "sha256" or
+# "sha512") and returns true when it equals `expected`. Unknown hash types
+# yield an empty digest, so the comparison is false.
+weave verify_hash with data as string , hash_type as string , expected as string into bool:
     var computed as string is ""
     if hash_type == "md5":
         set computed is calling md5 with data
@@ -116,8 +184,11 @@ weave verify_hash with data as string and hash_type as string and expected as st
         set computed is calling sha512 with data
     return computed == expected
 
-weave verify_hash_file with path as string and hash_type as string and expected as string into bool:
-    var computed as maybe string is calling pengu_c_seal_hash_file with path and hash_type
+# Computes the digest of the file at `path` using `hash_type` and returns true
+# when it equals `expected`. False when the file cannot be read or the hash
+# type is unsupported.
+weave verify_hash_file with path as string , hash_type as string , expected as string into bool:
+    var computed as maybe string is calling pengu_c_seal_hash_file with path , hash_type
     if computed is present:
         return computed.value == expected
     return false
@@ -126,12 +197,18 @@ weave verify_hash_file with path as string and hash_type as string and expected 
 # Result / Error Handling Wrappers
 # ----------------------------------------------------------------------------
 
+# gzip variant that reports failure as a ResultString (from std.oracle) instead
+# of a silent none: ok(compressed stream) on success, or err with the message
+# "Gzip compression failed".
 weave try_gzip with data as string into ResultString:
     var comp as maybe string is calling pengu_c_seal_gzip with data
     if comp is present:
         return calling oracle.result_ok_string with comp.value
     return calling oracle.result_err_string with "Gzip compression failed"
 
+# unzip variant that reports failure as a ResultString (from std.oracle)
+# instead of a silent none: ok(decompressed data) on success, or err with the
+# message "Gzip decompression failed".
 weave try_unzip with data as string into ResultString:
     var decomp as maybe string is calling pengu_c_seal_unzip with data
     if decomp is present:

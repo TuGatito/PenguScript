@@ -1,45 +1,49 @@
-## PenguScript manual declaration binding for the xlsxio .xlsx write API
-## (xlsxio_write.h). xlsxio: https://github.com/brechtsanders/xlsxio
-## (BSD-2-Clause). Built by build_runtime.py into libxlsxio_write.a +
-## libxlsxio_read.a; headers staged at build/include/xlsxio_write.h.
-##
-## This is a declaration file (.d.pengu): it only declares the native C
-## surface so the LSP and the semantic checker know how to call xlsxio from
-## PenguScript. The real C declarations live in `xlsxio_write.h`, which is
-## `include`d below, so nothing here emits C code.
-##
-## Bound subset (xlsxio_write API that is verifiable compile+link+run):
-##   - get_version_string ... xlsxiowrite_get_version_string
-##   - open / close ......... xlsxiowrite_open / xlsxiowrite_close
-##   - next_row ............. xlsxiowrite_next_row
-##   - add_cell_string ...... xlsxiowrite_add_cell_string (const char* cell)
-##   - add_cell_int ......... xlsxiowrite_add_cell_int (int64_t cell)
-##   - add_cell_float ....... xlsxiowrite_add_cell_float (double cell)
-##   - add_column ........... xlsxiowrite_add_column (column header row)
-##   - set_detection_rows ... xlsxiowrite_set_detection_rows
-##
-## Intentionally NOT bound (documented omission): the whole xlsxio_read
-## surface (`xlsxioread_*`) - it returns parsed cells through out-parameters
-## (`const char*** pptr` + row lengths), which PenguScript cannot express
-## today; the write side is verified by opening the produced file with the C
-## reader in tests. See std/xlsx.pengu for the pure-Pengu write wrapper.
-##
-## Type mapping notes:
-##   - The write handle `xlsxiowriter` (a `struct xlsxio_write_struct*`) is
-##     typed `ref to void` on the Pengu side - it is an opaque pointer that
-##     is only ever passed back to the API.
-##   - C strings (`const char*`) are `ref to char`. A PenguScript string
-##     *literal* can be passed directly; to pass a runtime string variable
-##     use `bytes of <string>` (the produced byte pointer is accepted at the
-##     call site; generated C needs no cast and compiles with at most an
-##     "incompatible pointer type" warning from gcc, which is benign).
-##   - `int64_t` cells are `i64`; `double` cells are `f64`; column width is
-##     `int`; detection rows are `size_t`.
-##
-## Link requirements (add to your gcc line, exactly like build_runtime
-## probes): -lxlsxio_write -lxlsxio_read -lzip -lz -lexpat -lbcrypt, and
-## compile the C bundle with -DSTATIC (the xlsxio headers use __declspec
-## dllimport on Windows unless STATIC is defined).
+# PenguScript manual declaration binding for the xlsxio .xlsx write API
+# (xlsxio_write.h). xlsxio: https://github.com/brechtsanders/xlsxio
+# (BSD-2-Clause). Built by build_runtime.py into libxlsxio_write.a +
+# libxlsxio_read.a; headers staged at build/include/xlsxio_write.h.
+#
+# This is a declaration file (.d.pengu): it only declares the native C
+# surface so the LSP and the semantic checker know how to call xlsxio from
+# PenguScript. The real C declarations live in `xlsxio_write.h`, which is
+# `include`d below, so nothing here emits C code.
+#
+# Memory ownership: the opaque write handle returned by open() is caller-owned;
+# release it with close() before dropping the last reference.
+#
+# Bound subset (xlsxio_write API that is verifiable compile+link+run):
+#   - get_version_string ... xlsxiowrite_get_version_string
+#   - open / close ......... xlsxiowrite_open / xlsxiowrite_close
+#   - next_row ............. xlsxiowrite_next_row
+#   - add_cell_string ...... xlsxiowrite_add_cell_string (const char* cell)
+#   - add_cell_int ......... xlsxiowrite_add_cell_int (int64_t cell)
+#   - add_cell_float ....... xlsxiowrite_add_cell_float (double cell)
+#   - add_column ........... xlsxiowrite_add_column (column header row)
+#   - set_detection_rows ... xlsxiowrite_set_detection_rows
+#
+# Intentionally NOT bound (documented omission): the whole xlsxio_read
+# surface (`xlsxioread_*`) - it returns parsed cells through out-parameters
+# (`const char*** pptr` + row lengths), which PenguScript cannot express
+# today; the write side is verified by opening the produced file with the C
+# reader in tests. See std/xlsx.pengu for the pure-Pengu write wrapper.
+#
+# Type mapping notes:
+#   - The write handle `xlsxiowriter` (a `struct xlsxio_write_struct*`) is
+#     typed `ref to void` on the Pengu side - it is an opaque pointer that
+#     is only ever passed back to the API.
+#   - C strings (`const char*`) are `ref to frozen char`: a PenguScript
+#     string *literal* is accepted directly (char* converts to const char* in
+#     C). To pass a runtime string variable use `bytes of <string>` (the
+#     produced byte pointer is accepted at the call site; generated C needs
+#     no cast and compiles with at most an "incompatible pointer type"
+#     warning from gcc, which is benign).
+#   - `int64_t` cells are `i64`; `double` cells are `f64`; column width is
+#     `int`; detection rows are `size_t`.
+#
+# Link requirements (add to your gcc line, exactly like build_runtime
+# probes): -lxlsxio_write -lxlsxio_read -lzip -lz -lexpat -lbcrypt, and
+# compile the C bundle with -DSTATIC (the xlsxio headers use __declspec
+# dllimport on Windows unless STATIC is defined).
 
 include "xlsxio_write.h"
 
@@ -49,34 +53,34 @@ include "xlsxio_write.h"
 
 insignia xlsxiowrite_
 
-## Returns the xlsxio library version as a C string (e.g. "0.2.36").
-declare get_version_string into ref to char
+# Returns the xlsxio library version as a C string (e.g. "0.2.36").
+declare get_version_string into ref to frozen char
 
-## Opens (creates) a .xlsx workbook for writing. Returns an opaque write
-## handle or null on error.
-## @param filename  path of the .xlsx file to create
-## @param sheetname name of the first worksheet
-declare open with filename as ref to char, sheetname as ref to char into ref to void
+# Opens (creates) a .xlsx workbook for writing. Returns an opaque write
+# handle or null on error.
+# @param filename  path of the .xlsx file to create
+# @param sheetname name of the first worksheet
+declare open with filename as ref to frozen char, sheetname as ref to frozen char into ref to void
 
-## Closes and finalizes the workbook. Returns zero on success.
+# Closes and finalizes the workbook. Returns zero on success.
 declare close with handle as ref to void into int
 
-## Marks the end of the current row: add the row's cells first, then call
-## next_row to delimit it. (Calling it with no row open emits an empty row,
-## so do not call it before the first row's cells.)
+# Marks the end of the current row: add the row's cells first, then call
+# next_row to delimit it. (Calling it with no row open emits an empty row,
+# so do not call it before the first row's cells.)
 declare next_row with handle as ref to void into void
 
-## Adds a string cell to the current row.
-declare add_cell_string with handle as ref to void, value as ref to char into void
+# Adds a string cell to the current row.
+declare add_cell_string with handle as ref to void, value as ref to frozen char into void
 
-## Adds a 64-bit integer cell to the current row.
+# Adds a 64-bit integer cell to the current row.
 declare add_cell_int with handle as ref to void, value as i64 into void
 
-## Adds a floating-point cell (C double) to the current row.
+# Adds a floating-point cell (C double) to the current row.
 declare add_cell_float with handle as ref to void, value as f64 into void
 
-## Adds one column-header cell (call per column, then next_row).
-declare add_column with handle as ref to void, name as ref to char, width as int into void
+# Adds one column-header cell (call per column, then next_row).
+declare add_column with handle as ref to void, name as ref to frozen char, width as int into void
 
-## Configures how many leading rows are buffered for width detection.
+# Configures how many leading rows are buffered for width detection.
 declare set_detection_rows with handle as ref to void, rows as size_t into void

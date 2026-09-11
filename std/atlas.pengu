@@ -1,8 +1,23 @@
 # std/atlas.pengu - The Atlas (Maps)
-# Hash map key-value store utilities.
+# Hash map key-value store utilities for the built-in `map of K to V`
+# collections.
+#
+# Ownership / memory model:
+#   * Helpers only read the map they receive: no entry is copied, added,
+#     removed or reallocated, and the caller keeps ownership of the map
+#     (it can still `banish` it after the call returns).
+#
+# Usage:
+#   import std.atlas
+#   var m as map of string to int is { "a": 1, "b": 2 }
+#   var n as int is calling atlas.map_len_str_int with m
 
 import std.spark
 
 # Map helper utilities
+#
+# Returns the number of key -> value entries currently stored in the
+# `map of string to int` `m`, equivalent to `calling m.len`. The map is
+# only read, never modified.
 weave map_len_str_int with m as map of string to int into int:
     return calling m.len

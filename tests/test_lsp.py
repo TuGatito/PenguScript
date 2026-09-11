@@ -76,12 +76,13 @@ def checked_symbols(source, filename="t.pengu", base_dir=None):
     return checker.symbols
 
 
-def completion_labels(symbols, position, line_prefix=""):
+def completion_labels(symbols, position, line_prefix="", module_cache=None, base_dir=None, doc_text=None):
     """Returns completion labels for a cursor position / line prefix."""
     from pengu_lsp.completions import get_completions
 
     res = get_completions(
-        "file:///t.pengu", position, symbols=symbols, line_prefix=line_prefix
+        "file:///t.pengu", position, symbols=symbols, line_prefix=line_prefix,
+        module_cache=module_cache, base_dir=base_dir, doc_text=doc_text,
     )
     return [item.label for item in res.items]
 
@@ -94,11 +95,12 @@ def completion_labels(symbols, position, line_prefix=""):
 @pytest.fixture(autouse=True)
 def _clean_server_state():
     """The pengu_lsp server is a module-level singleton; reset per test."""
-    from pengu_lsp.server import server
+    from pengu_lsp.server import server, _MODULE_CACHE
 
     server._symbols.clear()
     server._docs.clear()
     server._validation_cache.clear()
+    _MODULE_CACHE.clear()
     for task in server._validate_tasks.values():
         task.cancel()
     server._validate_tasks.clear()
@@ -307,12 +309,7 @@ class TestDidOpenDiagnostics:
         from pengu_lsp.server import diagnostics_from_errors
 
         source = (
-            "rune Vec2:\n"
-            "  x as int\n"
-            "  y as int\n"
-            "\n"
-            "weave add with a as int and b as int into int:\n"
-            "  return a + b\n"
+            "rune Vec2:\n  x as int\n  y as int\n\nweave add with a as int, b as int into int:\n  return a + b\n"
         )
         _checker, errors = parse_and_check(source, filename="test.pengu")
         assert errors == []
@@ -362,12 +359,7 @@ class TestHover:
         from pengu_lsp.hover import get_hover
 
         source = (
-            "rune Vec2:\n"
-            "  x as float\n"
-            "  y as float\n"
-            "\n"
-            "weave main into void:\n"
-            "  var v as Vec2 is with x is 1.0 and y is 2.0\n"
+            "rune Vec2:\n  x as float\n  y as float\n\nweave main into void:\n  var v as Vec2 is with x is 1.0, y is 2.0\n"
         )
         symbols = checked_symbols(source, filename="test.pengu")
 
@@ -390,10 +382,7 @@ class TestHover:
         from pengu_lsp.hover import get_hover
 
         source = (
-            "# Computes the sum of two integers.\n"
-            "# Returns the calculated integer result.\n"
-            "weave add with a as int and b as int into int:\n"
-            "    return a + b\n"
+            "# Computes the sum of two integers.\n# Returns the calculated integer result.\nweave add with a as int, b as int into int:\n    return a + b\n"
         )
         symbols = checked_symbols(source, filename="test.pengu")
 
@@ -415,13 +404,7 @@ class TestHover:
         from pengu_lsp.hover import get_hover
 
         source = (
-            "rune Player:\n"
-            "  name as string\n"
-            "  health as int\n"
-            "  is_alive as bool\n"
-            "\n"
-            "weave main into void:\n"
-            '  var p as Player is with name is "Hero" and health is 100 and is_alive is true\n'
+            "rune Player:\n  name as string\n  health as int\n  is_alive as bool\n\nweave main into void:\n  var p as Player is with name is \"Hero\", health is 100, is_alive is true\n"
         )
         symbols = checked_symbols(source, filename="test.pengu")
 
@@ -619,20 +602,141 @@ class TestCompletion:
         assert "println" in labels
         assert "print_line" in labels
 
+    def test_module_dot_completion_from_cache_without_symbols(self):
+        """Module members complete from the server cache even when the current
+        document has no symbol table yet (not validated)."""
+        source = 'import std.spark\n\nweave main into void:\n  calling spark.println with "x"\n'
+        symbols = checked_symbols(source, filename="test.pengu")
+        mod_sym = symbols.lookup("spark")
+        cache = {"spark": mod_sym.module_scope}
+
+        labels = completion_labels(
+            None, Position(line=3, character=16), line_prefix='  calling spark.',
+            module_cache=cache,
+        )
+        assert "println" in labels
+        assert "print_line" in labels
+
+    def test_import_symbol_without_scope_does_not_use_cache(self, tmp_path):
+        """A defined import symbol with no scope must NOT fall back to the
+        cache: a stale/foreign cached scope must never leak another module's
+        members into this completion."""
+        mod = tmp_path / "mymod.pengu"
+        mod.write_text(
+            "weave add with a as int, b as int into int:\n    return a + b\n",
+            encoding="utf-8",
+        )
+        source = ('import mymod\n\nweave main into void:\n  var s as int is calling mymod.add with 1, 2\n')
+        symbols = checked_symbols(source, filename=str(tmp_path / "main.pengu"),
+                                  base_dir=str(tmp_path))
+        mod_sym = symbols.lookup("mymod")
+        # Poison the cache under this alias with a *different* module scope,
+        # then strip the real scope off the symbol to simulate partial state.
+        oracle_symbols = checked_symbols('import std.oracle\n\nweave main into void:\n  return\n',
+                                         filename=str(tmp_path / "other.pengu"))
+        cache = {"mymod": oracle_symbols.lookup("oracle").module_scope}
+        mod_sym.module_scope = None
+
+        labels = completion_labels(
+            symbols, Position(line=3, character=20), line_prefix='  calling mymod.',
+            module_cache=cache,
+        )
+        assert "result_ok_int" not in labels   # foreign (oracle) members must not leak
+        assert "add" not in labels             # and the real module is not resolved
+
+    def test_module_dot_completion_does_not_leak_cached_foreign_module(self, tmp_path):
+        """`mymod.` (validly imported, real scope) must only show mymod's own
+        members, never the members of a foreign module cached under the alias."""
+        mod = tmp_path / "mymod.pengu"
+        mod.write_text(
+            "weave add with a as int, b as int into int:\n    return a + b\n",
+            encoding="utf-8",
+        )
+        source = ('import mymod\n\nweave main into void:\n  var s as int is calling mymod.add with 1, 2\n')
+        symbols = checked_symbols(source, filename=str(tmp_path / "main.pengu"),
+                                  base_dir=str(tmp_path))
+        mod_sym = symbols.lookup("mymod")
+        assert mod_sym is not None and mod_sym.module_scope is not None
+
+        # Poison the cache under this alias with the oracle module scope.
+        oracle_symbols = checked_symbols('import std.oracle\n\nweave main into void:\n  return\n',
+                                         filename=str(tmp_path / "other.pengu"))
+        cache = {"mymod": oracle_symbols.lookup("oracle").module_scope}
+
+        labels = completion_labels(
+            symbols, Position(line=3, character=20), line_prefix='  calling mymod.',
+            module_cache=cache,
+        )
+        assert "add" in labels                 # mymod's own member
+        assert "result_ok_int" not in labels   # no oracle leak
+        assert "println" not in labels         # no spark leak either
+
+    def test_unimported_module_from_cache_still_completes(self, tmp_path):
+        """Cache remains usable when the name is NOT defined in the current
+        document: typing `alias.` for an alias cached from another file still
+        offers exactly that module's members."""
+        mod = tmp_path / "mymod.pengu"
+        mod.write_text(
+            "weave add with a as int, b as int into int:\n    return a + b\n",
+            encoding="utf-8",
+        )
+        importer = ('import mymod\n\nweave main into void:\n  var s as int is calling mymod.add with 1, 2\n')
+        importer_symbols = checked_symbols(importer, filename=str(tmp_path / "other.pengu"),
+                                           base_dir=str(tmp_path))
+        cache = {"mymod": importer_symbols.lookup("mymod").module_scope}
+
+        # This document does not import mymod at all; only a rune is defined.
+        plain_source = "rune LocalThing:\n  x as int\n\nweave main into void:\n  return\n"
+        symbols = checked_symbols(plain_source, filename="test.pengu")
+        labels = completion_labels(
+            symbols, Position(line=2, character=19), line_prefix='  calling mymod.',
+            module_cache=cache,
+        )
+        assert "add" in labels
+        assert "println" not in labels
+
+    def test_aliased_module_dot_completion_from_cache(self):
+        """`import std.spark as s` caches the scope under the alias."""
+        source = 'import std.spark as s\n\nweave main into void:\n  calling s.println with "x"\n'
+        symbols = checked_symbols(source, filename="test.pengu")
+        mod_sym = symbols.lookup("s")
+        assert mod_sym is not None
+        cache = {"s": mod_sym.module_scope}
+
+        labels = completion_labels(
+            None, Position(line=3, character=14), line_prefix='  calling s.',
+            module_cache=cache,
+        )
+        assert "println" in labels
+
+    def test_validation_refreshes_module_cache(self):
+        """_compute_diagnostics fills the cache and the handler uses it."""
+        from lsprotocol.types import CompletionParams
+        from pengu_lsp import server as lsp_server
+
+        uri = "file:///modcache_doc.pengu"
+        source = 'import std.spark\n\nweave main into void:\n  calling spark.println with "hi"\n'
+        diags = lsp_server._compute_diagnostics(uri, source)
+        assert diags == []
+
+        assert "spark" in lsp_server._MODULE_CACHE
+        scope = lsp_server._MODULE_CACHE["spark"]
+        assert "println" in scope.symbols
+
+        # Without a symbol table for the doc the handler still resolves the
+        # module members through the cache (cache has been refreshed above).
+        lsp_server.server._symbols.clear()
+        params = CompletionParams(
+            text_document=TextDocumentIdentifier(uri=uri),
+            position=Position(line=3, character=16),
+        )
+        labels = [item.label for item in lsp_server.completions(params).items]
+        assert "println" in labels
+
     def test_scoped_locals_and_field_completions(self):
         """Local vars per scope, rune dot fields, and arrow completions."""
         source = (
-            "rune Character:\n"
-            "    name as string\n"
-            "    hp as int\n"
-            "    is_alive as bool\n"
-            "\n"
-            "weave main into void:\n"
-            '    var player as Character is with name is "Hero" and hp is 100 and is_alive is true\n'
-            "    var outer_secret as int is 42\n"
-            "    if outer_secret > 0:\n"
-            "        var inner_flag as bool is true\n"
-            "        calling print with player.name\n"
+            "rune Character:\n    name as string\n    hp as int\n    is_alive as bool\n\nweave main into void:\n    var player as Character is with name is \"Hero\", hp is 100, is_alive is true\n    var outer_secret as int is 42\n    if outer_secret > 0:\n        var inner_flag as bool is true\n        calling print with player.name\n"
         )
         symbols = checked_symbols(source, filename="test.pengu")
 
@@ -658,17 +762,7 @@ class TestCompletion:
     def test_calling_context_completion_filters_keywords(self):
         """After 'calling' only callables/modules are offered, not keywords."""
         source = (
-            "rune Character:\n"
-            "    name as string\n"
-            "    hp as int\n"
-            "    is_alive as bool\n"
-            "\n"
-            "weave main into void:\n"
-            '    var player as Character is with name is "Hero" and hp is 100 and is_alive is true\n'
-            "    var outer_secret as int is 42\n"
-            "    if outer_secret > 0:\n"
-            "        var inner_flag as bool is true\n"
-            "        calling print with player.name\n"
+            "rune Character:\n    name as string\n    hp as int\n    is_alive as bool\n\nweave main into void:\n    var player as Character is with name is \"Hero\", hp is 100, is_alive is true\n    var outer_secret as int is 42\n    if outer_secret > 0:\n        var inner_flag as bool is true\n        calling print with player.name\n"
         )
         symbols = checked_symbols(source, filename="test.pengu")
         labels_call = completion_labels(
@@ -678,6 +772,537 @@ class TestCompletion:
         assert "main" in labels_call
         assert "while" not in labels_call
         assert "if" not in labels_call
+
+    # --- import-module completion -------------------------------------------
+
+    def test_import_completion_offers_stdlib_and_project_modules(self, tmp_path):
+        """`import ` suggests std.* modules plus project modules under src/."""
+        src = tmp_path / "src" / "components"
+        src.mkdir(parents=True)
+        (src / "player.pengu").write_text(
+            "rune Player:\n  name as string\n", encoding="utf-8"
+        )
+        labels = completion_labels(
+            None, Position(line=0, character=7), line_prefix="import ",
+            base_dir=str(tmp_path),
+        )
+        assert "std.spark" in labels
+        assert "std.archivum" in labels
+        assert "components.player" in labels
+
+    def test_import_std_dot_suggests_short_names_with_exact_replacement(self):
+        """`import std.` offers plain names and replaces only the typed prefix."""
+        from pengu_lsp.completions import get_completions
+
+        prefix = "import std."
+        res = get_completions(
+            "file:///t.pengu", Position(line=0, character=len(prefix)),
+            None, prefix, None, base_dir=str(REPO),
+        )
+        labels = [item.label for item in res.items]
+        assert "spark" in labels
+        assert "archivum" in labels
+        assert "std.spark" not in labels  # prefix already typed, no duplication
+        spark = next(item for item in res.items if item.label == "spark")
+        assert spark.text_edit is not None
+        assert spark.text_edit.new_text == "std.spark"
+        # Range covers exactly the typed `std.` (columns 7..11).
+        assert spark.text_edit.range.start.character == 7
+        assert spark.text_edit.range.end.character == 11
+
+    def test_import_partial_prefix_filters(self):
+        """`import std.s` narrows std modules to those starting with 's'."""
+        labels = completion_labels(
+            None, Position(line=0, character=11), line_prefix="import std.s",
+            base_dir=str(REPO),
+        )
+        assert "spark" in labels
+        assert "sqlite3" in labels  # from the .d.pengu binding
+        assert "archivum" not in labels
+
+        labels_bare = completion_labels(
+            None, Position(line=0, character=9), line_prefix="import st",
+            base_dir=str(REPO),
+        )
+        assert "std.spark" in labels_bare
+        assert "components" not in labels_bare  # repo root has no src/
+
+    def test_import_completion_ignores_private_modules(self, tmp_path):
+        """Files/dirs starting with '_' are hidden from import completion."""
+        src = tmp_path / "src"
+        (src / "_private").mkdir(parents=True)
+        (src / "_private" / "secret.pengu").write_text("weave h into void:\n  return\n",
+                                                       encoding="utf-8")
+        (src / "_shadow.pengu").write_text("weave s into void:\n  return\n",
+                                           encoding="utf-8")
+        labels = completion_labels(
+            None, Position(line=0, character=7), line_prefix="import ",
+            base_dir=str(tmp_path),
+        )
+        assert "_private.secret" not in labels
+        assert "_shadow" not in labels
+
+
+# ===========================================================================
+# 4b. Lint warnings (unused imports / variables)
+# ===========================================================================
+
+
+class TestLintWarnings:
+    """Clean documents produce Warning diagnostics for unused symbols."""
+
+    def test_unused_import_and_variable_warnings(self):
+        from pengu_lsp import server as lsp_server
+
+        uri = "file:///lint_doc.pengu"
+        source = (
+            "import std.spark\n"
+            "import std.atlas\n"
+            "\n"
+            "weave main into void:\n"
+            "    var unused_num as int is 3\n"
+            "    var used_x as int is 1\n"
+            "    calling spark.println with (used_x to string)\n"
+        )
+        diags = lsp_server._compute_diagnostics(uri, source)
+        msgs = [d.message for d in diags]
+        assert any("Unused import 'std.atlas'" in m for m in msgs)
+        assert any("Unused variable 'unused_num'" in m for m in msgs)
+        # Used symbols must not be flagged.
+        assert not any("Unused import 'std.spark'" in m for m in msgs)
+        assert not any("Unused variable 'used_x'" in m for m in msgs)
+        # And they are real warnings.
+        assert all(d.severity == DiagnosticSeverity.Warning for d in diags)
+
+    def test_alias_usage_counts_and_discard_names_are_exempt(self):
+        from pengu_lsp import server as lsp_server
+
+        uri = "file:///lint_alias.pengu"
+        source = (
+            "import std.spark as s\n"
+            "import std.oracle\n"
+            "\n"
+            "weave main into void:\n"
+            "    var _tmp as int is 1\n"
+            "    calling s.println with \"hi\"\n"
+            "    var used_v as int is 2\n"
+            "    calling spark_is_used_elsewhere with used_v\n"
+        )
+        # spark_is_used_elsewhere is unknown: the doc will have a semantic
+        # error, so lint warnings only apply to clean documents — check the
+        # alias path with a clean body instead.
+        clean = (
+            "import std.spark as s\n"
+            "\n"
+            "weave main into void:\n"
+            "    calling s.println with \"hi\"\n"
+        )
+        diags = lsp_server._compute_diagnostics(uri, clean)
+        assert diags == [] or not any("Unused import" in d.message for d in diags)
+        # '_tmp' style names never trigger the unused-variable warning.
+        dirty = "weave main into void:\n    var _tmp as int is 1\n"
+        msgs = [d.message for d in lsp_server._compute_diagnostics(uri, dirty)]
+        assert not any("_tmp" in m for m in msgs)
+
+
+# ===========================================================================
+# 4c. Organize imports code action
+# ===========================================================================
+
+
+class TestOrganizeImports:
+    """The 'Organize imports' action drops unused imports and sorts the rest."""
+
+    def test_drops_unused_import(self):
+        from pengu_lsp.code_actions import organize_imports_action
+
+        source = (
+            "import std.atlas\n"
+            "import std.spark\n"
+            "\n"
+            "weave main into void:\n"
+            '    calling spark.println with "hi"\n'
+        )
+        action = organize_imports_action("file:///x.pengu", source)
+        assert action is not None
+        assert "Organize imports" in action.title
+        edit = action.edit.changes["file:///x.pengu"][0]
+        assert edit.new_text == "import std.spark\n"
+        # Range covers the whole import block (lines 0..1).
+        assert edit.range.start.line == 0
+        assert edit.range.end.line == 1
+
+    def test_sorts_imports_alphabetically(self):
+        from pengu_lsp.code_actions import organize_imports_action
+
+        source = (
+            "import std.spark\n"
+            "import std.scrolls\n"
+            "\n"
+            "weave main into void:\n"
+            '    calling spark.println with "hi"\n'
+            '    calling scrolls.upper with "x"\n'
+        )
+        action = organize_imports_action("file:///x.pengu", source)
+        assert action is not None
+        edit = action.edit.changes["file:///x.pengu"][0]
+        assert edit.new_text == "import std.scrolls\nimport std.spark\n"
+
+    def test_tidy_document_gets_no_action(self):
+        from pengu_lsp.code_actions import organize_imports_action
+
+        source = (
+            "import std.scrolls\n"
+            "import std.spark\n"
+            "\n"
+            "weave main into void:\n"
+            '    calling spark.println with "hi"\n'
+            '    calling scrolls.upper with "x"\n'
+        )
+        assert organize_imports_action("file:///x.pengu", source) is None
+
+
+# ===========================================================================
+# 4d. Go to implementation + Find references (project wide)
+# ===========================================================================
+
+
+class TestNavigationProjectWide:
+    """Implementation / references handlers index stdlib + project files."""
+
+    def _register(self, path, source):
+        from pengu_lsp.server import server, path_to_uri
+
+        uri = path_to_uri(str(path))
+        server._docs[uri] = source
+        return uri
+
+    def test_go_to_implementation_finds_enchanting_method(self, tmp_path):
+        from pengu_lsp.server import server, implementation
+
+        greeter = tmp_path / "greeter.pengu"
+        greeter.write_text(
+            "rune ZqrGreeter:\n"
+            "    name as string\n"
+            "\n"
+            "enchanting ZqrGreeter:\n"
+            "    weave zqr_speak into void:\n"
+            "        return\n",
+            encoding="utf-8",
+        )
+        main = tmp_path / "main.pengu"
+        source = (
+            "import greeter\n"
+            "\n"
+            "weave main into void:\n"
+            '    var g as ZqrGreeter is with name is "x"\n'
+            "    calling g.zqr_speak\n"
+        )
+        uri = self._register(main, source)
+        line = source.splitlines().index("    calling g.zqr_speak")
+        col = source.splitlines()[line].find("zqr_speak")
+
+        from lsprotocol.types import ImplementationParams, TextDocumentIdentifier
+        params = ImplementationParams(
+            text_document=TextDocumentIdentifier(uri=uri),
+            position=Position(line=line, character=col),
+        )
+        locs = implementation(params)
+        assert locs is not None
+        matches = [loc for loc in locs if loc.uri.endswith("greeter.pengu")]
+        assert matches, f"expected enchanting method location, got {locs}"
+        # Points at the 'weave zqr_speak' line (index 4) in greeter.pengu.
+        assert matches[0].range.start.line == 4
+
+    def test_references_project_wide(self, tmp_path):
+        from pengu_lsp.server import server, references
+
+        util = tmp_path / "util.pengu"
+        util.write_text(
+            "weave zqr_compute with x as int into int:\n"
+            "    return x\n",
+            encoding="utf-8",
+        )
+        main = tmp_path / "main.pengu"
+        source = (
+            "import util\n"
+            "\n"
+            "weave main into int:\n"
+            "    var a as int is 2\n"
+            "    var r1 as int is calling zqr_compute with a\n"
+            "    var r2 as int is calling zqr_compute with a\n"
+            "    return r1 + r2\n"
+        )
+        main.write_text(source, encoding="utf-8")
+        uri = self._register(main, source)
+        line = source.splitlines().index("    var r1 as int is calling zqr_compute with a")
+        col = source.splitlines()[line].find("zqr_compute")
+
+        from lsprotocol.types import ReferenceContext, ReferenceParams, TextDocumentIdentifier
+        params = ReferenceParams(
+            text_document=TextDocumentIdentifier(uri=uri),
+            position=Position(line=line, character=col),
+            context=ReferenceContext(include_declaration=True),
+        )
+        locs = references(params) or []
+        # Declaration in util.pengu + both call sites in main.pengu.
+        assert any(loc.uri.endswith("util.pengu") for loc in locs)
+        main_uris = [loc for loc in locs if loc.uri == uri]
+        assert len(main_uris) == 2, f"expected 2 call sites in main, got {len(main_uris)}"
+
+    def test_local_references_stay_in_current_document(self, tmp_path):
+        from pengu_lsp.server import server, references
+
+        main = tmp_path / "main.pengu"
+        source = (
+            "weave main into int:\n"
+            "    var zz as int is 5\n"
+            "    var q as int is zz + 1\n"
+            "    return q\n"
+        )
+        main.write_text(source, encoding="utf-8")
+        uri = self._register(main, source)
+        line = source.splitlines().index("    var q as int is zz + 1")
+        col = source.splitlines()[line].find("zz")
+
+        from lsprotocol.types import ReferenceContext, ReferenceParams, TextDocumentIdentifier
+        params = ReferenceParams(
+            text_document=TextDocumentIdentifier(uri=uri),
+            position=Position(line=line, character=col),
+            context=ReferenceContext(include_declaration=True),
+        )
+        locs = references(params) or []
+        assert locs
+        assert all(loc.uri == uri for loc in locs)  # local var never leaves the file
+
+
+# ===========================================================================
+# 4e. Contextual completion (judge / with-blocks / rune initializers)
+# ===========================================================================
+
+
+class TestContextualCompletion:
+    """Completion adapts to judge / with / rune-construction contexts."""
+
+    def test_judge_when_suggests_omen_variants(self):
+        source = (
+            "omen Level:\n"
+            "    One\n"
+            "    Two\n"
+            "\n"
+            "weave main into int:\n"
+            "    var c as Level is Level.One\n"
+            "    let r is judge c:\n"
+            "        when One -> 1\n"
+            "        when Two -> 2\n"
+            "        else -> 0\n"
+            "    return 0\n"
+        )
+        symbols = checked_symbols(source, filename="t.pengu")
+        lines = source.splitlines()
+        when_line = lines.index("        when One -> 1")
+        labels = completion_labels(
+            symbols,
+            Position(line=when_line, character=len("        when ")),
+            line_prefix="        when ",
+            doc_text=source,
+        )
+        assert "One" in labels
+        assert "Two" in labels
+        assert "else ->" in labels
+
+    def test_judge_when_partial_filter(self):
+        source = (
+            "omen Color:\n"
+            "    red\n"
+            "    green\n"
+            "\n"
+            "weave main into int:\n"
+            "    var c as Color is Color.red\n"
+            "    let r is judge c:\n"
+            "        when red -> 1\n"
+            "        when green -> 2\n"
+            "        else -> 0\n"
+            "    return 0\n"
+        )
+        symbols = checked_symbols(source, filename="t.pengu")
+        lines = source.splitlines()
+        when_line = lines.index("        when green -> 2")
+        labels = completion_labels(
+            symbols,
+            Position(line=when_line, character=len("        when g")),
+            line_prefix="        when g",
+            doc_text=source,
+        )
+        assert "red" not in labels
+        assert "green" in labels
+
+    def test_with_block_set_dot_suggests_fields(self):
+        source = (
+            "rune Player:\n    x as int\n    y as int\n\nweave main into void:\n    var player as Player is with x is 10, y is 20\n    with player:\n        set.x is 1\n        return\n"
+        )
+        symbols = checked_symbols(source, filename="t.pengu")
+        lines = source.splitlines()
+        set_line = lines.index("        set.x is 1")
+        labels = completion_labels(
+            symbols,
+            Position(line=set_line, character=len("        set.")),
+            line_prefix="        set.",
+            doc_text=source,
+        )
+        assert labels == ["x", "y"]
+
+    def test_rune_with_initializer_suggests_fields(self):
+        source = (
+            "rune Player:\n    name as string\n    hp as int\n\nweave main into void:\n    var p as Player is with name is \"\", hp is 0\n"
+        )
+        symbols = checked_symbols(source, filename="t.pengu")
+        lines = source.splitlines()
+        line = lines.index('    var p as Player is with name is "", hp is 0')
+        labels = completion_labels(
+            symbols,
+            Position(line=line, character=len("    var p as Player is with ")),
+            line_prefix="    var p as Player is with ",
+        )
+        assert "name" in labels
+        assert "hp" in labels
+        assert "(all fields)" in labels
+
+
+# ===========================================================================
+# 4f. Code assistance: implement missing concept methods
+# ===========================================================================
+
+
+class TestConceptImplementationCodeAction:
+    """A bind block can auto-generate skeletons for unimplemented methods."""
+
+    def test_implement_missing_concept_methods(self):
+        from pengu_lsp.code_actions import implement_concept_methods_action
+
+        source = (
+            "concept Speaker:\n"
+            "    weave greet with name as string into void\n"
+            "    weave loudness into int\n"
+            "\n"
+            "rune Dog:\n"
+            "    name as string\n"
+            "\n"
+            "bind Dog with Speaker:\n"
+            "    weave greet with name as string into void:\n"
+            "        return\n"
+            "\n"
+            "weave main into void:\n"
+            "    return\n"
+        )
+        checker, _errors = parse_and_check(source, filename="t.pengu")
+        lines = source.splitlines()
+        pos = lines.index("bind Dog with Speaker:")
+        action = implement_concept_methods_action(
+            "file:///t.pengu", source,
+            Position(line=pos + 2, character=0), checker.symbols,
+        )
+        assert action is not None
+        assert "1 missing" in action.title
+        new_text = action.edit.changes["file:///t.pengu"][0].new_text
+        assert "weave loudness into int:" in new_text
+        assert "return 0" in new_text
+        assert "greet" not in new_text  # already implemented, not duplicated
+
+    def test_complete_concept_bind_generates_no_action(self):
+        from pengu_lsp.code_actions import implement_concept_methods_action
+
+        source = (
+            "concept Printable:\n"
+            "    weave print_me into void\n"
+            "\n"
+            "rune Doc:\n"
+            "    body as string\n"
+            "\n"
+            "bind Doc with Printable:\n"
+            "    weave print_me into void:\n"
+            "        return\n"
+        )
+        checker, _errors = parse_and_check(source, filename="t.pengu")
+        pos = source.splitlines().index("bind Doc with Printable:")
+        action = implement_concept_methods_action(
+            "file:///t.pengu", source,
+            Position(line=pos + 1, character=0), checker.symbols,
+        )
+        assert action is None  # every concept method is implemented already
+
+
+# ===========================================================================
+# 4g. Richer hover + formatting config (pengu.yaml)
+# ===========================================================================
+
+
+class TestRicherHover:
+    """Hover shows attached methods and generic type arguments."""
+
+    def test_rune_hover_lists_attached_methods(self):
+        from pengu_lsp.hover import format_symbol_hover
+        from pengu_parser.pengu_types import RuneType
+
+        sym = Symbol(name="Player", type=RuneType(name="Player", fields={}), kind="rune")
+        out = format_symbol_hover(sym, method_names=["move", "draw"])
+        assert "**Methods**: `draw`, `move`" in out
+
+    def test_generic_rune_hover_shows_type_arguments(self):
+        from pengu_lsp.hover import format_symbol_hover
+        from pengu_parser.pengu_types import RuneType
+
+        r_type = RuneType(
+            name="Box", fields={"item": INT_TYPE},
+            type_params=["T"], type_args=[INT_TYPE],
+        )
+        sym = Symbol(name="Box", type=r_type, kind="rune")
+        out = format_symbol_hover(sym)
+        assert "**Type arguments**: `int`" in out
+        assert "**Type parameters**: `T`" in out
+
+
+class TestFormattingConfig:
+    """Formatting honors a pengu.yaml project config when the client sends none."""
+
+    def test_load_format_config_reads_pengu_yaml(self, tmp_path):
+        from pengu_lsp.formatting import load_format_config
+
+        (tmp_path / "pengu.yaml").write_text(
+            "name: demo\n"
+            "tab_size: 4\n"
+            "insert_spaces: true\n",
+            encoding="utf-8",
+        )
+        cfg = load_format_config(str(tmp_path / "src" / "main.pengu"))
+        assert cfg is not None
+        assert cfg["tab_size"] == 4
+        assert cfg["insert_spaces"] is True
+
+    def test_document_formatting_uses_project_config(self, tmp_path):
+        from pengu_lsp import server as lsp_server
+        from lsprotocol.types import (
+            DocumentFormattingParams,
+            FormattingOptions,
+            TextDocumentIdentifier,
+        )
+
+        (tmp_path / "pengu.yaml").write_text("tab_size: 4\n", encoding="utf-8")
+        source = "weave main into void:\n    var x as int is 1\n"
+        uri = lsp_server.path_to_uri(str(tmp_path / "main.pengu"))
+        lsp_server.server._docs[uri] = source
+
+        params = DocumentFormattingParams(
+            text_document=TextDocumentIdentifier(uri=uri),
+            options=FormattingOptions(tab_size=0, insert_spaces=True),
+        )
+        edits = lsp_server.document_formatting(params)
+        assert edits is not None
+        assert len(edits) == 1
+        new_text = edits[0].new_text
+        # With tab_size 4 from pengu.yaml the 4-space body indent is preserved.
+        body_line = new_text.splitlines()[1]
+        assert body_line == "    var x as int is 1"
 
 
 # ===========================================================================
@@ -862,19 +1487,13 @@ class TestReturnTypeInference:
     def test_lsp_style_stdlib_module_member_return_type(self):
         # archivum.write_file is declared 'into bool' in std/archivum.pengu
         source = (
-            "import std.archivum\n"
-            "\n"
-            "weave save into bool:\n"
-            '    return calling archivum.write_file with "out.txt" and "hello"\n'
+            "import std.archivum\n\nweave save into bool:\n    return calling archivum.write_file with \"out.txt\", \"hello\"\n"
         )
         parse_and_check(source, filename="rt_test.pengu")
 
     def test_import_alias_member_return_type(self):
         source = (
-            "import std.archivum as fs\n"
-            "\n"
-            "weave save into bool:\n"
-            '    return calling fs.write_file with "out.txt" and "hello"\n'
+            "import std.archivum as fs\n\nweave save into bool:\n    return calling fs.write_file with \"out.txt\", \"hello\"\n"
         )
         parse_and_check(source, filename="rt_test.pengu")
 
@@ -1034,3 +1653,39 @@ class TestValidationOptimizations:
         S.validate_document(uri, "weave main into void:\n  var b as int is 2\n")
         S.validate_document(uri, "weave main into void:\n  var b as int is 2\n")
         assert len(ran) == 2
+
+class TestImportedEnchantingMethods:
+    """Enchanting methods of imported modules must resolve even for unsaved
+    editor buffers (the doc is not yet on disk when LSP validates)."""
+
+    GOOD = "import std.invoke\nweave main into void:\n    var p is calling invoke.new_parser with \"S\", \"D\"\n    calling p.add_flag with \"v\", \"v\", \"verbose\"\n"
+
+    BAD = "import std.invoke\nweave main into void:\n    var p is calling invoke.new_parser with \"S\", \"D\"\n    calling p.add_option with \"src\", \"s\", \"help\", \"./x\", \"d\"\n"
+
+    def test_unsaved_buffer_methods_resolve(self, monkeypatch):
+        import pengu_lsp.server as S
+
+        published = _capture_diagnostics(monkeypatch)
+        uri = "file:///D:/Proyectos/PenguScript/scratch/user_repro/unsaved_ssg.pengu"
+        # The file must NOT exist (simulating an unsaved editor buffer).
+        from pengu_lsp.server import uri_to_path
+        assert not os.path.exists(uri_to_path(uri))
+        S.validate_document(uri, self.GOOD)
+        assert published, "expected a diagnostics publication"
+        _, diags = published[-1]
+        assert diags == [], [d.message for d in diags]
+
+    def test_unsaved_buffer_wrong_arg_type_reports_e0005(self, monkeypatch):
+        import pengu_lsp.server as S
+
+        published = _capture_diagnostics(monkeypatch)
+        uri = "file:///D:/Proyectos/PenguScript/scratch/user_repro/unsaved_ssg_bad.pengu"
+        from pengu_lsp.server import uri_to_path
+        assert not os.path.exists(uri_to_path(uri))
+        S.validate_document(uri, self.BAD)
+        assert published
+        _, diags = published[-1]
+        assert any("E0005" in (d.code or "") for d in diags), [d.message for d in diags]
+        assert any("required" in d.message for d in diags), [d.message for d in diags]
+        # ... and crucially NOT the false "no method 'add_option'" E0004.
+        assert not any((d.code or "").startswith("E0004") for d in diags)

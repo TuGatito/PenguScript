@@ -212,11 +212,11 @@ weave main into int:
 
     def test_weave_parameter_chain(self):
         # passing 'bytes of' straight into a call argument is valid
-        code = """declare hash_bytes with data as ref to byte and len as int into i64
+        code = """declare hash_bytes with data as ref to byte, len as int into i64
 
 weave digest with msg as string into i64:
     var view as ref to byte is bytes of msg
-    return calling hash_bytes with view and (msg length)
+    return calling hash_bytes with view, (msg length)
 """
         bundle = gen_bundle(code)
         assert "hash_bytes(view" in bundle
@@ -243,7 +243,9 @@ weave main into int:
 
     def test_weave_name_decays_to_c_function_pointer(self):
         # Passing a weave where a 'ref to weave' alias is expected produces a
-        # plain C function pointer at the call site.
+        # plain C function pointer at the call site, cast to the declared
+        # callback type (C prototypes carry const qualifiers the binding cannot
+        # express, and GCC 14+ rejects the uncast pointer).
         code = """alias Cb as ref to weave with v as int into void
 
 declare register_cb with cb as Cb into void
@@ -256,7 +258,7 @@ weave main into int:
     return 0
 """
         bundle = gen_bundle(code)
-        assert "register_cb(handler);" in bundle
+        assert "register_cb(((Cb)handler));" in bundle
 
 
 # ---------------------------------------------------------------------------
@@ -517,7 +519,7 @@ class TestMapLiterals:
         code = """weave main into void:
   var m as map of string to int is { "Alice": 100, "Bob": 90 }
   var v as int is calling m.get with "Alice"
-  calling m.put with "Carol" and 70
+  calling m.put with "Carol", 70
   var ok as bool is calling m.contains with "Carol"
   var msg as string is "FAIL"
   if v == 100:
@@ -1019,23 +1021,23 @@ class TestEmbeddedTests:
     """Integrated 'test' blocks and their --test codegen mode."""
 
     def test_string_and_ident_test_names(self):
-        code = """weave add with a as int and b as int into int:
+        code = """weave add with a as int, b as int into int:
   return a + b
 
 test "addition works":
-  let r is calling add with 2 and 3
+  let r is calling add with 2, 3
   if r == 5:
     calling print with "ok"
 
 test test_add:
-  let r is calling add with 2 and 3
+  let r is calling add with 2, 3
   if r == 5:
     calling print with "ok"
 """
         _bundle(code, is_test=True)
 
     def test_absent_in_normal_mode(self):
-        code = """weave add with a as int and b as int into int:
+        code = """weave add with a as int, b as int into int:
   return a + b
 
 test "x":
@@ -1046,16 +1048,16 @@ test "x":
         assert "pengu_run_tests" not in c
 
     def test_runner_emitted_in_test_mode(self):
-        code = """weave add with a as int and b as int into int:
+        code = """weave add with a as int, b as int into int:
   return a + b
 
 test "add works":
-  let r is calling add with 2 and 3
+  let r is calling add with 2, 3
   if r == 5:
     calling print with "ok"
 
 test second:
-  let r is calling add with 0 and 0
+  let r is calling add with 0, 0
   if r == 0:
     calling print with "ok"
 """
@@ -1085,19 +1087,19 @@ test "bad":
     def test_runtime_test_mode_runner(self):
         code = """import std.ward as w
 
-weave add with a as int and b as int into int:
+weave add with a as int, b as int into int:
   return a + b
 
 weave main into void:
   calling print with "APP_OK"
 
 test "add works":
-  let r is calling add with 2 and 3
-  calling w.assert_eq_int with r and 5
+  let r is calling add with 2, 3
+  calling w.assert_eq_int with r, 5
 
 test second:
-  let r is calling add with 0 and 0
-  calling w.assert_eq_int with r and 0
+  let r is calling add with 0, 0
+  calling w.assert_eq_int with r, 0
 """
         res = _compile_run(code, tag="tests", is_test=True)
         assert res.returncode == 0, res.stderr
@@ -1118,14 +1120,14 @@ class TestWeaveFunctionPointers:
     def test_runtime_invokes_pengu_weave(self):
         src = """import std.spark
 
-declare pengu_call_callback_int with cb as ref to void and value as int into void
+declare pengu_call_callback_int with cb as ref to void, value as int into void
 
 weave on_value with v as int into void:
     var msg as string is "callback got " + (v to string)
     calling spark.println with msg
 
 weave main into int:
-    calling pengu_call_callback_int with on_value and 7
+    calling pengu_call_callback_int with on_value, 7
     return 0
 """
         res = compile_run(src, tag="cb")
@@ -1146,7 +1148,7 @@ class TestPenguCoroutine:
     def test_weave_as_minicoro_body(self):
         src = """import std.spark
 
-declare pengu_mco_start with body as ref to void and user_data as ref to void and stack_size as usize into ref to void
+declare pengu_mco_start with body as ref to void, user_data as ref to void, stack_size as usize into ref to void
 declare pengu_mco_resume with co as ref to void into void
 declare pengu_mco_yield with co as ref to void into void
 declare pengu_mco_destroy with co as ref to void into void
@@ -1158,7 +1160,7 @@ weave run_body with co as ref to void into void:
 
 weave main into int:
     var no_ud as ref to void is null
-    var co as ref to void is calling pengu_mco_start with run_body and no_ud and 16384
+    var co as ref to void is calling pengu_mco_start with run_body, no_ud, 16384
     if co == null:
         calling spark.println with "coro start failed"
         return 1
@@ -1220,7 +1222,7 @@ enchanting Persona:
     return self->nombre
 
 weave main into void:
-  var p as Persona is with nombre is "Juan" and edad is 25
+  var p as Persona is with nombre is "Juan", edad is 25
   calling print with calling p.present
 """
         bundle = gen_bundle(code, filename="main.pengu")
@@ -1304,7 +1306,7 @@ class TestEscapeAnalysis:
   y as int
 
 weave foo into void:
-  var v as Vec2 is with x is 1 and y is 2
+  var v as Vec2 is with x is 1, y is 2
   set v.x is 10
 """
         check_ok(code)
@@ -1315,7 +1317,7 @@ weave foo into void:
   y as int
 
 weave bar into ref to Vec2:
-  var v as Vec2 is with x is 1 and y is 2
+  var v as Vec2 is with x is 1, y is 2
   return sigil of v
 """
         check_ok(code)

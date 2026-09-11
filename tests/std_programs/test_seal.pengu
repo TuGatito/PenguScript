@@ -51,7 +51,7 @@ weave main into void:
                 calling spark.println with "zlib decompressed match ok"
 
     # 5. Verify Hash
-    var ok as bool is calling seal.verify_hash with "hello" and "sha256" and "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+    var ok as bool is calling seal.verify_hash with "hello", "sha256", "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
     if ok:
         calling spark.println with "verify hash ok"
 

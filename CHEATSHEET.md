@@ -188,7 +188,7 @@ The LSP and `pengu doc` turn `##` documentation into tooltips / Markdown pages, 
 
 ### 3.3 Identifiers
 
-Identifiers match `[a-zA-Z_][a-zA-Z0-9_]*`. `_` alone is the discard binding (e.g. `for _, v in col`); it never creates a variable. Names are case-sensitive; conventional style uses `snake_case` for values and `PascalCase` for type declarations. `main` is reserved: `var main`, `let main`, `static var main`, or `const main` raise `error[E0040]` because `main` is a compile-time variable (see [Standalone scripts](#24-standalone-scripts)). Defining the entry function `weave main …` is unaffected.
+Identifiers match `[a-zA-Z_][a-zA-Z0-9_]*`. `_` alone is the discard binding (e.g. `for _, v in col`); it never creates a variable. Names are case-sensitive; conventional style uses `snake_case` for values and `PascalCase` for type declarations. Private symbols starting with `_` (such as `_private_fn` or `_secret_field`) are encapsulated and cannot be accessed outside their defining module or rune (`E0043`). `main` is reserved: `var main`, `let main`, `static var main`, or `const main` raise `error[E0040]` because `main` is a compile-time variable (see [Standalone scripts](#24-standalone-scripts)). Defining the entry function `weave main …` is unaffected.
 
 ### 3.4 Words with multiple jobs
 
@@ -198,10 +198,22 @@ Identifiers match `[a-zA-Z_][a-zA-Z0-9_]*`. `_` alone is the discard binding (e.
 | `is` | — | value binding / assignment | field initializer | comparison: `expr is present`, `expr is not present`, `expr is true`, `expr is false`; enum values (`Variant is 3`); string-valued omens (`Variant is "v"`) |
 | `to` | — | — | — | cast: `10 to float`; slicing: `arr at 1 to 4`; ranges: `for i from 0 to 5`; generics are *not* `to` |
 | `into` | return type after `into` | — | — | — |
-| `and` / `,` | parameter separator | — | field initializer separator | argument separator in `calling f with a and b`; type-parameter separator (`shard T and U`) |
+| `,` | parameter separator (`weave f with a as int, b as int`) | — | field initializer separator (`with w is 1, h is 2`) | argument separator (`calling f with a, b`) |
+| `and` / `or` | — | — | — | **boolean operators** (short-circuit): `if a > 0 and b > 0:`; the old separator survives only in expression-free lists (`shard T and U`, `where T: A and T: B`, omen payloads) — elsewhere it is an `E0000` parse error, use `,` |
 
 > [!IMPORTANT]
-> `and` and `,` are **list separators** (parameters, arguments, struct fields), never logical operators. PenguScript has no `&&`/`||`; boolean negation is the unary word `not`, and bitwise/logical `|`, `&`, `^` follow the C precedence ladder in [Operators & Expressions](#6-operators--expressions).
+> `,` is the **list separator** for parameters, arguments and struct fields.
+> Since 0.10.0 `and`/`or` are **boolean operators** (they used to be separators):
+> `calling f with a and b` is no longer two arguments — it is rejected
+> (`E0005` *Ambiguous 'and' after a call with arguments*), so write
+> `calling f with a, b`, or `(calling f with a) and b` to combine booleans.
+> A `calling … with …` used as an **operand** needs parentheses: the argument
+> list is greedy, so `calling f with a, b == 1` compares the *argument* `b`;
+> write `(calling f with a, b) == 1` to compare the call's result.
+> A bare `and`/`or` is not a list *element* either: `[1 and 2]` is an `E0000`
+> parse error — use `[1, 2]`, or `[(a and b)]` for one boolean element.
+> `&`/`|` remain integer bitwise; `not` is boolean negation,
+> `~` is bitwise negation — see [Logical operators](#logical-operators-and--or).
 
 ### 3.5 Reserved words
 
@@ -254,6 +266,7 @@ Identifiers match `[a-zA-Z_][a-zA-Z0-9_]*`. `_` alone is the discard binding (e.
 | `usize` / `size_t` | `size_t` | |
 | `isize` | `intptr_t` | |
 | `array of T with size N` | `T[N]` | Fixed-size contiguous stack array |
+| `array of array of T with size M with size N` | `T[M][N]` | 2D stack array (outer dimension M first, inner dimension N second) |
 | `slice of T` | `PenguSlice` | Fat view `{ void* data; int len; size_t elem_size; }` |
 | `list of T` | `PenguList` | Growable heap array `{ void* data; int len; int cap; size_t elem_size; }` |
 | `map of K to V` | `PenguMap` | Open-addressing hash map (`entries`, `len`, `cap`, `key_size`, `val_size`) |
@@ -279,14 +292,58 @@ var nothing as ref to int is null      # null pointer literal
 var absent as maybe int is maybe none  # empty optional
 ```
 
-String literals are context aware:
-
-- Where a `string` is expected they emit `pengu_string_from_cstr("…")` (or `pengu_string_format(...)` when they contain `{expr}` interpolation).
-- Where a `ref to char` (C `const char*`) is expected they are emitted **directly as C string literals** `"…"` with no allocation. String interpolation inside a `ref to char` context is rejected at compile time.
+#### Multiline Arrays
+Arrays enclosed in brackets `[...]` bypass indentation rules, allowing clean multiline formatting:
 
 ```pengu
-let s as string is "Hello {name}"   # interpolated PenguString (name is a variable)
-let c as ref to char is "raw C"     # direct C literal, no allocation
+var matrix is [
+    [1, 2, 3],
+    [4, 5, 6],
+    [7, 8, 9]
+]
+```
+
+#### Strings, Interpolation & Raw Literals
+String literals are context aware and support several modern forms:
+
+- **Standard strings**: `"Hello {name}"` performs expression interpolation (`{expr}`) in string contexts, translated to `pengu_string_format` in C.
+- **Triple-quoted strings**: `"""..."""` span multiple lines and automatically dedent common leading whitespace.
+- **Raw strings**: Prefixing with `r` (e.g. `r"C:\path\to\file"` or `r"""raw multiline"""`) disables escape sequence interpretation and prevents `{expr}` interpolation.
+- **C-string context**: Where a `ref to char` (C `const char*`) is expected, literals are emitted directly as `"..."` with zero runtime allocation. Interpolation is rejected in `ref to char` contexts.
+
+```pengu
+let s as string is """
+    Line 1: {name}
+    Line 2: Indented text is preserved
+"""
+let raw_regex is r"^[a-zA-Z_][a-zA-Z0-9_]*$"
+let c_str as ref to char is "direct C string"
+```
+
+#### Indent Literals
+PenguScript provides clean, off-side syntax for data structures using either bare `is` or `is:`:
+
+```pengu
+# 2D Array: rows separated by newlines, columns joined by ','
+var grid as array of array of i32 with size 2 with size 3 is:
+    1, 2, 3
+    4, 5, 6
+
+# 1D Array: elements on individual lines
+var items as array of i32 with size 3 is:
+    100
+    200
+    300
+
+# Rune / Struct literal: field assignments with 'key: value'
+var conf as Config is:
+    port: 8080
+    host: "localhost"
+
+# Map literal: key-value pairs
+var scores is:
+    "alice": 100
+    "bob": 95
 ```
 
 ### 4.4 Casts
@@ -354,7 +411,10 @@ Rules:
 
 - `const` is compile-time and normally top level. Integer/string constants feed compile-time logic (`when`, enum values, `array of … with size N`).
 - Global `var`/`let` is rejected: mutable state is always local.
-- A `let` may omit the type when it is inferable (`let total is 5`), and may declare several names for destructuring: `let x, y is v` copies struct fields by name (see [Destructuring](#66-destructuring-bindings)).
+- Both `var` and `let` support full **local type inference**: the type annotation `as T` can be omitted whenever an initializer expression is provided (`var count is 10`, `let total is 5.0`).
+- **Array size inference**: When initializing arrays with literals (e.g. `var nums is [1, 2, 3]`), the element type and array size (`array of int with size 3`) are deduced automatically. For multidimensional arrays (`array of array of T with size M with size N`), the outer dimension `M` is specified first and the inner dimension `N` second (`T[M][N]`). Initializers must provide uniform row lengths; if the inner dimension is omitted in the type annotation, it is inferred from literal rows (e.g. `var m as array of array of f32 with size 2 is [[1.0, 2.0], [3.0, 4.0]]` produces `float m[2][2]`). Uninferable inner dimensions trigger `E0015`. Rows can be indexed directly: `(m at 0)` is a 1D row whose length `((m at 0) length)` emits the inner compile-time dimension `N`.
+- A `let` may declare several names for destructuring: `let x, y is v` copies struct fields by name (see [Destructuring](#66-destructuring-bindings)).
+- Assigning `null` without an explicit type annotation raises `E0014` because the pointee type cannot be inferred.
 - Declarations whose initializer must not be re-evaluated each call belong to `static var`, which is only allowed directly inside a `weave` body:
 
 ```pengu
@@ -429,6 +489,210 @@ set ptr is sigil of value
 
 The grammar folds each level with left associativity, so `10 + 20 * 2` parses as `10 + (20 * 2)`.
 
+**The `at` index takes a single atom** (it is postfix, level 9, so it binds tighter
+than `+ - * /`). Arithmetic on the element is written directly; a *computed index*
+must be parenthesised:
+
+```pengu
+xs at i + 1          # (xs at i) + 1  — arithmetic on the element
+xs at (i + 1)        # the element at index i + 1
+set xs at (n - 1) is 77   # assignment targets need the parentheses too
+```
+
+`set xs at n - 1 is 77` is a syntax error (`E0000`) with a hint pointing at the
+parenthesised spelling, because the target cannot swallow the `-`.
+
+### 6.1.1 `do:` — statement blocks as expressions
+
+Any indented block can run as an **expression**: statements execute in a fresh
+local scope and the block evaluates to its **last expression statement** (or
+`void` when the block ends with a non-expression statement).
+
+```pengu
+let x is do:
+    var a is 10
+    set a is a + 5
+    a * 2            # x == 30
+
+var y as int is do:
+    var b is 3
+    set b is b * 7
+    b + 1            # y == 22
+```
+
+- Scope: `var`/`let` declared inside the block do **not** escape it.
+- Types: the block's type is the type of its final expression; mismatches
+  with the declaration annotation are normal type errors.
+- Compiles to a GNU statement-expression
+  (`({ int32_t a = 10; a = a + 5; (a * 2); })`).
+- `do:` also completes as an LSP snippet and is highlighted in the VS Code
+  extension.
+
+> [!NOTE]
+> `do:` and value-position `if`/`unless` are the *block-expression* family so far.
+> Block forms of `judge` and value-returning `for`/`while` are on the roadmap
+> (`judge` already works as an expression); today those constructs keep their
+> statement forms (plus the single-line `then`/`else` expressions and
+> `for … then` comprehensions).
+
+### 6.1.2 `if … else:` / `unless … else:` blocks as expressions
+
+An `if`/`unless` whose branches are indented statement blocks supplies a value
+when it sits in a **value position**: every branch runs in its own scope and must
+end with an expression of one common type.
+
+```pengu
+let status is if score >= 100:
+    let msg is "winner"
+    msg
+else:
+    let msg is "keep going"
+    msg
+
+let fallback is unless score > 0:     # mirror image: then-branch runs when false
+    "zero or less"
+else:
+    "positive"
+
+let tag is if n < 5:
+    n
+else if n < 10:           # same-line else-if
+    n * 2
+else:
+    n * 3
+```
+
+- Value-ness is **positional**, not a second syntax: `if cond:` + an indented
+  block is token-identical as a statement and as a value, so `if`/`unless` keep a
+  single grammar rule each and the checker/codegen decide by the slot they appear
+  in. This is why a separate "if expression" rule must never be added to the
+  general expression chain — it would make every statement-level `if` ambiguous.
+- Value positions today:
+  - `var` / `let` / `static var` initializers and `set` targets
+  - `return` values: `return if c: … `, `return unless c: …`
+  - call arguments (positional and `name is <block>`)
+  - struct-literal fields (`with x is <block>, y is <block>`) and
+    `set .field is <block>` inside a `with:` builder
+  Anywhere else they are plain statements (bodies may contain `return`, loops,
+  declarations, …), unchanged.
+- Both chain spellings work: `else if <cond>:` and `else:` followed by an
+  indented block whose trailing `if`/`unless` is the value — so chains nest
+  recursively, including mixed `if`/`unless`.
+- Branch locals do not escape.
+- All branches must end in expressions of the **same type**; mixing a value
+  branch with a value-less branch (or incompatible branch types) is a type
+  error (`E0005`), and the condition must be `bool`.
+- A value block's value is its **last statement's value**, so `do:` and
+  `if`/`unless` compose: a `do:` block ending in a value-position block yields
+  that branch value.
+- Compiles to a GNU statement-expression with a typed temporary assigned per
+  branch (`({ int32_t _if; if (cond) { … _if = val; } else { … _if = val; }
+  _if; })`; `unless` negates the condition).
+
+### 6.1.3 Loops as expressions (`for` / `while`)
+
+Every loop form the language has becomes an expression in a value position:
+it **collects** the body's last expression on each iteration into a
+`list of T`:
+
+```pengu
+var squares as list of int is for i from 0 to 5:
+    i * i                      # list of int, 5 values
+
+var doubled as list of int is for v in values:
+    v * 2                      # 'for v in …'
+
+var indexed as list of int is for i, v in values:
+    i + v                      # 'for i, v in …' (indexed form)
+
+var steps as list of int is while n < 100:
+    set n is n * 2
+    n                          # 'while'
+
+var one_line as list of int is for i from 0 to 3: i * 2   # single-line body
+```
+
+Building a list of runes/structs with `with:` inside the loop — the classic
+"list of structs" case:
+
+```pengu
+var points as list of Point is for i from 0 to 3:
+    var p as Point with:
+        set .x is i
+        set .y is i * 2
+    p                          # each iteration appends a Point
+
+# the builder may also BE the iteration value when the element type is known
+# from the declaration ('list of Point' → Point):
+var more as list of Point is for i from 0 to 3:
+    with:
+        set .x is i
+        set .y is 7
+```
+
+- All loop forms are supported: `for i from a to b [step s]:`,
+  `for v in col:`, `for i, v in col:` (and `for _, v in col:`), `while cond:`.
+- `continue` skips that iteration's value; `break` ends the loop (the append is
+  emitted at the end of the body). `break`/`continue` still only work in loops.
+- Nested loop values give lists of lists:
+  `for r from 0 to 2: for c from 0 to 3: r * 10 + c` is `list of list of int`.
+- The body must end with an expression of one type; a value-less body
+  (`set`, a `void` call, a bare `break`) is `E0005`: *loop used as a value must
+  produce a value on every iteration*.
+- In statement position loops are unchanged (plain `while`/`for` statements).
+- `for v in col then expr` (the comprehension, §6.1.4) is a separate,
+  always-expression form: it is shorter but only exists for `in` — there is no
+  `from … to … then` and no `while … then`.
+
+### 6.1.4 What *is* an expression? (definitive, verified list)
+
+A **value position** is: a `var`/`let`/`static var` initializer, a `set` value,
+a `return` value, a call argument (`… with <expr>`), a struct-literal field
+(`with x is <expr>`), or the last statement of a value block (`do:`, an
+`if`/`unless` branch, a loop body).
+
+| Construct | Expression? | Notes |
+|---|---|---|
+| literals, `calling …`, operators, `x.field`, `x at i`, `x.len` | ✅ always | normal expressions, usable anywhere |
+| `if cond then a else b` | ✅ always | single-line conditional expression |
+| `when cond then a else b` | ✅ always | compile-time conditional expression |
+| `judge expr:` (with `when … ->` / `else ->`) | ✅ always | pattern-matching expression |
+| `for v in col [when cond] then expr` | ✅ always | comprehension; yields a list. `in` only |
+| `do:` block | ✅ always | yields its last statement's value |
+| `with x is a, y is b` | ✅ always | struct-literal expression |
+| `with:` builder | ✅ in value positions with a known target type | type comes from the annotation / `set` target / `return` type / loop element type / call parameter |
+| `if cond:` … `else:` block | ✅ in every value position | statement in statement position; yields a branch value |
+| `unless cond:` … `else:` block | ✅ in every value position | mirror of `if` |
+| `while cond:` block | ✅ in every value position | yields `list of T` |
+| `for i from a to b [step s]:` block | ✅ in every value position | yields `list of T` |
+| `for v in col:` block | ✅ in every value position | yields `list of T` |
+| `for i, v in col:` block (indexed, `_` discard) | ✅ in every value position | yields `list of T` |
+| block forms **inside** operators / parens / array or map literals / conditions / iterables | ❌ | `1 + if c: …`, `(for …: …)`, `[if c: …]`, `if (for …)`, `for v in for …:` are parse errors — parenthesise with a helper or use the expression forms above |
+| `set` / `return` / `break` / `continue` / `defer` / `errdefer` / `banish` | ❌ | statements; `return <expr>` does take any value |
+| `with target:` (scope) | ❌ | statement; the `with:` **builder** is the expression form |
+| `var` / `let` / `static var` / `const` / `import` / `include` / `link` / `insignia` | ❌ | declarations |
+| `rune` / `echo` / `omen` / `seal` / `alias` / `concept` / `bind` / `enchanting` / `declare` / `test` / `when` (statement) | ❌ | top-level declarations & statement forms |
+
+Two shape rules worth remembering:
+
+- In a struct literal, a block value works as the **last** field
+  (`with a is 1, b is 2, c is if c: …` ✅). If a block is *not* last, the next
+  field must start on a new line (leading `,`):
+
+```pengu
+var t as Trio is with a is if 1 == 1:   # ✅ ', …' on its own line
+    5
+else:
+    6
+, b is 2, c is 3
+```
+
+  Writing `, b is 2` on the same line as the block's last branch is a parse error
+  (`with a is if 1 == 1: 5, b is 2` ❌ too).
+- Value-position block forms are recognised by **position**, not by different
+  syntax (§6.1.2), so the same `if c:`/`for …:` text is a statement in statement
+  position and a value in a value position.
+
 ### 6.2 Arithmetic & bitwise
 
 ```pengu
@@ -465,6 +729,33 @@ void operators_demo(void) {
 ```
 
 `+` concatenates strings (`"a" + "b"`), and every arithmetic operator requires numeric operands. Conditions must be real `bool` values — there is no truthiness coercion.
+
+#### Logical operators
+
+```pengu
+if ready and not paused: ...
+if x is present or fallback: ...
+let ok is (a > 0 and b > 0) or retry < 3
+set allowed is not (paused or full)      # 'not' is boolean; '~' is bitwise
+```
+
+`and` / `or` are **boolean-only** (`E0005` otherwise) and **short-circuit**
+(C `&&` / `||`). They sit below comparisons in precedence and above `try`/
+`or else`; `or` binds looser than `and`. `&`/`|`/`^` stay integer bitwise.
+Since 0.10.0 they are **not** list separators any more — use `,`
+(see §3.4 and the CHANGELOG migration note).
+
+#### Compound assignment
+
+```pengu
+set x += 1          set s += "!"
+set mask <<= 2      set acc /= n
+set total -= fee    set flags |= 0x08
+```
+
+`+= -= *= /= %=` need numerics (`+=` also concatenates strings); `&= |= ^= <<= >>=`
+need integers. The target keeps all normal `set` rules (mutable, may be a field
+or `.field` in a `with` scope).
 
 ### 6.3 Word operators
 
@@ -520,12 +811,12 @@ PenguString greeting = pengu_string_format("Hi, %s!", (name).data);
 
 ### 6.5 `calling` & argument passing
 
-Calls use the `calling` keyword. Arguments are positional or named (`name is value`), separated by `and` or `,`:
+Calls use the `calling` keyword. Arguments are positional or named (`name is value`), separated by `,` (since 0.10.0 `and` is the boolean operator, not a separator):
 
 ```pengu
-let s is calling add with 10 and 20          # positional
-calling DrawText with text is "Hi" and x is 100   # named (defaults omitted)
-calling player.move with 1.0 and 0.0         # method call
+let s is calling add with 10, 20          # positional
+calling DrawText with text is "Hi", x is 100   # named (defaults omitted)
+calling player.move with 1.0, 0.0         # method call
 calling spark.println with "done"            # module member call
 ```
 
@@ -539,7 +830,7 @@ rune Vec2:
     y as float
 
 weave test_destructure into void:
-    var v as Vec2 is with x is 10.0 and y is 20.0
+    var v as Vec2 is with x is 10.0, y is 20.0
     let x, y is v       # bind v.x → x, v.y → y
 ```
 
@@ -551,6 +842,39 @@ void test_destructure(void) {
     const float x = v.x;
     const float y = v.y;
 }
+```
+
+### 6.7 Ranges & Membership: `in` / `not in`
+
+PenguScript provides native half-open ranges `[start, end)` using either `to` or `..`:
+
+```pengu
+let r1 is 0 to 10
+let r2 is 0..10
+```
+
+- Represented in C as stack-allocated `PenguRange` values (`{ int64_t start; int64_t end; }`).
+- Evaluated at compile time when operands are static constants: if `start > end`, the checker raises `error[E0042]` (`InvalidRangeError`).
+
+#### Membership Operators: `in` and `not in`
+
+The `in` and `not in` operators test containment uniformly across ranges, strings, collections, and maps:
+
+```pengu
+# Range containment: start <= x && x < end
+if 5 in 0 to 10:
+    calling spark.println with "5 is within [0, 10)"
+
+if 20 not in 0..10:
+    calling spark.println with "20 is outside range"
+
+# String containment: substring search
+if "pengu" in "hello pengu world":
+    calling spark.println with "substring found"
+
+# Map key existence
+if "alice" in user_roles:
+    calling spark.println with "alice key exists"
 ```
 
 ---
@@ -601,7 +925,37 @@ void conditionals_demo(int32_t x) {
 }
 ```
 
-`if` conditions can bind a `maybe` and test presence in one step: `if user as maybe string is calling find_user with 1 is present:`.
+`is present` / `is not present` accept only `maybe T` (any other operand type is rejected with `E0005`); `is true` / `is false` likewise require `bool`. A word test applies to the expression immediately to its left, and an argument list is greedy, so a **bare test in an argument list is `E0005`** (*Ambiguous 'is true' in the arguments of 'find'*). Write the reading you mean:
+
+```pengu
+calling print_bool with (m is present)      # the test is the argument
+if (calling find with 1) is present:        # the test is the call's result
+if calling ready is true:                   # no arguments: unambiguous
+```
+
+An `if` condition can also **bind** the present value; the branch then runs only when the maybe is present and the bound name is declared inside it:
+
+```pengu
+if u as User is user:          # 'user' must be 'maybe User'
+    calling spark.println with user.name
+else:
+    calling spark.println with "anonymous"
+```
+
+The operand must be `maybe T` (`E0005` otherwise) and `T` must match the element type; a redundant `is present` is accepted, `is not present` is not. It works in value position as well (`let label is if u as User is user: u.name else: "anonymous"`).
+
+**One-line bodies.** A branch may hold a single statement on the same line:
+
+```pengu
+if x == 1: return 1
+unless x == 0: calling spark.println with "non-zero"
+while i < 5: set i is i + 1
+for j from 0 to 3: calling tick with j
+```
+
+These are syntax sugar for an indented one-statement block: they emit the same C
+and go through the same checks (mutability, return type, loop-control placement,
+expression type checking).
 
 ### 7.2 Loops
 
@@ -670,6 +1024,7 @@ Loop variants at a glance:
 
 | Form | Meaning |
 | ---- | ------- |
+| `for i in a to b` / `for i in a..b` | numeric range `[a, b)` |
 | `for i from a to b` | numeric range `[a, b)` |
 | `for i from a to b step s` | numeric range with step (can be negative) |
 | `for v in col` | element iteration over array / slice / list / map keys / string characters |
@@ -731,6 +1086,9 @@ PenguString describe(int32_t key) {
 
 Patterns may be integers, floats, strings, characters, `true`/`false`, `maybe none`, or named constants; an `else ->` clause is optional. Integer/enum subjects compile to C `switch`, and string comparisons use the runtime string equality helper. The grammar also accepts optional payload bindings (`when Variant with field -> …`) for algebraic omens.
 
+**Exhaustiveness validation (`E0044`)**:
+When evaluating an `omen` or a `bool` subject without an `else ->` fallback, the checker verifies that every variant or boolean state is covered. If any branch is missing, the compiler raises `error[E0044]` (`NonExhaustiveJudgeError`).
+
 ### 7.5 Integrated tests: `test …`
 
 Top-level `test "name":` (or `test name:`) blocks are validated semantically in every build but only compiled when requested with `--test`:
@@ -738,16 +1096,16 @@ Top-level `test "name":` (or `test name:`) blocks are validated semantically in 
 ```pengu
 import std.ward as w
 
-weave add with a as int and b as int into int:
+weave add with a as int, b as int into int:
     return a + b
 
 test "addition works":
-    let r is calling add with 2 and 3
-    calling w.assert_eq_int with r and 5
+    let r is calling add with 2, 3
+    calling w.assert_eq_int with r, 5
 
 test add_zero:
-    let r is calling add with 0 and 0
-    calling w.assert_eq_int with r and 0
+    let r is calling add with 0, 0
+    calling w.assert_eq_int with r, 0
 ```
 
 In a normal build the blocks are ignored and nothing appears in `bundle.c`. With `--test`, each block becomes `static void pengu_test_N(void)`, a `pengu_run_tests()` runner and a test `main` are generated, failing assertions panic with a non-zero exit code, and passing tests print `[PASS]`.
@@ -766,11 +1124,11 @@ pengu run --test
 
 ```pengu
 # 1. Implicit return: the last expression is the return value
-weave add with a as int and b as int into int:
+weave add with a as int, b as int into int:
     a + b
 
 # 2. Explicit return + default argument values
-weave DrawText with text as string and x as int is 0 and y as int is 0 into void:
+weave DrawText with text as string, x as int is 0, y as int is 0 into void:
     calling spark.println with text
     return
 
@@ -779,7 +1137,7 @@ weave now into string:
     return "now"
 
 # 4. Inlined function
-inline weave fast_add with a as int and b as int into int:
+inline weave fast_add with a as int, b as int into int:
     a + b
 
 # 5. 'pass' style empty body is not a keyword — use a comment + return
@@ -794,13 +1152,13 @@ A default is written `name as type is default`; the compiler fills omitted defau
 ```pengu
 weave demo_calls into void:
     # named argument call — y defaults to 0
-    calling DrawText with text is "Hello, Pengu!" and x is 100
+    calling DrawText with text is "Hello, Pengu!", x is 100
 
     # positional call
-    let sum is calling add with 10 and 20
+    let sum is calling add with 10, 20
 
     # chained / method-style call
-    calling player.move with 1.0 and 0.0
+    calling player.move with 1.0, 0.0
 
     # no-argument call
     calling CloseWindow
@@ -837,14 +1195,14 @@ void demo_calls(void) {
 ### 8.4 Variadic parameters: `many`
 
 ```pengu
-weave sum_all with base as int and values as many int into int:
+weave sum_all with base as int, values as many int into int:
     var total as int is base
     for num in values:
         set total is total + num
     return total
 
 weave test_variadic into void:
-    let total1 is calling sum_all with 10 and 20 and 30 and 40
+    let total1 is calling sum_all with 10, 20, 30, 40
     let total2 is calling sum_all with 5          # zero variadic args
 ```
 
@@ -877,23 +1235,23 @@ void test_variadic(void) {
 Type-position signatures use `weave with … into …`; declare pointer aliases with `alias`:
 
 ```pengu
-alias BinaryOp as ref to weave with a as int and b as int into int
+alias BinaryOp as ref to weave with a as int, b as int into int
 alias WebUICallback as ref to weave with event as ref to void into void
 
-weave add with a as int and b as int into int:
+weave add with a as int, b as int into int:
     return a + b
 
-weave execute_op with op as BinaryOp and x as int and y as int into int:
-    return calling op with x and y
+weave execute_op with op as BinaryOp, x as int, y as int into int:
+    return calling op with x, y
 
 weave test_callback into void:
     let fn_ptr as BinaryOp is sigil of add
-    let result is calling execute_op with fn_ptr and 10 and 20
+    let result is calling execute_op with fn_ptr, 10, 20
 
     # A weave name passed where a callback type is expected decays to its
     # C function pointer automatically (C can also call back into PenguScript
     # weaves through runtime helpers — see section 14).
-    let direct is calling execute_op with add and 3 and 4
+    let direct is calling execute_op with add, 3, 4
 ```
 
 ```c
@@ -907,12 +1265,59 @@ int32_t execute_op(BinaryOp op, int32_t x, int32_t y) {
 }
 
 void test_callback(void) {
-    BinaryOp fn_ptr = &add;
+    BinaryOp fn_ptr = ((BinaryOp)&add);      // cast to the declared callback type
     int32_t result = execute_op(fn_ptr, 10, 20);
 
-    int32_t direct = execute_op(&add, 3, 4);  // weave name decays to its address
+    int32_t direct = execute_op(((BinaryOp)&add), 3, 4);  // weave name decays to its address
 }
 ```
+
+A `weave` or `lambda` passed where a callback is expected is **cast to the declared callback type**. That is what lets C headers whose prototypes carry `const` qualifiers the `.d.pengu` binding does not express (raylib's `TraceLogCallback` takes `const char *text`) compile under GCC 14+:
+
+```pengu
+import std.raylib
+
+weave on_audio with buffer as ref to void, frames as u32 into void:
+    return
+
+weave main into int:
+    var stream as raylib.AudioStream is calling raylib.LoadAudioStream with 44100, 32, 2
+    calling raylib.SetAudioStreamCallback with stream, on_audio     # → ((AudioCallback)on_audio)
+    calling raylib.UnloadAudioStream with stream
+    return 0
+```
+
+A callback parameter declared **inline** (`compar as ref to weave with a as ref to void, b as ref to void into int`) is cast to that Pengu-spelled type, so a C prototype taking `const void*` (`qsort`) still mismatches — declare such parameters through an alias of the C typedef when one exists.
+
+### 8.6 Lambdas
+
+```pengu
+lambda into 42
+lambda x as int into x * 2
+lambda a as int, b as int into a + b
+var f as weave with x as int into int is lambda x as int into x - 1
+```
+
+```c
+/* --- Lambdas --- */
+static int32_t _pengu_lambda_1(void) { return 42; }
+static int32_t _pengu_lambda_2(int32_t x) { return (x * 2); }
+static int32_t _pengu_lambda_3(int32_t a, int32_t b) { return (a + b); }
+
+void test_lambdas(void) {
+    int32_t (*f)(int32_t) = _pengu_lambda_2;
+}
+```
+
+- Parameters are **explicitly typed** and comma-separated; the return type is
+  inferred from the body.
+- **No capture**: the body only sees its parameters and module-level symbols
+  (weaves, consts, types). That is why a lambda compiles to a plain top-level
+  `static` C function — portable C99, no GCC nested functions.
+- The value has a `weave … into …` (`FnType`) type: store it in a `var`/`let`
+  (with or without that annotation), pass it where a callback is expected, and
+  call it through with `calling f with 5`.
+- Not available at compile time (`when`/`defined`).
 
 ---
 
@@ -930,27 +1335,27 @@ rune Vec2:
 enchanting Vec2:
     # 1. Static ritual (factory / constructor) — no self
     weave ritual zero into Vec2:
-        return with x is 0.0 and y is 0.0
+        return with x is 0.0, y is 0.0
 
-    weave ritual create with x as float and y as float into Vec2:
-        return with x is x and y is y
+    weave ritual create with x as float, y as float into Vec2:
+        return with x is x, y is y
 
     # 2. Instance method returning a value
     weave add with other as Vec2 into Vec2:
-        return with x is self->x + other.x and y is self->y + other.y
+        return with x is self->x + other.x, y is self->y + other.y
 
     # 3. In-place mutating instance method
-    weave move with dx as float and dy as float into void:
+    weave move with dx as float, dy as float into void:
         set self->x is self->x + dx
         set self->y is self->y + dy
 
 weave main into void:
     var origin as Vec2 is calling Vec2.zero
-    var a as Vec2 is calling Vec2.create with 10.0 and 20.0
-    var b as Vec2 is calling Vec2.create with 5.0 and 5.0
+    var a as Vec2 is calling Vec2.create with 10.0, 20.0
+    var b as Vec2 is calling Vec2.create with 5.0, 5.0
 
     let c as Vec2 is calling a.add with b      # value instance → &a passed to self
-    calling a.move with 10.0 and 0.0
+    calling a.move with 10.0, 0.0
 ```
 
 ```c
@@ -1104,12 +1509,12 @@ rune Pair shard T and U:
 weave print_item shard T where T: Printable with item as T into void:
     calling item.print_me
 
-weave create_box shard T with val as T and id as int into Box of T:
-    return with item is val and id is id
+weave create_box shard T with val as T, id as int into Box of T:
+    return with item is val, id is id
 
 weave main into void:
-    var int_box as Box of int is calling create_box of int with 42 and 1
-    var str_box as Box of string is calling create_box of string with "Pengu" and 2
+    var int_box as Box of int is calling create_box of int with 42, 1
+    var str_box as Box of string is calling create_box of string with "Pengu", 2
 
     var doc as Document is with title is "PenguScript Reference"
     calling print_item with doc
@@ -1156,13 +1561,31 @@ rune Vec2:
     y as float
 
 weave struct_demo into void:
-    var v as Vec2 is with x is 10.0 and y is 20.0
+    var v as Vec2 is with x is 10.0, y is 20.0
     let vx is v.x
     set v.x is 100.0
 
     var vp as ref to Vec2 is sigil of v
     set vp->x is 200.0          # '->' dereferences a ref to a struct
 ```
+
+**Block-style construction (`with:` expression).** For long/complex
+initializers, a `with:` block builds a fresh value of an explicitly-typed
+target by mutating an implicit temporary; the block evaluates to the built
+value. Inside it, `.field` refers to the value under construction:
+
+```pengu
+var p as Point with:
+    set .x is 10
+    set .y is 20
+    calling .shift with 5, 3      # enchanting methods on the temp value
+```
+
+The target type must be annotated (`var p as Point with:`) because the builder
+cannot infer it; only `set .field is ...` and `calling .method` statements are
+allowed in the body. It compiles to a GNU statement-expression that
+zero-initializes the value, applies the assignments/calls in order and yields
+it (no change to the single-line `with x is …, y is …` form).
 
 ```c
 typedef struct {
@@ -1198,7 +1621,7 @@ typedef union {
 
 ### 10.3 `omen` — enums & algebraic data types
 
-Simple enums map to C `typedef enum`. Variants can carry explicit compile-time integer values (`Variant is expr`, auto-increment otherwise, duplicate values → `E0027`) or — with `omen Name with string:` — auto string values usable wherever a `string` is expected.
+Simple enums map to C `typedef enum`. Variants can carry explicit compile-time integer values (`Variant is expr`, auto-increment otherwise, duplicate values → `E0027`) or — with `omen Name with string:` — auto string values usable wherever a `string` is expected. Every variant occupies both its simple (`Variant`) and full (`Omen_Variant`) name in the module scope; a weave/const/alias reusing one of those names, or two omens sharing a variant name, is a collision (`E0046`).
 
 ```pengu
 omen Level:
@@ -1242,7 +1665,7 @@ omen NetworkState:
     Disconnected
     Connecting with retry_count as int
     Connected with session_id as string
-    Failed with error_code as int and reason as string
+    Failed with error_code as int, reason as string
 
 weave demo_omen into void:
     var state as NetworkState is with Connected is with session_id is "sess_12345"
@@ -1345,7 +1768,9 @@ extern void UnloadTexture(Texture texture);
 
 ### 11.1 `maybe T` — optional values
 
-`maybe T` is an optional container: either *present* (holding a heap-copied value) or *absent*. Construct with `maybe none` or `some expr`; test with `is present` / `is not present`; unwrap with `.value` (only after a presence check) or `or else` / `or return`.
+`maybe T` is an optional container: either *present* (holding a heap-copied value) or *absent*. Construct with `maybe none` or `some expr`; test with `is present` / `is not present`; unwrap with `.value` (only after a presence check), `or else`, `or return`, or `try`.
+
+`try expr` unwraps success values and *propagates* failures to the caller of the enclosing function, so it is only valid inside a weave/enchanting whose return type can carry the failure (`E0045`): a `try` over `maybe T` requires a `maybe T` return, and a `try` over `result of T to E` requires a result return with a compatible error type.
 
 ```pengu
 weave find_user with id as int into maybe string:
@@ -1360,6 +1785,10 @@ weave test_maybe into void:
     if user is present:
         let name is user.value
         calling spark.println with name
+
+    # Presence check + unwrap in one step (binds 'u' as string)
+    if u as string is user:
+        calling spark.println with u
 
     # Fallback value
     let final_name is user or else "Guest"
@@ -1426,6 +1855,7 @@ void main(void) {
 | -------- | ------- | ---------- |
 | `expr or else fallback` | value when present/ok, otherwise the fallback expression | `maybe T`, `result of T to E` |
 | `expr or return value` | bind the value on success; otherwise `return value` from the current function | `maybe T`, `result of T to E` |
+| `try expr` | bind the success value; on failure return `maybe none` / the error result to the caller (requires a compatible `maybe`/`result` function return, `E0045`) | `maybe T`, `result of T to E` |
 | `expr or:` (block) | on failure run the block; inside it `error` is a `string` describing the error | `maybe T`, `result of T to E` |
 | `try expr` | unwrap success values from error/maybe unions, propagating failures to the caller | `maybe T`, `result of T to E` |
 
@@ -1454,11 +1884,36 @@ int32_t memory_demo(void) {
 }
 ```
 
+#### Pointer Compatibility & Strict Typing
+
+PenguScript enforces strict pointee typing for `ref to T`:
+
+| Source Pointer (`src`) | Destination Expected (`dst`) | Allowed? | Rule / Note |
+|---|---|---|---|
+| `ref to T` | `ref to T` | ✅ Yes | Exact pointee match |
+| `ref to char` | `ref to frozen char` | ✅ Yes | Mutable flows into frozen (`const`) |
+| `ref to byte` | `ref to char` | ✅ Yes | Raw C byte buffer interop (`char*` ↔ `uint8_t*`) |
+| `ref to char` | `ref to byte` | ✅ Yes | Raw C byte buffer interop (`char*` ↔ `uint8_t*`) |
+| `ref to T` | `ref to void` / `ref to frozen void` | ✅ Yes | Universal wildcard object pointer |
+| `array of T with size N` | `ref to T` / `ref to frozen T` | ✅ Yes | Array-to-pointer decay |
+| `bytes of s` | `ref to byte` / `ref to char` / `ref to frozen void` | ✅ Yes | String byte storage borrow |
+| `ref to frozen T` | `ref to T` | ❌ No (`E0005`) | Const qualifier cannot be dropped |
+| `ref to i32` | `ref to char` / `ref to byte` | ❌ No (`E0005`) | Numeric widening does not apply to pointers |
+| `ref to u8` | `ref to char` | ❌ No (`E0005`) | Only `char` ↔ `byte` exception is permitted |
+| `array of i32 with size N` | `ref to char` | ❌ No (`E0005`) | Pointee mismatch during decay |
+| `ref to f32` | `ref to f64` | ❌ No (`E0005`) | Float pointees must match strictly |
+
+
 ### 12.2 `defer`, `errdefer`, `banish`
 
-- `defer expr` — the expression runs when the enclosing scope exits, in LIFO order (the last deferred runs first).
-- `errdefer expr` — runs only when the function returns an error path.
-- `banish target` — deallocates a heap allocation (`pengu_banish`).
+- `defer expr` / `defer:` (block) — runs when the enclosing scope exits, in LIFO order (the last deferred action executes first). Supports single expressions, statements (`defer banish s`), and multi-line indented blocks.
+- `errdefer expr` / `errdefer:` (block) — runs only when the function exits along an error return path.
+- `banish target` — releases dynamically allocated memory for lvalues:
+  - `ref to T`: deallocates the pointer via `pengu_banish((void*)(p))`.
+  - `string`: deallocates dynamic string buffer via `pengu_banish_string(&s)`, resetting `.data` to `NULL` and `.len` to 0. Do not use after banishing.
+  - `list of T`: deallocates contiguous buffer via `pengu_banish_list(&l)`, resetting capacity and length to 0.
+  - `map of K to V`: deallocates map entries via `pengu_banish_map(&m)`, and recursively deallocates any `string` keys and `string` values.
+  - Rejects literals, temporaries, `const`, and `frozen` values with `E0008`.
 
 ```pengu
 declare malloc with size as int into ref to void
@@ -1471,12 +1926,16 @@ weave memory_demo into int:
     if buffer == null:
         return 1
 
-    # 2. Defer accepts any expression or call (LIFO on scope exit)
+    # 2. Defer accepts expressions, calls, or multi-line blocks (LIFO on scope exit)
     defer banish buffer
-    defer calling CloseWindow
+    defer:
+        calling spark.println with "closing window and flushing buffers"
+        calling CloseWindow
 
     # 3. Errdefer executes only on an error return from this function
-    errdefer calling spark.println with "cleanup failed transaction"
+    errdefer:
+        calling spark.println with "transaction failed"
+        calling spark.println with "rolling back changes"
 
     # 4. Pointer arithmetic & dereference
     var value as int is 42
@@ -1569,7 +2028,7 @@ rune WindowConfig:
     height as int
 
 declare new_window into int
-declare show with win as int and content as string into void
+declare show with win as int, content as string into void
 declare wait into void
 ```
 
@@ -1580,7 +2039,7 @@ import webui
 
 weave main into void:
     var win as int is calling webui.new_window
-    calling webui.show with win and "Hello World"
+    calling webui.show with win, "Hello World"
     calling webui.wait
 ```
 
@@ -1679,6 +2138,40 @@ pengu update
 # executed automatically on 'pengu add' (skip with --no-build)
 ```
 
+### 13.6 Module state idioms (singletons & services)
+
+Top-level `var` / `let` declarations are prohibited by design (`E0002`). Mutable globals introduce concurrency hazards, non-deterministic module init ordering, and break incremental compilation. Instead, PenguScript offers two clean, idiomatic patterns:
+
+#### Pattern A: Encapsulated State (`static var` in accessor weaves)
+Hold service state in local `static var` bindings inside accessor weaves. The runtime initializes the static variable exactly once:
+
+```pengu
+# tracker.pengu
+weave add_count with delta as int into int:
+    static var count as int is 0
+    set count is count + delta
+    return count
+
+weave get_count into int:
+    return calling add_count with 0
+```
+
+#### Pattern B: Explicit Context Struct (`ref to Context`)
+Expose an explicit state struct and pass it by pointer (`ref to Context`). This is reentrant, testable, and thread-safe:
+
+```pengu
+# engine.pengu
+rune Context:
+    ticks as int
+    running as bool
+
+weave init into Context:
+    return with ticks is 0, running is true
+
+weave step with ctx as ref to Context into void:
+    set ctx->ticks is ctx->ticks + 1
+```
+
 ---
 
 ## 14. C Interop & FFI
@@ -1686,7 +2179,7 @@ pengu update
 ### 14.1 `declare` — external C functions
 
 ```pengu
-declare InitWindow with w as int and h as int and title as string into void
+declare InitWindow with w as int, h as int, title as string into void
 declare WindowShouldClose into bool
 declare CloseWindow into void
 declare malloc with size as int into ref to void
@@ -1712,13 +2205,13 @@ extern void free(void* ptr);
 Native functions that return values through pointer parameters take `ref to T`; pass the address of a local with `sigil of`:
 
 ```pengu
-declare yaml_get_version with major as ref to int and minor as ref to int and patch as ref to int into void
+declare yaml_get_version with major as ref to int, minor as ref to int, patch as ref to int into void
 
 weave main into void:
     var ma as int is -1
     var mi as int is -1
     var pa as int is -1
-    calling yaml_get_version with (sigil of ma) and (sigil of mi) and (sigil of pa)
+    calling yaml_get_version with (sigil of ma), (sigil of mi), (sigil of pa)
 ```
 
 ### 14.4 Fixed byte buffers as C output
@@ -1726,11 +2219,11 @@ weave main into void:
 Declare a fixed-size `array of byte` and borrow its storage with `bytes of` so C can fill it:
 
 ```pengu
-declare hash_bytes with data as ref to byte and len as int into i64
+declare hash_bytes with data as ref to byte, len as int into i64
 
 weave digest with msg as string into i64:
     var view as ref to byte is bytes of msg     # borrow msg's internal bytes
-    return calling hash_bytes with view and (msg length)
+    return calling hash_bytes with view, (msg length)
 ```
 
 ```c
@@ -1794,11 +2287,26 @@ Type mapping highlights: `size_t`→`size_t`, `bool`→`bool`, `int`/`uint32_t`�
 
 ```bash
 pengu bind webui.h --prefix webui_ --links webui-2-static ole32 stdc++ uuid
+pengu bind zlib.h --define Z_SOLO --links z          # header that needs a macro
 ```
 
-The preprocessor pass keeps line markers so pycparser can attribute every node to the original header; nodes pulled in from system/stub headers are skipped. A vendored minimal stub tree in `c_bind_stubs/` supplies `stdint.h`/`stddef.h`/`stdbool.h`/… types, and Windows-guarded sections are excluded by default. `--no-cpp` parses without preprocessing for very simple headers.
+The preprocessor pass keeps line markers so pycparser can attribute every node to the original header; nodes pulled in from system/stub headers are skipped. A vendored minimal stub tree in `c_bind_stubs/` supplies `stdint.h`/`stddef.h`/`stdbool.h`/`pthread.h`/`unistd.h`/`sys/types.h`/… types (see `c_bind_stubs/README.md`), and Windows-guarded sections are excluded by default. GNU compiler extensions (`__attribute__`, `__extension__`, `__inline__`, `__declspec`, …) are **blanked by default** so headers that spell them parse.
 
-The output is declaration-only: the real header stays `include`d, so no C structs/enums/prototypes are duplicated and the binding passes `pengu check`.
+When a header needs more control, the generator takes:
+
+| Flag | Effect |
+| ---- | ------ |
+| `--define/-D NAME[=V]` | Extra preprocessor define (repeatable), e.g. `--define Z_SOLO` |
+| `--cpp-flags "…"` | Raw preprocessor flags passed through verbatim |
+| `--system-includes` | Use the real compiler/system headers instead of the `-nostdinc` + stub tree (needed by e.g. `uv.h`; it also stops the generator from undefining `_WIN32`) |
+| `--include-paths DIR…` | Extra include directories |
+| `--preprocessed FILE.i` | Bind from a `.i` file you produced yourself (`gcc -E`) |
+| `--no-blank-extensions` | Keep GNU extensions intact (default is to blank them) |
+| `--no-cpp` | Parse without preprocessing (very simple headers) |
+
+Failures are reported with the offending construct, the last preprocessor error and the flag to try (e.g. `--define Z_SOLO`, `--system-includes`, `--preprocessed`).
+
+The output is declaration-only: the real header stays `include`d, so no C structs/enums/prototypes are duplicated and the binding passes `pengu check`. `sqlite3.h`, `rlgl.h` and `zlib.h` (with `--define Z_SOLO`) bind end to end; a few vendor headers (`miniaudio`, `xxhash`, `tomlc17`, `yaml`) still need flags or remain hand-written.
 
 ---
 
@@ -1957,7 +2465,7 @@ Install from the **Extensions** panel → *Install from VSIX…* → select the 
 | `check` | `--profile/-p`, `--config/-c`, `--entry/-e`, `--cc`, `--verbose`, `-D/--define` |
 | `fmt` | `paths…`, `--check`, `--write` (default), `--indent N` (default 2), `--tabs`, `--verbose` |
 | `update` | `--config/-c`, `--verbose` |
-| `bind` | `header`, `--prefix`, `--links …`, `--output`, `--no-comments`, `--ignore …`, `--include-paths …`, `--no-cpp` |
+| `bind` | `header`, `--prefix`, `--links …`, `--output`, `--no-comments`, `--ignore …`, `--include-paths …`, `--define/-D NAME[=V]`, `--cpp-flags "…"`, `--system-includes`, `--preprocessed FILE.i`, `--no-blank-extensions`, `--no-cpp` |
 | `clean` | `--config/-c` |
 | `lsp` | `--stdio` (default), `--tcp`, `--host` (default `127.0.0.1`), `--port` (default `2087`) |
 | `doc` | `--config/-c`, `--entry/-e`, `--output/-o` (default `<project>/docs`) |
@@ -2063,7 +2571,7 @@ enchanting Player:
 
 weave best with players as list of Player into maybe Player:
     var found as bool is false
-    var top as Player is with name is "" and score is -1
+    var top as Player is with name is "", score is -1
     for p in players:
         if found == false:
             set top is p
@@ -2076,9 +2584,9 @@ weave best with players as list of Player into maybe Player:
 
 weave main into int:
     var roster as list of Player is list of Player
-    calling roster.push with with name is "Ada" and score is 9
-    calling roster.push with with name is "Grace" and score is 10
-    calling roster.push with with name is "Linus" and score is 7
+    calling roster.push with with name is "Ada", score is 9
+    calling roster.push with with name is "Grace", score is 10
+    calling roster.push with with name is "Linus", score is 7
 
     let winner as maybe Player is calling best with roster
     if winner is present:
@@ -2088,7 +2596,7 @@ weave main into int:
         calling spark.println with "no players"
 
     var scores as map of string to int is { "Ada": 9, "Grace": 10 }
-    calling scores.set with "Linus" and 7
+    calling scores.set with "Linus", 7
     if calling scores.has with "Grace":
         calling spark.println with "Grace is in the scores map"
     return 0
@@ -2107,13 +2615,13 @@ import std.spark
 
 alias IntResult as result of int to string
 
-weave safe_divide with a as int and b as int into maybe int:
+weave safe_divide with a as int, b as int into maybe int:
     if b == 0:
         return maybe none
     return some (a / b)
 
 weave main into int:
-    let q as maybe int is calling safe_divide with 10 and 2
+    let q as maybe int is calling safe_divide with 10, 2
     if q is present:
         calling spark.println with "10 / 2 = " + (q.value to string)
     let fallback is q or else -1
@@ -2134,7 +2642,7 @@ import std.spark
 import std.archivum
 
 weave main into int:
-    var ok as bool is calling archivum.write_file with "out.txt" and "PenguScript"
+    var ok as bool is calling archivum.write_file with "out.txt", "PenguScript"
     if ok == false:
         calling spark.println with "write failed"
         return 1
@@ -2164,7 +2672,7 @@ rune Vec2:
 
 enchanting Vec2:
     weave ritual origin into Vec2:
-        return with x is 0.0 and y is 0.0
+        return with x is 0.0, y is 0.0
 
     weave len_squared into float:
         return self->x * self->x + self->y * self->y
@@ -2177,7 +2685,7 @@ omen Direction:
 
 weave main into int:
     let a as Vec2 is calling Vec2.origin
-    var b as Vec2 is with x is 3.0 and y is 4.0
+    var b as Vec2 is with x is 3.0, y is 4.0
     calling spark.println with "dist² = " + (calling b.len_squared to string)
 
     var move as Direction is with North is with dy is -1
@@ -2235,14 +2743,14 @@ enchanting Player:
             set self->x is self->x - self->speed
 
     weave draw into void:
-        calling raylib.DrawCircle with (self->x to int) and (self->y to int) and 20.0 and MAROON
+        calling raylib.DrawCircle with (self->x to int), (self->y to int), 20.0, MAROON
 
 weave main into int:
-    calling raylib.InitWindow with SCREEN_WIDTH and SCREEN_HEIGHT and "PenguScript 2D Game"
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "PenguScript 2D Game"
     defer calling raylib.CloseWindow
     calling raylib.SetTargetFPS with 60
 
-    var player as Player is with x is 400.0 and y is 300.0 and speed is 5.0
+    var player as Player is with x is 400.0, y is 300.0, speed is 5.0
 
     while calling raylib.WindowShouldClose is false:
         calling player.update
@@ -2263,8 +2771,8 @@ import std.celeris
 
 weave main into int:
     # xxHash one-shots: pass a string literal + explicit byte length
-    var h64 as u64 is calling celeris.hash64 with "PenguScript" and 11
-    var h3 as u64 is calling celeris.hash3_64 with "PenguScript" and 11
+    var h64 as u64 is calling celeris.hash64 with "PenguScript", 11
+    var h3 as u64 is calling celeris.hash3_64 with "PenguScript", 11
     if h64 == 0x610DF71A00097754:
         if h3 == 0xC5617D8EE18E0403:
             calling spark.println with "xxhash + celeris ok"
@@ -2333,8 +2841,87 @@ weave main into int:
 
 ### 20.4 Common diagnostics
 
-Diagnostics use Rust-style formatting (`error[CODE]: message`, plus `help:` and `note:` lines). Codes referenced throughout this reference: `E0004` unknown module member, `E0005` type mismatch, `E0008` `sigil of null`, `E0014` missing type annotation, `E0020` return type mismatch, `E0023`/`E0024` variadic `many` misuse, `E0025` body in `.d.pengu`, `E0026` duplicate `insignia`, `E0027` duplicate omen value, `E0028` payload + explicit value, `E0029` mixed/invalid omen values, `E0030`–`E0032` concept/signature/bound errors, `E0033`/`E0034` ritual misuse, `E0035` seal mismatch, `E0036` import-alias collision, `E0038` duplicate map key, `E0039` non-constant `when`, `E0040` reserved `main`.
+Diagnostics use Rust-style formatting (`error[CODE]: message`, plus `help:` and `note:` lines). Codes referenced throughout this reference: `E0004` unknown module member, `E0005` type mismatch, `E0008` `sigil of null`, `E0014` missing type annotation, `E0020` return type mismatch, `E0023`/`E0024` variadic `many` misuse, `E0025` body in `.d.pengu`, `E0026` duplicate `insignia`, `E0027` duplicate omen value, `E0028` payload + explicit value, `E0029` mixed/invalid omen values, `E0030`–`E0032` concept/signature/bound errors, `E0033`/`E0034` ritual misuse, `E0035` seal mismatch, `E0036` import-alias collision, `E0038` duplicate map key, `E0039` non-constant `when`, `E0040` reserved `main`, `E0041` array size/shape mismatch, `E0042` invalid range (`start > end`), `E0043` private symbol access, `E0044` non-exhaustive judge, `E0045` `try` outside a compatible `maybe`/`result` function, `E0046` omen variant name collision.
 
 ---
 
 *Happy weaving. 🐧*
+
+---
+
+## Appendix: v0.9.0 language additions
+
+### A.1 Triple-quoted and raw strings
+
+```pengu
+var a as string is """
+  hello
+  world
+"""
+var raw as string is r"no\nescapes\there"   # literal backslash-n
+var raw3 as string is r"""still \n literal"""
+```
+
+Triple-quoted strings dedent the common leading whitespace (like Python) and
+still support `{expr}` interpolation; raw strings (`r"..."`, `r"""..."""`) keep
+escape sequences and braces verbatim. They compile to `pengu_string_from_cstr`
+of the dedented/escaped text.
+
+### A.2 Indented literals (arrays, maps, runes)
+
+```pengu
+var flat as array of i32 with size 5 is
+  1, 2, 3, 4, 5
+var grid as array of array of i32 with size 2 with size 3 is
+  1, 2, 3
+  4, 5, 6
+var counts as map of string to i32 is
+  "a": 1
+  "b": 2
+var p as Player is
+  x is 10.0
+  y is 20.0
+```
+
+Rows separated by newlines build 2-D arrays; `key: value` rows build maps;
+`field is value` rows build rune structs.
+
+### A.3 Ranges, `..`, and membership
+
+```pengu
+var r  is 1 to 10      # exclusive upper bound: 1..9
+var r2 is 1..10
+if 5 in r:        ...  # range membership
+if v not in list: ...
+for i in 0 to 2:  ...  # direct iteration over a range
+```
+
+Ranges compile to the `PenguRange { int64_t start; int64_t end; }` struct;
+`in`/`not in` lower to comparisons for ranges, `strstr` for strings and loops /
+key lookups for arrays and maps. `10 to float` remains a cast (casts live in
+`postfix`).
+
+### A.4 Symbol visibility
+
+There is no visibility keyword: an identifier that starts with `_` is private
+to its defining module/rune (access from another module raises `E0043`), and
+any other identifier is public.
+
+### A.5 Multi-statement `defer:` / `errdefer:` blocks
+
+```pengu
+weave work into void:
+  defer:
+    calling spark.println with "cleanup first"
+    calling spark.println with "cleanup second"
+```
+
+### A.6 Chained indexing on multi-dimensional arrays
+
+```pengu
+var v as int is grid at 0 at 0   # grid[0][0]
+```
+
+`a at b at c` is treated as the left-associative chain `(a at b) at c`.
+
+---

@@ -1,71 +1,201 @@
 # std/rites.pengu - The Rites (OS & System)
 # Provides process, environment, and system utilities.
+#
+# The helpers cover four areas: environment variables (getenv/setenv/
+# unsetenv/get_env_keys), program arguments (get_argc/get_argv/get_args),
+# process identity and control (getpid/getppid/getcwd/chdir/exit/exec/spawn)
+# and platform information (uname/hostname).
+#
+# Typical usage:
+#   import std.rites
+#   var home as maybe string is calling rites.getenv with "HOME"
+#   if home.is_present:
+#       calling spark.println with home.value
+#   calling rites.setenv with "MY_VAR", "1"
+#   var status as int is calling rites.exec with "echo", list of string
+#   calling rites.exit with 0
+#
+# Ownership model:
+#   Every returned string or list of string (getenv, get_argv, get_args,
+#   getcwd, get_env_keys, uname, hostname) is a fresh copy made by the C
+#   runtime, so results follow normal PenguScript value lifetime and never
+#   alias OS-owned buffers: nothing returned is caller-owned heap and there is
+#   no caller cleanup. String arguments are read-only for the duration of the
+#   call and are never retained. getcwd/getenv return a maybe string (none
+#   when the value is unavailable).
 
 import std.spark
 import std.oracle
 import std.tally
 
+# ----------------------------------------------------------------------------
+# External C Runtime Declarations (environment, args, process, platform)
+# ----------------------------------------------------------------------------
+
+# C bridge that looks up the value of environment variable `name`; returns a
+# maybe string that is none when the variable is unset.
 declare pengu_c_getenv with name as string into maybe string
-declare pengu_c_setenv with name as string and value as string and overwrite as bool into bool
+
+# C bridge that sets environment variable `name` to `value`; `overwrite`
+# controls whether an existing variable may be replaced. Returns true on
+# success, false on failure (e.g. an empty `name`).
+declare pengu_c_setenv with name as string , value as string , overwrite as bool into bool
+
+# C bridge that removes environment variable `name`. Returns true on success,
+# false on failure (e.g. an empty `name`).
 declare pengu_c_unsetenv with name as string into bool
+
+# C bridge returning the program's argument count (argc, including the program
+# name at index 0).
 declare pengu_c_get_argc into int
+
+# C bridge returning a copy of the program argument at index `idx` (0 = the
+# program name); an out-of-range index yields an empty string.
 declare pengu_c_get_argv with idx as int into string
+
+# C bridge returning a new list of string with one copy per program argument,
+# from index 0 (program name) upward.
 declare pengu_c_get_args into list of string
+
+# C bridge returning the current process id (int).
 declare pengu_c_getpid into int
+
+# C bridge returning the parent process id (int); always 0 on Windows.
 declare pengu_c_getppid into int
+
+# C bridge returning the current working directory as a maybe string (none
+# when it cannot be determined).
 declare pengu_c_getcwd into maybe string
+
+# C bridge that changes the current working directory to `path`; returns true
+# on success, false on failure.
 declare pengu_c_chdir with path as string into bool
+
+# C bridge that terminates the process immediately with exit code `code`.
 declare pengu_c_exit with code as int into void
-declare pengu_c_exec with cmd as string and args as list of string into int
-declare pengu_c_spawn with cmd as string and args as list of string into int
+
+# C bridge that runs `cmd` plus each `args` entry (space-joined) through the
+# platform shell (system()) and returns the raw status it reports.
+declare pengu_c_exec with cmd as string , args as list of string into int
+
+# C bridge that launches `cmd` with `args`; currently shares the same
+# implementation as exec (a blocking system() call).
+declare pengu_c_spawn with cmd as string , args as list of string into int
+
+# C bridge returning the OS family name ("Windows", "Darwin", "Linux" or
+# "Unknown") as a string.
 declare pengu_c_uname into string
+
+# C bridge returning the machine's host name as a string.
 declare pengu_c_hostname into string
+
+# C bridge returning a new list of string holding the names of all currently
+# set environment variables.
 declare pengu_c_get_env_keys into list of string
 
+# ----------------------------------------------------------------------------
+# Environment Variables
+# ----------------------------------------------------------------------------
+
+# Looks up environment variable `name`; returns a maybe string holding its
+# value (a fresh copy) or none when the variable is not set.
 weave getenv with name as string into maybe string:
     return calling pengu_c_getenv with name
 
-weave setenv with name as string and value as string and overwrite as bool is true into bool:
-    return calling pengu_c_setenv with name and value and overwrite
+# Sets environment variable `name` to `value`, replacing an existing value
+# only when `overwrite` is true (the default). Returns true on success.
+weave setenv with name as string , value as string , overwrite as bool is true into bool:
+    return calling pengu_c_setenv with name , value , overwrite
 
+# Removes environment variable `name`. Returns true when it was unset
+# successfully.
 weave unsetenv with name as string into bool:
     return calling pengu_c_unsetenv with name
 
+# ----------------------------------------------------------------------------
+# Program Arguments
+# ----------------------------------------------------------------------------
+
+# Returns the program's argument count, including the program name at index 0.
 weave get_argc into int:
     return calling pengu_c_get_argc
 
+# Returns a copy of the program argument at index `idx` (0 = program name);
+# an out-of-range `idx` yields an empty string.
 weave get_argv with idx as int into string:
     return calling pengu_c_get_argv with idx
 
+# Returns a new list of string holding one copy per program argument, from
+# index 0 (program name) upward; the returned list owns its string elements.
 weave get_args into list of string:
     return calling pengu_c_get_args
 
+# ----------------------------------------------------------------------------
+# Process Identity
+# ----------------------------------------------------------------------------
+
+# Returns the current process id (int).
 weave getpid into int:
     return calling pengu_c_getpid
 
+# Returns the parent process id (int); always 0 on Windows, where the
+# underlying C bridge cannot report a parent.
 weave getppid into int:
     return calling pengu_c_getppid
 
+# ----------------------------------------------------------------------------
+# Working Directory
+# ----------------------------------------------------------------------------
+
+# Returns the current working directory as a maybe string (a fresh copy), or
+# none when it cannot be determined.
 weave getcwd into maybe string:
     return calling pengu_c_getcwd
 
+# Changes the current working directory to `path`; returns true on success,
+# false when the directory does not exist or cannot be entered.
 weave chdir with path as string into bool:
     return calling pengu_c_chdir with path
 
+# ----------------------------------------------------------------------------
+# Process Termination & Shell Execution
+# ----------------------------------------------------------------------------
+
+# Terminates the process immediately with exit code `code` (never returns).
 weave exit with code as int into void:
     calling pengu_c_exit with code
 
-weave exec with cmd as string and args as list of string into int:
-    return calling pengu_c_exec with cmd and args
+# Runs `cmd` plus each `args` entry (space-joined) through the platform shell
+# and blocks until it finishes. Returns the raw status reported by the shell
+# (-1 when the shell could not be started; otherwise the encoded status, not
+# a normalized exit code).
+weave exec with cmd as string , args as list of string into int:
+    return calling pengu_c_exec with cmd , args
 
-weave spawn with cmd as string and args as list of string into int:
-    return calling pengu_c_spawn with cmd and args
+# Launches `cmd` with `args` and blocks until it finishes. Currently shares
+# exec's implementation (a blocking shell call) and returns the same raw
+# status value.
+weave spawn with cmd as string , args as list of string into int:
+    return calling pengu_c_spawn with cmd , args
 
+# ----------------------------------------------------------------------------
+# Platform & Host Information
+# ----------------------------------------------------------------------------
+
+# Returns the operating-system family name: "Windows", "Darwin", "Linux" or
+# "Unknown" (a fresh string copy).
 weave uname into string:
     return calling pengu_c_uname
 
+# Returns the machine's host name (a fresh string copy).
 weave hostname into string:
     return calling pengu_c_hostname
 
+# ----------------------------------------------------------------------------
+# Environment Variable Names
+# ----------------------------------------------------------------------------
+
+# Returns a new list of string with the names of all currently set
+# environment variables (an empty list when the environment is empty).
 weave get_env_keys into list of string:
     return calling pengu_c_get_env_keys

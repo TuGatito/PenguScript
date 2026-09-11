@@ -9,9 +9,9 @@ weave main into int:
   if empty:
     calling spark.println with "init empty ok"
     
-  calling m.put with "one" and 1
-  calling m.set with "two" and 2
-  calling m.insert with "three" and 3
+  calling m.put with "one", 1
+  calling m.set with "two", 2
+  calling m.insert with "three", 3
   
   var mlen as int is calling m.len
   if mlen == 3:
@@ -38,7 +38,7 @@ weave main into int:
     calling spark.println with "not has foo ok"
     
   # Update existing key
-  calling m.put with "two" and 22
+  calling m.put with "two", 22
   var v2_updated as int is calling m.get with "two"
   if v2_updated == 22:
     calling spark.println with "update two ok"

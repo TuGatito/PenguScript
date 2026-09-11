@@ -1,57 +1,121 @@
 # std/coven.pengu - The Coven (Sets)
-# Provides dynamic unique set collections.
+# Provides dynamic unique set collections over the built-in hash map:
+# SetString holds distinct strings, SetInt holds distinct ints.
+#
+# Ownership / memory model:
+#   * A set OWNS its elements: `add` deep-copies the item (as the key of the
+#     backing map), so later changes to the caller's value never leak into
+#     the set and no element is ever stored twice.
+#   * A set is a rune value record with a single `items` backing map. Build
+#     one with new_set_string / new_set_int, then copy, return or `banish`
+#     it like any owned value.
+#
+# Usage:
+#   import std.coven
+#   var s as SetString is calling coven.new_set_string
+#   calling s.add with "apple"
+#   if calling s.contains with "apple": ...
+#
+# Implementation note: both types store their elements as KEYS of a
+# `map of string to int` (the int values are unused). SetInt stringifies
+# each int with `item to string`, which is unique per int, so membership and
+# insertion behave exactly like a mathematical set with O(1) average cost.
 
 import std.spark
 import std.atlas
 
+# ----------------------------------------------------------------------------
+# Value types
+# ----------------------------------------------------------------------------
+
+# A set of unique string elements: inserting a string that is already
+# present is a no-op. Use the SetString methods (add, contains, remove,
+# len, clear, is_empty) to manipulate it; create one with new_set_string.
 rune SetString:
     items as map of string to int
 
+# A set of unique int elements with the same behaviour as SetString. Values
+# are stored under their decimal string key (unique per int). Use the SetInt
+# methods below; create one with new_set_int.
 rune SetInt:
     items as map of string to int
 
+# ----------------------------------------------------------------------------
+# Constructors
+# ----------------------------------------------------------------------------
+
+# Builds a new, empty SetString ready to receive `add` calls.
 weave new_set_string into SetString:
     var m as map of string to int is map of string to int
     return with items is m
 
+# Builds a new, empty SetInt ready to receive `add` calls.
 weave new_set_int into SetInt:
     var m as map of string to int is map of string to int
     return with items is m
 
-enchanting SetString:
-    weave add with item as string into void:
-        calling self->items.put with item and 1
+# ----------------------------------------------------------------------------
+# SetString methods
+# ----------------------------------------------------------------------------
 
+# Methods attached to every SetString value (each backed by the set's
+# `items` hash map of string to int).
+enchanting SetString:
+    # Inserts `item` into the set. Inserting a string that is already
+    # present is a no-op, because a set stores each element at most once.
+    weave add with item as string into void:
+        calling self->items.put with item , 1
+
+    # Returns true when `item` is currently a member of the set.
     weave contains with item as string into bool:
         return calling self->items.contains with item
 
+    # Removes `item` from the set. Returns true when it was present (and has
+    # been removed); returns false when the set did not contain it.
     weave remove with item as string into bool:
         return calling self->items.remove with item
 
+    # Returns the number of distinct elements currently stored in the set.
     weave len into int:
         return calling self->items.len
 
+    # Removes every element, leaving the set empty.
     weave clear into void:
         calling self->items.clear
 
+    # Returns true when the set holds no elements at all.
     weave is_empty into bool:
         return calling self->items.is_empty
 
-enchanting SetInt:
-    weave add with item as int into void:
-        calling self->items.put with (item to string) and 1
+# ----------------------------------------------------------------------------
+# SetInt methods
+# ----------------------------------------------------------------------------
 
+# Methods attached to every SetInt value. Each int is stored under its
+# decimal string form (item to string), so the set stays duplicate-free.
+enchanting SetInt:
+    # Inserts `item` into the set, storing it under the decimal string of
+    # the int. Inserting an int that is already present is a no-op.
+    weave add with item as int into void:
+        calling self->items.put with (item to string) , 1
+
+    # Returns true when `item` is currently a member of the set.
     weave contains with item as int into bool:
         return calling self->items.contains with (item to string)
 
+    # Removes `item` from the set. Returns true when it was present (and has
+    # been removed); returns false when the set did not contain it.
     weave remove with item as int into bool:
         return calling self->items.remove with (item to string)
 
+    # Returns the number of distinct elements currently stored in the set.
     weave len into int:
         return calling self->items.len
 
+    # Removes every element, leaving the set empty.
     weave clear into void:
         calling self->items.clear
 
+    # Returns true when the set holds no elements at all.
     weave is_empty into bool:
         return calling self->items.is_empty

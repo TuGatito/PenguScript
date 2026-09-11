@@ -1,50 +1,53 @@
-## PenguScript manual declaration binding for the minicoro coroutine library
-## (minicoro.h). minicoro: https://github.com/edubart/minicoro (public domain
-## or MIT-0 at your choice).
-##
-## This is a declaration file (.d.pengu): it declares a curated core of the
-## native C surface so the LSP and the semantic checker know how to call
-## minicoro from PenguScript. The real C declarations live in `minicoro.h`,
-## which is `include`d below, so nothing here emits C code.
-##
-## Bound subset (coroutine lifecycle + status, the API this repo ships and
-## can verify at compile+link level):
-##   - create(out_co, desc)   allocate + initialize a coroutine (mco_create)
-##   - destroy(co)            uninitialize + deallocate (mco_destroy)
-##   - resume(co)             start or continue the coroutine (mco_resume)
-##   - yield(co)              suspend the running coroutine (mco_yield)
-##   - status(co)             mco_state of the coroutine (mco_status)
-##   - running()              current coroutine of this thread (mco_running)
-##   - get_user_data(co)      user data pointer set at creation (mco_get_user_data)
-##   - result_description(r)  human description of a result code (mco_result_description)
-##   - push/pop/peek          storage (byte-passing) interface; needs caller
-##                            byte buffers, so it is declared for reference
-##                            and exercised from C, not from pure Pengu
-##   - get_bytes_stored / get_storage_size
-##
-## Intentionally NOT bound (documented omission):
-##   - mco_desc_init / mco_init / mco_uninit: `mco_desc` is a C struct whose
-##     entry-point field is a C function pointer. PenguScript weaves cannot
-##     currently be passed as C function pointers, so a coroutine body cannot
-##     be created from pure Pengu; coroutine creation is exercised through
-##     C-level integration tests (see tests/test_std_c_libs.py).
-##
-## State / result codes (C enum constants, usable directly in comparisons):
-##   mco_state :  MCO_DEAD = 0, MCO_NORMAL = 1, MCO_RUNNING = 2, MCO_SUSPENDED = 3
-##   mco_result:  MCO_SUCCESS = 0, MCO_GENERIC_ERROR = 1, MCO_INVALID_POINTER = 2,
-##                MCO_INVALID_COROUTINE = 3, MCO_NOT_SUSPENDED = 4,
-##                MCO_NOT_RUNNING = 5, MCO_MAKE_CONTEXT_ERROR = 6,
-##                MCO_SWITCH_CONTEXT_ERROR = 7, MCO_NOT_ENOUGH_SPACE = 8,
-##                MCO_OUT_OF_MEMORY = 9, MCO_INVALID_ARGUMENTS = 10,
-##                MCO_INVALID_OPERATION = 11, MCO_STACK_OVERFLOW = 12
-##
-## Type mapping notes:
-##   - `mco_coro` / `mco_desc` are C structs (both typedef'd in minicoro.h)
-##     and are declared here as opaque handles.
-##   - functions returning/accepting the mco_state / mco_result enums are
-##     typed `int` (their C names mco_state / mco_result stay usable on the
-##     C side; see the enum lists above for the constants).
-##   - `size_t` lengths are typed `size_t`.
+# PenguScript manual declaration binding for the minicoro coroutine library
+# (minicoro.h). minicoro: https://github.com/edubart/minicoro (public domain
+# or MIT-0 at your choice).
+#
+# This is a declaration file (.d.pengu): it declares a curated core of the
+# native C surface so the LSP and the semantic checker know how to call
+# minicoro from PenguScript. The real C declarations live in `minicoro.h`,
+# which is `include`d below, so nothing here emits C code.
+#
+# Memory ownership: a coroutine created with create() owns its internal
+# stack/context; release it with destroy() before dropping the last reference.
+#
+# Bound subset (coroutine lifecycle + status, the API this repo ships and
+# can verify at compile+link level):
+#   - create(out_co, desc)   allocate + initialize a coroutine (mco_create)
+#   - destroy(co)            uninitialize + deallocate (mco_destroy)
+#   - resume(co)             start or continue the coroutine (mco_resume)
+#   - yield(co)              suspend the running coroutine (mco_yield)
+#   - status(co)             mco_state of the coroutine (mco_status)
+#   - running()              current coroutine of this thread (mco_running)
+#   - get_user_data(co)      user data pointer set at creation (mco_get_user_data)
+#   - result_description(r)  human description of a result code (mco_result_description)
+#   - push/pop/peek          storage (byte-passing) interface; needs caller
+#                            byte buffers, so it is declared for reference
+#                            and exercised from C, not from pure Pengu
+#   - get_bytes_stored / get_storage_size
+#
+# Intentionally NOT bound (documented omission):
+#   - mco_desc_init / mco_init / mco_uninit: `mco_desc` is a C struct whose
+#     entry-point field is a C function pointer. PenguScript weaves cannot
+#     currently be passed as C function pointers, so a coroutine body cannot
+#     be created from pure Pengu; coroutine creation is exercised through
+#     C-level integration tests (see tests/test_std_c_libs.py).
+#
+# State / result codes (C enum constants, usable directly in comparisons):
+#   mco_state :  MCO_DEAD = 0, MCO_NORMAL = 1, MCO_RUNNING = 2, MCO_SUSPENDED = 3
+#   mco_result:  MCO_SUCCESS = 0, MCO_GENERIC_ERROR = 1, MCO_INVALID_POINTER = 2,
+#                MCO_INVALID_COROUTINE = 3, MCO_NOT_SUSPENDED = 4,
+#                MCO_NOT_RUNNING = 5, MCO_MAKE_CONTEXT_ERROR = 6,
+#                MCO_SWITCH_CONTEXT_ERROR = 7, MCO_NOT_ENOUGH_SPACE = 8,
+#                MCO_OUT_OF_MEMORY = 9, MCO_INVALID_ARGUMENTS = 10,
+#                MCO_INVALID_OPERATION = 11, MCO_STACK_OVERFLOW = 12
+#
+# Type mapping notes:
+#   - `mco_coro` / `mco_desc` are C structs (both typedef'd in minicoro.h)
+#     and are declared here as opaque handles.
+#   - functions returning/accepting the mco_state / mco_result enums are
+#     typed `int` (their C names mco_state / mco_result stay usable on the
+#     C side; see the enum lists above for the constants).
+#   - `size_t` lengths are typed `size_t`.
 
 include "minicoro.h"
 

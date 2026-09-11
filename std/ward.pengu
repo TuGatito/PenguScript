@@ -1,5 +1,17 @@
 # std/ward.pengu - The Ward (Assertions & Invariants)
-# Provides assertion and expectation functions for testing and runtime invariants.
+# Assertion and expectation helpers for tests and runtime invariants, plus
+# non-panicking check_* helpers that report failure as ResultString values.
+#
+# Model:
+#   * assert_* / expect_* abort the program through spark.panic when the
+#     checked condition fails. The assert_* family uses fixed messages;
+#     expect_* embeds a caller-supplied message.
+#   * check_* never panic: they return an oracle ResultString (ok with "ok",
+#     or err with the caller message) so the caller can react to failure.
+#   * panic aborts directly and unreachable marks code that must never run.
+#
+# Ownership model: every helper takes plain values and keeps no handles, so
+# there is nothing to free.
 
 import std.spark
 import std.oracle
@@ -8,74 +20,104 @@ import std.oracle
 # Core Assertions
 # ----------------------------------------------------------------------------
 
+# Panics with "assertion failed" when `cond` is false. Void.
 weave assert with cond as bool into void:
     if cond == false:
         calling spark.panic with "assertion failed"
 
-weave assert_msg with cond as bool and msg as string into void:
+# Panics with `msg` when `cond` is false. Void.
+weave assert_msg with cond as bool , msg as string into void:
     if cond == false:
         calling spark.panic with msg
 
+# Panics with "assertion failed: expected true" when `cond` is false. Void.
 weave assert_true with cond as bool into void:
     if cond == false:
         calling spark.panic with "assertion failed: expected true"
 
+# Panics with "assertion failed: expected false" when `cond` is true. Void.
 weave assert_false with cond as bool into void:
     if cond:
         calling spark.panic with "assertion failed: expected false"
 
-weave assert_eq_int with a as int and b as int into void:
+# Panics with "assertion failed: left != right" when `a` differs from `b`.
+# Void.
+weave assert_eq_int with a as int , b as int into void:
     if a != b:
         calling spark.panic with "assertion failed: left != right"
 
-weave assert_eq_string with a as string and b as string into void:
+# Panics with "assertion failed: left != right" when `a` differs from `b`
+# (exact string comparison). Void.
+weave assert_eq_string with a as string , b as string into void:
     if a != b:
         calling spark.panic with "assertion failed: left != right"
 
-weave assert_eq_bool with a as bool and b as bool into void:
+# Panics with "assertion failed: left != right" when `a` differs from `b`.
+# Void.
+weave assert_eq_bool with a as bool , b as bool into void:
     if a != b:
         calling spark.panic with "assertion failed: left != right"
 
-weave assert_ne_int with a as int and b as int into void:
+# Panics with "assertion failed: left == right" when `a` equals `b`. Void.
+weave assert_ne_int with a as int , b as int into void:
     if a == b:
         calling spark.panic with "assertion failed: left == right"
 
-weave assert_ne_string with a as string and b as string into void:
+# Panics with "assertion failed: left == right" when `a` equals `b` (exact
+# string comparison). Void.
+weave assert_ne_string with a as string , b as string into void:
     if a == b:
         calling spark.panic with "assertion failed: left == right"
 
-weave assert_ne_bool with a as bool and b as bool into void:
+# Panics with "assertion failed: left == right" when `a` equals `b`. Void.
+weave assert_ne_bool with a as bool , b as bool into void:
     if a == b:
         calling spark.panic with "assertion failed: left == right"
 
+# Panics with "assertion failed: maybe is none" when the MaybeInt `m` is
+# empty. Void.
 weave assert_present_int with m as MaybeInt into void:
     if m.is_present == false:
         calling spark.panic with "assertion failed: maybe is none"
 
+# Panics with "assertion failed: maybe is none" when the MaybeString `m` is
+# empty. Void.
 weave assert_present_string with m as MaybeString into void:
     if m.is_present == false:
         calling spark.panic with "assertion failed: maybe is none"
 
+# Panics with "assertion failed: maybe is present" when the MaybeInt `m`
+# holds a value. Void.
 weave assert_none_int with m as MaybeInt into void:
     if m.is_present:
         calling spark.panic with "assertion failed: maybe is present"
 
+# Panics with "assertion failed: maybe is present" when the MaybeString `m`
+# holds a value. Void.
 weave assert_none_string with m as MaybeString into void:
     if m.is_present:
         calling spark.panic with "assertion failed: maybe is present"
 
+# Panics with "assertion failed: result is error" when the ResultInt `r` is
+# err. Void.
 weave assert_ok_int with r as ResultInt into void:
     if r.is_ok == false:
         calling spark.panic with "assertion failed: result is error"
 
+# Panics with "assertion failed: result is error" when the ResultString `r`
+# is err. Void.
 weave assert_ok_string with r as ResultString into void:
     if r.is_ok == false:
         calling spark.panic with "assertion failed: result is error"
 
+# Panics with "assertion failed: result is ok" when the ResultInt `r` is ok.
+# Void.
 weave assert_err_int with r as ResultInt into void:
     if r.is_ok:
         calling spark.panic with "assertion failed: result is ok"
 
+# Panics with "assertion failed: result is ok" when the ResultString `r` is
+# ok. Void.
 weave assert_err_string with r as ResultString into void:
     if r.is_ok:
         calling spark.panic with "assertion failed: result is ok"
@@ -84,15 +126,19 @@ weave assert_err_string with r as ResultString into void:
 # Expect Functions (with custom messages)
 # ----------------------------------------------------------------------------
 
-weave expect with cond as bool and msg as string into void:
+# Panics with `msg` when `cond` is false (named variant of assert_msg). Void.
+weave expect with cond as bool , msg as string into void:
     if cond == false:
         calling spark.panic with msg
 
-weave expect_eq_int with a as int and b as int and msg as string into void:
+# Panics with `msg` when `a` differs from `b`. Void.
+weave expect_eq_int with a as int , b as int , msg as string into void:
     if a != b:
         calling spark.panic with msg
 
-weave expect_eq_string with a as string and b as string and msg as string into void:
+# Panics with `msg` when `a` differs from `b` (exact string comparison).
+# Void.
+weave expect_eq_string with a as string , b as string , msg as string into void:
     if a != b:
         calling spark.panic with msg
 
@@ -100,9 +146,12 @@ weave expect_eq_string with a as string and b as string and msg as string into v
 # Panic & Unreachable
 # ----------------------------------------------------------------------------
 
+# Aborts the program with `msg` (delegates to spark.panic). Never returns.
 weave panic with msg as string into void:
     calling spark.panic with msg
 
+# Marks code that must never execute: panics with `msg` (default "internal
+# error: unreachable code") when reached. Void.
 weave unreachable with msg as string is "internal error: unreachable code" into void:
     calling spark.panic with msg
 
@@ -110,17 +159,21 @@ weave unreachable with msg as string is "internal error: unreachable code" into 
 # Result-based Checks (Non-panicking)
 # ----------------------------------------------------------------------------
 
-weave check with cond as bool and msg as string into ResultString:
+# Returns ok("ok") when `cond` is true, otherwise err(`msg`). Never panics.
+weave check with cond as bool , msg as string into ResultString:
     if cond:
         return calling oracle.result_ok_string with "ok"
     return calling oracle.result_err_string with msg
 
-weave check_eq_int with a as int and b as int and msg as string into ResultString:
+# Returns ok("ok") when `a` equals `b`, otherwise err(`msg`). Never panics.
+weave check_eq_int with a as int , b as int , msg as string into ResultString:
     if a == b:
         return calling oracle.result_ok_string with "ok"
     return calling oracle.result_err_string with msg
 
-weave check_eq_string with a as string and b as string and msg as string into ResultString:
+# Returns ok("ok") when `a` equals `b` (exact string comparison), otherwise
+# err(`msg`). Never panics.
+weave check_eq_string with a as string , b as string , msg as string into ResultString:
     if a == b:
         return calling oracle.result_ok_string with "ok"
     return calling oracle.result_err_string with msg

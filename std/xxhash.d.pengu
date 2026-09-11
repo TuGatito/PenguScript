@@ -1,45 +1,47 @@
-## PenguScript manual declaration binding for the xxHash C library (xxhash.h).
-## xxHash: https://github.com/Cyan4973/xxHash
-##
-## This is a declaration file (.d.pengu): it only declares the native C
-## surface so the LSP and the semantic checker know how to call xxHash from
-## PenguScript. The real C declarations live in `xxhash.h`, which is
-## `include`d below, so nothing here emits C code.
-##
-## Bound subset (public API that is verifiable compile+link):
-##   - Version query ......... XXH_versionNumber
-##   - One-shot hashes ....... XXH32, XXH64, XXH3_64bits, XXH3_64bits_withSeed,
-##                             XXH3_128bits, XXH3_128bits_withSeed
-##   - Streaming (32-bit) .... XXH32_createState / freeState / reset / update /
-##                             digest
-##   - Streaming (64-bit) .... XXH64_createState / freeState / reset / update /
-##                             digest
-##   - Streaming (XXH3) ...... XXH3_createState / freeState / XXH3_64bits_reset /
-##                             XXH3_64bits_reset_withSeed / XXH3_64bits_update /
-##                             XXH3_64bits_digest / XXH3_128bits_reset /
-##                             XXH3_128bits_reset_withSeed /
-##                             XXH3_128bits_update / XXH3_128bits_digest
-##
-## Intentionally NOT bound (rarely needed; see the header):
-##   - secret-based seeding  (XXH3_*_withSecret*, XXH3_generateSecret*)
-##   - XXH128() single shot   (alias of XXH3_128bits_withSeed)
-##   - canonical encodings    (XXH*_canonicalFromHash / hashFromCanonical)
-##   - XXH32_copyState / XXH64_copyState / XXH3_copyState (state copy)
-##   - XXH128_isEqual / XXH128_cmp (struct compare helpers)
-##
-## Type mapping notes:
-##   - `const void* input` blocks are typed `ref to char`; pass a PenguScript
-##     string literal directly (it becomes a plain C literal, which converts
-##     implicitly to `const void*`).
-##   - C `size_t` lengths are typed `size_t`; pass a small integer literal.
-##   - `XXH32_hash_t` -> u32, `XXH64_hash_t` -> u64, `XXH_errorcode` -> int
-##     (values: XXH_OK = 0, XXH_ERROR = 1).
-##   - The three streaming state types are opaque handles allocated by
-##     XXH*_createState and freed with the matching XXH*_freeState.
-##
-## Typical usage:
-##   import std.xxhash
-##   var h as u64 is calling xxhash.XXH64 with "PenguScript" and 10 and 0
+# PenguScript manual declaration binding for the xxHash C library (xxhash.h).
+# xxHash: https://github.com/Cyan4973/xxHash
+#
+# This is a declaration file (.d.pengu): it only declares the native C
+# surface so the LSP and the semantic checker know how to call xxHash from
+# PenguScript. The real C declarations live in `xxhash.h`, which is
+# `include`d below, so nothing here emits C code.
+#
+# Bound subset (public API that is verifiable compile+link):
+#   - Version query ......... XXH_versionNumber
+#   - One-shot hashes ....... XXH32, XXH64, XXH3_64bits, XXH3_64bits_withSeed,
+#                             XXH3_128bits, XXH3_128bits_withSeed
+#   - Streaming (32-bit) .... XXH32_createState / freeState / reset / update /
+#                             digest
+#   - Streaming (64-bit) .... XXH64_createState / freeState / reset / update /
+#                             digest
+#   - Streaming (XXH3) ...... XXH3_createState / freeState / XXH3_64bits_reset /
+#                             XXH3_64bits_reset_withSeed / XXH3_64bits_update /
+#                             XXH3_64bits_digest / XXH3_128bits_reset /
+#                             XXH3_128bits_reset_withSeed /
+#                             XXH3_128bits_update / XXH3_128bits_digest
+#
+# Intentionally NOT bound (rarely needed; see the header):
+#   - secret-based seeding  (XXH3_*_withSecret*, XXH3_generateSecret*)
+#   - XXH128() single shot   (alias of XXH3_128bits_withSeed)
+#   - canonical encodings    (XXH*_canonicalFromHash / hashFromCanonical)
+#   - XXH32_copyState / XXH64_copyState / XXH3_copyState (state copy)
+#   - XXH128_isEqual / XXH128_cmp (struct compare helpers)
+#
+# Type mapping notes:
+#   - `const void* input` blocks are typed `ref to frozen void` (a PenguScript
+#     string literal converts to it directly).
+#   - C `size_t` lengths are typed `size_t`; pass a small integer literal.
+#   - `XXH32_hash_t` -> u32, `XXH64_hash_t` -> u64, `XXH_errorcode` -> int
+#     (values: XXH_OK = 0, XXH_ERROR = 1).
+#   - The digest functions take `const XXH*_state_t*`, so their state
+#     parameter is the read-only view `ref to frozen XXH*_state_t`; a mutable
+#     state handle flows into it unchanged.
+#   - The three streaming state types are opaque handles allocated by
+#     XXH*_createState and freed with the matching XXH*_freeState.
+#
+# Typical usage:
+#   import std.xxhash
+#   var h as u64 is calling xxhash.XXH64 with "PenguScript", 10, 0
 
 include "xxhash.h"
 
@@ -64,17 +66,17 @@ rune XXH128_hash_t:
 
 declare XXH_versionNumber into int
 
-declare XXH32 with input as ref to char, length as size_t, seed as u32 into u32
+declare XXH32 with input as ref to frozen void, length as size_t, seed as u32 into u32
 
-declare XXH64 with input as ref to char, length as size_t, seed as u64 into u64
+declare XXH64 with input as ref to frozen void, length as size_t, seed as u64 into u64
 
-declare XXH3_64bits with input as ref to char, length as size_t into u64
+declare XXH3_64bits with input as ref to frozen void, length as size_t into u64
 
-declare XXH3_64bits_withSeed with input as ref to char, length as size_t, seed as u64 into u64
+declare XXH3_64bits_withSeed with input as ref to frozen void, length as size_t, seed as u64 into u64
 
-declare XXH3_128bits with input as ref to char, length as size_t into XXH128_hash_t
+declare XXH3_128bits with input as ref to frozen void, length as size_t into XXH128_hash_t
 
-declare XXH3_128bits_withSeed with input as ref to char, length as size_t, seed as u64 into XXH128_hash_t
+declare XXH3_128bits_withSeed with input as ref to frozen void, length as size_t, seed as u64 into XXH128_hash_t
 
 declare XXH32_createState into ref to XXH32_state_t
 
@@ -82,9 +84,9 @@ declare XXH32_freeState with statePtr as ref to XXH32_state_t into int
 
 declare XXH32_reset with statePtr as ref to XXH32_state_t, seed as u32 into int
 
-declare XXH32_update with statePtr as ref to XXH32_state_t, input as ref to char, length as size_t into int
+declare XXH32_update with statePtr as ref to XXH32_state_t, input as ref to frozen void, length as size_t into int
 
-declare XXH32_digest with statePtr as ref to XXH32_state_t into u32
+declare XXH32_digest with statePtr as ref to frozen XXH32_state_t into u32
 
 declare XXH64_createState into ref to XXH64_state_t
 
@@ -92,9 +94,9 @@ declare XXH64_freeState with statePtr as ref to XXH64_state_t into int
 
 declare XXH64_reset with statePtr as ref to XXH64_state_t, seed as u64 into int
 
-declare XXH64_update with statePtr as ref to XXH64_state_t, input as ref to char, length as size_t into int
+declare XXH64_update with statePtr as ref to XXH64_state_t, input as ref to frozen void, length as size_t into int
 
-declare XXH64_digest with statePtr as ref to XXH64_state_t into u64
+declare XXH64_digest with statePtr as ref to frozen XXH64_state_t into u64
 
 declare XXH3_createState into ref to XXH3_state_t
 
@@ -104,14 +106,14 @@ declare XXH3_64bits_reset with statePtr as ref to XXH3_state_t into int
 
 declare XXH3_64bits_reset_withSeed with statePtr as ref to XXH3_state_t, seed as u64 into int
 
-declare XXH3_64bits_update with statePtr as ref to XXH3_state_t, input as ref to char, length as size_t into int
+declare XXH3_64bits_update with statePtr as ref to XXH3_state_t, input as ref to frozen void, length as size_t into int
 
-declare XXH3_64bits_digest with statePtr as ref to XXH3_state_t into u64
+declare XXH3_64bits_digest with statePtr as ref to frozen XXH3_state_t into u64
 
 declare XXH3_128bits_reset with statePtr as ref to XXH3_state_t into int
 
 declare XXH3_128bits_reset_withSeed with statePtr as ref to XXH3_state_t, seed as u64 into int
 
-declare XXH3_128bits_update with statePtr as ref to XXH3_state_t, input as ref to char, length as size_t into int
+declare XXH3_128bits_update with statePtr as ref to XXH3_state_t, input as ref to frozen void, length as size_t into int
 
-declare XXH3_128bits_digest with statePtr as ref to XXH3_state_t into XXH128_hash_t
+declare XXH3_128bits_digest with statePtr as ref to frozen XXH3_state_t into XXH128_hash_t

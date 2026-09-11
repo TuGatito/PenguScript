@@ -30,7 +30,7 @@ weave main into void:
 
     # 4. Response Rune
     var hdrs as map of string to string is map of string to string
-    var resp as Response is calling precis.response with 200 and "Hello World" and hdrs
+    var resp as Response is calling precis.response with 200, "Hello World", hdrs
     if resp.status_code == 200:
         calling spark.println with "response rune ok"
 

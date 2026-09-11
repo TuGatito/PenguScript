@@ -254,6 +254,19 @@ def eval_comptime(env: CompileTimeEnv, node: Any) -> Optional[Any]:
         v = eval_comptime(env, node.children[0])
         return ~int(v) if isinstance(v, int) else None
 
+    # Boolean logical operators short-circuit: the right operand is only
+    # evaluated when the left one does not settle the result.
+    if rule in ("bool_and", "bool_or"):
+        left = eval_comptime(env, node.children[0])
+        if not isinstance(left, bool):
+            return None
+        if rule == "bool_and" and left is False:
+            return False
+        if rule == "bool_or" and left is True:
+            return True
+        right = eval_comptime(env, node.children[1])
+        return right if isinstance(right, bool) else None
+
     if rule in ("add", "sub", "mul", "div", "mod", "bitwise_or", "bitwise_and", "bitwise_xor", "shl", "shr"):
         left = eval_comptime(env, node.children[0])
         right = eval_comptime(env, node.children[1])

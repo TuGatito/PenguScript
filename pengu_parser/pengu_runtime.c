@@ -405,7 +405,7 @@ bool pengu_c_filum_atomic_int_compare_swap(void* a, int old_val, int new_val) {
 /* Channels */
 typedef struct {
     uint8_t* buffer;
-    int elem_size;
+    size_t elem_size;
     int cap;
     int head;
     int tail;
@@ -422,11 +422,11 @@ typedef struct {
 #endif
 } PenguNativeChan;
 
-void* pengu_c_filum_chan_new(int elem_size, int cap) {
+void* pengu_c_filum_chan_new(size_t elem_size, int cap) {
     if (cap < 1) cap = 1;
     PenguNativeChan* ch = (PenguNativeChan*)malloc(sizeof(PenguNativeChan));
     if (!ch) return NULL;
-    ch->elem_size = elem_size > 0 ? elem_size : (int)sizeof(void*);
+    ch->elem_size = elem_size > 0 ? elem_size : (size_t)sizeof(void*);
     ch->cap = cap;
     ch->head = 0;
     ch->tail = 0;
@@ -555,6 +555,72 @@ int pengu_c_filum_chan_cap(void* c) {
     if (!c) return 0;
     PenguNativeChan* ch = (PenguNativeChan*)c;
     return ch->cap;
+}
+
+/* ---------------------------------------------------------------------------
+ * Filum resource cleanup: every pengu_c_filum_*_new handle must be released
+ * with its matching *_free when the PenguScript object is disposed.
+ * ------------------------------------------------------------------------- */
+
+void pengu_c_filum_mutex_free(void* m) {
+    if (!m) return;
+    PenguNativeMutex* nm = (PenguNativeMutex*)m;
+#if PENGU_WINDOWS
+    DeleteCriticalSection(&nm->cs);
+#else
+    pthread_mutex_destroy(&nm->mtx);
+#endif
+    free(m);
+}
+
+void pengu_c_filum_wait_group_free(void* wg) {
+    if (!wg) return;
+    PenguNativeWaitGroup* nwg = (PenguNativeWaitGroup*)wg;
+#if PENGU_WINDOWS
+    DeleteCriticalSection(&nwg->cs);
+#else
+    pthread_mutex_destroy(&nwg->mtx);
+    pthread_cond_destroy(&nwg->cv);
+#endif
+    free(wg);
+}
+
+void pengu_c_filum_once_free(void* o) {
+    if (!o) return;
+    PenguNativeOnce* no = (PenguNativeOnce*)o;
+#if PENGU_WINDOWS
+    DeleteCriticalSection(&no->cs);
+#else
+    pthread_mutex_destroy(&no->mtx);
+#endif
+    free(o);
+}
+
+void pengu_c_filum_cond_free(void* c) {
+    if (!c) return;
+#if !PENGU_WINDOWS
+    pthread_cond_destroy(&((PenguNativeCond*)c)->cv);
+#endif
+    free(c);
+}
+
+void pengu_c_filum_atomic_int_free(void* a) {
+    if (!a) return;
+    free(a);
+}
+
+void pengu_c_filum_chan_free(void* c) {
+    if (!c) return;
+    PenguNativeChan* ch = (PenguNativeChan*)c;
+#if PENGU_WINDOWS
+    DeleteCriticalSection(&ch->cs);
+#else
+    pthread_mutex_destroy(&ch->mtx);
+    pthread_cond_destroy(&ch->not_empty);
+    pthread_cond_destroy(&ch->not_full);
+#endif
+    if (ch->buffer) free(ch->buffer);
+    free(c);
 }
 
 /* =========================================================================
@@ -829,6 +895,36 @@ PenguList pengu_c_regulus_split(void* regex, PenguString text, int limit) {
     return list;
 }
 
+/* ---------------------------------------------------------------------------
+ * Regulus resource cleanup. PenguScript copies the wrapper structs (Regex /
+ * Match) by value, so these helpers only release the native resources they
+ * wrap and null the owning pointer field; the small wrapper struct itself is
+ * a value copy and must NOT be free()d from Pengu code. Direct C consumers
+ * that hold the original heap struct returned inside the PenguMaybe may free()
+ * it after calling the helper.
+ * ------------------------------------------------------------------------- */
+
+void pengu_c_regulus_regex_free(void* regex) {
+    if (!regex) return;
+    PenguRegulusRegex* re = (PenguRegulusRegex*)regex;
+    if (re->_ptr) {
+        pcre2_code_free((pcre2_code*)re->_ptr);
+        re->_ptr = NULL;
+    }
+    /* re->pattern / re->flags alias the strings passed to compile(); the
+     * caller retains ownership of those buffers. */
+}
+
+void pengu_c_regulus_match_free(void* m) {
+    if (!m) return;
+    PenguRegulusMatch* pm = (PenguRegulusMatch*)m;
+    if (pm->matched.data) {
+        free(pm->matched.data);
+        pm->matched.data = NULL;
+        pm->matched.len = 0;
+    }
+}
+
 /* =========================================================================
  * 3. Parchment (libxml2 Real Implementation)
  * ========================================================================= */
@@ -1073,6 +1169,63 @@ void pengu_c_parchment_append_child(void* parent, void* child) {
     if (p->_ptr && c->_ptr) {
         xmlAddChild((xmlNodePtr)p->_ptr, (xmlNodePtr)c->_ptr);
     }
+}
+
+/* ---------------------------------------------------------------------------
+ * Parchment resource cleanup. parse_xml/parse_html own the whole libxml2
+ * document tree plus the string copies in the wrapper; a found node owns its
+ * tag/text copies but its xml node lives inside the document. As with
+ * Regulus, PenguScript copies these wrappers by value, so the helpers release
+ * owned buffers / the xml document and null dangling pointers, but never
+ * free() the wrapper struct itself (a value copy). Direct C consumers holding
+ * the original heap struct may free() it after calling the helper.
+ * ------------------------------------------------------------------------- */
+
+void pengu_c_parchment_node_free(void* node) {
+    if (!node) return;
+    PenguParchmentNode* pn = (PenguParchmentNode*)node;
+    if (pn->tag.data) {
+        free(pn->tag.data);
+        pn->tag.data = NULL;
+        pn->tag.len = 0;
+    }
+    if (pn->text.data) {
+        free(pn->text.data);
+        pn->text.data = NULL;
+        pn->text.len = 0;
+    }
+}
+
+void pengu_c_parchment_document_free(void* doc) {
+    if (!doc) return;
+    PenguParchmentDocument* pdoc = (PenguParchmentDocument*)doc;
+    xmlDocPtr xdoc = NULL;
+    if (pdoc->root._ptr) {
+        xdoc = ((xmlNodePtr)(pdoc->root._ptr))->doc;
+    }
+    /* Root node is stored inline inside the document wrapper. */
+    if (pdoc->root.tag.data) {
+        free(pdoc->root.tag.data);
+        pdoc->root.tag.data = NULL;
+        pdoc->root.tag.len = 0;
+    }
+    if (pdoc->root.text.data) {
+        free(pdoc->root.text.data);
+        pdoc->root.text.data = NULL;
+        pdoc->root.text.len = 0;
+    }
+    if (pdoc->version.data) {
+        free(pdoc->version.data);
+        pdoc->version.data = NULL;
+        pdoc->version.len = 0;
+    }
+    if (pdoc->encoding.data) {
+        free(pdoc->encoding.data);
+        pdoc->encoding.data = NULL;
+        pdoc->encoding.len = 0;
+    }
+    pdoc->root._ptr = NULL;
+    if (xdoc) xmlFreeDoc(xdoc);
 }
 
 /* =========================================================================
@@ -1437,6 +1590,26 @@ PenguMaybe pengu_c_precis_http_request(PenguString method, PenguString url, Peng
     return pengu_curl_do_request(method_buf, url, headers, b_data, b_len);
 }
 
+void pengu_precis_free_response(PenguPrecisClientResponse *resp) {
+    if (!resp) return;
+    /* The response headers map owns every key/value entry. */
+    pengu_banish_map(&resp->headers);
+    /* A present body owns a heap PenguString that owns its buffer. */
+    if (resp->body.is_present && resp->body.value) {
+        PenguString *body_str = (PenguString *)resp->body.value;
+        if (body_str->data) {
+            free(body_str->data);
+            body_str->data = NULL;
+        }
+        free(body_str);
+        resp->body.value = NULL;
+        resp->body.is_present = false;
+    }
+    /* resp->url aliases the caller-supplied PenguString buffer; the caller
+     * remains responsible for its own string, so it is not freed here. */
+    free(resp);
+}
+
 /* Embedded HTTP Server */
 typedef struct {
     void* handler_fn;
@@ -1713,3 +1886,236 @@ PenguMap pengu_c_precis_parse_query(PenguString s) {
 }
 
 
+
+/* =========================================================================
+ * 25. C <-> Pengu Conversion Bridges (FFI)
+ * ========================================================================= */
+
+PenguList pengu_list_from_data(const void *data, size_t elem_size, int count) {
+    if (count <= 0 || elem_size == 0) {
+        PenguList empty;
+        empty.data = NULL;
+        empty.len = 0;
+        empty.cap = 0;
+        empty.elem_size = elem_size > 0 ? elem_size : sizeof(void *);
+        return empty;
+    }
+    if (!data) {
+        PenguList empty = pengu_list_new(elem_size, 4);
+        empty.len = 0;
+        return empty;
+    }
+    PenguList list = pengu_list_new(elem_size, (size_t)count);
+    if (!list.data) {
+        list.len = 0;
+        list.cap = 0;
+        list.elem_size = elem_size;
+        return list;
+    }
+    memcpy(list.data, data, (size_t)count * elem_size);
+    list.len = count;
+    return list;
+}
+
+PenguMap pengu_map_from_entries(const void *keys, const void *values,
+                                size_t key_size, size_t val_size, int count) {
+    PenguMap map = pengu_map_new(key_size > 0 ? key_size : sizeof(void *),
+                                 val_size > 0 ? val_size : sizeof(void *));
+    if (count <= 0 || !keys || !values || key_size == 0 || val_size == 0)
+        return map;
+    for (int i = 0; i < count; ++i) {
+        const char *k = (const char *)keys + ((size_t)i * key_size);
+        const char *v = (const char *)values + ((size_t)i * val_size);
+        pengu_map_put(&map, k, v);
+    }
+    return map;
+}
+
+PenguEntryArray pengu_map_to_entries(const PenguMap *map) {
+    PenguEntryArray out;
+    out.keys = NULL;
+    out.values = NULL;
+    out.count = 0;
+    out.key_size = map ? map->key_size : 0;
+    out.val_size = map ? map->val_size : 0;
+    if (!map || map->len <= 0 || !map->entries || map->key_size == 0 || map->val_size == 0)
+        return out;
+
+    out.keys = malloc((size_t)map->len * map->key_size);
+    out.values = malloc((size_t)map->len * map->val_size);
+    if (!out.keys || !out.values) {
+        if (out.keys) free(out.keys);
+        if (out.values) free(out.values);
+        out.keys = NULL;
+        out.values = NULL;
+        return out;
+    }
+
+    int n = 0;
+    for (int i = 0; i < map->cap && n < map->len; ++i) {
+        if (!map->entries[i].occupied)
+            continue;
+        char *kdst = (char *)out.keys + ((size_t)n * map->key_size);
+        char *vdst = (char *)out.values + ((size_t)n * map->val_size);
+        if (map->key_size == sizeof(PenguString)) {
+            PenguString *src = (PenguString *)map->entries[i].key;
+            PenguString *dst = (PenguString *)kdst;
+            if (src && src->data && src->len > 0) {
+                dst->data = (char *)malloc((size_t)src->len + 1);
+                if (dst->data) {
+                    memcpy(dst->data, src->data, (size_t)src->len);
+                    dst->data[src->len] = '\0';
+                }
+                dst->len = src->len;
+                if (!dst->data) { dst->len = 0; dst->data = (char *)PENGU_EMPTY_CSTR; }
+            } else {
+                dst->data = (char *)PENGU_EMPTY_CSTR;
+                dst->len = 0;
+            }
+        } else {
+            memcpy(kdst, map->entries[i].key, map->key_size);
+        }
+        if (map->val_size == sizeof(PenguString)) {
+            PenguString *src = (PenguString *)map->entries[i].val;
+            PenguString *dst = (PenguString *)vdst;
+            if (src && src->data && src->len > 0) {
+                dst->data = (char *)malloc((size_t)src->len + 1);
+                if (dst->data) {
+                    memcpy(dst->data, src->data, (size_t)src->len);
+                    dst->data[src->len] = '\0';
+                }
+                dst->len = src->len;
+                if (!dst->data) { dst->len = 0; dst->data = (char *)PENGU_EMPTY_CSTR; }
+            } else {
+                dst->data = (char *)PENGU_EMPTY_CSTR;
+                dst->len = 0;
+            }
+        } else {
+            memcpy(vdst, map->entries[i].val, map->val_size);
+        }
+        n++;
+    }
+    out.count = n;
+    if (n < map->len) {
+        /* Should not happen (len counts occupied slots); keep defensive. */
+        out.count = n;
+    }
+    return out;
+}
+
+void pengu_entry_array_free(PenguEntryArray *arr) {
+    if (!arr)
+        return;
+    if (arr->keys) {
+        if (arr->key_size == sizeof(PenguString)) {
+            for (int i = 0; i < arr->count; ++i) {
+                PenguString *s = (PenguString *)arr->keys + i;
+                if (s->data && s->data != PENGU_EMPTY_CSTR) {
+                    free(s->data);
+                    s->data = NULL;
+                    s->len = 0;
+                }
+            }
+        }
+        free(arr->keys);
+        arr->keys = NULL;
+    }
+    if (arr->values) {
+        if (arr->val_size == sizeof(PenguString)) {
+            for (int i = 0; i < arr->count; ++i) {
+                PenguString *s = (PenguString *)arr->values + i;
+                if (s->data && s->data != PENGU_EMPTY_CSTR) {
+                    free(s->data);
+                    s->data = NULL;
+                    s->len = 0;
+                }
+            }
+        }
+        free(arr->values);
+        arr->values = NULL;
+    }
+    arr->count = 0;
+}
+
+PenguSlice pengu_string_as_slice(PenguString s) {
+    PenguSlice slice;
+    slice.data = s.data ? (void *)s.data : (void *)PENGU_EMPTY_CSTR;
+    slice.len = s.data ? s.len : 0;
+    slice.elem_size = 1;
+    return slice;
+}
+
+PenguString pengu_string_copy(PenguString s) {
+    if (!s.data || s.len == 0) {
+        PenguString empty;
+        empty.len = 0;
+        empty.data = (char *)PENGU_EMPTY_CSTR;
+        return empty;
+    }
+    char *buf = (char *)malloc((size_t)s.len + 1);
+    if (!buf) {
+        PenguString empty;
+        empty.len = 0;
+        empty.data = (char *)PENGU_EMPTY_CSTR;
+        return empty;
+    }
+    memcpy(buf, s.data, (size_t)s.len);
+    buf[s.len] = '\0';
+    PenguString out;
+    out.data = buf;
+    out.len = s.len;
+    return out;
+}
+
+/* ---------------------------------------------------------------------------
+ * Typed bridges used by std/ffi.pengu (one symbol per PenguScript element
+ * type: the PenguScript container C layout is shared, but the language types
+ * are nominal, so each concrete wrapper needs its own callable symbol).
+ * ------------------------------------------------------------------------- */
+
+PenguSlice pengu_ffi_slice_raw(const void *data, int elem_size, int count) {
+    return (PenguSlice){ .data = (void *)data, .len = count > 0 ? count : 0, .elem_size = elem_size > 0 ? elem_size : 1 };
+}
+
+PenguSlice pengu_ffi_slice_u8(const void *data, int count) {
+    return pengu_slice_new((void *)(data ? data : (void *)PENGU_EMPTY_CSTR), 1, count > 0 ? count : 0);
+}
+PenguSlice pengu_ffi_slice_i32(const void *data, int count) {
+    return pengu_slice_new((void *)(data ? data : (void *)PENGU_EMPTY_CSTR), sizeof(int32_t), count > 0 ? count : 0);
+}
+PenguSlice pengu_ffi_slice_f64(const void *data, int count) {
+    return pengu_slice_new((void *)(data ? data : (void *)PENGU_EMPTY_CSTR), sizeof(double), count > 0 ? count : 0);
+}
+
+PenguList pengu_ffi_list_u8(const void *data, int count) {
+    return pengu_list_from_data(data, 1, count);
+}
+PenguList pengu_ffi_list_i32(const void *data, int count) {
+    return pengu_list_from_data(data, sizeof(int32_t), count);
+}
+PenguList pengu_ffi_list_f64(const void *data, int count) {
+    return pengu_list_from_data(data, sizeof(double), count);
+}
+
+PenguString pengu_ffi_cstr_string(const char *s) {
+    return pengu_string_new(s); /* NULL-safe owning copy */
+}
+const char *pengu_ffi_string_cstr(PenguString s) {
+    return pengu_string_to_cstr(&s);
+}
+const void *pengu_ffi_string_bytes(PenguString s) {
+    return pengu_string_bytes(&s);
+}
+
+PenguMap pengu_ffi_map_si(PenguSlice keys, PenguSlice vals) {
+    PenguMap map = pengu_map_new(sizeof(PenguString), sizeof(int32_t));
+    int n = keys.len < vals.len ? keys.len : vals.len;
+    if (n <= 0 || !keys.data || !vals.data)
+        return map;
+    PenguString *karr = (PenguString *)keys.data;
+    int32_t *varr = (int32_t *)vals.data;
+    for (int i = 0; i < n; ++i) {
+        pengu_map_put(&map, &karr[i], &varr[i]);
+    }
+    return map;
+}

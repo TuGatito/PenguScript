@@ -26,7 +26,7 @@ weave main into int:
     
   # 4. atlas
   var dict as map of string to int is map of string to int
-  calling dict.put with "alpha" and 100
+  calling dict.put with "alpha", 100
   var aval as int is calling dict.get with "alpha"
   if aval == 100:
     calling spark.println with "atlas map get ok"

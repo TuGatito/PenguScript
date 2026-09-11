@@ -295,7 +295,7 @@ weave main into void:
     calling spark.println with "=== Testing Real Regulus & Parchment ==="
 
     # 1. Regulus Regex with PCRE2
-    var re_m as maybe Regex is calling regulus.compile with "[a-zA-Z0-9_]+@[a-zA-Z0-9_]+\\.[a-zA-Z0-9_]+" and ""
+    var re_m as maybe Regex is calling regulus.compile with "[a-zA-Z0-9_]+@[a-zA-Z0-9_]+\\.[a-zA-Z0-9_]+", ""
     if re_m.is_present:
         calling spark.println with "regex compiled ok"
         var re as Regex is re_m.value
@@ -313,10 +313,10 @@ weave main into void:
         var root_node as Node is doc.root
         calling spark.println with "root tag: " + root_node.tag
 
-        var wiz as maybe Node is calling parchment.find with sigil of root_node and "wizard"
+        var wiz as maybe Node is calling parchment.find with sigil of root_node, "wizard"
         if wiz.is_present:
             var wnode as Node is wiz.value
-            var attr_val as maybe string is calling parchment.attr with sigil of wnode and "name"
+            var attr_val as maybe string is calling parchment.attr with sigil of wnode, "name"
             if attr_val.is_present:
                 calling spark.println with "wizard name: " + attr_val.value
 
@@ -379,6 +379,98 @@ weave main into void:
                        "wg added 1", "wg done", "wg wait ok",
                        "sleep ok", "=== Filum OK ===")
 
+    @requires_runtime
+    def test_filum_resource_cleanup(self):
+        """Every filum primitive can be disposed through its new free API."""
+        src = r"""
+import std.spark
+import std.filum
+
+weave main into void:
+    calling spark.println with "=== Filum Cleanup ==="
+
+    var mtx as Mutex is calling filum.mutex
+    calling mtx.lock
+    calling mtx.unlock
+    calling mtx.free
+
+    var wg as WaitGroup is calling filum.wait_group
+    calling wg.free
+
+    var o as Once is calling filum.once
+    calling o.free
+
+    var cv as Cond is calling filum.cond
+    calling cv.free
+
+    var atom as AtomicInt is calling filum.atomic_int with 7
+    calling atom.free
+
+    # functional wrappers (ref-taking) resolve to the same C cleanup
+    var mtx2 as Mutex is calling filum.mutex
+    calling filum.free_mutex with sigil of mtx2
+    var wg2 as WaitGroup is calling filum.wait_group
+    calling filum.free_wait_group with sigil of wg2
+    var o2 as Once is calling filum.once
+    calling filum.free_once with sigil of o2
+    var cv2 as Cond is calling filum.cond
+    calling filum.free_cond with sigil of cv2
+    var atom2 as AtomicInt is calling filum.atomic_int with 1
+    calling filum.free_atomic_int with sigil of atom2
+
+    calling spark.println with "=== Filum Cleanup OK ==="
+"""
+        res = compile_run(src, tag="filum_free")
+        _expect_stdout(res,
+                       "=== Filum Cleanup ===",
+                       "=== Filum Cleanup OK ===")
+
+    @requires_runtime
+    def test_regulus_parchment_resource_cleanup(self):
+        """Regex / XML/HTML native resources are released via the new frees."""
+        src = r"""
+import std.spark
+import std.oracle
+import std.regulus
+import std.parchment
+
+weave main into void:
+    calling spark.println with "=== Native Cleanup ==="
+
+    # Regulus: compile, search, then release the PCRE2 code and match buffer.
+    var re_m as maybe Regex is calling regulus.compile with "o+", ""
+    if re_m.is_present:
+        calling spark.println with "regex compiled ok"
+        var re as Regex is re_m.value
+        var m as maybe Match is calling re.search with "foo"
+        if m.is_present:
+            var matched as Match is m.value
+            calling spark.println with "matched: " + matched.matched
+            calling regulus.match_free with sigil of matched
+        calling re.free
+
+    # Parchment: parse XML, walk one node, then release the document.
+    var xml_data as string is "<pengu version=\"1.0\"><wizard name=\"Merlin\"><spell>Fireball</spell></wizard></pengu>"
+    var doc_m as maybe Document is calling parchment.parse_xml with xml_data
+    if doc_m.is_present:
+        calling spark.println with "xml parsed ok"
+        var doc as Document is doc_m.value
+        var root_node as Node is doc.root
+        var wiz as maybe Node is calling parchment.find with sigil of root_node, "wizard"
+        if wiz.is_present:
+            var wnode as Node is wiz.value
+            calling parchment.free_node with sigil of wnode
+        calling parchment.free_document with sigil of doc
+
+    calling spark.println with "=== Native Cleanup OK ==="
+"""
+        res = compile_run(src, tag="native_free")
+        _expect_stdout(res,
+                       "=== Native Cleanup ===",
+                       "regex compiled ok", "matched: oo",
+                       "xml parsed ok",
+                       "=== Native Cleanup OK ===")
+
 
 # ---------------------------------------------------------------------------
 # 4. libpengu_stb single-header archive (xxhash / uuid / minicoro / stb_image
@@ -401,7 +493,7 @@ import std.rlights
 import std.celeris
 
 weave main into int:
-    var h as u64 is calling celeris.hash64 with "PenguScript" and 11
+    var h as u64 is calling celeris.hash64 with "PenguScript", 11
     if h == 0x610DF71A00097754:
         calling spark.println with "all new modules import ok"
     else:
@@ -417,26 +509,26 @@ weave main into int:
 import std.xxhash
 
 weave main into int:
-    var e32 as u32 is calling xxhash.XXH32 with "" and 0 and 0
+    var e32 as u32 is calling xxhash.XXH32 with "", 0, 0
     if e32 == 0x02CC5D05:
         calling spark.println with "xxh32 vector ok"
     else:
         return 1
-    var e64 as u64 is calling xxhash.XXH64 with "" and 0 and 0
+    var e64 as u64 is calling xxhash.XXH64 with "", 0, 0
     if e64 == 0xEF46DB3751D8E999:
         calling spark.println with "xxh64 vector ok"
     else:
         return 1
-    var e3 as u64 is calling xxhash.XXH3_64bits with "" and 0
+    var e3 as u64 is calling xxhash.XXH3_64bits with "", 0
     if e3 == 0x2D06800538D394C2:
         calling spark.println with "xxh3 vector ok"
     else:
         return 1
-    var one as u64 is calling xxhash.XXH64 with "PenguScript" and 11 and 7
+    var one as u64 is calling xxhash.XXH64 with "PenguScript", 11, 7
     var st as ref to XXH64_state_t is calling xxhash.XXH64_createState
-    var r0 as int is calling xxhash.XXH64_reset with st and 7
-    var r1 as int is calling xxhash.XXH64_update with st and "Pengu" and 5
-    var r2 as int is calling xxhash.XXH64_update with st and "Script" and 6
+    var r0 as int is calling xxhash.XXH64_reset with st, 7
+    var r1 as int is calling xxhash.XXH64_update with st, "Pengu", 5
+    var r2 as int is calling xxhash.XXH64_update with st, "Script", 6
     var dig as u64 is calling xxhash.XXH64_digest with st
     var r3 as int is calling xxhash.XXH64_freeState with st
     if r0 == 0:
@@ -460,17 +552,17 @@ weave main into int:
 import std.celeris
 
 weave main into int:
-    var h64 as u64 is calling celeris.hash64 with "PenguScript" and 11
+    var h64 as u64 is calling celeris.hash64 with "PenguScript", 11
     if h64 == 0x610DF71A00097754:
         calling spark.println with "celeris h64 ok"
     else:
         return 1
-    var h3 as u64 is calling celeris.hash3_64 with "PenguScript" and 11
+    var h3 as u64 is calling celeris.hash3_64 with "PenguScript", 11
     if h3 == 0xC5617D8EE18E0403:
         calling spark.println with "celeris h3 ok"
     else:
         return 1
-    var hs as u64 is calling celeris.hash64_seeded with "PenguScript" and 11 and 7
+    var hs as u64 is calling celeris.hash64_seeded with "PenguScript", 11, 7
     if hs == 0xD104A1CEC9DDA702:
         calling spark.println with "celeris h64 seeded ok"
     else:
@@ -484,12 +576,14 @@ weave main into int:
 
     @requires_lib("pengu_stb")
     def test_imago_binding_links(self):
-        # std.imago (stb_image) smoke: failure_reason returns a C string.
+        # std.imago (stb_image) smoke: failure_reason returns a C string, and
+        # the binding declares it 'ref to frozen char' (C's 'const char*'), so
+        # the local is read-only too.
         src = r"""import std.spark
 import std.imago
 
 weave main into int:
-    var why as ref to char is calling imago.failure_reason
+    var why as ref to frozen char is calling imago.failure_reason
     calling spark.println with "imago binding smoke passed"
     return 0
 """
@@ -597,7 +691,7 @@ class TestPenguCoroutine:
     def test_weave_as_minicoro_body(self):
         src = r"""import std.spark
 
-declare pengu_mco_start with body as ref to void and user_data as ref to void and stack_size as usize into ref to void
+declare pengu_mco_start with body as ref to void, user_data as ref to void, stack_size as usize into ref to void
 declare pengu_mco_resume with co as ref to void into void
 declare pengu_mco_yield with co as ref to void into void
 declare pengu_mco_destroy with co as ref to void into void
@@ -609,7 +703,7 @@ weave run_body with co as ref to void into void:
 
 weave main into int:
     var no_ud as ref to void is null
-    var co as ref to void is calling pengu_mco_start with run_body and no_ud and 16384
+    var co as ref to void is calling pengu_mco_start with run_body, no_ud, 16384
     if co == null:
         calling spark.println with "coro start failed"
         return 1
@@ -638,7 +732,7 @@ import std.sqlite3
 
 weave main into int:
     var db as ref to sqlite3 is null
-    var rc as int is calling sqlite3.open with ":memory:" and (sigil of db)
+    var rc as int is calling sqlite3.open with ":memory:", (sigil of db)
     if rc == 0:
         calling spark.println with "sqlite open ok"
         calling sqlite3.close with db
@@ -744,7 +838,7 @@ weave main into int:
     var rows as list of list of string is list of list of string
     calling rows.push with r1
     calling rows.push with r2
-    var ok as bool is calling xlsx.write_sheet with "P" and "Sheet1" and header and rows
+    var ok as bool is calling xlsx.write_sheet with "P", "Sheet1", header, rows
     if ok:
         calling spark.println with "xlsx write_sheet ok"
     else:
@@ -858,7 +952,7 @@ weave main into int:
     var ma as int is -1
     var mi as int is -1
     var pa as int is -1
-    calling yaml.get_version with (sigil of ma) and (sigil of mi) and (sigil of pa)
+    calling yaml.get_version with (sigil of ma), (sigil of mi), (sigil of pa)
     if ma == 0:
         if mi == 2:
             if pa == 5:
@@ -893,20 +987,20 @@ class TestArchivumTree:
 import std.archivum
 
 weave main into int:
-    var ok_root as bool is calling archivum.create_dir with "{src}" and true
+    var ok_root as bool is calling archivum.create_dir with "{src}", true
     if ok_root == false:
         calling spark.println with "mkdir failed"
         return 1
-    var ok_a as bool is calling archivum.write_file with "{src}/a.txt" and "alpha"
+    var ok_a as bool is calling archivum.write_file with "{src}/a.txt", "alpha"
     if ok_a == false:
         return 1
-    var ok_sub as bool is calling archivum.create_dir with "{src}/sub" and true
+    var ok_sub as bool is calling archivum.create_dir with "{src}/sub", true
     if ok_sub == false:
         return 1
-    var ok_b as bool is calling archivum.write_file with "{src}/sub/b.txt" and "beta"
+    var ok_b as bool is calling archivum.write_file with "{src}/sub/b.txt", "beta"
     if ok_b == false:
         return 1
-    var copied as bool is calling archivum.copy_tree with "{src}" and "{dst}"
+    var copied as bool is calling archivum.copy_tree with "{src}", "{dst}"
     if copied == false:
         calling spark.println with "copy failed"
         return 1

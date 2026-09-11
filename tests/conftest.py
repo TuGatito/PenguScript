@@ -104,10 +104,10 @@ def check_error(source: str, filename: str = "t.pengu", contains=None,
     from pengu_parser.pengu_checker import PenguChecker
     from pengu_parser.pengu_parser import PenguParser
 
-    parser = PenguParser()
-    tree = parser.parse(source)
-    checker = PenguChecker(base_dir=base_dir)
     try:
+        parser = PenguParser()
+        tree = parser.parse(source)
+        checker = PenguChecker(base_dir=base_dir)
         checker.check(tree, source=source, filename=filename)
     except Exception as exc:  # noqa: BLE001 - keep the message whatever it is
         text = str(exc)
@@ -154,6 +154,25 @@ def gen_bundle(source: str, filename: str = "t.pengu", extra_files=None) -> str:
 # --------------------------------------------------------------------------
 # Level 3: compile + run with a C compiler
 # --------------------------------------------------------------------------
+
+
+def bundle_project(source: str, tag: str = "proj") -> str:
+    """Bundles a program through the real builder (std imports resolved).
+
+    ``gen_bundle`` only checks the files it is given, so programs that use
+    ``import std.…`` need the project builder. Returns the generated C text.
+    """
+    from pengu_project import PenguBuilder, ProjectConfig
+
+    d = Path(tempfile.mkdtemp(prefix=f"pengu_{tag}_", dir=BUILD_DIR))
+    try:
+        entry = d / f"{tag}.pengu"
+        entry.write_text(source, encoding="utf-8")
+        cfg = ProjectConfig(entry=str(entry), base_dir=str(REPO), output="c")
+        bundle_path, _ = PenguBuilder(cfg).bundle(output_file=str(d / "bundle.c"))
+        return Path(bundle_path).read_text(encoding="utf-8")
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 def runtime_tail_flags():

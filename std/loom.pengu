@@ -1,5 +1,19 @@
 # std/loom.pengu - The Loom (Itertools & Collection Utilities)
 # Provides algorithms and functional transformations for collections.
+#
+# Typical usage:
+#   import std.loom
+#   var nums as list of int is calling loom.range with 1, 6, 1
+#   var total as int is calling loom.sum with nums
+#   var pairs as list of list of int is calling loom.chunks with nums, 2
+#
+# Ownership model:
+#   * Every function here takes its input lists by value (they are borrowed for
+#     the call and never retained) and returns a freshly allocated list owned by
+#     the caller: banish the result when done.
+#   * None of these functions modify their inputs; returned lists are new
+#     containers holding int copies, so callers may keep and reuse the inputs.
+#   * All helpers are int-specific (list of int in, int / list of int out).
 
 import std.spark
 import std.oracle
@@ -7,7 +21,17 @@ import std.tally
 import std.atlas
 import std.scrolls
 
-weave range with start as int and end as int and step as int is 1 into list of int:
+# ----------------------------------------------------------------------------
+# Sequence generation
+# ----------------------------------------------------------------------------
+#
+# Generators that build a list of int without an input list.
+# Builds the integer sequence from `start` (inclusive) up to `end` (exclusive),
+# advancing by `step` (default 1). A positive `step` counts up while the value
+# is below `end`; a negative `step` counts down while the value is above `end`;
+# `step` of 0 (or a sign mismatch with the bounds) yields an empty list. The
+# returned list is owned by the caller.
+weave range with start as int , end as int , step as int is 1 into list of int:
     var result as list of int is list of int
     var cur as int is start
     if step > 0:
@@ -20,7 +44,9 @@ weave range with start as int and end as int and step as int is 1 into list of i
             set cur is cur + step
     return result
 
-weave repeat with value as int and times as int into list of int:
+# Builds a list containing `value` repeated `times` times. A `times` of 0 or
+# less yields an empty list. The returned list is owned by the caller.
+weave repeat with value as int , times as int into list of int:
     var result as list of int is list of int
     var i as int is 0
     while i < times:
@@ -28,7 +54,15 @@ weave repeat with value as int and times as int into list of int:
         set i is i + 1
     return result
 
-weave take with items as list of int and n as int into list of int:
+# ----------------------------------------------------------------------------
+# Slicing & composition
+# ----------------------------------------------------------------------------
+#
+# Helpers that cut or join whole lists of int.
+# Returns a new list holding the first `n` elements of `items` (all of them when
+# `items` is shorter). A non-positive `n` yields an empty list. The result is
+# owned by the caller; `items` is left untouched.
+weave take with items as list of int , n as int into list of int:
     var result as list of int is list of int
     var count as int is n
     if count > items.len:
@@ -40,7 +74,10 @@ weave take with items as list of int and n as int into list of int:
         set i is i + 1
     return result
 
-weave skip with items as list of int and n as int into list of int:
+# Returns a new list holding every element of `items` from index `n` onward. A
+# negative `n` is treated as 0 and `n` beyond the end yields an empty list. The
+# result is owned by the caller; `items` is left untouched.
+weave skip with items as list of int , n as int into list of int:
     var result as list of int is list of int
     var start as int is n
     if start < 0:
@@ -52,7 +89,9 @@ weave skip with items as list of int and n as int into list of int:
         set i is i + 1
     return result
 
-weave chain with a as list of int and b as list of int into list of int:
+# Returns a new list that concatenates `a` followed by `b` (a deep copy of both;
+# neither input is modified). The result is owned by the caller.
+weave chain with a as list of int , b as list of int into list of int:
     var result as list of int is list of int
     var i as int is 0
     while i < a.len:
@@ -66,7 +105,15 @@ weave chain with a as list of int and b as list of int into list of int:
         set j is j + 1
     return result
 
-weave chunks with items as list of int and n as int into list of list of int:
+# ----------------------------------------------------------------------------
+# Batching: chunks & sliding windows
+# ----------------------------------------------------------------------------
+#
+# Helpers that reorganise a list of int into a list of smaller lists.
+# Splits `items` into consecutive non-overlapping chunks of at most `n` elements
+# each (the last chunk may be shorter). A non-positive `n` yields an empty list.
+# The outer and inner lists are all new and owned by the caller.
+weave chunks with items as list of int , n as int into list of list of int:
     var result as list of list of int is list of list of int
     if n <= 0:
         return result
@@ -84,7 +131,11 @@ weave chunks with items as list of int and n as int into list of list of int:
         set i is i + n
     return result
 
-weave windows with items as list of int and n as int into list of list of int:
+# Returns every contiguous sliding window of exactly `n` consecutive elements of
+# `items` (each window is a new list of length `n`; the windows overlap by
+# n - 1 elements). Yields an empty list when `n` is non-positive or larger than
+# the list. The outer and inner lists are all new and owned by the caller.
+weave windows with items as list of int , n as int into list of list of int:
     var result as list of list of int is list of list of int
     if n <= 0:
         return result
@@ -103,6 +154,12 @@ weave windows with items as list of int and n as int into list of list of int:
         set i is i + 1
     return result
 
+# ----------------------------------------------------------------------------
+# Reductions & statistics
+# ----------------------------------------------------------------------------
+#
+# Helpers that fold a list of int down to a single int.
+# Sums every element of `nums` (0 for an empty list).
 weave sum with nums as list of int into int:
     var total as int is 0
     var i as int is 0
@@ -112,6 +169,8 @@ weave sum with nums as list of int into int:
         set i is i + 1
     return total
 
+# Multiplies every element of `nums` together (1 for an empty list). Watch for
+# int overflow on large inputs.
 weave product_num with nums as list of int into int:
     var total as int is 1
     var i as int is 0
@@ -121,6 +180,9 @@ weave product_num with nums as list of int into int:
         set i is i + 1
     return total
 
+# Returns the greatest value in `nums` (0 for an empty list). Note that this
+# means an empty list is indistinguishable from a list containing only 0/negatives
+# when no element exceeds 0.
 weave max_int with items as list of int into int:
     if items.len == 0:
         return 0
@@ -133,6 +195,9 @@ weave max_int with items as list of int into int:
         set i is i + 1
     return best
 
+# Returns the smallest value in `items` (0 for an empty list). Note that this
+# means an empty list is indistinguishable from a list containing only 0/positives
+# when no element is below 0.
 weave min_int with items as list of int into int:
     if items.len == 0:
         return 0

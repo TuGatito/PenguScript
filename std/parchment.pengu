@@ -1,5 +1,21 @@
-# std/parchment.pengu - The Parchment (XML / HTML Processing)
-# Provides parsing, manipulation, and serialization of XML and HTML documents.
+# std/parchment.pengu - The Parchment (XML / HTML DOM Processing)
+# Parses XML and HTML text into a Document, then queries, mutates and
+# serializes element trees through Node values (backed by libxml2).
+#
+# Ownership model:
+#   * A Document returned by parse_xml / parse_html OWNS the whole parsed
+#     libxml2 tree plus the wrapper strings of its root node. Release it with
+#     free_document (or doc.free) when done; freeing it invalidates every node
+#     previously obtained from it.
+#   * find / find_all hand back NEW Node wrappers that own fresh tag/text
+#     strings but alias elements owned by the source document. Release each
+#     wrapper with free_node (or node.free) once done - never free the
+#     underlying document element by itself.
+#   * create_element / create_text build standalone wrappers that own a fresh
+#     xml node; append_child moves a child's xml node into the parent's tree.
+#   * to_string / attr / text return `maybe string`: a present value owns a
+#     freshly allocated string the caller may banish after use; none means the
+#     data does not exist or could not be produced.
 
 import std.spark
 import std.oracle
@@ -8,11 +24,20 @@ import std.oracle
 # Type Definitions
 # ----------------------------------------------------------------------------
 
+# One XML/HTML element in a tree. `tag` is the element name and `text` a
+# snapshot of its text content; `_ptr` is the opaque libxml2 node handle that
+# the wrapper or its owning document manages (never read from PenguScript).
 rune Node:
     tag as string
     text as string
+    # Opaque libxml2 node handle: owned by the document for parsed trees, by
+    # the wrapper for standalone nodes. Never touch this field directly.
     _ptr as opaque
 
+# A parsed XML/HTML document. `root` is the top-level element and `version` /
+# `encoding` mirror the XML declaration ("HTML" / "UTF-8" for HTML input). A
+# Document owns the tree behind `root`: release it with free_document (or
+# doc.free) once done - do not free its nodes individually.
 rune Document:
     root as Node
     version as string
@@ -22,74 +47,158 @@ rune Document:
 # External C Declarations
 # ----------------------------------------------------------------------------
 
+# Parses XML text into a new Document (none when the input is empty or not
+# well-formed). The Document owns the parsed tree.
 declare pengu_c_parchment_parse_xml with data as string into maybe Document
+# Parses HTML text into a new Document (none when empty or rootless). The
+# Document owns the parsed tree.
 declare pengu_c_parchment_parse_html with data as string into maybe Document
-declare pengu_c_parchment_to_string with node as ref to Node and pretty as bool into maybe string
-declare pengu_c_parchment_find with node as ref to Node and query as string into maybe Node
-declare pengu_c_parchment_find_all with node as ref to Node and query as string into list of Node
-declare pengu_c_parchment_attr with node as ref to Node and name as string into maybe string
-declare pengu_c_parchment_set_attr with node as ref to Node and name as string and value as string into void
+# Serializes the subtree at `node` into markup (pretty when `pretty`). A
+# present result is an owned fresh string the caller must release.
+declare pengu_c_parchment_to_string with node as ref to Node , pretty as bool into maybe string
+# Finds the first direct child element of `node` named `query`. A present
+# result is a new wrapper owning fresh tag/text strings.
+declare pengu_c_parchment_find with node as ref to Node , query as string into maybe Node
+# Finds every direct child element of `node` named `query`. Each list entry is
+# a new wrapper owning fresh tag/text strings.
+declare pengu_c_parchment_find_all with node as ref to Node , query as string into list of Node
+# Reads attribute `name` of `node`. A present result is an owned fresh string.
+declare pengu_c_parchment_attr with node as ref to Node , name as string into maybe string
+# Sets attribute `name` of `node` to `value` (adds it when missing).
+declare pengu_c_parchment_set_attr with node as ref to Node , name as string , value as string into void
+# Reads the text content of `node`. A present result is an owned fresh string.
 declare pengu_c_parchment_text with node as ref to Node into maybe string
-declare pengu_c_parchment_set_text with node as ref to Node and text as string into void
+# Replaces the text content of `node` with `text`.
+declare pengu_c_parchment_set_text with node as ref to Node , text as string into void
+# Creates a standalone element wrapper named `tag` owning a fresh xml node.
 declare pengu_c_parchment_create_element with tag as string into ref to Node
+# Creates a standalone text wrapper (tag "text") owning a fresh xml node.
 declare pengu_c_parchment_create_text with text as string into ref to Node
-declare pengu_c_parchment_append_child with parent as ref to Node and child as ref to Node into void
+# Appends `child` under `parent` in the xml tree.
+declare pengu_c_parchment_append_child with parent as ref to Node , child as ref to Node into void
+# Releases the owned tag/text strings of a wrapper node (never the document's
+# xml nodes).
+declare pengu_c_parchment_node_free with node as ref to Node into void
+# Releases a parsed document: frees its wrapper strings and the whole libxml2
+# tree, invalidating every node obtained from it.
+declare pengu_c_parchment_document_free with doc as ref to Document into void
+# XML-escapes `text` (currently an identity passthrough; owned result).
 declare pengu_c_parchment_escape_text with text as string into string
+# XML-unescapes `text` (currently an identity passthrough; owned result).
 declare pengu_c_parchment_unescape_text with text as string into string
 
 # ----------------------------------------------------------------------------
 # Functional API
 # ----------------------------------------------------------------------------
 
+# Parses `data` as XML into a new Document. Returns none when `data` is empty
+# or not well-formed. The Document owns the parsed tree: release it with
+# free_document (or doc.free) once done.
 weave parse_xml with data as string into maybe Document:
     return calling pengu_c_parchment_parse_xml with data
 
+# Parses `data` as HTML (lenient, error-tolerating mode) into a new Document.
+# Returns none when `data` is empty or has no root element. The Document owns
+# the parsed tree: release it with free_document (or doc.free) once done.
 weave parse_html with data as string into maybe Document:
     return calling pengu_c_parchment_parse_html with data
 
-weave to_string with node as ref to Node and pretty as bool is false into maybe string:
-    return calling pengu_c_parchment_to_string with node and pretty
+# Serializes the element subtree at `node` back to markup. A present result is
+# an owned fresh string (banish after use); none means nothing could be
+# serialized. `pretty` indents the output.
+weave to_string with node as ref to Node , pretty as bool is false into maybe string:
+    return calling pengu_c_parchment_to_string with node , pretty
 
-weave doc_to_string with doc as ref to Document and pretty as bool is false into maybe string:
-    return calling pengu_c_parchment_to_string with sigil of doc->root and pretty
+# Serializes the root element of `doc` back to markup (see to_string). A
+# present result is an owned fresh string (banish after use).
+weave doc_to_string with doc as ref to Document , pretty as bool is false into maybe string:
+    return calling pengu_c_parchment_to_string with sigil of doc->root , pretty
 
-weave find with node as ref to Node and query as string into maybe Node:
-    return calling pengu_c_parchment_find with node and query
+# Returns the first DIRECT child element of `node` whose tag equals `query`.
+# The returned Node wrapper is new: it owns fresh tag/text strings, so release
+# it with free_node (or node.free) once done. The underlying element stays
+# owned by its document.
+weave find with node as ref to Node , query as string into maybe Node:
+    return calling pengu_c_parchment_find with node , query
 
-weave find_all with node as ref to Node and query as string into list of Node:
-    return calling pengu_c_parchment_find_all with node and query
+# Returns every direct child element of `node` whose tag equals `query`, as a
+# list of Node (empty when there are no matches). Each entry is a new wrapper
+# owning fresh tag/text strings: free each entry (free_node / node.free)
+# before banishing the list.
+weave find_all with node as ref to Node , query as string into list of Node:
+    return calling pengu_c_parchment_find_all with node , query
 
-weave attr with node as ref to Node and name as string into maybe string:
-    return calling pengu_c_parchment_attr with node and name
+# Reads the attribute `name` of `node`. A present result is an owned fresh
+# string (banish after use); none means the attribute is not set.
+weave attr with node as ref to Node , name as string into maybe string:
+    return calling pengu_c_parchment_attr with node , name
 
-weave set_attr with node as ref to Node and name as string and value as string into void:
-    calling pengu_c_parchment_set_attr with node and name and value
+# Sets attribute `name` of `node` to `value`, adding it when missing. Void.
+weave set_attr with node as ref to Node , name as string , value as string into void:
+    calling pengu_c_parchment_set_attr with node , name , value
 
+# Reads the text content of `node` (concatenated descendant text for parsed
+# elements). A present result is an owned fresh string (banish after use);
+# none means no text content is available.
 weave text with node as ref to Node into maybe string:
     return calling pengu_c_parchment_text with node
 
-weave set_text with node as ref to Node and text as string into void:
-    calling pengu_c_parchment_set_text with node and text
+# Replaces the text content of `node` with `text`, updating both the wrapper
+# and the live xml node. Void.
+weave set_text with node as ref to Node , text as string into void:
+    calling pengu_c_parchment_set_text with node , text
 
+# Creates a standalone element wrapper (not yet attached to any document)
+# named `tag`. The wrapper owns its xml node: attach it with append_child, or
+# release it with free_node (or node.free) when abandoned.
 weave create_element with tag as string into ref to Node:
     return calling pengu_c_parchment_create_element with tag
 
+# Creates a standalone text wrapper whose content is `text` (tag is "text").
+# The wrapper owns its xml node: attach it with append_child, or release it
+# with free_node (or node.free) when done.
 weave create_text with text as string into ref to Node:
     return calling pengu_c_parchment_create_text with text
 
-weave append_child with parent as ref to Node and child as ref to Node into void:
-    calling pengu_c_parchment_append_child with parent and child
+# Appends `child` under `parent` in the xml tree (both must be live wrappers).
+# Void. After the append, the parent's document owns the child's xml node.
+weave append_child with parent as ref to Node , child as ref to Node into void:
+    calling pengu_c_parchment_append_child with parent , child
 
+# ----------------------------------------------------------------------------
+# Resource Cleanup
+# ----------------------------------------------------------------------------
+
+# Releases the owned tag/text strings of a Node wrapper returned by find /
+# find_all / create_element / create_text. Does not free xml nodes owned by a
+# document - those are released when the document itself is freed.
+weave free_node with node as ref to Node into void:
+    calling pengu_c_parchment_node_free with node
+
+# Releases a Document returned by parse_xml / parse_html: frees the wrapper
+# strings AND the whole libxml2 tree. Any node previously obtained from the
+# document becomes invalid, so free their wrappers first if still needed.
+weave free_document with doc as ref to Document into void:
+    calling pengu_c_parchment_document_free with doc
+
+# XML-escapes `text` for safe inclusion in element text content. Currently the
+# runtime bridge is an identity passthrough: `text` is returned unchanged as
+# an owned string.
 weave escape_text with text as string into string:
     return calling pengu_c_parchment_escape_text with text
 
+# XML-unescapes `text`. Currently the runtime bridge is an identity
+# passthrough: `text` is returned unchanged as an owned string.
 weave unescape_text with text as string into string:
     return calling pengu_c_parchment_unescape_text with text
 
+# True when `data` parses as well-formed XML (i.e. parse_xml succeeds).
 weave is_valid_xml with data as string into bool:
     var doc as maybe Document is calling pengu_c_parchment_parse_xml with data
     return doc.is_present
 
+# True when `data` parses as HTML with a root element (i.e. parse_html
+# succeeds).
 weave is_valid_html with data as string into bool:
     var doc as maybe Document is calling pengu_c_parchment_parse_html with data
     return doc.is_present
@@ -98,27 +207,55 @@ weave is_valid_html with data as string into bool:
 # Object Methods (enchanting)
 # ----------------------------------------------------------------------------
 
+# Node methods: mirror the module-level functional API with `self` as the
+# target node. The ownership notes of the functional API apply to their
+# results (find / find_all / attr / text / to_string return owned values).
 enchanting Node:
+    # Finds the first direct child element of `self` named `query`; release
+    # the returned wrapper with free when done (see find).
     weave find with query as string into maybe Node:
-        return calling pengu_c_parchment_find with self and query
+        return calling pengu_c_parchment_find with self , query
 
+    # Returns every direct child element of `self` named `query` (see
+    # find_all); free each entry before banishing the list.
     weave find_all with query as string into list of Node:
-        return calling pengu_c_parchment_find_all with self and query
+        return calling pengu_c_parchment_find_all with self , query
 
+    # Reads attribute `name` of `self`; a present result is an owned fresh
+    # string (see attr).
     weave attr with name as string into maybe string:
-        return calling pengu_c_parchment_attr with self and name
+        return calling pengu_c_parchment_attr with self , name
 
-    weave set_attr with name as string and value as string into void:
-        calling pengu_c_parchment_set_attr with self and name and value
+    # Sets attribute `name` of `self` to `value`, adding it when missing.
+    weave set_attr with name as string , value as string into void:
+        calling pengu_c_parchment_set_attr with self , name , value
 
+    # Reads the text content of `self`; a present result is an owned fresh
+    # string (see text).
     weave text into maybe string:
         return calling pengu_c_parchment_text with self
 
+    # Replaces the text content of `self` with `text`.
     weave set_text with text as string into void:
-        calling pengu_c_parchment_set_text with self and text
+        calling pengu_c_parchment_set_text with self , text
 
+    # Appends `child` under `self` in the xml tree; after the append the
+    # parent's document owns the child's xml node.
     weave append_child with child as ref to Node into void:
-        calling pengu_c_parchment_append_child with self and child
+        calling pengu_c_parchment_append_child with self , child
 
+    # Serializes the subtree at `self` to markup; a present result is an owned
+    # fresh string (see to_string).
     weave to_string with pretty as bool is false into maybe string:
-        return calling pengu_c_parchment_to_string with self and pretty
+        return calling pengu_c_parchment_to_string with self , pretty
+
+    # Releases the owned tag/text strings of this wrapper (see free_node).
+    weave free into void:
+        calling pengu_c_parchment_node_free with self
+
+# Document methods. A parsed document owns its whole tree: freeing it releases
+# the libxml2 document and invalidates any node previously obtained from it.
+enchanting Document:
+    # Releases the whole document tree (see free_document).
+    weave free into void:
+        calling pengu_c_parchment_document_free with self

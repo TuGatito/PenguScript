@@ -1,90 +1,209 @@
 # std/chronicle.pengu - The Chronicle (Time)
 # Provides time, dates, timestamps, monotonic clocks, and delays.
+#
+# All timestamps are Unix seconds expressed as float (double) values. The
+# utc_* getters interpret a timestamp in Coordinated Universal Time; the
+# local_* getters interpret it in the process's local time zone. `time` is a
+# wall clock (subject to system adjustments); `monotonic` is a steady clock
+# suited for measuring intervals and elapsed times.
+#
+# Typical usage:
+#   import std.chronicle
+#   var now as float is calling chronicle.time
+#   calling spark.println with calling chronicle.format_now with "%Y-%m-%d %H:%M:%S"
+#   calling chronicle.sleep with 0.25
+#   var year as int is calling chronicle.utc_year with now
+#
+# Ownership model:
+#   Clocks, delays and calendar-field getters are plain scalar bridges that
+#   own nothing. `format`/`format_now` return freshly formatted strings and
+#   `parse` returns a maybe float (none on failure): results are fresh owned
+#   values with normal PenguScript value lifetime. Nothing returned aliases
+#   input or caller-owned memory, and no argument is retained after the call,
+#   so there is nothing extra to banish.
 
 import std.spark
 import std.oracle
 
-declare pengu_c_time into float
-declare pengu_c_time_monotonic into float
-declare pengu_c_sleep_ms with ms as int into void
-declare pengu_c_sleep_sec with sec as float into void
-declare pengu_c_strftime with fmt as string and timestamp as float into string
-declare pengu_c_strptime with s as string and fmt as string into maybe float
+# ----------------------------------------------------------------------------
+# External C Runtime Declarations (time, sleep, formatting, calendar fields)
+# ----------------------------------------------------------------------------
 
+# C bridge for time(): wall-clock seconds since the Unix epoch (UTC-based).
+declare pengu_c_time into float
+
+# C bridge for a high-resolution monotonic clock, in seconds.
+declare pengu_c_time_monotonic into float
+
+# C bridge that sleeps the current thread for `ms` milliseconds.
+declare pengu_c_sleep_ms with ms as int into void
+
+# C bridge that sleeps the current thread for `sec` fractional seconds.
+declare pengu_c_sleep_sec with sec as float into void
+
+# C bridge that formats `timestamp` with a strftime `fmt` pattern (UTC) into a
+# new string; an empty fmt falls back to "%Y-%m-%d %H:%M:%S".
+declare pengu_c_strftime with fmt as string , timestamp as float into string
+
+# C bridge that parses a date/time string into Unix seconds; returns a maybe
+# float holding none when the text does not match a supported pattern.
+declare pengu_c_strptime with s as string , fmt as string into maybe float
+
+# C bridge returning the UTC year of a timestamp (e.g. 2026).
 declare pengu_c_get_utc_year with ts as float into int
+
+# C bridge returning the UTC month of a timestamp, 1..12.
 declare pengu_c_get_utc_month with ts as float into int
+
+# C bridge returning the UTC day-of-month of a timestamp, 1..31.
 declare pengu_c_get_utc_day with ts as float into int
+
+# C bridge returning the UTC hour of a timestamp, 0..23.
 declare pengu_c_get_utc_hour with ts as float into int
+
+# C bridge returning the UTC minute of a timestamp, 0..59.
 declare pengu_c_get_utc_minute with ts as float into int
+
+# C bridge returning the UTC second of a timestamp, 0..60.
 declare pengu_c_get_utc_second with ts as float into int
+
+# C bridge returning the UTC weekday of a timestamp, 0 = Sunday .. 6 = Saturday.
 declare pengu_c_get_utc_weekday with ts as float into int
+
+# C bridge returning the UTC day-of-year of a timestamp, 0..365.
 declare pengu_c_get_utc_yearday with ts as float into int
+
+# C bridge reporting daylight-saving time for a timestamp in UTC (always false,
+# since UTC itself never observes DST).
 declare pengu_c_get_utc_is_dst with ts as float into bool
 
+# C bridge returning the local-timezone year of a timestamp (e.g. 2026).
 declare pengu_c_get_local_year with ts as float into int
+
+# C bridge returning the local-timezone month of a timestamp, 1..12.
 declare pengu_c_get_local_month with ts as float into int
+
+# C bridge returning the local-timezone day-of-month of a timestamp, 1..31.
 declare pengu_c_get_local_day with ts as float into int
+
+# C bridge returning the local-timezone hour of a timestamp, 0..23.
 declare pengu_c_get_local_hour with ts as float into int
+
+# C bridge returning the local-timezone minute of a timestamp, 0..59.
 declare pengu_c_get_local_minute with ts as float into int
+
+# C bridge returning the local-timezone second of a timestamp, 0..60.
 declare pengu_c_get_local_second with ts as float into int
+
+# C bridge returning the local-timezone weekday of a timestamp,
+# 0 = Sunday .. 6 = Saturday.
 declare pengu_c_get_local_weekday with ts as float into int
+
+# C bridge returning the local-timezone day-of-year of a timestamp, 0..365.
 declare pengu_c_get_local_yearday with ts as float into int
+
+# C bridge reporting whether daylight-saving time is in effect for a timestamp
+# in the local time zone.
 declare pengu_c_get_local_is_dst with ts as float into bool
 
+# ----------------------------------------------------------------------------
+# Clocks & Delays
+# ----------------------------------------------------------------------------
+
+# Returns the current wall-clock time as Unix seconds (float). No parameters.
 weave time into float:
     return calling pengu_c_time
 
+# Returns a high-resolution monotonic clock reading in seconds (float). It is
+# immune to wall-clock adjustments, so it is the right clock for stopwatches
+# and measuring elapsed time.
 weave monotonic into float:
     return calling pengu_c_time_monotonic
 
+# Suspends the current thread for `ms` milliseconds. A non-positive `ms`
+# returns immediately.
 weave sleep_ms with ms as int into void:
     calling pengu_c_sleep_ms with ms
 
+# Suspends the current thread for `sec` fractional seconds (internally rounded
+# to milliseconds). A non-positive `sec` returns immediately.
 weave sleep with sec as float into void:
     calling pengu_c_sleep_sec with sec
 
-weave format with fmt as string and timestamp as float into string:
-    return calling pengu_c_strftime with fmt and timestamp
+# ----------------------------------------------------------------------------
+# Formatting & Parsing
+# ----------------------------------------------------------------------------
 
+# Formats `timestamp` (Unix seconds) with a strftime `fmt` pattern in UTC.
+# Returns the formatted string; an empty `fmt` uses "%Y-%m-%d %H:%M:%S".
+weave format with fmt as string , timestamp as float into string:
+    return calling pengu_c_strftime with fmt , timestamp
+
+# Formats the current wall-clock time with a strftime `fmt` pattern (UTC);
+# equivalent to format with the result of time. Returns the formatted string.
 weave format_now with fmt as string into string:
     var now as float is calling time
-    return calling format with fmt and now
+    return calling format with fmt , now
 
-weave parse with s as string and fmt as string into maybe float:
-    return calling pengu_c_strptime with s and fmt
+# Parses `s` into Unix seconds, returning a maybe float: some value when the
+# text matches "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM:SS" (interpreted in local
+# time), none otherwise. The `fmt` argument mirrors strptime's signature but
+# is currently ignored by the runtime parser.
+weave parse with s as string , fmt as string into maybe float:
+    return calling pengu_c_strptime with s , fmt
 
+# ----------------------------------------------------------------------------
+# UTC Calendar Field Getters (timestamp interpreted in Coordinated Universal Time)
+# ----------------------------------------------------------------------------
+
+# Returns the UTC year of timestamp `ts` (e.g. 2026).
 weave utc_year with ts as float into int:
     return calling pengu_c_get_utc_year with ts
 
+# Returns the UTC month of timestamp `ts`, 1..12.
 weave utc_month with ts as float into int:
     return calling pengu_c_get_utc_month with ts
 
+# Returns the UTC day-of-month of timestamp `ts`, 1..31.
 weave utc_day with ts as float into int:
     return calling pengu_c_get_utc_day with ts
 
+# Returns the UTC hour of timestamp `ts`, 0..23.
 weave utc_hour with ts as float into int:
     return calling pengu_c_get_utc_hour with ts
 
+# Returns the UTC minute of timestamp `ts`, 0..59.
 weave utc_minute with ts as float into int:
     return calling pengu_c_get_utc_minute with ts
 
+# Returns the UTC second of timestamp `ts`, 0..60 (no leap-second folding).
 weave utc_second with ts as float into int:
     return calling pengu_c_get_utc_second with ts
 
+# ----------------------------------------------------------------------------
+# Local Calendar Field Getters (timestamp interpreted in the local time zone)
+# ----------------------------------------------------------------------------
+
+# Returns the local-timezone year of timestamp `ts` (e.g. 2026).
 weave local_year with ts as float into int:
     return calling pengu_c_get_local_year with ts
 
+# Returns the local-timezone month of timestamp `ts`, 1..12.
 weave local_month with ts as float into int:
     return calling pengu_c_get_local_month with ts
 
+# Returns the local-timezone day-of-month of timestamp `ts`, 1..31.
 weave local_day with ts as float into int:
     return calling pengu_c_get_local_day with ts
 
+# Returns the local-timezone hour of timestamp `ts`, 0..23.
 weave local_hour with ts as float into int:
     return calling pengu_c_get_local_hour with ts
 
+# Returns the local-timezone minute of timestamp `ts`, 0..59.
 weave local_minute with ts as float into int:
     return calling pengu_c_get_local_minute with ts
 
+# Returns the local-timezone second of timestamp `ts`, 0..60.
 weave local_second with ts as float into int:
     return calling pengu_c_get_local_second with ts

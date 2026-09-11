@@ -1,6 +1,31 @@
 # std/precis.pengu - The Precis (Networking, HTTP Client/Server & Sockets)
 # Provides HTTP client, embedded HTTP server, TCP sockets, DNS resolution,
 # and URL encoding/decoding utilities.
+#
+# Typical usage (HTTP client):
+#   import std.precis
+#   var headers as map of string to string is map of string to string
+#   var resp as maybe ClientResponse is calling precis.get with "http://example.com/", headers
+#   if resp.is_present:
+#       var r as ClientResponse is resp.value
+#       if r.status_code == 200:
+#           calling spark.println with r.body.value
+#
+# Ownership model:
+#   * HTTP client calls return maybe ClientResponse. A present response is owned
+#     by the caller: release it (including its headers map and body payload)
+#     when done. A none result means the request could not be performed
+#     (DNS/connect/timeout failure), not an HTTP error status: error statuses
+#     arrive as present responses carrying the status code.
+#   * On the server side the runtime hands the handler a Request record and
+#     consumes the Response record the handler returns, so no caller-side
+#     freeing is needed on that path.
+#   * A TCPSocket obtained from connect_tcp owns a native socket handle kept in
+#     its opaque `_ptr` field: every connected socket must be released with
+#     tcp_close when done. Strings returned by tcp_recv are freshly allocated
+#     and owned by the caller (banish them when done).
+#   * URL/query helpers return freshly allocated strings and maps owned by the
+#     caller.
 
 import std.spark
 import std.oracle
@@ -12,12 +37,21 @@ import std.compass
 # Core Types
 # ----------------------------------------------------------------------------
 
+# A completed HTTP client response. `status_code` is the HTTP status (e.g. 200),
+# `headers` maps response header names to values, `body` is the response payload
+# (a MaybeString: check is_present and read `.value`), and `url` echoes the
+# requested URL. A present response is owned by the caller.
 rune ClientResponse:
     status_code as int
     headers as map of string to string
     body as MaybeString
     url as string
 
+# An inbound HTTP request as delivered to the embedded server handler: the HTTP
+# `method` (e.g. "GET"), the request `path`, its `headers` (map of name to
+# value), any URL `query` parameters (map of name to value) and the request
+# `body` as a MaybeString. Records are handed to the handler and consumed by
+# the runtime.
 rune Request:
     method as string
     path as string
@@ -25,11 +59,18 @@ rune Request:
     query as map of string to string
     body as MaybeString
 
+# An outbound HTTP response produced by the server handler: the HTTP
+# `status_code`, the response `headers` (map of name to value) and the `body`
+# payload as a MaybeString. Return a Response from the handler; the runtime
+# sends it to the client.
 rune Response:
     status_code as int
     headers as map of string to string
     body as MaybeString
 
+# An open TCP connection. The native socket handle lives in the opaque `_ptr`
+# field: never touch it directly, only pass the socket to tcp_send, tcp_recv
+# and tcp_close. Every socket from connect_tcp must be released with tcp_close.
 rune TCPSocket:
     _ptr as opaque
 
@@ -37,56 +78,107 @@ rune TCPSocket:
 # External C Functions (from Runtime)
 # ----------------------------------------------------------------------------
 
-declare pengu_c_precis_http_get with url as string and headers as map of string to string into maybe ClientResponse
-declare pengu_c_precis_http_post with url as string and headers as map of string to string and body as string into maybe ClientResponse
-declare pengu_c_precis_http_put with url as string and headers as map of string to string and body as string into maybe ClientResponse
-declare pengu_c_precis_http_delete with url as string and headers as map of string to string into maybe ClientResponse
-declare pengu_c_precis_http_request with method as string and url as string and headers as map of string to string and body as maybe string into maybe ClientResponse
+# Runtime primitive: performs an HTTP GET; none when the transfer fails.
+declare pengu_c_precis_http_get with url as string , headers as map of string to string into maybe ClientResponse
+# Runtime primitive: performs an HTTP POST with `body`; none on transfer failure.
+declare pengu_c_precis_http_post with url as string , headers as map of string to string , body as string into maybe ClientResponse
+# Runtime primitive: performs an HTTP PUT with `body`; none on transfer failure.
+declare pengu_c_precis_http_put with url as string , headers as map of string to string , body as string into maybe ClientResponse
+# Runtime primitive: performs an HTTP DELETE; none on transfer failure.
+declare pengu_c_precis_http_delete with url as string , headers as map of string to string into maybe ClientResponse
+# Runtime primitive: performs an HTTP request with an arbitrary `method` and an
+# optional `body` (none sends no body); none on transfer failure.
+declare pengu_c_precis_http_request with method as string , url as string , headers as map of string to string , body as maybe string into maybe ClientResponse
 
-declare pengu_c_precis_serve_http with port as int and handler as opaque into void
+# Runtime primitive: starts the embedded HTTP server on `port` and blocks
+# forever, invoking the opaque `handler` for every request.
+declare pengu_c_precis_serve_http with port as int , handler as opaque into void
 
-declare pengu_c_precis_tcp_connect with host as string and port as int into maybe TCPSocket
-declare pengu_c_precis_tcp_send with sock as ref to TCPSocket and data as string into bool
-declare pengu_c_precis_tcp_recv with sock as ref to TCPSocket and max_bytes as int into maybe string
+# Runtime primitive: resolves `host` and opens a TCP stream connection to
+# `port`; none when resolution or connect fails.
+declare pengu_c_precis_tcp_connect with host as string , port as int into maybe TCPSocket
+# Runtime primitive: sends all of `data` on the socket; true only when every
+# byte was written.
+declare pengu_c_precis_tcp_send with sock as ref to TCPSocket , data as string into bool
+# Runtime primitive: reads up to `max_bytes` from the socket into a fresh owned
+# string; none when the peer closed the connection or an error occurred.
+declare pengu_c_precis_tcp_recv with sock as ref to TCPSocket , max_bytes as int into maybe string
+# Runtime primitive: closes the native socket held by `sock` (no-op on null).
 declare pengu_c_precis_tcp_close with sock as ref to TCPSocket into void
 
+# Runtime primitive: resolves `host` to its first IPv4 address ("a.b.c.d");
+# none when the name cannot be resolved.
 declare pengu_c_precis_dns_lookup with host as string into maybe string
 
+# Runtime primitive: percent-encodes `s` (RFC 3986 unreserved characters are
+# kept verbatim).
 declare pengu_c_precis_url_encode with s as string into string
+# Runtime primitive: percent-decodes `s` and turns "+" into a space.
 declare pengu_c_precis_url_decode with s as string into string
+# Runtime primitive: parses an "&"-separated "key=value" query string into a
+# map, decoding keys and values.
 declare pengu_c_precis_parse_query with s as string into map of string to string
 
 # ----------------------------------------------------------------------------
 # HTTP Client API
 # ----------------------------------------------------------------------------
 
-weave get with url as string and headers as map of string to string into maybe ClientResponse:
-    return calling pengu_c_precis_http_get with url and headers
+# Sends an HTTP GET to `url` with the given request `headers` (map of header
+# name to value). All client calls here follow redirects and give up after a
+# 30 s timeout. Returns some ClientResponse owned by the caller (release it,
+# including its headers and body, when done) or none when the request could
+# not be performed at the transport level (DNS/connect/timeout failure): HTTP
+# error statuses still arrive as a present response with the status code set.
+weave get with url as string , headers as map of string to string into maybe ClientResponse:
+    return calling pengu_c_precis_http_get with url , headers
 
-weave post with url as string and headers as map of string to string and body as string into maybe ClientResponse:
-    return calling pengu_c_precis_http_post with url and headers and body
+# Sends an HTTP POST of `body` to `url` with the given request `headers`.
+# Ownership and none semantics are identical to get.
+weave post with url as string , headers as map of string to string , body as string into maybe ClientResponse:
+    return calling pengu_c_precis_http_post with url , headers , body
 
-weave put with url as string and headers as map of string to string and body as string into maybe ClientResponse:
-    return calling pengu_c_precis_http_put with url and headers and body
+# Sends an HTTP PUT of `body` to `url` with the given request `headers`.
+# Ownership and none semantics are identical to get.
+weave put with url as string , headers as map of string to string , body as string into maybe ClientResponse:
+    return calling pengu_c_precis_http_put with url , headers , body
 
-weave delete with url as string and headers as map of string to string into maybe ClientResponse:
-    return calling pengu_c_precis_http_delete with url and headers
+# Sends an HTTP DELETE to `url` with the given request `headers`. Ownership and
+# none semantics are identical to get.
+weave delete with url as string , headers as map of string to string into maybe ClientResponse:
+    return calling pengu_c_precis_http_delete with url , headers
 
-weave request with method as string and url as string and headers as map of string to string and body as maybe string into maybe ClientResponse:
-    return calling pengu_c_precis_http_request with method and url and headers and body
+# Sends an HTTP request using an arbitrary `method` (e.g. "PATCH", "HEAD") to
+# `url` with the given request `headers`. `body` is the payload when present
+# (some) or none to send no body. Ownership and none semantics are identical
+# to get.
+weave request with method as string , url as string , headers as map of string to string , body as maybe string into maybe ClientResponse:
+    return calling pengu_c_precis_http_request with method , url , headers , body
 
 # ----------------------------------------------------------------------------
 # HTTP Server API
 # ----------------------------------------------------------------------------
 
-weave serve_http with port as int and handler as opaque into void:
-    calling pengu_c_precis_serve_http with port and handler
+# Starts the embedded HTTP server listening on `port` and never returns (it
+# blocks for the rest of the process). `handler` is an opaque reference to the
+# request handler: a Pengu weave of the form
+# `weave name with req as Request into Response` that the runtime calls for
+# every request. Build the returned Response with response or serve_file.
+weave serve_http with port as int , handler as opaque into void:
+    calling pengu_c_precis_serve_http with port , handler
 
-weave response with status_code as int and body as string and headers as map of string to string into Response:
+# Builds a Response record with the given HTTP `status_code`, a plain-string
+# `body` and the response `headers` (map of name to value). The body is stored
+# as a present MaybeString. Return the record from a server handler.
+weave response with status_code as int , body as string , headers as map of string to string into Response:
     var m_body as MaybeString is calling oracle.maybe_some_string with body
-    var res as Response is with status_code is status_code and headers is headers and body is m_body
+    var res as Response is with status_code is status_code , headers is headers , body is m_body
     return res
 
+# Reads the file at `path` and wraps it in a 200 Response, guessing a
+# Content-Type header from the file extension (.html, .css, .js, .json, .png,
+# .jpg/.jpeg, .txt); unknown extensions fall back to application/octet-stream.
+# When the file cannot be read a 404 Response with body "File not found" is
+# returned instead. Files are read as UTF-8 text, so this suits text assets.
 weave serve_file with path as string into Response:
     var content as maybe string is calling archivum.read_file with path
     var hdrs as map of string to string is map of string to string
@@ -111,23 +203,36 @@ weave serve_file with path as string into Response:
             set mime is "image/jpeg"
         if ext_str == ".txt":
             set mime is "text/plain"
-        calling hdrs.set with "Content-Type" and mime
-        return calling response with 200 and content.value and hdrs
-    return calling response with 404 and "File not found" and hdrs
+        calling hdrs.set with "Content-Type" , mime
+        return calling response with 200 , content.value , hdrs
+    return calling response with 404 , "File not found" , hdrs
 
 # ----------------------------------------------------------------------------
 # TCP Sockets API
 # ----------------------------------------------------------------------------
 
-weave connect_tcp with host as string and port as int into maybe TCPSocket:
-    return calling pengu_c_precis_tcp_connect with host and port
+# Resolves `host` and opens a TCP stream connection to `port`. Returns some
+# TCPSocket on success — the caller owns it and must release it with tcp_close
+# when done — or none when the host cannot be resolved or the connection fails.
+weave connect_tcp with host as string , port as int into maybe TCPSocket:
+    return calling pengu_c_precis_tcp_connect with host , port
 
-weave tcp_send with sock as ref to TCPSocket and data as string into bool:
-    return calling pengu_c_precis_tcp_send with sock and data
+# Sends all of `data` over the connected socket `sock`. Returns true only when
+# every byte was written; false otherwise (closed socket, partial send).
+weave tcp_send with sock as ref to TCPSocket , data as string into bool:
+    return calling pengu_c_precis_tcp_send with sock , data
 
-weave tcp_recv with sock as ref to TCPSocket and max_bytes as int into maybe string:
-    return calling pengu_c_precis_tcp_recv with sock and max_bytes
+# Reads up to `max_bytes` bytes from the connected socket `sock` into a fresh
+# string owned by the caller (banish it when done). Returns none when the peer
+# has closed the connection, when no bytes are available at the moment of the
+# call, or on error. TCP is a stream: one call may return only part of a
+# message, so loop until the expected data has arrived.
+weave tcp_recv with sock as ref to TCPSocket , max_bytes as int into maybe string:
+    return calling pengu_c_precis_tcp_recv with sock , max_bytes
 
+# Closes the native socket held by `sock` and detaches it from the record.
+# Safe to call once per socket; calling further tcp_send/tcp_recv on a closed
+# socket fails instead of crashing.
 weave tcp_close with sock as ref to TCPSocket into void:
     calling pengu_c_precis_tcp_close with sock
 
@@ -135,6 +240,9 @@ weave tcp_close with sock as ref to TCPSocket into void:
 # DNS Lookup API
 # ----------------------------------------------------------------------------
 
+# Resolves `host` to its first IPv4 address, returned as a dotted-quad string
+# owned by the caller (e.g. "93.184.216.34"; numeric inputs such as
+# "127.0.0.1" pass through). Returns none when the name cannot be resolved.
 weave dns_lookup with host as string into maybe string:
     return calling pengu_c_precis_dns_lookup with host
 
@@ -142,11 +250,22 @@ weave dns_lookup with host as string into maybe string:
 # URL & Query Utilities
 # ----------------------------------------------------------------------------
 
+# Percent-encodes `s` for safe use in URLs/query strings, returning a fresh
+# string owned by the caller. RFC 3986 unreserved characters (A-Z, a-z, 0-9,
+# "-", "_", ".", "~") are kept verbatim; everything else becomes "%XX" in
+# uppercase.
 weave url_encode with s as string into string:
     return calling pengu_c_precis_url_encode with s
 
+# Percent-decodes `s`, converting "+" into a space, and returns a fresh string
+# owned by the caller. Malformed "%" sequences are kept literally. It is the
+# inverse of url_encode for encoded input.
 weave url_decode with s as string into string:
     return calling pengu_c_precis_url_decode with s
 
+# Parses the query part of a URL ("key1=value1&key2=value2") into a fresh map
+# of string to string owned by the caller. Keys and values are url-decoded
+# (so "+" becomes a space); parameters without "=" are skipped. Duplicated
+# keys overwrite earlier ones.
 weave parse_query with s as string into map of string to string:
     return calling pengu_c_precis_parse_query with s

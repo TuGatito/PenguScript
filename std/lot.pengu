@@ -1,42 +1,111 @@
 # std/lot.pengu - The Lot (Randomness)
-# Provides pseudorandom number generation and distributions.
+# Pseudorandom number generation and common probability distributions,
+# backed by the C standard library rand() PRNG (process-global state).
+#
+# Ownership / memory model:
+#   * Every function takes plain scalar parameters and returns plain scalar
+#     values: nothing here allocates, borrows or retains memory, so results
+#     can be stored, returned or banished freely.
+#   * Thread safety: the underlying generator is the shared C rand() state,
+#     so calls are not thread-safe and `seed` re-seeds every later draw in
+#     the whole process.
+#   * Security: this is the plain C PRNG, NOT cryptographically secure - do
+#     not use it for secrets, tokens or keys.
+#
+# Usage:
+#   import std.lot
+#   calling lot.seed with 1234
+#   var die as int is calling lot.rand_range with 1, 6
+#   var p as float is calling lot.rand_float
 
 import std.spark
 
-declare pengu_c_srand with seed as int into void
-declare pengu_c_rand into int
-declare pengu_c_rand_max into int
-declare pengu_c_rand_double into float
-declare pengu_c_rand_range with min as int and max as int into int
-declare pengu_c_rand_range_float with min as float and max as float into float
-declare pengu_c_rand_normal with mean as float and stddev as float into float
-declare pengu_c_rand_exp with lambda as float into float
-declare pengu_c_rand_bool with probability as float into bool
-declare pengu_c_rand_poisson with lambda as float into int
+# ----------------------------------------------------------------------------
+# External C declarations (runtime bridges over the C PRNG)
+# ----------------------------------------------------------------------------
 
+# C bridge: seeds the global rand() PRNG with `seed`. Exposed through seed.
+declare pengu_c_srand with seed as int into void
+
+# C bridge: raw rand() draw in [0, RAND_MAX]. Exposed through rand_int.
+declare pengu_c_rand into int
+
+# C bridge: the C RAND_MAX constant, the upper bound of the rand_int range.
+declare pengu_c_rand_max into int
+
+# C bridge: uniform double in [0, 1). Exposed through rand_float.
+declare pengu_c_rand_double into float
+
+# C bridge: uniform int in [min, max], inclusive. Exposed through rand_range.
+declare pengu_c_rand_range with min as int , max as int into int
+
+# C bridge: uniform float in [min, max). Exposed through rand_range_float.
+declare pengu_c_rand_range_float with min as float , max as float into float
+
+# C bridge: normal (Gaussian) draw. Exposed through rand_normal.
+declare pengu_c_rand_normal with mean as float , stddev as float into float
+
+# C bridge: exponential draw. Exposed through rand_exp.
+declare pengu_c_rand_exp with rate as float into float
+
+# C bridge: boolean draw with a given probability. Exposed through rand_bool.
+declare pengu_c_rand_bool with probability as float into bool
+
+# C bridge: Poisson count draw. Exposed through rand_poisson.
+declare pengu_c_rand_poisson with rate as float into int
+
+# ----------------------------------------------------------------------------
+# Seeding and raw uniform draws
+# ----------------------------------------------------------------------------
+
+# Seeds the process-global C PRNG with `s`. After seeding, every later draw
+# in the process follows the deterministic sequence for that seed (re-seeding
+# with the same value reproduces the same sequence).
 weave seed with s as int into void:
     calling pengu_c_srand with s
 
+# Returns one raw uniform draw from the C rand() generator, an int in
+# [0, RAND_MAX] (RAND_MAX is platform-dependent, at least 32767).
 weave rand_int into int:
     return calling pengu_c_rand
 
+# Returns a uniform float in [0, 1) - the raw rand() range mapped onto the
+# unit interval.
 weave rand_float into float:
     return calling pengu_c_rand_double
 
-weave rand_range with min_val as int and max_val as int into int:
-    return calling pengu_c_rand_range with min_val and max_val
+# ----------------------------------------------------------------------------
+# Ranges and probability distributions
+# ----------------------------------------------------------------------------
 
-weave rand_range_float with min_val as float and max_val as float into float:
-    return calling pengu_c_rand_range_float with min_val and max_val
+# Returns a uniform int in [min_val, max_val], both bounds inclusive. When
+# min_val >= max_val the function returns min_val unchanged.
+weave rand_range with min_val as int , max_val as int into int:
+    return calling pengu_c_rand_range with min_val , max_val
 
-weave rand_normal with mean as float and stddev as float into float:
-    return calling pengu_c_rand_normal with mean and stddev
+# Returns a uniform float in [min_val, max_val) - the lower bound is
+# included, the upper bound is excluded. When min_val >= max_val the
+# function returns min_val unchanged.
+weave rand_range_float with min_val as float , max_val as float into float:
+    return calling pengu_c_rand_range_float with min_val , max_val
 
-weave rand_exp with lambda as float into float:
-    return calling pengu_c_rand_exp with lambda
+# Returns a normal (Gaussian) draw with the given `mean` and standard
+# deviation `stddev`, generated with the Box-Muller transform.
+weave rand_normal with mean as float , stddev as float into float:
+    return calling pengu_c_rand_normal with mean , stddev
 
+# Returns an exponentially distributed draw with rate `lambda` (mean
+# 1 / lambda, scaled by -ln(u)). When lambda <= 0 the function returns 0.0.
+weave rand_exp with rate as float into float:
+    return calling pengu_c_rand_exp with rate
+
+# Returns true with `probability` and false otherwise. Defaults to a fair
+# coin toss (0.5) when no probability is given; values outside [0, 1] clamp
+# naturally (>= 1 always yields true, <= 0 always yields false).
 weave rand_bool with probability as float is 0.5 into bool:
     return calling pengu_c_rand_bool with probability
 
-weave rand_poisson with lambda as float into int:
-    return calling pengu_c_rand_poisson with lambda
+# Returns a Poisson-distributed non-negative int with mean `lambda`.
+# When lambda <= 0 the function returns 0.
+weave rand_poisson with rate as float into int:
+    return calling pengu_c_rand_poisson with rate

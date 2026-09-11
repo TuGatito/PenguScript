@@ -1,32 +1,99 @@
 # std/whisper.pengu - The Whisper (Logging)
 # Provides structured logging with severity levels: trace, debug, info, warn, error, fatal.
+#
+# Levels are plain ints: LOG_TRACE = 0, LOG_DEBUG = 1, LOG_INFO = 2,
+# LOG_WARN = 3, LOG_ERROR = 4, LOG_FATAL = 5. A message is emitted only when
+# its level is >= the globally configured minimum level (which defaults to
+# LOG_TRACE, i.e. everything is logged until set_level raises the bar).
+# Output lines are prefixed with the level name and colored with ANSI escapes
+# (COLOR_* constants), written through spark.println, and end with a reset.
+#
+# Typical usage:
+#   import std.whisper
+#   calling whisper.set_level with whisper.LOG_DEBUG
+#   calling whisper.debug with "entering parse"
+#   calling whisper.info with "done"
+#   calling whisper.error with "something failed"
+#
+# Ownership model:
+#   Every helper takes and returns plain values and owns nothing: no caller
+#   string is retained after the call and the level-name/color strings are
+#   built internally and discarded. There are no heap handles to free.
 
 import std.spark
 
+# ----------------------------------------------------------------------------
+# Level Constants (ints; higher = more severe)
+# ----------------------------------------------------------------------------
+
+# Severity 0: most verbose level, used for fine-grained tracing.
 const LOG_TRACE as int is 0
+
+# Severity 1: diagnostic detail useful while debugging.
 const LOG_DEBUG as int is 1
+
+# Severity 2: default operating level for notable, normal events.
 const LOG_INFO as int is 2
+
+# Severity 3: suspicious but non-fatal conditions.
 const LOG_WARN as int is 3
+
+# Severity 4: errors that the program recovers from.
 const LOG_ERROR as int is 4
+
+# Severity 5: unrecoverable failures; also the fallback level for unknown ids.
 const LOG_FATAL as int is 5
 
+# ----------------------------------------------------------------------------
+# ANSI Color Constants (used to colorize log lines by level)
+# ----------------------------------------------------------------------------
+
+# ANSI escape that resets terminal colors back to the default.
 const COLOR_RESET as string is "\033[0m"
+
+# ANSI bright-black (gray) foreground, used for trace lines.
 const COLOR_GRAY as string is "\033[90m"
+
+# ANSI cyan foreground, used for debug lines.
 const COLOR_CYAN as string is "\033[36m"
+
+# ANSI green foreground, used for info lines.
 const COLOR_GREEN as string is "\033[32m"
+
+# ANSI yellow foreground, used for warn lines.
 const COLOR_YELLOW as string is "\033[33m"
+
+# ANSI red foreground, used for error lines.
 const COLOR_RED as string is "\033[31m"
+
+# ANSI bright-red foreground, used for fatal lines.
 const COLOR_BRIGHT_RED as string is "\033[91m"
 
+# ----------------------------------------------------------------------------
+# Level Configuration (C runtime state)
+# ----------------------------------------------------------------------------
+
+# C bridge that stores the global minimum log level (a level int).
 declare pengu_log_set_level with level as int into void
+
+# C bridge that returns the global minimum log level (an int, 0..5).
 declare pengu_log_get_level into int
 
+# Sets the global minimum log level to `level`; messages below `level` are
+# suppressed by the log helper. Returns nothing.
 weave set_level with level as int into void:
     calling pengu_log_set_level with level
 
+# Returns the current global minimum log level (one of the LOG_* constants).
 weave get_level into int:
     return calling pengu_log_get_level
 
+# ----------------------------------------------------------------------------
+# Level Names & Colors
+# ----------------------------------------------------------------------------
+
+# Maps a level int to its uppercase name: "TRACE", "DEBUG", "INFO", "WARN",
+# "ERROR", or "FATAL" (any unrecognized level falls through to "FATAL").
 weave get_level_name with level as int into string:
     if level == LOG_TRACE:
         return "TRACE"
@@ -40,6 +107,9 @@ weave get_level_name with level as int into string:
         return "ERROR"
     return "FATAL"
 
+# Maps a level int to its ANSI color escape (a COLOR_* constant): gray for
+# trace, cyan for debug, green for info, yellow for warn, red for error and
+# bright red for fatal (and for any unrecognized level).
 weave get_level_color with level as int into string:
     if level == LOG_TRACE:
         return COLOR_GRAY
@@ -53,27 +123,40 @@ weave get_level_color with level as int into string:
         return COLOR_RED
     return COLOR_BRIGHT_RED
 
-weave log with level as int and msg as string into void:
+# ----------------------------------------------------------------------------
+# Core Logger & Level Conveniences
+# ----------------------------------------------------------------------------
+
+# Emits `msg` at severity `level` when `level` >= the configured minimum:
+# prints "[NAME] msg" through spark.println, colored by the level's ANSI code
+# and followed by a reset escape. Lower-severity messages are dropped silently.
+weave log with level as int , msg as string into void:
     var current_level as int is calling get_level
     if level >= current_level:
         var name as string is calling get_level_name with level
         var color as string is calling get_level_color with level
         calling spark.println with color + "[" + name + "] " + msg + COLOR_RESET
 
+# Logs `msg` at TRACE level (emitted only when LOG_TRACE >= the set minimum).
 weave trace with msg as string into void:
-    calling log with LOG_TRACE and msg
+    calling log with LOG_TRACE , msg
 
+# Logs `msg` at DEBUG level (emitted only when LOG_DEBUG >= the set minimum).
 weave debug with msg as string into void:
-    calling log with LOG_DEBUG and msg
+    calling log with LOG_DEBUG , msg
 
+# Logs `msg` at INFO level (emitted only when LOG_INFO >= the set minimum).
 weave info with msg as string into void:
-    calling log with LOG_INFO and msg
+    calling log with LOG_INFO , msg
 
+# Logs `msg` at WARN level (emitted only when LOG_WARN >= the set minimum).
 weave warn with msg as string into void:
-    calling log with LOG_WARN and msg
+    calling log with LOG_WARN , msg
 
+# Logs `msg` at ERROR level (emitted only when LOG_ERROR >= the set minimum).
 weave error with msg as string into void:
-    calling log with LOG_ERROR and msg
+    calling log with LOG_ERROR , msg
 
+# Logs `msg` at FATAL level (always emitted, since no minimum can exceed it).
 weave fatal with msg as string into void:
-    calling log with LOG_FATAL and msg
+    calling log with LOG_FATAL , msg

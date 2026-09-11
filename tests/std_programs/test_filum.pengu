@@ -13,7 +13,7 @@ weave main into void:
     calling spark.println with "mutex: ok"
 
     var wg as WaitGroup is calling filum.wait_group
-    calling filum.add with sigil of wg and 1
+    calling filum.add with sigil of wg, 1
     calling filum.done with sigil of wg
     calling filum.wait with sigil of wg
     calling spark.println with "waitgroup: ok"
@@ -27,12 +27,12 @@ weave main into void:
     if inc_val == 11:
         calling spark.println with "atomic inc: 11"
 
-    calling filum.store with sigil of ai and 20
-    var swapped as int is calling filum.swap with sigil of ai and 30
+    calling filum.store with sigil of ai, 20
+    var swapped as int is calling filum.swap with sigil of ai, 30
     if swapped == 20:
         calling spark.println with "atomic swap: 20"
 
-    var c_swapped as bool is calling filum.compare_swap with sigil of ai and 30 and 40
+    var c_swapped as bool is calling filum.compare_swap with sigil of ai, 30, 40
     if c_swapped:
         calling spark.println with "atomic compare_swap: ok"
 

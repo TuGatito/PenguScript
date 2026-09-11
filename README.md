@@ -1,12 +1,62 @@
 # PenguScript
 
-![Version](https://img.shields.io/badge/version-0.2.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+![Version](https://img.shields.io/badge/version-0.10.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 
 **PenguScript** is a statically typed, compiled programming language that combines the clean, indentation-based readability of **Python** (with a nod to MoonScript), the strict scoping and memory-discipline principles of **V**, and the raw speed, tiny footprint, and seamless C interoperability of **C**.
 
 PenguScript compiles directly to clean, human-readable **C99/C11** source code, which is then built into standalone native binaries with `gcc`/`clang` on Windows, Linux, and macOS — no interpreter, no VM, and no runtime overhead beyond the generated C.
 
 > **Status:** active development. CI builds the C runtime, runs `pytest tests/`, and packages a standalone release (compiler + VS Code extension) on **Windows, Linux and macOS** — see `.github/workflows/ci.yml`; tagged releases are published by `.github/workflows/release.yml`.
+
+> [!WARNING]
+> ### Beta — usable, not yet production-ready
+>
+> PenguScript today is a **beta**: the language core is stable enough to write real
+> programs and to drive C libraries, and the compiler has a green test suite, but
+> several language and tooling gaps are still open. The full assessment — with the
+> evidence behind every claim, the prioritised roadmap, and the porting
+> conventions that work today — is in
+> [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md).
+>
+> **What you can do today (all verified against the real toolchain)**
+>
+> - Compile to readable C99 and link **arbitrary C libraries**: project mode
+>   accepts `include_dirs`, `lib_dirs`, `links` and `ldflags` in `pengu.yaml`,
+>   plus a `c/` directory for your own glue code.
+> - Pass/receive **structs by value** in both directions, use C **`const`** via
+>   `frozen`, opaque handles, out-parameters (`sigil of`), `omen` enums,
+>   `#define`d constants, **callbacks** (named weaves, lambdas, `void*` user
+>   data, `qsort`-style function pointers) and compile-time `when`.
+> - Write whole programs with `maybe`/`result`, `defer`/`errdefer`, `shard`
+>   generics, `static var` function-local state, and the `std/` library
+>   (files, processes, threads/channels, regex, HTTP, SQLite, JSON/CSV/TOML/YAML,
+>   hashing/compression, logging, unit tests).
+> - Build and run the **core of the raylib corpus**: window, input, 2D shapes,
+>   text (`TextFormat`), textures, colours, timing, 3D vector/matrix math
+>   via `std.raymath`, and OpenGL immediate-mode rendering via `std.rlgl`. Six raylib examples are ported and verified in `scratch/port/`.
+> - **Multidimensional 2D arrays** (`array of array of T with size M with size N`),
+>   **memory deallocation** (`banish` on `string`, `list`, `map`, and `ref to T`),
+>   **module state idioms** (`static var` accessors and context structs),
+>   **C variadic declarations** (`declare ... with fmt as ref to frozen char, ... into int`),
+>   **struct literals in array literals**, **pointer indexing** (`p at i`) and generic
+>   slice bridging (`ffi.slice_from_ptr shard T`).
+>
+> **What is not there yet (do not plan a production project around these)**
+>
+> - **Pointer arithmetic** (`p + 1`): use indexing `p at i` or create a slice with `std.ffi.slice_from_ptr`.
+> - **A bare `printf`/`TextFormat` reached only through `include`** (no `declare` in scope) still
+>   type-checks and then fails in C; declare it (`declare printf with fmt as ref to frozen char, ... into int`)
+>   — the compiler reports the failure at your `.pengu` line.
+> - Tooling limits: `pengu bind` handles real headers (`--define`, `--cpp-flags`,
+>   `--system-includes`, `--preprocessed`), but a few vendored headers
+>   (`miniaudio`, `xxhash`, `tomlc17`, `yaml`) still need flags or are hand-maintained,
+>   and the CLI has no `-I`/`-L`/`-l` flags — use `pengu.yaml`.
+>
+> P0 (operational hygiene), P1 (the C shapes the raylib corpus needed) and P2
+> (breadth and safety: 2-D arrays, `rlgl`, explicit memory release, strict
+> pointer typing, real-header bindings) are complete; what remains is P3
+> ergonomics. Treat PenguScript as a capable beta — good for internal tools,
+> prototypes and C-library work — until P3 lands.
 
 ---
 
@@ -19,9 +69,9 @@ PenguScript compiles directly to clean, human-readable **C99/C11** source code, 
 - **Zero-overhead generics** — `shard` declarations specialized with `of`; each instantiation is monomorphized to plain C.
 - **Deterministic cleanup** — `defer` (LIFO on scope exit), `errdefer` (on error return), and explicit heap release with `banish`.
 - **First-class C FFI** — `include`/`link`/`declare`, opaque types (`alias … as opaque`), `sigil of` (address-of) / `essence of` (deref), zero-copy `bytes of <string>` borrows, and `weave`s that decay to C function pointers (callable from C and usable as coroutine bodies).
-- **`pengu bind`** — auto-generates a `.d.pengu` declaration file from any C header (structs → `rune`, unions → `echo`, enums → `omen`, functions → `declare`, callbacks → `alias … as ref to weave`, doc comments preserved).
+- **`pengu bind`** — auto-generates a `.d.pengu` declaration file from any C header (structs → `rune`, unions → `echo`, enums → `omen`, functions → `declare`, callbacks → `alias … as ref to weave`, doc comments preserved). It blanks GNU compiler extensions before parsing, auto-imports the bindings of included headers, and takes `--define/-D`, `--cpp-flags`, `--system-includes`, `--include-paths` and `--preprocessed FILE.i` for headers that need a specific preprocessor setup, with diagnostics that name the offending construct and the flag to try.
 - **Bundled C libraries** — SQLite, Raylib, WebUI, libuv, PCRE2, libxml2, zlib, Mbed TLS, cURL, libmicrohttpd, YAML, XLSX (libzip + libexpat + xlsxio), and TOML are compiled once into static archives and linked automatically.
-- **Rich standard library** — `std/` ships **48 modules**: 26 implemented in pure PenguScript (I/O, strings, files, math, time, regex bindings, HTTP client/server, JSON, CSV, concurrency, logging, unit testing, …) plus 22 curated C declaration bindings (`*.d.pengu`) for the bundled libraries.
+- **Rich standard library** — `std/` ships **52 modules**: 27 implemented in pure PenguScript (I/O, strings, files, math, time, regex bindings, HTTP client/server, JSON, CSV, concurrency, logging, unit testing, …) plus 25 curated C declaration bindings (`*.d.pengu`) for the bundled libraries (including **raylib**, **raymath**, and **rlgl**).
 - **Language Server (LSP)** — diagnostics with `help:`/`note:`/line spans, documentation from `#` and `##` doc comments, type & memory-size hovers, module-scoped autocompletion, go-to-definition, formatting, and code actions.
 - **Cargo-style project manager** — the `pengu` CLI creates, builds, runs, tests, checks, cleans, and formats projects, runs standalone scripts, and manages external dependencies.
 - **Compile-time features** — `when` conditionals, `defined(...)`, `-D name=value` defines, `static var`, and `when main:` guards so a file can act as both an importable module and a runnable script.
@@ -150,13 +200,13 @@ enchanting Vehicle:                        # method block; self is a ref
         return self->model + " at " + (self->speed to string) + " km/h"
 
 weave main into int:
-    var car as Vehicle is with model is "Pengu" and speed is 0.0
+    var car as Vehicle is with model is "Pengu", speed is 0.0
     calling car.accelerate with 45.5
     calling spark.println with calling car.describe
     return 0
 ```
 
-- **Declarations** — `var` (mutable) / `let` (immutable) locals, top-level `const`, and `weave name with a as T and b as T into R` functions. Values are assigned with `is` and mutated with `set`.
+- **Declarations** — `var` (mutable) / `let` (immutable) locals, top-level `const`, and `weave name with a as T, b as T into R` functions. Values are assigned with `is` and mutated with `set`.
 - **Types & collections** — `rune` structs, `omen` (enums with payloads) and `echo` (C unions), `maybe T`/`or:` error handling, fixed-size `array of T`, `slice of T`, dynamic `list of T`, and hash `map of K to V` via `at`. Pattern matching uses `judge … when …`.
 - **Generics** — `rune Box shard T:` declarations, specialized with `Box of int`; calls like `calling make_box of int with 42` monomorphize to plain C.
 - **Memory** — `defer`/`errdefer` run at scope exit (or on error), `banish` frees heap memory, and `sigil of x` / `essence of p` give explicit address-of and dereference.
@@ -185,14 +235,14 @@ weave main into int:
 
   ```pengu
   import std.xxhash
-  var h as u64 is calling xxhash.XXH64 with "PenguScript" and 11 and 0
+  var h as u64 is calling xxhash.XXH64 with "PenguScript", 11, 0
   ```
 
   Real-world C headers can be turned into such bindings automatically with `pengu bind`.
 
 ### Standard library
 
-`std/` contains 48 modules — 26 written in pure PenguScript and 22 curated C bindings (`.d.pengu`). Highlights: **spark** (core I/O & runtime), **scrolls** (strings), **archivum** (files), **compass** (paths), **chronicle** (time), **lot** (randomness), **arithmancy** (math), **oracle** (`Maybe`/`Result`), **atlas**/**coven**/**tally**/**loom** (maps, sets, lists, iterators), **ledger** (CSV), **cipher** (JSON + Base64), **parchment** (XML/HTML via libxml2), **regulus** (regex via PCRE2), **seal** (hashing + compression via Mbed TLS/zlib), **precis** (HTTP client/server via cURL/libmicrohttpd), **filum** (threads & channels), **ward** (assertions), **trial** (unit testing), **whisper** (logging), and **invoke** (CLI argument parsing) — plus bindings such as **sqlite3**, **raylib**, **webui**, **miniaudio**, **minicoro**, **xxhash** (with the **celeris** wrapper), **uuid**, **imago/scriptor/typis/pactum/datastructura/perlinum** (STB), **nanosvg/nanosvgrast**, **fenestra** (tinyfiledialogs), **rlights**, **yaml**, **tomlum** (TOML validation), and **xlsxio/xlsx** (`.xlsx` writing).
+`std/` contains 52 modules — 27 written in pure PenguScript and 25 curated C bindings (`.d.pengu`). Highlights: **spark** (core I/O & runtime), **scrolls** (strings), **archivum** (files), **compass** (paths), **chronicle** (time), **lot** (randomness), **arithmancy** (math), **oracle** (`Maybe`/`Result`), **atlas**/**coven**/**tally**/**loom** (maps, sets, lists, iterators), **ledger** (CSV), **cipher** (JSON + Base64), **parchment** (XML/HTML via libxml2), **regulus** (regex via PCRE2), **seal** (hashing + compression via Mbed TLS/zlib), **precis** (HTTP client/server via cURL/libmicrohttpd), **filum** (threads & channels), **ward** (assertions), **trial** (unit testing), **whisper** (logging), and **invoke** (CLI argument parsing) — plus bindings such as **sqlite3**, **raylib**, **raymath**, **rlgl**, **webui**, **miniaudio**, **minicoro**, **xxhash** (with the **celeris** wrapper), **uuid**, **imago/scriptor/typis/pactum/datastructura/perlinum** (STB), **nanosvg/nanosvgrast**, **fenestra** (tinyfiledialogs), **rlights**, **yaml**, **tomlum** (TOML validation), and **xlsxio/xlsx** (`.xlsx` writing).
 
 ---
 

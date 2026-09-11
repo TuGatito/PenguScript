@@ -939,20 +939,20 @@ import std.spark
 import std.archivum
 
 weave main into int:
-    var ok_root as bool is calling archivum.create_dir with "{rel_src}" and true
+    var ok_root as bool is calling archivum.create_dir with "{rel_src}", true
     if ok_root == false:
         calling spark.println with "mkdir failed"
         return 1
-    var ok_a as bool is calling archivum.write_file with "{rel_src}/a.txt" and "alpha"
+    var ok_a as bool is calling archivum.write_file with "{rel_src}/a.txt", "alpha"
     if ok_a == false:
         return 1
-    var ok_sub as bool is calling archivum.create_dir with "{rel_src}/sub" and true
+    var ok_sub as bool is calling archivum.create_dir with "{rel_src}/sub", true
     if ok_sub == false:
         return 1
-    var ok_b as bool is calling archivum.write_file with "{rel_src}/sub/b.txt" and "beta"
+    var ok_b as bool is calling archivum.write_file with "{rel_src}/sub/b.txt", "beta"
     if ok_b == false:
         return 1
-    var copied as bool is calling archivum.copy_tree with "{rel_src}" and "{rel_dst}"
+    var copied as bool is calling archivum.copy_tree with "{rel_src}", "{rel_dst}"
     if copied == false:
         calling spark.println with "copy failed"
         return 1

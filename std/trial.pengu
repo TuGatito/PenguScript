@@ -1,5 +1,23 @@
 # std/trial.pengu - The Trial (Test Runner & Framework)
 # Provides test suites, individual tests, and test reporting.
+# Re-exports the common std.ward assertion helpers so a test program needs a
+# single import (std.trial) for both the runner and the assertions.
+#
+# Typical usage:
+#   import std.trial
+#   weave my_test into void:
+#       calling trial.assert_eq_int with 1 + 1, 2
+#   var s as TestSuite is calling trial.new_suite with "Math"
+#   calling trial.test with sigil of s, "1 + 1 == 2", my_test
+#   calling trial.test_case with sigil of s, "direct check", true, ""
+#   var ok as bool is calling trial.summary with sigil of s
+#
+# Ownership model:
+#   TestSuite is a plain rune value; the runner functions take it by
+#   reference (`ref to TestSuite`, so pass `sigil of` your variable) in order
+#   to mutate the counters in place. Everything else is passed/returned by
+#   value with normal PenguScript lifetimes - no returned value is
+#   caller-owned and there is nothing extra to banish.
 
 import std.spark
 import std.oracle
@@ -9,33 +27,45 @@ import std.ward
 # Re-exported Assertions from std.ward
 # ----------------------------------------------------------------------------
 
+# Asserts that `cond` is true; panics with "assertion failed" otherwise
+# (re-export of ward.assert). Used inside test weaves to mark failures.
 weave assert with cond as bool into void:
     calling ward.assert with cond
 
-weave assert_msg with cond as bool and msg as string into void:
-    calling ward.assert_msg with cond and msg
+# Asserts that `cond` is true; panics with the custom `msg` otherwise
+# (re-export of ward.assert_msg).
+weave assert_msg with cond as bool , msg as string into void:
+    calling ward.assert_msg with cond , msg
 
-weave assert_eq_int with a as int and b as int into void:
-    calling ward.assert_eq_int with a and b
+# Asserts that integer `a` equals integer `b`; panics otherwise.
+weave assert_eq_int with a as int , b as int into void:
+    calling ward.assert_eq_int with a , b
 
-weave assert_eq_string with a as string and b as string into void:
-    calling ward.assert_eq_string with a and b
+# Asserts that string `a` equals string `b`; panics otherwise.
+weave assert_eq_string with a as string , b as string into void:
+    calling ward.assert_eq_string with a , b
 
-weave assert_ne_int with a as int and b as int into void:
-    calling ward.assert_ne_int with a and b
+# Asserts that integer `a` differs from integer `b`; panics otherwise.
+weave assert_ne_int with a as int , b as int into void:
+    calling ward.assert_ne_int with a , b
 
-weave assert_ne_string with a as string and b as string into void:
-    calling ward.assert_ne_string with a and b
+# Asserts that string `a` differs from string `b`; panics otherwise.
+weave assert_ne_string with a as string , b as string into void:
+    calling ward.assert_ne_string with a , b
 
+# Asserts that `cond` is true; panics otherwise (re-export of ward.assert_true).
 weave assert_true with cond as bool into void:
     calling ward.assert_true with cond
 
+# Asserts that `cond` is false; panics otherwise (re-export of ward.assert_false).
 weave assert_false with cond as bool into void:
     calling ward.assert_false with cond
 
+# Asserts that MaybeInt `m` holds a value (is present); panics when it is none.
 weave assert_present_int with m as MaybeInt into void:
     calling ward.assert_present_int with m
 
+# Asserts that ResultInt `r` is ok; panics when it holds an error.
 weave assert_ok_int with r as ResultInt into void:
     calling ward.assert_ok_int with r
 
@@ -43,18 +73,31 @@ weave assert_ok_int with r as ResultInt into void:
 # Test Runner Core
 # ----------------------------------------------------------------------------
 
+# A mutable test-suite accumulator: a display `name` plus running `total`,
+# `passed` and `failed` counters. Build it with new_suite and hand it by
+# reference (`ref to TestSuite`) to test, test_case and summary.
 rune TestSuite:
+    # Display name of the suite, used in the summary report.
     name as string
+    # Number of tests registered so far (passed + failed).
     total as int
+    # Number of tests that passed.
     passed as int
+    # Number of tests that failed.
     failed as int
 
+# Creates a new empty TestSuite named `name` and prints a
+# "=== Suite: <name> ===" banner to stdout. Returns the fresh suite value.
 weave new_suite with name as string into TestSuite:
     calling spark.println with "=== Suite: " + name + " ==="
-    var s as TestSuite is with name is name and total is 0 and passed is 0 and failed is 0
+    var s as TestSuite is with name is name , total is 0 , passed is 0 , failed is 0
     return s
 
-weave test_case with s as ref to TestSuite and name as string and passed as bool and err_msg as string is "" into void:
+# Records one already-evaluated result on suite `s`: increments `total` and,
+# according to `passed`, increments `passed` or `failed`, printing a
+# "  [PASS] <name>" or "  [FAIL] <name> - <err_msg>" line. `err_msg` is empty
+# by default and only shown on failure.
+weave test_case with s as ref to TestSuite , name as string , passed as bool , err_msg as string is "" into void:
     set s->total is s->total + 1
     if passed:
         set s->passed is s->passed + 1
@@ -63,12 +106,18 @@ weave test_case with s as ref to TestSuite and name as string and passed as bool
         set s->failed is s->failed + 1
         calling spark.println with "  [FAIL] " + name + " - " + err_msg
 
-weave test with s as ref to TestSuite and name as string and fn as weave into void into void:
+# Runs the test weave `fn` on suite `s`: increments `total`, calls `fn`, and
+# records the test as passed (printing "  [PASS] <name>") when `fn` returns
+# normally. Note there is no try/catch: a failing test must make `fn` panic
+# (for example with the trial.assert* helpers), which aborts the program.
+weave test with s as ref to TestSuite , name as string , fn as weave into void into void:
     set s->total is s->total + 1
     calling fn
     set s->passed is s->passed + 1
     calling spark.println with "  [PASS] " + name
 
+# Prints the full report for suite `s` (name, totals, pass/fail bars) and
+# returns true when no test failed (failed == 0), false otherwise.
 weave summary with s as ref to TestSuite into bool:
     calling spark.println with ""
     calling spark.println with "=========================================="

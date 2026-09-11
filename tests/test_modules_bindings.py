@@ -176,7 +176,7 @@ class TestModuleResolution:
             write_file(d, "b.pengu", """import c
 
 weave make_point into c.Point:
-  with x is 1 and y is 2
+  with x is 1, y is 2
 """)
             write_file(d, "a.pengu", """import b
 
@@ -293,13 +293,13 @@ rune MathVector:
     x as float
     y as float
 
-declare compute_sum with a as int and b as int into int
+declare compute_sum with a as int, b as int into int
 """)
             write_file(d, "main.pengu", """
 import mathlib
 
 weave main into int:
-    let res as int is calling compute_sum with 10 and 20
+    let res as int is calling compute_sum with 10, 20
     return res
 """)
             order, trees, checker = check_all(d, "main.pengu")
@@ -423,14 +423,14 @@ int native_multiply(int a, int b) {
             write_file(d, "calc.d.pengu", """
 include "native_calc.h"
 
-declare native_multiply with a as int and b as int into int
+declare native_multiply with a as int, b as int into int
 """)
             # 3. main.pengu
             write_file(d, "main.pengu", """
 import calc
 
 weave main into int:
-    let result as int is calling native_multiply with 6 and 7
+    let result as int is calling native_multiply with 6, 7
     if result == 42:
         return 0
     return 1
@@ -1018,9 +1018,9 @@ class TestPenguBindGenerator:
         assert "  RED is 3" in text
         assert "  GREEN is 4" in text
         assert "  BLUE is 5" in text
-        assert "alias change_cb as ref to weave with value as int, text as ref to char into void" in text
+        assert "alias change_cb as ref to weave with value as int, text as ref to frozen char into void" in text
         assert "declare add with a as int, b as int into int" in text
-        assert "declare set_path with path as ref to char, n as size_t, p as ref to Point, fn as change_cb into bool" in text
+        assert "declare set_path with path as ref to frozen char, n as size_t, p as ref to Point, fn as change_cb into bool" in text
         assert "declare alloc_raw with n as u64 into ref to void" in text
 
     def test_ignore_patterns(self):
@@ -1036,8 +1036,8 @@ class TestPenguBindGenerator:
         assert "declare add with a as int, b as int into int" in text
 
     def test_no_comments(self):
-        # a doc comment directly above a declaration becomes a ## comment,
-        # unless no_comments is set.
+        # a doc comment directly above a declaration becomes a single-line '#'
+        # comment, unless no_comments is set.
         header = """\
 /* Demo header used by the bind tests. */
 #ifndef DEMO_H
@@ -1049,10 +1049,10 @@ int add(int a, int b);
 #endif
 """
         text = self._gen(header)
-        assert "## Returns the sum of a and b." in text
+        assert "# Returns the sum of a and b." in text
 
         text_no_c = self._gen(header, no_comments=True)
-        assert "## Returns the sum of a and b." not in text_no_c
+        assert "Returns the sum of a and b." not in text_no_c
 
     def test_webui_end_to_end(self):
         with temp_project_dir("pengu_bindwebui_") as d:
@@ -1073,3 +1073,133 @@ int add(int a, int b);
             checker = PenguChecker(base_dir=str(REPO))
             checker.check(PenguParser().parse(text), source=text, filename=p)
             _assert_semantic_errors(checker)
+
+
+@pytest.mark.skipif(not HAVE_CC, reason="pengu bind runs gcc -E; no C compiler available")
+class TestPenguBindCurrentLanguage:
+    """The generator must emit what the current language accepts.
+
+    Covers the 0.10.0 output rules (comma separators, single-line `#` comments)
+    plus the features added later: `frozen` for `const` signatures, the
+    `frozen`-aware C-string literal conversion, auto `import` of the bindings
+    for included headers, callback aliases hoisted out of struct bodies and the
+    dropping of enum aliases (PenguScript omens reject duplicate values).
+    """
+
+    @staticmethod
+    def _gen(header_text: str, name: str = "demo.h", **kw) -> str:
+        with temp_project_dir("pengu_bind_lang_") as d:
+            hdr = write_file(d, name, header_text)
+            out = os.path.join(str(d), Path(name).stem + ".d.pengu")
+            kw.setdefault("output", out)
+            generate_bind_file(hdr, **kw)
+            with open(out, "r", encoding="utf-8") as f:
+                return f.read()
+
+    @staticmethod
+    def _check(text: str, filename: str = "demo.d.pengu", base_dir=None):
+        checker = PenguChecker(base_dir=str(base_dir or REPO))
+        checker.check(PenguParser().parse(text), source=text, filename=filename)
+        _assert_semantic_errors(checker)
+
+    def test_multiline_comment_becomes_one_hash_line_each(self):
+        text = self._gen(
+            "/* Demo header.\n"
+            " * Second line.\n"
+            " * Third line.\n"
+            " */\n"
+            "int add(int a, int b);\n"
+        )
+        assert "# Demo header." in text
+        assert "# Second line." in text
+        assert "# Third line." in text
+        assert "## Second line." not in text
+        # Only the generated-file banner keeps the '##' doc marker.
+        assert all(not line.startswith("##") or "pengu bind" in line or "Source header" in line
+                   for line in text.splitlines())
+
+    def test_const_parameters_become_frozen(self):
+        text = self._gen(
+            "void show(const char *text, const void *blob);\n"
+            "const int LIMIT = 10;\n"
+        )
+        assert "declare show with text as ref to frozen char, blob as ref to frozen void into void" in text
+
+    def test_const_pointer_qualifier_is_dropped(self):
+        # 'char * const p' freezes the pointer, which is what 'let' expresses.
+        text = self._gen("void poke(char * const p);\n")
+        assert "declare poke with p as ref to char into void" in text
+        assert "frozen" not in text
+
+    def test_string_literal_flows_into_frozen_char(self):
+        # The generated signature must stay callable with a plain literal.
+        text = self._gen("void show(const char *text);\n")
+        with temp_project_dir("pengu_bind_str_") as d:
+            mod = write_file(d, "demo.d.pengu", text)
+            entry = write_file(d, "main.pengu",
+                               'import demo\n\nweave main into int:\n'
+                               '    calling show with "hello"\n    return 0\n')
+            parser = PenguParser()
+            order = resolve_imports(str(d), entry, parser)
+            checker = PenguChecker(base_dir=str(d))
+            for i, path in enumerate(order):
+                code = Path(path).read_text(encoding="utf-8")
+                checker.check(parser.parse(code), source=code, filename=path,
+                              reset_symbols=(i == 0), import_order=order)
+            _assert_semantic_errors(checker)
+            assert os.path.isfile(mod)
+
+    def test_auto_import_of_included_headers(self):
+        with temp_project_dir("pengu_bind_imp_") as d:
+            write_file(d, "base.h", "typedef struct Base { int x; } Base;\n")
+            write_file(d, "top.h", '#include "base.h"\ntypedef struct Top { Base b; } Top;\n')
+            # Bind the dependency first so its banner records the header.
+            generate_bind_file(str(d / "base.h"), output=str(d / "base.d.pengu"),
+                               include_paths=[str(d)])
+            text = Path(generate_bind_file(str(d / "top.h"), output=str(d / "top.d.pengu"),
+                                           include_paths=[str(d)])).read_text(encoding="utf-8")
+            assert "#   base.h" in text
+            assert "import" in text and "base" in text
+            # …and never imports itself.
+            assert "import pen..top" not in text
+
+    def test_callback_alias_is_hoisted_out_of_the_struct(self):
+        text = self._gen(
+            "typedef struct io {\n"
+            "    int (*read)(void *user, char *data, int size);\n"
+            "    void (*skip)(void *user, int n);\n"
+            "} io;\n"
+        )
+        lines = [l for l in text.splitlines() if l.strip()]
+        rune_at = next(i for i, l in enumerate(lines) if l.startswith("rune io:"))
+        aliases = [i for i, l in enumerate(lines) if l.startswith("alias Callback")]
+        assert aliases, "no callback alias emitted"
+        assert max(aliases) < rune_at, "aliases must precede the rune"
+        assert lines[rune_at + 1].startswith("  read as Callback")
+        assert lines[rune_at + 2].startswith("  skip as Callback")
+        self._check(text)
+
+    def test_duplicate_enum_values_are_dropped(self):
+        text = self._gen(
+            "typedef enum mode {\n"
+            "    MODE_A = 0,\n"
+            "    MODE_B = 1,\n"
+            "    MODE_ALIAS = 1,\n"
+            "} mode;\n"
+        )
+        assert "  MODE_B is 1" in text
+        assert "MODE_ALIAS" not in text
+        self._check(text)
+
+    def test_generated_binding_checks_clean(self):
+        text = self._gen(
+            "typedef enum level { LOG_OFF = 0, LOG_ON = 1 } level;\n"
+            "typedef struct point { float x; float y; } point;\n"
+            "const char *name_of(const point *p);\n"
+            "void move(point *p, float dx, float dy);\n"
+        )
+        assert "rune point:" in text
+        assert "omen level:" in text
+        assert "declare name_of with p as ref to frozen point into ref to frozen char" in text
+        assert "declare move with p as ref to point, dx as f32, dy as f32 into void" in text
+        self._check(text)

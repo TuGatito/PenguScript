@@ -1,5 +1,17 @@
 # std/filum.pengu - The Filum (Concurrency)
 # Provides concurrency primitives: threads, channels, mutexes, wait groups, atomics.
+#
+# The primitives wrap native C handles stored in an opaque "_ptr" field of
+# each rune.
+# Usage: import std.filum. Create a Mutex with "calling filum.mutex", protect a
+# critical section with "calling filum.lock with sigil of m" and
+# "calling filum.unlock with sigil of m", or use an AtomicInt counter with
+# "calling filum.inc with sigil of a".
+# Ownership: constructors allocate native handles owned by the returned rune.
+# Release each handle exactly once, via the matching free function (free_mutex,
+# free_wait_group, free_once, free_cond, free_atomic_int, free_chan) or the
+# rune-level free method, and never use the rune afterwards. Handles are
+# passed to module functions as refs, so calls take "sigil of" the rune value.
 
 import std.spark
 import std.oracle
@@ -8,21 +20,33 @@ import std.oracle
 # Type Definitions
 # ----------------------------------------------------------------------------
 
+# Mutex rune: an owned wrapper around a native C mutex handle (see _ptr).
 rune Mutex:
     _ptr as opaque
 
+# WaitGroup rune: an owned wrapper around a native wait-group handle that
+# counts concurrent units and can block until all of them finish.
 rune WaitGroup:
     _ptr as opaque
 
+# Once rune: an owned wrapper around a native guard that runs a callback
+# exactly once, no matter how many goroutines reach it.
 rune Once:
     _ptr as opaque
 
+# Cond rune: an owned wrapper around a native condition variable used to wait
+# for and signal state changes between goroutines holding a Mutex.
 rune Cond:
     _ptr as opaque
 
+# AtomicInt rune: an owned wrapper around a native atomic integer supporting
+# thread-safe load, store, add, swap and compare-and-swap operations.
 rune AtomicInt:
     _ptr as opaque
 
+# Chan rune: wrapper around a native channel handle plus buffering metadata
+# (buffered flag and capacity). Channel send/recv is not wired into this
+# module yet; only free_chan operates on the handle.
 rune Chan:
     _ptr as opaque
     buffered as bool
@@ -32,203 +56,382 @@ rune Chan:
 # External C Declarations
 # ----------------------------------------------------------------------------
 
+# Runtime: launches f on a new goroutine and returns immediately.
 declare pengu_c_filum_go with f as opaque into void
-declare pengu_c_filum_chan_new with elem_size as int and cap as int into opaque
-declare pengu_c_filum_chan_send with c as opaque and value as opaque into bool
-declare pengu_c_filum_chan_recv with c as opaque and out as opaque into bool
+# Runtime: creates a channel for elements of size elem_size with capacity cap
+# (0 = unbuffered). Ownership: the caller owns the returned handle and must
+# release it with pengu_c_filum_chan_free.
+declare pengu_c_filum_chan_new with elem_size as usize , cap as int into opaque
+# Runtime: sends a value into channel c; true when accepted, false when c is
+# closed.
+declare pengu_c_filum_chan_send with c as opaque , value as opaque into bool
+# Runtime: receives a value from channel c into out; true when a value was
+# received, false when c is closed and drained.
+declare pengu_c_filum_chan_recv with c as opaque , out as opaque into bool
+# Runtime: closes channel c; queued values remain receivable.
 declare pengu_c_filum_chan_close with c as opaque into void
+# Runtime: number of values currently buffered in channel c.
 declare pengu_c_filum_chan_len with c as opaque into int
+# Runtime: capacity of channel c (0 when unbuffered).
 declare pengu_c_filum_chan_cap with c as opaque into int
 
+# Runtime: allocates a native mutex. Ownership: the caller owns the returned
+# handle and must release it with pengu_c_filum_mutex_free.
 declare pengu_c_filum_mutex_new into opaque
+# Runtime: locks the mutex, blocking until it is available.
 declare pengu_c_filum_mutex_lock with m as opaque into void
+# Runtime: unlocks the mutex; the caller must currently hold the lock.
 declare pengu_c_filum_mutex_unlock with m as opaque into void
+# Runtime: attempts a non-blocking lock on the mutex; true when acquired.
 declare pengu_c_filum_mutex_try_lock with m as opaque into bool
 
+# Runtime: allocates a wait group. Ownership: the caller owns the returned
+# handle and must release it with pengu_c_filum_wait_group_free.
 declare pengu_c_filum_wait_group_new into opaque
-declare pengu_c_filum_wait_group_add with wg as opaque and delta as int into void
+# Runtime: adds delta to the wait-group counter.
+declare pengu_c_filum_wait_group_add with wg as opaque , delta as int into void
+# Runtime: decrements the wait-group counter by one.
 declare pengu_c_filum_wait_group_done with wg as opaque into void
+# Runtime: blocks until the wait-group counter reaches zero.
 declare pengu_c_filum_wait_group_wait with wg as opaque into void
 
+# Runtime: allocates a once-guard. Ownership: the caller owns the returned
+# handle and must release it with pengu_c_filum_once_free.
 declare pengu_c_filum_once_new into opaque
-declare pengu_c_filum_once_do with o as opaque and f as opaque into void
+# Runtime: runs callback f exactly once across all callers of the same guard.
+declare pengu_c_filum_once_do with o as opaque , f as opaque into void
 
+# Runtime: allocates a condition variable. Ownership: the caller owns the
+# returned handle and must release it with pengu_c_filum_cond_free.
 declare pengu_c_filum_cond_new into opaque
-declare pengu_c_filum_cond_wait with c as opaque and m as opaque into void
+# Runtime: atomically releases mutex m and blocks until c is signaled;
+# reacquires m before returning.
+declare pengu_c_filum_cond_wait with c as opaque , m as opaque into void
+# Runtime: wakes one goroutine waiting on c.
 declare pengu_c_filum_cond_signal with c as opaque into void
+# Runtime: wakes every goroutine waiting on c.
 declare pengu_c_filum_cond_broadcast with c as opaque into void
 
+# Runtime: allocates an atomic integer initialized to initial. Ownership: the
+# caller owns the returned handle and must release it with
+# pengu_c_filum_atomic_int_free.
 declare pengu_c_filum_atomic_int_new with initial as int into opaque
+# Runtime: returns the current value of atomic integer a.
 declare pengu_c_filum_atomic_int_load with a as opaque into int
-declare pengu_c_filum_atomic_int_store with a as opaque and val as int into void
-declare pengu_c_filum_atomic_int_add with a as opaque and delta as int into int
-declare pengu_c_filum_atomic_int_swap with a as opaque and new_val as int into int
-declare pengu_c_filum_atomic_int_compare_swap with a as opaque and old_val as int and new_val as int into bool
+# Runtime: sets atomic integer a to val.
+declare pengu_c_filum_atomic_int_store with a as opaque , val as int into void
+# Runtime: atomically adds delta to a and returns the previous value.
+declare pengu_c_filum_atomic_int_add with a as opaque , delta as int into int
+# Runtime: atomically replaces the value of a with new_val and returns the
+# previous value.
+declare pengu_c_filum_atomic_int_swap with a as opaque , new_val as int into int
+# Runtime: sets a to new_val only when it currently equals old_val; true when
+# the swap happened.
+declare pengu_c_filum_atomic_int_compare_swap with a as opaque , old_val as int , new_val as int into bool
 
+# Runtime: suspends the calling goroutine for ms milliseconds.
 declare pengu_c_filum_sleep with ms as int into void
+# Runtime: number of logical CPUs available to the process.
 declare pengu_c_filum_num_cpu into int
+# Runtime: identifier of the calling goroutine.
 declare pengu_c_filum_goroutine_id into int
+
+# Runtime: releases a mutex handle. Call exactly once; do not use the Mutex
+# afterwards.
+declare pengu_c_filum_mutex_free with m as opaque into void
+# Runtime: releases a wait-group handle. Call exactly once; do not use the
+# WaitGroup afterwards.
+declare pengu_c_filum_wait_group_free with wg as opaque into void
+# Runtime: releases a once-guard handle. Call exactly once; do not use the Once
+# afterwards.
+declare pengu_c_filum_once_free with o as opaque into void
+# Runtime: releases a condition-variable handle. Call exactly once; do not use
+# the Cond afterwards.
+declare pengu_c_filum_cond_free with c as opaque into void
+# Runtime: releases an atomic-integer handle. Call exactly once; do not use the
+# AtomicInt afterwards.
+declare pengu_c_filum_atomic_int_free with a as opaque into void
+# Runtime: releases a channel handle. Call exactly once; do not use the Chan
+# afterwards.
+declare pengu_c_filum_chan_free with c as opaque into void
 
 # ----------------------------------------------------------------------------
 # Mutex Functional API & Enchanting
 # ----------------------------------------------------------------------------
 
+# Allocates a new native mutex and returns the owning Mutex rune.
+# Ownership: free it with free_mutex or m.free.
 weave mutex into Mutex:
     var m as Mutex is with _ptr is calling pengu_c_filum_mutex_new
     return m
 
+# Locks the mutex, blocking until it is available.
 weave lock with m as ref to Mutex into void:
     calling pengu_c_filum_mutex_lock with m->_ptr
 
+# Unlocks the mutex; the caller must currently hold the lock.
 weave unlock with m as ref to Mutex into void:
     calling pengu_c_filum_mutex_unlock with m->_ptr
 
+# Attempts a non-blocking lock on the mutex; true when the lock was acquired.
 weave try_lock with m as ref to Mutex into bool:
     return calling pengu_c_filum_mutex_try_lock with m->_ptr
 
+# Mutex methods mirroring the functional API above, callable on a Mutex value.
+# Ownership: call free to release the native handle exactly once.
 enchanting Mutex:
+    # Locks this mutex, blocking until it is available.
     weave lock into void:
         calling pengu_c_filum_mutex_lock with self->_ptr
 
+    # Unlocks this mutex; the caller must currently hold the lock.
     weave unlock into void:
         calling pengu_c_filum_mutex_unlock with self->_ptr
 
+    # Attempts a non-blocking lock on this mutex; true when acquired.
     weave try_lock into bool:
         return calling pengu_c_filum_mutex_try_lock with self->_ptr
+
+    # Releases the native handle owned by this rune; do not use the value
+    # afterwards.
+    weave free into void:
+        calling pengu_c_filum_mutex_free with self->_ptr
 
 # ----------------------------------------------------------------------------
 # WaitGroup Functional API & Enchanting
 # ----------------------------------------------------------------------------
 
+# Allocates a new native wait group and returns the owning WaitGroup rune.
+# Ownership: free it with free_wait_group or wg.free.
 weave wait_group into WaitGroup:
     var wg as WaitGroup is with _ptr is calling pengu_c_filum_wait_group_new
     return wg
 
-weave add with wg as ref to WaitGroup and delta as int into void:
-    calling pengu_c_filum_wait_group_add with wg->_ptr and delta
+# Adds delta to the wait-group counter; call before starting tracked work.
+weave add with wg as ref to WaitGroup , delta as int into void:
+    calling pengu_c_filum_wait_group_add with wg->_ptr , delta
 
+# Decrements the wait-group counter by one; call when a tracked unit finishes.
 weave done with wg as ref to WaitGroup into void:
     calling pengu_c_filum_wait_group_done with wg->_ptr
 
+# Blocks until the wait-group counter reaches zero.
 weave wait with wg as ref to WaitGroup into void:
     calling pengu_c_filum_wait_group_wait with wg->_ptr
 
+# WaitGroup methods mirroring the functional API above, callable on a WaitGroup
+# value. Ownership: call free to release the native handle exactly once.
 enchanting WaitGroup:
+    # Adds delta to this wait group counter; call before starting tracked work.
     weave add with delta as int into void:
-        calling pengu_c_filum_wait_group_add with self->_ptr and delta
+        calling pengu_c_filum_wait_group_add with self->_ptr , delta
 
+    # Decrements this wait group counter by one; call when a unit finishes.
     weave done into void:
         calling pengu_c_filum_wait_group_done with self->_ptr
 
+    # Blocks until this wait group counter reaches zero.
     weave wait into void:
         calling pengu_c_filum_wait_group_wait with self->_ptr
+
+    # Releases the native handle owned by this rune; do not use the value
+    # afterwards.
+    weave free into void:
+        calling pengu_c_filum_wait_group_free with self->_ptr
 
 # ----------------------------------------------------------------------------
 # Once Functional API & Enchanting
 # ----------------------------------------------------------------------------
 
+# Allocates a new native once-guard and returns the owning Once rune.
+# Ownership: free it with free_once or o.free.
 weave once into Once:
     var o as Once is with _ptr is calling pengu_c_filum_once_new
     return o
 
-weave do_once with o as ref to Once and f as opaque into void:
-    calling pengu_c_filum_once_do with o->_ptr and f
+# Runs callback f exactly once across every goroutine sharing this Once.
+weave do_once with o as ref to Once , f as opaque into void:
+    calling pengu_c_filum_once_do with o->_ptr , f
 
+# Once methods mirroring the functional API above, callable on a Once value.
+# Ownership: call free to release the native handle exactly once.
 enchanting Once:
+    # Runs callback f exactly once across every goroutine sharing this guard.
     weave do_action with f as opaque into void:
-        calling pengu_c_filum_once_do with self->_ptr and f
+        calling pengu_c_filum_once_do with self->_ptr , f
+
+    # Releases the native handle owned by this rune; do not use the value
+    # afterwards.
+    weave free into void:
+        calling pengu_c_filum_once_free with self->_ptr
 
 # ----------------------------------------------------------------------------
 # Cond Functional API & Enchanting
 # ----------------------------------------------------------------------------
 
+# Allocates a new native condition variable and returns the owning Cond rune.
+# Ownership: free it with free_cond or c.free.
 weave cond into Cond:
     var c as Cond is with _ptr is calling pengu_c_filum_cond_new
     return c
 
-weave cond_wait with c as ref to Cond and m as ref to Mutex into void:
-    calling pengu_c_filum_cond_wait with c->_ptr and m->_ptr
+# Atomically releases mutex m and blocks until the condition variable is
+# signaled; reacquires m before returning.
+weave cond_wait with c as ref to Cond , m as ref to Mutex into void:
+    calling pengu_c_filum_cond_wait with c->_ptr , m->_ptr
 
+# Wakes one goroutine currently waiting on this condition variable.
 weave signal with c as ref to Cond into void:
     calling pengu_c_filum_cond_signal with c->_ptr
 
+# Wakes every goroutine currently waiting on this condition variable.
 weave broadcast with c as ref to Cond into void:
     calling pengu_c_filum_cond_broadcast with c->_ptr
 
+# Cond methods mirroring the functional API above, callable on a Cond value.
+# Ownership: call free to release the native handle exactly once.
 enchanting Cond:
+    # Atomically releases m and waits for a signal; reacquires m before
+    # returning.
     weave wait_mutex with m as ref to Mutex into void:
-        calling pengu_c_filum_cond_wait with self->_ptr and m->_ptr
+        calling pengu_c_filum_cond_wait with self->_ptr , m->_ptr
 
+    # Wakes one goroutine waiting on this condition variable.
     weave signal into void:
         calling pengu_c_filum_cond_signal with self->_ptr
 
+    # Wakes every goroutine waiting on this condition variable.
     weave broadcast into void:
         calling pengu_c_filum_cond_broadcast with self->_ptr
+
+    # Releases the native handle owned by this rune; do not use the value
+    # afterwards.
+    weave free into void:
+        calling pengu_c_filum_cond_free with self->_ptr
 
 # ----------------------------------------------------------------------------
 # AtomicInt Functional API & Enchanting
 # ----------------------------------------------------------------------------
 
+# Allocates a native atomic integer with the given initial value (default 0)
+# and returns the owning AtomicInt rune. Ownership: free it with
+# free_atomic_int or a.free.
 weave atomic_int with initial as int is 0 into AtomicInt:
     var a as AtomicInt is with _ptr is calling pengu_c_filum_atomic_int_new with initial
     return a
 
+# Returns the current value of the atomic integer (atomic read).
 weave load with a as ref to AtomicInt into int:
     return calling pengu_c_filum_atomic_int_load with a->_ptr
 
-weave store with a as ref to AtomicInt and val as int into void:
-    calling pengu_c_filum_atomic_int_store with a->_ptr and val
+# Sets the atomic integer to val (atomic write).
+weave store with a as ref to AtomicInt , val as int into void:
+    calling pengu_c_filum_atomic_int_store with a->_ptr , val
 
-weave add_atomic with a as ref to AtomicInt and delta as int into int:
-    return calling pengu_c_filum_atomic_int_add with a->_ptr and delta
+# Atomically adds delta to the atomic integer and returns its previous value.
+weave add_atomic with a as ref to AtomicInt , delta as int into int:
+    return calling pengu_c_filum_atomic_int_add with a->_ptr , delta
 
-weave swap with a as ref to AtomicInt and new_val as int into int:
-    return calling pengu_c_filum_atomic_int_swap with a->_ptr and new_val
+# Atomically replaces the value with new_val and returns the previous value.
+weave swap with a as ref to AtomicInt , new_val as int into int:
+    return calling pengu_c_filum_atomic_int_swap with a->_ptr , new_val
 
-weave compare_swap with a as ref to AtomicInt and old_val as int and new_val as int into bool:
-    return calling pengu_c_filum_atomic_int_compare_swap with a->_ptr and old_val and new_val
+# Sets the value to new_val only when it currently equals old_val; true when
+# the replacement happened.
+weave compare_swap with a as ref to AtomicInt , old_val as int , new_val as int into bool:
+    return calling pengu_c_filum_atomic_int_compare_swap with a->_ptr , old_val , new_val
 
+# Atomically increments the atomic integer by one and returns the new value.
 weave inc with a as ref to AtomicInt into int:
-    var old as int is calling pengu_c_filum_atomic_int_add with a->_ptr and 1
+    var old as int is calling pengu_c_filum_atomic_int_add with a->_ptr , 1
     return old + 1
 
+# Atomically decrements the atomic integer by one and returns the new value.
 weave dec with a as ref to AtomicInt into int:
-    var old as int is calling pengu_c_filum_atomic_int_add with a->_ptr and -1
+    var old as int is calling pengu_c_filum_atomic_int_add with a->_ptr , -1
     return old - 1
 
+# AtomicInt methods mirroring the functional API above, callable on an
+# AtomicInt value. Ownership: call free to release the native handle exactly
+# once.
 enchanting AtomicInt:
+    # Returns the current value (atomic read).
     weave load into int:
         return calling pengu_c_filum_atomic_int_load with self->_ptr
 
+    # Sets the value to val (atomic write).
     weave store with val as int into void:
-        calling pengu_c_filum_atomic_int_store with self->_ptr and val
+        calling pengu_c_filum_atomic_int_store with self->_ptr , val
 
+    # Atomically adds delta and returns the previous value.
     weave add with delta as int into int:
-        return calling pengu_c_filum_atomic_int_add with self->_ptr and delta
+        return calling pengu_c_filum_atomic_int_add with self->_ptr , delta
 
+    # Atomically replaces the value with new_val and returns the previous
+    # value.
     weave swap with new_val as int into int:
-        return calling pengu_c_filum_atomic_int_swap with self->_ptr and new_val
+        return calling pengu_c_filum_atomic_int_swap with self->_ptr , new_val
 
-    weave compare_swap with old_val as int and new_val as int into bool:
-        return calling pengu_c_filum_atomic_int_compare_swap with self->_ptr and old_val and new_val
+    # Sets the value to new_val only when it equals old_val; true when
+    # replaced.
+    weave compare_swap with old_val as int , new_val as int into bool:
+        return calling pengu_c_filum_atomic_int_compare_swap with self->_ptr , old_val , new_val
 
+    # Atomically increments by one and returns the new value.
     weave inc into int:
-        var old as int is calling pengu_c_filum_atomic_int_add with self->_ptr and 1
+        var old as int is calling pengu_c_filum_atomic_int_add with self->_ptr , 1
         return old + 1
 
+    # Atomically decrements by one and returns the new value.
     weave dec into int:
-        var old as int is calling pengu_c_filum_atomic_int_add with self->_ptr and -1
+        var old as int is calling pengu_c_filum_atomic_int_add with self->_ptr , -1
         return old - 1
+
+    # Releases the native handle owned by this rune; do not use the value
+    # afterwards.
+    weave free into void:
+        calling pengu_c_filum_atomic_int_free with self->_ptr
+
+# ----------------------------------------------------------------------------
+# Resource Cleanup (functional wrappers for opaque handles)
+# ----------------------------------------------------------------------------
+
+# Releases the native handle of a Mutex; do not use the rune afterwards.
+weave free_mutex with m as ref to Mutex into void:
+    calling pengu_c_filum_mutex_free with m->_ptr
+
+# Releases the native handle of a WaitGroup; do not use the rune afterwards.
+weave free_wait_group with wg as ref to WaitGroup into void:
+    calling pengu_c_filum_wait_group_free with wg->_ptr
+
+# Releases the native handle of a Once; do not use the rune afterwards.
+weave free_once with o as ref to Once into void:
+    calling pengu_c_filum_once_free with o->_ptr
+
+# Releases the native handle of a Cond; do not use the rune afterwards.
+weave free_cond with c as ref to Cond into void:
+    calling pengu_c_filum_cond_free with c->_ptr
+
+# Releases the native handle of an AtomicInt; do not use the rune afterwards.
+weave free_atomic_int with a as ref to AtomicInt into void:
+    calling pengu_c_filum_atomic_int_free with a->_ptr
+
+# Releases the native handle of a Chan; do not use the rune afterwards.
+weave free_chan with c as ref to Chan into void:
+    calling pengu_c_filum_chan_free with c->_ptr
 
 # ----------------------------------------------------------------------------
 # System & Time
 # ----------------------------------------------------------------------------
 
+# Suspends the calling goroutine for ms milliseconds.
 weave sleep with ms as int into void:
     calling pengu_c_filum_sleep with ms
 
+# Number of logical CPUs available to the process.
 weave num_cpu into int:
     return calling pengu_c_filum_num_cpu
 
+# Identifier of the calling goroutine.
 weave goroutine_id into int:
     return calling pengu_c_filum_goroutine_id

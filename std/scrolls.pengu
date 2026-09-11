@@ -16,7 +16,18 @@
 #   std modules (e.g. 'calling scrolls.starts_with'), so both names exist.
 # - Internal helpers use the 'sc_' prefix so they never collide with the
 #   enchanting methods' names in the code generator's function registry.
+#
+# Usage: import std.scrolls. String utilities are exposed as methods
+# enchanting the primitive string type, e.g. "calling s.trim",
+# "calling s.split with delim". starts_with and substring are additionally
+# module members so other std modules can call them functionally, e.g.
+# "calling scrolls.starts_with with text, prefix".
+# Ownership: strings are values; every operation returns a new owned string or
+# list and never mutates its input, so results may be banished or dropped
+# normally.
 
+# Applies the "pengu_" prefix to the module-level C symbol names so they never
+# collide with the enchanting method names (see the header notes).
 insignia pengu_
 
 import std.spark  # kept for parity with prior module layout
@@ -25,6 +36,8 @@ import std.spark  # kept for parity with prior module layout
 # Internal helpers (sc_*) - distinct names avoid clashing with methods.
 # ----------------------------------------------------------------------------
 
+# True when c is an ASCII whitespace character (space, tab, line feed,
+# carriage return, vertical tab or form feed).
 weave sc_is_space with c as string into bool:
   if c == " ":
     return true
@@ -40,7 +53,8 @@ weave sc_is_space with c as string into bool:
     return true
   return false
 
-weave sc_starts_with with s as string and prefix as string into bool:
+# True when s begins with prefix (plain prefix compare).
+weave sc_starts_with with s as string , prefix as string into bool:
   var sl as int is s length
   var pl as int is prefix length
   if pl > sl:
@@ -49,7 +63,8 @@ weave sc_starts_with with s as string and prefix as string into bool:
     return true
   return false
 
-weave sc_ends_with with s as string and suffix as string into bool:
+# True when s ends with suffix.
+weave sc_ends_with with s as string , suffix as string into bool:
   var sl as int is s length
   var xl as int is suffix length
   if xl > sl:
@@ -59,7 +74,9 @@ weave sc_ends_with with s as string and suffix as string into bool:
     return true
   return false
 
-weave sc_index_of with s as string and sub as string into int:
+# Index of the first occurrence of sub in s; 0 for an empty sub and -1 when
+# absent.
+weave sc_index_of with s as string , sub as string into int:
   var sl as int is s length
   var sub_len as int is sub length
   if sub_len == 0:
@@ -73,7 +90,9 @@ weave sc_index_of with s as string and sub as string into int:
     set i is i + 1
   return -1
 
-weave sc_last_index_of with s as string and sub as string into int:
+# Index of the last occurrence of sub in s; the length of s for an empty sub
+# and -1 when absent.
+weave sc_last_index_of with s as string , sub as string into int:
   var sl as int is s length
   var sub_len as int is sub length
   if sub_len == 0:
@@ -87,65 +106,84 @@ weave sc_last_index_of with s as string and sub as string into int:
     set i is i - 1
   return -1
 
-weave sc_substring with s as string and start_pos as int and end_pos as int into string:
+# Substring of s from start_pos (inclusive) to end_pos (exclusive).
+weave sc_substring with s as string , start_pos as int , end_pos as int into string:
   return s at start_pos to end_pos
 
 # ----------------------------------------------------------------------------
 # Module-level members used by other std modules.
 # ----------------------------------------------------------------------------
 
-weave starts_with with s as string and prefix as string into bool:
-  return calling sc_starts_with with s and prefix
+# Functional (module-level) form of starts_with for other std modules, e.g.
+# "calling scrolls.starts_with with text, prefix".
+weave starts_with with s as string , prefix as string into bool:
+  return calling sc_starts_with with s , prefix
 
-weave substring with s as string and start_pos as int and end_pos as int into string:
-  return calling sc_substring with s and start_pos and end_pos
+# Functional (module-level) form of substring for other std modules, e.g.
+# "calling scrolls.substring with text, 0, 5".
+weave substring with s as string , start_pos as int , end_pos as int into string:
+  return calling sc_substring with s , start_pos , end_pos
 
 # ----------------------------------------------------------------------------
 # String methods (enchanting)
 # ----------------------------------------------------------------------------
 
+# Enchants the primitive string type with the utility methods below, so they
+# can be invoked on any string value, e.g. "calling s.trim".
 enchanting string:
+  # Length of the string.
   weave len into int:
     var sv as string is essence of self
     return sv length
 
+  # True when the string is empty (length 0).
   weave is_empty into bool:
     var sv as string is essence of self
     if sv length == 0:
       return true
     return false
 
+  # True when the string contains sub somewhere.
   weave contains with sub as string into bool:
     var sv as string is essence of self
-    var found as int is calling sc_index_of with sv and sub
+    var found as int is calling sc_index_of with sv , sub
     if found >= 0:
       return true
     return false
 
+  # True when the string begins with prefix.
   weave starts_with with prefix as string into bool:
     var sv as string is essence of self
-    return calling sc_starts_with with sv and prefix
+    return calling sc_starts_with with sv , prefix
 
+  # True when the string ends with suffix.
   weave ends_with with suffix as string into bool:
     var sv as string is essence of self
-    return calling sc_ends_with with sv and suffix
+    return calling sc_ends_with with sv , suffix
 
+  # Index of the first occurrence of sub; 0 for an empty sub and -1 when absent.
   weave index_of with sub as string into int:
     var sv as string is essence of self
-    return calling sc_index_of with sv and sub
+    return calling sc_index_of with sv , sub
 
+  # Index of the last occurrence of sub; the string length for an empty sub and
+  # -1 when absent.
   weave last_index_of with sub as string into int:
     var sv as string is essence of self
-    return calling sc_last_index_of with sv and sub
+    return calling sc_last_index_of with sv , sub
 
-  weave substring with start_pos as int and end_pos as int into string:
+  # Substring from start_pos (inclusive) to end_pos (exclusive).
+  weave substring with start_pos as int , end_pos as int into string:
     var sv as string is essence of self
-    return calling sc_substring with sv and start_pos and end_pos
+    return calling sc_substring with sv , start_pos , end_pos
 
+  # The single character at idx as a one-character string.
   weave char_at with idx as int into string:
     var sv as string is essence of self
-    return calling sc_substring with sv and idx and (idx + 1)
+    return calling sc_substring with sv , idx , (idx + 1)
 
+  # Copy of the string with ASCII letters A-Z mapped to lowercase; other
+  # characters are unchanged.
   weave lower into string:
     var sv as string is essence of self
     var sl as int is sv length
@@ -163,6 +201,8 @@ enchanting string:
       set i is i + 1
     return res
 
+  # Copy of the string with ASCII letters a-z mapped to uppercase; other
+  # characters are unchanged.
   weave upper into string:
     var sv as string is essence of self
     var sl as int is sv length
@@ -180,6 +220,7 @@ enchanting string:
       set i is i + 1
     return res
 
+  # Copy of the string without leading and trailing ASCII whitespace.
   weave trim into string:
     var sv as string is essence of self
     var sl as int is sv length
@@ -195,8 +236,9 @@ enchanting string:
         set end is end - 1
       else:
         break
-    return calling sc_substring with sv and start and (end + 1)
+    return calling sc_substring with sv , start , (end + 1)
 
+  # Copy of the string without leading ASCII whitespace.
   weave trim_start into string:
     var sv as string is essence of self
     var sl as int is sv length
@@ -206,8 +248,9 @@ enchanting string:
         set start is start + 1
       else:
         break
-    return calling sc_substring with sv and start and sl
+    return calling sc_substring with sv , start , sl
 
+  # Copy of the string without trailing ASCII whitespace.
   weave trim_end into string:
     var sv as string is essence of self
     var sl as int is sv length
@@ -217,32 +260,38 @@ enchanting string:
         set end is end - 1
       else:
         break
-    return calling sc_substring with sv and 0 and (end + 1)
+    return calling sc_substring with sv , 0 , (end + 1)
 
-  weave replace with from_str as string and to_str as string into string:
+  # Copy of the string with the first occurrence of from_str replaced by
+  # to_str; unchanged when from_str does not occur.
+  weave replace with from_str as string , to_str as string into string:
     var sv as string is essence of self
-    var hit as int is calling sc_index_of with sv and from_str
+    var hit as int is calling sc_index_of with sv , from_str
     if hit < 0:
       return sv
     var fl as int is from_str length
-    var prefix_str as string is calling sc_substring with sv and 0 and hit
-    var suffix_str as string is calling sc_substring with sv and (hit + fl) and sv length
+    var prefix_str as string is calling sc_substring with sv , 0 , hit
+    var suffix_str as string is calling sc_substring with sv , (hit + fl) , sv length
     return prefix_str + to_str + suffix_str
 
-  weave replace_all with from_str as string and to_str as string into string:
+  # Copy of the string with every non-overlapping occurrence of from_str
+  # replaced by to_str; an empty from_str returns the string unchanged.
+  weave replace_all with from_str as string , to_str as string into string:
     var sv as string is essence of self
     var fl as int is from_str length
     if fl == 0:
       return sv
     var out as string is ""
     var rest as string is sv
-    var hit as int is calling sc_index_of with rest and from_str
+    var hit as int is calling sc_index_of with rest , from_str
     while hit >= 0:
-      set out is out + (calling sc_substring with rest and 0 and hit) + to_str
-      set rest is calling sc_substring with rest and (hit + fl) and rest length
-      set hit is calling sc_index_of with rest and from_str
+      set out is out + (calling sc_substring with rest , 0 , hit) + to_str
+      set rest is calling sc_substring with rest , (hit + fl) , rest length
+      set hit is calling sc_index_of with rest , from_str
     return out + rest
 
+  # Splits the string at every occurrence of delim; an empty delim yields a
+  # list holding the whole string.
   weave split with delim as string into list of string:
     var sv as string is essence of self
     var parts as list of string is list of string
@@ -263,6 +312,7 @@ enchanting string:
     calling parts.push with (sv at seg_start to sl)
     return parts
 
+  # The string repeated count times; "" for count <= 0 or an empty string.
   weave repeat with count as int into string:
     var sv as string is essence of self
     if count <= 0:
@@ -276,6 +326,7 @@ enchanting string:
       set i is i + 1
     return res
 
+  # Copy of the string with its characters in reverse order.
   weave reverse into string:
     var sv as string is essence of self
     var sl as int is sv length
@@ -286,6 +337,8 @@ enchanting string:
       set i is i - 1
     return res
 
+  # True when every character is an ASCII letter (A-Z or a-z); false for the
+  # empty string.
   weave is_alpha into bool:
     var sv as string is essence of self
     var sl as int is sv length
@@ -305,6 +358,8 @@ enchanting string:
       return false
     return true
 
+  # True when every character is an ASCII digit (0-9); false for the empty
+  # string.
   weave is_digit into bool:
     var sv as string is essence of self
     var sl as int is sv length
@@ -320,6 +375,8 @@ enchanting string:
       return false
     return true
 
+  # True when every character is ASCII alphanumeric (letter or digit); false for
+  # the empty string.
   weave is_alnum into bool:
     var sv as string is essence of self
     var sl as int is sv length

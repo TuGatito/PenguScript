@@ -952,7 +952,7 @@ def build_raylib(cc, ar, rebuild=False):
     src_headers = list((src_dir / "src").glob("*.h"))
     for h in src_headers:
         shutil.copy2(h, raylib_inc / h.name)
-        if h.name in ("raylib.h",):
+        if h.name in ("raylib.h", "rlgl.h", "raymath.h"):
             shutil.copy2(h, INCLUDE_DIR / h.name)
 
     if target_lib.exists() and not rebuild:
@@ -1021,12 +1021,48 @@ def build_raylib(cc, ar, rebuild=False):
     return target_lib
 
 
+def build_raymath(cc, ar, rebuild=False):
+    """Compiles the raymath C shim into build/lib/libpengu_raymath.a and stages header.
+
+    Wraps the header-only static inline functions of raymath.h with non-inline
+    'pengu_rm_' symbols for PenguScript std/raymath bindings.
+    """
+    target_lib = LIB_DIR / "libpengu_raymath.a"
+    shim_dir = ROOT_DIR / "std_c"
+    shim_c = shim_dir / "wrappers_raymath.c"
+    shim_h = shim_dir / "pengu_raymath.h"
+    if not shim_c.exists() or not shim_h.exists():
+        raise FileNotFoundError(f"raymath shim files not found in {shim_dir}")
+
+    INCLUDE_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(shim_h, INCLUDE_DIR / "pengu_raymath.h")
+
+    if target_lib.exists() and not rebuild:
+        print(f"[RAYMATH] {target_lib.name} is up to date.")
+        return target_lib
+
+    print("[RAYMATH] Compiling raymath shim...")
+    obj_dir = BUILD_DIR / "obj_raymath"
+    obj_dir.mkdir(parents=True, exist_ok=True)
+    obj_path = obj_dir / "wrappers_raymath.o"
+    flags = ["-O2", f"-I{shim_dir}", f"-I{INCLUDE_DIR}"]
+    run_cmd([cc] + flags + ["-c", str(shim_c), "-o", str(obj_path)])
+
+    LIB_DIR.mkdir(parents=True, exist_ok=True)
+    run_cmd([ar, "rcs", str(target_lib), str(obj_path)])
+    print(f"[RAYMATH] Created {target_lib}")
+    return target_lib
+
+
 SINGLE_HEADER_NAMES = [
     "imago.h", "scriptor.h", "typis.h", "pactum.h", "datastructura.h",
     "perlinum.h", "nanosvg.h", "nanosvgrast.h",
     # Extra vendored single-header / dialog libraries with curated bindings:
     "xxhash.h", "uuid.h", "minicoro.h", "miniaudio.h", "raygui.h",
     "rlights.h", "tinyfiledialogs.h", "tinyfd_moredialogs.h",
+    # Bindings whose header used to be left out of build/include/, so any
+    # program importing them failed with 'fatal error: ... No such file'.
+    "stb_herringbone_wang_tile.h", "stb_image_resize2.h",
 ]
 
 
@@ -1186,7 +1222,7 @@ def main():
     # runtime, std wrappers and the core static libraries) is required: a
     # failure there raises loudly so CI reports the real error instead of
     # silently producing a runtime-less build.
-    POSIX_BEST_EFFORT = {"WEBUI", "RAYLIB"}
+    POSIX_BEST_EFFORT = {"WEBUI", "RAYLIB", "RAYMATH"}
 
     def _build(label, fn, *a, **kw):
         """Runs one builder; optional POSIX-only builds degrade to a warning."""
@@ -1209,6 +1245,7 @@ def main():
     _build("SQLITE3", build_sqlite3, cc, ar, rebuild=args.rebuild)
     _build("WEBUI", build_webui, cc, ar, rebuild=args.rebuild)
     _build("RAYLIB", build_raylib, cc, ar, rebuild=args.rebuild)
+    _build("RAYMATH", build_raymath, cc, ar, rebuild=args.rebuild)
     _build("LIBUV", build_libuv, cc, ar, rebuild=args.rebuild)
     _build("LIBYAML", build_libyaml, cc, ar, rebuild=args.rebuild)
     _build("LIBCYAML", build_libcyaml, cc, ar, rebuild=args.rebuild)

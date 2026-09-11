@@ -30,6 +30,8 @@ from lsprotocol.types import (
     TEXT_DOCUMENT_COMPLETION,
     TEXT_DOCUMENT_HOVER,
     TEXT_DOCUMENT_DEFINITION,
+    TEXT_DOCUMENT_IMPLEMENTATION,
+    TEXT_DOCUMENT_REFERENCES,
     TEXT_DOCUMENT_SIGNATURE_HELP,
     TEXT_DOCUMENT_RENAME,
     TEXT_DOCUMENT_DOCUMENT_HIGHLIGHT,
@@ -43,6 +45,9 @@ from lsprotocol.types import (
     CompletionOptions,
     HoverParams,
     DefinitionParams,
+    ImplementationParams,
+    ReferenceParams,
+    ReferenceContext,
     SignatureHelpParams,
     SignatureHelp,
     SignatureInformation,
@@ -79,7 +84,13 @@ from pengu_parser.pengu_types import FnType
 
 from .completions import get_completions
 from .hover import get_hover, get_word_at_position
-from .code_actions import add_missing_import_action, remove_unused_variable_action
+from .code_actions import (
+    add_missing_import_action,
+    remove_unused_variable_action,
+    implement_concept_methods_action,
+    declaration_locations,
+    word_occurrences_in_roots,
+)
 
 
 def uri_to_path(uri: str) -> str:
@@ -245,6 +256,114 @@ def _get_version() -> str:
 
 server = PenguLanguageServer("pengus-lsp", f"v{_get_version()}")
 
+# Server-wide module cache: import alias -> module Scope (from any document that
+# has been validated successfully). Lets completions show the members of an
+# imported module (std.spark, project modules, aliased imports) even when the
+# current document has not been validated yet or only holds partial symbols.
+# Modules do not change while the LSP session is alive, so the cache is never
+# invalidated except by being refreshed with fresher scopes on each check.
+_MODULE_CACHE: Dict[str, object] = {}
+
+
+def _refresh_module_cache(symbols) -> None:
+    """Records every resolved import's module_scope into ``_MODULE_CACHE``.
+
+    The checker resolves an import by loading and collecting the target module
+    into a ``Scope(kind="module")`` attached to the import symbol. Each module
+    symbol is registered in the global scope of the *importing* document, so
+    the cache is refreshed whenever any document is checked.
+
+    Args:
+        symbols: SymbolTable produced by a checker run (may be partial when the
+            document has semantic errors).
+    """
+    if symbols is None:
+        return
+    global_scope = getattr(symbols, "global_scope", None)
+    if global_scope is None:
+        return
+    for name, sym in getattr(global_scope, "symbols", {}).items():
+        if getattr(sym, "kind", "") == "import":
+            mod_scope = getattr(sym, "module_scope", None)
+            # Only cache resolved, non-empty scopes under a non-empty alias;
+            # empty scopes (module file missing / failed to load) must not be
+            # cached, or completion could serve stale members later.
+            if mod_scope is not None and name and getattr(mod_scope, "symbols", None):
+                # Keyed under the import alias (e.g. 'spark' or an explicit
+                # alias from `import std.spark as sp`).
+                _MODULE_CACHE[name] = mod_scope
+
+
+def _style_warning_diagnostics(source: str) -> List[Diagnostic]:
+    """Runs lightweight lint checks over a document that parsed cleanly.
+
+    Produces warnings (not errors) for unused imports and unused local
+    ``var`` / ``let`` declarations using a conservative textual scan: a symbol
+    counts as used whenever its name appears outside its own declaration line,
+    so references through module members, `with` scopes or string contents all
+    count. Private names (``_``-prefixed) are exempt, matching the language's
+    discard convention.
+
+    Args:
+        source: Text content of a cleanly-parsed document.
+
+    Returns:
+        List of Warning diagnostics.
+    """
+    import re
+
+    diags: List[Diagnostic] = []
+    lines = source.splitlines()
+
+    def _warn(msg: str, line_no: int, start_c: int, end_c: int) -> Diagnostic:
+        return Diagnostic(
+            range=Range(
+                start=Position(line=line_no, character=start_c),
+                end=Position(line=line_no, character=max(end_c, start_c + 1)),
+            ),
+            message=msg,
+            severity=DiagnosticSeverity.Warning,
+            source="pengus",
+        )
+
+    # Unused imports: an import is used when its alias (or the last spec
+    # segment) appears somewhere outside the import block.
+    import_lines: List[tuple] = []
+    for i, line in enumerate(lines):
+        m = re.match(
+            r"^\s*import\s+([A-Za-z_][A-Za-z0-9_.]*)"
+            r"(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?\s*$",
+            line,
+        )
+        if m:
+            import_lines.append((i, line, m.group(1), m.group(2)))
+    import_idx = {i for i, _, _, _ in import_lines}
+    for i, _, spec, alias in import_lines:
+        token = alias or spec.split(".")[-1]
+        used = False
+        for j, line in enumerate(lines):
+            if j == i or j in import_idx:
+                continue
+            if re.search(rf"\b{re.escape(token)}\b", line):
+                used = True
+                break
+        if not used:
+            diags.append(_warn(f"Unused import '{spec}'", i, 0, len(lines[i]) if i < len(lines) else 0))
+
+    # Unused local variables.
+    for i, line in enumerate(lines):
+        m = re.match(r"^\s*(?:var|let)\s+([A-Za-z_][A-Za-z0-9_]*)\s", line)
+        if not m:
+            continue
+        name = m.group(1)
+        if name.startswith("_"):
+            continue
+        total = len(re.findall(rf"\b{re.escape(name)}\b", source))
+        if total == 1:  # only its own declaration appears
+            col = line.find(name)
+            diags.append(_warn(f"Unused variable '{name}'", i, col, col + len(name)))
+    return diags
+
 
 def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
     """Runs parse + semantic check for one document (pure computation).
@@ -263,18 +382,42 @@ def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
     """
     server._docs[uri] = source
     file_path = uri_to_path(uri)
-    base_dir = os.path.dirname(file_path) if os.path.exists(file_path) else os.getcwd()
+    check_path = file_path
+    shadow = None
+    if not os.path.exists(file_path):
+        # The document is an unsaved editor buffer. The semantic checker loads
+        # imported modules relative to the entry file, so materialize the
+        # buffer to a temporary shadow file (same directory when possible) to
+        # keep imports and 'enchanting' methods of std modules visible.
+        import tempfile
+        base_dir_for_shadow = os.path.dirname(file_path) or os.getcwd()
+        try:
+            fd, shadow = tempfile.mkstemp(
+                suffix=".pengu",
+                prefix=".pengu_lsp_shadow_",
+                dir=base_dir_for_shadow if os.path.isdir(base_dir_for_shadow) else None,
+                text=True,
+            )
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(source)
+            check_path = shadow
+        except OSError:
+            shadow = None
+    base_dir = os.getcwd()
+    if os.path.dirname(file_path) and os.path.isdir(os.path.dirname(file_path)):
+        base_dir = os.path.dirname(file_path)
 
     parser = PenguParser()
     checker = PenguChecker(base_dir=base_dir)
 
     try:
         tree = parser.parse(source)
-        checker.check(tree, source=source, filename=file_path)
-        # If check succeeds without exception: the document is clean.
+        checker.check(tree, source=source, filename=check_path)
+        # If check succeeds without exception: the document is clean; lint it.
         with server._validation_lock:
             server._symbols[uri] = checker.symbols
-        return []
+            _refresh_module_cache(checker.symbols)
+        return _style_warning_diagnostics(source)
 
     except PenguError as e:
         all_errs = e.all_errors if hasattr(e, "all_errors") and e.all_errors else [e]
@@ -282,6 +425,9 @@ def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
         with server._validation_lock:
             if hasattr(checker, "symbols"):
                 server._symbols[uri] = checker.symbols
+                # Imports are collected in pass 1, so even an errored document
+                # still refreshes the module cache for autocompletion.
+                _refresh_module_cache(checker.symbols)
         return diags
 
     except Exception as e:
@@ -297,6 +443,13 @@ def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
             source="pengus"
         )
         return [diag]
+
+    finally:
+        if shadow is not None:
+            try:
+                os.unlink(shadow)
+            except OSError:
+                pass
 
 
 def _cached_diagnostics(uri: str, source: str) -> Optional[List[Diagnostic]]:
@@ -483,7 +636,8 @@ def completions(params: CompletionParams):
     if 0 <= params.position.line < len(lines):
         curr_line = lines[params.position.line]
         line_prefix = curr_line[:params.position.character]
-    return get_completions(uri, params.position, symbols, line_prefix)
+    base_dir = os.path.dirname(uri_to_path(uri)) or os.getcwd()
+    return get_completions(uri, params.position, symbols, line_prefix, _MODULE_CACHE, base_dir, doc_text)
 
 
 @server.feature(TEXT_DOCUMENT_HOVER)
@@ -563,6 +717,140 @@ def definition(params: DefinitionParams):
     return None
 
 
+def _project_root_for_path(file_path: str) -> str:
+    """Walks up from a document until it finds a project marker (src/ or
+    pengu.yaml); falls back to the document's own directory. The walk is
+    bounded so a loose file never escalates to a filesystem root."""
+    cur = file_path if os.path.isdir(file_path) else os.path.dirname(file_path)
+    start = os.path.abspath(cur)
+    cur = start
+    for _ in range(8):
+        if os.path.isfile(os.path.join(cur, "pengu.yaml")) or os.path.isdir(os.path.join(cur, "src")):
+            return cur
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+    return start
+
+
+@server.feature(TEXT_DOCUMENT_IMPLEMENTATION)
+def implementation(params: ImplementationParams):
+    """Handles textDocument/implementation requests.
+
+    For a function / method / type name, returns every matching declaration
+    across the standard library and the current project (enchanting and bind
+    method definitions are indexed like any other ``weave``).
+    """
+    uri = params.text_document.uri
+    doc_text = server.get_document_source(uri)
+    if not doc_text:
+        return None
+    word = get_word_at_position(doc_text, params.position)
+    if not word:
+        return None
+    root = _project_root_for_path(uri_to_path(uri))
+    index = declaration_locations(extra_roots=[root])
+    hits = index.get(word) or []
+    if not hits:
+        return None
+    out: List[Location] = []
+    seen = set()
+    for fpath, line, col in hits:
+        key = (os.path.abspath(fpath), line)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            Location(
+                uri=path_to_uri(fpath),
+                range=Range(
+                    start=Position(line=line, character=col),
+                    end=Position(line=line, character=col + len(word)),
+                ),
+            )
+        )
+    out.sort(key=lambda loc: (loc.uri, loc.range.start.line))
+    return out
+
+
+def _is_declaration_occurrence(line: str, col: int, word: str) -> bool:
+    """True when ``word`` at column ``col`` starts a top-level declaration."""
+    import re
+    m = re.match(
+        r"^\s*(?:weave|declare|const|rune|echo|omen|alias|seal|concept)\s+"
+        r"([A-Za-z_][A-Za-z0-9_]*)\b",
+        line,
+    )
+    return bool(m and m.start(1) == col and m.group(1) == word)
+
+
+@server.feature(TEXT_DOCUMENT_REFERENCES)
+def references(params: ReferenceParams):
+    """Handles textDocument/references requests.
+
+    Local symbols (var/let/param) resolve within the current document only;
+    global symbols (functions, types, constants, imported aliases) resolve
+    across the standard library and the current project. ``.d.pengu`` bodies
+    are excluded from the scan.
+    """
+    uri = params.text_document.uri
+    doc_text = server.get_document_source(uri)
+    if not doc_text:
+        return None
+    word = get_word_at_position(doc_text, params.position)
+    if not word:
+        return None
+    include_decl = bool(params.context.include_declaration) if params.context else True
+
+    symbols = server._symbols.get(uri)
+    is_local = False
+    if symbols is not None:
+        try:
+            sym = (
+                symbols.lookup_at(word, params.position.line + 1)
+                if hasattr(symbols, "lookup_at")
+                else symbols.lookup(word)
+            )
+        except Exception:
+            sym = None
+        if sym is not None and getattr(sym, "kind", "") in ("var", "let", "param"):
+            is_local = True
+
+    root = _project_root_for_path(uri_to_path(uri))
+    current_abs = os.path.abspath(uri_to_path(uri))
+    hits = word_occurrences_in_roots(word, extra_roots=[root])
+
+    out: List[Location] = []
+    seen = set()
+    for fpath, line, col in hits:
+        f_abs = os.path.abspath(fpath)
+        if is_local and f_abs != current_abs:
+            continue
+        key = (f_abs, line, col)
+        if key in seen:
+            continue
+        seen.add(key)
+        if not include_decl and f_abs == current_abs:
+            # Only drop declaration occurrences in the active document; other
+            # files' declarations are reported regardless (their text is not
+            # cheaply attributable without parsing).
+            src_line = doc_text.splitlines()[line] if line < len(doc_text.splitlines()) else ""
+            if _is_declaration_occurrence(src_line, col, word):
+                continue
+        out.append(
+            Location(
+                uri=path_to_uri(fpath),
+                range=Range(
+                    start=Position(line=line, character=col),
+                    end=Position(line=line, character=col + len(word)),
+                ),
+            )
+        )
+    out.sort(key=lambda loc: (loc.uri, loc.range.start.line, loc.range.start.character))
+    return out if out else None
+
+
 @server.feature(TEXT_DOCUMENT_CODE_ACTION)
 def code_action(params: CodeActionParams):
     """Handles textDocument/codeAction requests.
@@ -589,6 +877,9 @@ def code_action(params: CodeActionParams):
     unused_action = remove_unused_variable_action(uri, word, source, symbols)
     if unused_action:
         actions.append(unused_action)
+    concept_action = implement_concept_methods_action(uri, source, start, symbols)
+    if concept_action:
+        actions.append(concept_action)
     return actions
 
 
@@ -759,20 +1050,33 @@ def rename_symbol(params: RenameParams) -> Optional[WorkspaceEdit]:
 
 @server.feature(TEXT_DOCUMENT_FORMATTING)
 def document_formatting(params: DocumentFormattingParams) -> Optional[List[TextEdit]]:
-    """Handles textDocument/formatting requests."""
-    from .formatting import format_pengu_source
+    """Handles textDocument/formatting requests.
+
+    Indentation honors the client FormattingOptions when provided; otherwise a
+    ``pengu.yaml`` project config (``tab_size`` / ``indent`` /
+    ``insert_spaces`` / ``use_tabs``) is used, falling back to 2 spaces.
+    """
+    from .formatting import format_pengu_source, load_format_config
     uri = params.text_document.uri
     doc_text = server.get_document_source(uri)
     if not doc_text:
         return None
 
+    cfg = load_format_config(uri_to_path(uri))
     tab_size = 2
     insert_spaces = True
     options = getattr(params, "options", None)
-    if options is not None:
-        if getattr(options, "tab_size", None):
-            tab_size = options.tab_size
-        insert_spaces = getattr(options, "insert_spaces", True)
+    client_tab = getattr(options, "tab_size", None) if options is not None else None
+    if client_tab:
+        tab_size = int(client_tab)
+    elif cfg is not None and cfg.get("tab_size") is not None:
+        tab_size = int(cfg["tab_size"])
+
+    client_insert = getattr(options, "insert_spaces", None) if options is not None else None
+    if client_insert is not None:
+        insert_spaces = bool(client_insert)
+    elif cfg is not None and cfg.get("insert_spaces") is not None:
+        insert_spaces = bool(cfg["insert_spaces"])
 
     new_full_text = format_pengu_source(doc_text, tab_size=tab_size, insert_spaces=insert_spaces)
     lines = doc_text.splitlines()

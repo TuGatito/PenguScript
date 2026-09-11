@@ -1,5 +1,21 @@
 # std/regulus.pengu - The Regulus (Regular Expressions)
-# Provides regular expression compilation, matching, searching, replacing, and splitting.
+# PCRE2-backed regular expressions: compile, match / search, find all,
+# replace, split, one-shot helpers and resource cleanup.
+#
+# Ownership model:
+#   * A compiled Regex OWNS native PCRE2 state (`_ptr`). Release it exactly
+#     once with regex_free (or regex.free) when no longer needed; every copy
+#     of the Regex value shares the same compiled code.
+#   * search / match / find_all return Match values whose `matched` buffer is
+#     freshly allocated and owned by the caller: release each with match_free
+#     (or match.free). find_all returns one owned Match per hit and split
+#     returns a list of owned strings - free / reuse the entries before
+#     banishing those lists.
+#   * replace returns an owned string (banish when done). escape is currently
+#     an identity passthrough and owns nothing extra.
+#
+# Flags accepted by compile / quick_match / quick_replace (any letter case):
+#   'i' case-insensitive, 'm' multiline, 's' dotall, 'u' UTF-8, 'x' extended.
 
 import std.spark
 import std.oracle
@@ -8,106 +24,208 @@ import std.oracle
 # Type Definitions
 # ----------------------------------------------------------------------------
 
+# One regex hit inside a searched string. `start` / `end` are byte offsets
+# into the text and `matched` is a fresh copy of the matched span. A Match
+# owns its `matched` buffer: release it with match_free (or match.free).
 rune Match:
     start as int
     end as int
     matched as string
 
+# A compiled regular expression. `pattern` and `flags` mirror the compile
+# arguments; `_ptr` is the opaque compiled PCRE2 code the Regex owns. Release
+# the native code once with regex_free (or regex.free) when done.
 rune Regex:
     pattern as string
     flags as string
+    # Opaque handle to the compiled PCRE2 code, shared by every copy of this
+    # Regex value - free exactly once. Never touch this field directly.
     _ptr as opaque
 
 # ----------------------------------------------------------------------------
 # External C Declarations
 # ----------------------------------------------------------------------------
 
-declare pengu_c_regulus_compile with pattern as string and flags as string into maybe Regex
-declare pengu_c_regulus_match with regex as ref to Regex and text as string into maybe Match
-declare pengu_c_regulus_search with regex as ref to Regex and text as string into maybe Match
-declare pengu_c_regulus_find_all with regex as ref to Regex and text as string into list of Match
-declare pengu_c_regulus_replace with regex as ref to Regex and text as string and replacement as string into string
-declare pengu_c_regulus_split with regex as ref to Regex and text as string and limit as int into list of string
+# Compiles `pattern` with `flags` into a Regex (none when invalid). The Regex
+# owns native PCRE2 code that must be released with regex_free.
+declare pengu_c_regulus_compile with pattern as string , flags as string into maybe Regex
+# Finds a match of `regex` in `text` anchored at its start (whole-match
+# style). A present result owns its matched buffer (match_free).
+declare pengu_c_regulus_match with regex as ref to Regex , text as string into maybe Match
+# Finds the first match of `regex` anywhere in `text`. A present result owns
+# its matched buffer (match_free).
+declare pengu_c_regulus_search with regex as ref to Regex , text as string into maybe Match
+# Finds every non-overlapping match of `regex` in `text`. Each list entry owns
+# its matched buffer (match_free per entry).
+declare pengu_c_regulus_find_all with regex as ref to Regex , text as string into list of Match
+# Globally replaces every match of `regex` in `text`. The returned string is
+# owned by the caller.
+declare pengu_c_regulus_replace with regex as ref to Regex , text as string , replacement as string into string
+# Splits `text` on `regex` into owned strings. Every entry owns its buffer.
+declare pengu_c_regulus_split with regex as ref to Regex , text as string , limit as int into list of string
+# Escapes regex metacharacters (currently an identity passthrough).
 declare pengu_c_regulus_escape with text as string into string
+# True when `regex` wraps a compiled pattern (handle non-null).
 declare pengu_c_regulus_is_valid with regex as ref to Regex into bool
+# Releases the native PCRE2 code owned by a compiled Regex (once).
+declare pengu_c_regulus_regex_free with regex as ref to Regex into void
+# Releases the owned matched buffer of a Match result (once).
+declare pengu_c_regulus_match_free with m as ref to Match into void
 
 # ----------------------------------------------------------------------------
 # Functional API
 # ----------------------------------------------------------------------------
 
-weave compile with pattern as string and flags as string is "" into maybe Regex:
-    return calling pengu_c_regulus_compile with pattern and flags
+# Compiles `pattern` with the given `flags` into a Regex. Returns none when
+# the pattern is empty or invalid. Flags (any letter case): 'i' caseless, 'm'
+# multiline, 's' dotall, 'u' UTF-8, 'x' extended. The compiled Regex owns
+# native PCRE2 state: release it once with regex_free (or regex.free).
+weave compile with pattern as string , flags as string is "" into maybe Regex:
+    return calling pengu_c_regulus_compile with pattern , flags
 
-weave is_match with regex as ref to Regex and text as string into bool:
-    var m as maybe Match is calling pengu_c_regulus_search with regex and text
+# True when `regex` matches somewhere inside `text` (i.e. search succeeds).
+# No Match is produced, so there is nothing to free.
+weave is_match with regex as ref to Regex , text as string into bool:
+    var m as maybe Match is calling pengu_c_regulus_search with regex , text
     return m.is_present
 
-weave is_full_match with regex as ref to Regex and text as string into bool:
-    var m as maybe Match is calling pengu_c_regulus_match with regex and text
+# True when `regex` matches `text` starting at its very beginning (i.e. the
+# anchored match succeeds). No Match is produced, so there is nothing to free.
+weave is_full_match with regex as ref to Regex , text as string into bool:
+    var m as maybe Match is calling pengu_c_regulus_match with regex , text
     return m.is_present
 
-weave search with regex as ref to Regex and text as string into maybe Match:
-    return calling pengu_c_regulus_search with regex and text
+# Returns the first match of `regex` anywhere in `text` as a new Match. A
+# present Match owns its matched text buffer: release it with match_free (or
+# match.free) once done. None when there is no match.
+weave search with regex as ref to Regex , text as string into maybe Match:
+    return calling pengu_c_regulus_search with regex , text
 
-weave match with regex as ref to Regex and text as string into maybe Match:
-    return calling pengu_c_regulus_match with regex and text
+# Returns the match of `regex` anchored at the start of `text` (whole-match
+# style) as a new Match. A present Match owns its matched text buffer: release
+# it with match_free (or match.free) once done. None when there is no match.
+weave match with regex as ref to Regex , text as string into maybe Match:
+    return calling pengu_c_regulus_match with regex , text
 
-weave find_all with regex as ref to Regex and text as string into list of Match:
-    return calling pengu_c_regulus_find_all with regex and text
+# Returns every non-overlapping match of `regex` in `text` as a list of Match
+# (empty when there are none). Each entry is a new Match owning its matched
+# text buffer: call match_free on each entry before banishing the list.
+weave find_all with regex as ref to Regex , text as string into list of Match:
+    return calling pengu_c_regulus_find_all with regex , text
 
-weave replace with regex as ref to Regex and text as string and replacement as string into string:
-    return calling pengu_c_regulus_replace with regex and text and replacement
+# Globally replaces every non-overlapping match of `regex` in `text` with
+# `replacement` and returns the result as an owned string (banish when done).
+# `replacement` may reference capture groups ($1, $2, ...). When the regex
+# does not match, `text` is returned unchanged.
+weave replace with regex as ref to Regex , text as string , replacement as string into string:
+    return calling pengu_c_regulus_replace with regex , text , replacement
 
-weave split with regex as ref to Regex and text as string and limit as int is 0 into list of string:
-    return calling pengu_c_regulus_split with regex and text and limit
+# Splits `text` on every match of `regex` into a list of owned strings (the
+# separators are dropped). `limit` > 0 caps the number of pieces; 0 means
+# unlimited. Banish the returned list when done with its entries.
+weave split with regex as ref to Regex , text as string , limit as int is 0 into list of string:
+    return calling pengu_c_regulus_split with regex , text , limit
 
+# Escapes regex metacharacters in `text`. Currently the runtime bridge is an
+# identity passthrough: `text` is returned unchanged as an owned string.
 weave escape with text as string into string:
     return calling pengu_c_regulus_escape with text
 
+# True when `regex` still wraps a compiled pattern. A Regex obtained from
+# compile is always valid; this is false only when a null reference is passed.
 weave is_valid with regex as ref to Regex into bool:
     return calling pengu_c_regulus_is_valid with regex
 
-weave quick_match with pattern as string and text as string and flags as string is "" into maybe Match:
-    var re as maybe Regex is calling pengu_c_regulus_compile with pattern and flags
+# Convenience one-shot: compiles `pattern` (with `flags`) and returns the
+# first match anywhere inside `text`. None when the pattern fails to compile
+# or nothing matches. Same ownership as search for a returned Match.
+weave quick_match with pattern as string , text as string , flags as string is "" into maybe Match:
+    var re as maybe Regex is calling pengu_c_regulus_compile with pattern , flags
     if re.is_present:
         var r_val as Regex is re.value
-        return calling pengu_c_regulus_search with sigil of r_val and text
+        return calling pengu_c_regulus_search with sigil of r_val , text
     return maybe none
 
-weave quick_replace with pattern as string and text as string and replacement as string and flags as string is "" into string:
-    var re as maybe Regex is calling pengu_c_regulus_compile with pattern and flags
+# Convenience one-shot: compiles `pattern` (with `flags`) and globally
+# replaces its matches in `text` with `replacement`. Returns `text` unchanged
+# when the pattern fails to compile.
+weave quick_replace with pattern as string , text as string , replacement as string , flags as string is "" into string:
+    var re as maybe Regex is calling pengu_c_regulus_compile with pattern , flags
     if re.is_present:
         var r_val as Regex is re.value
-        return calling pengu_c_regulus_replace with sigil of r_val and text and replacement
+        return calling pengu_c_regulus_replace with sigil of r_val , text , replacement
     return text
+
+# ----------------------------------------------------------------------------
+# Resource Cleanup
+# ----------------------------------------------------------------------------
+
+# Releases the native PCRE2 code compiled for `regex` and nulls its handle.
+# The wrapper struct is a value copy and must not be freed itself. If several
+# variables hold copies of the same compiled Regex, call this exactly once.
+weave regex_free with regex as ref to Regex into void:
+    calling pengu_c_regulus_regex_free with regex
+
+# Releases the owned matched text buffer of a Match returned by search / match
+# / find_all and zeroes the wrapper copy. Call it exactly once per Match.
+weave match_free with m as ref to Match into void:
+    calling pengu_c_regulus_match_free with m
 
 # ----------------------------------------------------------------------------
 # Object Methods (enchanting)
 # ----------------------------------------------------------------------------
 
+# Regex methods: mirror the module-level functional API with `self` as the
+# compiled pattern. The ownership notes of the functional API apply to their
+# results (search / match / find_all return owned Matches).
 enchanting Regex:
+    # True when `self` matches somewhere inside `text` (see is_match).
     weave is_match with text as string into bool:
-        var m as maybe Match is calling pengu_c_regulus_search with self and text
+        var m as maybe Match is calling pengu_c_regulus_search with self , text
         return m.is_present
 
+    # True when `self` matches `text` starting at its very beginning (see
+    # is_full_match).
     weave is_full_match with text as string into bool:
-        var m as maybe Match is calling pengu_c_regulus_match with self and text
+        var m as maybe Match is calling pengu_c_regulus_match with self , text
         return m.is_present
 
+    # Returns the first match of `self` anywhere in `text`; release the
+    # returned Match with free when done (see search).
     weave search with text as string into maybe Match:
-        return calling pengu_c_regulus_search with self and text
+        return calling pengu_c_regulus_search with self , text
 
+    # Returns the match of `self` anchored at the start of `text`; release
+    # the returned Match with free when done (see match).
     weave match with text as string into maybe Match:
-        return calling pengu_c_regulus_match with self and text
+        return calling pengu_c_regulus_match with self , text
 
+    # Returns every non-overlapping match of `self` in `text`; free each
+    # entry before banishing the list (see find_all).
     weave find_all with text as string into list of Match:
-        return calling pengu_c_regulus_find_all with self and text
+        return calling pengu_c_regulus_find_all with self , text
 
-    weave replace with text as string and replacement as string into string:
-        return calling pengu_c_regulus_replace with self and text and replacement
+    # Globally replaces every match of `self` in `text` with `replacement`;
+    # the result is an owned string (see replace).
+    weave replace with text as string , replacement as string into string:
+        return calling pengu_c_regulus_replace with self , text , replacement
 
-    weave split with text as string and limit as int is 0 into list of string:
-        return calling pengu_c_regulus_split with self and text and limit
+    # Splits `text` on every match of `self` into owned strings; `limit` > 0
+    # caps the pieces, 0 is unlimited (see split).
+    weave split with text as string , limit as int is 0 into list of string:
+        return calling pengu_c_regulus_split with self , text , limit
 
+    # True when `self` still wraps a compiled pattern (see is_valid).
     weave is_valid into bool:
         return calling pengu_c_regulus_is_valid with self
+
+    # Releases the native PCRE2 code compiled for `self` (see regex_free);
+    # call it exactly once per compiled pattern.
+    weave free into void:
+        calling pengu_c_regulus_regex_free with self
+
+# Match methods. A Match owns its matched text buffer: freeing releases it.
+enchanting Match:
+    # Releases the owned matched text buffer of this Match (see match_free).
+    weave free into void:
+        calling pengu_c_regulus_match_free with self

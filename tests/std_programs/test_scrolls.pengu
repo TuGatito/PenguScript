@@ -46,14 +46,14 @@ weave main into int:
     calling spark.println with "last_index_of ok"
     
   # substring, char_at
-  var sub as string is calling t.substring with 0 and 5
+  var sub as string is calling t.substring with 0, 5
   calling spark.println with sub
   
   var ch as string is calling t.char_at with 0
   calling spark.println with ch
   
   # replace, repeat, reverse
-  var rep as string is calling t.replace with "World" and "Pengu"
+  var rep as string is calling t.replace with "World", "Pengu"
   calling spark.println with "Hello Pengu"
   
   var rpt as string is calling ch.repeat with 3

@@ -1,6 +1,23 @@
 # std/archivum.pengu - The Archive (File System Operations)
 # Provides comprehensive file system manipulation: reading, writing, copying, moving,
 # deleting, listing, and metadata.
+#
+# Typical usage:
+#   import std.archivum
+#   var text as maybe string is calling archivum.read_file with "notes.txt"
+#   if text.is_present:
+#       calling spark.println with text.value
+#
+# Ownership model:
+#   * Every function takes plain string paths (and optional bool flags); the
+#     arguments are borrowed for the duration of the call and never retained.
+#   * Values returned wrapped in maybe (read_file, read_dir, metadata,
+#     read_symlink, realpath, read_lines) are freshly allocated and owned by the
+#     caller: banish them when done. A none result means the operation failed
+#     (missing file, unreadable directory, ...), never an empty success.
+#   * Lists returned directly (glob, walk, list_files_recursive) are also new
+#     containers owned by the caller.
+#   * bool results report success/failure and should always be checked.
 
 import std.spark
 import std.oracle
@@ -13,77 +30,148 @@ import std.rites
 # External C Runtime Declarations
 # ----------------------------------------------------------------------------
 
+# Runtime primitive: reads the whole file at `path` as UTF-8 text (owned string
+# wrapped in maybe); none when the file cannot be read.
 declare pengu_c_archivum_read_file with path as string into maybe string
-declare pengu_c_archivum_write_file with path as string and content as string into bool
-declare pengu_c_archivum_append_file with path as string and content as string into bool
+# Runtime primitive: writes `content` to `path`, truncating any existing file.
+declare pengu_c_archivum_write_file with path as string , content as string into bool
+# Runtime primitive: appends `content` to `path`, creating it when missing.
+declare pengu_c_archivum_append_file with path as string , content as string into bool
+# Runtime primitive: deletes the entry at `path`.
 declare pengu_c_archivum_delete_file with path as string into bool
+# Runtime primitive: true when an entry exists at `path` (file, dir or symlink).
 declare pengu_c_archivum_exists with path as string into bool
+# Runtime primitive: true when `path` is a regular file.
 declare pengu_c_archivum_is_file with path as string into bool
+# Runtime primitive: true when `path` is a directory.
 declare pengu_c_archivum_is_dir with path as string into bool
+# Runtime primitive: true when `path` is a symbolic link.
 declare pengu_c_archivum_is_symlink with path as string into bool
-declare pengu_c_archivum_create_dir with path as string and parents as bool into bool
-declare pengu_c_archivum_remove_dir with path as string and recursive as bool into bool
+# Runtime primitive: creates the directory at `path`; when `parents` is true it
+# also creates any missing ancestor directories.
+declare pengu_c_archivum_create_dir with path as string , parents as bool into bool
+# Runtime primitive: removes the directory at `path`; when `recursive` is true it
+# deletes the directory and everything inside it.
+declare pengu_c_archivum_remove_dir with path as string , recursive as bool into bool
+# Runtime primitive: lists the direct entry names of `path` (owned list of string
+# wrapped in maybe); none when the directory cannot be read.
 declare pengu_c_archivum_read_dir with path as string into maybe list of string
-declare pengu_c_archivum_copy_file with src as string and dst as string and overwrite as bool into bool
-declare pengu_c_archivum_move_file with src as string and dst as string and overwrite as bool into bool
-declare pengu_c_archivum_rename with old as string and new as string into bool
+# Runtime primitive: copies file `src` to `dst`; when `overwrite` is false an
+# existing `dst` makes the copy fail.
+declare pengu_c_archivum_copy_file with src as string , dst as string , overwrite as bool into bool
+# Runtime primitive: moves file `src` to `dst`; when `overwrite` is false an
+# existing `dst` makes the move fail.
+declare pengu_c_archivum_move_file with src as string , dst as string , overwrite as bool into bool
+# Runtime primitive: renames entry `old` to `new` (overwrites an existing `new`).
+declare pengu_c_archivum_rename with old as string , new as string into bool
+# Runtime primitive: stat()es `path` into an owned map of string to string
+# wrapped in maybe (keys: size, is_file, is_dir, is_symlink, modified, created,
+# accessed, permissions); none when stat fails.
 declare pengu_c_archivum_metadata with path as string into maybe map of string to string
+# Runtime primitive: globs `pattern` from the working directory into an owned
+# list of matching relative paths.
 declare pengu_c_archivum_glob with pattern as string into list of string
+# Runtime primitive: walks `root` depth-first into an owned nested list; each
+# inner list starts with a directory path followed by its direct entry names.
 declare pengu_c_archivum_walk with root as string into list of list of string
+# Runtime primitive: updates the modification time of `path`, creating an empty
+# file when it does not exist.
 declare pengu_c_archivum_touch with path as string into bool
-declare pengu_c_archivum_symlink with target as string and link as string into bool
+# Runtime primitive: creates symbolic link `link` pointing at `target`.
+declare pengu_c_archivum_symlink with target as string , link as string into bool
+# Runtime primitive: resolves the target of the symlink at `path` (owned string
+# wrapped in maybe); none when it is not a symlink.
 declare pengu_c_archivum_read_symlink with path as string into maybe string
+# Runtime primitive: canonicalizes `path` to an absolute path (owned string
+# wrapped in maybe); none when it cannot be resolved.
 declare pengu_c_archivum_realpath with path as string into maybe string
 
 # ----------------------------------------------------------------------------
 # Functional API
 # ----------------------------------------------------------------------------
 
+# Reads the whole file at `path` as UTF-8 text. Returns some owned string on
+# success (banish it when done) or none when the file is missing or unreadable.
 weave read_file with path as string into maybe string:
     return calling pengu_c_archivum_read_file with path
 
-weave write_file with path as string and content as string into bool:
-    return calling pengu_c_archivum_write_file with path and content
+# Writes `content` verbatim to `path`, creating or truncating the file. Returns
+# true on success; check the result before assuming the write happened.
+weave write_file with path as string , content as string into bool:
+    return calling pengu_c_archivum_write_file with path , content
 
-weave append_file with path as string and content as string into bool:
-    return calling pengu_c_archivum_append_file with path and content
+# Appends `content` to the end of `path`, creating the file when it does not
+# exist. Returns true on success.
+weave append_file with path as string , content as string into bool:
+    return calling pengu_c_archivum_append_file with path , content
 
+# Deletes the entry (file, empty dir or symlink) at `path`. Returns true on
+# success; false when the entry does not exist or cannot be removed.
 weave delete_file with path as string into bool:
     return calling pengu_c_archivum_delete_file with path
 
+# Returns true when any file system entry exists at `path` (regular file,
+# directory or symbolic link).
 weave exists with path as string into bool:
     return calling pengu_c_archivum_exists with path
 
+# Returns true when the entry at `path` is a regular file (not a directory or a
+# symlink to one).
 weave is_file with path as string into bool:
     return calling pengu_c_archivum_is_file with path
 
+# Returns true when the entry at `path` is a directory.
 weave is_dir with path as string into bool:
     return calling pengu_c_archivum_is_dir with path
 
+# Returns true when the entry at `path` is a symbolic link.
 weave is_symlink with path as string into bool:
     return calling pengu_c_archivum_is_symlink with path
 
-weave create_dir with path as string and parents as bool is false into bool:
-    return calling pengu_c_archivum_create_dir with path and parents
+# Creates the directory at `path`. With `parents` set to true, missing ancestor
+# directories are created too (mkdir -p behaviour). Returns true on success.
+weave create_dir with path as string , parents as bool is false into bool:
+    return calling pengu_c_archivum_create_dir with path , parents
 
-weave remove_dir with path as string and recursive as bool is false into bool:
-    return calling pengu_c_archivum_remove_dir with path and recursive
+# Removes the directory at `path`. With `recursive` set to true the directory
+# and all of its contents are deleted (rm -r behaviour); otherwise only an empty
+# directory can be removed. Returns true on success.
+weave remove_dir with path as string , recursive as bool is false into bool:
+    return calling pengu_c_archivum_remove_dir with path , recursive
 
+# Lists the direct entry names inside `path` (no "." or ".."). Returns some
+# owned list of string on success (banish it when done) or none when the
+# directory does not exist or cannot be read.
 weave read_dir with path as string into maybe list of string:
     return calling pengu_c_archivum_read_dir with path
 
-weave copy_file with src as string and dst as string and overwrite as bool is false into bool:
-    return calling pengu_c_archivum_copy_file with src and dst and overwrite
+# Copies the file at `src` to `dst`. When `overwrite` is false an existing `dst`
+# makes the copy fail and return false. Returns true on success.
+weave copy_file with src as string , dst as string , overwrite as bool is false into bool:
+    return calling pengu_c_archivum_copy_file with src , dst , overwrite
 
-weave move_file with src as string and dst as string and overwrite as bool is false into bool:
-    return calling pengu_c_archivum_move_file with src and dst and overwrite
+# Moves the file at `src` to `dst`. When `overwrite` is false an existing `dst`
+# makes the move fail and return false. Returns true on success.
+weave move_file with src as string , dst as string , overwrite as bool is false into bool:
+    return calling pengu_c_archivum_move_file with src , dst , overwrite
 
-weave rename with old as string and new as string into bool:
-    return calling pengu_c_archivum_rename with old and new
+# Renames the entry at `old` to `new` (an existing `new` is overwritten). Works
+# within the same file system. Returns true on success.
+weave rename with old as string , new as string into bool:
+    return calling pengu_c_archivum_rename with old , new
 
+# Reads the metadata of the entry at `path` into an owned map of string to
+# string with the keys: size, is_file, is_dir, is_symlink, modified, created,
+# accessed and permissions (numeric strings, e.g. "true"/"false" for the flags
+# and unix timestamps for the times). Returns some map on success (banish it
+# when done) or none when stat() fails.
 weave metadata with path as string into maybe map of string to string:
     return calling pengu_c_archivum_metadata with path
 
+# Reads the file at `path` and splits its raw text on "\n" into an owned list of
+# lines (banish it when done). Returns none when the file cannot be read. Note
+# that a trailing newline leaves a final empty element, and the split is not
+# newline-normalized across platforms.
 weave read_lines with path as string into maybe list of string:
     var content as maybe string is calling read_file with path
     if content.is_present:
@@ -92,7 +180,9 @@ weave read_lines with path as string into maybe list of string:
         return some parts
     return maybe none
 
-weave write_lines with path as string and lines as list of string into bool:
+# Joins `lines` with "\n", appends one trailing "\n" and writes the result to
+# `path`. Returns true on success.
+weave write_lines with path as string , lines as list of string into bool:
     var out as string is ""
     var i as int is 0
     while i < lines.len:
@@ -100,9 +190,11 @@ weave write_lines with path as string and lines as list of string into bool:
             set out is out + "\n"
         set out is out + (lines at i)
         set i is i + 1
-    return calling write_file with path and (out + "\n")
+    return calling write_file with path , (out + "\n")
 
-weave append_lines with path as string and lines as list of string into bool:
+# Joins `lines` with "\n", appends one trailing "\n" and appends the result to
+# `path`. Returns true on success.
+weave append_lines with path as string , lines as list of string into bool:
     var out as string is ""
     var i as int is 0
     while i < lines.len:
@@ -110,23 +202,38 @@ weave append_lines with path as string and lines as list of string into bool:
             set out is out + "\n"
         set out is out + (lines at i)
         set i is i + 1
-    return calling append_file with path and (out + "\n")
+    return calling append_file with path , (out + "\n")
 
+# Globs `pattern` starting from the working directory and returns an owned list
+# of matching relative paths (banish it when done). "*" / "**" match every
+# entry, "*.ext" matches by extension and any other pattern is matched as a
+# substring of the path or as an exact entry name. The result may be empty.
 weave glob with pattern as string into list of string:
     return calling pengu_c_archivum_glob with pattern
 
+# Walks `root` depth-first and returns an owned nested list (banish it when
+# done). Each inner list starts with the path of a visited directory followed by
+# the names of its direct entries, so the whole tree shape can be reconstructed.
 weave walk with root as string into list of list of string:
     return calling pengu_c_archivum_walk with root
 
+# Updates the modification time of `path` to now, creating an empty file when it
+# does not exist. Returns true on success.
 weave touch with path as string into bool:
     return calling pengu_c_archivum_touch with path
 
-weave symlink with target as string and link as string into bool:
-    return calling pengu_c_archivum_symlink with target and link
+# Creates a symbolic link named `link` that points at `target`. Returns true on
+# success.
+weave symlink with target as string , link as string into bool:
+    return calling pengu_c_archivum_symlink with target , link
 
+# Reads the target of the symbolic link at `path`. Returns some owned string on
+# success (banish it when done) or none when the entry is not a symlink.
 weave read_symlink with path as string into maybe string:
     return calling pengu_c_archivum_read_symlink with path
 
+# Resolves `path` to a canonical absolute path. Returns some owned string on
+# success (banish it when done) or none when the path cannot be resolved.
 weave realpath with path as string into maybe string:
     return calling pengu_c_archivum_realpath with path
 
@@ -134,21 +241,23 @@ weave realpath with path as string into maybe string:
 # Recursive directory helpers (pure PenguScript over the C primitives above)
 # ----------------------------------------------------------------------------
 
+# Internal record used by copy_tree to queue (source path, destination path)
+# pairs of directories that still need to be copied.
 rune FsCopyTask:
     s as string
     d as string
 
 # Recursively copies a directory tree (files are copied byte-for-byte as text;
 # symlinks inside the tree are followed and copied as files/directories).
-weave copy_tree with src as string and dst as string into bool:
+weave copy_tree with src as string , dst as string into bool:
     var src_is_dir as bool is calling is_dir with src
     if src_is_dir == false:
         return false
-    var made_root as bool is calling create_dir with dst and true
+    var made_root as bool is calling create_dir with dst , true
     if made_root == false:
         return false
     var stack as list of FsCopyTask is list of FsCopyTask
-    var seed as FsCopyTask is with s is src and d is dst
+    var seed as FsCopyTask is with s is src , d is dst
     calling stack.push with seed
     while stack.len > 0:
         var last as FsCopyTask is stack at (stack.len - 1)
@@ -162,17 +271,17 @@ weave copy_tree with src as string and dst as string into bool:
                 var sp as string is last.s + "/" + name
                 var dp as string is last.d + "/" + name
                 if calling is_dir with sp:
-                    var made_sub as bool is calling create_dir with dp and true
+                    var made_sub as bool is calling create_dir with dp , true
                     if made_sub == false:
                         return false
-                    var task as FsCopyTask is with s is sp and d is dp
+                    var task as FsCopyTask is with s is sp , d is dp
                     calling stack.push with task
                 else:
                     if calling is_file with sp:
                         var content as maybe string is calling read_file with sp
                         if content.is_present == false:
                             return false
-                        var wrote as bool is calling write_file with dp and content.value
+                        var wrote as bool is calling write_file with dp , content.value
                         if wrote == false:
                             return false
                 set i is i + 1

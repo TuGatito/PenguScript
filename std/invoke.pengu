@@ -1,5 +1,25 @@
 # std/invoke.pengu - The Invocation (Command-Line Argument Parsing)
 # Provides command-line parsing for CLI applications.
+#
+# Typical usage:
+#   import std.invoke
+#   var parser as Parser is calling invoke.new_parser with "myapp", "A demo CLI"
+#   calling parser.add_option with "output", "o", "Output file", false, "out.txt"
+#   calling parser.add_flag with "verbose", "v", "Verbose output", false
+#   calling parser.add_positional with "input", "Input file", true, ""
+#   var res as ParseResult is calling parser.parse with argv
+#   if res.is_err:
+#       calling spark.println with (res.errors at 0)
+#
+# Ownership model:
+#   * All arguments are plain strings/lists borrowed for the call; nothing is
+#     retained by the parser.
+#   * parse() builds and returns a freshly allocated ParseResult (maps + error
+#     list) owned by the caller; banish it when done.
+#   * The accessors on ParseResult return plain string/bool values (copies), so
+#     no borrowed view escapes the result.
+#   * When parse() sees "--help" or "-h" it prints the help and exits the
+#     process (rites.exit 0); it never returns a ParseResult in that case.
 
 import std.spark
 import std.oracle
@@ -8,18 +28,33 @@ import std.tally
 import std.atlas
 import std.rites
 
+# ----------------------------------------------------------------------------
+# CLI Types (argument specification & result records)
+# ----------------------------------------------------------------------------
+#
+# A boolean switch that can be passed as "--long" or "-short" (e.g. --verbose).
+# When not given on the command line, `default` (false unless configured) is
+# reported for it in the parse result. No value is consumed after the flag.
 rune Flag:
     long as string
     short as string
     help as string
     default as bool
 
+# A positional argument: a bare token collected in declaration order. `name` is
+# the key under which the collected value is stored in ParseResult.values;
+# `required` forces the argument to be present and `default` fills it in when it
+# is optional and missing.
 rune Positional:
     name as string
     help as string
     required as bool
     default as string
 
+# A value-taking option that can be passed as "--long <value>" or "-short
+# <value>". `long` is the key under which its value is stored in
+# ParseResult.values; `required` forces the option and `default` fills it in
+# when it is optional and missing.
 rune Option:
     long as string
     short as string
@@ -27,6 +62,9 @@ rune Option:
     required as bool
     default as string
 
+# The mutable configuration of a CLI: program `name`/`description` plus the
+# ordered lists of Positional, Option and Flag specs registered with the
+# add_* enchanting methods below. parse() reads these lists to interpret argv.
 rune Parser:
     name as string
     description as string
@@ -34,35 +72,71 @@ rune Parser:
     options as list of Option
     flags as list of Flag
 
+# The outcome of a parse run. `values` maps positional names and option long
+# names to their string values (defaults already applied); `flags` maps flag
+# long names to booleans; `errors` collects every problem found (unknown
+# options, missing required arguments, unexpected positionals).
 rune ParseResult:
     values as map of string to string
     flags as map of string to bool
     errors as list of string
 
-weave new_parser with name as string and description as string into Parser:
+# ----------------------------------------------------------------------------
+# Parser construction
+# ----------------------------------------------------------------------------
+#
+# Creates a new empty Parser for a program called `name` with the human
+# readable `description` (shown by print_help). The returned Parser owns its
+# (empty) spec lists; populate it with add_positional/add_option/add_flag.
+weave new_parser with name as string , description as string into Parser:
     var p as list of Positional is list of Positional
     var o as list of Option is list of Option
     var f as list of Flag is list of Flag
-    return with name is name and description is description and positionals is p and options is o and flags is f
+    return with name is name , description is description , positionals is p , options is o , flags is f
 
+# Enchanting block that gives every Parser its configuration and parsing
+# methods: add_positional, add_option, add_flag, print_help and parse.
 enchanting Parser:
-    weave add_positional with name as string and help as string and required as bool is true and default as string is "" into void:
-        var pos as Positional is with name is name and help is help and required is required and default is default
+    # Appends a positional-argument spec to the parser. Positionals are filled
+    # in declaration order from the bare tokens of argv. With `required` true a
+    # missing value is reported as an error; otherwise `default` (only used when
+    # non-empty) is stored instead.
+    weave add_positional with name as string , help as string , required as bool is true , default as string is "" into void:
+        var pos as Positional is with name is name , help is help , required is required , default is default
         calling self->positionals.push with pos
 
-    weave add_option with long as string and short as string and help as string and required as bool is false and default as string is "" into void:
-        var opt as Option is with long is long and short is short and help is help and required is required and default is default
+    # Appends a value-taking option spec ("--long <value>" / "-short <value>")
+    # to the parser. The value is stored under `long` in the result. With
+    # `required` true a missing option is an error; otherwise `default` (only
+    # used when non-empty) is stored instead.
+    weave add_option with long as string , short as string , help as string , required as bool is false , default as string is "" into void:
+        var opt as Option is with long is long , short is short , help is help , required is required , default is default
         calling self->options.push with opt
 
-    weave add_flag with long as string and short as string and help as string and default as bool is false into void:
-        var flg as Flag is with long is long and short is short and help is help and default is default
+    # Appends a boolean flag spec ("--long" / "-short", no value) to the
+    # parser. When the flag is seen the result reports true under `long`;
+    # otherwise `default` is reported.
+    weave add_flag with long as string , short as string , help as string , default as bool is false into void:
+        var flg as Flag is with long is long , short is short , help is help , default is default
         calling self->flags.push with flg
 
+    # Prints the usage line ("Usage: <name> [OPTIONS] [ARGS]") and, when the
+    # description is not empty, the description itself to stdout.
     weave print_help into void:
         calling spark.println with "Usage: " + self->name + " [OPTIONS] [ARGS]"
         if self->description != "":
             calling spark.println with self->description
 
+    # Parses a command line. `argv` is the full argument vector, so element 0
+    # (the program name) is skipped and scanning starts at index 1.
+    #
+    # Recognised forms: "--help" / "-h" (prints help and exits 0), "--long",
+    # "--long <value>", "-short", "-short <value>" and bare positionals. The
+    # returned ParseResult maps positional names / option long names to their
+    # values, flag long names to booleans (defaults applied) and collects every
+    # error message (unknown option, missing value, missing required argument,
+    # unexpected positional). The result is owned by the caller; banish it when
+    # done. Never returns when "--help"/"-h" is seen, because that path exits.
     weave parse with argv as list of string into ParseResult:
         var vals as map of string to string is map of string to string
         var flgs as map of string to bool is map of string to bool
@@ -78,16 +152,16 @@ enchanting Parser:
                 calling self.print_help
                 calling rites.exit with 0
             
-            var is_long as bool is calling scrolls.starts_with with arg and "--"
-            var is_short as bool is calling scrolls.starts_with with arg and "-"
+            var is_long as bool is calling scrolls.starts_with with arg , "--"
+            var is_short as bool is calling scrolls.starts_with with arg , "-"
             if is_long:
-                var opt_name as string is calling scrolls.substring with arg and 2 and arg.len
+                var opt_name as string is calling scrolls.substring with arg , 2 , arg.len
                 var found_flg as bool is false
                 var fi as int is 0
                 while fi < self->flags.len:
                     var f as Flag is self->flags at fi
                     if f.long == opt_name:
-                        calling flgs.put with f.long and true
+                        calling flgs.put with f.long , true
                         set found_flg is true
                         break
                     set fi is fi + 1
@@ -101,7 +175,7 @@ enchanting Parser:
                             if i + 1 < argv.len:
                                 set i is i + 1
                                 var opt_val as string is argv at i
-                                calling vals.put with opt.long and opt_val
+                                calling vals.put with opt.long , opt_val
                             else:
                                 calling errs.push with "Option --" + opt_name + " requires a value"
                             break
@@ -109,13 +183,13 @@ enchanting Parser:
                     if not found_opt:
                         calling errs.push with "Unknown option: " + arg
             else if is_short:
-                var s_name as string is calling scrolls.substring with arg and 1 and arg.len
+                var s_name as string is calling scrolls.substring with arg , 1 , arg.len
                 var found_flg as bool is false
                 var fi as int is 0
                 while fi < self->flags.len:
                     var f as Flag is self->flags at fi
                     if f.short == s_name:
-                        calling flgs.put with f.long and true
+                        calling flgs.put with f.long , true
                         set found_flg is true
                         break
                     set fi is fi + 1
@@ -129,7 +203,7 @@ enchanting Parser:
                             if i + 1 < argv.len:
                                 set i is i + 1
                                 var opt_val as string is argv at i
-                                calling vals.put with opt.long and opt_val
+                                calling vals.put with opt.long , opt_val
                             else:
                                 calling errs.push with "Option -" + s_name + " requires a value"
                             break
@@ -139,7 +213,7 @@ enchanting Parser:
             else:
                 if pos_idx < self->positionals.len:
                     var pos as Positional is self->positionals at pos_idx
-                    calling vals.put with pos.name and arg
+                    calling vals.put with pos.name , arg
                     set pos_idx is pos_idx + 1
                 else:
                     calling errs.push with "Unexpected positional argument: " + arg
@@ -153,7 +227,7 @@ enchanting Parser:
                 if pos.required:
                     calling errs.push with "Missing required positional: " + pos.name
                 else if pos.default != "":
-                    calling vals.put with pos.name and pos.default
+                    calling vals.put with pos.name , pos.default
             set pi is pi + 1
 
         # Check required options
@@ -164,7 +238,7 @@ enchanting Parser:
                 if opt.required:
                     calling errs.push with "Missing required option: --" + opt.long
                 else if opt.default != "":
-                    calling vals.put with opt.long and opt.default
+                    calling vals.put with opt.long , opt.default
             set oi is oi + 1
 
         # Default flags
@@ -172,29 +246,46 @@ enchanting Parser:
         while fi < self->flags.len:
             var f as Flag is self->flags at fi
             if not (calling flgs.contains with f.long):
-                calling flgs.put with f.long and f.default
+                calling flgs.put with f.long , f.default
             set fi is fi + 1
 
-        return with values is vals and flags is flgs and errors is errs
+        return with values is vals , flags is flgs , errors is errs
 
+# ----------------------------------------------------------------------------
+# ParseResult accessors
+# ----------------------------------------------------------------------------
+#
+# Enchanting block that gives every ParseResult its read helpers: get, get_or,
+# is_set, is_ok and is_err.
 enchanting ParseResult:
+    # Returns the string value stored for a positional name or an option long
+    # name, or "" when the parse did not record one. The string is a copy owned
+    # by the caller.
     weave get with name as string into string:
         if calling self->values.contains with name:
             return calling self->values.get with name
         return ""
 
-    weave get_or with name as string and fallback as string into string:
+    # Returns the string value stored for a positional name or an option long
+    # name, or `fallback` when the parse did not record one.
+    weave get_or with name as string , fallback as string into string:
         if calling self->values.contains with name:
             return calling self->values.get with name
         return fallback
 
+    # Returns true when the flag `name` was given on the command line (or was
+    # set to true by its default); false when it was not passed and has no true
+    # default. Unknown names report false.
     weave is_set with name as string into bool:
         if calling self->flags.contains with name:
             return calling self->flags.get with name
         return false
 
+    # Returns true when the parse completed without any error message.
     weave is_ok into bool:
         return self->errors.len == 0
 
+    # Returns true when the parse collected at least one error message (unknown
+    # option, missing value, missing required argument, unexpected positional).
     weave is_err into bool:
         return self->errors.len > 0

@@ -1,61 +1,65 @@
-## PenguScript declaration binding for the WebUI C library (webui.h).
-## WebUI: https://webui.me  |  https://github.com/webui-dev/webui
-## Header version mirrored here: 2.5.0-beta.4
-## This is a declaration file (.d.pengu): it only declares the native C
-## surface (types, callback aliases and external functions) so the LSP and
-## the semantic checker know how to call WebUI from PenguScript. The real
-## C definitions live in `webui.h`, which is `include`d below, so nothing
-## here emits C structs/enums/prototypes.
-## Calling convention:
-##   - Functions are called module-qualified, e.g. `calling webui.show`.
-##   - The `insignia webui_` prefix below means `show` maps to the native
-##     symbol `webui_show`, `new_window` to `webui_new_window`, etc.
-##   - C strings (`const char*`) are declared as `ref to char`; pass a
-##     PenguScript string literal directly (it becomes a plain C literal).
-##   - Every window / event / bind / browser number is a `size_t`.
-## Native enums and macros (webui.h):
-##   WebUI exposes its enum constants as plain C identifiers. They are NOT
-##   re-declared here (re-declaring them would shadow the real C constants
-##   and break code generation), so use them exactly as C spells them:
-##   Browser (`enum webui_browser`, pass the number to *_browser functions):
-##     NoBrowser = 0    AnyBrowser = 1    Chrome = 2       Firefox = 3
-##     Edge = 4         Safari = 5        Chromium = 6     Opera = 7
-##     Brave = 8        Vivaldi = 9       Epic = 10        Yandex = 11
-##     ChromiumBased = 12                Webview = 13
-##   JS runtime (`enum webui_runtime`, pass to `set_runtime`):
-##     None = 0   Deno = 1   NodeJS = 2   Bun = 3
-##   Configuration option (`enum webui_config`, pass to `set_config`):
-##     show_wait_connection = 0   ui_event_blocking = 1
-##     folder_monitor = 2         multi_client = 3
-##     use_cookies = 4            asynchronous_response = 5
-##   The two ALL-CAPS enums below are real C identifiers too, and because
-##   PenguScript resolves ALL-CAPS names straight to the C header they can
-##   be typed directly in your code:
-##   Event type (`enum webui_event`):
-##     WEBUI_EVENT_DISCONNECTED = 0   WEBUI_EVENT_CONNECTED = 1
-##     WEBUI_EVENT_MOUSE_CLICK = 2    WEBUI_EVENT_NAVIGATION = 3
-##     WEBUI_EVENT_CALLBACK = 4
-##   Logger level (`enum webui_logger_level`):
-##     WEBUI_LOGGER_LEVEL_DEBUG = 0   WEBUI_LOGGER_LEVEL_INFO = 1
-##     WEBUI_LOGGER_LEVEL_ERROR = 2
-##   Limits: WEBUI_MAX_IDS (65535) and WEBUI_MAX_ARG (16) are usable
-##   directly as well.
-## Known limitation of PenguScript v0.6 codegen: `set_file_handler`,
-## `set_file_handler_window` and `set_logger` take callbacks whose C
-## signature uses `const char*` / `const void*`. PenguScript weaves always
-## generate non-const `char*` / `void*` parameters, so passing a
-## PenguScript handler to those three is rejected by strict C compilers
-## (e.g. GCC 14+). The other callbacks (`bind`, `set_close_handler_wv`,
-## `interface_bind`) match the C header exactly and work from PenguScript.
-## TLS note: `set_tls_certificate` only works when linking the secure
-## library `webui-2-secure` instead of `webui-2-static`.
-## Typical usage:
-##   import webui
-##   weave main into void:
-##     var win as size_t is calling webui.new_window
-##     calling webui.show with win, "<html>...</html>"
-##     calling webui.wait
+# PenguScript declaration binding for the WebUI C library (webui.h).
+# WebUI: https://webui.me  |  https://github.com/webui-dev/webui
+# Header version mirrored here: 2.5.0-beta.4
+# This is a declaration file (.d.pengu): it only declares the native C
+# surface (types, callback aliases and external functions) so the LSP and
+# the semantic checker know how to call WebUI from PenguScript. The real
+# C definitions live in `webui.h`, which is `include`d below, so nothing
+# here emits C structs/enums/prototypes.
+# Calling convention:
+#   - Functions are called module-qualified, e.g. `calling webui.show`.
+#   - The `insignia webui_` prefix below means `show` maps to the native
+#     symbol `webui_show`, `new_window` to `webui_new_window`, etc.
+#   - C strings (`const char*`) are declared as `ref to char`; pass a
+#     PenguScript string literal directly (it becomes a plain C literal).
+#   - Every window / event / bind / browser number is a `size_t`.
+# Native enums and macros (webui.h):
+#   WebUI exposes its enum constants as plain C identifiers. They are NOT
+#   re-declared here (re-declaring them would shadow the real C constants
+#   and break code generation), so use them exactly as C spells them:
+#   Browser (`enum webui_browser`, pass the number to *_browser functions):
+#     NoBrowser = 0    AnyBrowser = 1    Chrome = 2       Firefox = 3
+#     Edge = 4         Safari = 5        Chromium = 6     Opera = 7
+#     Brave = 8        Vivaldi = 9       Epic = 10        Yandex = 11
+#     ChromiumBased = 12                Webview = 13
+#   JS runtime (`enum webui_runtime`, pass to `set_runtime`):
+#     None = 0   Deno = 1   NodeJS = 2   Bun = 3
+#   Configuration option (`enum webui_config`, pass to `set_config`):
+#     show_wait_connection = 0   ui_event_blocking = 1
+#     folder_monitor = 2         multi_client = 3
+#     use_cookies = 4            asynchronous_response = 5
+#   The two ALL-CAPS enums below are real C identifiers too, and because
+#   PenguScript resolves ALL-CAPS names straight to the C header they can
+#   be typed directly in your code:
+#   Event type (`enum webui_event`):
+#     WEBUI_EVENT_DISCONNECTED = 0   WEBUI_EVENT_CONNECTED = 1
+#     WEBUI_EVENT_MOUSE_CLICK = 2    WEBUI_EVENT_NAVIGATION = 3
+#     WEBUI_EVENT_CALLBACK = 4
+#   Logger level (`enum webui_logger_level`):
+#     WEBUI_LOGGER_LEVEL_DEBUG = 0   WEBUI_LOGGER_LEVEL_INFO = 1
+#     WEBUI_LOGGER_LEVEL_ERROR = 2
+#   Limits: WEBUI_MAX_IDS (65535) and WEBUI_MAX_ARG (16) are usable
+#   directly as well.
+# Known limitation of PenguScript v0.6 codegen: `set_file_handler`,
+# `set_file_handler_window` and `set_logger` take callbacks whose C
+# signature uses `const char*` / `const void*`. PenguScript weaves always
+# generate non-const `char*` / `void*` parameters, so passing a
+# PenguScript handler to those three is rejected by strict C compilers
+# (e.g. GCC 14+). The other callbacks (`bind`, `set_close_handler_wv`,
+# `interface_bind`) match the C header exactly and work from PenguScript.
+# TLS note: `set_tls_certificate` only works when linking the secure
+# library `webui-2-secure` instead of `webui-2-static`.
+# Typical usage:
+#   import webui
+#   weave main into void:
+#     var win as size_t is calling webui.new_window
+#     calling webui.show with win, "<html>...</html>"
+#     calling webui.wait
 
+# Memory ownership follows the native library contract (documented above each
+# declaration): buffers returned by `encode` / `decode` / `malloc` are freed
+# with the library's own `free`, a window is destroyed with `destroy`, and
+# `clean` releases every remaining native resource at shutdown.
 include "webui.h"
 
 # Required native libraries (libwebui.a built by build_runtime.py).
@@ -72,12 +76,12 @@ link "uuid"
 # names match the C identifiers exactly (e.g. `webui_event_t` is both the
 # PenguScript type name and the C typedef), which keeps generated C valid.
 
-## Native event payload. Mirrors the C struct `webui_event_t` that WebUI
-## passes to every bound callback. In your handler you receive a
-## `ref to webui_event_t` and read its fields with `->`:
-##   weave my_handler with e as ref to webui_event_t into void:
-##     if e->event_type == WEBUI_EVENT_CALLBACK:
-##       var text as ref to char is calling webui.get_string with e
+# Native event payload. Mirrors the C struct `webui_event_t` that WebUI
+# passes to every bound callback. In your handler you receive a
+# `ref to webui_event_t` and read its fields with `->`:
+#   weave my_handler with e as ref to webui_event_t into void:
+#     if e->event_type == WEBUI_EVENT_CALLBACK:
+#       var text as ref to char is calling webui.get_string with e
 rune webui_event_t:
   # The window object number.
   window as size_t
@@ -96,30 +100,30 @@ rune webui_event_t:
   # Client's full cookies (read-only).
   cookies as ref to char
 
-## Callback type for `bind`: `void handler(webui_event_t* e)`.
-## An empty element name binds all events.
+# Callback type for `bind`: `void handler(webui_event_t* e)`.
+# An empty element name binds all events.
 alias BindCallback as ref to weave with e as ref to webui_event_t into void
 
-## Callback type for `set_close_handler_wv`: `bool handler(size_t window)`.
-## Return `false` to prevent the WebView window close event, `true` otherwise.
+# Callback type for `set_close_handler_wv`: `bool handler(size_t window)`.
+# Return `false` to prevent the WebView window close event, `true` otherwise.
 alias CloseHandler as ref to weave with window as size_t into bool
 
-## Callback type for `set_file_handler`:
-## `const void* handler(const char* filename, int* length)`.
-## Must return the full HTTP header and body.
+# Callback type for `set_file_handler`:
+# `const void* handler(const char* filename, int* length)`.
+# Must return the full HTTP header and body.
 alias FileHandler as ref to weave with filename as ref to char, length as ref to int into ref to void
 
-## Callback type for `set_file_handler_window`:
-## `const void* handler(size_t window, const char* filename, int* length)`.
+# Callback type for `set_file_handler_window`:
+# `const void* handler(size_t window, const char* filename, int* length)`.
 alias WindowFileHandler as ref to weave with window as size_t, filename as ref to char, length as ref to int into ref to void
 
-## Callback type for `interface_bind` (wrapper's interface):
-## `void handler(size_t window, size_t event_type, char* element,
-## size_t event_number, size_t bind_id)`.
+# Callback type for `interface_bind` (wrapper's interface):
+# `void handler(size_t window, size_t event_type, char* element,
+# size_t event_number, size_t bind_id)`.
 alias InterfaceCallback as ref to weave with window as size_t, event_type as size_t, element as ref to char, event_number as size_t, bind_id as size_t into void
 
-## Callback type for `set_logger`:
-## `void logger(size_t level, const char* log, void* user_data)`.
+# Callback type for `set_logger`:
+# `void logger(size_t level, const char* log, void* user_data)`.
 alias LoggerCallback as ref to weave with level as size_t, log as ref to char, user_data as ref to void into void
 
 
@@ -133,596 +137,596 @@ insignia webui_
 
 # -- Window creation & lifecycle ------------------------------------------
 
-## Create a new WebUI window object.
-## Returns the window number (a `size_t` handle for every other API).
+# Create a new WebUI window object.
+# Returns the window number (a `size_t` handle for every other API).
 declare new_window into size_t
 
-## Create a new WebUI window object using a specified window number.
-## @param window_number Must be > 0 and < WEBUI_MAX_IDS.
-## Returns the same window number on success.
+# Create a new WebUI window object using a specified window number.
+# @param window_number Must be > 0 and < WEBUI_MAX_IDS.
+# Returns the same window number on success.
 declare new_window_id with window_number as size_t into size_t
 
-## Get a free window number that can be used with `new_window_id`.
-## Returns the first available free window number, starting from 1.
+# Get a free window number that can be used with `new_window_id`.
+# Returns the first available free window number, starting from 1.
 declare get_new_window_id into size_t
 
-## Wait until all opened windows get closed. Blocks the calling thread.
-## @example calling webui.wait
+# Wait until all opened windows get closed. Blocks the calling thread.
+# @example calling webui.wait
 declare wait into void
 
-## Wait asynchronously until all opened windows get closed.
-## In WebView mode this must be called from the main thread.
-## Returns True while more windows are still opened, False otherwise.
+# Wait asynchronously until all opened windows get closed.
+# In WebView mode this must be called from the main thread.
+# Returns True while more windows are still opened, False otherwise.
 declare wait_async into bool
 
-## Close a specific window only (all clients). The window object still
-## exists and can be shown again.
-## @param window The window number.
+# Close a specific window only (all clients). The window object still
+# exists and can be shown again.
+# @param window The window number.
 declare close with window as size_t into void
 
-## Close a specific client.
-## @param e The event struct of the client to close.
+# Close a specific client.
+# @param e The event struct of the client to close.
 declare close_client with e as ref to webui_event_t into void
 
-## Close a specific window and free all its memory resources.
-## @param window The window number.
+# Close a specific window and free all its memory resources.
+# @param window The window number.
 declare destroy with window as size_t into void
 
-## Close all open windows. `wait` will then return (break).
-## @example calling webui.exit
+# Close all open windows. `wait` will then return (break).
+# @example calling webui.exit
 declare exit into void
 
-## Free all memory resources. Should be called only at the end, after
-## `wait` returns.
-## @example
-## calling webui.wait
-## calling webui.clean
+# Free all memory resources. Should be called only at the end, after
+# `wait` returns.
+# @example
+# calling webui.wait
+# calling webui.clean
 declare clean into void
 
-## Check if the specified window is still running (shown).
-## Returns True if the window is running.
+# Check if the specified window is still running (shown).
+# Returns True if the window is running.
 declare is_shown with window as size_t into bool
 
-## Set the maximum time in seconds to wait for a window to connect.
-## Affects `show` and `wait`. A value of 0 means wait forever.
-## @param second The timeout in seconds.
+# Set the maximum time in seconds to wait for a window to connect.
+# Affects `show` and `wait`. A value of 0 means wait forever.
+# @param second The timeout in seconds.
 declare set_timeout with second as size_t into void
 
 # -- Folder & profiles -----------------------------------------------------
 
-## Set the web-server root folder path for a specific window.
-## Returns True on success.
+# Set the web-server root folder path for a specific window.
+# Returns True on success.
 declare set_root_folder with window as size_t, path as ref to char into bool
 
-## Set the web-server root folder path for all windows.
-## Should be used before `show`.
-## Returns True on success.
+# Set the web-server root folder path for all windows.
+# Should be used before `show`.
+# Returns True on success.
 declare set_default_root_folder with path as ref to char into bool
 
-## Set a custom web-browser folder path (e.g. a portable browser install).
-## @param path The browser folder full path.
+# Set a custom web-browser folder path (e.g. a portable browser install).
+# @param path The browser folder full path.
 declare set_browser_folder with path as ref to char into void
 
-## Delete all local web-browser profiles folders.
-## Should be called at the very end:
-## @example
-## calling webui.wait
-## calling webui.delete_all_profiles
-## calling webui.clean
+# Delete all local web-browser profiles folders.
+# Should be called at the very end:
+# @example
+# calling webui.wait
+# calling webui.delete_all_profiles
+# calling webui.clean
 declare delete_all_profiles into void
 
-## Delete the local web-browser profile folder of a specific window.
-## @note This can break other windows that share the same web-browser.
+# Delete the local web-browser profile folder of a specific window.
+# @note This can break other windows that share the same web-browser.
 declare delete_profile with window as size_t into void
 
 # -- Process & window info --------------------------------------------------
 
-## Get the parent process ID (the current backend application process).
-## Returns the process ID as an integer.
+# Get the parent process ID (the current backend application process).
+# Returns the process ID as an integer.
 declare get_parent_process_id with window as size_t into size_t
 
-## Get the child process ID created by the parent (the web-browser
-## window). In WebView mode this returns the parent process ID, because
-## backend and WebView run in the same process.
-## Returns the process ID as an integer.
+# Get the child process ID created by the parent (the web-browser
+# window). In WebView mode this returns the parent process ID, because
+# backend and WebView run in the same process.
+# Returns the process ID as an integer.
 declare get_child_process_id with window as size_t into size_t
 
-## Get the network port of a running window.
-## Useful to build the HTTP link of `webui.js`.
-## Returns the network port of the window.
+# Get the network port of a running window.
+# Useful to build the HTTP link of `webui.js`.
+# Returns the network port of the window.
 declare get_port with window as size_t into size_t
 
-## Set a custom web-server/websocket network port for WebUI, useful when
-## WebUI is used behind an external web-server such as NGNIX.
-## Returns True if the port is free and usable by WebUI.
+# Set a custom web-server/websocket network port for WebUI, useful when
+# WebUI is used behind an external web-server such as NGNIX.
+# Returns True if the port is free and usable by WebUI.
 declare set_port with window as size_t, port as size_t into bool
 
-## Get an available usable free network port.
-## Returns a free port number.
+# Get an available usable free network port.
+# Returns a free port number.
 declare get_free_port into size_t
 
-## Get the Win32 `HWND` of a window. More reliable with WebView than with
-## web-browser windows, as browser PIDs may change on launch.
-## Returns the window `hwnd` as a pointer.
+# Get the Win32 `HWND` of a window. More reliable with WebView than with
+# web-browser windows, as browser PIDs may change on launch.
+# Returns the window `hwnd` as a pointer.
 declare win32_get_hwnd with window as size_t into ref to void
 
-## Get the native window handle: `HWND` in Win32 (WebView and web
-## browser), `GtkWindow` in Linux (WebView only).
-## Returns the window handle as a pointer.
+# Get the native window handle: `HWND` in Win32 (WebView and web
+# browser), `GtkWindow` in Linux (WebView only).
+# Returns the window handle as a pointer.
 declare get_hwnd with window as size_t into ref to void
 
-## Get the full URL of a running window.
-## Recommended to call after showing the window.
-## Returns the full URL string.
+# Get the full URL of a running window.
+# Recommended to call after showing the window.
+# Returns the full URL string.
 declare get_url with window as size_t into ref to char
 
-## Open an URL in the native default web-browser.
-## @param url The URL to open, e.g. "https://webui.me".
+# Open an URL in the native default web-browser.
+# @param url The URL to open, e.g. "https://webui.me".
 declare open_url with url as ref to char into void
 
 # -- Show / display ---------------------------------------------------------
 
-## Show a window using embedded HTML, or a file. If the window is already
-## open it is refreshed. This refreshes all windows in multi-client mode.
-## @param content The HTML, URL, local file or local folder.
-## Pass NULL or an empty string to start in folder mode using the current
-## root folder and its index fallback logic.
-## Returns True if showing the window succeeded.
-## @example
-## calling webui.show with myWindow, "<html>...</html>"
-## calling webui.show with myWindow, "index.html"
-## calling webui.show with myWindow, "http://..."
+# Show a window using embedded HTML, or a file. If the window is already
+# open it is refreshed. This refreshes all windows in multi-client mode.
+# @param content The HTML, URL, local file or local folder.
+# Pass NULL or an empty string to start in folder mode using the current
+# root folder and its index fallback logic.
+# Returns True if showing the window succeeded.
+# @example
+# calling webui.show with myWindow, "<html>...</html>"
+# calling webui.show with myWindow, "index.html"
+# calling webui.show with myWindow, "http://..."
 declare show with window as size_t, content as ref to char into bool
 
-## Show a window using embedded HTML, or a file (single client).
-## Returns True if showing the window succeeded.
+# Show a window using embedded HTML, or a file (single client).
+# Returns True if showing the window succeeded.
 declare show_client with e as ref to webui_event_t, content as ref to char into bool
 
-## Same as `show`, but using a specific web-browser.
-## @param browser A browser number (see `enum webui_browser` in the module
-## docs, e.g. Chrome = 2).
-## Returns True if showing the window succeeded.
+# Same as `show`, but using a specific web-browser.
+# @param browser A browser number (see `enum webui_browser` in the module
+# docs, e.g. Chrome = 2).
+# Returns True if showing the window succeeded.
 declare show_browser with window as size_t, content as ref to char, browser as size_t into bool
 
-## Show a WebView window using embedded HTML, or a file.
-## Note: Win32 needs `WebView2Loader.dll`.
-## Returns True if showing the WebView window succeeded.
+# Show a WebView window using embedded HTML, or a file.
+# Note: Win32 needs `WebView2Loader.dll`.
+# Returns True if showing the WebView window succeeded.
 declare show_wv with window as size_t, content as ref to char into bool
 
-## Start only the local web-server and return its URL. No window is shown.
-## @param content The local file or folder to serve (NULL/empty = folder
-## mode with the current root folder).
-## Returns the URL of this window's server.
+# Start only the local web-server and return its URL. No window is shown.
+# @param content The local file or folder to serve (NULL/empty = folder
+# mode with the current root folder).
+# Returns the URL of this window's server.
 declare start_server with window as size_t, content as ref to char into ref to char
 
-## Bring a window to the front and focus it.
+# Bring a window to the front and focus it.
 declare focus with window as size_t into void
 
-## Minimize a WebView window.
+# Minimize a WebView window.
 declare minimize with window as size_t into void
 
-## Maximize a WebView window.
+# Maximize a WebView window.
 declare maximize with window as size_t into void
 
-## Set the window in Kiosk mode (full screen).
+# Set the window in Kiosk mode (full screen).
 declare set_kiosk with window as size_t, status as bool into void
 
-## Set the window with high-contrast support. Useful for building a
-## better high-contrast theme with CSS.
+# Set the window with high-contrast support. Useful for building a
+# better high-contrast theme with CSS.
 declare set_high_contrast with window as size_t, status as bool into void
 
-## Check the OS high-contrast preference.
-## Returns True if the OS is using a high-contrast theme.
+# Check the OS high-contrast preference.
+# Returns True if the OS is using a high-contrast theme.
 declare is_high_contrast into bool
 
-## Set whether the window frame is resizable or fixed.
-## Works only on WebView windows.
+# Set whether the window frame is resizable or fixed.
+# Works only on WebView windows.
 declare set_resizable with window as size_t, status as bool into void
 
-## Set a window in hidden mode. Should be called before `show`.
+# Set a window in hidden mode. Should be called before `show`.
 declare set_hide with window as size_t, status as bool into void
 
-## Set the window size.
-## @param width  The window width in pixels.
-## @param height The window height in pixels.
+# Set the window size.
+# @param width  The window width in pixels.
+# @param height The window height in pixels.
 declare set_size with window as size_t, width as uint, height as uint into void
 
-## Set the window minimum size.
-## @param width  The minimum window width in pixels.
-## @param height The minimum window height in pixels.
+# Set the window minimum size.
+# @param width  The minimum window width in pixels.
+# @param height The minimum window height in pixels.
 declare set_minimum_size with window as size_t, width as uint, height as uint into void
 
-## Set the window position on screen.
-## @param x The window X position in pixels.
-## @param y The window Y position in pixels.
+# Set the window position on screen.
+# @param x The window X position in pixels.
+# @param y The window Y position in pixels.
 declare set_position with window as size_t, x as uint, y as uint into void
 
-## Center the window on the screen. Works better with WebView; call it
-## before `show` for best results.
+# Center the window on the screen. Works better with WebView; call it
+# before `show` for best results.
 declare set_center with window as size_t into void
 
-## Make a WebView window frameless.
+# Make a WebView window frameless.
 declare set_frameless with window as size_t, status as bool into void
 
-## Make a WebView window transparent.
+# Make a WebView window transparent.
 declare set_transparent with window as size_t, status as bool into void
 
-## Set the default embedded HTML favicon.
-## @param icon      The icon as a string, e.g. "<svg>...</svg>".
-## @param icon_type The icon MIME type, e.g. "image/svg+xml".
+# Set the default embedded HTML favicon.
+# @param icon      The icon as a string, e.g. "<svg>...</svg>".
+# @param icon_type The icon MIME type, e.g. "image/svg+xml".
 declare set_icon with window as size_t, icon as ref to char, icon_type as ref to char into void
 
-## Set the window icon from an icon file (binary format).
-## Can be used as the taskbar icon on Linux (GTK).
-## @param path The icon file path, e.g. "icon.png".
+# Set the window icon from an icon file (binary format).
+# Can be used as the taskbar icon on Linux (GTK).
+# @param path The icon file path, e.g. "icon.png".
 declare set_icon_file with window as size_t, path as ref to char into void
 
-## Set the web-browser profile to use. An empty `name` and `path` selects
-## the default user profile. Must be called before `show`.
-## @param name The web-browser profile name.
-## @param path The web-browser profile full path.
+# Set the web-browser profile to use. An empty `name` and `path` selects
+# the default user profile. Must be called before `show`.
+# @param name The web-browser profile name.
+# @param path The web-browser profile full path.
 declare set_profile with window as size_t, name as ref to char, path as ref to char into void
 
-## Set the web-browser proxy server to use. Must be called before `show`.
-## @param proxy_server The proxy URL, e.g. "http://127.0.0.1:8888".
+# Set the web-browser proxy server to use. Must be called before `show`.
+# @param proxy_server The proxy URL, e.g. "http://127.0.0.1:8888".
 declare set_proxy with window as size_t, proxy_server as ref to char into void
 
-## Allow a specific window address to be accessible from a public network.
+# Allow a specific window address to be accessible from a public network.
 declare set_public with window as size_t, status as bool into void
 
-## Add user-defined CLI parameters to the web-browser process.
-## @param params Command-line parameters, e.g. "--remote-debugging-port=9222".
+# Add user-defined CLI parameters to the web-browser process.
+# @param params Command-line parameters, e.g. "--remote-debugging-port=9222".
 declare set_custom_parameters with window as size_t, params as ref to char into void
 
-## Set a callback to catch the close event of the WebView window. The
-## handler must return `false` to prevent the close event, `true`
-## otherwise.
-## @param close_handler The `CloseHandler` callback:
-## `bool handler(size_t window)`.
-## @example
-## weave on_close with window as size_t into bool:
-##   return false
-## calling webui.set_close_handler_wv with myWindow, on_close
+# Set a callback to catch the close event of the WebView window. The
+# handler must return `false` to prevent the close event, `true`
+# otherwise.
+# @param close_handler The `CloseHandler` callback:
+# `bool handler(size_t window)`.
+# @example
+# weave on_close with window as size_t into bool:
+#   return false
+# calling webui.set_close_handler_wv with myWindow, on_close
 declare set_close_handler_wv with window as size_t, close_handler as CloseHandler into void
 
-## Check if a web-browser is installed.
-## @param browser A browser number (see `enum webui_browser`).
-## Returns True if the specified browser is available.
+# Check if a web-browser is installed.
+# @param browser A browser number (see `enum webui_browser`).
+# Returns True if the specified browser is available.
 declare browser_exist with browser as size_t into bool
 
-## Get the recommended web-browser ID to use. If a browser is already in
-## use, this returns the same ID.
-## Returns a web-browser ID (see `enum webui_browser`).
+# Get the recommended web-browser ID to use. If a browser is already in
+# use, this returns the same ID.
+# Returns a web-browser ID (see `enum webui_browser`).
 declare get_best_browser with window as size_t into size_t
 
-## Get the HTTP MIME type of a file.
-## @param file The file name, e.g. "foo.png".
-## Returns the HTTP MIME type string.
+# Get the HTTP MIME type of a file.
+# @param file The file name, e.g. "foo.png".
+# Returns the HTTP MIME type string.
 declare get_mime_type with file as ref to char into ref to char
 
 # -- TLS ---------------------------------------------------------------------
 
-## Set the SSL/TLS certificate and private key content, both in PEM
-## format. Only works with the `webui-2-secure` library. If set empty,
-## WebUI generates a self-signed certificate.
-## Returns True if the certificate and key are valid.
+# Set the SSL/TLS certificate and private key content, both in PEM
+# format. Only works with the `webui-2-secure` library. If set empty,
+# WebUI generates a self-signed certificate.
+# Returns True if the certificate and key are valid.
 declare set_tls_certificate with certificate_pem as ref to char, private_key_pem as ref to char into bool
 
 # -- Bind & events -----------------------------------------------------------
 
-## Bind an HTML element and a JavaScript object to a backend function.
-## An empty element name binds all events.
-## @param element The HTML element / JavaScript object name.
-## @param func    The callback (`BindCallback`): `void handler(e)`.
-## Returns a unique bind ID.
-## @example
-## var id as size_t is calling webui.bind with myWindow, "myFunction", myFunction
+# Bind an HTML element and a JavaScript object to a backend function.
+# An empty element name binds all events.
+# @param element The HTML element / JavaScript object name.
+# @param func    The callback (`BindCallback`): `void handler(e)`.
+# Returns a unique bind ID.
+# @example
+# var id as size_t is calling webui.bind with myWindow, "myFunction", myFunction
 declare bind with window as size_t, element as ref to char, func as BindCallback into size_t
 
-## Attach user data to a previous `bind`, readable later inside the
-## callback with `get_context`.
-## @param context Any user data pointer.
+# Attach user data to a previous `bind`, readable later inside the
+# callback with `get_context`.
+# @param context Any user data pointer.
 declare set_context with window as size_t, element as ref to char, context as ref to void into void
 
-## Get the user data previously set with `set_context`.
-## @param e The event struct received by the callback.
-## Returns the user data pointer.
+# Get the user data previously set with `set_context`.
+# @param e The event struct received by the callback.
+# Returns the user data pointer.
 declare get_context with e as ref to webui_event_t into ref to void
 
 # -- Navigation ----------------------------------------------------------------
 
-## Navigate to a specific URL. All clients.
-## @param url Full HTTP URL, e.g. "http://domain.com".
+# Navigate to a specific URL. All clients.
+# @param url Full HTTP URL, e.g. "http://domain.com".
 declare navigate with window as size_t, url as ref to char into void
 
-## Navigate to a specific URL. Single client.
-## @param e   The event struct.
-## @param url Full HTTP URL.
+# Navigate to a specific URL. Single client.
+# @param e   The event struct.
+# @param url Full HTTP URL.
 declare navigate_client with e as ref to webui_event_t, url as ref to char into void
 
 # -- JavaScript ---------------------------------------------------------------
 
-## Run JavaScript without waiting for the response. All clients.
-## @param script The JavaScript to run.
+# Run JavaScript without waiting for the response. All clients.
+# @param script The JavaScript to run.
 declare run with window as size_t, script as ref to char into void
 
-## Run JavaScript without waiting for the response. Single client.
+# Run JavaScript without waiting for the response. Single client.
 declare run_client with e as ref to webui_event_t, script as ref to char into void
 
-## Run JavaScript and get the response back (single-client mode only).
-## Make sure the local buffer can hold the response.
-## @param script         The JavaScript to run.
-## @param timeout        The execution timeout in seconds.
-## @param buffer         The local buffer that will hold the response.
-## @param buffer_length  The local buffer size.
-## Returns True if there was no execution error.
-## @example
-## var ok as bool is calling webui.script with myWindow, "return 4 + 6;", 0, myBuffer, myBufferSize
+# Run JavaScript and get the response back (single-client mode only).
+# Make sure the local buffer can hold the response.
+# @param script         The JavaScript to run.
+# @param timeout        The execution timeout in seconds.
+# @param buffer         The local buffer that will hold the response.
+# @param buffer_length  The local buffer size.
+# Returns True if there was no execution error.
+# @example
+# var ok as bool is calling webui.script with myWindow, "return 4 + 6;", 0, myBuffer, myBufferSize
 declare script with window as size_t, script as ref to char, timeout as size_t, buffer as ref to char, buffer_length as size_t into bool
 
-## Run JavaScript and get the response back. Single client.
-## Returns True if there was no execution error.
+# Run JavaScript and get the response back. Single client.
+# Returns True if there was no execution error.
 declare script_client with e as ref to webui_event_t, script as ref to char, timeout as size_t, buffer as ref to char, buffer_length as size_t into bool
 
-## Choose between Deno, Nodejs and Bun as the runtime for .js/.ts files.
-## @param runtime A runtime number (see `enum webui_runtime`):
-## None = 0, Deno = 1, NodeJS = 2, Bun = 3.
+# Choose between Deno, Nodejs and Bun as the runtime for .js/.ts files.
+# @param runtime A runtime number (see `enum webui_runtime`):
+# None = 0, Deno = 1, NodeJS = 2, Bun = 3.
 declare set_runtime with window as size_t, runtime as size_t into void
 
 # -- Reading event arguments ---------------------------------------------------
 
-## Get how many arguments the event carries.
-## Returns the arguments count.
+# Get how many arguments the event carries.
+# Returns the arguments count.
 declare get_count with e as ref to webui_event_t into size_t
 
-## Get an event argument as an integer at a specific index.
-## @param index The argument position, starting from 0.
-## Returns the argument as an integer.
+# Get an event argument as an integer at a specific index.
+# @param index The argument position, starting from 0.
+# Returns the argument as an integer.
 declare get_int_at with e as ref to webui_event_t, index as size_t into i64
 
-## Get the first event argument as an integer.
-## Returns the argument as an integer.
+# Get the first event argument as an integer.
+# Returns the argument as an integer.
 declare get_int with e as ref to webui_event_t into i64
 
-## Get an event argument as a float at a specific index.
-## Returns the argument as a double-precision float.
+# Get an event argument as a float at a specific index.
+# Returns the argument as a double-precision float.
 declare get_float_at with e as ref to webui_event_t, index as size_t into f64
 
-## Get the first event argument as a float.
-## Returns the argument as a double-precision float.
+# Get the first event argument as a float.
+# Returns the argument as a double-precision float.
 declare get_float with e as ref to webui_event_t into f64
 
-## Get an event argument as a string at a specific index.
-## Returns the argument as a string.
+# Get an event argument as a string at a specific index.
+# Returns the argument as a string.
 declare get_string_at with e as ref to webui_event_t, index as size_t into ref to char
 
-## Get the first event argument as a string.
-## Returns the argument as a string.
+# Get the first event argument as a string.
+# Returns the argument as a string.
 declare get_string with e as ref to webui_event_t into ref to char
 
-## Get an event argument as a boolean at a specific index.
-## Returns the argument as a boolean.
+# Get an event argument as a boolean at a specific index.
+# Returns the argument as a boolean.
 declare get_bool_at with e as ref to webui_event_t, index as size_t into bool
 
-## Get the first event argument as a boolean.
-## Returns the argument as a boolean.
+# Get the first event argument as a boolean.
+# Returns the argument as a boolean.
 declare get_bool with e as ref to webui_event_t into bool
 
-## Get the size in bytes of an argument at a specific index.
-## Returns the size in bytes.
+# Get the size in bytes of an argument at a specific index.
+# Returns the size in bytes.
 declare get_size_at with e as ref to webui_event_t, index as size_t into size_t
 
-## Get the size in bytes of the first argument.
-## Returns the size in bytes.
+# Get the size in bytes of the first argument.
+# Returns the size in bytes.
 declare get_size with e as ref to webui_event_t into size_t
 
 # -- Replying to JavaScript -----------------------------------------------------
 
-## Return the response to JavaScript as an integer.
-## @param n The integer to send to JavaScript.
+# Return the response to JavaScript as an integer.
+# @param n The integer to send to JavaScript.
 declare return_int with e as ref to webui_event_t, n as i64 into void
 
-## Return the response to JavaScript as a float.
-## @param f The float to send to JavaScript.
+# Return the response to JavaScript as a float.
+# @param f The float to send to JavaScript.
 declare return_float with e as ref to webui_event_t, f as f64 into void
 
-## Return the response to JavaScript as a string.
-## @param s The string to send to JavaScript.
+# Return the response to JavaScript as a string.
+# @param s The string to send to JavaScript.
 declare return_string with e as ref to webui_event_t, s as ref to char into void
 
-## Return the response to JavaScript as a boolean.
-## @param b The boolean to send to JavaScript.
+# Return the response to JavaScript as a boolean.
+# @param b The boolean to send to JavaScript.
 declare return_bool with e as ref to webui_event_t, b as bool into void
 
-## Send an HTTP response asynchronously; used with
-## `set_file_handler_window`.
-## @param window   The window number.
-## @param response The response buffer, with full HTTP header and body.
-## @param length   The response size.
+# Send an HTTP response asynchronously; used with
+# `set_file_handler_window`.
+# @param window   The window number.
+# @param response The response buffer, with full HTTP header and body.
+# @param length   The response size.
 declare return_http with window as size_t, response as ref to void, length as int into void
 
 # -- Custom file handling -------------------------------------------------------
 
-## Set a custom handler to serve files. The handler must return the full
-## HTTP header and body. Deactivates any handler previously set with
-## `set_file_handler_window`.
-## @param handler The `FileHandler` callback:
-## `const void* handler(const char* filename, int* length)`.
+# Set a custom handler to serve files. The handler must return the full
+# HTTP header and body. Deactivates any handler previously set with
+# `set_file_handler_window`.
+# @param handler The `FileHandler` callback:
+# `const void* handler(const char* filename, int* length)`.
 declare set_file_handler with window as size_t, handler as FileHandler into void
 
-## Set a custom handler to serve files for a specific window. Deactivates
-## any handler previously set with `set_file_handler`.
-## @param handler The `WindowFileHandler` callback:
-## `const void* handler(size_t window, const char* filename, int* length)`.
+# Set a custom handler to serve files for a specific window. Deactivates
+# any handler previously set with `set_file_handler`.
+# @param handler The `WindowFileHandler` callback:
+# `const void* handler(size_t window, const char* filename, int* length)`.
 declare set_file_handler_window with window as size_t, handler as WindowFileHandler into void
 
-## Use this API to set a file-handler response when the backend answers
-## asynchronously to `set_file_handler`.
-## @param response The response buffer.
-## @param length   The response size.
+# Use this API to set a file-handler response when the backend answers
+# asynchronously to `set_file_handler`.
+# @param response The response buffer.
+# @param length   The response size.
 declare interface_set_response_file_handler with window as size_t, response as ref to void, length as int into void
 
 # -- Raw data & memory -----------------------------------------------------------
 
-## Safely send raw data to the UI. All clients.
-## @param function The JavaScript function receiving the raw data:
-## `function myFunc(myData){}`.
-## @param raw  The raw data buffer.
-## @param size The raw data size in bytes.
+# Safely send raw data to the UI. All clients.
+# @param function The JavaScript function receiving the raw data:
+# `function myFunc(myData){}`.
+# @param raw  The raw data buffer.
+# @param size The raw data size in bytes.
 declare send_raw with window as size_t, function as ref to char, raw as ref to void, size as size_t into void
 
-## Safely send raw data to the UI. Single client.
-## @param function The JavaScript function receiving the raw data.
-## @param raw      The raw data buffer.
-## @param size     The raw data size in bytes.
+# Safely send raw data to the UI. Single client.
+# @param function The JavaScript function receiving the raw data.
+# @param raw      The raw data buffer.
+# @param size     The raw data size in bytes.
 declare send_raw_client with e as ref to webui_event_t, function as ref to char, raw as ref to void, size as size_t into void
 
-## Encode text to Base64. The returned buffer must be freed with `free`.
-## @param str The null-terminated string to encode.
-## Returns the Base64 encoded string.
+# Encode text to Base64. The returned buffer must be freed with `free`.
+# @param str The null-terminated string to encode.
+# Returns the Base64 encoded string.
 declare encode with str as ref to char into ref to char
 
-## Decode a Base64 encoded text. The returned buffer must be freed with
-## `free`.
-## @param str The null-terminated Base64 string to decode.
-## Returns the decoded string.
+# Decode a Base64 encoded text. The returned buffer must be freed with
+# `free`.
+# @param str The null-terminated Base64 string to decode.
+# Returns the decoded string.
 declare decode with str as ref to char into ref to char
 
-## Safely allocate memory using the WebUI memory-management system. It can
-## be freed at any time with `free`.
-## @param size The size of memory in bytes.
-## Returns a pointer to the allocated buffer.
+# Safely allocate memory using the WebUI memory-management system. It can
+# be freed at any time with `free`.
+# @param size The size of memory in bytes.
+# Returns a pointer to the allocated buffer.
 declare malloc with size as size_t into ref to void
 
-## Safely free a buffer allocated by WebUI with `malloc` (or `encode` /
-## `decode`).
-## @param ptr The buffer to free.
+# Safely free a buffer allocated by WebUI with `malloc` (or `encode` /
+# `decode`).
+# @param ptr The buffer to free.
 declare free with ptr as ref to void into void
 
-## Copy raw data.
-## @param dest  Destination memory pointer.
-## @param src   Source memory pointer.
-## @param count Bytes to copy.
+# Copy raw data.
+# @param dest  Destination memory pointer.
+# @param src   Source memory pointer.
+# @param count Bytes to copy.
 declare memcpy with dest as ref to void, src as ref to void, count as size_t into void
 
 # -- Behaviour & logging -----------------------------------------------------------
 
-## Control WebUI behaviour. Recommended to call at the beginning.
-## @param option A configuration option number (see `enum webui_config`):
-## show_wait_connection = 0, ui_event_blocking = 1, folder_monitor = 2,
-## multi_client = 3, use_cookies = 4, asynchronous_response = 5.
-## @param status True or False.
-## @example calling webui.set_config with 0, false
+# Control WebUI behaviour. Recommended to call at the beginning.
+# @param option A configuration option number (see `enum webui_config`):
+# show_wait_connection = 0, ui_event_blocking = 1, folder_monitor = 2,
+# multi_client = 3, use_cookies = 4, asynchronous_response = 5.
+# @param status True or False.
+# @example calling webui.set_config with 0, false
 declare set_config with option as int, status as bool into void
 
-## Control whether UI events coming from this window are processed one at
-## a time in a single blocking thread (True) or each in a new
-## non-blocking thread (False). Updates a single window; use
-## `set_config with 1, ...` to update all windows.
-## @param status The blocking status True or False.
+# Control whether UI events coming from this window are processed one at
+# a time in a single blocking thread (True) or each in a new
+# non-blocking thread (False). Updates a single window; use
+# `set_config with 1, ...` to update all windows.
+# @param status The blocking status True or False.
 declare set_event_blocking with window as size_t, status as bool into void
 
-## Set a custom logger function.
-## @param func      The `LoggerCallback`:
-## `void logger(size_t level, const char* log, void* user_data)`.
-## @param user_data Optional user data forwarded to the callback.
+# Set a custom logger function.
+# @param func      The `LoggerCallback`:
+# `void logger(size_t level, const char* log, void* user_data)`.
+# @param user_data Optional user data forwarded to the callback.
 declare set_logger with func as LoggerCallback, user_data as ref to void into void
 
-## Get the last WebUI error code.
-## Returns the error code as an integer.
+# Get the last WebUI error code.
+# Returns the error code as an integer.
 declare get_last_error_number into size_t
 
-## Get the last WebUI error message.
-## Returns the error message string.
+# Get the last WebUI error message.
+# Returns the error message string.
 declare get_last_error_message into ref to char
 
 # -- Wrapper's interface ----------------------------------------------------------
 
-## Bind a specific HTML element click event with a function
-## (wrapper's interface). An empty element binds all events.
-## @param element The element ID.
-## @param func    The `InterfaceCallback`:
-## `void handler(size_t window, size_t event_type, char* element,
-## size_t event_number, size_t bind_id)`.
-## Returns a unique bind ID.
+# Bind a specific HTML element click event with a function
+# (wrapper's interface). An empty element binds all events.
+# @param element The element ID.
+# @param func    The `InterfaceCallback`:
+# `void handler(size_t window, size_t event_type, char* element,
+# size_t event_number, size_t bind_id)`.
+# Returns a unique bind ID.
 declare interface_bind with window as size_t, element as ref to char, func as InterfaceCallback into size_t
 
-## When using `interface_bind`, set a response easily.
-## @param event_number The event number (`e->event_number`).
-## @param response     The response string to send to JavaScript.
+# When using `interface_bind`, set a response easily.
+# @param event_number The event number (`e->event_number`).
+# @param response     The response string to send to JavaScript.
 declare interface_set_response with window as size_t, event_number as size_t, response as ref to char into void
 
-## Check if the app is still running (wrapper's interface).
-## Returns True if the app is running.
+# Check if the app is still running (wrapper's interface).
+# Returns True if the app is running.
 declare interface_is_app_running into bool
 
-## Get a unique window ID (wrapper's interface).
-## Returns the unique window ID as an integer.
+# Get a unique window ID (wrapper's interface).
+# Returns the unique window ID as an integer.
 declare interface_get_window_id with window as size_t into size_t
 
-## Get an event argument as a string at a specific index
-## (wrapper's interface).
-## @param window       The window number.
-## @param event_number The event number (`e->event_number`).
-## @param index        The argument position, starting from 0.
-## Returns the argument as a string.
+# Get an event argument as a string at a specific index
+# (wrapper's interface).
+# @param window       The window number.
+# @param event_number The event number (`e->event_number`).
+# @param index        The argument position, starting from 0.
+# Returns the argument as a string.
 declare interface_get_string_at with window as size_t, event_number as size_t, index as size_t into ref to char
 
-## Get an event argument as an integer at a specific index
-## (wrapper's interface).
-## Returns the argument as an integer.
+# Get an event argument as an integer at a specific index
+# (wrapper's interface).
+# Returns the argument as an integer.
 declare interface_get_int_at with window as size_t, event_number as size_t, index as size_t into i64
 
-## Get an event argument as a float at a specific index
-## (wrapper's interface).
-## Returns the argument as a double-precision float.
+# Get an event argument as a float at a specific index
+# (wrapper's interface).
+# Returns the argument as a double-precision float.
 declare interface_get_float_at with window as size_t, event_number as size_t, index as size_t into f64
 
-## Get an event argument as a boolean at a specific index
-## (wrapper's interface).
-## Returns the argument as a boolean.
+# Get an event argument as a boolean at a specific index
+# (wrapper's interface).
+# Returns the argument as a boolean.
 declare interface_get_bool_at with window as size_t, event_number as size_t, index as size_t into bool
 
-## Get the size in bytes of an argument at a specific index
-## (wrapper's interface).
-## Returns the size in bytes.
+# Get the size in bytes of an argument at a specific index
+# (wrapper's interface).
+# Returns the size in bytes.
 declare interface_get_size_at with window as size_t, event_number as size_t, index as size_t into size_t
 
-## Show a window using embedded HTML or a file (single client,
-## wrapper's interface).
-## @param event_number The event number (`e->event_number`).
-## @param content      The HTML, URL or a local file.
-## Returns True if showing the window succeeded.
+# Show a window using embedded HTML or a file (single client,
+# wrapper's interface).
+# @param event_number The event number (`e->event_number`).
+# @param content      The HTML, URL or a local file.
+# Returns True if showing the window succeeded.
 declare interface_show_client with window as size_t, event_number as size_t, content as ref to char into bool
 
-## Close a specific client (wrapper's interface).
-## @param event_number The event number (`e->event_number`).
+# Close a specific client (wrapper's interface).
+# @param event_number The event number (`e->event_number`).
 declare interface_close_client with window as size_t, event_number as size_t into void
 
-## Safely send raw data to the UI (single client, wrapper's interface).
-## @param event_number The event number (`e->event_number`).
-## @param function     The JavaScript function receiving the raw data.
-## @param raw          The raw data buffer.
-## @param size         The raw data size in bytes.
+# Safely send raw data to the UI (single client, wrapper's interface).
+# @param event_number The event number (`e->event_number`).
+# @param function     The JavaScript function receiving the raw data.
+# @param raw          The raw data buffer.
+# @param size         The raw data size in bytes.
 declare interface_send_raw_client with window as size_t, event_number as size_t, function as ref to char, raw as ref to void, size as size_t into void
 
-## Navigate to a specific URL (single client, wrapper's interface).
-## @param event_number The event number (`e->event_number`).
-## @param url          Full HTTP URL.
+# Navigate to a specific URL (single client, wrapper's interface).
+# @param event_number The event number (`e->event_number`).
+# @param url          Full HTTP URL.
 declare interface_navigate_client with window as size_t, event_number as size_t, url as ref to char into void
 
-## Run JavaScript without waiting for the response (single client,
-## wrapper's interface).
-## @param event_number The event number (`e->event_number`).
-## @param script       The JavaScript to run.
+# Run JavaScript without waiting for the response (single client,
+# wrapper's interface).
+# @param event_number The event number (`e->event_number`).
+# @param script       The JavaScript to run.
 declare interface_run_client with window as size_t, event_number as size_t, script as ref to char into void
 
-## Run JavaScript and get the response back (single client,
-## wrapper's interface). Make sure the local buffer can hold the response.
-## @param event_number  The event number (`e->event_number`).
-## @param script        The JavaScript to run.
-## @param timeout       The execution timeout in seconds.
-## @param buffer        The local buffer that will hold the response.
-## @param buffer_length The local buffer size.
-## Returns True if there was no execution error.
+# Run JavaScript and get the response back (single client,
+# wrapper's interface). Make sure the local buffer can hold the response.
+# @param event_number  The event number (`e->event_number`).
+# @param script        The JavaScript to run.
+# @param timeout       The execution timeout in seconds.
+# @param buffer        The local buffer that will hold the response.
+# @param buffer_length The local buffer size.
+# Returns True if there was no execution error.
 declare interface_script_client with window as size_t, event_number as size_t, script as ref to char, timeout as size_t, buffer as ref to char, buffer_length as size_t into bool

@@ -5,11 +5,12 @@ from lark import Tree, Token
 
 from .pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ManyType, ListType, MapType, MaybeType,
-    RuneType, EchoType, OmenType, ResultType, FnType, OPAQUE_TYPE, AliasType, AnyType,
+    RuneType, EchoType, OmenType, ResultType, FnType, OPAQUE_TYPE, AliasType, AnyType, FrozenType, RangeType,
     TypeParam, NullType, NULL_TYPE, INT_TYPE, I32_TYPE, I64_TYPE, U32_TYPE, U64_TYPE, CHAR_TYPE, BYTE_TYPE,
     U8_TYPE, I8_TYPE, U16_TYPE, I16_TYPE, USIZE_TYPE, ISIZE_TYPE, FLOAT_TYPE, F32_TYPE,
     F64_TYPE, DOUBLE_TYPE, BOOL_TYPE, STRING_TYPE, VOID_TYPE, ERROR_TYPE, ConceptType, SealType,
-    implements_concept, resolve_concept_method, ast_to_type, is_opaque_type
+    CVarArgsType,
+    implements_concept, resolve_concept_method, ast_to_type, is_opaque_type, _same_pointee
 )
 from .pengu_symbols import SymbolTable, Symbol, Scope
 from .pengu_comptime import CompileTimeEnv, default_env, eval_comptime
@@ -18,9 +19,57 @@ from .pengu_errors import (
     ConstInsideWeaveError, VarLetTopLevelError, MutabilityError, InvalidControlFlowError,
     InvalidMemoryOpError, InvalidWithTargetError, ConceptMethodMismatchError,
     UnimplementedConceptMethodError, ConceptBoundNotSatisfiedError,
-    InvalidRitualSelfAccessError, InvalidRitualCallError, SealTypeMismatchError,
-    suggest_similar_identifier
+    InvalidRitualSelfAccessError, InvalidRitualCallError,
+    ArraySizeMismatchError, InvalidRangeError, PrivateSymbolAccessError, NonExhaustiveJudgeError,
+    UnknownArrayDimensionError, suggest_similar_identifier
 )
+
+from .pengu_parser import extract_string_parts
+
+# Word tests that apply to the expression on their left. They are ambiguous in
+# argument position (`calling f with x is true` tests the argument), so the
+# checker asks for explicit parentheses there.
+TEST_RULE_KEYWORDS = {
+    "is_true": "is true",
+    "is_false": "is false",
+    "is_present": "is present",
+    "is_not_present": "is not present",
+}
+
+
+def _drops_frozen(src: Type, dst: Type) -> bool:
+    """True when ``src`` is frozen-qualified somewhere ``dst`` is not.
+
+    The argument check accepts either compatibility direction as a leniency for
+    equivalent spellings, but that must never discard a read-only qualification:
+    passing ``ref to frozen int`` where ``ref to int`` is expected is an error in
+    C (and here), while the reverse is fine.
+    """
+    if isinstance(src, FrozenType):
+        if isinstance(dst, FrozenType):
+            return _drops_frozen(src.target, dst.target)
+        return True
+    if isinstance(src, AliasType):
+        return _drops_frozen(src.target, dst)
+    if isinstance(dst, FrozenType):
+        return False
+    for attr in ("target", "element", "key", "value", "ok_type", "err_type"):
+        inner_src = getattr(src, attr, None)
+        inner_dst = getattr(dst, attr, None)
+        if inner_src is not None and inner_dst is not None and _drops_frozen(inner_src, inner_dst):
+            return True
+    return False
+
+
+def _unfrozen_name(t: Any) -> str:
+    """Returns the plain type name, looking through `frozen`.
+
+    `frozen P` renders as 'frozen P', but method/function lookups are keyed by
+    the bare type name, so the qualification must not leak into them.
+    """
+    while isinstance(t, FrozenType):
+        t = t.target
+    return getattr(t, "name", str(t))
 
 
 def _node_to_name(node: Any) -> str:
@@ -69,8 +118,10 @@ class ConstFolder:
                 return int(str(node), 0)
             elif node.type == "FLOAT":
                 return float(str(node))
-            elif node.type == "STRING":
-                return str(node).strip('"')
+            elif node.type in ("STRING", "TRIPLE_STRING", "RAW_STRING", "RAW_TRIPLE_STRING"):
+                raw = str(node)
+                is_raw, is_triple, parts = extract_string_parts(raw)
+                return "".join(p.text for p in parts if not p.is_expr)
             elif node.type == "CHAR_LIT":
                 return str(node)
             elif node.type == "NAME":
@@ -83,6 +134,19 @@ class ConstFolder:
             return None
 
         rule = node.data
+
+        # Block-shaped values are runtime constructs: folding through them would
+        # replace the construct by a constant (a one-statement 'do:', a lambda
+        # whose body is a literal, a value-position 'if' with a constant
+        # condition) and silently drop its remaining behaviour.
+        if rule in ("lambda_expr", "lambda_no_params", "do_expr", "with_init_expr",
+                    "if_stmt", "unless_stmt", "while_stmt", "for_range_stmt", "for_in_stmt",
+                    "array_lit", "map_lit"):
+            # Array/map literals are initializers, not values: a single-element
+            # literal has one child, so the generic single-child fallback below
+            # would collapse '[0]' to '0' and emit 'T a[N] = 0;' (invalid C).
+            return None
+
         if rule == "int_lit":
             return int(str(node.children[0]), 0)
         elif rule == "float_lit":
@@ -119,6 +183,13 @@ class ConstFolder:
                     elif rule == "shr": return int(left) >> int(right)
                 except (ZeroDivisionError, OverflowError, ValueError):
                     return None
+            return None
+
+        if rule in ("bool_and", "bool_or"):
+            left = self.fold(node.children[0])
+            right = self.fold(node.children[1])
+            if isinstance(left, bool) and isinstance(right, bool):
+                return (left and right) if rule == "bool_and" else (left or right)
             return None
 
         if rule in ("eq", "ne", "lt", "le", "gt", "ge"):
@@ -180,6 +251,22 @@ class ConstFolder:
             return self.fold(node.children[0])
 
         return None
+
+
+def _flatten_at_chain(node: Any) -> List[Any]:
+    """Flattens an 'at' chain into [base, idx1, idx2, ...] regardless of the
+    association produced by the parser (left or right nested)."""
+    if not (isinstance(node, Tree) and node.data == "at_expr"):
+        return [node]
+    left = node.children[0]
+    right = node.children[1]
+    if isinstance(left, Tree) and left.data == "at_expr":
+        parts = _flatten_at_chain(left)
+        parts.append(right)
+        return parts
+    if isinstance(right, Tree) and right.data == "at_expr":
+        return [left] + _flatten_at_chain(right)
+    return [left, right]
 
 
 class TypeInferrer:
@@ -317,6 +404,130 @@ class TypeInferrer:
             label=f"expected '{expected_type}'"
         )
 
+    def _arg_mismatch_help(self, ptype: Optional[Type], arg_t: Type) -> str:
+        """Help text for a call-argument mismatch.
+
+        Adds the C-string conversion hint: string *literals* become `ref to char`
+        automatically, but a `string` value needs an explicit round trip.
+        """
+        expected = "?"
+        if ptype is not None:
+            expected = str(getattr(ptype, "name", None) or ptype)
+        target = ptype.target if isinstance(ptype, RefType) else None
+        while isinstance(target, (AliasType, FrozenType)) and getattr(target, "target", None):
+            target = target.target
+        if (isinstance(target, BaseType) and target.name in ("char", "byte", "void")
+                and isinstance(arg_t, BaseType) and arg_t.is_string()):
+            return ("A string literal converts automatically, but a string value "
+                    "needs 'calling ffi.cstr_from_string with s' (std.ffi).")
+        return f"Pass a value of type '{expected}'."
+
+    @staticmethod
+    def _list_operand_shape(operand: Any) -> Optional[str]:
+        """Returns a description when ``operand`` is a comma-separated list
+        construct (a call with arguments or a struct literal), else None."""
+        target = operand
+        while (isinstance(target, Tree) and len(target.children) == 1
+               and target.data in ("stmt", "expr_stmt")):
+            target = target.children[0]
+        if not isinstance(target, Tree):
+            return None
+        if target.data == "calling_expr" and target.children:
+            args = target.children[-1]
+            if isinstance(args, Tree) and args.data == "arg_list":
+                return "a call with arguments"
+            return None
+        if target.data == "struct_init":
+            return "a struct literal"
+        return None
+
+    def _reject_test_argument(self, arg_val: Any, callee: str) -> None:
+        """Rejects a word test in argument position.
+
+        ``calling find with 1 is true`` parses as ``calling find with (1 is
+        true)``: the test applies to the *last argument*, while a C-style
+        ``find(1) == true`` tests the call's result. Both readings need to be
+        written out explicitly::
+
+            calling print with (m is present)      # test as the argument
+            (calling find with 1) is true          # test the call's result
+
+        Args:
+            arg_val: The argument value node.
+            callee: Callee name for the message.
+
+        Raises:
+            TypeMismatchError: when the argument is a bare word test.
+        """
+        if not (isinstance(arg_val, Tree)
+                and arg_val.data in TEST_RULE_KEYWORDS):
+            return
+        keyword = TEST_RULE_KEYWORDS[arg_val.data]
+        raise self._make_error(
+            TypeMismatchError,
+            f"Ambiguous '{keyword}' in the arguments of '{callee}'",
+            arg_val,
+            code="E0005",
+            help=f"Parenthesise the test to pass it as the argument: "
+                 f"'calling {callee} with (x {keyword})'; or parenthesise the call "
+                 f"to test its result: '(calling {callee} with x) {keyword}'.",
+            note="A word test applies to the expression on its left, and the "
+                 "argument list is greedy, so a bare test in an argument is "
+                 "ambiguous."
+        )
+
+    def _reject_list_glued_operator(self, operand: Any, op: str, node: Any) -> None:
+        """Rejects a bare boolean operator glued to a comma-separated list.
+
+        ``calling f with a and b`` parses as ``(calling f with a) and b`` and
+        ``with x is a and b`` as ``(with x is a) and b``: with boolean operands
+        that is silently valid, yet it is exactly how the removed 0.10.0 list
+        separator was written. Both readings are spelled out instead — a comma
+        separates the elements, parentheses combine booleans::
+
+            calling f with a, b                 # two arguments
+            (calling f with a) and b            # one argument, boolean result
+
+        Args:
+            operand: Left operand of the ``and``/``or`` node.
+            op: The operator spelling (``and``/``or``) for the message.
+            node: The boolean node, used for the error position.
+
+        Raises:
+            TypeMismatchError: when the operand is a call with arguments or a
+                struct literal.
+        """
+        shape = self._list_operand_shape(operand)
+        if shape is None:
+            return
+        if shape == "a call with arguments":
+            hint = (f"Separate the arguments with ',' ('calling f with 1, 2'), or "
+                    f"parenthesise the call to combine booleans: "
+                    f"'(calling f with 1) {op} flag'.")
+        else:
+            hint = (f"Separate the fields with ',' ('with x is 1, y is 2'), or "
+                    f"parenthesise the boolean field value: 'with ok is (a {op} b)'.")
+
+        raise self._make_error(
+            TypeMismatchError,
+            f"Ambiguous '{op}' after {shape}",
+            node,
+            code="E0005",
+            help=hint,
+            note="Since 0.10.0 'and'/'or' are boolean operators, not list separators."
+        )
+
+    def _reject_glued_test(self, operand: Any, keyword: str, node: Any) -> None:
+        """Kept for reference: word tests in *operand* position are allowed.
+
+        A test whose operand is a call with arguments can only be written with
+        explicit parentheses around that call (``(calling f with x) is true``),
+        which already spells the intent out, so it is not rejected. The
+        ambiguous case — a bare test *inside* an argument list — is handled by
+        :meth:`_reject_test_argument`.
+        """
+        return
+
     def infer(self, node: Any, expected_type: Optional[Type] = None) -> Type:
         """Recursively infers the static type of an expression node.
 
@@ -338,7 +549,7 @@ class TypeInferrer:
                 return FLOAT_TYPE
             elif node.type == "CHAR_LIT":
                 return CHAR_TYPE
-            elif node.type == "STRING":
+            elif node.type in ("STRING", "TRIPLE_STRING", "RAW_STRING", "RAW_TRIPLE_STRING"):
                 self._check_string_interpolation(str(node), line, col, node)
                 return STRING_TYPE
             elif node.type == "NAME":
@@ -369,16 +580,18 @@ class TypeInferrer:
             str_val = str(node.children[0]) if node.children else ""
             if expected_type is not None:
                 unpacked = expected_type
-                while isinstance(unpacked, AliasType) and unpacked.target:
+                while isinstance(unpacked, (AliasType, FrozenType)) and getattr(unpacked, "target", None):
                     unpacked = unpacked.target
                 if isinstance(unpacked, RefType):
                     tgt = unpacked.target
-                    while isinstance(tgt, AliasType) and tgt.target:
+                    while isinstance(tgt, (AliasType, FrozenType)) and getattr(tgt, "target", None):
                         tgt = tgt.target
-                    if isinstance(tgt, BaseType) and tgt.name in ("char", "const char"):
-                        import re
-                        raw_s = str_val[1:-1] if (str_val.startswith('"') and str_val.endswith('"') and len(str_val) >= 2) else str_val
-                        if list(re.finditer(r'\{([^}]+)\}', raw_s)):
+                    # 'void' is in the list because a C string pointer converts
+                    # implicitly to 'void*' / 'const void*' in C, and the C
+                    # bindings map 'const void*' to 'ref to frozen void'.
+                    if isinstance(tgt, BaseType) and tgt.name in ("char", "const char", "void"):
+                        is_raw, is_triple, parts = extract_string_parts(str_val)
+                        if any(p.is_expr for p in parts):
                             raise self._make_error(
                                 SemanticError,
                                 "String interpolation is not supported when expecting a C string literal (ref to char)",
@@ -402,12 +615,30 @@ class TypeInferrer:
                 return NULL_TYPE
             return NULL_TYPE
         elif rule == "array_lit":
+            elem_expected = None
+            if expected_type and isinstance(expected_type, (ArrayType, SliceType, ListType, ManyType)):
+                elem_expected = expected_type.element
+
             if not node.children:
-                elem_type = expected_type.element if (expected_type and isinstance(expected_type, ArrayType)) else AnyType()
+                elem_type = elem_expected or AnyType()
                 return ArrayType(element=elem_type, size=0)
-            elem_types = [self.infer(c) for c in node.children]
+            elem_types = [self.infer(c, expected_type=elem_expected) for c in node.children]
             first_t = elem_types[0]
-            for t in elem_types[1:]:
+
+            def _check_uniform_array_dims(t1: Type, t2: Type, row_idx: int, child_node: Any) -> None:
+                if isinstance(t1, ArrayType) and isinstance(t2, ArrayType):
+                    if t1.size is not None and t2.size is not None and t1.size != t2.size:
+                        raise self._make_error(
+                            ArraySizeMismatchError,
+                            f"Inconsistent row length in array literal: row 1 has length {t1.size} while row {row_idx + 1} has length {t2.size}",
+                            child_node,
+                            code="E0041",
+                            help="Ensure all rows in a multidimensional array literal have the same length.",
+                            note="Nested array dimensions must be uniform."
+                        )
+                    _check_uniform_array_dims(t1.element, t2.element, row_idx, child_node)
+
+            for idx, t in enumerate(elem_types[1:], start=1):
                 if not t.is_compatible(first_t):
                     raise self._make_error(
                         TypeMismatchError,
@@ -417,6 +648,8 @@ class TypeInferrer:
                         help="Ensure all elements in the array literal match.",
                         note="Array elements must be homogenous."
                     )
+                _check_uniform_array_dims(first_t, t, idx, node.children[idx])
+
             return ArrayType(element=first_t, size=len(node.children))
         elif rule == "map_lit":
             entries = [c for c in node.children if isinstance(c, Tree) and c.data == "map_entry"]
@@ -569,6 +802,17 @@ class TypeInferrer:
                 var_name = str(target_node.children[0])
                 sym = self.symbols.lookup(var_name)
                 if sym and sym.kind == "import":
+                    if sym.module_scope:
+                        mod_sym = sym.module_scope.lookup(field_name)
+                        if mod_sym and (getattr(mod_sym, "is_public", False) is False or field_name.startswith("_")):
+                            raise self._make_error(
+                                PrivateSymbolAccessError,
+                                f"Symbol '{field_name}' is private to module '{var_name}'",
+                                node,
+                                code="E0043",
+                                help=f"Rename '{field_name}' without the leading underscore to make it public, or access it from inside module '{var_name}'.",
+                                note="Private symbols starting with '_' are not exported."
+                            )
                     c_sym = self.symbols.lookup(f"{var_name}_{field_name}") or self.symbols.lookup(field_name)
                     if c_sym and c_sym.type:
                         return c_sym.type
@@ -577,6 +821,7 @@ class TypeInferrer:
                     if sym.type.is_string_valued:
                         return STRING_TYPE
                     return sym.type
+
 
             if isinstance(target_node, Tree) and target_node.data == "self_ref":
                 raise self._make_error(
@@ -609,6 +854,19 @@ class TypeInferrer:
                 )
 
             if isinstance(target_type, RuneType):
+                ench_type = self.symbols.current_enchanting_type() if self.symbols else None
+                is_enchanting = ench_type is not None and getattr(ench_type, "name", "") == target_type.name
+                is_stdlib = bool(self.filename and any(p in ("std", "tests_std", "std_programs") for p in self.filename.replace("\\", "/").split("/")))
+                is_module_owner = is_stdlib or bool(self.symbols and getattr(self.symbols, "insignia", None))
+                if field_name.startswith("_") and not (is_enchanting or is_module_owner):
+                    raise self._make_error(
+                        PrivateSymbolAccessError,
+                        f"Field '{field_name}' is private to rune '{target_type.name}'",
+                        node,
+                        code="E0043",
+                        help=f"Field '{field_name}' is private to rune '{target_type.name}'.",
+                        note="Fields starting with '_' cannot be accessed from outside their rune."
+                    )
                 fields = target_type.fields
                 if not fields and self.symbols:
                     sym_t = self.symbols.lookup_type(target_type.name)
@@ -727,6 +985,19 @@ class TypeInferrer:
 
             inner = target_type.target
             if isinstance(inner, RuneType):
+                ench_type = self.symbols.current_enchanting_type() if self.symbols else None
+                is_enchanting = ench_type is not None and getattr(ench_type, "name", "") == inner.name
+                is_stdlib = bool(self.filename and any(p in ("std", "tests_std", "std_programs") for p in self.filename.replace("\\", "/").split("/")))
+                is_module_owner = is_stdlib or bool(self.symbols and getattr(self.symbols, "insignia", None))
+                if field_name.startswith("_") and not (is_enchanting or is_module_owner):
+                    raise self._make_error(
+                        PrivateSymbolAccessError,
+                        f"Field '{field_name}' is private to rune '{inner.name}'",
+                        node,
+                        code="E0043",
+                        help=f"Field '{field_name}' is private to rune '{inner.name}'.",
+                        note="Fields starting with '_' cannot be accessed from outside their rune."
+                    )
                 if field_name not in inner.fields:
                     raise self._make_error(
                         SemanticError,
@@ -852,9 +1123,16 @@ class TypeInferrer:
                 r_type for r_type in self.symbols.runes.values()
                 if set(r_type.fields.keys()) == init_keys
             ]
+            unique_matching: List[RuneType] = []
+            seen_signatures = set()
+            for r in matching:
+                sig = (r.name, tuple(sorted((fn, str(ft)) for fn, ft in r.fields.items())))
+                if sig not in seen_signatures:
+                    seen_signatures.add(sig)
+                    unique_matching.append(r)
 
             fields_str = "{" + ",".join(sorted(init_keys)) + "}"
-            if len(matching) == 0:
+            if len(unique_matching) == 0:
                 closest_help = f"Define a rune matching fields {fields_str} or write explicit type 'as RuneName'."
                 for r_name, r_type in self.symbols.runes.items():
                     r_keys = set(r_type.fields.keys())
@@ -872,8 +1150,8 @@ class TypeInferrer:
                     help=closest_help,
                     note="PenguScript infers rune by exact field names to guarantee safety."
                 )
-            elif len(matching) > 1:
-                matches_str = ", ".join(sorted(r.name for r in matching))
+            elif len(unique_matching) > 1:
+                matches_str = ", ".join(sorted(set(r.name for r in unique_matching)))
                 raise self._make_error(
                     SemanticError,
                     f"Ambiguous struct init with fields {fields_str}, matches: {matches_str}",
@@ -883,7 +1161,7 @@ class TypeInferrer:
                     note="PenguScript requires explicit type when multiple runes have identical field names."
                 )
             else:
-                matched_rune = matching[0]
+                matched_rune = unique_matching[0]
                 if is_opaque_type(matched_rune):
                     raise self._make_error(
                         SemanticError,
@@ -954,54 +1232,91 @@ class TypeInferrer:
 
         # Array and Slice indexing
         elif rule == "at_expr":
-            target = node.children[0]
-            idx_node = node.children[1]
-            target_type = self.infer(target)
-            idx_type = self.infer(idx_node)
-
-            if isinstance(target_type, (ArrayType, SliceType, ManyType, ListType)):
-                if not idx_type.is_int():
+            # Consecutive 'a at b at c' is parsed right-nested by the grammar
+            # (at(a, at(b, c))); flatten to [a, b, c] and fold left-to-right so
+            # the semantics match a left-associative chain.
+            parts = _flatten_at_chain(node)
+            cur_type = self.infer(parts[0])
+            for idx_node in parts[1:]:
+                idx_type = self.infer(idx_node)
+                if isinstance(cur_type, (ArrayType, SliceType, ManyType, ListType)):
+                    if not idx_type.is_int():
+                        raise self._make_error(
+                            TypeMismatchError,
+                            f"Array/Slice index must be an integer, got '{idx_type}'",
+                            node,
+                            code="E0005",
+                            help="Ensure the index expression evaluates to an integer.",
+                            note="Collection indexing requires integer offsets."
+                        )
+                    cur_type = cur_type.element
+                elif isinstance(cur_type, RefType):
+                    if not idx_type.is_int():
+                        raise self._make_error(
+                            TypeMismatchError,
+                            f"Pointer index must be an integer, got '{idx_type}'",
+                            node,
+                            code="E0005",
+                            help="Ensure the index expression evaluates to an integer.",
+                            note="Pointer indexing requires integer offsets."
+                        )
+                    raw_target = cur_type.target
+                    unwrapped = raw_target
+                    is_frozen = False
+                    while isinstance(unwrapped, (AliasType, FrozenType)):
+                        if isinstance(unwrapped, FrozenType):
+                            is_frozen = True
+                        if getattr(unwrapped, "target", None):
+                            unwrapped = unwrapped.target
+                        else:
+                            break
+                    if (isinstance(unwrapped, BaseType) and unwrapped.name in ("void", "opaque")) or unwrapped == OPAQUE_TYPE or is_opaque_type(unwrapped):
+                        raise self._make_error(
+                            SemanticError,
+                            f"Cannot index pointer to void or opaque '{cur_type}' with 'at'",
+                            node,
+                            code="E0005",
+                            help="Cast to a typed pointer with 'transmute p to ref to T' or create a slice with 'ffi.slice_from_ptr'.",
+                            note="Pointers to void/opaque have unknown element size and cannot be indexed."
+                        )
+                    if isinstance(unwrapped, (ArrayType, SliceType, ManyType, ListType)):
+                        cur_type = unwrapped.element
+                    else:
+                        cur_type = FrozenType(unwrapped) if is_frozen else unwrapped
+                elif isinstance(cur_type, MapType):
+                    if not idx_type.is_compatible(cur_type.key):
+                        raise self._make_error(
+                            TypeMismatchError,
+                            f"Map key expected '{cur_type.key}', got '{idx_type}'",
+                            node,
+                            code="E0005",
+                            help=f"Provide a map key of type '{cur_type.key}'.",
+                            note="Map indexing requires matching key types."
+                        )
+                    cur_type = cur_type.value
+                elif cur_type == STRING_TYPE:
+                    if not idx_type.is_int():
+                        raise self._make_error(
+                            TypeMismatchError,
+                            f"String index must be an integer, got '{idx_type}'",
+                            node,
+                            code="E0005",
+                            help="Ensure the string index is an integer.",
+                            note="String indexing requires integer offsets."
+                        )
+                    cur_type = STRING_TYPE
+                elif isinstance(cur_type, AnyType):
+                    cur_type = AnyType()
+                else:
                     raise self._make_error(
-                        TypeMismatchError,
-                        f"Array/Slice index must be an integer, got '{idx_type}'",
+                        SemanticError,
+                        f"Cannot index non-collection type '{cur_type}' with 'at'",
                         node,
                         code="E0005",
-                        help="Ensure the index expression evaluates to an integer.",
-                        note="Collection indexing requires integer offsets."
+                        help="Only arrays, slices, lists, maps, and strings can be indexed with 'at'.",
+                        note="Non-collection types do not support indexing."
                     )
-                return target_type.element
-            elif isinstance(target_type, MapType):
-                if not idx_type.is_compatible(target_type.key):
-                    raise self._make_error(
-                        TypeMismatchError,
-                        f"Map key expected '{target_type.key}', got '{idx_type}'",
-                        node,
-                        code="E0005",
-                        help=f"Provide a map key of type '{target_type.key}'.",
-                        note="Map indexing requires matching key types."
-                    )
-                return target_type.value
-            elif target_type == STRING_TYPE:
-                if not idx_type.is_int():
-                    raise self._make_error(
-                        TypeMismatchError,
-                        f"String index must be an integer, got '{idx_type}'",
-                        node,
-                        code="E0005",
-                        help="Ensure the string index is an integer.",
-                        note="String indexing requires integer offsets."
-                    )
-                return STRING_TYPE
-            elif isinstance(target_type, AnyType):
-                return AnyType()
-            raise self._make_error(
-                SemanticError,
-                f"Cannot index non-collection type '{target_type}' with 'at'",
-                node,
-                code="E0005",
-                help="Only arrays, slices, lists, maps, and strings can be indexed with 'at'.",
-                note="Non-collection types do not support indexing."
-            )
+            return cur_type
 
         elif rule == "slice_at_expr":
             target = node.children[0]
@@ -1144,8 +1459,25 @@ class TypeInferrer:
             for child in node.children[1:]:
                 if isinstance(child, Tree) and child.data == "when_clause":
                     pattern_node = child.children[0]
-                    v_name = str(pattern_node.children[0] if isinstance(pattern_node, Tree) else pattern_node)
-                    covered_variants.add(v_name)
+                    if isinstance(pattern_node, Tree) and pattern_node.data == "when_pattern":
+                        for pat in pattern_node.children:
+                            p_name = None
+                            if isinstance(pat, Tree) and pat.data == "var_ref":
+                                p_name = str(pat.children[0])
+                            elif isinstance(pat, Tree) and pat.data == "field_access":
+                                p_name = str(pat.children[1])
+                            elif isinstance(pat, Tree) and pat.data in ("true_lit", "false_lit"):
+                                p_name = "true" if pat.data == "true_lit" else "false"
+                            elif isinstance(pat, Token):
+                                p_name = str(pat)
+                            else:
+                                p_name = str(pat)
+                            if p_name:
+                                if "_" in p_name:
+                                    covered_variants.add(p_name.split("_", 1)[1])
+                                covered_variants.add(p_name)
+                    else:
+                        covered_variants.add(str(pattern_node))
                     body_expr = child.children[-1]
                     body_type = self.infer(body_expr)
                     branch_types.append(body_type)
@@ -1155,11 +1487,31 @@ class TypeInferrer:
                     body_type = self.infer(body_expr)
                     branch_types.append(body_type)
 
-            if isinstance(matched_type, OmenType) and not has_else:
-                all_vars = set(matched_type.variants.keys())
-                missing = all_vars - covered_variants
-                if missing:
-                    self.warnings.append(f"[W0003] Non-exhaustive judge, missing variants: {', '.join(sorted(missing))}")
+            if not has_else:
+                if isinstance(matched_type, OmenType):
+                    all_vars = set(matched_type.variants.keys())
+                    missing = all_vars - covered_variants
+                    if missing:
+                        raise self._make_error(
+                            NonExhaustiveJudgeError,
+                            "Judge sobre omen/bool no es exhaustivo y no tiene 'else ->'",
+                            node,
+                            code="E0044",
+                            help=f"Add missing variants ({', '.join(sorted(missing))}) or an 'else ->' default branch.",
+                            note="Omen judge expressions must cover all variants or provide an else branch."
+                        )
+                elif matched_type == BOOL_TYPE:
+                    missing = {"true", "false"} - covered_variants
+                    if missing:
+                        raise self._make_error(
+                            NonExhaustiveJudgeError,
+                            "Judge sobre omen/bool no es exhaustivo y no tiene 'else ->'",
+                            node,
+                            code="E0044",
+                            help="Add missing boolean cases (true/false) or an 'else ->' default branch.",
+                            note="Boolean judge expressions must cover both true and false or provide an else branch."
+                        )
+
 
             if not branch_types:
                 return VOID_TYPE
@@ -1242,6 +1594,101 @@ class TypeInferrer:
                     note="PenguScript requires safe, explicit casts."
                 )
             return target_type
+
+        elif rule == "to_expr":
+            left_node = node.children[0]
+            right_node = node.children[1]
+            is_type_cast = False
+            cast_target = None
+            if isinstance(right_node, Tree):
+                if right_node.data in ("base_type", "custom_type", "ref_type", "fn_type", "array_type", "slice_type"):
+                    is_type_cast = True
+                    cast_target = ast_to_type(right_node, self.symbols.lookup_type)
+                elif right_node.data == "var_ref":
+                    name = str(right_node.children[0])
+                    if name in ("int", "i32", "i64", "f32", "f64", "float", "double", "bool", "string", "char", "byte", "u8", "u16", "u32", "u64") or (self.symbols and (name in self.symbols.runes or self.symbols.lookup_type(name))):
+                        is_type_cast = True
+                        cast_target = ast_to_type(right_node, self.symbols.lookup_type)
+
+            if is_type_cast and cast_target is not None:
+                src_type = self.infer(left_node)
+                if not src_type.can_cast_to(cast_target) and not isinstance(src_type, AnyType):
+                    raise self._make_error(
+                        TypeMismatchError,
+                        f"Cannot cast '{src_type}' to '{cast_target}'",
+                        node,
+                        code="E0005",
+                        help=f"Ensure '{src_type}' can be safely converted to '{cast_target}'.",
+                        note="PenguScript requires safe, explicit casts."
+                    )
+                return cast_target
+            else:
+                start_val = self.const_folder.fold(left_node)
+                end_val = self.const_folder.fold(right_node)
+                if isinstance(start_val, int) and isinstance(end_val, int) and start_val > end_val:
+                    raise self._make_error(
+                        InvalidRangeError,
+                        "Invalid range: start must be less than or equal to end when both bounds are known at compile time",
+                        node,
+                        code="E0042",
+                        help=f"Range start ({start_val}) must be <= end ({end_val}).",
+                        note="Descending ranges are not supported."
+                    )
+                start_t = self.infer(left_node)
+                end_t = self.infer(right_node)
+                return RangeType(element=start_t, start_val=start_val, end_val=end_val)
+
+        elif rule == "range_dotdot":
+            left_node = node.children[0]
+            right_node = node.children[-1]
+            start_val = self.const_folder.fold(left_node)
+            end_val = self.const_folder.fold(right_node)
+            if isinstance(start_val, int) and isinstance(end_val, int) and start_val > end_val:
+                raise self._make_error(
+                    InvalidRangeError,
+                    "Invalid range: start must be less than or equal to end when both bounds are known at compile time",
+                    node,
+                    code="E0042",
+                    help=f"Range start ({start_val}) must be <= end ({end_val}).",
+                    note="Descending ranges are not supported."
+                )
+            start_t = self.infer(left_node)
+            end_t = self.infer(right_node)
+            return RangeType(element=start_t, start_val=start_val, end_val=end_val)
+
+        elif rule in ("in_expr", "not_in_expr"):
+            elem_node = node.children[0]
+            col_node = node.children[1]
+            elem_t = self.infer(elem_node)
+            col_t = self.infer(col_node)
+            return BOOL_TYPE
+
+        elif rule == "indent_literal":
+            child = node.children[0]
+            if child.data == "indent_array":
+                rows = child.children
+                if not rows:
+                    return ArrayType(element=AnyType(), size=0)
+                row0 = rows[0]
+                row0_elems = row0.children
+                first_elem_t = self.infer(row0_elems[0]) if row0_elems else AnyType()
+                if len(rows) > 1 and len(row0_elems) > 1:
+                    return ArrayType(element=ArrayType(element=first_elem_t, size=len(row0_elems)), size=len(rows))
+                elif len(rows) > 1 and len(row0_elems) == 1:
+                    return ArrayType(element=first_elem_t, size=len(rows))
+                else:
+                    return ArrayType(element=first_elem_t, size=len(row0_elems))
+            elif child.data == "indent_entries":
+                entries = child.children
+                if expected_type is not None and isinstance(expected_type, (RuneType, EchoType)):
+                    return expected_type
+                if expected_type is not None and isinstance(expected_type, MapType):
+                    return expected_type
+                if entries:
+                    first_val_t = self.infer(entries[0].children[1])
+                    return MapType(key=STRING_TYPE, value=first_val_t)
+                return MapType(key=STRING_TYPE, value=INT_TYPE)
+
 
         elif rule == "size_of":
             target_type_node = node.children[0]
@@ -1369,14 +1816,17 @@ class TypeInferrer:
                         note="Constants cannot be banished."
                     )
             t = self.infer(target)
-            if not isinstance(t, RefType) and not isinstance(t, AnyType):
+            is_valid = isinstance(t, (RefType, AnyType, ListType, MapType)) or (
+                isinstance(t, BaseType) and t.name == "string"
+            )
+            if not is_valid:
                 raise self._make_error(
                     TypeMismatchError,
-                    f"'banish' requires reference type, got '{t}'",
+                    f"'banish' requires a reference type (ref to T), string, list, or map, got '{t}'",
                     node,
                     code="E0008",
-                    help="Pass a reference type (ref to T) to 'banish'.",
-                    note="'banish' frees memory allocated behind a reference."
+                    help="Pass an allocated reference, string, list, or map to 'banish'.",
+                    note="'banish' frees memory allocated behind a reference or collection."
                 )
             return VOID_TYPE
 
@@ -1406,13 +1856,26 @@ class TypeInferrer:
                 if len(target_node.children) == 1:
                     fn_name = str(target_node.children[0])
                 elif len(target_node.children) >= 2 and isinstance(target_node.children[1], Tree) and target_node.children[1].data == "dot_access":
-                    method_name = str(target_node.children[1].children[0])
+                    first_name = str(target_node.children[0])
+                    m_name = str(target_node.children[1].children[0])
+                    first_sym = self.symbols.lookup(first_name) if self.symbols else None
+                    if first_sym and first_sym.kind == "import":
+                        fn_name = f"{first_name}_{m_name}"
+                        if fn_name not in self.symbols.generic_functions and m_name in self.symbols.generic_functions:
+                            self.symbols.generic_functions[fn_name] = self.symbols.generic_functions[m_name]
+                    elif f"{first_name}_{m_name}" in self.symbols.functions or f"{first_name}_{m_name}" in self.symbols.generic_functions:
+                        fn_name = f"{first_name}_{m_name}"
+                    elif m_name in self.symbols.generic_functions:
+                        fn_name = m_name
+                    else:
+                        method_name = m_name
             elif target_node.data == "with_target":
                 method_name = str(target_node.children[0])
 
             seen_named = False
             param_dict = {p[0]: p[1] for p in fn_type.params if p[0]} if fn_type and fn_type.params else {}
-            has_variadic = len(fn_type.params) > 0 and isinstance(fn_type.params[-1][1], ManyType) if fn_type and fn_type.params else False
+            has_variadic = len(fn_type.params) > 0 and isinstance(fn_type.params[-1][1], (ManyType, CVarArgsType)) if fn_type and fn_type.params else False
+            has_c_varargs = len(fn_type.params) > 0 and isinstance(fn_type.params[-1][1], CVarArgsType) if fn_type and fn_type.params else False
             pos_idx = 0
             if args_tree is not None:
                 for arg_node in args_tree.children:
@@ -1421,6 +1884,7 @@ class TypeInferrer:
                             seen_named = True
                             arg_name = str(arg_node.children[0])
                             arg_val = arg_node.children[1]
+                            self._reject_test_argument(arg_val, fn_name or method_name or "f")
                             exp_t = param_dict.get(arg_name)
                             arg_t = self.infer(arg_val, expected_type=exp_t)
                             named_args.append((arg_name, (arg_t, arg_val)))
@@ -1435,6 +1899,7 @@ class TypeInferrer:
                                     note="PenguScript requires positional args before named args for safety"
                                 )
                             arg_val = arg_node.children[0]
+                            self._reject_test_argument(arg_val, fn_name or method_name or "f")
                             exp_t = None
                             if fn_type and fn_type.params:
                                 if pos_idx < len(fn_type.params):
@@ -1447,7 +1912,8 @@ class TypeInferrer:
 
             total_passed = len(pos_args) + len(named_args)
             total_params = len(fn_type.params)
-            has_variadic = total_params > 0 and isinstance(fn_type.params[-1][1], ManyType)
+            has_variadic = total_params > 0 and isinstance(fn_type.params[-1][1], (ManyType, CVarArgsType))
+            has_c_varargs = total_params > 0 and isinstance(fn_type.params[-1][1], CVarArgsType)
             if has_variadic:
                 min_params = (total_params - 1) - fn_type.default_count
             else:
@@ -1602,6 +2068,104 @@ class TypeInferrer:
                             note="Function call argument counts must match signature."
                         )
 
+            # Per-argument type checks against declared parameter types. Only
+            # fails on clear mismatches (same rules as assignments): either
+            # side unknown/type-param passes, numeric widening is allowed.
+            _builtin_container_method = isinstance(
+                method_self_type, (ListType, MapType)
+            ) and method_name in ("push", "put", "insert", "set")
+            if fn_type.params and not (has_variadic and not has_c_varargs) and not _builtin_container_method:
+
+                def _tname(typ):
+                    n = getattr(typ, "name", None)
+                    return str(n) if n else str(typ)
+
+                def _passes(arg_t, ptype):
+                    if ptype is None or isinstance(ptype, (AnyType, TypeParam)):
+                        return True
+                    if arg_t is None or isinstance(arg_t, (AnyType, TypeParam)):
+                        return True
+                    if arg_t.is_compatible(ptype):
+                        return True
+                    # The reverse direction is a leniency for equivalent
+                    # spellings, but it must not drop a 'frozen' qualification
+                    # ('ref to frozen int' -> 'ref to int' is an error).
+                    if ptype.is_compatible(arg_t) and not _drops_frozen(arg_t, ptype):
+                        return True
+                    if getattr(arg_t, "name", None) and getattr(ptype, "name", None) and arg_t.name == ptype.name:
+                        return True
+                    if arg_t.is_numeric() and ptype.is_numeric():
+                        return True
+                    if isinstance(ptype, RefType):
+                        p_inner = ptype.target
+                        while isinstance(p_inner, (AliasType, FrozenType)) and getattr(p_inner, "target", None):
+                            p_inner = p_inner.target
+                        a_elem = None
+                        if isinstance(arg_t, ArrayType):
+                            a_elem = arg_t.element
+                        elif isinstance(arg_t, RefType) and isinstance(arg_t.target, ArrayType):
+                            a_elem = arg_t.target.element
+                        if a_elem is not None:
+                            if (isinstance(p_inner, BaseType) and p_inner.name in ("void", "opaque")) or _same_pointee(a_elem, p_inner):
+                                return True
+                    # A weave name decays to a C function pointer when the
+                    # parameter is an opaque/void pointer (ref to void) or a
+                    # `ref to weave` alias.
+                    if isinstance(arg_t, FnType):
+                        _cur = ptype
+                        while isinstance(_cur, AliasType) and _cur.target:
+                            _cur = _cur.target
+                        if isinstance(_cur, FnType):
+                            return True
+                        if isinstance(_cur, RefType):
+                            _tgt = _cur.target
+                            while isinstance(_tgt, AliasType) and _tgt.target:
+                                _tgt = _tgt.target
+                            if isinstance(_tgt, (FnType,)) or (
+                                isinstance(_tgt, BaseType) and _tgt.name in ("void", "opaque")
+                            ):
+                                return True
+                    return False
+
+                _callee = method_name or fn_name or "function"
+                plist = fn_type.params[:-1] if has_c_varargs else fn_type.params
+                for idx, (arg_t, _arg_node) in enumerate(pos_args):
+                    if idx < len(plist):
+                        pname = plist[idx][0]
+                        ptype = plist[idx][1]
+                        # `if x as T is calling ... is present` wraps the real
+                        # argument in an is_present node; the checker's capture
+                        # handling type-checks the wrapper (bool) while codegen
+                        # emits the inner value. Skip it here.
+                        if isinstance(_arg_node, Tree) and _arg_node.data in (
+                            "is_present", "is_not_present"
+                        ):
+                            continue
+                        if _passes(arg_t, ptype):
+                            continue
+                        raise self._make_error(
+                            TypeMismatchError,
+                            f"Argument '{pname or idx + 1}' of '{_callee}' expects "
+                            f"'{_tname(ptype)}', got '{_tname(arg_t)}'",
+                            _arg_node if isinstance(_arg_node, Tree) else node,
+                            code="E0005",
+                            help=self._arg_mismatch_help(ptype, arg_t),
+                            note="Function call argument types must match the declared signature."
+                        )
+                for n_name, (arg_t, _arg_node) in named_args:
+                    ptype = param_dict.get(n_name)
+                    if _passes(arg_t, ptype):
+                        continue
+                    raise self._make_error(
+                        TypeMismatchError,
+                        f"Argument '{n_name}' of '{_callee}' expects "
+                        f"'{_tname(ptype)}', got '{_tname(arg_t)}'",
+                        _arg_node if isinstance(_arg_node, Tree) else node,
+                        code="E0005",
+                        help=self._arg_mismatch_help(ptype, arg_t),
+                        note="Function call argument types must match the declared signature."
+                    )
+
             # Special check for ListType.push
             if isinstance(method_self_type, ListType) and method_name == "push":
                 arg_t = pos_args[0][0] if pos_args else (named_args[0][1][0] if named_args else None)
@@ -1649,8 +2213,10 @@ class TypeInferrer:
             inner_expr = node.children[0]
             t = self.infer(inner_expr)
             if isinstance(t, ResultType):
+                self._check_try_enclosing_return(t, node)
                 return t.ok_type
             elif isinstance(t, MaybeType):
+                self._check_try_enclosing_return(t, node)
                 return t.element
             elif isinstance(t, AnyType):
                 return AnyType()
@@ -1782,6 +2348,29 @@ class TypeInferrer:
                 )
             return INT_TYPE
 
+        elif rule == "paren_expr":
+            # Parentheses are semantically transparent, but they stay in the
+            # tree so that an explicitly grouped expression can be told apart
+            # from a bare one (see _reject_list_glued_operator).
+            return self.infer(node.children[0], expected_type)
+
+        elif rule in ("bool_and", "bool_or"):
+            op = "and" if rule == "bool_and" else "or"
+            self._reject_list_glued_operator(node.children[0], op, node)
+            lt = self.infer(node.children[0])
+            rt = self.infer(node.children[1])
+            for t in (lt, rt):
+                if not isinstance(t, AnyType) and not t.is_compatible(BOOL_TYPE):
+                    raise self._make_error(
+                        TypeMismatchError,
+                        f"Logical operator '{op}' requires bool, got '{t}'",
+                        node,
+                        code="E0005",
+                        help=f"Use '&'/'|' for bitwise work; '{op}' is boolean-only.",
+                        note="Logical operators accept only bool operands."
+                    )
+            return BOOL_TYPE
+
         elif rule == "log_not":
             t = self.infer(node.children[0])
             if not t.is_compatible(BOOL_TYPE) and not isinstance(t, AnyType):
@@ -1858,15 +2447,27 @@ class TypeInferrer:
             return BOOL_TYPE
 
         elif rule in ("is_present", "is_not_present"):
+            keyword = "is present" if rule == "is_present" else "is not present"
             target_t = self.infer(node.children[0])
+            if not isinstance(target_t, (MaybeType, AnyType, TypeParam)):
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"'{keyword}' requires a maybe type, got '{target_t}'",
+                    node,
+                    code="E0005",
+                    help="Apply 'is present' / 'is not present' only to values typed 'maybe of T'.",
+                    note="These checks inspect the presence flag of a maybe value; "
+                         "compare other types with '==' or '!='."
+                )
             return BOOL_TYPE
 
         elif rule in ("is_false", "is_true"):
+            keyword = "is true" if rule == "is_true" else "is false"
             target_t = self.infer(node.children[0])
             if not target_t.is_compatible(BOOL_TYPE) and not isinstance(target_t, AnyType):
                 raise self._make_error(
                     TypeMismatchError,
-                    f"'is {rule}' check requires bool type, got '{target_t}'",
+                    f"'{keyword}' check requires bool type, got '{target_t}'",
                     node,
                     code="E0005",
                     help="Ensure operand is a boolean expression.",
@@ -1874,39 +2475,295 @@ class TypeInferrer:
                 )
             return BOOL_TYPE
 
+        elif rule == "with_init_expr":
+            # Block-style construction evaluates to a value of the expected
+            # type; the concrete type must come from the surrounding context
+            # (e.g. 'var x as T with:'), because a builder has no type of its
+            # own until a field set is seen.
+            if expected_type is not None and not isinstance(expected_type, AnyType):
+                return expected_type
+            raise self._make_error(
+                TypeMismatchError,
+                "'with:' block construction requires an explicit type annotation "
+                "(e.g. 'var x as T with:')",
+                node,
+                code="E0014",
+                help="Add an explicit type: 'var x as SomeType with:'. The builder "
+                     "cannot infer its type from an empty context.",
+                note="A 'with:' construction block has no type until fields/methods "
+                     "are applied to a concrete target type."
+            )
+
+        elif rule == "do_expr":
+            # The checker pre-validates do: bodies and records the type of the
+            # block's last expression statement on the AST node; fall back to
+            # void when no value was recorded (e.g. codegen-time inference).
+            val = getattr(node, "_pengu_value_type", None)
+            if val is not None:
+                return val
+            return VOID_TYPE
+
+        elif rule in ("lambda_expr", "lambda_no_params"):
+            # Lambda: typed parameters, no capture. The body is inferred in an
+            # isolated scope holding only the parameters, and the resulting
+            # signature is a FnType (a C function pointer at codegen time).
+            if rule == "lambda_no_params":
+                param_names: List[str] = []
+                param_types: List[Type] = []
+                body = node.children[0]
+            else:
+                plist = node.children[0]
+                body = node.children[1]
+                param_names, param_types = [], []
+                for p in plist.children:
+                    if not isinstance(p, Tree) or len(p.children) < 2:
+                        continue
+                    param_names.append(str(p.children[0]))
+                    param_types.append(ast_to_type(p.children[1], self.symbols.lookup_type))
+
+            self.symbols.push_scope(kind="lambda")
+            try:
+                for pn, pt in zip(param_names, param_types):
+                    self.symbols.define(Symbol(name=pn, type=pt, kind="param", is_mutable=False))
+                body_t = self.infer(body)
+            finally:
+                self.symbols.pop_scope()
+
+            fn_t = FnType(params=list(zip(param_names, param_types)), return_type=body_t)
+            try:
+                setattr(node, "_pengu_fn_type", fn_t)
+            except Exception:
+                pass
+            return fn_t
+
+        elif rule in ("if_stmt", "unless_stmt", "while_stmt", "for_range_stmt", "for_in_stmt"):
+            # These constructs have a single grammar rule each; when they appear
+            # in a value position the checker records the resulting type on the
+            # node (see PenguChecker._check_if_value / _check_unless_value /
+            # _check_loop_value — loops collect their body value into a list). In
+            # statement position they have no value.
+            val = getattr(node, "_pengu_value_type", None)
+            if val is not None:
+                return val
+            return VOID_TYPE
+
+        elif rule == "normal_target":
+            first = node.children[0]
+            if isinstance(first, (Token, str)):
+                first_str = str(first)
+                if first_str == "self":
+                    ench_t = self.symbols.current_enchanting_type() if self.symbols else None
+                    cur_type = RefType(ench_t) if ench_t else AnyType()
+                else:
+                    sym = self.symbols.lookup(first_str)
+                    cur_type = sym.type if sym else AnyType()
+            else:
+                cur_type = self.infer(first)
+
+            for acc in node.children[1:]:
+                if not isinstance(acc, Tree):
+                    continue
+                if acc.data == "dot_access":
+                    field_name = str(acc.children[0])
+                    unpacked = cur_type
+                    while isinstance(unpacked, (AliasType, FrozenType)) and getattr(unpacked, "target", None):
+                        unpacked = unpacked.target
+                    if isinstance(unpacked, (RuneType, EchoType)) and field_name in unpacked.fields:
+                        cur_type = unpacked.fields[field_name]
+                    else:
+                        cur_type = AnyType()
+                elif acc.data == "arrow_access":
+                    field_name = str(acc.children[0])
+                    unpacked = cur_type
+                    while isinstance(unpacked, (AliasType, FrozenType)) and getattr(unpacked, "target", None):
+                        unpacked = unpacked.target
+                    if isinstance(unpacked, RefType):
+                        tgt = unpacked.target
+                        while isinstance(tgt, (AliasType, FrozenType)) and getattr(tgt, "target", None):
+                            tgt = tgt.target
+                        if isinstance(tgt, (RuneType, EchoType)) and field_name in tgt.fields:
+                            cur_type = tgt.fields[field_name]
+                        else:
+                            cur_type = AnyType()
+                    else:
+                        cur_type = AnyType()
+                elif acc.data == "at_access":
+                    idx_node = acc.children[0]
+                    idx_t = self.infer(idx_node)
+                    unpacked = cur_type
+                    is_frozen = False
+                    while isinstance(unpacked, (AliasType, FrozenType)):
+                        if isinstance(unpacked, FrozenType):
+                            is_frozen = True
+                        if getattr(unpacked, "target", None):
+                            unpacked = unpacked.target
+                        else:
+                            break
+                    if isinstance(unpacked, (ArrayType, SliceType, ManyType, ListType)):
+                        if not idx_t.is_int():
+                            raise self._make_error(
+                                TypeMismatchError,
+                                f"Array/Slice index must be an integer, got '{idx_t}'",
+                                acc,
+                                code="E0005",
+                                help="Ensure the index expression evaluates to an integer.",
+                                note="Collection indexing requires integer offsets."
+                            )
+                        cur_type = unpacked.element
+                    elif isinstance(unpacked, MapType):
+                        cur_type = unpacked.value
+                    elif unpacked == STRING_TYPE:
+                        cur_type = STRING_TYPE
+                    elif isinstance(unpacked, RefType):
+                        if not idx_t.is_int():
+                            raise self._make_error(
+                                TypeMismatchError,
+                                f"Pointer index must be an integer, got '{idx_t}'",
+                                acc,
+                                code="E0005",
+                                help="Ensure the index expression evaluates to an integer.",
+                                note="Pointer indexing requires integer offsets."
+                            )
+                        tgt = unpacked.target
+                        tgt_frozen = False
+                        while isinstance(tgt, (AliasType, FrozenType)):
+                            if isinstance(tgt, FrozenType):
+                                tgt_frozen = True
+                            if getattr(tgt, "target", None):
+                                tgt = tgt.target
+                            else:
+                                break
+                        if (isinstance(tgt, BaseType) and tgt.name in ("void", "opaque")) or tgt == OPAQUE_TYPE or is_opaque_type(tgt):
+                            raise self._make_error(
+                                SemanticError,
+                                f"Cannot index pointer to void or opaque '{cur_type}' with 'at'",
+                                acc,
+                                code="E0005",
+                                help="Cast to a typed pointer with 'transmute p to ref to T' or create a slice with 'ffi.slice_from_ptr'.",
+                                note="Pointers to void/opaque have unknown element size and cannot be indexed."
+                            )
+                        if isinstance(tgt, (ArrayType, SliceType, ManyType, ListType)):
+                            cur_type = tgt.element
+                        else:
+                            cur_type = FrozenType(tgt) if (is_frozen or tgt_frozen) else tgt
+                    else:
+                        cur_type = AnyType()
+            return cur_type
+
         if len(node.children) == 1:
             return self.infer(node.children[0], expected_type)
 
         return AnyType()
 
-    def _check_string_interpolation(self, text: str, line: Optional[int], col: Optional[int], node: Any = None):
-        """Checks that variables interpolated inside {var} exist in symbol table.
+    def _check_try_enclosing_return(self, inner_t: Type, node: Tree) -> None:
+        """Restricts 'try' to functions whose return container can propagate it.
 
-        Args:
-            text: Raw string literal text.
-            line: Source line number.
-            col: Source column number.
-            node: AST node for diagnostics.
+        'try' on a ``maybe T`` or ``result of T to E`` unwraps the success
+        value and returns from the enclosing weave/enchanting on failure, so
+        the enclosing function must itself return a container that can carry
+        the failure: a ``maybe`` for a maybe operand, or a ``result`` with a
+        compatible error type for a result operand.
         """
-        matches = re.findall(r'\{([^}]+)\}', text)
-        for var_name in matches:
-            var_name = var_name.strip()
-            if var_name:
-                if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', var_name):
-                    sym = self.symbols.lookup(var_name)
+        curr_ret = self.symbols.current_return_type()
+        # Outside a function scope (no declared return type) there is nothing
+        # to propagate into; codegen re-runs inference without a function scope,
+        # so stay quiet there and let the codegen-level guard raise instead.
+        if curr_ret is None or isinstance(curr_ret, AnyType):
+            return
+        if isinstance(inner_t, MaybeType):
+            if not isinstance(curr_ret, MaybeType):
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"'try' over 'maybe T' requires the enclosing function to "
+                    f"return 'maybe T', not '{curr_ret}'",
+                    node,
+                    code="E0045",
+                    help=f"Change the enclosing function to return 'maybe {inner_t.element}' "
+                         "or handle the failure with 'or else', 'or return' or 'or:'.",
+                    note="'try' propagates failures to the caller of the enclosing function."
+                )
+            return
+        # Result operand: error type must be representable by the function result.
+        if isinstance(curr_ret, ResultType):
+            if inner_t.err_type.is_compatible(curr_ret.err_type):
+                return
+            raise self._make_error(
+                TypeMismatchError,
+                f"'try' error type '{inner_t.err_type}' is not compatible with the "
+                f"enclosing function's error type '{curr_ret.err_type}'",
+                node,
+                code="E0045",
+                help=f"Return 'result of T to {inner_t.err_type}' from the enclosing "
+                     "function or handle the failure explicitly.",
+                note="'try' propagates the error to the caller of the enclosing function."
+            )
+        raise self._make_error(
+            TypeMismatchError,
+            f"'try' over 'result of T to E' requires the enclosing function to "
+            f"return a compatible result type, not '{curr_ret}'",
+            node,
+            code="E0045",
+            help=f"Return 'result of T to {inner_t.err_type}' from the enclosing "
+                 "function or handle the failure explicitly.",
+            note="'try' propagates failures to the caller of the enclosing function."
+        )
+
+    def _check_string_interpolation(self, text: str, line: Optional[int], col: Optional[int], node: Any = None):
+        """Checks that expressions interpolated inside {expr} are valid and type-checked."""
+        is_raw, is_triple, parts = extract_string_parts(text)
+        if is_raw:
+            return
+        from .pengu_parser import PenguParser
+        parser = PenguParser()
+        for p in parts:
+            if not p.is_expr:
+                continue
+            expr_str = p.text.strip()
+            if not expr_str:
+                continue
+            try:
+                expr_ast = parser.parse_expr(expr_str)
+                self.infer(expr_ast)
+            except UndefinedIdentifierError as e:
+                var_err_name = getattr(e, "name", None) or expr_str
+                raise self._make_error(
+                    UndefinedIdentifierError,
+                    f"Undefined variable '{var_err_name}' in string interpolation",
+                    node,
+                    line=line,
+                    col=col,
+                    code="E0019",
+                    help=f"Ensure variable '{var_err_name}' is declared before interpolating it in string.",
+                    note="String interpolation expressions evaluate variables in current scope."
+                )
+            except SemanticError:
+                raise
+            except Exception:
+                if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', expr_str):
+                    sym = self.symbols.lookup(expr_str) if self.symbols else None
                     if sym is None:
-                        if var_name.isupper() and self.symbols.has_includes:
+                        if expr_str.isupper() and self.symbols and self.symbols.has_includes:
                             continue
                         raise self._make_error(
                             UndefinedIdentifierError,
-                            f"Undefined variable '{var_name}' in string interpolation",
+                            f"Undefined variable '{expr_str}' in string interpolation",
                             node,
                             line=line,
                             col=col,
                             code="E0019",
-                            help=f"Ensure variable '{var_name}' is declared before interpolating it in string.",
+                            help=f"Ensure variable '{expr_str}' is declared before interpolating it in string.",
                             note="String interpolation expressions evaluate variables in current scope."
                         )
+                raise self._make_error(
+                    SemanticError,
+                    f"Invalid expression '{expr_str}' in string interpolation",
+                    node,
+                    line=line,
+                    col=col,
+                    code="E0019",
+                    help=f"Check syntax of expression inside '{{{expr_str}}}'."
+                )
+
 
     def _validate_addressable(self, node: Any):
         """Validates that a node is addressable for 'sigil of'.
@@ -1916,7 +2773,7 @@ class TypeInferrer:
         """
         line, col = self._get_loc(node)
         if isinstance(node, Token):
-            if node.type in ("INT", "FLOAT", "STRING"):
+            if node.type in ("INT", "FLOAT", "STRING", "TRIPLE_STRING", "RAW_STRING", "RAW_TRIPLE_STRING"):
                 raise self._make_error(
                     SemanticError,
                     "Cannot take 'sigil of' a literal value",
@@ -1977,7 +2834,7 @@ class TypeInferrer:
             while isinstance(base_with_type, (RefType, AliasType)):
                 base_with_type = base_with_type.target
 
-            t_name = getattr(base_with_type, "name", str(base_with_type))
+            t_name = _unfrozen_name(base_with_type)
             if (t_name, method_name) in self.symbols.methods:
                 return self.symbols.methods[(t_name, method_name)], with_type
 
@@ -1985,8 +2842,8 @@ class TypeInferrer:
             if m_key in self.symbols.functions:
                 return self.symbols.functions[m_key], with_type
 
-            if isinstance(with_type, ListType) and method_name in ("push", "pop", "clear"):
-                if method_name == "push":
+            if isinstance(with_type, ListType) and method_name in ("push", "append", "pop", "clear"):
+                if method_name in ("push", "append"):
                     return FnType(params=[("item", with_type.element)], return_type=VOID_TYPE), with_type
                 elif method_name == "pop":
                     return FnType(params=[], return_type=with_type.element), with_type
@@ -2000,9 +2857,6 @@ class TypeInferrer:
                     return FnType(params=[("key", with_type.key)], return_type=with_type.value), with_type
                 elif method_name == "remove":
                     return FnType(params=[("key", with_type.key)], return_type=VOID_TYPE), with_type
-
-            if self.symbols.has_includes:
-                return FnType(params=[], return_type=VOID_TYPE), with_type
 
             raise self._make_error(
                 UndefinedIdentifierError,
@@ -2021,8 +2875,15 @@ class TypeInferrer:
                     return FnType(params=[("msg", AnyType())], return_type=VOID_TYPE), None
                 sym = self.symbols.lookup(fn_name)
                 if sym is not None:
-                    if isinstance(sym.type, FnType):
-                        return sym.type, None
+                    sym_t = sym.type
+                    while isinstance(sym_t, AliasType):
+                        sym_t = sym_t.target
+                    if isinstance(sym_t, RefType) and isinstance(sym_t.target, FnType):
+                        # A 'ref to weave …' value (C callback typedef or
+                        # function-pointer variable) is called through directly.
+                        return sym_t.target, None
+                    if isinstance(sym_t, FnType):
+                        return sym_t, None
                     elif sym.kind in ("function", "declare"):
                         if isinstance(sym.type, FnType):
                             return sym.type, None
@@ -2062,11 +2923,21 @@ class TypeInferrer:
                             if scope is not None:
                                 mem_sym = scope.symbols.get(m_name)
                                 if mem_sym is not None:
+                                    if getattr(mem_sym, "is_public", False) is False or m_name.startswith("_"):
+                                        raise self._make_error(
+                                            PrivateSymbolAccessError,
+                                            f"Symbol '{m_name}' is private to module '{obj_name}'",
+                                            node,
+                                            code="E0043",
+                                            help=f"Rename '{m_name}' without the leading underscore to make it public, or access it from inside module '{obj_name}'.",
+                                            note="Private symbols starting with '_' are not exported."
+                                        )
                                     m_type = getattr(mem_sym, "type", None)
                                     if isinstance(m_type, FnType):
                                         return m_type, None
                                     if getattr(mem_sym, "kind", "") in ("function", "declare") and m_type is not None:
                                         return FnType(params=[], return_type=m_type), None
+
                             for cand_name in (f"{obj_name}_{m_name}", m_name):
                                 fn_t = self.symbols.functions.get(cand_name)
                                 if fn_t is not None:
@@ -2092,9 +2963,9 @@ class TypeInferrer:
                                     return concept_obj.methods[m_name], obj_type
 
                         if isinstance(obj_type, RefType):
-                            t_name = getattr(obj_type.target, "name", str(obj_type.target))
+                            t_name = _unfrozen_name(obj_type.target)
                         else:
-                            t_name = getattr(obj_type, "name", str(obj_type))
+                            t_name = _unfrozen_name(obj_type)
                         if (t_name, m_name) in self.symbols.methods:
                             m_fn = self.symbols.methods[(t_name, m_name)]
                             if getattr(m_fn, "is_ritual", False):
@@ -2150,22 +3021,23 @@ class TypeInferrer:
                                 return m_fn, obj_type
 
                         if isinstance(obj_type, ListType):
-                            if m_name in ("push", "append"):
-                                return FnType(params=[("item", obj_type.element)], return_type=VOID_TYPE), obj_type
-                            elif m_name == "pop":
-                                return FnType(params=[], return_type=obj_type.element), obj_type
-                            elif m_name == "clear":
-                                return FnType(params=[], return_type=VOID_TYPE), obj_type
-                            elif m_name == "len":
-                                return FnType(params=[], return_type=INT_TYPE), obj_type
-                            elif m_name == "is_empty":
-                                return FnType(params=[], return_type=BOOL_TYPE), obj_type
-                            elif m_name == "contains":
-                                return FnType(params=[("item", obj_type.element)], return_type=BOOL_TYPE), obj_type
-                            elif m_name == "index_of":
-                                return FnType(params=[("item", obj_type.element)], return_type=INT_TYPE), obj_type
-                            elif m_name == "at":
-                                return FnType(params=[("index", INT_TYPE)], return_type=obj_type.element), obj_type
+                            if m_name in ("push", "append", "pop", "clear", "len", "is_empty", "contains", "index_of", "at"):
+                                if m_name in ("push", "append"):
+                                    return FnType(params=[("item", obj_type.element)], return_type=VOID_TYPE), obj_type
+                                elif m_name == "pop":
+                                    return FnType(params=[], return_type=obj_type.element), obj_type
+                                elif m_name == "clear":
+                                    return FnType(params=[], return_type=VOID_TYPE), obj_type
+                                elif m_name == "len":
+                                    return FnType(params=[], return_type=INT_TYPE), obj_type
+                                elif m_name == "is_empty":
+                                    return FnType(params=[], return_type=BOOL_TYPE), obj_type
+                                elif m_name == "contains":
+                                    return FnType(params=[("item", obj_type.element)], return_type=BOOL_TYPE), obj_type
+                                elif m_name == "index_of":
+                                    return FnType(params=[("item", obj_type.element)], return_type=INT_TYPE), obj_type
+                                elif m_name == "at":
+                                    return FnType(params=[("index", INT_TYPE)], return_type=obj_type.element), obj_type
                         if isinstance(obj_type, MapType):
                             if m_name in ("put", "insert", "set"):
                                 return FnType(params=[("key", obj_type.key), ("value", obj_type.value)], return_type=VOID_TYPE), obj_type
@@ -2181,8 +3053,6 @@ class TypeInferrer:
                                 return FnType(params=[], return_type=VOID_TYPE), obj_type
                             elif m_name == "is_empty":
                                 return FnType(params=[], return_type=BOOL_TYPE), obj_type
-                        if self.symbols.has_includes:
-                            return FnType(params=[], return_type=VOID_TYPE), obj_type
                         raise self._make_error(
                             UndefinedIdentifierError,
                             f"Type '{obj_type}' has no method '{m_name}'",

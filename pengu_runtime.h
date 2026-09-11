@@ -1,6 +1,10 @@
 /**
  * @file pengu_runtime_organized.h
- * @brief PenguScript Unified C Runtime Library (v0.1.0).
+ * @brief PenguScript Unified C Runtime Library.
+ *
+ * The runtime ships with the compiler and carries no version of its own: the
+ * language/toolchain version lives in `VERSION` and is exposed by
+ * `pengu_version.py`.
  *
  * Provides core memory management, primitive wrappers, standard data structures
  * (strings, slices, lists, hash maps, optionals, results), and standard library
@@ -217,6 +221,33 @@ extern "C"
   }
 
   /* =========================================================================
+   * 4.5. Range Subsystem (PenguRange)
+   * ========================================================================= */
+
+#ifndef PENGU_RANGE_DEFINED
+#define PENGU_RANGE_DEFINED
+  /**
+   * @brief Represents a half-open integer range [start, end).
+   */
+  typedef struct
+  {
+    int64_t start;
+    int64_t end;
+  } PenguRange;
+
+  /**
+   * @brief Constructs a new PenguRange.
+   */
+  static inline PenguRange pengu_range_new(int64_t start, int64_t end)
+  {
+    PenguRange r;
+    r.start = start;
+    r.end = end;
+    return r;
+  }
+#endif
+
+  /* =========================================================================
    * 5. String Subsystem (PenguString)
    * ========================================================================= */
 
@@ -272,6 +303,39 @@ extern "C"
     s.len = (int)strlen(str);
     s.data = (char *)str;
     return s;
+  }
+
+  /** @brief Shared read-only empty C string used by the null-safe helpers. */
+  #define PENGU_EMPTY_CSTR ""
+
+  /**
+   * @brief Returns a read-only pointer to the string's internal buffer.
+   * @param s Pointer to a PenguString (may be NULL).
+   * @return Non-NULL `char*` view. Empty / NULL strings yield a pointer to a
+   *         static empty string, never NULL.
+   * @warning The pointer aliases the string's internal buffer: it stays valid
+   *          only while the PenguString is alive and is NOT modified or
+   *          banished. Do not free the returned pointer; it is read-only.
+   */
+  static inline const char *pengu_string_to_cstr(const PenguString *s)
+  {
+    if (!s || !s->data || s->len == 0)
+      return PENGU_EMPTY_CSTR;
+    return s->data;
+  }
+
+  /**
+   * @brief Returns a read-only byte view of a string's internal buffer.
+   * @param s Pointer to a PenguString (may be NULL).
+   * @return Non-NULL `void*` view. Empty / NULL strings yield a pointer to a
+   *         static empty buffer, never NULL. Lifetime is bound to the
+   *         PenguString, exactly like pengu_string_to_cstr().
+   */
+  static inline const void *pengu_string_bytes(const PenguString *s)
+  {
+    if (!s || !s->data || s->len == 0)
+      return (const void *)PENGU_EMPTY_CSTR;
+    return (const void *)s->data;
   }
 
   /**
@@ -844,6 +908,18 @@ extern "C"
     return slice ? slice->len : 0;
   }
 
+  /**
+   * @brief Returns the raw data pointer of a slice.
+   * @param slice Pointer to a PenguSlice (may be NULL).
+   * @return The backing buffer pointer, or NULL when the slice is NULL.
+   * @note A slice is a non-owning view: the returned pointer is only valid for
+   *       the lifetime of the memory the slice points into.
+   */
+  static inline void *pengu_slice_data(const PenguSlice *slice)
+  {
+    return slice ? slice->data : NULL;
+  }
+
   /* =========================================================================
    * 7. Dynamic List Subsystem (PenguList)
    * ========================================================================= */
@@ -858,6 +934,11 @@ extern "C"
     int cap;
     size_t elem_size;
   } PenguList;
+
+/* NOTE: PenguList owns only its internal element buffer. When the elements are
+ * pointers / structs that hold allocated memory (e.g. PenguString), the caller
+ * must release each element first (e.g. pengu_banish_string) before calling
+ * pengu_banish_list. */
 
   /**
    * @brief Creates a new dynamic list with given element size and capacity.
@@ -1004,6 +1085,19 @@ extern "C"
       list->len = 0;
       list->cap = 0;
     }
+  }
+
+  /**
+   * @brief Returns the raw element-buffer pointer of a list.
+   * @param list Pointer to a PenguList (may be NULL).
+   * @return The internal element buffer, or NULL when the list is NULL or has
+   *         no buffer. Elements live at ``(char*)ptr + i * elem_size``.
+   * @warning The pointer aliases list-owned memory; do not free it and do not
+   *          use it after pengu_banish_list().
+   */
+  static inline void *pengu_list_data(const PenguList *list)
+  {
+    return list ? list->data : NULL;
   }
 
   /**
@@ -2269,7 +2363,10 @@ extern "C"
    * 17. File System & I/O Operations (Archivum)
    * ========================================================================= */
 
-  /** @brief Reads entire file into a PenguString. */
+  /** @brief Reads entire file into a PenguString.
+ * A present result holds a heap PenguString* that owns its buffer: the caller
+ * must free the buffer with pengu_banish_string() and the wrapper with
+ * free(). */
   static inline PenguMaybe pengu_c_archivum_read_file(PenguString path)
   {
     if (!path.data || path.len == 0)
@@ -2504,6 +2601,10 @@ extern "C"
     return ok;
   }
 
+  /** @brief Lists directory entries.
+ * A present result holds a heap PenguList* of heap PenguString* entries, all
+ * of which the caller owns: banish each entry buffer + wrapper, then
+ * pengu_banish_list() the list and free() the heap list wrapper. */
   static inline PenguMaybe pengu_c_archivum_read_dir(PenguString path);
 
   /** @brief Removes directory optionally recursively. */
@@ -2669,6 +2770,9 @@ extern "C"
     return pengu_c_archivum_move_file(old_p, new_p, true);
   }
 
+  /** @brief Reads file metadata as a PenguString-keyed map.
+ * A present result holds a heap PenguMap* the caller owns: banish the map
+ * (pengu_banish_map) and free() the heap wrapper. */
   static inline PenguMaybe pengu_c_archivum_metadata(PenguString path)
   {
     if (!path.data || path.len == 0)
@@ -2963,30 +3067,43 @@ extern "C"
    * ========================================================================= */
 
   void pengu_c_filum_go(void *f);
-  void *pengu_c_filum_chan_new(int elem_size, int cap);
+  void *pengu_c_filum_chan_new(size_t elem_size, int cap);
   bool pengu_c_filum_chan_send(void *c, void *value);
   bool pengu_c_filum_chan_recv(void *c, void *out);
   void pengu_c_filum_chan_close(void *c);
   int pengu_c_filum_chan_len(void *c);
   int pengu_c_filum_chan_cap(void *c);
+  /** Releases a channel created with pengu_c_filum_chan_new(): wakes and
+ * destroys its condition variables / critical section and frees the ring
+ * buffer and handle. Callers must ensure no goroutine is still blocked on the
+ * channel (call pengu_c_filum_chan_close() first when in doubt). */
+  void pengu_c_filum_chan_free(void *c);
 
   void *pengu_c_filum_mutex_new(void);
   void pengu_c_filum_mutex_lock(void *m);
   void pengu_c_filum_mutex_unlock(void *m);
   bool pengu_c_filum_mutex_try_lock(void *m);
+  /** Releases a mutex created with pengu_c_filum_mutex_new(). */
+  void pengu_c_filum_mutex_free(void *m);
 
   void *pengu_c_filum_wait_group_new(void);
   void pengu_c_filum_wait_group_add(void *wg, int delta);
   void pengu_c_filum_wait_group_done(void *wg);
   void pengu_c_filum_wait_group_wait(void *wg);
+  /** Releases a wait group created with pengu_c_filum_wait_group_new(). */
+  void pengu_c_filum_wait_group_free(void *wg);
 
   void *pengu_c_filum_once_new(void);
   void pengu_c_filum_once_do(void *o, void *f);
+  /** Releases a once-guard created with pengu_c_filum_once_new(). */
+  void pengu_c_filum_once_free(void *o);
 
   void *pengu_c_filum_cond_new(void);
   void pengu_c_filum_cond_wait(void *c, void *m);
   void pengu_c_filum_cond_signal(void *c);
   void pengu_c_filum_cond_broadcast(void *c);
+  /** Releases a condition variable created with pengu_c_filum_cond_new(). */
+  void pengu_c_filum_cond_free(void *c);
 
   void *pengu_c_filum_atomic_int_new(int initial);
   int pengu_c_filum_atomic_int_load(void *a);
@@ -2994,6 +3111,8 @@ extern "C"
   int pengu_c_filum_atomic_int_add(void *a, int delta);
   int pengu_c_filum_atomic_int_swap(void *a, int new_val);
   bool pengu_c_filum_atomic_int_compare_swap(void *a, int old_val, int new_val);
+  /** Releases an atomic integer created with pengu_c_filum_atomic_int_new(). */
+  void pengu_c_filum_atomic_int_free(void *a);
 
   void pengu_c_filum_sleep(int ms);
   int pengu_c_filum_num_cpu(void);
@@ -3020,9 +3139,27 @@ extern "C"
   PenguMaybe pengu_c_regulus_compile(PenguString pattern, PenguString flags);
   PenguMaybe pengu_c_regulus_match(void *regex, PenguString text);
   PenguMaybe pengu_c_regulus_search(void *regex, PenguString text);
-  PenguList pengu_c_regulus_find_all(void *regex, PenguString text);
-  PenguString pengu_c_regulus_replace(void *regex, PenguString text, PenguString replacement);
+  /** Finds all regex matches in `text`.
+ * @return PenguList of PenguRegulusMatch. Caller must free every match's
+ *         `matched` PenguString with pengu_banish_string() before
+ *         pengu_banish_list(). */
+PenguList pengu_c_regulus_find_all(void *regex, PenguString text);
+  /** Replaces matches of `regex` in `text`. The returned PenguString owns its
+ * buffer: the caller must call pengu_banish_string() on it. */
+PenguString pengu_c_regulus_replace(void *regex, PenguString text, PenguString replacement);
+  /** Splits `text` on `regex`. Every element PenguString owns its buffer; the
+ * caller must pengu_banish_string() each before pengu_banish_list(). */
   PenguList pengu_c_regulus_split(void *regex, PenguString text, int limit);
+  /** Releases the PCRE2 code compiled by pengu_c_regulus_compile(). The
+ * wrapper struct is normally a PenguScript value copy, so this helper frees
+ * only the native code object and nulls `_ptr`; it does not free() the struct
+ * or the borrowed pattern/flags strings. Direct C callers holding the heap
+ * struct returned inside the PenguMaybe may free() it afterwards. */
+  void pengu_c_regulus_regex_free(void *regex);
+  /** Frees the owned `matched` buffer of a PenguRegulusMatch (search/match/
+ * find_all results). Safe on value copies: the buffer is freed and the
+ * PenguString zeroed, but the struct itself is not free()d. */
+  void pengu_c_regulus_match_free(void *m);
   static inline PenguString pengu_c_regulus_escape(PenguString text) { return text; }
   static inline bool pengu_c_regulus_is_valid(void *regex) { return regex != NULL; }
 
@@ -3046,16 +3183,37 @@ extern "C"
 
   PenguMaybe pengu_c_parchment_parse_xml(PenguString data);
   PenguMaybe pengu_c_parchment_parse_html(PenguString data);
+  /** Serializes `node`. A present result holds a heap PenguString* the caller
+ * must release (pengu_banish_string) after use. */
   PenguMaybe pengu_c_parchment_to_string(void *node, bool pretty);
   PenguMaybe pengu_c_parchment_find(void *node, PenguString query);
+  /** Finds all children of `node` named `query`.
+ * @return PenguList of PenguParchmentNode; every entry owns its tag/text
+ *         PenguStrings and must be released with
+ *         pengu_c_parchment_node_free() before pengu_banish_list(). */
   PenguList pengu_c_parchment_find_all(void *node, PenguString query);
+  /** Reads attribute `name`. A present result holds a heap PenguString* the
+ * caller must release (pengu_banish_string) after use. */
   PenguMaybe pengu_c_parchment_attr(void *node, PenguString name);
   void pengu_c_parchment_set_attr(void *node, PenguString name, PenguString value);
+  /** Reads node text content. A present result holds a heap PenguString* the
+ * caller must release (pengu_banish_string) after use. */
   PenguMaybe pengu_c_parchment_text(void *node);
   void pengu_c_parchment_set_text(void *node, PenguString text);
   void *pengu_c_parchment_create_element(PenguString tag);
   void *pengu_c_parchment_create_text(PenguString text);
   void pengu_c_parchment_append_child(void *parent, void *child);
+  /** Releases the owned tag/text strings of a wrapper node (from find /
+ * find_all / create_element / create_text). The xml node inside `_ptr` is
+ * owned by its document and is NOT freed here; the struct is a PenguScript
+ * value copy and is not free()d either. */
+  void pengu_c_parchment_node_free(void *node);
+  /** Releases a document parsed with pengu_c_parchment_parse_xml/html: frees
+ * the owned wrapper strings and the whole libxml2 document tree. The wrapper
+ * struct is a PenguScript value copy and is not free()d. Freeing the document
+ * invalidates every node previously obtained from it (call node_free on their
+ * wrapper strings first if needed). */
+  void pengu_c_parchment_document_free(void *doc);
   static inline PenguString pengu_c_parchment_escape_text(PenguString text) { return text; }
   static inline PenguString pengu_c_parchment_unescape_text(PenguString text) { return text; }
 
@@ -3068,7 +3226,9 @@ extern "C"
   PenguString pengu_c_seal_sha1(PenguString data);
   PenguString pengu_c_seal_sha256(PenguString data);
   PenguString pengu_c_seal_sha512(PenguString data);
-  PenguMaybe pengu_c_seal_gzip(PenguString data);
+  /** gzip-compresses `data`. A present result holds a heap PenguString* that
+ * the caller must release (pengu_banish_string) after use. */
+PenguMaybe pengu_c_seal_gzip(PenguString data);
   PenguMaybe pengu_c_seal_unzip(PenguString data);
   PenguMaybe pengu_c_seal_zlib_compress(PenguString data);
   PenguMaybe pengu_c_seal_zlib_decompress(PenguString data);
@@ -3107,24 +3267,150 @@ extern "C"
     void *_ptr;
   } PenguPrecisTCPSocket;
 
-  PenguMaybe pengu_c_precis_http_get(PenguString url, PenguMap headers);
+  /** Performs an HTTP GET. A present result holds a PenguPrecisClientResponse*
+ * that owns its body/headers: release it with the corresponding
+ * pengu_precis_free_response helper / body & map banish calls. */
+PenguMaybe pengu_c_precis_http_get(PenguString url, PenguMap headers);
   PenguMaybe pengu_c_precis_http_post(PenguString url, PenguMap headers, PenguString body);
   PenguMaybe pengu_c_precis_http_put(PenguString url, PenguMap headers, PenguString body);
   PenguMaybe pengu_c_precis_http_delete(PenguString url, PenguMap headers);
   PenguMaybe pengu_c_precis_http_request(PenguString method, PenguString url, PenguMap headers, PenguMaybe body);
+  /** Releases a PenguPrecisClientResponse obtained from a successful
+ * pengu_c_precis_http_* call: frees the owned header map, body string and the
+ * response struct itself. The caller-owned input URL is untouched. */
+  void pengu_precis_free_response(PenguPrecisClientResponse *resp);
 
   void pengu_c_precis_serve_http(int port, void *handler);
 
-  PenguMaybe pengu_c_precis_tcp_connect(PenguString host, int port);
+  /** Opens a TCP connection. A present result holds a PenguPrecisTCPSocket* that
+ * must be closed with pengu_c_precis_tcp_close(). */
+PenguMaybe pengu_c_precis_tcp_connect(PenguString host, int port);
   bool pengu_c_precis_tcp_send(void *sock, PenguString data);
   PenguMaybe pengu_c_precis_tcp_recv(void *sock, int size);
   void pengu_c_precis_tcp_close(void *sock);
 
   PenguMaybe pengu_c_precis_dns_lookup(PenguString host);
 
+  /** URL-encodes `s`. The returned PenguString owns its buffer: release with
+ * pengu_banish_string() (or banish from PenguScript). */
   PenguString pengu_c_precis_url_encode(PenguString s);
+  /** URL-decodes `s`. The returned PenguString owns its buffer: release with
+ * pengu_banish_string() (or banish from PenguScript). */
   PenguString pengu_c_precis_url_decode(PenguString s);
+  /** Parses a query string. The returned PenguMap owns its keys/values:
+ * release with pengu_banish_map() (or banish from PenguScript). */
   PenguMap pengu_c_precis_parse_query(PenguString s);
+
+  /* =========================================================================
+   * 25. C <-> Pengu Conversion Bridges (FFI)
+   *
+   * Helpers for embedding / library code that must move data between plain C
+   * buffers and PenguScript containers. All pointer-taking constructors are
+   * NULL-safe (empty input yields an empty container) and every function that
+   * allocates documents who owns what.
+   * ========================================================================= */
+
+  /**
+   * @brief Copies a C element buffer into a newly allocated PenguList.
+   * @param data Source buffer of `count` elements, each `elem_size` bytes
+   *             (may be NULL when count <= 0).
+   * @param elem_size Size in bytes of one element.
+   * @param count Element count (<= 0 yields an empty list).
+   * @return PenguList owning a byte-for-byte copy of the elements. On
+   *         allocation failure an empty (NULL-buffer) list is returned.
+   * @note If the elements are PenguString or hold heap memory, the caller must
+   *       release each element (e.g. pengu_banish_string) before
+   *       pengu_banish_list() — same contract as pengu_list_new().
+   */
+  PenguList pengu_list_from_data(const void *data, size_t elem_size, int count);
+
+  /**
+   * @brief Deep-copies a map from two parallel C arrays of keys and values.
+   * @param keys Array of `count` keys, each `key_size` bytes.
+   * @param values Array of `count` values, each `val_size` bytes.
+   * @param key_size Size in bytes of one key.
+   * @param val_size Size in bytes of one value.
+   * @param count Pair count (<= 0, or NULL arrays, yields an empty map).
+   * @return PenguMap containing deep copies (PenguString keys/values are
+   *         duplicated into own buffers). On failure an empty map is returned.
+   */
+  PenguMap pengu_map_from_entries(const void *keys, const void *values,
+                                  size_t key_size, size_t val_size, int count);
+
+  /** @brief Parallel key/value arrays produced by pengu_map_to_entries(). */
+  typedef struct
+  {
+    void *keys;      /**< Owned buffer of `count` keys, each `key_size` bytes. */
+    void *values;    /**< Owned buffer of `count` values, each `val_size` bytes. */
+    int count;       /**< Number of copied pairs. */
+    size_t key_size; /**< Key size in bytes. */
+    size_t val_size; /**< Value size in bytes. */
+  } PenguEntryArray;
+
+  /**
+   * @brief Copies every occupied pair of a map into two freshly allocated,
+   *        caller-owned parallel arrays.
+   * @param map Map to export (may be NULL -> empty result).
+   * @return PenguEntryArray with deep copies of the entries. PenguString
+   *         keys/values are duplicated into own buffers, so the caller fully
+   *         owns the result and releases it with pengu_entry_array_free().
+   */
+  PenguEntryArray pengu_map_to_entries(const PenguMap *map);
+
+  /**
+   * @brief Releases a PenguEntryArray returned by pengu_map_to_entries().
+   * @param arr Entry array to free (may be NULL). Frees the key/value buffers
+   *        and any PenguString contents they own.
+   */
+  void pengu_entry_array_free(PenguEntryArray *arr);
+
+  /**
+   * @brief Returns the string's internal buffer as a non-owning slice of bytes.
+   * @param s String to view (by value; may hold NULL data -> empty slice).
+   * @return PenguSlice over the string bytes (data never NULL for empty view).
+   * @note The slice aliases the string buffer; valid while the string lives.
+   */
+  PenguSlice pengu_string_as_slice(PenguString s);
+
+  /**
+   * @brief Copies a PenguString's bytes into a freshly allocated, owned
+   *        PenguString (never aliases the input).
+   * @param s Input string (NULL data -> empty owned string).
+   * @return Owning copy of `s`.
+   */
+  PenguString pengu_string_copy(PenguString s);
+
+  /* -------------------------------------------------------------------------
+   * Typed wrappers consumed by std/ffi.pengu. PenguScript container types are
+   * nominal, so every concrete element type gets its own callable symbol; the
+   * underlying C layout is the shared PenguSlice / PenguList / PenguMap.
+   * All of them are NULL / count-safe and non-owning where noted.
+   * ------------------------------------------------------------------------- */
+
+  /** Non-owning generic slice view over `count` elements of size `elem_size` at `data` (NULL-safe). */
+  PenguSlice pengu_ffi_slice_raw(const void *data, int elem_size, int count);
+  /** Non-owning byte slice view over `count` bytes at `data` (NULL-safe). */
+  PenguSlice pengu_ffi_slice_u8(const void *data, int count);
+  /** Non-owning int32 slice view over `count` elements at `data` (NULL-safe). */
+  PenguSlice pengu_ffi_slice_i32(const void *data, int count);
+  /** Non-owning double slice view over `count` elements at `data` (NULL-safe). */
+  PenguSlice pengu_ffi_slice_f64(const void *data, int count);
+  /** Owning copy of `count` bytes at `data` into a PenguList of uint8. */
+  PenguList pengu_ffi_list_u8(const void *data, int count);
+  /** Owning copy of `count` int32 elements at `data` into a PenguList. */
+  PenguList pengu_ffi_list_i32(const void *data, int count);
+  /** Owning copy of `count` double elements at `data` into a PenguList. */
+  PenguList pengu_ffi_list_f64(const void *data, int count);
+  /** NULL-safe owning PenguString copy of a C string (see pengu_string_new). */
+  PenguString pengu_ffi_cstr_string(const char *s);
+  /** Read-only view of a PenguString's internal buffer (never NULL). */
+  const char *pengu_ffi_string_cstr(PenguString s);
+  /** Read-only byte view of a PenguString's internal buffer (never NULL). */
+  const void *pengu_ffi_string_bytes(PenguString s);
+  /** Builds a map of string->int from parallel PenguString/int32 slices
+ * (copies keys deeply; values copied by value). */
+  PenguMap pengu_ffi_map_si(PenguSlice keys, PenguSlice vals);
+
 
 #ifdef __cplusplus
 }

@@ -1,0 +1,55 @@
+# tests/std_programs/test_ffi.pengu - Exercise program for std/ffi bridges.
+# Compile+run checks the null-safe C <-> Pengu conversions end to end.
+
+import std.ffi
+import std.spark
+
+weave main into int:
+    calling spark.println with "=== Testing FFI ==="
+
+    # string <-> C string round trip (owning copy on the way back)
+    var s as string is "Hola mundo"
+    var c as ref to char is calling ffi.cstr_from_string with s
+    var back as string is calling ffi.string_from_cstr with c
+    if back == s:
+        calling spark.println with "string round trip ok"
+
+    # byte view of a string (read-only internal buffer)
+    var bv as ref to byte is calling ffi.bytes_from_string with s
+    if bv != null:
+        calling spark.println with "bytes view ok"
+
+    # non-owning slice over an int buffer
+    var arr as array of int with size 3 is [10, 20, 30]
+    var p0 as ref to void is sigil of (arr at 0)
+    var sl as slice of int is calling ffi.slice_of_int_from_ptr with p0, 3
+    if sl length == 3:
+        if (sl at 0) == 10:
+            if (sl at 2) == 30:
+                calling spark.println with "slice from ptr ok"
+
+    # list copy over the same buffer
+    var p1 as ref to void is sigil of (arr at 0)
+    var l as list of int is calling ffi.list_of_int_from_ptr with p1, 3
+    if l length == 3:
+        if (l at 0) == 10:
+            calling spark.println with "list from ptr ok"
+
+    # float list copy
+    var farray as array of float with size 2 is [1.5, 2.5]
+    var pf as ref to void is sigil of (farray at 0)
+    var fl as list of float is calling ffi.list_of_float_from_ptr with pf, 2
+    if fl length == 2:
+        calling spark.println with "float list from ptr ok"
+
+    # map of string -> int from parallel slices
+    var keys as array of string with size 2 is ["a", "b"]
+    var vals as array of int with size 2 is [1, 2]
+    var ksl as slice of string is keys at 0 to 2
+    var vsl as slice of int is vals at 0 to 2
+    var m as map of string to int is calling ffi.map_of_string_to_int_from_slices with ksl, vsl
+    if m length == 2:
+        calling spark.println with "map from slices ok"
+
+    calling spark.println with "=== FFI OK ==="
+    return 0

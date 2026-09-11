@@ -54,6 +54,7 @@ class Symbol:
     file_path: Optional[str] = None
     c_name: Optional[str] = None
     concept_bounds: List[str] = field(default_factory=list)
+    is_public: bool = False
 
     def get_c_name(self) -> str:
         """Returns effective C identifier for this symbol."""
@@ -114,7 +115,10 @@ class Scope:
         Args:
             symbol: Symbol definition to add.
         """
+        if not symbol.name.startswith("_"):
+            symbol.is_public = True
         self.symbols[symbol.name] = symbol
+
 
     def lookup_local(self, name: str) -> Optional[Symbol]:
         """Looks up symbol strictly in this local scope.
@@ -184,6 +188,7 @@ class SymbolTable:
         self.imported_modules: Set[str] = set()
         self.import_graph: Dict[str, List[str]] = {}
         self.import_order: List[str] = []
+        self.insignia: Optional[str] = None
 
         self._init_builtins()
 
@@ -395,6 +400,33 @@ class SymbolTable:
         sym = self.lookup(name)
         if sym and sym.kind in ("type", "rune", "echo", "omen", "alias", "seal", "concept"):
             return sym.type
+        # Dotted references to imported module types: `rl.Rectangle` resolves
+        # to the type registered under the import-prefixed name (`rl_Rectangle`)
+        # or through the import symbol's own module scope.
+        if "." in name:
+            parts = name.split(".")
+            joined = "_".join(parts)
+            if joined in self.monomorphized_types:
+                return self.monomorphized_types[joined]
+            if joined in self.aliases:
+                return self.aliases[joined]
+            if joined in self.seals:
+                return self.seals[joined]
+            if joined in self.concepts:
+                return self.concepts[joined]
+            if joined in self.runes:
+                return self.runes[joined]
+            if joined in self.echos:
+                return self.echos[joined]
+            if joined in self.omens:
+                return self.omens[joined]
+            if len(parts) == 2:
+                alias_sym = self.lookup(parts[0])
+                mod_scope = getattr(alias_sym, "module_scope", None) if alias_sym else None
+                if mod_scope is not None:
+                    member = mod_scope.symbols.get(parts[1])
+                    if member is not None and member.type is not None:
+                        return member.type
         if name.isupper() and self.has_includes:
             return BaseType(name=name)
         return None

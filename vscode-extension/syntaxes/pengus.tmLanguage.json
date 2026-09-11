@@ -178,7 +178,7 @@
       "patterns": [
         {
           "name": "keyword.control.pengus",
-          "match": "\\b(if|then|else|unless|while|for|from|to|step|in|with|judge|when|or\\s+else|or\\s+return|or|return|break|continue|defer|errdefer|banish|try|defined|bytes\\s+of|some|ord|chr|transmute|sigil\\s+of|essence\\s+of|size\\s+of)\\b"
+          "match": "\\b(if|then|else|unless|while|for|from|to|step|in|do|with|judge|when|or\\s+else|or\\s+return|or|and|lambda|return|break|continue|defer|errdefer|banish|try|defined|bytes\\s+of|some|ord|chr|transmute|sigil\\s+of|essence\\s+of|size\\s+of)\\b"
         }
       ]
     },
@@ -206,6 +206,10 @@
         {
           "name": "punctuation.accessor.arrow.pengus",
           "match": "->"
+        },
+        {
+          "name": "keyword.operator.assignment.pengus",
+          "match": "\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>="
         },
         {
           "name": "keyword.operator.comparison.pengus",

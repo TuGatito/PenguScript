@@ -2,6 +2,20 @@
 # High-level wrapper over the xxHash binding (std/xxhash) for fast,
 # non-cryptographic hashing: XXH32/XXH64/XXH3-64/XXH3-128 one-shots.
 #
+# Usage:
+#   import std.celeris
+#   var h32 as u32 is calling celeris.hash32 with "PenguScript", 11
+#   var h64 as u64 is calling celeris.hash64 with "PenguScript", 11
+#
+# Ownership / memory model:
+#   * `data` is a `ref to char` view that is BORROWED for the duration of the
+#     call only: the C hash reads `length` bytes synchronously and never
+#     keeps the pointer, so the buffer only has to stay valid until the call
+#     returns and must never be banished by these functions.
+#   * Results are plain scalar values (u32 / u64) or a copied XXH128_hash_t
+#     rune, so they own no external memory and may be returned, stored or
+#     banished freely.
+#
 # KNOWN LIMITATION (important - read before using):
 #   PenguScript cannot pass a runtime `string` VALUE where the C library
 #   expects a byte pointer: the code generator emits the PenguString struct
@@ -9,7 +23,7 @@
 #   (so a literal is a valid `ref to char` argument). Therefore every hash
 #   here takes the data as `ref to char` plus an explicit `length` in bytes.
 #   Example:
-#       var h as u64 is calling celeris.hash64 with "PenguScript" and 11
+#       var h as u64 is calling celeris.hash64 with "PenguScript", 11
 #   When PenguScript gains a way to expose a string's data pointer (or fixed
 #   byte buffers), these functions will accept runtime strings unchanged.
 #
@@ -23,38 +37,58 @@ import std.xxhash
 # XXH32 - 32-bit
 # ---------------------------------------------------------------------------
 
-weave hash32 with data as ref to char and length as size_t into u32:
-    return calling xxhash.XXH32 with data and length and 0
+# One-shot XXH32 digest of `length` bytes at `data` with seed 0, returned as
+# a u32 value. `length` is in bytes; the caller guarantees the buffer really
+# holds at least that many bytes for the duration of the call.
+weave hash32 with data as ref to char , length as size_t into u32:
+    return calling xxhash.XXH32 with data , length , 0
 
-weave hash32_seeded with data as ref to char and length as size_t and seed as u32 into u32:
-    return calling xxhash.XXH32 with data and length and seed
+# Seed variant of hash32: same XXH32 digest, but computed with an explicit
+# 32-bit `seed` instead of the fixed 0.
+weave hash32_seeded with data as ref to char , length as size_t , seed as u32 into u32:
+    return calling xxhash.XXH32 with data , length , seed
 
 # ---------------------------------------------------------------------------
 # XXH64 - 64-bit
 # ---------------------------------------------------------------------------
 
-weave hash64 with data as ref to char and length as size_t into u64:
-    return calling xxhash.XXH64 with data and length and 0
+# One-shot XXH64 digest of `length` bytes at `data` with seed 0, returned as
+# a u64 value. Same borrowing contract and byte `length` convention as
+# hash32; XXH64 is the classic 64-bit xxHash.
+weave hash64 with data as ref to char , length as size_t into u64:
+    return calling xxhash.XXH64 with data , length , 0
 
-weave hash64_seeded with data as ref to char and length as size_t and seed as u64 into u64:
-    return calling xxhash.XXH64 with data and length and seed
+# Seed variant of hash64: same XXH64 digest, but computed with an explicit
+# 64-bit `seed` instead of the fixed 0.
+weave hash64_seeded with data as ref to char , length as size_t , seed as u64 into u64:
+    return calling xxhash.XXH64 with data , length , seed
 
 # ---------------------------------------------------------------------------
 # XXH3 - 64-bit (fastest on modern CPUs)
 # ---------------------------------------------------------------------------
 
-weave hash3_64 with data as ref to char and length as size_t into u64:
-    return calling xxhash.XXH3_64bits with data and length
+# One-shot XXH3-64 digest of `length` bytes at `data` (seed 0), returned as
+# a u64 value. XXH3 is the fastest family on modern CPUs; borrows `data`
+# only for the call, exactly like hash64.
+weave hash3_64 with data as ref to char , length as size_t into u64:
+    return calling xxhash.XXH3_64bits with data , length
 
-weave hash3_64_seeded with data as ref to char and length as size_t and seed as u64 into u64:
-    return calling xxhash.XXH3_64bits_withSeed with data and length and seed
+# Seed variant of hash3_64: same XXH3-64 digest, but computed with an
+# explicit 64-bit `seed` instead of the fixed 0.
+weave hash3_64_seeded with data as ref to char , length as size_t , seed as u64 into u64:
+    return calling xxhash.XXH3_64bits_withSeed with data , length , seed
 
 # ---------------------------------------------------------------------------
 # XXH3 - 128-bit (result: XXH128_hash_t with low64/high64 fields)
 # ---------------------------------------------------------------------------
 
-weave hash3_128 with data as ref to char and length as size_t into XXH128_hash_t:
-    return calling xxhash.XXH3_128bits with data and length
+# One-shot XXH3-128 digest of `length` bytes at `data` (seed 0). Returns an
+# XXH128_hash_t rune value whose `low64` and `high64` fields hold the two
+# 64-bit halves of the 128-bit digest.
+weave hash3_128 with data as ref to char , length as size_t into XXH128_hash_t:
+    return calling xxhash.XXH3_128bits with data , length
 
-weave hash3_128_seeded with data as ref to char and length as size_t and seed as u64 into XXH128_hash_t:
-    return calling xxhash.XXH3_128bits_withSeed with data and length and seed
+# Seed variant of hash3_128: same XXH3-128 digest, but computed with an
+# explicit 64-bit `seed` instead of the fixed 0.
+weave hash3_128_seeded with data as ref to char , length as size_t , seed as u64 into XXH128_hash_t:
+    return calling xxhash.XXH3_128bits_withSeed with data , length , seed

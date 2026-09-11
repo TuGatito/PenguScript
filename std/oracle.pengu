@@ -1,127 +1,200 @@
 # std/oracle.pengu - The Oracle (Maybe & Result)
-# Provides optional and result types with comprehensive methods.
+# Optional (Maybe*) and fallible (Result*) value wrappers: constructors to
+# build them plus enchanting methods to inspect, unwrap and fall back.
+#
+# Semantics:
+#   * A Maybe* wrapper is present (is_present true, `value` meaningful) or
+#     none (is_present false, `value` zeroed). It never carries an error text.
+#   * A Result* wrapper is ok (is_ok true, `value` meaningful) or err
+#     (is_ok false, `error_msg` set). It never carries both.
+#   * unwrap panics on the absent / error case; unwrap_or returns a caller
+#     supplied default instead of panicking.
+#
+# Ownership model: these are plain runes holding scalar fields or ordinary
+# owned strings. String payloads follow normal string ownership (banish them
+# when done) and the rune values keep no native handles open.
 
 import std.spark
 
+# ----------------------------------------------------------------------------
+# Type Definitions
+# ----------------------------------------------------------------------------
+
+# Optional int: `is_present` is true when a value is stored, `value` holds it
+# (0 when none).
 rune MaybeInt:
     is_present as bool
     value as int
 
+# Optional float: `is_present` is true when a value is stored, `value` holds
+# it (0.0 when none).
 rune MaybeFloat:
     is_present as bool
     value as float
 
+# Optional string: `is_present` is true when a value is stored, `value` holds
+# it ("" when none). The payload string is owned by the wrapper.
 rune MaybeString:
     is_present as bool
     value as string
 
+# Fallible int: `is_ok` is true when `value` is meaningful; false means the
+# operation failed and `error_msg` describes why.
 rune ResultInt:
     is_ok as bool
     value as int
     error_msg as string
 
+# Fallible string: `is_ok` is true when `value` is meaningful; false means the
+# operation failed and `error_msg` describes why. The payload string is owned
+# by the wrapper.
 rune ResultString:
     is_ok as bool
     value as string
     error_msg as string
 
+# ----------------------------------------------------------------------------
+# Functional API (constructors)
+# ----------------------------------------------------------------------------
+
+# Wraps `val` in a present MaybeInt (is_present true, value `val`).
 weave maybe_some_int with val as int into MaybeInt:
-    return with is_present is true and value is val
+    return with is_present is true , value is val
 
+# Returns an empty MaybeInt (is_present false, value 0).
 weave maybe_none_int into MaybeInt:
-    return with is_present is false and value is 0
+    return with is_present is false , value is 0
 
+# Wraps `val` in a present MaybeString (is_present true, value `val`). The
+# payload string is owned by the wrapper.
 weave maybe_some_string with val as string into MaybeString:
-    return with is_present is true and value is val
+    return with is_present is true , value is val
 
+# Returns an empty MaybeString (is_present false, value "").
 weave maybe_none_string into MaybeString:
-    return with is_present is false and value is ""
+    return with is_present is false , value is ""
 
+# Builds an ok ResultInt holding `val` (is_ok true, error_msg "").
 weave result_ok_int with val as int into ResultInt:
-    return with is_ok is true and value is val and error_msg is ""
+    return with is_ok is true , value is val , error_msg is ""
 
+# Builds an err ResultInt carrying `msg` (is_ok false, value 0).
 weave result_err_int with msg as string into ResultInt:
-    return with is_ok is false and value is 0 and error_msg is msg
+    return with is_ok is false , value is 0 , error_msg is msg
 
+# Builds an ok ResultString holding `val` (is_ok true, error_msg ""). The
+# payload string is owned by the wrapper.
 weave result_ok_string with val as string into ResultString:
-    return with is_ok is true and value is val and error_msg is ""
+    return with is_ok is true , value is val , error_msg is ""
 
+# Builds an err ResultString carrying `msg` (is_ok false, value ""). The error
+# message string is owned by the wrapper.
 weave result_err_string with msg as string into ResultString:
-    return with is_ok is false and value is "" and error_msg is msg
+    return with is_ok is false , value is "" , error_msg is msg
 
+# ----------------------------------------------------------------------------
+# Object Methods (enchanting)
+# ----------------------------------------------------------------------------
+
+# Methods on MaybeInt values, invoked as `calling m.is_present` / `m.unwrap`.
 enchanting MaybeInt:
+    # True when the wrapper holds a value (mirrors the is_present field).
     weave is_present into bool:
         return self->is_present
 
+    # True when the wrapper is empty (no value stored).
     weave is_none into bool:
         return (self->is_present) == false
 
+    # Returns the stored value, or panics with "Unwrapped none MaybeInt" when
+    # the wrapper is empty.
     weave unwrap into int:
         if self->is_present:
             return self->value
         calling spark.panic with "Unwrapped none MaybeInt"
         return 0
 
+    # Returns the stored value when present, otherwise `default_val`.
     weave unwrap_or with default_val as int into int:
         if self->is_present:
             return self->value
         return default_val
 
+# Methods on MaybeString values, invoked as `calling m.is_present` / `m.unwrap`.
 enchanting MaybeString:
+    # True when the wrapper holds a value (mirrors the is_present field).
     weave is_present into bool:
         return self->is_present
 
+    # True when the wrapper is empty (no value stored).
     weave is_none into bool:
         return (self->is_present) == false
 
+    # Returns the stored value, or panics with "Unwrapped none MaybeString"
+    # when the wrapper is empty.
     weave unwrap into string:
         if self->is_present:
             return self->value
         calling spark.panic with "Unwrapped none MaybeString"
         return ""
 
+    # Returns the stored value when present, otherwise `default_val`.
     weave unwrap_or with default_val as string into string:
         if self->is_present:
             return self->value
         return default_val
 
+# Methods on ResultInt values, invoked as `calling r.is_ok` / `r.unwrap`.
 enchanting ResultInt:
+    # True when the result holds a value (mirrors the is_ok field).
     weave is_ok into bool:
         return self->is_ok
 
+    # True when the result carries an error (no value stored).
     weave is_err into bool:
         return (self->is_ok) == false
 
+    # Returns the ok value, or panics with the stored error message when the
+    # result is err.
     weave unwrap into int:
         if self->is_ok:
             return self->value
         calling spark.panic with self->error_msg
         return 0
 
+    # Returns the error message ("" when the result is ok).
     weave unwrap_err into string:
         return self->error_msg
 
+    # Returns the ok value when present, otherwise `default_val`.
     weave unwrap_or with default_val as int into int:
         if self->is_ok:
             return self->value
         return default_val
 
+# Methods on ResultString values, invoked as `calling r.is_ok` / `r.unwrap`.
 enchanting ResultString:
+    # True when the result holds a value (mirrors the is_ok field).
     weave is_ok into bool:
         return self->is_ok
 
+    # True when the result carries an error (no value stored).
     weave is_err into bool:
         return (self->is_ok) == false
 
+    # Returns the ok value, or panics with the stored error message when the
+    # result is err.
     weave unwrap into string:
         if self->is_ok:
             return self->value
         calling spark.panic with self->error_msg
         return ""
 
+    # Returns the error message ("" when the result is ok).
     weave unwrap_err into string:
         return self->error_msg
 
+    # Returns the ok value when present, otherwise `default_val`.
     weave unwrap_or with default_val as string into string:
         if self->is_ok:
             return self->value

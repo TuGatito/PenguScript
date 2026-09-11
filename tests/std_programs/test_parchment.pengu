@@ -13,15 +13,15 @@ weave main into void:
         var root_node as Node is doc.root
         calling spark.println with "root tag: " + root_node.tag
 
-        var to_str as maybe string is calling parchment.to_string with sigil of root_node and false
+        var to_str as maybe string is calling parchment.to_string with sigil of root_node, false
         if to_str.is_present:
             calling spark.println with "to_string: ok"
 
-        var found as maybe Node is calling parchment.find with sigil of root_node and "item"
+        var found as maybe Node is calling parchment.find with sigil of root_node, "item"
         if found.is_present:
             calling spark.println with "find: ok"
 
-        var all_nodes as list of Node is calling parchment.find_all with sigil of root_node and "item"
+        var all_nodes as list of Node is calling parchment.find_all with sigil of root_node, "item"
         if all_nodes.len > 0:
             calling spark.println with "find_all: ok"
 
@@ -31,7 +31,7 @@ weave main into void:
     var txt_node as ref to Node is calling parchment.create_text with "some text"
     calling spark.println with "create_text: " + txt_node->tag
 
-    calling parchment.append_child with elem and txt_node
+    calling parchment.append_child with elem, txt_node
     calling spark.println with "append_child: ok"
 
     var is_xml as bool is calling parchment.is_valid_xml with "<valid>xml</valid>"

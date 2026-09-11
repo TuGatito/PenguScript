@@ -2,7 +2,7 @@
 
 import os
 import re
-from typing import Optional, Dict
+from typing import List, Optional, Dict
 from lsprotocol.types import (
     Hover,
     MarkupContent,
@@ -122,13 +122,22 @@ def get_word_at_position(text: str, position: Position) -> Optional[str]:
     return word if word else None
 
 
-def format_symbol_hover(sym: Symbol, custom_types: Optional[Dict[str, Type]] = None) -> str:
+def format_symbol_hover(
+    sym: Symbol,
+    custom_types: Optional[Dict[str, Type]] = None,
+    method_names: Optional[list] = None,
+) -> str:
     """Formats rich markdown hover information for a Symbol.
 
-    Includes type signature, memory size in bytes, C extern annotations, and docstrings.
+    Includes type signature, memory size in bytes, C extern annotations,
+    attached method names (``method_names``), generic specialization details
+    and docstrings.
     """
     kind = sym.kind or "var"
     doc_lines = []
+    method_lines: List[str] = []
+    if method_names:
+        method_lines.append("**Methods**: " + ", ".join(f"`{m}`" for m in sorted(method_names)))
 
     # 1. Functions and Weaves
     if kind in ("weave", "function", "declare") or isinstance(sym.type, FnType):
@@ -172,6 +181,11 @@ def format_symbol_hover(sym: Symbol, custom_types: Optional[Dict[str, Type]] = N
         doc_lines.append(f"rune {sym.name} ({total_sz * 8} bits / {total_sz} bytes):\n{fields_str}")
         doc_lines.append("```")
         doc_lines.append(f"**Composite Struct Type** (Total size: {total_sz * 8} bits / {total_sz} bytes)")
+        if r_type is not None and (getattr(r_type, "type_params", None) or getattr(r_type, "type_args", None)):
+            if getattr(r_type, "type_args", None):
+                doc_lines.append("**Type arguments**: " + ", ".join(f"`{a}`" for a in r_type.type_args))
+            if getattr(r_type, "type_params", None):
+                doc_lines.append("**Type parameters**: " + ", ".join(f"`{p}`" for p in r_type.type_params))
 
     # 3. Echos (Tagged Unions)
     elif kind == "echo" or isinstance(sym.type, EchoType):
@@ -236,6 +250,9 @@ def format_symbol_hover(sym: Symbol, custom_types: Optional[Dict[str, Type]] = N
         if sym.is_stack_alloc:
             doc_lines.append("*(stack allocated)*")
 
+    if method_lines:
+        doc_lines.append("\n".join(method_lines))
+
     # Append custom documentation if available
     if sym.doc:
         doc_lines.append("---")
@@ -291,6 +308,27 @@ def get_hover(
                     pass
         return s
 
+    def _method_names_for(s: Optional[Symbol]) -> List[str]:
+        """Returns the enchanting methods attached to a symbol's type."""
+        names: set = set()
+        if s is None or s.type is None:
+            return []
+        if isinstance(s.type, RuneType) and getattr(s.type, "methods", None):
+            names.update(getattr(s.type, "methods", {}).keys())
+        type_name = getattr(s.type, "name", None)
+        if type_name:
+            try:
+                methods = getattr(symbols, "methods", {})
+            except Exception:
+                methods = {}
+            for t_name, m_name in methods:
+                if t_name == type_name or t_name.split("_")[0] == type_name:
+                    names.add(m_name)
+        return sorted(names)
+
+    def _fmt(s: Optional[Symbol]) -> str:
+        return format_symbol_hover(s, custom_types, _method_names_for(s))
+
     # 1. Check if word is part of a module access (e.g. spark.println)
     lines = text.splitlines() if text else []
     if 0 <= position.line < len(lines):
@@ -306,7 +344,7 @@ def get_hover(
                 return Hover(
                     contents=MarkupContent(
                         kind=MarkupKind.Markdown,
-                        value=format_symbol_hover(target_sym, custom_types)
+                        value=_fmt(target_sym)
                     )
                 )
 
@@ -320,7 +358,7 @@ def get_hover(
             return Hover(
                 contents=MarkupContent(
                     kind=MarkupKind.Markdown,
-                    value=format_symbol_hover(target_sym, custom_types)
+                    value=_fmt(target_sym)
                 )
             )
 
@@ -332,7 +370,7 @@ def get_hover(
         return Hover(
             contents=MarkupContent(
                 kind=MarkupKind.Markdown,
-                value=format_symbol_hover(sym, custom_types)
+                value=_fmt(sym)
             )
         )
 
@@ -343,7 +381,7 @@ def get_hover(
         return Hover(
             contents=MarkupContent(
                 kind=MarkupKind.Markdown,
-                value=format_symbol_hover(dummy_sym, custom_types)
+                value=_fmt(dummy_sym)
             )
         )
 
@@ -353,7 +391,7 @@ def get_hover(
         return Hover(
             contents=MarkupContent(
                 kind=MarkupKind.Markdown,
-                value=format_symbol_hover(dummy_sym, custom_types)
+                value=_fmt(dummy_sym)
             )
         )
 
@@ -363,7 +401,7 @@ def get_hover(
         return Hover(
             contents=MarkupContent(
                 kind=MarkupKind.Markdown,
-                value=format_symbol_hover(dummy_sym, custom_types)
+                value=_fmt(dummy_sym)
             )
         )
 

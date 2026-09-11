@@ -1,0 +1,105 @@
+# std/ffi.pengu - The Foreign Function Interface Bridge
+# Provides null-safe conversions between plain C buffers / C strings and
+# PenguScript containers (string, slice, list, map).
+#
+# Ownership model:
+#   * Views (*_from_ptr, cstr_from_string, bytes_from_string) do NOT copy and
+#     must not be banished: they alias memory owned by the caller or by the
+#     PenguScript value they were built from.
+#   * Copies (list_of_*_from_ptr, string_from_cstr, map_of_string_to_int_*)
+#     deep-copy their input, so the returned value can be banished normally.
+
+# ----------------------------------------------------------------------------
+# External C Declarations (runtime bridges, null-safe at the C layer)
+# ----------------------------------------------------------------------------
+
+# NULL-safe owning copy of a C string (NULL -> empty string).
+declare pengu_ffi_cstr_string with cstr as ref to char into string
+# Read-only view of the string's internal buffer (never NULL, aliases `s`).
+declare pengu_ffi_string_cstr with s as string into ref to char
+# Read-only byte view of the string's internal buffer (never NULL).
+declare pengu_ffi_string_bytes with s as string into ref to byte
+
+# Non-owning generic slice view over `count` elements of size `elem_size` at `data` (NULL-safe).
+declare pengu_ffi_slice_raw with data as ref to void, elem_size as int, count as int into slice of void
+
+# Non-owning byte slice view over `count` bytes at `data` (NULL-safe).
+declare pengu_ffi_slice_u8 with data as ref to void , count as int into slice of byte
+# Non-owning int32 slice view over `count` elements at `data` (NULL-safe).
+declare pengu_ffi_slice_i32 with data as ref to void , count as int into slice of int
+# Non-owning double slice view over `count` elements at `data` (NULL-safe).
+declare pengu_ffi_slice_f64 with data as ref to void , count as int into slice of float
+
+# Owning copy of `count` bytes at `data` into a new list of byte.
+declare pengu_ffi_list_u8 with data as ref to void , count as int into list of byte
+# Owning copy of `count` int32 elements at `data` into a new list of int.
+declare pengu_ffi_list_i32 with data as ref to void , count as int into list of int
+# Owning copy of `count` double elements at `data` into a new list of float.
+declare pengu_ffi_list_f64 with data as ref to void , count as int into list of float
+
+# Deep-copies parallel string/int slices into a new map of string to int.
+declare pengu_ffi_map_si with keys as slice of string , vals as slice of int into map of string to int
+
+# ----------------------------------------------------------------------------
+# String <-> C string (char*) bridges
+# ----------------------------------------------------------------------------
+
+# Copies a null-terminated C string into an owned PenguScript string. A NULL
+# C pointer is converted to an empty string (never crashes).
+weave string_from_cstr with cstr as ref to char into string:
+    return calling pengu_ffi_cstr_string with cstr
+
+# Returns a read-only pointer to the string's internal buffer (never NULL for
+# empty strings). The pointer stays valid only while the string lives; do not
+# banish or modify it.
+weave cstr_from_string with s as string into ref to char:
+    return calling pengu_ffi_string_cstr with s
+
+# Returns a read-only byte view of the string's internal buffer (never NULL).
+weave bytes_from_string with s as string into ref to byte:
+    return calling pengu_ffi_string_bytes with s
+
+# ----------------------------------------------------------------------------
+# Slice views (non-owning) from a raw C buffer pointer
+# ----------------------------------------------------------------------------
+
+# Non-owning slice of `count` T elements starting at `data`.
+weave slice_from_ptr shard T with data as ref to void, count as int into slice of T:
+    return calling pengu_ffi_slice_raw with data, (size of T), count
+
+# Non-owning byte slice over `count` bytes starting at `data`.
+weave slice_of_bytes_from_ptr with data as ref to void , count as int into slice of byte:
+    return calling pengu_ffi_slice_u8 with data , count
+
+# Non-owning int slice over `count` int32 elements starting at `data`.
+weave slice_of_int_from_ptr with data as ref to void , count as int into slice of int:
+    return calling pengu_ffi_slice_i32 with data , count
+
+# Non-owning float slice over `count` float (double) elements starting at `data`.
+weave slice_of_float_from_ptr with data as ref to void , count as int into slice of float:
+    return calling pengu_ffi_slice_f64 with data , count
+
+# ----------------------------------------------------------------------------
+# List copies from a raw C buffer pointer
+# ----------------------------------------------------------------------------
+
+# Copies `count` bytes starting at `data` into a new list of byte.
+weave list_of_bytes_from_ptr with data as ref to void , count as int into list of byte:
+    return calling pengu_ffi_list_u8 with data , count
+
+# Copies `count` int32 elements starting at `data` into a new list of int.
+weave list_of_int_from_ptr with data as ref to void , count as int into list of int:
+    return calling pengu_ffi_list_i32 with data , count
+
+# Copies `count` double elements starting at `data` into a new list of float.
+weave list_of_float_from_ptr with data as ref to void , count as int into list of float:
+    return calling pengu_ffi_list_f64 with data , count
+
+# ----------------------------------------------------------------------------
+# Map bridge (string keys -> int values)
+# ----------------------------------------------------------------------------
+
+# Builds a map of string to int from two parallel slices. Keys are deeply
+# copied; the returned map owns its entries.
+weave map_of_string_to_int_from_slices with keys as slice of string , vals as slice of int into map of string to int:
+    return calling pengu_ffi_map_si with keys , vals

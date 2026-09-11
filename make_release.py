@@ -16,6 +16,7 @@ Usage:
 """
 
 import os
+import re
 import sys
 import shutil
 import subprocess
@@ -296,6 +297,23 @@ weave main into void:
     print("  [SUCCESS] All smoke tests passed!")
 
 
+def sync_extension_version() -> None:
+    """Writes the VERSION value into the VS Code extension manifest.
+
+    The extension's ``package.json`` carries its own ``version`` field, which
+    used to drift from ``VERSION``; the packaged ``.vsix`` name already comes from
+    ``VERSION``, so both are kept in sync here before bundling.
+    """
+    manifest = ROOT_DIR / "vscode-extension" / "package.json"
+    if not manifest.exists():
+        return
+    text = manifest.read_text(encoding="utf-8")
+    updated = re.sub(r'("version"\s*:\s*")[^"]*(")', rf"\g<1>{get_version()}\g<2>", text, count=1)
+    if updated != text:
+        manifest.write_text(updated, encoding="utf-8")
+        print(f"  [VSCODE] Synced extension version -> {get_version()}")
+
+
 def build_vscode_extension(dist_dir: Path):
     """Builds and packages the VS Code extension into a .vsix artifact."""
     ext_dir = ROOT_DIR / "vscode-extension"
@@ -304,6 +322,7 @@ def build_vscode_extension(dist_dir: Path):
         return
 
     print("  [VSCODE] Packaging VS Code extension...")
+    sync_extension_version()
     npm_cmd = "npm.cmd" if IS_WINDOWS else "npm"
     npx_cmd = "npx.cmd" if IS_WINDOWS else "npx"
 

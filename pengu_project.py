@@ -42,6 +42,31 @@ from pengu_parser.pengu_symbols import resolve_imports
 from pengu_parser.pengu_errors import ErrorReporter, PenguError
 from pengu_parser.pengu_codegen import PenguCodegen
 from pengu_parser.pengu_comptime import main_flag_requested, parse_cli_defines
+from pengu_version import __version__ as PENGU_VERSION
+
+
+def file_content_digest(path: str) -> str:
+    """Returns a short content digest of a file, or ``""`` when unreadable.
+
+    Used by the incremental build cache: the cache key must depend on the
+    *content* of the sources, not on their mtimes, because `build/` is shared by
+    every program built in the same directory.
+
+    Args:
+        path: File to digest.
+
+    Returns:
+        Hex digest of the file bytes (empty string when the file cannot be read).
+    """
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(65536), b""):
+                digest.update(chunk)
+    except OSError:
+        return ""
+    return digest.hexdigest()
+
 
 
 class OutputType(Enum):
@@ -429,8 +454,46 @@ class PenguBuilder:
             "output": str(self.config.output),
             "test_mode": bool(getattr(self, "is_test_mode", False)),
             "entry_main": bool(getattr(self, "entry_as_main", False)),
+            "cc": str(getattr(self.config, "cc", "") or ""),
         }, sort_keys=True)
         return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+    def compute_sources_fingerprint(self, module_order: List[str]) -> str:
+        """Computes a content fingerprint of the entry, its modules and the C glue.
+
+        The build cache must key on content, not on mtimes: `build/bundle.c` and
+        `build/app.exe` are shared by every program built in the same directory,
+        and comparing mtimes against `bundle.c` let a *different* program's older
+        bundle look "up to date" (the stale-binary bug).
+
+        Args:
+            module_order: Entry + imported modules in topological order.
+
+        Returns:
+            Hex digest covering the resolved entry path, every module's relative
+            path and content, the project C sources and the compile options.
+        """
+        digest = hashlib.sha256()
+        digest.update(self.compute_config_hash().encode("utf-8"))
+        try:
+            entry_abs = os.path.normcase(os.path.abspath(self.config.resolve_entry()))
+        except Exception:  # noqa: BLE001 - unresolved entry: fingerprint what we can
+            entry_abs = ""
+        digest.update(b"\0entry\0" + entry_abs.encode("utf-8"))
+
+        for mod in module_order:
+            try:
+                rel = os.path.relpath(os.path.abspath(mod), self.config.base_dir)
+            except ValueError:
+                rel = os.path.abspath(mod)
+            digest.update(b"\0module\0" + rel.replace("\\", "/").encode("utf-8") + b"\0")
+            digest.update(file_content_digest(mod).encode("ascii"))
+
+        for c_file in sorted(self.collect_c_sources()):
+            digest.update(b"\0csrc\0" + os.path.normcase(os.path.abspath(c_file)).encode("utf-8") + b"\0")
+            digest.update(file_content_digest(c_file).encode("ascii"))
+
+        return digest.hexdigest()
 
     def get_output_artifact_name(self) -> str:
         """Determines target output filename according to platform and OutputType.
@@ -714,18 +777,26 @@ class PenguBuilder:
             return False
         try:
             with open(hash_file, "r", encoding="utf-8") as f:
-                saved_hash = f.read().strip()
-            if saved_hash != self.compute_config_hash():
-                return False
+                saved = f.read().strip()
         except Exception:
             return False
 
-        bundle_mtime = os.path.getmtime(bundle_path)
+        # The cache key is "<config hash> <sources fingerprint>". A single-token
+        # file is the old format (config hash only), which cannot prove that this
+        # bundle belongs to this program: treat it as stale.
+        parts = saved.split()
+        if len(parts) != 2:
+            return False
+        saved_config, saved_fingerprint = parts
+        if saved_config != self.compute_config_hash():
+            return False
+        if saved_fingerprint != self.compute_sources_fingerprint(module_order):
+            return False
 
-        for mod_path in module_order:
-            if os.path.isfile(mod_path):
-                if os.path.getmtime(mod_path) > bundle_mtime:
-                    return False
+        # Headers (include dirs), C glue and the runtime header are still tracked
+        # by mtime: content-hashing every header of every include directory would
+        # cost more than the rebuild it avoids.
+        bundle_mtime = os.path.getmtime(bundle_path)
 
         c_files = self.collect_c_sources()
         for cf in c_files:
@@ -846,11 +917,11 @@ class PenguBuilder:
             self._vlog(f"[pengu] codegen finished in {time.time() - t_codegen:.3f}s")
             self._vlog(f"[pengu] bundle written: {bundle_path}")
 
-        # 6. Save compilation configuration hash
+        # 6. Save the compilation cache key: config hash + content fingerprint
         hash_file = os.path.join(os.path.dirname(bundle_path), ".bundle_hash")
         try:
             with open(hash_file, "w", encoding="utf-8") as f:
-                f.write(self.compute_config_hash())
+                f.write(f"{self.compute_config_hash()} {self.compute_sources_fingerprint(module_order)}")
         except Exception:
             pass
 
@@ -868,7 +939,15 @@ class PenguBuilder:
         """
         entry_abs = self.config.resolve_entry()
         if os.path.isfile(entry_abs):
-            module_order = resolve_imports(self.config.base_dir, entry_abs, self.parser)
+            try:
+                module_order = resolve_imports(self.config.base_dir, entry_abs, self.parser)
+            except Exception as e:  # noqa: BLE001 - parse/import failure in the entry graph
+                err_line = getattr(e, "line", None) or 0
+                err_col = getattr(e, "column", None) or getattr(e, "col", None) or 0
+                err_code = getattr(e, "code", None) or ""
+                err_msg = getattr(e, "message", None) or str(e)
+                code_str = f"[{err_code}] " if err_code else ""
+                return False, [f"{entry_abs}:{err_line}:{err_col} {code_str}{err_msg}"]
         else:
             module_order = [entry_abs]
 
@@ -1101,7 +1180,11 @@ class PenguBuilder:
         out_path = os.path.join(build_dir, out_name)
 
         if is_cached and os.path.isfile(out_path):
-            return out_path, True
+            # The bundle being up to date is not enough: the artifact must have
+            # been produced *from* it. A regenerated bundle is newer than the
+            # previous binary, so rebuild instead of shipping a stale executable.
+            if os.path.getmtime(out_path) >= os.path.getmtime(bundle_path):
+                return out_path, True
 
         commands = self.build_compile_commands(bundle_path, out_path)
 
@@ -1721,7 +1804,7 @@ weave add with a as int, b as int into int:
 
     readme_content = f"""# {name}
 
-A PenguScript v0.6 project targeting `{out_t.value}` output.
+A PenguScript v{PENGU_VERSION} project targeting `{out_t.value}` output.
 
 ## Project Structure
 
@@ -1914,7 +1997,7 @@ def create_cli_parser() -> argparse.ArgumentParser:
     """Constructs the Cargo-style CLI argument parser."""
     parser = argparse.ArgumentParser(
         prog="pengu",
-        description="PenguScript v0.6 Package & Build Manager",
+        description=f"PenguScript v{PENGU_VERSION} Package & Build Manager",
         epilog="""Examples:
   pengu init my_game --type exe
   pengu add https://github.com/webui-dev/webui
@@ -1930,6 +2013,12 @@ def create_cli_parser() -> argparse.ArgumentParser:
   pengu bind webui.h --prefix webui_ --links webui-2-static ole32 stdc++ uuid
   pengu clean
 """
+    )
+    parser.add_argument(
+        "-V", "--version",
+        action="version",
+        version=f"pengu {PENGU_VERSION}",
+        help="Print the PenguScript toolchain version and exit",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
 
@@ -2008,8 +2097,22 @@ def create_cli_parser() -> argparse.ArgumentParser:
     bind_p.add_argument("--no-comments", action="store_true", help="Do not emit documentation comments")
     bind_p.add_argument("--ignore", nargs="*", default=[], help="Symbol names / regexes to skip")
     bind_p.add_argument("--include-paths", nargs="*", default=[], help="Extra include directories for the preprocessor")
+    bind_p.add_argument("--define", "-D", dest="defines", action="append", default=[],
+                        help="Define a preprocessor macro (e.g. -D Z_SOLO or --define NAME=val)")
+    bind_p.add_argument("--cpp-flags", default=None,
+                        help="Raw flags passed directly to the preprocessor (e.g. \"-DZ_SOLO -DXXH_INLINE_ALL=0\")")
+    bind_p.add_argument("--system-includes", action="store_true", default=False,
+                        help="Use compiler system headers instead of minimal stubs (keeps _WIN32/_MSC_VER and omits -nostdinc)")
+    bind_p.add_argument("--preprocessed", default=None, metavar="FILE.i",
+                        help="Parse an already preprocessed .i file directly without running gcc")
+    bind_p.add_argument("--no-blank-extensions", dest="blank_extensions", action="store_false", default=True,
+                        help="Do not blank GNU compiler extensions (__attribute__, __asm__, etc.)")
     bind_p.add_argument("--no-cpp", dest="use_cpp", action="store_false", default=True,
                         help="Do not run the C preprocessor (simple headers only)")
+    bind_p.add_argument("--auto-import", dest="auto_import", default=None, metavar="DIR",
+                        help="Directory with sibling .d.pengu bindings; emit 'import' lines for "
+                             "the headers this header includes (default: the output directory, "
+                             "pass an empty value to disable)")
 
     # fmt
     fmt_p = subparsers.add_parser("fmt", help="Format .pengu files or directories (standard style)")
@@ -2149,6 +2252,12 @@ def main():
                 include_paths=args.include_paths,
                 use_cpp=args.use_cpp,
                 no_comments=args.no_comments,
+                auto_import=args.auto_import,
+                defines=args.defines,
+                cpp_flags=args.cpp_flags,
+                system_includes=args.system_includes,
+                preprocessed=args.preprocessed,
+                blank_extensions=args.blank_extensions,
             )
             print(f"\033[1;32m     Bound\033[0m {args.header} -> {out}")
         except (HeaderParseError, FileNotFoundError, ValueError) as e:

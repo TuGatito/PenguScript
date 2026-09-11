@@ -116,6 +116,11 @@ EXPECTED_MARKERS = {
         "[PASS] string concat", "[PASS] manual boolean check", "trial summary ok",
         "=== Trial OK ===",
     ],
+    "test_ffi.pengu": [
+        "=== Testing FFI ===", "string round trip ok", "bytes view ok",
+        "slice from ptr ok", "list from ptr ok", "float list from ptr ok",
+        "map from slices ok", "=== FFI OK ===",
+    ],
 }
 
 

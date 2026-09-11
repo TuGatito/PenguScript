@@ -102,6 +102,31 @@ class SemanticError(PenguError):
         self.column = resolved_col or 1
 
 
+class ParseError(SemanticError):
+    """E0000: the source text could not be parsed (syntax error).
+
+    Raised by ``PenguParser.parse`` instead of leaking a raw Lark exception, so
+    the CLI/LSP can report syntax problems with the usual
+    ``[Ecode] message`` + ``help:`` / ``note:`` shape. Kept on the generic E0000
+    code: syntax problems share the "not valid source" bucket with the other
+    infrastructure errors instead of consuming a new semantic code.
+    """
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None,
+                 column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0000")
+        kwargs.setdefault(
+            "help",
+            "Check the syntax around this position (see LANGUAGE.md / CHEATSHEET.md).",
+        )
+        kwargs.setdefault(
+            "note",
+            "PenguScript parses indentation-sensitive blocks: statements in a block "
+            "must be indented consistently, and argument/parameter/field lists are "
+            "separated with ','.",
+        )
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
 class ConstInsideWeaveError(SemanticError):
     """E0001: const declared inside weave / function body."""
     def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
@@ -115,7 +140,7 @@ class VarLetTopLevelError(SemanticError):
     """E0002: var/let declared at top-level."""
     def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
         kwargs.setdefault("code", "E0002")
-        kwargs.setdefault("help", "Use 'const' for top-level definitions, or move 'var' / 'let' inside a function.")
+        kwargs.setdefault("help", "Use 'const' for top-level definitions, or move inside a function. For stateful modules, use accessor weaves with 'static var' or an explicit context struct.")
         kwargs.setdefault("note", "Global mutable state is forbidden in PenguScript to guarantee safety.")
         super().__init__(message, line=line, col=col, column=column, **kwargs)
 
@@ -300,13 +325,52 @@ class InvalidRitualCallError(SemanticError):
         super().__init__(message, line=line, col=col, column=column, **kwargs)
 
 
-class SealTypeMismatchError(SemanticError):
-    """E0035: Incompatible assignment or operation involving distinct 'seal' type."""
+
+class ArraySizeMismatchError(SemanticError):
+    """E0041: Array literal dimensions or row length do not match declared size."""
     def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
-        kwargs.setdefault("code", "E0035")
-        kwargs.setdefault("help", "Use explicit cast 'to' when converting between a sealed type and its underlying type.")
-        kwargs.setdefault("note", "Sealed types ('seal') are strictly distinct nominal types.")
+        kwargs.setdefault("code", "E0041")
+        kwargs.setdefault("help", "Ensure each row and the total number of rows match the declared array size.")
+        kwargs.setdefault("note", "Fixed-size arrays require exact dimension matching at compile time.")
         super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+class UnknownArrayDimensionError(SemanticError):
+    """E0015: Array dimension size is unknown and cannot be inferred."""
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0015")
+        kwargs.setdefault("help", "Specify all dimensions (e.g. 'array of array of T with size M with size N') or initialize with full literal rows.")
+        kwargs.setdefault("note", "C requires fixed array sizes for all dimensions.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+
+class InvalidRangeError(SemanticError):
+    """E0042: Invalid range expression bounds."""
+    def __init__(self, message: str = "Invalid range: 'start' must be less than or equal to 'end' when both bounds are known at compile time", line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0042")
+        kwargs.setdefault("help", "Ensure the range start is less than or equal to end.")
+        kwargs.setdefault("note", "Ranges must have valid ascending bounds when known at compile time.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+class PrivateSymbolAccessError(SemanticError):
+    """E0043: Attempted access to private symbol from another module."""
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0043")
+        kwargs.setdefault("help", "Symbols starting with '_' are private. Use a name without a leading underscore to make it public, or use 'insignia' for C binding prefixes.")
+        kwargs.setdefault("note", "Symbols with a leading underscore are private to their defining module/rune.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+class NonExhaustiveJudgeError(SemanticError):
+    """E0044: Non-exhaustive judge expression without default else clause."""
+    def __init__(self, message: str = "Judge over an omen/bool is not exhaustive and has no 'else ->' branch", line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0044")
+        kwargs.setdefault("help", "Add missing variant clauses or provide a default 'else ->' branch.")
+        kwargs.setdefault("note", "All possible variants/cases must be covered in judge expressions.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
 
 
 import difflib

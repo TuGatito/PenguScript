@@ -5,10 +5,10 @@ import std.invoke
 weave main into void:
     calling spark.println with "=== Test Invoke ==="
 
-    var parser as Parser is calling invoke.new_parser with "myapp" and "A sample CLI application"
-    calling parser.add_positional with "target" and "Target destination" and true and ""
-    calling parser.add_option with "config" and "c" and "Config path" and false and "default.cfg"
-    calling parser.add_flag with "verbose" and "v" and "Enable verbose logging" and false
+    var parser as Parser is calling invoke.new_parser with "myapp", "A sample CLI application"
+    calling parser.add_positional with "target", "Target destination", true, ""
+    calling parser.add_option with "config", "c", "Config path", false, "default.cfg"
+    calling parser.add_flag with "verbose", "v", "Enable verbose logging", false
 
     # Simulate argv
     var argv as list of string is list of string

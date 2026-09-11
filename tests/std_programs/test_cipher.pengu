@@ -21,8 +21,8 @@ weave main into void:
 
     # JSON test
     var m as map of string to string is map of string to string
-    calling m.put with "name" and "Pengu"
-    calling m.put with "lang" and "PenguScript"
+    calling m.put with "name", "Pengu"
+    calling m.put with "lang", "PenguScript"
 
     var str_json as maybe string is calling cipher.stringify_json with m
     if str_json.is_present:
@@ -31,7 +31,7 @@ weave main into void:
         if parsed_map.is_present:
             calling spark.println with "parse_json: ok"
     
-    var pretty as maybe string is calling cipher.pretty_json with m and 2
+    var pretty as maybe string is calling cipher.pretty_json with m, 2
     if pretty.is_present:
         calling spark.println with "pretty_json: ok"
 

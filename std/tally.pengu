@@ -1,11 +1,38 @@
 # std/tally.pengu - The Tally (Lists)
-# Dynamic list utilities and algorithms.
+# Read-only utilities for dynamic `list of int` collections: emptiness
+# checks and scalar reductions (sum, max, min).
+#
+# Ownership / memory model:
+#   * The helpers never allocate, mutate or consume the list they receive:
+#     each one takes a `list of int`, reads it through `.len` / element
+#     indexing and returns a plain int, so the caller keeps full ownership
+#     of the list and may `banish` it afterwards. Empty lists are handled
+#     explicitly (see the per-function notes below).
+#
+# Usage:
+#   import std.tally
+#   import std.spark
+#   var nums as list of int is calling spark.range with 1, 10, 1
+#   var total as int is calling tally.sum with nums
+#   var hi as int is calling tally.max_val with nums
 
 import std.spark
 
+# ----------------------------------------------------------------------------
+# Predicates
+# ----------------------------------------------------------------------------
+
+# Returns true when `l` holds no elements (its length is 0). The list is
+# only read, never modified.
 weave is_empty with l as list of int into bool:
     return (calling l.len) == 0
 
+# ----------------------------------------------------------------------------
+# Reductions
+# ----------------------------------------------------------------------------
+
+# Returns the arithmetic sum of every element in `l`. An empty list sums to
+# 0. Values must fit in `int` - overflow is not checked here.
 weave sum with l as list of int into int:
     var total as int is 0
     var i as int is 0
@@ -15,6 +42,8 @@ weave sum with l as list of int into int:
         set i is i + 1
     return total
 
+# Returns the largest element of `l`. An empty list yields 0; otherwise the
+# scan starts from element 0, so a single-element list returns that element.
 weave max_val with l as list of int into int:
     var n as int is calling l.len
     if n == 0:
@@ -27,6 +56,8 @@ weave max_val with l as list of int into int:
         set i is i + 1
     return m
 
+# Returns the smallest element of `l`. An empty list yields 0; otherwise the
+# scan starts from element 0, so a single-element list returns that element.
 weave min_val with l as list of int into int:
     var n as int is calling l.len
     if n == 0:

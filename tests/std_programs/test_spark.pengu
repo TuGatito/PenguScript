@@ -7,7 +7,7 @@ weave main into int:
   calling spark.println with "0.6.0-spark"
   
   calling spark.assert with true
-  calling spark.assert_msg with true and "should not fail"
+  calling spark.assert_msg with true, "should not fail"
   
   var s as string is "HOLA PERGAMINO"
   calling spark.println with s

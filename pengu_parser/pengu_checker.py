@@ -5,15 +5,17 @@ from lark import Tree, Token
 
 from .pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ManyType, ListType, MapType, MaybeType,
-    RuneType, EchoType, OmenType, ResultType, FnType, OPAQUE_TYPE, AliasType, AnyType,
+    RuneType, EchoType, OmenType, ResultType, FnType, OPAQUE_TYPE, AliasType, AnyType, FrozenType,
     TypeParam, NullType, NULL_TYPE, INT_TYPE, I32_TYPE, I64_TYPE, U32_TYPE, U64_TYPE, CHAR_TYPE, BYTE_TYPE,
     U8_TYPE, I8_TYPE, U16_TYPE, I16_TYPE, USIZE_TYPE, ISIZE_TYPE, FLOAT_TYPE, F32_TYPE,
     F64_TYPE, DOUBLE_TYPE, BOOL_TYPE, STRING_TYPE, VOID_TYPE, ERROR_TYPE, ConceptType, SealType,
+    CVarArgsType,
     implements_concept, resolve_concept_method, ast_to_type
 )
 from .pengu_symbols import SymbolTable, Symbol, Scope, resolve_imports, find_module_path
 from .pengu_infer import TypeInferrer, ConstFolder
 from .pengu_comptime import CompileTimeEnv, default_env, eval_comptime
+from .pengu_grammar import SIMPLE_STMT_ALIASES
 from .pengu_errors import (
     PenguError, ErrorReporter, SemanticError, ConstInsideWeaveError, VarLetTopLevelError,
     SelfDotAccessError, UndefinedIdentifierError, TypeMismatchError, MutabilityError,
@@ -22,9 +24,11 @@ from .pengu_errors import (
     ManyParamNotLastError, MultipleInsigniaError, DuplicateOmenValueError,
     InvalidOmenPayloadValueError, InvalidOmenConstantValueError,
     ConceptMethodMismatchError, UnimplementedConceptMethodError, ConceptBoundNotSatisfiedError,
-    InvalidRitualSelfAccessError, InvalidRitualCallError, SealTypeMismatchError,
-    suggest_similar_identifier
+    InvalidRitualSelfAccessError, InvalidRitualCallError,
+    ArraySizeMismatchError, InvalidRangeError, PrivateSymbolAccessError, NonExhaustiveJudgeError,
+    UnknownArrayDimensionError, suggest_similar_identifier
 )
+
 
 
 def _node_to_name(node: Any) -> str:
@@ -80,6 +84,10 @@ def extract_shard_params(shard_node: Tree) -> Tuple[List[str], Dict[str, List[st
                     concept_name = _node_to_name(wb.children[1])
                     bounds.setdefault(t_param_name, []).append(concept_name)
     return type_params, bounds
+
+
+# Loop rules that can also be used as values (collecting their body's value).
+_LOOP_RULES = ("while_stmt", "for_range_stmt", "for_in_stmt")
 
 
 class PenguChecker:
@@ -170,6 +178,7 @@ class PenguChecker:
 
         # Pass 1: Collect all top-level types, functions, declarations, includes, and modules
         self._collect_top_level(tree, import_order=import_order)
+        self._check_omen_variant_collisions()
 
         # Pass 2: Validate semantic rules and type check
         self.symbols.has_includes = bool(self.symbols.includes) and reset_symbols is False
@@ -486,6 +495,8 @@ class PenguChecker:
                 continue
 
             stmt = child.children[0]
+            while isinstance(stmt, Tree) and stmt.data == "top_stmt" and stmt.children:
+                stmt = stmt.children[0]
             if not isinstance(stmt, Tree):
                 continue
 
@@ -506,6 +517,7 @@ class PenguChecker:
                 else:
                     prefix_tok = stmt.children[0]
                     current_insignia = str(prefix_tok)
+                    self.symbols.insignia = current_insignia
 
             elif rule == "include_stmt":
                 inc = str(stmt.children[0]).strip('"')
@@ -602,6 +614,14 @@ class PenguChecker:
                                 if sym.kind == "const":
                                     self.symbols.consts[f"{bind_name}_{sname}"] = (sym.type, getattr(sym, "const_val", None))
                                     self.symbols.consts[eff_c_name] = (sym.type, getattr(sym, "const_val", None))
+                                if sym.kind == "alias" and isinstance(sym.type, AliasType):
+                                    self.symbols.aliases[f"{bind_name}_{sname}"] = sym.type.target
+                                    self.symbols.aliases[eff_c_name] = sym.type.target
+                                    self.symbols.aliases[sname] = sym.type.target
+                                    self.symbols.global_scope.define(sym)
+                        for gname, ginfo in sub_checker.symbols.generic_functions.items():
+                            self.symbols.generic_functions[gname] = ginfo
+                            self.symbols.generic_functions[f"{bind_name}_{gname}"] = ginfo
                 except Exception:
                     pass
 
@@ -985,6 +1005,22 @@ class PenguChecker:
                 target_name = getattr(target_type, "name", str(target_type))
                 base_tname = target_name.split("_")[0]
 
+                if not self.symbols.has_includes:
+                    target_exists = (
+                        self.symbols.lookup_type(base_tname) is not None
+                        or base_tname in self.symbols.generic_runes
+                    )
+                    if not target_exists:
+                        err = self._make_error(
+                            UndefinedIdentifierError,
+                            f"Undefined type '{base_tname}' in bind declaration",
+                            target_type_node,
+                            code="E0004",
+                            help=f"Define rune/echo '{base_tname}:' before binding a concept to it.",
+                            note=f"Type '{base_tname}' has not been declared."
+                        )
+                        self._record_error(err)
+
                 concept_obj = self.symbols.lookup_concept(concept_name)
                 if concept_obj is None and not self.symbols.has_includes:
                     err = self._make_error(
@@ -1184,12 +1220,14 @@ class PenguChecker:
                 params: List[Tuple[Optional[str], Type]] = []
                 ret_type: Type = VOID_TYPE
                 for child_n in rem_children:
-                    if isinstance(child_n, Tree) and child_n.data == "param_list":
+                    if isinstance(child_n, Tree) and child_n.data in ("param_list", "declare_params"):
                         for p in child_n.children:
                             if isinstance(p, Tree) and p.data == "param":
                                 pn = str(p.children[0])
                                 pt = ast_to_type(p.children[1], lookup_tp) if len(p.children) >= 2 else AnyType()
                                 params.append((pn, pt))
+                            elif (isinstance(p, Token) and (p.type in ("VARARGS", "_VARARGS") or str(p) == "...")) or (isinstance(p, Tree) and p.data in ("varargs", "_varargs")):
+                                params.append(("_varargs", CVarArgsType()))
                     elif isinstance(child_n, Tree) and child_n.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "opaque_type", "fn_type"):
                         ret_type = ast_to_type(child_n, lookup_tp)
                     elif isinstance(child_n, Token) and child_n.type == "NAME":
@@ -1261,6 +1299,8 @@ class PenguChecker:
 
                 if type_params:
                     self.symbols.generic_functions[fn_name] = (type_params, stmt)
+                    if c_fn_name != fn_name:
+                        self.symbols.generic_functions[c_fn_name] = (type_params, stmt)
                     fn_t = FnType(params=params, return_type=ret_type, default_count=default_count, is_ritual=is_ritual, type_params=type_params)
                 else:
                     fn_t = FnType(params=params, return_type=ret_type, default_count=default_count, is_ritual=is_ritual)
@@ -1332,11 +1372,13 @@ class PenguChecker:
                     "'var' is not allowed at top-level. Use 'const' or move inside a function.",
                     node,
                     code="E0002",
-                    help="Use 'const' for global constants, or move 'var' inside a function body.",
+                    help="Use 'const' for global constants, or move inside a function body. For stateful modules, use accessor weaves with 'static var' or an explicit context struct.",
                     note="PenguScript forbids mutable global state to guarantee V-safety."
                 )
                 self._record_error(err)
                 return
+            if self._decl_uses_with_init(node):
+                self._check_with_init_body(node)
             self._check_var_decl(node)
             return
 
@@ -1351,11 +1393,13 @@ class PenguChecker:
                     "'let' is not allowed at top-level. Use 'const' or move inside a function.",
                     node,
                     code="E0002",
-                    help="Use 'const' for global constants, or move 'let' inside a function body.",
+                    help="Use 'const' for global constants, or move inside a function body. For stateful modules, use accessor weaves with 'static var' or an explicit context struct.",
                     note="PenguScript forbids mutable global state to guarantee V-safety."
                 )
                 self._record_error(err)
                 return
+            if self._decl_uses_with_init(node):
+                self._check_with_init_body(node)
             self._check_let_decl(node)
             return
 
@@ -1440,7 +1484,7 @@ class PenguChecker:
             return
 
         # 4. Set Statements and Mutability
-        elif rule == "set_stmt":
+        elif rule in ("set_stmt", "compound_set_stmt"):
             self._check_set_stmt(node)
             return
 
@@ -1493,6 +1537,10 @@ class PenguChecker:
                 )
                 self._record_error(err)
             expr_node = node.children[0]
+            if isinstance(expr_node, Tree) and expr_node.data == "block":
+                for stmt in expr_node.children:
+                    self._check_node(stmt)
+                return
             if isinstance(expr_node, Tree) and expr_node.data not in ("calling_expr", "banish_expr", "var_ref"):
                 err = self._make_error(
                     InvalidMemoryOpError,
@@ -1511,8 +1559,61 @@ class PenguChecker:
 
         elif rule == "banish_stmt":
             target_expr = node.children[0]
-            if isinstance(target_expr, Tree) and target_expr.data == "var_ref":
-                sym_name = str(target_expr.children[0])
+            curr = target_expr
+            while isinstance(curr, Tree) and curr.data in ("primary", "expr_stmt") and len(curr.children) == 1:
+                curr = curr.children[0]
+
+            if isinstance(curr, Tree) and curr.data in (
+                "str_lit", "string_lit", "raw_string_lit", "int_lit", "float_lit",
+                "bool_lit", "char_lit", "array_lit", "list_lit", "map_lit"
+            ):
+                err = self._make_error(
+                    InvalidMemoryOpError,
+                    "Cannot banish a literal value. 'banish' requires a variable or field lvalue.",
+                    target_expr,
+                    code="E0008",
+                    help="Assign the value to a variable first before banishing it.",
+                    note="Literals cannot be banished."
+                )
+                self._record_error(err)
+                return
+
+            if isinstance(curr, Tree) and curr.data in (
+                "calling_expr", "calling_stmt", "add", "sub", "mul", "div", "mod",
+                "bitwise_or", "bitwise_and", "bitwise_xor", "shl", "shr", "concat",
+                "logic_or", "logic_and", "range_expr", "try_expr", "or_else", "or_return"
+            ):
+                err = self._make_error(
+                    InvalidMemoryOpError,
+                    "Cannot banish a temporary expression. 'banish' requires a variable or field lvalue.",
+                    target_expr,
+                    code="E0008",
+                    help="Assign the temporary expression to a variable before banishing it.",
+                    note="Temporaries cannot be banished directly."
+                )
+                self._record_error(err)
+                return
+
+            is_lvalue = isinstance(curr, Token) or (
+                isinstance(curr, Tree) and curr.data in (
+                    "var_ref", "normal_target", "field_access", "dot_access",
+                    "arrow_access", "at_access"
+                )
+            )
+            if not is_lvalue:
+                err = self._make_error(
+                    InvalidMemoryOpError,
+                    "Cannot banish a non-lvalue expression. 'banish' requires a variable or field.",
+                    target_expr,
+                    code="E0008",
+                    help="Pass a variable name or field access to 'banish'.",
+                    note="Only lvalues can be banished."
+                )
+                self._record_error(err)
+                return
+
+            if isinstance(curr, Tree) and curr.data == "var_ref":
+                sym_name = str(curr.children[0])
                 sym = self.symbols.lookup(sym_name)
                 if sym and sym.kind == "const":
                     err = self._make_error(
@@ -1520,20 +1621,52 @@ class PenguChecker:
                         f"Cannot banish constant '{sym_name}'",
                         target_expr,
                         code="E0008",
-                        help="Only dynamically allocated references can be banished.",
+                        help="Only dynamically allocated variables or references can be banished.",
                         note="Constants cannot be banished."
                     )
                     self._record_error(err)
-            try:
-                t = self.inferrer.infer(target_expr)
-                if not isinstance(t, RefType) and not isinstance(t, AnyType):
+                    return
+                if sym and (
+                    isinstance(sym.type, FrozenType)
+                    or (isinstance(sym.type, RefType) and isinstance(sym.type.target, FrozenType))
+                ):
                     err = self._make_error(
                         InvalidMemoryOpError,
-                        f"'banish' requires a reference type (ref to T), got '{t}'",
+                        f"Cannot banish frozen (read-only) variable '{sym_name}'",
                         target_expr,
                         code="E0008",
-                        help="Pass a reference (ref to T) to 'banish'.",
-                        note="'banish' deallocates memory behind a reference."
+                        help="Remove the 'frozen' qualifier to allow banishing this variable.",
+                        note="Frozen variables cannot be deallocated."
+                    )
+                    self._record_error(err)
+                    return
+
+            try:
+                t = self.inferrer.infer(target_expr)
+                if isinstance(t, FrozenType):
+                    err = self._make_error(
+                        InvalidMemoryOpError,
+                        f"Cannot banish frozen (read-only) value of type '{t}'",
+                        target_expr,
+                        code="E0008",
+                        help="Frozen values cannot be modified or deallocated.",
+                        note="Only mutable references, strings, lists, or maps can be banished."
+                    )
+                    self._record_error(err)
+                    return
+
+                is_valid_type = (
+                    isinstance(t, (RefType, ListType, MapType, AnyType))
+                    or (isinstance(t, BaseType) and t.name == "string")
+                )
+                if not is_valid_type:
+                    err = self._make_error(
+                        InvalidMemoryOpError,
+                        f"'banish' requires a reference (ref to T), string, list, or map, got '{t}'",
+                        target_expr,
+                        code="E0008",
+                        help="Pass a reference (ref to T), string, list, or map to 'banish'.",
+                        note="'banish' deallocates memory behind references, strings, lists, and maps."
                     )
                     self._record_error(err)
             except SemanticError as e:
@@ -1559,6 +1692,24 @@ class PenguChecker:
 
         elif rule == "expr_stmt":
             expr_node = node.children[0]
+            # A bare array/map literal is not a statement. 'x[0]' (C-style
+            # indexing, which Pengu spells 'x at 0') parses as the variable
+            # followed by a stray '[0]' statement, so this catches the typo
+            # instead of emitting a useless '{ 0 };' and an unused value.
+            if isinstance(expr_node, Tree) and expr_node.data in ("array_lit", "map_lit"):
+                err = self._make_error(
+                    SemanticError,
+                    f"{'A map' if expr_node.data == 'map_lit' else 'An array'} literal "
+                    f"is not a statement",
+                    expr_node,
+                    code="E0005",
+                    help="Did you mean an element access? PenguScript indexes with "
+                         "'x at i', not 'x[i]'.",
+                    note="Bare literals have no effect; assign them or pass them to a call."
+                )
+                self._record_error(err)
+                return
+            self._check_value_exprs(expr_node)
             try:
                 self.inferrer.infer(expr_node)
             except SemanticError as e:
@@ -1582,6 +1733,13 @@ class PenguChecker:
                 self._check_node(item)
             return
 
+        # Single-line block statements ('if c: return 0'): each aliases the
+        # canonical statement rule, and a bare 'simple_stmt' holds one
+        # expression. Both are checked exactly like their indented spelling.
+        elif rule in SIMPLE_STMT_ALIASES or rule == "simple_stmt":
+            self._check_simple_stmt(node)
+            return
+
         # Generic traversal for other nodes
         for child in node.children:
             if isinstance(child, Tree):
@@ -1590,6 +1748,24 @@ class PenguChecker:
     # -------------------------------------------------------------------------
     # Specific Statement Checkers
     # -------------------------------------------------------------------------
+    def _check_simple_stmt(self, node: Tree) -> None:
+        """Checks a single-line block statement (``if c: return 0``).
+
+        Those forms parse as aliased nodes (``return_simple`` …) or as a bare
+        ``simple_stmt`` holding one expression. Re-dispatch onto the canonical
+        statement checker so they are validated exactly like the indented
+        spelling (mutability, return type, loop-control placement, …).
+        """
+        canonical = SIMPLE_STMT_ALIASES.get(node.data)
+        if canonical is not None:
+            self._check_node(Tree(canonical, node.children, meta=node.meta))
+            return
+        if node.children and isinstance(node.children[0], Tree):
+            try:
+                self.inferrer.infer(node.children[0])
+            except SemanticError as e:
+                self._record_error(e)
+
     def _check_const_decl(self, node: Tree) -> None:
         """Checks constant declaration for V-safety and compile-time type validity.
 
@@ -1639,16 +1815,505 @@ class PenguChecker:
                 )
                 self._record_error(err)
             else:
+                if c_type is not None and isinstance(c_type, ArrayType) and isinstance(inferred, ArrayType):
+                    self._sync_array_sizes(c_type, inferred)
+                eff_type = c_type or inferred
+
+                if self._has_unknown_array_dim(eff_type):
+                    raise self._make_error(
+                        UnknownArrayDimensionError,
+                        f"Unknown array dimension in '{eff_type}' for constant '{c_name}'",
+                        node,
+                        code="E0015",
+                        help="Specify all dimensions (e.g. 'array of array of T with size M with size N') or initialize with full literal rows.",
+                        note="C requires fixed array sizes for all dimensions."
+                    )
+
                 folded_val = self.const_folder.fold(c_expr)
                 doc = self._extract_preceding_doc(line)
                 existing_sym = self.symbols.lookup(c_name)
                 c_c_name = existing_sym.c_name if existing_sym else None
-                sym = Symbol(name=c_name, type=c_type or inferred, kind="const", is_mutable=False, line=line, column=col, doc=doc, file_path=self.filename, c_name=c_c_name)
+                sym = Symbol(name=c_name, type=eff_type, kind="const", is_mutable=False, line=line, column=col, doc=doc, file_path=self.filename, c_name=c_c_name)
                 if folded_val is not None:
                     sym.const_val = folded_val
                 self.symbols.define(sym)
         except SemanticError as e:
             self._record_error(e)
+
+    # ------------------------------------------------------------------
+    # 'with:' block construction expressions
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _decl_type_and_expr(node: Tree):
+        """Returns (type_node, expr_node) of a var/let/const declaration."""
+        if len(node.children) >= 3 and node.children[1] is not None:
+            return node.children[1], node.children[2]
+        return None, node.children[-1]
+
+    def _decl_uses_with_init(self, node: Tree) -> bool:
+        """True when a declaration initializer needs block-body checking.
+
+        Covers the ``with:`` builder, ``do:`` blocks and an ``if``/``unless`` used
+        as a value (``let x is if c: ... else: ...``), which is positional: the
+        same statement node is checked in value mode here.
+        """
+        _, expr = self._decl_type_and_expr(node)
+        return isinstance(expr, Tree) and expr.data in (
+            "with_init_expr", "do_expr", "if_stmt", "unless_stmt"
+        )
+
+    def _check_with_init_body(self, node: Tree) -> None:
+        """Validates the body of a block-style expression initializer.
+
+        * ``with:`` (construction) — behaves like a ``with target:`` scope over
+          the annotated value under construction; only ``set .field is ...``
+          and ``calling .method`` statements are allowed.
+        * ``do:`` — general statement block (see :meth:`_check_value_block`).
+        * ``if``/``unless`` used as a value (positional value semantics).
+
+        Args:
+            node: The enclosing var/let declaration node.
+        """
+        type_node, expr = self._decl_type_and_expr(node)
+        if expr.data in ("if_stmt", "unless_stmt", "do_expr",
+                         "while_stmt", "for_range_stmt", "for_in_stmt"):
+            # Positional value forms: one walker handles them all (and any block
+            # values nested deeper in the initializer). The declared type is the
+            # expected type, so a nested 'with:' builder or a loop's element type
+            # is known.
+            expected = (ast_to_type(type_node, self.symbols.lookup_type)
+                        if type_node is not None else None)
+            self._check_value_exprs(expr, expected)
+            return
+
+        expected = None
+        if type_node is not None:
+            expected = ast_to_type(type_node, self.symbols.lookup_type)
+        if type_node is None:
+            err = self._make_error(
+                TypeMismatchError,
+                "'with:' block construction requires an explicit type annotation "
+                "(e.g. 'var x as T with:')",
+                node,
+                code="E0014",
+                help="Add an explicit type to the declaration: 'var x as SomeType with:'.",
+                note="A 'with:' construction block cannot infer its target type."
+            )
+            self._record_error(err)
+            return
+        self._check_with_builder(expr, expected)
+
+    def _check_with_builder(self, expr: Tree, expected: Optional[Type]) -> Type:
+        """Checks a ``with:`` construction block against its target type.
+
+        The block mutates the value under construction through an implicit
+        temporary: only ``set .field is ...`` assignments and ``calling .method``
+        statements are allowed. Returns the built value's type.
+        """
+        span_start, span_end = self._get_node_span(expr)
+        self.symbols.push_scope(
+            kind="with",
+            with_type=expected,
+            with_is_mutable=True,
+            with_target_var_name="_with_builder",
+            start_line=span_start,
+            end_line=span_end,
+        )
+
+        try:
+            for ch in expr.children:
+                if not isinstance(ch, Tree):
+                    continue
+                inner = ch
+                while inner.data == "stmt" and inner.children:
+                    inner = inner.children[0]
+                if inner.data not in ("set_stmt", "expr_stmt"):
+                    err = self._make_error(
+                        InvalidControlFlowError,
+                        "'with:' block only allows 'set .field is ...' assignments and "
+                        f"'calling .method' statements, not '{inner.data}'",
+                        inner,
+                        code="E0007",
+                        help="Use field assignments and method calls inside the builder block.",
+                        note="Construction blocks may not contain control flow or declarations."
+                    )
+                    self._record_error(err)
+                    continue
+                self._check_node(ch)
+        finally:
+            self.symbols.pop_scope(end_line=span_end)
+        return expected if expected is not None else AnyType()
+
+    @staticmethod
+    def _unwrap_stmt(node: Tree) -> Tree:
+        """Unwraps 'stmt' wrappers down to the concrete statement node."""
+        inner = node
+        while isinstance(inner, Tree) and inner.data == "stmt" and inner.children:
+            inner = inner.children[0]
+        return inner
+
+    @staticmethod
+    def _block_value_expr(inner: Tree):
+        """Expression node that supplies a block's value, or None.
+
+        Covers indented blocks (``expr_stmt``) and the single-line block form
+        (``":" simple_stmt``), whose statement node wraps the expression.
+        """
+        if not isinstance(inner, Tree):
+            return None
+        if inner.data == "expr_stmt" and inner.children:
+            return inner.children[0]
+        if inner.data == "simple_stmt" and len(inner.children) == 1:
+            return inner.children[0]
+        return None
+
+    def _check_block_value_stmt(self, stmt: Tree, expected: Optional[Type] = None) -> Type:
+        """Checks the last statement of a value block; returns its value type.
+
+        A trailing 'if'/'unless' or loop is checked in value position
+        (recursively), so chains, nested blocks and collected loops work.
+        """
+        inner = self._unwrap_stmt(stmt)
+        if isinstance(inner, Tree) and inner.data == "if_stmt":
+            return self._check_if_value(inner, expected)
+        if isinstance(inner, Tree) and inner.data == "unless_stmt":
+            return self._check_unless_value(inner, expected)
+        if isinstance(inner, Tree) and inner.data in _LOOP_RULES:
+            # Best effort: a loop ending a value block yields its collected list,
+            # but a value-less loop body is not an error here (the block is then
+            # simply void, and the enclosing value slot reports any mismatch).
+            return self._check_loop_value(
+                inner, expected_element=expected.element if isinstance(expected, ListType) else None,
+                required=False,
+            )
+        if isinstance(inner, Tree) and inner.data == "do_expr":
+            return self._check_value_block(list(inner.children), expected)
+        val_node = self._block_value_expr(inner)
+        if (isinstance(val_node, Tree) and val_node.data == "with_init_expr"
+                and expected is not None):
+            # A trailing 'with:' builder is typed by the surrounding value slot
+            # (e.g. the element type of a collecting loop).
+            return self._check_with_builder(val_node, expected)
+        if isinstance(val_node, Tree) and val_node.data == "do_expr":
+            # A trailing nested 'do:' is itself a value block.
+            return self._check_value_block(list(val_node.children), expected)
+        if val_node is not None:
+            try:
+                return self.inferrer.infer(val_node)
+            except SemanticError as e:
+                self._record_error(e)
+                return VOID_TYPE
+        self._check_node(stmt)
+        return VOID_TYPE
+
+    def _check_value_block(self, stmts: List[Tree], expected: Optional[Type] = None) -> Type:
+        """Validates a value block in a fresh scope and returns its value type.
+
+        Every statement is checked normally; the last one supplies the block's
+        value (see :meth:`_check_block_value_stmt`).
+        """
+        if not stmts:
+            return VOID_TYPE
+        s_start, _ = self._get_node_span(stmts[0])
+        _, e_end = self._get_node_span(stmts[-1])
+        val = VOID_TYPE
+        try:
+            self.symbols.push_scope(kind="do", start_line=s_start, end_line=e_end)
+            for ch in stmts[:-1]:
+                self._check_node(ch)
+            val = self._check_block_value_stmt(stmts[-1], expected)
+        finally:
+            self.symbols.pop_scope(end_line=e_end)
+        return val
+
+    def _check_loop_value(self, node: Tree, expected_element: Optional[Type] = None,
+                          required: bool = True) -> Type:
+        """Checks a loop in value position: it collects each iteration's value.
+
+        A loop used as a value evaluates to ``list of T``, where ``T`` is the type
+        of the body's last statement (every iteration must produce one). With
+        ``required`` a value-less body is reported as an error; otherwise the loop
+        simply has no value (it behaves as a statement inside a value block).
+        """
+        if node.data == "while_stmt":
+            elem_t = self._check_while_stmt(node, collect=True, expected_element=expected_element)
+        elif node.data == "for_range_stmt":
+            elem_t = self._check_for_range_stmt(node, collect=True, expected_element=expected_element)
+        else:
+            elem_t = self._check_for_in_stmt(node, collect=True, expected_element=expected_element)
+
+        if elem_t == VOID_TYPE or isinstance(elem_t, NullType):
+            if required:
+                err = self._make_error(
+                    TypeMismatchError,
+                    "loop used as a value must produce a value on every iteration",
+                    node,
+                    code="E0005",
+                    help="End the loop body with an expression (the value collected "
+                         "for that iteration), or use the loop as a statement.",
+                    note="A loop in a value position builds a list from the body's "
+                         "value on each iteration."
+                )
+                self._record_error(err)
+            setattr(node, "_pengu_value_type", VOID_TYPE)
+            return VOID_TYPE
+
+        list_t = ListType(element=elem_t)
+        setattr(node, "_pengu_value_type", list_t)
+        return list_t
+
+    def _check_branch_condition(self, cond_node: Tree, keyword: str = "if") -> None:
+        """Validates an 'if'/'unless' condition: bool expression, or (for 'if')
+        a binding pattern.
+
+        Binding patterns (``if x as T is expr [is present]:``) define the bound
+        name in the current scope, so callers must push the branch scope first.
+        """
+        line, col = self._get_loc(cond_node)
+        if isinstance(cond_node, Tree) and cond_node.data in (
+            "if_cond_binding_present", "if_cond_binding"
+        ):
+            bind_name = str(cond_node.children[0])
+            bind_type = ast_to_type(cond_node.children[1], self.symbols.lookup_type)
+            init_expr = cond_node.children[2]
+            # 'if v as T is opt is present:' parses as a binding whose operand
+            # carries the presence test (the grammar's *_binding_present rule is
+            # unreachable): the test is inherent to the binding, so unwrap it.
+            if isinstance(init_expr, Tree) and init_expr.children:
+                if init_expr.data == "is_present":
+                    init_expr = init_expr.children[0]
+                elif init_expr.data == "is_not_present":
+                    self._record_error(self._make_error(
+                        TypeMismatchError,
+                        f"'is not present' cannot be combined with a binding "
+                        f"('{bind_name}')",
+                        cond_node,
+                        code="E0005",
+                        help=f"Write 'if {bind_name} as T is <maybe>:' — the branch "
+                             f"already runs only when the value is present.",
+                        note="Test absence on its own: 'if opt is not present:'.",
+                    ))
+                    return
+            try:
+                init_t = self.inferrer.infer(init_expr)
+                if isinstance(init_t, MaybeType):
+                    elem_t = init_t.element
+                    if not (isinstance(elem_t, (AnyType, TypeParam))
+                            or elem_t.is_compatible(bind_type)
+                            or bind_type.is_compatible(elem_t)):
+                        raise self._make_error(
+                            TypeMismatchError,
+                            f"Binding '{bind_name}' as '{bind_type}' from '{init_t}'",
+                            cond_node,
+                            code="E0005",
+                            help=f"Bind the present value with its own type: "
+                                 f"'{bind_name} as {elem_t} is ...'.",
+                            note="The bound name receives the value held by the maybe.",
+                        )
+                    # Codegen unwraps the maybe and declares the bound name
+                    # inside the branch: remember both types on the node.
+                    setattr(cond_node, "_pengu_bind_maybe_type", init_t)
+                    setattr(cond_node, "_pengu_bind_elem_type", elem_t)
+                    setattr(cond_node, "_pengu_bind_source", init_expr)
+                elif not isinstance(init_t, (AnyType, TypeParam)):
+                    raise self._make_error(
+                        TypeMismatchError,
+                        f"Binding '{bind_name}' requires a maybe value, got '{init_t}'",
+                        cond_node,
+                        code="E0005",
+                        help="Bind only over a 'maybe T' operand; the branch runs when "
+                             "the value is present.",
+                        note="For other optionals, test with 'is present' and read '.value'.",
+                    )
+                self.symbols.define(Symbol(name=bind_name, type=bind_type, kind="let",
+                                           is_mutable=False, line=line, column=col))
+            except SemanticError as e:
+                self._record_error(e)
+            return
+
+        try:
+            c_type = self.inferrer.infer(cond_node)
+            if not c_type.is_compatible(BOOL_TYPE) and not isinstance(c_type, AnyType):
+                err = self._make_error(
+                    TypeMismatchError,
+                    f"'{keyword}' condition must be bool, got '{c_type}'",
+                    cond_node,
+                    code="E0005",
+                    help=f"Ensure '{keyword}' condition evaluates to a boolean (bool).",
+                    note="Branch conditions must be boolean expressions."
+                )
+                self._record_error(err)
+        except SemanticError as e:
+            self._record_error(e)
+
+    def _merge_branch_value_types(self, node: Tree, then_t: Type, else_t: Type,
+                                  keyword: str = "if") -> Type:
+        """Common value type of the branches of a value-position 'if'/'unless'.
+
+        Records the result on the node (``_pengu_value_type``) so the inferrer and
+        codegen treat the very same node as a value, and reports ``E0005`` when the
+        branches disagree or when a value branch meets a value-less one.
+        """
+        if isinstance(then_t, AnyType) and isinstance(else_t, AnyType):
+            common: Type = AnyType()
+        elif then_t == VOID_TYPE and else_t == VOID_TYPE:
+            common = VOID_TYPE
+        elif then_t != VOID_TYPE and else_t != VOID_TYPE:
+            common = then_t
+            if not then_t.is_compatible(else_t) and not else_t.is_compatible(then_t):
+                err = self._make_error(
+                    TypeMismatchError,
+                    f"'{keyword}' block branches have incompatible value types: "
+                    f"'{then_t}' vs '{else_t}'",
+                    node,
+                    code="E0005",
+                    help="Make every branch end with an expression of the same type.",
+                    note=f"An {keyword} used as a value needs one common branch type."
+                )
+                self._record_error(err)
+        else:
+            val_t = then_t if then_t != VOID_TYPE else else_t
+            err = self._make_error(
+                TypeMismatchError,
+                f"'{keyword}' block expression mixes a value branch ('{val_t}') with a "
+                "branch that has no final expression",
+                node,
+                code="E0005",
+                help=f"Every branch of an {keyword} used as a value must end with an "
+                     "expression of the same type.",
+                note="A block used as a value must produce a value on every branch."
+            )
+            self._record_error(err)
+            common = val_t
+        setattr(node, "_pengu_value_type", common)
+        return common
+
+    def _check_value_exprs(self, node: Any, expected: Optional[Type] = None) -> None:
+        """Value-checks block constructs nested inside an expression.
+
+        'if'/'unless'/'while'/'for' have a single grammar rule each, so anywhere
+        inside an *expression* they are values: validate each in value mode (which
+        records its type on the node) before the expression is inferred.
+        ``expected`` is the type the enclosing slot requires; it is used to type
+        the elements of a loop and a ``with:`` builder that is the slot's direct
+        value. Block bodies are not walked into — a handled construct already
+        checked its own statements.
+        """
+        if not isinstance(node, Tree):
+            return
+        rule = node.data
+        if rule == "if_stmt":
+            if getattr(node, "_pengu_value_type", None) is None:
+                self._check_if_value(node, expected)
+            return
+        if rule == "unless_stmt":
+            if getattr(node, "_pengu_value_type", None) is None:
+                self._check_unless_value(node, expected)
+            return
+        if rule in _LOOP_RULES:
+            if getattr(node, "_pengu_value_type", None) is None:
+                self._check_loop_value(
+                    node,
+                    expected_element=expected.element if isinstance(expected, ListType) else None,
+                )
+            return
+        if rule == "do_expr":
+            if getattr(node, "_pengu_value_type", None) is None:
+                setattr(node, "_pengu_value_type",
+                        self._check_value_block(list(node.children), expected))
+            return
+        if rule == "with_init_expr":
+            # A nested builder needs its target type from the surrounding slot;
+            # without one the inferrer reports the usual "explicit type" error.
+            if getattr(node, "_pengu_value_type", None) is None and expected is not None:
+                setattr(node, "_pengu_value_type", self._check_with_builder(node, expected))
+            return
+        for child in node.children:
+            self._check_value_exprs(child)
+
+    def _check_if_value(self, node: Tree, expected: Optional[Type] = None) -> Type:
+        """Checks an ``if`` used in value position and returns its value type.
+
+        ``if`` has a single grammar rule (``if_stmt``), so statement-ness and
+        value-ness are decided by *position*: in a value slot every branch must
+        end with an expression and all branches must share one common type.
+        """
+        cond_node = node.children[0]
+        block_node = node.children[1]
+        else_node = node.children[2] if len(node.children) > 2 else None
+
+        span_start, span_end = self._get_node_span(block_node)
+        self.symbols.push_scope(kind="if", start_line=span_start, end_line=span_end)
+        try:
+            self._check_branch_condition(cond_node, "if")
+            then_t = self._check_value_block(list(block_node.children), expected)
+        finally:
+            self.symbols.pop_scope(end_line=span_end)
+
+        else_t = self._check_else_value(else_node, expected) if else_node is not None else VOID_TYPE
+        return self._merge_branch_value_types(node, then_t, else_t, "if")
+
+    def _check_unless_value(self, node: Tree, expected: Optional[Type] = None) -> Type:
+        """Checks an ``unless`` used in value position; mirrors ``_check_if_value``.
+
+        Semantics are the mirror image: the then-branch runs when the condition is
+        false, so equal branch types are still required and the recorded type is
+        the common branch type.
+        """
+        cond_node = node.children[0]
+        block_node = node.children[1]
+        else_node = node.children[2] if len(node.children) > 2 else None
+
+        span_start, span_end = self._get_node_span(block_node)
+        self.symbols.push_scope(kind="if", start_line=span_start, end_line=span_end)
+        try:
+            self._check_branch_condition(cond_node, "unless")
+            then_t = self._check_value_block(list(block_node.children), expected)
+        finally:
+            self.symbols.pop_scope(end_line=span_end)
+
+        else_t = self._check_else_value(else_node, expected) if else_node is not None else VOID_TYPE
+        return self._merge_branch_value_types(node, then_t, else_t, "unless")
+
+    def _check_else_value(self, else_node: Tree, expected: Optional[Type] = None) -> Type:
+        """Value type of the ``else`` branch of a value-position 'if'/'unless'.
+
+        Handles both spellings: ``else:`` with an indented block (a trailing
+        nested 'if'/'unless'/loop is itself a value) and ``else if <cond>:``.
+        """
+        children = [c for c in else_node.children if isinstance(c, Tree)]
+        if not children:
+            return VOID_TYPE
+        if len(children) == 1 and children[0].data == "if_stmt":
+            # 'else if <cond>:' — the nested if supplies the value directly.
+            return self._check_if_value(children[0], expected)
+        if len(children) == 1 and children[0].data == "unless_stmt":
+            return self._check_unless_value(children[0], expected)
+        e_start, e_end = self._get_node_span(else_node)
+        self.symbols.push_scope(kind="if", start_line=e_start, end_line=e_end)
+        try:
+            return self._check_value_block(children, expected)
+        finally:
+            self.symbols.pop_scope(end_line=e_end)
+
+    @staticmethod
+    def _sync_array_sizes(target_t: Any, source_t: Any) -> None:
+        """Recursively propagates inferred array dimensions to declared array types."""
+        if isinstance(target_t, ArrayType) and isinstance(source_t, ArrayType):
+            if target_t.size is None and source_t.size is not None:
+                target_t.size = source_t.size
+            PenguChecker._sync_array_sizes(target_t.element, source_t.element)
+
+    @staticmethod
+    def _has_unknown_array_dim(t: Any) -> bool:
+        """Returns True if an ArrayType has any dimension with size None."""
+        curr = t
+        while isinstance(curr, ArrayType):
+            if curr.size is None:
+                return True
+            curr = curr.element
+        return False
 
     def _check_var_decl(self, node: Tree) -> None:
         """Checks local mutable variable declaration for type validity and folds constants.
@@ -1679,17 +2344,70 @@ class PenguChecker:
         else:
             v_expr = node.children[1]
 
+        # Block values nested in the initializer (call arguments, struct-literal
+        # fields, …) are value-checked before inference.
+        self._check_value_exprs(v_expr, v_type)
+
         try:
             inferred = self.inferrer.infer(v_expr, expected_type=v_type)
-            if v_type is None and isinstance(inferred, NullType):
+            if v_type is None and (inferred is None or isinstance(inferred, NullType) or getattr(inferred, "name", "") == "unknown"):
                 raise self._make_error(
                     TypeMismatchError,
-                    f"Variable '{v_name}' initialized with 'null' requires an explicit type annotation (e.g. 'as ref to T' or 'as opaque')",
+                    f"Variable '{v_name}' initialized with 'null' or uninferable value requires an explicit type annotation (e.g. 'as ref to T' or 'as opaque')",
                     node,
                     code="E0014",
-                    help=f"Add an explicit type annotation: 'var {v_name} as ref to T is null'",
-                    note="'null' requires explicit type context to determine target pointer type."
+                    help=f"Add an explicit type annotation: 'var {v_name} as T is ...'",
+                    note="Type inference requires sufficient context to determine concrete type."
                 )
+
+            if v_type is not None and isinstance(v_type, ArrayType) and isinstance(inferred, ArrayType):
+                self._sync_array_sizes(v_type, inferred)
+            eff_type = v_type or inferred
+
+            if self._has_unknown_array_dim(eff_type):
+                raise self._make_error(
+                    UnknownArrayDimensionError,
+                    f"Unknown array dimension in '{eff_type}' for variable '{v_name}'",
+                    node,
+                    code="E0015",
+                    help="Specify all dimensions (e.g. 'array of array of T with size M with size N') or initialize with full literal rows.",
+                    note="C requires fixed array sizes for all dimensions."
+                )
+
+            if isinstance(eff_type, ArrayType) and isinstance(v_expr, Tree) and v_expr.data == "indent_literal":
+                child = v_expr.children[0]
+                if child.data == "indent_array":
+                    rows = child.children
+                    if isinstance(eff_type.element, ArrayType):
+                        outer_sz = eff_type.size
+                        inner_sz = eff_type.element.size
+                        if outer_sz is not None and len(rows) != outer_sz:
+                            raise self._make_error(
+                                ArraySizeMismatchError,
+                                f"Array has {len(rows)} rows but the declared size is {outer_sz}",
+                                child,
+                                code="E0041"
+                            )
+                        for r_idx, r in enumerate(rows):
+                            r_elems = r.children
+                            if inner_sz is not None and len(r_elems) != inner_sz:
+                                raise self._make_error(
+                                    ArraySizeMismatchError,
+                                    f"Row {r_idx + 1} has {len(r_elems)} elements but the declared width is {inner_sz}",
+                                    r,
+                                    code="E0041"
+                                )
+                    else:
+                        sz = eff_type.size
+                        all_elems = [e for r in rows for e in r.children]
+                        if sz is not None and len(all_elems) != sz:
+                            raise self._make_error(
+                                ArraySizeMismatchError,
+                                f"Array has {len(all_elems)} elements but the declared size is {sz}",
+                                child,
+                                code="E0041"
+                            )
+
             if v_type is not None and not inferred.is_compatible(v_type):
                 err = self._make_type_mismatch_error(
                     expected_type=v_type,
@@ -1704,10 +2422,10 @@ class PenguChecker:
             doc = self._extract_preceding_doc(line)
             sym = Symbol(
                 name=v_name,
-                type=v_type or inferred,
+                type=eff_type,
                 kind="var",
                 is_mutable=True,
-                is_stack_alloc=isinstance(v_type or inferred, RuneType),
+                is_stack_alloc=isinstance(eff_type, RuneType),
                 const_val=folded_val,
                 line=line,
                 column=col,
@@ -1774,6 +2492,10 @@ class PenguChecker:
             v_expr = node.children[2]
         else:
             v_expr = node.children[1]
+
+        # 'static var x is if/unless/for ...:' or block values nested in the
+        # initializer (e.g. inside a struct literal) — positional value check.
+        self._check_value_exprs(v_expr, v_type)
 
         try:
             inferred = self.inferrer.infer(v_expr, expected_type=v_type)
@@ -1856,6 +2578,7 @@ class PenguChecker:
         else:
             l_expr = node.children[1]
 
+        self._check_value_exprs(l_expr, l_type)
         try:
             inferred = self.inferrer.infer(l_expr, expected_type=l_type)
             folded_val = self.const_folder.fold(l_expr)
@@ -1863,15 +2586,64 @@ class PenguChecker:
 
             if len(names) == 1:
                 v_name = names[0]
-                if l_type is None and isinstance(inferred, NullType):
+                if l_type is None and (inferred is None or isinstance(inferred, NullType) or getattr(inferred, "name", "") == "unknown"):
                     raise self._make_error(
                         TypeMismatchError,
-                        f"Immutable binding '{v_name}' initialized with 'null' requires an explicit type annotation (e.g. 'as ref to T' or 'as opaque')",
+                        f"Binding '{v_name}' initialized with 'null' or uninferable value requires an explicit type annotation (e.g. 'as ref to T' or 'as opaque')",
                         node,
                         code="E0014",
-                        help=f"Add an explicit type annotation: 'let {v_name} as ref to T is null'",
-                        note="'null' requires explicit type context to determine target pointer type."
+                        help=f"Add an explicit type annotation: 'let {v_name} as T is ...'",
+                        note="Type inference requires sufficient context to determine concrete type."
                     )
+
+                if l_type is not None and isinstance(l_type, ArrayType) and isinstance(inferred, ArrayType):
+                    self._sync_array_sizes(l_type, inferred)
+                eff_type = l_type or inferred
+
+                if self._has_unknown_array_dim(eff_type):
+                    raise self._make_error(
+                        UnknownArrayDimensionError,
+                        f"Unknown array dimension in '{eff_type}' for binding '{v_name}'",
+                        node,
+                        code="E0015",
+                        help="Specify all dimensions (e.g. 'array of array of T with size M with size N') or initialize with full literal rows.",
+                        note="C requires fixed array sizes for all dimensions."
+                    )
+
+                if isinstance(eff_type, ArrayType) and isinstance(l_expr, Tree) and l_expr.data == "indent_literal":
+                    child = l_expr.children[0]
+                    if child.data == "indent_array":
+                        rows = child.children
+                        if isinstance(eff_type.element, ArrayType):
+                            outer_sz = eff_type.size
+                            inner_sz = eff_type.element.size
+                            if outer_sz is not None and len(rows) != outer_sz:
+                                raise self._make_error(
+                                    ArraySizeMismatchError,
+                                    f"Array has {len(rows)} rows but the declared size is {outer_sz}",
+                                    child,
+                                    code="E0041"
+                                )
+                            for r_idx, r in enumerate(rows):
+                                r_elems = r.children
+                                if inner_sz is not None and len(r_elems) != inner_sz:
+                                    raise self._make_error(
+                                        ArraySizeMismatchError,
+                                        f"Row {r_idx + 1} has {len(r_elems)} elements but the declared width is {inner_sz}",
+                                        r,
+                                        code="E0041"
+                                    )
+                        else:
+                            sz = eff_type.size
+                            all_elems = [e for r in rows for e in r.children]
+                            if sz is not None and len(all_elems) != sz:
+                                raise self._make_error(
+                                    ArraySizeMismatchError,
+                                    f"Array has {len(all_elems)} elements but the declared size is {sz}",
+                                    child,
+                                    code="E0041"
+                                )
+
                 if l_type is not None and not inferred.is_compatible(l_type):
                     err = self._make_type_mismatch_error(
                         expected_type=l_type,
@@ -1883,10 +2655,10 @@ class PenguChecker:
                     self._record_error(err)
                 self.symbols.define(Symbol(
                     name=v_name,
-                    type=l_type or inferred,
+                    type=eff_type,
                     kind="let",
                     is_mutable=False,
-                    is_stack_alloc=isinstance(l_type or inferred, RuneType),
+                    is_stack_alloc=isinstance(eff_type, RuneType),
                     const_val=folded_val,
                     line=line,
                     column=col,
@@ -1931,44 +2703,53 @@ class PenguChecker:
         except SemanticError as e:
             self._record_error(e)
 
-    def _check_return_stmt(self, node: Tree) -> None:
-        """Checks explicit return statement against active function return type."""
-        curr_ret = self.symbols.current_return_type() or VOID_TYPE
-        if node.children and node.children[0] is not None:
-            ret_expr = node.children[0]
-            try:
-                ret_t = self.inferrer.infer(ret_expr, expected_type=curr_ret)
-                if curr_ret == VOID_TYPE:
-                    err = self._make_error(
-                        TypeMismatchError,
-                        "Cannot return a value from void function",
-                        ret_expr,
-                        code="E0020",
-                        help="Change return type or use 'return' without an expression.",
-                        note="Functions returning 'void' cannot return values."
-                    )
-                    self._record_error(err)
-                elif not ret_t.is_compatible(curr_ret) and not (ret_t.is_numeric() and curr_ret.is_numeric()):
-                    err = self._make_type_mismatch_error(
-                        expected_type=curr_ret,
-                        found_type=ret_t,
-                        node=ret_expr,
-                        custom_message=f"Return expression type '{ret_t}' does not match function return type '{curr_ret}'"
-                    )
-                    self._record_error(err)
-            except SemanticError as e:
-                self._record_error(e)
-        else:
-            if curr_ret != VOID_TYPE:
-                err = self._make_error(
-                    TypeMismatchError,
-                    f"Return statement missing value for non-void function returning '{curr_ret}'",
-                    node,
-                    code="E0020",
-                    help=f"Return an expression of type '{curr_ret}'.",
-                    note="Non-void functions must return a value."
-                )
-                self._record_error(err)
+    def _frozen_write_block(self, target_node: Any, target_type: Type) -> Optional[str]:
+        """Describes why a `set` target is read-only, or None when it is writable.
+
+        Two shapes are rejected, mirroring C's ``const``:
+
+        * the target *is* a frozen value (`var y as frozen int` → `const int y`);
+        * the target is reached **through** a frozen pointee
+          (`p as ref to frozen T` → `const T* p`), i.e. `set p->field is …` or
+          `set p at i is …`. Rebinding the pointer itself is still allowed,
+          because `frozen` qualifies the pointee, not the pointer.
+
+        Args:
+            target_node: The resolved `set` target node.
+            target_type: The type the assignment would write to.
+
+        Returns:
+            A short description of the frozen view, or None.
+        """
+        if isinstance(target_type, FrozenType):
+            return f"value of type '{target_type}'"
+
+        node = target_node
+        if isinstance(node, Tree) and node.data == "set_target":
+            node = node.children[0]
+        if not isinstance(node, Tree):
+            return None
+        through = len(node.children) > 1
+        if not through:
+            return None
+
+        base_t: Optional[Type] = None
+        if node.data == "with_target":
+            base_t = self.symbols.current_with_type()
+        elif node.data == "normal_target" and node.children:
+            first = node.children[0]
+            if isinstance(first, (Token, str)):
+                sym = self.symbols.lookup(str(first))
+                if sym is not None:
+                    base_t = sym.type
+        elif node.data == "essence_target":
+            base_t = self.inferrer.infer(node.children[0])
+
+        if isinstance(base_t, RefType) and isinstance(base_t.target, FrozenType):
+            return f"'{base_t}'"
+        if isinstance(base_t, FrozenType):
+            return f"'{base_t}'"
+        return None
 
     def _check_set_stmt(self, node: Tree) -> None:
         """Checks reassignment statement for mutability and type soundness.
@@ -1980,7 +2761,13 @@ class PenguChecker:
         target_node = node.children[0]
         if isinstance(target_node, Tree) and target_node.data == "set_target":
             target_node = target_node.children[0]
-        val_expr = node.children[1]
+        # Compound assignment ('set x += 1'): children are [target, OP, value],
+        # while a plain 'set x is v' has [target, value]. The target validation
+        # below is identical (mutability, with_target, essence_target, private
+        # fields, self->); only the operator's type rules differ.
+        is_compound = node.data == "compound_set_stmt"
+        compound_op = str(node.children[1]) if is_compound else None
+        val_expr = node.children[2] if is_compound else node.children[1]
 
         rule = target_node.data
         target_type: Type = AnyType()
@@ -2122,7 +2909,78 @@ class PenguChecker:
                 if isinstance(ref_type, RefType):
                     target_type = ref_type.target
 
+            # Writing through a read-only qualification is an error, exactly like
+            # C's 'const': the target itself may be 'frozen T', or it may be
+            # reached through a pointer whose pointee is frozen ('ref to frozen T').
+            frozen_desc = self._frozen_write_block(target_node, target_type)
+            if frozen_desc is not None:
+                raise self._make_error(
+                    MutabilityError,
+                    f"Cannot assign through read-only 'frozen' {frozen_desc}",
+                    target_node,
+                    code="E0006",
+                    help="Drop 'frozen' from the declaration, or copy the value into "
+                         "a mutable local first.",
+                    note="'frozen T' is C's 'const T': it cannot be written through."
+                )
+
+            # 'set x is if/unless/for ...:' and any block value nested in the
+            # expression (e.g. inside a struct literal). The target type is the
+            # expected type, so a nested 'with:' builder is typed from it.
+            self._check_value_exprs(val_expr, target_type)
+
             val_type = self.inferrer.infer(val_expr, expected_type=target_type)
+
+            if is_compound:
+                # Operator-specific type rules for 'set TARGET OP VALUE'.
+                if compound_op == "+=" and getattr(target_type, "name", "") == "string":
+                    if not val_type.is_compatible(STRING_TYPE) and not isinstance(val_type, AnyType):
+                        raise self._make_error(
+                            TypeMismatchError,
+                            f"Compound '+=' on a string requires a string value, got '{val_type}'",
+                            node,
+                            code="E0005",
+                            help="Concatenate only strings: 'set s += \"more\"'. "
+                                 "Convert numbers with 'to string' first.",
+                            note="String '+=' concatenates, so both sides must be strings."
+                        )
+                elif compound_op in ("+=", "-=", "*=", "/=", "%="):
+                    if not target_type.is_numeric() and not isinstance(target_type, AnyType):
+                        raise self._make_error(
+                            TypeMismatchError,
+                            f"Compound '{compound_op}' requires a numeric target, "
+                            f"got '{target_type}'",
+                            node,
+                            code="E0005",
+                            help="Use '+=' on numbers (or on strings for concatenation); "
+                                 "use '&='/'|='/'^=' for integers.",
+                            note="Arithmetic compound assignment needs numeric operands."
+                        )
+                    if not val_type.is_numeric() and not isinstance(val_type, AnyType):
+                        raise self._make_error(
+                            TypeMismatchError,
+                            f"Compound '{compound_op}' requires a numeric value, "
+                            f"got '{val_type}'",
+                            node,
+                            code="E0005",
+                            help=f"The right-hand side of '{compound_op}' must be a number.",
+                            note="Arithmetic compound assignment needs numeric operands."
+                        )
+                elif compound_op in ("&=", "|=", "^=", "<<=", ">>="):
+                    for t, side in ((target_type, "target"), (val_type, "value")):
+                        if not t.is_int() and not isinstance(t, AnyType):
+                            raise self._make_error(
+                                TypeMismatchError,
+                                f"Compound '{compound_op}' requires integers, "
+                                f"got '{t}' for the {side}",
+                                node,
+                                code="E0005",
+                                help="Bitwise/shift compound assignment only accepts "
+                                     "integer operands (int, i32, i64, ...).",
+                                note="Use 'and'/'or' for booleans instead of '&='/'|='."
+                            )
+                return
+
             if not val_type.is_compatible(target_type) and not (val_type.is_numeric() and target_type.is_numeric()) and not isinstance(target_type, AnyType):
                 raise self._make_error(
                     TypeMismatchError,
@@ -2281,6 +3139,8 @@ class PenguChecker:
                             has_seen_default = True
                             if type_params:
                                 def type_depends_on_tp(t: Type) -> bool:
+                                    if isinstance(t, FrozenType):
+                                        return type_depends_on_tp(t.target)
                                     if isinstance(t, TypeParam) or (isinstance(t, BaseType) and t.name in type_params):
                                         return True
                                     if isinstance(t, (RefType, ArrayType, SliceType, ManyType, ListType, MaybeType)):
@@ -2603,41 +3463,7 @@ class PenguChecker:
         span_start, span_end = self._get_node_span(block_node)
         self.symbols.push_scope(kind="if", start_line=span_start, end_line=span_end)
 
-        if isinstance(cond_node, Tree) and cond_node.data == "if_cond_binding_present":
-            bind_name = str(cond_node.children[0])
-            bind_type = ast_to_type(cond_node.children[1], self.symbols.lookup_type)
-            init_expr = cond_node.children[2]
-            try:
-                inferred = self.inferrer.infer(init_expr)
-                self.symbols.define(Symbol(name=bind_name, type=bind_type, kind="let", is_mutable=False, line=line, column=col))
-            except SemanticError as e:
-                self._record_error(e)
-
-        elif isinstance(cond_node, Tree) and cond_node.data == "if_cond_binding":
-            bind_name = str(cond_node.children[0])
-            bind_type = ast_to_type(cond_node.children[1], self.symbols.lookup_type)
-            init_expr = cond_node.children[2]
-            try:
-                inferred = self.inferrer.infer(init_expr)
-                self.symbols.define(Symbol(name=bind_name, type=bind_type, kind="let", is_mutable=False, line=line, column=col))
-            except SemanticError as e:
-                self._record_error(e)
-
-        else:
-            try:
-                c_type = self.inferrer.infer(cond_node)
-                if not c_type.is_compatible(BOOL_TYPE) and not isinstance(c_type, AnyType):
-                    err = self._make_error(
-                        TypeMismatchError,
-                        f"'if' condition must be bool, got '{c_type}'",
-                        cond_node,
-                        code="E0005",
-                        help="Ensure 'if' condition evaluates to a boolean (bool).",
-                        note="Branch conditions must be boolean expressions."
-                    )
-                    self._record_error(err)
-            except SemanticError as e:
-                self._record_error(e)
+        self._check_branch_condition(cond_node, "if")
 
         if folded_cond is False:
             self.warnings.append("[W0004] Unreachable code in then branch")
@@ -2691,11 +3517,18 @@ class PenguChecker:
             self._check_node(else_node)
             self.symbols.pop_scope(end_line=e_end)
 
-    def _check_while_stmt(self, node: Tree) -> None:
+    def _check_while_stmt(self, node: Tree, collect: bool = False,
+                          expected_element: Optional[Type] = None) -> Type:
         """Checks while-loop condition and body statements.
+
+        With ``collect`` the body is checked as a *value block* and the type of
+        the value produced on each iteration is returned (the loop is used as an
+        expression, see :meth:`_check_loop_value`).
 
         Args:
             node: AST Tree for while statement.
+            collect: True when the loop is used as a value.
+            expected_element: Element type required by the enclosing value slot.
         """
         line, col = self._get_loc(node)
         cond_node = node.children[0]
@@ -2718,14 +3551,25 @@ class PenguChecker:
 
         span_start, span_end = self._get_node_span(node)
         self.symbols.push_scope(kind="while", in_loop=True, start_line=span_start, end_line=span_end)
-        self._check_node(block_node)
+        elem_t: Type = VOID_TYPE
+        if collect:
+            elem_t = self._check_value_block(list(block_node.children), expected_element)
+        else:
+            self._check_node(block_node)
         self.symbols.pop_scope(end_line=span_end)
+        return elem_t
 
-    def _check_for_range_stmt(self, node: Tree) -> None:
+    def _check_for_range_stmt(self, node: Tree, collect: bool = False,
+                              expected_element: Optional[Type] = None) -> Type:
         """Checks numeric range for-loop bounds and step expressions.
+
+        With ``collect`` the body is checked as a value block and the per-iteration
+        value type is returned (loop used as an expression).
 
         Args:
             node: AST Tree for for-range statement.
+            collect: True when the loop is used as a value.
+            expected_element: Element type required by the enclosing value slot.
         """
         line, col = self._get_loc(node)
         var_name = str(node.children[0])
@@ -2733,6 +3577,20 @@ class PenguChecker:
         end_node = node.children[2]
         step_node = node.children[3] if len(node.children) == 5 else None
         block_node = node.children[-1]
+
+        start_val = self.const_folder.fold(start_node)
+        end_val = self.const_folder.fold(end_node)
+        if isinstance(start_val, int) and isinstance(end_val, int) and start_val > end_val:
+            err = self._make_error(
+                InvalidRangeError,
+                "Invalid range: start must be less than or equal to end when both bounds are known at compile time",
+                node,
+                code="E0042",
+                help=f"Range start ({start_val}) must be <= end ({end_val}).",
+                note="Descending ranges are not supported."
+            )
+            self._record_error(err)
+
 
         try:
             st = self.inferrer.infer(start_node)
@@ -2775,18 +3633,29 @@ class PenguChecker:
         span_start, span_end = self._get_node_span(node)
         self.symbols.push_scope(kind="for", in_loop=True, start_line=span_start, end_line=span_end)
         self.symbols.define(Symbol(name=var_name, type=INT_TYPE, kind="var", is_mutable=False, line=line, column=col))
-        self._check_node(block_node)
+        elem_t: Type = VOID_TYPE
+        if collect:
+            elem_t = self._check_value_block(list(block_node.children), expected_element)
+        else:
+            self._check_node(block_node)
         self.symbols.pop_scope(end_line=span_end)
+        return elem_t
 
-    def _check_for_in_stmt(self, node: Tree) -> None:
+    def _check_for_in_stmt(self, node: Tree, collect: bool = False,
+                           expected_element: Optional[Type] = None) -> Type:
         """Checks collection iterator for-loop and element binding.
 
         Supports both the classic single-binding form ('for v in col') and the
         indexed form ('for i, v in col', 'for i, _ in col', 'for _, v in col').
         A '_' binding is a discard and never creates a scope symbol.
 
+        With ``collect`` the body is checked as a value block and the
+        per-iteration value type is returned (loop used as an expression).
+
         Args:
             node: AST Tree for for-in statement.
+            collect: True when the loop is used as a value.
+            expected_element: Element type required by the enclosing value slot.
         """
         line, col = self._get_loc(node)
         if len(node.children) == 4:
@@ -2837,8 +3706,13 @@ class PenguChecker:
             self.symbols.define(Symbol(name=index_name, type=INT_TYPE, kind="var", is_mutable=False, line=line, column=col))
         if elem_name != "_":
             self.symbols.define(Symbol(name=elem_name, type=elem_type, kind="var", is_mutable=False, line=line, column=col))
-        self._check_node(block_node)
+        body_t: Type = VOID_TYPE
+        if collect:
+            body_t = self._check_value_block(list(block_node.children), expected_element)
+        else:
+            self._check_node(block_node)
         self.symbols.pop_scope(end_line=span_end)
+        return body_t
 
     def _check_test_decl(self, node: Tree) -> None:
         """Type-checks an integrated unit test body as a void function.
@@ -2965,6 +3839,7 @@ class PenguChecker:
             return
 
         expr_node = node.children[0]
+        self._check_value_exprs(expr_node, curr_ret)
         try:
             val_type = self.inferrer.infer(expr_node, expected_type=curr_ret)
             if curr_ret is not None and not val_type.is_compatible(curr_ret) and not isinstance(curr_ret, AnyType):
@@ -2979,6 +3854,124 @@ class PenguChecker:
                 self._record_error(err)
         except SemanticError as e:
             self._record_error(e)
+
+    def _check_omen_variant_collisions(self) -> None:
+        """Reports collisions between omen variant names and global symbols.
+
+        Every non-generic omen variant is registered in the global scope under
+        both its full name (``Omen_variant``) and, when free, its simple name
+        (``variant``) so Pengu code can refer to it ergonomically.  Both names
+        must stay unique: a weave, constant, alias or second omen reusing a
+        variant name would silently shadow one of the two registrations (the
+        symbol table overwrites without complaining), producing confusing
+        resolution.  This pass raises E0046 for such collisions.
+        """
+        omens_seen: Dict[str, OmenType] = {}
+        for o_name, omen_t in self.symbols.omens.items():
+            if not isinstance(omen_t, OmenType):
+                continue
+            # insignia-registered duplicates map the same object twice.
+            if omen_t.name not in omens_seen and omen_t.name in self.symbols.omens:
+                omens_seen[omen_t.name] = omen_t
+            elif omen_t.name not in omens_seen:
+                omens_seen[omen_t.name] = omen_t
+
+        simple_owner: Dict[str, str] = {}
+        full_names: Dict[str, str] = {}
+        for o_logical, omen_t in omens_seen.items():
+            for v_name in (omen_t.variants or {}):
+                full = f"{o_logical}_{v_name}"
+                full_names[full] = o_logical
+                if v_name in simple_owner and simple_owner[v_name] != o_logical:
+                    err = self._make_error(
+                        SemanticError,
+                        f"Omen variant name '{v_name}' is used by both omen "
+                        f"'{simple_owner[v_name]}' and omen '{o_logical}'",
+                        code="E0046",
+                        help="Use distinct variant names, or refer to one of them by "
+                             "its full 'Omen_variant' name.",
+                        note="Simple variant names must be unique across all omens in the module."
+                    )
+                    self._record_error(err)
+                else:
+                    simple_owner[v_name] = o_logical
+
+        for name, sym in list(self.symbols.global_scope.symbols.items()):
+            if sym.kind in ("omen", "omen_variant"):
+                continue
+            if name in simple_owner:
+                if self._const_matches_variant(sym, simple_owner[name], name):
+                    # Same name and same value denote the same number, so the
+                    # variant's simple name is merely shadowed by an equal
+                    # constant. Generated bindings are self-contained per
+                    # header, so a '#define' transcribed as a const legitimately
+                    # repeats a variant of the header it includes (raygui.h
+                    # includes raylib.h, hence its KEY_* consts).
+                    continue
+                if getattr(sym, "kind", "") == "const":
+                    clash_desc = f"top-level constant '{name}'"
+                    note = ("Omen variants occupy both their simple and full names in the "
+                            "global scope.")
+                elif isinstance(sym.type, BaseType):
+                    clash_desc = f"built-in type '{name}'"
+                    note = ("Built-in type names are reserved, so the variant cannot be "
+                            "reached by its simple name.")
+                else:
+                    clash_desc = f"top-level symbol '{name}'"
+                    note = ("Omen variants occupy both their simple and full names in the "
+                            "global scope.")
+                err = self._make_error(
+                    SemanticError,
+                    f"Omen variant name '{name}' of omen '{simple_owner[name]}' collides "
+                    f"with the {clash_desc}",
+                    code="E0046",
+                    help=f"Refer to the variant by its full "
+                         f"'{simple_owner[name]}_{name}' name, or rename the conflicting "
+                         "symbol.",
+                    note=note,
+                )
+                self._record_error(err)
+                continue
+            if name in full_names:
+                o_logical = full_names[name]
+                variant = name[len(o_logical) + 1:]
+                if self._const_matches_variant(sym, o_logical, variant):
+                    continue
+                err = self._make_error(
+                    SemanticError,
+                    f"Top-level symbol '{name}' collides with the full name of the "
+                    f"'{full_names[name]}' omen variant",
+                    code="E0046",
+                    help="Rename the top-level symbol so it does not shadow the "
+                         "full omen variant name.",
+                    note="Omen variants occupy both their simple and full names in the global scope."
+                )
+                self._record_error(err)
+
+    def _const_matches_variant(self, sym: Symbol, omen_name: str, variant: str) -> bool:
+        """True when ``sym`` is a constant holding the variant's exact value.
+
+        Cross-module bindings may declare the same C symbol twice (a ``#define``
+        as a ``const``, an ``enum`` member as an omen variant). When both agree
+        on the value there is nothing ambiguous to report; when they differ the
+        collision is a real one and stays an :class:`E0046`.
+        """
+        if getattr(sym, "kind", "") != "const":
+            return False
+        const_val = getattr(sym, "const_val", None)
+        if const_val is None:
+            return False
+        omen_t = self.symbols.omens.get(omen_name)
+        if not isinstance(omen_t, OmenType):
+            return False
+        value = (omen_t.variant_values or {}).get(variant)
+        if value is None:
+            return False
+        if isinstance(value, (bool, int)) and isinstance(const_val, (bool, int)):
+            return int(value) == int(const_val)
+        if isinstance(value, str) and isinstance(const_val, str):
+            return value == const_val
+        return False
 
     def _check_or_block(self, node: Tree) -> None:
         """Checks error handling 'or:' block.

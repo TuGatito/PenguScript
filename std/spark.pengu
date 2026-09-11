@@ -1,69 +1,161 @@
 # std/spark.pengu - The Spark (Core)
 # Provides fundamental functions for printing, input, conversions, range generation, and panic.
 
+# This is the low-level core module most other std modules build on: stdout
+# printing, stdin line input, string/bool/int/float conversions, integer range
+# generation, assertion helpers and an aborting panic. It also exports the
+# SPARK_VERSION and STD_VERSION version constants.
+#
+# Typical usage:
+#   import std.spark
+#   calling spark.println with "hello"
+#   var line as string is calling spark.input with "name: "
+#   var n as maybe int is calling spark.parse_int with line
+#   calling spark.println with calling spark.str_int with 42
+#
+# Ownership model:
+#   `input` and every str_*/conversion helper return a freshly built owned
+#   string: the C runtime copies or formats into new buffers, so the returned
+#   value follows normal PenguScript string value lifetime - it does not alias
+#   an internal or caller buffer and is safe to store, concatenate or return.
+#   parse_int/parse_float return MaybeInt/MaybeFloat values and `range`
+#   returns a new list of int that owns its elements. Nothing returned is a
+#   caller-owned heap pointer, so no explicit banish is required by callers.
+
+# ----------------------------------------------------------------------------
+# Version Constants
+# ----------------------------------------------------------------------------
+
+# Version of the spark core runtime module (0.6.0-spark).
 const SPARK_VERSION as string is "0.6.0-spark"
+
+# Version of the standard library this module ships with (0.6.0).
 const STD_VERSION as string is "0.6.0"
 
+# ----------------------------------------------------------------------------
+# External C Runtime Declarations (console I/O, parsing, panic)
+# ----------------------------------------------------------------------------
+
+# C bridge that writes `s` to stdout without a trailing newline.
 declare pengu_print with s as string into void
+
+# C bridge that writes `s` to stdout followed by a newline.
 declare pengu_println with s as string into void
+
+# C bridge that prints `prompt` to stdout (no newline) and reads one line from
+# stdin; the trailing newline is stripped and EOF yields an empty string.
+# Returns a fresh owned string.
 declare pengu_input with prompt as string into string
+
+# C bridge that parses `s` as a base-10 integer; some int on success, none
+# when the whole string is not a valid integer.
 declare pengu_parse_int with s as string into maybe int
+
+# C bridge that parses `s` as a floating-point number; some float on success,
+# none when the whole string is not a valid number.
 declare pengu_parse_float with s as string into maybe float
+
+# C bridge that prints "[PANIC] <msg>" to stderr and terminates the process
+# with exit code 1 (it never returns).
 declare pengu_panic with msg as string into void
 
+# ----------------------------------------------------------------------------
+# Printing & Console Output
+# ----------------------------------------------------------------------------
+
+# Returns the spark runtime version string ("0.6.0-spark"; see SPARK_VERSION).
 weave spark_version into string:
     return SPARK_VERSION
 
+# Writes `s` to stdout without a trailing newline.
 weave print with s as string into void:
     calling pengu_print with s
 
+# Writes `s` to stdout followed by a newline.
 weave println with s as string into void:
     calling pengu_println with s
 
+# Writes `s` to stdout followed by a newline (alias of println).
 weave print_line with s as string into void:
     calling pengu_println with s
 
+# Prints `s` plus a newline. Despite the "e" (error) prefix this helper
+# currently routes through println, so it writes to stdout rather than stderr.
 weave eprint_line with s as string into void:
     calling pengu_println with s
 
+# ----------------------------------------------------------------------------
+# Assertions (panicking)
+# ----------------------------------------------------------------------------
+
+# Aborts with "[PANIC] Assertion failed" when `cond` is false; returns
+# normally when `cond` is true.
 weave assert with cond as bool into void:
     if cond == false:
         calling pengu_panic with "Assertion failed"
 
-weave assert_msg with cond as bool and msg as string into void:
+# Aborts with "[PANIC] <msg>" when `cond` is false; returns normally when
+# `cond` is true.
+weave assert_msg with cond as bool , msg as string into void:
     if cond == false:
         calling pengu_panic with msg
 
+# ----------------------------------------------------------------------------
+# Conversions & Length
+# ----------------------------------------------------------------------------
+
+# Returns the number of bytes (characters) in string `s`.
 weave len_string with s as string into int:
     return s length
 
+# Converts bool `b` into the string "true" or "false".
 weave bool_to_string with b as bool into string:
     if b:
         return "true"
     return "false"
 
+# Reads one line from stdin after printing `prompt` (no newline); the trailing
+# newline is stripped. Returns the typed line as a fresh owned string - empty
+# on end-of-input (EOF) or an empty line.
 weave input with prompt as string into string:
     return calling pengu_input with prompt
 
+# Identity conversion: returns string `value` unchanged.
 weave str with value as string into string:
     return value
 
+# Formats int `value` as its decimal string representation.
 weave str_int with value as int into string:
     return value to string
 
+# Formats float `value` as its string representation.
 weave str_float with value as float into string:
     return value to string
 
+# Formats bool `value` as the string "true" or "false".
 weave str_bool with value as bool into string:
     return value to string
 
+# Parses the whole string `s` as a base-10 integer: some int on success, none
+# when `s` is empty or contains trailing non-digit characters.
 weave parse_int with s as string into maybe int:
     return calling pengu_parse_int with s
 
+# Parses the whole string `s` as a floating-point number: some float on
+# success, none when `s` is empty or not entirely numeric.
 weave parse_float with s as string into maybe float:
     return calling pengu_parse_float with s
 
-weave range with start as int and end_val as int and step as int is 1 into list of int:
+# ----------------------------------------------------------------------------
+# Range Generation
+# ----------------------------------------------------------------------------
+
+# Builds and returns a new list of int holding the half-open progression
+# start, start + step, start + 2*step, ... while the value is < `end_val`
+# (`step` defaults to 1; an empty list results when start >= end_val).
+# `step` must be positive - a zero or negative step with start < end_val
+# would loop forever.
+weave range with start as int , end_val as int , step as int is 1 into list of int:
     var result as list of int is list of int with capacity 16
     var i as int is start
     while i < end_val:
@@ -71,5 +163,11 @@ weave range with start as int and end_val as int and step as int is 1 into list 
         set i is i + step
     return result
 
+# ----------------------------------------------------------------------------
+# Fatal Errors
+# ----------------------------------------------------------------------------
+
+# Prints "[PANIC] <msg>" to stderr and terminates the process with exit
+# code 1; it never returns to the caller.
 weave panic with msg as string into void:
     calling pengu_panic with msg

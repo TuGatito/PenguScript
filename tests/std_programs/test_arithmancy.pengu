@@ -9,7 +9,7 @@ weave main into int:
   var is_p as bool is calling arithmancy.is_prime with 17
   if is_p:
     calling spark.println with "prime ok"
-  var g as int is calling arithmancy.gcd with 24 and 36
+  var g as int is calling arithmancy.gcd with 24, 36
   if g == 12:
     calling spark.println with "gcd ok"
   calling spark.println with "arithmancy ok"

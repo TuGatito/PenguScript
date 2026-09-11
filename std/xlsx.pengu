@@ -26,6 +26,21 @@
 #     Returns true when the workbook was written and closed cleanly.
 #   xlsx.write_rows(path, sheet, rows) -> bool
 #     Same, without a header row.
+#
+# Typical usage:
+#   import std.xlsx
+#   # build `rows` as a list of list of string (push row lists of strings),
+#   # then:
+#   var ok as bool is calling xlsx.write_sheet with "out.xlsx", "Sheet1",
+#       header, rows   # header: list of string
+#
+# Ownership model:
+#   Each call opens an opaque xlsxio write handle (`ref to void`) that is
+#   closed (and its memory released by the C library) inside the same
+#   function, so no handle escapes to the caller. The `bytes of <string>`
+#   views are transient and valid only for the duration of the C call they
+#   feed; input strings/lists are never retained, and no returned value is
+#   caller-owned - there is nothing for the caller to banish.
 
 import std.xlsxio
 
@@ -33,14 +48,20 @@ import std.xlsxio
 # Writers
 # ---------------------------------------------------------------------------
 
-# Writes a workbook with a header row followed by data rows (all string cells).
-weave write_sheet with path as string and sheet as string and header as list of string and rows as list of list of string into bool:
-    var h as ref to void is calling xlsxio.open with (bytes of path) and (bytes of sheet)
+# Writes a workbook to `path` with one worksheet named `sheet`. The first row
+# holds the `header` strings (list of string), followed by one row per `rows`
+# entry (a list of list of string); every cell is written as a string cell.
+# The file is created/truncated and the workbook is finalized and closed here.
+# Returns true when the workbook was opened and closed cleanly, false when the
+# handle could not be opened (null, e.g. bad path) or xlsxio reported a close
+# error. Handles and byte views stay internal to the call.
+weave write_sheet with path as string , sheet as string , header as list of string , rows as list of list of string into bool:
+    var h as ref to void is calling xlsxio.open with (bytes of path), (bytes of sheet)
     if h == null:
         return false
     var ci as int is 0
     while ci < header.len:
-        calling xlsxio.add_cell_string with h and (bytes of (header at ci))
+        calling xlsxio.add_cell_string with h, (bytes of (header at ci))
         set ci is ci + 1
     calling xlsxio.next_row with h
     var ri as int is 0
@@ -48,16 +69,22 @@ weave write_sheet with path as string and sheet as string and header as list of 
         var row as list of string is rows at ri
         var cj as int is 0
         while cj < row.len:
-            calling xlsxio.add_cell_string with h and (bytes of (row at cj))
+            calling xlsxio.add_cell_string with h, (bytes of (row at cj))
             set cj is cj + 1
         calling xlsxio.next_row with h
         set ri is ri + 1
     var rc as int is calling xlsxio.close with h
     return rc == 0
 
-# Writes a workbook whose rows all carry data (no header row).
-weave write_rows with path as string and sheet as string and rows as list of list of string into bool:
-    var h as ref to void is calling xlsxio.open with (bytes of path) and (bytes of sheet)
+# Writes a workbook to `path` with one worksheet named `sheet` whose rows all
+# carry data (no header row): one row per `rows` entry (a list of list of
+# string), every cell as a string cell. The file is created/truncated and the
+# workbook is finalized and closed here. Returns true when the workbook was
+# opened and closed cleanly, false when the handle could not be opened (null,
+# e.g. bad path) or xlsxio reported a close error. Handles and byte views
+# stay internal to the call.
+weave write_rows with path as string , sheet as string , rows as list of list of string into bool:
+    var h as ref to void is calling xlsxio.open with (bytes of path), (bytes of sheet)
     if h == null:
         return false
     var ri as int is 0
@@ -65,7 +92,7 @@ weave write_rows with path as string and sheet as string and rows as list of lis
         var row as list of string is rows at ri
         var cj as int is 0
         while cj < row.len:
-            calling xlsxio.add_cell_string with h and (bytes of (row at cj))
+            calling xlsxio.add_cell_string with h, (bytes of (row at cj))
             set cj is cj + 1
         calling xlsxio.next_row with h
         set ri is ri + 1

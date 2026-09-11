@@ -2,6 +2,16 @@
 # JSON serialization/deserialization and Base64 encoding/decoding,
 # implemented in pure PenguScript on top of byte access (ord/chr), map/list
 # primitives, and the pengu_map_keys_string runtime helper.
+#
+# Usage: import std.cipher. Encode and decode bytes with
+# "calling cipher.encode_base64" / "calling cipher.decode_base64", serialize a
+# map with "calling cipher.stringify_json", parse it back with
+# "calling cipher.parse_json", and persist it with read_json_file /
+# write_json_file.
+# Ownership: results are owned strings and maps that may be banished or
+# dropped normally; no function returns a view into its input.
+# Null-style safety: decode_base64, parse_json, parse_value and the file
+# readers return maybe values; none signals malformed input or I/O failure.
 
 import std.spark
 import std.archivum
@@ -10,6 +20,8 @@ import std.archivum
 # Map key enumeration (runtime primitive)
 # ----------------------------------------------------------------------------
 
+# Runtime bridge: returns the keys of a string-to-string map as a list of
+# string; the returned list is owned by the caller.
 declare pengu_map_keys_string with m as ref to map of string to string into list of string
 
 # ----------------------------------------------------------------------------
@@ -48,6 +60,8 @@ weave cb64_val with c as string into int:
         return -1
     return -2
 
+# Encodes data (each character treated as one byte) into a Base64 string; an
+# empty input yields "". Returns a new owned string.
 weave encode_base64 with data as string into string:
     var dl as int is data length
     if dl == 0:
@@ -85,6 +99,9 @@ weave encode_base64 with data as string into string:
             set out is out + "="
     return out
 
+# Decodes a Base64 string back into bytes as a string; whitespace in the input
+# is ignored. Returns maybe none when the input is malformed (bad alphabet
+# characters, wrong length or invalid padding).
 weave decode_base64 with data as string into maybe string:
     var dl as int is data length
     if dl == 0:
@@ -138,6 +155,7 @@ weave decode_base64 with data as string into maybe string:
         set pos is pos + 4
     return some out
 
+# True when data is well-formed Base64, i.e. decode_base64 succeeds.
 weave is_base64 with data as string into bool:
     var decoded as maybe string is calling decode_base64 with data
     return decoded.is_present
@@ -147,7 +165,7 @@ weave is_base64 with data as string into bool:
 # ----------------------------------------------------------------------------
 
 # Advances the cursor past whitespace.
-weave json_skip_ws with s as string and p as ref to int into void:
+weave json_skip_ws with s as string , p as ref to int into void:
     var sl as int is s length
     var cur as int is essence of p
     var done as bool is false
@@ -171,7 +189,7 @@ weave json_skip_ws with s as string and p as ref to int into void:
     set essence of p is cur
 
 # Reads a quoted JSON string (without the surrounding quotes), handling escapes.
-weave json_read_str with s as string and p as ref to int into string:
+weave json_read_str with s as string , p as ref to int into string:
     var sl as int is s length
     var cur as int is essence of p
     var res as string is ""
@@ -221,15 +239,15 @@ weave json_read_str with s as string and p as ref to int into string:
     return res
 
 # Reads a JSON value: quoted string, balanced {}/[] literal, or a raw token.
-weave json_read_value with s as string and p as ref to int into string:
+weave json_read_value with s as string , p as ref to int into string:
     var sl as int is s length
-    calling json_skip_ws with s and p
+    calling json_skip_ws with s , p
     var cur as int is essence of p
     if cur >= sl:
         return ""
     var code as int is ord (s at cur)
     if code == 34:
-        return calling json_read_str with s and p
+        return calling json_read_str with s , p
     if code == 123:
         var depth as int is 1
         var out as string is ""
@@ -321,13 +339,18 @@ weave json_is_literal with v as string into bool:
 # JSON API
 # ----------------------------------------------------------------------------
 
+# Parses a JSON object into a map of string to string. Quoted string values are
+# stored decoded (without their quotes); numbers, booleans, null and nested
+# object/array literals are kept as their raw JSON text so stringify_json can
+# round-trip them. Returns maybe none for empty, non-object or malformed
+# input.
 weave parse_json with json as string into maybe map of string to string:
     var m as map of string to string is map of string to string
     var dl as int is json length
     if dl == 0:
         return maybe none
     var p as int is 0
-    calling json_skip_ws with json and (sigil of p)
+    calling json_skip_ws with json , (sigil of p)
     if p >= dl:
         return maybe none
     if ord (json at p) != 123:
@@ -335,7 +358,7 @@ weave parse_json with json as string into maybe map of string to string:
     set p is p + 1
     var running as bool is true
     while running:
-        calling json_skip_ws with json and (sigil of p)
+        calling json_skip_ws with json , (sigil of p)
         if p >= dl:
             return maybe none
         var cc as int is ord (json at p)
@@ -343,16 +366,16 @@ weave parse_json with json as string into maybe map of string to string:
             return some m
         if cc != 34:
             return maybe none
-        var key as string is calling json_read_str with json and (sigil of p)
-        calling json_skip_ws with json and (sigil of p)
+        var key as string is calling json_read_str with json , (sigil of p)
+        calling json_skip_ws with json , (sigil of p)
         if p >= dl:
             return maybe none
         if ord (json at p) != 58:
             return maybe none
         set p is p + 1
-        var val as string is calling json_read_value with json and (sigil of p)
-        calling m.put with key and val
-        calling json_skip_ws with json and (sigil of p)
+        var val as string is calling json_read_value with json , (sigil of p)
+        calling m.put with key , val
+        calling json_skip_ws with json , (sigil of p)
         if p >= dl:
             return maybe none
         var sep as int is ord (json at p)
@@ -365,6 +388,9 @@ weave parse_json with json as string into maybe map of string to string:
                 return maybe none
     return maybe none
 
+# Serializes a map into a compact single-line JSON object. Values that look
+# like raw JSON literals (true/false/null, numbers, nested {} or [] text) are
+# emitted unquoted; everything else is emitted as a quoted string.
 weave stringify_json with data as map of string to string into maybe string:
     var out as string is "{"
     var keys as list of string is calling pengu_map_keys_string with sigil of data
@@ -386,7 +412,9 @@ weave stringify_json with data as map of string to string into maybe string:
         set i is i + 1
     return some (out + "}")
 
-weave pretty_json with data as map of string to string and indent as int is 2 into maybe string:
+# Like stringify_json but pretty-printed across multiple lines, indenting each
+# member with indent spaces (default 2).
+weave pretty_json with data as map of string to string , indent as int is 2 into maybe string:
     var out as string is "{\n"
     var keys as list of string is calling pengu_map_keys_string with sigil of data
     var i as int is 0
@@ -410,36 +438,47 @@ weave pretty_json with data as map of string to string and indent as int is 2 in
         set i is i + 1
     return some (out + "\n}")
 
+# Reads a single JSON value (object, array, string, number or literal) and
+# returns it as raw text; quoted strings come back decoded and unquoted.
+# Returns maybe none for empty input.
 weave parse_value with json as string into maybe string:
     var dl as int is json length
     if dl == 0:
         return maybe none
     var p as int is 0
-    calling json_skip_ws with json and (sigil of p)
-    var val as string is calling json_read_value with json and (sigil of p)
+    calling json_skip_ws with json , (sigil of p)
+    var val as string is calling json_read_value with json , (sigil of p)
     if val length == 0:
         return maybe none
     return some val
 
+# Passthrough that always returns some value: use it when value is already a
+# complete raw JSON value (e.g. "12345" or "[1,2]") that needs no quoting.
 weave stringify_value with value as string into maybe string:
     return some value
 
+# Reads the file at path (via std.archivum) and parses it as a JSON object;
+# maybe none when the file cannot be read or is not a valid JSON object.
 weave read_json_file with path as string into maybe map of string to string:
     var content as maybe string is calling archivum.read_file with path
     if content.is_present:
         return calling parse_json with content.value
     return maybe none
 
-weave write_json_file with path as string and data as map of string to string into bool:
+# Serializes data as a compact JSON object and writes it to path; true when the
+# file was written.
+weave write_json_file with path as string , data as map of string to string into bool:
     var json as maybe string is calling stringify_json with data
     if json.is_present:
         var text as string is json.value
-        return calling archivum.write_file with path and text
+        return calling archivum.write_file with path , text
     return false
 
-weave write_json_file_pretty with path as string and data as map of string to string and indent as int is 2 into bool:
-    var json as maybe string is calling pretty_json with data and indent
+# Like write_json_file but writes pretty-printed JSON with indent spaces per
+# level (default 2).
+weave write_json_file_pretty with path as string , data as map of string to string , indent as int is 2 into bool:
+    var json as maybe string is calling pretty_json with data , indent
     if json.is_present:
         var text as string is json.value
-        return calling archivum.write_file with path and text
+        return calling archivum.write_file with path , text
     return false

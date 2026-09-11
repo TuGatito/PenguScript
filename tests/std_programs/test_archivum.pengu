@@ -7,12 +7,12 @@ weave main into void:
     calling spark.println with "=== Test Archivum ==="
 
     var test_dir as string is "tmp_archivum_test"
-    var ok_dir as bool is calling archivum.create_dir with test_dir and true
+    var ok_dir as bool is calling archivum.create_dir with test_dir, true
     if ok_dir:
         calling spark.println with "create_dir: true"
 
     var test_file as string is test_dir + "/hello.txt"
-    var ok_w as bool is calling archivum.write_file with test_file and "Hello Pengu!"
+    var ok_w as bool is calling archivum.write_file with test_file, "Hello Pengu!"
     if ok_w:
         calling spark.println with "write_file: true"
 
@@ -31,7 +31,7 @@ weave main into void:
     if read_res.is_present:
         calling spark.println with "content: " + read_res.value
 
-    var ok_app as bool is calling archivum.append_file with test_file and "\nAppended line"
+    var ok_app as bool is calling archivum.append_file with test_file, "\nAppended line"
     if ok_app:
         calling spark.println with "append_file: true"
 
@@ -44,17 +44,17 @@ weave main into void:
         calling spark.println with "metadata: ok"
 
     var cp_dst as string is test_dir + "/copy.txt"
-    var ok_cp as bool is calling archivum.copy_file with test_file and cp_dst and true
+    var ok_cp as bool is calling archivum.copy_file with test_file, cp_dst, true
     if ok_cp:
         calling spark.println with "copy_file: true"
 
     var mv_dst as string is test_dir + "/moved.txt"
-    var ok_mv as bool is calling archivum.move_file with cp_dst and mv_dst and true
+    var ok_mv as bool is calling archivum.move_file with cp_dst, mv_dst, true
     if ok_mv:
         calling spark.println with "move_file: true"
 
     var ren_file as string is test_dir + "/renamed.txt"
-    var ok_ren as bool is calling archivum.rename with mv_dst and ren_file
+    var ok_ren as bool is calling archivum.rename with mv_dst, ren_file
     if ok_ren:
         calling spark.println with "rename: true"
 
@@ -67,7 +67,7 @@ weave main into void:
         calling spark.println with "read_dir: ok"
 
     # Cleanup test dir
-    var ok_rm as bool is calling archivum.remove_dir with test_dir and true
+    var ok_rm as bool is calling archivum.remove_dir with test_dir, true
     if ok_rm:
         calling spark.println with "remove_dir: true"
 

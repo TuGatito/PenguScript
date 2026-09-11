@@ -1,38 +1,41 @@
-## PenguScript manual declaration binding for the single-file UUID library (uuid.h).
-## uuid.h: single-file, STB-style UUID generator by Fredrik Kihlander
-## (https://github.com/fredrikkihlander/uuid.h, zlib-style license).
-##
-## This is a declaration file (.d.pengu): it declares the whole native C
-## surface so the LSP and the semantic checker know how to call the library
-## from PenguScript. The real C declarations live in `uuid.h`, which is
-## `include`d below, so nothing here emits C code.
-##
-## Bound API (every public function of the header):
-##   - uuid0_generate(res)    set res to the null (all-zero) UUID
-##   - uuid4_generate(res)    generate a random version-4 UUID into res
-##   - uuid_type(id)          kind of UUID: 0 null, 1..5 version, -1 invalid
-##   - uuid_to_string(id,out) render id into a caller char buffer (36 chars,
-##                            NOT NUL terminated), returns out
-##   - uuid_from_string(str,out) parse a canonical 36-char string into out;
-##                            returns true on success
-##   - uuid_copy(src,dst)     copy a UUID
-##
-## Type mapping notes:
-##   - C `struct uuid { unsigned char bytes[16]; }` is declared here as an
-##     opaque alias `uuid`. This is a KNOWN LIMITATION: uuid.h does not
-##     `typedef` the struct, so the only C spellings that exist are
-##     `struct uuid` / `struct uuid*`. PenguScript emits plain type names for
-##     .d module types, so pure-Pengu code cannot currently allocate a UUID
-##     value or a 36-byte output buffer to hand to these functions.
-##     The functions are therefore verified through C-level integration tests
-##     (see tests/test_std_c_libs.py) which drive the real symbols. If a
-##     future PenguScript release gains fixed-size byte arrays, this binding
-##     can be promoted to full by-value usage.
-##   - `const char*` strings are typed `ref to char`.
-##
-## Typical usage (C side):
-##   struct uuid u; char buf[37];
-##   uuid4_generate(&u); uuid_to_string(&u, buf); buf[36] = 0;
+# PenguScript manual declaration binding for the single-file UUID library (uuid.h).
+# uuid.h: single-file, STB-style UUID generator by Fredrik Kihlander
+# (https://github.com/fredrikkihlander/uuid.h, zlib-style license).
+#
+# This is a declaration file (.d.pengu): it declares the whole native C
+# surface so the LSP and the semantic checker know how to call the library
+# from PenguScript. The real C declarations live in `uuid.h`, which is
+# `include`d below, so nothing here emits C code.
+#
+# Memory ownership: uuid.h returns no owned handles - every output (res / out)
+# is written into a caller-provided buffer, so nothing here needs releasing.
+#
+# Bound API (every public function of the header):
+#   - uuid0_generate(res)    set res to the null (all-zero) UUID
+#   - uuid4_generate(res)    generate a random version-4 UUID into res
+#   - uuid_type(id)          kind of UUID: 0 null, 1..5 version, -1 invalid
+#   - uuid_to_string(id,out) render id into a caller char buffer (36 chars,
+#                            NOT NUL terminated), returns out
+#   - uuid_from_string(str,out) parse a canonical 36-char string into out;
+#                            returns true on success
+#   - uuid_copy(src,dst)     copy a UUID
+#
+# Type mapping notes:
+#   - C `struct uuid { unsigned char bytes[16]; }` is declared here as an
+#     opaque alias `uuid`. This is a KNOWN LIMITATION: uuid.h does not
+#     `typedef` the struct, so the only C spellings that exist are
+#     `struct uuid` / `struct uuid*`. PenguScript emits plain type names for
+#     .d module types, so pure-Pengu code cannot currently allocate a UUID
+#     value or a 36-byte output buffer to hand to these functions.
+#     The functions are therefore verified through C-level integration tests
+#     (see tests/test_std_c_libs.py) which drive the real symbols. If a
+#     future PenguScript release gains fixed-size byte arrays, this binding
+#     can be promoted to full by-value usage.
+#   - `const char*` strings are typed `ref to char`.
+#
+# Typical usage (C side):
+#   struct uuid u; char buf[37];
+#   uuid4_generate(&u); uuid_to_string(&u, buf); buf[36] = 0;
 
 include "uuid.h"
 
@@ -54,6 +57,6 @@ declare uuid_type with id as ref to uuid into int
 
 declare uuid_to_string with id as ref to uuid, out as ref to char into ref to char
 
-declare uuid_from_string with str as ref to char, out as ref to uuid into bool
+declare uuid_from_string with str as ref to frozen char, out as ref to uuid into bool
 
-declare uuid_copy with src as ref to uuid, dst as ref to uuid into void
+declare uuid_copy with src as ref to frozen uuid, dst as ref to uuid into void

@@ -75,6 +75,10 @@ class Type:
         Returns:
             True if types are compatible without explicit cast, False otherwise.
         """
+        if isinstance(other, FrozenType):
+            # A mutable value flows into a read-only view (C allows
+            # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(self, AnyType):
             return True
         if isinstance(other, TypeParam) or isinstance(self, TypeParam):
@@ -213,6 +217,10 @@ class NullType(Type):
     name: str = "null"
 
     def is_compatible(self, other: Type) -> bool:
+        if isinstance(other, FrozenType):
+            # A mutable value flows into a read-only view (C allows
+            # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, NullType):
@@ -270,6 +278,10 @@ class BaseType(Type):
 
     def is_compatible(self, other: Type) -> bool:
         """Checks strict compatibility for base primitives without implicit numeric conversion."""
+        if isinstance(other, FrozenType):
+            # A mutable value flows into a read-only view (C allows
+            # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if self.name in ("opaque", "any") and isinstance(other, NullType):
@@ -339,6 +351,60 @@ ERROR_TYPE = BaseType("error")
 OPAQUE_TYPE = BaseType("opaque")
 
 
+def _is_frozen_target(t: Type) -> bool:
+    """Reports whether a type is frozen-qualified (looking through aliases)."""
+    while isinstance(t, AliasType) and getattr(t, "target", None) is not None:
+        t = t.target
+    return isinstance(t, FrozenType)
+
+
+def _same_pointee(a: Type, b: Type) -> bool:
+    """Checks whether two pointer target types are strictly compatible.
+
+    Pointees must match strictly (or through typedef aliases):
+    - a == b
+    - Exception: 'char' <-> 'byte' (and vice versa) for C byte buffer interop.
+    - Rejects disparate numeric types (e.g. i32 vs char, u8 vs char, f32 vs f64).
+    """
+    while isinstance(a, (AliasType, FrozenType)) and getattr(a, "target", None) is not None:
+        a = a.target
+    while isinstance(b, (AliasType, FrozenType)) and getattr(b, "target", None) is not None:
+        b = b.target
+
+    if isinstance(a, (AnyType, TypeParam)) or isinstance(b, (AnyType, TypeParam)):
+        return True
+
+    if a == b:
+        return True
+
+    if isinstance(a, BaseType) and isinstance(b, BaseType):
+        # C byte buffer interoperability exception: char <-> byte
+        if (a.name == "char" and b.name == "byte") or (a.name == "byte" and b.name == "char"):
+            return True
+
+    return False
+
+
+def _is_void_pointer_target(target: Type) -> bool:
+    """Reports whether a pointer target is the wildcard ``void`` or ``opaque``.
+
+    Both ``ref to void`` (C ``void*``) and ``ref to frozen void`` (C
+    ``const void*``), as well as ``ref to opaque``, accept a pointer to any
+    object type, so they are checked together whenever two reference types are compared.
+
+    Args:
+        target: The pointee type of a :class:`RefType`.
+
+    Returns:
+        True when the target is ``void``, ``opaque``, or their ``frozen`` variants.
+    """
+    if isinstance(target, AliasType):
+        return _is_void_pointer_target(target.target)
+    if isinstance(target, FrozenType):
+        return _is_void_pointer_target(target.target)
+    return isinstance(target, BaseType) and target.name in ("void", "opaque")
+
+
 @dataclass
 class RefType(Type):
     """Pointer reference type in PenguScript (ref to T)."""
@@ -356,7 +422,11 @@ class RefType(Type):
         return f"ref_{self.target.get_mangled_name()}"
 
     def is_compatible(self, other: Type) -> bool:
-        """Checks reference compatibility allowing ref to void polymorphism and null literal."""
+        """Checks reference compatibility with strict pointee typing and const-correctness."""
+        if isinstance(other, FrozenType):
+            # A mutable value flows into a read-only view (C allows
+            # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, NullType):
@@ -364,9 +434,23 @@ class RefType(Type):
         if isinstance(other, AliasType):
             return self.is_compatible(other.target)
         if isinstance(other, RefType):
-            if self.target == VOID_TYPE or other.target == VOID_TYPE:
+            # C treats both 'void*' and 'const void*' as the catch-all object
+            # pointer: any 'T*' (mutable or frozen) converts to either of them.
+            if _is_void_pointer_target(self.target) or _is_void_pointer_target(other.target):
                 return True
-            return self.target.is_compatible(other.target)
+
+            # Directional frozen check:
+            # For typed pointers (non-void), ref to frozen T can NEVER flow into ref to mutable T.
+            self_frozen = _is_frozen_target(self.target)
+            other_frozen = _is_frozen_target(other.target)
+            if self_frozen and not other_frozen:
+                return False
+
+            # Strict pointee check: pointees must match strictly (or char <-> byte exception).
+            return _same_pointee(self.target, other.target)
+        if isinstance(other, FnType) and isinstance(self.target, FnType):
+            # 'ref to weave …' also accepts a bare function value.
+            return self.target.is_compatible(other)
         return False
 
     def can_cast_to(self, other: Type) -> bool:
@@ -382,6 +466,93 @@ class RefType(Type):
     def __hash__(self) -> int:
         """Returns hash of reference."""
         return hash(("ref", self.target))
+
+
+class FrozenType(Type):
+    """Read-only qualification of a type: PenguScript's ``frozen T``.
+
+    It is 1:1 with C's ``const``: the value (or pointee) cannot be written
+    through this view. ``frozen T`` has the same size and layout as ``T`` and is
+    usable as ``T`` in expressions; only assignment is restricted, and it is
+    restricted in exactly one direction — a mutable value flows into ``frozen``
+    (like C), while ``frozen`` does not flow back into mutable.
+
+    ``frozen ref to T`` is sugar: :func:`ast_to_type` normalises it to
+    ``ref to frozen T`` (C ``const T*``), so this class never wraps a ``RefType``
+    coming from parsing. It is orthogonal to ``let``/``var``, which qualify the
+    *name* (C ``T* const``) rather than the pointee.
+    """
+
+    def __init__(self, target: Type):
+        """Initializes the qualification around ``target``.
+
+        Args:
+            target: The qualified (read-only) type.
+        """
+        self.target = target
+
+    @property
+    def name(self) -> str:
+        """Returns the human readable spelling."""
+        return f"frozen {self.target}"
+
+    def substitute(self, type_map: Dict[str, Type]) -> Type:
+        """Substitutes type parameters inside the qualified type."""
+        return FrozenType(target=self.target.substitute(type_map))
+
+    def get_mangled_name(self) -> str:
+        """Returns the mangled name used for monomorphization."""
+        return f"frozen_{self.target.get_mangled_name()}"
+
+    def is_compatible(self, other: Type) -> bool:
+        """Checks assignability of a frozen value.
+
+        Only ``frozen T`` (and anything acceptable to ``T``) is assignable:
+        dropping the qualification is an error, matching C's `const` rules.
+        """
+        if isinstance(other, AnyType) or isinstance(other, TypeParam):
+            return True
+        if isinstance(other, AliasType):
+            return self.is_compatible(other.target)
+        if isinstance(other, FrozenType):
+            return self.target.is_compatible(other.target)
+        return False
+
+    def can_cast_to(self, other: Type) -> bool:
+        """Explicit casts are decided by the qualified type."""
+        return self.target.can_cast_to(other)
+
+    def is_numeric(self) -> bool:
+        """Delegates to the qualified type."""
+        return self.target.is_numeric()
+
+    def is_int(self) -> bool:
+        """Delegates to the qualified type."""
+        return self.target.is_int()
+
+    def is_float(self) -> bool:
+        """Delegates to the qualified type."""
+        return self.target.is_float()
+
+    def is_string(self) -> bool:
+        """Delegates to the qualified type."""
+        return self.target.is_string()
+
+    def is_iterable(self) -> bool:
+        """Delegates to the qualified type."""
+        return self.target.is_iterable()
+
+    def element_type(self) -> Optional[Type]:
+        """Delegates to the qualified type."""
+        return self.target.element_type()
+
+    def __eq__(self, other: Any) -> bool:
+        """Checks equality based on the qualified type ('frozen int' != 'int')."""
+        return isinstance(other, FrozenType) and self.target == other.target
+
+    def __hash__(self) -> int:
+        """Returns hash of the qualification."""
+        return hash(("frozen", self.target))
 
 
 @dataclass
@@ -413,10 +584,23 @@ class ArrayType(Type):
 
     def is_compatible(self, other: Type) -> bool:
         """Checks array element compatibility."""
+        if isinstance(other, FrozenType):
+            # A mutable value flows into a read-only view (C allows
+            # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, ArrayType):
             return self.element.is_compatible(other.element)
+        if isinstance(other, RefType):
+            # C array-to-pointer decay: 'array of T' is usable where a pointer
+            # is expected (e.g. 'calling qsort with xs, …').
+            target = other.target
+            while isinstance(target, AliasType) and getattr(target, "target", None) is not None:
+                target = target.target
+            if _is_void_pointer_target(target):
+                return True
+            return _same_pointee(self.element, target)
         return False
 
     def __eq__(self, other: Any) -> bool:
@@ -429,7 +613,43 @@ class ArrayType(Type):
 
 
 @dataclass
+class RangeType(Type):
+    """Integer range type (e.g. 0 to 2 or 0..2)."""
+    element: Type = field(default_factory=lambda: INT_TYPE)
+    start_val: Optional[Any] = None
+    end_val: Optional[Any] = None
+
+    @property
+    def name(self) -> str:
+        return f"range of {self.element}"
+
+    def is_iterable(self) -> bool:
+        return True
+
+    def element_type(self) -> Optional[Type]:
+        return self.element
+
+    def is_compatible(self, other: Type) -> bool:
+        if isinstance(other, FrozenType):
+            # A mutable value flows into a read-only view (C allows
+            # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
+        if isinstance(other, (AnyType, TypeParam)):
+            return True
+        if isinstance(other, RangeType):
+            return self.element.is_compatible(other.element)
+        return False
+
+    def __eq__(self, other: Any) -> bool:
+        return isinstance(other, RangeType) and self.element == other.element
+
+    def __hash__(self) -> int:
+        return hash(("range", self.element))
+
+
+@dataclass
 class SliceType(Type):
+
     """Fat-pointer view into contiguous elements (slice of T)."""
     element: Type
 
@@ -454,6 +674,10 @@ class SliceType(Type):
 
     def is_compatible(self, other: Type) -> bool:
         """Checks slice compatibility with slices, many types, and arrays."""
+        if isinstance(other, FrozenType):
+            # A mutable value flows into a read-only view (C allows
+            # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, (SliceType, ManyType)):
@@ -497,6 +721,10 @@ class ManyType(Type):
 
     def is_compatible(self, other: Type) -> bool:
         """Checks compatibility with ManyType, SliceType, ArrayType."""
+        if isinstance(other, FrozenType):
+            # A mutable value flows into a read-only view (C allows
+            # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, (ManyType, SliceType, ArrayType)):
@@ -510,6 +738,36 @@ class ManyType(Type):
     def __hash__(self) -> int:
         """Returns hash of many type."""
         return hash(("many", self.element))
+
+
+@dataclass
+class CVarArgsType(Type):
+    """C variadic parameter marker (...) in declare statements."""
+
+    @property
+    def name(self) -> str:
+        return "..."
+
+    def __str__(self) -> str:
+        return "..."
+
+    def substitute(self, type_map: Dict[str, Type]) -> Type:
+        return self
+
+    def get_mangled_name(self) -> str:
+        return "varargs"
+
+    def is_compatible(self, other: Type) -> bool:
+        return True
+
+    def can_cast_to(self, other: Type) -> bool:
+        return True
+
+    def __eq__(self, other: Any) -> bool:
+        return isinstance(other, CVarArgsType)
+
+    def __hash__(self) -> int:
+        return hash("CVarArgsType")
 
 
 @dataclass
@@ -538,6 +796,10 @@ class ListType(Type):
 
     def is_compatible(self, other: Type) -> bool:
         """Checks list element compatibility."""
+        if isinstance(other, FrozenType):
+            # A mutable value flows into a read-only view (C allows
+            # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, ListType):
@@ -580,6 +842,10 @@ class MapType(Type):
 
     def is_compatible(self, other: Type) -> bool:
         """Checks map key and value type compatibility."""
+        if isinstance(other, FrozenType):
+            # A mutable value flows into a read-only view (C allows
+            # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, MapType):
@@ -613,6 +879,10 @@ class MaybeType(Type):
 
     def is_compatible(self, other: Type) -> bool:
         """Checks maybe element compatibility."""
+        if isinstance(other, FrozenType):
+            # A mutable value flows into a read-only view (C allows
+            # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, MaybeType):
@@ -647,6 +917,10 @@ class ResultType(Type):
 
     def is_compatible(self, other: Type) -> bool:
         """Checks ok and error type compatibility."""
+        if isinstance(other, FrozenType):
+            # A mutable value flows into a read-only view (C allows
+            # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, ResultType):
@@ -695,6 +969,10 @@ class RuneType(Type):
 
     def is_compatible(self, other: Type) -> bool:
         """Checks rune compatibility by nominal type name."""
+        if isinstance(other, FrozenType):
+            # A mutable value flows into a read-only view (C allows
+            # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, RuneType):
@@ -746,6 +1024,10 @@ class EchoType(Type):
 
     def is_compatible(self, other: Type) -> bool:
         """Checks echo union compatibility by nominal type name."""
+        if isinstance(other, FrozenType):
+            # A mutable value flows into a read-only view (C allows
+            # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, EchoType):
@@ -818,6 +1100,10 @@ class OmenType(Type):
 
     def is_compatible(self, other: Type) -> bool:
         """Checks omen sum type compatibility by nominal type name."""
+        if isinstance(other, FrozenType):
+            # A mutable value flows into a read-only view (C allows
+            # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, OmenType):
@@ -879,8 +1165,22 @@ class FnType(Type):
 
     def is_compatible(self, other: Type) -> bool:
         """Checks function signature parameter and return type compatibility."""
+        if isinstance(other, FrozenType):
+            # A mutable value flows into a read-only view (C allows
+            # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
+        if isinstance(other, AliasType):
+            # A callback typedef ('alias TraceLogCallback as ref to weave …').
+            return self.is_compatible(other.target)
+        if isinstance(other, RefType):
+            # A function value decays to a function pointer in C, so a bare
+            # 'weave … into …' is compatible with a declared
+            # 'ref to weave … into …' (how C callback parameters are bound).
+            if isinstance(other.target, FnType):
+                return self.is_compatible(other.target)
+            return False
         if isinstance(other, FnType):
             if len(self.params) != len(other.params):
                 return False
@@ -944,6 +1244,10 @@ class ConceptType(Type):
         return ConceptType(name=self.name, methods=new_methods, ritual_methods=set(self.ritual_methods), type_params=self.type_params, type_args=new_args, c_name=self.c_name)
 
     def is_compatible(self, other: Type) -> bool:
+        if isinstance(other, FrozenType):
+            # A mutable value flows into a read-only view (C allows
+            # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, ConceptType):
@@ -969,6 +1273,10 @@ class SealType(Type):
 
     def is_compatible(self, other: Type) -> bool:
         """Strict nominal compatibility: only compatible with same SealType."""
+        if isinstance(other, FrozenType):
+            # A mutable value flows into a read-only view (C allows
+            # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, SealType):
@@ -1043,6 +1351,10 @@ class AliasType(Type):
 
     def is_compatible(self, other: Type) -> bool:
         """Checks compatibility by alias name or underlying target type."""
+        if isinstance(other, FrozenType):
+            # A mutable value flows into a read-only view (C allows
+            # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, AliasType):
@@ -1193,6 +1505,11 @@ def ast_to_type(type_node: Any, symbol_lookup_fn: Optional[Any] = None) -> Type:
 
         type_args = []
         for c in type_node.children[1:]:
+            # The optional 'of type …' part leaves a None child behind; treating
+            # it as an argument turned every bare custom type into a bogus
+            # generic instantiation ('va_list' -> 'va_list_any').
+            if c is None:
+                continue
             arg_t = ast_to_type(c, symbol_lookup_fn)
             if arg_t is not None:
                 type_args.append(arg_t)
@@ -1240,22 +1557,55 @@ def ast_to_type(type_node: Any, symbol_lookup_fn: Optional[Any] = None) -> Type:
         inner = ast_to_type(type_node.children[0], symbol_lookup_fn)
         return RefType(target=inner)
 
+    elif rule == "frozen_type":
+        inner = ast_to_type(type_node.children[0], symbol_lookup_fn)
+        # 'frozen ref to T' is sugar for 'ref to frozen T' (C 'const T*'):
+        # the canonical form puts the qualification on the pointee. The pointer
+        # itself stays mutable ('T* const' is what 'let' expresses).
+        if isinstance(inner, RefType):
+            return RefType(target=FrozenType(target=inner.target))
+        if isinstance(inner, FrozenType):
+            return inner   # 'frozen frozen T' is idempotent
+        return FrozenType(target=inner)
+
     elif rule == "array_type":
-        element = ast_to_type(type_node.children[0], symbol_lookup_fn)
-        size = None
-        if len(type_node.children) > 1 and type_node.children[1] is not None:
-            sz_tok = type_node.children[1]
+        curr = type_node
+        array_nodes = []
+        while isinstance(curr, Tree) and curr.data == "array_type":
+            array_nodes.append(curr)
+            curr = curr.children[0]
+        base_elem = ast_to_type(curr, symbol_lookup_fn)
+        
+        size_tokens = []
+        for an in array_nodes:
+            if len(an.children) > 1 and an.children[1] is not None:
+                size_tokens.append(an.children[1])
+        
+        size_tokens.sort(key=lambda t: (getattr(t, "line", 0) or 0, getattr(t, "column", 0) or 0))
+        
+        def _resolve_sz(sz_tok):
+            if sz_tok is None:
+                return None
             if isinstance(sz_tok, Token) and sz_tok.type == "INT":
                 try:
-                    size = int(str(sz_tok), 0)
+                    return int(str(sz_tok), 0)
                 except ValueError:
-                    pass
+                    return None
             elif isinstance(sz_tok, Token):
                 sz_name = str(sz_tok)
                 sym = symbol_lookup_fn(sz_name) if symbol_lookup_fn else None
                 if sym and hasattr(sym, "const_val") and isinstance(sym.const_val, int):
-                    size = sym.const_val
-        return ArrayType(element=element, size=size)
+                    return sym.const_val
+            return None
+
+        while len(size_tokens) < len(array_nodes):
+            size_tokens.append(None)
+            
+        res = base_elem
+        for i in reversed(range(len(array_nodes))):
+            res = ArrayType(element=res, size=_resolve_sz(size_tokens[i]))
+        return res
+
 
     elif rule == "slice_type":
         element = ast_to_type(type_node.children[0], symbol_lookup_fn)
@@ -1325,6 +1675,10 @@ def estimate_size(t: Optional[Type], custom_types: Optional[Dict[str, Type]] = N
         return 0
     if seen is None:
         seen = set()
+
+    if isinstance(t, FrozenType):
+        # 'const' does not change size or layout.
+        return estimate_size(t.target, custom_types, seen)
 
     if isinstance(t, BaseType):
         n = t.name.lower()
@@ -1396,6 +1750,9 @@ def estimate_size(t: Optional[Type], custom_types: Optional[Dict[str, Type]] = N
 
     if isinstance(t, FnType):
         return 8  # Function pointer
+
+    if isinstance(t, CVarArgsType):
+        return 0
 
     return 8
 
