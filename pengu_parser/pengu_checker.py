@@ -100,6 +100,15 @@ def extract_shard_params(shard_node: Tree) -> Tuple[List[str], Dict[str, List[st
 # Loop rules that can also be used as values (collecting their body's value).
 _LOOP_RULES = ("while_stmt", "for_range_stmt", "for_in_stmt")
 
+# AST node types for compound data structures and container literals in escape analysis
+_ESCAPE_COMPOUND_RULES = (
+    "struct_init", "field_init", "struct_init_expr", "with_init_expr",
+    "array_init_expr", "array_lit", "list_lit", "map_lit", "tuple_lit",
+    "some_expr", "ok_expr", "err_expr",
+    "indent_literal", "indent_entries", "indent_array",
+    "indent_row", "field_entry", "map_entry",
+)
+
 
 class PenguChecker:
     """Performs comprehensive semantic analysis, type checking, and optimization tagging.
@@ -3486,10 +3495,15 @@ class PenguChecker:
                     return
                 if isinstance(ret_val, Tree):
                     for sub in ret_val.iter_subtrees():
-                        if sub.data in ("struct_init", "field_init", "with_init_expr", "struct_init_expr", "list_lit", "map_lit", "some_expr", "array_lit", "tuple_lit"):
+                        if sub.data in _ESCAPE_COMPOUND_RULES:
                             if self._contains_var_ref(sub, sym_name):
                                 escaped = True
                                 return
+                    if ret_val.data in ("if_stmt", "unless_stmt", "do_expr",
+                                        "while_stmt", "for_range_stmt", "for_in_stmt"):
+                        if self._contains_var_ref(ret_val, sym_name):
+                            escaped = True
+                            return
                 if contains_sigil_of(ret_val):
                     escaped = True
                     return
@@ -3525,7 +3539,7 @@ class PenguChecker:
                         return
 
             # 5. Compound data structures or container literals
-            elif n.data in ("struct_init", "field_init", "struct_init_expr", "with_init_expr", "array_init_expr", "array_lit", "list_lit", "map_lit", "tuple_lit", "some_expr", "ok_expr", "err_expr"):
+            elif n.data in _ESCAPE_COMPOUND_RULES:
                 if contains_sigil_of(n) or self._contains_var_ref(n, sym_name):
                     escaped = True
                     return

@@ -1,6 +1,6 @@
 # PenguScript Language Reference
 
-> **Version covered:** 0.9.x (C99/C11 code generator; runtime headers under `pengu_runtime.h`).
+> **Version covered:** 0.10.x (C99/C11 code generator; runtime headers under `pengu_runtime.h`).
 > This is the definitive syntax & semantics guide, written against the compiler
 > sources (`pengu_grammar.py`, `pengu_checker.py`, `pengu_codegen.py`,
 > `pengu_infer.py`, `pengu_runtime.h`). It complements the quick
@@ -129,9 +129,9 @@ unless else while for in from to step judge calling with into as is many return
 break continue defer errdefer banish some ord chr bytes of essence of sigil of
 transmute size of try defined not and or lambda null true false maybe none error`
 
-`frozen` is a **soft** keyword: it only acts in type position
-(`frozen T`, `ref to frozen T`); identifiers named `frozen` keep working
-everywhere else. See [§9.5](#95-frozen--read-only-qualification).
+`frozen` and `borrowed` are **soft** keywords:
+- `frozen` only acts in type position (`frozen T`, `ref to frozen T`); identifiers named `frozen` keep working everywhere else. See [§9.5](#95-frozen--read-only-qualification).
+- `borrowed` only acts immediately following `var` or `let` (`var borrowed x is ...`, `let borrowed x is ...`); identifiers named `borrowed` keep working everywhere else (fields, parameters, functions, etc.). See [§5.4](#54-the-borrowed-modifier) and [§13.4](#134-scope-owned-locals-auto-banish).
 
 ---
 
@@ -253,6 +253,20 @@ Public by default; `_`-prefixed symbols are module/rune private. There is no
 `pub` keyword (removed in 0.9.1): the leading underscore is the single
 mechanism.
 
+### 5.4 The `borrowed` modifier
+
+Locals can be explicitly declared with the soft keyword `borrowed`:
+
+```pengu
+var borrowed view is existing_string
+let borrowed slice_view is container_ref
+```
+
+- **Non-Owning Reference:** A variable marked as `borrowed` indicates that it does not own the underlying heap resource.
+- **Disables Auto-Banish:** The compiler will never emit automatic cleanup (`pengu_banish_*`) for a borrowed variable upon scope exit.
+- **Forbids Manual Banish:** Calling `banish` on a `borrowed` variable is a compile-time semantic error (`E0048: BorrowedBanishError`), ensuring borrowed references cannot accidentally deallocate someone else's memory.
+- See [§13.4](#134-scope-owned-locals-auto-banish) for full details on the ownership and escape analysis model.
+
 ---
 
 ## 6. Operators & expressions
@@ -305,12 +319,10 @@ Everything left-associative. `or` binds looser than `and`, so
 > (`weave with x as int and y as int into int`) — although `,` works there
 > too. In `map of K to V` the separator is `to`.
 >
-> **Nota de migración interna:** la stdlib (`std/`) y la suite de
-> tests del repositorio **ya están migradas** a la sintaxis con comas en
-> esta misma versión (725 separadores en `std/`, más los programas de
-> `tests/` y las fuentes Pengu embebidas en `tests/*.py`). Además,
-> `lambda` pasa a ser palabra reservada: `std/lot.pengu` renombró su
-> parámetro `lambda` a `rate`.
+> **Migration Note:** The standard library (`std/`) and the repository test
+> suite are fully migrated to comma separation in this release.
+> In addition, `lambda` is now a reserved keyword; `std/lot.pengu` renamed its
+> `lambda` parameter to `rate`.
 
 ### 6.2 Arithmetic & bitwise
 
@@ -1184,11 +1196,11 @@ weave load into maybe string:
 `E0020` guards return-type compatibility, `E0045` guards `try` placement.
 
 > [!WARNING]
-> `or:` sólo es válido como initializer directo de `var` / `let`
-> (`var x is <expr> or: ...`). Usarlo dentro de una expresión más grande
-> (`return f() or: ...`, `calling g with (x or: ...)`, `a + (b or: ...)`)
-> no está soportado: usa `or else` o `or return`, o extrae el `or:` a una
-> variable intermedia.
+> `or:` blocks are only supported as direct initializers for `var` / `let`
+> declarations (`var x is <expr> or: ...`). Using an `or:` block inside a
+> larger expression (`return f() or: ...`, `calling g with (x or: ...)`,
+> `a + (b or: ...)`) is not supported: use `or else`, `or return`, or extract
+> the `or:` block into an intermediate variable.
 
 ---
 
@@ -1268,7 +1280,7 @@ weave main into int:
 (`p at i`), slices (`ffi.slice_from_ptr`, `arr at a to b`) and `transmute` cover
 the same ground with bounds-carrying or explicit types; use them.
 
-> **Nota:** A partir de 0.10.0, los locales heap-owned se liberan solos al salir de su scope; ver §13.4.
+> **Note:** Starting in 0.10.0, heap-owned locals are automatically freed at scope exit; see §13.4.
 
 ### 13.2 Strict Pointer Typing & Interoperability
 
@@ -1289,23 +1301,13 @@ PenguScript enforces strict pointee typing for `ref to T` to prevent silent buff
 | `array of i32 with size N` | `ref to char` | ❌ No (`E0005`) | Pointee mismatch during decay |
 | `ref to f32` | `ref to f64` | ❌ No (`E0005`) | Float pointees must match strictly |
 
-### 13.3 Ownership de buffers C
+### 13.3 C Buffer Ownership & Lifetime Conventions
 
-Los bindings C declaran funciones que devuelven punteros asignados por la
-propia librería (`LoadAudioStream`, `malloc`, `strdup`, ...). La convención
-es:
+C bindings declare functions that return heap buffers allocated by the underlying library (`malloc`, `strdup`, `LoadAudioStream`, `sqlite3_open`, etc.). The lifetime conventions are:
 
-1. **El binding documenta quién libera.** Los comentarios `##` del binding
-   (generados desde el header, o escritos a mano) deben indicar la función
-   de liberación correspondiente.
-
-2. **PenguScript no adivina el allocator.** La memoria asignada por una
-   librería C debe liberarse con la función de liberación de esa misma
-   librería, **no** con `banish`. `banish` sólo libera memoria gestionada
-   por el runtime de PenguScript (`pengu_sigil_alloc`, strings, listas,
-   mapas).
-
-3. **Patrón recomendado: `defer calling lib_free with p`**
+1. **The binding documents deallocation.** The `##` docstrings on the binding (generated from C headers or authored manually) specify the corresponding free function.
+2. **PenguScript never guesses external allocators.** Memory allocated by an external C library must be freed using that library's own cleanup routine, **not** with `banish`. `banish` only manages memory owned by the PenguScript runtime (`pengu_sigil_alloc`, dynamic strings, lists, maps).
+3. **Recommended pattern: `defer calling lib_free with p`**
 
    ```pengu
    import std.raylib
@@ -1317,97 +1319,93 @@ es:
        while (not calling raylib.WindowShouldClose):
            calling raylib.UpdateAudioStream with stream
        return 0
-       # 'UnloadAudioStream' se ejecuta al salir del weave.
+       # 'UnloadAudioStream' runs deterministically upon exiting the weave.
    ```
 
-4. **`banish` sí funciona para containers de PenguScript.** `banish s`
-   (string), `banish l` (list), `banish m` (map) liberan el buffer interno
-   del runtime. Un `PenguString` devuelto por una función C que lo asignó
-   con `pengu_string_new` sí se libera con `banish`.
-
-5. **Cerrar handles opacos con `defer`.** File descriptors, sockets,
-   handles — el mismo patrón:
+4. **`banish` manages native PenguScript containers.** `banish s` (`string`), `banish l` (`list of T`), and `banish m` (`map of K to V`) free internal heap buffers managed by `pengu_runtime.h`. A `PenguString` returned by a C function that created it via `pengu_string_new` is freed with `banish`.
+5. **Closing opaque handles with `defer`.** File descriptors, network sockets, database connections, and OS handles follow the same pattern:
 
    ```pengu
    var sock is calling connect_tcp with host, port
    defer calling close_socket with sock
    ```
 
-6. **Errores y `errdefer`.** Cuando una función puede fallar tras adquirir
-   un recurso, usa `errdefer` para liberar sólo en la ruta de error:
+6. **Error cleanup with `errdefer`.** When a function acquires resources and subsequent operations may fail, use `errdefer` to ensure cleanup occurs only along error exit paths:
 
    ```pengu
    var f is calling open_file with path
    errdefer calling close_file with f
-   # ... si algo falla a partir de aquí, close_file corre.
+   # ... if any error or early failure returns here, close_file executes.
    ```
 
-### 13.4 Scope-owned locals (auto-banish)
+### 13.4 Scope-Owned Locals (Auto-Banish)
 
-Un local declarado sin `borrowed` es **dueño** de su valor heap y se libera
-automáticamente al salir de su scope:
+Starting in version 0.10.0, PenguScript features automatic deterministic scope-owned memory management (*scope-owned locals*). Local variables holding heap containers (`string`, `list of T`, `map of K to V`) with fresh, non-aliasing initializers are automatically managed by their enclosing lexical block (`is_auto_banished`).
+
+When execution exits the lexical block where the variable was declared (`weave`, `if`, `while`, `for`, `with:`, `or:`, `test`), the compiler automatically emits deterministic, LIFO-ordered calls to `pengu_banish_string`, `pengu_banish_list`, or `pengu_banish_map`.
 
 ```pengu
 weave build_greeting with name as string into string:
     var greeting is "Hello, " + name + "!"
     calling print with greeting
-    return greeting            # transferencia al caller; NO auto-banish
+    return greeting            # Ownership transferred to caller; auto-banish is disabled
 ```
 
-#### Cuándo **sí** se auto-banea
+#### When a Local is Auto-Owned
 
-Un local `x` es auto-owned si:
+A local variable `x` is marked `is_auto_banished = True` when all of the following hold:
 
-1. Su tipo es `string`, `list of T` o `map of K to V`.
-2. Se declara **sin** `borrowed`.
-3. Su inicializador **no** es un alias (`var y is x`, `obj.field`, `arr at i`, ni un literal de string puro).
-4. No escapa (`return x`, `push x`, `put k, x`, `set obj.field is x`, `sigil of x`).
-5. No se reasigna con `set x is ...`.
-6. No aparece en un `defer banish x` o `errdefer banish x`.
+1. Its type is an owned heap container: `string`, `list of T`, or `map of K to V`.
+2. It is declared **without** the `borrowed` modifier.
+3. Its initializer is a fresh heap expression (e.g. dynamic string concatenation `a + b`, dynamic format `{name}`, collection constructor `list of T`, `map of K to V`, etc.).
+4. It does **not** escape its scope (see escape analysis below).
+5. It is not reassigned with `set x is ...` within its scope.
+6. It does not appear in an explicit `defer banish x` or `errdefer banish x`.
 
-#### Cuándo **no** se auto-banea
+#### When Auto-Banish is Inactive
 
-- Tipos escalares (`int`, `bool`, `float`, ...), `ref to T`, `maybe T`, `result of T to E`, runes/echos/omens, `array of T` (stack), `slice of T` (no owning).
-- Inicializado con un literal de string puro (`var s is "hi"`): el `PenguString` apunta a `.rodata`, no es owning.
-- Declarado `borrowed`.
-- Reasignado con `set` en el mismo scope.
-- Escapa a un campo, lista, mapa, o es retornado.
+A variable is **not** auto-banished when:
+- It is a scalar type (`int`, `bool`, `float`, etc.), a reference (`ref to T`), a `maybe T`, a `result of T to E`, a rune/echo/omen, a stack array (`array of T with size N`), or a non-owning slice (`slice of T`).
+- It is initialized with a string constant / literal (`var s is "hello"`): the underlying `PenguString` references static `.rodata` memory and does not require heap deallocation.
+- It is declared with the `borrowed` modifier.
+- It is reassigned with `set` within the same scope.
+- It escapes into a persistent container, data structure, outer variable, or is returned to the caller.
 
-#### Escapes reconocidos
+#### Static Escape Analysis
 
-- `return x` (donde `x` es `string`/`list`/`map`) → **transferencia**.
-- `calling lst.push with x` (o `append`) → escape.
-- `calling m.put with k, x` (o `insert`/`set`) → escape.
-- `set obj.field is x` → escape.
-- `sigil of x` (cualquier forma) → escape.
+The compiler's semantic checker analyzes variable usage across the lexical scope. A variable is marked as **escaped** (disabling auto-banish) in the following scenarios:
 
-#### Control explícito
+- **Return Statements**: Returning `x` directly (`return x`), via pointer (`sigil of x`), or as a branch value in a block return (`return if c: x else: "fallback"`, `return do: x`, loop expressions) transfers ownership to the caller.
+- **Collection Insertion**: Passing `x` as an argument to persistent collection methods (`calling lst.push with x`, `append`, `put`, `insert`, `set`).
+- **Compound & Container Literals**: Embedding `x` inside struct initializers, rune literals, container literals, or indented block literals transfers or shares ownership:
+  - Standard literals: `with field is x`, `struct_init`, `field_init`, `[x]`, `list_lit`, `map_lit`, `tuple_lit`, `some x`, `ok x`, `err x`.
+  - Indented literals: `indent_literal`, `indent_entries`, `indent_array`, `indent_row`, `field_entry`, `map_entry`.
+- **Variable Aliasing / Ownership Transfer**: Assigning `x` into another variable declaration (`var b is x`, `let b is x`) shares/transfers ownership to `b`, preventing premature deallocation of `x`.
+- **Address-of Escapes**: Taking an explicit reference (`sigil of x`) or assigning `sigil of x` to a field or global.
+- **Explicit Defer**: Explicit `defer banish x` or `errdefer banish x` delegates cleanup to the defer queue.
 
-- `borrowed`: préstamo, sin auto-banish. No se puede baniar (`E0048`).
-- `defer banish x` / `errdefer banish x`: desactiva el auto-banish de `x` y agenda la liberación en la pila LIFO de defers existente.
-- `banish x` explícito: sólo válido en locales no-owning. En owned → `E0047`. En `borrowed` → `E0048`.
+#### Diagnostics & Ownership Invariants
 
-#### Advertencia sobre contenedores
+- **`AutoOwnedBanishError` (`E0047`)**: Prohibits manual `banish x` on an already auto-owned variable, preventing double-free errors.
+- **`BorrowedBanishError` (`E0048`)**: Prohibits `banish x` on variables marked `borrowed`, guaranteeing that borrowed references cannot destroy caller-owned memory.
 
-`calling lst.push with x` (con `x` owned) transfiere a la lista, pero
-**no** al caller de la lista. El que reciba la lista es responsable de liberar
-los elementos antes de banear la lista. Asimetría conocida; ver §13.3.
+#### Container Ownership Notice
 
-#### `borrowed` como identificador
+Pushing an owned value into a collection (`calling lst.push with x`) transfers ownership to the list, but not automatically to the caller of the list. The receiver of the container is responsible for deallocating elements before banishing the container if the elements require custom cleanup (see §13.3).
 
-`borrowed` es una **soft keyword**: solo se reserva inmediatamente después de
-`var` o `let`. En cualquier otro contexto (nombre de variable, campo,
-parámetro, función, módulo) es un identificador normal:
+#### The `borrowed` Soft Keyword
+
+`borrowed` is reserved **only** immediately following `var` or `let`. Everywhere else (struct field names, parameter names, function names, module names), it remains a valid identifier:
 
 ```pengu
-rune R:
-    borrowed as int           # campo llamado 'borrowed' ✓
+rune Resource:
+    borrowed as int           # Struct field named 'borrowed' ✅
 
-weave f with borrowed as int into int:
-    return borrowed           # parámetro y variable ✓
+weave process with borrowed as int into int:
+    return borrowed           # Parameter and local named 'borrowed' ✅
 
-weave g into int:
-    var borrowed is 5         # ✗ Syntax error: 'borrowed' no es un nombre en esta posición
+weave main into int:
+    var borrowed is 5         # ❌ Syntax error: 'borrowed' is modifier here, identifier expected
     return 0
 ```
 
@@ -1726,16 +1724,30 @@ evaluates to false under `release`.
 
 ## 17. Unit tests (`test`)
 
+PenguScript features first-class unit testing support built directly into the language and toolchain.
+
 ```pengu
 test "arithmetic":
     calling expect_eq_int with 1 + 1, 2
-test "strings":
+
+test string_formatting:
     calling expect_eq_string with "ab" + "c", "abc"
 ```
 
-Test blocks are compiled and run only by the test pipeline (`pengu test` /
-`--test`); they are excluded from normal builds. `test` blocks inside
-`.d.pengu` declaration files are rejected (`E0025`).
+- **Definition:** Test blocks are declared with `test <name>:`, where `<name>` can be a double-quoted string literal or an identifier.
+- **Isolation:** Test blocks are compiled and executed only by the test runner (`pengu test`). They are completely omitted from production executable builds.
+- **Declarations:** `test` blocks inside `.d.pengu` declaration files are rejected (`E0025`).
+
+### Running Tests
+
+```console
+$ pengu test              # Compile and execute all test blocks in project
+$ pengu test --watch      # Watch mode: monitor .pengu sources and rerun on change
+$ pengu test --json       # Machine-readable JSON Lines (JSONL) events for CI
+```
+
+- **Watch Mode (`--watch`):** Continuously polls project source files and configuration (`mtime`), automatically clearing the terminal and rerunning the suite whenever changes are saved.
+- **CI / Machine Output (`--json`):** Emits structured JSON Lines events to stdout (`start`, `test_start`, `test_pass`, `end`), keeping stderr clean for CI integrations.
 
 ---
 
@@ -1846,6 +1858,8 @@ native C APIs 1:1 with upstream documentation retained inline.
   back to the `.pengu` file and line, so a gcc/clang error (including one caused
   by a construct the checker accepted) is reported against your code, not against
   `build/bundle.c`.
+- **Minimal Runtime Backtraces:** The runtime maintains a thread-local circular frame ring buffer (`pengu_frame_push` / `pengu_frame_pop`), recording active function frames (up to `PENGU_MAX_FRAMES`, 64 by default). Async-signal-safe crash handlers for `SIGSEGV` and `SIGABRT` (as well as `SetUnhandledExceptionFilter` on Windows) write the exact `.pengu` call stack with source files and line numbers directly to `stderr` upon fatal errors.
+- **Opt-in Bounds Checking:** Under the `debug` build profile, indexing operations (`xs at i` and `set xs at i`) automatically emit bounds checks (`pengu_assert_bounds`), throwing descriptive panics with callstack traces on out-of-bounds access. Under `release`, bounds checks are completely omitted with zero runtime cost.
 - **Exit status.** The value of `weave main` becomes the process exit status
   (widened to `int`; `weave main into void` exits `0`), so CI and `pengu run`
   see failures. `pengu --version` / `-V` prints the toolchain version, and the
@@ -1948,5 +1962,5 @@ wrapped by `int32_t pengu_main(void)` and a standard `main`.
 ---
 
 *End of reference. Corrections welcome — this document mirrors compiler
-behavior at version 0.9.x; run `pengu check` on any snippet to confirm
+behavior at version 0.10.x; run `pengu check` on any snippet to confirm
 semantics on your toolchain.*

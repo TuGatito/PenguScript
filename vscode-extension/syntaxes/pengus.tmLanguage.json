@@ -49,6 +49,41 @@
     "strings": {
       "patterns": [
         {
+          "name": "string.quoted.raw.triple.pengus",
+          "begin": "r\"\"\"",
+          "end": "\"\"\""
+        },
+        {
+          "name": "string.quoted.triple.pengus",
+          "begin": "\"\"\"",
+          "end": "\"\"\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.pengus",
+              "match": "\\\\."
+            },
+            {
+              "name": "meta.embedded.line.pengus",
+              "begin": "\\{",
+              "end": "\\}",
+              "beginCaptures": {
+                "0": { "name": "punctuation.section.embedded.begin.pengus" }
+              },
+              "endCaptures": {
+                "0": { "name": "punctuation.section.embedded.end.pengus" }
+              },
+              "patterns": [
+                { "include": "$self" }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.raw.single.pengus",
+          "begin": "r\"",
+          "end": "\""
+        },
+        {
           "name": "string.quoted.double.pengus",
           "begin": "\"",
           "end": "\"",
@@ -86,16 +121,20 @@
     "numbers": {
       "patterns": [
         {
+          "name": "constant.numeric.binary.pengus",
+          "match": "\\b0[bB][01_]+\\b"
+        },
+        {
           "name": "constant.numeric.hex.pengus",
-          "match": "\\b0[xX][0-9a-fA-F]+\\b"
+          "match": "\\b0[xX][0-9a-fA-F_]+\\b"
         },
         {
           "name": "constant.numeric.float.pengus",
-          "match": "\\b[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)?\\b"
+          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*([eE][+-]?[0-9]+)?\\b"
         },
         {
           "name": "constant.numeric.integer.pengus",
-          "match": "\\b[0-9]+\\b"
+          "match": "\\b[0-9][0-9_]*\\b"
         }
       ]
     },
@@ -116,6 +155,10 @@
         {
           "name": "constant.language.error.pengus",
           "match": "\\berror\\b"
+        },
+        {
+          "name": "constant.language.result-variant.pengus",
+          "match": "\\b(ok|err|some)\\b"
         }
       ]
     },
@@ -180,7 +223,7 @@
       "patterns": [
         {
           "name": "keyword.control.pengus",
-          "match": "\\b(if|then|else|unless|while|for|from|to|step|in|do|with|judge|when|or\\s+else|or\\s+return|or|and|lambda|return|break|continue|defer|errdefer|banish|try|defined|bytes\\s+of|some|ord|chr|transmute|sigil\\s+of|essence\\s+of|size\\s+of)\\b"
+          "match": "\\b(if|then|else|unless|while|for|from|to|step|in|not\\s+in|do|with|judge|when|or\\s+else|or\\s+return|or|and|lambda|return|break|continue|defer|errdefer|banish|try|defined|bytes\\s+of|some|ord|chr|transmute|sigil\\s+of|essence\\s+of|size\\s+of)\\b"
         }
       ]
     },
@@ -188,7 +231,7 @@
       "patterns": [
         {
           "name": "keyword.other.declaration.pengus",
-          "match": "\\b(var|let|const|set|declare|import|include|link|sigil|essence|shard|many|of|is|as|into|and|capacity|size|length|at|transmute|present|not\\s+present|insignia|concept|bind|seal|ritual|where|static|test|borrowed)\\b"
+          "match": "\\b(var|let|const|set|declare|import|include|link|insignia|sigil|essence|shard|many|of|is|as|into|and|capacity|size|length|at|transmute|present|not\\s+present|concept|bind|seal|ritual|where|static|test|borrowed)\\b"
         }
       ]
     },
@@ -226,6 +269,10 @@
           "match": "->"
         },
         {
+          "name": "keyword.operator.range.pengus",
+          "match": "\\.\\."
+        },
+        {
           "name": "keyword.operator.assignment.pengus",
           "match": "\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>="
         },
@@ -239,7 +286,7 @@
         },
         {
           "name": "keyword.operator.logical.pengus",
-          "match": "\\b(not)\\b"
+          "match": "\\b(not\\s+in|in|not|and|or)\\b"
         }
       ]
     }

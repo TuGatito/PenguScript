@@ -444,3 +444,106 @@ def test_aliased_var_decl_escapes_disables_auto_banish():
     )
     assert "pengu_banish_string(&s)" not in c
 
+
+def test_indent_entries_escapes_disables_auto_banish():
+    """Embedding an owned variable into an indented rune literal disables auto-banish."""
+    src = (
+        'rune Player:\n'
+        '  name as string\n'
+        'weave f into void:\n'
+        '  var s is "hello" + "world"\n'
+        '  var p as Player is:\n'
+        '    name: s\n'
+        '  return\n'
+    )
+    from pengu_parser.pengu_parser import PenguParser
+    from pengu_parser.pengu_checker import PenguChecker
+    tree = PenguParser().parse(src)
+    checker = PenguChecker()
+    checker.check(tree)
+    s_sym = next(sym for sc in checker.symbols.all_scopes for name, sym in sc.symbols.items() if name == "s")
+    assert s_sym.is_auto_banished is False
+    c = gen_bundle(src)
+    assert "pengu_banish_string(&s)" not in c
+
+
+def test_indent_array_escapes_disables_auto_banish():
+    """Embedding an owned variable into an indented array literal disables auto-banish."""
+    src = (
+        'weave f into void:\n'
+        '  var s is "hello" + "world"\n'
+        '  var arr as array of string with size 1 is:\n'
+        '    s\n'
+        '  return\n'
+    )
+    from pengu_parser.pengu_parser import PenguParser
+    from pengu_parser.pengu_checker import PenguChecker
+    tree = PenguParser().parse(src)
+    checker = PenguChecker()
+    checker.check(tree)
+    s_sym = next(sym for sc in checker.symbols.all_scopes for name, sym in sc.symbols.items() if name == "s")
+    assert s_sym.is_auto_banished is False
+    c = gen_bundle(src)
+    assert "pengu_banish_string(&s)" not in c
+
+
+def test_indent_map_escapes_disables_auto_banish():
+    """Embedding an owned variable into an indented map literal disables auto-banish."""
+    src = (
+        'weave f into void:\n'
+        '  var s is "hello" + "world"\n'
+        '  var dict is:\n'
+        '    "greeting": s\n'
+        '  return\n'
+    )
+    from pengu_parser.pengu_parser import PenguParser
+    from pengu_parser.pengu_checker import PenguChecker
+    tree = PenguParser().parse(src)
+    checker = PenguChecker()
+    checker.check(tree)
+    s_sym = next(sym for sc in checker.symbols.all_scopes for name, sym in sc.symbols.items() if name == "s")
+    assert s_sym.is_auto_banished is False
+    c = gen_bundle(src)
+    assert "pengu_banish_string(&s)" not in c
+
+
+def test_return_if_block_escapes_disables_auto_banish():
+    """Returning an owned variable from an if block expression disables auto-banish."""
+    src = (
+        'weave pick with c as bool into string:\n'
+        '  var s is "hello" + "world"\n'
+        '  return if c:\n'
+        '    s\n'
+        '  else:\n'
+        '    "other"\n'
+    )
+    from pengu_parser.pengu_parser import PenguParser
+    from pengu_parser.pengu_checker import PenguChecker
+    tree = PenguParser().parse(src)
+    checker = PenguChecker()
+    checker.check(tree)
+    s_sym = next(sym for sc in checker.symbols.all_scopes for name, sym in sc.symbols.items() if name == "s")
+    assert s_sym.is_auto_banished is False
+    c = gen_bundle(src)
+    assert "pengu_banish_string(&s)" not in c
+
+
+def test_return_do_block_escapes_disables_auto_banish():
+    """Returning an owned variable from a do block expression disables auto-banish."""
+    src = (
+        'weave pick into string:\n'
+        '  var s is "hello" + "world"\n'
+        '  return do:\n'
+        '    s\n'
+    )
+    from pengu_parser.pengu_parser import PenguParser
+    from pengu_parser.pengu_checker import PenguChecker
+    tree = PenguParser().parse(src)
+    checker = PenguChecker()
+    checker.check(tree)
+    s_sym = next(sym for sc in checker.symbols.all_scopes for name, sym in sc.symbols.items() if name == "s")
+    assert s_sym.is_auto_banished is False
+    c = gen_bundle(src)
+    assert "pengu_banish_string(&s)" not in c
+
+
