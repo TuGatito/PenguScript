@@ -312,6 +312,7 @@ class PenguCodegen:
         self.import_order = import_order or []
         self.base_dir = base_dir
         self.compile_env = compile_env if compile_env is not None else default_env()
+        self.debug_mode: bool = bool(getattr(self.compile_env, "is_debug", False))
         # Entry-as-main mode: only the *entry* module compiles with the
         # compile-time 'main' flag true (see _apply_main_flag). Defaults keep
         # every module compiled with 'main' false.
@@ -364,7 +365,89 @@ class PenguCodegen:
         self.defer_stack: List[List[str]] = []
         self.errdefer_stack: List[List[str]] = []
         self.with_stack: List[str] = []
+        self.auto_banish_stack: List[Tuple[str, List[Tuple[str, Type]]]] = []
         self.temp_counter = 0
+
+    @staticmethod
+    def _has_borrowed_modifier(node: Tree) -> Tuple[bool, int]:
+        if not node.children:
+            return False, 0
+        first = node.children[0]
+        if first is not None and getattr(first, "type", None) == "BORROWED":
+            return True, 1
+        if first is None:
+            return False, 1
+        return False, 0
+
+    def _auto_banish_push(self, kind: str = "block") -> None:
+        self.auto_banish_stack.append((kind, []))
+
+    def _auto_banish_register(self, name: str, t: Type) -> None:
+        if self.auto_banish_stack:
+            self.auto_banish_stack[-1][1].append((name, t))
+
+    def _emit_auto_banish(self, name: str, t: Type) -> str:
+        ind = self.indent()
+        actual = t
+        while isinstance(actual, (AliasType, FrozenType)) and getattr(actual, "target", None):
+            actual = actual.target
+        if isinstance(actual, BaseType) and actual.name == "string":
+            return f"{ind}pengu_banish_string(&{name});"
+        if isinstance(actual, ListType):
+            return f"{ind}pengu_banish_list(&{name});"
+        if isinstance(actual, MapType):
+            return f"{ind}pengu_banish_map(&{name});"
+        return ""
+
+    def _flush_current_scope_banish(self) -> List[str]:
+        out: List[str] = []
+        if not self.auto_banish_stack:
+            return out
+        kind, entries = self.auto_banish_stack[-1]
+        for name, t in reversed(entries):
+            code = self._emit_auto_banish(name, t)
+            if code:
+                out.append(code)
+        entries.clear()
+        return out
+
+    def _translate_nested_block_with_banish(self, node: Tree, kind: str = "block") -> str:
+        self._auto_banish_push(kind)
+        try:
+            body = self._translate_nested_block(node)
+            if not self._block_ends_with_jump(node):
+                banish = self._flush_current_scope_banish()
+                if banish:
+                    body = (body + "\n" if body else "") + "\n".join(banish)
+            return body
+        finally:
+            if self.auto_banish_stack and self.auto_banish_stack[-1][0] == kind:
+                self.auto_banish_stack.pop()
+
+    @staticmethod
+    def _block_ends_with_jump(node: Any) -> bool:
+        if not isinstance(node, Tree):
+            return False
+        stmts = node.children if node.data == "block" else [node]
+        if not stmts:
+            return False
+        last = stmts[-1]
+        while isinstance(last, Tree) and last.data in ("stmt", "simple_stmt") and last.children:
+            last = last.children[0]
+        if isinstance(last, Tree) and last.data in ("return_stmt", "break_stmt", "continue_stmt"):
+            return True
+        return False
+
+    @staticmethod
+    def _stmts_end_with_jump(stmts: List[Tree]) -> bool:
+        if not stmts:
+            return False
+        last = stmts[-1]
+        while isinstance(last, Tree) and last.data in ("stmt", "simple_stmt") and last.children:
+            last = last.children[0]
+        if isinstance(last, Tree) and last.data in ("return_stmt", "break_stmt", "continue_stmt"):
+            return True
+        return False
 
     def _lookup_var_type(self, name: str) -> Optional[Type]:
         """Looks up semantic type for identifier in local or symbol context."""
@@ -387,6 +470,35 @@ class PenguCodegen:
         if isinstance(t, RefType):
             t = t.target
         return isinstance(t, BaseType) and getattr(t, "name", "") == "string"
+
+    def _expr_location(self, node: Any) -> str:
+        """Returns 'file.pengu:line' for an AST node (best-effort)."""
+        line = self._node_line(node) or 0
+        shown = self._display_path(self.current_source_file) or "<unknown>"
+        return f"{shown}:{line}"
+
+    def _emit_bounds_check(self, idx_code: str, base_code: str, base_t: Optional[Type], node: Any) -> str:
+        """Wraps idx_code in a statement-expression with a bounds check when
+        debug_mode is on. Returns the (possibly wrapped) index expression."""
+        if not self.debug_mode:
+            return idx_code
+        loc = self._expr_location(node)
+        actual_t = base_t.target if isinstance(base_t, RefType) else base_t
+        if isinstance(actual_t, ArrayType) and actual_t.size is not None:
+            len_expr = str(actual_t.size)
+        elif isinstance(actual_t, (SliceType, ManyType, ListType)):
+            sep = "->" if isinstance(base_t, RefType) else "."
+            len_expr = f"({base_code}){sep}len"
+        elif isinstance(actual_t, BaseType) and getattr(actual_t, "name", "") == "string":
+            sep = "->" if isinstance(base_t, RefType) else "."
+            len_expr = f"({base_code}){sep}len"
+        else:
+            return idx_code
+        tmp = self.get_temp_name("_p_idx")
+        return (
+            f"(__extension__({{ int32_t {tmp} = (int32_t)({idx_code}); "
+            f"pengu_assert_bounds({tmp}, {len_expr}, \"{loc}\"); {tmp}; }}))"
+        )
 
     def _infer_node_type(self, node: Any, expected_type: Optional[Type] = None) -> Optional[Type]:
         """Infers semantic type for AST node using active local variable context."""
@@ -656,6 +768,8 @@ class PenguCodegen:
         Args:
             trees: List of (module_filepath, AST_tree) tuples in topological order.
         """
+        if self.compile_env is not None:
+            self.debug_mode = bool(getattr(self.compile_env, "is_debug", False))
         top_stmts: List[Tuple[Tree, str]] = []
         for filepath, tree in trees:
             for node in tree.children:
@@ -775,12 +889,12 @@ class PenguCodegen:
         # any body is translated.
         for w in self.weaves:
             for st in w.get("body_stmts", []):
-                self._register_lambdas_in(st)
+                self._register_lambdas_in(st, src_file=w.get("filepath"))
         for t in self.tests:
             for st in t.get("body_stmts", []):
-                self._register_lambdas_in(st)
+                self._register_lambdas_in(st, src_file=t.get("filepath"))
 
-    def _register_lambdas_in(self, node: Any) -> None:
+    def _register_lambdas_in(self, node: Any, src_file: Optional[str] = None) -> None:
         """Pre-scans a statement subtree and registers every lambda inside it.
 
         Nested lambdas are registered first (inner bodies may mention outer
@@ -790,13 +904,13 @@ class PenguCodegen:
             return
         if node.data in ("lambda_expr", "lambda_no_params"):
             for c in node.children:
-                self._register_lambdas_in(c)
-            self._register_one_lambda(node)
+                self._register_lambdas_in(c, src_file=src_file)
+            self._register_one_lambda(node, src_file=src_file)
             return
         for c in node.children:
-            self._register_lambdas_in(c)
+            self._register_lambdas_in(c, src_file=src_file)
 
-    def _register_one_lambda(self, node: Tree) -> None:
+    def _register_one_lambda(self, node: Tree, src_file: Optional[str] = None) -> None:
         """Emits one top-level 'static' C function for a lambda expression.
 
         The body is translated in an isolated scope containing only the
@@ -847,10 +961,14 @@ class PenguCodegen:
 
         ret_c = CTypeMapper.to_c_type(ret_t)
         decl = ", ".join(CTypeMapper.to_c_decl(pt, pn) for pn, pt in zip(pnames, ptypes)) or "void"
+        l_line = self._node_line(node) or 0
+        l_file = self._display_path(src_file) or ""
+        push_call = f'pengu_frame_push("{name}", "{l_file}", {l_line});'
+        pop_call = "pengu_frame_pop();"
         if ret_c == "void":
-            self.lambdas.append(f"static void {name}({decl}) {{ {body_c}; }}")
+            self.lambdas.append(f"static void {name}({decl}) {{ {push_call} {body_c}; {pop_call} }}")
         else:
-            self.lambdas.append(f"static {ret_c} {name}({decl}) {{ return {body_c}; }}")
+            self.lambdas.append(f"static {ret_c} {name}({decl}) {{ {push_call} {ret_c} _lret = {body_c}; {pop_call} return _lret; }}")
 
     def generate_lambdas(self) -> str:
         """Emits the top-level 'static' functions generated for lambdas."""
@@ -1518,6 +1636,9 @@ class PenguCodegen:
                 lines.append(marker)
             lines.append(f"{inline_pfx}{ret_str} {fn_actual_name}({params_formatted}) {{")
             self.indent_level += 1
+            push_path = self._display_path(w.get("filepath")) or ""
+            push_line = w.get("line") or 0
+            lines.append(f'{self.indent()}pengu_frame_push("{fn_actual_name}", "{push_path}", {push_line});')
             self.current_function = fn_actual_name
             self.current_return_type = w["return_type"]
             self.current_enchanted_type = w.get("enchanted_type")
@@ -1530,22 +1651,30 @@ class PenguCodegen:
 
             self.defer_stack.append([])
             self.errdefer_stack.append([])
+            self._auto_banish_push("weave")
 
             body_code = self._translate_block(w["body_stmts"])
             lines.append(body_code)
 
-            # Emit any remaining top-level defers before function exit
+            # Emit any remaining top-level defers and auto-banishes before function exit
             active_defers = self.defer_stack.pop() if self.defer_stack else []
             if self.errdefer_stack:
                 self.errdefer_stack.pop()
-            if active_defers:
-                lines.append(f"{self.indent()}/* Deferred cleanup */")
-                for d in reversed(active_defers):
-                    if d.endswith("}"):
-                        lines.append(f"{self.indent()}{d}")
-                    else:
-                        lines.append(f"{self.indent()}{d};")
+            if not self._stmts_end_with_jump(w["body_stmts"]):
+                if active_defers:
+                    lines.append(f"{self.indent()}/* Deferred cleanup */")
+                    for d in reversed(active_defers):
+                        if d.endswith("}"):
+                            lines.append(f"{self.indent()}{d}")
+                        else:
+                            lines.append(f"{self.indent()}{d};")
 
+                auto_banish = self._flush_current_scope_banish()
+                if auto_banish:
+                    lines.extend(auto_banish)
+            self.auto_banish_stack.pop()
+
+            lines.append(f"{self.indent()}pengu_frame_pop();")
             self.indent_level -= 1
             lines.append("}")
             lines.append("")
@@ -1667,16 +1796,23 @@ class PenguCodegen:
         ind = self.indent()
 
         if rule == "var_decl":
-            name = str(node.children[0])
+            is_borrowed, name_idx = self._has_borrowed_modifier(node)
+            name = str(node.children[name_idx])
             type_node = None
-            expr_idx = 1
-            if len(node.children) == 3:
-                type_node = node.children[1]
-                expr_idx = 2
-            expr_node = node.children[expr_idx]
+            if name_idx == 1:
+                type_node = node.children[2]
+                expr_node = node.children[3]
+            else:
+                expr_idx = 1
+                if len(node.children) == 3:
+                    type_node = node.children[1]
+                    expr_idx = 2
+                expr_node = node.children[expr_idx]
 
             t = None
-            sym = self.symbols.lookup(name) if self.symbols else None
+            sym = getattr(node, "_pengu_symbol", None)
+            if sym is None and self.symbols:
+                sym = self.symbols.lookup(name)
             if type_node is not None:
                 t = ast_to_type(type_node, self._lookup_type_fn)
                 if isinstance(t, ArrayType) and sym and isinstance(sym.type, ArrayType):
@@ -1705,6 +1841,8 @@ class PenguCodegen:
 
             if t is not None:
                 self.local_vars[name] = t
+            if sym and getattr(sym, "is_auto_banished", False) and t is not None:
+                self._auto_banish_register(name, t)
 
             t_str = CTypeMapper.to_c_type(t) if t is not None else "int32_t"
             if t_str == "void":
@@ -1715,11 +1853,22 @@ class PenguCodegen:
                 block_stmts = expr_node.children[1:]
                 tmp_res = self.get_temp_name("_res")
                 left_c = self._translate_expr(left_op)
+                prev_error_t = self.local_vars.get("error")
                 self.local_vars["error"] = STRING_TYPE
-                self.indent_level += 1
-                inner_body = [self._translate_stmt(bs) for bs in block_stmts]
-                self.indent_level -= 1
-                block_c = "\n".join(inner_body)
+                self._auto_banish_push("block")
+                try:
+                    self.indent_level += 1
+                    inner_body = [self._translate_stmt(bs) for bs in block_stmts]
+                    banish = self._flush_current_scope_banish() if not self._stmts_end_with_jump(block_stmts) else []
+                    self.indent_level -= 1
+                finally:
+                    if self.auto_banish_stack and self.auto_banish_stack[-1][0] == "block":
+                        self.auto_banish_stack.pop()
+                    if prev_error_t is None:
+                        self.local_vars.pop("error", None)
+                    else:
+                        self.local_vars["error"] = prev_error_t
+                block_c = "\n".join(inner_body + banish)
                 return (
                     f"{ind}PenguResult {tmp_res} = {left_c};\n"
                     f"{ind}if (!pengu_result_is_ok(&{tmp_res})) {{\n"
@@ -1810,24 +1959,31 @@ class PenguCodegen:
 
 
         elif rule == "let_decl":
-            var_names_node = node.children[0]
+            is_borrowed, name_idx = self._has_borrowed_modifier(node)
+            var_names_node = node.children[name_idx]
             names = []
             if isinstance(var_names_node, Tree) and var_names_node.data == "var_name_list":
                 names = [str(tok) for tok in var_names_node.children]
             else:
                 names = [str(var_names_node)]
 
-            expr_idx = 1
-            type_node = None
-            if len(node.children) == 3:
-                type_node = node.children[1]
-                expr_idx = 2
-            expr_node = node.children[expr_idx]
+            if name_idx == 1:
+                type_node = node.children[2]
+                expr_node = node.children[3]
+            else:
+                expr_idx = 1
+                type_node = None
+                if len(node.children) == 3:
+                    type_node = node.children[1]
+                    expr_idx = 2
+                expr_node = node.children[expr_idx]
 
             if len(names) == 1:
                 name = names[0]
                 t = None
-                sym = self.symbols.lookup(name) if self.symbols else None
+                sym = getattr(node, "_pengu_symbol", None)
+                if sym is None and self.symbols:
+                    sym = self.symbols.lookup(name)
                 if type_node is not None:
                     t = ast_to_type(type_node, self._lookup_type_fn)
                     if isinstance(t, ArrayType) and sym and isinstance(sym.type, ArrayType):
@@ -1855,6 +2011,8 @@ class PenguCodegen:
                             pass
                 if t is not None:
                     self.local_vars[name] = t
+                if sym and getattr(sym, "is_auto_banished", False) and t is not None:
+                    self._auto_banish_register(name, t)
                 t_str = CTypeMapper.to_c_type(t, const=True)
                 if t_str == "void":
                     t_str = "const int32_t"
@@ -1864,11 +2022,22 @@ class PenguCodegen:
                     block_stmts = expr_node.children[1:]
                     tmp_res = self.get_temp_name("_res")
                     left_c = self._translate_expr(left_op)
+                    prev_error_t = self.local_vars.get("error")
                     self.local_vars["error"] = STRING_TYPE
-                    self.indent_level += 1
-                    inner_body = [self._translate_stmt(bs) for bs in block_stmts]
-                    self.indent_level -= 1
-                    block_c = "\n".join(inner_body)
+                    self._auto_banish_push("block")
+                    try:
+                        self.indent_level += 1
+                        inner_body = [self._translate_stmt(bs) for bs in block_stmts]
+                        banish = self._flush_current_scope_banish() if not self._stmts_end_with_jump(block_stmts) else []
+                        self.indent_level -= 1
+                    finally:
+                        if self.auto_banish_stack and self.auto_banish_stack[-1][0] == "block":
+                            self.auto_banish_stack.pop()
+                        if prev_error_t is None:
+                            self.local_vars.pop("error", None)
+                        else:
+                            self.local_vars["error"] = prev_error_t
+                    block_c = "\n".join(inner_body + banish)
                     return (
                         f"{ind}PenguResult {tmp_res} = {left_c};\n"
                         f"{ind}if (!pengu_result_is_ok(&{tmp_res})) {{\n"
@@ -1921,6 +2090,8 @@ class PenguCodegen:
                         var_t = list(self.runes[matched_rune].values())[i]
                     if var_t is not None:
                         self.local_vars[name] = var_t
+                    if sym and getattr(sym, "is_auto_banished", False) and var_t is not None:
+                        self._auto_banish_register(name, var_t)
                     t_str = CTypeMapper.to_c_type(var_t, const=True) if var_t else "const int32_t"
                     if t_str == "void":
                         t_str = "const int32_t"
@@ -2004,7 +2175,7 @@ class PenguCodegen:
             folded = self.const_folder.fold(cond_node)
             if folded is not None:
                 if bool(folded) is True:
-                    body_str = self._translate_nested_block(block_node)
+                    body_str = self._translate_nested_block_with_banish(block_node, "block")
                     return f"{ind}/* dead code eliminated (branch always true) */\n{body_str}"
                 else:
                     if else_node:
@@ -2016,7 +2187,7 @@ class PenguCodegen:
 
             cond_str = self._translate_if_cond(cond_node)
             self.indent_level += 1
-            body_str = self._translate_nested_block(block_node)
+            body_str = self._translate_nested_block_with_banish(block_node, "block")
             self.indent_level -= 1
 
             res = f"{ind}if ({cond_str}) {{\n{body_str}\n{ind}}}"
@@ -2035,7 +2206,7 @@ class PenguCodegen:
             folded = self.const_folder.fold(cond_node)
             if folded is not None:
                 if bool(folded) is False:
-                    body_str = self._translate_nested_block(block_node)
+                    body_str = self._translate_nested_block_with_banish(block_node, "block")
                     return f"{ind}/* dead code eliminated (unless always true) */\n{body_str}"
                 else:
                     if else_node:
@@ -2047,7 +2218,7 @@ class PenguCodegen:
 
             cond_str = self._translate_expr(cond_node)
             self.indent_level += 1
-            body_str = self._translate_nested_block(block_node)
+            body_str = self._translate_nested_block_with_banish(block_node, "block")
             self.indent_level -= 1
 
             res = f"{ind}if (!({cond_str})) {{\n{body_str}\n{ind}}}"
@@ -2175,19 +2346,46 @@ class PenguCodegen:
                     else:
                         cleanup_lines.append(f"{ind}{d};")
 
+            for _, entries in reversed(self.auto_banish_stack):
+                for name, t in reversed(entries):
+                    code = self._emit_auto_banish(name, t)
+                    if code:
+                        cleanup_lines.append(code)
+
             cleanup_str = "\n".join(cleanup_lines) + ("\n" if cleanup_lines else "")
+            pop_stmt = f"{ind}pengu_frame_pop();"
             if ret_expr is not None:
                 if cleanup_lines:
                     tmp = self.get_temp_name("_ret")
                     ret_t_str = CTypeMapper.to_c_type(self.current_return_type)
-                    return f"{ind}{ret_t_str} {tmp} = {ret_val_str};\n{cleanup_str}{ind}return {tmp};"
-                return f"{ind}return {ret_val_str};"
-            return f"{cleanup_str}{ind}return;"
+                    return f"{ind}{ret_t_str} {tmp} = {ret_val_str};\n{cleanup_str}{pop_stmt}\n{ind}return {tmp};"
+                return f"{pop_stmt}\n{ind}return {ret_val_str};"
+            return f"{cleanup_str}{pop_stmt}\n{ind}return;"
 
         elif rule == "break_stmt":
+            cleanup_lines = []
+            for kind, entries in reversed(self.auto_banish_stack):
+                if kind == "loop":
+                    break
+                for name, t in reversed(entries):
+                    code = self._emit_auto_banish(name, t)
+                    if code:
+                        cleanup_lines.append(code)
+            if cleanup_lines:
+                return "\n".join(cleanup_lines) + f"\n{ind}break;"
             return f"{ind}break;"
 
         elif rule == "continue_stmt":
+            cleanup_lines = []
+            for kind, entries in reversed(self.auto_banish_stack):
+                if kind == "loop":
+                    break
+                for name, t in reversed(entries):
+                    code = self._emit_auto_banish(name, t)
+                    if code:
+                        cleanup_lines.append(code)
+            if cleanup_lines:
+                return "\n".join(cleanup_lines) + f"\n{ind}continue;"
             return f"{ind}continue;"
 
         elif rule == "expr_stmt":
@@ -2218,16 +2416,24 @@ class PenguCodegen:
         ``continue`` naturally skips it while ``break`` ends the loop).
         """
         if append_ctx is None:
-            return self._translate_nested_block(block_node)
+            return self._translate_nested_block_with_banish(block_node, "loop")
         list_tmp, elem_c, elem_t = append_ctx
-        stmts = [c for c in block_node.children if isinstance(c, Tree)]
-        parts, val = self._value_branch(stmts, elem_t)
-        if val is not None:
-            ind = self.indent()
-            tmp_val = self.get_temp_name("_lv")
-            parts.append(f"{ind}{elem_c} {tmp_val} = {val};")
-            parts.append(f"{ind}pengu_list_push(&{list_tmp}, &{tmp_val});")
-        return "\n".join(parts)
+        self._auto_banish_push("loop")
+        try:
+            stmts = [c for c in block_node.children if isinstance(c, Tree)]
+            parts, val = self._value_branch(stmts, elem_t)
+            if val is not None:
+                ind = self.indent()
+                tmp_val = self.get_temp_name("_lv")
+                parts.append(f"{ind}{elem_c} {tmp_val} = {val};")
+                parts.append(f"{ind}pengu_list_push(&{list_tmp}, &{tmp_val});")
+            banish = self._flush_current_scope_banish()
+            if banish:
+                parts.extend(banish)
+            return "\n".join(parts)
+        finally:
+            if self.auto_banish_stack and self.auto_banish_stack[-1][0] == "loop":
+                self.auto_banish_stack.pop()
 
     def _translate_loop_value(self, node: Tree, expected_type: Optional[Type] = None) -> str:
         """GNU statement-expression for a loop used as a value.
@@ -2470,7 +2676,17 @@ class PenguCodegen:
         if isinstance(node, Tree) and node.data == "else_block":
             if len(node.children) == 1 and isinstance(node.children[0], Tree) and node.children[0].data == "if_stmt":
                 return self._translate_stmt(node.children[0])
-            return self._translate_block(node.children)
+            self._auto_banish_push("block")
+            try:
+                body = self._translate_block(node.children)
+                if not self._stmts_end_with_jump(node.children):
+                    banish = self._flush_current_scope_banish()
+                    if banish:
+                        body = (body + "\n" if body else "") + "\n".join(banish)
+                return body
+            finally:
+                if self.auto_banish_stack and self.auto_banish_stack[-1][0] == "block":
+                    self.auto_banish_stack.pop()
         elif isinstance(node, Tree) and node.data == "if_stmt":
             return self._translate_stmt(node)
         return ""
@@ -2647,6 +2863,7 @@ class PenguCodegen:
         elif acc_node.data == "at_access":
             idx = self._translate_expr(acc_node.children[0])
             var_t = self._lookup_var_type(base_str)
+            idx = self._emit_bounds_check(idx, base_str, var_t, acc_node.children[0])
             if isinstance(var_t, (SliceType, ManyType)):
                 elem_t = CTypeMapper.to_c_type(var_t.element)
                 return f"((({elem_t}*)({base_str}).data)[{idx}])"
@@ -3024,7 +3241,7 @@ class PenguCodegen:
                                            expected_type=self.current_return_type)
             return (
                 f"(__extension__(({{ {container_c} {tmp} = {left_c}; "
-                f"if ({is_fail}) return ({right_c}); {ok_read}; }})))"
+                f"if ({is_fail}) {{ pengu_frame_pop(); return ({right_c}); }} {ok_read}; }})))"
             )
 
         # rule == "try_expr": on failure propagate to the enclosing function.
@@ -3041,7 +3258,7 @@ class PenguCodegen:
                     f"'{fn_ret if fn_ret is not None else 'void'}'",
                     code="E0045",
                 )
-            fail_stmt = f"return {tmp};"
+            fail_stmt = f"{{ pengu_frame_pop(); return {tmp}; }}"
         else:
             if not isinstance(fn_ret, (MaybeType, AnyType)):
                 raise SemanticError(
@@ -3050,7 +3267,7 @@ class PenguCodegen:
                     f"'{fn_ret if fn_ret is not None else 'void'}'",
                     code="E0045",
                 )
-            fail_stmt = "return pengu_maybe_none();"
+            fail_stmt = "{ pengu_frame_pop(); return pengu_maybe_none(); }"
         return (
             f"(__extension__(({{ {container_c} {tmp} = {left_c}; "
             f"if ({is_fail}) {fail_stmt} {ok_read}; }})))"
@@ -3085,7 +3302,7 @@ class PenguCodegen:
         is_lst = isinstance(actual_t, ListType)
         is_map = isinstance(actual_t, MapType)
 
-        ptr = target_str if (target_str.startswith("&") or isinstance(actual_t, RefType)) else f"&({target_str})"
+        ptr = target_str if (target_str.startswith("&") or isinstance(actual_t, RefType)) else (f"&{target_str}" if target_str.isidentifier() else f"&({target_str})")
 
         if is_str:
             return f"pengu_banish_string({ptr})"
@@ -3126,7 +3343,7 @@ class PenguCodegen:
         # Check const folding for entire expression
         if node.data not in ("string_lit", "interpolated_string"):
             folded = self.const_folder.fold(node)
-            if folded is not None:
+            if folded is not None and not (isinstance(folded, str) and node.data == "add"):
                 return self._format_const_val(folded, expected_type=expected_type)
 
         rule = node.data
@@ -3963,21 +4180,12 @@ class PenguCodegen:
                     b_type = self._lookup_var_type(t_base)
                     if b_type and hasattr(b_type, "name"):
                         var_t = self.runes.get(b_type.name, {}).get(t_field)
+            if var_t is None:
+                var_t = self._infer_node_type(parts[0])
             for idx_node in parts[1:]:
+                current_base = base
                 idx = self._translate_expr(idx_node)
-                if var_t is None and isinstance(parts[0], Tree):
-                    t_node = parts[0]
-                    if t_node.data == "arrow_access":
-                        t_field = str(t_node.children[1])
-                        if self.current_enchanted_type is not None:
-                            t_name = getattr(self.current_enchanted_type, "name", str(self.current_enchanted_type))
-                            var_t = self.runes.get(t_name, {}).get(t_field)
-                    elif t_node.data == "field_access":
-                        t_base = str(t_node.children[0])
-                        t_field = str(t_node.children[1])
-                        b_type = self._lookup_var_type(t_base)
-                        if b_type and hasattr(b_type, "name"):
-                            var_t = self.runes.get(b_type.name, {}).get(t_field)
+                idx = self._emit_bounds_check(idx, current_base, var_t, idx_node)
                 if isinstance(var_t, (SliceType, ManyType)):
                     elem_t = CTypeMapper.to_c_type(var_t.element)
                     base = f"((({elem_t}*)({base}).data)[{idx}])"
@@ -4609,8 +4817,11 @@ class PenguCodegen:
         for i, t in enumerate(self.tests):
             self._apply_main_flag(t.get("filepath"))
             self.current_source_file = t.get("filepath")
+            test_file = self._display_path(t.get("filepath")) or ""
+            test_line = t.get("line") or 0
             lines = [f"static void pengu_test_{i}(void) {{"]
             self.indent_level += 1
+            lines.append(f'{self.indent()}pengu_frame_push("pengu_test_{i}", "{test_file}", {test_line});')
             self.current_function = f"pengu_test_{i}"
             self.current_return_type = VOID_TYPE
             self.current_enchanted_type = None
@@ -4618,39 +4829,80 @@ class PenguCodegen:
             self.local_vars = {}
             self.defer_stack.append([])
             self.errdefer_stack.append([])
+            self._auto_banish_push("weave")
             body_code = self._translate_block(t["body_stmts"])
             lines.append(body_code)
             active_defers = self.defer_stack.pop() if self.defer_stack else []
             if self.errdefer_stack:
                 self.errdefer_stack.pop()
-            if active_defers:
-                lines.append(f"{self.indent()}/* Deferred cleanup */")
-                for d in reversed(active_defers):
-                    if d.endswith("}"):
-                        lines.append(f"{self.indent()}{d}")
-                    else:
-                        lines.append(f"{self.indent()}{d};")
+            if not self._stmts_end_with_jump(t["body_stmts"]):
+                if active_defers:
+                    lines.append(f"{self.indent()}/* Deferred cleanup */")
+                    for d in reversed(active_defers):
+                        if d.endswith("}"):
+                            lines.append(f"{self.indent()}{d}")
+                        else:
+                            lines.append(f"{self.indent()}{d};")
+                auto_banish = self._flush_current_scope_banish()
+                if auto_banish:
+                    lines.extend(auto_banish)
+            self.auto_banish_stack.pop()
+            lines.append(f"{self.indent()}pengu_frame_pop();")
             self.indent_level -= 1
             lines.append("}")
             blocks.append("\n".join(lines))
 
         names_c = ", ".join(f'"{_c_escape(t["name"])}"' for t in self.tests)
         fns_c = ", ".join(f"pengu_test_{i}" for i in range(len(self.tests)))
+        n_tests = len(self.tests)
         runner = (
+            "static int pengu_test_json_mode(void) {\n"
+            '    const char *v = getenv("PENGU_TEST_JSON");\n'
+            "    return v && *v;\n"
+            "}\n\n"
+            "static void pengu_json_escape_print(const char *s) {\n"
+            "    if (!s) return;\n"
+            "    for (; *s; s++) {\n"
+            '        if (*s == \'"\') printf("\\\\\\\"");\n'
+            '        else if (*s == \'\\\\\') printf("\\\\\\\\");\n'
+            '        else if (*s == \'\\n\') printf("\\\\n");\n'
+            '        else if (*s == \'\\r\') printf("\\\\r");\n'
+            '        else if (*s == \'\\t\') printf("\\\\t");\n'
+            "        else putchar(*s);\n"
+            "    }\n"
+            "}\n\n"
             "int pengu_run_tests(void) {\n"
-            f"  static const char* pengu_test_names[{len(self.tests)}] = {{ {names_c} }};\n"
-            f"  static void (*const pengu_test_fns[{len(self.tests)}])(void) = {{ {fns_c} }};\n"
-            f"  int i;\n"
-            f'  printf("Running %d test(s)...\\n", {len(self.tests)});\n'
+            f"  static const char* pengu_test_names[{n_tests}] = {{ {names_c} }};\n"
+            f"  static void (*const pengu_test_fns[{n_tests}])(void) = {{ {fns_c} }};\n"
+            "  int i;\n"
+            "  if (pengu_test_json_mode()) {\n"
+            f'    printf("{{\\"event\\":\\"start\\",\\"total\\":{n_tests}}}\\n");\n'
+            "    fflush(stdout);\n"
+            f"    for (i = 0; i < {n_tests}; i++) {{\n"
+            '      printf("{\\"event\\":\\"test_start\\",\\"name\\":\\"");\n'
+            "      pengu_json_escape_print(pengu_test_names[i]);\n"
+            '      printf("\\"}\\n");\n'
+            "      fflush(stdout);\n"
+            "      pengu_test_fns[i]();\n"
+            '      printf("{\\"event\\":\\"test_pass\\",\\"name\\":\\"");\n'
+            "      pengu_json_escape_print(pengu_test_names[i]);\n"
+            '      printf("\\"}\\n");\n'
+            "      fflush(stdout);\n"
+            "    }\n"
+            f'    printf("{{\\"event\\":\\"end\\",\\"total\\":{n_tests},\\"passed\\":{n_tests},\\"failed\\":0}}\\n");\n'
+            "    fflush(stdout);\n"
+            "    return 0;\n"
+            "  }\n"
+            f'  printf("Running {n_tests} test(s)...\\n");\n'
             "  fflush(stdout);\n"
-            f"  for (i = 0; i < {len(self.tests)}; i++) {{\n"
+            f"  for (i = 0; i < {n_tests}; i++) {{\n"
             '    printf("  [RUN] %s\\n", pengu_test_names[i]);\n'
             "    fflush(stdout);\n"
             "    pengu_test_fns[i]();\n"
             '    printf("  [PASS] %s\\n", pengu_test_names[i]);\n'
             "    fflush(stdout);\n"
             "  }\n"
-            f'  printf("All {len(self.tests)} test(s) passed.\\n");\n'
+            f'  printf("All {n_tests} test(s) passed.\\n");\n'
             "  fflush(stdout);\n"
             "  return 0;\n"
             "}\n"
@@ -4732,6 +4984,8 @@ class PenguCodegen:
 
         # `#line` directives are spelled relative to the bundle so the paths stay
         # short and portable; everything else keeps its absolute path.
+        if self.compile_env is not None:
+            self.debug_mode = bool(getattr(self.compile_env, "is_debug", False))
         self.line_base_dir = os.path.dirname(os.path.abspath(output_path)) if output_path else None
         self.bundle_display_path = os.path.basename(output_path) if output_path else None
 

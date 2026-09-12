@@ -8,6 +8,35 @@
 #     PenguScript value they were built from.
 #   * Copies (list_of_*_from_ptr, string_from_cstr, map_of_string_to_int_*)
 #     deep-copy their input, so the returned value can be banished normally.
+#
+# Regla de oro:
+#   * Si el binding documenta que una función C retorna memoria alocada,
+#     liberala con la función de liberación de esa librería:
+#         defer calling lib_free with p
+#     NO la liberes con 'banish'.
+#   * 'banish s' / 'banish l' / 'banish m' sólo liberan memoria gestionada
+#     por el runtime de PenguScript (PenguString/List/Map allocados por
+#     pengu_string_new, pengu_list_new, pengu_map_new).
+#
+# Ejemplo: leer un buffer C sin leak (slice view, no liberar)
+#
+#   import std.ffi
+#   import std.raylib
+#
+#   weave sum_vertices with mesh as raylib.Mesh into float:
+#       var verts as slice of float is calling ffi.slice_of_float_from_ptr with (transmute mesh.vertices to ref to void), mesh.vertexCount
+#       var total as float is 0.0
+#       for v in verts:
+#           set total += v
+#       return total
+#
+# Ejemplo: prestar un C string de un callback (copia, banishing OK)
+#
+#   weave on_trace with msg as ref to frozen char into void:
+#       var s as string is calling ffi.string_from_cstr with msg
+#       calling print with s
+#       # 's' es una copia; si esto fuera un loop largo, 'banish s'.
+
 
 # ----------------------------------------------------------------------------
 # External C Declarations (runtime bridges, null-safe at the C layer)

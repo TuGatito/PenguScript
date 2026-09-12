@@ -146,7 +146,8 @@ class TestBanishCollections:
         src = (
             "weave main into int:\n"
             "    for i from 0 to 1000:\n"
-            "        var s as string is \"hello {i}\"\n"
+            "        var s as string is \"\"\n"
+            "        set s is \"hello {i}\"\n"
             "        banish s\n"
             "    return 0\n"
         )
@@ -161,9 +162,11 @@ class TestBanishCollections:
         """banish on list and map emits pengu_banish_list and pengu_banish_map and runs cleanly."""
         src = (
             "weave main into int:\n"
-            "    var l as list of string is list of string with capacity 4\n"
+            "    var l as list of string is list of string\n"
+            "    set l is list of string with capacity 4\n"
             "    banish l\n"
-            "    var m as map of string to int is {\"key\": 42}\n"
+            "    var m as map of string to int is map of string to int\n"
+            "    set m is {\"key\": 42}\n"
             "    banish m\n"
             "    return 0\n"
         )

@@ -81,11 +81,13 @@ class CompileTimeEnv:
         compiler: Optional[str] = None,
         defines: Optional[Dict[str, bool]] = None,
         is_main: bool = False,
+        is_debug: bool = False,
     ):
         self.os_name = os_name if os_name is not None else default_os_name()
         self.arch = arch if arch is not None else default_arch_name()
         self.compiler = compiler if compiler is not None else default_compiler_name()
         self.is_main = is_main
+        self.is_debug = is_debug
         merged: Dict[str, bool] = {
             self.os_name: True,
             self.arch: True,
@@ -110,6 +112,7 @@ class CompileTimeEnv:
             compiler=self.compiler,
             defines=dict(self.defines),
             is_main=self.is_main,
+            is_debug=self.is_debug,
         )
 
     def with_override(self, **kwargs) -> "CompileTimeEnv":
@@ -122,6 +125,7 @@ class CompileTimeEnv:
             compiler=kwargs.pop("compiler", self.compiler),
             defines=defines,
             is_main=kwargs.pop("is_main", self.is_main),
+            is_debug=kwargs.pop("is_debug", self.is_debug),
         )
 
     def with_main(self, is_main: bool = True) -> "CompileTimeEnv":
@@ -129,12 +133,12 @@ class CompileTimeEnv:
         return self.with_override(is_main=is_main)
 
     def __repr__(self) -> str:
-        return f"CompileTimeEnv(os={self.os_name!r}, arch={self.arch!r}, compiler={self.compiler!r}, main={self.is_main!r})"
+        return f"CompileTimeEnv(os={self.os_name!r}, arch={self.arch!r}, compiler={self.compiler!r}, main={self.is_main!r}, debug={self.is_debug!r})"
 
 
 def default_env() -> CompileTimeEnv:
     """Builds the environment used when the caller does not supply one."""
-    return CompileTimeEnv()
+    return CompileTimeEnv(is_debug=False)
 
 
 def parse_cli_defines(defines: Optional[list]) -> CompileTimeEnv:
@@ -144,6 +148,8 @@ def parse_cli_defines(defines: Optional[list]) -> CompileTimeEnv:
     '-D compiler=clang' override the corresponding context variables.
     '-D main' / '-D main=true' enables the 'main' compile-time flag (the flag
     is *not* added to the macro set: 'main' is only ever consulted by 'when').
+    '-D debug' / '-D debug=1' enables the 'debug' compile-time flag;
+    '-D debug=0' turns it off.
     """
     if not defines:
         return default_env()
@@ -152,6 +158,7 @@ def parse_cli_defines(defines: Optional[list]) -> CompileTimeEnv:
     arch = dflt.arch
     compiler = dflt.compiler
     is_main = False
+    is_debug = False
     extras: Dict[str, bool] = {}
     for item in defines:
         spec = str(item)
@@ -168,6 +175,9 @@ def parse_cli_defines(defines: Optional[list]) -> CompileTimeEnv:
             elif key == "main":
                 low = value.lower()
                 is_main = low not in ("0", "false", "no", "off")
+            elif key == "debug":
+                low = value.lower()
+                is_debug = low not in ("0", "false", "no", "off")
             else:
                 extras[key] = bool(value)
         else:
@@ -175,9 +185,11 @@ def parse_cli_defines(defines: Optional[list]) -> CompileTimeEnv:
             if name:
                 if name == "main":
                     is_main = True
+                elif name == "debug":
+                    is_debug = True
                 else:
                     extras[name] = True
-    return CompileTimeEnv(os_name=os_name, arch=arch, compiler=compiler, defines=extras, is_main=is_main)
+    return CompileTimeEnv(os_name=os_name, arch=arch, compiler=compiler, defines=extras, is_main=is_main, is_debug=is_debug)
 
 
 def main_flag_requested(defines: Optional[list]) -> bool:
@@ -240,6 +252,8 @@ def eval_comptime(env: CompileTimeEnv, node: Any) -> Optional[Any]:
             return env.compiler
         if name == "main":
             return env.is_main
+        if name == "debug":
+            return env.is_debug
         return None
     if rule == "defined_expr":
         name = str(node.children[0]) if node.children else ""

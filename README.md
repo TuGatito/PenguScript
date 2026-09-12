@@ -37,6 +37,7 @@ PenguScript compiles directly to clean, human-readable **C99/C11** source code, 
 >   via `std.raymath`, and OpenGL immediate-mode rendering via `std.rlgl`. Six raylib examples are ported and verified in `scratch/port/`.
 > - **Multidimensional 2D arrays** (`array of array of T with size M with size N`),
 >   **memory deallocation** (`banish` on `string`, `list`, `map`, and `ref to T`),
+>   **scope-owned locals** (automatic deterministic cleanup on block exit with `borrowed` opt-out),
 >   **module state idioms** (`static var` accessors and context structs),
 >   **C variadic declarations** (`declare ... with fmt as ref to frozen char, ... into int`),
 >   **struct literals in array literals**, **pointer indexing** (`p at i`) and generic
@@ -68,7 +69,7 @@ PenguScript compiles directly to clean, human-readable **C99/C11** source code, 
 - **Expressive type system** — fixed-width integers (`u8`…`u64`, `i8`…`i64`), `f32`/`f64`, `char`, `byte`, `string`, `bool`; arrays, slices, dynamic lists, and hash maps.
 - **User types** — `rune` (structs) with `enchanting` method blocks (`self->`), `echo` (C-compatible tagged unions), `omen` (enums / algebraic data types with payloads), and `maybe T` / `or:` optional-and-error handling.
 - **Zero-overhead generics** — `shard` declarations specialized with `of`; each instantiation is monomorphized to plain C.
-- **Deterministic cleanup** — `defer` (LIFO on scope exit), `errdefer` (on error return), and explicit heap release with `banish`.
+- **Deterministic cleanup** — `defer` (LIFO on scope exit), `errdefer` (on error return), scope-owned locals (automatic `banish` at block exit unless marked `borrowed`), and explicit heap release with `banish`.
 - **First-class C FFI** — `include`/`link`/`declare`, opaque types (`alias … as opaque`), `sigil of` (address-of) / `essence of` (deref), zero-copy `bytes of <string>` borrows, and `weave`s that decay to C function pointers (callable from C and usable as coroutine bodies).
 - **`pengu bind`** — auto-generates a `.d.pengu` declaration file from any C header (structs → `rune`, unions → `echo`, enums → `omen`, functions → `declare`, callbacks → `alias … as ref to weave`, doc comments preserved). It blanks GNU compiler extensions before parsing, auto-imports the bindings of included headers, and takes `--define/-D`, `--cpp-flags`, `--system-includes`, `--include-paths` and `--preprocessed FILE.i` for headers that need a specific preprocessor setup, with diagnostics that name the offending construct and the flag to try.
 - **Bundled C libraries** — SQLite, Raylib, WebUI, libuv, PCRE2, libxml2, zlib, Mbed TLS, cURL, libmicrohttpd, YAML, XLSX (libzip + libexpat + xlsxio), and TOML are compiled once into static archives and linked automatically.
@@ -138,7 +139,7 @@ pengu run hello.pengu
 | `add`      | Add an external dependency or binding (git URL or local folder, optional build script).           |
 | `build`    | Compile the project per its config (`--profile release`, `--cc`, `-D`, `--test`, `--verbose`).    |
 | `run`      | Build and execute the project target, or run a standalone `.pengu` file directly as a script.     |
-| `test`     | Compile in `--test` mode and run the project's integrated unit tests.                             |
+| `test`     | Compile in `--test` mode and run the project's integrated unit tests (`--json`, `--watch`).        |
 | `check`    | Parse and type-check every module without generating code — CI friendly.                          |
 | `update`   | Pull and rebuild each configured dependency.                                                      |
 | `bind`     | Generate a `.d.pengu` declaration file from a C header (`--prefix`, `--links`, `--ignore`, …).    |
@@ -150,18 +151,20 @@ pengu run hello.pengu
 ```bash
 pengu init my_app --type exe
 cd my_app
-pengu build                 # debug profile
+pengu build                 # debug profile (bounds-checking active)
 pengu build --profile release
 pengu run                   # build + run
 pengu check                 # type-check everything (CI)
 pengu test                  # run integrated unit tests
+pengu test --json           # emit JSON Lines events for CI
+pengu test --watch          # recompile and re-run on source modifications
 pengu fmt src/ tests/       # format sources
 pengu clean
 pengu lsp                   # stdio language server
 pengu doc -o docs/          # generate module reference
 ```
 
-Projects are configured with `pengu.toml` (or `pengu.yaml`) — entry point, output type/name, includes, links, per-profile `cflags`/`defines`, and compiler selection. See [PENGU_BUILD.md](PENGU_BUILD.md) for the full guide.
+Projects are configured with `pengu.toml` (or `pengu.yaml`) — entry point, output type/name, includes, links, per-profile `cflags`/`defines`, and compiler selection. Under the `debug` profile (default), automatic bounds checking (`pengu_assert_bounds`) and stack trace frames are active for index access; in `release`, bounds checking carries zero runtime overhead. See [PENGU_BUILD.md](PENGU_BUILD.md) for the full guide.
 
 ### VS Code extension
 

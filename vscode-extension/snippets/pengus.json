@@ -573,11 +573,31 @@
                                       ]
                          },
     "Is Present Check":  {
-                             "prefix":  "present",
-                             "description":  "Presence test on a maybe value",
-                             "body":  [
-                                          "if ${1:m} is present:",
-                                          "    ${0}"
-                                      ]
-                         }
+                              "prefix":  "present",
+                              "description":  "Presence test on a maybe value",
+                              "body":  [
+                                           "if ${1:m} is present:",
+                                           "    ${0}"
+                                       ]
+                          },
+    "Owned var": {
+        "prefix": "owned",
+        "body": ["var ${1:name} is ${2:value}"],
+        "description": "Owned local (auto-banished at scope exit)"
+    },
+    "Borrowed var": {
+        "prefix": "borrowed",
+        "body": ["var borrowed ${1:name} is ${2:value}"],
+        "description": "Borrowed local (not auto-banished, cannot banish)"
+    },
+    "Defer banish": {
+        "prefix": "deferbanish",
+        "body": ["defer banish ${1:name}"],
+        "description": "Explicit LIFO cleanup of a heap local"
+    },
+    "Borrowed let": {
+        "prefix": "borrowedlet",
+        "body": ["let borrowed ${1:name} is ${2:value}"],
+        "description": "Immutable borrowed local"
+    }
 }

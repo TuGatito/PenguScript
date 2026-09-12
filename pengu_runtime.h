@@ -47,6 +47,7 @@
 #include <string.h>
 #include <math.h>
 #include <time.h>
+#include <signal.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
@@ -218,6 +219,172 @@ extern "C"
   static inline bool pengu_result_is_ok(const PenguResult *r)
   {
     return r ? r->is_ok : false;
+  }
+
+  /* =========================================================================
+   * Debug: runtime frame trace & crash handler
+   *
+   * A small, always-on thread-local frame stack. Every PenguScript weave /
+   * enchanting method / lambda pushes a frame on entry and pops it before
+   * returning. On SIGSEGV / SIGABRT the handler dumps the stack so the user
+   * sees the chain of .pengu functions that led to the crash, with the
+   * file:line recorded at push time (already resolved by codegen's #line
+   * markers, so no DWARF is needed).
+   * ========================================================================= */
+
+#ifndef PENGU_FRAME_TRACE
+#define PENGU_FRAME_TRACE 1
+#endif
+
+#ifndef PENGU_MAX_FRAMES
+#define PENGU_MAX_FRAMES 64
+#endif
+
+  typedef struct
+  {
+    const char *func;   /* function name, e.g. "pengu_main" */
+    const char *file;   /* .pengu file, e.g. "src/main.pengu" */
+    int         line;   /* .pengu source line of the function declaration */
+  } PenguFrame;
+
+#if PENGU_FRAME_TRACE
+#if defined(_MSC_VER)
+#define PENGU_THREAD_LOCAL __declspec(thread)
+#elif defined(__GNUC__) || defined(__clang__)
+#define PENGU_THREAD_LOCAL __thread
+#else
+#define PENGU_THREAD_LOCAL _Thread_local
+#endif
+
+  static PENGU_THREAD_LOCAL PenguFrame g_pengu_frames[PENGU_MAX_FRAMES];
+  static PENGU_THREAD_LOCAL int         g_pengu_frame_top = 0;
+  static volatile int g_pengu_handler_installed = 0;
+
+  static void pengu_dump_frame_stack(const char *reason, int signo)
+  {
+    char buf[4096];
+    int offset = 0;
+    int n = snprintf(buf + offset, sizeof(buf) - (size_t)offset,
+                     "\n[PENGU CRASH] %s (signal/code %d)\nStack trace (most recent call first):\n",
+                     reason ? reason : "fatal error", signo);
+    if (n > 0) {
+      offset += (offset + n < (int)sizeof(buf)) ? n : (int)(sizeof(buf) - (size_t)offset - 1);
+    }
+    for (int i = g_pengu_frame_top - 1; i >= 0; i--) {
+      PenguFrame *f = &g_pengu_frames[i];
+      n = snprintf(buf + offset, sizeof(buf) - (size_t)offset,
+                   "  at %s (%s:%d)\n",
+                   (f->func && f->func[0]) ? f->func : "<?anon>",
+                   (f->file && f->file[0]) ? f->file : "<unknown>",
+                   f->line);
+      if (n > 0) {
+        offset += (offset + n < (int)sizeof(buf)) ? n : (int)(sizeof(buf) - (size_t)offset - 1);
+      }
+      if ((size_t)offset >= sizeof(buf) - 1) break;
+    }
+#if PENGU_WINDOWS
+    if (offset > 0) {
+      (void)_write(2, buf, (unsigned int)offset);
+    }
+#else
+    if (offset > 0) {
+      (void)write(2, buf, (size_t)offset);
+    }
+#endif
+  }
+
+#if PENGU_WINDOWS
+  static LONG WINAPI pengu_win_exception_handler(EXCEPTION_POINTERS *info)
+  {
+    int code = 0;
+    if (info && info->ExceptionRecord) {
+      code = (int)info->ExceptionRecord->ExceptionCode;
+    }
+    pengu_dump_frame_stack("fatal exception", code);
+    return EXCEPTION_EXECUTE_HANDLER;
+  }
+#endif
+
+  static void pengu_unix_signal_handler(int sig)
+  {
+    pengu_dump_frame_stack("fatal signal", sig);
+    _exit(128 + sig);
+  }
+
+  static inline void pengu_install_crash_handler(void)
+  {
+    if (!g_pengu_handler_installed) {
+      g_pengu_handler_installed = 1;
+#if PENGU_WINDOWS
+      SetUnhandledExceptionFilter(pengu_win_exception_handler);
+#endif
+      signal(SIGSEGV, pengu_unix_signal_handler);
+      signal(SIGABRT, pengu_unix_signal_handler);
+    }
+  }
+
+  static inline void pengu_frame_push(const char *func, const char *file, int line)
+  {
+    pengu_install_crash_handler();
+    if (g_pengu_frame_top < PENGU_MAX_FRAMES) {
+      g_pengu_frames[g_pengu_frame_top].func = func;
+      g_pengu_frames[g_pengu_frame_top].file = file;
+      g_pengu_frames[g_pengu_frame_top].line = line;
+      g_pengu_frame_top++;
+    }
+  }
+
+  static inline void pengu_frame_pop(void)
+  {
+    if (g_pengu_frame_top > 0) {
+      g_pengu_frame_top--;
+    }
+  }
+
+#else /* !PENGU_FRAME_TRACE */
+
+  static inline void pengu_frame_push(const char *func, const char *file, int line)
+  {
+    (void)func; (void)file; (void)line;
+  }
+
+  static inline void pengu_frame_pop(void)
+  {
+  }
+
+  static inline void pengu_dump_frame_stack(const char *reason, int signo)
+  {
+    (void)reason; (void)signo;
+  }
+
+#endif /* PENGU_FRAME_TRACE */
+
+  static inline void pengu_bounds_panic(int32_t idx, int32_t len, const char *loc)
+  {
+    char buf[256];
+    int n = snprintf(buf, sizeof(buf),
+                     "\n[PENGU] Index out of bounds: %d (length %d) at %s\n",
+                     (int)idx, (int)len, loc ? loc : "?");
+    if (n > 0) {
+#if PENGU_WINDOWS
+      (void)_write(2, buf, (unsigned int)n);
+#else
+      (void)write(2, buf, (size_t)n);
+#endif
+    }
+    pengu_dump_frame_stack("bounds check failed", 0);
+    abort();
+  }
+
+  static inline void pengu_assert_bounds(int32_t idx, int32_t len, const char *loc)
+  {
+#if PENGU_FRAME_TRACE
+    if (idx < 0 || idx >= len) {
+      pengu_bounds_panic(idx, len, loc);
+    }
+#else
+    (void)idx; (void)len; (void)loc;
+#endif
   }
 
   /* =========================================================================

@@ -21,7 +21,7 @@ from .pengu_errors import (
     UnimplementedConceptMethodError, ConceptBoundNotSatisfiedError,
     InvalidRitualSelfAccessError, InvalidRitualCallError,
     ArraySizeMismatchError, InvalidRangeError, PrivateSymbolAccessError, NonExhaustiveJudgeError,
-    UnknownArrayDimensionError, suggest_similar_identifier
+    UnknownArrayDimensionError, AutoOwnedBanishError, BorrowedBanishError, suggest_similar_identifier
 )
 
 from .pengu_parser import extract_string_parts
@@ -1815,6 +1815,25 @@ class TypeInferrer:
             if isinstance(target, Tree) and target.data == "var_ref":
                 sym_name = str(target.children[0])
                 sym = self.symbols.lookup(sym_name)
+                if sym and sym.kind in ("var", "let"):
+                    if getattr(sym, "is_auto_banished", False):
+                        raise self._make_error(
+                            AutoOwnedBanishError,
+                            f"'banish' on auto-owned local '{sym_name}' would double-free",
+                            target,
+                            code="E0047",
+                            help="Remove 'banish' — the compiler frees this variable automatically at the end of its scope.",
+                            note="Variables allocated locally with fresh ownership are scope-owned and cleaned up automatically."
+                        )
+                    if getattr(sym, "is_borrowed", False):
+                        raise self._make_error(
+                            BorrowedBanishError,
+                            f"'banish' on borrowed local '{sym_name}'",
+                            target,
+                            code="E0048",
+                            help="Remove 'banish' — borrowed references do not own the underlying memory.",
+                            note="Only the owner of a resource is allowed to banish it."
+                        )
                 if sym and sym.kind == "const":
                     raise self._make_error(
                         InvalidMemoryOpError,
@@ -1896,6 +1915,20 @@ class TypeInferrer:
                             self._reject_test_argument(arg_val, fn_name or method_name or "f")
                             exp_t = param_dict.get(arg_name)
                             arg_t = self.infer(arg_val, expected_type=exp_t)
+                            if isinstance(arg_val, Tree) and arg_val.data == "array_lit":
+                                ptype = exp_t
+                                if ptype is not None and not isinstance(ptype, (SliceType, ManyType, ArrayType, AnyType)):
+                                    raise self._make_error(
+                                        TypeMismatchError,
+                                        f"Array literal cannot be passed directly to "
+                                        f"'{fn_name or method_name or 'function'}'",
+                                        arg_val,
+                                        code="E0005",
+                                        help="Assign the literal to a typed variable first: "
+                                             "'var tmp as array of int with size N is [1, 2, 3]' and pass 'tmp'.",
+                                        note="Bare array literals in argument position emit invalid C "
+                                             "('{ 1, 2, 3 }')."
+                                    )
                             named_args.append((arg_name, (arg_t, arg_val)))
                         elif arg_node.data == "pos_arg":
                             if seen_named:
@@ -1916,6 +1949,20 @@ class TypeInferrer:
                                 elif has_variadic:
                                     exp_t = fn_type.params[-1][1].element if isinstance(fn_type.params[-1][1], ManyType) else None
                             arg_t = self.infer(arg_val, expected_type=exp_t)
+                            if isinstance(arg_val, Tree) and arg_val.data == "array_lit":
+                                ptype = exp_t
+                                if ptype is not None and not isinstance(ptype, (SliceType, ManyType, ArrayType, AnyType)):
+                                    raise self._make_error(
+                                        TypeMismatchError,
+                                        f"Array literal cannot be passed directly to "
+                                        f"'{fn_name or method_name or 'function'}'",
+                                        arg_val,
+                                        code="E0005",
+                                        help="Assign the literal to a typed variable first: "
+                                             "'var tmp as array of int with size N is [1, 2, 3]' and pass 'tmp'.",
+                                        note="Bare array literals in argument position emit invalid C "
+                                             "('{ 1, 2, 3 }')."
+                                    )
                             pos_args.append((arg_t, arg_val))
                             pos_idx += 1
 
@@ -2903,7 +2950,16 @@ class TypeInferrer:
                 if fn_name in self.symbols.generic_functions:
                     return self.symbols.functions.get(fn_name), None
                 if self.symbols.has_includes:
-                    return FnType(params=[], return_type=VOID_TYPE), None
+                    raise self._make_error(
+                        UndefinedIdentifierError,
+                        f"Function '{fn_name}' is not declared",
+                        target_node,
+                        code="E0004",
+                        help=f"Add 'declare {fn_name} with ... into ...' to this module, or "
+                             f"import a binding that declares it. A bare 'include' no longer "
+                             f"makes C functions callable implicitly.",
+                        note="Every external C function must have an explicit 'declare' signature."
+                    )
                 raise self._make_error(
                     UndefinedIdentifierError,
                     f"Undefined function '{fn_name}'",
@@ -2955,8 +3011,6 @@ class TypeInferrer:
                                 s = self.symbols.lookup(cand_name)
                                 if s is not None and isinstance(getattr(s, "type", None), FnType):
                                     return s.type, None
-                            if self.symbols.has_includes:
-                                return FnType(params=[], return_type=VOID_TYPE), None
                             raise self._make_error(
                                 UndefinedIdentifierError,
                                 f"Module '{obj_name}' has no exported member '{m_name}'",

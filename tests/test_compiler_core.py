@@ -154,11 +154,10 @@ class TestImportsAndCDirectives:
         )
 
     def test_unknown_bare_function_still_raw_c_with_include(self):
-        # Raw FFI: with `include`, calling an undeclared bare function is the
-        # documented escape hatch (the C header declares it), so it stays
-        # allowed in statement position.
+        # Raw FFI: with `include`, calling an undeclared bare function now requires an explicit `declare`.
         check_ok(
             'include "pengu_runtime.h"\n'
+            "declare pengu_unknown_fake_c_function with x as int into void\n"
             "weave main into void:\n"
             "  calling pengu_unknown_fake_c_function with 1\n"
         )
@@ -3065,7 +3064,7 @@ weave foo into int:
 """
         )
         assert "bar();" in c
-        assert re.search(r"bar\(\);\s*return\b", c) is not None
+        assert re.search(r"bar\(\);(?:\s*pengu_frame_pop\(\);)?\s*return\b", c) is not None
 
     def test_no_auto_keyword_in_output(self):
         c = gen_bundle(

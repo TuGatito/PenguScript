@@ -1183,6 +1183,13 @@ weave load into maybe string:
 
 `E0020` guards return-type compatibility, `E0045` guards `try` placement.
 
+> [!WARNING]
+> `or:` sólo es válido como initializer directo de `var` / `let`
+> (`var x is <expr> or: ...`). Usarlo dentro de una expresión más grande
+> (`return f() or: ...`, `calling g with (x or: ...)`, `a + (b or: ...)`)
+> no está soportado: usa `or else` o `or return`, o extrae el `or:` a una
+> variable intermedia.
+
 ---
 
 ## 13. Memory & pointers
@@ -1261,6 +1268,8 @@ weave main into int:
 (`p at i`), slices (`ffi.slice_from_ptr`, `arr at a to b`) and `transmute` cover
 the same ground with bounds-carrying or explicit types; use them.
 
+> **Nota:** A partir de 0.10.0, los locales heap-owned se liberan solos al salir de su scope; ver §13.4.
+
 ### 13.2 Strict Pointer Typing & Interoperability
 
 PenguScript enforces strict pointee typing for `ref to T` to prevent silent buffer-type mismatches. While numeric values allow widening (`int` → `i64`), pointers require identical pointees (or `void`/`opaque` wildcard).
@@ -1279,6 +1288,128 @@ PenguScript enforces strict pointee typing for `ref to T` to prevent silent buff
 | `ref to u8` | `ref to char` | ❌ No (`E0005`) | Only `char` ↔ `byte` exception is permitted |
 | `array of i32 with size N` | `ref to char` | ❌ No (`E0005`) | Pointee mismatch during decay |
 | `ref to f32` | `ref to f64` | ❌ No (`E0005`) | Float pointees must match strictly |
+
+### 13.3 Ownership de buffers C
+
+Los bindings C declaran funciones que devuelven punteros asignados por la
+propia librería (`LoadAudioStream`, `malloc`, `strdup`, ...). La convención
+es:
+
+1. **El binding documenta quién libera.** Los comentarios `##` del binding
+   (generados desde el header, o escritos a mano) deben indicar la función
+   de liberación correspondiente.
+
+2. **PenguScript no adivina el allocator.** La memoria asignada por una
+   librería C debe liberarse con la función de liberación de esa misma
+   librería, **no** con `banish`. `banish` sólo libera memoria gestionada
+   por el runtime de PenguScript (`pengu_sigil_alloc`, strings, listas,
+   mapas).
+
+3. **Patrón recomendado: `defer calling lib_free with p`**
+
+   ```pengu
+   import std.raylib
+
+   weave play_and_free into int:
+       var stream as raylib.AudioStream is calling raylib.LoadAudioStream with 44100, 32, 2
+       defer calling raylib.UnloadAudioStream with stream
+       calling raylib.PlayAudioStream with stream
+       while (not calling raylib.WindowShouldClose):
+           calling raylib.UpdateAudioStream with stream
+       return 0
+       # 'UnloadAudioStream' se ejecuta al salir del weave.
+   ```
+
+4. **`banish` sí funciona para containers de PenguScript.** `banish s`
+   (string), `banish l` (list), `banish m` (map) liberan el buffer interno
+   del runtime. Un `PenguString` devuelto por una función C que lo asignó
+   con `pengu_string_new` sí se libera con `banish`.
+
+5. **Cerrar handles opacos con `defer`.** File descriptors, sockets,
+   handles — el mismo patrón:
+
+   ```pengu
+   var sock is calling connect_tcp with host, port
+   defer calling close_socket with sock
+   ```
+
+6. **Errores y `errdefer`.** Cuando una función puede fallar tras adquirir
+   un recurso, usa `errdefer` para liberar sólo en la ruta de error:
+
+   ```pengu
+   var f is calling open_file with path
+   errdefer calling close_file with f
+   # ... si algo falla a partir de aquí, close_file corre.
+   ```
+
+### 13.4 Scope-owned locals (auto-banish)
+
+Un local declarado sin `borrowed` es **dueño** de su valor heap y se libera
+automáticamente al salir de su scope:
+
+```pengu
+weave build_greeting with name as string into string:
+    var greeting is "Hello, " + name + "!"
+    calling print with greeting
+    return greeting            # transferencia al caller; NO auto-banish
+```
+
+#### Cuándo **sí** se auto-banea
+
+Un local `x` es auto-owned si:
+
+1. Su tipo es `string`, `list of T` o `map of K to V`.
+2. Se declara **sin** `borrowed`.
+3. Su inicializador **no** es un alias (`var y is x`, `obj.field`, `arr at i`, ni un literal de string puro).
+4. No escapa (`return x`, `push x`, `put k, x`, `set obj.field is x`, `sigil of x`).
+5. No se reasigna con `set x is ...`.
+6. No aparece en un `defer banish x` o `errdefer banish x`.
+
+#### Cuándo **no** se auto-banea
+
+- Tipos escalares (`int`, `bool`, `float`, ...), `ref to T`, `maybe T`, `result of T to E`, runes/echos/omens, `array of T` (stack), `slice of T` (no owning).
+- Inicializado con un literal de string puro (`var s is "hi"`): el `PenguString` apunta a `.rodata`, no es owning.
+- Declarado `borrowed`.
+- Reasignado con `set` en el mismo scope.
+- Escapa a un campo, lista, mapa, o es retornado.
+
+#### Escapes reconocidos
+
+- `return x` (donde `x` es `string`/`list`/`map`) → **transferencia**.
+- `calling lst.push with x` (o `append`) → escape.
+- `calling m.put with k, x` (o `insert`/`set`) → escape.
+- `set obj.field is x` → escape.
+- `sigil of x` (cualquier forma) → escape.
+
+#### Control explícito
+
+- `borrowed`: préstamo, sin auto-banish. No se puede baniar (`E0048`).
+- `defer banish x` / `errdefer banish x`: desactiva el auto-banish de `x` y agenda la liberación en la pila LIFO de defers existente.
+- `banish x` explícito: sólo válido en locales no-owning. En owned → `E0047`. En `borrowed` → `E0048`.
+
+#### Advertencia sobre contenedores
+
+`calling lst.push with x` (con `x` owned) transfiere a la lista, pero
+**no** al caller de la lista. El que reciba la lista es responsable de liberar
+los elementos antes de banear la lista. Asimetría conocida; ver §13.3.
+
+#### `borrowed` como identificador
+
+`borrowed` es una **soft keyword**: solo se reserva inmediatamente después de
+`var` o `let`. En cualquier otro contexto (nombre de variable, campo,
+parámetro, función, módulo) es un identificador normal:
+
+```pengu
+rune R:
+    borrowed as int           # campo llamado 'borrowed' ✓
+
+weave f with borrowed as int into int:
+    return borrowed           # parámetro y variable ✓
+
+weave g into int:
+    var borrowed is 5         # ✗ Syntax error: 'borrowed' no es un nombre en esta posición
+    return 0
+```
 
 ---
 
@@ -1311,8 +1442,8 @@ insignia mylib_
 - `insignia` changes the C prefix for every subsequent declaration/type in
   the module (e.g. `insignia pengu_` makes `weave helper` become
   `pengu_helper` at the C level).
-- `declare` gives exact typed signatures for C functions; unknown bare calls
-  in include modules remain an FFI escape hatch (raw C call).
+- `declare` gives exact typed signatures for C functions. Every external C
+  function must have an explicit `declare` signature (`E0004` if called without declaration).
 
 **Spelling constants and enum variants from a binding.** `omen` variants declared
 in a `.d.pengu` (`omen KeyboardKey:` + `KEY_RIGHT is 39`) are reachable in three
@@ -1582,9 +1713,14 @@ let scale as int is when arch == "x64" then 2 else 1    # expression form
 ```
 
 Available compile-time variables: `main` (bool: true for the module executed
-directly), `os` (`'windows'|'linux'|'macos'|…`), `arch` (`'x64'|'x86'|'arm64'
+directly), `debug` (bool: true when the active build profile is `debug` or `-D debug`),
+`os` (`'windows'|'linux'|'macos'|…`), `arch` (`'x64'|'x86'|'arm64'
 |…`), `compiler` (`'gcc'|'clang'|'msvc'|…`), and `defined(NAME)` for `-D`
 macros. Non-constant conditions are rejected (`E0039`).
+
+Blocks guarded with `when debug:` are useful for assertions, diagnostics, and development-only
+instrumentation; `debug` evaluates to true when the build profile is `debug` (the default) and
+evaluates to false under `release`.
 
 ---
 

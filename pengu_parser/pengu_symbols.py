@@ -55,6 +55,8 @@ class Symbol:
     c_name: Optional[str] = None
     concept_bounds: List[str] = field(default_factory=list)
     is_public: bool = False
+    is_borrowed: bool = False
+    is_auto_banished: bool = False
 
     def get_c_name(self) -> str:
         """Returns effective C identifier for this symbol."""

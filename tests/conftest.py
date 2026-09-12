@@ -111,6 +111,8 @@ def check_error(source: str, filename: str = "t.pengu", contains=None,
         checker.check(tree, source=source, filename=filename)
     except Exception as exc:  # noqa: BLE001 - keep the message whatever it is
         text = str(exc)
+        if getattr(exc, "code", None):
+            text = f"{text} [{exc.code}]"
     else:
         raise AssertionError("expected a compile error but the source is clean")
 

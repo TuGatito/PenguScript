@@ -2,7 +2,58 @@
 
 All notable changes to PenguScript will be documented in this file.
 
-## [0.10.0] - Unreleased
+## [0.10.0] - Released
+
+### P2 — Scope-owned locals (auto-banish)
+
+- **Ownership auto-gestionado (_scope-owned locals_)**: variables locales de tipo contenedor heap (`string`, `list`, `map`) con inicializadores fresh no-aliasing son gestionadas automáticamente por su ámbito léxico (`is_auto_banished`). Al salir del bloque que las declaró (`weave`, `if`, `while`, `for`, `with`, `or:`, `test`), el compilador emite llamadas deterministas en orden inverso (LIFO) a `pengu_banish_string`, `pengu_banish_list` o `pengu_banish_map`.
+- **Modificador `borrowed`**: palabra clave suave (`var borrowed x is ...`, `let borrowed x is ...`) para declarar referencias prestadas o no propietarias, desactivando el auto-banish y prohibiendo la liberación explícita.
+- **Análisis de escape estático y compatibilidad**: el compilador detecta fugas de propiedad (`return`, `push`, `put`, `set field`, `sigil of`, o pasajes a funciones) y desactiva el auto-banish de la variable origen.
+- **Nuevos diagnósticos de ownership**:
+  - `AutoOwnedBanishError` (`E0047`): prohíbe `banish` manual sobre una variable ya auto-gestionada para prevenir double-free.
+  - `BorrowedBanishError` (`E0048`): prohíbe `banish` sobre variables marcadas con `borrowed`.
+- **Notas de implementación**:
+  - `pengu_codegen` preserva expresiones dinámicas de concatenación de strings (`+`) evitando constant-folding a `.rodata` cuando se requiere liberación segura en heap.
+  - El desenrollado de auto-banish en sentencias de salto (`return`, `break`, `continue`) limpia únicamente los ámbitos activos correspondientes sin mutar prematuramente los marcos de ámbito léxico.
+  - Los bloques `or:` inicializadores de `var` y `let` gestionan su propio ámbito léxico de auto-banish dentro de la rama de error C.
+- **Known issue (no bloqueante):** `or:` blocks en posición de expresión distinta al initializer directo de `var` / `let` (p. ej. `return f() or: ...` o `calling g with (x or: ...)`) caen en el fallback genérico de codegen y emiten C silenciosamente incorrecto. Workaround: extraer a una variable intermedia o usar `or else` / `or return`. Planificado para Phase 3.
+
+### P1 — Confianza operativa (Fase 1)
+
+- **Backtrace mínimo**: frame stack circular thread-local (`pengu_frame_push`, `pengu_frame_pop`) configurable mediante `PENGU_FRAME_TRACE` y `PENGU_MAX_FRAMES` (64 por defecto). Crash handler para `SIGSEGV` y `SIGABRT` (y `SetUnhandledExceptionFilter` en Windows) que vuelca la cadena de llamadas `.pengu` directamente a stderr de forma async-signal-safe (utilizando exclusivamente llamadas directas a `write(2)` / `_write`).
+- **Bounds checking opt-in**: bajo el perfil `debug`, operaciones de indexación (`xs at i` y `set xs at i`) emiten verificaciones seguras con statement-expressions de GCC (`pengu_assert_bounds`), arrojando un panic descriptivo ante desbordamientos y volcando la traza de frames. En perfil `release`, tiene cero coste de runtime (no se emite la aserción).
+- **Variable de compilación `debug`**: expuesta para directivas condicionales `when debug:`, evaluándose como verdadera únicamente cuando el perfil activo de compilación es `debug` (o vía `-D debug` / `-D debug=1`).
+- **Salida estructurada `pengu test --json`**: emite eventos máquina JSON Lines (JSONL: `start`, `test_start`, `test_pass`, `end`) a stdout filtrando diagnósticos del compilador a stderr, idóneo para integración continua (CI).
+- **Modo vigilancia `pengu test --watch`**: observa en tiempo real los archivos fuente `.pengu` y de configuración del proyecto mediante polling de `mtime` (500 ms), limpiando la pantalla y re-ejecutando la suite ante cualquier cambio detectado.
+- **Correcciones en backtrace (fix-up)**: Se añadió la emisión de `pengu_frame_pop()` en las rutas de retorno anticipado de `or return` y `try` (evitando frames huérfanos en `g_pengu_frames`) y se corrigió el registro de lambdas para propagar la ruta del archivo fuente (`src_file`), asegurando que `pengu_frame_push` registre la ruta `.pengu` y el número de línea correspondientes en lugar de una cadena vacía.
+
+### Added
+
+- `pengu bind`: now emits `alias` declarations for type names referenced by
+  the target header but defined in a companion header (e.g. `uLong`, `uInt`
+  from `zconf.h` when binding `zlib.h`). Without this, bindings that
+  reference such types failed the semantic check with E0005.
+- `LANGUAGE.md` §13.3 documents C-buffer ownership: use
+  `defer calling lib_free with p` for library-allocated memory, `banish` for
+  PenguScript runtime containers.
+- `std/ffi.pengu` header now carries a usage guide for the ownership model.
+
+### Changed
+
+- **Breaking:** A bare C function reachable only through `include` is no
+  longer callable implicitly. Add an explicit `declare` signature to your
+  module, or `import` a binding that declares it. This closes the
+  "checker accepts, codegen emits invalid C" trap reported in H2 of
+  PRODUCTION_READINESS.md.
+- `calling f with [1, 2, 3]` (array literal as direct argument) is now a
+  semantic error (E0005). Assign the literal to a typed variable first.
+- `declare` now rejects `many T` parameters (E0005). Use `...` for C
+  variadics; `many T` remains valid only in `weave` signatures.
+
+### Fixed
+
+- `pengu bind` no longer silently drops typedefs from companion headers
+  when the target header references them.
 
 ### Fixed (production criticals)
 
@@ -30,7 +81,7 @@ out as "what makes everything else debuggable" are done, with regression tests i
   not detect a failure. It now emits
   `int pengu_status = (int)pengu_main(); … return pengu_status;`, widening any
   integer return type (`u8`, `bool`, `i64`, …) and using `0` for `weave main into
-  void`. `pengu run` already forwarded the child's status, so the chain is now
+void`. `pengu run` already forwarded the child's status, so the chain is now
   end to end.
 - **Generated C carries `#line` directives.** Every statement in a function body
   and every function definition is preceded by
@@ -43,7 +94,7 @@ out as "what makes everything else debuggable" are done, with regression tests i
   would break the macro invocation).
 - **The build cache keys on content, not mtimes.** `build/` is shared by every
   program built in a directory, and the cache compared mtimes against
-  `build/bundle.c`, so a *different* program's older bundle could look "up to
+  `build/bundle.c`, so a _different_ program's older bundle could look "up to
   date" and its binary was shipped. The cache key is now
   `<config hash> <sources fingerprint>` in `build/.bundle_hash`, where the
   fingerprint covers the resolved entry path, every module's relative path and
@@ -61,8 +112,8 @@ out as "what makes everything else debuggable" are done, with regression tests i
   value from there, a new `pengu --version` / `-V` flag reports it,
   `make_release.py` now syncs the VS Code extension manifest from `VERSION`
   before packaging, and the places that used to spell a stale number (grammar
-   docstring, runtime header, README badge, extension `package.json`) no longer
-   claim one. `tests/test_p0_toolchain.py::TestVersion` fails if any of them drift.
+  docstring, runtime header, README badge, extension `package.json`) no longer
+  claim one. `tests/test_p0_toolchain.py::TestVersion` fails if any of them drift.
 
 ### P1 — Unblock the raylib corpus
 
@@ -96,7 +147,7 @@ raylib corpus:
 
 `at` is a **postfix** operator (CHEATSHEET §6.1), so `xs at i + 1` is
 `(xs at i) + 1` and a computed index is written `xs at (i + 1)`. Reads already
-behaved that way, but the *target* grammar accepted an additive expression, so
+behaved that way, but the _target_ grammar accepted an additive expression, so
 `set xs at n - 1 is v` wrote to index `n-1` while the equivalent read computed
 `(xs at n) - 1` — one spelling, two meanings, and the reading one can index out of
 bounds. Both positions are now postfix, which means:
@@ -145,7 +196,7 @@ The six "breadth" items, with regression tests in `tests/test_p2_features.py` (3
   `void`/`opaque` as the wildcard). This closes the hole where
   `ref to i32` was accepted for a `ref to char` parameter — and where an
   `array of i32` decayed to `ref to char` — with no diagnostic. Numeric widening
-  of *values* (`int` → `i64`) is unchanged; `frozen` stays one-directional.
+  of _values_ (`int` → `i64`) is unchanged; `frozen` stays one-directional.
 - **P2.6 — `pengu bind` on real headers.** New flags (`--define/-D`,
   `--cpp-flags`, `--system-includes`, `--preprocessed FILE.i`,
   `--no-blank-extensions`), GNU-extension blanking enabled by default, new stubs
@@ -165,7 +216,7 @@ The six "breadth" items, with regression tests in `tests/test_p2_features.py` (3
   parameter name breaks a `declare` signature, and no member name breaks a
   `rune`. The policy is now evidence-based — members are never renamed, `declare`
   parameters keep their C name (only `self`/`type` are quoted), and **callback
-  aliases** (whose grammar *does* reject type-like parameter names, e.g.
+  aliases** (whose grammar _does_ reject type-like parameter names, e.g.
   `with opaque as voidpf`) sanitize exactly that class (`opaque`, `void`, `int`,
   the fixed-width type names, `null`). Covered by
   `tests/test_p2_features.py::TestPenguBind` (`…names_are_kept_verbatim`,
@@ -205,6 +256,7 @@ The six "breadth" items, with regression tests in `tests/test_p2_features.py` (3
   and `qsort(xs, 3, sizeof(int32_t), ((int32_t (*)(const void*, const void*))compare_ints))`,
   which GCC 14+ accepts (before, the callback was spelled `void*` and rejected
   for differing qualifiers). See LANGUAGE §9.5.
+
 - **`frozen` is a soft keyword.** It is a plain string literal in the grammar,
   so Lark's contextual lexer only prefers it where a type may start; identifiers
   named `frozen` (variables, fields, weaves, modules) keep working — verified by
@@ -222,7 +274,7 @@ The six "breadth" items, with regression tests in `tests/test_p2_features.py` (3
   when it would silently discard a `frozen` qualification, so
   `ref to frozen int` → `ref to int` is `E0005` as in C.
 - **`frozen` writes are rejected** (`E0006`): `set` on a `frozen`-typed binding,
-  and any `set` that writes *through* a frozen pointee (`set p->field is …`
+  and any `set` that writes _through_ a frozen pointee (`set p->field is …`
   where `p as ref to frozen T`). Rebinding a `ref to frozen T` pointer itself
   stays allowed, because the qualification is on the pointee.
 - **`ref to frozen void` (C's `const void*`) keeps C's wildcard behaviour.**
@@ -232,7 +284,7 @@ The six "breadth" items, with regression tests in `tests/test_p2_features.py` (3
   `calling xxhash.XXH64 with "PenguScript", 11, 0` failed with `E0005`. As in C,
   a pointer target is now the same catch-all for both spellings: any `T*`
   (mutable or frozen) converts to `void*` and `const void*` in one direction
-  (`frozen T*` → `T*` stays `E0005`), arrays still decay, and a string *literal*
+  (`frozen T*` → `T*` stays `E0005`), arrays still decay, and a string _literal_
   converts too — `char*` → `const void*` — emitting a C literal rather than a
   Pengu string object (`string_lit` and `_is_ref_char_type` look through
   `frozen`/aliases and list `void` next to `char`).
@@ -261,6 +313,7 @@ The six "breadth" items, with regression tests in `tests/test_p2_features.py` (3
   > priority keeps the boolean operators from being shadowed where both are
   > expected, and the leading underscore keeps all three out of the AST (so
   > `bool_and`/`bool_or` nodes have exactly two children).
+
 - **Compound assignment: `set x += 1`** and the other nine operators
   (`-= *= /= %= &= |= ^= <<= >>=`), as a new `compound_set_stmt` alternative of
   `set_stmt` (plus the one-line `compound_set_simple`, wired through
@@ -294,10 +347,10 @@ The six "breadth" items, with regression tests in `tests/test_p2_features.py` (3
   syntax exception raised while parsing a module is now converted to
   `ParseError` (a `SemanticError` subclass, code `E0000`), carrying the line, the
   column, the offending snippet and the usual `help`/`note`. When the parser
-  actually fails *on* an `and` that used to be a separator, the message explains
+  actually fails _on_ an `and` that used to be a separator, the message explains
   the 0.10.0 change, points at that token and suggests `,` — e.g.
   `[E0000] 'and' is no longer a separator: use ',' (offending 'and' at line 2,
-  column 33)`. The hint is only used when the error lands on the `and` itself, so
+column 33)`. The hint is only used when the error lands on the `and` itself, so
   an unrelated error on the same line is reported as a plain syntax error.
   `pengu check` also wraps import resolution, so a syntax error inside an
   imported module is reported the same way instead of escaping as a traceback.
@@ -334,6 +387,7 @@ The six "breadth" items, with regression tests in `tests/test_p2_features.py` (3
   binding is `E0005`. The checker now requires the operand to be `maybe T`
   (`Binding 'v' requires a maybe value, got 'int'`) and the declared type to
   match the element type.
+
 - **Parentheses now survive into the AST.** `"(" expr ")"` is aliased to
   `paren_expr` instead of being inlined. The node is semantically transparent
   (`infer`/`fold`/codegen unwrap it) but it is what lets the checker tell
@@ -367,12 +421,12 @@ The six "breadth" items, with regression tests in `tests/test_p2_features.py` (3
   C-style indexing (`arr[0]`, which PenguScript spells `arr at 0`) parses as the
   variable plus a stray `[0]` statement; it used to compile into a useless
   `{ 0 };` (and, before the folding fix above, into `0;`). The checker now
-  reports *An array literal is not a statement* with the hint "PenguScript
+  reports _An array literal is not a statement_ with the hint "PenguScript
   indexes with 'x at i', not 'x[i]'".
 - **The `ref to char` argument mismatch now explains the conversion.** Passing a
-  `string` value where a binding expects `ref to char` says: *A string literal
+  `string` value where a binding expects `ref to char` says: _A string literal
   converts automatically, but a string value needs
-  `calling ffi.cstr_from_string with s` (std.ffi)*.
+  `calling ffi.cstr_from_string with s` (std.ffi)_.
 - **`build_runtime.py` stages two more headers.** `stb_herringbone_wang_tile.h`
   and `stb_image_resize2.h` live in `std_c/` and have `std/*.d.pengu` bindings,
   but were missing from `SINGLE_HEADER_NAMES`, so any program importing
@@ -385,13 +439,13 @@ The six "breadth" items, with regression tests in `tests/test_p2_features.py` (3
   operator now). It was removed from `arg_list`, `param_list`, `struct_init`,
   `array_lit`, `map_lit` and `indent_row`. Use `,`:
 
-  | Before | After |
-  |---|---|
-  | `calling f with 1 and 2` | `calling f with 1, 2` |
-  | `weave g with x as int and y as int` | `weave g with x as int, y as int` |
+  | Before                                 | After                               |
+  | -------------------------------------- | ----------------------------------- |
+  | `calling f with 1 and 2`               | `calling f with 1, 2`               |
+  | `weave g with x as int and y as int`   | `weave g with x as int, y as int`   |
   | `declare d with a as int and b as int` | `declare d with a as int, b as int` |
-  | `with x is 1 and y is 2` | `with x is 1, y is 2` |
-  | `1 and 2 and 3` (indented array row) | `1, 2, 3` |
+  | `with x is 1 and y is 2`               | `with x is 1, y is 2`               |
+  | `1 and 2 and 3` (indented array row)   | `1, 2, 3`                           |
 
 - **`and` stays a separator in pure name/type lists**, where no expression can
   follow: `shard_params` (`shard T and U`), `where_clause`,
@@ -400,13 +454,12 @@ The six "breadth" items, with regression tests in `tests/test_p2_features.py` (3
 - **A bare `and`/`or` is not a list element.** Elements of a comma-separated
   list stop below the boolean operator levels, so the old separator can never be
   read silently as one boolean element:
-
   - array literals, map literals, indented literals and parameter defaults now
     fail at parse time with the `E0000` hint (`var xs is [1 and 2]` →
     `'and' is no longer a separator: use ','`);
   - a bare `and`/`or` glued to a **call with arguments** (`calling find with 1
-    and true`) or to a **struct literal** (`with flag is a and b`) is `E0005`
-    — *Ambiguous 'and' after a call with arguments* — because those shapes are
+and true`) or to a **struct literal** (`with flag is a and b`) is `E0005`
+    — _Ambiguous 'and' after a call with arguments_ — because those shapes are
     where the removed separator was written most often and the boolean reading
     is silently valid when both operands happen to be `bool`.
 
@@ -415,8 +468,9 @@ The six "breadth" items, with regression tests in `tests/test_p2_features.py` (3
   single value is expected (conditions, `var`/`let` initialisers, `return`,
   `set`, nested calls), so `var ok as bool is a and b` and `if a and b:` are
   unchanged.
+
 - Docs in this repo (`LANGUAGE.md`, `CHEATSHEET.md`) were migrated to commas;
-  `CHEATSHEET` §3.4 now documents `,` as *the* list separator.
+  `CHEATSHEET` §3.4 now documents `,` as _the_ list separator.
 
 ### Migration
 
@@ -442,15 +496,15 @@ repository compiles and the full suite is green (**610 passed**):
   > The `std/` half of this migration was re-applied later in the same release
   > (the parser-driven pass counted 697 separators this time; the difference is
   > the modules that were added or edited in between) because a `git checkout
-  > -- std/` while regenerating bindings discarded it. The documentation that
+-- std/` while regenerating bindings discarded it. The documentation that
   > those files carried was restored from the `pengucc_build/std/` snapshot
   > first, and the result is `pengu check`-clean for all 49 importable modules
   > and compiles as a single bundle.
-- **`tests/**/*.pengu`** (the stdlib exercise programs) were migrated in the same
+- **`tests/**/\*.pengu`\*\* (the stdlib exercise programs) were migrated in the same
   pass.
 - **Pengu sources embedded in `tests/*.py`**: 218 separators across 106 string
   literals plus one f-string, migrated by an `ast`-based pass that works on the
-  literal *values* and only rewrites snippets that parse as Pengu — so expected
+  literal _values_ and only rewrites snippets that parse as Pengu — so expected
   messages such as `"ranges and in ok"` or
   `"Omen variant name 'ONE' is used by both omen 'A' and omen 'B'"` and C header
   strings were preserved verbatim.
@@ -459,14 +513,13 @@ repository compiles and the full suite is green (**610 passed**):
   used as an identifier.
 - **`README.md`**: its two ```pengu blocks (`with model is "Pengu" and speed is
   0.0`, `calling xxhash.XXH64 with "PenguScript" and 11 and 0`) and the
-  `weave name with a as T and b as T into R` prose were rewritten to commas.
-  All other fenced Pengu blocks in the repo were re-parsed with
-  `PenguParser`; the remaining `and` occurrences are boolean operators or English
+`weave name with a as T and b as T into R`prose were rewritten to commas.
+All other fenced Pengu blocks in the repo were re-parsed with`PenguParser`; the remaining `and` occurrences are boolean operators or English
   prose inside comments.
 - **VS Code extension snippets**: five bodies still expanded the removed
   separator (`weave` params, `ward.assert_eq_int`/`_string`, `weave_many`,
   the `test` template). They now use commas; the `and-or` snippet keeps `and`
-  because it inserts the *operator*. Two snippets were added for the
+  because it inserts the _operator_. Two snippets were added for the
   now-working maybe binding (`ifbind`/`iflet`) and the presence test
   (`present`).
 - `examples/` does not exist in this repository (and `scratch/` is gitignored
@@ -476,18 +529,17 @@ repository compiles and the full suite is green (**610 passed**):
 ### Added — C callbacks, word tests in argument lists
 
 - **Function-pointer values and C callbacks work.** Three defects kept `alias …
-  as ref to weave …` / `ref to weave …` unusable:
-
+as ref to weave …` / `ref to weave …` unusable:
   1. `FnType` was not compatible with a declared `ref to weave …` (nor with an
      alias of it), so `var cb as ref to weave with x as int into int is lambda …`
-     failed with *declared as 'ref to weave …', but initialized with 'weave …'*.
+     failed with _declared as 'ref to weave …', but initialized with 'weave …'_.
      A function value now decays to a function pointer for compatibility.
   2. Calling **through** a function-pointer variable (`calling cb with 21`) was
-     reported as *Undefined function 'cb'*; the callee resolution now unwraps
+     reported as _Undefined function 'cb'_; the callee resolution now unwraps
      `RefType(FnType)` (and aliases of it) and uses its signature.
   3. The C declarator for such a variable was emitted as
      `int32_t (*)(int32_t) cb` (invalid C — the identifier must go inside the
-     parentheses) and `to_c_type` spelled `ref to weave …` as a pointer *to* a
+     parentheses) and `to_c_type` spelled `ref to weave …` as a pointer _to_ a
      function pointer. Both now go through `CTypeMapper.to_c_decl`.
 
   On top of that, a function value passed to a callback parameter is now
@@ -499,6 +551,7 @@ repository compiles and the full suite is green (**610 passed**):
   `SetTraceLogCallback`, `SetSaveFileDataCallback` and
   `SetLoadFileTextCallback`, plus an `atexit` callback that runs
   (`tests/test_callbacks.py`).
+
 - **`va_list` (and every bare custom type) is no longer mangled.** The optional
   `of type …` part of a `custom_type` leaves a `None` child behind, and
   `ast_to_type` treated it as a type argument, turning `va_list` into the bogus
@@ -507,10 +560,10 @@ repository compiles and the full suite is green (**610 passed**):
   (from `<stdarg.h>`, already included by the runtime header).
 - **A word test in argument position is now rejected (`E0005`).**
   `calling find with 1 is true` parses as `calling find with (1 is true)` — the
-  test applies to the *last argument*, while a C-style `find(1) == true` tests
+  test applies to the _last argument_, while a C-style `find(1) == true` tests
   the call's result, and the mistake was silent whenever the parameter happened
-  to be `bool`. The checker now reports *Ambiguous 'is true' in the arguments of
-  'find'* and the help spells out both readings:
+  to be `bool`. The checker now reports _Ambiguous 'is true' in the arguments of
+  'find'_ and the help spells out both readings:
   `calling f with (x is true)` (test as the argument) and
   `(calling f with x) is true` (test the call's result). The same applies to
   `is false`, `is present` and `is not present`. Tests in other positions are
@@ -522,13 +575,13 @@ repository compiles and the full suite is green (**610 passed**):
 
 - **Inline callback parameters cannot express C `const` qualifiers.** A callback
   parameter written inline (`compar as ref to weave with a as ref to void, b as
-  ref to void into int`) is cast to the type spelled by those Pengu parameters,
+ref to void into int`) is cast to the type spelled by those Pengu parameters,
   so `qsort`'s `int (*)(const void*, const void*)` still mismatches and GCC 14+
   rejects it. Callbacks declared through an alias of a **C typedef** are immune,
   because the cast names the typedef — which is how every raylib callback is
   bound. Fixing the inline case needs `const` in the type grammar (and in
   `pengu bind`), which is not part of this change.
-- **`x to T` only casts to simple types.** The `to` operator is the *range*
+- **`x to T` only casts to simple types.** The `to` operator is the _range_
   operator with a cast heuristic on the right operand, so
   `ptr to ref to int` is a syntax error; use `transmute ptr to ref to int` for
   pointers, `maybe T`, arrays and other compound types.
@@ -573,12 +626,12 @@ the tool-produced `std/*.d.pengu` files were regenerated with it:
   (`/* … */`, `/** … */`) or a run of `//`/`///` lines becomes one `# …` line
   per source line, with the `*` gutters and the opening/closing markers
   stripped. Only the generated-file banner keeps `##`.
-  A multi-line block was not even *detected* before: `_comment_before` only
+  A multi-line block was not even _detected_ before: `_comment_before` only
   recognised a comment whose first inspected line started with `/*`, so blocks
   closed by ` */` were dropped entirely.
 - **`const` signatures become `frozen`.** `const char *text` →
   `text as ref to frozen char`, `const void *blob` → `ref to frozen void`,
-  `const T value` → `frozen T`. A *const pointer* (`T * const p`) is deliberately
+  `const T value` → `frozen T`. A _const pointer_ (`T * const p`) is deliberately
   dropped — that is what `let` expresses, and `frozen` always qualifies the
   pointee. 98 parameters/returns across the regenerated bindings gained the
   qualifier.
@@ -586,7 +639,7 @@ the tool-produced `std/*.d.pengu` files were regenerated with it:
   compiler-specific spelling, so raylib's `TraceLogCallback` can be described.
 - **Callback aliases are hoisted out of the declaration that needs them.**
   `alias Callback1 as ref to weave …` used to be appended at the point of
-  discovery, which put it *inside* a `rune` body and produced invalid code
+  discovery, which put it _inside_ a `rune` body and produced invalid code
   (`alias Callback1 …` followed by `  read as Callback1`). They are queued and
   flushed before the `rune`/`declare` line.
 - **Enum aliases are dropped with a warning.** C allows two enumerators to share
@@ -594,7 +647,7 @@ the tool-produced `std/*.d.pengu` files were regenerated with it:
   emitting a binding that cannot compile.
 - **`import` lines for included headers are auto-detected.** The generator scans
   the sibling bindings' `## Source header:` banners and emits the `import`s a
-  binding needs to reuse the *same* types as the headers it includes
+  binding needs to reuse the _same_ types as the headers it includes
   (`raygui.h` includes `raylib.h` → `import std.raylib`, `nanosvgrast.h` →
   `import std.nanosvg`). Two mistakes are avoided here: a binding never imports
   itself (the `.d.pengu` suffix has two dots, so the module name is stripped by
@@ -603,7 +656,7 @@ the tool-produced `std/*.d.pengu` files were regenerated with it:
   empty string disables it).
 - **Regeneration tool**: `regen_std_bindings.py` re-runs the generator for the
   bindings that carry the tool banner, keeps each file's hand-written preamble
-  and *refuses* to rewrite a file when declarations would be lost — that is how
+  and _refuses_ to rewrite a file when declarations would be lost — that is how
   the hand-curated ones (raylib's colour constants and platform links, the
   pure-Pengu wrappers, the hand-written webui/sqlite3/xxhash/yaml bindings) stay
   untouched. It regenerated 12 bindings: `datastructura`, `fenestra`, `imago`,
@@ -612,7 +665,7 @@ the tool-produced `std/*.d.pengu` files were regenerated with it:
 
 Because bindings now carry `frozen`, two call sites had to follow: a
 `ref to frozen char` parameter still accepts a string literal (the literal and
-`_is_ref_char_type` now look through `frozen`), and a `frozen` *result* cannot be
+`_is_ref_char_type` now look through `frozen`), and a `frozen` _result_ cannot be
 stored in a mutable local without a conversion
 (`tests/test_ffi_libs.py`'s `imago.failure_reason` smoke now declares
 `var why as ref to frozen char`).
@@ -626,7 +679,7 @@ write when a declaration or a parse would be lost):
 
 - **`const` → `frozen`.** `raylib.d.pengu` (146 signatures:
   `SetClipboardText with text as ref to frozen char`, `GetMonitorName into ref to
-  frozen char`, `SetShaderValue … value as ref to frozen void`), `sqlite3.d.pengu`
+frozen char`, `SetShaderValue … value as ref to frozen void`), `sqlite3.d.pengu`
   (12, including the callback aliases that now take
   `ref to frozen Fts5ExtensionApi`), `xlsxio.d.pengu` (`get_version_string`,
   `open`'s filename/sheetname, `add_cell_string`, `add_column`),
@@ -653,7 +706,7 @@ they stay hand-maintained.
 ### Known issues found while auditing `std/` (not addressed here)
 
 - **`pengu build` can leave a stale binary and still report "(cached)".** The
-  up-to-date check compares the output's mtime with the *entry source* mtime on
+  up-to-date check compares the output's mtime with the _entry source_ mtime on
   the fixed path `build/app.exe`, so it does not notice that the existing
   binary came from a **different** program. Repro (verified): build program A
   (fresh), build program B (fresh) and then build A again — the second A build
@@ -672,12 +725,12 @@ they stay hand-maintained.
   exits with status 0. Scripts that need an exit status must call
   `spark.exit`-style helpers or write to stderr.
 - **A `string` value is not accepted where a binding declares `ref to char`.**
-  String *literals* are converted (`DrawText("hi", …)` works), but passing a
+  String _literals_ are converted (`DrawText("hi", …)` works), but passing a
   `string` variable fails with
   `Argument 'input' of 'Parse' expects 'ref to char', got 'string'`.
 - **`calling … with …` used as an operand needs parentheses.** In
   `if calling GuiButton with bounds, "Click me" == 1:` the comparison binds to
-  the *last argument*, so the C idiom `GuiButton(...) == 1` must be written
+  the _last argument_, so the C idiom `GuiButton(...) == 1` must be written
   `(calling raygui.Button with bounds, "Click me") == 1`.
 - **Two std modules can define the same constant name.** `std/whisper.pengu`
   (`LOG_INFO` = 2) and `std/raylib.d.pengu` (`TraceLogLevel.LOG_INFO` = 3)
@@ -719,7 +772,7 @@ they stay hand-maintained.
 - **Resource cleanup for native handles.** New runtime helpers plus std
   wrappers (functional weaves and `free` enchanting methods) for every
   concurrency primitive (`pengu_c_filum_{mutex,wait_group,once,cond,
-  atomic_int,chan}_free` in `std/filum.pengu`), compiled regexes
+atomic_int,chan}_free` in `std/filum.pengu`), compiled regexes
   (`pengu_c_regulus_regex_free`, `pengu_c_regulus_match_free` in
   `std/regulus.pengu`) and parsed XML/HTML documents and nodes
   (`pengu_c_parchment_document_free`, `pengu_c_parchment_node_free` in
@@ -729,7 +782,7 @@ they stay hand-maintained.
   value-copied structs; the ownership contract is documented in
   `pengu_runtime.h`.
 - **`include` no longer invents method signatures.** The raw-C fallback that
-  turned *any* unknown enchanting/instance method into a parameterless `void`
+  turned _any_ unknown enchanting/instance method into a parameterless `void`
   call whenever a C header was included is gone: misspelled method calls now
   raise `E0004`. Bare unknown function calls in include modules remain the
   documented FFI escape hatch (the C header declares them).
@@ -760,18 +813,18 @@ they stay hand-maintained.
     `pengu_map_from_entries`, exporters `pengu_map_to_entries`
     (`PenguEntryArray`) + `pengu_entry_array_free`, and
     `pengu_string_as_slice`.
-  New module **`std/ffi.pengu`** exposes concrete PenguScript wrappers
-  (string↔C string, byte views, byte/int/float slices and lists from raw
-  pointers, and a string→int map built from parallel slices), each with
-  module docstrings explaining the ownership model. PenguScript container
-  types are nominal, so per-element-type typed symbols were added
-  (`pengu_ffi_slice_i32`, `pengu_ffi_list_f64`, `pengu_ffi_cstr_string`, …);
-  fully generic (`shard T`) buffer bridges cannot be expressed today because
-  the language cannot infer type parameters that appear only in the return
-  type of container conversions.
-  Exercised by `tests/std_programs/test_ffi.pengu`, a C driver test
-  (`tests/test_ffi_bridges.py`) and bundle-emission assertions on the
-  generated `bundle.c`.
+    New module **`std/ffi.pengu`** exposes concrete PenguScript wrappers
+    (string↔C string, byte views, byte/int/float slices and lists from raw
+    pointers, and a string→int map built from parallel slices), each with
+    module docstrings explaining the ownership model. PenguScript container
+    types are nominal, so per-element-type typed symbols were added
+    (`pengu_ffi_slice_i32`, `pengu_ffi_list_f64`, `pengu_ffi_cstr_string`, …);
+    fully generic (`shard T`) buffer bridges cannot be expressed today because
+    the language cannot infer type parameters that appear only in the return
+    type of container conversions.
+    Exercised by `tests/std_programs/test_ffi.pengu`, a C driver test
+    (`tests/test_ffi_bridges.py`) and bundle-emission assertions on the
+    generated `bundle.c`.
 - **Standard-library documentation pass (`std/`).** Every wrapper module
   (non-`.d.pengu`) now matches the `std/ffi.pengu` documentation standard:
   module header with description, usage and ownership model; section
@@ -831,14 +884,14 @@ they stay hand-maintained.
   - typing `set.` inside a `with target:` block offers the rune's fields;
   - after `var x as Type is with ` offers the rune's fields with per-type
     default initializers and an "(all fields)" fill snippet.
-  `get_completions` gained an optional `doc_text` parameter for the multi-line
-  contexts (the server passes the document text).
+    `get_completions` gained an optional `doc_text` parameter for the multi-line
+    contexts (the server passes the document text).
 - **LSP "Implement missing concept methods" code action.** When the cursor
-  sits inside a ``bind Target with Concept:`` block,
+  sits inside a `bind Target with Concept:` block,
   `code_actions.implement_concept_methods_action` appends a weave skeleton for
   every concept method not yet implemented there (correct parameter list,
   return type and a per-type default body: `return`, `return 0`, `return
-  false`, `return ""`, `return maybe none`, …), skipping methods that already
+false`, `return ""`, `return maybe none`, …), skipping methods that already
   exist. Wired into the `textDocument/codeAction` handler.
 - **LSP richer hover.** Rune hovers now list the enchanting methods attached to
   the type (via `symbols.methods` and `RuneType.methods`) and, for generic
@@ -902,7 +955,6 @@ they stay hand-maintained.
   the condition negated). The same machinery now also covers the remaining value
   slots, which share one walker (`_check_value_exprs`) so nested block values are
   validated wherever they appear:
-
   - `return` — `return if c: …` / `return unless c: …` (and a block value
     anywhere in the returned expression, e.g.
     `return calling pick with if c: …`); `return_stmt`'s trailing `_NEWLINE` is
@@ -915,7 +967,6 @@ they stay hand-maintained.
   `while cond:`, `for i from a to b [step s]:`, `for v in col:` and
   `for i, v in col:` (incl. `_` discard) — now works in a value position and
   **collects** its body's last expression per iteration into a `list of T`:
-
   - Grammar: `value_expr` accepts `while_stmt` / `for_stmt`, so loops work in
     every value slot already covered (`var`/`let`/`static var` initializers,
     `set`, `return`, call arguments, struct-literal fields, block tails). The
@@ -925,12 +976,12 @@ they stay hand-maintained.
     `ListType(element=T)` and records it on the node (`_pengu_value_type`); the
     three loop checkers took a `collect` flag that checks the body as a value
     block instead of a statement block and returns the per-iteration type. A body
-    that produces no value is `E0005` (*loop used as a value must produce a value
-    on every iteration*). A loop that merely ends a value block is best-effort
+    that produces no value is `E0005` (_loop used as a value must produce a value
+    on every iteration_). A loop that merely ends a value block is best-effort
     (no error) so statement-style bodies keep working.
   - Codegen: `_translate_loop_value` emits
     `({ PenguList l = pengu_list_new(sizeof(T), 8); for (…) { …; T v = <value>;
-    pengu_list_push(&l, &v); } l; })` by threading an `append_ctx` through the
+pengu_list_push(&l, &v); } l; })` by threading an `append_ctx` through the
     existing `while`/`for_range`/`for_in` translators, whose bodies now go through
     `_translate_loop_body`. The push sits at the end of the body, so `continue`
     skips a value and `break` ends the loop for free. Nested loops build
@@ -939,14 +990,14 @@ they stay hand-maintained.
     slot's expected type, so a trailing `with:` builder inside a loop body is
     typed from the list element (`var ps as list of Point is for …: with: …`), and
     the same plumbing now reaches `if`/`unless`/`do` initializers.
-  - Docs: CHEATSHEET §6.1.3 (loops as expressions) and §6.1.4, the *definitive*
+  - Docs: CHEATSHEET §6.1.3 (loops as expressions) and §6.1.4, the _definitive_
     table of what is and is not an expression (12 constructs × 8 value positions,
     verified by probe) — plus LANGUAGE.md §7.6.
   - Tests: `TestLoopValueExpression` (13).
 
 - **Fixed: a loop variable was rewritten inside a `with:` builder.** Codegen
   treated any bare name inside a `with` scope as a field of the target unless the
-  *global* symbol table knew it, so a loop variable used in a builder emitted
+  _global_ symbol table knew it, so a loop variable used in a builder emitted
   `_with_1.i` (invalid C: `'Point' has no member named 'i'`). Names present in
   `local_vars` now stay plain identifiers.
 
@@ -954,12 +1005,13 @@ they stay hand-maintained.
   `expr_stmt`-wrapped `do:` is a value block, like a trailing `if`/loop).
 
 - **Fixed: iterating an inline array literal emitted invalid C.** `for v in
-  [1, 2, 3]` produced `({ 1, 2, 3 })[_i]` — an array literal is a brace
+[1, 2, 3]` produced `({ 1, 2, 3 })[_i]` — an array literal is a brace
   initializer with no storage. The for-in codegen now materializes it into a
   temporary array (`int32_t _lit[] = { 1, 2, 3 };`) and indexes that.
 
   Covered by `TestUnlessValueExpression` and `TestBlockValuePositions`;
   LANGUAGE.md §7.6 and CHEATSHEET §6.1.2 document the positions.
+
 - **Single-line block statements now compile and are type-checked.** The
   one-line block form (`block: ":" simple_stmt _NEWLINE`) parses into aliased
   nodes (`return_simple`, `set_simple`, `named_simple`, `continue_simple`,
@@ -990,7 +1042,7 @@ they stay hand-maintained.
   `"""` after `DOTDOT` made `pengu_parser` fail at import; the duplicate block
   was removed so the grammar imports cleanly.
 - **`to` cast ambiguity removed**: the duplicate `logic_or "to" base_type ->
-  cast_expr` alternative in `range_expr` was deleted — casts live only in
+cast_expr` alternative in `range_expr` was deleted — casts live only in
   `postfix`, so `10 to float` is a cast while `1 to 10` is a range.
 - **`at` chains are left-associative semantically**: `grid at 0 at 0` parsed
   right-nested (`at(grid, at(0, 0))`), breaking typing and codegen. A flatten
@@ -1121,7 +1173,7 @@ they stay hand-maintained.
   time (e.g. passing a string where a `bool` is declared, or passing a `weave`
   where a `list of string` is expected). Same rules as assignments: numeric
   widening is allowed, unknown/type-param operands pass, `weave → ref to
-  void` / `ref to weave` function-pointer decay stays legal, and native
+void` / `ref to weave` function-pointer decay stays legal, and native
   `list.push`/`map.put` diagnostics (`E0018`) are unchanged.
 - **LSP resolves imported `enchanting` methods on unsaved buffers**: the
   semantic checker loads imported modules relative to the entry file, so when
@@ -1177,9 +1229,9 @@ they stay hand-maintained.
 - **libuv 1.52.1** integrated into `build_runtime.py` (`build/lib/libuv.a`, headers staged; one-line MinGW const fix in `extern/libuv-1.52.1/src/win/util.c`); `pengu_project.py` links `psapi/userenv/iphlpapi` on Windows.
 - **YAML built**: `libyaml-0.2.5` (direct gcc of 8 sources + minimal `build/include/config.h` with `-DHAVE_CONFIG_H`) and `libcyaml-1.4.2` (direct gcc with `VERSION_*` defines) wired into `build_runtime.py` (`build_libyaml`/`build_libcyaml`, no-op verified); headers `yaml.h`/`cyaml/cyaml.h` staged.
 - **G5 Pengu layer** (curated bindings + wrappers, all semantic-checked and compile+link+run verified):
-  - `std/xlsxio.d.pengu` (xlsxio *write* API: open/close/next_row/add_cell_string/int/float/add_column/set_detection_rows) + pure-Pengu wrapper `std/xlsx.pengu` (`xlsx.write_sheet` / `xlsx.write_rows`) that writes a real `.xlsx` workbook; runtime strings reach C `const char*` parameters via `bytes of <string>`. Verified by a Pengu compile+run that produces a valid workbook (sheet name + cell strings checked inside the produced zip).
+  - `std/xlsxio.d.pengu` (xlsxio _write_ API: open/close/next_row/add_cell_string/int/float/add_column/set_detection_rows) + pure-Pengu wrapper `std/xlsx.pengu` (`xlsx.write_sheet` / `xlsx.write_rows`) that writes a real `.xlsx` workbook; runtime strings reach C `const char*` parameters via `bytes of <string>`. Verified by a Pengu compile+run that produces a valid workbook (sheet name + cell strings checked inside the produced zip).
   - `std_c/wrappers_tomlc17.c` + `std_c/pengu_tomlc17.h`: `pengu_toml_valid`/`pengu_toml_valid_file` shim over tomlc17's by-value `toml_result_t` API (which pure Pengu cannot express); `build_tomlc17` now compiles the shim into `libtomlc17.a` and stages the companion header. Binding: `std/tomlum.d.pengu`.
-  - `std/yaml.d.pengu`: libyaml version query via out-`int` parameters (`yaml.get_version`, `sigil of`); YAML/libcyaml *parsing* remains C-level only (schema/event structs) - documented in the module header.
+  - `std/yaml.d.pengu`: libyaml version query via out-`int` parameters (`yaml.get_version`, `sigil of`); YAML/libcyaml _parsing_ remains C-level only (schema/event structs) - documented in the module header.
   - libzip/libexpat/libuv stay C-level dependencies (no raw binding; xlsxio uses them); documented in CHEATSHEET §15 (Standard Library).
 - Tests for the FFI/G5 features live in the consolidated suite: `tests/test_compiler_features.py`
   (bytes of, weave→pointer, coroutine) and `tests/test_ffi_libs.py` (xlsxio/xlsx round-trip,
@@ -1194,7 +1246,7 @@ they stay hand-maintained.
   (it cannot be auto-bound by `pengu bind`): `XXH_versionNumber`, the XXH32 /
   XXH64 / XXH3_64bits / XXH3_128bits one-shots (with `_withSeed`), the three
   opaque streaming state types and their `createState / freeState / reset /
-  update / digest` families, plus the `XXH128_hash_t` struct result. Uses the
+update / digest` families, plus the `XXH128_hash_t` struct result. Uses the
   real C symbol names (no insignia). Verified end-to-end from PenguScript
   (canonical vectors + streaming==one-shot consistency).
 - **`std/uuid.d.pengu`** — every public function of `uuid.h` (uuid0_generate,
@@ -1211,7 +1263,7 @@ they stay hand-maintained.
   documented. Coroutine entry bodies need a C function pointer, which
   PenguScript weaves cannot supply yet, so the roundtrip is verified with a
   C-level probe against the compiled implementation.
-- **`std/miniaudio.d.pengu`** — documented *small* subset meaningful without an
+- **`std/miniaudio.d.pengu`** — documented _small_ subset meaningful without an
   audio device (version macros + `ma_version_string` / `ma_version`). Audio
   backend APIs are intentionally omitted and the 4 MB single-header
   implementation is not compiled into the runtime; see module header comment.
@@ -1222,7 +1274,7 @@ they stay hand-maintained.
   intentionally omitted (documented); no implementation archive is built.
 - **`std/celeris.pengu`** — pure-PenguScript wrapper over `std/xxhash`
   (`hash32/hash64/hash3_64/hash3_128` + `*_seeded`). Documents that a
-  PenguString *variable* cannot yet be passed where a C byte pointer is
+  PenguString _variable_ cannot yet be passed where a C byte pointer is
   expected (codegen emits the PenguString struct, not its buffer), so data is
   given as `ref to char` plus an explicit byte `length`.
 
@@ -1265,7 +1317,7 @@ they stay hand-maintained.
   added via `pengu bind`; duplicate omen values deduplicated; both pass
   `pengu check`. Every header in `std_c/` now has a `.d.pengu` binding in
   `std/`.
-- **Scope note**: the broader single-header/std-module expansion (std_/ folder,
+- **Scope note**: the broader single-header/std-module expansion (std\_/ folder,
   XLSX/YAML/TOML/WebSocket/audio/GUI modules, async FS/watch, etc.) cannot be
   implemented from this repository alone — those headers/libraries are not
   present. See the agent report for the concrete gap list and next steps.
@@ -1291,11 +1343,11 @@ they stay hand-maintained.
 - **Bindings**: `std/*.d.pengu` updated for the new names — `imago`,
   `scriptor`, `typis`, `pactum`, `datastructura`, `perlinum` (renamed and
   re-checked), `webui` include/links fixed (`include "webui.h"`, `link
-  "webui"`), `sqlite3` and `raylib` verified; every binding passes
+"webui"`), `sqlite3` and `raylib` verified; every binding passes
   `pengu check`.
 - **Linking**: `pengu_project.py` auto-links any new `.a` found in `build/lib`
   and adds the Windows UI platform libs (`-lopengl32 -lgdi32 -lole32 -luuid
-  -lshell32`).
+-lshell32`).
 - **Tests**: `tests/test_integrated_libs.py` — sqlite3 + imago end-to-end via
   the std bindings (compile+run), semantic checks of the remaining renamed
   bindings, WebUI and Raylib link checks (headless host: link-only).
@@ -1442,7 +1494,7 @@ they stay hand-maintained.
   `main=false`; an explicit opt-in is available via `-D main` or `-D main=true`.
 - **Reserved name**: declaring `var main` / `let main` / `static var main` /
   `const main` now reports `error[E0040]: 'main' is a reserved compile-time
-  variable`. Defining the entry function `weave main ...` is unaffected.
+variable`. Defining the entry function `weave main ...` is unaffected.
 - **Tests**: `tests/test_when_main.py` (9 tests) verifies codegen emission/drop
   of `when main` blocks, the `E0040` guard, direct-run vs import behavior of a
   real module (`tests/fixtures_when_main/`), default-off project builds, and the

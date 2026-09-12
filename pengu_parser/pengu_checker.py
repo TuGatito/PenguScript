@@ -26,9 +26,20 @@ from .pengu_errors import (
     ConceptMethodMismatchError, UnimplementedConceptMethodError, ConceptBoundNotSatisfiedError,
     InvalidRitualSelfAccessError, InvalidRitualCallError,
     ArraySizeMismatchError, InvalidRangeError, PrivateSymbolAccessError, NonExhaustiveJudgeError,
-    UnknownArrayDimensionError, suggest_similar_identifier
+    UnknownArrayDimensionError, AutoOwnedBanishError, BorrowedBanishError, suggest_similar_identifier
 )
 
+
+def _has_borrowed_modifier(node: Tree) -> Tuple[bool, int]:
+    """Return (is_borrowed, name_index)."""
+    if not node.children:
+        return False, 0
+    first = node.children[0]
+    if first is not None and getattr(first, "type", None) == "BORROWED":
+        return True, 1
+    if first is None:
+        return False, 1
+    return False, 0
 
 
 def _node_to_name(node: Any) -> str:
@@ -126,6 +137,7 @@ class PenguChecker:
         self.errors: List[PenguError] = []
         self.warnings: List[str] = []
         self.symbols = SymbolTable()
+        self.block_stmts_stack: List[List[Tree]] = []
         self.inferrer = TypeInferrer(self.symbols, source_code=self.source_code, filename=self.filename,
                                      compile_env=self.compile_env)
         self.const_folder = ConstFolder(self.symbols)
@@ -165,6 +177,7 @@ class PenguChecker:
 
         self.errors = []
         self.warnings = []
+        self.block_stmts_stack = []
         if symbols is not None:
             self.symbols = symbols
         elif reset_symbols or not hasattr(self, "symbols") or self.symbols is None:
@@ -1228,6 +1241,19 @@ class PenguChecker:
                             if isinstance(p, Tree) and p.data == "param":
                                 pn = str(p.children[0])
                                 pt = ast_to_type(p.children[1], lookup_tp) if len(p.children) >= 2 else AnyType()
+                                if isinstance(pt, ManyType):
+                                    err = self._make_error(
+                                        SemanticError,
+                                        f"'many' parameters are not allowed in 'declare' statements",
+                                        p,
+                                        code="E0005",
+                                        help="Use '...' for C variadic functions: "
+                                             "'declare printf with fmt as ref to frozen char, ... into int'. "
+                                             "'many T' is only valid for 'weave' parameters.",
+                                        note="'declare' binds an existing C function; C varargs are marked "
+                                             "with '...', not 'many'."
+                                    )
+                                    self._record_error(err)
                                 params.append((pn, pt))
                             elif (isinstance(p, Token) and (p.type in ("VARARGS", "_VARARGS") or str(p) == "...")) or (isinstance(p, Tree) and p.data in ("varargs", "_varargs")):
                                 params.append(("_varargs", CVarArgsType()))
@@ -1618,6 +1644,29 @@ class PenguChecker:
             if isinstance(curr, Tree) and curr.data == "var_ref":
                 sym_name = str(curr.children[0])
                 sym = self.symbols.lookup(sym_name)
+                if sym is not None and sym.kind in ("var", "let"):
+                    if getattr(sym, "is_auto_banished", False):
+                        err = self._make_error(
+                            AutoOwnedBanishError,
+                            f"'banish' on auto-owned local '{sym_name}' would double-free",
+                            target_expr,
+                            code="E0047",
+                            help="Remove 'banish' — the compiler frees this variable automatically at the end of its scope.",
+                            note="Variables allocated locally with fresh ownership are scope-owned and cleaned up automatically."
+                        )
+                        self._record_error(err)
+                        return
+                    if getattr(sym, "is_borrowed", False):
+                        err = self._make_error(
+                            BorrowedBanishError,
+                            f"'banish' on borrowed local '{sym_name}'",
+                            target_expr,
+                            code="E0048",
+                            help="Remove 'banish' — borrowed references do not own the underlying memory.",
+                            note="Only the owner of a resource is allowed to banish it."
+                        )
+                        self._record_error(err)
+                        return
                 if sym and sym.kind == "const":
                     err = self._make_error(
                         InvalidMemoryOpError,
@@ -2021,6 +2070,8 @@ class PenguChecker:
         s_start, _ = self._get_node_span(stmts[0])
         _, e_end = self._get_node_span(stmts[-1])
         val = VOID_TYPE
+        s_stmts = [s for s in stmts if isinstance(s, Tree)]
+        self.block_stmts_stack.append(s_stmts)
         try:
             self.symbols.push_scope(kind="do", start_line=s_start, end_line=e_end)
             for ch in stmts[:-1]:
@@ -2028,6 +2079,7 @@ class PenguChecker:
             val = self._check_block_value_stmt(stmts[-1], expected)
         finally:
             self.symbols.pop_scope(end_line=e_end)
+            self.block_stmts_stack.pop()
         return val
 
     def _check_loop_value(self, node: Tree, expected_element: Optional[Type] = None,
@@ -2232,6 +2284,9 @@ class PenguChecker:
             if getattr(node, "_pengu_value_type", None) is None and expected is not None:
                 setattr(node, "_pengu_value_type", self._check_with_builder(node, expected))
             return
+        if rule == "or_block":
+            self._check_or_block(node)
+            return
         for child in node.children:
             self._check_value_exprs(child)
 
@@ -2318,6 +2373,109 @@ class PenguChecker:
             curr = curr.element
         return False
 
+    def _is_direct_var_ref(self, node: Any, target_name: str) -> bool:
+        if not isinstance(node, Tree):
+            return isinstance(node, Token) and node.type == "NAME" and str(node) == target_name
+        if node.data == "var_ref" and node.children:
+            return str(node.children[0]) == target_name
+        if node.data in ("paren_expr", "value_expr", "expr", "normal_target", "set_target") and len(node.children) == 1:
+            return self._is_direct_var_ref(node.children[0], target_name)
+        return False
+
+    def _contains_var_ref(self, node: Any, target_name: str) -> bool:
+        if not isinstance(node, Tree):
+            return isinstance(node, Token) and node.type == "NAME" and str(node) == target_name
+        if node.data == "var_ref" and node.children and str(node.children[0]) == target_name:
+            return True
+        return any(self._contains_var_ref(c, target_name) for c in node.children)
+
+    def _is_fresh_heap_expr(self, expr_node: Any, eff_type: Type) -> bool:
+        if not isinstance(expr_node, Tree):
+            return False
+        curr = expr_node
+        while isinstance(curr, Tree) and curr.data in ("value_expr", "expr", "paren_expr") and len(curr.children) == 1:
+            curr = curr.children[0]
+        if not isinstance(curr, Tree):
+            return False
+
+        if curr.data in ("var_ref", "field_access", "arrow_access", "at_expr", "array_at_expr", "null_lit", "none_lit", "try_expr", "or_else", "or_return", "or_block", "chr_expr", "calling_expr"):
+            return False
+
+        if eff_type == STRING_TYPE or (isinstance(eff_type, BaseType) and eff_type.name == "string"):
+            if curr.data in ("add", "binary_op"):
+                return True
+            if curr.data in ("to_expr", "to_string_expr"):
+                return True
+            if curr.data == "string_lit" and curr.children:
+                try:
+                    from .pengu_parser import extract_string_parts
+                    _, _, parts = extract_string_parts(curr.children[0])
+                    if any(getattr(p, "is_expr", False) for p in parts):
+                        return True
+                except Exception:
+                    pass
+                return False
+            return False
+
+        if isinstance(eff_type, (ListType, MapType)):
+            return True
+
+        return False
+
+    def _mentions_defer_banish(self, stmts: List[Tree], sym_name: str) -> bool:
+        for s in stmts:
+            if not isinstance(s, Tree):
+                continue
+            for d in s.iter_subtrees():
+                if d.data in ("defer_stmt", "errdefer_stmt"):
+                    for b in d.iter_subtrees():
+                        if b.data in ("banish_expr", "banish_stmt"):
+                            for vr in b.iter_subtrees():
+                                if vr.data == "var_ref" and vr.children and str(vr.children[0]) == sym_name:
+                                    return True
+                                if isinstance(vr, Token) and vr.type == "NAME" and str(vr) == sym_name:
+                                    return True
+        return False
+
+    def _mentions_set_target(self, stmts: List[Tree], sym_name: str) -> bool:
+        for s in stmts:
+            if not isinstance(s, Tree):
+                continue
+            for st in s.iter_subtrees():
+                if st.data == "set_stmt" and st.children:
+                    target_node = st.children[0]
+                    if self._is_direct_var_ref(target_node, sym_name):
+                        return True
+        return False
+
+    def _compute_auto_banished(self, sym_name: str, eff_type: Type, expr_node: Any, is_borrowed: bool) -> bool:
+        if is_borrowed:
+            return False
+
+        actual = eff_type
+        while isinstance(actual, (AliasType, FrozenType)) and getattr(actual, "target", None):
+            actual = actual.target
+
+        is_banishable_type = (
+            actual == STRING_TYPE or (isinstance(actual, BaseType) and actual.name == "string")
+            or isinstance(actual, (ListType, MapType))
+        )
+        if not is_banishable_type:
+            return False
+
+        if not self._is_fresh_heap_expr(expr_node, actual):
+            return False
+
+        scope_stmts = self.block_stmts_stack[-1] if self.block_stmts_stack else []
+        if self._mentions_defer_banish(scope_stmts, sym_name):
+            return False
+        if self._mentions_set_target(scope_stmts, sym_name):
+            return False
+        if self._check_symbol_escape(sym_name, scope_stmts):
+            return False
+
+        return True
+
     def _check_var_decl(self, node: Tree) -> None:
         """Checks local mutable variable declaration for type validity and folds constants.
 
@@ -2325,7 +2483,8 @@ class PenguChecker:
             node: AST Tree for var declaration.
         """
         line, col = self._get_loc(node)
-        v_name = str(node.children[0])
+        is_borrowed, name_idx = _has_borrowed_modifier(node)
+        v_name = str(node.children[name_idx])
         if v_name == "main":
             self._record_error(self._make_error(
                 SemanticError,
@@ -2339,13 +2498,19 @@ class PenguChecker:
         v_type = None
         v_expr = None
 
-        if len(node.children) == 3:
-            if node.children[1] is not None:
-                self._validate_type_node(node.children[1])
-                v_type = ast_to_type(node.children[1], self.symbols.lookup_type)
-            v_expr = node.children[2]
+        if name_idx == 1:
+            if node.children[2] is not None:
+                self._validate_type_node(node.children[2])
+                v_type = ast_to_type(node.children[2], self.symbols.lookup_type)
+            v_expr = node.children[3]
         else:
-            v_expr = node.children[1]
+            if len(node.children) == 3:
+                if node.children[1] is not None:
+                    self._validate_type_node(node.children[1])
+                    v_type = ast_to_type(node.children[1], self.symbols.lookup_type)
+                v_expr = node.children[2]
+            else:
+                v_expr = node.children[1]
 
         # Block values nested in the initializer (call arguments, struct-literal
         # fields, …) are value-checked before inference.
@@ -2423,6 +2588,7 @@ class PenguChecker:
 
             folded_val = self.const_folder.fold(v_expr)
             doc = self._extract_preceding_doc(line)
+            is_auto = self._compute_auto_banished(v_name, eff_type, v_expr, is_borrowed)
             sym = Symbol(
                 name=v_name,
                 type=eff_type,
@@ -2433,9 +2599,12 @@ class PenguChecker:
                 line=line,
                 column=col,
                 doc=doc,
-                file_path=self.filename
+                file_path=self.filename,
+                is_borrowed=is_borrowed,
+                is_auto_banished=is_auto,
             )
             self.symbols.define(sym)
+            node._pengu_symbol = sym
         except SemanticError as e:
             self._record_error(e)
 
@@ -2557,7 +2726,8 @@ class PenguChecker:
             node: AST Tree for let declaration.
         """
         line, col = self._get_loc(node)
-        names_node = node.children[0]
+        is_borrowed, name_idx = _has_borrowed_modifier(node)
+        names_node = node.children[name_idx]
         names: List[str] = [str(c) for c in names_node.children] if isinstance(names_node, Tree) else [str(names_node)]
         for nm in names:
             if nm == "main":
@@ -2573,13 +2743,19 @@ class PenguChecker:
         l_type = None
         l_expr = None
 
-        if len(node.children) == 3:
-            if node.children[1] is not None:
-                self._validate_type_node(node.children[1])
-                l_type = ast_to_type(node.children[1], self.symbols.lookup_type)
-            l_expr = node.children[2]
+        if name_idx == 1:
+            if node.children[2] is not None:
+                self._validate_type_node(node.children[2])
+                l_type = ast_to_type(node.children[2], self.symbols.lookup_type)
+            l_expr = node.children[3]
         else:
-            l_expr = node.children[1]
+            if len(node.children) == 3:
+                if node.children[1] is not None:
+                    self._validate_type_node(node.children[1])
+                    l_type = ast_to_type(node.children[1], self.symbols.lookup_type)
+                l_expr = node.children[2]
+            else:
+                l_expr = node.children[1]
 
         self._check_value_exprs(l_expr, l_type)
         try:
@@ -2656,7 +2832,8 @@ class PenguChecker:
                         note="Immutable bindings must match their declared type."
                     )
                     self._record_error(err)
-                self.symbols.define(Symbol(
+                is_auto = self._compute_auto_banished(v_name, eff_type, l_expr, is_borrowed)
+                sym = Symbol(
                     name=v_name,
                     type=eff_type,
                     kind="let",
@@ -2666,8 +2843,12 @@ class PenguChecker:
                     line=line,
                     column=col,
                     doc=doc,
-                    file_path=self.filename
-                ))
+                    file_path=self.filename,
+                    is_borrowed=is_borrowed,
+                    is_auto_banished=is_auto,
+                )
+                self.symbols.define(sym)
+                node._pengu_symbol = sym
             else:
                 # Destructuring: let x, y is my_vec or let a, b is arr
                 if isinstance(inferred, RuneType):
@@ -3192,31 +3373,51 @@ class PenguChecker:
         for pn, pt in params:
             self.symbols.define(Symbol(name=pn, type=pt, kind="param", is_mutable=False, line=line, column=col))
 
-        for stmt in stmt_children:
-            self._check_node(stmt)
+        self.block_stmts_stack.append(stmt_children)
+        try:
+            for stmt in stmt_children:
+                self._check_node(stmt)
 
-        # Inlining and Small Weaves Analysis
-        fn_sym = self.symbols.lookup(fn_name)
-        if fn_sym:
-            has_loop = any(s.data in ("while_stmt", "for_range_stmt", "for_in_stmt") for s in stmt_children)
-            has_static = any(True for _ in node.iter_subtrees() if isinstance(_, Tree) and _.data == "static_var_decl")
-            node_count = sum(1 for _ in node.iter_subtrees())
-            if (len(stmt_children) <= 3 or node_count <= 25) and not has_loop and not has_static:
-                fn_sym.is_inline = True
+            # Inlining and Small Weaves Analysis
+            fn_sym = self.symbols.lookup(fn_name)
+            if fn_sym:
+                has_loop = any(s.data in ("while_stmt", "for_range_stmt", "for_in_stmt") for s in stmt_children)
+                has_static = any(True for _ in node.iter_subtrees() if isinstance(_, Tree) and _.data == "static_var_decl")
+                node_count = sum(1 for _ in node.iter_subtrees())
+                if (len(stmt_children) <= 3 or node_count <= 25) and not has_loop and not has_static:
+                    fn_sym.is_inline = True
 
-        # Escape Analysis for local variables
-        for s_name, sym in list(self.symbols.current_scope.symbols.items()):
-            if sym.kind in ("var", "let") and not getattr(sym, "is_static", False):
-                escaped = self._check_symbol_escape(s_name, stmt_children)
-                sym.is_stack_alloc = not escaped
+            # Escape Analysis for local variables
+            for s_name, sym in list(self.symbols.current_scope.symbols.items()):
+                if sym.kind in ("var", "let") and not getattr(sym, "is_static", False):
+                    escaped = self._check_symbol_escape(s_name, stmt_children)
+                    sym.is_stack_alloc = not escaped
+                    if escaped:
+                        sym.is_auto_banished = False
 
-        # Implicit return check for last expression
-        if stmt_children:
-            last_stmt = stmt_children[-1]
-            if last_stmt.data == "stmt" and last_stmt.children:
-                last_inner = last_stmt.children[0]
-                if last_inner.data == "expr_stmt":
-                    expr_node = last_inner.children[0]
+            # Implicit return check for last expression
+            if stmt_children:
+                last_stmt = stmt_children[-1]
+                if last_stmt.data == "stmt" and last_stmt.children:
+                    last_inner = last_stmt.children[0]
+                    if last_inner.data == "expr_stmt":
+                        expr_node = last_inner.children[0]
+                        try:
+                            last_type = self.inferrer.infer(expr_node, expected_type=ret_type)
+                            if ret_type != VOID_TYPE and not last_type.is_compatible(ret_type):
+                                err = self._make_error(
+                                    TypeMismatchError,
+                                    f"Implicit return type '{last_type}' does not match weave return type '{ret_type}'",
+                                    expr_node,
+                                    code="E0020",
+                                    help=f"Ensure the last expression evaluates to '{ret_type}' or return void.",
+                                    note="The last expression in a weave function is used as its implicit return value."
+                                )
+                                self._record_error(err)
+                        except SemanticError as e:
+                            self._record_error(e)
+                elif last_stmt.data == "expr_stmt":
+                    expr_node = last_stmt.children[0]
                     try:
                         last_type = self.inferrer.infer(expr_node, expected_type=ret_type)
                         if ret_type != VOID_TYPE and not last_type.is_compatible(ret_type):
@@ -3231,22 +3432,8 @@ class PenguChecker:
                             self._record_error(err)
                     except SemanticError as e:
                         self._record_error(e)
-            elif last_stmt.data == "expr_stmt":
-                expr_node = last_stmt.children[0]
-                try:
-                    last_type = self.inferrer.infer(expr_node, expected_type=ret_type)
-                    if ret_type != VOID_TYPE and not last_type.is_compatible(ret_type):
-                        err = self._make_error(
-                            TypeMismatchError,
-                            f"Implicit return type '{last_type}' does not match weave return type '{ret_type}'",
-                            expr_node,
-                            code="E0020",
-                            help=f"Ensure the last expression evaluates to '{ret_type}' or return void.",
-                            note="The last expression in a weave function is used as its implicit return value."
-                        )
-                        self._record_error(err)
-                except SemanticError as e:
-                    self._record_error(e)
+        finally:
+            self.block_stmts_stack.pop()
 
         self.symbols.pop_scope(end_line=span_end)
 
@@ -3294,31 +3481,51 @@ class PenguChecker:
             # 2. Return statements
             elif n.data == "return_stmt" and n.children:
                 ret_val = n.children[0]
+                if self._is_direct_var_ref(ret_val, sym_name):
+                    escaped = True
+                    return
                 if isinstance(ret_val, Tree):
-                    if ret_val.data == "var_ref" and str(ret_val.children[0]) == sym_name:
-                        sym = self.symbols.lookup(sym_name)
-                        if sym and isinstance(sym.type, RefType):
-                            escaped = True
-                            return
-                    if contains_sigil_of(ret_val):
-                        escaped = True
-                        return
+                    for sub in ret_val.iter_subtrees():
+                        if sub.data in ("struct_init", "field_init", "with_init_expr", "struct_init_expr", "list_lit", "map_lit", "some_expr", "array_lit", "tuple_lit"):
+                            if self._contains_var_ref(sub, sym_name):
+                                escaped = True
+                                return
+                if contains_sigil_of(ret_val):
+                    escaped = True
+                    return
 
             # 3. Set statements (assigning address to fields, struct members, globals)
             elif n.data == "set_stmt":
                 val_node = n.children[-1]
+                target_node = n.children[0]
                 if contains_sigil_of(val_node):
                     escaped = True
                     return
+                if self._contains_var_ref(val_node, sym_name):
+                    if not self._is_direct_var_ref(target_node, sym_name):
+                        escaped = True
+                        return
 
             # 4. Function call arguments
             elif n.data in ("calling_expr", "calling_stmt"):
                 if contains_sigil_of(n):
                     escaped = True
                     return
+                target = n.children[0] if n.children else None
+                method_name = None
+                if isinstance(target, Tree):
+                    for ch in target.children:
+                        if isinstance(ch, Tree) and ch.data == "dot_access" and ch.children:
+                            method_name = str(ch.children[0])
+                            break
+                if method_name in ("push", "append", "put", "insert", "set"):
+                    arg_list = next((c for c in n.children if isinstance(c, Tree) and c.data == "arg_list"), None)
+                    if arg_list and self._contains_var_ref(arg_list, sym_name):
+                        escaped = True
+                        return
 
             # 5. Rune / struct initialization with sigil
-            elif n.data in ("struct_init_expr", "with_init_expr", "array_init_expr"):
+            elif n.data in ("struct_init", "field_init", "struct_init_expr", "with_init_expr", "array_init_expr"):
                 if contains_sigil_of(n):
                     escaped = True
                     return
@@ -3426,27 +3633,31 @@ class PenguChecker:
         for pn, pt in params:
             self.symbols.define(Symbol(name=pn, type=pt, kind="param", is_mutable=False, line=line, column=col))
 
-        for stmt in stmt_children:
-            self._check_node(stmt)
+        self.block_stmts_stack.append(stmt_children)
+        try:
+            for stmt in stmt_children:
+                self._check_node(stmt)
 
-        if stmt_children and ret_type != VOID_TYPE:
-            last_stmt = stmt_children[-1]
-            if last_stmt.data == "expr_stmt":
-                expr_node = last_stmt.children[0]
-                try:
-                    last_type = self.inferrer.infer(expr_node, expected_type=ret_type)
-                    if not last_type.is_compatible(ret_type):
-                        err = self._make_error(
-                            TypeMismatchError,
-                            f"Implicit return type '{last_type}' does not match weave return type '{ret_type}'",
-                            expr_node,
-                            code="E0020",
-                            help=f"Ensure the last expression evaluates to '{ret_type}' or return void.",
-                            note="The last expression in a weave function is used as its implicit return value."
-                        )
-                        self._record_error(err)
-                except SemanticError as e:
-                    self._record_error(e)
+            if stmt_children and ret_type != VOID_TYPE:
+                last_stmt = stmt_children[-1]
+                if last_stmt.data == "expr_stmt":
+                    expr_node = last_stmt.children[0]
+                    try:
+                        last_type = self.inferrer.infer(expr_node, expected_type=ret_type)
+                        if not last_type.is_compatible(ret_type):
+                            err = self._make_error(
+                                TypeMismatchError,
+                                f"Implicit return type '{last_type}' does not match weave return type '{ret_type}'",
+                                expr_node,
+                                code="E0020",
+                                help=f"Ensure the last expression evaluates to '{ret_type}' or return void.",
+                                note="The last expression in a weave function is used as its implicit return value."
+                            )
+                            self._record_error(err)
+                    except SemanticError as e:
+                        self._record_error(e)
+        finally:
+            self.block_stmts_stack.pop()
 
         self.symbols.pop_scope(end_line=span_end)
 
@@ -3468,10 +3679,15 @@ class PenguChecker:
 
         self._check_branch_condition(cond_node, "if")
 
-        if folded_cond is False:
-            self.warnings.append("[W0004] Unreachable code in then branch")
-        else:
-            self._check_node(block_node)
+        b_stmts = [c for c in block_node.children if isinstance(c, Tree)] if (isinstance(block_node, Tree) and block_node.data == "block") else ([block_node] if isinstance(block_node, Tree) else [])
+        self.block_stmts_stack.append(b_stmts)
+        try:
+            if folded_cond is False:
+                self.warnings.append("[W0004] Unreachable code in then branch")
+            else:
+                self._check_node(block_node)
+        finally:
+            self.block_stmts_stack.pop()
         self.symbols.pop_scope(end_line=span_end)
 
         if else_node is not None:
@@ -3480,7 +3696,12 @@ class PenguChecker:
             else:
                 e_start, e_end = self._get_node_span(else_node)
                 self.symbols.push_scope(kind="if", start_line=e_start, end_line=e_end)
-                self._check_node(else_node)
+                e_stmts = [c for c in else_node.children if isinstance(c, Tree)] if (isinstance(else_node, Tree) and else_node.data in ("block", "else_block")) else ([else_node] if isinstance(else_node, Tree) else [])
+                self.block_stmts_stack.append(e_stmts)
+                try:
+                    self._check_node(else_node)
+                finally:
+                    self.block_stmts_stack.pop()
                 self.symbols.pop_scope(end_line=e_end)
 
     def _check_unless_stmt(self, node: Tree) -> None:
@@ -3511,13 +3732,23 @@ class PenguChecker:
         except SemanticError as e:
             self._record_error(e)
 
-        self._check_node(block_node)
+        b_stmts = [c for c in block_node.children if isinstance(c, Tree)] if (isinstance(block_node, Tree) and block_node.data == "block") else ([block_node] if isinstance(block_node, Tree) else [])
+        self.block_stmts_stack.append(b_stmts)
+        try:
+            self._check_node(block_node)
+        finally:
+            self.block_stmts_stack.pop()
         self.symbols.pop_scope(end_line=span_end)
 
         if else_node is not None:
             e_start, e_end = self._get_node_span(else_node)
             self.symbols.push_scope(kind="if", start_line=e_start, end_line=e_end)
-            self._check_node(else_node)
+            e_stmts = [c for c in else_node.children if isinstance(c, Tree)] if (isinstance(else_node, Tree) and else_node.data in ("block", "else_block")) else ([else_node] if isinstance(else_node, Tree) else [])
+            self.block_stmts_stack.append(e_stmts)
+            try:
+                self._check_node(else_node)
+            finally:
+                self.block_stmts_stack.pop()
             self.symbols.pop_scope(end_line=e_end)
 
     def _check_while_stmt(self, node: Tree, collect: bool = False,
@@ -3555,10 +3786,15 @@ class PenguChecker:
         span_start, span_end = self._get_node_span(node)
         self.symbols.push_scope(kind="while", in_loop=True, start_line=span_start, end_line=span_end)
         elem_t: Type = VOID_TYPE
-        if collect:
-            elem_t = self._check_value_block(list(block_node.children), expected_element)
-        else:
-            self._check_node(block_node)
+        b_stmts = [c for c in block_node.children if isinstance(c, Tree)] if (isinstance(block_node, Tree) and block_node.data == "block") else ([block_node] if isinstance(block_node, Tree) else [])
+        self.block_stmts_stack.append(b_stmts)
+        try:
+            if collect:
+                elem_t = self._check_value_block(list(block_node.children), expected_element)
+            else:
+                self._check_node(block_node)
+        finally:
+            self.block_stmts_stack.pop()
         self.symbols.pop_scope(end_line=span_end)
         return elem_t
 
@@ -3637,10 +3873,15 @@ class PenguChecker:
         self.symbols.push_scope(kind="for", in_loop=True, start_line=span_start, end_line=span_end)
         self.symbols.define(Symbol(name=var_name, type=INT_TYPE, kind="var", is_mutable=False, line=line, column=col))
         elem_t: Type = VOID_TYPE
-        if collect:
-            elem_t = self._check_value_block(list(block_node.children), expected_element)
-        else:
-            self._check_node(block_node)
+        b_stmts = [c for c in block_node.children if isinstance(c, Tree)] if (isinstance(block_node, Tree) and block_node.data == "block") else ([block_node] if isinstance(block_node, Tree) else [])
+        self.block_stmts_stack.append(b_stmts)
+        try:
+            if collect:
+                elem_t = self._check_value_block(list(block_node.children), expected_element)
+            else:
+                self._check_node(block_node)
+        finally:
+            self.block_stmts_stack.pop()
         self.symbols.pop_scope(end_line=span_end)
         return elem_t
 
@@ -3710,10 +3951,15 @@ class PenguChecker:
         if elem_name != "_":
             self.symbols.define(Symbol(name=elem_name, type=elem_type, kind="var", is_mutable=False, line=line, column=col))
         body_t: Type = VOID_TYPE
-        if collect:
-            body_t = self._check_value_block(list(block_node.children), expected_element)
-        else:
-            self._check_node(block_node)
+        b_stmts = [c for c in block_node.children if isinstance(c, Tree)] if (isinstance(block_node, Tree) and block_node.data == "block") else ([block_node] if isinstance(block_node, Tree) else [])
+        self.block_stmts_stack.append(b_stmts)
+        try:
+            if collect:
+                body_t = self._check_value_block(list(block_node.children), expected_element)
+            else:
+                self._check_node(block_node)
+        finally:
+            self.block_stmts_stack.pop()
         self.symbols.pop_scope(end_line=span_end)
         return body_t
 
@@ -3749,8 +3995,12 @@ class PenguChecker:
 
         span_start, span_end = self._get_node_span(node)
         self.symbols.push_scope(kind="weave", return_type=VOID_TYPE, start_line=span_start, end_line=span_end)
-        for stmt in body_stmts:
-            self._check_node(stmt)
+        self.block_stmts_stack.append(body_stmts)
+        try:
+            for stmt in body_stmts:
+                self._check_node(stmt)
+        finally:
+            self.block_stmts_stack.pop()
         self.symbols.pop_scope(end_line=span_end)
 
         if not test_name or test_name == "_":
@@ -3815,8 +4065,13 @@ class PenguChecker:
 
         span_start, span_end = self._get_node_span(node)
         self.symbols.push_scope(kind="with", with_type=target_type, with_is_mutable=is_mut, with_target_var_name=target_var_name, start_line=span_start, end_line=span_end)
-        for b in block_node:
-            self._check_node(b)
+        with_stmts = [b for b in block_node if isinstance(b, Tree)]
+        self.block_stmts_stack.append(with_stmts)
+        try:
+            for b in block_node:
+                self._check_node(b)
+        finally:
+            self.block_stmts_stack.pop()
         self.symbols.pop_scope(end_line=span_end)
 
     def _check_return_stmt(self, node: Tree) -> None:
@@ -3982,9 +4237,15 @@ class PenguChecker:
         Args:
             node: AST Tree for or-block statement.
         """
+        if node.children and isinstance(node.children[0], Tree):
+            self._check_node(node.children[0])
         span_start, span_end = self._get_node_span(node)
         self.symbols.push_scope(kind="or_block", in_or_block=True, start_line=span_start, end_line=span_end)
-        for child in node.children:
-            if isinstance(child, Tree):
+        or_stmts = [child for child in node.children[1:] if isinstance(child, Tree)]
+        self.block_stmts_stack.append(or_stmts)
+        try:
+            for child in or_stmts:
                 self._check_node(child)
+        finally:
+            self.block_stmts_stack.pop()
         self.symbols.pop_scope(end_line=span_end)

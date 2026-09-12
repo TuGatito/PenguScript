@@ -372,6 +372,25 @@ class NonExhaustiveJudgeError(SemanticError):
         super().__init__(message, line=line, col=col, column=column, **kwargs)
 
 
+class AutoOwnedBanishError(SemanticError):
+    """E0047: Attempt to manually banish an auto-owned variable."""
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0047")
+        kwargs.setdefault("help", "Remove 'banish' — the compiler frees this variable automatically at the end of its scope.")
+        kwargs.setdefault("note", "Variables allocated locally with fresh ownership are scope-owned and cleaned up automatically.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+class BorrowedBanishError(SemanticError):
+    """E0048: Attempt to banish a borrowed variable."""
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0048")
+        kwargs.setdefault("help", "Remove 'banish' — borrowed references do not own the underlying memory.")
+        kwargs.setdefault("note", "Only the owner of a resource is allowed to banish it.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+
 
 import difflib
 

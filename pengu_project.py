@@ -389,6 +389,9 @@ class PenguBuilder:
         self.is_test_mode = False
         self.parser = PenguParser()
         self.compile_env = parse_cli_defines(config.defines)
+        explicit_debug = any(str(d).strip() == "debug" or str(d).strip().startswith("debug=") for d in (config.defines or []))
+        if not explicit_debug:
+            self.compile_env.is_debug = (getattr(config, "profile", "debug") == "debug")
         # Entry-as-main mode: when enabled (pengu run <file> scripts, or an
         # explicit -D main define), only the *entry* module is compiled with
         # the compile-time 'main' flag true; imported modules keep it false.
@@ -1946,9 +1949,60 @@ def run_script(script: str, defines: Optional[List[str]] = None,
     return res.returncode
 
 
+def _find_watch_files(base_dir: str) -> List[str]:
+    """Finds all .pengu source files and project config files to watch."""
+    files = []
+    for root, dirs, filenames in os.walk(base_dir):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("build", "dist", "venv", "__pycache__")]
+        for fn in filenames:
+            if fn.endswith(".pengu") or fn in ("pengu.yaml", "pengu.toml"):
+                files.append(os.path.join(root, fn))
+    return files
+
+
+def _watch_and_test(config_path: Optional[str] = None, profile: str = "debug", entry: Optional[str] = None,
+                    defines: Optional[List[str]] = None, cc: Optional[str] = None,
+                    verbose: bool = False, json_output: bool = False) -> int:
+    """Watches source files and re-runs tests on modification."""
+    config = ProjectConfig.load(config_path, profile=profile)
+    base_dir = config.base_dir
+    # Initial run
+    test_project(config_path=config_path, profile=profile, entry=entry,
+                 defines=defines, cc=cc, verbose=verbose, json_output=json_output)
+
+    files = _find_watch_files(base_dir)
+    mtimes = {f: os.path.getmtime(f) for f in files if os.path.exists(f)}
+
+    try:
+        while True:
+            time.sleep(0.5)
+            files = _find_watch_files(base_dir)
+            changed = False
+            for f in files:
+                try:
+                    m = os.path.getmtime(f)
+                    if f not in mtimes or m > mtimes[f]:
+                        changed = True
+                        mtimes[f] = m
+                except OSError:
+                    pass
+            if changed:
+                sys.stdout.write("\033[2J\033[H")
+                sys.stdout.flush()
+                msg = "\033[1;36m[watching]\033[0m change detected, rebuilding..."
+                print(msg, file=sys.stderr if json_output else sys.stdout)
+                try:
+                    test_project(config_path=config_path, profile=profile, entry=entry,
+                                 defines=defines, cc=cc, verbose=verbose, json_output=json_output)
+                except Exception as exc:
+                    print(f"Error during test: {exc}", file=sys.stderr)
+    except KeyboardInterrupt:
+        return 0
+
+
 def test_project(config_path: Optional[str] = None, profile: str = "debug", entry: Optional[str] = None,
                  defines: Optional[List[str]] = None, cc: Optional[str] = None,
-                 verbose: bool = False) -> int:
+                 verbose: bool = False, json_output: bool = False) -> int:
     """Compiles the project in --test mode and executes the integrated unit tests.
 
     The project entry is built as an executable whose main runs every 'test'
@@ -1961,6 +2015,7 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
         defines: Optional -D NAME / -D NAME=value compile-time defines.
         cc: Optional C compiler override.
         verbose: True to print module order, C commands and phase timings.
+        json_output: Emit machine-readable JSON Lines to stdout (for CI).
 
     Returns:
         Test process exit code (0 when every test passed).
@@ -1975,21 +2030,43 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
     config.output = OutputType.EXE
 
     t0 = time.time()
-    print(f"\033[1;36m   Testing\033[0m {config.name} v{config.version} [--test, {config.profile}]")
+    if not json_output:
+        print(f"\033[1;36m   Testing\033[0m {config.name} v{config.version} [--test, {config.profile}]")
     builder = PenguBuilder(config)
     builder.is_test_mode = True
     builder.verbose = verbose
     artifact, is_cached = builder.compile()
     elapsed = time.time() - t0
-    if is_cached:
-        print(f"\033[1;32m    Finished\033[0m (cached) in {elapsed:.2f}s -> {artifact}")
-    else:
-        print(f"\033[1;32m    Finished\033[0m in {elapsed:.2f}s -> {artifact}")
+    if not json_output:
+        if is_cached:
+            print(f"\033[1;32m    Finished\033[0m (cached) in {elapsed:.2f}s -> {artifact}")
+        else:
+            print(f"\033[1;32m    Finished\033[0m in {elapsed:.2f}s -> {artifact}")
 
-    print(f"\033[1;36m     Running\033[0m tests\n")
+        print(f"\033[1;36m     Running\033[0m tests\n")
+        sys.stdout.flush()
+        sys.stderr.flush()
+        res = subprocess.run([artifact], cwd=config.base_dir)
+        return res.returncode
+
+    # JSON output mode
+    env = dict(os.environ)
+    env["PENGU_TEST_JSON"] = "1"
+    res = subprocess.run([artifact], cwd=config.base_dir, env=env, capture_output=True, text=True)
+    if res.stdout:
+        for line in res.stdout.splitlines():
+            line_s = line.strip()
+            if not line_s:
+                continue
+            try:
+                json.loads(line_s)
+                print(line_s)
+            except Exception:
+                print(line, file=sys.stderr)
+    if res.stderr:
+        print(res.stderr, file=sys.stderr, end="" if res.stderr.endswith("\n") else "\n")
     sys.stdout.flush()
     sys.stderr.flush()
-    res = subprocess.run([artifact], cwd=config.base_dir)
     return res.returncode
 
 
@@ -2072,6 +2149,10 @@ def create_cli_parser() -> argparse.ArgumentParser:
     test_p.add_argument("--verbose", action="store_true", help="Print module order, C commands and phase timings")
     test_p.add_argument("-D", "--define", dest="defines", action="append", default=None,
                         help="Compile-time define: -D NAME or -D os=linux / arch=x64 / compiler=clang / main (repeatable)")
+    test_p.add_argument("--json", action="store_true",
+                        help="Emit machine-readable JSON Lines to stdout (for CI)")
+    test_p.add_argument("--watch", action="store_true",
+                        help="Watch source files and re-run tests on modification")
 
     # check
     check_p = subparsers.add_parser("check", help="Parse and type-check every module without generating code (CI)")
@@ -2208,13 +2289,24 @@ def main():
             _print_compile_error(e)
     elif args.command == "test":
         try:
+            if getattr(args, "watch", False):
+                sys.exit(_watch_and_test(
+                    config_path=args.config,
+                    profile=args.profile,
+                    entry=getattr(args, "entry", None),
+                    defines=getattr(args, "defines", None),
+                    cc=getattr(args, "cc", None),
+                    verbose=getattr(args, "verbose", False),
+                    json_output=getattr(args, "json", False),
+                ))
             sys.exit(test_project(
                 config_path=args.config,
                 profile=args.profile,
                 entry=getattr(args, "entry", None),
                 defines=getattr(args, "defines", None),
                 cc=getattr(args, "cc", None),
-                verbose=getattr(args, "verbose", False)
+                verbose=getattr(args, "verbose", False),
+                json_output=getattr(args, "json", False),
             ))
         except CompileFailedError as e:
             _print_compile_error(e)

@@ -14,6 +14,8 @@
     { "include": "#numbers" },
     { "include": "#constants" },
     { "include": "#self_reference" },
+    { "include": "#ownership_modifiers" },
+    { "include": "#comptime_vars" },
     { "include": "#function_definition" },
     { "include": "#type_definition" },
     { "include": "#builtin_types" },
@@ -186,7 +188,23 @@
       "patterns": [
         {
           "name": "keyword.other.declaration.pengus",
-          "match": "\\b(var|let|const|set|declare|import|include|link|sigil|essence|shard|many|of|is|as|into|and|capacity|size|length|at|transmute|present|not\\s+present|insignia|concept|bind|seal|ritual|where|static|test)\\b"
+          "match": "\\b(var|let|const|set|declare|import|include|link|sigil|essence|shard|many|of|is|as|into|and|capacity|size|length|at|transmute|present|not\\s+present|insignia|concept|bind|seal|ritual|where|static|test|borrowed)\\b"
+        }
+      ]
+    },
+    "ownership_modifiers": {
+      "patterns": [
+        {
+          "name": "storage.modifier.borrowed.pengus",
+          "match": "\\bborrowed\\b(?=\\s+[a-zA-Z_])"
+        }
+      ]
+    },
+    "comptime_vars": {
+      "patterns": [
+        {
+          "name": "variable.language.comptime.pengus",
+          "match": "\\b(os|arch|compiler|main|debug)\\b(?=\\s*(==|!=|:|then|\\())"
         }
       ]
     },

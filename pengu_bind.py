@@ -761,6 +761,98 @@ class BindGenerator:
                 return lhs >> rhs
         raise ValueError("not a constant")
 
+    def _collect_referenced_type_names(self, nodes: List) -> Set[str]:
+        """Recorre nodos del target y devuelve los nombres de tipo NO primitivos
+        referenciados (en campos de rune/echo/omen, params, retornos, underlying
+        de typedefs)."""
+        # Guarda el estado previo y lo restaura al final.
+        saved_known = set(self.known_type_names)
+        saved_emitted = set(self.emitted_names)
+        saved_pending = list(self._pending_aliases)
+        try:
+            self.known_type_names = set(_PRIMITIVES)
+            self._pending_aliases = []
+            for node in nodes:
+                if isinstance(node, c_ast.Typedef):
+                    self.c_type(node.type, fallback="opaque")
+                    probe = node.type
+                    while isinstance(probe, (c_ast.TypeDecl, c_ast.PtrDecl, c_ast.ArrayDecl)):
+                        probe = probe.type
+                    if isinstance(probe, (c_ast.Struct, c_ast.Union)):
+                        for f in probe.decls or []:
+                            if isinstance(f, c_ast.Decl):
+                                self.c_type(f.type, fallback="opaque")
+                elif isinstance(node, c_ast.Decl):
+                    if isinstance(node.type, c_ast.FuncDecl):
+                        self._func_params(node.type, name=node.name or "")
+                        self._func_return(node.type)
+                    else:
+                        probe = node.type
+                        while isinstance(probe, (c_ast.TypeDecl, c_ast.PtrDecl, c_ast.ArrayDecl)):
+                            probe = probe.type
+                        if isinstance(probe, (c_ast.Struct, c_ast.Union)):
+                            for f in probe.decls or []:
+                                if isinstance(f, c_ast.Decl):
+                                    self.c_type(f.type, fallback="opaque")
+                        elif isinstance(probe, c_ast.Enum):
+                            pass
+            return set(self.known_type_names)
+        finally:
+            self.known_type_names = saved_known
+            self.emitted_names = saved_emitted
+            self._pending_aliases = saved_pending
+
+    def _emit_missing_aliases(self, referenced: Set[str], defined: Set[str],
+                              all_typedefs: Dict[str, c_ast.Typedef]) -> None:
+        """Emite 'alias NAME as <underlying>' para tipos referenciados pero no
+        definidos por el target, resolviendo el underlying desde all_typedefs
+        (recursión acotada, sin ciclos, con fallback a opaque)."""
+        missing = referenced - defined - set(_PRIMITIVES) - set(_PRIMITIVES.values())
+        # Filtra nombres que claramente son tipos built-in textuales o callbacks sintetizados.
+        missing = {m for m in missing if m and m not in _PRIMITIVES and not (m.startswith("Callback") and m[8:].isdigit())}
+        if not missing:
+            return
+        emitted: Set[str] = set()
+
+        def resolve(name: str, depth: int = 0) -> Optional[str]:
+            if depth > 8:
+                return None
+            td = all_typedefs.get(name)
+            if td is None:
+                return None
+            # Resuelve el underlying del typedef.
+            inner, _ = self.c_type(td.type, fallback="opaque")
+            if inner == name:
+                return None
+            if inner in all_typedefs and inner != name:
+                deeper = resolve(inner, depth + 1)
+                if deeper is not None:
+                    return deeper
+            return inner
+
+        self.lines.append("# -- Companion-header typedefs (referenced by this binding) -")
+        self.lines.append("")
+        for name in sorted(missing):
+            if name in emitted:
+                continue
+            resolved = resolve(name)
+            if resolved is None:
+                self._warn(f"typedef '{name}' is referenced but not found in the "
+                           f"preprocessed AST; emitted as 'opaque'")
+                resolved = "opaque"
+            else:
+                if resolved.startswith("ref to "):
+                    pointee = resolved[len("ref to "):].strip()
+                    if pointee and pointee not in _PRIMITIVES and pointee not in defined and pointee not in emitted and pointee not in all_typedefs:
+                        self.lines.append(f"alias {pointee} as opaque")
+                        emitted.add(pointee)
+                        self.emitted_names.add(pointee)
+            self.lines.append(f"alias {name} as {resolved}")
+            emitted.add(name)
+            self.emitted_names.add(name)
+        self.lines.append("")
+
+
 
 # --------------------------------------------------------------------------
 # Preprocessing + parsing
@@ -1051,6 +1143,11 @@ def generate_bind_file(
     gen.emit_links()
     gen.emit_consts(original)
 
+    all_typedefs: Dict[str, c_ast.Typedef] = {}
+    for node in ast.ext:
+        if isinstance(node, c_ast.Typedef):
+            all_typedefs[node.name] = node
+
     # Types first (before insignia), so PenguScript names match C identifiers.
     type_nodes: List = []
     func_nodes: List = []
@@ -1089,6 +1186,11 @@ def generate_bind_file(
 
     # Callback aliases found in the type section must precede the functions.
     gen._flush_aliases()
+
+    referenced = gen._collect_referenced_type_names(type_nodes + func_nodes)
+    defined_by_target = set(gen.emitted_names)
+    gen._emit_missing_aliases(referenced, defined_by_target, all_typedefs)
+
     if gen.prefix:
         gen.lines.append("# ------------------------------------------------------------------")
         gen.lines.append("# Functions (every name receives the insignia prefix)")

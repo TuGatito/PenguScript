@@ -57,6 +57,12 @@ You can customize the extension via VS Code Settings (`Ctrl+,` / `Cmd+,`) under 
 
 ---
 
+## v0.10 Feature Support (Phase 2 Ownership)
+
+- **Ownership modifiers**: `borrowed` keyword highlighted for non-owning references (`var borrowed x is ...`, `let borrowed x is ...`).
+- **Comptime variables**: highlighted comptime symbols (`os`, `arch`, `compiler`, `main`, `debug`).
+- **Snippets**: `owned`, `borrowed`, `borrowedlet`, `deferbanish` for rapid scope-owned and borrowed variable declarations.
+
 ## v0.3 Feature Support & Extension Notes
 
 The grammar/highlighter and snippets now cover the v0.3 language extensions:
