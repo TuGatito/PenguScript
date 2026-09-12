@@ -408,3 +408,39 @@ def test_or_block_runs_clean():
     )
     res = compile_run(src, tag="or_block_auto_banish")
     assert res.returncode == 0
+
+
+def test_struct_init_escapes_disables_auto_banish():
+    """Embedding an owned variable into a struct literal transfers ownership, disabling auto-banish."""
+    c = gen_bundle(
+        'rune Task:\n'
+        '  s as string\n'
+        'weave f into void:\n'
+        '  var sp is "hello" + "world"\n'
+        '  var t as Task is with s is sp\n'
+        '  return\n'
+    )
+    assert "pengu_banish_string(&sp)" not in c
+
+
+def test_list_lit_escapes_disables_auto_banish():
+    """Embedding an owned variable into a list literal transfers ownership, disabling auto-banish."""
+    c = gen_bundle(
+        'weave f into void:\n'
+        '  var s is "hello" + "world"\n'
+        '  var xs is [s]\n'
+        '  return\n'
+    )
+    assert "pengu_banish_string(&s)" not in c
+
+
+def test_aliased_var_decl_escapes_disables_auto_banish():
+    """Aliasing an owned variable into another local transfers/shares ownership, disabling auto-banish on the source."""
+    c = gen_bundle(
+        'weave f into void:\n'
+        '  var s is "hello" + "world"\n'
+        '  var b is s\n'
+        '  return\n'
+    )
+    assert "pengu_banish_string(&s)" not in c
+

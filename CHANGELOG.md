@@ -16,6 +16,7 @@ All notable changes to PenguScript will be documented in this file.
   - `pengu_codegen` preserva expresiones dinámicas de concatenación de strings (`+`) evitando constant-folding a `.rodata` cuando se requiere liberación segura en heap.
   - El desenrollado de auto-banish en sentencias de salto (`return`, `break`, `continue`) limpia únicamente los ámbitos activos correspondientes sin mutar prematuramente los marcos de ámbito léxico.
   - Los bloques `or:` inicializadores de `var` y `let` gestionan su propio ámbito léxico de auto-banish dentro de la rama de error C.
+  - El análisis de escape (`_check_symbol_escape`) reconoce ahora variables incluidas en estructuras compuestas y literales contenedores (`struct_init`, `list_lit`, `map_lit`, `tuple_lit`, `some_expr`, `ok_expr`, `err_expr`) o asignaciones de aliasing (`var b is a`), desactivando el auto-banish para evitar liberaciones prematuras (use-after-free) de datos que escapan hacia estructuras o colecciones persistentes.
 - **Known issue (no bloqueante):** `or:` blocks en posición de expresión distinta al initializer directo de `var` / `let` (p. ej. `return f() or: ...` o `calling g with (x or: ...)`) caen en el fallback genérico de codegen y emiten C silenciosamente incorrecto. Workaround: extraer a una variable intermedia o usar `or else` / `or return`. Planificado para Phase 3.
 
 ### P1 — Confianza operativa (Fase 1)

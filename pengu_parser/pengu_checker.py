@@ -3524,11 +3524,20 @@ class PenguChecker:
                         escaped = True
                         return
 
-            # 5. Rune / struct initialization with sigil
-            elif n.data in ("struct_init", "field_init", "struct_init_expr", "with_init_expr", "array_init_expr"):
-                if contains_sigil_of(n):
+            # 5. Compound data structures or container literals
+            elif n.data in ("struct_init", "field_init", "struct_init_expr", "with_init_expr", "array_init_expr", "array_lit", "list_lit", "map_lit", "tuple_lit", "some_expr", "ok_expr", "err_expr"):
+                if contains_sigil_of(n) or self._contains_var_ref(n, sym_name):
                     escaped = True
                     return
+
+
+            # 6. Variable declarations (aliasing / transferring ownership)
+            elif n.data in ("var_decl", "let_decl") and n.children:
+                val_node = n.children[-1]
+                if contains_sigil_of(val_node) or self._is_direct_var_ref(val_node, sym_name):
+                    escaped = True
+                    return
+
 
             for child in n.children:
                 walk(child)
