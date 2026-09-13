@@ -1,8 +1,222 @@
 # Changelog
-
+ 
 All notable changes to PenguScript will be documented in this file.
 
+## [0.10.1] - Unreleased
+
+### Runtime hardening (0.10.1) — octava pasada
+
+- **Fase 1 — Desajuste entre documentación y comportamiento (N6)**:
+  - **`pengu_string_from_bool`**: Corrección de la docstring que erróneamente indicaba que `pengu_banish_string` sobre el retorno era un no-op. El retorno tiene longitud `4` o `5`, por lo que llamar a `pengu_banish_string` ejecuta `free()` sobre un puntero a rodata, lo que constituye comportamiento indefinido (UB) / corrupción de heap. Se reemplazó la nota por una advertencia `@warning` explícita instruyendo copiar con `pengu_string_copy` antes de liberar, y se documentó el literal en el código con un comentario interno.
+
+- **Fase 2 — Resolución del contrato de NUL-terminación (N7 — Opción A adoptada)**:
+  - **Decisión adoptada**: Se seleccionó la **Opción A** (endurecer todos los consumidores) para alinearse estrictamente con el contrato formal de `PenguString` establecido en la ronda 7 ("PenguString NO garantiza NUL-terminación").
+  - **`pengu_c_getenv`**: Copia `name` a un búfer temporal NUL-terminado antes de consultar `getenv()`.
+  - **`pengu_c_setenv`**: Copia `name` y `value` a búferes temporales NUL-terminados antes de invocar `_putenv_s()` o `setenv()`.
+  - **`pengu_c_unsetenv`**: Copia `name` a un búfer temporal NUL-terminado antes de invocar `_putenv_s()` o `unsetenv()`.
+  - **`pengu_c_chdir`**: Copia `path` a un búfer temporal NUL-terminado antes de llamar a `_chdir()` o `chdir()`.
+  - **`pengu_c_strftime`**: Copia `fmt` a un búfer temporal NUL-terminado antes de llamar a `strftime()`.
+  - Esto garantiza que ninguna función del runtime lea más allá de `len` bytes ni cause fallos de segmentación cuando recibe cadenas no terminadas en NUL (como vistas sobre fragmentos de memoria o buffers FFI).
+
+- **Fase 3 — Verificaciones**:
+  - **Compilación estricta C11 (V1)**: `gcc -std=c11 -Wall -Wextra -Werror -fsyntax-only pengu_runtime.h` con 0 errores y 0 advertencias.
+  - **Compilación con sanitizadores (V2)**: `gcc -std=c11 -fsanitize=address,undefined -Wall -Wextra -fsyntax-only pengu_runtime.h` con 0 advertencias.
+  - **Nuevos tests (V3)**: Pruebas añadidas en `tests/test_runtime_strings.py` (N6) y `tests/test_runtime_files.py` (N7, validando getenv, setenv, unsetenv, chdir y strftime con vistas parciales no NUL-terminadas).
+  - **Suite completa (V4)**: Suite completa de pytest ejecutada y aprobada al 100%.
+
+### Runtime hardening (0.10.1) — séptima pasada
+
+- **Fase 1 — Contrato explícito de NUL-terminación (Documentación pura)**:
+  - **`PenguString`**: Formalización del contrato de NUL-terminación en la docstring del typedef. Se documenta explícitamente que `PenguString` NO garantiza que `data` esté terminado en NUL (p.ej. vistas no propietarias creadas mediante `pengu_string_as_slice` o sobre buffers parciales). Aunque los constructores del runtime sí generan terminación en NUL, las funciones consumidoras que delegan en APIs de C que requieren cadenas NUL-terminadas no deben asumir esta propiedad sin comprobación o copia previa.
+
+- **Fase 2 — Read-past-buffer en parsers que asumen NUL (N1)**:
+  - **`pengu_parse_int` (N1a)**: Evita lecturas fuera de límites copiando `s` a un búfer temporal NUL-terminado en el heap antes de invocar `strtoll`. Soporta correctamente vistas no NUL-terminadas y rechaza de forma determinista cadenas con NULs embebidos o basura residual.
+  - **`pengu_parse_float` (N1b)**: Misma corrección utilizando un búfer temporal NUL-terminado antes de invocar `strtod`.
+  - **`pengu_c_strptime` (N1c)**: Copia `s` a un búfer temporal NUL-terminado antes de evaluar patrones con `sscanf`, previniendo lecturas más allá de `s.len`.
+
+- **Fase 3 — getcwd dinámico (N2)**:
+  - **`pengu_c_getcwd`**: Eliminado el límite fijo arbitrario de 4096 bytes. En POSIX se utiliza `getcwd(NULL, 0)` (extensión GNU/BSD) para asignación dinámica automática. En Windows, se utiliza el búfer de stack para el caso común y se escala dinámicamente con `_getcwd` en búferes crecientes (hasta 64 KB) si la ruta excede el tamaño.
+
+- **Fase 4 — Documentación de pattern vacío (N4)**:
+  - **`pengu_c_archivum_glob`**: Añadida nota `@note` documentando que un `pattern` con `len == 0` matchea todas las entradas (comportamiento implícito "match-all" de `pengu__find_sub`). Para no matchear nada, se debe proporcionar un patrón que no coincida con ningún nombre.
+
+- **Fase 5 — Documentación de snprintf con NULs embebidos (N3)**:
+  - **`pengu_c_archivum_read_dir`, `remove_dir`, `glob_rec`, `walk_rec`**: Añadidas notas `@note` aclarando que la construcción de rutas mediante `snprintf` y especificadores de formato trunca en el primer byte NUL embebido, lo cual es puramente teórico dado que los sistemas de archivos reales rechazan nombres con bytes NUL.
+
+- **Fase 6 — Documentación de strftime (N5)**:
+  - **`pengu_c_strftime`**: Añadida nota `@note` documentando el límite del búfer local de 512 bytes y su comportamiento ante formatos extendidos de usuario.
+
+- **Fase 7 — Verificaciones**:
+  - **Compilación estricta C11 (V1)**: `gcc -std=c11 -Wall -Wextra -Werror -fsyntax-only pengu_runtime.h` con 0 errores y 0 advertencias.
+  - **Compilación con sanitizadores (V2)**: `gcc -std=c11 -fsanitize=address,undefined -Wall -Wextra -fsyntax-only pengu_runtime.h` con 0 advertencias.
+  - **Nuevos tests (V3)**: Pruebas añadidas en `tests/test_runtime_strings.py` (N1a, N1b), `tests/test_runtime_time.py` (N1c) y `tests/test_runtime_files.py` (N2, N4).
+  - **Suite completa (V4)**: Suite completa de pytest ejecutada y aprobada al 100%.
+
+### Runtime hardening (0.10.1) — sexta pasada
+
+- **Fase 1 — Bug crítico residual (Windows realpath OOM)**:
+  - **`pengu_c_archivum_realpath` (C15d-Win)**: Corrección de regresión introducida en la ronda 5 en la rama `#if PENGU_WINDOWS`. Si la asignación dinámica `malloc((size_t)len)` para rutas de longitud `>= 4096` fallaba por OOM, `len` conservaba el valor requerido devuelto por `GetFullPathNameA` y `target` permanecía apuntando al buffer de stack no inicializado `buf`. En la ruta de salida, `pengu_string_new(target)` leía memoria basura no inicializada pudiendo causar fallos de segmentación o lecturas indeterminadas. La corrección marca explícitamente `len = 0` ante fallo de `malloc`, retornando limpiamente `pengu_maybe_none()` sin tocar `buf`. La rama POSIX (que emplea `realpath(cpath, NULL)`) no está afectada.
+
+- **Fase 2 — Correctitud NUL-aware**:
+  - **`pengu_c_archivum_glob_rec` (B30)**: Migración de `strstr` y `strcmp` a búsquedas binario-exactas (NUL-aware) usando `pengu__find_sub` y comparación con `memcmp` y longitud exacta `name->len == pattern.len`. La extensión y los nombres sin comodines ahora preservan el patrón NUL-aware establecido en las rondas 3–5.
+
+- **Fase 3 — Overflow 32-bit en helpers**:
+  - **`pengu_list_push` y `pengu_map_put` (A20)**: Protección contra desbordamiento en arquitecturas de 32 bits en el producto `(size_t)new_cap * elem_size` comprobando `(size_t)new_cap > SIZE_MAX / list->elem_size` antes de invocar `realloc`. En `pengu_map_put` y `pengu_map_put_string_int`, se añadió verificación contra `(SIZE_MAX / 2) / sizeof(PenguMapEntry)`.
+  - **`pengu_string_replace` (A21)**: Protección contra desbordamiento de `ptrdiff_t` en el cálculo `count * delta` en arquitecturas de 32 bits. Se utiliza aritmética de 64 bits (`int64_t delta` y `int64_t new_len_64 = (int64_t)s.len + (int64_t)count * delta`) para verificar los límites `[0, INT_MAX]` antes de asignar o retornar de forma segura cadena vacía.
+
+- **Fase 4 — Documentación**:
+  - **Asimetría owning/no-owning (D14)**: Nota `@note` en `pengu_string_from_bool` explicando que a diferencia de `pengu_string_from_char` (que asigna memoria propietaria en heap), `from_bool` retorna una vista constante sobre rodata (`"true"` / `"false"`), dado que los booleanos son un conjunto finito de dos valores sin bytes binarios, y `pengu_banish_string` es un no-op sobre ellos.
+  - **Límite real de read_symlink (D15)**: Actualizada docstring de `pengu_c_archivum_read_symlink` indicando que el límite real aceptado es de 4094 bytes (buffer de 4096 bytes solicitando 4095 a `readlink` y rechazando el valor 4095) para evitar de forma conservadora devolver rutas truncadas.
+
+- **Fase 5 — Verificaciones**:
+  - **Compilación estricta C11 (V1)**: `gcc -std=c11 -Wall -Wextra -Werror -fsyntax-only pengu_runtime.h` verificado con 0 errores y 0 advertencias.
+  - **Compilación con sanitizadores (V2)**: Verificación con `gcc -std=c11 -fsanitize=address,undefined -Wall -Wextra -fsyntax-only pengu_runtime.h` con 0 advertencias.
+  - **Nuevos tests (V3)**: Pruebas unitarias de regresión y cobertura añadidas en `tests/test_runtime_files.py` (C15d-Win y B30), `tests/test_runtime_collections.py` (A20) y `tests/test_runtime_strings.py` (A21).
+  - **Suite completa (V4)**: Suite completa de pytest ejecutada y aprobada al 100%.
+
+### Runtime hardening (0.10.1) — quinta pasada
+
+- **Fase 1 — Consistencia NUL (Fix semántico y Behavior Change)**:
+  - **`pengu_string_char_at` y `pengu_string_from_char` (S1)**: **Behavior change**: `chr 0` y `char_at` sobre posiciones con byte NUL (`'\0'`) ahora retornan una cadena propia de longitud 1 (`{data=[NUL], len=1}`) en lugar de colapsar a cadena vacía (`{data="", len=0}`). Esto resuelve la inconsistencia observable con `pengu_string_split(s, "")` (que siempre produce cadenas de longitud 1 para cada byte) y con constructores binarios.
+  - **Migration**: Código o pruebas que comprobaran `len == 0` al extraer un byte NUL con `char_at` o `from_char` deben actualizarse para esperar `len == 1` y `data[0] == '\0'`.
+
+- **Fase 2 — Truncación Silenciosa (Archivum)**:
+  - **`pengu_c_archivum_walk_rec` (C15b)**: Eliminada la truncación silenciosa en buffers fijos de 4096 bytes. Si `snprintf >= sizeof(sub)`, se asigna dinámicamente memoria en heap para continuar la recursión en directorios profundos sin omitir subdirectorios.
+  - **`pengu_c_archivum_read_symlink` (C15c)**: Comprobación estricta de longitud de destino `len == sizeof(buf) - 1` en `readlink`. Destinos que excedan la capacidad del buffer son rechazados retornando `none` en lugar de devolver una ruta truncada.
+  - **`pengu_c_archivum_realpath` (C15d)**: En POSIX se emplea `realpath(cpath, NULL)` (POSIX.1-2008) para asignar dinámicamente el búfer canónico exacto; en Windows se comprueba el retorno de `GetFullPathNameA` y se redimensiona dinámicamente si la ruta excede 4096 bytes.
+
+- **Fase 3 — Checks de Retorno en Funciones libc de Tiempo**:
+  - **`pengu_c_strftime` y 18 getters de calendario (C16)**: Manejo seguro del valor de retorno de `gmtime_s` / `gmtime_r` y `localtime_s` / `localtime_r`. Ante timestamps fuera de rango (como valores infinitos o que desbordan `time_t`), `pengu_c_strftime` retorna cadena vacía y los 18 getters de componentes UTC y locales (`year`, `month`, `day`, `hour`, `minute`, `second`, `weekday`, `yearday`, `is_dst`) retornan `0` (o `false`) sin desreferenciar memoria no inicializada ni incurrir en UB.
+
+- **Fase 4 — Overflow Defensivo en Helpers**:
+  - **`pengu__find_sub` (A18)**: Guarda defensiva `if (needle.len > hay.len - from_idx) return -1;` y condición de bucle `i <= hay.len - needle.len`, previniendo desbordamiento de enteros con signo en `i + needle.len`.
+  - **`pengu_map_put` y `pengu_map_put_string_int` (A19)**: Verificación de límite `if (old_cap > INT_MAX / 2) return;` antes de duplicar la capacidad del mapa, rechazando silenciosamente la inserción de manera consistente con `pengu_list_push`.
+
+- **Fase 5 — Documentación**:
+  - **Semántica NUL en char_at / from_char (D11)**: Actualizadas docstrings documentando el retorno exacto de cadenas de longitud 1 para cualquier byte (incluyendo `\0`).
+  - **Truncación en Archivum (D12)**: Documentadas las notas `@note` en `read_symlink`, `realpath` y `walk_rec` especificando los límites y el uso de asignación dinámica.
+  - **Limitación LLP64 de read_file (D13)**: Añadida nota `@note` en `pengu_c_archivum_read_file` indicando que en plataformas Windows (LLP64) `ftell` devuelve `long` de 32 bits, por lo que archivos mayores a 2 GB no son leíbles (`ftell` devuelve -1).
+
+- **Fase 6 — Verificaciones**:
+  - **Compilación estricta C11 (V1)**: `gcc -std=c11 -Wall -Wextra -Werror -fsyntax-only pengu_runtime.h` verificado con 0 advertencias y 0 errores.
+  - **Nuevas suites de tests (V2)**: Tests añadidos en `tests/test_runtime_strings.py`, `tests/test_runtime_collections.py`, `tests/test_runtime_files.py` y nueva suite dedicada `tests/test_runtime_time.py`.
+  - **Suite completa (V3)**: Ejecución completa de la suite de pruebas sin fallos.
+
+### Runtime hardening (0.10.1) — cuarta pasada
+
+- **Fase 1 — Bug Sistemático / Root Cause**:
+  - **`pengu_c_rand_range` (A17)**: Eliminación de comportamiento indefinido (UB) en la conversión double a int con rangos amplios (`min = INT_MIN, max = INT_MAX`). El producto `pengu_c_rand_double() * range` puede superar `INT_MAX`, causando UB en el cast `(int)`. Se utiliza un intermediario de 64 bits (`int64_t offset`) y suma en 64 bits antes de estrechar a `int`.
+
+- **Fase 2 — Overflow Aritmético en Constructores de String**:
+  - **`pengu_string_concat` (A14)**: Prevención de desbordamiento entero en `a.len + b.len`. Se comprueba `a.len > INT_MAX - b.len` (y `a.len < 0 || b.len < 0`), retornando vista vacía segura en lugar de incurrir en UB numérico y truncación.
+  - **`pengu_string_repeat` (A15)**: Rechazo antes de `malloc` si `total_len > (size_t)INT_MAX`, evitando truncación a enteros negativos y fugas permanentes de memoria en `pengu_banish_string`.
+  - **`pengu_string_replace` (A16)**: Rechazo si `new_len_signed > (ptrdiff_t)INT_MAX` o negativo, evitando desbordamiento y truncación en el cálculo de longitud resultante.
+  - **`pengu_c_archivum_read_file` (B29)**: Si el tamaño del archivo o los bytes leídos exceden `INT_MAX`, se libera el búfer y se retorna `pengu_maybe_none()`, impidiendo truncaciones silenciosas al asignarse a `int len`.
+
+- **Fase 3 — Correctitud NUL-Aware**:
+  - **`pengu_string_replace` (B26)**: Eliminación de `strstr` en la ruta de búsqueda y reemplazo. Se implementa el helper `pengu__find_sub` basado en `memcmp` byte a byte, respetando `from.len` y permitiendo sustituciones exactas con NULs embebidos tanto en la cadena fuente como en el patrón buscado.
+  - **`pengu_string_split` (B27)**: Reescritura del bucle de segmentación sobre `pengu__find_sub` y asignación byte-segura, respetando `delim.len` y bytes NUL embebidos en el delimitador sin truncamiento.
+  - **`pengu_parse_int` y `pengu_parse_float` (B28)**: Validación estricta con límite superior `end_limit = s.data + s.len`. Cadenas con bytes residuales o NULs intermedios (como `{"42\0xyz", 7}`) son rechazadas correctamente retornando `none`.
+
+- **Fase 4 — Fugas y Datos Perdidos**:
+  - **`pengu_c_archivum_read_dir` (C13)**: Corrección de fuga de memoria en ramas de error (`FindFirstFileA`, `opendir`, o fallo de asignación de `cpath`). Se reemplaza el `free(list)` aislado por `pengu_banish_list(list); free(list);`, liberando el buffer `list->data` previamente inicializado por `pengu_list_new`.
+  - **`pengu_c_get_env_keys` (Windows) (C14)**: Eliminación del límite estático de 255 caracteres (`char kbuf[256]`) en Windows; alineado simétricamente con POSIX usando `pengu_string_substring` para soportar claves de cualquier longitud sin descarte silencioso.
+  - **`pengu_c_archivum_remove_dir` y `pengu_c_archivum_glob_rec` (C15)**: Prevención de truncación silenciosa en buffers fijos de 4096 bytes. Si `snprintf >= sizeof(buf)`, se asigna dinámicamente un buffer en heap o se descarta la entrada de manera segura, evitando operaciones destructivas sobre rutas truncadas.
+
+- **Fase 5 — Documentación**:
+  - **Límite INT_MAX en constructores (D8)**: Añadidas notas `@note` en `pengu_string_new`, `pengu_string_concat`, `pengu_string_repeat`, `pengu_string_replace` y `pengu_c_archivum_read_file` documentando el rechazo ante longitudes mayores a `INT_MAX`.
+  - **Semántica NUL en replace / split (D9)**: Actualizadas docstrings de `pengu_string_replace` y `pengu_string_split` reflejando el soporte binario exacto sin truncar en NUL.
+  - **`pengu_c_get_env_keys` (D10)**: Documentada la entrega completa de claves de entorno sin límites artificiales en Windows y POSIX.
+
+- **Fase 6 — Verificaciones**:
+  - **Compilación estricta C11 (V1)**: `gcc -std=c11 -Wall -Wextra -Werror -fsyntax-only pengu_runtime.h` verificado con 0 advertencias y 0 errores.
+  - **Tests de strings, colecciones y archivos (V2)**: Nuevas suites y aserciones en `tests/test_runtime_strings.py`, `tests/test_runtime_collections.py` y nuevo archivo `tests/test_runtime_files.py`.
+  - **Suite completa (V3)**: Ejecución completa de pytest sin fallos.
+
+### Runtime hardening (0.10.1) — tercera pasada
+
+- **Fase 1 — Bug Sistemático (Root Cause)**:
+  - **`pengu_string_new` (A13)**: Corrección de la causa raíz de fugas de 1 byte en el constructor central de cadenas. Cuando `len == 0` (cadena vacía `""`), ahora retorna inmediatamente una vista estática no-propietaria `{data="", len=0}` en lugar de asignar 1 byte en heap que `pengu_banish_string` no liberaba (al comprobar `len > 0`). Esto cierra de forma sistemática y transitiva las fugas potenciales en `pengu_string_char_at` con `\0` (B10) y `pengu_string_from_char('\0')` (B11).
+
+- **Fase 2 — Correctitud**:
+  - **`pengu_string_replace` (B21)**: Preservación de bytes NUL embebidos en rutas no-op (`from.len <= 0` o `count == 0`), utilizando `pengu_string_copy(s)` en lugar de `pengu_string_new(s.data)` para no truncar la cadena en NULs intermedios.
+  - **`pengu_parse_float` (B22)**: Verificación de `errno == ERANGE` tras `strtod` para retornar `none` ante desbordamientos numéricos como `"1e999"`.
+  - **`pengu_parse_int` y `pengu_parse_float` (B23)**: Rechazo explícito de cadenas compuestas únicamente por espacios en blanco (`"   "`, `"\t\n"`), mientras se preserva el soporte correcto para espacios en blanco circundantes válidos (`"  42  "` y `"  3.14  "`).
+  - **`pengu_string_contains` (B24)**: Reemplazo de `strstr` por `pengu_string_index_of != -1`, asegurando búsqueda exacta de subcadenas binarias con bytes NUL embebidos.
+  - **`pengu_string_starts_with` (B25)**: Reemplazo de `strncmp` por `memcmp`, permitiendo comparar prefijos binarios que contengan bytes NUL.
+
+- **Fase 3 — NULL Deref / OOM Silencioso**:
+  - **`pengu_c_strptime` (C11)**: Comprobación de retorno no nulo de `malloc` al asignar el contenedor del timestamp `double`, retornando `pengu_maybe_none()` de forma segura ante OOM.
+  - **`pengu_c_archivum_metadata` (C12)**: Comprobación de `map->entries != NULL` tras `pengu_map_new`, retornando `none` y liberando el contenedor ante fallo de memoria en lugar de retornar un mapa incompleto o vacío.
+
+- **Fase 4 — Consistencia y Documentación**:
+  - **`pengu_banish_string` (D5)**: Añadido `@warning` explícito indicando que solo es seguro sobre cadenas propietarias heap y no debe invocarse sobre vistas de rodata (`pengu_string_from_cstr`) ni cadenas con `len == 0`.
+  - **`pengu_string_copy` (D6)**: Documentación explícita de que la implementación no usa `strlen` y preserva bytes NUL embebidos mediante `memcpy` exacto sobre `s.len` bytes.
+  - **`pengu_list_push` y `pengu_map_alloc_slot` (D7)**: Documentada la nota de que ante fallo de `realloc`/`malloc` retornan silenciosamente sin insertar.
+
+- **Fase 5 — Verificaciones**:
+  - **`pengu_string_copy` (V1)**: Confirmado que la implementación en `pengu_parser/pengu_runtime.c` utiliza `memcpy(buf, s.data, (size_t)s.len)` y no `strlen`/`pengu_string_new`, garantizando la integridad de datos binarios y claves de mapa con NULs.
+  - **`pengu_string_as_slice` y `pengu_ffi_*` (V2)**: Confirmada su existencia y operatividad en `pengu_runtime.h` y `pengu_parser/pengu_runtime.c` cubiertas por la suite FFI.
+
+### Runtime hardening (0.10.1) — segunda pasada
+
+- **Fase 1 — Crashes por NULL Deref**:
+  - **`pengu_map_new` (A10)**: Verificación de retorno de `calloc`. Si `calloc` falla al asignar el buffer de entradas, se establece `cap = 0` y `len = 0` para evitar desreferenciar `entries = NULL` en operaciones subsiguientes; el próximo `put` reintenta la asignación limpiamente.
+  - **`pengu_map_put` y `pengu_map_put_string_int` (A11)**: Verificación de retorno de `calloc` durante el proceso de rehash/redimensionamiento. Ante fallo de memoria, se realiza rollback a la capacidad (`cap = old_cap`) y buffer de entradas previos (`entries = old_entries`), rechazando la inserción de manera segura sin dejar la estructura en un estado inconsistente.
+  - **`pengu_map_alloc_slot` en `pengu_map_put` y `pengu_map_put_string_int` (A12)**: Introducción de helper privado `pengu_map_alloc_slot` para asignar memoria por slot (`key` y `val`) con comprobación atómica de `malloc` y rollback (`free` de punteros parciales) si falla la asignación de clave o valor. Reemplazados los sitios directos de asignación en `pengu_map_put` y `pengu_map_put_string_int`.
+
+- **Fase 2 — Fugas de 1 Byte por String Vacío**:
+  - Causa raíz: `pengu_banish_string` no libera cuando `len == 0`, pero varias funciones asignaban un buffer heap de 1 byte con `\0` para cadenas de longitud 0. Se unificó el retorno de vista no-propietaria `pengu_string_from_cstr("")` en todos los casos de longitud 0.
+  - **`pengu_string_format` (B5)**: Retorna `pengu_string_from_cstr("")` cuando `size <= 0`.
+  - **`pengu_string_concat` (B6)**: Retorna `pengu_string_from_cstr("")` cuando `total <= 0`.
+  - **`pengu_string_replace` (B7)**: Retorna `pengu_string_from_cstr("")` cuando `new_len == 0`.
+  - **`pengu_string_split` (B8)**: Retorna `pengu_string_from_cstr("")` en caso de cadena de entrada vacía y utiliza `pengu_string_from_cstr("")` para segmentos vacíos (`seg_len == 0` y `rem_len == 0`).
+  - **`pengu_c_archivum_read_file` (B9)**: Cuando `read_bytes == 0` (archivo vacío), se libera el buffer asignado de 1 byte y se asigna `res->data = ""` con `res->len = 0`.
+
+- **Fase 3 — Correctitud**:
+  - **`pengu_map_put_string_int`, `pengu_map_get_string_int` y `pengu_map_remove_string_int` (C5)**: Soporte completo de `tombstones` en las funciones especializadas de mapas string-a-int. `put_string_int` rastrea `first_tombstone` y reutiliza ranuras con tombstone; `get_string_int` continúa el sondeo a través de tombstones; `remove_string_int` marca la ranura con `tombstone = true`.
+  - **`pengu_map_clear` (C6)**: Reseteo explícito de `map->entries[i].tombstone = false` en todas las ranuras al limpiar el mapa para evitar acumulación y degradación del rendimiento de sondeo tras `clear`.
+  - **`pengu_string_index_of` (C7)**: Búsqueda manual byte a byte mediante `memcmp` en lugar de `strstr`, garantizando búsqueda exacta en presencia de bytes NUL embebidos.
+  - **`pengu_c_get_env_keys` (C8)**: Implementación para sistemas POSIX (Linux/macOS) utilizando `extern char **environ`, segmentación con `strchr` y extracción de claves de entorno.
+  - **`pengu_c_rand_range` (C9)**: Cálculo de rango en precisión `double` (`(double)max - (double)min + 1.0`) para prevenir desbordamiento de enteros con rangos amplios como `[INT_MIN, INT_MAX]`.
+  - **`pengu_list_push` (C10)**: Verificación de límite de crecimiento `list->cap > INT_MAX / 2` antes de duplicar la capacidad, evitando desbordamiento a valores negativos.
+
+- **Fase 4 — Consistencia y Documentación**:
+  - **`pengu_string_from_bool` (D1)**: Documentado que retorna un view no-owning sobre el cual `pengu_banish_string` es un no-op, recomendando `pengu_string_copy` si se requiere copia propia.
+  - **`pengu_bounds_panic` (D2)**: Documentado el uso de `_exit(134)` para evitar doble volcado de signal handlers y la ausencia de flush en buffers stdio.
+  - **`pengu_string_new` (D3)**: Verificación de seguridad `len > INT_MAX` retornando cadena vacía si la longitud excede `INT_MAX`.
+  - **`pengu_string_format` (D4)**: Documentada la validez y propósito en C11 del doble `va_start` / `va_end` (para cálculo de tamaño y posterior formateo).
+
 ## [0.10.0] - Released
+
+### Runtime hardening (0.10.0)
+
+- **Fase 1 — Corrección de Bugs Críticos**:
+  - **`pengu_string_replace` (A1)**: Corregido subdesbordamiento aritmético de `size_t` cuando `to.len < from.len`, el cual producía un entero gigante y causaba fallo silencioso en `malloc`. Ahora calcula deltas con signo mediante `ptrdiff_t`.
+  - **`pengu_list_push` (A2)**: Se eliminó la modificación prematura de `cap` previa a `realloc`. En caso de fallo de asignación, el estado de `cap` y `data` se mantiene intacto sin corrupción ni fuga de datos.
+  - **`pengu_list_new` (A3)**: Comprobación de asignación en `malloc`; ante fallos, inicializa de forma consistente `{data=NULL, cap=0, len=0}`.
+  - **`pengu_string_repeat` (A4)**: Verificación contra desbordamiento de enteros en la multiplicación `len * times` y comprobación de sanidad de memoria contra `SIZE_MAX / 2`.
+  - **`pengu_parse_int` y `pengu_parse_float` (A5)**: Comprobación de asignación de `malloc` (retornando `none` ante fallo), verificación de límites de 32 bits (`INT32_MIN` .. `INT32_MAX`) y detección de `ERANGE` multiplataforma (Windows LLP64 y POSIX LP64 con `strtoll`).
+  - **`pengu_c_getenv` y `pengu_c_getcwd` (A6)**: Validación de puntero `NULL` en el contenedor `PenguString` asignado para `pengu_maybe_some`.
+  - **`pengu_string_concat` (A7)**: Corrección de desbordamiento de enteros en la longitud combinada y retorno de cadena vacía válida `{data="", len=0}` ante fallo de asignación en lugar de estructuras inconsistentes `{data=NULL, len=N}`.
+  - **`PenguMapEntry` y cadena de colisiones (`tombstones`) (A8)**: **Cambio de comportamiento observable**. Previamente, eliminar una entrada en un mapa (`pengu_map_remove`) reseteaba la ranura a `occupied = false`, truncando la cadena de sondeo lineal y haciendo inaccesibles todas las claves colisionantes subsiguientes. Se introdujo el campo `bool tombstone` en `PenguMapEntry`; las eliminaciones marcan `occupied = false; tombstone = true;`. Las operaciones `get`, `contains`, `put` y `remove` ahora continúan el sondeo a través de los tombstones sin romper la cadena. Las inserciones (`put`) reutilizan ranuras con tombstone y el rehash las descarta.
+  - **Preservación de NULs embebidos en claves de mapas (A9)**: `pengu_map_put` utiliza ahora `pengu_string_copy` en lugar de `pengu_string_new`, garantizando la copia exacta de los `len` bytes de la clave y del valor sin truncar en bytes NUL intermedios.
+
+- **Fase 2 — Eliminación de Fugas de Memoria**:
+  - **`pengu_map_put` rehash (B1)**: En el redimensionamiento del mapa, las entradas migradas liberan explícitamente el buffer `.data` de claves y valores de tipo `PenguString` mediante `pengu_banish_string` antes de liberar las estructuras envolventes.
+  - **Limpieza en consumidores de `read_dir` (B2, B3, B4)**: Se incorporó la función auxiliar `pengu_banish_string_list` para liberar cada `PenguString` dentro de una lista antes de liberar la lista. Se refactorizaron `pengu_c_archivum_remove_dir`, `pengu_c_archivum_glob_rec` y `pengu_c_archivum_walk_rec` para liberar completamente las entradas leídas de directorios.
+
+- **Fase 3 — Mejoras de UX y Robustez**:
+  - **`pengu_bounds_panic` (C1)**: Sustitución de `abort()` por `_exit(134)` tras volcar el volcado de pila para evitar la doble traza duplicada generada por el manejador de señal `SIGABRT`.
+  - **`pengu_c_exec` (C2)**: Gestión dinámica de buffers de comando para prevenir desbordamientos de buffer fijo de 4KB en comandos largos, y documentación de advertencia de seguridad para uso de `system()`.
+  - **`pengu_map_keys_string` (C3)**: Validación estricta de `m->key_size == sizeof(PenguString)` y punteros no nulos, devolviendo una lista vacía en lugar de interpretar mapas de enteros u otros tipos como cadenas.
+  - **`pengu_string_format` (C4)**: Documentación aclaratoria en docstring de que los fallos de formateo o asignación retornan `""`.
+
+- **Fase 4 — Documentación de Limitaciones de Header**:
+  - Documentación de señal-seguridad en `pengu_dump_frame_stack`: clarificación del uso de `_write`/`write` con `snprintf`.
+  - Nota en `pengu_string_new` y `pengu_string_from_cstr` sobre truncamiento de NULs vía `strlen` y recomendación de `pengu_string_copy` para cadenas binarias.
+  - Nota de propiedad en `pengu_string_split`: clarificación de que el llamador posee cada elemento `PenguString` y debe liberarlo antes de `pengu_banish_list`.
+  - Nota en `pengu_list_pop_val`: clarificación de que el puntero devuelto apunta al buffer interno y se invalida tras un push que redimensione.
 
 ### P2 — Scope-owned locals (auto-banish)
 

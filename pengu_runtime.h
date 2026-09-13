@@ -47,6 +47,8 @@
 #include <string.h>
 #include <math.h>
 #include <time.h>
+#include <errno.h>
+#include <limits.h>
 #include <signal.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -260,6 +262,11 @@ extern "C"
   static PENGU_THREAD_LOCAL int         g_pengu_frame_top = 0;
   static volatile int g_pengu_handler_installed = 0;
 
+  /*
+   * El output se escribe con write(2) / _write. El buffer intermedio se arma con
+   * snprintf, que no está listado por POSIX como async-signal-safe pero funciona
+   * en glibc/musl/msvcrt para los formatos usados (%s, %d, %u).
+   */
   static void pengu_dump_frame_stack(const char *reason, int signo)
   {
     char buf[4096];
@@ -359,6 +366,11 @@ extern "C"
 
 #endif /* PENGU_FRAME_TRACE */
 
+  /**
+   * @brief Aborts with bounds check failure diagnostic and frame stack trace.
+   * @note Usa _exit(134) para evitar el doble dump del signal handler.
+   *       Los buffers stdio no se flushan.
+   */
   static inline void pengu_bounds_panic(int32_t idx, int32_t len, const char *loc)
   {
     char buf[256];
@@ -373,7 +385,7 @@ extern "C"
 #endif
     }
     pengu_dump_frame_stack("bounds check failed", 0);
-    abort();
+    _exit(134);
   }
 
   static inline void pengu_assert_bounds(int32_t idx, int32_t len, const char *loc)
@@ -420,6 +432,13 @@ extern "C"
 
   /**
    * @brief Represents an immutable UTF-8 string with explicit length and data pointer.
+   * @note PenguString NO garantiza NUL-terminación. `data` es un buffer de `len`
+   *       bytes y puede no tener '\0' al final (p.ej. pengu_string_as_slice o
+   *       vistas sobre buffers parciales). Los constructores internos
+   *       (pengu_string_new, _copy, _from_cstr, _substring, _split, _concat,
+   *       _format, _replace, _repeat, _reverse, _from_int, _from_float,
+   *       _from_char, _char_at) SÍ producen buffers NUL-terminados, pero el
+   *       consumidor no debe asumirlo sin comprobación explícita.
    */
   typedef struct
   {
@@ -428,7 +447,18 @@ extern "C"
   } PenguString;
 
   /**
+   * @brief Creates a deep copy of a PenguString.
+   * @note Preserva bytes NUL embebidos. La implementación NO usa strlen
+   *       internamente — hace memcpy sobre s.len bytes.
+   */
+  PenguString pengu_string_copy(PenguString s);
+
+  /**
    * @brief Constructs a newly allocated PenguString from a null-terminated C string.
+   * @note El constructor usa strlen; los NULs embebidos se truncan. Para preservar
+   *       longitud binaria exacta, usar pengu_string_copy sobre un PenguString ya
+   *       construido con len correcta. Strings > INT_MAX bytes se rechazan (retornan
+   *       vacío) y en ningún caso se admiten longitudes truncadas.
    * @param str Null-terminated C string buffer.
    * @return Newly allocated PenguString.
    */
@@ -441,7 +471,14 @@ extern "C"
       s.data = (char *)"";
       return s;
     }
-    s.len = (int)strlen(str);
+    size_t len = strlen(str);
+    if (len == 0 || len > INT_MAX)
+    {
+      s.len = 0;
+      s.data = (char *)"";
+      return s;
+    }
+    s.len = (int)len;
     s.data = (char *)malloc((size_t)s.len + 1);
     if (!s.data)
     {
@@ -455,6 +492,9 @@ extern "C"
 
   /**
    * @brief Constructs a non-owning PenguString view from a C string literal without copying.
+   * @note El constructor usa strlen; los NULs embebidos se truncan. Para preservar
+   *       longitud binaria exacta, usar pengu_string_copy sobre un PenguString ya
+   *       construido con len correcta.
    * @param str Null-terminated C string literal.
    * @return View PenguString.
    */
@@ -507,23 +547,27 @@ extern "C"
 
   /**
    * @brief Constructs a formatted PenguString using printf-style arguments.
+   * @note En C11, pasar args a vsnprintf consume su estado; el doble va_start y
+   *       va_end es deliberado y requerido por el estándar para reutilizar los argumentos.
    * @param fmt Printf format specification string.
    * @param ... Variable formatting arguments.
-   * @return Formatted PenguString.
+   * @return Formatted PenguString. Returns empty string `""` on formatting
+   *         failure (vsnprintf error or allocation failure); note that this
+   *         cannot be distinguished from a legitimately empty formatted string.
    */
   static inline PenguString pengu_string_format(const char *fmt, ...)
   {
     if (!fmt)
-      return pengu_string_new("");
+      return pengu_string_from_cstr("");
     va_list args;
     va_start(args, fmt);
     int size = vsnprintf(NULL, 0, fmt, args);
     va_end(args);
-    if (size < 0)
-      return pengu_string_new("");
+    if (size <= 0)
+      return pengu_string_from_cstr("");
     char *buf = (char *)malloc((size_t)size + 1);
     if (!buf)
-      return pengu_string_new("");
+      return pengu_string_from_cstr("");
     va_start(args, fmt);
     vsnprintf(buf, (size_t)size + 1, fmt, args);
     va_end(args);
@@ -532,27 +576,38 @@ extern "C"
 
   /**
    * @brief Concatenates two PenguString structures into a newly allocated PenguString.
+   * @note Strings > INT_MAX bytes se rechazan (retornan vacío) y en ningún caso se admiten longitudes truncadas.
    * @param a First string operand.
    * @param b Second string operand.
    * @return Combined PenguString.
    */
   static inline PenguString pengu_string_concat(PenguString a, PenguString b)
   {
+    if (a.len < 0 || b.len < 0)
+      return pengu_string_from_cstr("");
+    if (a.len > INT_MAX - b.len)
+      return pengu_string_from_cstr(""); /* evita UB y truncación */
+    int total = a.len + b.len;
+    if (total <= 0)
+      return pengu_string_from_cstr("");
     PenguString s;
-    s.len = a.len + b.len;
-    s.data = (char *)malloc((size_t)s.len + 1);
-    if (s.data)
+    s.len = total;
+    s.data = (char *)malloc((size_t)total + 1);
+    if (!s.data)
     {
-      if (a.data && a.len > 0)
-      {
-        memcpy(s.data, a.data, (size_t)a.len);
-      }
-      if (b.data && b.len > 0)
-      {
-        memcpy(s.data + a.len, b.data, (size_t)b.len);
-      }
-      s.data[s.len] = '\0';
+      s.len = 0;
+      s.data = (char *)"";
+      return s;
     }
+    if (a.data && a.len > 0)
+    {
+      memcpy(s.data, a.data, (size_t)a.len);
+    }
+    if (b.data && b.len > 0)
+    {
+      memcpy(s.data + a.len, b.data, (size_t)b.len);
+    }
+    s.data[s.len] = '\0';
     return s;
   }
 
@@ -576,6 +631,12 @@ extern "C"
   /**
    * @brief Frees heap buffer allocated by a PenguString.
    * @param s Pointer to PenguString to deallocate.
+   * @warning Solo es seguro sobre strings creados por pengu_string_new, _copy,
+   *          _format, _concat, _substring, _replace, _repeat, _reverse, _from_int,
+   *          _from_float, _from_char. NUNCA llamar sobre el resultado de
+   *          pengu_string_from_cstr (view de rodata) ni sobre strings con len == 0
+   *          (no-op). La heurística 'len > 0 ⟹ owning' NO distingue views no-owning
+   *          con contenido.
    */
   static inline void pengu_banish_string(PenguString *s)
   {
@@ -604,6 +665,24 @@ extern "C"
   int pengu_mco_status(void *co);
   void pengu_mco_destroy(void *co);
 
+  static inline int pengu__find_sub(PenguString hay, PenguString needle, int from_idx)
+  {
+    if (!hay.data || !needle.data || needle.len < 0 || from_idx < 0 || from_idx > hay.len)
+      return -1;
+    if (needle.len == 0)
+      return from_idx;
+    if (needle.len > hay.len - from_idx)
+      return -1; /* evita overflow en suma */
+    for (int i = from_idx; i <= hay.len - needle.len; ++i)
+    {
+      if (memcmp(hay.data + i, needle.data, (size_t)needle.len) == 0)
+        return i;
+    }
+    return -1;
+  }
+
+  static inline int pengu_string_index_of(PenguString a, PenguString sub);
+
   /**
    * @brief Checks if string a contains substring b.
    * @param a Haystack string.
@@ -616,9 +695,7 @@ extern "C"
       return false;
     if (b.len == 0)
       return true;
-    if (a.len < b.len)
-      return false;
-    return strstr(a.data, b.data) != NULL;
+    return pengu_string_index_of(a, b) != -1;
   }
 
   /**
@@ -715,7 +792,7 @@ extern "C"
       return true;
     if (a.len < prefix.len)
       return false;
-    return strncmp(a.data, prefix.data, (size_t)prefix.len) == 0;
+    return memcmp(a.data, prefix.data, (size_t)prefix.len) == 0;
   }
 
   /**
@@ -747,8 +824,7 @@ extern "C"
       return -1;
     if (sub.len == 0)
       return 0;
-    char *p = strstr(a.data, sub.data);
-    return p ? (int)(p - a.data) : -1;
+    return pengu__find_sub(a, sub, 0);
   }
 
   /**
@@ -801,6 +877,8 @@ extern "C"
 
   /**
    * @brief Replaces all occurrences of from with to in string s.
+   * @note Semántica binaria exacta NUL-aware: no trunca en bytes NUL ni en `s` ni en `from`/`to`.
+   *       Strings con longitud resultante > INT_MAX se rechazan (retornan vacío).
    * @param s Source string.
    * @param from Substring to be replaced.
    * @param to Replacement substring.
@@ -811,31 +889,38 @@ extern "C"
     if (!s.data)
       return pengu_string_from_cstr("");
     if (!from.data || from.len <= 0)
-      return pengu_string_new(s.data);
+      return pengu_string_copy(s);
 
     int count = 0;
-    const char *p = s.data;
-    while ((p = strstr(p, from.data)) != NULL)
+    int pos = 0;
+    while ((pos = pengu__find_sub(s, from, pos)) != -1)
     {
       count++;
-      p += from.len;
+      pos += from.len;
     }
     if (count == 0)
-      return pengu_string_new(s.data);
+      return pengu_string_copy(s);
 
-    size_t new_len = (size_t)s.len + (size_t)count * (size_t)(to.len - from.len);
+    int64_t delta = (int64_t)to.len - (int64_t)from.len;
+    int64_t new_len_64 = (int64_t)s.len + (int64_t)count * delta;
+    if (new_len_64 < 0 || new_len_64 > (int64_t)INT_MAX)
+      return pengu_string_from_cstr("");
+    size_t new_len = (size_t)new_len_64;
+    if (new_len == 0)
+      return pengu_string_from_cstr("");
     char *buf = (char *)malloc(new_len + 1);
     if (!buf)
       return pengu_string_from_cstr("");
 
     char *dst = buf;
-    const char *src = s.data;
-    while ((p = strstr(src, from.data)) != NULL)
+    int src_idx = 0;
+    int next_match = 0;
+    while ((next_match = pengu__find_sub(s, from, src_idx)) != -1)
     {
-      size_t seg = (size_t)(p - src);
+      int seg = next_match - src_idx;
       if (seg > 0)
       {
-        memcpy(dst, src, seg);
+        memcpy(dst, s.data + src_idx, (size_t)seg);
         dst += seg;
       }
       if (to.len > 0 && to.data)
@@ -843,12 +928,12 @@ extern "C"
         memcpy(dst, to.data, (size_t)to.len);
         dst += to.len;
       }
-      src = p + from.len;
+      src_idx = next_match + from.len;
     }
-    size_t rem = (size_t)(s.data + s.len - src);
+    int rem = s.len - src_idx;
     if (rem > 0)
     {
-      memcpy(dst, src, rem);
+      memcpy(dst, s.data + src_idx, (size_t)rem);
       dst += rem;
     }
     *dst = '\0';
@@ -857,6 +942,8 @@ extern "C"
 
   /**
    * @brief Repeats string s count times.
+   * @note Strings con longitud resultante > INT_MAX se rechazan (retornan vacío)
+   *       para prevenir truncación de longitud y desbordamientos.
    * @param s String to repeat.
    * @param times Number of repetitions.
    * @return Repeated PenguString.
@@ -865,7 +952,11 @@ extern "C"
   {
     if (times <= 0 || !s.data || s.len <= 0)
       return pengu_string_from_cstr("");
+    if ((size_t)s.len > SIZE_MAX / (size_t)times)
+      return pengu_string_from_cstr("");
     size_t total_len = (size_t)s.len * (size_t)times;
+    if (total_len > (size_t)INT_MAX || total_len + 1 > SIZE_MAX / 2)
+      return pengu_string_from_cstr("");
     char *buf = (char *)malloc(total_len + 1);
     if (!buf)
       return pengu_string_from_cstr("");
@@ -899,6 +990,8 @@ extern "C"
 
   /**
    * @brief Returns single character at index idx as a new PenguString.
+   * @note Manejo binario-exacto: retorna una cadena de longitud 1 para cualquier byte,
+   *       incluido el byte NUL ('\0').
    * @param s Source string.
    * @param idx 0-based character index.
    * @return Single character PenguString or empty string if out of bounds.
@@ -907,8 +1000,12 @@ extern "C"
   {
     if (!s.data || idx < 0 || idx >= s.len)
       return pengu_string_from_cstr("");
-    char buf[2] = {s.data[idx], '\0'};
-    return pengu_string_new(buf);
+    char *buf = (char *)malloc(2);
+    if (!buf)
+      return pengu_string_from_cstr("");
+    buf[0] = s.data[idx];
+    buf[1] = '\0';
+    return (PenguString){buf, 1};
   }
 
   /**
@@ -937,22 +1034,33 @@ extern "C"
 
   /**
    * @brief Converts a single char to a PenguString.
+   * @note Manejo binario-exacto: retorna una cadena de longitud 1 para cualquier byte,
+   *       incluido el byte NUL ('\0').
    * @param c Character.
    * @return Formatted PenguString.
    */
   static inline PenguString pengu_string_from_char(char c)
   {
-    char buf[2] = {c, '\0'};
-    return pengu_string_new(buf);
+    char *buf = (char *)malloc(2);
+    if (!buf)
+      return pengu_string_from_cstr("");
+    buf[0] = c;
+    buf[1] = '\0';
+    return (PenguString){buf, 1};
   }
 
   /**
    * @brief Converts a boolean value to string ("true" or "false").
+   * @warning El resultado es un view no-owning sobre rodata. pengu_banish_string
+   *          sobre este valor es UB (no-op sólo si len == 0, lo cual no es el
+   *          caso). Para liberar de forma segura, copiar primero con
+   *          pengu_string_copy.
    * @param val Boolean value.
    * @return PenguString view.
    */
   static inline PenguString pengu_string_from_bool(bool val)
   {
+    /* rodata, no liberar */
     return val ? pengu_string_from_cstr("true") : pengu_string_from_cstr("false");
   }
 
@@ -968,36 +1076,81 @@ extern "C"
 
   /**
    * @brief Parses integer from string into a Maybe container.
+   * @note Copia s a un búfer temporal NUL-terminado para evitar lecturas fuera de rango
+   *       si s es una vista no NUL-terminada (p.ej. pengu_string_as_slice).
    * @param s Input string.
    * @return PenguMaybe holding pointer to int32_t on success, or None.
    */
   static inline PenguMaybe pengu_parse_int(PenguString s)
   {
-    if (!s.data || s.len == 0)
+    if (!s.data || s.len <= 0)
       return pengu_maybe_none();
+    char *tmp = (char *)malloc((size_t)s.len + 1);
+    if (!tmp)
+      return pengu_maybe_none();
+    memcpy(tmp, s.data, (size_t)s.len);
+    tmp[s.len] = '\0';
+    const char *p = tmp;
+    while (*p && isspace((unsigned char)*p))
+      p++;
     char *endptr = NULL;
-    long val = strtol(s.data, &endptr, 10);
-    if (endptr == s.data || *endptr != '\0')
+    errno = 0;
+    long long val = strtoll(tmp, &endptr, 10);
+    const char *end_limit = tmp + s.len;
+    while (endptr < end_limit && isspace((unsigned char)*endptr))
+      endptr++;
+    if (p == endptr || endptr == tmp || endptr != end_limit || errno == ERANGE)
+    {
+      free(tmp);
       return pengu_maybe_none();
+    }
+    if (val > INT32_MAX || val < INT32_MIN)
+    {
+      free(tmp);
+      return pengu_maybe_none();
+    }
+    free(tmp);
     int32_t *res = (int32_t *)malloc(sizeof(int32_t));
+    if (!res)
+      return pengu_maybe_none();
     *res = (int32_t)val;
     return pengu_maybe_some(res);
   }
 
   /**
    * @brief Parses double from string into a Maybe container.
+   * @note Copia s a un búfer temporal NUL-terminado para evitar lecturas fuera de rango
+   *       si s es una vista no NUL-terminada (p.ej. pengu_string_as_slice).
    * @param s Input string.
    * @return PenguMaybe holding pointer to double on success, or None.
    */
   static inline PenguMaybe pengu_parse_float(PenguString s)
   {
-    if (!s.data || s.len == 0)
+    if (!s.data || s.len <= 0)
       return pengu_maybe_none();
+    char *tmp = (char *)malloc((size_t)s.len + 1);
+    if (!tmp)
+      return pengu_maybe_none();
+    memcpy(tmp, s.data, (size_t)s.len);
+    tmp[s.len] = '\0';
+    const char *p = tmp;
+    while (*p && isspace((unsigned char)*p))
+      p++;
     char *endptr = NULL;
-    double val = strtod(s.data, &endptr);
-    if (endptr == s.data || *endptr != '\0')
+    errno = 0;
+    double val = strtod(tmp, &endptr);
+    const char *end_limit = tmp + s.len;
+    while (endptr < end_limit && isspace((unsigned char)*endptr))
+      endptr++;
+    if (p == endptr || endptr == tmp || endptr != end_limit || errno == ERANGE)
+    {
+      free(tmp);
       return pengu_maybe_none();
+    }
+    free(tmp);
     double *res = (double *)malloc(sizeof(double));
+    if (!res)
+      return pengu_maybe_none();
     *res = val;
     return pengu_maybe_some(res);
   }
@@ -1120,11 +1273,18 @@ extern "C"
     list.cap = (cap > 0) ? (int)cap : 4;
     list.elem_size = elem_size;
     list.data = malloc((size_t)list.cap * elem_size);
+    if (!list.data)
+    {
+      list.cap = 0;
+      list.len = 0;
+    }
     return list;
   }
 
   /**
    * @brief Appends an element to the list, expanding capacity if needed.
+   * @note En fallo de realloc/malloc, retorna silenciosamente sin insertar.
+   *       El caller no puede distinguir entre éxito y OOM.
    * @param list Pointer to PenguList.
    * @param item Pointer to element data to copy into list.
    */
@@ -1134,8 +1294,16 @@ extern "C"
       return;
     if (list->len >= list->cap)
     {
-      list->cap = (list->cap == 0) ? 4 : list->cap * 2;
-      list->data = realloc(list->data, (size_t)list->cap * list->elem_size);
+      if (list->cap > INT_MAX / 2)
+        return;
+      int new_cap = (list->cap == 0) ? 4 : list->cap * 2;
+      if (list->elem_size != 0 && (size_t)new_cap > SIZE_MAX / list->elem_size)
+        return;
+      void *new_data = realloc(list->data, (size_t)new_cap * list->elem_size);
+      if (!new_data)
+        return;
+      list->data = new_data;
+      list->cap = new_cap;
     }
     char *target = (char *)list->data + ((size_t)list->len * list->elem_size);
     memcpy(target, item, list->elem_size);
@@ -1144,6 +1312,8 @@ extern "C"
 
   /**
    * @brief Pops and removes the last element from the list, returning a pointer to it.
+   * @note Devuelve un puntero al buffer interno del list; se invalida tras un push
+   *       que redimensione. El caller debe copiar si va a retenerlo.
    * @param list Pointer to PenguList.
    * @return Pointer to popped element buffer, or NULL if list was empty.
    */
@@ -1255,6 +1425,23 @@ extern "C"
   }
 
   /**
+   * @brief Frees all PenguString elements in a dynamic list, then banishes the list itself.
+   * @param l Pointer to PenguList containing PenguString elements.
+   */
+  static inline void pengu_banish_string_list(PenguList *l)
+  {
+    if (!l)
+      return;
+    for (int i = 0; i < l->len; ++i)
+    {
+      PenguString *s = (PenguString *)pengu_list_at(l, i);
+      if (s)
+        pengu_banish_string(s);
+    }
+    pengu_banish_list(l);
+  }
+
+  /**
    * @brief Returns the raw element-buffer pointer of a list.
    * @param list Pointer to a PenguList (may be NULL).
    * @return The internal element buffer, or NULL when the list is NULL or has
@@ -1269,6 +1456,9 @@ extern "C"
 
   /**
    * @brief Splits string s by delimiter delim into a dynamic PenguList of PenguString.
+   * @note Manejo binario-exacto: ni `s` ni `delim` se truncan en el primer NUL (\0).
+   * @note El caller es dueño de cada elemento; debe liberar cada `PenguString` con
+   *       pengu_banish_string antes de pengu_banish_list.
    * @param s Source string.
    * @param delim Delimiter string.
    * @return PenguList containing tokenized PenguString elements.
@@ -1278,7 +1468,7 @@ extern "C"
     PenguList list = pengu_list_new(sizeof(PenguString), 4);
     if (!s.data || s.len == 0)
     {
-      PenguString empty = pengu_string_new("");
+      PenguString empty = pengu_string_from_cstr("");
       pengu_list_push(&list, &empty);
       return list;
     }
@@ -1286,37 +1476,56 @@ extern "C"
     {
       for (int i = 0; i < s.len; ++i)
       {
-        char b[2] = {s.data[i], '\0'};
-        PenguString ch = pengu_string_new(b);
-        pengu_list_push(&list, &ch);
+        char *buf = (char *)malloc(2);
+        if (buf)
+        {
+          buf[0] = s.data[i];
+          buf[1] = '\0';
+          PenguString ch = {buf, 1};
+          pengu_list_push(&list, &ch);
+        }
       }
       return list;
     }
-    const char *src = s.data;
-    const char *p;
-    while ((p = strstr(src, delim.data)) != NULL)
+    int cur = 0;
+    int idx;
+    while ((idx = pengu__find_sub(s, delim, cur)) != -1)
     {
-      int seg_len = (int)(p - src);
-      char *buf = (char *)malloc((size_t)seg_len + 1);
-      if (buf)
+      int seg_len = idx - cur;
+      if (seg_len == 0)
       {
-        if (seg_len > 0)
-          memcpy(buf, src, (size_t)seg_len);
-        buf[seg_len] = '\0';
-        PenguString part = {buf, seg_len};
+        PenguString part = pengu_string_from_cstr("");
         pengu_list_push(&list, &part);
       }
-      src = p + delim.len;
+      else
+      {
+        char *buf = (char *)malloc((size_t)seg_len + 1);
+        if (buf)
+        {
+          memcpy(buf, s.data + cur, (size_t)seg_len);
+          buf[seg_len] = '\0';
+          PenguString part = {buf, seg_len};
+          pengu_list_push(&list, &part);
+        }
+      }
+      cur = idx + delim.len;
     }
-    int rem_len = (int)(s.data + s.len - src);
-    char *buf = (char *)malloc((size_t)rem_len + 1);
-    if (buf)
+    int rem_len = s.len - cur;
+    if (rem_len == 0)
     {
-      if (rem_len > 0)
-        memcpy(buf, src, (size_t)rem_len);
-      buf[rem_len] = '\0';
-      PenguString part = {buf, rem_len};
+      PenguString part = pengu_string_from_cstr("");
       pengu_list_push(&list, &part);
+    }
+    else
+    {
+      char *buf = (char *)malloc((size_t)rem_len + 1);
+      if (buf)
+      {
+        memcpy(buf, s.data + cur, (size_t)rem_len);
+        buf[rem_len] = '\0';
+        PenguString part = {buf, rem_len};
+        pengu_list_push(&list, &part);
+      }
     }
     return list;
   }
@@ -1391,6 +1600,8 @@ extern "C"
 
   /**
    * @brief Single key-value entry in open addressing hash table.
+   * @note Internal open-addressing slot. Uses tombstone markers to preserve
+   *       linear probing collision chains across deletions.
    */
   typedef struct
   {
@@ -1398,6 +1609,7 @@ extern "C"
     void *key;
     void *val;
     bool occupied;
+    bool tombstone;
   } PenguMapEntry;
 
   /**
@@ -1426,11 +1638,51 @@ extern "C"
     map.key_size = key_size;
     map.val_size = val_size;
     map.entries = (PenguMapEntry *)calloc((size_t)map.cap, sizeof(PenguMapEntry));
+    if (!map.entries)
+    {
+      map.cap = 0;
+      map.len = 0;
+    }
     return map;
   }
 
   /**
+   * @brief Allocates and initializes key/val pointers for a map entry slot.
+   * @note En fallo de realloc/malloc, retorna silenciosamente sin insertar.
+   *       El caller no puede distinguir entre éxito y OOM.
+   */
+  static inline bool pengu_map_alloc_slot(PenguMap *map, int idx,
+                                          const void *key, const void *val,
+                                          uint32_t h)
+  {
+    void *k = malloc(map->key_size);
+    void *v = malloc(map->val_size);
+    if (!k || !v)
+    {
+      free(k);
+      free(v);
+      return false;
+    }
+    if (map->key_size == sizeof(PenguString))
+      *(PenguString *)k = pengu_string_copy(*(const PenguString *)key);
+    else
+      memcpy(k, key, map->key_size);
+    if (map->val_size == sizeof(PenguString))
+      *(PenguString *)v = pengu_string_copy(*(const PenguString *)val);
+    else
+      memcpy(v, val, map->val_size);
+    map->entries[idx].hash = h;
+    map->entries[idx].occupied = true;
+    map->entries[idx].tombstone = false;
+    map->entries[idx].key = k;
+    map->entries[idx].val = v;
+    map->len++;
+    return true;
+  }
+
+  /**
    * @brief Inserts or updates key-value pair in hash map.
+   * @note Ante fallo de realloc/calloc o si la capacidad excede INT_MAX/2, rechaza silenciosamente sin modificar.
    * @param map Pointer to PenguMap.
    * @param key Pointer to key data.
    * @param val Pointer to value data.
@@ -1443,20 +1695,40 @@ extern "C"
     {
       map->cap = 16;
       map->entries = (PenguMapEntry *)calloc((size_t)map->cap, sizeof(PenguMapEntry));
+      if (!map->entries)
+      {
+        map->cap = 0;
+        map->len = 0;
+        return;
+      }
       map->len = 0;
     }
     if (map->len * 2 >= map->cap)
     {
       int old_cap = map->cap;
+      if (old_cap > INT_MAX / 2)
+        return;
+      if ((size_t)old_cap > (SIZE_MAX / 2) / sizeof(PenguMapEntry))
+        return;
       PenguMapEntry *old_entries = map->entries;
       map->cap = old_cap * 2;
       map->entries = (PenguMapEntry *)calloc((size_t)map->cap, sizeof(PenguMapEntry));
+      if (!map->entries)
+      {
+        map->cap = old_cap;
+        map->entries = old_entries;
+        return;
+      }
       map->len = 0;
       for (int i = 0; i < old_cap; ++i)
       {
         if (old_entries[i].occupied)
         {
           pengu_map_put(map, old_entries[i].key, old_entries[i].val);
+          if (map->key_size == sizeof(PenguString))
+            pengu_banish_string((PenguString *)old_entries[i].key);
+          if (map->val_size == sizeof(PenguString))
+            pengu_banish_string((PenguString *)old_entries[i].val);
           free(old_entries[i].key);
           free(old_entries[i].val);
         }
@@ -1465,33 +1737,23 @@ extern "C"
     }
     uint32_t h = (map->key_size == sizeof(PenguString)) ? (((PenguString *)key)->data && ((PenguString *)key)->len > 0 ? pengu_hash_bytes(((PenguString *)key)->data, (size_t)((PenguString *)key)->len) : 0) : pengu_hash_bytes(key, map->key_size);
     int idx = (int)(h % (uint32_t)map->cap);
+    int first_tombstone = -1;
     for (int i = 0; i < map->cap; ++i)
     {
       int cur = (idx + i) % map->cap;
       if (!map->entries[cur].occupied)
       {
-        map->entries[cur].hash = h;
-        map->entries[cur].occupied = true;
-        map->entries[cur].key = malloc(map->key_size);
-        map->entries[cur].val = malloc(map->val_size);
-        if (map->key_size == sizeof(PenguString))
+        if (map->entries[cur].tombstone)
         {
-          *(PenguString *)map->entries[cur].key = pengu_string_new(((PenguString *)key)->data);
+          if (first_tombstone == -1)
+            first_tombstone = cur;
         }
         else
         {
-          memcpy(map->entries[cur].key, key, map->key_size);
+          int insert_idx = (first_tombstone != -1) ? first_tombstone : cur;
+          pengu_map_alloc_slot(map, insert_idx, key, val, h);
+          return;
         }
-        if (map->val_size == sizeof(PenguString))
-        {
-          *(PenguString *)map->entries[cur].val = pengu_string_new(((PenguString *)val)->data);
-        }
-        else
-        {
-          memcpy(map->entries[cur].val, val, map->val_size);
-        }
-        map->len++;
-        return;
       }
       else if (map->entries[cur].hash == h)
       {
@@ -1499,7 +1761,7 @@ extern "C"
         if (map->key_size == sizeof(PenguString))
         {
           PenguString *k1 = (PenguString *)map->entries[cur].key;
-          PenguString *k2 = (PenguString *)key;
+          const PenguString *k2 = (const PenguString *)key;
           match = (k1->len == k2->len && (k1->len == 0 || memcmp(k1->data, k2->data, (size_t)k1->len) == 0));
         }
         else
@@ -1511,7 +1773,7 @@ extern "C"
           if (map->val_size == sizeof(PenguString))
           {
             pengu_banish_string((PenguString *)map->entries[cur].val);
-            *(PenguString *)map->entries[cur].val = pengu_string_new(((PenguString *)val)->data);
+            *(PenguString *)map->entries[cur].val = pengu_string_copy(*(const PenguString *)val);
           }
           else
           {
@@ -1520,6 +1782,11 @@ extern "C"
           return;
         }
       }
+    }
+    if (first_tombstone != -1)
+    {
+      pengu_map_alloc_slot(map, first_tombstone, key, val, h);
+      return;
     }
   }
 
@@ -1538,15 +1805,15 @@ extern "C"
     for (int i = 0; i < map->cap; ++i)
     {
       int cur = (idx + i) % map->cap;
-      if (!map->entries[cur].occupied)
+      if (!map->entries[cur].occupied && !map->entries[cur].tombstone)
         return NULL;
-      if (map->entries[cur].hash == h)
+      if (map->entries[cur].occupied && map->entries[cur].hash == h)
       {
         bool match = false;
         if (map->key_size == sizeof(PenguString))
         {
           PenguString *k1 = (PenguString *)map->entries[cur].key;
-          PenguString *k2 = (PenguString *)key;
+          const PenguString *k2 = (const PenguString *)key;
           match = (k1->len == k2->len && (k1->len == 0 || memcmp(k1->data, k2->data, (size_t)k1->len) == 0));
         }
         else
@@ -1586,15 +1853,15 @@ extern "C"
     for (int i = 0; i < map->cap; ++i)
     {
       int cur = (idx + i) % map->cap;
-      if (!map->entries[cur].occupied)
+      if (!map->entries[cur].occupied && !map->entries[cur].tombstone)
         return false;
-      if (map->entries[cur].hash == h)
+      if (map->entries[cur].occupied && map->entries[cur].hash == h)
       {
         bool match = false;
         if (map->key_size == sizeof(PenguString))
         {
           PenguString *k1 = (PenguString *)map->entries[cur].key;
-          PenguString *k2 = (PenguString *)key;
+          const PenguString *k2 = (const PenguString *)key;
           match = (k1->len == k2->len && (k1->len == 0 || memcmp(k1->data, k2->data, (size_t)k1->len) == 0));
         }
         else
@@ -1614,6 +1881,7 @@ extern "C"
           free(map->entries[cur].key);
           free(map->entries[cur].val);
           map->entries[cur].occupied = false;
+          map->entries[cur].tombstone = true;
           map->entries[cur].key = NULL;
           map->entries[cur].val = NULL;
           map->entries[cur].hash = 0;
@@ -1695,6 +1963,7 @@ extern "C"
         map->entries[i].occupied = false;
         map->entries[i].hash = 0;
       }
+      map->entries[i].tombstone = false;
     }
     map->len = 0;
   }
@@ -1708,6 +1977,12 @@ extern "C"
     {
       m->cap = 16;
       m->entries = (PenguMapEntry *)calloc((size_t)m->cap, sizeof(PenguMapEntry));
+      if (!m->entries)
+      {
+        m->cap = 0;
+        m->len = 0;
+        return;
+      }
       m->key_size = sizeof(PenguString);
       m->val_size = sizeof(int32_t);
       m->len = 0;
@@ -1715,9 +1990,19 @@ extern "C"
     if (m->len * 2 >= m->cap)
     {
       int old_cap = m->cap;
+      if (old_cap > INT_MAX / 2)
+        return;
+      if ((size_t)old_cap > (SIZE_MAX / 2) / sizeof(PenguMapEntry))
+        return;
       PenguMapEntry *old_entries = m->entries;
       m->cap = old_cap * 2;
       m->entries = (PenguMapEntry *)calloc((size_t)m->cap, sizeof(PenguMapEntry));
+      if (!m->entries)
+      {
+        m->cap = old_cap;
+        m->entries = old_entries;
+        return;
+      }
       m->len = 0;
       for (int i = 0; i < old_cap; ++i)
       {
@@ -1735,20 +2020,20 @@ extern "C"
     }
     uint32_t h = (k->data && k->len > 0) ? pengu_hash_bytes(k->data, (size_t)k->len) : 0;
     int idx = (int)(h % (uint32_t)m->cap);
+    int first_tombstone = -1;
     for (int i = 0; i < m->cap; ++i)
     {
       int cur = (idx + i) % m->cap;
       if (!m->entries[cur].occupied)
       {
-        m->entries[cur].hash = h;
-        m->entries[cur].occupied = true;
-        PenguString *key_copy = (PenguString *)malloc(sizeof(PenguString));
-        *key_copy = pengu_string_new(k->data);
-        int32_t *val_copy = (int32_t *)malloc(sizeof(int32_t));
-        *val_copy = *v;
-        m->entries[cur].key = key_copy;
-        m->entries[cur].val = val_copy;
-        m->len++;
+        if (m->entries[cur].tombstone)
+        {
+          if (first_tombstone == -1)
+            first_tombstone = cur;
+          continue;
+        }
+        int insert_idx = (first_tombstone != -1) ? first_tombstone : cur;
+        pengu_map_alloc_slot(m, insert_idx, k, v, h);
         return;
       }
       else if (m->entries[cur].hash == h)
@@ -1763,6 +2048,11 @@ extern "C"
         }
       }
     }
+    if (first_tombstone != -1)
+    {
+      pengu_map_alloc_slot(m, first_tombstone, k, v, h);
+      return;
+    }
   }
 
   /** @brief Retrieves pointer to int32 value for string key in hash map. */
@@ -1775,9 +2065,9 @@ extern "C"
     for (int i = 0; i < m->cap; ++i)
     {
       int cur = (idx + i) % m->cap;
-      if (!m->entries[cur].occupied)
+      if (!m->entries[cur].occupied && !m->entries[cur].tombstone)
         return NULL;
-      if (m->entries[cur].hash == h)
+      if (m->entries[cur].occupied && m->entries[cur].hash == h)
       {
         PenguString *existing = (PenguString *)m->entries[cur].key;
         if (existing->len == k->len &&
@@ -1807,9 +2097,9 @@ extern "C"
     for (int i = 0; i < m->cap; ++i)
     {
       int cur = (idx + i) % m->cap;
-      if (!m->entries[cur].occupied)
+      if (!m->entries[cur].occupied && !m->entries[cur].tombstone)
         return false;
-      if (m->entries[cur].hash == h)
+      if (m->entries[cur].occupied && m->entries[cur].hash == h)
       {
         PenguString *existing = (PenguString *)m->entries[cur].key;
         if (existing->len == k->len &&
@@ -1822,6 +2112,7 @@ extern "C"
           m->entries[cur].key = NULL;
           m->entries[cur].val = NULL;
           m->entries[cur].occupied = false;
+          m->entries[cur].tombstone = true;
           m->entries[cur].hash = 0;
           m->len--;
           return true;
@@ -1856,15 +2147,15 @@ extern "C"
   /** @brief Collects the keys of a PenguString-keyed map into a list of strings. */
   static inline PenguList pengu_map_keys_string(const PenguMap *m)
   {
+    if (!m || m->key_size != sizeof(PenguString) || !m->entries || m->cap == 0)
+      return pengu_list_new(sizeof(PenguString), 0);
     PenguList list = pengu_list_new(sizeof(PenguString), 8);
-    if (!m || !m->entries || m->cap == 0)
-      return list;
     for (int i = 0; i < m->cap; ++i)
     {
       if (m->entries[i].occupied && m->entries[i].key)
       {
         PenguString *k = (PenguString *)m->entries[i].key;
-        PenguString copy = (k->data && k->len > 0) ? pengu_string_new(k->data) : pengu_string_from_cstr("");
+        PenguString copy = (k->data && k->len > 0) ? pengu_string_copy(*k) : pengu_string_from_cstr("");
         pengu_list_push(&list, &copy);
       }
     }
@@ -2026,32 +2317,66 @@ extern "C"
     pengu_c_sleep_ms((int)(sec * 1000.0));
   }
 
-  /** @brief Formats timestamp using strftime format pattern. */
+  /**
+   * @brief Formats timestamp using strftime format pattern.
+   * @note Si el timestamp está fuera de rango o gmtime falla, retorna cadena vacía.
+   * @note El buffer local es de 512 bytes. Formatos que produzcan
+   *       resultados mayores (p.ej. `%c` con texto local largo o formatos
+   *       definidos por el usuario con mucho texto literal) pueden
+   *       retornar cadena vacía por truncamiento de strftime. Los formatos
+   *       estándar (`%Y-%m-%d %H:%M:%S`, `%F %T`, etc.) nunca exceden ese
+   *       tamaño.
+   * @note Copia fmt a un búfer temporal NUL-terminado para evitar lecturas fuera de rango.
+   */
   static inline PenguString pengu_c_strftime(PenguString fmt, double timestamp)
   {
     time_t t = (time_t)timestamp;
     struct tm tm_info;
 #if PENGU_WINDOWS
-    gmtime_s(&tm_info, &t);
+    if (gmtime_s(&tm_info, &t) != 0)
+      return pengu_string_from_cstr("");
 #else
-  gmtime_r(&t, &tm_info);
+    if (!gmtime_r(&t, &tm_info))
+      return pengu_string_from_cstr("");
 #endif
+    char *cfmt = NULL;
+    if (fmt.data && fmt.len > 0)
+    {
+      cfmt = (char *)malloc((size_t)fmt.len + 1);
+      if (!cfmt)
+        return pengu_string_from_cstr("");
+      memcpy(cfmt, fmt.data, (size_t)fmt.len);
+      cfmt[fmt.len] = '\0';
+    }
     char buf[512];
-    size_t len = strftime(buf, sizeof(buf), (fmt.data && fmt.len > 0) ? fmt.data : "%Y-%m-%d %H:%M:%S", &tm_info);
+    size_t len = strftime(buf, sizeof(buf), cfmt ? cfmt : "%Y-%m-%d %H:%M:%S", &tm_info);
+    if (cfmt)
+      free(cfmt);
     return (len > 0) ? pengu_string_new(buf) : pengu_string_from_cstr("");
   }
 
-  /** @brief Parses timestamp string into seconds. */
+  /**
+   * @brief Parses timestamp string into seconds.
+   * @note Copia s a un búfer temporal NUL-terminado antes de invocar sscanf para
+   *       evitar lecturas fuera de rango sobre vistas no NUL-terminadas.
+   */
   static inline PenguMaybe pengu_c_strptime(PenguString s, PenguString fmt)
   {
     (void)fmt;
-    if (!s.data || s.len == 0)
+    if (!s.data || s.len <= 0)
       return pengu_maybe_none();
+    char *tmp = (char *)malloc((size_t)s.len + 1);
+    if (!tmp)
+      return pengu_maybe_none();
+    memcpy(tmp, s.data, (size_t)s.len);
+    tmp[s.len] = '\0';
     struct tm tm_val;
     memset(&tm_val, 0, sizeof(tm_val));
     int y = 0, m = 0, d = 0, h = 0, min = 0, sec = 0;
-    if (sscanf(s.data, "%d-%d-%dT%d:%d:%d", &y, &m, &d, &h, &min, &sec) >= 3 ||
-        sscanf(s.data, "%d-%d-%d", &y, &m, &d) >= 3)
+    bool parsed = (sscanf(tmp, "%d-%d-%dT%d:%d:%d", &y, &m, &d, &h, &min, &sec) >= 3 ||
+                   sscanf(tmp, "%d-%d-%d", &y, &m, &d) >= 3);
+    free(tmp);
+    if (parsed)
     {
       tm_val.tm_year = y - 1900;
       tm_val.tm_mon = m - 1;
@@ -2063,6 +2388,8 @@ extern "C"
       if (t != (time_t)-1)
       {
         double *res = (double *)malloc(sizeof(double));
+        if (!res)
+          return pengu_maybe_none();
         *res = (double)t;
         return pengu_maybe_some(res);
       }
@@ -2071,203 +2398,221 @@ extern "C"
   }
 
   /* UTC Calendar Component Getters */
+  /** @brief Returns UTC year (e.g. 2026). @note Retorna 0 si el timestamp es inválido/fuera de rango. */
   static inline int pengu_c_get_utc_year(double ts)
   {
     time_t t = (time_t)ts;
     struct tm tm_info;
 #if PENGU_WINDOWS
-    gmtime_s(&tm_info, &t);
+    if (gmtime_s(&tm_info, &t) != 0) return 0;
 #else
-  gmtime_r(&t, &tm_info);
+    if (!gmtime_r(&t, &tm_info)) return 0;
 #endif
     return tm_info.tm_year + 1900;
   }
+  /** @brief Returns UTC month (1-12). @note Retorna 0 si el timestamp es inválido/fuera de rango. */
   static inline int pengu_c_get_utc_month(double ts)
   {
     time_t t = (time_t)ts;
     struct tm tm_info;
 #if PENGU_WINDOWS
-    gmtime_s(&tm_info, &t);
+    if (gmtime_s(&tm_info, &t) != 0) return 0;
 #else
-  gmtime_r(&t, &tm_info);
+    if (!gmtime_r(&t, &tm_info)) return 0;
 #endif
     return tm_info.tm_mon + 1;
   }
+  /** @brief Returns UTC day of month (1-31). @note Retorna 0 si el timestamp es inválido/fuera de rango. */
   static inline int pengu_c_get_utc_day(double ts)
   {
     time_t t = (time_t)ts;
     struct tm tm_info;
 #if PENGU_WINDOWS
-    gmtime_s(&tm_info, &t);
+    if (gmtime_s(&tm_info, &t) != 0) return 0;
 #else
-  gmtime_r(&t, &tm_info);
+    if (!gmtime_r(&t, &tm_info)) return 0;
 #endif
     return tm_info.tm_mday;
   }
+  /** @brief Returns UTC hour (0-23). @note Retorna 0 si el timestamp es inválido/fuera de rango. */
   static inline int pengu_c_get_utc_hour(double ts)
   {
     time_t t = (time_t)ts;
     struct tm tm_info;
 #if PENGU_WINDOWS
-    gmtime_s(&tm_info, &t);
+    if (gmtime_s(&tm_info, &t) != 0) return 0;
 #else
-  gmtime_r(&t, &tm_info);
+    if (!gmtime_r(&t, &tm_info)) return 0;
 #endif
     return tm_info.tm_hour;
   }
+  /** @brief Returns UTC minute (0-59). @note Retorna 0 si el timestamp es inválido/fuera de rango. */
   static inline int pengu_c_get_utc_minute(double ts)
   {
     time_t t = (time_t)ts;
     struct tm tm_info;
 #if PENGU_WINDOWS
-    gmtime_s(&tm_info, &t);
+    if (gmtime_s(&tm_info, &t) != 0) return 0;
 #else
-  gmtime_r(&t, &tm_info);
+    if (!gmtime_r(&t, &tm_info)) return 0;
 #endif
     return tm_info.tm_min;
   }
+  /** @brief Returns UTC second (0-60). @note Retorna 0 si el timestamp es inválido/fuera de rango. */
   static inline int pengu_c_get_utc_second(double ts)
   {
     time_t t = (time_t)ts;
     struct tm tm_info;
 #if PENGU_WINDOWS
-    gmtime_s(&tm_info, &t);
+    if (gmtime_s(&tm_info, &t) != 0) return 0;
 #else
-  gmtime_r(&t, &tm_info);
+    if (!gmtime_r(&t, &tm_info)) return 0;
 #endif
     return tm_info.tm_sec;
   }
+  /** @brief Returns UTC weekday (0=Sunday .. 6=Saturday). @note Retorna 0 si el timestamp es inválido/fuera de rango. */
   static inline int pengu_c_get_utc_weekday(double ts)
   {
     time_t t = (time_t)ts;
     struct tm tm_info;
 #if PENGU_WINDOWS
-    gmtime_s(&tm_info, &t);
+    if (gmtime_s(&tm_info, &t) != 0) return 0;
 #else
-  gmtime_r(&t, &tm_info);
+    if (!gmtime_r(&t, &tm_info)) return 0;
 #endif
     return tm_info.tm_wday;
   }
+  /** @brief Returns UTC yearday (0-365). @note Retorna 0 si el timestamp es inválido/fuera de rango. */
   static inline int pengu_c_get_utc_yearday(double ts)
   {
     time_t t = (time_t)ts;
     struct tm tm_info;
 #if PENGU_WINDOWS
-    gmtime_s(&tm_info, &t);
+    if (gmtime_s(&tm_info, &t) != 0) return 0;
 #else
-  gmtime_r(&t, &tm_info);
+    if (!gmtime_r(&t, &tm_info)) return 0;
 #endif
     return tm_info.tm_yday;
   }
+  /** @brief Returns whether UTC observes DST. @note Retorna false si el timestamp es inválido/fuera de rango. */
   static inline bool pengu_c_get_utc_is_dst(double ts)
   {
     time_t t = (time_t)ts;
     struct tm tm_info;
 #if PENGU_WINDOWS
-    gmtime_s(&tm_info, &t);
+    if (gmtime_s(&tm_info, &t) != 0) return false;
 #else
-  gmtime_r(&t, &tm_info);
+    if (!gmtime_r(&t, &tm_info)) return false;
 #endif
     return tm_info.tm_isdst > 0;
   }
 
   /* Local Calendar Component Getters */
+  /** @brief Returns local year (e.g. 2026). @note Retorna 0 si el timestamp es inválido/fuera de rango. */
   static inline int pengu_c_get_local_year(double ts)
   {
     time_t t = (time_t)ts;
     struct tm tm_info;
 #if PENGU_WINDOWS
-    localtime_s(&tm_info, &t);
+    if (localtime_s(&tm_info, &t) != 0) return 0;
 #else
-  localtime_r(&t, &tm_info);
+    if (!localtime_r(&t, &tm_info)) return 0;
 #endif
     return tm_info.tm_year + 1900;
   }
+  /** @brief Returns local month (1-12). @note Retorna 0 si el timestamp es inválido/fuera de rango. */
   static inline int pengu_c_get_local_month(double ts)
   {
     time_t t = (time_t)ts;
     struct tm tm_info;
 #if PENGU_WINDOWS
-    localtime_s(&tm_info, &t);
+    if (localtime_s(&tm_info, &t) != 0) return 0;
 #else
-  localtime_r(&t, &tm_info);
+    if (!localtime_r(&t, &tm_info)) return 0;
 #endif
     return tm_info.tm_mon + 1;
   }
+  /** @brief Returns local day of month (1-31). @note Retorna 0 si el timestamp es inválido/fuera de rango. */
   static inline int pengu_c_get_local_day(double ts)
   {
     time_t t = (time_t)ts;
     struct tm tm_info;
 #if PENGU_WINDOWS
-    localtime_s(&tm_info, &t);
+    if (localtime_s(&tm_info, &t) != 0) return 0;
 #else
-  localtime_r(&t, &tm_info);
+    if (!localtime_r(&t, &tm_info)) return 0;
 #endif
     return tm_info.tm_mday;
   }
+  /** @brief Returns local hour (0-23). @note Retorna 0 si el timestamp es inválido/fuera de rango. */
   static inline int pengu_c_get_local_hour(double ts)
   {
     time_t t = (time_t)ts;
     struct tm tm_info;
 #if PENGU_WINDOWS
-    localtime_s(&tm_info, &t);
+    if (localtime_s(&tm_info, &t) != 0) return 0;
 #else
-  localtime_r(&t, &tm_info);
+    if (!localtime_r(&t, &tm_info)) return 0;
 #endif
     return tm_info.tm_hour;
   }
+  /** @brief Returns local minute (0-59). @note Retorna 0 si el timestamp es inválido/fuera de rango. */
   static inline int pengu_c_get_local_minute(double ts)
   {
     time_t t = (time_t)ts;
     struct tm tm_info;
 #if PENGU_WINDOWS
-    localtime_s(&tm_info, &t);
+    if (localtime_s(&tm_info, &t) != 0) return 0;
 #else
-  localtime_r(&t, &tm_info);
+    if (!localtime_r(&t, &tm_info)) return 0;
 #endif
     return tm_info.tm_min;
   }
+  /** @brief Returns local second (0-60). @note Retorna 0 si el timestamp es inválido/fuera de rango. */
   static inline int pengu_c_get_local_second(double ts)
   {
     time_t t = (time_t)ts;
     struct tm tm_info;
 #if PENGU_WINDOWS
-    localtime_s(&tm_info, &t);
+    if (localtime_s(&tm_info, &t) != 0) return 0;
 #else
-  localtime_r(&t, &tm_info);
+    if (!localtime_r(&t, &tm_info)) return 0;
 #endif
     return tm_info.tm_sec;
   }
+  /** @brief Returns local weekday (0=Sunday .. 6=Saturday). @note Retorna 0 si el timestamp es inválido/fuera de rango. */
   static inline int pengu_c_get_local_weekday(double ts)
   {
     time_t t = (time_t)ts;
     struct tm tm_info;
 #if PENGU_WINDOWS
-    localtime_s(&tm_info, &t);
+    if (localtime_s(&tm_info, &t) != 0) return 0;
 #else
-  localtime_r(&t, &tm_info);
+    if (!localtime_r(&t, &tm_info)) return 0;
 #endif
     return tm_info.tm_wday;
   }
+  /** @brief Returns local yearday (0-365). @note Retorna 0 si el timestamp es inválido/fuera de rango. */
   static inline int pengu_c_get_local_yearday(double ts)
   {
     time_t t = (time_t)ts;
     struct tm tm_info;
 #if PENGU_WINDOWS
-    localtime_s(&tm_info, &t);
+    if (localtime_s(&tm_info, &t) != 0) return 0;
 #else
-  localtime_r(&t, &tm_info);
+    if (!localtime_r(&t, &tm_info)) return 0;
 #endif
     return tm_info.tm_yday;
   }
+  /** @brief Returns whether local time observes DST. @note Retorna false si el timestamp es inválido/fuera de rango. */
   static inline bool pengu_c_get_local_is_dst(double ts)
   {
     time_t t = (time_t)ts;
     struct tm tm_info;
 #if PENGU_WINDOWS
-    localtime_s(&tm_info, &t);
+    if (localtime_s(&tm_info, &t) != 0) return false;
 #else
-  localtime_r(&t, &tm_info);
+    if (!localtime_r(&t, &tm_info)) return false;
 #endif
     return tm_info.tm_isdst > 0;
   }
@@ -2284,7 +2629,11 @@ extern "C"
   {
     if (min >= max)
       return min;
-    return min + (int)(pengu_c_rand_double() * (double)(max - min + 1));
+    double range = (double)max - (double)min + 1.0;
+    /* El cast a int de un double > INT_MAX es UB; usar int64_t como
+       intermediario y sumar en 64 bits antes de estrechar a int. */
+    int64_t offset = (int64_t)(pengu_c_rand_double() * range);
+    return (int)((int64_t)min + offset);
   }
   static inline double pengu_c_rand_range_float(double min, double max)
   {
@@ -2329,43 +2678,96 @@ extern "C"
    * 14. Process & Operating System Environment (Rites)
    * ========================================================================= */
 
-  /** @brief Retrieves environment variable value. */
+  /**
+   * @brief Retrieves environment variable value.
+   * @note Copia name a un búfer temporal NUL-terminado para soportar vistas no NUL-terminadas.
+   */
   static inline PenguMaybe pengu_c_getenv(PenguString name)
   {
-    if (!name.data || name.len == 0)
+    if (!name.data || name.len <= 0)
       return pengu_maybe_none();
-    const char *val = getenv(name.data);
+    char *cname = (char *)malloc((size_t)name.len + 1);
+    if (!cname)
+      return pengu_maybe_none();
+    memcpy(cname, name.data, (size_t)name.len);
+    cname[name.len] = '\0';
+    const char *val = getenv(cname);
+    free(cname);
     if (!val)
       return pengu_maybe_none();
     PenguString *res = (PenguString *)malloc(sizeof(PenguString));
+    if (!res)
+      return pengu_maybe_none();
     *res = pengu_string_new(val);
     return pengu_maybe_some(res);
   }
 
-  /** @brief Sets environment variable. */
+  /**
+   * @brief Sets environment variable.
+   * @note Copia name y value a búferes temporales NUL-terminados para soportar vistas no NUL-terminadas.
+   */
   static inline bool pengu_c_setenv(PenguString name, PenguString value, bool overwrite)
   {
-    if (!name.data || name.len == 0)
+    if (!name.data || name.len <= 0)
       return false;
+    char *cname = (char *)malloc((size_t)name.len + 1);
+    if (!cname)
+      return false;
+    memcpy(cname, name.data, (size_t)name.len);
+    cname[name.len] = '\0';
+
+    char *cval = NULL;
+    if (value.data && value.len > 0)
+    {
+      cval = (char *)malloc((size_t)value.len + 1);
+      if (!cval)
+      {
+        free(cname);
+        return false;
+      }
+      memcpy(cval, value.data, (size_t)value.len);
+      cval[value.len] = '\0';
+    }
+    const char *v = cval ? cval : "";
+
 #if PENGU_WINDOWS
-    if (!overwrite && getenv(name.data) != NULL)
+    if (!overwrite && getenv(cname) != NULL)
+    {
+      free(cname);
+      if (cval)
+        free(cval);
       return true;
-    return _putenv_s(name.data, value.data ? value.data : "") == 0;
+    }
+    int r = _putenv_s(cname, v);
 #else
-  return setenv(name.data, value.data ? value.data : "", overwrite ? 1 : 0) == 0;
+    int r = setenv(cname, v, overwrite ? 1 : 0);
 #endif
+    free(cname);
+    if (cval)
+      free(cval);
+    return r == 0;
   }
 
-  /** @brief Unsets environment variable. */
+  /**
+   * @brief Unsets environment variable.
+   * @note Copia name a un búfer temporal NUL-terminado para soportar vistas no NUL-terminadas.
+   */
   static inline bool pengu_c_unsetenv(PenguString name)
   {
-    if (!name.data || name.len == 0)
+    if (!name.data || name.len <= 0)
       return false;
+    char *cname = (char *)malloc((size_t)name.len + 1);
+    if (!cname)
+      return false;
+    memcpy(cname, name.data, (size_t)name.len);
+    cname[name.len] = '\0';
 #if PENGU_WINDOWS
-    return _putenv_s(name.data, "") == 0;
+    int r = _putenv_s(cname, "");
 #else
-  return unsetenv(name.data) == 0;
+    int r = unsetenv(cname);
 #endif
+    free(cname);
+    return r == 0;
   }
 
   static inline int pengu_c_get_argc(void) { return g_pengu_argc; }
@@ -2403,52 +2805,136 @@ extern "C"
 #endif
   }
 
+  /**
+   * @brief Gets current working directory.
+   * @note En POSIX utiliza getcwd(NULL, 0) (extensión GNU/BSD) con asignación dinámica;
+   *       en Windows utiliza un búfer de stack y escala dinámicamente si la ruta excede el tamaño.
+   */
   static inline PenguMaybe pengu_c_getcwd(void)
   {
-    char buf[4096];
 #if PENGU_WINDOWS
-    if (_getcwd(buf, sizeof(buf)) != NULL)
+    char stack_buf[4096];
+    char *cwd = _getcwd(stack_buf, sizeof(stack_buf));
+    char *dyn = NULL;
+    if (!cwd)
     {
-#else
-  if (getcwd(buf, sizeof(buf)) != NULL)
-  {
-#endif
-      PenguString *res = (PenguString *)malloc(sizeof(PenguString));
-      *res = pengu_string_new(buf);
-      return pengu_maybe_some(res);
+      size_t sz = 8192;
+      while (!cwd && sz <= 65536)
+      {
+        dyn = (char *)malloc(sz);
+        if (!dyn)
+          break;
+        cwd = _getcwd(dyn, (int)sz);
+        if (cwd)
+          break;
+        free(dyn);
+        dyn = NULL;
+        sz *= 2;
+      }
     }
+    if (cwd)
+    {
+      PenguString *res = (PenguString *)malloc(sizeof(PenguString));
+      if (res)
+      {
+        *res = pengu_string_new(cwd);
+        if (dyn)
+          free(dyn);
+        return pengu_maybe_some(res);
+      }
+    }
+    if (dyn)
+      free(dyn);
     return pengu_maybe_none();
+#else
+    char *cwd = getcwd(NULL, 0);
+    if (!cwd)
+      return pengu_maybe_none();
+    PenguString *res = (PenguString *)malloc(sizeof(PenguString));
+    if (!res)
+    {
+      free(cwd);
+      return pengu_maybe_none();
+    }
+    *res = pengu_string_new(cwd);
+    free(cwd);
+    return pengu_maybe_some(res);
+#endif
   }
 
+  /**
+   * @brief Changes current working directory.
+   * @note Copia path a un búfer temporal NUL-terminado para soportar vistas no NUL-terminadas.
+   */
   static inline bool pengu_c_chdir(PenguString path)
   {
-    if (!path.data || path.len == 0)
+    if (!path.data || path.len <= 0)
       return false;
+    char *cpath = (char *)malloc((size_t)path.len + 1);
+    if (!cpath)
+      return false;
+    memcpy(cpath, path.data, (size_t)path.len);
+    cpath[path.len] = '\0';
 #if PENGU_WINDOWS
-    return _chdir(path.data) == 0;
+    int r = _chdir(cpath);
 #else
-  return chdir(path.data) == 0;
+    int r = chdir(cpath);
 #endif
+    free(cpath);
+    return r == 0;
   }
 
   static inline void pengu_c_exit(int code) { exit(code); }
 
+  /**
+   * @brief Executes a command line with arguments via system().
+   * @warning Uses system() internally; do NOT pass untrusted user input in cmd/args
+   *          without proper sanitization.
+   * @param cmd Command string.
+   * @param args List of PenguString argument tokens.
+   * @return Return code from system(), or -1 on buffer allocation failure.
+   */
   static inline int pengu_c_exec(PenguString cmd, PenguList args)
   {
     if (!cmd.data || cmd.len == 0)
       return -1;
-    char cmdbuf[4096];
-    snprintf(cmdbuf, sizeof(cmdbuf), "%s", cmd.data);
+    size_t total_len = (size_t)cmd.len + 1;
     for (int i = 0; i < args.len; ++i)
     {
       PenguString *a = (PenguString *)pengu_list_at(&args, i);
-      if (a && a->data)
+      if (a && a->data && a->len > 0)
       {
-        strncat(cmdbuf, " ", sizeof(cmdbuf) - strlen(cmdbuf) - 1);
-        strncat(cmdbuf, a->data, sizeof(cmdbuf) - strlen(cmdbuf) - 1);
+        total_len += (size_t)a->len + 1;
       }
     }
-    return system(cmdbuf);
+    char stack_buf[4096];
+    char *cmdbuf = stack_buf;
+    bool heap = false;
+    if (total_len > sizeof(stack_buf))
+    {
+      cmdbuf = (char *)malloc(total_len);
+      if (!cmdbuf)
+        return -1;
+      heap = true;
+    }
+    size_t pos = (size_t)cmd.len;
+    memcpy(cmdbuf, cmd.data, (size_t)cmd.len);
+    cmdbuf[pos] = '\0';
+    for (int i = 0; i < args.len; ++i)
+    {
+      PenguString *a = (PenguString *)pengu_list_at(&args, i);
+      if (a && a->data && a->len > 0)
+      {
+        cmdbuf[pos++] = ' ';
+        memcpy(cmdbuf + pos, a->data, (size_t)a->len);
+        pos += (size_t)a->len;
+        cmdbuf[pos] = '\0';
+      }
+    }
+    int res = system(cmdbuf);
+    if (heap)
+      free(cmdbuf);
+    return res;
   }
 
   static inline int pengu_c_spawn(PenguString cmd, PenguList args)
@@ -2487,6 +2973,10 @@ extern "C"
     return pengu_string_from_cstr("localhost");
   }
 
+  /**
+   * @brief Returns a list of environment variable names.
+   * @note Las claves se devuelven completas y sin límite artificial en ambas plataformas.
+   */
   static inline PenguList pengu_c_get_env_keys(void)
   {
     PenguList list = pengu_list_new(sizeof(PenguString), 16);
@@ -2501,18 +2991,29 @@ extern "C"
         if (eq && eq != p)
         {
           int klen = (int)(eq - p);
-          char kbuf[256];
-          if (klen < (int)sizeof(kbuf))
-          {
-            memcpy(kbuf, p, (size_t)klen);
-            kbuf[klen] = '\0';
-            PenguString kstr = pengu_string_new(kbuf);
-            pengu_list_push(&list, &kstr);
-          }
+          PenguString full = pengu_string_from_cstr(p);
+          PenguString kstr = pengu_string_substring(full, 0, klen);
+          pengu_list_push(&list, &kstr);
         }
         p += strlen(p) + 1;
       }
       FreeEnvironmentStringsA(env);
+    }
+#else
+    extern char **environ;
+    if (environ)
+    {
+      for (char **env = environ; *env; ++env)
+      {
+        const char *eq = strchr(*env, '=');
+        if (eq && eq != *env)
+        {
+          int klen = (int)(eq - *env);
+          PenguString full = pengu_string_from_cstr(*env);
+          PenguString kstr = pengu_string_substring(full, 0, klen);
+          pengu_list_push(&list, &kstr);
+        }
+      }
     }
 #endif
     return list;
@@ -2531,9 +3032,13 @@ extern "C"
    * ========================================================================= */
 
   /** @brief Reads entire file into a PenguString.
- * A present result holds a heap PenguString* that owns its buffer: the caller
- * must free the buffer with pengu_banish_string() and the wrapper with
- * free(). */
+   * A present result holds a heap PenguString* that owns its buffer: the caller
+   * must free the buffer with pengu_banish_string() and the wrapper with
+   * free().
+   * @note Archivos que excedan INT_MAX bytes se rechazan (retorna none) para
+   *       evitar truncación silenciosa al asignarse a int len. En plataformas LLP64
+   *       (Windows), ftell retorna long de 32 bits, por lo que archivos > 2 GB no son
+   *       leíbles (ftell retorna -1); el chequeo sz > INT_MAX aplica plenamente en LP64. */
   static inline PenguMaybe pengu_c_archivum_read_file(PenguString path)
   {
     if (!path.data || path.len == 0)
@@ -2550,7 +3055,7 @@ extern "C"
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
-    if (sz < 0)
+    if (sz < 0 || sz > (long)INT_MAX)
     {
       fclose(f);
       return pengu_maybe_none();
@@ -2563,6 +3068,11 @@ extern "C"
     }
     size_t read_bytes = fread(buf, 1, (size_t)sz, f);
     fclose(f);
+    if (read_bytes > (size_t)INT_MAX)
+    {
+      free(buf);
+      return pengu_maybe_none();
+    }
     buf[read_bytes] = '\0';
     PenguString *res = (PenguString *)malloc(sizeof(PenguString));
     if (!res)
@@ -2570,7 +3080,9 @@ extern "C"
       free(buf);
       return pengu_maybe_none();
     }
-    res->data = buf;
+    res->data = (read_bytes > 0) ? buf : (char *)"";
+    if (read_bytes == 0)
+      free(buf);
     res->len = (int)read_bytes;
     return pengu_maybe_some(res);
   }
@@ -2774,7 +3286,13 @@ extern "C"
  * pengu_banish_list() the list and free() the heap list wrapper. */
   static inline PenguMaybe pengu_c_archivum_read_dir(PenguString path);
 
-  /** @brief Removes directory optionally recursively. */
+  /**
+   * @brief Removes directory optionally recursively.
+   * @note Los paths se construyen con snprintf/%.*s y por tanto truncan
+   *       en el primer byte NUL embebido. En sistemas POSIX/Windows reales
+   *       los nombres de fichero y directorio no pueden contener NUL, así
+   *       que este truncamiento es teórico.
+   */
   static inline bool pengu_c_archivum_remove_dir(PenguString path, bool recursive)
   {
     if (!path.data || path.len == 0)
@@ -2808,8 +3326,20 @@ extern "C"
           '/';
 #endif
         char subpath[4096];
-        snprintf(subpath, sizeof(subpath), "%.*s%c%.*s", path.len, path.data, sep, name->len, name->data);
-        PenguString sub_str = pengu_string_from_cstr(subpath);
+        int needed = snprintf(subpath, sizeof(subpath), "%.*s%c%.*s", path.len, path.data, sep, name->len, name->data);
+        char *allocated_subpath = NULL;
+        char *target_path = subpath;
+        if (needed < 0)
+          continue;
+        if ((size_t)needed >= sizeof(subpath))
+        {
+          allocated_subpath = (char *)malloc((size_t)needed + 1);
+          if (!allocated_subpath)
+            continue; /* evita operar sobre path truncado */
+          snprintf(allocated_subpath, (size_t)needed + 1, "%.*s%c%.*s", path.len, path.data, sep, name->len, name->data);
+          target_path = allocated_subpath;
+        }
+        PenguString sub_str = pengu_string_from_cstr(target_path);
         if (pengu_c_archivum_is_dir(sub_str))
         {
           pengu_c_archivum_remove_dir(sub_str, true);
@@ -2818,13 +3348,22 @@ extern "C"
         {
           pengu_c_archivum_delete_file(sub_str);
         }
+        if (allocated_subpath)
+          free(allocated_subpath);
       }
-      free(m_entries.value);
+      pengu_banish_string_list(entries);
+      free(entries);
     }
     return pengu_c_archivum_remove_dir(path, false);
   }
 
-  /** @brief Reads entries within a directory. */
+  /**
+   * @brief Reads entries within a directory.
+   * @note Los paths se construyen con snprintf/%.*s y por tanto truncan
+   *       en el primer byte NUL embebido. En sistemas POSIX/Windows reales
+   *       los nombres de fichero y directorio no pueden contener NUL, así
+   *       que este truncamiento es teórico.
+   */
   static inline PenguMaybe pengu_c_archivum_read_dir(PenguString path)
   {
     if (!path.data || path.len == 0)
@@ -2836,11 +3375,34 @@ extern "C"
 
 #if PENGU_WINDOWS
     char pattern[4096];
-    snprintf(pattern, sizeof(pattern), "%.*s\\*", path.len, path.data);
+    int needed = snprintf(pattern, sizeof(pattern), "%.*s\\*", path.len, path.data);
+    char *allocated_pattern = NULL;
+    char *target_pattern = pattern;
+    if (needed < 0)
+    {
+      pengu_banish_list(list);
+      free(list);
+      return pengu_maybe_none();
+    }
+    if ((size_t)needed >= sizeof(pattern))
+    {
+      allocated_pattern = (char *)malloc((size_t)needed + 1);
+      if (!allocated_pattern)
+      {
+        pengu_banish_list(list);
+        free(list);
+        return pengu_maybe_none();
+      }
+      snprintf(allocated_pattern, (size_t)needed + 1, "%.*s\\*", path.len, path.data);
+      target_pattern = allocated_pattern;
+    }
     WIN32_FIND_DATAA fd;
-    HANDLE hFind = FindFirstFileA(pattern, &fd);
+    HANDLE hFind = FindFirstFileA(target_pattern, &fd);
+    if (allocated_pattern)
+      free(allocated_pattern);
     if (hFind == INVALID_HANDLE_VALUE)
     {
+      pengu_banish_list(list);
       free(list);
       return pengu_maybe_none();
     }
@@ -2857,6 +3419,7 @@ extern "C"
   char *cpath = (char *)malloc((size_t)path.len + 1);
   if (!cpath)
   {
+    pengu_banish_list(list);
     free(list);
     return pengu_maybe_none();
   }
@@ -2866,6 +3429,7 @@ extern "C"
   free(cpath);
   if (!d)
   {
+    pengu_banish_list(list);
     free(list);
     return pengu_maybe_none();
   }
@@ -2959,6 +3523,11 @@ extern "C"
     if (!map)
       return pengu_maybe_none();
     *map = pengu_map_new(sizeof(PenguString), sizeof(PenguString));
+    if (!map->entries)
+    {
+      free(map);
+      return pengu_maybe_none();
+    }
 
     char buf[64];
     PenguString k, v;
@@ -3003,7 +3572,15 @@ extern "C"
     return pengu_maybe_some(map);
   }
 
-  static inline void pengu_c_archivum_glob_rec(const char *dir_path, const char *pattern, PenguList *res)
+  /**
+   * @brief Helper recursivo para pengu_c_archivum_glob.
+   * @note El matching es binario-exacto (NUL-aware) usando pengu__find_sub y memcmp.
+   * @note Los paths se construyen con snprintf/%.*s y por tanto truncan
+   *       en el primer byte NUL embebido. En sistemas POSIX/Windows reales
+   *       los nombres de fichero y directorio no pueden contener NUL, así
+   *       que este truncamiento es teórico.
+   */
+  static inline void pengu_c_archivum_glob_rec(const char *dir_path, PenguString pattern, PenguList *res)
   {
     PenguString p_str = pengu_string_from_cstr(dir_path);
     PenguMaybe m_entries = pengu_c_archivum_read_dir(p_str);
@@ -3014,51 +3591,78 @@ extern "C"
     {
       PenguString *name = (PenguString *)pengu_list_at(entries, i);
       char full[4096];
-      snprintf(full, sizeof(full), "%s/%s", dir_path, name->data);
-      PenguString full_s = pengu_string_from_cstr(full);
+      int needed = snprintf(full, sizeof(full), "%s/%s", dir_path, name->data);
+      char *allocated_full = NULL;
+      char *target_full = full;
+      if (needed < 0)
+        continue;
+      if ((size_t)needed >= sizeof(full))
+      {
+        allocated_full = (char *)malloc((size_t)needed + 1);
+        if (!allocated_full)
+          continue;
+        snprintf(allocated_full, (size_t)needed + 1, "%s/%s", dir_path, name->data);
+        target_full = allocated_full;
+      }
+      PenguString full_s;
+      full_s.data = target_full;
+      full_s.len = needed;
       if (pengu_c_archivum_is_dir(full_s))
       {
-        pengu_c_archivum_glob_rec(full, pattern, res);
+        pengu_c_archivum_glob_rec(target_full, pattern, res);
       }
       bool match = false;
-      if (strcmp(pattern, "*") == 0 || strcmp(pattern, "**") == 0)
+      if ((pattern.len == 1 && pattern.data[0] == '*') ||
+          (pattern.len == 2 && pattern.data[0] == '*' && pattern.data[1] == '*'))
       {
         match = true;
       }
-      else if (pattern[0] == '*' && pattern[1] == '.')
+      else if (pattern.len >= 2 && pattern.data[0] == '*' && pattern.data[1] == '.')
       {
-        const char *ext = pattern + 1;
-        if (name->len >= (int)strlen(ext) && strcmp(name->data + name->len - strlen(ext), ext) == 0)
+        int ext_len = pattern.len - 1;
+        if (name->len >= ext_len && memcmp(name->data + name->len - ext_len, pattern.data + 1, (size_t)ext_len) == 0)
         {
           match = true;
         }
       }
-      else if (strstr(full, pattern) != NULL || strcmp(name->data, pattern) == 0)
+      else if (pengu__find_sub(full_s, pattern, 0) != -1 ||
+               (name->len == pattern.len && memcmp(name->data, pattern.data, (size_t)pattern.len) == 0))
       {
         match = true;
       }
       if (match)
       {
-        PenguString match_str = pengu_string_new(full);
+        PenguString match_str = pengu_string_new(target_full);
         pengu_list_push(res, &match_str);
       }
+      if (allocated_full)
+        free(allocated_full);
     }
-    free(m_entries.value);
+    pengu_banish_string_list(entries);
+    free(entries);
   }
 
+  /**
+   * @brief Matches files in directory matching pattern.
+   * @note Un `pattern` con `len == 0` matchea todas las entradas
+   *       (comportamiento "match all" implícito). Para "no matchear nada",
+   *       pasar un pattern que no coincida con ningún nombre.
+   */
   static inline PenguList pengu_c_archivum_glob(PenguString pattern)
   {
     PenguList list = pengu_list_new(sizeof(PenguString), 16);
-    char *cpat = (char *)malloc((size_t)pattern.len + 1);
-    if (!cpat)
-      return list;
-    memcpy(cpat, pattern.data, (size_t)pattern.len);
-    cpat[pattern.len] = '\0';
-    pengu_c_archivum_glob_rec(".", cpat, &list);
-    free(cpat);
+    pengu_c_archivum_glob_rec(".", pattern, &list);
     return list;
   }
 
+  /**
+   * @brief Helper recursivo para pengu_c_archivum_walk.
+   * @note Sin límite artificial de 4096 bytes tras C15b; asigna dinámicamente si la ruta excede el buffer local.
+   * @note Los paths se construyen con snprintf/%.*s y por tanto truncan
+   *       en el primer byte NUL embebido. En sistemas POSIX/Windows reales
+   *       los nombres de fichero y directorio no pueden contener NUL, así
+   *       que este truncamiento es teórico.
+   */
   static inline void pengu_c_archivum_walk_rec(const char *dir_path, PenguList *res)
   {
     PenguString p_str = pengu_string_from_cstr(dir_path);
@@ -3075,16 +3679,31 @@ extern "C"
     {
       PenguString *name = (PenguString *)pengu_list_at(entries, i);
       char sub[4096];
-      snprintf(sub, sizeof(sub), "%s/%s", dir_path, name->data);
-      PenguString sub_s = pengu_string_from_cstr(sub);
+      int needed = snprintf(sub, sizeof(sub), "%s/%s", dir_path, name->data);
+      char *allocated_sub = NULL;
+      char *target_sub = sub;
+      if (needed < 0)
+        continue;
+      if ((size_t)needed >= sizeof(sub))
+      {
+        allocated_sub = (char *)malloc((size_t)needed + 1);
+        if (!allocated_sub)
+          continue;
+        snprintf(allocated_sub, (size_t)needed + 1, "%s/%s", dir_path, name->data);
+        target_sub = allocated_sub;
+      }
+      PenguString sub_s = pengu_string_from_cstr(target_sub);
       if (pengu_c_archivum_is_dir(sub_s))
       {
-        pengu_c_archivum_walk_rec(sub, res);
+        pengu_c_archivum_walk_rec(target_sub, res);
       }
       PenguString item = pengu_string_new(name->data);
       pengu_list_push(&node, &item);
+      if (allocated_sub)
+        free(allocated_sub);
     }
-    free(m_entries.value);
+    pengu_banish_string_list(entries);
+    free(entries);
     pengu_list_push(res, &node);
   }
 
@@ -3156,6 +3775,12 @@ extern "C"
 #endif
   }
 
+  /**
+   * @brief Reads target of a symlink.
+   * @note Límite real aceptado de 4094 bytes (el buffer es 4096, se pasa 4095 a
+   *       readlink, se rechaza si el retorno es exactamente 4095) para preferir
+   *       ser conservador antes que devolver una ruta potencialmente truncada.
+   */
   static inline PenguMaybe pengu_c_archivum_read_symlink(PenguString path)
   {
     if (!path.data || path.len == 0)
@@ -3169,7 +3794,7 @@ extern "C"
     char buf[4096];
     ssize_t len = readlink(cpath, buf, sizeof(buf) - 1);
     free(cpath);
-    if (len >= 0)
+    if (len >= 0 && len < (ssize_t)(sizeof(buf) - 1))
     {
       buf[len] = '\0';
       PenguString *res = (PenguString *)malloc(sizeof(PenguString));
@@ -3183,6 +3808,12 @@ extern "C"
     return pengu_maybe_none();
   }
 
+  /**
+   * @brief Resolves canonical absolute path.
+   * @note Utiliza asignación dinámica (POSIX.1-2008 / Win32) evitando límites estáticos
+   *       o truncación silenciosa ante rutas largas. Ante OOM en la asignación dinámica,
+   *       se retorna none de manera segura sin leer el búfer local no inicializado.
+   */
   static inline PenguMaybe pengu_c_archivum_realpath(PenguString path)
   {
     if (!path.data || path.len == 0)
@@ -3192,31 +3823,65 @@ extern "C"
       return pengu_maybe_none();
     memcpy(cpath, path.data, (size_t)path.len);
     cpath[path.len] = '\0';
-    char buf[4096];
 #if PENGU_WINDOWS
+    char buf[4096];
     DWORD len = GetFullPathNameA(cpath, sizeof(buf), buf, NULL);
+    char *target = buf;
+    char *dyn = NULL;
+    if (len >= sizeof(buf))
+    {
+      dyn = (char *)malloc((size_t)len);
+      if (dyn)
+      {
+        DWORD len2 = GetFullPathNameA(cpath, len, dyn, NULL);
+        if (len2 > 0 && len2 < len)
+        {
+          target = dyn;
+          len = len2;
+        }
+        else
+        {
+          free(dyn);
+          dyn = NULL;
+          len = 0;
+        }
+      }
+      else
+      {
+        /* malloc falló: no podemos re-consultar; marcar len = 0 para
+           caer limpiamente en pengu_maybe_none(). NO tocar `buf`: no
+           está inicializado. */
+        len = 0;
+      }
+    }
     free(cpath);
     if (len > 0)
     {
       PenguString *res = (PenguString *)malloc(sizeof(PenguString));
       if (res)
       {
-        *res = pengu_string_new(buf);
+        *res = pengu_string_new(target);
+        if (dyn)
+          free(dyn);
         return pengu_maybe_some(res);
       }
     }
+    if (dyn)
+      free(dyn);
 #else
-  char *res_ptr = realpath(cpath, buf);
-  free(cpath);
-  if (res_ptr)
-  {
-    PenguString *res = (PenguString *)malloc(sizeof(PenguString));
-    if (res)
+    char *res_ptr = realpath(cpath, NULL);
+    free(cpath);
+    if (res_ptr)
     {
-      *res = pengu_string_new(buf);
-      return pengu_maybe_some(res);
+      PenguString *res = (PenguString *)malloc(sizeof(PenguString));
+      if (res)
+      {
+        *res = pengu_string_new(res_ptr);
+        free(res_ptr);
+        return pengu_maybe_some(res);
+      }
+      free(res_ptr);
     }
-  }
 #endif
     return pengu_maybe_none();
   }
