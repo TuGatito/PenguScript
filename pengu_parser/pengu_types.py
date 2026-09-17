@@ -144,6 +144,14 @@ class Type:
         """
         return False
 
+    def is_bool(self) -> bool:
+        """Returns True if type is boolean.
+
+        Returns:
+            Boolean indicating if type is boolean.
+        """
+        return False
+
     def is_iterable(self) -> bool:
         """Returns True if type can be iterated over in loops/comprehensions.
 
@@ -275,6 +283,10 @@ class BaseType(Type):
     def is_string(self) -> bool:
         """Returns True for string primitive."""
         return self.name == "string"
+
+    def is_bool(self) -> bool:
+        """Returns True for bool primitive."""
+        return self.name == "bool"
 
     def is_compatible(self, other: Type) -> bool:
         """Checks strict compatibility for base primitives without implicit numeric conversion."""
@@ -538,6 +550,10 @@ class FrozenType(Type):
         """Delegates to the qualified type."""
         return self.target.is_string()
 
+    def is_bool(self) -> bool:
+        """Delegates to the qualified type."""
+        return self.target.is_bool()
+
     def is_iterable(self) -> bool:
         """Delegates to the qualified type."""
         return self.target.is_iterable()
@@ -591,6 +607,8 @@ class ArrayType(Type):
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, ArrayType):
+            if self.size is not None and other.size is not None and self.size != other.size:
+                return False
             return self.element.is_compatible(other.element)
         if isinstance(other, RefType):
             # C array-to-pointer decay: 'array of T' is usable where a pointer
@@ -604,12 +622,16 @@ class ArrayType(Type):
         return False
 
     def __eq__(self, other: Any) -> bool:
-        """Checks equality based on array element type."""
-        return isinstance(other, ArrayType) and self.element == other.element
+        """Checks equality based on array element type and size."""
+        return (
+            isinstance(other, ArrayType)
+            and self.element == other.element
+            and self.size == other.size
+        )
 
     def __hash__(self) -> int:
         """Returns hash of array type."""
-        return hash(("array", self.element))
+        return hash(("array", self.element, self.size))
 
 
 @dataclass
@@ -1381,6 +1403,14 @@ class AliasType(Type):
         """Checks if target type is floating point."""
         return self.target.is_float()
 
+    def is_string(self) -> bool:
+        """Checks if target type is string."""
+        return self.target.is_string()
+
+    def is_bool(self) -> bool:
+        """Checks if target type is boolean."""
+        return self.target.is_bool()
+
     def is_iterable(self) -> bool:
         """Checks if target type is iterable."""
         return self.target.is_iterable()
@@ -1701,7 +1731,7 @@ def estimate_size(t: Optional[Type], custom_types: Optional[Dict[str, Type]] = N
 
     if isinstance(t, ArrayType):
         elem_sz = estimate_size(t.element, custom_types, seen)
-        return max(1, t.size) * elem_sz
+        return max(1, t.size or 1) * elem_sz
 
     if isinstance(t, (SliceType, ManyType, ListType, MapType)):
         return 24  # struct { void* ptr; size_t len; size_t cap; }

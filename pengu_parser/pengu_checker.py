@@ -12,7 +12,7 @@ from .pengu_types import (
     CVarArgsType,
     implements_concept, resolve_concept_method, ast_to_type
 )
-from .pengu_symbols import SymbolTable, Symbol, Scope, resolve_imports, find_module_path
+from .pengu_symbols import SymbolTable, Symbol, Scope, resolve_imports, find_module_path, decl_layout
 from .pengu_infer import TypeInferrer, ConstFolder
 from .pengu_comptime import CompileTimeEnv, default_env, eval_comptime
 from .pengu_grammar import SIMPLE_STMT_ALIASES
@@ -31,7 +31,14 @@ from .pengu_errors import (
 
 
 def _has_borrowed_modifier(node: Tree) -> Tuple[bool, int]:
-    """Return (is_borrowed, name_index)."""
+    """Return (is_borrowed, name_index).
+
+    When optional modifiers are parsed, Lark may emit None as a placeholder
+    for [BORROWED] at index 0, shifting the variable name to index 1.
+    If children[0] is Token(BORROWED), is_borrowed is True and name is at index 1.
+    If children[0] is None, is_borrowed is False and name is at index 1.
+    Otherwise (e.g. compacted tree), children[0] is the variable name itself.
+    """
     if not node.children:
         return False, 0
     first = node.children[0]
@@ -40,6 +47,10 @@ def _has_borrowed_modifier(node: Tree) -> Tuple[bool, int]:
     if first is None:
         return False, 1
     return False, 0
+
+
+# Public layout extractor is defined in pengu_symbols; keep local alias for internal checker use.
+_decl_layout = decl_layout
 
 
 def _node_to_name(node: Any) -> str:
@@ -147,6 +158,7 @@ class PenguChecker:
         self.warnings: List[str] = []
         self.symbols = SymbolTable()
         self.block_stmts_stack: List[List[Tree]] = []
+        self.const_definitions: Dict[str, List[Tuple[Any, Optional[str]]]] = {}
         self.inferrer = TypeInferrer(self.symbols, source_code=self.source_code, filename=self.filename,
                                      compile_env=self.compile_env)
         self.const_folder = ConstFolder(self.symbols)
@@ -187,6 +199,7 @@ class PenguChecker:
         self.errors = []
         self.warnings = []
         self.block_stmts_stack = []
+        self.const_definitions = {}
         if symbols is not None:
             self.symbols = symbols
         elif reset_symbols or not hasattr(self, "symbols") or self.symbols is None:
@@ -634,8 +647,11 @@ class PenguChecker:
                                     self.symbols.runes[f"{bind_name}_{sname}"] = sym.type
                                     self.symbols.runes[eff_c_name] = sym.type
                                 if sym.kind == "const":
-                                    self.symbols.consts[f"{bind_name}_{sname}"] = (sym.type, getattr(sym, "const_val", None))
-                                    self.symbols.consts[eff_c_name] = (sym.type, getattr(sym, "const_val", None))
+                                    cval = getattr(sym, "const_val", None)
+                                    src_path = getattr(sym, "file_path", None) or mod_file
+                                    self.symbols.consts[f"{bind_name}_{sname}"] = (sym.type, cval)
+                                    self.symbols.consts[eff_c_name] = (sym.type, cval)
+                                    self.const_definitions.setdefault(sname, []).append((cval, src_path))
                                 if sym.kind == "alias" and isinstance(sym.type, AliasType):
                                     self.symbols.aliases[f"{bind_name}_{sname}"] = sym.type.target
                                     self.symbols.aliases[eff_c_name] = sym.type.target
@@ -1156,6 +1172,7 @@ class PenguChecker:
                     elif isinstance(const_val, float): c_type = FLOAT_TYPE
                     elif isinstance(const_val, str): c_type = STRING_TYPE
                 self.symbols.consts[c_name] = (c_type, const_val)
+                self.const_definitions.setdefault(c_name, []).append((const_val, self.filename))
                 if c_c_name != c_name:
                     self.symbols.consts[c_c_name] = (c_type, const_val)
                 doc = self._extract_preceding_doc(line)
@@ -1417,6 +1434,8 @@ class PenguChecker:
                 return
             if self._decl_uses_with_init(node):
                 self._check_with_init_body(node)
+                if getattr(node, "_pengu_with_init_checked_err", False):
+                    return
             self._check_var_decl(node)
             return
 
@@ -1438,6 +1457,8 @@ class PenguChecker:
                 return
             if self._decl_uses_with_init(node):
                 self._check_with_init_body(node)
+                if getattr(node, "_pengu_with_init_checked_err", False):
+                    return
             self._check_let_decl(node)
             return
 
@@ -1781,6 +1802,10 @@ class PenguChecker:
             self._check_or_block(node)
             return
 
+        elif rule == "judge_expr":
+            self._check_judge_expr(node)
+            return
+
         elif rule == "when_stmt":
             self._check_when_stmt(node)
             return
@@ -1880,6 +1905,36 @@ class PenguChecker:
                     self._sync_array_sizes(c_type, inferred)
                 eff_type = c_type or inferred
 
+                if isinstance(eff_type, (MapType, ListType)):
+                    raise self._make_error(
+                        TypeMismatchError,
+                        f"Constant '{c_name}' cannot be of type '{eff_type}' because it requires dynamic heap allocation",
+                        node,
+                        code="E0005",
+                        help="Use a fixed array ('array of T') for compile-time collection constants, or initialize a local variable inside a function.",
+                        note="Top-level constants must be statically initializable at compile time."
+                    )
+
+                if isinstance(eff_type, ArrayType):
+                    base_elem = eff_type
+                    while isinstance(base_elem, ArrayType):
+                        base_elem = base_elem.element
+                    is_static_elem = (
+                        base_elem.is_numeric()
+                        or base_elem.is_bool()
+                        or (isinstance(base_elem, BaseType) and base_elem.name in ("char", "byte"))
+                        or (isinstance(base_elem, RefType) and isinstance(base_elem.target, BaseType) and base_elem.target.name == "char")
+                    )
+                    if not is_static_elem:
+                        raise self._make_error(
+                            TypeMismatchError,
+                            f"Constant '{c_name}' of type '{eff_type}' cannot be statically initialized at compile time",
+                            node,
+                            code="E0005",
+                            help="Constant arrays require statically initializable element types (numeric, bool, char, or 'ref to char'). For strings or heap objects, initialize a local variable inside a function.",
+                            note="C requires compile-time constant expressions for static array initializers."
+                        )
+
                 if self._has_unknown_array_dim(eff_type):
                     raise self._make_error(
                         UnknownArrayDimensionError,
@@ -1908,9 +1963,7 @@ class PenguChecker:
     @staticmethod
     def _decl_type_and_expr(node: Tree):
         """Returns (type_node, expr_node) of a var/let/const declaration."""
-        if len(node.children) >= 3 and node.children[1] is not None:
-            return node.children[1], node.children[2]
-        return None, node.children[-1]
+        return _decl_layout(node)
 
     def _decl_uses_with_init(self, node: Tree) -> bool:
         """True when a declaration initializer needs block-body checking.
@@ -1952,6 +2005,7 @@ class PenguChecker:
         if type_node is not None:
             expected = ast_to_type(type_node, self.symbols.lookup_type)
         if type_node is None:
+            setattr(node, "_pengu_with_init_checked_err", True)
             err = self._make_error(
                 TypeMismatchError,
                 "'with:' block construction requires an explicit type annotation "
@@ -1963,7 +2017,8 @@ class PenguChecker:
             )
             self._record_error(err)
             return
-        self._check_with_builder(expr, expected)
+        result = self._check_with_builder(expr, expected)
+        setattr(expr, "_pengu_value_type", result)
 
     def _check_with_builder(self, expr: Tree, expected: Optional[Type]) -> Type:
         """Checks a ``with:`` construction block against its target type.
@@ -2296,6 +2351,9 @@ class PenguChecker:
         if rule == "or_block":
             self._check_or_block(node)
             return
+        if rule == "judge_expr":
+            self._check_judge_expr(node)
+            return
         for child in node.children:
             self._check_value_exprs(child)
 
@@ -2363,6 +2421,80 @@ class PenguChecker:
             return self._check_value_block(children, expected)
         finally:
             self.symbols.pop_scope(end_line=e_end)
+
+    def _check_judge_expr(self, node: Tree) -> None:
+        """Checks judge expression constraints."""
+        for child in node.children[1:]:
+            if isinstance(child, Tree) and child.data == "when_clause":
+                for sub in child.children:
+                    if isinstance(sub, Tree) and sub.data == "when_payload":
+                        self._record_error(self._make_error(
+                            SemanticError,
+                            "Payload bindings in 'when' clauses are not supported yet",
+                            sub,
+                            code="E0005",
+                            help="Pattern match omen variants without 'with' payload bindings.",
+                        ))
+        for child in node.children:
+            if isinstance(child, Tree):
+                self._check_node(child)
+
+    def _validate_array_literal_size(self, declared_t: Type, lit_node: Any) -> None:
+        """Validates array dimensions against array literals (indent_literal and array_lit)."""
+        if not isinstance(declared_t, ArrayType) or not isinstance(lit_node, Tree):
+            return
+
+        if lit_node.data == "indent_literal":
+            if not lit_node.children:
+                return
+            child = lit_node.children[0]
+            if isinstance(child, Tree) and child.data == "indent_array":
+                rows = child.children
+                if isinstance(declared_t.element, ArrayType):
+                    outer_sz = declared_t.size
+                    inner_sz = declared_t.element.size
+                    if outer_sz is not None and len(rows) != outer_sz:
+                        raise self._make_error(
+                            ArraySizeMismatchError,
+                            f"Array has {len(rows)} rows but the declared size is {outer_sz}",
+                            child,
+                            code="E0041"
+                        )
+                    for r_idx, r in enumerate(rows):
+                        r_elems = r.children if isinstance(r, Tree) else []
+                        if inner_sz is not None and len(r_elems) != inner_sz:
+                            raise self._make_error(
+                                ArraySizeMismatchError,
+                                f"Row {r_idx + 1} has {len(r_elems)} elements but the declared width is {inner_sz}",
+                                r,
+                                code="E0041"
+                            )
+                else:
+                    sz = declared_t.size
+                    all_elems = [e for r in rows if isinstance(r, Tree) for e in r.children]
+                    if sz is not None and len(all_elems) != sz:
+                        raise self._make_error(
+                            ArraySizeMismatchError,
+                            f"Array has {len(all_elems)} elements but the declared size is {sz}",
+                            child,
+                            code="E0041"
+                        )
+
+        elif lit_node.data == "array_lit":
+            elems = lit_node.children
+            sz = declared_t.size
+            if sz is not None and len(elems) != sz:
+                raise self._make_error(
+                    ArraySizeMismatchError,
+                    f"Array literal has {len(elems)} elements but declared size is {sz}",
+                    lit_node,
+                    code="E0041",
+                    help=f"Expected {sz} elements to match declared array size.",
+                )
+            if isinstance(declared_t.element, ArrayType):
+                for elem in elems:
+                    if isinstance(elem, Tree) and elem.data == "array_lit":
+                        self._validate_array_literal_size(declared_t.element, elem)
 
     @staticmethod
     def _sync_array_sizes(target_t: Any, source_t: Any) -> None:
@@ -2451,7 +2583,7 @@ class PenguChecker:
             if not isinstance(s, Tree):
                 continue
             for st in s.iter_subtrees():
-                if st.data == "set_stmt" and st.children:
+                if st.data in ("set_stmt", "compound_set_stmt") and st.children:
                     target_node = st.children[0]
                     if self._is_direct_var_ref(target_node, sym_name):
                         return True
@@ -2505,21 +2637,10 @@ class PenguChecker:
             ))
             return
         v_type = None
-        v_expr = None
-
-        if name_idx == 1:
-            if node.children[2] is not None:
-                self._validate_type_node(node.children[2])
-                v_type = ast_to_type(node.children[2], self.symbols.lookup_type)
-            v_expr = node.children[3]
-        else:
-            if len(node.children) == 3:
-                if node.children[1] is not None:
-                    self._validate_type_node(node.children[1])
-                    v_type = ast_to_type(node.children[1], self.symbols.lookup_type)
-                v_expr = node.children[2]
-            else:
-                v_expr = node.children[1]
+        type_node, v_expr = _decl_layout(node)
+        if type_node is not None:
+            self._validate_type_node(type_node)
+            v_type = ast_to_type(type_node, self.symbols.lookup_type)
 
         # Block values nested in the initializer (call arguments, struct-literal
         # fields, …) are value-checked before inference.
@@ -2551,39 +2672,8 @@ class PenguChecker:
                     note="C requires fixed array sizes for all dimensions."
                 )
 
-            if isinstance(eff_type, ArrayType) and isinstance(v_expr, Tree) and v_expr.data == "indent_literal":
-                child = v_expr.children[0]
-                if child.data == "indent_array":
-                    rows = child.children
-                    if isinstance(eff_type.element, ArrayType):
-                        outer_sz = eff_type.size
-                        inner_sz = eff_type.element.size
-                        if outer_sz is not None and len(rows) != outer_sz:
-                            raise self._make_error(
-                                ArraySizeMismatchError,
-                                f"Array has {len(rows)} rows but the declared size is {outer_sz}",
-                                child,
-                                code="E0041"
-                            )
-                        for r_idx, r in enumerate(rows):
-                            r_elems = r.children
-                            if inner_sz is not None and len(r_elems) != inner_sz:
-                                raise self._make_error(
-                                    ArraySizeMismatchError,
-                                    f"Row {r_idx + 1} has {len(r_elems)} elements but the declared width is {inner_sz}",
-                                    r,
-                                    code="E0041"
-                                )
-                    else:
-                        sz = eff_type.size
-                        all_elems = [e for r in rows for e in r.children]
-                        if sz is not None and len(all_elems) != sz:
-                            raise self._make_error(
-                                ArraySizeMismatchError,
-                                f"Array has {len(all_elems)} elements but the declared size is {sz}",
-                                child,
-                                code="E0041"
-                            )
+            if isinstance(eff_type, ArrayType) and isinstance(v_expr, Tree):
+                self._validate_array_literal_size(eff_type, v_expr)
 
             if v_type is not None and not inferred.is_compatible(v_type):
                 err = self._make_type_mismatch_error(
@@ -2664,15 +2754,10 @@ class PenguChecker:
             ))
             return
         v_type = None
-        v_expr = None
-
-        if len(node.children) == 3:
-            if node.children[1] is not None:
-                self._validate_type_node(node.children[1])
-                v_type = ast_to_type(node.children[1], self.symbols.lookup_type)
-            v_expr = node.children[2]
-        else:
-            v_expr = node.children[1]
+        type_node, v_expr = decl_layout(node)
+        if type_node is not None:
+            self._validate_type_node(type_node)
+            v_type = ast_to_type(type_node, self.symbols.lookup_type)
 
         # 'static var x is if/unless/for ...:' or block values nested in the
         # initializer (e.g. inside a struct literal) — positional value check.
@@ -2750,21 +2835,10 @@ class PenguChecker:
                 ))
                 return
         l_type = None
-        l_expr = None
-
-        if name_idx == 1:
-            if node.children[2] is not None:
-                self._validate_type_node(node.children[2])
-                l_type = ast_to_type(node.children[2], self.symbols.lookup_type)
-            l_expr = node.children[3]
-        else:
-            if len(node.children) == 3:
-                if node.children[1] is not None:
-                    self._validate_type_node(node.children[1])
-                    l_type = ast_to_type(node.children[1], self.symbols.lookup_type)
-                l_expr = node.children[2]
-            else:
-                l_expr = node.children[1]
+        type_node, l_expr = _decl_layout(node)
+        if type_node is not None:
+            self._validate_type_node(type_node)
+            l_type = ast_to_type(type_node, self.symbols.lookup_type)
 
         self._check_value_exprs(l_expr, l_type)
         try:
@@ -2798,39 +2872,8 @@ class PenguChecker:
                         note="C requires fixed array sizes for all dimensions."
                     )
 
-                if isinstance(eff_type, ArrayType) and isinstance(l_expr, Tree) and l_expr.data == "indent_literal":
-                    child = l_expr.children[0]
-                    if child.data == "indent_array":
-                        rows = child.children
-                        if isinstance(eff_type.element, ArrayType):
-                            outer_sz = eff_type.size
-                            inner_sz = eff_type.element.size
-                            if outer_sz is not None and len(rows) != outer_sz:
-                                raise self._make_error(
-                                    ArraySizeMismatchError,
-                                    f"Array has {len(rows)} rows but the declared size is {outer_sz}",
-                                    child,
-                                    code="E0041"
-                                )
-                            for r_idx, r in enumerate(rows):
-                                r_elems = r.children
-                                if inner_sz is not None and len(r_elems) != inner_sz:
-                                    raise self._make_error(
-                                        ArraySizeMismatchError,
-                                        f"Row {r_idx + 1} has {len(r_elems)} elements but the declared width is {inner_sz}",
-                                        r,
-                                        code="E0041"
-                                    )
-                        else:
-                            sz = eff_type.size
-                            all_elems = [e for r in rows for e in r.children]
-                            if sz is not None and len(all_elems) != sz:
-                                raise self._make_error(
-                                    ArraySizeMismatchError,
-                                    f"Array has {len(all_elems)} elements but the declared size is {sz}",
-                                    child,
-                                    code="E0041"
-                                )
+                if isinstance(eff_type, ArrayType) and isinstance(l_expr, Tree):
+                    self._validate_array_literal_size(eff_type, l_expr)
 
                 if l_type is not None and not inferred.is_compatible(l_type):
                     err = self._make_type_mismatch_error(
@@ -2860,6 +2903,7 @@ class PenguChecker:
                 node._pengu_symbol = sym
             else:
                 # Destructuring: let x, y is my_vec or let a, b is arr
+                destructured_syms = []
                 if isinstance(inferred, RuneType):
                     fields_list = list(inferred.fields.items())
                     if len(names) != len(fields_list):
@@ -2872,7 +2916,9 @@ class PenguChecker:
                             note="Destructuring requires an exact match in the number of targets."
                         )
                     for (v_name, (f_name, f_type)) in zip(names, fields_list):
-                        self.symbols.define(Symbol(name=v_name, type=f_type, kind="let", is_mutable=False, line=line, column=col, doc=doc, file_path=self.filename))
+                        sym = Symbol(name=v_name, type=f_type, kind="let", is_mutable=False, line=line, column=col, doc=doc, file_path=self.filename, is_borrowed=is_borrowed)
+                        self.symbols.define(sym)
+                        destructured_syms.append(sym)
                 elif isinstance(inferred, ArrayType):
                     elem_t = inferred.element
                     if inferred.size is not None and isinstance(inferred.size, int) and len(names) != inferred.size:
@@ -2885,14 +2931,21 @@ class PenguChecker:
                             note="Destructuring requires an exact match in the number of targets."
                         )
                     for v_name in names:
-                        self.symbols.define(Symbol(name=v_name, type=elem_t, kind="let", is_mutable=False, line=line, column=col))
+                        sym = Symbol(name=v_name, type=elem_t, kind="let", is_mutable=False, line=line, column=col, file_path=self.filename, is_borrowed=is_borrowed)
+                        self.symbols.define(sym)
+                        destructured_syms.append(sym)
                 elif isinstance(inferred, (SliceType, ListType)):
                     elem_t = inferred.element
                     for v_name in names:
-                        self.symbols.define(Symbol(name=v_name, type=elem_t, kind="let", is_mutable=False, line=line, column=col))
+                        sym = Symbol(name=v_name, type=elem_t, kind="let", is_mutable=False, line=line, column=col, file_path=self.filename, is_borrowed=is_borrowed)
+                        self.symbols.define(sym)
+                        destructured_syms.append(sym)
                 else:
                     for v_name in names:
-                        self.symbols.define(Symbol(name=v_name, type=AnyType(), kind="let", is_mutable=False, line=line, column=col))
+                        sym = Symbol(name=v_name, type=AnyType(), kind="let", is_mutable=False, line=line, column=col, file_path=self.filename, is_borrowed=is_borrowed)
+                        self.symbols.define(sym)
+                        destructured_syms.append(sym)
+                node._pengu_symbols = destructured_syms
         except SemanticError as e:
             self._record_error(e)
 
@@ -2987,7 +3040,9 @@ class PenguChecker:
                         help="Ensure the target passed to 'with' is a 'var' or a reference (ref to T).",
                         note="'with' blocks on immutable bindings do not allow field mutations."
                     )
-                if isinstance(with_t, RuneType):
+                while isinstance(with_t, RefType):
+                    with_t = with_t.target
+                if isinstance(with_t, (RuneType, EchoType)):
                     if field_name not in with_t.fields:
                         raise self._make_error(
                             SemanticError,
@@ -2998,6 +3053,27 @@ class PenguChecker:
                             note=f"Rune '{with_t.name}' only exposes its declared fields."
                         )
                     target_type = with_t.fields[field_name]
+                    for acc in target_node.children[1:]:
+                        if isinstance(acc, Tree) and acc.data in ("dot_access", "arrow_access") and acc.children:
+                            sub_f = str(acc.children[0])
+                            curr_t = target_type
+                            while isinstance(curr_t, RefType):
+                                curr_t = curr_t.target
+                            if isinstance(curr_t, (RuneType, EchoType)):
+                                if sub_f not in curr_t.fields:
+                                    raise self._make_error(
+                                        SemanticError,
+                                        f"Rune '{curr_t.name}' has no field '{sub_f}'",
+                                        acc,
+                                        code="E0013",
+                                    )
+                                target_type = curr_t.fields[sub_f]
+                        elif isinstance(acc, Tree) and acc.data == "at_access":
+                            curr_t = target_type
+                            while isinstance(curr_t, RefType):
+                                curr_t = curr_t.target
+                            if isinstance(curr_t, (ArrayType, SliceType, ManyType, ListType)):
+                                target_type = curr_t.element
 
             elif rule == "normal_target":
                 first = target_node.children[0]
@@ -3075,15 +3151,16 @@ class PenguChecker:
                         target_type = sym.type
                     else:
                         first_acc = target_node.children[1]
-                        if isinstance(first_acc, Tree) and first_acc.data == "dot_access":
+                        if isinstance(first_acc, Tree) and first_acc.data in ("dot_access", "at_access"):
                             if not sym.is_mutable and not isinstance(sym.type, RefType):
+                                what = "element" if first_acc.data == "at_access" else "field"
                                 raise self._make_error(
                                     MutabilityError,
-                                    f"Cannot mutate field of immutable 'let' variable '{first_str}'",
+                                    f"Cannot mutate {what} of immutable 'let' variable '{first_str}'",
                                     target_node,
                                     code="E0006",
-                                    help=f"Change 'let {first_str}' to 'var {first_str}' to allow field mutation.",
-                                    note="Fields of 'let' bindings cannot be modified."
+                                    help=f"Change 'let {first_str}' to 'var {first_str}' to allow {what} mutation.",
+                                    note=f"{what.capitalize()}s of 'let' bindings cannot be modified."
                                 )
                         target_type = self.inferrer.infer(target_node)
 
@@ -3126,8 +3203,8 @@ class PenguChecker:
 
             if is_compound:
                 # Operator-specific type rules for 'set TARGET OP VALUE'.
-                if compound_op == "+=" and getattr(target_type, "name", "") == "string":
-                    if not val_type.is_compatible(STRING_TYPE) and not isinstance(val_type, AnyType):
+                if compound_op == "+=" and target_type.is_string():
+                    if not (val_type.is_string() or val_type.is_compatible(STRING_TYPE)) and not isinstance(val_type, AnyType):
                         raise self._make_error(
                             TypeMismatchError,
                             f"Compound '+=' on a string requires a string value, got '{val_type}'",
@@ -3663,6 +3740,8 @@ class PenguChecker:
 
             if stmt_children and ret_type != VOID_TYPE:
                 last_stmt = stmt_children[-1]
+                while isinstance(last_stmt, Tree) and last_stmt.data == "stmt" and last_stmt.children:
+                    last_stmt = last_stmt.children[0]
                 if last_stmt.data == "expr_stmt":
                     expr_node = last_stmt.children[0]
                     try:
@@ -3707,8 +3786,7 @@ class PenguChecker:
         try:
             if folded_cond is False:
                 self.warnings.append("[W0004] Unreachable code in then branch")
-            else:
-                self._check_node(block_node)
+            self._check_node(block_node)
         finally:
             self.block_stmts_stack.pop()
         self.symbols.pop_scope(end_line=span_end)
@@ -3716,16 +3794,15 @@ class PenguChecker:
         if else_node is not None:
             if folded_cond is True:
                 self.warnings.append("[W0004] Unreachable code in else branch")
-            else:
-                e_start, e_end = self._get_node_span(else_node)
-                self.symbols.push_scope(kind="if", start_line=e_start, end_line=e_end)
-                e_stmts = [c for c in else_node.children if isinstance(c, Tree)] if (isinstance(else_node, Tree) and else_node.data in ("block", "else_block")) else ([else_node] if isinstance(else_node, Tree) else [])
-                self.block_stmts_stack.append(e_stmts)
-                try:
-                    self._check_node(else_node)
-                finally:
-                    self.block_stmts_stack.pop()
-                self.symbols.pop_scope(end_line=e_end)
+            e_start, e_end = self._get_node_span(else_node)
+            self.symbols.push_scope(kind="if", start_line=e_start, end_line=e_end)
+            e_stmts = [c for c in else_node.children if isinstance(c, Tree)] if (isinstance(else_node, Tree) and else_node.data in ("block", "else_block")) else ([else_node] if isinstance(else_node, Tree) else [])
+            self.block_stmts_stack.append(e_stmts)
+            try:
+                self._check_node(else_node)
+            finally:
+                self.block_stmts_stack.pop()
+            self.symbols.pop_scope(end_line=e_end)
 
     def _check_unless_stmt(self, node: Tree) -> None:
         """Checks unless-statement condition and blocks.
@@ -3837,21 +3914,45 @@ class PenguChecker:
         var_name = str(node.children[0])
         start_node = node.children[1]
         end_node = node.children[2]
-        step_node = node.children[3] if len(node.children) == 5 else None
+        step_node = node.children[3] if len(node.children) == 5 and node.children[3] is not None else None
         block_node = node.children[-1]
 
         start_val = self.const_folder.fold(start_node)
         end_val = self.const_folder.fold(end_node)
-        if isinstance(start_val, int) and isinstance(end_val, int) and start_val > end_val:
+        step_val = self.const_folder.fold(step_node) if step_node is not None else 1
+
+        if isinstance(step_val, int) and step_val == 0:
             err = self._make_error(
                 InvalidRangeError,
-                "Invalid range: start must be less than or equal to end when both bounds are known at compile time",
-                node,
+                "Invalid range: step cannot be zero",
+                step_node if step_node is not None else node,
                 code="E0042",
-                help=f"Range start ({start_val}) must be <= end ({end_val}).",
-                note="Descending ranges are not supported."
+                help="Range step must be a non-zero integer.",
+                note="A step of 0 produces an infinite loop."
             )
             self._record_error(err)
+        elif isinstance(step_val, int) and step_val < 0:
+            if isinstance(start_val, int) and isinstance(end_val, int) and start_val < end_val:
+                err = self._make_error(
+                    InvalidRangeError,
+                    "Invalid range: descending ranges require start >= end when both bounds are known at compile time",
+                    node,
+                    code="E0042",
+                    help=f"Range start ({start_val}) must be >= end ({end_val}) for negative step ({step_val}).",
+                    note="Descending ranges require start >= end."
+                )
+                self._record_error(err)
+        else:
+            if isinstance(start_val, int) and isinstance(end_val, int) and start_val > end_val:
+                err = self._make_error(
+                    InvalidRangeError,
+                    "Invalid range: start must be less than or equal to end when both bounds are known at compile time",
+                    node,
+                    code="E0042",
+                    help=f"Range start ({start_val}) must be <= end ({end_val}).",
+                    note="Ascending ranges require start <= end."
+                )
+                self._record_error(err)
 
 
         try:
@@ -4009,7 +4110,16 @@ class PenguChecker:
             test_name = _node_to_name(name_tok)
         else:
             raw = str(name_tok)
-            test_name = raw[1:-1] if (raw.startswith('"') and raw.endswith('"')) else raw
+            if raw.startswith('r"""') and raw.endswith('"""'):
+                test_name = raw[4:-3]
+            elif raw.startswith('"""') and raw.endswith('"""'):
+                test_name = raw[3:-3]
+            elif raw.startswith('r"') and raw.endswith('"'):
+                test_name = raw[2:-1]
+            elif raw.startswith('"') and raw.endswith('"'):
+                test_name = raw[1:-1]
+            else:
+                test_name = raw
 
         body_stmts: List[Tree] = []
         for c in node.children[1:]:
@@ -4152,9 +4262,7 @@ class PenguChecker:
             if not isinstance(omen_t, OmenType):
                 continue
             # insignia-registered duplicates map the same object twice.
-            if omen_t.name not in omens_seen and omen_t.name in self.symbols.omens:
-                omens_seen[omen_t.name] = omen_t
-            elif omen_t.name not in omens_seen:
+            if omen_t.name not in omens_seen:
                 omens_seen[omen_t.name] = omen_t
 
         simple_owner: Dict[str, str] = {}
@@ -4191,8 +4299,12 @@ class PenguChecker:
                     continue
                 if getattr(sym, "kind", "") == "const":
                     clash_desc = f"top-level constant '{name}'"
-                    note = ("Omen variants occupy both their simple and full names in the "
-                            "global scope.")
+                    if getattr(sym, "const_val", None) is None:
+                        note = ("Omen variants occupy both their simple and full names in the "
+                                f"global scope (constant '{name}' value could not be folded at compile time for equality check).")
+                    else:
+                        note = ("Omen variants occupy both their simple and full names in the "
+                                "global scope.")
                 elif isinstance(sym.type, BaseType):
                     clash_desc = f"built-in type '{name}'"
                     note = ("Built-in type names are reserved, so the variant cannot be "
@@ -4218,6 +4330,10 @@ class PenguChecker:
                 variant = name[len(o_logical) + 1:]
                 if self._const_matches_variant(sym, o_logical, variant):
                     continue
+                note = "Omen variants occupy both their simple and full names in the global scope."
+                if getattr(sym, "kind", "") == "const" and getattr(sym, "const_val", None) is None:
+                    note = (f"Omen variants occupy both their simple and full names in the global scope "
+                            f"(constant '{name}' value could not be folded at compile time for equality check).")
                 err = self._make_error(
                     SemanticError,
                     f"Top-level symbol '{name}' collides with the full name of the "
@@ -4225,9 +4341,34 @@ class PenguChecker:
                     code="E0046",
                     help="Rename the top-level symbol so it does not shadow the "
                          "full omen variant name.",
-                    note="Omen variants occupy both their simple and full names in the global scope."
+                    note=note
                 )
                 self._record_error(err)
+
+        for cname, defs in getattr(self, "const_definitions", {}).items():
+            if len(defs) > 1:
+                first_val, first_path = defs[0]
+                for other_val, other_path in defs[1:]:
+                    if first_val is not None and other_val is not None and first_val != other_val:
+                        if first_path == other_path:
+                            err = self._make_error(
+                                SemanticError,
+                                f"Constant '{cname}' is redefined with conflicting values ({first_val} vs {other_val}) in '{first_path}'",
+                                code="E0011",
+                                help=f"Remove or rename the duplicate constant '{cname}'.",
+                                note="Constants in the same module cannot be redefined with different values.",
+                            )
+                            self._record_error(err)
+                            break
+                        err = self._make_error(
+                            SemanticError,
+                            f"Constant '{cname}' is defined with conflicting values ({first_val} in '{first_path}' vs {other_val} in '{other_path}')",
+                            code="E0046",
+                            help="Ensure imported constants with the same name define identical values, or use qualified access.",
+                            note="Conflicting constant values across modules cannot be resolved unambiguously.",
+                        )
+                        self._record_error(err)
+                        break
 
     def _const_matches_variant(self, sym: Symbol, omen_name: str, variant: str) -> bool:
         """True when ``sym`` is a constant holding the variant's exact value.
@@ -4262,6 +4403,21 @@ class PenguChecker:
         """
         if node.children and isinstance(node.children[0], Tree):
             self._check_node(node.children[0])
+            try:
+                left_t = self.inferrer.infer(node.children[0])
+            except SemanticError as e:
+                self._record_error(e)
+                left_t = AnyType()
+            if not isinstance(left_t, (MaybeType, ResultType, AnyType)):
+                self._record_error(self._make_error(
+                    TypeMismatchError,
+                    f"'or:' requires a 'maybe T' or 'result of T to E' operand, got '{left_t}'",
+                    node,
+                    code="E0005",
+                    help="Only maybe/result values can be unwrapped with 'or:'.",
+                    note="'or:' handles the failure path of maybe/result values.",
+                ))
+                # Do not return early: continue checking the or: block body to accumulate all errors
         span_start, span_end = self._get_node_span(node)
         self.symbols.push_scope(kind="or_block", in_or_block=True, start_line=span_start, end_line=span_end)
         or_stmts = [child for child in node.children[1:] if isinstance(child, Tree)]

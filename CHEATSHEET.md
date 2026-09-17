@@ -656,7 +656,7 @@ a `return` value, a call argument (`… with <expr>`), a struct-literal field
 | literals, `calling …`, operators, `x.field`, `x at i`, `x.len` | ✅ always | normal expressions, usable anywhere |
 | `if cond then a else b` | ✅ always | single-line conditional expression |
 | `when cond then a else b` | ✅ always | compile-time conditional expression |
-| `judge expr:` (with `when … ->` / `else ->`) | ✅ always | pattern-matching expression |
+| `judge expr:` (with `when … ->` / `else ->`) | ✅ always | pattern-matching expression (`when Variant with field` payloads not yet supported, `E0005`) |
 | `for v in col [when cond] then expr` | ✅ always | comprehension; yields a list. `in` only |
 | `do:` block | ✅ always | yields its last statement's value |
 | `with x is a, y is b` | ✅ always | struct-literal expression |
@@ -772,6 +772,7 @@ or `.field` in a `with` scope).
 | `null` | null pointer literal | `var p as ref to int is null` |
 | `maybe none` | empty optional | `let m as maybe int is maybe none` |
 | `error` | the error value inside an `or:` block | `let err is error` |
+| `print x` | compiler builtin printing (lowers to `printf`) | `print "hello"` |
 | `defined(NAME)` | compile-time flag test | `when defined(WEB):` |
 
 ```pengu
@@ -784,6 +785,7 @@ let m as maybe int is some 42
 - `ord` accepts a single-character string; string-literal length is validated at compile time.
 - `chr` accepts an int in 0–255 (constant range is checked) and returns a single-character string backed by a heap copy.
 - `some` heap-copies its operand (`pengu_sigil_alloc` + `memcpy`) so the value outlives the expression.
+- Strings compare by equality (`==`, `!=`). Ordering comparisons (`<`, `<=`, `>`, `>=`) on strings are rejected with `E0005`.
 
 ### 6.4 String operations
 
@@ -808,6 +810,22 @@ PenguString greeting = pengu_string_format("Hi, %s!", (name).data);
 ```
 
 `x length` works on strings, slices and collections; `at` indexes arrays, slices, lists, maps (value position) and strings; `at a to b` slices contiguous memory (`pengu_string_substring` for strings, `pengu_slice_new` for arrays). Element access is uniform across all collections.
+
+| Target collection | Index expression | Result type | Emission / Runtime operation |
+|---|---|---|---|
+| `array of T with size N` | `arr at i` | `T` | `arr[i]` |
+| `slice of T` / `many T` | `s at i` | `T` | `(((T*)s.data)[i])` |
+| `list of T` | `l at i` | `T` | `(*(T*)pengu_list_at(&l, i))` |
+| `map of K to V` | `m at k` | `V` | `({ K _k = k; V* _p = pengu_map_get(&m, &_k); _p ? *_p : (V){0}; })` |
+| `ref to map of K to V` | `m at k` | `V` | `({ K _k = k; V* _p = pengu_map_get(m, &_k); _p ? *_p : (V){0}; })` |
+| `string` | `s at i` | `string` | `pengu_string_char_at(s, i)` |
+| `ref to T` | `p at i` | `T` | `p[i]` |
+
+Mutating map entries uses `set`:
+```pengu
+var counts as map of string to int is map of string to int
+set counts at "pengu" is 42       # emits pengu_map_put(&counts, &_k, &_v)
+```
 
 ### 6.5 `calling` & argument passing
 
@@ -986,6 +1004,14 @@ weave loops_demo into void:
     for _, num in numbers:        # '_' discards the index binding
         calling spark.println with (num to string)
 
+    # Map iteration: iterates over keys
+    var counts as map of string to int is map of string to int
+    for key in counts:            # yields each string key
+        let val is counts at key
+
+    for i, key in counts:         # indexed iteration over map keys
+        calling spark.println with key
+
     # comprehension expression: collect elements passing a filter
     let evens is for num in numbers when num % 2 == 0 then num
 ```
@@ -1016,6 +1042,14 @@ void loops_demo(void) {
     for (int32_t i = 0; i < 3; i++) {          // indexed iteration keeps 'i'
         int32_t num = (numbers)[i];
         if (i > 0) printf("%d\n", num);
+    }
+
+    /* Map iteration: iterate over keys */
+    for (int32_t _slot_1 = 0, _idx_1 = 0; _idx_1 < counts.len && _slot_1 < counts.cap; _slot_1++) {
+        if (!counts.entries || !counts.entries[_slot_1].occupied) continue;
+        PenguString key = *((PenguString*)counts.entries[_slot_1].key);
+        /* body */
+        _idx_1++;
     }
 }
 ```
@@ -1084,7 +1118,7 @@ PenguString describe(int32_t key) {
 }
 ```
 
-Patterns may be integers, floats, strings, characters, `true`/`false`, `maybe none`, or named constants; an `else ->` clause is optional. Integer/enum subjects compile to C `switch`, and string comparisons use the runtime string equality helper. The grammar also accepts optional payload bindings (`when Variant with field -> …`) for algebraic omens.
+Patterns may be integers, floats, strings, characters, `true`/`false`, `maybe none`, or named constants; an `else ->` clause is optional. Integer/enum subjects compile to C `switch`, and string comparisons use the runtime string equality helper. (Note: payload bindings `when Variant with field -> …` are reserved grammar and rejected with `E0005` in 0.12.0 until full algebraic variant destructuring is introduced).
 
 **Exhaustiveness validation (`E0044`)**:
 When evaluating an `omen` or a `bool` subject without an `else ->` fallback, the checker verifies that every variant or boolean state is covered. If any branch is missing, the compiler raises `error[E0044]` (`NonExhaustiveJudgeError`).
@@ -1845,7 +1879,7 @@ void main(void) {
         printf("%s\n", (error).data);
         return;
     }
-    int32_t val = (int32_t)(_res.ok_val);
+    int32_t val = *(int32_t*)_res.ok_val;
 }
 ```
 
@@ -2252,6 +2286,17 @@ References (`ref to T`) are passed as pointers, enabling in-place mutation from 
 | `const char*` / `char*` | `ref to char` | string **literals** become plain C literals; interpolation is rejected |
 | byte pointer + length | `ref to byte` + `int` | runtime string variables pass `bytes of <string>` (read-only, NUL-terminated buffer) |
 
+To pass a dynamic `string` value to an extern or C function expecting `ref to char`, import `std.ffi`:
+
+```pengu
+import std.ffi
+
+let s as string is "hello world"
+calling puts with (calling ffi.cstr_from_string with s)
+```
+
+The pointer returned by `ffi.cstr_from_string` is a non-owning read-only view directly into `s`'s buffer (valid as long as `s` lives). A matching no-op `ffi.cstr_free with p` is provided for symmetry.
+
 ### 14.7 Transparent C identifiers
 
 Identifiers from an `include`d header (raylib constants, OpenGL macros, C enums) are usable directly without re-declaring them:
@@ -2318,7 +2363,7 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 
 `std/spark.pengu` defines `SPARK_VERSION` and `STD_VERSION` constants; `spark.spark_version` returns the version string.
 
-### 15.2 Core module catalog (24 modules)
+### 15.2 Core module catalog (25 modules)
 
 | Module | Import | Implementation | Purpose & key functions |
 | ------ | ------ | -------------- | ----------------------- |
@@ -2346,6 +2391,7 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 | **ward** | `import std.ward` | Pure PenguScript | Assertions & invariants: `assert`, `assert_msg`, `assert_true`/`assert_false`, `assert_eq_*` / `assert_ne_*` (int/string/bool), `assert_present_*`/`assert_none_*`, `assert_ok_*`/`assert_err_*`, `expect*` message variants, `panic`, `unreachable`, and result-returning `check*` helpers. |
 | **trial** | `import std.trial` | Pure PenguScript | Unit-test framework: re-exports `ward` assertions, plus suites (`new_suite`), `test_case`/`test`, lifecycle hooks and colored reporting (`summary`). |
 | **whisper** | `import std.whisper` | C primitives + Pengu | Structured logging: `set_level`, `get_level`, `get_level_name`, level constants `LOG_TRACE`…`LOG_FATAL`, and level loggers `trace`, `debug`, `info`, `warn`, `error`, `fatal`. |
+| **ffi** | `import std.ffi` | C runtime bridges | Foreign function interface bridges: `cstr_from_string`, `cstr_free`, `string_from_cstr`, `bytes_from_string`, non-owning slice views (`slice_from_ptr`, `slice_of_*_from_ptr`), and list copies from pointers. |
 
 ### 15.3 Integrated external libraries
 

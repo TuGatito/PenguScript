@@ -113,7 +113,7 @@ class TestStructArrays:
             "import std.spark\n\n"
             "weave main into int:\n"
             "    var v as raylib.Vector2 is with x is 0.0, y is 0.0\n"
-            "    var cs as array of raylib.Vector2 with size 4 is [v]\n"
+            "    var cs as array of raylib.Vector2 with size 4 is [v, v, v, v]\n"
             "    set cs at 0 is with x is 9.0, y is 9.0\n"
             "    set cs at 1 . x is 5.0\n"
             "    var x0 as float is (cs at 0) . x\n"

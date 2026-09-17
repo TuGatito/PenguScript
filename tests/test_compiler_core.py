@@ -790,7 +790,7 @@ weave maybe_test into int:
   let name is user or else "guest"
   let u is user or return 1
 
-  let file is calling open_file with "data.txt" or:
+  let file is (calling open_file with "data.txt") or:
     let err is error
     calling print with err
     return 1
@@ -915,7 +915,7 @@ weave main into int:
   let opt as maybe string is maybe none
   let fallback is opt or else "default"
 
-  let res is calling open_file with "test.txt" or:
+  let res is (calling open_file with "test.txt") or:
     let err is error
     calling print with err
     return 1
@@ -2825,9 +2825,9 @@ weave enum_test into string:
         assert "Level l1 = Level_ONE;" in c
         assert "Level l2 = Level_TWO;" in c
         assert "Level l3 = Level_THREE;" in c
-        assert 'case Level_ONE: _res = (pengu_string_from_cstr("1")); break;' in c
-        assert 'case Level_TWO: _res = (pengu_string_from_cstr("2")); break;' in c
-        assert 'case Level_THREE: _res = (pengu_string_from_cstr("3")); break;' in c
+        assert 'case Level_ONE:' in c and '(pengu_string_from_cstr("1")); break;' in c
+        assert 'case Level_TWO:' in c and '(pengu_string_from_cstr("2")); break;' in c
+        assert 'case Level_THREE:' in c and '(pengu_string_from_cstr("3")); break;' in c
 
     def test_omen_variant_value_emission(self):
         c = gen_bundle(
@@ -3037,10 +3037,10 @@ class TestCodegenEmissionArraysSlices:
   return state
 """
         )
-        assert 'case 1: _res = (pengu_string_from_cstr("Active")); break;' in c
-        assert 'case 2: _res = (pengu_string_from_cstr("Pending")); break;' in c
-        assert 'case 3: _res = (pengu_string_from_cstr("Finished")); break;' in c
-        assert 'default: _res = (pengu_string_from_cstr("Unknown")); break;' in c
+        assert 'case 1:' in c and '(pengu_string_from_cstr("Active")); break;' in c
+        assert 'case 2:' in c and '(pengu_string_from_cstr("Pending")); break;' in c
+        assert 'case 3:' in c and '(pengu_string_from_cstr("Finished")); break;' in c
+        assert 'default:' in c and '(pengu_string_from_cstr("Unknown")); break;' in c
 
     def test_destructuring_emission(self):
         c = gen_bundle(

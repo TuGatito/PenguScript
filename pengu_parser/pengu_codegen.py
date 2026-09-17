@@ -24,7 +24,7 @@ from lark import Tree, Token
 try:  # The toolchain root (which holds VERSION) is the parent package directory.
     from pengu_version import __version__ as PENGU_VERSION
 except ImportError:  # pragma: no cover - vendored/frozen fallback, guarded by tests
-    PENGU_VERSION = "0.10.0"
+    PENGU_VERSION = "0.13.6"
 
 from pengu_parser.pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ManyType, ListType, MapType, MaybeType,
@@ -33,11 +33,33 @@ from pengu_parser.pengu_types import (
     TypeParam, NullType, INT_TYPE, I32_TYPE, I64_TYPE, FLOAT_TYPE, F32_TYPE, F64_TYPE, BOOL_TYPE,
     STRING_TYPE, VOID_TYPE, ERROR_TYPE, OPAQUE_TYPE, CVarArgsType, ast_to_type
 )
-from pengu_parser.pengu_symbols import SymbolTable, Symbol
-from pengu_parser.pengu_infer import ConstFolder, TypeInferrer
+from pengu_parser.pengu_symbols import SymbolTable, Symbol, decl_layout
+from pengu_parser.pengu_infer import ConstFolder, TypeInferrer, RangeConst
 from pengu_parser.pengu_comptime import CompileTimeEnv, default_env, eval_comptime
 from pengu_parser.pengu_errors import SemanticError
 from pengu_parser.pengu_grammar import SIMPLE_STMT_ALIASES
+
+_decl_layout = decl_layout
+
+
+def _normalize_banish_ident(val: str) -> str:
+    """Unwraps balanced outer parens and whitespace from a C expression."""
+    s = val.strip()
+    while s.startswith("(") and s.endswith(")") and len(s) > 1:
+        depth = 0
+        balanced = True
+        for i, c in enumerate(s):
+            if c == '(':
+                depth += 1
+            elif c == ')':
+                depth -= 1
+                if depth == 0 and i != len(s) - 1:
+                    balanced = False
+                    break
+        if not balanced:
+            break
+        s = s[1:-1].strip()
+    return s
 
 
 class CTypeMapper:
@@ -164,9 +186,7 @@ class CTypeMapper:
             return "PenguResult"
 
         elif isinstance(t, FnType):
-            ret_str = CTypeMapper.to_c_type(t.return_type)
-            param_strs = [CTypeMapper.to_c_type(p[1]) for p in t.params] or ["void"]
-            return f"{ret_str} (*)({', '.join(param_strs)})"
+            return CTypeMapper.to_c_decl(t, "")
 
         elif isinstance(t, SealType):
             eff_name = getattr(t, "c_name", None) or t.name
@@ -186,9 +206,12 @@ class CTypeMapper:
         if t is None:
             return f"void {ident}".strip()
         if isinstance(t, FnType):
-            ret_str = CTypeMapper.to_c_type(t.return_type)
             param_strs = [CTypeMapper.to_c_type(p[1]) for p in t.params] or ["void"]
-            return f"{ret_str} (*{ident})({', '.join(param_strs)})" if ident else f"{ret_str} (*)({', '.join(param_strs)})"
+            inner_decl = f"(*{ident})({', '.join(param_strs)})" if ident else f"(*)({', '.join(param_strs)})"
+            if isinstance(t.return_type, FnType):
+                return CTypeMapper.to_c_decl(t.return_type, inner_decl)
+            ret_str = CTypeMapper.to_c_type(t.return_type)
+            return f"{ret_str} {inner_decl}".strip()
         if isinstance(t, RefType) and isinstance(t.target, FnType):
             # 'ref to weave …' is a function pointer, not a pointer to one.
             return CTypeMapper.to_c_decl(t.target, ident, const=const, restrict=restrict)
@@ -231,6 +254,14 @@ def get_array_dims_and_base(t: ArrayType) -> Tuple[List[Any], str]:
         curr = curr.element
     base_c = CTypeMapper.to_c_type(curr)
     return dims, base_c
+
+
+def get_array_base_type(t: ArrayType) -> Type:
+    """Returns the innermost non-array element type."""
+    curr: Any = t
+    while isinstance(curr, ArrayType):
+        curr = curr.element
+    return curr
 
 
 def sync_array_sizes(target_t: Any, source_t: Any) -> None:
@@ -339,6 +370,7 @@ class PenguCodegen:
         self.seals: Dict[str, Type] = {}
         self.concepts: Dict[str, Any] = {}
         self.consts: Dict[str, Tuple[Optional[Type], Any]] = {}
+        self.const_nodes: Dict[str, Tree] = {}
         self.declaration_types: Set[str] = set()
         self.declaration_consts: Set[str] = set()
         self.c_defines: List[str] = []
@@ -391,12 +423,13 @@ class PenguCodegen:
         actual = t
         while isinstance(actual, (AliasType, FrozenType)) and getattr(actual, "target", None):
             actual = actual.target
+        ident = self._c_ident(name)
         if isinstance(actual, BaseType) and actual.name == "string":
-            return f"{ind}pengu_banish_string(&{name});"
+            return f"{ind}pengu_banish_string(&{ident});"
         if isinstance(actual, ListType):
-            return f"{ind}pengu_banish_list(&{name});"
+            return f"{ind}pengu_banish_list(&{ident});"
         if isinstance(actual, MapType):
-            return f"{ind}pengu_banish_map(&{name});"
+            return f"{ind}pengu_banish_map(&{ident});"
         return ""
 
     def _flush_current_scope_banish(self) -> List[str]:
@@ -424,6 +457,51 @@ class PenguCodegen:
             if self.auto_banish_stack and self.auto_banish_stack[-1][0] == kind:
                 self.auto_banish_stack.pop()
 
+    def _exclude_escaping_val_from_banish(self, val: Optional[str], escape_reason: str) -> Optional[str]:
+        """Excludes bare identifier val from the current auto-banish scope so it escapes cleanly without UAF."""
+        if not val or not self.auto_banish_stack:
+            return None
+        val_ident = _normalize_banish_ident(val)
+        entries = self.auto_banish_stack[-1][1]
+        matching = [e for e in entries if e[0] == val_ident]
+        if matching:
+            entries[:] = [e for e in entries if e[0] != val_ident]
+            return f"{self.indent()}/* skipped auto-banish for '{val_ident}': escapes via {escape_reason} */"
+        return None
+
+    def _emit_iteration_value(self, list_tmp: str, elem_c: str, val: str, elem_t: Optional[Type] = None) -> List[str]:
+        """Emits push of loop iteration value and returns comments/statements, excluding val from banish."""
+        ind = self.indent()
+        tmp_val = self.get_temp_name("_lv")
+        decl_c = CTypeMapper.to_c_decl(elem_t, tmp_val) if elem_t is not None else f"{elem_c} {tmp_val}"
+        out: List[str] = [
+            f"{ind}{decl_c} = {val};",
+            f"{ind}pengu_list_push(&{list_tmp}, &{tmp_val});"
+        ]
+        comment = self._exclude_escaping_val_from_banish(val, "loop collection")
+        if comment:
+            out.append(comment)
+        return out
+
+    def _translate_value_block_with_banish(
+        self, stmts: List[Any], expected_type: Optional[Type] = None
+    ) -> Tuple[List[str], Optional[str]]:
+        self._auto_banish_push("block")
+        try:
+            parts, val = self._value_branch(stmts, expected_type)
+            comment = self._exclude_escaping_val_from_banish(val, "block value")
+            if comment:
+                parts.append(comment)
+            if not self._stmts_end_with_jump(stmts):
+                banish = self._flush_current_scope_banish()
+                if banish:
+                    parts.extend(banish)
+            return parts, val
+        finally:
+            if self.auto_banish_stack and self.auto_banish_stack[-1][0] == "block":
+                self.auto_banish_stack.pop()
+
+
     @staticmethod
     def _block_ends_with_jump(node: Any) -> bool:
         if not isinstance(node, Tree):
@@ -434,8 +512,10 @@ class PenguCodegen:
         last = stmts[-1]
         while isinstance(last, Tree) and last.data in ("stmt", "simple_stmt") and last.children:
             last = last.children[0]
-        if isinstance(last, Tree) and last.data in ("return_stmt", "break_stmt", "continue_stmt"):
-            return True
+        if isinstance(last, Tree):
+            data = SIMPLE_STMT_ALIASES.get(last.data, last.data)
+            if data in ("return_stmt", "break_stmt", "continue_stmt"):
+                return True
         return False
 
     @staticmethod
@@ -445,8 +525,10 @@ class PenguCodegen:
         last = stmts[-1]
         while isinstance(last, Tree) and last.data in ("stmt", "simple_stmt") and last.children:
             last = last.children[0]
-        if isinstance(last, Tree) and last.data in ("return_stmt", "break_stmt", "continue_stmt"):
-            return True
+        if isinstance(last, Tree):
+            data = SIMPLE_STMT_ALIASES.get(last.data, last.data)
+            if data in ("return_stmt", "break_stmt", "continue_stmt"):
+                return True
         return False
 
     def _lookup_var_type(self, name: str) -> Optional[Type]:
@@ -461,6 +543,66 @@ class PenguCodegen:
         if name in self.seals:
             return SealType(name, self.seals[name])
         return None
+
+    def _lookup_with_field_type(self, node: Tree) -> Optional[Type]:
+        """Resolves the field type of a with_target against the active with chain.
+
+        Used by 'set .field is ...' statements whose target is a leading-dot
+        field: the inferrer has no with-context, so the codegen must look up the
+        field type through the same stack it uses to resolve the target name.
+
+        Args:
+            node: A 'with_target' AST node ('.field').
+
+        Returns:
+            The field's Type, or None when it cannot be resolved.
+        """
+        if not self.with_stack:
+            return None
+        if not getattr(node, "children", None):
+            return None
+        field_name = str(node.children[0])
+        base_target = self.with_stack[-1]
+        base_t = self._lookup_var_type(base_target)
+        # 'self' inside enchanting is a reference; the with-target itself may be
+        # a 'ref to T'. Look through the pointer to the pointee's fields.
+        while isinstance(base_t, RefType):
+            base_t = base_t.target
+        curr_t = None
+        if isinstance(base_t, (RuneType, EchoType)):
+            fields = base_t.fields
+            if not fields:
+                # The RuneType may carry only a name; fall back to the
+                # codegen's own collected field map.
+                base_name = getattr(base_t, "name", str(base_t))
+                fields = self.runes.get(base_name) or self.echos.get(base_name, {})
+            if field_name in fields:
+                curr_t = fields[field_name]
+        elif isinstance(base_t, BaseType) and getattr(base_t, "name", "") in self.runes:
+            fields = self.runes[base_t.name]
+            if field_name in fields:
+                curr_t = fields[field_name]
+
+        if curr_t is None:
+            return None
+
+        for acc in node.children[1:]:
+            if isinstance(acc, Tree) and acc.data == "dot_access" and acc.children:
+                sub_field = str(acc.children[0])
+                while isinstance(curr_t, RefType):
+                    curr_t = curr_t.target
+                sub_fields = getattr(curr_t, "fields", None)
+                if not sub_fields:
+                    sub_name = getattr(curr_t, "name", str(curr_t))
+                    sub_fields = self.runes.get(sub_name) or self.echos.get(sub_name, {})
+                if sub_field in sub_fields:
+                    curr_t = sub_fields[sub_field]
+                else:
+                    return None
+            else:
+                break
+
+        return curr_t
 
     def _expr_is_string(self, node: Any, known_type: Optional[Type] = None) -> bool:
         """Returns True when an expression resolves to the PenguScript string type."""
@@ -670,6 +812,8 @@ class PenguCodegen:
         """Formats evaluated constant Python value into C literal."""
         if isinstance(val, bool):
             return "true" if val else "false"
+        elif isinstance(val, RangeConst):
+            return f"((PenguRange){{ .start = {val.start}, .end = {val.end} }})"
         elif isinstance(val, int):
             return str(val)
         elif isinstance(val, float):
@@ -793,7 +937,16 @@ class PenguCodegen:
             if isinstance(inner, Tree) and inner.data == "test_decl":
                 name_tok = inner.children[0]
                 raw_name = str(name_tok)
-                display_name = raw_name[1:-1] if (raw_name.startswith('"') and raw_name.endswith('"')) else raw_name
+                if raw_name.startswith('r"""') and raw_name.endswith('"""'):
+                    display_name = raw_name[4:-3]
+                elif raw_name.startswith('"""') and raw_name.endswith('"""'):
+                    display_name = raw_name[3:-3]
+                elif raw_name.startswith('r"') and raw_name.endswith('"'):
+                    display_name = raw_name[2:-1]
+                elif raw_name.startswith('"') and raw_name.endswith('"'):
+                    display_name = raw_name[1:-1]
+                else:
+                    display_name = raw_name
                 body_nodes = [c for c in inner.children[1:] if isinstance(c, Tree)]
                 self.tests.append({
                     "name": display_name,
@@ -968,7 +1121,9 @@ class PenguCodegen:
         if ret_c == "void":
             self.lambdas.append(f"static void {name}({decl}) {{ {push_call} {body_c}; {pop_call} }}")
         else:
-            self.lambdas.append(f"static {ret_c} {name}({decl}) {{ {push_call} {ret_c} _lret = {body_c}; {pop_call} return _lret; }}")
+            fn_sig = CTypeMapper.to_c_decl(ret_t, f"{name}({decl})")
+            lret_decl = CTypeMapper.to_c_decl(ret_t, "_lret")
+            self.lambdas.append(f"static {fn_sig} {{ {push_call} {lret_decl} = {body_c}; {pop_call} return _lret; }}")
 
     def generate_lambdas(self) -> str:
         """Emits the top-level 'static' functions generated for lambdas."""
@@ -1077,11 +1232,17 @@ class PenguCodegen:
             c_type = None
             expr_idx = 1
             if len(stmt.children) == 3:
-                c_type = ast_to_type(stmt.children[1], self._lookup_type_fn)
+                if stmt.children[1] is not None:
+                    c_type = ast_to_type(stmt.children[1], self._lookup_type_fn)
                 expr_idx = 2
             expr_node = stmt.children[expr_idx]
             val = self.const_folder.fold(expr_node)
+            if (c_type is None or isinstance(c_type, AnyType)) and self.symbols:
+                sym = self.symbols.lookup(name)
+                if sym and sym.type and not isinstance(sym.type, AnyType):
+                    c_type = sym.type
             self.consts[c_name] = (c_type, val)
+            self.const_nodes[c_name] = expr_node
             if filepath and filepath.endswith(".d.pengu"):
                 self.declaration_consts.add(c_name)
             if filepath:
@@ -1093,6 +1254,7 @@ class PenguCodegen:
                         mod_name = os.path.splitext(os.path.basename(norm_fp))[0]
                         if mod_name and not name.startswith(f"{mod_name}_"):
                             self.consts[f"{mod_name}_{name}"] = (c_type, val)
+                            self.const_nodes[f"{mod_name}_{name}"] = expr_node
                             if filepath.endswith(".d.pengu"):
                                 self.declaration_consts.add(f"{mod_name}_{name}")
 
@@ -1271,9 +1433,11 @@ class PenguCodegen:
             if isinstance(s, Tree):
                 body_stmts.append(s)
 
-        c_name = name
+        c_name = self._c_ident(name)
         if enchanted_type is not None:
             t_name = getattr(enchanted_type, "name", str(enchanted_type)).replace(" ", "_")
+            t_name = self._c_ident(t_name)
+            m_name = self._c_ident(name)
             # 'insignia' prefixes module-level weaves/declares but NOT methods
             # enchanting primitive/collection types (string, list, map, slice,
             # maybe, result): those keep their plain names (string_len, ...)
@@ -1282,9 +1446,9 @@ class PenguCodegen:
             is_primitive_receiver = isinstance(enchanted_type, BaseType) or isinstance(
                 enchanted_type, (ListType, MapType, SliceType, MaybeType, ResultType)
             )
-            c_name = f"{t_name}_{name}" if is_primitive_receiver else (f"{prefix}{t_name}_{name}" if prefix else f"{t_name}_{name}")
+            c_name = f"{t_name}_{m_name}" if is_primitive_receiver else (f"{prefix}{t_name}_{m_name}" if prefix else f"{t_name}_{m_name}")
         elif prefix:
-            c_name = f"{prefix}{name}"
+            c_name = f"{prefix}{self._c_ident(name)}"
         elif filepath:
             norm_fp = os.path.abspath(filepath)
             norm_order = [os.path.abspath(p) for p in self.import_order]
@@ -1293,7 +1457,7 @@ class PenguCodegen:
                 if is_std:
                     mod_name = os.path.splitext(os.path.basename(norm_fp))[0]
                     if mod_name and not name.startswith(f"{mod_name}_"):
-                        c_name = f"{mod_name}_{name}"
+                        c_name = f"{mod_name}_{self._c_ident(name)}"
 
         if name == "main" and enchanted_type is None:
             self.has_main = True
@@ -1511,7 +1675,9 @@ class PenguCodegen:
             if name in self.declaration_consts:
                 continue
             if val is not None:
-                if isinstance(val, str):
+                if isinstance(val, RangeConst):
+                    emitted_lines.append(f"static const PenguRange {name} = {{ .start = {val.start}, .end = {val.end} }};")
+                elif isinstance(val, str):
                     if self._is_ref_char_type(c_type):
                         emitted_lines.append(f'#define {name} "{val}"')
                     else:
@@ -1521,8 +1687,25 @@ class PenguCodegen:
                 else:
                     emitted_lines.append(f"#define {name} {val}")
             else:
-                t_str = CTypeMapper.to_c_type(c_type, const=True)
-                emitted_lines.append(f"{t_str} {name};")
+                expr_node = self.const_nodes.get(name)
+                if (c_type is None or isinstance(c_type, AnyType)) and self.symbols:
+                    sym = self.symbols.lookup(name)
+                    if sym and sym.type and not isinstance(sym.type, AnyType):
+                        c_type = sym.type
+                if c_type is not None and isinstance(c_type, ArrayType) and expr_node is not None:
+                    expr_code = self._translate_expr(expr_node, expected_type=c_type)
+                    dims, _ = get_array_dims_and_base(c_type)
+                    dims_str = "".join(f"[{d}]" for d in dims)
+                    base_t = get_array_base_type(c_type)
+                    decl_arr = CTypeMapper.to_c_decl(base_t, f"{name}{dims_str}", const=True)
+                    emitted_lines.append(f"static {decl_arr} = {expr_code};")
+                elif c_type is not None and expr_node is not None:
+                    expr_code = self._translate_expr(expr_node, expected_type=c_type)
+                    decl_const = CTypeMapper.to_c_decl(c_type, name, const=True)
+                    emitted_lines.append(f"static {decl_const} = {expr_code};")
+                else:
+                    t_str = CTypeMapper.to_c_type(c_type, const=True)
+                    emitted_lines.append(f"{t_str} {name};")
 
         if not emitted_lines:
             return ""
@@ -1543,7 +1726,10 @@ class PenguCodegen:
         if name in (
             "default", "case", "switch", "register", "goto", "volatile", "union", "enum", "struct", "auto",
             "long", "short", "int", "char", "float", "double", "signed", "unsigned", "void", "const",
-            "static", "extern", "inline", "restrict", "return", "sizeof", "typedef"
+            "static", "extern", "inline", "restrict", "return", "sizeof", "typedef",
+            "if", "else", "while", "for", "do", "break", "continue", "asm",
+            "NULL", "bool", "true", "false", "_Bool", "wchar_t", "FILE",
+            "_Alignas", "_Alignof", "_Atomic", "_Generic", "_Noreturn", "_Static_assert", "_Thread_local",
         ):
             return f"_{name}"
         return name
@@ -1593,12 +1779,9 @@ class PenguCodegen:
 
             params_formatted = ", ".join(param_strs) if param_strs else "void"
             inline_pfx = "static inline __attribute__((always_inline)) " if w["is_inline"] else ""
-
-            if c_name == "main":
-                # Expose main wrapper or standard signature
-                lines.append(f"{inline_pfx}{ret_str} pengu_main({params_formatted});")
-            else:
-                lines.append(f"{inline_pfx}{ret_str} {c_name}({params_formatted});")
+            fn_actual_name = "pengu_main" if c_name == "main" else c_name
+            decl = CTypeMapper.to_c_decl(w["return_type"], f"{fn_actual_name}({params_formatted})")
+            lines.append(f"{inline_pfx}{decl};")
 
         lines.append("")
         return "\n".join(lines)
@@ -1630,11 +1813,12 @@ class PenguCodegen:
             params_formatted = ", ".join(param_strs) if param_strs else "void"
             inline_pfx = "static inline __attribute__((always_inline)) " if w["is_inline"] else ""
             fn_actual_name = "pengu_main" if c_name == "main" else c_name
+            decl = CTypeMapper.to_c_decl(w["return_type"], f"{fn_actual_name}({params_formatted})")
 
             marker = self._line_marker(w.get("line"), w.get("filepath"))
             if marker:
                 lines.append(marker)
-            lines.append(f"{inline_pfx}{ret_str} {fn_actual_name}({params_formatted}) {{")
+            lines.append(f"{inline_pfx}{decl} {{")
             self.indent_level += 1
             push_path = self._display_path(w.get("filepath")) or ""
             push_line = w.get("line") or 0
@@ -1798,16 +1982,8 @@ class PenguCodegen:
         if rule == "var_decl":
             is_borrowed, name_idx = self._has_borrowed_modifier(node)
             name = str(node.children[name_idx])
-            type_node = None
-            if name_idx == 1:
-                type_node = node.children[2]
-                expr_node = node.children[3]
-            else:
-                expr_idx = 1
-                if len(node.children) == 3:
-                    type_node = node.children[1]
-                    expr_idx = 2
-                expr_node = node.children[expr_idx]
+            c_name = self._c_ident(name)
+            type_node, expr_node = _decl_layout(node)
 
             t = None
             sym = getattr(node, "_pengu_symbol", None)
@@ -1841,8 +2017,9 @@ class PenguCodegen:
 
             if t is not None:
                 self.local_vars[name] = t
+                self.local_vars[c_name] = t
             if sym and getattr(sym, "is_auto_banished", False) and t is not None:
-                self._auto_banish_register(name, t)
+                self._auto_banish_register(c_name, t)
 
             t_str = CTypeMapper.to_c_type(t) if t is not None else "int32_t"
             if t_str == "void":
@@ -1850,62 +2027,35 @@ class PenguCodegen:
 
             if isinstance(expr_node, Tree) and expr_node.data == "or_block":
                 left_op = expr_node.children[0]
-                block_stmts = expr_node.children[1:]
-                tmp_res = self.get_temp_name("_res")
-                left_c = self._translate_expr(left_op)
-                prev_error_t = self.local_vars.get("error")
-                self.local_vars["error"] = STRING_TYPE
-                self._auto_banish_push("block")
-                try:
-                    self.indent_level += 1
-                    inner_body = [self._translate_stmt(bs) for bs in block_stmts]
-                    banish = self._flush_current_scope_banish() if not self._stmts_end_with_jump(block_stmts) else []
-                    self.indent_level -= 1
-                finally:
-                    if self.auto_banish_stack and self.auto_banish_stack[-1][0] == "block":
-                        self.auto_banish_stack.pop()
-                    if prev_error_t is None:
-                        self.local_vars.pop("error", None)
-                    else:
-                        self.local_vars["error"] = prev_error_t
-                block_c = "\n".join(inner_body + banish)
-                return (
-                    f"{ind}PenguResult {tmp_res} = {left_c};\n"
-                    f"{ind}if (!pengu_result_is_ok(&{tmp_res})) {{\n"
-                    f"{ind}  PenguString error = pengu_string_from_cstr({tmp_res}.err_val ? {tmp_res}.err_val : \"error\");\n"
-                    f"{block_c}\n"
-                    f"{ind}}}\n"
-                    f"{ind}{t_str} {name} = ({t_str})({tmp_res}.ok_val);"
-                )
+                block_stmts = [c for c in expr_node.children[1:] if isinstance(c, Tree)]
+                decl = CTypeMapper.to_c_decl(t, c_name) if t is not None else f"{t_str} {c_name}"
+                return self._translate_or_block(left_op, block_stmts, target_type=t, target_decl=decl, target_ident=c_name)
 
             alloc_comment = " /* stack */" if (isinstance(t, (RuneType, ArrayType)) or (sym and sym.is_stack_alloc)) else ""
             if isinstance(t, ArrayType) and t.size is not None:
-                dims, base_c = get_array_dims_and_base(t)
+                dims, _ = get_array_dims_and_base(t)
                 dims_str = "".join(f"[{d}]" for d in dims)
+                base_t = get_array_base_type(t)
+                decl_arr = CTypeMapper.to_c_decl(base_t, f"{c_name}{dims_str}")
                 if isinstance(expr_node, Tree) and expr_node.data == "array_init_expr":
-                    return f"{ind}{base_c} {name}{dims_str} = {{0}};{alloc_comment}"
+                    return f"{ind}{decl_arr} = {{0}};{alloc_comment}"
                 expr_code = self._translate_expr(expr_node, expected_type=t)
-                return f"{ind}{base_c} {name}{dims_str} = {expr_code};{alloc_comment}"
+                return f"{ind}{decl_arr} = {expr_code};{alloc_comment}"
             if isinstance(t, ArrayType) and t.size is None and isinstance(expr_node, Tree) and expr_node.data == "array_init_expr":
                 array_size = self._translate_expr(expr_node.children[1])
                 elem_str = CTypeMapper.to_c_type(t.element)
-                return f"{ind}{elem_str} {name}[{array_size}] = {{0}};{alloc_comment}"
+                return f"{ind}{elem_str} {c_name}[{array_size}] = {{0}};{alloc_comment}"
             expr_code = self._translate_expr(expr_node, expected_type=t)
             if isinstance(t, FnType) or (isinstance(t, RefType) and isinstance(t.target, FnType)):
                 # Function-pointer values (lambdas, weave refs, C callbacks)
                 # need a proper declarator: 'ret (*name)(params) = value;'
-                return f"{ind}{CTypeMapper.to_c_decl(t, name)} = {expr_code};{alloc_comment}"
-            return f"{ind}{t_str} {name} = {expr_code};{alloc_comment}"
-
+                return f"{ind}{CTypeMapper.to_c_decl(t, c_name)} = {expr_code};{alloc_comment}"
+            return f"{ind}{t_str} {c_name} = {expr_code};{alloc_comment}"
 
         elif rule == "static_var_decl":
             name = str(node.children[0])
-            type_node = None
-            expr_idx = 1
-            if len(node.children) == 3:
-                type_node = node.children[1]
-                expr_idx = 2
-            expr_node = node.children[expr_idx]
+            c_name = self._c_ident(name)
+            type_node, expr_node = _decl_layout(node)
 
             t = None
             sym = self.symbols.lookup(name) if self.symbols else None
@@ -1924,6 +2074,7 @@ class PenguCodegen:
                         pass
             if t is not None:
                 self.local_vars[name] = t
+                self.local_vars[c_name] = t
             t_str = CTypeMapper.to_c_type(t) if t is not None else "int32_t"
             if t_str == "void":
                 t_str = "int32_t"
@@ -1938,21 +2089,21 @@ class PenguCodegen:
             # Scalar compile-time constants can initialize a C static directly.
             if folded is not None and not isinstance(folded, str):
                 val_str = self._format_const_val(folded, expected_type=t)
-                return f"{ind}static {t_str} {name} = {val_str};"
+                return f"{ind}static {t_str} {c_name} = {val_str};"
 
             # Non-constant (e.g. strings, structs) statics are zero-initialized and
             # lazily assigned on first execution (once per process).
             init_c = self._translate_expr(expr_node, expected_type=t) if expr_node is not None else "0"
-            guard = f"{name}_initialized"
-            static_decl = (CTypeMapper.to_c_decl(t, name)
+            guard = f"{c_name}_initialized"
+            static_decl = (CTypeMapper.to_c_decl(t, c_name)
                            if (isinstance(t, FnType)
                                or (isinstance(t, RefType) and isinstance(t.target, FnType)))
-                           else f"{t_str} {name}")
+                           else f"{t_str} {c_name}")
             return (
                 f"{ind}static {static_decl};\n"
                 f"{ind}static bool {guard} = false;\n"
                 f"{ind}if (!{guard}) {{\n"
-                f"{ind}  {name} = {init_c};\n"
+                f"{ind}  {c_name} = {init_c};\n"
                 f"{ind}  {guard} = true;\n"
                 f"{ind}}}"
             )
@@ -1967,19 +2118,11 @@ class PenguCodegen:
             else:
                 names = [str(var_names_node)]
 
-            if name_idx == 1:
-                type_node = node.children[2]
-                expr_node = node.children[3]
-            else:
-                expr_idx = 1
-                type_node = None
-                if len(node.children) == 3:
-                    type_node = node.children[1]
-                    expr_idx = 2
-                expr_node = node.children[expr_idx]
+            type_node, expr_node = _decl_layout(node)
 
             if len(names) == 1:
                 name = names[0]
+                c_name = self._c_ident(name)
                 t = None
                 sym = getattr(node, "_pengu_symbol", None)
                 if sym is None and self.symbols:
@@ -2011,55 +2154,34 @@ class PenguCodegen:
                             pass
                 if t is not None:
                     self.local_vars[name] = t
+                    self.local_vars[c_name] = t
                 if sym and getattr(sym, "is_auto_banished", False) and t is not None:
-                    self._auto_banish_register(name, t)
+                    self._auto_banish_register(c_name, t)
                 t_str = CTypeMapper.to_c_type(t, const=True)
                 if t_str == "void":
                     t_str = "const int32_t"
 
                 if isinstance(expr_node, Tree) and expr_node.data == "or_block":
                     left_op = expr_node.children[0]
-                    block_stmts = expr_node.children[1:]
-                    tmp_res = self.get_temp_name("_res")
-                    left_c = self._translate_expr(left_op)
-                    prev_error_t = self.local_vars.get("error")
-                    self.local_vars["error"] = STRING_TYPE
-                    self._auto_banish_push("block")
-                    try:
-                        self.indent_level += 1
-                        inner_body = [self._translate_stmt(bs) for bs in block_stmts]
-                        banish = self._flush_current_scope_banish() if not self._stmts_end_with_jump(block_stmts) else []
-                        self.indent_level -= 1
-                    finally:
-                        if self.auto_banish_stack and self.auto_banish_stack[-1][0] == "block":
-                            self.auto_banish_stack.pop()
-                        if prev_error_t is None:
-                            self.local_vars.pop("error", None)
-                        else:
-                            self.local_vars["error"] = prev_error_t
-                    block_c = "\n".join(inner_body + banish)
-                    return (
-                        f"{ind}PenguResult {tmp_res} = {left_c};\n"
-                        f"{ind}if (!pengu_result_is_ok(&{tmp_res})) {{\n"
-                        f"{ind}  PenguString error = pengu_string_from_cstr({tmp_res}.err_val ? {tmp_res}.err_val : \"error\");\n"
-                        f"{block_c}\n"
-                        f"{ind}}}\n"
-                        f"{ind}{t_str} {name} = ({t_str})({tmp_res}.ok_val);"
-                    )
+                    block_stmts = [c for c in expr_node.children[1:] if isinstance(c, Tree)]
+                    decl = CTypeMapper.to_c_decl(t, c_name) if t is not None else f"{t_str} {c_name}"
+                    return self._translate_or_block(left_op, block_stmts, target_type=t, target_decl=decl, target_ident=c_name)
 
                 alloc_comment = " /* stack */" if (sym and sym.is_stack_alloc) else ""
                 if isinstance(t, ArrayType) and t.size is not None:
-                    dims, base_c = get_array_dims_and_base(t)
+                    dims, _ = get_array_dims_and_base(t)
                     dims_str = "".join(f"[{d}]" for d in dims)
+                    base_t = get_array_base_type(t)
+                    decl_arr = CTypeMapper.to_c_decl(base_t, f"{c_name}{dims_str}", const=True)
                     if isinstance(expr_node, Tree) and expr_node.data == "array_init_expr":
-                        return f"{ind}const {base_c} {name}{dims_str} = {{0}};{alloc_comment}"
+                        return f"{ind}{decl_arr} = {{0}};{alloc_comment}"
                     expr_code = self._translate_expr(expr_node, expected_type=t)
-                    return f"{ind}const {base_c} {name}{dims_str} = {expr_code};{alloc_comment}"
+                    return f"{ind}{decl_arr} = {expr_code};{alloc_comment}"
                 expr_code = self._translate_expr(expr_node, expected_type=t)
                 if isinstance(t, FnType) or (isinstance(t, RefType) and isinstance(t.target, FnType)):
                     # Function-pointer binding: 'ret (*name)(params) = value;'
-                    return f"{ind}{CTypeMapper.to_c_decl(t, name)} = {expr_code};{alloc_comment}"
-                return f"{ind}{t_str} {name} = {expr_code};{alloc_comment}"
+                    return f"{ind}{CTypeMapper.to_c_decl(t, c_name)} = {expr_code};{alloc_comment}"
+                return f"{ind}{t_str} {c_name} = {expr_code};{alloc_comment}"
             else:
                 # Destructuring
                 tmp = self.get_temp_name("_destruct")
@@ -2084,32 +2206,84 @@ class PenguCodegen:
                 rune_field_names = list(self.runes[matched_rune].keys()) if (matched_rune and matched_rune in self.runes) else []
 
                 for i, name in enumerate(names):
+                    c_name = self._c_ident(name)
                     sym = self.symbols.lookup(name) if self.symbols else None
                     var_t = sym.type if sym else None
                     if var_t is None and matched_rune and matched_rune in self.runes and i < len(self.runes[matched_rune]):
                         var_t = list(self.runes[matched_rune].values())[i]
                     if var_t is not None:
                         self.local_vars[name] = var_t
+                        self.local_vars[c_name] = var_t
                     if sym and getattr(sym, "is_auto_banished", False) and var_t is not None:
-                        self._auto_banish_register(name, var_t)
+                        self._auto_banish_register(c_name, var_t)
                     t_str = CTypeMapper.to_c_type(var_t, const=True) if var_t else "const int32_t"
                     if t_str == "void":
                         t_str = "const int32_t"
                     if i < len(rune_field_names):
-                        lines.append(f"{ind}{t_str} {name} = {tmp}.{rune_field_names[i]};")
+                        lines.append(f"{ind}{t_str} {c_name} = {tmp}.{rune_field_names[i]};")
                     else:
-                        lines.append(f"{ind}{t_str} {name} = {tmp}[{i}];")
+                        lines.append(f"{ind}{t_str} {c_name} = {tmp}[{i}];")
                 return "\n".join(lines)
 
         elif rule == "set_stmt":
             target_node = node.children[0]
             expr_node = node.children[1]
+
+            inner_target = target_node.children[0] if (isinstance(target_node, Tree) and target_node.data == "set_target" and target_node.children) else target_node
+
+            # Check if setting a map element: `set m at k is v`
+            if isinstance(inner_target, Tree) and inner_target.data in ("normal_target", "with_target") and len(inner_target.children) >= 2:
+                last_acc = inner_target.children[-1]
+                if isinstance(last_acc, Tree) and last_acc.data == "at_access":
+                    base_parts = list(inner_target.children[:-1])
+                    if inner_target.data == "normal_target":
+                        base_str = str(base_parts[0])
+                        sym = self.symbols.lookup(base_str) if self.symbols else None
+                        if self.with_stack and (not sym or sym.kind == "field"):
+                            base_target = self.with_stack[-1]
+                            base_type = self._lookup_var_type(base_target)
+                            sep = "->" if (base_target == "self" or isinstance(base_type, RefType)) else "."
+                            base_str = f"{base_target}{sep}{base_str}"
+                        for acc in base_parts[1:]:
+                            base_str = self._translate_access_op(base_str, acc)
+                        map_t = self._lookup_var_type(base_str) or self._lookup_var_type(str(base_parts[0]))
+                    else:
+                        field_name = str(base_parts[0])
+                        base_target = self.with_stack[-1] if self.with_stack else "self"
+                        base_type = self._lookup_var_type(base_target)
+                        sep = "->" if (base_target == "self" or isinstance(base_type, RefType)) else "."
+                        base_str = f"{base_target}{sep}{field_name}"
+                        for acc in base_parts[1:]:
+                            base_str = self._translate_access_op(base_str, acc)
+                        map_t = self._lookup_var_type(base_str) or self._lookup_with_field_type(inner_target)
+
+                    if isinstance(map_t, (MapType, RefType)) and (isinstance(map_t, MapType) or isinstance(map_t.target, MapType)):
+                        actual_map = map_t.target if isinstance(map_t, RefType) else map_t
+                        k_expr = self._translate_expr(last_acc.children[0], expected_type=actual_map.key)
+                        v_expr = self._translate_expr(expr_node, expected_type=actual_map.value)
+                        key_c = CTypeMapper.to_c_type(actual_map.key)
+                        val_c = CTypeMapper.to_c_type(actual_map.value)
+                        map_ptr = base_str if isinstance(map_t, RefType) else f"&({base_str})"
+                        tmp_k = self.get_temp_name("_k")
+                        tmp_v = self.get_temp_name("_v")
+                        return (
+                            f"{ind}{{\n"
+                            f"{ind}  {key_c} {tmp_k} = {k_expr};\n"
+                            f"{ind}  {val_c} {tmp_v} = {v_expr};\n"
+                            f"{ind}  pengu_map_put({map_ptr}, &{tmp_k}, &{tmp_v});\n"
+                            f"{ind}}}"
+                        )
+
             target_str = self._translate_set_target(target_node)
 
             inner_target = target_node.children[0] if (isinstance(target_node, Tree) and target_node.data == "set_target" and target_node.children) else target_node
             target_type = self._infer_node_type(inner_target)
             if target_type is None:
-                if isinstance(inner_target, Tree) and inner_target.data == "normal_target":
+                if isinstance(inner_target, Tree) and inner_target.data == "with_target":
+                    # '.field' inside a 'with:' / 'with x:' block: the inferrer has no
+                    # with-context, so resolve the field type from the codegen's stack.
+                    target_type = self._lookup_with_field_type(inner_target)
+                elif isinstance(inner_target, Tree) and inner_target.data == "normal_target":
                     obj_name = str(inner_target.children[0])
                     target_type = self._lookup_var_type(obj_name)
                 elif isinstance(inner_target, Token):
@@ -2124,7 +2298,12 @@ class PenguCodegen:
                 elif isinstance(target_type, BaseType) and target_type.name in self.runes:
                     rune_name = target_type.name
 
-            if rune_name and rune_name in self.runes and len(self.runes[rune_name]) >= 3:
+            is_rvalue = (
+                isinstance(expr_node, Tree)
+                and expr_node.data in ("with_init_expr", "do_expr", "if_stmt", "unless_stmt", "while_stmt", "for_range_stmt", "for_in_stmt")
+            ) or expr_str.strip().startswith("(__extension__") or expr_str.strip().startswith("({")
+
+            if not is_rvalue and rune_name and rune_name in self.runes and len(self.runes[rune_name]) >= 3:
                 return f"{ind}memcpy(&({target_str}), &({expr_str}), sizeof({rune_name}));"
 
             return f"{ind}{target_str} = {expr_str};"
@@ -2138,14 +2317,16 @@ class PenguCodegen:
 
             inner_target = target_node.children[0] if (isinstance(target_node, Tree) and target_node.data == "set_target" and target_node.children) else target_node
             target_type = None
-            if isinstance(inner_target, Tree) and inner_target.data == "normal_target" and inner_target.children:
+            if isinstance(inner_target, Tree) and inner_target.data == "with_target":
+                target_type = self._lookup_with_field_type(inner_target)
+            elif isinstance(inner_target, Tree) and inner_target.data == "normal_target" and inner_target.children:
                 target_type = self._lookup_var_type(str(inner_target.children[0]))
             elif isinstance(inner_target, Token):
                 target_type = self._lookup_var_type(str(inner_target))
 
             expr_str = self._translate_expr(expr_node, expected_type=target_type)
 
-            if op == "+=" and isinstance(target_type, BaseType) and target_type.name == "string":
+            if op == "+=" and target_type is not None and target_type.is_string():
                 return f"{ind}{target_str} = pengu_string_concat({target_str}, {expr_str});"
 
             return f"{ind}{target_str} {op} {expr_str};"
@@ -2154,11 +2335,6 @@ class PenguCodegen:
             call_tree = Tree("calling_expr", node.children)
             expr_code = self._translate_expr(call_tree)
             return f"{ind}{expr_code};"
-
-        elif rule == "named_stmt":
-            name = str(node.children[0])
-            expr_str = self._translate_expr(node.children[1])
-            return f"{ind}{name} = {expr_str};"
 
 
         elif rule == "if_stmt":
@@ -2272,12 +2448,14 @@ class PenguCodegen:
             target_str = self._translate_expr(target_expr)
 
             self.with_stack.append(target_str)
-            body_lines = []
-            for s in stmts:
-                code = self._translate_stmt(s)
-                if code:
-                    body_lines.append(code)
-            self.with_stack.pop()
+            try:
+                body_lines = []
+                for s in stmts:
+                    code = self._translate_stmt(s)
+                    if code:
+                        body_lines.append(code)
+            finally:
+                self.with_stack.pop()
 
             return "\n".join(body_lines)
 
@@ -2328,8 +2506,11 @@ class PenguCodegen:
             ret_val_str = self._translate_expr(ret_expr, expected_type=self.current_return_type) if ret_expr is not None else ""
 
             is_err_ret = False
-            if "pengu_result_err" in ret_val_str or "error" in ret_val_str:
-                is_err_ret = True
+            if isinstance(ret_expr, Tree):
+                if ret_expr.data in ("err_expr", "error_lit"):
+                    is_err_ret = True
+                elif ret_expr.data == "or_block" and len(ret_expr.children) > 1:
+                    is_err_ret = True
 
             cleanup_lines = []
             if is_err_ret and self.errdefer_stack:
@@ -2357,20 +2538,20 @@ class PenguCodegen:
             if ret_expr is not None:
                 if cleanup_lines:
                     tmp = self.get_temp_name("_ret")
-                    ret_t_str = CTypeMapper.to_c_type(self.current_return_type)
-                    return f"{ind}{ret_t_str} {tmp} = {ret_val_str};\n{cleanup_str}{pop_stmt}\n{ind}return {tmp};"
+                    ret_decl = CTypeMapper.to_c_decl(self.current_return_type, tmp)
+                    return f"{ind}{ret_decl} = {ret_val_str};\n{cleanup_str}{pop_stmt}\n{ind}return {tmp};"
                 return f"{pop_stmt}\n{ind}return {ret_val_str};"
             return f"{cleanup_str}{pop_stmt}\n{ind}return;"
 
         elif rule == "break_stmt":
             cleanup_lines = []
             for kind, entries in reversed(self.auto_banish_stack):
-                if kind == "loop":
-                    break
                 for name, t in reversed(entries):
                     code = self._emit_auto_banish(name, t)
                     if code:
                         cleanup_lines.append(code)
+                if kind == "loop":
+                    break
             if cleanup_lines:
                 return "\n".join(cleanup_lines) + f"\n{ind}break;"
             return f"{ind}break;"
@@ -2378,12 +2559,12 @@ class PenguCodegen:
         elif rule == "continue_stmt":
             cleanup_lines = []
             for kind, entries in reversed(self.auto_banish_stack):
-                if kind == "loop":
-                    break
                 for name, t in reversed(entries):
                     code = self._emit_auto_banish(name, t)
                     if code:
                         cleanup_lines.append(code)
+                if kind == "loop":
+                    break
             if cleanup_lines:
                 return "\n".join(cleanup_lines) + f"\n{ind}continue;"
             return f"{ind}continue;"
@@ -2423,10 +2604,7 @@ class PenguCodegen:
             stmts = [c for c in block_node.children if isinstance(c, Tree)]
             parts, val = self._value_branch(stmts, elem_t)
             if val is not None:
-                ind = self.indent()
-                tmp_val = self.get_temp_name("_lv")
-                parts.append(f"{ind}{elem_c} {tmp_val} = {val};")
-                parts.append(f"{ind}pengu_list_push(&{list_tmp}, &{tmp_val});")
+                parts.extend(self._emit_iteration_value(list_tmp, elem_c, val, elem_t))
             banish = self._flush_current_scope_banish()
             if banish:
                 parts.extend(banish)
@@ -2467,23 +2645,37 @@ class PenguCodegen:
         var_name = str(node.children[0])
         start_str = self._translate_expr(node.children[1])
         end_str = self._translate_expr(node.children[2])
-        step_node = node.children[3] if len(node.children) > 3 and node.children[3] is not None else None
+        step_node = node.children[3] if len(node.children) == 5 and node.children[3] is not None else None
         step_str = self._translate_expr(step_node) if step_node is not None else "1"
-        block_node = node.children[4] if len(node.children) > 4 and node.children[4] is not None else node.children[-1]
+        block_node = node.children[-1]
 
+        _MISSING = object()
+        prev_var = self.local_vars.get(var_name, _MISSING)
         self.local_vars[var_name] = INT_TYPE
         self.indent_level += 1
         body_str = self._translate_loop_body(block_node, append_ctx)
         self.indent_level -= 1
-        if var_name in self.local_vars:
-            del self.local_vars[var_name]
+        if prev_var is _MISSING:
+            self.local_vars.pop(var_name, None)
+        else:
+            self.local_vars[var_name] = prev_var
 
-        step_c = f"{var_name}++" if step_str == "1" else f"{var_name} += {step_str}"
-        return (
-            f"{ind}for (int32_t {var_name} = {start_str}; "
-            f"{var_name} < {end_str}; {step_c}) {{\n"
-            f"{body_str}\n{ind}}}"
-        )
+        step_val = self.const_folder.fold(step_node) if step_node is not None else 1
+        if isinstance(step_val, int):
+            if step_val < 0:
+                cond_c = f"{var_name} > {end_str}"
+                step_c = f"{var_name}--" if step_val == -1 else f"{var_name} += {step_str}"
+                loop_header = f"for (int32_t {var_name} = {start_str}; {cond_c}; {step_c})"
+            else:
+                cond_c = f"{var_name} < {end_str}"
+                step_c = f"{var_name}++" if step_val == 1 else f"{var_name} += {step_str}"
+                loop_header = f"for (int32_t {var_name} = {start_str}; {cond_c}; {step_c})"
+        else:
+            _step_tmp = self.get_temp_name("_step")
+            cond_c = f"({_step_tmp} >= 0 ? {var_name} < {end_str} : {var_name} > {end_str})"
+            loop_header = f"for (int32_t {var_name} = {start_str}, {_step_tmp} = {step_str}; {cond_c}; {var_name} += {_step_tmp})"
+
+        return f"{ind}{loop_header} {{\n{body_str}\n{ind}}}"
 
     def _translate_for_in(self, node: Tree, append_ctx=None) -> str:
         """Translates for [i,] item in collection loop.
@@ -2534,6 +2726,9 @@ class PenguCodegen:
 
         if is_range:
             loop_var = elem_name if want_elem else self.get_temp_name("_rv")
+            _MISSING = object()
+            prev_elem = self.local_vars.get(elem_name, _MISSING) if want_elem else _MISSING
+            prev_index = self.local_vars.get(index_name, _MISSING) if want_index else _MISSING
             if want_elem:
                 self.local_vars[elem_name] = INT_TYPE
             if want_index:
@@ -2541,10 +2736,16 @@ class PenguCodegen:
             self.indent_level += 1
             body_str = self._translate_loop_body(block_node, append_ctx)
             self.indent_level -= 1
-            if want_elem and elem_name in self.local_vars:
-                del self.local_vars[elem_name]
-            if want_index and index_name in self.local_vars:
-                del self.local_vars[index_name]
+            if want_elem:
+                if prev_elem is _MISSING:
+                    self.local_vars.pop(elem_name, None)
+                else:
+                    self.local_vars[elem_name] = prev_elem
+            if want_index:
+                if prev_index is _MISSING:
+                    self.local_vars.pop(index_name, None)
+                else:
+                    self.local_vars[index_name] = prev_index
 
             if start_str is not None and end_str is not None:
                 if want_index:
@@ -2590,10 +2791,14 @@ class PenguCodegen:
                 and isinstance(col_t, ArrayType) and col_expr.children):
             lit_tmp = self.get_temp_name("_lit")
             elems = ", ".join(self._translate_expr(c) for c in col_expr.children)
-            lit_decl = f"{ind}{elem_c} {lit_tmp}[] = {{ {elems} }};\n"
+            lit_type_decl = CTypeMapper.to_c_decl(elem_t, f"{lit_tmp}[]")
+            lit_decl = f"{ind}{lit_type_decl} = {{ {elems} }};\n"
             col_str = lit_tmp
             col_t = ArrayType(element=col_t.element, size=len(col_expr.children))
 
+        _MISSING = object()
+        prev_index = self.local_vars.get(index_name, _MISSING) if want_index else _MISSING
+        prev_elem = self.local_vars.get(elem_name, _MISSING) if want_elem else _MISSING
         if want_index:
             self.local_vars[index_name] = INT_TYPE
         if want_elem:
@@ -2601,12 +2806,21 @@ class PenguCodegen:
         self.indent_level += 1
         body_str = self._translate_loop_body(block_node, append_ctx)
         self.indent_level -= 1
-        if want_index and index_name in self.local_vars:
-            del self.local_vars[index_name]
-        if want_elem and elem_name in self.local_vars:
-            del self.local_vars[elem_name]
+        if want_index:
+            if prev_index is _MISSING:
+                self.local_vars.pop(index_name, None)
+            else:
+                self.local_vars[index_name] = prev_index
+        if want_elem:
+            if prev_elem is _MISSING:
+                self.local_vars.pop(elem_name, None)
+            else:
+                self.local_vars[elem_name] = prev_elem
 
-        elem_decl = f"{ind}  {elem_c} {elem_name} = " if want_elem else f"{ind}  /* discard element */ "
+        c_elem_name = self._c_ident(elem_name)
+        decl_elem = CTypeMapper.to_c_decl(elem_t, c_elem_name) if want_elem else "/* discard element */"
+        elem_decl = f"{ind}  {decl_elem} = " if want_elem else f"{ind}  {decl_elem} "
+        elem_cast = CTypeMapper.to_c_decl(elem_t, "*")
         if isinstance(col_t, ArrayType) and col_t.size is not None:
             if want_elem:
                 body_prefix = f"{elem_decl}({col_str})[{iter_idx}];\n"
@@ -2620,9 +2834,9 @@ class PenguCodegen:
             )
         elif isinstance(col_t, (SliceType, ManyType)):
             if want_elem:
-                body_prefix = f"{elem_decl}((({elem_c}*)({col_str}).data)[{iter_idx}]);\n"
+                body_prefix = f"{elem_decl}((({elem_cast})({col_str}).data)[{iter_idx}]);\n"
             else:
-                body_prefix = f"{ind}  (void)((({elem_c}*)({col_str}).data)[{iter_idx}]);\n"
+                body_prefix = f"{ind}  (void)((({elem_cast})({col_str}).data)[{iter_idx}]);\n"
             return (
                 f"{ind}for (int32_t {iter_idx} = 0; {iter_idx} < ({col_str}).len; {iter_idx}++) {{\n"
                 f"{body_prefix}"
@@ -2630,9 +2844,9 @@ class PenguCodegen:
             )
         elif isinstance(col_t, ListType):
             if want_elem:
-                body_prefix = f"{elem_decl}(*({elem_c}*)pengu_list_at(&({col_str}), {iter_idx}));\n"
+                body_prefix = f"{elem_decl}(*({elem_cast})pengu_list_at(&({col_str}), {iter_idx}));\n"
             else:
-                body_prefix = f"{ind}  (void)(*({elem_c}*)pengu_list_at(&({col_str}), {iter_idx}));\n"
+                body_prefix = f"{ind}  (void)(*({elem_cast})pengu_list_at(&({col_str}), {iter_idx}));\n"
             return (
                 f"{ind}for (int32_t {iter_idx} = 0; {iter_idx} < ({col_str}).len; {iter_idx}++) {{\n"
                 f"{body_prefix}"
@@ -2650,15 +2864,29 @@ class PenguCodegen:
                 f"{body_prefix}"
                 f"{body_str}\n{ind}}}"
             )
-        else:
+        elif isinstance(col_t, MapType):
+            key_c = CTypeMapper.to_c_type(col_t.key)
+            key_cast = CTypeMapper.to_c_decl(col_t.key, "*")
+            decl_map_elem = CTypeMapper.to_c_decl(col_t.key, c_elem_name)
+            slot_idx = self.get_temp_name("_slot")
             if want_elem:
-                body_prefix = f"{elem_decl}({col_str})[{iter_idx}];\n"
+                body_prefix = f"{ind}  {decl_map_elem} = *(({key_cast})({col_str}).entries[{slot_idx}].key);\n"
             else:
-                body_prefix = f"{ind}  (void)({col_str})[{iter_idx}];\n"
+                body_prefix = f"{ind}  /* discard element */\n"
             return (
-                f"{ind}for (int32_t {iter_idx} = 0; {iter_idx} < (int32_t)(sizeof({col_str})/sizeof(({col_str})[0])); {iter_idx}++) {{\n"
+                f"{ind}for (int32_t {slot_idx} = 0, {iter_idx} = 0; "
+                f"{iter_idx} < ({col_str}).len && {slot_idx} < ({col_str}).cap; {slot_idx}++) {{\n"
+                f"{ind}  if (!({col_str}).entries || !({col_str}).entries[{slot_idx}].occupied) continue;\n"
                 f"{body_prefix}"
-                f"{body_str}\n{ind}}}"
+                f"{body_str}\n"
+                f"{ind}  {iter_idx}++;\n"
+                f"{ind}}}"
+            )
+        else:
+            raise SemanticError(
+                f"Cannot iterate over non-collection type '{col_t}' at codegen time",
+                code="E0005",
+                help="The checker should have caught this; if you see this error, it is a compiler bug.",
             )
 
     def _translate_nested_block(self, node: Tree) -> str:
@@ -2748,9 +2976,9 @@ class PenguCodegen:
 
         saved_vars = set(self.local_vars)
         try:
-            then_parts, then_val = self._value_branch(list(block_node.children), v_t)
+            then_parts, then_val = self._translate_value_block_with_banish(list(block_node.children), v_t)
             if then_prologue:
-                then_parts.insert(0, f"  {then_prologue}")
+                then_parts.insert(0, f"{self.indent()}  {then_prologue}")
             then_body = "\n".join(then_parts)
 
             else_parts: List[str] = []
@@ -2762,7 +2990,7 @@ class PenguCodegen:
                     # 'else if <cond>:' — nested value block.
                     nested_else = self._translate_expr(ech[0], v_t)
                 else:
-                    else_parts, else_val = self._value_branch(ech, v_t)
+                    else_parts, else_val = self._translate_value_block_with_banish(ech, v_t)
             else_body = "\n".join(else_parts)
 
             is_void = v_t is None or str(getattr(v_t, "name", "")) == "void"
@@ -2784,8 +3012,9 @@ class PenguCodegen:
 
             c_t = CTypeMapper.to_c_type(v_t)
             tmp = self.get_temp_name("_if")
+            decl_tmp = CTypeMapper.to_c_decl(v_t, tmp)
             res = (
-                f"(__extension__(({{ {c_t} {tmp}; if ({cond_c}) {{\n{then_body}\n"
+                f"(__extension__(({{ {decl_tmp}; if ({cond_c}) {{\n{then_body}\n"
                 + (f"  {tmp} = {then_val};\n" if then_val else "")
                 + "}"
             )
@@ -2798,7 +3027,10 @@ class PenguCodegen:
                     + "}"
                 )
             else:
-                res += f" else {{ {tmp} = ({c_t}){{0}}; }}"
+                if isinstance(v_t, (FnType, RefType)):
+                    res += f" else {{ {tmp} = NULL; }}"
+                else:
+                    res += f" else {{ {tmp} = ({c_t}){{0}}; }}"
             res += f" {tmp}; }})))"
             return res
         finally:
@@ -2810,37 +3042,40 @@ class PenguCodegen:
         """Translates the left-hand side target of a set statement."""
         if not isinstance(node, Tree):
             name = str(node)
+            c_name = self._c_ident(name)
             sym = self.symbols.lookup(name) if self.symbols else None
             if self.with_stack and (not sym or sym.kind == "field"):
                 base_target = self.with_stack[-1]
                 base_type = self._lookup_var_type(base_target)
                 sep = "->" if (base_target == "self" or isinstance(base_type, RefType)) else "."
-                return f"{base_target}{sep}{name}"
-            return name
+                return f"{base_target}{sep}{c_name}"
+            return c_name
 
         if node.data == "set_target":
             return self._translate_set_target(node.children[0])
 
         if node.data == "with_target":
             field_name = str(node.children[0])
+            c_field_name = self._c_ident(field_name)
             base_target = self.with_stack[-1] if self.with_stack else "self"
             base_type = self._lookup_var_type(base_target)
             sep = "->" if (base_target == "self" or isinstance(base_type, RefType)) else "."
-            target_str = f"{base_target}{sep}{field_name}"
+            target_str = f"{base_target}{sep}{c_field_name}"
             for acc in node.children[1:]:
                 target_str = self._translate_access_op(target_str, acc)
             return target_str
 
         elif node.data == "normal_target":
             base_name = str(node.children[0])
+            c_base_name = self._c_ident(base_name)
             sym = self.symbols.lookup(base_name) if self.symbols else None
             if self.with_stack and (not sym or sym.kind == "field"):
                 base_target = self.with_stack[-1]
                 base_type = self._lookup_var_type(base_target)
                 sep = "->" if (base_target == "self" or isinstance(base_type, RefType)) else "."
-                target_str = f"{base_target}{sep}{base_name}"
+                target_str = f"{base_target}{sep}{c_base_name}"
             else:
-                target_str = base_name
+                target_str = c_base_name
             for acc in node.children[1:]:
                 target_str = self._translate_access_op(target_str, acc)
             return target_str
@@ -2855,21 +3090,35 @@ class PenguCodegen:
     def _translate_access_op(self, base_str: str, acc_node: Tree) -> str:
         """Translates member and index access operators."""
         if acc_node.data == "dot_access":
+            field_str = self._c_ident(str(acc_node.children[0]))
             var_t = self._lookup_var_type(base_str)
             sep = "->" if (base_str == "self" or isinstance(var_t, RefType)) else "."
-            return f"{base_str}{sep}{acc_node.children[0]}"
+            return f"{base_str}{sep}{field_str}"
         elif acc_node.data == "arrow_access":
-            return f"{base_str}->{acc_node.children[0]}"
+            field_str = self._c_ident(str(acc_node.children[0]))
+            return f"{base_str}->{field_str}"
         elif acc_node.data == "at_access":
             idx = self._translate_expr(acc_node.children[0])
             var_t = self._lookup_var_type(base_str)
             idx = self._emit_bounds_check(idx, base_str, var_t, acc_node.children[0])
             if isinstance(var_t, (SliceType, ManyType)):
-                elem_t = CTypeMapper.to_c_type(var_t.element)
-                return f"((({elem_t}*)({base_str}).data)[{idx}])"
+                elem_cast = CTypeMapper.to_c_decl(var_t.element, "*")
+                return f"((({elem_cast})({base_str}).data)[{idx}])"
             elif isinstance(var_t, ListType):
-                elem_t = CTypeMapper.to_c_type(var_t.element)
-                return f"(*({elem_t}*)pengu_list_at(&({base_str}), {idx}))"
+                elem_cast = CTypeMapper.to_c_decl(var_t.element, "*")
+                return f"(*({elem_cast})pengu_list_at(&({base_str}), {idx}))"
+            elif isinstance(var_t, (MapType, RefType)) and (isinstance(var_t, MapType) or isinstance(var_t.target, MapType)):
+                actual_map = var_t.target if isinstance(var_t, RefType) else var_t
+                key_c = CTypeMapper.to_c_type(actual_map.key)
+                val_c = CTypeMapper.to_c_type(actual_map.value)
+                ptr = base_str if isinstance(var_t, RefType) else f"&({base_str})"
+                tmp_k = self.get_temp_name("_k")
+                tmp_p = self.get_temp_name("_p")
+                val_cast = CTypeMapper.to_c_decl(actual_map.value, "*")
+                val_zero = "NULL" if isinstance(actual_map.value, (FnType, RefType)) else f"({val_c}){{0}}"
+                return (f"({{ {key_c} {tmp_k} = ({idx}); "
+                        f"void* {tmp_p} = pengu_map_get({ptr}, &{tmp_k}); "
+                        f"{tmp_p} ? (*(({val_cast}){tmp_p})) : {val_zero}; }})")
             return f"{base_str}[{idx}]"
         return base_str
 
@@ -2897,7 +3146,7 @@ class PenguCodegen:
         bind_name = str(node.children[0])
         bind_type = ast_to_type(
             node.children[1],
-            lambda n: self.symbols.lookup(n).type if self.symbols.lookup(n) else None,
+            self._lookup_type_fn,
         )
         expr_node = getattr(node, "_pengu_bind_source", None) or node.children[2]
         if isinstance(expr_node, Tree) and expr_node.data == "is_present" and expr_node.children:
@@ -2905,10 +3154,12 @@ class PenguCodegen:
             expr_node = expr_node.children[0]
         elem_t = getattr(node, "_pengu_bind_elem_type", None) or bind_type
         maybe_t = getattr(node, "_pengu_bind_maybe_type", None) or MaybeType(element=elem_t)
+        decl_c = CTypeMapper.to_c_decl(bind_type, bind_name)
+        elem_cast = CTypeMapper.to_c_decl(elem_t, "*")
         return (
             bind_name,
-            CTypeMapper.to_c_type(bind_type),
-            CTypeMapper.to_c_type(elem_t),
+            decl_c,
+            elem_cast,
             self._translate_expr(expr_node),
             CTypeMapper.to_c_type(maybe_t),
             bind_type,
@@ -2941,7 +3192,7 @@ class PenguCodegen:
         self.local_vars[bind_name] = bind_type
         self.indent_level += 2
         try:
-            body_str = self._translate_nested_block(block_node)
+            body_str = self._translate_nested_block_with_banish(block_node, "block")
             else_str = None
             if else_node is not None:
                 else_str = self._translate_else_block(else_node)
@@ -2956,7 +3207,7 @@ class PenguCodegen:
             f"{ind}{{",
             f"{inner}{maybe_c} {tmp} = {expr_c};",
             f"{inner}if (pengu_maybe_is_present(&{tmp})) {{",
-            f"{inner2}{decl_c} {bind_name} = (*({elem_c}*){tmp}.value);",
+            f"{inner2}{decl_c} = (*({elem_c}){tmp}.value);",
         ]
         if body_str:
             parts.append(body_str)
@@ -2994,7 +3245,7 @@ class PenguCodegen:
                 node,
                 expected_type,
                 cond_c=f"pengu_maybe_is_present(&{tmp})",
-                then_prologue=f"{decl_c} {bind_name} = (*({elem_c}*){tmp}.value);",
+                then_prologue=f"{decl_c} = (*({elem_c}){tmp}.value);",
             )
         finally:
             if prev_type is None:
@@ -3004,8 +3255,14 @@ class PenguCodegen:
 
         return f"(__extension__(({{ {maybe_c} {tmp} = {expr_c}; {inner}; }})))"
 
-    def _translate_string_lit(self, s_val: str, as_c_literal: bool = False) -> str:
-        """Translates string literal, generating pengu_string_format call for interpolated expressions or C string literal."""
+    def _translate_string_lit(
+        self, s_val: str, as_c_literal: bool = False, context_hint: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Translates string literal, generating pengu_string_format call for interpolated expressions or C string literal.
+        
+        NOTE: String interpolation expressions re-parse and re-infer using local_vars, which
+        may in complex scopes diverge from the checker's initial AST type annotations.
+        """
         from .pengu_parser import extract_string_parts, PenguParser
         is_raw, is_triple, parts = extract_string_parts(s_val)
 
@@ -3069,8 +3326,13 @@ class PenguCodegen:
                 expr_str = p.text.strip()
                 try:
                     expr_ast = parser.parse_expr(expr_str)
-                except Exception:
-                    expr_ast = None
+                except Exception as exc:
+                    raise SemanticError(
+                        f"Internal: string interpolation expression '{expr_str}' failed to re-parse at codegen time",
+                        code="E0019",
+                        help="This is a compiler bug; please report it.",
+                        note=str(exc),
+                    )
 
                 t = None
                 expr_c = expr_str
@@ -3094,21 +3356,32 @@ class PenguCodegen:
                     elif t.is_float():
                         fmt_parts.append("%f")
                         c_args.append(f"(double)({expr_c})")
-                    elif isinstance(t, BaseType) and t.name == "bool":
+                    elif t.is_bool():
                         fmt_parts.append("%s")
                         c_args.append(f"(({expr_c}) ? \"true\" : \"false\")")
-                    elif isinstance(t, BaseType) and t.name == "string":
-                        fmt_parts.append("%s")
-                        c_args.append(f"({expr_c}).data")
-                    elif isinstance(t, BaseType) and t.name in ("char", "byte"):
+                    elif t.is_string():
+                        fmt_parts.append("%.*s")
+                        c_args.append(f"(int)({expr_c}).len, ({expr_c}).data")
+                    elif (isinstance(t, BaseType) and t.name in ("char", "byte")) or (isinstance(t, (AliasType, FrozenType)) and getattr(t, "target", None) and getattr(t.target, "name", "") in ("char", "byte")):
                         fmt_parts.append("%c")
                         c_args.append(f"(char)({expr_c})")
-                    else:
+                    elif isinstance(t, RefType) and isinstance(t.target, BaseType) and t.target.name == "char":
                         fmt_parts.append("%s")
-                        c_args.append(f"({expr_c}).data")
+                        c_args.append(f"({expr_c})")
+                    else:
+                        raise SemanticError(
+                            f"Expression '{expr_str}' of type '{t}' cannot be interpolated into string",
+                            help="Interpolate numeric, bool, string, char, or C-string (ref to char) values."
+                        )
                 else:
-                    fmt_parts.append("%s")
-                    c_args.append(f"({expr_c}).data" if not expr_str.isdigit() else expr_c)
+                    if expr_str.isdigit():
+                        fmt_parts.append("%d")
+                        c_args.append(expr_c)
+                    else:
+                        raise SemanticError(
+                            f"Cannot determine type of interpolated expression '{expr_str}'",
+                            help="Ensure expressions interpolated inside strings have known types."
+                        )
 
         full_fmt = "".join(fmt_parts)
         return f'pengu_string_format("{full_fmt}", {", ".join(c_args)})'
@@ -3125,7 +3398,7 @@ class PenguCodegen:
                 return True
             if rule == "var_ref":
                 vt = self._lookup_var_type(str(n.children[0]))
-                return vt is not None and getattr(vt, "name", "") == "string"
+                return vt is not None and vt.is_string()
             if rule == "self_arrow":
                 field_name = str(n.children[0])
                 if self.current_enchanted_type and isinstance(self.current_enchanted_type, (RuneType, EchoType)):
@@ -3185,6 +3458,124 @@ class PenguCodegen:
             except Exception:
                 pass
         return False
+
+    def _translate_or_block(
+        self,
+        left_op: Any,
+        block_stmts: List[Tree],
+        target_type: Optional[Type] = None,
+        target_decl: Optional[str] = None,
+        target_ident: Optional[str] = None,
+    ) -> str:
+        """Translates an 'or:' error-handling block into C99 statements or statement-expression."""
+        ind = self.indent()
+        tmp_res = self.get_temp_name("_res")
+        left_c = self._translate_expr(left_op)
+        prev_error_t = self.local_vars.get("error")
+        self.local_vars["error"] = STRING_TYPE
+        self._auto_banish_push("block")
+        try:
+            self.indent_level += 1
+            inner_body = [self._translate_stmt(bs) for bs in block_stmts]
+            banish = self._flush_current_scope_banish() if not self._stmts_end_with_jump(block_stmts) else []
+            self.indent_level -= 1
+        finally:
+            if self.auto_banish_stack and self.auto_banish_stack[-1][0] == "block":
+                self.auto_banish_stack.pop()
+            if prev_error_t is None:
+                self.local_vars.pop("error", None)
+            else:
+                self.local_vars["error"] = prev_error_t
+
+        block_c = "\n".join(inner_body + banish)
+
+        if target_type is None and hasattr(self, "symbols"):
+            try:
+                inf = self._infer_node_type(left_op)
+                if isinstance(inf, ResultType):
+                    target_type = inf.ok_type
+                elif isinstance(inf, MaybeType):
+                    target_type = inf.element
+                else:
+                    target_type = inf
+            except Exception:
+                target_type = None
+
+        left_op_t = None
+        if hasattr(self, "symbols"):
+            try:
+                left_op_t = self._infer_node_type(left_op)
+            except Exception:
+                pass
+
+        if left_op_t is None:
+            raise SemanticError(
+                "Compiler invariant violated: 'or:' reached codegen with an "
+                "uninferable operand; the checker should have rejected this.",
+                code="E0005",
+                help="This is a compiler bug; please report the minimal case.",
+            )
+        if isinstance(left_op_t, AnyType):
+            raise SemanticError(
+                "'or:' reached codegen with 'any' operand type; the checker must "
+                "resolve the operand type before this point",
+                code="E0005",
+                help="This is a compiler bug; annotate the operand with 'as maybe T' "
+                     "or 'as result of T to E'.",
+            )
+        if not isinstance(left_op_t, (ResultType, MaybeType)):
+            raise SemanticError(
+                f"'or:' requires a 'maybe T' or 'result of T to E' operand, "
+                f"got '{left_op_t}'",
+                code="E0005",
+                help="The checker guarantees the operand type; seeing this is an internal error.",
+            )
+
+        cast_t = CTypeMapper.to_c_type(target_type) if target_type is not None else "void*"
+        if cast_t == "void":
+            cast_t = "int32_t"
+
+        ptr_cast = CTypeMapper.to_c_decl(target_type, "*") if target_type is not None else "void**"
+
+        is_maybe = isinstance(left_op_t, MaybeType)
+        container_c = "PenguMaybe" if is_maybe else "PenguResult"
+        is_fail = f"!pengu_maybe_is_present(&{tmp_res})" if is_maybe else f"!pengu_result_is_ok(&{tmp_res})"
+        ok_read = f"(*(({ptr_cast}){tmp_res}.value))" if is_maybe else f"(*(({ptr_cast}){tmp_res}.ok_val))"
+        err_expr = 'pengu_string_from_cstr("none")' if is_maybe else f'pengu_string_from_cstr({tmp_res}.err_val ? {tmp_res}.err_val : "error")'
+
+        if target_decl is not None:
+            if target_ident is None:
+                raise SemanticError(
+                    "Compiler invariant violated: target_ident must be provided when target_decl is specified in _translate_or_block",
+                    code="E0000"
+                )
+            ident = target_ident
+            init_c = "NULL" if isinstance(target_type, (FnType, RefType)) else f"({cast_t}){{0}}"
+            return (
+                f"{ind}{container_c} {tmp_res} = {left_c};\n"
+                f"{ind}{target_decl} = {init_c};\n"
+                f"{ind}if ({is_fail}) {{\n"
+                f"{ind}  PenguString error = {err_expr};\n"
+                f"{block_c}\n"
+                f"{ind}}} else {{\n"
+                f"{ind}  {ident} = {ok_read};\n"
+                f"{ind}}}"
+            )
+        else:
+            tmp_val = self.get_temp_name("_val")
+            val_decl = CTypeMapper.to_c_decl(target_type, tmp_val) if target_type is not None else f"{cast_t} {tmp_val}"
+            init_c = "NULL" if isinstance(target_type, (FnType, RefType)) else f"({cast_t}){{0}}"
+            return (
+                f"(__extension__(({{ {container_c} {tmp_res} = {left_c};\n"
+                f"  {val_decl} = {init_c};\n"
+                f"  if ({is_fail}) {{\n"
+                f"    PenguString error = {err_expr};\n"
+                f"{block_c}\n"
+                f"  }} else {{\n"
+                f"    {tmp_val} = {ok_read};\n"
+                f"  }}\n"
+                f"  {tmp_val}; }}))"
+            )
 
     def _translate_unwrap_expr(self, rule: str, node: Any, expected_type: Optional[Type] = None) -> str:
         """Translates 'try', 'or else' and 'or return' unwrapping expressions.
@@ -3297,7 +3688,9 @@ class PenguCodegen:
             elif isinstance(target_expr, Token):
                 t = self._lookup_var_type(str(target_expr))
 
-        actual_t = t.target if (isinstance(t, FrozenType)) else t
+        actual_t = t
+        while isinstance(actual_t, (FrozenType, AliasType)) and getattr(actual_t, "target", None):
+            actual_t = actual_t.target
         is_str = isinstance(actual_t, BaseType) and actual_t.name == "string"
         is_lst = isinstance(actual_t, ListType)
         is_map = isinstance(actual_t, MapType)
@@ -3311,6 +3704,23 @@ class PenguCodegen:
         elif is_map:
             return f"pengu_banish_map({ptr})"
         return f"pengu_banish((void*)({target_str}))"
+
+    @staticmethod
+    def _is_side_effect_free(node: Any) -> bool:
+        """Returns True if node is syntactically free of side effects."""
+        if isinstance(node, Token):
+            return True
+        if not isinstance(node, Tree):
+            return True
+        if node.data in ("var_ref", "int_lit", "float_lit", "string_lit", "char_lit", "true_lit", "false_lit", "self_ref"):
+            return True
+        if node.data in ("field_access", "arrow_access") and node.children:
+            base = node.children[0]
+            if isinstance(base, Tree) and base.data == "var_ref":
+                return True
+            if isinstance(base, Token):
+                return True
+        return False
 
     def _translate_expr_impl(self, node: Any, expected_type: Optional[Type] = None) -> str:
         """Translates expression node into C99 expression string."""
@@ -3371,6 +3781,10 @@ class PenguCodegen:
             return "error"
         elif rule in ("try_expr", "or_else", "or_return"):
             return self._translate_unwrap_expr(rule, node, expected_type)
+        elif rule == "or_block":
+            left_op = node.children[0]
+            block_stmts = [c for c in node.children[1:] if isinstance(c, Tree)]
+            return self._translate_or_block(left_op, block_stmts)
         elif rule == "var_ref":
             name = str(node.children[0])
             sym = self.symbols.lookup(name) if self.symbols else None
@@ -3388,7 +3802,8 @@ class PenguCodegen:
             # stay a plain identifier (e.g. a loop variable used in a builder).
             if self.with_stack and (not sym or sym.kind == "field") and name not in self.local_vars:
                 base_target = self.with_stack[-1]
-                sep = "->" if base_target == "self" else "."
+                base_type = self._lookup_var_type(base_target)
+                sep = "->" if (base_target == "self" or isinstance(base_type, RefType)) else "."
                 return f"{base_target}{sep}{name}"
             code = self._c_ident(name)
             is_fn_symbol = (
@@ -3460,7 +3875,10 @@ class PenguCodegen:
             is_not = (rule == "not_in_expr")
 
             # Check if Range
-            if isinstance(col_t, RangeType) or (isinstance(col_node, Tree) and col_node.data in ("to_expr", "range_dotdot")):
+            if isinstance(col_t, RangeType) or (
+                col_t is None and isinstance(col_node, Tree)
+                and col_node.data in ("to_expr", "range_dotdot")
+            ):
                 if is_not:
                     return f"(__extension__({{ __auto_type _v = ({elem_c}); PenguRange _r = ({col_c}); (_v < _r.start || _v >= _r.end); }}))"
                 else:
@@ -3494,6 +3912,36 @@ class PenguCodegen:
                     f"{'!_f' if is_not else '_f'};"
                 )
                 return f"(__extension__({{ __auto_type _val = ({elem_c}); __auto_type _arr = ({col_c}); {check_code} }}))"
+
+            # Check if List
+            if isinstance(col_t, ListType):
+                elem_c_t = CTypeMapper.to_c_type(col_t.element)
+                if col_t.element == STRING_TYPE or (isinstance(col_t.element, BaseType) and col_t.element.name == "string"):
+                    cmp = "pengu_string_equal(*(PenguString*)pengu_list_at(&_lc, _i), _val)"
+                else:
+                    cmp = f"(*({elem_c_t}*)pengu_list_at(&_lc, _i) == _val)"
+                return (
+                    f"(__extension__({{ __auto_type _val = ({elem_c}); "
+                    f"PenguList _lc = ({col_c}); bool _f = false; "
+                    f"for (int32_t _i = 0; _i < _lc.len; ++_i) {{ "
+                    f"if ({cmp}) {{ _f = true; break; }} }} "
+                    f"{'!_f' if is_not else '_f'}; }}))"
+                )
+
+            # Check if Slice / Many
+            if isinstance(col_t, (SliceType, ManyType)):
+                elem_c_t = CTypeMapper.to_c_type(col_t.element)
+                if col_t.element == STRING_TYPE or (isinstance(col_t.element, BaseType) and col_t.element.name == "string"):
+                    cmp = "pengu_string_equal(((PenguString*)(_sl).data)[_i], _val)"
+                else:
+                    cmp = f"((({elem_c_t}*)(_sl).data)[_i] == _val)"
+                return (
+                    f"(__extension__({{ __auto_type _val = ({elem_c}); "
+                    f"PenguSlice _sl = ({col_c}); bool _f = false; "
+                    f"for (int32_t _i = 0; _i < _sl.len; ++_i) {{ "
+                    f"if ({cmp}) {{ _f = true; break; }} }} "
+                    f"{'!_f' if is_not else '_f'}; }}))"
+                )
 
             # Fallback
             if is_not:
@@ -3554,22 +4002,32 @@ class PenguCodegen:
                     arg_t = FLOAT_TYPE
                 else:
                     arg_t = INT_TYPE
-            t_c = CTypeMapper.to_c_type(arg_t)
             tmp = self.get_temp_name("_some")
+            decl_tmp = CTypeMapper.to_c_decl(arg_t, tmp)
             maybe_tmp = self.get_temp_name("_maybe")
             return (
-                f"(__extension__({{ {t_c} {tmp} = {arg_c};\n"
+                f"(__extension__({{ {decl_tmp} = {arg_c};\n"
                 f"  PenguMaybe {maybe_tmp};\n"
                 f"  {maybe_tmp}.is_present = true;\n"
-                f"  {maybe_tmp}.value = pengu_sigil_alloc(sizeof({t_c}));\n"
-                f"  if ({maybe_tmp}.value) memcpy({maybe_tmp}.value, &({tmp}), sizeof({t_c}));\n"
+                f"  {maybe_tmp}.value = pengu_sigil_alloc(sizeof({tmp}));\n"
+                f"  if ({maybe_tmp}.value) memcpy({maybe_tmp}.value, &({tmp}), sizeof({tmp}));\n"
                 f"  {maybe_tmp}; }}))"
             )
 
         # 3c. 'ord expr': byte code of a single-character string.
         elif rule == "ord_expr":
-            arg_c = self._translate_expr(node.children[0])
-            return f"((int32_t)((unsigned char)(({arg_c}).data[0])))"
+            arg_node = node.children[0]
+            arg_c = self._translate_expr(arg_node)
+            if self._is_side_effect_free(arg_node):
+                return (
+                    f"((int32_t)((unsigned char)((({arg_c}).data) ? "
+                    f"({arg_c}).data[0] : '\\0')))"
+                )
+            tmp = self.get_temp_name("_ord_s")
+            return (
+                f"(__extension__({{ PenguString {tmp} = ({arg_c}); "
+                f"((int32_t)((unsigned char)(({tmp}.data && {tmp}.len > 0) ? {tmp}.data[0] : 0))); }}))"
+            )
 
         # 3d. 'chr expr': one-character string from an integer byte value.
         elif rule == "chr_expr":
@@ -4059,21 +4517,37 @@ class PenguCodegen:
                 var_t = self.local_vars[base]
             else:
                 var_t = sym.type if sym else self._lookup_var_type(base)
-            if isinstance(var_t, MaybeType) and raw_field == "value":
-                elem_c = CTypeMapper.to_c_type(var_t.element)
-                return f"(*({elem_c}*){base}.value)"
-            if isinstance(var_t, ResultType) and raw_field == "value":
-                elem_c = CTypeMapper.to_c_type(var_t.ok_type)
-                return f"(*({elem_c}*){base}.ok_val)"
-            if isinstance(var_t, ResultType) and raw_field in ("error", "err"):
-                elem_c = CTypeMapper.to_c_type(var_t.err_type)
-                return f"(*({elem_c}*){base}.err_val)"
+            is_ref = isinstance(var_t, RefType)
+            inner_t = var_t.target if is_ref else var_t
+            sep = "->" if (base == "self" or is_ref) else "."
+
+            if isinstance(inner_t, MaybeType) and raw_field == "value":
+                elem_cast = CTypeMapper.to_c_decl(inner_t.element, "*")
+                return f"(*({elem_cast}){base}{sep}value)"
+            if isinstance(inner_t, ResultType) and raw_field == "value":
+                elem_cast = CTypeMapper.to_c_decl(inner_t.ok_type, "*")
+                return f"(*({elem_cast}){base}{sep}ok_val)"
+            if isinstance(inner_t, ResultType) and raw_field in ("error", "err"):
+                elem_cast = CTypeMapper.to_c_decl(inner_t.err_type, "*")
+                return f"(*({elem_cast}){base}{sep}err_val)"
             eff_t = var_t if var_t is not None else (sym.type if sym else None)
-            sep = "->" if (base == "self" or isinstance(eff_t, RefType)) else "."
             return f"{base}{sep}{field_name}"
         elif rule == "arrow_access":
-            base = self._translate_expr(node.children[0])
-            field_name = self._c_ident(str(node.children[1]))
+            target_node = node.children[0]
+            raw_field = str(node.children[1])
+            field_name = self._c_ident(raw_field)
+            base = self._translate_expr(target_node)
+            target_t = self._infer_node_type(target_node)
+            inner_t = target_t.target if isinstance(target_t, RefType) else target_t
+            if isinstance(inner_t, MaybeType) and raw_field == "value":
+                elem_cast = CTypeMapper.to_c_decl(inner_t.element, "*")
+                return f"(*({elem_cast}){base}->value)"
+            if isinstance(inner_t, ResultType) and raw_field == "value":
+                elem_cast = CTypeMapper.to_c_decl(inner_t.ok_type, "*")
+                return f"(*({elem_cast}){base}->ok_val)"
+            if isinstance(inner_t, ResultType) and raw_field in ("error", "err"):
+                elem_cast = CTypeMapper.to_c_decl(inner_t.err_type, "*")
+                return f"(*({elem_cast}){base}->err_val)"
             return f"{base}->{field_name}"
         elif rule == "slice_at_expr":
             base_node = node.children[0]
@@ -4106,45 +4580,96 @@ class PenguCodegen:
             iter_elem_t = iter_t.element_type() if iter_t and hasattr(iter_t, "element_type") and iter_t.element_type() else INT_TYPE
             iter_elem_c = CTypeMapper.to_c_type(iter_elem_t)
 
+            c_var_name = self._c_ident(var_name)
+            decl_var = CTypeMapper.to_c_decl(iter_elem_t, c_var_name)
+
+            _MISSING = object()
+            prev = self.local_vars.get(var_name, _MISSING)
+            prev_c = self.local_vars.get(c_var_name, _MISSING)
             self.local_vars[var_name] = iter_elem_t
+            self.local_vars[c_var_name] = iter_elem_t
             inferrer.symbols.define(Symbol(name=var_name, type=iter_elem_t, kind="var"))
 
-            then_t = None
             try:
-                then_t = inferrer.infer(then_node)
-            except Exception:
-                pass
-            then_elem_c = CTypeMapper.to_c_type(then_t) if then_t else "int32_t"
+                then_t = None
+                try:
+                    then_t = inferrer.infer(then_node)
+                except Exception:
+                    pass
+                then_elem_c = CTypeMapper.to_c_type(then_t) if then_t else "int32_t"
 
-            cond_c = self._translate_expr(cond_node) if cond_node else None
-            then_c = self._translate_expr(then_node)
+                cond_c = self._translate_expr(cond_node) if cond_node else None
+                then_c = self._translate_expr(then_node)
+            finally:
+                if prev is _MISSING:
+                    self.local_vars.pop(var_name, None)
+                else:
+                    self.local_vars[var_name] = prev
+                if prev_c is _MISSING:
+                    self.local_vars.pop(c_var_name, None)
+                else:
+                    self.local_vars[c_var_name] = prev_c
 
-            if var_name in self.local_vars:
-                del self.local_vars[var_name]
-
+            lit_decl = ""
             if isinstance(iter_t, ArrayType) and iter_t.size is not None:
                 count_c = str(iter_t.size)
-                elem_access = f"({iter_c})[_i]"
+                if isinstance(iter_node, Tree) and iter_node.data == "array_lit" and iter_node.children:
+                    lit_tmp = self.get_temp_name("_lit")
+                    elems = ", ".join(self._translate_expr(c) for c in iter_node.children)
+                    lit_type_decl = CTypeMapper.to_c_decl(iter_elem_t, f"{lit_tmp}[]")
+                    lit_decl = f"  {lit_type_decl} = {{ {elems} }};\n"
+                    elem_access = f"{lit_tmp}[_i]"
+                else:
+                    elem_access = f"({iter_c})[_i]"
             elif isinstance(iter_t, (SliceType, ManyType, ListType)):
                 count_c = f"({iter_c}).len"
+                iter_elem_cast = CTypeMapper.to_c_decl(iter_elem_t, "*")
                 if isinstance(iter_t, (SliceType, ManyType)):
-                    elem_access = f"((({iter_elem_c}*)({iter_c}).data)[_i])"
+                    elem_access = f"((({iter_elem_cast})({iter_c}).data)[_i])"
                 else:
-                    elem_access = f"(*({iter_elem_c}*)pengu_list_at(&({iter_c}), _i))"
+                    elem_access = f"(*({iter_elem_cast})pengu_list_at(&({iter_c}), _i))"
+            elif isinstance(iter_t, MapType):
+                tmp_list = self.get_temp_name("_comp_list")
+                tmp_val = self.get_temp_name("_comp_val")
+                slot_var = self.get_temp_name("_slot")
+                idx_var = self.get_temp_name("_i")
+                cond_check = f"if ({cond_c}) " if cond_c else ""
+                iter_elem_cast = CTypeMapper.to_c_decl(iter_elem_t, "*")
+                decl_val = CTypeMapper.to_c_decl(then_t, tmp_val) if then_t else f"{then_elem_c} {tmp_val}"
+                return (
+                    f"(__extension__({{\n"
+                    f"  PenguList {tmp_list} = pengu_list_new(sizeof({then_elem_c}), ({iter_c}).len);\n"
+                    f"  for (int32_t {slot_var} = 0, {idx_var} = 0; {idx_var} < ({iter_c}).len && {slot_var} < ({iter_c}).cap; {slot_var}++) {{\n"
+                    f"    if (!({iter_c}).entries || !({iter_c}).entries[{slot_var}].occupied) continue;\n"
+                    f"    {decl_var} = *(({iter_elem_cast})({iter_c}).entries[{slot_var}].key);\n"
+                    f"    {cond_check}{{\n"
+                    f"      {decl_val} = {then_c};\n"
+                    f"      pengu_list_push(&{tmp_list}, &{tmp_val});\n"
+                    f"    }}\n"
+                    f"    {idx_var}++;\n"
+                    f"  }}\n"
+                    f"  {tmp_list};\n"
+                    f"}}))"
+                )
             else:
-                count_c = f"(sizeof({iter_c})/sizeof(({iter_c})[0]))"
-                elem_access = f"({iter_c})[_i]"
+                raise SemanticError(
+                    f"Cannot iterate over non-collection type '{iter_t}' at codegen time",
+                    code="E0005",
+                    help="The checker should have caught this; if you see this error, it is a compiler bug.",
+                )
 
             tmp_list = self.get_temp_name("_comp_list")
             tmp_val = self.get_temp_name("_comp_val")
+            decl_val = CTypeMapper.to_c_decl(then_t, tmp_val) if then_t else f"{then_elem_c} {tmp_val}"
             if cond_c:
                 return (
                     f"(__extension__({{\n"
                     f"  PenguList {tmp_list} = pengu_list_new(sizeof({then_elem_c}), 8);\n"
+                    f"{lit_decl}"
                     f"  for (int _i = 0; _i < {count_c}; _i++) {{\n"
-                    f"    {iter_elem_c} {var_name} = {elem_access};\n"
+                    f"    {decl_var} = {elem_access};\n"
                     f"    if ({cond_c}) {{\n"
-                    f"      {then_elem_c} {tmp_val} = {then_c};\n"
+                    f"      {decl_val} = {then_c};\n"
                     f"      pengu_list_push(&{tmp_list}, &{tmp_val});\n"
                     f"    }}\n"
                     f"  }}\n"
@@ -4155,9 +4680,10 @@ class PenguCodegen:
                 return (
                     f"(__extension__({{\n"
                     f"  PenguList {tmp_list} = pengu_list_new(sizeof({then_elem_c}), {count_c});\n"
+                    f"{lit_decl}"
                     f"  for (int _i = 0; _i < {count_c}; _i++) {{\n"
-                    f"    {iter_elem_c} {var_name} = {elem_access};\n"
-                    f"    {then_elem_c} {tmp_val} = {then_c};\n"
+                    f"    {decl_var} = {elem_access};\n"
+                    f"    {decl_val} = {then_c};\n"
                     f"    pengu_list_push(&{tmp_list}, &{tmp_val});\n"
                     f"  }}\n"
                     f"  {tmp_list};\n"
@@ -4187,19 +4713,19 @@ class PenguCodegen:
                 idx = self._translate_expr(idx_node)
                 idx = self._emit_bounds_check(idx, current_base, var_t, idx_node)
                 if isinstance(var_t, (SliceType, ManyType)):
-                    elem_t = CTypeMapper.to_c_type(var_t.element)
-                    base = f"((({elem_t}*)({base}).data)[{idx}])"
+                    elem_cast = CTypeMapper.to_c_decl(var_t.element, "*")
+                    base = f"((({elem_cast})({base}).data)[{idx}])"
                     var_t = var_t.element
                 elif isinstance(var_t, ListType) or (isinstance(var_t, RefType) and isinstance(var_t.target, ListType)):
                     elem_t = var_t.target.element if isinstance(var_t, RefType) else var_t.element
-                    elem_c = CTypeMapper.to_c_type(elem_t)
+                    elem_cast = CTypeMapper.to_c_decl(elem_t, "*")
                     ptr = base if (isinstance(var_t, RefType) and not base.startswith("&")) else f"&({base})"
-                    base = f"(*({elem_c}*)pengu_list_at({ptr}, {idx}))"
+                    base = f"(*({elem_cast})pengu_list_at({ptr}, {idx}))"
                     var_t = var_t.element if isinstance(var_t, ListType) else var_t.target.element
                 elif isinstance(var_t, ArrayType):
                     base = f"{base}[{idx}]"
                     var_t = var_t.element
-                elif isinstance(var_t, RefType):
+                elif isinstance(var_t, RefType) and not isinstance(var_t.target, MapType):
                     base = f"{base}[{idx}]"
                     tgt = var_t.target
                     while isinstance(tgt, (AliasType, FrozenType)) and getattr(tgt, "target", None):
@@ -4208,6 +4734,19 @@ class PenguCodegen:
                 elif self._expr_is_string(parts[0], var_t):
                     base = f"pengu_string_char_at({base}, {idx})"
                     var_t = None
+                elif isinstance(var_t, (MapType, RefType)) and (isinstance(var_t, MapType) or isinstance(var_t.target, MapType)):
+                    actual_map = var_t.target if isinstance(var_t, RefType) else var_t
+                    key_c = CTypeMapper.to_c_type(actual_map.key)
+                    val_c = CTypeMapper.to_c_type(actual_map.value)
+                    ptr = base if isinstance(var_t, RefType) else f"&({base})"
+                    tmp_k = self.get_temp_name("_k")
+                    tmp_p = self.get_temp_name("_p")
+                    val_cast = CTypeMapper.to_c_decl(actual_map.value, "*")
+                    val_zero = "NULL" if isinstance(actual_map.value, (FnType, RefType)) else f"({val_c}){{0}}"
+                    base = (f"({{ {key_c} {tmp_k} = ({idx}); "
+                            f"void* {tmp_p} = pengu_map_get({ptr}, &{tmp_k}); "
+                            f"{tmp_p} ? (*(({val_cast}){tmp_p})) : {val_zero}; }})")
+                    var_t = actual_map.value
                 else:
                     base = f"{base}[{idx}]"
                     var_t = None
@@ -4236,7 +4775,7 @@ class PenguCodegen:
         # 6. Cast
         elif rule == "cast_expr":
             base = self._translate_expr(node.children[0])
-            t = ast_to_type(node.children[1], lambda n: self.symbols.lookup(n).type if self.symbols.lookup(n) else None)
+            t = ast_to_type(node.children[1], self._lookup_type_fn)
             if isinstance(t, BaseType) and t.name == "string":
                 return f"pengu_to_string({base})"
             t_str = CTypeMapper.to_c_type(t)
@@ -4308,30 +4847,43 @@ class PenguCodegen:
 
             for f in node.children:
                 if isinstance(f, Tree) and f.data == "field_init":
-                    f_name = self._c_ident(str(f.children[0]))
+                    f_raw = str(f.children[0])
+                    f_name = self._c_ident(f_raw)
                     exp_child_type = None
                     if unwrapped_struct_t is not None:
-                        if isinstance(unwrapped_struct_t, (RuneType, EchoType)) and f_name in unwrapped_struct_t.fields:
-                            exp_child_type = unwrapped_struct_t.fields[f_name]
-                        elif isinstance(unwrapped_struct_t, BaseType) and unwrapped_struct_t.name in self.runes and f_name in self.runes[unwrapped_struct_t.name]:
-                            exp_child_type = self.runes[unwrapped_struct_t.name][f_name]
-                        elif isinstance(unwrapped_struct_t, BaseType) and unwrapped_struct_t.name in self.echos and f_name in self.echos[unwrapped_struct_t.name]:
-                            exp_child_type = self.echos[unwrapped_struct_t.name][f_name]
-                        elif isinstance(unwrapped_struct_t, OmenType) and f_name in unwrapped_struct_t.variants:
-                            exp_child_type = RuneType(name=f_name, fields=unwrapped_struct_t.variants[f_name])
+                        if isinstance(unwrapped_struct_t, (RuneType, EchoType)):
+                            if f_raw in unwrapped_struct_t.fields:
+                                exp_child_type = unwrapped_struct_t.fields[f_raw]
+                            elif f_name in unwrapped_struct_t.fields:
+                                exp_child_type = unwrapped_struct_t.fields[f_name]
+                        elif isinstance(unwrapped_struct_t, BaseType) and unwrapped_struct_t.name in self.runes:
+                            if f_raw in self.runes[unwrapped_struct_t.name]:
+                                exp_child_type = self.runes[unwrapped_struct_t.name][f_raw]
+                            elif f_name in self.runes[unwrapped_struct_t.name]:
+                                exp_child_type = self.runes[unwrapped_struct_t.name][f_name]
+                        elif isinstance(unwrapped_struct_t, BaseType) and unwrapped_struct_t.name in self.echos:
+                            if f_raw in self.echos[unwrapped_struct_t.name]:
+                                exp_child_type = self.echos[unwrapped_struct_t.name][f_raw]
+                            elif f_name in self.echos[unwrapped_struct_t.name]:
+                                exp_child_type = self.echos[unwrapped_struct_t.name][f_name]
+                        elif isinstance(unwrapped_struct_t, OmenType):
+                            if f_raw in unwrapped_struct_t.variants:
+                                exp_child_type = RuneType(name=f_raw, fields=unwrapped_struct_t.variants[f_raw])
+                            elif f_name in unwrapped_struct_t.variants:
+                                exp_child_type = RuneType(name=f_name, fields=unwrapped_struct_t.variants[f_name])
 
                     f_val = self._translate_expr(f.children[1], expected_type=exp_child_type) if (len(f.children) > 1 and f.children[1] is not None) else None
-                    field_inits.append((f_name, f_val))
+                    field_inits.append((f_name, f_val, f_raw))
 
             if expected_type is not None and isinstance(expected_type, OmenType):
                 if not expected_type.is_algebraic:
                     if field_inits:
-                        v_name = field_inits[0][0]
-                        return self._get_omen_variant_c_name(expected_type.name, v_name)
+                        _, _, v_raw = field_inits[0]
+                        return self._get_omen_variant_c_name(expected_type.name, v_raw)
                     return f"({expected_type.name})0"
                 else:
                     if field_inits:
-                        names = [n for n, _ in field_inits]
+                        names = [raw for _, _, raw in field_inits]
                         variant_names = set(expected_type.variants)
 
                         if all(n in variant_names for n in names):
@@ -4342,11 +4894,12 @@ class PenguCodegen:
                                     f"omen '{expected_type.name}' initializer selects more than one variant: {sorted(distinct)}",
                                     code="E0041",
                                 )
-                            v_name, v_val = field_inits[0]
-                            v_fields = expected_type.variants.get(v_name, {})
-                            tag = self._get_omen_variant_c_name(expected_type.name, v_name)
+                            v_name, v_val, v_raw = field_inits[0]
+                            v_fields = expected_type.variants.get(v_raw, {})
+                            tag = self._get_omen_variant_c_name(expected_type.name, v_raw)
+                            union_field = self._c_ident(v_raw)
                             if v_fields and v_val is not None:
-                                return f"({expected_type.name}){{ .tag = {tag}, .data.{v_name} = {v_val} }}"
+                                return f"({expected_type.name}){{ .tag = {tag}, .data.{union_field} = {v_val} }}"
                             return f"({expected_type.name}){{ .tag = {tag} }}"
 
                         # Bare-payload form: `with code is 404` — resolve each
@@ -4376,10 +4929,11 @@ class PenguCodegen:
                                     f"('{variant}' vs '{owners[0]}')",
                                     code="E0041",
                                 )
-                        payload = ", ".join(f".{fn} = {fv}" for fn, fv in field_inits)
+                        payload = ", ".join(f".{fn} = {fv}" for fn, fv, _ in field_inits)
                         tag = self._get_omen_variant_c_name(expected_type.name, variant)
+                        union_field = self._c_ident(variant)
                         return (f"({expected_type.name}){{ .tag = {tag}, "
-                                f".data.{variant} = {{{payload}}} }}")
+                                f".data.{union_field} = {{{payload}}} }}")
                     return f"({expected_type.name}){{0}}"
 
             type_name = ""
@@ -4397,7 +4951,7 @@ class PenguCodegen:
                     c_t = CTypeMapper.to_c_type(expected_type)
                     type_name = f"({c_t})"
 
-            field_str = ", ".join(f".{name} = {val}" for name, val in field_inits)
+            field_str = ", ".join(f".{name} = {val}" for name, val, _ in field_inits)
             return f"{type_name}{{{field_str}}}"
 
         elif rule == "with_init_expr":
@@ -4440,7 +4994,7 @@ class PenguCodegen:
             # trailing value-position 'if').
             saved_vars = set(self.local_vars)
             try:
-                parts, val = self._value_branch(list(node.children), expected_type)
+                parts, val = self._translate_value_block_with_banish(list(node.children), expected_type)
                 if val is not None:
                     parts.append(f"{val};")
             finally:
@@ -4531,22 +5085,38 @@ class PenguCodegen:
                     else_val = "0"
                 elif res_type and res_type.is_string():
                     else_val = 'pengu_string_from_cstr("")'
-                else:
+                elif res_type and isinstance(res_type, (FnType, RefType)):
+                    else_val = "NULL"
+                elif res_type and not isinstance(res_type, AnyType):
                     else_val = f"({res_c_type}){{0}}"
+                elif clauses:
+                    else_val = f"({clauses[0][1]})"
+                else:
+                    else_val = "0"
 
             is_enum_or_int = (matched_type is None or matched_type.is_int() or (isinstance(matched_type, OmenType) and not matched_type.is_algebraic))
             all_switchable = all(pat.lstrip('-').isdigit() or is_enum_or_int for pat, _ in clauses) and len(clauses) > 0
             if all_switchable and is_enum_or_int:
-                cases_str = " ".join(f"case {pat}: _res = ({val}); break;" for pat, val in clauses)
-                return f"(__extension__({{ {val_c_type} _val = ({matched_expr}); {res_c_type} _res; switch (_val) {{ {cases_str} default: _res = ({else_val}); break; }} _res; }}))"
+                t_val = self.get_temp_name("_val")
+                t_res = self.get_temp_name("_res")
+                decl_val = CTypeMapper.to_c_decl(matched_type, t_val) if (matched_type and not isinstance(matched_type, AnyType)) else f"int32_t {t_val}"
+                decl_res = CTypeMapper.to_c_decl(res_type, t_res) if (res_type and not isinstance(res_type, AnyType)) else f"__typeof__(({else_val})) {t_res}"
+                cases_str = " ".join(f"case {pat}: {t_res} = ({val}); break;" for pat, val in clauses)
+                return f"(__extension__({{ {decl_val} = ({matched_expr}); {decl_res} = ({else_val}); switch ({t_val}) {{ {cases_str} default: break; }} {t_res}; }}))"
 
             # Build ternary chain for non-integer matches
             curr = else_val
+            needs_wrapper = not self._is_side_effect_free(matched_node)
+            t_v = self.get_temp_name("_v")
+            subj = t_v if needs_wrapper else matched_expr
             for pat, val in reversed(clauses):
                 if matched_type and matched_type.is_string():
-                    curr = f"(pengu_string_equal({matched_expr}, {pat}) ? ({val}) : ({curr}))"
+                    curr = f"(pengu_string_equal({subj}, {pat}) ? ({val}) : ({curr}))"
                 else:
-                    curr = f"(({matched_expr} == {pat}) ? ({val}) : ({curr}))"
+                    curr = f"(({subj} == {pat}) ? ({val}) : ({curr}))"
+            if needs_wrapper:
+                decl_tv = CTypeMapper.to_c_decl(matched_type, t_v) if (matched_type and not isinstance(matched_type, AnyType)) else f"__auto_type {t_v}"
+                return f"(__extension__({{ {decl_tv} = ({matched_expr}); {curr}; }}))"
             return curr
 
         # 10. Presence checks
@@ -4633,7 +5203,8 @@ class PenguCodegen:
 
                 v_tmp = self.get_temp_name("_mval")
                 val_code = self._translate_expr(val_node, expected_type=map_t.value)
-                stmts.append(f"{val_c} {v_tmp} = {val_code};")
+                decl_v = CTypeMapper.to_c_decl(map_t.value, v_tmp)
+                stmts.append(f"{decl_v} = {val_code};")
                 stmts.append(f"pengu_map_put(&{m_tmp}, &{k_tmp}, &{v_tmp});")
 
             stmts.append(f"{m_tmp};")
@@ -4734,7 +5305,8 @@ class PenguCodegen:
 
                         v_tmp = self.get_temp_name("_mval")
                         val_code = self._translate_expr(val_node, expected_type=map_t.value)
-                        stmts.append(f"{val_c} {v_tmp} = {val_code};")
+                        decl_v = CTypeMapper.to_c_decl(map_t.value, v_tmp)
+                        stmts.append(f"{decl_v} = {val_code};")
                         stmts.append(f"pengu_map_put(&{m_tmp}, &{k_tmp}, &{v_tmp});")
 
                     stmts.append(f"{m_tmp};")
@@ -4757,15 +5329,6 @@ class PenguCodegen:
         except Exception:  # noqa: BLE001 - unknown type: assume it has a value
             return False
 
-    def _main_exit_expression(self) -> str:
-        """Returns the C expression whose value becomes the process exit status.
-
-        `weave main` may be declared `into void`, `into bool`, `into u8`, or any
-        integer type; the entry wrapper casts whatever it returns to `int` so the
-        shell/CI sees the program's status (previously it was discarded and every
-        program exited 0).
-        """
-        return "0" if self._main_is_void() else "(int)pengu_main()"
 
     def generate_entry_point(self) -> str:
         """Generates standard C main function wrapper for executable output."""

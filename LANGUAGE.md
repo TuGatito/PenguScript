@@ -1,6 +1,7 @@
 # PenguScript Language Reference
 
-> **Version covered:** 0.10.x (C99/C11 code generator; runtime headers under `pengu_runtime.h`).
+> **Version covered:** see `VERSION` (C99/C11 code generator; runtime headers
+> under `pengu_runtime.h`).
 > This is the definitive syntax & semantics guide, written against the compiler
 > sources (`pengu_grammar.py`, `pengu_checker.py`, `pengu_codegen.py`,
 > `pengu_infer.py`, `pengu_runtime.h`). It complements the quick
@@ -255,11 +256,13 @@ mechanism.
 
 ### 5.4 The `borrowed` modifier
 
-Locals can be explicitly declared with the soft keyword `borrowed`:
+Locals can be explicitly declared with the soft keyword `borrowed`, with or without an explicit type annotation:
 
 ```pengu
 var borrowed view is existing_string
+var borrowed count as int is 5
 let borrowed slice_view is container_ref
+let borrowed tagged as TaggedRef is node_ref
 ```
 
 - **Non-Owning Reference:** A variable marked as `borrowed` indicates that it does not own the underlying heap resource.
@@ -390,6 +393,8 @@ if key in my_map: ...
 
 `in` / `not in` work on ranges, strings, slices, arrays, lists and maps.
 `a in b to c` checks membership in a half-open range.
+
+Strings compare by equality (`==`, `!=`). Ordering comparisons (`<`, `<=`, `>`, `>=`) are **not supported** for strings (`E0005: TypeMismatchError`). PenguString is lowered to a struct in C, where ordering operators are undefined. For lexicographical sorting or comparison, convert characters or use a library comparison routine.
 
 `is present` / `is not present` inspect the flag of a `maybe T` value and
 return `bool`; applying them to any other type is `E0005`. The same holds for
@@ -892,10 +897,22 @@ var p as Player is with name is "Hero", hp is 100, is_alive is true
 var q as Player with:                        # block form, see §18
     set .name is "Villain"
     set .hp is 50
+
+# Nested construction: a field whose type is itself a rune uses another 'with:'
+# block. The inner builder's target type is inferred from the field it is
+# assigned to, so no extra annotation is needed (see §18 for nesting and block forms).
+var hero as Person with:
+    set .name is "Ada"
+    set .age is 30
+    set .address is with:
+        set .street is "123 Main St"
+        set .city is "New York"
+        set .zip is "12345"
 ```
 
-Field access: `p.name`; through a `ref to Player`: `p->name`. Runes map 1:1 to
-C structs, so native layout is preserved across the FFI boundary.
+Field access: `p.name`; through a `ref to Player`: `p->name` (see §18 for nesting
+and block forms). Runes map 1:1 to C structs, so native layout is preserved
+across the FFI boundary.
 
 ### 9.2 `echo` — unions
 
@@ -1195,12 +1212,16 @@ weave load into maybe string:
 
 `E0020` guards return-type compatibility, `E0045` guards `try` placement.
 
-> [!WARNING]
-> `or:` blocks are only supported as direct initializers for `var` / `let`
-> declarations (`var x is <expr> or: ...`). Using an `or:` block inside a
-> larger expression (`return f() or: ...`, `calling g with (x or: ...)`,
-> `a + (b or: ...)`) is not supported: use `or else`, `or return`, or extract
-> the `or:` block into an intermediate variable.
+> [!NOTE]
+> `or:` blocks work in any statement position where a value is expected:
+> as the initializer of `var` / `let` / `static var` (`var x is f() or: …`),
+> in `set x is f() or: …`, in `return f() or: …`, and as a bare
+> expression statement (`f() or: …`). They cannot appear inside a larger
+> expression (`a + (b or: …)`, `calling g with (x or: …)`): bind the result
+> to a variable first, or use `or else` / `or return`.
+> When an `or:` block handles failure, the unwrapped value is only accessed
+> on success; if the handler falls through without an explicit return or jump,
+> the target binding defaults safely to its zero/null representation.
 
 ---
 
@@ -1788,6 +1809,82 @@ Rules (enforced by the checker):
   (`Tipo _with = {0}; …assignments…; _with;`), so the construct is usable in
   any expression position.
 
+### Nesting `with:` blocks
+
+A `with:` builder can be nested at any depth, both in **construction** position
+(the value of a field being assigned) and in **editing** position (a `set`
+inside a `with target:` scope). The inner builder's target type is inferred
+from the field it is being assigned to, so the `as T` annotation is only
+required at the outermost level:
+
+```pengu
+rune Address:
+    street as string
+    city as string
+    zip as string
+
+rune Person:
+    name as string
+    age as int
+    address as Address
+
+# Construction: 'var x as T with:' (annotation required at the outermost level)
+weave build into Person:
+    return with:                       # (see below for 'return with:')
+        set .name is "Ada"
+        set .age is 30
+        set .address is with:          # type comes from Person.address
+            set .street is "123 Main St"
+            set .city is "New York"
+            set .zip is "12345"
+
+# Editing: 'with target:' mutates an existing value in place
+weave rename into void:
+    var p as Person with:
+        set .name is "Ada"
+        set .address is with:
+            set .street is "1 First Ave"
+            set .city is "Springfield"
+            set .zip is "00001"
+
+    with p:                            # edit the existing rune
+        set .name is "Grace"
+        set .address is with:          # nested builder, same inference rules
+            set .street is "2 Second Ave"
+            set .city is "Shelbyville"
+            set .zip is "00002"
+```
+
+Rules and guarantees:
+
+- The inner builder inherits its target type from the field it is assigned to
+  (`Person.address` in the example above). No extra annotation is required.
+- Nesting works at any depth; each level allocates its own implicit C
+  temporary (`_with_N`), so inner and outer builders never collide.
+- `set .field is <block>` accepts any value block (see §7.6), including nested
+  `with:` builders, value-position `if`/`unless`, `do:` blocks and value-
+  position loops.
+- Type checking is unchanged: a wrong field name (`E0013`-style), a missing
+  field, or a type mismatch inside a nested builder still raises the same
+  diagnostic it would raise at the top level.
+- The generated C is a GNU statement-expression per builder
+  (`({ Person _with_N = {0}; …; _with_N; })`), so nesting lowers naturally.
+
+The `with:` builder is also the iteration value inside a value-position loop
+(§7.6), which lets you build collections of composite runes without repeating
+the target type:
+
+```pengu
+var ps as list of Person is for i from 0 to 3:
+    with:                              # element type comes from 'list of Person'
+        set .name is "p"
+        set .age is i
+        set .address is with:
+            set .street is "s"
+            set .city is "c"
+            set .zip is "z"
+```
+
 The one-line `with x is …, y is …` struct literal is unchanged, and each
 field value may itself be a block value (a multi-line block must be the last
 field, or the following `,` must start a new line) —
@@ -1797,10 +1894,20 @@ see [§7.6](#76-block-expressions-do-value-position-if--unless-and-loops).
 > Block members are written with the implicit `.` (`set .x is 10`), consistent
 > with `with target:` scopes. `set x is 10` inside the block would assign a
 > *local variable* named `x`, which normally does not exist.
+>
+> A builder block is itself a value, so it can appear anywhere a value is
+> expected: as a field initializer (nesting, above), as a loop iteration value,
+> as a branch of a value-position `if`/`unless`, and as a `do:` block tail.
+> The `as T` annotation on `var`/`let`/`static var` is only needed at the
+> outermost level; inner builders infer their type from the field they are
+> assigned to.
 
 ---
 
 ## 19. Standard library
+
+### Builtin `print`
+`print` is a compiler builtin that lowers directly to `printf` according to the argument type (`print "hello"`, `print 42`, etc.). For structured or formatted printing with broader options, use `std.spark.println` or `std.spark.print`.
 
 Wrapper modules (import `std.…`):
 

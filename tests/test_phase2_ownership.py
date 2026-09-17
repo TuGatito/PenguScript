@@ -341,7 +341,7 @@ def test_or_block_creates_own_auto_banish_scope():
         '  return\n'
     )
     assert c.count("pengu_banish_string(&s);") == 1
-    idx_if = c.find("if (!pengu_result_is_ok")
+    idx_if = c.find("if (!pengu_maybe_is_present") if "if (!pengu_maybe_is_present" in c else c.find("if (!pengu_result_is_ok")
     idx_banish = c.find("pengu_banish_string(&s);")
     assert idx_if != -1 and idx_banish != -1
     depth = 0
@@ -373,7 +373,7 @@ def test_let_or_block_creates_own_auto_banish_scope():
         '  return\n'
     )
     assert c.count("pengu_banish_string(&s);") == 1
-    idx_if = c.find("if (!pengu_result_is_ok")
+    idx_if = c.find("if (!pengu_maybe_is_present") if "if (!pengu_maybe_is_present" in c else c.find("if (!pengu_result_is_ok")
     idx_banish = c.find("pengu_banish_string(&s);")
     assert idx_if != -1 and idx_banish != -1
     depth = 0
@@ -401,7 +401,7 @@ def test_or_block_runs_clean():
         '    return some x\n'
         '  return maybe none\n'
         'weave main into int:\n'
-        '  var v is calling may_fail with 1 or:\n'
+        '  var v is (calling may_fail with 1) or:\n'
         '    var s is "err" + "or"\n'
         '    calling print with s\n'
         '  return 0\n'

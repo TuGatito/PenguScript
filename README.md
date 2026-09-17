@@ -1,6 +1,6 @@
 # PenguScript
 
-![Version](https://img.shields.io/badge/version-0.10.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+![Version](https://img.shields.io/badge/version-0.13.6-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 
 **PenguScript** is a statically typed, compiled programming language that combines the clean, indentation-based readability of **Python** (with a nod to MoonScript), the strict scoping and memory-discipline principles of **V**, and the raw speed, tiny footprint, and seamless C interoperability of **C**.
 
@@ -164,7 +164,7 @@ pengu lsp                   # stdio language server
 pengu doc -o docs/          # generate module reference
 ```
 
-Projects are configured with `pengu.toml` (or `pengu.yaml`) — entry point, output type/name, includes, links, per-profile `cflags`/`defines`, and compiler selection. Under the `debug` profile (default), automatic bounds checking (`pengu_assert_bounds`) and stack trace frames are active for index access; in `release`, bounds checking carries zero runtime overhead. See [PENGU_BUILD.md](PENGU_BUILD.md) for the full guide.
+Projects are configured with `pengu.toml` or `pengu.yaml` (mutually exclusive; if both exist, `pengu.toml` wins; examples in `LANGUAGE.md` §14.4 use YAML for brevity) — entry point, output type/name, includes, links, per-profile `cflags`/`defines`, and compiler selection. Under the `debug` profile (default), automatic bounds checking (`pengu_assert_bounds`) and stack trace frames are active for index access; in `release`, bounds checking carries zero runtime overhead. See [PENGU_BUILD.md](PENGU_BUILD.md) for the full guide.
 
 ### VS Code extension
 

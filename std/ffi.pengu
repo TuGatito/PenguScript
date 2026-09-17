@@ -84,6 +84,10 @@ weave string_from_cstr with cstr as ref to char into string:
 weave cstr_from_string with s as string into ref to char:
     return calling pengu_ffi_string_cstr with s
 
+# No-op release for non-owning C string views (for symmetry).
+weave cstr_free with p as ref to char into void:
+    return
+
 # Returns a read-only byte view of the string's internal buffer (never NULL).
 weave bytes_from_string with s as string into ref to byte:
     return calling pengu_ffi_string_bytes with s

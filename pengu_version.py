@@ -18,7 +18,7 @@ import re
 from typing import Optional
 
 #: Version used when the ``VERSION`` file cannot be read (frozen/packaged runs).
-FALLBACK_VERSION = "0.10.0"
+FALLBACK_VERSION = "0.13.6"
 
 #: Root of the source checkout (the directory that holds ``VERSION``).
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))

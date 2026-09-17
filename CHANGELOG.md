@@ -2,6 +2,362 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.13.6] - 2026-09-17
+
+### Corregido (crítico)
+
+- **#1**: En `pengu_checker.py`, `_check_const_decl` ahora valida exhaustivamente que los elementos base de constantes de tipo array (`ArrayType`) sean estáticamente inicializables en C en tiempo de compilación (tipos numéricos, booleanos, char, o `ref to char`). Se rechazan con `E0005` constantes de tipo array de strings o estructuras heap que emitían llamadas en runtime no válidas para inicializadores estáticos C99.
+
+### Corregido (alto)
+
+- **#2**: En `pengu_codegen.py`, `generate_function_prototypes`, `generate_function_definitions`, `_register_one_lambda` y `return_stmt` ahora utilizan `CTypeMapper.to_c_decl` para construir firmas de retorno y declaraciones de variables cuando la función o lambda retorna un puntero a función (`FnType`), emitiendo C99 válido (`Ret (*fn(params))(Args)`).
+- **#3**: En `pengu_codegen.py`, `_c_ident` protege los identificadores `NULL`, `bool`, `true`, `false`, `_Bool`, `wchar_t`, `FILE`, así como las palabras clave de C11 (`_Alignas`, `_Alignof`, `_Atomic`, `_Generic`, `_Noreturn`, `_Static_assert`, `_Thread_local`), escapándolos como `_<name>` para evitar colisiones con macros de `<stdbool.h>` y `<stddef.h>`.
+
+### Corregido (medio)
+
+- **#4**: En `pengu_codegen.py`, el acceso `.value` en `maybe T` y `.ok_val`/`.err_val` en `result` utiliza `CTypeMapper.to_c_decl(elem_t, "*")` para generar el casteo de desreferenciación correcto cuando `T` es un `FnType` (puntero a puntero a función `Ret (**)(Args)`).
+- **#5**: En `pengu_codegen.py`, `judge_expr` cuando no tiene un tipo de resultado explícito utiliza `__typeof__(({else_val}))` e inicializa el temporal `{decl_res} = ({else_val});` previo a la sentencia `switch`, evitando errores de inicialización faltante de `__auto_type` en GCC y eliminando el uso inválido de `(__auto_type){0}`.
+- **#6**: En `pengu_codegen.py`, la interpolación de strings (`_translate_string_lit`) y la comprobación `_is_string_expr` emplean métodos semánticos (`t.is_string()`, `t.is_int()`, `t.is_float()`, `t.is_bool()`), soportando correctamente tipos envueltos en `AliasType` o `FrozenType`.
+
+### Corregido (menor)
+
+- **#7**: En `pengu_checker.py` y `pengu_codegen.py`, `compound_set_stmt` con `+=` sobre tipos que descienden a `string` (como `AliasType(string)`) ahora es aceptado y emite `pengu_string_concat`.
+- **#8**: En `pengu_checker.py`, `_check_omen_variant_collisions` ignora colisiones entre constantes del mismo archivo (`first_path == other_path`), delegando el diagnóstico al chequeo de redefinición intra-archivo.
+- **#9**: En `pengu_types.py`, `estimate_size` evalúa `max(1, t.size or 1)` defensivamente para prevenir `TypeError` cuando una dimensión de array aún no ha sido resuelta.
+- **#10**: En `pengu_codegen.py`, `_translate_string_lit` lanza un `SemanticError` explícito cuando se intenta interpolar un tipo no soportado, en lugar de generar accesos inválidos a `.data` y `.len`.
+- **#11**: En `pengu_codegen.py`, `_translate_value_if` alinea `then_prologue` con el nivel de indentación contextual del bloque.
+- **#12**: En `pengu_codegen.py`, `ord_expr` evalúa la expresión de entrada una sola vez en un temporal de bloque `_ord_s`, evitando efectos secundarios dobles ante llamadas a funciones y validando longitud no nula.
+
+### Tests
+
+- `tests/test_regression_0_13_6.py`: suite completa de regresión para las 12 correcciones de 0.13.6.
+
+## [0.13.5] - 2026-09-17
+
+### Corregido (crítico)
+
+- **#1**: En `pengu_codegen.py` y `pengu_checker.py`, se unifica la resolución del `step_node` en `_translate_for_range` y `_check_for_range_stmt` usando `len(node.children) == 5 and node.children[3] is not None` y `block_node = node.children[-1]`. Esto evita fallbacks erróneos que interpretaban el cuerpo del bucle como expresión de paso.
+- **#2**: En `pengu_checker.py` y `pengu_codegen.py`, soporte completo para bucles descendentes (`for i from 5 to 0 step -1`). El checker valida que `start >= end` ante pasos negativos (y rechaza `step == 0` con `E0042`), y el codegen emite la condición de corte descendente (`>`) e incrementos negativos (`--` / `+= step`) respetando la semántica *end-exclusive*.
+
+### Corregido (alto)
+
+- **#3**: En `pengu_codegen.py`, `judge_expr` utiliza `CTypeMapper.to_c_decl` para declarar los temporales de resultado y valor cuando son de tipo función (`FnType`), y emite `NULL` por defecto si `res_type` es una función o referencia, evitando sintaxis de declarador C inválida.
+- **#4**: En `pengu_codegen.py`, `_translate_banish_target` desenvuelve iterativamente tipos `FrozenType` y `AliasType`, armonizando la selección del método de liberación (`pengu_banish_string`, `pengu_banish_list`, `pengu_banish_map`, o puntero de referencia).
+
+### Corregido (medio)
+
+- **#5**: En `pengu_codegen.py`, `var_ref` dentro de `with_stack` consulta el tipo del objeto receptor y emite el operador flecha `->` cuando es un `RefType`, evitando emitir accesos directos con punto `.` sobre punteros a estructuras.
+- **#6**: En `pengu_codegen.py`, `_translate_or_block` exige un `target_ident` explícito cuando se proporciona un `target_decl`, eliminando el fallback basado en `.split()[-1]` que fallaba ante declaradores de tipo función.
+- **#7**: En `pengu_codegen.py`, `_translate_string_lit` utiliza la especificación `%.*s` con `(int)(expr).len, (expr).data` para strings interpolados en `pengu_string_format`, sin asumir terminación en NUL en buffers de `PenguString`.
+- **#8**: En `pengu_codegen.py` y `pengu_checker.py`, `const` con literales de array emite inicialización estática C99 (`static const <base> <name>[dims] = { ... };`), y el checker rechaza `const` de tipo `map` o `list` con `E0005` indicando que requieren alocación dinámica en el heap.
+
+### Corregido (menor)
+
+- **#10**: En `pengu_checker.py`, se evita la duplicación del error `E0014` cuando una declaración `var`/`let` con inicializador `with:` carece de anotación de tipo.
+- **#12**: En `pengu_checker.py`, `_check_omen_variant_collisions` enriquece el diagnóstico cuando el valor de una constante no pudo plegarse en tiempo de compilación.
+- **#14**: En `pengu_codegen.py`, los accesos indexados a mapas en `at_expr` y `_translate_set_target` utilizan `CTypeMapper.to_c_decl` para el casteo del puntero temporal cuando el valor almacenado es un `FnType`.
+
+### Tests
+
+- `tests/test_regression_0_13_5.py`: suite completa de regresión para las correcciones de 0.13.5.
+
+## [0.13.4] - 2026-09-17
+
+### Corregido (crítico)
+
+- **N10**: En `pengu_codegen.py`, `_emit_iteration_value`, `_translate_for_in` y `for_comp` ahora emplean `CTypeMapper.to_c_decl` para declarar elementos y temporales con tipos funcionales (`FnType`), y `CTypeMapper.to_c_decl(elem_t, "*")` para los casteos a puntero de desreferenciación en colecciones, eliminando errores de sintaxis de declaradores inválidos en C.
+- **N11**: En `pengu_checker.py`, `_check_or_block` captura `SemanticError` de `inferrer.infer` sobre el operando izquierdo y registra el error con `_record_error`, asignando `AnyType` y continuando el chequeo del bloque `or:`, preservando la política de acumulación multi-error del compilador.
+
+### Corregido (alto)
+
+- **N12**: En `pengu_infer.py`, el fallback sintáctico en `is_valid_col` para `in_expr` / `not_in_expr` se restringe a `col_t is None`, evitando aceptar expresiones como `x in (10 to float)` como rangos válidos cuando son casts escalares y emitiendo el diagnóstico `E0005`.
+
+### Corregido (medio)
+
+- **N9**: En `pengu_codegen.py`, se aplica `_c_ident` de forma exhaustiva a nombres de variables locales (`var_decl`, `let_decl`, `static_var_decl`), nombres de funciones (`_collect_weave`), parámetros de llamada y receptores encantados, evitando que palabras clave de C (como `asm`, `do`, `while`, etc.) colisionen como identificadores C sin escapar.
+
+### Corregido (menor)
+
+- **N13**: En `pengu_codegen.py`, `struct_init` preserva el nombre raw del campo para la resolución y coincidencia de variantes y campos de `omen`, utilizando el identificador C escapado con `_c_ident` para la emisión del payload y miembros del struct (`.data.{union_field}`), evitando diagnósticos falsos positivos `E0041` cuando una variante coincide con una keyword de C.
+
+### Tests
+
+- `tests/test_regression_0_13_4.py`: suite completa de regresión cubriendo N10, N11, N12, N9 y N13.
+
+## [0.13.3] - 2026-09-17
+
+### Corregido (crítico)
+
+- **N1**: En `pengu_codegen.py`, `break_stmt` y `continue_stmt` ahora liberan las variables con auto-banish registradas en el propio scope del bucle antes de terminar el recorrido (`if kind == "loop": break` movido tras flushear `entries`), eliminando fugas de memoria silenciosas y deterministas.
+- **N2**: En `pengu_codegen.py`, `_translate_or_block` y sus llamadores en `var_decl` y `let_decl` emplean `CTypeMapper.to_c_decl(t, name)` y pasan `target_ident` explícito; además, inicializan punteros y referencias con `NULL` y desreferencian valores con casteo a puntero correcto (`ptr_cast = CTypeMapper.to_c_decl(target_type, "*")`), evitando código C inválido con `FnType` o `RefType`.
+
+### Corregido (alto)
+
+- **N3**: `some <FnType>` en `pengu_codegen.py` utiliza `CTypeMapper.to_c_decl(arg_t, tmp)` para el almacenamiento temporal y `sizeof(tmp)` en la asignación heap, generando C válido para valores funcionales encapsulados en `maybe`.
+- **N4**: Condicionales con binding tipado como función (`if f as weave ... is opt:`) en `_translate_binding_if` y `_translate_binding_value_if` emiten declaradores de función C válidos (`int32_t (*f)(int32_t) = (*((int32_t (**)(int32_t))_maybe.value))`).
+
+### Corregido (medio)
+
+- **N5**: `_c_ident` en `pengu_codegen.py` protege palabras reservadas adicionales de C (`if`, `else`, `while`, `for`, `do`, `break`, `continue`, `asm`), evitando colisiones en bindings FFI y headers importados.
+- **N6**: `_check_set_stmt` en `pengu_checker.py` extiende la verificación de mutabilidad a `at_access`, rechazando modificaciones a elementos de arrays inmutables declarados con `let` (error `E0006`).
+- **N7**: En `pengu_codegen.py`, la rama de rango sintáctico en `in_expr` y `not_in_expr` ahora solo actúa como fallback cuando `col_t is None`, evitando emitir range checks erróneos sobre expresiones de conversión (cast `to float`, etc.).
+
+### Tests
+
+- `tests/test_regression_0_13_3.py`: suite completa de regresión con tests unitarios y de compilación/ejecución para N1–N7.
+
+## [0.13.2] - 2026-09-17
+
+### Corregido (crítico)
+
+- **C1**: `_mentions_set_target` en `pengu_checker.py` ahora reconoce `compound_set_stmt` (`set s += ...`), previniendo fugas de memoria por auto-banish indebido en strings reasignados.
+- **C2**: `_translate_or_block` en `pengu_codegen.py` ahora envuelve `{ok_read}` dentro de una rama `else` e inicializa por defecto el valor de destino, eliminando el fallo por desreferenciación nula (UB) cuando el manejador `or:` no interrumpe el flujo.
+- **C3**: Eliminada la regla sintáctica huérfana `named_stmt` (`x is 5`) y su alias `named_simple` en `pengu_grammar.py` y `pengu_codegen.py`. Las asignaciones requieren explícitamente `set` y las declaraciones `var`/`let`.
+
+### Corregido (alto)
+
+- **H1**: `_check_set_stmt` en `pengu_checker.py` procesa correctamente `arrow_access` (`->`) y `at_access` dentro de cadenas `with_target` (p. ej. `set .p->x is 5`).
+- **H2**: `_translate_value_if` en `pengu_codegen.py` utiliza `CTypeMapper.to_c_decl` para declarar temporales de expresiones `if` que evalúan a funciones (`FnType`), generando declaradores C válidos (`ret (*_if_1)(args)`).
+- **H3**: `some <array_lit>` es rechazado en `pengu_infer.py` con `TypeMismatchError` (`E0005`) indicando que los arreglos fijos de C no pueden encapsularse por valor en un `maybe`; debe usarse `slice of T` o `ref to array`.
+- **H4**: `in` / `not in` valida en `pengu_infer.py` que el operando derecho sea una colección o rango válido (`RangeType`, `string`, `ArrayType`, `SliceType`, `ManyType`, `ListType`, `MapType`, `AnyType`), emitiendo `E0005` ante tipos no soportados.
+
+### Corregido (medio)
+
+- **M1**: Nombres de pruebas unitarias (`test """nombre""":`) con comillas triples o prefijo raw se despojan limpiamente en `_check_test_decl` y `collect_declarations`.
+- **M2**: Acceso a campo `.value` sobre `ref to maybe T` y `ref to result of T to E` en `pengu_codegen.py` genera la desreferenciación adecuada mediante operador flecha `(*({elem_c}*){base}->value)`.
+
+### Limpieza y consistencia
+
+- **L1**: Eliminado método muerto `_main_exit_expression` en `pengu_codegen.py`.
+- **L2**: `cast_expr` en `pengu_codegen.py` utiliza `self._lookup_type_fn` de forma null-safe.
+
+### Tests
+
+- `tests/test_regression_0_13_2.py`: suite de pruebas de regresión cubriendo C1–C3, H1–H4, M1–M2.
+
+## [0.13.1] - 2026-09-17
+
+### Corregido (residual 0.13.0)
+
+- **R1**: Eliminado un use-after-free residual cuando el valor de un bloque
+  (`if`, `unless`, `do:`, loops) era un identificador envuelto en paréntesis
+  (`(s)`). El helper `_exclude_escaping_val_from_banish` ahora normaliza
+  paréntesis balanceados antes de comparar.
+- **R2**: `PenguChecker.check` reinicia `const_definitions` en cada invocación,
+  evitando falsos E0046 por colisiones de constantes entre pasadas.
+- **R3**: El cuerpo de un `with:` se chequeaba dos veces (una en
+  `_check_with_init_body` y otra vía `_check_value_exprs`), duplicando los
+  errores. Ahora `_check_with_init_body` setea `_pengu_value_type` en el nodo.
+
+### Corregido (medio)
+
+- **R4**: Eliminada rama muerta `ret_expr.data == "ident"` en `is_err_ret`.
+- **R5**: `_translate_or_block` rechaza explícitamente operandos `any` con
+  `E0005`, evitando generar C inválido que asumía `PenguResult`.
+- **R6**: `_check_or_block` sigue chequeando el cuerpo del `or:` aunque el
+  operando sea inválido, restaurando la acumulación multi-error completa.
+
+### Consistencia
+
+- **R7**: `_check_static_var_decl` usa `_decl_layout` como los demás.
+- **R8**: `let borrowed a, b is ...` propaga `is_borrowed` a los nombres destructureados.
+- **R9**: `decl_layout` se movió a `pengu_symbols.py` como función pública.
+- **R10**: Documentada la rama `first is None` en `_has_borrowed_modifier`.
+
+### Tests
+
+- `tests/test_regression_0_13_1.py`: suite de pruebas cubriendo R1–R10.
+
+## [0.13.0] - 2026-09-17
+
+### Corregido (crítico)
+
+- **B1**: `var borrowed x is <expr>` (sin anotación de tipo) ya no provoca
+  `IndexError` en el checker ni en el codegen. Se corrigió la lectura de
+  children para los 8 layouts posibles de `var`/`let` con/sin `borrowed`
+  y con/sin tipo, con un helper compartido `_decl_layout`.
+- **B2**: Eliminado un use-after-free determinista al usar un local con
+  auto-banish como valor de una iteración de loop en posición de valor
+  (`for i from 0 to N: var s is "a" + x; s`). El compilador ya no emite
+  `pengu_banish_string(&s)` antes de pushear la copia estructural.
+- **B3**: Mismo bug en `if`/`unless`/`do:` en posición de valor. Se unificó
+  la lógica de flush bajo un helper común que excluye del banish la variable
+  que actúa como valor del bloque.
+- **B4**: Las comparaciones de orden (`< <= > >=`) sobre `string` se rechazan
+  con `E0005`. Antes se emitía `(a < b)` en C, que no compila para `PenguString`.
+
+### Corregido (medio)
+
+- **M1**: `_check_or_block` acumula el error con `_record_error` en lugar de
+  lanzar la excepción, restaurando la política multi-error del checker.
+- **M2**: `_translate_or_block` levanta `E0005` explícito cuando el tipo del
+  operando es `None` (invariante del checker violado).
+- **M3**: `_block_ends_with_jump` / `_stmts_end_with_jump` normalizan los
+  aliases de una línea (`return_simple`, `break_simple`, `continue_simple`)
+  antes de comprobar si el bloque termina en salto.
+- **M4**: Refactor de `_translate_loop_body` y `_translate_value_block_with_banish`
+  para compartir la lógica de "push + flush seguro".
+
+### Corregido (menor)
+
+- **m1**: `is_err_ret` en `_translate_stmt` deriva del AST en vez de hacer
+  substring matching sobre el C emitido.
+- **m3**: `ord` sobre un string con `data == NULL` retorna `0` en vez de
+  desreferenciar NULL.
+- **m5**: El checker sigue detectando errores de tipo en ramas con condición
+  constante (dead code), aunque mantiene el warning `W0004`.
+- **m7**: Corregido el mojibake UTF-8 en `CHANGELOG.md`.
+- **m10**: Detección de colisión `const` ↔ `const` entre módulos importados
+  con valores distintos (`E0046`).
+
+### Documentación
+
+- **m8**: `print` documentado como builtin del compilador en `LANGUAGE.md` §19.
+- **m9**: Aclarada la precedencia `pengu.toml` > `pengu.yaml` en `README.md`.
+- `LANGUAGE.md` §6.3 y §5.4 actualizados.
+
+### Tests
+
+- `tests/test_regression_0_13_0.py`: tests cubriendo B1–B4, M1–M4, m3, m5, m6.
+- Los tests de B2/B3 deben ejecutarse con `-fsanitize=address,undefined` en CI.
+
+## [0.12.0] - 2026-09-16
+
+### Corregido
+- **B1**: Importaciones de typing faltantes (`List`, `Dict`, `Optional`, `Tuple`, etc.) en `pengu_parser/pengu_parser.py` para prevenir `NameError` en tiempo de ejecución.
+- **B2**: Bloques `or:` fuera de declaraciones `var`/`let`: unificación del lowering en `_translate_or_block` para expresiones en asignaciones (`set_stmt`), retornos (`return_stmt`) y llamadas directas, generando `PenguResult` y captura de error válidos en C.
+- **B3**: Iteración `for ... in map`: generación de bucle de ranuras de sondeo abierto acotado por `(col).len` y ranuras activas `is_occupied`, eliminando el uso inválido de `sizeof` sobre punteros a structs.
+- **B4**: Acceso e inserción en mapas: corrección de `m at key` generando `pengu_map_get` y de `set m at k is v` generando `pengu_map_put`.
+- **B5**: Operadores `in` y `not in` sobre colecciones: implementación de búsqueda secuencial elemento a elemento para `ListType` (mediante `pengu_list_at`) y para tipos `SliceType`/`ManyType`, en lugar de comparación directa de igualdad de punteros.
+- **C1**: Emisión de constantes de rango globales: adición de `RangeConst` en el plegado de constantes de `pengu_infer.py` y generación correcta de inicializadores `(PenguRange){.start = ..., .end = ...}` en `pengu_codegen.py`.
+- **C2**: Validación dimensional de arrays contra literales entre corchetes `[...]`: comprobación de longitud estática en `pengu_checker.py` con emisión de `E0041` (`ArraySizeMismatchError`) ante desajustes.
+- **C4**: Preservación de variables en bucles: prevención de colisión donde la variable iteradora sobreescribía vinculaciones del ámbito exterior con el mismo nombre tras salir del bucle.
+- **C5**: Limpieza de `with_stack` ante excepciones: encapsulamiento del procesamiento de `with_stmt` en `try ... finally: self.with_stack.pop()` para evitar fugas de contexto en el generador de código.
+- **L1**: Limpieza de ramas `if/elif` redundantes en `_check_omen_variant_collisions` dentro de `pengu_checker.py`.
+- **L3**: Evaluación única en `judge_expr`: el sujeto de la expresión de juicio se evalúa una sola vez asignándolo a un temporal `__auto_type` en una statement-expression en C si contiene posibles efectos secundarios o llamadas.
+- **L4**: Detección de errores en interpolación de cadenas: `_translate_string_lit` eleva un `SemanticError` (`E0019`) ante fallos de re-parseo de expresiones interpoladas en lugar de ignorarlos silenciosamente.
+
+### Cambiado
+- **L2**: Cláusulas `when` con vinculación de payload (`when Variant with a, b -> ...`) en expresiones `judge`: deshabilitadas explícitamente y rechazadas con error semántico `E0005` indicando que el desempacado de payload en `when` aún no está soportado.
+
+### Añadido
+- **`std.ffi.cstr_free`**: Declaración nativa `cstr_free with p as ref to char into void` en `std/ffi.pengu` para liberar cadenas C asignadas en FFI de manera segura.
+- **Suite de regresión**: `tests/test_regression_0_12_0.py` con 12 tests unitarios (T1–T10, L2) cubriendo exhaustivamente todos los fallos corregidos en esta versión.
+
+### Corregido (fase 2)
+
+- **Codegen**: `map at k` ya no envuelve la expresión-statement en un
+  `*(…)` redundante que producía `*(int32_t)` (C inválido). Aplica tanto
+  a `m at k` como a la rama de `_translate_access_op`.
+- **Codegen**: `ref to map at k` ahora cae en la rama correcta y emite
+  `pengu_map_get(m, …)` en lugar de `m[i]`.
+- **Codegen**: `for … in <map> then <expr>` (comprensión) emite un bucle
+  válido contra `PenguMap` en lugar de `sizeof(m)/sizeof((m)[0])`.
+- **Checker**: `_validate_array_literal_size` ya no permite que un
+  literal singleton (`[1]`) inicialice un array de tamaño mayor; ahora
+  levanta `E0041` como cualquier otro mismatch.
+- **Tipos**: `ArrayType.is_compatible` compara tamaños cuando ambos
+  lados son conocidos, impidiendo pasar un `array of T with size 3`
+  donde se espera `array of T with size 5`.
+- **Codegen**: `_translate_or_block` ya no descarta silenciosamente el
+  handler cuando el tipo inferido del LHS no es `maybe`/`result`;
+  ahora levanta `E0005` (compiler bug) en su lugar.
+- **Checker / Inferrer**: el rechazo de payload bindings en `judge`
+  (`when Variant with field`) ya no se duplica entre los dos módulos.
+
+### Documentación (fase 2)
+
+- **LANGUAGE.md §12**: actualizada la advertencia sobre `or:` — ahora
+  funciona en `var`/`let`/`set`/`return`/`expr_stmt`.
+- **LANGUAGE.md**: cabecera sin versión hardcodeada.
+- **CHEATSHEET.md §6.4**: corregido el C emitido por `map at k`; añadida
+  fila para `ref to map`.
+- **CHEATSHEET.md §7.2**: añadido el C de ejemplo para iterar un map.
+- **CHEATSHEET.md §11.2**: corregido el ejemplo `(int32_t)(_res.ok_val)`
+  a `*(int32_t*)_res.ok_val`.
+
+### Tests
+
+- Nuevos tests T1–T11 cubriendo los fixes de la fase 2.
+
+## [0.11.0] - Unreleased
+
+### Fixed — Nested `with:` blocks (construction & editing)
+
+Previously, nesting a `with:` builder inside another `with:` block — either as
+the initializer of a field being constructed (`var p as Person with: … set
+.address is with: …`) or as the value of a `set` inside a `with target:` scope
+— failed during code generation with:
+
+    SemanticError: [line 1, col 1] 'with:' block construction requires a
+    struct-like target type (rune/echo/omen) from an explicit annotation
+
+The root cause was that `PenguCodegen._translate_stmt` resolved the target type
+of a `set` statement by calling `self._infer_node_type(inner_target)`, and the
+inferrer has no context for `with_target` (leading-dot field) nodes. When the
+inference returned `None`, the existing fallbacks only covered `normal_target`
+and bare `Token` targets — leaving `with_target` (the shape that appears inside
+every `with:` block) unhandled. The nested `with_init_expr` then received
+`expected_type = None` and could not determine its target type, so it raised
+the diagnostic above.
+
+The fix mirrors the checker's existing behaviour:
+
+- **New helper `PenguCodegen._lookup_with_field_type`** resolves a field's type
+  through the active `with_stack` (looking through `ref to T` and falling back
+  to the codegen's own collected `runes`/`echos` field maps when the
+  `RuneType` only carries a name).
+- **`set_stmt` and `compound_set_stmt`** now call the helper when the target is
+  a `with_target` and inference returns `None`. This is strictly additive: the
+  old code paths are unchanged, and the new path only triggers where a
+  `SemanticError` (or invalid C) was previously produced.
+- **Rvalue expression handling in `set_stmt`**: avoids emitting `memcpy` with
+  address-of (`&`) on rvalue/statement-expression blocks, which would be invalid C.
+- **Chained access support in `pengu_checker.py`**: resolves nested member
+  accesses (such as `set .c.n += 10`) on `with_target` AST nodes.
+
+Supported today (with arbitrary nesting depth):
+
+```pengu
+# Construction
+var a as Person with:
+  set .name is "John"
+  set .address is with:            # nested builder, inferred from Person.address
+    set .street is "123 Main St"
+    set .city is "New York"
+
+# Editing
+with a:
+  set .name is "Jane"
+  set .address is with:            # nested builder, same rules
+    set .street is "456 Elm St"
+    set .city is "Los Angeles"
+```
+
+Three-level nesting, nesting inside a loop-collect body, and compound
+assignment inside a nested scope are covered by new tests.
+
+### Tests
+
+- `tests/test_nested_with_init.py`:
+  - `test_nested_with_creation` — 2-level construction, verifies distinct
+    `_with_N` temporaries and correct runtime output.
+  - `test_nested_with_editing` — same shape inside `with a:` (edit in place).
+  - `test_triple_nested_with` — 3-level construction.
+  - `test_nested_with_in_loop_collect` — `with:` inside a value-position loop.
+  - `test_nested_with_field_type_mismatch` — the checker still rejects type
+    errors inside a nested builder (the fix does not weaken type checking).
+  - `test_compound_set_inside_nested_with` — `set .c.n += 10` inside `with w:`.
+  - `test_lookup_with_field_type_resolves_rune_field` — unit test for the new
+    helper.
+  - `test_lookup_with_field_type_empty_stack` / `_unknown_field` — negative
+    cases.
+
+### Documentation
+
+- `LANGUAGE.md` §9.1 (`rune`) and §18 (`Block-style construction`) now show
+  the nested-construction and nested-editing forms with runnable examples.
+
 ## [0.10.1] - Unreleased
 
 ### Runtime hardening (0.10.1) — octava pasada

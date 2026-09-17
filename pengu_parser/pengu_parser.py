@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import re
+from dataclasses import dataclass
+from typing import Any, List, Optional, Tuple
 
 from lark import Lark, Tree, Token
 from lark.exceptions import UnexpectedInput as LarkUnexpectedInput
 from lark.indenter import Indenter
-from typing import List
 
 from .pengu_grammar import GRAMMAR
 
@@ -39,7 +42,7 @@ class PenguIndenter(Indenter):
 
 
 class PenguParser:
-    """LALR(1) parser for PenguScript v0.9.0 using embedded grammar."""
+    """LALR(1) parser for PenguScript v0.12.0 using embedded grammar."""
     _shared_parser = None
 
     def __init__(self):
@@ -304,9 +307,6 @@ class PenguParser:
         """
         clean_code = code.rstrip() + '\n'
         return list(self.parser.lex(clean_code))
-
-
-from dataclasses import dataclass
 
 
 @dataclass

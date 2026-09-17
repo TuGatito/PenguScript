@@ -104,7 +104,6 @@ stmt: var_decl
     | let_decl
     | const_decl
     | set_stmt
-    | named_stmt
     | if_stmt
     | unless_stmt
     | while_stmt
@@ -118,8 +117,6 @@ stmt: var_decl
     | break_stmt
     | continue_stmt
     | expr_stmt
-
-named_stmt: NAME "is" expr [_NEWLINE]
 
 set_stmt: "set" set_target "is" value_expr [_NEWLINE]
         | "set" set_target COMPOUND_OP expr [_NEWLINE]   -> compound_set_stmt
@@ -156,7 +153,6 @@ simple_stmt: "continue" -> continue_simple
            | "return" [expr] -> return_simple
            | "set" set_target "is" expr -> set_simple
            | "set" set_target COMPOUND_OP expr -> compound_set_simple
-           | NAME "is" expr -> named_simple
            | expr
 
 if_stmt: "if" if_cond block [else_block]
@@ -503,6 +499,5 @@ SIMPLE_STMT_ALIASES = {
     "break_simple": "break_stmt",
     "return_simple": "return_stmt",
     "set_simple": "set_stmt",
-    "named_simple": "named_stmt",
     "compound_set_simple": "compound_set_stmt",
 }

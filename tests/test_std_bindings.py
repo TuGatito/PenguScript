@@ -42,34 +42,34 @@ class TestSingleElementArrayLiteral:
     def test_single_element_is_braced(self):
         code = gen_bundle(
             "weave main into int:\n"
-            "    var p as array of byte with size 4 is [0]\n"
+            "    var p as array of byte with size 1 is [0]\n"
             "    return 0\n"
         )
-        assert "uint8_t p[4] = { 0 };" in code
+        assert "uint8_t p[1] = { 0 };" in code
 
     def test_single_non_zero_element_is_braced(self):
         code = gen_bundle(
             "weave main into int:\n"
-            "    var a as array of int with size 3 is [7]\n"
+            "    var a as array of int with size 1 is [7]\n"
             "    return 0\n"
         )
-        assert "int32_t a[3] = { 7 };" in code
+        assert "int32_t a[1] = { 7 };" in code
 
     def test_multi_element_unchanged(self):
         code = gen_bundle(
             "weave main into int:\n"
-            "    var a as array of int with size 3 is [1, 2]\n"
+            "    var a as array of int with size 2 is [1, 2]\n"
             "    return 0\n"
         )
-        assert "int32_t a[3] = { 1, 2 };" in code
+        assert "int32_t a[2] = { 1, 2 };" in code
 
     @requires_runtime
     def test_single_element_array_runs(self):
         res = compile_run(
             "import std.spark\n\n"
             "weave main into int:\n"
-            "    var p as array of byte with size 4 is [0]\n"
-            "    var a as array of int with size 3 is [7]\n"
+            "    var p as array of byte with size 1 is [0]\n"
+            "    var a as array of int with size 1 is [7]\n"
             "    calling spark.println with ((a at 0) to string)\n"
             "    return 0\n",
             tag="array_single",

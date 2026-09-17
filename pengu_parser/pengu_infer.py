@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import dataclass
 import re
 from typing import Optional, List, Dict, Tuple, Any
 from lark import Tree, Token
@@ -86,6 +87,13 @@ def _node_to_name(node: Any) -> str:
             return _node_to_name(node.children[0])
         return ".".join(_node_to_name(c) for c in node.children if isinstance(c, (Token, Tree)))
     return str(node)
+
+
+@dataclass
+class RangeConst:
+    """Represents a compile-time evaluated integer range constant."""
+    start: int
+    end: int
 
 
 class ConstFolder:
@@ -245,6 +253,21 @@ class ConstFolder:
 
         elif rule == "bytes_expr":
             # Bytes view is a runtime pointer cast; never a compile-time value.
+            return None
+
+        elif rule in ("to_expr", "range_dotdot"):
+            rhs = node.children[-1]
+            if isinstance(rhs, (Tree, Token)) and rhs is not None:
+                if isinstance(rhs, Tree) and rhs.data in (
+                    "base_type", "custom_type", "ref_type", "array_type",
+                    "slice_type", "map_type", "result_type", "maybe_type",
+                    "fn_type", "tuple_type", "void_type"
+                ):
+                    return None
+                lo = self.fold(node.children[0])
+                hi = self.fold(rhs)
+                if isinstance(lo, int) and isinstance(hi, int):
+                    return RangeConst(lo, hi)
             return None
 
         if len(node.children) == 1:
@@ -639,6 +662,7 @@ class TypeInferrer:
                     _check_uniform_array_dims(t1.element, t2.element, row_idx, child_node)
 
             for idx, t in enumerate(elem_types[1:], start=1):
+                _check_uniform_array_dims(first_t, t, idx, node.children[idx])
                 if not t.is_compatible(first_t):
                     raise self._make_error(
                         TypeMismatchError,
@@ -648,7 +672,6 @@ class TypeInferrer:
                         help="Ensure all elements in the array literal match.",
                         note="Array elements must be homogenous."
                     )
-                _check_uniform_array_dims(first_t, t, idx, node.children[idx])
 
             return ArrayType(element=first_t, size=len(node.children))
         elif rule == "map_lit":
@@ -1029,6 +1052,34 @@ class TypeInferrer:
                         note=f"Echo '{inner.name}' only exposes its declared fields."
                     )
                 return inner.fields[field_name]
+            elif isinstance(inner, MaybeType):
+                if field_name == "is_present":
+                    return BOOL_TYPE
+                elif field_name == "value":
+                    return inner.element
+                raise self._make_error(
+                    SemanticError,
+                    f"Maybe has no field '{field_name}'",
+                    node,
+                    code="E0013",
+                    help="Maybe types support 'is_present' and 'value'.",
+                    note="Maybe types do not expose arbitrary fields."
+                )
+            elif isinstance(inner, ResultType):
+                if field_name == "is_ok":
+                    return BOOL_TYPE
+                elif field_name == "value":
+                    return inner.ok_type
+                elif field_name in ("error", "err"):
+                    return inner.err_type
+                raise self._make_error(
+                    SemanticError,
+                    f"Result has no field '{field_name}'",
+                    node,
+                    code="E0013",
+                    help="Result types support 'is_ok', 'value', and 'error'.",
+                    note="Result types do not expose arbitrary fields."
+                )
             elif inner == OPAQUE_TYPE or isinstance(inner, AnyType):
                 return AnyType()
             elif isinstance(inner, BaseType) and inner.name == "void":
@@ -1259,6 +1310,20 @@ class TypeInferrer:
                             note="Collection indexing requires integer offsets."
                         )
                     cur_type = cur_type.element
+                elif isinstance(cur_type, (MapType, RefType)) and (
+                    isinstance(cur_type, MapType) or isinstance(getattr(cur_type, "target", None), MapType)
+                ):
+                    actual_map = cur_type.target if isinstance(cur_type, RefType) else cur_type
+                    if not idx_type.is_compatible(actual_map.key):
+                        raise self._make_error(
+                            TypeMismatchError,
+                            f"Map key expected '{actual_map.key}', got '{idx_type}'",
+                            node,
+                            code="E0005",
+                            help=f"Provide a map key of type '{actual_map.key}'.",
+                            note="Map indexing requires matching key types."
+                        )
+                    cur_type = actual_map.value
                 elif isinstance(cur_type, RefType):
                     if not idx_type.is_int():
                         raise self._make_error(
@@ -1292,17 +1357,6 @@ class TypeInferrer:
                         cur_type = unwrapped.element
                     else:
                         cur_type = FrozenType(unwrapped) if is_frozen else unwrapped
-                elif isinstance(cur_type, MapType):
-                    if not idx_type.is_compatible(cur_type.key):
-                        raise self._make_error(
-                            TypeMismatchError,
-                            f"Map key expected '{cur_type.key}', got '{idx_type}'",
-                            node,
-                            code="E0005",
-                            help=f"Provide a map key of type '{cur_type.key}'.",
-                            note="Map indexing requires matching key types."
-                        )
-                    cur_type = cur_type.value
                 elif cur_type == STRING_TYPE:
                     if not idx_type.is_int():
                         raise self._make_error(
@@ -1460,6 +1514,8 @@ class TypeInferrer:
             return self.infer(node.children[2], expected_type=expected_type)
 
         elif rule == "judge_expr":
+            # Note: Payload bindings in 'when' clauses are validated and rejected
+            # exclusively in PenguChecker._check_judge_expr to avoid duplicate passes.
             matched_type = self.infer(node.children[0])
             branch_types: List[Type] = []
             has_else = False
@@ -1670,6 +1726,22 @@ class TypeInferrer:
             col_node = node.children[1]
             elem_t = self.infer(elem_node)
             col_t = self.infer(col_node)
+            is_valid_col = (
+                isinstance(col_t, (RangeType, MapType, ArrayType, SliceType, ManyType, ListType, AnyType))
+                or col_t == STRING_TYPE
+                or (isinstance(col_t, BaseType) and col_t.name == "string")
+                or (col_t is None and isinstance(col_node, Tree) and col_node.data in ("to_expr", "range_dotdot"))
+            )
+            if not is_valid_col:
+                op_name = "not in" if rule == "not_in_expr" else "in"
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"Operator '{op_name}' expects a collection (range, string, array, slice, list, or map), got '{col_t}'",
+                    col_node,
+                    code="E0005",
+                    help="Verify that the right operand is a collection or range.",
+                    note=f"Cannot perform membership testing on type '{col_t}'."
+                )
             return BOOL_TYPE
 
         elif rule == "indent_literal":
@@ -1733,6 +1805,15 @@ class TypeInferrer:
                     code="E0005",
                     help="'some' requires a value of a concrete type.",
                     note="'some' boxes a concrete value into a maybe."
+                )
+            if isinstance(inner_t, ArrayType):
+                raise self._make_error(
+                    TypeMismatchError,
+                    "'some' cannot wrap a fixed array; use a slice or reference instead",
+                    node,
+                    code="E0005",
+                    help="Convert the array to a slice ('slice of T') or take a reference before wrapping into 'maybe'.",
+                    note="Fixed arrays decay to pointers in C and cannot be stored by value in a generic maybe container."
                 )
             return MaybeType(element=inner_t)
 
@@ -2340,6 +2421,23 @@ class TypeInferrer:
                 return left_type.ok_type
             return AnyType()
 
+        elif rule == "or_block":
+            left_type = self.infer(node.children[0])
+            if isinstance(left_type, MaybeType):
+                return left_type.element
+            elif isinstance(left_type, ResultType):
+                return left_type.ok_type
+            elif isinstance(left_type, AnyType):
+                return left_type
+            raise self._make_error(
+                TypeMismatchError,
+                f"'or:' requires a 'maybe T' or 'result of T to E' operand, got '{left_type}'",
+                node,
+                code="E0005",
+                help="Only maybe/result values can be unwrapped with 'or:'.",
+                note="'or:' handles the failure path of maybe/result values.",
+            )
+
         # Arithmetic and Bitwise
         elif rule in ("add", "sub", "mul", "div", "mod"):
             left_t = self.infer(node.children[0])
@@ -2481,6 +2579,15 @@ class TypeInferrer:
                         note="'null' represents a null pointer and can only be compared to pointer/reference types."
                     )
             elif rule in ("lt", "le", "gt", "ge"):
+                if (left_t is not None and left_t.is_string()) or (right_t is not None and right_t.is_string()):
+                    raise self._make_error(
+                        TypeMismatchError,
+                        f"Ordering comparison '{rule}' is not supported for 'string'; use '=='/'!=' or convert explicitly",
+                        node,
+                        code="E0005",
+                        help="Strings compare by equality only. Use a lexicographic helper (e.g. std.scrolls.compare) or convert to numbers.",
+                        note="PenguString is a struct in C; ordering operators are not defined."
+                    )
                 if isinstance(left_t, NullType) or isinstance(right_t, NullType):
                     raise self._make_error(
                         TypeMismatchError,
@@ -2666,8 +2773,20 @@ class TypeInferrer:
                                 note="Collection indexing requires integer offsets."
                             )
                         cur_type = unpacked.element
-                    elif isinstance(unpacked, MapType):
-                        cur_type = unpacked.value
+                    elif isinstance(unpacked, (MapType, RefType)) and (
+                        isinstance(unpacked, MapType) or isinstance(getattr(unpacked, "target", None), MapType)
+                    ):
+                        actual_map = unpacked.target if isinstance(unpacked, RefType) else unpacked
+                        if not idx_t.is_compatible(actual_map.key):
+                            raise self._make_error(
+                                TypeMismatchError,
+                                f"Map key expected '{actual_map.key}', got '{idx_t}'",
+                                acc,
+                                code="E0005",
+                                help=f"Provide a map key of type '{actual_map.key}'.",
+                                note="Map indexing requires matching key types."
+                            )
+                        cur_type = actual_map.value
                     elif unpacked == STRING_TYPE:
                         cur_type = STRING_TYPE
                     elif isinstance(unpacked, RefType):

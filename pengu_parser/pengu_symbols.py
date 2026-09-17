@@ -694,3 +694,23 @@ def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None
 
     dfs(entry_abs, [])
     return order
+
+
+def decl_layout(node: Tree) -> Tuple[Optional[Tree], Optional[Tree]]:
+    """Extracts (type_node, expr_node) from var_decl, let_decl, or static_var_decl.
+
+    Handles all 8 syntactic layouts with or without BORROWED and with or without
+    an explicit type annotation, correctly accounting for optional None placeholders.
+    """
+    children = node.children
+    if not children:
+        return None, None
+    first = children[0]
+    has_borrowed_slot = (first is None) or (getattr(first, "type", None) == "BORROWED")
+    rem = children[2:] if has_borrowed_slot else children[1:]
+    if len(rem) >= 2:
+        return rem[0], rem[1]
+    elif len(rem) == 1:
+        return None, rem[0]
+    return None, None
+
