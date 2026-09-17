@@ -2,6 +2,33 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.13.7] - 2026-09-17
+
+### Corregido (crítico)
+
+- **#1**: En `pengu_checker.py`, se rechazan con `E0035` declaraciones de tipos definidos por el usuario (`rune`, `echo`, `omen`, `seal`, `alias`, `concept`) cuyos nombres coincidan con palabras clave o macros estándar de C (como `int`, `char`, `NULL`, `FILE`, `bool`, etc.), impidiendo la emisión de definiciones de tipos inválidas en C. Se excluyen los archivos de enlace C `.d.pengu`.
+
+### Corregido (alto)
+
+- **#2**: En `pengu_codegen.py`, en `judge_expr` sobre valores int/enum, la evaluación de `else_val` ahora se realiza de forma perezosa dentro de la rama `default: _res = ({else_val}); break;` del switch en lugar de evaluarse incondicionalmente al declarar el temporal.
+- **#3**: En `pengu_checker.py`, `chr_expr` se elimina de la lista de exclusión en `_is_fresh_heap_expr` y se añade como expresión asignadora de heap para `string`, habilitando su auto-liberación (`auto-banish`) y previniendo fugas de memoria deterministas.
+- **#4**: En `pengu_checker.py` y `pengu_codegen.py`, se restringe la concatenación `+=` para no aplicarse a tipos `SealType` nominales basados en string, garantizando la inviolabilidad del tipado nominal a menos que se haga una conversión explícita.
+
+### Corregido (medio)
+
+- **#5**: En `pengu_checker.py`, `_check_const_decl` ahora acepta tipos compuestos estáticos no-heap (incluyendo omens algebraicos, runes y echos con miembros numéricos o estáticos) como elementos base de arrays constantes `const`.
+- **#6**: En `pengu_checker.py`, `_check_const_decl` utiliza `_is_ref_char_type` para reconocer punteros constantes a char que incluyan calificaciones `ref to frozen char` o alias a char/byte.
+- **#7**: En `pengu_codegen.py`, `_translate_string_lit` desenvuelve correctamente alias, frozen y seals para interpolación `%c` de char/byte, y reconoce `ref to byte` y alias a `ref to char` con casteo a `(const char*)` para formato `%s`.
+- **#8**: En `pengu_codegen.py`, `_is_string_expr` utiliza consistentemente `.is_string()` en todos los chequeos de retorno y tipo inferido en vez de `name == "string"`, soportando alias a string.
+- **#9**: En `pengu_checker.py`, se detectan colisiones silenciosas entre identificadores escapados en C (`_c_ident`), rechazando con `E0035` campos de runes y echos que generarían el mismo identificador en C (como `FILE` y `_FILE`).
+
+### Corregido (menor)
+
+- **#10**: En `pengu_checker.py`, `_check_weave_decl` sustituye la lista blanca incompleta de sentencias por un filtro que excluye únicamente parámetros y modificadores, garantizando que todas las sentencias del cuerpo sean analizadas para escape y retornos implícitos.
+- **#11**: En `pengu_checker.py`, `_check_weave_decl` valida que el punto de entrada `weave main` únicamente retorne tipos enteros o `void`, rechazando con `E0020` firmas inválidas (punteros a función, structs, etc.).
+- **#12**: En `pengu_codegen.py`, los literales numéricos interpolados directamente en strings se castean a `(int32_t)` para prevenir advertencias `-Wformat` de GCC.
+- **#13**: En `pengu_codegen.py`, en bucles `for i, v in start to end`, la variable de índice `i` se declara explícitamente como `int32_t` previo al encabezado del bucle, concordando con `INT_TYPE` y evitando warnings de `-Wconversion`.
+
 ## [0.13.6] - 2026-09-17
 
 ### Corregido (crítico)

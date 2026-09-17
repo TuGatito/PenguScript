@@ -53,6 +53,104 @@ def _has_borrowed_modifier(node: Tree) -> Tuple[bool, int]:
 _decl_layout = decl_layout
 
 
+C_RESERVED_WORDS = {
+    "default", "case", "switch", "register", "goto", "volatile", "union", "enum", "struct", "auto",
+    "long", "short", "int", "char", "float", "double", "signed", "unsigned", "void", "const",
+    "static", "extern", "inline", "restrict", "return", "sizeof", "typedef",
+    "if", "else", "while", "for", "do", "break", "continue", "asm",
+    "NULL", "bool", "true", "false", "_Bool", "wchar_t", "FILE",
+    "_Alignas", "_Alignof", "_Atomic", "_Generic", "_Noreturn", "_Static_assert", "_Thread_local",
+}
+
+C_RESERVED_TYPE_NAMES = {
+    # C keywords
+    "auto", "break", "case", "char", "const", "continue", "default", "do",
+    "double", "else", "enum", "extern", "float", "for", "goto", "if",
+    "inline", "int", "long", "register", "restrict", "return", "short",
+    "signed", "sizeof", "static", "struct", "switch", "typedef", "union",
+    "unsigned", "void", "volatile", "while",
+    "_Alignas", "_Alignof", "_Atomic", "_Bool", "_Complex", "_Generic",
+    "_Imaginary", "_Noreturn", "_Static_assert", "_Thread_local", "asm",
+    # Common standard library macros and typedefs
+    "NULL", "bool", "true", "false", "wchar_t", "FILE", "size_t", "ptrdiff_t",
+    "int8_t", "int16_t", "int32_t", "int64_t",
+    "uint8_t", "uint16_t", "uint32_t", "uint64_t",
+    "intptr_t", "uintptr_t", "stdin", "stdout", "stderr",
+}
+
+
+def _c_ident(name: str) -> str:
+    if name in C_RESERVED_WORDS:
+        return f"_{name}"
+    return name
+
+
+def _is_ref_char_type(t: Optional[Type]) -> bool:
+    if t is None:
+        return False
+    curr = t
+    while isinstance(curr, (AliasType, FrozenType)) and getattr(curr, "target", None):
+        curr = curr.target
+    if isinstance(curr, RefType):
+        target = curr.target
+        while isinstance(target, (AliasType, FrozenType)) and getattr(target, "target", None):
+            target = target.target
+        if isinstance(target, BaseType) and target.name in ("char", "const char", "void", "byte"):
+            return True
+    return False
+
+
+def _is_statically_initializable_type(t: Type, seen: Optional[Set[str]] = None) -> bool:
+    if seen is None:
+        seen = set()
+    curr = t
+    while isinstance(curr, (AliasType, FrozenType)) and getattr(curr, "target", None):
+        curr = curr.target
+    if curr.is_numeric() or curr.is_bool():
+        return True
+    if isinstance(curr, BaseType) and curr.name in ("char", "byte", "void", "opaque"):
+        return True
+    if _is_ref_char_type(curr):
+        return True
+    if isinstance(curr, RefType):
+        return True
+    if isinstance(curr, ArrayType):
+        return _is_statically_initializable_type(curr.element, seen)
+    if isinstance(curr, OmenType):
+        if not curr.is_algebraic:
+            return True
+        if curr.name in seen:
+            return True
+        seen.add(curr.name)
+        if hasattr(curr, "variants") and curr.variants:
+            for v_name, v_fields in curr.variants.items():
+                if isinstance(v_fields, dict):
+                    for f_name, f_type in v_fields.items():
+                        if not _is_statically_initializable_type(f_type, seen):
+                            return False
+        return True
+    if isinstance(curr, RuneType):
+        if curr.name in seen:
+            return True
+        seen.add(curr.name)
+        if hasattr(curr, "fields") and curr.fields:
+            for f_name, f_type in curr.fields.items():
+                if not _is_statically_initializable_type(f_type, seen):
+                    return False
+        return True
+    if isinstance(curr, EchoType):
+        if curr.name in seen:
+            return True
+        seen.add(curr.name)
+        if hasattr(curr, "fields") and curr.fields:
+            for f_name, f_type in curr.fields.items():
+                if not _is_statically_initializable_type(f_type, seen):
+                    return False
+        return True
+    return False
+
+
+
 def _node_to_name(node: Any) -> str:
     """Extracts plain identifier / type name from Token or Tree (dotted_path, custom_type, etc.)."""
     if isinstance(node, Token):
@@ -518,6 +616,7 @@ class PenguChecker:
         """
         has_imports = False
         current_insignia: Optional[str] = None
+        is_d_pengu = bool(self.filename and self.filename.endswith(".d.pengu"))
 
         file_imports: Set[str] = set()
         for child in tree.children:
@@ -681,6 +780,17 @@ class PenguChecker:
 
             elif rule == "rune_decl":
                 r_name = str(stmt.children[0])
+                if not is_d_pengu and r_name in C_RESERVED_TYPE_NAMES:
+                    err = self._make_error(
+                        SemanticError,
+                        f"Type name '{r_name}' is a reserved C keyword or standard identifier",
+                        stmt,
+                        code="E0035",
+                        help=f"Choose a different name for this rune (e.g. 'My{r_name}' or '{r_name}Type').",
+                        note="User type names cannot shadow C keywords or standard library identifiers to avoid emitting invalid C."
+                    )
+                    self._record_error(err)
+                    continue
                 c_r_name = f"{current_insignia}{r_name}" if current_insignia else r_name
                 type_params = []
                 bounds = {}
@@ -704,10 +814,23 @@ class PenguChecker:
                         return TypeParam(tname, bounds=bounds.get(tname, []))
                     return self.symbols.lookup_type(tname)
 
+                seen_c_fields: Dict[str, str] = {}
                 fields: Dict[str, Type] = {}
                 for f_decl in rem_children:
                     if isinstance(f_decl, Tree) and f_decl.data == "field_decl":
                         f_name = str(f_decl.children[0])
+                        c_fid = _c_ident(f_name)
+                        if c_fid in seen_c_fields:
+                            err = self._make_error(
+                                SemanticError,
+                                f"Field '{f_name}' collides with field '{seen_c_fields[c_fid]}' in C code emission ('{c_fid}')",
+                                f_decl,
+                                code="E0035",
+                                help=f"Rename '{f_name}' to avoid collision with C identifier '{c_fid}'.",
+                                note="PenguScript escapes C keywords by prefixing an underscore, which may clash with existing identifiers."
+                            )
+                            self._record_error(err)
+                        seen_c_fields[c_fid] = f_name
                         f_type = ast_to_type(f_decl.children[1], lookup_tp)
                         fields[f_name] = f_type
 
@@ -727,6 +850,17 @@ class PenguChecker:
 
             elif rule == "echo_decl":
                 e_name = str(stmt.children[0])
+                if not is_d_pengu and e_name in C_RESERVED_TYPE_NAMES:
+                    err = self._make_error(
+                        SemanticError,
+                        f"Type name '{e_name}' is a reserved C keyword or standard identifier",
+                        stmt,
+                        code="E0035",
+                        help=f"Choose a different name for this echo (e.g. 'My{e_name}' or '{e_name}Type').",
+                        note="User type names cannot shadow C keywords or standard library identifiers to avoid emitting invalid C."
+                    )
+                    self._record_error(err)
+                    continue
                 c_e_name = f"{current_insignia}{e_name}" if current_insignia else e_name
                 type_params = []
                 bounds = {}
@@ -740,10 +874,23 @@ class PenguChecker:
                         return TypeParam(tname, bounds=bounds.get(tname, []))
                     return self.symbols.lookup_type(tname)
 
+                seen_c_fields: Dict[str, str] = {}
                 fields: Dict[str, Type] = {}
                 for f_decl in rem_children:
                     if isinstance(f_decl, Tree) and f_decl.data == "field_decl":
                         f_name = str(f_decl.children[0])
+                        c_fid = _c_ident(f_name)
+                        if c_fid in seen_c_fields:
+                            err = self._make_error(
+                                SemanticError,
+                                f"Field '{f_name}' collides with field '{seen_c_fields[c_fid]}' in C code emission ('{c_fid}')",
+                                f_decl,
+                                code="E0035",
+                                help=f"Rename '{f_name}' to avoid collision with C identifier '{c_fid}'.",
+                                note="PenguScript escapes C keywords by prefixing an underscore, which may clash with existing identifiers."
+                            )
+                            self._record_error(err)
+                        seen_c_fields[c_fid] = f_name
                         f_type = ast_to_type(f_decl.children[1], lookup_tp)
                         fields[f_name] = f_type
 
@@ -763,6 +910,17 @@ class PenguChecker:
 
             elif rule == "omen_decl":
                 o_name = str(stmt.children[0])
+                if not is_d_pengu and o_name in C_RESERVED_TYPE_NAMES:
+                    err = self._make_error(
+                        SemanticError,
+                        f"Type name '{o_name}' is a reserved C keyword or standard identifier",
+                        stmt,
+                        code="E0035",
+                        help=f"Choose a different name for this omen (e.g. 'My{o_name}' or '{o_name}Kind').",
+                        note="User type names cannot shadow C keywords or standard library identifiers to avoid emitting invalid C."
+                    )
+                    self._record_error(err)
+                    continue
                 c_o_name = f"{current_insignia}{o_name}" if current_insignia else o_name
                 type_params = []
                 bounds = {}
@@ -920,6 +1078,17 @@ class PenguChecker:
 
             elif rule == "alias_decl":
                 a_name = str(stmt.children[0])
+                if not is_d_pengu and a_name in C_RESERVED_TYPE_NAMES:
+                    err = self._make_error(
+                        SemanticError,
+                        f"Type name '{a_name}' is a reserved C keyword or standard identifier",
+                        stmt,
+                        code="E0035",
+                        help=f"Choose a different name for this alias (e.g. 'My{a_name}' or '{a_name}Type').",
+                        note="User type names cannot shadow C keywords or standard library identifiers to avoid emitting invalid C."
+                    )
+                    self._record_error(err)
+                    continue
                 c_a_name = f"{current_insignia}{a_name}" if current_insignia else a_name
                 type_params = []
                 bounds = {}
@@ -947,6 +1116,17 @@ class PenguChecker:
 
             elif rule == "seal_decl":
                 s_name = str(stmt.children[0])
+                if not is_d_pengu and s_name in C_RESERVED_TYPE_NAMES:
+                    err = self._make_error(
+                        SemanticError,
+                        f"Type name '{s_name}' is a reserved C keyword or standard identifier",
+                        stmt,
+                        code="E0035",
+                        help=f"Choose a different name for this seal (e.g. 'My{s_name}' or '{s_name}Type').",
+                        note="User type names cannot shadow C keywords or standard library identifiers to avoid emitting invalid C."
+                    )
+                    self._record_error(err)
+                    continue
                 c_s_name = f"{current_insignia}{s_name}" if current_insignia else s_name
                 underlying_t = ast_to_type(stmt.children[1], self.symbols.lookup_type)
                 seal_obj = SealType(name=s_name, underlying=underlying_t, c_name=c_s_name)
@@ -960,6 +1140,17 @@ class PenguChecker:
 
             elif rule == "concept_decl":
                 concept_name = str(stmt.children[0])
+                if not is_d_pengu and concept_name in C_RESERVED_TYPE_NAMES:
+                    err = self._make_error(
+                        SemanticError,
+                        f"Type name '{concept_name}' is a reserved C keyword or standard identifier",
+                        stmt,
+                        code="E0035",
+                        help=f"Choose a different name for this concept (e.g. 'My{concept_name}' or '{concept_name}Concept').",
+                        note="User type names cannot shadow C keywords or standard library identifiers to avoid emitting invalid C."
+                    )
+                    self._record_error(err)
+                    continue
                 c_concept_name = f"{current_insignia}{concept_name}" if current_insignia else concept_name
                 rem_children = [c for c in stmt.children[1:] if c is not None]
                 type_params = []
@@ -1919,19 +2110,13 @@ class PenguChecker:
                     base_elem = eff_type
                     while isinstance(base_elem, ArrayType):
                         base_elem = base_elem.element
-                    is_static_elem = (
-                        base_elem.is_numeric()
-                        or base_elem.is_bool()
-                        or (isinstance(base_elem, BaseType) and base_elem.name in ("char", "byte"))
-                        or (isinstance(base_elem, RefType) and isinstance(base_elem.target, BaseType) and base_elem.target.name == "char")
-                    )
-                    if not is_static_elem:
+                    if not _is_statically_initializable_type(base_elem):
                         raise self._make_error(
                             TypeMismatchError,
                             f"Constant '{c_name}' of type '{eff_type}' cannot be statically initialized at compile time",
                             node,
                             code="E0005",
-                            help="Constant arrays require statically initializable element types (numeric, bool, char, or 'ref to char'). For strings or heap objects, initialize a local variable inside a function.",
+                            help="Constant arrays require statically initializable element types (numeric, bool, char, 'ref to char', or static runes/omens). For strings or heap objects, initialize a local variable inside a function.",
                             note="C requires compile-time constant expressions for static array initializers."
                         )
 
@@ -2539,13 +2724,13 @@ class PenguChecker:
         if not isinstance(curr, Tree):
             return False
 
-        if curr.data in ("var_ref", "field_access", "arrow_access", "at_expr", "array_at_expr", "null_lit", "none_lit", "try_expr", "or_else", "or_return", "or_block", "chr_expr", "calling_expr"):
+        if curr.data in ("var_ref", "field_access", "arrow_access", "at_expr", "array_at_expr", "null_lit", "none_lit", "try_expr", "or_else", "or_return", "or_block", "calling_expr"):
             return False
 
         if eff_type == STRING_TYPE or (isinstance(eff_type, BaseType) and eff_type.name == "string"):
             if curr.data in ("add", "binary_op"):
                 return True
-            if curr.data in ("to_expr", "to_string_expr"):
+            if curr.data in ("to_expr", "to_string_expr", "chr_expr"):
                 return True
             if curr.data == "string_lit" and curr.children:
                 try:
@@ -3203,7 +3388,7 @@ class PenguChecker:
 
             if is_compound:
                 # Operator-specific type rules for 'set TARGET OP VALUE'.
-                if compound_op == "+=" and target_type.is_string():
+                if compound_op == "+=" and target_type.is_string() and not isinstance(target_type, SealType):
                     if not (val_type.is_string() or val_type.is_compatible(STRING_TYPE)) and not isinstance(val_type, AnyType):
                         raise self._make_error(
                             TypeMismatchError,
@@ -3448,8 +3633,20 @@ class PenguChecker:
                 ret_type = ast_to_type(child, lookup_tp)
             elif isinstance(child, Token) and child.type == "NAME":
                 ret_type = ast_to_type(child, lookup_tp)
-            elif isinstance(child, Tree) and child.data in ("stmt", "var_decl", "let_decl", "set_stmt", "return_stmt", "if_stmt", "while_stmt", "for_range_stmt", "for_in_stmt", "with_stmt", "expr_stmt"):
+            elif isinstance(child, Tree) and child.data not in ("param_list", "shard_params", "weave_modifier"):
                 stmt_children.append(child)
+
+        if fn_name == "main" and ret_type is not None:
+            if not (ret_type.is_int() or ret_type.is_bool() or ret_type == VOID_TYPE or (isinstance(ret_type, BaseType) and ret_type.name in ("void", "int", "i32", "i64", "bool"))):
+                err = self._make_error(
+                    SemanticError,
+                    f"Entry point 'main' must return an integer or 'void', got '{ret_type}'",
+                    node,
+                    code="E0020",
+                    help="Declare 'main' as 'weave main into int' or 'weave main into void'.",
+                    note="The program entry point must return an exit code (integer) or nothing (void)."
+                )
+                self._record_error(err)
 
         span_start, span_end = self._get_node_span(node)
         self.symbols.push_scope(kind="weave", return_type=ret_type, is_ritual=is_ritual, start_line=span_start, end_line=span_end)

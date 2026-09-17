@@ -24,7 +24,7 @@ from lark import Tree, Token
 try:  # The toolchain root (which holds VERSION) is the parent package directory.
     from pengu_version import __version__ as PENGU_VERSION
 except ImportError:  # pragma: no cover - vendored/frozen fallback, guarded by tests
-    PENGU_VERSION = "0.13.6"
+    PENGU_VERSION = "0.13.7"
 
 from pengu_parser.pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ManyType, ListType, MapType, MaybeType,
@@ -684,9 +684,20 @@ class PenguCodegen:
             target = curr.target
             while isinstance(target, (AliasType, FrozenType)) and getattr(target, "target", None):
                 target = target.target
-            if isinstance(target, BaseType) and target.name in ("char", "const char", "void"):
+            if isinstance(target, BaseType) and target.name in ("char", "const char", "void", "byte"):
                 return True
         return False
+
+    @staticmethod
+    def _is_single_char_or_byte(t: Optional[Type]) -> bool:
+        if t is None:
+            return False
+        curr = t
+        while isinstance(curr, (AliasType, FrozenType)) and getattr(curr, "target", None):
+            curr = curr.target
+        if isinstance(curr, SealType):
+            curr = curr.underlying
+        return isinstance(curr, BaseType) and curr.name in ("char", "byte")
 
     def _cast_fn_value(self, code: str, expected_type: Optional[Type]) -> str:
         """Casts a function value to the expected function-pointer type.
@@ -2326,7 +2337,7 @@ class PenguCodegen:
 
             expr_str = self._translate_expr(expr_node, expected_type=target_type)
 
-            if op == "+=" and target_type is not None and target_type.is_string():
+            if op == "+=" and target_type is not None and target_type.is_string() and not isinstance(target_type, SealType):
                 return f"{ind}{target_str} = pengu_string_concat({target_str}, {expr_str});"
 
             return f"{ind}{target_str} {op} {expr_str};"
@@ -2750,7 +2761,8 @@ class PenguCodegen:
             if start_str is not None and end_str is not None:
                 if want_index:
                     return (
-                        f"{ind}for (int64_t {loop_var} = {start_str}, {index_name} = 0; "
+                        f"{ind}int32_t {index_name} = 0;\n"
+                        f"{ind}for (int64_t {loop_var} = {start_str}; "
                         f"{loop_var} < {end_str}; {loop_var}++, {index_name}++) {{\n"
                         f"{body_str}\n{ind}}}"
                     )
@@ -2765,7 +2777,8 @@ class PenguCodegen:
                 if want_index:
                     return (
                         f"{ind}PenguRange {rng_tmp} = {col_str};\n"
-                        f"{ind}for (int64_t {loop_var} = {rng_tmp}.start, {index_name} = 0; "
+                        f"{ind}int32_t {index_name} = 0;\n"
+                        f"{ind}for (int64_t {loop_var} = {rng_tmp}.start; "
                         f"{loop_var} < {rng_tmp}.end; {loop_var}++, {index_name}++) {{\n"
                         f"{body_str}\n{ind}}}"
                     )
@@ -3350,7 +3363,10 @@ class PenguCodegen:
                         expr_c = expr_str
 
                 if t is not None:
-                    if t.is_int():
+                    if self._is_single_char_or_byte(t):
+                        fmt_parts.append("%c")
+                        c_args.append(f"(char)({expr_c})")
+                    elif t.is_int():
                         fmt_parts.append("%d")
                         c_args.append(f"(int32_t)({expr_c})")
                     elif t.is_float():
@@ -3362,12 +3378,9 @@ class PenguCodegen:
                     elif t.is_string():
                         fmt_parts.append("%.*s")
                         c_args.append(f"(int)({expr_c}).len, ({expr_c}).data")
-                    elif (isinstance(t, BaseType) and t.name in ("char", "byte")) or (isinstance(t, (AliasType, FrozenType)) and getattr(t, "target", None) and getattr(t.target, "name", "") in ("char", "byte")):
-                        fmt_parts.append("%c")
-                        c_args.append(f"(char)({expr_c})")
-                    elif isinstance(t, RefType) and isinstance(t.target, BaseType) and t.target.name == "char":
+                    elif self._is_ref_char_type(t):
                         fmt_parts.append("%s")
-                        c_args.append(f"({expr_c})")
+                        c_args.append(f"(const char*)({expr_c})")
                     else:
                         raise SemanticError(
                             f"Expression '{expr_str}' of type '{t}' cannot be interpolated into string",
@@ -3376,7 +3389,7 @@ class PenguCodegen:
                 else:
                     if expr_str.isdigit():
                         fmt_parts.append("%d")
-                        c_args.append(expr_c)
+                        c_args.append(f"(int32_t)({expr_c})")
                     else:
                         raise SemanticError(
                             f"Cannot determine type of interpolated expression '{expr_str}'",
@@ -3403,7 +3416,7 @@ class PenguCodegen:
                 field_name = str(n.children[0])
                 if self.current_enchanted_type and isinstance(self.current_enchanted_type, (RuneType, EchoType)):
                     ft = self.current_enchanted_type.fields.get(field_name)
-                    return ft is not None and getattr(ft, "name", "") == "string"
+                    return ft is not None and ft.is_string()
                 return False
             if rule == "field_access":
                 target_node = n.children[0]
@@ -3415,11 +3428,11 @@ class PenguCodegen:
                     target_type = self.current_enchanted_type
                 if target_type and isinstance(target_type, (RuneType, EchoType)):
                     ft = target_type.fields.get(field_name)
-                    return ft is not None and getattr(ft, "name", "") == "string"
+                    return ft is not None and ft.is_string()
                 return False
             if rule == "cast_expr":
                 t = ast_to_type(n.children[1], lambda name: self.symbols.lookup(name).type if self.symbols and self.symbols.lookup(name) else None)
-                return t is not None and getattr(t, "name", "") == "string"
+                return t is not None and t.is_string()
             if rule == "add":
                 return self._is_string_expr(n.children[0]) or self._is_string_expr(n.children[1])
             if rule == "calling_expr":
@@ -3443,17 +3456,17 @@ class PenguCodegen:
                 if fn_name:
                     sym = self.symbols.lookup(fn_name) if self.symbols else None
                     if sym and isinstance(sym.type, FnType) and sym.type.return_type:
-                        return getattr(sym.type.return_type, "name", "") == "string"
+                        return sym.type.return_type.is_string()
                     if fn_name in self.fn_info:
                         ret_t = self.fn_info[fn_name].get("return_type")
-                        return ret_t is not None and getattr(ret_t, "name", "") == "string"
+                        return ret_t is not None and ret_t.is_string()
             if rule == "if_expr":
                 return self._is_string_expr(n.children[1]) or self._is_string_expr(n.children[2])
 
             try:
                 inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
                 inferred_t = inferrer.infer(n)
-                if inferred_t is not None and getattr(inferred_t, "name", "") == "string":
+                if inferred_t is not None and inferred_t.is_string():
                     return True
             except Exception:
                 pass
@@ -3753,7 +3766,7 @@ class PenguCodegen:
         # Check const folding for entire expression
         if node.data not in ("string_lit", "interpolated_string"):
             folded = self.const_folder.fold(node)
-            if folded is not None and not (isinstance(folded, str) and node.data == "add"):
+            if folded is not None and not (isinstance(folded, str) and node.data in ("add", "chr_expr")):
                 return self._format_const_val(folded, expected_type=expected_type)
 
         rule = node.data
@@ -5094,15 +5107,17 @@ class PenguCodegen:
                 else:
                     else_val = "0"
 
+            is_algebraic_omen = isinstance(matched_type, OmenType) and matched_type.is_algebraic
             is_enum_or_int = (matched_type is None or matched_type.is_int() or (isinstance(matched_type, OmenType) and not matched_type.is_algebraic))
-            all_switchable = all(pat.lstrip('-').isdigit() or is_enum_or_int for pat, _ in clauses) and len(clauses) > 0
-            if all_switchable and is_enum_or_int:
+            all_switchable = all(pat.lstrip('-').isdigit() or is_enum_or_int or is_algebraic_omen for pat, _ in clauses) and len(clauses) > 0
+            if all_switchable and (is_enum_or_int or is_algebraic_omen):
                 t_val = self.get_temp_name("_val")
                 t_res = self.get_temp_name("_res")
                 decl_val = CTypeMapper.to_c_decl(matched_type, t_val) if (matched_type and not isinstance(matched_type, AnyType)) else f"int32_t {t_val}"
                 decl_res = CTypeMapper.to_c_decl(res_type, t_res) if (res_type and not isinstance(res_type, AnyType)) else f"__typeof__(({else_val})) {t_res}"
+                switch_expr = f"{t_val}.tag" if is_algebraic_omen else t_val
                 cases_str = " ".join(f"case {pat}: {t_res} = ({val}); break;" for pat, val in clauses)
-                return f"(__extension__({{ {decl_val} = ({matched_expr}); {decl_res} = ({else_val}); switch ({t_val}) {{ {cases_str} default: break; }} {t_res}; }}))"
+                return f"(__extension__({{ {decl_val} = ({matched_expr}); {decl_res}; switch ({switch_expr}) {{ {cases_str} default: {t_res} = ({else_val}); break; }} {t_res}; }}))"
 
             # Build ternary chain for non-integer matches
             curr = else_val
@@ -5112,6 +5127,8 @@ class PenguCodegen:
             for pat, val in reversed(clauses):
                 if matched_type and matched_type.is_string():
                     curr = f"(pengu_string_equal({subj}, {pat}) ? ({val}) : ({curr}))"
+                elif is_algebraic_omen:
+                    curr = f"(({subj}.tag == {pat}) ? ({val}) : ({curr}))"
                 else:
                     curr = f"(({subj} == {pat}) ? ({val}) : ({curr}))"
             if needs_wrapper:
