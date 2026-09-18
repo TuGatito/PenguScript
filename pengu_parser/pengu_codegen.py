@@ -24,7 +24,7 @@ from lark import Tree, Token
 try:  # The toolchain root (which holds VERSION) is the parent package directory.
     from pengu_version import __version__ as PENGU_VERSION
 except ImportError:  # pragma: no cover - vendored/frozen fallback, guarded by tests
-    PENGU_VERSION = "0.13.11"
+    PENGU_VERSION = "0.13.12"
 
 from pengu_parser.pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ManyType, ListType, MapType, MaybeType,
@@ -701,6 +701,9 @@ class PenguCodegen:
         """Infers semantic type for AST node using active local variable context."""
         try:
             inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
+            if self.current_enchanted_type is not None:
+                inferrer.symbols.push_scope(kind="enchanting", enchanting_type=self.current_enchanted_type)
+                inferrer.symbols.define(Symbol(name="self", type=RefType(target=self.current_enchanted_type), kind="var", line=0, column=0, file_path="."))
             for var_name, var_type in self.local_vars.items():
                 if var_type is not None:
                     inferrer.symbols.define(Symbol(name=var_name, type=var_type, kind="var", line=0, column=0, file_path="."))
@@ -868,7 +871,8 @@ class PenguCodegen:
         if name in self.echos:
             return EchoType(name, self.echos[name])
         if name in self.omens:
-            return OmenType(name, self.omens[name])
+            v_vals = self.omen_values.get(name, {})
+            return OmenType(name, self.omens[name], variant_values=v_vals, c_name=name)
         if name in self.aliases:
             return self.aliases[name]
         if name in self.seals:
@@ -2373,20 +2377,11 @@ class PenguCodegen:
                     return "\n".join(lines)
 
                 else:
-                    lines = [f"{ind}const void* {tmp} = {expr_code};"]
-                    for i, name in enumerate(names):
-                        c_name = self._c_ident(name)
-                        sym = self.symbols.lookup(name) if self.symbols else None
-                        var_t = sym.type if sym else None
-                        if var_t is not None:
-                            self.local_vars[name] = var_t
-                            self.local_vars[c_name] = var_t
-                        is_auto_var = bool(sym and getattr(sym, "is_auto_banished", False) and var_t is not None)
-                        if is_auto_var:
-                            self._auto_banish_register(c_name, var_t)
-                        t_str = CTypeMapper.to_c_type(var_t, const=not is_auto_var) if var_t else ("const int32_t" if not is_auto_var else "int32_t")
-                        lines.append(f"{ind}{t_str} {c_name} = {tmp}[{i}];")
-                    return "\n".join(lines)
+                    raise SemanticError(
+                        f"Cannot destructure expression of type '{expr_type}'",
+                        code="E0017",
+                        help="Destructuring is only supported on runes, fixed arrays, slices, and lists."
+                    )
 
         elif rule == "set_stmt":
             target_node = node.children[0]
@@ -2461,12 +2456,12 @@ class PenguCodegen:
                 elif isinstance(target_type, BaseType) and target_type.name in self.runes:
                     rune_name = target_type.name
 
-            is_rvalue = (
-                isinstance(expr_node, Tree)
-                and expr_node.data in ("with_init_expr", "do_expr", "if_stmt", "unless_stmt", "while_stmt", "for_range_stmt", "for_in_stmt")
-            ) or expr_str.strip().startswith("(__extension__") or expr_str.strip().startswith("({")
+            is_lvalue = (
+                (isinstance(expr_node, Tree) and expr_node.data in ("var_ref", "field_access", "arrow_access", "at_expr"))
+                or isinstance(expr_node, Token)
+            )
 
-            if not is_rvalue and rune_name and rune_name in self.runes and len(self.runes[rune_name]) >= 3:
+            if is_lvalue and rune_name and rune_name in self.runes and len(self.runes[rune_name]) >= 3:
                 return f"{ind}memcpy(&({target_str}), &({expr_str}), sizeof({rune_name}));"
 
             return f"{ind}{target_str} = {expr_str};"

@@ -2,6 +2,29 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.13.12] - 2026-09-18
+
+### Corregido (crítico)
+
+- **C3**: En `pengu_infer.py::self_ref` y `pengu_codegen.py::_infer_node_type`, se inyecta el contexto de scope `enchanting` y el símbolo `self` (`RefType(current_enchanted_type)`), permitiendo inferir correctamente expresiones complejas como `with self->node:` y asegurando que las asignaciones a campos subsiguientes emitan `->` en lugar de `.`.
+- **C4**: En `pengu_checker.py::_check_let_decl` y `pengu_codegen.py::let_decl`, el destructuring sobre `any` (`let a, b is x` donde `x as any`) ahora es rechazado con `SemanticError [E0017]`, impidiendo la emisión de sintaxis C inválida que intentaba indexar `void*` (`_destruct[i]`).
+
+### Corregido (alto)
+
+- **H3**: En `pengu_codegen.py::set_stmt`, la optimización con `memcpy` para runes de 3 o más campos ahora se restringe estrictamente a lvalues reales (variables, accesos a campos y elementos de arreglos), evitando tomar la dirección de rvalues como llamadas a funciones (`&calling make_big()`).
+
+### Corregido (medio)
+
+- **M6**: En `pengu_checker.py::_check_set_stmt`, los accesos a campos dentro de `with_target` validan que los tipos `RefType` utilicen el operador flecha `->` en vez de punto `.`, levantando `SelfDotAccessError [E0003]` ante infracciones.
+- **M7**: En `pengu_checker.py::_collect_top_level`, las directivas `insignia` declaradas dentro de un bloque condicional `when_top_decl` quedan estrictamente limitadas a esa rama condicional y ya no se filtran hacia las declaraciones externas posteriores.
+
+### Corregido (menor)
+
+- **m8**: En `pengu_checker.py::_check_value_exprs`, cuando el nodo es `struct_init`, se resuelve el tipo esperado específico de cada campo y se propaga adecuadamente a cada expresión `field_init`.
+- **m9**: En `pengu_grammar.py::when_pattern`, se introdujo la regla `bool_lit: "true" -> true_lit | "false" -> false_lit`, garantizando que Lark genere los árboles AST `true_lit` y `false_lit` esperados por el inferrer en expresiones `judge`.
+- **m10**: En `pengu_checker.py`, se eliminaron referencias residuales a la cadena `"calling_stmt"` en las tuplas de inspección de sentencias.
+- **m11**: En `pengu_codegen.py::_lookup_type_fn`, la resolución de tipos `omen` ahora preserva `variant_values` y `c_name`.
+
 ## [0.13.11] - 2026-09-18
 
 ### Corregido (crítico)

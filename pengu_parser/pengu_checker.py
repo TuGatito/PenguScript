@@ -795,7 +795,10 @@ class PenguChecker:
             elif rule == "when_top_decl":
                 chosen = self._active_when_top_items(stmt)
                 if chosen:
-                    current_insignia = self._collect_top_level(Tree("file", chosen), current_insignia=current_insignia)
+                    saved_insignia = current_insignia
+                    self._collect_top_level(Tree("file", chosen), current_insignia=current_insignia)
+                    current_insignia = saved_insignia
+                    self.symbols.insignia = saved_insignia
 
             elif rule == "rune_decl":
                 r_name = str(stmt.children[0])
@@ -1876,7 +1879,7 @@ class PenguChecker:
                 return
 
             if isinstance(curr, Tree) and curr.data in (
-                "calling_expr", "calling_stmt", "add", "sub", "mul", "div", "mod",
+                "calling_expr", "add", "sub", "mul", "div", "mod",
                 "bitwise_or", "bitwise_and", "bitwise_xor", "shl", "shr", "concat",
                 "logic_or", "logic_and", "range_expr", "try_expr", "or_else", "or_return"
             ):
@@ -2605,6 +2608,26 @@ class PenguChecker:
         if rule == "judge_expr":
             self._check_judge_expr(node)
             return
+        if rule == "struct_init":
+            unwrapped_expected = expected
+            while isinstance(unwrapped_expected, (AliasType, FrozenType)):
+                unwrapped_expected = unwrapped_expected.target
+            expected_fields: Dict[str, Type] = {}
+            if isinstance(unwrapped_expected, (RuneType, EchoType)):
+                expected_fields = unwrapped_expected.fields
+                if not expected_fields and self.symbols:
+                    sym_t = self.symbols.lookup_type(unwrapped_expected.name)
+                    if isinstance(sym_t, (RuneType, EchoType)) and sym_t.fields:
+                        expected_fields = sym_t.fields
+            for child in node.children:
+                if isinstance(child, Tree) and child.data == "field_init":
+                    f_name = str(child.children[0])
+                    f_exp = expected_fields.get(f_name)
+                    if len(child.children) > 1 and child.children[1] is not None:
+                        self._check_value_exprs(child.children[1], f_exp)
+                else:
+                    self._check_value_exprs(child)
+            return
         for child in node.children:
             self._check_value_exprs(child)
 
@@ -3191,11 +3214,6 @@ class PenguChecker:
                         sym = Symbol(name=v_name, type=elem_t, kind="let", is_mutable=False, line=line, column=col, file_path=self.filename, is_borrowed=is_borrowed)
                         self.symbols.define(sym)
                         destructured_syms.append(sym)
-                elif isinstance(inferred, AnyType):
-                    for v_name in names:
-                        sym = Symbol(name=v_name, type=AnyType(), kind="let", is_mutable=False, line=line, column=col, file_path=self.filename, is_borrowed=is_borrowed)
-                        self.symbols.define(sym)
-                        destructured_syms.append(sym)
                 else:
                     raise self._make_error(
                         SemanticError,
@@ -3316,6 +3334,15 @@ class PenguChecker:
                     for acc in target_node.children[1:]:
                         if isinstance(acc, Tree) and acc.data in ("dot_access", "arrow_access") and acc.children:
                             sub_f = str(acc.children[0])
+                            if acc.data == "dot_access" and isinstance(target_type, RefType):
+                                raise self._make_error(
+                                    SelfDotAccessError,
+                                    "Reference must be accessed with '->', not '.'",
+                                    acc,
+                                    code="E0003",
+                                    help="Change '.' to '->' when accessing fields on a reference.",
+                                    note="References (ref to T) require arrow operator '->' for field access."
+                                )
                             curr_t = target_type
                             while isinstance(curr_t, RefType):
                                 curr_t = curr_t.target
@@ -3803,7 +3830,7 @@ class PenguChecker:
                 elif ret_type != VOID_TYPE and not isinstance(ret_type, AnyType):
                     if isinstance(last_inner, Tree) and last_inner.data in (
                         "let_decl", "var_decl", "set_stmt", "compound_set_stmt",
-                        "calling_stmt", "static_var_decl", "while_stmt",
+                        "static_var_decl", "while_stmt",
                         "for_range_stmt", "for_in_stmt", "defer_stmt", "errdefer_stmt", "with_stmt"
                     ):
                         stmt_desc = last_inner.data.replace("_stmt", "").replace("_decl", "")
@@ -3896,7 +3923,7 @@ class PenguChecker:
                         return
 
             # 4. Function call arguments
-            elif n.data in ("calling_expr", "calling_stmt"):
+            elif n.data == "calling_expr":
                 if contains_sigil_of(n):
                     escaped = True
                     return

@@ -786,6 +786,9 @@ class TypeInferrer:
             raise self._make_undefined_error(name, node)
 
         elif rule == "self_ref":
+            self_sym = self.symbols.lookup("self") if self.symbols else None
+            if self_sym is not None and getattr(self_sym, "type", None):
+                return self_sym.type
             if self.symbols.is_in_ritual_context():
                 raise self._make_error(
                     InvalidRitualSelfAccessError,

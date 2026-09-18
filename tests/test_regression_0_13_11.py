@@ -30,11 +30,11 @@ import pengu_version
 
 
 def test_version_sync_0_13_11():
-    """Verify that version 0.13.11 is synced across toolchain."""
-    assert pengu_version.__version__ == "0.13.11"
-    assert pengu_version.FALLBACK_VERSION == "0.13.11"
-    assert PENGU_VERSION == "0.13.11"
-    assert pengu_version.read_version_file() == "0.13.11"
+    """Verify that version 0.13.11+ is synced across toolchain."""
+    assert tuple(map(int, pengu_version.__version__.split("."))) >= (0, 13, 11)
+    assert pengu_version.FALLBACK_VERSION == pengu_version.__version__
+    assert PENGU_VERSION == pengu_version.__version__
+    assert pengu_version.read_version_file() == pengu_version.__version__
 
 
 @requires_cc

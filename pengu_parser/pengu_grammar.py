@@ -180,10 +180,12 @@ else_clause: "else" "->" expr _NEWLINE
              | FLOAT
              | string_token
              | CHAR_LIT
-             | "true"
-             | "false"
+             | bool_lit
              | "maybe" "none"
              | NAME ("." NAME)*
+
+bool_lit: "true" -> true_lit
+        | "false" -> false_lit
 
 ?type: ref_type
      | frozen_type
