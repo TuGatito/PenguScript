@@ -2619,6 +2619,14 @@ class PenguChecker:
                     sym_t = self.symbols.lookup_type(unwrapped_expected.name)
                     if isinstance(sym_t, (RuneType, EchoType)) and sym_t.fields:
                         expected_fields = sym_t.fields
+            elif isinstance(unwrapped_expected, OmenType):
+                variants = unwrapped_expected.variants
+                if not variants and self.symbols:
+                    sym_t = self.symbols.lookup_type(unwrapped_expected.name)
+                    if isinstance(sym_t, OmenType) and sym_t.variants:
+                        variants = sym_t.variants
+                for v_name, v_fields in (variants or {}).items():
+                    expected_fields[v_name] = RuneType(name=v_name, fields=v_fields)
             for child in node.children:
                 if isinstance(child, Tree) and child.data == "field_init":
                     f_name = str(child.children[0])
@@ -3269,8 +3277,11 @@ class PenguChecker:
         elif node.data == "essence_target":
             base_t = self.inferrer.infer(node.children[0])
 
-        if isinstance(base_t, RefType) and isinstance(base_t.target, FrozenType):
-            return f"'{base_t}'"
+        curr = base_t
+        while isinstance(curr, (AliasType, RefType)):
+            curr = getattr(curr, "target", None)
+            if isinstance(curr, FrozenType):
+                return f"'{base_t}'"
         if isinstance(base_t, FrozenType):
             return f"'{base_t}'"
         return None
@@ -3632,6 +3643,35 @@ class PenguChecker:
             if isinstance(c, Tree):
                 self._validate_type_node(c)
 
+    def _stmt_always_returns(self, node: Any) -> bool:
+        """Determines if a statement or block unconditionally returns or exits."""
+        if not isinstance(node, Tree):
+            return False
+        inner = node
+        while isinstance(inner, Tree) and inner.data in ("stmt", "simple_stmt") and inner.children:
+            inner = inner.children[0]
+        if not isinstance(inner, Tree):
+            return False
+        if inner.data == "return_stmt":
+            return True
+        if inner.data in ("if_stmt", "unless_stmt"):
+            block_node = inner.children[1]
+            else_node = inner.children[2] if len(inner.children) > 2 else None
+            if not else_node:
+                return False
+            then_stmts = [c for c in block_node.children if isinstance(c, Tree)]
+            if not then_stmts or not self._stmt_always_returns(then_stmts[-1]):
+                return False
+            if else_node.data in ("else_block", "block"):
+                else_stmts = [c for c in else_node.children if isinstance(c, Tree)]
+                return bool(else_stmts and self._stmt_always_returns(else_stmts[-1]))
+            elif else_node.data in ("elif_stmt", "if_stmt", "unless_stmt"):
+                return self._stmt_always_returns(else_node)
+            else_children = [c for c in else_node.children if isinstance(c, Tree)]
+            if else_children:
+                return self._stmt_always_returns(else_children[-1])
+        return False
+
     def _check_weave_decl(self, node: Tree) -> None:
         """Type checks weave declaration, parameters, and contained statements.
 
@@ -3828,11 +3868,7 @@ class PenguChecker:
                     except SemanticError as e:
                         self._record_error(e)
                 elif ret_type != VOID_TYPE and not isinstance(ret_type, AnyType):
-                    if isinstance(last_inner, Tree) and last_inner.data in (
-                        "let_decl", "var_decl", "set_stmt", "compound_set_stmt",
-                        "static_var_decl", "while_stmt",
-                        "for_range_stmt", "for_in_stmt", "defer_stmt", "errdefer_stmt", "with_stmt"
-                    ):
+                    if not self._stmt_always_returns(last_inner):
                         stmt_desc = last_inner.data.replace("_stmt", "").replace("_decl", "")
                         err = self._make_error(
                             TypeMismatchError,

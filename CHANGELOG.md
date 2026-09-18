@@ -2,6 +2,26 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.13.13] - 2026-09-18
+
+### Corregido (crítico)
+
+- **C5 & m12**: En `pengu_codegen.py::_infer_node_type`, se aísla la inferencia de expresiones locales creando un scope léxico temporal dedicado (`push_scope`) y restaurando de forma estricta `current_scope` y truncando `all_scopes` en un bloque `finally`. Esto elimina por completo la fuga lineal de memoria y previene la contaminación de símbolos y scopes de encantamientos o variables locales entre diferentes weaves. Se eliminó la doble definición redundante de `self`.
+- **C6**: En `pengu_codegen.py::let_decl`, el destructuring de literales de array (`let a, b, c is [1, 2, 3]`) y de arrays multidimensionales ahora genera declaraciones válidas en C99 (`const int32_t _destruct[3] = { 1, 2, 3 };`), evitando inicializar punteros escalares con listas entre llaves y desintegrando filas 2D en punteros de fila C válidos (`const int32_t*`).
+
+### Corregido (alto)
+
+- **H4**: En `pengu_codegen.py::_translate_expr_impl`, las comprobaciones de pertenencia `in` / `not in` sobre colecciones (`array`, `list`, `slice`, `many`) ahora utilizan `pengu_string_equal` para cadenas de texto y `memcmp` para runes, echos y structs, evitando la comparación errónea de structs en C con `==`.
+
+### Corregido (medio)
+
+- **M8**: En `pengu_checker.py::_check_weave_decl`, funciones con retorno no-void que finalizan con `if_stmt` o `unless_stmt` donde las ramas no retornan incondicionalmente un valor ahora son detectadas y rechazadas con `TypeMismatchError [E0020]`, evitando que el compilador C emita advertencias `-Wreturn-type`.
+- **M9**: En `pengu_checker.py::_check_value_exprs`, los inicializadores estructurados (`struct_init`) para tipos `OmenType` ahora propagan los tipos esperados correspondientes a los campos del payload de cada variante.
+
+### Corregido (menor)
+
+- **m13**: En `pengu_checker.py::_frozen_write_block`, se implementó el desenrollado recursivo de cadenas de tipos `RefType` y `AliasType`, asegurando que cualquier puntero o referencia que apunte a un `FrozenType` en cualquier nivel de indirección bloquee la escritura en asignaciones `set`.
+
 ## [0.13.12] - 2026-09-18
 
 ### Corregido (crítico)

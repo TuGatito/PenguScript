@@ -24,7 +24,7 @@ from lark import Tree, Token
 try:  # The toolchain root (which holds VERSION) is the parent package directory.
     from pengu_version import __version__ as PENGU_VERSION
 except ImportError:  # pragma: no cover - vendored/frozen fallback, guarded by tests
-    PENGU_VERSION = "0.13.12"
+    PENGU_VERSION = "0.13.13"
 
 from pengu_parser.pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ManyType, ListType, MapType, MaybeType,
@@ -699,17 +699,26 @@ class PenguCodegen:
 
     def _infer_node_type(self, node: Any, expected_type: Optional[Type] = None) -> Optional[Type]:
         """Infers semantic type for AST node using active local variable context."""
+        if not self.symbols:
+            return None
+        saved_scope = self.symbols.current_scope
+        saved_all_scopes_len = len(self.symbols.all_scopes)
         try:
             inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
             if self.current_enchanted_type is not None:
                 inferrer.symbols.push_scope(kind="enchanting", enchanting_type=self.current_enchanted_type)
-                inferrer.symbols.define(Symbol(name="self", type=RefType(target=self.current_enchanted_type), kind="var", line=0, column=0, file_path="."))
+            else:
+                inferrer.symbols.push_scope(kind="block")
             for var_name, var_type in self.local_vars.items():
                 if var_type is not None:
                     inferrer.symbols.define(Symbol(name=var_name, type=var_type, kind="var", line=0, column=0, file_path="."))
             return inferrer.infer(node, expected_type=expected_type)
         except Exception:
             return None
+        finally:
+            self.symbols.current_scope = saved_scope
+            if len(self.symbols.all_scopes) > saved_all_scopes_len:
+                del self.symbols.all_scopes[saved_all_scopes_len:]
 
     def get_temp_name(self, prefix: str = "_tmp") -> str:
         """Generates unique local variable identifier.
@@ -2324,8 +2333,13 @@ class PenguCodegen:
 
                 elif isinstance(actual_expr_type, ArrayType):
                     elem_t = actual_expr_type.element
-                    elem_c_t = CTypeMapper.to_c_type(elem_t, const=True)
-                    lines = [f"{ind}{elem_c_t}* {tmp} = {expr_code};"]
+                    if expr_code.strip().startswith("{"):
+                        dims, base_c = get_array_dims_and_base(actual_expr_type)
+                        dims_str = "".join(f"[{d}]" for d in dims)
+                        lines = [f"{ind}const {base_c} {tmp}{dims_str} = {expr_code};"]
+                    else:
+                        decl = CTypeMapper.to_c_decl(actual_expr_type, tmp, const=True)
+                        lines = [f"{ind}{decl} = {expr_code};"]
                     for i, name in enumerate(names):
                         c_name = self._c_ident(name)
                         sym = self.symbols.lookup(name) if self.symbols else None
@@ -2336,8 +2350,12 @@ class PenguCodegen:
                         is_auto_var = bool(sym and getattr(sym, "is_auto_banished", False) and var_t is not None)
                         if is_auto_var:
                             self._auto_banish_register(c_name, var_t)
-                        t_str = CTypeMapper.to_c_type(var_t, const=not is_auto_var) if var_t else ("const int32_t" if not is_auto_var else "int32_t")
-                        lines.append(f"{ind}{t_str} {c_name} = {tmp}[{i}];")
+                        if isinstance(elem_t, ArrayType):
+                            decl = CTypeMapper.to_c_decl(elem_t, c_name, const=not is_auto_var)
+                            lines.append(f"{ind}{decl} = {tmp}[{i}];")
+                        else:
+                            t_str = CTypeMapper.to_c_type(var_t, const=not is_auto_var) if var_t else ("const int32_t" if not is_auto_var else "int32_t")
+                            lines.append(f"{ind}{t_str} {c_name} = {tmp}[{i}];")
                     return "\n".join(lines)
 
                 elif isinstance(actual_expr_type, (SliceType, ManyType)):
@@ -3908,6 +3926,21 @@ class PenguCodegen:
                 return True
         return False
 
+    def _make_elem_eq(self, elem_t: Optional[Type], left_expr: str, right_expr: str) -> str:
+        """Emits appropriate C equality comparison for elements in collection checks."""
+        unwrapped = elem_t
+        while isinstance(unwrapped, (AliasType, FrozenType)):
+            unwrapped = getattr(unwrapped, "target", None)
+        if unwrapped == STRING_TYPE or (isinstance(unwrapped, BaseType) and unwrapped.name == "string"):
+            return f"pengu_string_equal({left_expr}, {right_expr})"
+        if isinstance(unwrapped, (RuneType, EchoType)):
+            c_type = unwrapped.name
+            return f"(memcmp(&({left_expr}), &({right_expr}), sizeof({c_type})) == 0)"
+        if isinstance(unwrapped, BaseType) and unwrapped.name in self.runes:
+            c_type = unwrapped.name
+            return f"(memcmp(&({left_expr}), &({right_expr}), sizeof({c_type})) == 0)"
+        return f"({left_expr} == {right_expr})"
+
     def _translate_expr_impl(self, node: Any, expected_type: Optional[Type] = None) -> str:
         """Translates expression node into C99 expression string."""
         if node is None:
@@ -4090,10 +4123,11 @@ class PenguCodegen:
 
             # Check if Array
             if isinstance(col_t, ArrayType) and col_t.size is not None:
+                cmp = self._make_elem_eq(col_t.element, "(_arr)[_i]", "_val")
                 check_code = (
                     f"bool _f = false; "
                     f"for (size_t _i = 0; _i < {col_t.size}; ++_i) {{ "
-                    f"  if ((_arr)[_i] == _val) {{ _f = true; break; }} "
+                    f"  if ({cmp}) {{ _f = true; break; }} "
                     f"}} "
                     f"{'!_f' if is_not else '_f'};"
                 )
@@ -4102,10 +4136,7 @@ class PenguCodegen:
             # Check if List
             if isinstance(col_t, ListType):
                 elem_c_t = CTypeMapper.to_c_type(col_t.element)
-                if col_t.element == STRING_TYPE or (isinstance(col_t.element, BaseType) and col_t.element.name == "string"):
-                    cmp = "pengu_string_equal(*(PenguString*)pengu_list_at(&_lc, _i), _val)"
-                else:
-                    cmp = f"(*({elem_c_t}*)pengu_list_at(&_lc, _i) == _val)"
+                cmp = self._make_elem_eq(col_t.element, f"*({elem_c_t}*)pengu_list_at(&_lc, _i)", "_val")
                 return (
                     f"(__extension__({{ __auto_type _val = ({elem_c}); "
                     f"PenguList _lc = ({col_c}); bool _f = false; "
@@ -4117,10 +4148,7 @@ class PenguCodegen:
             # Check if Slice / Many
             if isinstance(col_t, (SliceType, ManyType)):
                 elem_c_t = CTypeMapper.to_c_type(col_t.element)
-                if col_t.element == STRING_TYPE or (isinstance(col_t.element, BaseType) and col_t.element.name == "string"):
-                    cmp = "pengu_string_equal(((PenguString*)(_sl).data)[_i], _val)"
-                else:
-                    cmp = f"((({elem_c_t}*)(_sl).data)[_i] == _val)"
+                cmp = self._make_elem_eq(col_t.element, f"((({elem_c_t}*)(_sl).data)[_i])", "_val")
                 return (
                     f"(__extension__({{ __auto_type _val = ({elem_c}); "
                     f"PenguSlice _sl = ({col_c}); bool _f = false; "
