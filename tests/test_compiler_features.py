@@ -189,7 +189,7 @@ weave main into int:
     return calling peek_bytes with view
 """
         bundle = gen_bundle(code)
-        assert "const uint8_t* view = ((uint8_t*)(((s)).data));" in bundle
+        assert "const uint8_t* view = ((const uint8_t*)(((s)).data));" in bundle
 
     def test_literal_string_also_works(self):
         code = """declare peek_bytes with p as ref to frozen byte into int
@@ -199,7 +199,7 @@ weave main into int:
     return 0
 """
         bundle = gen_bundle(code)
-        assert "((uint8_t*)((" in bundle
+        assert "((const uint8_t*)((" in bundle
         assert ").data));" in bundle
 
     def test_non_string_operand_rejected(self):

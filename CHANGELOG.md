@@ -2,6 +2,51 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.13.10] - 2026-09-18
+
+### Corregido (alto)
+
+- **A1**: En `pengu_codegen.py::with_stmt`, las sentencias internas ahora se emiten dentro de un bloque C `{ ... }` con indentación adecuada y gestión del alcance de auto-banish (`_auto_banish_push("block")` y `_flush_current_scope_banish()`), impidiendo errores de compilación por redefinición de variables locales que ensombrecen variables externas.
+- **A2**: En `pengu_codegen.py::struct_init`, la inicialización de variantes de `omen` utiliza el nombre C (`omen_cname = getattr(expected_type, "c_name", None) or expected_type.name`) para etiquetas de variante, inicializadores a cero y literales compuestos, solucionando errores de símbolo no encontrado en tipos declarados con `insignia`.
+
+### Corregido (medio)
+
+- **M1**: En `pengu_checker.py::_check_set_stmt`, la reasignación de arreglos de tamaño fijo (`set arr is [...]`) se rechaza con `E0008` ("Fixed-size arrays cannot be reassigned as a whole; use 'set arr at index is val' to update element-wise"), evitando la emisión de sintaxis C inválida.
+- **M2**: En `pengu_infer.py::judge_expr` y `pengu_codegen.py::judge_expr`, los patrones calificados `Omen.Variant` validan que el prefijo coincida con el tipo `omen` analizado, impidiendo coincidencias erróneas con variantes homónimas de otros tipos.
+- **M3**: En `pengu_grammar.py`, los literales booleanos en `when_pattern` usan alias (`"true" -> true_lit | "false" -> false_lit`), permitiendo que el árbol sintáctico conserve el valor en lugar de ser filtrado por Lark y restaurando la exhaustividad en expresiones `judge`.
+
+### Corregido (menor)
+
+- **m1**: En `pengu_checker.py::_check_banish_expr`, se rechaza el descarte de temporales que no sean lvalues (como `banish (s to string)`) con `E0008`, y en `pengu_codegen.py` se materializan temporales rvalue de forma segura.
+- **m2**: En `pengu_checker.py::_check_weave_decl`, las funciones con retorno no-void que finalizan en sentencias sin valor (`let`, `var`, `set`, bucles) se rechazan con `E0020` para evitar advertencias y errores de compilación `-Wreturn-type` en C.
+- **m3**: En `pengu_checker.py::_check_with_builder`, los bloques constructores `with:` restringen sus sentencias a `set .campo is ...` y llamadas a métodos `.metodo()`, rechazando expresiones libres.
+- **m4**: En `pengu_checker.py::_check_omen_variant_collisions`, se valida la colisión de variantes tanto por su nombre lógico como por su identificador C (`c_name` bajo `insignia`).
+
+## [0.13.9] - 2026-09-17
+
+### Corregido (crítico)
+
+- **C1**: En `pengu_codegen.py`, las vinculaciones inmutables `let` sujetas a `auto-banish` (`sym.is_auto_banished`) se emiten sin calificador `const` en C99 (`PenguString s` en vez de `const PenguString s`), evitando errores de compilación por descarte de calificadores (`-Wdiscarded-qualifiers` bajo `-Werror`) al llamar `pengu_banish_string(&s)`. La inmutabilidad de la variable sigue garantizada estrictamente en tiempo de compilación por el verificador semántico (`E0006`).
+- **C2**: En `pengu_codegen.py`, se aísla el entorno de variables locales (`self.local_vars`) en bloques y expresiones de control de flujo anidadas (`with_stmt`, `_translate_nested_block_with_banish`, `_translate_value_block_with_banish`, `_translate_loop_body`, `_translate_else_block`, `_translate_value_if`, `_translate_binding_if`, `_translate_binding_value_if`, `_translate_or_block`, `with_init_expr`, `do_expr`) mediante copia y restauración en bloques `finally`. Esto evita que declaraciones o redefiniciones en scopes internos corrompan tipos o calificadores de variables externas (como receptores `r` en accesos a miembros).
+
+### Corregido (alto)
+
+- **A1**: En `pengu_infer.py::judge_expr`, se valida rigurosamente el sujeto de expresiones `judge`, rechazando con `E0005` tipos no escalares/no comparables (como `maybe T`, `result`, `list`, etc.) antes de codegen, impidiendo comparaciones inválidas en C como `PenguMaybe == 1`.
+- **A2**: En `pengu_types.py` y `pengu_codegen.py`, los tipos `omen` con valores de cadena (`omen X with string:`) ya no devuelven `is_int() == True` ni `is_numeric() == True`, e implementan `is_string() == True`. En `judge_expr`, se excluyen de sentencias `switch` y se emiten a través de cadenas ternarias con `pengu_string_equal`.
+- **A3**: En `pengu_codegen.py::bytes_expr`, `bytes of <string>` emite un puntero constante a bytes `((const uint8_t*)((({arg_c})).data))` en lugar de un puntero mutable `(uint8_t*)`, garantizando coherencia con el tipo inferido `ref to frozen byte` y compatibilidad con `-Werror`.
+
+### Corregido (medio)
+
+- **M1**: En `pengu_codegen.py::judge_expr`, los patrones de variantes calificadas (`when MyOmen.Variant`) normalizan el identificador para resolver variantes tanto bajo su nombre simple como con prefijos `insignia` o tipos de declaración `.d.pengu`, emitiendo los identificadores C correctos (`_get_omen_variant_c_name`).
+- **M2**: En `pengu_codegen.py::_is_single_char_or_byte`, se desempaquetan en bucle cadenas anidadas arbitrarias de `SealType`, `AliasType` y `FrozenType`.
+- **M3**: En `pengu_codegen.py::_lookup_with_field_type`, se desempaquetan en bucle `SealType`, `AliasType`, `FrozenType` y `RefType` tanto en el tipo base del bloque `with:` como en cada acceso a subcampo, resolviendo además nombres `BaseType` en la tabla de tipos.
+
+### Corregido (menor)
+
+- **m1**: En `pengu_checker.py::_check_weave_decl`, se rechaza que el punto de entrada `main` retorne un `OmenType` (incluso si es un enum entero no algebraico) con `E0020`.
+- **m2**: En `pengu_infer.py::banish_expr`, el mensaje de ayuda de `E0008` clarifica que los tipos nominales sellados (`seal`) no son liberables directamente y requieren un cast explícito (`banish (v to string)`). Asimismo, `pengu_codegen.py::_translate_banish_target` desempaqueta `SealType` hacia el tipo subyacente.
+- **m3**: En `pengu_checker.py::_extract_preceding_doc`, se eliminan en bucle todos los caracteres almohadilla `#` iniciales y finales, limpiando líneas de documentación como `# # # Comment`.
+
 ## [0.13.8] - 2026-09-17
 
 ### Corregido (crítico)

@@ -527,10 +527,9 @@ class PenguChecker:
             if not stripped:
                 break
             if stripped.startswith("#"):
-                content = stripped.lstrip("#")
-                if content.endswith("#"):
-                    content = content.rstrip("#")
-                content = content.strip()
+                content = stripped
+                while content.startswith("#") or content.endswith("#"):
+                    content = content.strip("#").strip()
                 if content and set(content) <= {"-", "=", "*", "_"}:
                     idx -= 1
                     continue
@@ -1990,10 +1989,10 @@ class PenguChecker:
                 if not is_valid_type:
                     err = self._make_error(
                         InvalidMemoryOpError,
-                        f"'banish' requires a reference (ref to T), string, list, or map, got '{t}'",
+                        f"'banish' requires a reference (ref to T), string, list, or map, got nominal seal type '{t}'" if isinstance(t, SealType) else f"'banish' requires a reference (ref to T), string, list, or map, got '{t}'",
                         target_expr,
                         code="E0008",
-                        help="Pass a reference (ref to T), string, list, or map to 'banish'.",
+                        help="Pass a reference (ref to T), string, list, or map to 'banish'. Nominal seal types are also rejected; cast first: 'banish (v to string)'.",
                         note="'banish' deallocates memory behind references, strings, lists, and maps."
                     )
                     self._record_error(err)
@@ -2294,11 +2293,20 @@ class PenguChecker:
                 inner = ch
                 while inner.data == "stmt" and inner.children:
                     inner = inner.children[0]
-                if inner.data not in ("set_stmt", "expr_stmt"):
+                is_valid = False
+                if inner.data == "set_stmt":
+                    is_valid = True
+                elif inner.data == "expr_stmt" and inner.children:
+                    expr_child = inner.children[0]
+                    if isinstance(expr_child, Tree) and expr_child.data == "calling_expr" and expr_child.children:
+                        tgt = expr_child.children[0]
+                        if isinstance(tgt, Tree) and tgt.data in ("with_target", "normal_target"):
+                            is_valid = True
+                if not is_valid:
                     err = self._make_error(
                         InvalidControlFlowError,
                         "'with:' block only allows 'set .field is ...' assignments and "
-                        f"'calling .method' statements, not '{inner.data}'",
+                        f"'calling .method' statements, not '{inner.children[0].data if inner.data == 'expr_stmt' and inner.children and isinstance(inner.children[0], Tree) else inner.data}'",
                         inner,
                         code="E0007",
                         help="Use field assignments and method calls inside the builder block.",
@@ -3444,6 +3452,19 @@ class PenguChecker:
                     note="'frozen T' is C's 'const T': it cannot be written through."
                 )
 
+            unwrapped_arr_t = target_type
+            while isinstance(unwrapped_arr_t, (AliasType, FrozenType)) and getattr(unwrapped_arr_t, "target", None):
+                unwrapped_arr_t = unwrapped_arr_t.target
+            if isinstance(unwrapped_arr_t, ArrayType):
+                raise self._make_error(
+                    SemanticError,
+                    f"Cannot assign directly to array type '{target_type}'",
+                    node,
+                    code="E0008",
+                    help="Fixed-size arrays cannot be reassigned as a whole; use 'set arr at index is val' to update element-wise.",
+                    note="Arrays have fixed storage and do not support whole-array reassignment."
+                )
+
             # 'set x is if/unless/for ...:' and any block value nested in the
             # expression (e.g. inside a struct literal). The target type is the
             # expected type, so a nested 'with:' builder is typed from it.
@@ -3702,7 +3723,18 @@ class PenguChecker:
                 stmt_children.append(child)
 
         if fn_name == "main" and ret_type is not None:
-            if not (ret_type.is_int() or ret_type.is_bool() or ret_type == VOID_TYPE or (isinstance(ret_type, BaseType) and ret_type.name in ("void", "int", "i32", "i64", "bool"))):
+            unwrapped_ret = ret_type
+            while isinstance(unwrapped_ret, (AliasType, FrozenType)) and getattr(unwrapped_ret, "target", None):
+                unwrapped_ret = unwrapped_ret.target
+            if isinstance(unwrapped_ret, SealType):
+                unwrapped_ret = unwrapped_ret.underlying
+
+            if isinstance(unwrapped_ret, OmenType) or not (
+                unwrapped_ret.is_int()
+                or unwrapped_ret.is_bool()
+                or unwrapped_ret == VOID_TYPE
+                or (isinstance(unwrapped_ret, BaseType) and unwrapped_ret.name in ("void", "int", "i32", "i64", "bool"))
+            ):
                 err = self._make_error(
                     SemanticError,
                     f"Entry point 'main' must return an integer or 'void', got '{ret_type}'",
@@ -3746,26 +3778,12 @@ class PenguChecker:
             # Implicit return check for last expression
             if stmt_children:
                 last_stmt = stmt_children[-1]
-                if last_stmt.data == "stmt" and last_stmt.children:
-                    last_inner = last_stmt.children[0]
-                    if last_inner.data == "expr_stmt":
-                        expr_node = last_inner.children[0]
-                        try:
-                            last_type = self.inferrer.infer(expr_node, expected_type=ret_type)
-                            if ret_type != VOID_TYPE and not last_type.is_compatible(ret_type):
-                                err = self._make_error(
-                                    TypeMismatchError,
-                                    f"Implicit return type '{last_type}' does not match weave return type '{ret_type}'",
-                                    expr_node,
-                                    code="E0020",
-                                    help=f"Ensure the last expression evaluates to '{ret_type}' or return void.",
-                                    note="The last expression in a weave function is used as its implicit return value."
-                                )
-                                self._record_error(err)
-                        except SemanticError as e:
-                            self._record_error(e)
-                elif last_stmt.data == "expr_stmt":
-                    expr_node = last_stmt.children[0]
+                last_inner = last_stmt
+                while isinstance(last_inner, Tree) and last_inner.data in ("stmt", "simple_stmt") and last_inner.children:
+                    last_inner = last_inner.children[0]
+
+                if isinstance(last_inner, Tree) and last_inner.data == "expr_stmt":
+                    expr_node = last_inner.children[0]
                     try:
                         last_type = self.inferrer.infer(expr_node, expected_type=ret_type)
                         if ret_type != VOID_TYPE and not last_type.is_compatible(ret_type):
@@ -3780,6 +3798,22 @@ class PenguChecker:
                             self._record_error(err)
                     except SemanticError as e:
                         self._record_error(e)
+                elif ret_type != VOID_TYPE and not isinstance(ret_type, AnyType):
+                    if isinstance(last_inner, Tree) and last_inner.data in (
+                        "let_decl", "var_decl", "set_stmt", "compound_set_stmt",
+                        "calling_stmt", "static_var_decl", "while_stmt",
+                        "for_range_stmt", "for_in_stmt", "defer_stmt", "errdefer_stmt", "with_stmt"
+                    ):
+                        stmt_desc = last_inner.data.replace("_stmt", "").replace("_decl", "")
+                        err = self._make_error(
+                            TypeMismatchError,
+                            f"Function '{fn_name}' declared into '{ret_type}' does not return a value (ends with '{stmt_desc}')",
+                            last_inner,
+                            code="E0020",
+                            help=f"Add a 'return' statement or ensure the last statement is an expression evaluating to '{ret_type}'.",
+                            note="Functions with non-void return types must return a value."
+                        )
+                        self._record_error(err)
         finally:
             self.block_stmts_stack.pop()
 
@@ -4528,11 +4562,15 @@ class PenguChecker:
                 omens_seen[omen_t.name] = omen_t
 
         simple_owner: Dict[str, str] = {}
-        full_names: Dict[str, str] = {}
+        full_names: Dict[str, Tuple[str, str]] = {}
         for o_logical, omen_t in omens_seen.items():
+            o_cname = getattr(omen_t, "c_name", None) or o_logical
             for v_name in (omen_t.variants or {}):
                 full = f"{o_logical}_{v_name}"
-                full_names[full] = o_logical
+                full_names[full] = (o_logical, v_name)
+                if o_cname != o_logical:
+                    full_c = f"{o_cname}_{v_name}"
+                    full_names[full_c] = (o_logical, v_name)
                 if v_name in simple_owner and simple_owner[v_name] != o_logical:
                     err = self._make_error(
                         SemanticError,
@@ -4587,8 +4625,7 @@ class PenguChecker:
                     self._record_error(err)
                     continue
                 if chk_name in full_names:
-                    o_logical = full_names[chk_name]
-                    variant = chk_name[len(o_logical) + 1:]
+                    o_logical, variant = full_names[chk_name]
                     if self._const_matches_variant(sym, o_logical, variant):
                         continue
                     note = "Omen variants occupy both their simple and full names in the global scope."
@@ -4598,7 +4635,7 @@ class PenguChecker:
                     err = self._make_error(
                         SemanticError,
                         f"Top-level symbol '{chk_name}' collides with the full name of the "
-                        f"'{full_names[chk_name]}' omen variant",
+                        f"'{o_logical}' omen variant",
                         code="E0046",
                         help="Rename the top-level symbol so it does not shadow the "
                              "full omen variant name.",

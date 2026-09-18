@@ -300,6 +300,8 @@ class BaseType(Type):
             return True
         if isinstance(other, AliasType):
             return self.is_compatible(other.target)
+        if isinstance(other, OmenType) and other.is_string_valued and self.name == "string":
+            return True
         if isinstance(other, BaseType):
             if self.name == other.name:
                 return True
@@ -1091,11 +1093,15 @@ class OmenType(Type):
 
     def is_numeric(self) -> bool:
         """Simple traditional enums without payload map to C integers."""
-        return not self.is_algebraic
+        return not self.is_algebraic and not self.is_string_valued
 
     def is_int(self) -> bool:
         """Simple traditional enums without payload map to C integers."""
-        return not self.is_algebraic
+        return not self.is_algebraic and not self.is_string_valued
+
+    def is_string(self) -> bool:
+        """String-valued omens behave as string types."""
+        return self.is_string_valued
 
     def get_mangled_name(self) -> str:
         return mangle_type(self)
@@ -1130,6 +1136,8 @@ class OmenType(Type):
             return True
         if isinstance(other, OmenType):
             return self.name == other.name
+        if isinstance(other, BaseType) and other.name == "string" and self.is_string_valued:
+            return True
         return False
 
     def __eq__(self, other: Any) -> bool:

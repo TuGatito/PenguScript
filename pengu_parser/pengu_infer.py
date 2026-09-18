@@ -1517,6 +1517,26 @@ class TypeInferrer:
             # Note: Payload bindings in 'when' clauses are validated and rejected
             # exclusively in PenguChecker._check_judge_expr to avoid duplicate passes.
             matched_type = self.infer(node.children[0])
+            unwrapped_matched = matched_type
+            while isinstance(unwrapped_matched, (AliasType, FrozenType)) and getattr(unwrapped_matched, "target", None):
+                unwrapped_matched = unwrapped_matched.target
+            if isinstance(unwrapped_matched, SealType):
+                unwrapped_matched = unwrapped_matched.underlying
+
+            if not (isinstance(unwrapped_matched, (OmenType, AnyType))
+                    or unwrapped_matched.is_int()
+                    or unwrapped_matched.is_string()
+                    or unwrapped_matched == BOOL_TYPE
+                    or unwrapped_matched.is_compatible(BOOL_TYPE)):
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"'judge' subject must be an omen, bool, int, or string, got '{matched_type}'",
+                    node.children[0],
+                    code="E0005",
+                    help="Use 'if'/'else' or match on '.value'/'.is_present' for maybe/result types.",
+                    note="'judge' compiles to a C switch over integer tags or a ternary chain.",
+                )
+
             branch_types: List[Type] = []
             has_else = False
             covered_variants: Set[str] = set()
@@ -1525,6 +1545,21 @@ class TypeInferrer:
                 if isinstance(child, Tree) and child.data == "when_clause":
                     pattern_node = child.children[0]
                     if isinstance(pattern_node, Tree) and pattern_node.data == "when_pattern":
+                        if len(pattern_node.children) > 1 and isinstance(unwrapped_matched, OmenType):
+                            qualifier = str(pattern_node.children[0])
+                            var_part = str(pattern_node.children[-1])
+                            omen_names = {unwrapped_matched.name}
+                            if getattr(unwrapped_matched, "c_name", None):
+                                omen_names.add(unwrapped_matched.c_name)
+                            if qualifier not in omen_names:
+                                raise self._make_error(
+                                    TypeMismatchError,
+                                    f"Variant pattern qualifier '{qualifier}' does not match subject omen '{unwrapped_matched.name}'",
+                                    pattern_node,
+                                    code="E0005",
+                                    help=f"Match using '{unwrapped_matched.name}.{var_part}' or bare '{var_part}'.",
+                                    note="Patterns in 'when' clauses must match the type of the subject."
+                                )
                         for pat in pattern_node.children:
                             p_name = None
                             if isinstance(pat, Tree) and pat.data == "var_ref":
@@ -1565,7 +1600,7 @@ class TypeInferrer:
                             help=f"Add missing variants ({', '.join(sorted(missing))}) or an 'else ->' default branch.",
                             note="Omen judge expressions must cover all variants or provide an else branch."
                         )
-                elif matched_type == BOOL_TYPE:
+                elif matched_type == BOOL_TYPE or unwrapped_matched == BOOL_TYPE:
                     missing = {"true", "false"} - covered_variants
                     if missing:
                         raise self._make_error(
@@ -1924,6 +1959,15 @@ class TypeInferrer:
                         help="Only allocated references can be banished.",
                         note="Constants cannot be banished."
                     )
+            if isinstance(target, Tree) and target.data in ("to_expr", "transmute", "calling_expr", "slice_at_expr", "int_lit", "float_lit", "string_lit", "char_lit", "true_lit", "false_lit", "array_lit", "list_lit", "struct_init"):
+                raise self._make_error(
+                    InvalidMemoryOpError,
+                    f"Cannot banish temporary expression: 'banish' requires an assignable variable or memory location",
+                    target,
+                    code="E0008",
+                    help="Assign the expression to a local variable before banishing it: 'var tmp is ...; banish tmp'.",
+                    note="Only variables and memory locations (lvalues) can be banished, not temporary expressions."
+                )
             t = self.infer(target)
             is_valid = isinstance(t, (RefType, AnyType, ListType, MapType)) or (
                 isinstance(t, BaseType) and t.name == "string"
@@ -1934,7 +1978,7 @@ class TypeInferrer:
                     f"'banish' requires a reference type (ref to T), string, list, or map, got '{t}'",
                     node,
                     code="E0008",
-                    help="Pass an allocated reference, string, list, or map to 'banish'.",
+                    help="Pass an allocated reference, string, list, or map to 'banish'. Nominal seal types are also rejected; cast first into a variable: 'var s as string is v to string; banish s'.",
                     note="'banish' frees memory allocated behind a reference or collection."
                 )
             return VOID_TYPE

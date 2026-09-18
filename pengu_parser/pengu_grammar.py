@@ -176,14 +176,14 @@ when_clause: "when" when_pattern ["with" when_payload] "->" expr _NEWLINE
 when_payload: when_field (("," | _AND_SEP) when_field)*
 when_field: NAME
 else_clause: "else" "->" expr _NEWLINE
-when_pattern: INT
-            | FLOAT
-            | string_token
-            | CHAR_LIT
-            | "true"
-            | "false"
-            | "maybe" "none"
-            | NAME ("." NAME)*
+!when_pattern: INT
+             | FLOAT
+             | string_token
+             | CHAR_LIT
+             | "true"
+             | "false"
+             | "maybe" "none"
+             | NAME ("." NAME)*
 
 ?type: ref_type
      | frozen_type
