@@ -2,6 +2,27 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.13.14] - 2026-09-18
+
+### Corregido (alto)
+
+- **Interpolación de strings con evaluación única**: En `pengu_codegen.py::_translate_string_lit`, expresiones de tipo `string` complejas o con posibles efectos secundarios dentro de interpolaciones (`"{calling ...}"`) ahora se materializan en temporales `PenguString _str_N = (expr);` dentro de un bloque `(__extension__({ ... }))`, garantizando orden estricto de evaluación de izquierda a derecha y previniendo la doble ejecución que causaba `%.*s` con `(int)(expr).len, (expr).data`.
+- **Acceso a campos en `frozen RuneType`**: En `pengu_infer.py::{arrow_access, field_access}` y `pengu_checker.py::_check_set_stmt`, se desenrollan `AliasType`, `FrozenType` y `SealType` antes de consultar los campos de estructuras (`RuneType`, `EchoType`, `OmenType`), permitiendo leer campos en tipos `frozen Foo` y `ref to frozen Foo` con `.` y `->` así como en bloques `with p:` conforme a `LANGUAGE.md §9.5`.
+- **Falso positivo `E0020` en funciones con ramas de una línea**: En `pengu_checker.py::_stmt_always_returns`, se normalizan los nodos de sentencia utilizando `SIMPLE_STMT_ALIASES`, reconociendo `return` en ramas de una sola línea (`if c: return 1 else: return 2`) como retornos definitivos.
+
+### Corregido (medio)
+
+- **Variables de bucle con palabras clave de C**: En `pengu_codegen.py::{_translate_for_range, _translate_for_in}`, los identificadores de iteradores y valores (`var_name`, `index_name`, `elem_name`, `loop_var`, `iter_idx`) ahora se escapan con `_c_ident`, evitando la generación de sintaxis C inválida cuando se usan identificadores reservados como `int`, `char`, etc.
+- **Detección de `frozen` sobre aliases en `banish`**: En `pengu_checker.py::_check_banish_stmt`, se desenrollan recursivamente `AliasType` y `RefType` sobre el símbolo a banish, detectando y rechazando con `InvalidMemoryOpError [E0008]` cualquier intento de desasignar variables marcadas como `frozen` a través de un alias de tipo.
+- **Prefijo de módulos para archivos `.d.pengu`**: En `pengu_codegen.py::_collect_top_stmt`, la extracción del nombre de módulo elimina correctamente el sufijo `.d.pengu` (en lugar de split por extensión única que producía `modulo.d`), asegurando identificadores C válidos y lookups consistentes de constantes.
+- **Rechazo de literales desnudos en sentencias de una línea**: En `pengu_checker.py::_check_simple_stmt`, las expresiones simples que no son alias canónicos se validan como `expr_stmt`, rechazando literales de array y mapa sin efecto (`if c: [1, 2, 3]`) con `SemanticError [E0005]`.
+
+### Corregido (menor)
+
+- **Detección profunda de bucles para inlining**: En `pengu_checker.py::_check_weave_decl`, el análisis de bucles para determinar si una función califica para inlining (`is_inline`) inspecciona ahora todo el subárbol (`iter_subtrees()`), evitando marcar como inline funciones que contienen bucles dentro de bloques `if` u otras sentencias compuestas.
+- **Destructuring sobre `FnType` en C**: En `pengu_codegen.py::let_decl`, todas las ramas de destructuring utilizan ahora `CTypeMapper.to_c_decl` para declarar las variables locales resultantes, emitiendo declaraciones de punteros a función válidas en C99.
+- **Prohibición de valores por defecto en parámetros `many`**: En `pengu_checker.py::_check_weave_decl`, se prohíbe explícitamente asignar un valor por defecto a un parámetro variádico `many` con `SemanticError [E0005]`.
+
 ## [0.13.13] - 2026-09-18
 
 ### Corregido (crítico)

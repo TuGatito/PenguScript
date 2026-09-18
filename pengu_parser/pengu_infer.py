@@ -888,6 +888,9 @@ class TypeInferrer:
                     note="References (ref to T) require arrow operator '->' for field access."
                 )
 
+            while isinstance(target_type, (AliasType, FrozenType, SealType)):
+                target_type = getattr(target_type, "target", None) or getattr(target_type, "underlying", None)
+
             if isinstance(target_type, RuneType):
                 ench_type = self.symbols.current_enchanting_type() if self.symbols else None
                 is_enchanting = ench_type is not None and getattr(ench_type, "name", "") == target_type.name
@@ -1019,6 +1022,8 @@ class TypeInferrer:
                 )
 
             inner = target_type.target
+            while isinstance(inner, (AliasType, FrozenType, SealType)):
+                inner = getattr(inner, "target", None) or getattr(inner, "underlying", None)
             if isinstance(inner, RuneType):
                 ench_type = self.symbols.current_enchanting_type() if self.symbols else None
                 is_enchanting = ench_type is not None and getattr(ench_type, "name", "") == inner.name

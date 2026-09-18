@@ -632,8 +632,6 @@ class PenguChecker:
             current_insignia: Optional inherited insignia prefix.
         """
         has_imports = False
-        if current_insignia is None:
-            current_insignia = getattr(self.symbols, "insignia", None)
         is_d_pengu = bool(self.filename and self.filename.endswith(".d.pengu"))
         is_std = bool(self.filename and ("std" in self.filename.replace("/", "\\").split("\\") or "std" in self.filename.replace("\\", "/").split("/")))
 
@@ -1641,11 +1639,14 @@ class PenguChecker:
                                     m_code = mf.read()
                                 m_tree = mod_parser.parse(m_code)
                                 prev_fn = self.filename
+                                prev_insignia = getattr(self.symbols, "insignia", None)
                                 try:
                                     self.filename = mod_abs
-                                    self._collect_top_level(m_tree, import_order=order)
+                                    self.symbols.insignia = None
+                                    self._collect_top_level(m_tree, import_order=order, current_insignia=None)
                                 finally:
                                     self.filename = prev_fn
+                                    self.symbols.insignia = prev_insignia
                 except SemanticError as e:
                     self._record_error(e)
         return current_insignia
@@ -1949,20 +1950,25 @@ class PenguChecker:
                     )
                     self._record_error(err)
                     return
-                if sym and (
-                    isinstance(sym.type, FrozenType)
-                    or (isinstance(sym.type, RefType) and isinstance(sym.type.target, FrozenType))
-                ):
-                    err = self._make_error(
-                        InvalidMemoryOpError,
-                        f"Cannot banish frozen (read-only) variable '{sym_name}'",
-                        target_expr,
-                        code="E0008",
-                        help="Remove the 'frozen' qualifier to allow banishing this variable.",
-                        note="Frozen variables cannot be deallocated."
-                    )
-                    self._record_error(err)
-                    return
+                if sym:
+                    curr_t = sym.type
+                    is_frozen = isinstance(curr_t, FrozenType)
+                    while isinstance(curr_t, (AliasType, RefType)):
+                        curr_t = getattr(curr_t, "target", None)
+                        if isinstance(curr_t, FrozenType):
+                            is_frozen = True
+                            break
+                    if is_frozen:
+                        err = self._make_error(
+                            InvalidMemoryOpError,
+                            f"Cannot banish frozen (read-only) variable '{sym_name}'",
+                            target_expr,
+                            code="E0008",
+                            help="Remove the 'frozen' qualifier to allow banishing this variable.",
+                            note="Frozen variables cannot be deallocated."
+                        )
+                        self._record_error(err)
+                        return
 
             try:
                 t = self.inferrer.infer(target_expr)
@@ -2088,10 +2094,7 @@ class PenguChecker:
             self._check_node(Tree(canonical, node.children, meta=node.meta))
             return
         if node.children and isinstance(node.children[0], Tree):
-            try:
-                self.inferrer.infer(node.children[0])
-            except SemanticError as e:
-                self._record_error(e)
+            self._check_node(Tree("expr_stmt", node.children, meta=node.meta))
 
     def _check_const_decl(self, node: Tree) -> None:
         """Checks constant declaration for V-safety and compile-time type validity.
@@ -3329,8 +3332,8 @@ class PenguChecker:
                         help="Ensure the target passed to 'with' is a 'var' or a reference (ref to T).",
                         note="'with' blocks on immutable bindings do not allow field mutations."
                     )
-                while isinstance(with_t, RefType):
-                    with_t = with_t.target
+                while isinstance(with_t, (RefType, AliasType, FrozenType, SealType)):
+                    with_t = getattr(with_t, "target", None) or getattr(with_t, "underlying", None)
                 if isinstance(with_t, (RuneType, EchoType)):
                     if field_name not in with_t.fields:
                         raise self._make_error(
@@ -3355,8 +3358,8 @@ class PenguChecker:
                                     note="References (ref to T) require arrow operator '->' for field access."
                                 )
                             curr_t = target_type
-                            while isinstance(curr_t, RefType):
-                                curr_t = curr_t.target
+                            while isinstance(curr_t, (RefType, AliasType, FrozenType, SealType)):
+                                curr_t = getattr(curr_t, "target", None) or getattr(curr_t, "underlying", None)
                             if isinstance(curr_t, (RuneType, EchoType)):
                                 if sub_f not in curr_t.fields:
                                     raise self._make_error(
@@ -3652,9 +3655,10 @@ class PenguChecker:
             inner = inner.children[0]
         if not isinstance(inner, Tree):
             return False
-        if inner.data == "return_stmt":
+        rule = SIMPLE_STMT_ALIASES.get(inner.data, inner.data)
+        if rule == "return_stmt":
             return True
-        if inner.data in ("if_stmt", "unless_stmt"):
+        if rule in ("if_stmt", "unless_stmt"):
             block_node = inner.children[1]
             else_node = inner.children[2] if len(inner.children) > 2 else None
             if not else_node:
@@ -3670,6 +3674,32 @@ class PenguChecker:
             else_children = [c for c in else_node.children if isinstance(c, Tree)]
             if else_children:
                 return self._stmt_always_returns(else_children[-1])
+        if rule == "when_stmt":
+            val = self._eval_when_condition(inner.children[0], inner) if inner.children else None
+            then_block = inner.children[1] if (len(inner.children) > 1 and isinstance(inner.children[1], Tree) and inner.children[1].data == "block") else None
+            else_node = inner.children[2] if len(inner.children) > 2 and isinstance(inner.children[2], Tree) else None
+            if val is True:
+                if not then_block:
+                    return False
+                then_stmts = [c for c in then_block.children if isinstance(c, Tree)]
+                return bool(then_stmts and self._stmt_always_returns(then_stmts[-1]))
+            elif val is False:
+                if not else_node:
+                    return False
+                if else_node.data == "when_else_when":
+                    return bool(else_node.children and self._stmt_always_returns(else_node.children[0]))
+                else_stmts = [c for c in else_node.children if isinstance(c, Tree)]
+                return bool(else_stmts and self._stmt_always_returns(else_stmts[-1]))
+            else:
+                if not then_block or not else_node:
+                    return False
+                then_stmts = [c for c in then_block.children if isinstance(c, Tree)]
+                if not then_stmts or not self._stmt_always_returns(then_stmts[-1]):
+                    return False
+                if else_node.data == "when_else_when":
+                    return bool(else_node.children and self._stmt_always_returns(else_node.children[0]))
+                else_stmts = [c for c in else_node.children if isinstance(c, Tree)]
+                return bool(else_stmts and self._stmt_always_returns(else_stmts[-1]))
         return False
 
     def _check_weave_decl(self, node: Tree) -> None:
@@ -3722,6 +3752,16 @@ class PenguChecker:
                         has_default = len(p.children) >= 3 and p.children[2] is not None
 
                         if isinstance(pt, ManyType):
+                            if has_default:
+                                err = self._make_error(
+                                    SemanticError,
+                                    f"Variadic 'many' parameter '{pn}' in function '{fn_name}' cannot have a default value",
+                                    p,
+                                    code="E0005",
+                                    help="Remove default value from 'many' parameter; it already defaults to an empty slice if omitted.",
+                                    note="Variadic parameters collect trailing arguments into a slice."
+                                )
+                                self._record_error(err)
                             many_count += 1
                             if many_count > 1:
                                 err = self._make_error(
@@ -3830,7 +3870,7 @@ class PenguChecker:
             # Inlining and Small Weaves Analysis
             fn_sym = self.symbols.lookup(fn_name)
             if fn_sym:
-                has_loop = any(s.data in ("while_stmt", "for_range_stmt", "for_in_stmt") for s in stmt_children)
+                has_loop = any(True for _ in node.iter_subtrees() if isinstance(_, Tree) and _.data in ("while_stmt", "for_range_stmt", "for_in_stmt"))
                 has_static = any(True for _ in node.iter_subtrees() if isinstance(_, Tree) and _.data == "static_var_decl")
                 node_count = sum(1 for _ in node.iter_subtrees())
                 if (len(stmt_children) <= 3 or node_count <= 25) and not has_loop and not has_static:

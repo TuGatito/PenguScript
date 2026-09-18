@@ -16,6 +16,7 @@ actually wrote (see `tests/test_line_directives.py`).
 
 from __future__ import annotations
 import os
+import re
 import sys
 from typing import List, Dict, Tuple, Optional, Any, Set
 from dataclasses import dataclass, field
@@ -24,7 +25,7 @@ from lark import Tree, Token
 try:  # The toolchain root (which holds VERSION) is the parent package directory.
     from pengu_version import __version__ as PENGU_VERSION
 except ImportError:  # pragma: no cover - vendored/frozen fallback, guarded by tests
-    PENGU_VERSION = "0.13.13"
+    PENGU_VERSION = "0.13.14"
 
 from pengu_parser.pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ManyType, ListType, MapType, MaybeType,
@@ -216,6 +217,15 @@ class CTypeMapper:
             # 'ref to weave …' is a function pointer, not a pointer to one.
             return CTypeMapper.to_c_decl(t.target, ident, const=const, restrict=restrict)
         if isinstance(t, RefType) and isinstance(t.target, ArrayType):
+            curr = t.target
+            dims = []
+            while isinstance(curr, ArrayType):
+                dims.append(curr.size)
+                curr = curr.element
+            if isinstance(curr, FnType):
+                dims_str = "".join(f"[{d}]" for d in dims)
+                inner_ident = f"(*{ident}){dims_str}" if ident else f"(*){dims_str}"
+                return CTypeMapper.to_c_decl(curr, inner_ident)
             dims, base_c = get_array_dims_and_base(t.target)
             dims_str = "".join(f"[{d}]" for d in dims)
             const_prefix = "const " if const else ""
@@ -225,6 +235,19 @@ class CTypeMapper:
             target_str = CTypeMapper.to_c_type(t.target)
             return f"{target_str}* restrict {ident}"
         if isinstance(t, ArrayType):
+            curr = t
+            dims = []
+            while isinstance(curr, ArrayType):
+                dims.append(curr.size)
+                curr = curr.element
+            if isinstance(curr, FnType):
+                if len(dims) == 1:
+                    inner_ident = f"(*{ident})" if ident else "(*)"
+                    return CTypeMapper.to_c_decl(curr, inner_ident)
+                else:
+                    inner_dims_str = "".join(f"[{d}]" for d in dims[1:])
+                    inner_ident = f"(*{ident}){inner_dims_str}" if ident else f"(*){inner_dims_str}"
+                    return CTypeMapper.to_c_decl(curr, inner_ident)
             dims, base_c = get_array_dims_and_base(t)
             const_prefix = "const " if const else ""
             if len(dims) == 1:
@@ -1334,7 +1357,13 @@ class PenguCodegen:
                 if len(norm_order) > 1 and norm_fp != norm_order[-1]:
                     is_std = "std" in norm_fp.replace("/", "\\").split("\\")
                     if is_std:
-                        mod_name = os.path.splitext(os.path.basename(norm_fp))[0]
+                        bname = os.path.basename(norm_fp)
+                        if bname.endswith(".d.pengu"):
+                            mod_name = bname[:-8]
+                        elif bname.endswith(".pengu"):
+                            mod_name = bname[:-6]
+                        else:
+                            mod_name = os.path.splitext(bname)[0]
                         if mod_name and not name.startswith(f"{mod_name}_"):
                             self.consts[f"{mod_name}_{name}"] = (c_type, val)
                             self.const_nodes[f"{mod_name}_{name}"] = expr_node
@@ -1538,7 +1567,13 @@ class PenguCodegen:
             if len(norm_order) > 1 and norm_fp != norm_order[-1]:
                 is_std = "std" in norm_fp.replace("/", "\\").split("\\")
                 if is_std:
-                    mod_name = os.path.splitext(os.path.basename(norm_fp))[0]
+                    bname = os.path.basename(norm_fp)
+                    if bname.endswith(".d.pengu"):
+                        mod_name = bname[:-8]
+                    elif bname.endswith(".pengu"):
+                        mod_name = bname[:-6]
+                    else:
+                        mod_name = os.path.splitext(bname)[0]
                     if mod_name and not name.startswith(f"{mod_name}_"):
                         c_name = f"{mod_name}_{self._c_ident(name)}"
 
@@ -2324,11 +2359,12 @@ class PenguCodegen:
                         is_auto_var = bool(sym and getattr(sym, "is_auto_banished", False) and var_t is not None)
                         if is_auto_var:
                             self._auto_banish_register(c_name, var_t)
-                        t_str = CTypeMapper.to_c_type(var_t, const=not is_auto_var) if var_t else ("const int32_t" if not is_auto_var else "int32_t")
-                        if t_str == "void":
-                            t_str = "const int32_t" if not is_auto_var else "int32_t"
+                        if var_t and var_t != VOID_TYPE:
+                            decl = CTypeMapper.to_c_decl(var_t, c_name, const=not is_auto_var)
+                        else:
+                            decl = f"{'const int32_t' if not is_auto_var else 'int32_t'} {c_name}"
                         f_access = f"{tmp}.{fields[i]}" if i < len(fields) else f"{tmp}.{self._c_ident(name)}"
-                        lines.append(f"{ind}{t_str} {c_name} = {f_access};")
+                        lines.append(f"{ind}{decl} = {f_access};")
                     return "\n".join(lines)
 
                 elif isinstance(actual_expr_type, ArrayType):
@@ -2354,8 +2390,11 @@ class PenguCodegen:
                             decl = CTypeMapper.to_c_decl(elem_t, c_name, const=not is_auto_var)
                             lines.append(f"{ind}{decl} = {tmp}[{i}];")
                         else:
-                            t_str = CTypeMapper.to_c_type(var_t, const=not is_auto_var) if var_t else ("const int32_t" if not is_auto_var else "int32_t")
-                            lines.append(f"{ind}{t_str} {c_name} = {tmp}[{i}];")
+                            if var_t and var_t != VOID_TYPE:
+                                decl = CTypeMapper.to_c_decl(var_t, c_name, const=not is_auto_var)
+                            else:
+                                decl = f"{'const int32_t' if not is_auto_var else 'int32_t'} {c_name}"
+                            lines.append(f"{ind}{decl} = {tmp}[{i}];")
                     return "\n".join(lines)
 
                 elif isinstance(actual_expr_type, (SliceType, ManyType)):
@@ -2372,8 +2411,11 @@ class PenguCodegen:
                         is_auto_var = bool(sym and getattr(sym, "is_auto_banished", False) and var_t is not None)
                         if is_auto_var:
                             self._auto_banish_register(c_name, var_t)
-                        t_str = CTypeMapper.to_c_type(var_t, const=not is_auto_var) if var_t else ("const int32_t" if not is_auto_var else "int32_t")
-                        lines.append(f"{ind}{t_str} {c_name} = (({elem_cast}){tmp}.data)[{i}];")
+                        if var_t and var_t != VOID_TYPE:
+                            decl = CTypeMapper.to_c_decl(var_t, c_name, const=not is_auto_var)
+                        else:
+                            decl = f"{'const int32_t' if not is_auto_var else 'int32_t'} {c_name}"
+                        lines.append(f"{ind}{decl} = (({elem_cast}){tmp}.data)[{i}];")
                     return "\n".join(lines)
 
                 elif isinstance(actual_expr_type, ListType):
@@ -2390,8 +2432,11 @@ class PenguCodegen:
                         is_auto_var = bool(sym and getattr(sym, "is_auto_banished", False) and var_t is not None)
                         if is_auto_var:
                             self._auto_banish_register(c_name, var_t)
-                        t_str = CTypeMapper.to_c_type(var_t, const=not is_auto_var) if var_t else ("const int32_t" if not is_auto_var else "int32_t")
-                        lines.append(f"{ind}{t_str} {c_name} = (*({elem_cast})pengu_list_at(&{tmp}, {i}));")
+                        if var_t and var_t != VOID_TYPE:
+                            decl = CTypeMapper.to_c_decl(var_t, c_name, const=not is_auto_var)
+                        else:
+                            decl = f"{'const int32_t' if not is_auto_var else 'int32_t'} {c_name}"
+                        lines.append(f"{ind}{decl} = (*({elem_cast})pengu_list_at(&{tmp}, {i}));")
                     return "\n".join(lines)
 
                 else:
@@ -2811,6 +2856,7 @@ class PenguCodegen:
         """Translates for i from start to end [step s] loop."""
         ind = self.indent()
         var_name = str(node.children[0])
+        c_var_name = self._c_ident(var_name)
         start_str = self._translate_expr(node.children[1])
         end_str = self._translate_expr(node.children[2])
         step_node = node.children[3] if len(node.children) == 5 and node.children[3] is not None else None
@@ -2831,17 +2877,17 @@ class PenguCodegen:
         step_val = self.const_folder.fold(step_node) if step_node is not None else 1
         if isinstance(step_val, int):
             if step_val < 0:
-                cond_c = f"{var_name} > {end_str}"
-                step_c = f"{var_name}--" if step_val == -1 else f"{var_name} += {step_str}"
-                loop_header = f"for (int32_t {var_name} = {start_str}; {cond_c}; {step_c})"
+                cond_c = f"{c_var_name} > {end_str}"
+                step_c = f"{c_var_name}--" if step_val == -1 else f"{c_var_name} += {step_str}"
+                loop_header = f"for (int32_t {c_var_name} = {start_str}; {cond_c}; {step_c})"
             else:
-                cond_c = f"{var_name} < {end_str}"
-                step_c = f"{var_name}++" if step_val == 1 else f"{var_name} += {step_str}"
-                loop_header = f"for (int32_t {var_name} = {start_str}; {cond_c}; {step_c})"
+                cond_c = f"{c_var_name} < {end_str}"
+                step_c = f"{c_var_name}++" if step_val == 1 else f"{c_var_name} += {step_str}"
+                loop_header = f"for (int32_t {c_var_name} = {start_str}; {cond_c}; {step_c})"
         else:
             _step_tmp = self.get_temp_name("_step")
-            cond_c = f"({_step_tmp} >= 0 ? {var_name} < {end_str} : {var_name} > {end_str})"
-            loop_header = f"for (int32_t {var_name} = {start_str}, {_step_tmp} = {step_str}; {cond_c}; {var_name} += {_step_tmp})"
+            cond_c = f"({_step_tmp} >= 0 ? {c_var_name} < {end_str} : {c_var_name} > {end_str})"
+            loop_header = f"for (int32_t {c_var_name} = {start_str}, {_step_tmp} = {step_str}; {cond_c}; {c_var_name} += {_step_tmp})"
 
         return f"{ind}{loop_header} {{\n{body_str}\n{ind}}}"
 
@@ -2869,7 +2915,9 @@ class PenguCodegen:
         col_str = self._translate_expr(col_expr)
         want_index = index_name is not None and index_name != "_"
         want_elem = elem_name != "_"
-        iter_idx = index_name if want_index else self.get_temp_name("_idx")
+        c_index_name = self._c_ident(index_name) if want_index else None
+        c_elem_name = self._c_ident(elem_name) if want_elem else None
+        iter_idx = c_index_name if want_index else self.get_temp_name("_idx")
 
         inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
         for lv_k, lv_v in self.local_vars.items():
@@ -2893,7 +2941,7 @@ class PenguCodegen:
             is_range = True
 
         if is_range:
-            loop_var = elem_name if want_elem else self.get_temp_name("_rv")
+            loop_var = c_elem_name if want_elem else self.get_temp_name("_rv")
             _MISSING = object()
             prev_elem = self.local_vars.get(elem_name, _MISSING) if want_elem else _MISSING
             prev_index = self.local_vars.get(index_name, _MISSING) if want_index else _MISSING
@@ -2918,9 +2966,9 @@ class PenguCodegen:
             if start_str is not None and end_str is not None:
                 if want_index:
                     return (
-                        f"{ind}int32_t {index_name} = 0;\n"
+                        f"{ind}int32_t {c_index_name} = 0;\n"
                         f"{ind}for (int64_t {loop_var} = {start_str}; "
-                        f"{loop_var} < {end_str}; {loop_var}++, {index_name}++) {{\n"
+                        f"{loop_var} < {end_str}; {loop_var}++, {c_index_name}++) {{\n"
                         f"{body_str}\n{ind}}}"
                     )
                 else:
@@ -2934,9 +2982,9 @@ class PenguCodegen:
                 if want_index:
                     return (
                         f"{ind}PenguRange {rng_tmp} = {col_str};\n"
-                        f"{ind}int32_t {index_name} = 0;\n"
+                        f"{ind}int32_t {c_index_name} = 0;\n"
                         f"{ind}for (int64_t {loop_var} = {rng_tmp}.start; "
-                        f"{loop_var} < {rng_tmp}.end; {loop_var}++, {index_name}++) {{\n"
+                        f"{loop_var} < {rng_tmp}.end; {loop_var}++, {c_index_name}++) {{\n"
                         f"{body_str}\n{ind}}}"
                     )
                 else:
@@ -3483,6 +3531,7 @@ class PenguCodegen:
         parser = PenguParser()
         fmt_parts = []
         c_args = []
+        preamble_decls = []
         for p in parts:
             if not p.is_expr:
                 fmt_parts.append(_escape_c(p.text, is_raw).replace("%", "%%"))
@@ -3528,7 +3577,13 @@ class PenguCodegen:
                         c_args.append(f"(({expr_c}) ? \"true\" : \"false\")")
                     elif t.is_string():
                         fmt_parts.append("%.*s")
-                        c_args.append(f"(int)({expr_c}).len, ({expr_c}).data")
+                        stripped = expr_c.strip()
+                        if re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', stripped):
+                            c_args.append(f"(int)({stripped}).len, ({stripped}).data")
+                        else:
+                            tmp_s = self.get_temp_name("_str")
+                            preamble_decls.append(f"PenguString {tmp_s} = ({expr_c});")
+                            c_args.append(f"(int)({tmp_s}).len, ({tmp_s}).data")
                     elif self._is_ref_char_type(t):
                         fmt_parts.append("%s")
                         c_args.append(f"(const char*)({expr_c})")
@@ -3548,7 +3603,10 @@ class PenguCodegen:
                         )
 
         full_fmt = "".join(fmt_parts)
-        return f'pengu_string_format("{full_fmt}", {", ".join(c_args)})'
+        fmt_call = f'pengu_string_format("{full_fmt}", {", ".join(c_args)})'
+        if preamble_decls:
+            return f"(__extension__({{ {' '.join(preamble_decls)} {fmt_call}; }}))"
+        return fmt_call
 
     def _is_string_expr(self, n: Any) -> bool:
         """Checks if an AST expression node evaluates to a PenguString."""
