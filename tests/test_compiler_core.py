@@ -382,13 +382,13 @@ class TestStructFieldAccess:
     def test_valid_field_access(self):
         check_ok(
             VEC2
-            + "weave main into float:\n  let v as Vec2 is with x is 10, y is 20\n  return v.x + v.y\n"
+            + "weave test_field into float:\n  let v as Vec2 is with x is 10, y is 20\n  return v.x + v.y\n"
         )
 
     def test_unknown_field_fails(self):
         expect_error(
             VEC2
-            + "weave main into float:\n  let v as Vec2 is with x is 10, y is 20\n  return v.z\n",
+            + "weave test_field into float:\n  let v as Vec2 is with x is 10, y is 20\n  return v.z\n",
             contains=["E0013", "has no field 'z'"],
         )
 
@@ -502,7 +502,7 @@ weave main into void:
   TWO
   THREE
 
-weave main into string:
+weave test_level into string:
   var l1 as Level is Level_ONE
   var l2 as Level is Level.TWO
   var l3 as Level is THREE
@@ -688,7 +688,7 @@ class TestCollectionsSemantics:
             "  let length_val is arr length\n"
             "  return first\n",
             "weave main into void:\n"
-            "  let arr is array of int with size 10\n"
+            "  var arr is array of int with size 10\n"
             "  let first is arr at 0\n"
             "  set arr at 0 is 99\n"
             "  let part as slice of int is arr at 1 to 3\n"
@@ -771,7 +771,7 @@ class TestMaybeResultOrError:
             """rune User:
   name as string
 
-weave main into string:
+weave test_maybe into string:
   let u as maybe User is maybe none
   let guest as string is "guest"
   let u2 as maybe string is maybe none
@@ -1127,7 +1127,7 @@ class TestEnchantingSemantics:
             VEC2
             + """enchanting Vec2:
   weave add with other as Vec2 into Vec2:
-    Vec2 is with x is self->x + other.x, y is self->y + other.y
+    return with x is self->x + other.x, y is self->y + other.y
 
   weave length into float:
     (self->x * self->x + self->y * self->y) to float
@@ -2650,7 +2650,7 @@ class TestDestructuring:
     def test_rune_destructuring_valid(self):
         check_ok(
             VEC2
-            + "weave main into float:\n  let v as Vec2 is with x is 1.0, y is 2.0\n  let px, py is v\n  return px + py\n"
+            + "weave test_destructure into float:\n  let v as Vec2 is with x is 1.0, y is 2.0\n  let px, py is v\n  return px + py\n"
         )
 
     def test_array_destructuring_valid(self):
@@ -2691,7 +2691,7 @@ class TestStringInterpolation:
             '  let x is 10\n'
             '  let msg is "player {name} at {x}"\n'
         )
-        assert 'pengu_string_format("player %s at %d"' in c
+        assert 'pengu_string_format("player %.*s at %d"' in c
 
 
 # ---------------------------------------------------------------------------
@@ -2957,7 +2957,7 @@ class TestCodegenEmissionArraysSlices:
         c = gen_bundle(
             VEC2
             + """weave test_collections into void:
-  let arr is array of int with size 10
+  var arr is array of int with size 10
   let first is arr at 0
   set arr at 0 is 99
   let part as slice of int is arr at 1 to 3
@@ -3000,7 +3000,7 @@ class TestCodegenEmissionArraysSlices:
   for i from 0 to 5:
     set arr at i is (arr at i) * 2
 
-  let part as slice of int is arr at 1 to 4
+  var part as slice of int is arr at 1 to 4
   for i from 0 to part.len:
     set part at i is (part at i) + 10
 
@@ -3020,11 +3020,11 @@ class TestCodegenEmissionArraysSlices:
         assert "for (int32_t i = 0; i < 5; i++) {" in c
         assert "arr[i] = ((arr[i]) * 2);" in c
         assert "for (int32_t i = 0; i < part.len; i++) {" in c
-        assert "(((int32_t*)(part).data)[i]) = (((((int32_t*)(part).data)[i])) + 10);" in c
+        assert "(((int32_t *)(part).data)[i]) = (((((int32_t *)(part).data)[i])) + 10);" in c
         assert "for (int32_t _idx_1 = 0; _idx_1 < 5; _idx_1++) {" in c
         assert "int32_t num = (arr)[_idx_1];" in c
         assert "for (int32_t i = 0; i < lst.len; i++) {" in c
-        assert "(*(int32_t*)pengu_list_at(&(lst), i)) = (((*(int32_t*)pengu_list_at(&(lst), i))) + 100);" in c
+        assert "(*(int32_t *)pengu_list_at(&(lst), i)) = (((*(int32_t *)pengu_list_at(&(lst), i))) + 100);" in c
 
     def test_judge_switch_emission(self):
         c = gen_bundle(

@@ -422,7 +422,7 @@ class TestIndexedFor:
 """
         c = gen_bundle(code)
         assert "for (int32_t i = 0; i < (nums).len; i++) {" in c
-        assert "int32_t v = (*(int32_t*)pengu_list_at(&(nums), i));" in c
+        assert "int32_t v = (*(int32_t *)pengu_list_at(&(nums), i));" in c
 
     @requires_runtime
     def test_runtime_indexed_for_sums(self):
