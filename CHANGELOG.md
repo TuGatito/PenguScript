@@ -2,6 +2,28 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.13.11] - 2026-09-18
+
+### Corregido (crítico)
+
+- **C1**: En `pengu_checker.py::_collect_top_level`, se propaga `current_insignia` al descender recursivamente en bloques condicionales `when_top_decl` y archivos anidados, garantizando que los tipos, funciones y símbolos definidos bajo `when os == "..."` hereden correctamente el prefijo `insignia` y mantengan coherencia con el codegen.
+- **C2 & M5**: En `pengu_codegen.py::let_decl`, se implementa soporte completo para destructuring de colecciones (`ArrayType`, `SliceType`, `ManyType`, `ListType`, `RuneType`, `EchoType`), emitiendo código C estricto con punteros e indexación de listas (`pengu_list_at`), y se elimina el fallback frágil que emparejaba runas arbitrarias basándose únicamente en el número de campos. En `pengu_checker.py`, se rechaza el destructuring de tipos no estructurados con `E0017`.
+
+### Corregido (alto)
+
+- **H1**: En `pengu_codegen.py`, se implementa `with_type_stack` y `_get_current_with_target_type()` para rastrear el tipo semántico exacto del receptor en bloques `with target:`. Expresiones complejas como `with self->node:` o `with r.field:` ahora emiten el operador de acceso correcto (`->` en vez de `.`) para tipos puntero `ref to T`.
+- **H2**: En `pengu_infer.py::_resolve_call_target`, llamadas a métodos sobre identificadores o variables no declaradas (`calling undefined_obj.method`) ahora levantan inmediatamente `UndefinedIdentifierError [E0004]` en lugar de tiparse silenciosamente como `AnyType`.
+
+### Corregido (medio)
+
+- **M4**: En `pengu_errors.py` y `pengu_checker.py::_check_with_builder`, las violaciones de sentencias dentro de bloques constructores `with:` emiten la nueva clase de error dedicada `InvalidBuilderStatementError` con código `E0014`, evitando diagnósticos engañosos de control de flujo (`E0007`).
+
+### Corregido (menor)
+
+- **m5**: En `pengu_codegen.py::collect_declarations`, se registra el número de línea fuente en el diccionario de tests integrados (`"line": self._node_line(inner)`), permitiendo que el frame push de backtraces en modo test reporte la línea real en lugar de `0`.
+- **m6**: En `pengu_checker.py` y `pengu_codegen.py`, se eliminan ramas de código muerto para el non-terminal inexistente `calling_stmt`.
+- **m7**: En `pengu_codegen.py::at_expr`, la indexación sobre referencias a slices (`ref to slice of T`) emite acceso directo al búfer interno `((({elem_cast})({base})->data)[{idx}])` en lugar de indexación de puntero directo `p[i]`.
+
 ## [0.13.10] - 2026-09-18
 
 ### Corregido (alto)

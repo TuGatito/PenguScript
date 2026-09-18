@@ -2,7 +2,8 @@ from .pengu_parser import PenguParser
 from .pengu_errors import (
     PenguError, ErrorReporter, SemanticError, ConstInsideWeaveError, VarLetTopLevelError,
     SelfDotAccessError, UndefinedIdentifierError, TypeMismatchError, MutabilityError,
-    InvalidControlFlowError, InvalidMemoryOpError, InvalidWithTargetError, UnknownArrayDimensionError
+    InvalidControlFlowError, InvalidMemoryOpError, InvalidWithTargetError, UnknownArrayDimensionError,
+    InvalidBuilderStatementError
 )
 from .pengu_checker import PenguChecker
 from .pengu_types import (

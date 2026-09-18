@@ -3308,6 +3308,15 @@ class TypeInferrer:
                                 help=f"Declare 'weave ritual {m_name}' inside 'enchanting {obj_name}:'.",
                                 note=f"Type '{obj_name}' does not define ritual method '{m_name}'."
                             )
+                        else:
+                            raise self._make_error(
+                                UndefinedIdentifierError,
+                                f"Undefined identifier '{obj_name}'",
+                                target_node,
+                                code="E0004",
+                                help=f"Declare or define variable '{obj_name}' before calling methods on it.",
+                                note=f"Identifier '{obj_name}' was not found in any accessible scope."
+                            )
         return None, None
 
     def _extract_shard_params_bounds(self, shard_node: Tree) -> Tuple[List[str], Dict[str, List[str]]]:

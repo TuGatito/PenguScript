@@ -26,7 +26,8 @@ from .pengu_errors import (
     ConceptMethodMismatchError, UnimplementedConceptMethodError, ConceptBoundNotSatisfiedError,
     InvalidRitualSelfAccessError, InvalidRitualCallError,
     ArraySizeMismatchError, InvalidRangeError, PrivateSymbolAccessError, NonExhaustiveJudgeError,
-    UnknownArrayDimensionError, AutoOwnedBanishError, BorrowedBanishError, suggest_similar_identifier
+    UnknownArrayDimensionError, AutoOwnedBanishError, BorrowedBanishError, InvalidBuilderStatementError,
+    suggest_similar_identifier
 )
 
 
@@ -622,15 +623,17 @@ class PenguChecker:
     # -------------------------------------------------------------------------
     # Pass 1: Collect Top-Level Declarations
     # -------------------------------------------------------------------------
-    def _collect_top_level(self, tree: Tree, import_order: Optional[List[str]] = None) -> None:
+    def _collect_top_level(self, tree: Tree, import_order: Optional[List[str]] = None, current_insignia: Optional[str] = None) -> Optional[str]:
         """Discovers and registers all module definitions, imports, and declarations.
 
         Args:
             tree: AST Tree root.
             import_order: Optional precomputed topological import order.
+            current_insignia: Optional inherited insignia prefix.
         """
         has_imports = False
-        current_insignia: Optional[str] = None
+        if current_insignia is None:
+            current_insignia = getattr(self.symbols, "insignia", None)
         is_d_pengu = bool(self.filename and self.filename.endswith(".d.pengu"))
         is_std = bool(self.filename and ("std" in self.filename.replace("/", "\\").split("\\") or "std" in self.filename.replace("\\", "/").split("/")))
 
@@ -639,7 +642,7 @@ class PenguChecker:
             if not isinstance(child, Tree):
                 continue
             if child.data == "file":
-                self._collect_top_level(child, import_order=import_order)
+                current_insignia = self._collect_top_level(child, import_order=import_order, current_insignia=current_insignia)
                 continue
             if child.data != "top_stmt" or not child.children:
                 continue
@@ -792,7 +795,7 @@ class PenguChecker:
             elif rule == "when_top_decl":
                 chosen = self._active_when_top_items(stmt)
                 if chosen:
-                    self._collect_top_level(Tree("file", chosen))
+                    current_insignia = self._collect_top_level(Tree("file", chosen), current_insignia=current_insignia)
 
             elif rule == "rune_decl":
                 r_name = str(stmt.children[0])
@@ -1642,6 +1645,7 @@ class PenguChecker:
                                     self.filename = prev_fn
                 except SemanticError as e:
                     self._record_error(e)
+        return current_insignia
 
 
 
@@ -1790,17 +1794,6 @@ class PenguChecker:
         # 4. Set Statements and Mutability
         elif rule in ("set_stmt", "compound_set_stmt"):
             self._check_set_stmt(node)
-            return
-
-        # 5. Calling Statements
-        elif rule == "calling_stmt":
-            target_node = node.children[0]
-            args_node = node.children[1] if len(node.children) > 1 else None
-            try:
-                call_tree = Tree("calling_expr", [target_node] + ([args_node] if args_node else []))
-                self.inferrer.infer(call_tree)
-            except SemanticError as e:
-                self._record_error(e)
             return
 
         # 6. Control Flow Statements
@@ -2304,11 +2297,11 @@ class PenguChecker:
                             is_valid = True
                 if not is_valid:
                     err = self._make_error(
-                        InvalidControlFlowError,
+                        InvalidBuilderStatementError,
                         "'with:' block only allows 'set .field is ...' assignments and "
                         f"'calling .method' statements, not '{inner.children[0].data if inner.data == 'expr_stmt' and inner.children and isinstance(inner.children[0], Tree) else inner.data}'",
                         inner,
-                        code="E0007",
+                        code="E0014",
                         help="Use field assignments and method calls inside the builder block.",
                         note="Construction blocks may not contain control flow or declarations."
                     )
@@ -3198,11 +3191,20 @@ class PenguChecker:
                         sym = Symbol(name=v_name, type=elem_t, kind="let", is_mutable=False, line=line, column=col, file_path=self.filename, is_borrowed=is_borrowed)
                         self.symbols.define(sym)
                         destructured_syms.append(sym)
-                else:
+                elif isinstance(inferred, AnyType):
                     for v_name in names:
                         sym = Symbol(name=v_name, type=AnyType(), kind="let", is_mutable=False, line=line, column=col, file_path=self.filename, is_borrowed=is_borrowed)
                         self.symbols.define(sym)
                         destructured_syms.append(sym)
+                else:
+                    raise self._make_error(
+                        SemanticError,
+                        f"Type '{inferred}' does not support destructuring",
+                        node,
+                        code="E0017",
+                        help="Destructuring is only supported on runes, fixed arrays, slices, and lists.",
+                        note="Destructuring unpacks fields or elements into individual bindings."
+                    )
                 node._pengu_symbols = destructured_syms
         except SemanticError as e:
             self._record_error(e)

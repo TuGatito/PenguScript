@@ -24,7 +24,7 @@ from lark import Tree, Token
 try:  # The toolchain root (which holds VERSION) is the parent package directory.
     from pengu_version import __version__ as PENGU_VERSION
 except ImportError:  # pragma: no cover - vendored/frozen fallback, guarded by tests
-    PENGU_VERSION = "0.13.10"
+    PENGU_VERSION = "0.13.11"
 
 from pengu_parser.pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ManyType, ListType, MapType, MaybeType,
@@ -397,8 +397,18 @@ class PenguCodegen:
         self.defer_stack: List[List[str]] = []
         self.errdefer_stack: List[List[str]] = []
         self.with_stack: List[str] = []
+        self.with_type_stack: List[Optional[Type]] = []
         self.auto_banish_stack: List[Tuple[str, List[Tuple[str, Type]]]] = []
         self.temp_counter = 0
+
+    def _get_current_with_target_type(self) -> Optional[Type]:
+        """Returns the Type of the current with-target, or None."""
+        if self.with_type_stack and self.with_type_stack[-1] is not None:
+            return self.with_type_stack[-1]
+        if self.with_stack:
+            base_target = self.with_stack[-1]
+            return self._lookup_var_type(base_target)
+        return None
 
     @staticmethod
     def _has_borrowed_modifier(node: Tree) -> Tuple[bool, int]:
@@ -567,7 +577,7 @@ class PenguCodegen:
             return None
         field_name = str(node.children[0])
         base_target = self.with_stack[-1]
-        base_t = self._lookup_var_type(base_target)
+        base_t = self._get_current_with_target_type()
         # 'self' inside enchanting is a reference; the with-target itself may be
         # a 'ref to T'. Look through the pointer to the pointee's fields.
         while isinstance(base_t, (RefType, AliasType, FrozenType, SealType)):
@@ -1012,6 +1022,7 @@ class PenguCodegen:
                     "name_token": name_tok,
                     "body_stmts": body_nodes,
                     "filepath": tfile,
+                    "line": self._node_line(inner),
                 })
             else:
                 kept_stmts.append((tnode, tfile))
@@ -2269,48 +2280,113 @@ class PenguCodegen:
                     return f"{ind}{CTypeMapper.to_c_decl(t, c_name)} = {expr_code};{alloc_comment}"
                 return f"{ind}{t_str} {c_name} = {expr_code};{alloc_comment}"
             else:
-                # Destructuring
+                # Destructuring: let a, b is expr
                 tmp = self.get_temp_name("_destruct")
                 expr_type = self._infer_node_type(expr_node)
                 expr_code = self._translate_expr(expr_node)
 
-                # Match rune struct
-                matched_rune = None
-                if isinstance(expr_type, RuneType) and expr_type.name in self.runes:
-                    matched_rune = expr_type.name
-                elif isinstance(expr_type, BaseType) and expr_type.name in self.runes:
-                    matched_rune = expr_type.name
-                else:
-                    for r_name, r_fields in self.runes.items():
-                        if len(r_fields) == len(names):
-                            matched_rune = r_name
-                            break
-
-                tmp_type = matched_rune if matched_rune else "const void*"
-                lines = [f"{ind}{tmp_type} {tmp} = {expr_code};"]
-
-                rune_field_names = list(self.runes[matched_rune].keys()) if (matched_rune and matched_rune in self.runes) else []
-
-                for i, name in enumerate(names):
-                    c_name = self._c_ident(name)
-                    sym = self.symbols.lookup(name) if self.symbols else None
-                    var_t = sym.type if sym else None
-                    if var_t is None and matched_rune and matched_rune in self.runes and i < len(self.runes[matched_rune]):
-                        var_t = list(self.runes[matched_rune].values())[i]
-                    if var_t is not None:
-                        self.local_vars[name] = var_t
-                        self.local_vars[c_name] = var_t
-                    is_auto_var = bool(sym and getattr(sym, "is_auto_banished", False) and var_t is not None)
-                    if is_auto_var:
-                        self._auto_banish_register(c_name, var_t)
-                    t_str = CTypeMapper.to_c_type(var_t, const=not is_auto_var) if var_t else ("const int32_t" if not is_auto_var else "int32_t")
-                    if t_str == "void":
-                        t_str = "const int32_t" if not is_auto_var else "int32_t"
-                    if i < len(rune_field_names):
-                        lines.append(f"{ind}{t_str} {c_name} = {tmp}.{rune_field_names[i]};")
+                actual_expr_type = expr_type
+                while isinstance(actual_expr_type, (FrozenType, AliasType, SealType)):
+                    if isinstance(actual_expr_type, (FrozenType, AliasType)) and getattr(actual_expr_type, "target", None):
+                        actual_expr_type = actual_expr_type.target
+                    elif isinstance(actual_expr_type, SealType):
+                        actual_expr_type = actual_expr_type.underlying
                     else:
+                        break
+
+                if isinstance(actual_expr_type, (RuneType, EchoType)) or (isinstance(actual_expr_type, BaseType) and (actual_expr_type.name in self.runes or actual_expr_type.name in self.echos)):
+                    r_name = actual_expr_type.name
+                    lines = [f"{ind}{r_name} {tmp} = {expr_code};"]
+                    fields = list(self.runes.get(r_name, {}).keys()) if r_name in self.runes else list(self.echos.get(r_name, {}).keys())
+                    for i, name in enumerate(names):
+                        c_name = self._c_ident(name)
+                        sym = self.symbols.lookup(name) if self.symbols else None
+                        var_t = sym.type if sym else None
+                        if var_t is None and i < len(fields):
+                            f_dict = self.runes.get(r_name, {}) if r_name in self.runes else self.echos.get(r_name, {})
+                            var_t = f_dict.get(fields[i])
+                        if var_t is not None:
+                            self.local_vars[name] = var_t
+                            self.local_vars[c_name] = var_t
+                        is_auto_var = bool(sym and getattr(sym, "is_auto_banished", False) and var_t is not None)
+                        if is_auto_var:
+                            self._auto_banish_register(c_name, var_t)
+                        t_str = CTypeMapper.to_c_type(var_t, const=not is_auto_var) if var_t else ("const int32_t" if not is_auto_var else "int32_t")
+                        if t_str == "void":
+                            t_str = "const int32_t" if not is_auto_var else "int32_t"
+                        f_access = f"{tmp}.{fields[i]}" if i < len(fields) else f"{tmp}.{self._c_ident(name)}"
+                        lines.append(f"{ind}{t_str} {c_name} = {f_access};")
+                    return "\n".join(lines)
+
+                elif isinstance(actual_expr_type, ArrayType):
+                    elem_t = actual_expr_type.element
+                    elem_c_t = CTypeMapper.to_c_type(elem_t, const=True)
+                    lines = [f"{ind}{elem_c_t}* {tmp} = {expr_code};"]
+                    for i, name in enumerate(names):
+                        c_name = self._c_ident(name)
+                        sym = self.symbols.lookup(name) if self.symbols else None
+                        var_t = sym.type if sym else elem_t
+                        if var_t is not None:
+                            self.local_vars[name] = var_t
+                            self.local_vars[c_name] = var_t
+                        is_auto_var = bool(sym and getattr(sym, "is_auto_banished", False) and var_t is not None)
+                        if is_auto_var:
+                            self._auto_banish_register(c_name, var_t)
+                        t_str = CTypeMapper.to_c_type(var_t, const=not is_auto_var) if var_t else ("const int32_t" if not is_auto_var else "int32_t")
                         lines.append(f"{ind}{t_str} {c_name} = {tmp}[{i}];")
-                return "\n".join(lines)
+                    return "\n".join(lines)
+
+                elif isinstance(actual_expr_type, (SliceType, ManyType)):
+                    elem_t = actual_expr_type.element
+                    elem_cast = CTypeMapper.to_c_decl(elem_t, "*")
+                    lines = [f"{ind}PenguSlice {tmp} = {expr_code};"]
+                    for i, name in enumerate(names):
+                        c_name = self._c_ident(name)
+                        sym = self.symbols.lookup(name) if self.symbols else None
+                        var_t = sym.type if sym else elem_t
+                        if var_t is not None:
+                            self.local_vars[name] = var_t
+                            self.local_vars[c_name] = var_t
+                        is_auto_var = bool(sym and getattr(sym, "is_auto_banished", False) and var_t is not None)
+                        if is_auto_var:
+                            self._auto_banish_register(c_name, var_t)
+                        t_str = CTypeMapper.to_c_type(var_t, const=not is_auto_var) if var_t else ("const int32_t" if not is_auto_var else "int32_t")
+                        lines.append(f"{ind}{t_str} {c_name} = (({elem_cast}){tmp}.data)[{i}];")
+                    return "\n".join(lines)
+
+                elif isinstance(actual_expr_type, ListType):
+                    elem_t = actual_expr_type.element
+                    elem_cast = CTypeMapper.to_c_decl(elem_t, "*")
+                    lines = [f"{ind}PenguList {tmp} = {expr_code};"]
+                    for i, name in enumerate(names):
+                        c_name = self._c_ident(name)
+                        sym = self.symbols.lookup(name) if self.symbols else None
+                        var_t = sym.type if sym else elem_t
+                        if var_t is not None:
+                            self.local_vars[name] = var_t
+                            self.local_vars[c_name] = var_t
+                        is_auto_var = bool(sym and getattr(sym, "is_auto_banished", False) and var_t is not None)
+                        if is_auto_var:
+                            self._auto_banish_register(c_name, var_t)
+                        t_str = CTypeMapper.to_c_type(var_t, const=not is_auto_var) if var_t else ("const int32_t" if not is_auto_var else "int32_t")
+                        lines.append(f"{ind}{t_str} {c_name} = (*({elem_cast})pengu_list_at(&{tmp}, {i}));")
+                    return "\n".join(lines)
+
+                else:
+                    lines = [f"{ind}const void* {tmp} = {expr_code};"]
+                    for i, name in enumerate(names):
+                        c_name = self._c_ident(name)
+                        sym = self.symbols.lookup(name) if self.symbols else None
+                        var_t = sym.type if sym else None
+                        if var_t is not None:
+                            self.local_vars[name] = var_t
+                            self.local_vars[c_name] = var_t
+                        is_auto_var = bool(sym and getattr(sym, "is_auto_banished", False) and var_t is not None)
+                        if is_auto_var:
+                            self._auto_banish_register(c_name, var_t)
+                        t_str = CTypeMapper.to_c_type(var_t, const=not is_auto_var) if var_t else ("const int32_t" if not is_auto_var else "int32_t")
+                        lines.append(f"{ind}{t_str} {c_name} = {tmp}[{i}];")
+                    return "\n".join(lines)
 
         elif rule == "set_stmt":
             target_node = node.children[0]
@@ -2328,7 +2404,7 @@ class PenguCodegen:
                         sym = self.symbols.lookup(base_str) if self.symbols else None
                         if self.with_stack and (not sym or sym.kind == "field"):
                             base_target = self.with_stack[-1]
-                            base_type = self._lookup_var_type(base_target)
+                            base_type = self._get_current_with_target_type()
                             sep = "->" if (base_target == "self" or isinstance(base_type, RefType)) else "."
                             base_str = f"{base_target}{sep}{base_str}"
                         for acc in base_parts[1:]:
@@ -2337,7 +2413,7 @@ class PenguCodegen:
                     else:
                         field_name = str(base_parts[0])
                         base_target = self.with_stack[-1] if self.with_stack else "self"
-                        base_type = self._lookup_var_type(base_target)
+                        base_type = self._get_current_with_target_type()
                         sep = "->" if (base_target == "self" or isinstance(base_type, RefType)) else "."
                         base_str = f"{base_target}{sep}{field_name}"
                         for acc in base_parts[1:]:
@@ -2417,12 +2493,6 @@ class PenguCodegen:
                 return f"{ind}{target_str} = pengu_string_concat({target_str}, {expr_str});"
 
             return f"{ind}{target_str} {op} {expr_str};"
-
-        elif rule == "calling_stmt":
-            call_tree = Tree("calling_expr", node.children)
-            expr_code = self._translate_expr(call_tree)
-            return f"{ind}{expr_code};"
-
 
         elif rule == "if_stmt":
             cond_node = node.children[0]
@@ -2533,8 +2603,10 @@ class PenguCodegen:
             target_expr = node.children[0]
             stmts = node.children[1:]
             target_str = self._translate_expr(target_expr)
+            target_type = self._infer_node_type(target_expr)
 
             self.with_stack.append(target_str)
+            self.with_type_stack.append(target_type)
             self._auto_banish_push("block")
             saved_locals = dict(self.local_vars)
             self.indent_level += 1
@@ -2553,6 +2625,7 @@ class PenguCodegen:
                 self.local_vars = saved_locals
                 if self.auto_banish_stack and self.auto_banish_stack[-1][0] == "block":
                     self.auto_banish_stack.pop()
+                self.with_type_stack.pop()
                 self.with_stack.pop()
 
             if not body_lines:
@@ -3130,7 +3203,7 @@ class PenguCodegen:
             sym = self.symbols.lookup(name) if self.symbols else None
             if self.with_stack and (not sym or sym.kind == "field"):
                 base_target = self.with_stack[-1]
-                base_type = self._lookup_var_type(base_target)
+                base_type = self._get_current_with_target_type()
                 sep = "->" if (base_target == "self" or isinstance(base_type, RefType)) else "."
                 return f"{base_target}{sep}{c_name}"
             return c_name
@@ -3142,7 +3215,7 @@ class PenguCodegen:
             field_name = str(node.children[0])
             c_field_name = self._c_ident(field_name)
             base_target = self.with_stack[-1] if self.with_stack else "self"
-            base_type = self._lookup_var_type(base_target)
+            base_type = self._get_current_with_target_type()
             sep = "->" if (base_target == "self" or isinstance(base_type, RefType)) else "."
             target_str = f"{base_target}{sep}{c_field_name}"
             for acc in node.children[1:]:
@@ -3155,7 +3228,7 @@ class PenguCodegen:
             sym = self.symbols.lookup(base_name) if self.symbols else None
             if self.with_stack and (not sym or sym.kind == "field"):
                 base_target = self.with_stack[-1]
-                base_type = self._lookup_var_type(base_target)
+                base_type = self._get_current_with_target_type()
                 sep = "->" if (base_target == "self" or isinstance(base_type, RefType)) else "."
                 target_str = f"{base_target}{sep}{c_base_name}"
             else:
@@ -3920,7 +3993,7 @@ class PenguCodegen:
             # stay a plain identifier (e.g. a loop variable used in a builder).
             if self.with_stack and (not sym or sym.kind == "field") and name not in self.local_vars:
                 base_target = self.with_stack[-1]
-                base_type = self._lookup_var_type(base_target)
+                base_type = self._get_current_with_target_type()
                 sep = "->" if (base_target == "self" or isinstance(base_type, RefType)) else "."
                 return f"{base_target}{sep}{name}"
             code = self._c_ident(name)
@@ -4421,7 +4494,7 @@ class PenguCodegen:
                         t_name = getattr(self.current_enchanted_type, "name", str(self.current_enchanted_type))
                         self_arg = "self"
                 else:
-                    base_type = self._lookup_var_type(base_target)
+                    base_type = self._get_current_with_target_type()
                     if isinstance(base_type, RefType):
                         t_name = getattr(base_type.target, "name", str(base_type.target))
                         self_arg = base_target
@@ -4506,8 +4579,7 @@ class PenguCodegen:
 
                 if self.with_stack:
                     base_target = self.with_stack[-1]
-                    base_sym = self.symbols.lookup(base_target) if self.symbols else None
-                    base_type = base_sym.type if base_sym else None
+                    base_type = self._get_current_with_target_type()
                     t_name = None
                     self_arg = None
                     if base_target == "self":
@@ -4839,10 +4911,12 @@ class PenguCodegen:
                 current_base = base
                 idx = self._translate_expr(idx_node)
                 idx = self._emit_bounds_check(idx, current_base, var_t, idx_node)
-                if isinstance(var_t, (SliceType, ManyType)):
-                    elem_cast = CTypeMapper.to_c_decl(var_t.element, "*")
-                    base = f"((({elem_cast})({base}).data)[{idx}])"
-                    var_t = var_t.element
+                if isinstance(var_t, (SliceType, ManyType)) or (isinstance(var_t, RefType) and isinstance(var_t.target, (SliceType, ManyType))):
+                    actual_slice = var_t.target if isinstance(var_t, RefType) else var_t
+                    elem_cast = CTypeMapper.to_c_decl(actual_slice.element, "*")
+                    access = "->" if isinstance(var_t, RefType) else "."
+                    base = f"((({elem_cast})({base}){access}data)[{idx}])"
+                    var_t = actual_slice.element
                 elif isinstance(var_t, ListType) or (isinstance(var_t, RefType) and isinstance(var_t.target, ListType)):
                     elem_t = var_t.target.element if isinstance(var_t, RefType) else var_t.element
                     elem_cast = CTypeMapper.to_c_decl(elem_t, "*")
@@ -5098,6 +5172,7 @@ class PenguCodegen:
             c_t = CTypeMapper.to_c_type(build_t)
             tmp = self.get_temp_name("_with")
             self.with_stack.append(tmp)
+            self.with_type_stack.append(build_t)
             saved_locals = dict(self.local_vars)
             self.local_vars[tmp] = build_t
             try:
@@ -5109,6 +5184,7 @@ class PenguCodegen:
                             parts.append(s_code.rstrip())
             finally:
                 self.local_vars = saved_locals
+                self.with_type_stack.pop()
                 self.with_stack.pop()
             body = " ".join(parts)
             return f"(__extension__(({{ {c_t} {tmp} = {{0}}; {body} {tmp}; }})))"

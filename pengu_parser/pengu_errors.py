@@ -390,6 +390,15 @@ class BorrowedBanishError(SemanticError):
         super().__init__(message, line=line, col=col, column=column, **kwargs)
 
 
+class InvalidBuilderStatementError(SemanticError):
+    """E0014: invalid statement inside with: builder block."""
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0014")
+        kwargs.setdefault("help", "Use field assignments and method calls inside the builder block.")
+        kwargs.setdefault("note", "Construction blocks may not contain control flow or declarations.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
 
 
 import difflib
