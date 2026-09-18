@@ -181,21 +181,21 @@ class TestBytesOfFFI:
     """'bytes of' string -> read-only byte pointer FFI casts."""
 
     def test_string_variable_produces_byte_pointer_cast(self):
-        code = """declare peek_bytes with p as ref to byte into int
+        code = """declare peek_bytes with p as ref to frozen byte into int
 
 weave main into int:
     var s as string is "hello"
-    var view as ref to byte is bytes of s
+    var view as ref to frozen byte is bytes of s
     return calling peek_bytes with view
 """
         bundle = gen_bundle(code)
-        assert "uint8_t* view = ((uint8_t*)(((s)).data));" in bundle
+        assert "const uint8_t* view = ((uint8_t*)(((s)).data));" in bundle
 
     def test_literal_string_also_works(self):
-        code = """declare peek_bytes with p as ref to byte into int
+        code = """declare peek_bytes with p as ref to frozen byte into int
 
 weave main into int:
-    var view as ref to byte is bytes of "abc"
+    var view as ref to frozen byte is bytes of "abc"
     return 0
 """
         bundle = gen_bundle(code)
@@ -212,10 +212,10 @@ weave main into int:
 
     def test_weave_parameter_chain(self):
         # passing 'bytes of' straight into a call argument is valid
-        code = """declare hash_bytes with data as ref to byte, len as int into i64
+        code = """declare hash_bytes with data as ref to frozen byte, len as int into i64
 
 weave digest with msg as string into i64:
-    var view as ref to byte is bytes of msg
+    var view as ref to frozen byte is bytes of msg
     return calling hash_bytes with view, (msg length)
 """
         bundle = gen_bundle(code)

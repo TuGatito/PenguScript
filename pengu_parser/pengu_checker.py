@@ -60,6 +60,7 @@ C_RESERVED_WORDS = {
     "if", "else", "while", "for", "do", "break", "continue", "asm",
     "NULL", "bool", "true", "false", "_Bool", "wchar_t", "FILE",
     "_Alignas", "_Alignof", "_Atomic", "_Generic", "_Noreturn", "_Static_assert", "_Thread_local",
+    "printf", "fprintf", "sprintf", "snprintf", "malloc", "free", "realloc", "calloc", "exit", "abort",
 }
 
 C_RESERVED_TYPE_NAMES = {
@@ -76,6 +77,24 @@ C_RESERVED_TYPE_NAMES = {
     "int8_t", "int16_t", "int32_t", "int64_t",
     "uint8_t", "uint16_t", "uint32_t", "uint64_t",
     "intptr_t", "uintptr_t", "stdin", "stdout", "stderr",
+    # Pengu runtime typedefs
+    "PenguString", "PenguList", "PenguMap", "PenguSlice",
+    "PenguMaybe", "PenguResult", "PenguRange", "PenguFrame",
+}
+
+C_KEYWORDS = {
+    "auto", "break", "case", "char", "const", "continue", "default", "do",
+    "double", "else", "enum", "extern", "float", "for", "goto", "if",
+    "inline", "int", "long", "register", "restrict", "return", "short",
+    "signed", "sizeof", "static", "struct", "switch", "typedef", "union",
+    "unsigned", "void", "volatile", "while",
+    "_Alignas", "_Alignof", "_Atomic", "_Bool", "_Complex", "_Generic",
+    "_Imaginary", "_Noreturn", "_Static_assert", "_Thread_local", "asm",
+}
+
+C_RESERVED_FN_NAMES = {
+    "printf", "fprintf", "sprintf", "snprintf", "malloc", "free", "realloc", "calloc", "exit", "abort",
+    "puts", "gets", "putchar", "getchar", "system", "FILE",
 }
 
 
@@ -298,6 +317,7 @@ class PenguChecker:
         self.warnings = []
         self.block_stmts_stack = []
         self.const_definitions = {}
+        self._seen_main_file = None
         if symbols is not None:
             self.symbols = symbols
         elif reset_symbols or not hasattr(self, "symbols") or self.symbols is None:
@@ -506,20 +526,16 @@ class PenguChecker:
             stripped = raw_line.strip()
             if not stripped:
                 break
-            if stripped.startswith("##") and stripped.endswith("##") and len(stripped) > 4:
-                content = stripped[2:-2].strip()
-                collected.append(content)
-            elif stripped.startswith("##"):
-                content = stripped[2:].strip()
-                if content.endswith("##"):
-                    content = content[:-2].strip()
-                collected.append(content)
-            elif stripped.startswith("#"):
-                content = stripped[1:].strip()
+            if stripped.startswith("#"):
+                content = stripped.lstrip("#")
+                if content.endswith("#"):
+                    content = content.rstrip("#")
+                content = content.strip()
                 if content and set(content) <= {"-", "=", "*", "_"}:
                     idx -= 1
                     continue
-                collected.append(content)
+                if content:
+                    collected.append(content)
             else:
                 break
             idx -= 1
@@ -617,6 +633,7 @@ class PenguChecker:
         has_imports = False
         current_insignia: Optional[str] = None
         is_d_pengu = bool(self.filename and self.filename.endswith(".d.pengu"))
+        is_std = bool(self.filename and ("std" in self.filename.replace("/", "\\").split("\\") or "std" in self.filename.replace("\\", "/").split("/")))
 
         file_imports: Set[str] = set()
         for child in tree.children:
@@ -1437,6 +1454,16 @@ class PenguChecker:
             elif rule == "declare_stmt":
                 is_inline, is_ritual, idx = _extract_weave_modifiers(stmt.children)
                 fn_name = str(stmt.children[idx])
+                if fn_name in C_KEYWORDS:
+                    err = self._make_error(
+                        SemanticError,
+                        f"Function name '{fn_name}' is a reserved C keyword",
+                        stmt,
+                        code="E0035",
+                        help="Choose a different name for this declared function.",
+                        note="Functions cannot be named after C keywords."
+                    )
+                    self._record_error(err)
                 c_fn_name = f"{current_insignia}{fn_name}" if current_insignia else fn_name
                 type_params = []
                 bounds = {}
@@ -1500,6 +1527,29 @@ class PenguChecker:
                     self._record_error(err)
                 is_inline, is_ritual, idx = _extract_weave_modifiers(stmt.children)
                 fn_name = str(stmt.children[idx])
+                if fn_name == "main":
+                    if getattr(self, "_seen_main_file", None) is not None:
+                        err = self._make_error(
+                            SemanticError,
+                            f"Multiple entry points 'main' defined: first in '{self._seen_main_file}', duplicate in '{self.filename}'",
+                            stmt,
+                            code="E0046",
+                            help="A PenguScript program can only have a single 'weave main' entry point.",
+                            note="Only one 'weave main' can be active in an executable."
+                        )
+                        self._record_error(err)
+                    else:
+                        self._seen_main_file = self.filename
+                elif not is_d_pengu and not is_std and current_insignia is None and (fn_name in C_RESERVED_FN_NAMES or (fn_name in C_RESERVED_TYPE_NAMES and fn_name not in C_KEYWORDS)):
+                    err = self._make_error(
+                        SemanticError,
+                        f"Function name '{fn_name}' is a reserved standard C function or identifier",
+                        stmt,
+                        code="E0035",
+                        help=f"Choose a different name for this function (e.g. 'my_{fn_name}').",
+                        note="Function names cannot shadow standard library functions like 'printf' or 'malloc'."
+                    )
+                    self._record_error(err)
                 c_fn_name = f"{current_insignia}{fn_name}" if current_insignia else fn_name
                 type_params = []
                 bounds = {}
@@ -1585,7 +1635,12 @@ class PenguChecker:
                                 with open(mod_abs, "r", encoding="utf-8") as mf:
                                     m_code = mf.read()
                                 m_tree = mod_parser.parse(m_code)
-                                self._collect_top_level(m_tree, import_order=order)
+                                prev_fn = self.filename
+                                try:
+                                    self.filename = mod_abs
+                                    self._collect_top_level(m_tree, import_order=order)
+                                finally:
+                                    self.filename = prev_fn
                 except SemanticError as e:
                     self._record_error(e)
 
@@ -2059,6 +2114,16 @@ class PenguChecker:
                 code="E0040",
                 help="Use a different name, or use 'when main:' for conditional execution.",
                 note="'main' can only appear as the condition of a compile-time 'when'."
+            ))
+            return
+        if not self.filename.endswith(".d.pengu") and (c_name in C_RESERVED_TYPE_NAMES or c_name in C_RESERVED_WORDS):
+            self._record_error(self._make_error(
+                SemanticError,
+                f"Constant name '{c_name}' is a reserved C keyword or standard identifier",
+                node,
+                code="E0035",
+                help=f"Choose a different name for this constant (e.g. 'MY_{c_name.upper()}').",
+                note="Constants emitted as C macros or definitions cannot shadow C keywords or standard library identifiers."
             ))
             return
         c_type = None
@@ -4485,62 +4550,61 @@ class PenguChecker:
         for name, sym in list(self.symbols.global_scope.symbols.items()):
             if sym.kind in ("omen", "omen_variant"):
                 continue
-            if name in simple_owner:
-                if self._const_matches_variant(sym, simple_owner[name], name):
-                    # Same name and same value denote the same number, so the
-                    # variant's simple name is merely shadowed by an equal
-                    # constant. Generated bindings are self-contained per
-                    # header, so a '#define' transcribed as a const legitimately
-                    # repeats a variant of the header it includes (raygui.h
-                    # includes raylib.h, hence its KEY_* consts).
-                    continue
-                if getattr(sym, "kind", "") == "const":
-                    clash_desc = f"top-level constant '{name}'"
-                    if getattr(sym, "const_val", None) is None:
-                        note = ("Omen variants occupy both their simple and full names in the "
-                                f"global scope (constant '{name}' value could not be folded at compile time for equality check).")
+            names_to_check = [name]
+            c_sym_name = getattr(sym, "c_name", None)
+            if c_sym_name and c_sym_name != name:
+                names_to_check.append(c_sym_name)
+            for chk_name in names_to_check:
+                if chk_name in simple_owner:
+                    if self._const_matches_variant(sym, simple_owner[chk_name], chk_name):
+                        continue
+                    if getattr(sym, "kind", "") == "const":
+                        clash_desc = f"top-level constant '{chk_name}'"
+                        if getattr(sym, "const_val", None) is None:
+                            note = ("Omen variants occupy both their simple and full names in the "
+                                    f"global scope (constant '{chk_name}' value could not be folded at compile time for equality check).")
+                        else:
+                            note = ("Omen variants occupy both their simple and full names in the "
+                                    "global scope.")
+                    elif isinstance(sym.type, BaseType):
+                        clash_desc = f"built-in type '{chk_name}'"
+                        note = ("Built-in type names are reserved, so the variant cannot be "
+                                "reached by its simple name.")
                     else:
+                        clash_desc = f"top-level symbol '{chk_name}'"
                         note = ("Omen variants occupy both their simple and full names in the "
                                 "global scope.")
-                elif isinstance(sym.type, BaseType):
-                    clash_desc = f"built-in type '{name}'"
-                    note = ("Built-in type names are reserved, so the variant cannot be "
-                            "reached by its simple name.")
-                else:
-                    clash_desc = f"top-level symbol '{name}'"
-                    note = ("Omen variants occupy both their simple and full names in the "
-                            "global scope.")
-                err = self._make_error(
-                    SemanticError,
-                    f"Omen variant name '{name}' of omen '{simple_owner[name]}' collides "
-                    f"with the {clash_desc}",
-                    code="E0046",
-                    help=f"Refer to the variant by its full "
-                         f"'{simple_owner[name]}_{name}' name, or rename the conflicting "
-                         "symbol.",
-                    note=note,
-                )
-                self._record_error(err)
-                continue
-            if name in full_names:
-                o_logical = full_names[name]
-                variant = name[len(o_logical) + 1:]
-                if self._const_matches_variant(sym, o_logical, variant):
+                    err = self._make_error(
+                        SemanticError,
+                        f"Omen variant name '{chk_name}' of omen '{simple_owner[chk_name]}' collides "
+                        f"with the {clash_desc}",
+                        code="E0046",
+                        help=f"Refer to the variant by its full "
+                             f"'{simple_owner[chk_name]}_{chk_name}' name, or rename the conflicting "
+                             "symbol.",
+                        note=note,
+                    )
+                    self._record_error(err)
                     continue
-                note = "Omen variants occupy both their simple and full names in the global scope."
-                if getattr(sym, "kind", "") == "const" and getattr(sym, "const_val", None) is None:
-                    note = (f"Omen variants occupy both their simple and full names in the global scope "
-                            f"(constant '{name}' value could not be folded at compile time for equality check).")
-                err = self._make_error(
-                    SemanticError,
-                    f"Top-level symbol '{name}' collides with the full name of the "
-                    f"'{full_names[name]}' omen variant",
-                    code="E0046",
-                    help="Rename the top-level symbol so it does not shadow the "
-                         "full omen variant name.",
-                    note=note
-                )
-                self._record_error(err)
+                if chk_name in full_names:
+                    o_logical = full_names[chk_name]
+                    variant = chk_name[len(o_logical) + 1:]
+                    if self._const_matches_variant(sym, o_logical, variant):
+                        continue
+                    note = "Omen variants occupy both their simple and full names in the global scope."
+                    if getattr(sym, "kind", "") == "const" and getattr(sym, "const_val", None) is None:
+                        note = (f"Omen variants occupy both their simple and full names in the global scope "
+                                f"(constant '{chk_name}' value could not be folded at compile time for equality check).")
+                    err = self._make_error(
+                        SemanticError,
+                        f"Top-level symbol '{chk_name}' collides with the full name of the "
+                        f"'{full_names[chk_name]}' omen variant",
+                        code="E0046",
+                        help="Rename the top-level symbol so it does not shadow the "
+                             "full omen variant name.",
+                        note=note
+                    )
+                    self._record_error(err)
 
         for cname, defs in getattr(self, "const_definitions", {}).items():
             if len(defs) > 1:

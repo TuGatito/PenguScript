@@ -1877,7 +1877,7 @@ class TypeInferrer:
             arg_node = node.children[0]
             arg_t = self.infer(arg_node)
             if arg_t.is_string() or isinstance(arg_t, AnyType):
-                return RefType(target=BaseType(name="byte"))
+                return RefType(target=FrozenType(target=BaseType(name="byte")))
             if isinstance(arg_t, ArrayType):
                 elem = arg_t.element
                 if isinstance(elem, BaseType) and elem.name in ("byte", "u8", "uint8"):
@@ -2403,9 +2403,9 @@ class TypeInferrer:
             )
 
         elif rule == "or_return":
-            left_type = self.infer(node.children[0])
-            ret_type = self.infer(node.children[1])
             curr_ret = self.symbols.current_return_type()
+            left_type = self.infer(node.children[0])
+            ret_type = self.infer(node.children[1], expected_type=curr_ret)
             if curr_ret and not ret_type.is_compatible(curr_ret) and not ret_type.is_int():
                 raise self._make_error(
                     TypeMismatchError,

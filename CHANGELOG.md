@@ -2,6 +2,31 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.13.8] - 2026-09-17
+
+### Corregido (crítico)
+
+- **C1**: En `pengu_codegen.py`, `_translate_unwrap_expr` ahora ejecuta todas las sentencias `defer`, `errdefer` (en rutas de error) y llamadas de `auto-banish` de variables locales antes de emitir los retornos anticipados en expresiones `or_return` y `try_expr`, previniendo fugas deterministas de memoria en flujos de error o propagación.
+- **C2**: En `pengu_checker.py`, `_check_const_decl` rechaza con `E0035` declaraciones de constantes cuyos nombres coincidan con palabras clave o tipos/macros reservados de C en archivos `.pengu`. Asimismo, en `pengu_codegen.py::generate_global_constants` se aplica `_c_ident(name)` a los `#define` y declaraciones `static const`.
+- **C3**: En `pengu_codegen.py`, en la sustitución de `var_ref` por `sym.const_val`, se restringe el plegado exclusivamente a símbolos inmutables (`not sym.is_mutable` y `kind in ("const", "let")`), evitando que variables mutables `var` retengan valores plegados desactualizados e ignoren posteriores sentencias `set`.
+
+### Corregido (alto)
+
+- **A1**: En `pengu_codegen.py`, se preserva el nombre C efectivo de la función de entrada (`self.main_c_name`), de modo que directivas `insignia` aplicadas a `weave main` emitan la llamada correcta (p. ej. `mylib_main()`) en `generate_entry_point` en lugar de fallar en el enlazador con `undefined reference to pengu_main`.
+- **A2**: En `pengu_checker.py`, en `_collect_top_level`, se validan los nombres de funciones en `weave_decl` y `declare_stmt` contra palabras clave y macros estándar de C en archivos `.pengu`, rechazando con `E0035` colisiones peligrosas con funciones de la biblioteca estándar de C como `printf` o `malloc`.
+- **A3**: En `pengu_checker.py`, se detectan y rechazan con `E0046` múltiples definiciones de puntos de entrada `weave main` activos en un mismo proyecto o entre módulos importados.
+- **A4**: En `pengu_infer.py`, `bytes of <string>` ahora devuelve un tipo de referencia inmutable `ref to frozen byte`, reflejando fielmente la semántica de vista de sólo lectura sobre `.rodata` y rechazando mutaciones en tiempo de compilación con `E0006`.
+
+### Corregido (medio)
+
+- **M1**: En `pengu_checker.py`, se amplió `C_RESERVED_TYPE_NAMES` con los tipos typedef fundamentales del runtime (`PenguString`, `PenguList`, `PenguMap`, `PenguSlice`, `PenguMaybe`, `PenguResult`, `PenguRange`, `PenguFrame`), rechazando colisiones con `E0035`.
+- **M2**: En `pengu_codegen.py`, `_lookup_with_field_type` aplica `_c_ident` al buscar campos y subcampos en estructuras y uniones de bloques `with:`.
+- **M3**: En `pengu_checker.py`, `_check_omen_variant_collisions` comprueba colisiones tanto contra el nombre lógico como contra el nombre C (`c_name`), detectando colisiones introducidas por directivas `insignia`.
+
+### Corregido (menor)
+
+- **m1**: En `pengu_checker.py`, `_extract_preceding_doc` normaliza el descarte de prefijos y sufijos `#` de forma robusta ante líneas de encabezado como `###`.
+
 ## [0.13.7] - 2026-09-17
 
 ### Corregido (crítico)
