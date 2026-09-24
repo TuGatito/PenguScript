@@ -82,6 +82,7 @@ def ensure_dependencies(py_exe: Path):
         "lsprotocol>=2023.0.0",
         "pycparser>=2.21",
         "pytest>=7.0.0",
+        "cmake",
     ]
     if sys.version_info < (3, 11):
         packages.append("tomli>=2.0.0")
@@ -113,9 +114,26 @@ def build_runtime(py_exe: Path, rebuild: bool = True):
     run_cmd(cmd)
 
 
-def assemble_distribution(dist_dir: Path):
-    """Assembles std/ and runtime/ directories into pengucc_build/."""
+def assemble_distribution(dist_dir: Path, layout: str = "portable"):
+    """Assembles std/ and runtime/ into dist_dir using the requested layout."""
     dist_dir.mkdir(parents=True, exist_ok=True)
+    if layout == "fhs":
+        _assemble_fhs(dist_dir)
+    else:
+        _assemble_portable(dist_dir)
+
+
+def _assemble_portable(dist_dir: Path):
+    """Current self-contained layout: <dist>/{std,runtime/{lib,include}}."""
+    # Clean previous FHS-layout artifacts if switching layouts
+    for sub in ("bin", "lib", "share"):
+        p = dist_dir / sub
+        if p.exists():
+            shutil.rmtree(p)
+    for f in ("install.sh", "uninstall.sh"):
+        p = dist_dir / f
+        if p.exists():
+            p.unlink()
 
     # 1. Copy std/
     dst_std = dist_dir / "std"
@@ -124,16 +142,19 @@ def assemble_distribution(dist_dir: Path):
     shutil.copytree(STD_DIR, dst_std)
     print(f"  [STD] Copied standard library to {dst_std}")
 
+    # VERSION -> <dist>/VERSION
+    version_file = ROOT_DIR / "VERSION"
+    if version_file.is_file():
+        shutil.copy2(version_file, dist_dir / "VERSION")
+
     # 2. Setup runtime/
     dst_runtime = dist_dir / "runtime"
     dst_runtime.mkdir(parents=True, exist_ok=True)
 
-    # Copy pengu_runtime.h
     runtime_h = ROOT_DIR / "pengu_runtime.h"
     if runtime_h.exists():
         shutil.copy2(runtime_h, dst_runtime / "pengu_runtime.h")
 
-    # Copy all static libraries from build/lib/
     src_lib = BUILD_DIR / "lib"
     if src_lib.exists():
         for lib_file in src_lib.glob("*.*"):
@@ -141,7 +162,6 @@ def assemble_distribution(dist_dir: Path):
                 shutil.copy2(lib_file, dst_runtime / lib_file.name)
                 print(f"  [LIB] Copied {lib_file.name} to runtime/")
 
-    # Copy include directories from build/include/
     src_inc = BUILD_DIR / "include"
     dst_inc = dst_runtime / "include"
     if src_inc.exists():
@@ -149,6 +169,68 @@ def assemble_distribution(dist_dir: Path):
             shutil.rmtree(dst_inc)
         shutil.copytree(src_inc, dst_inc)
         print(f"  [INC] Copied dependency headers to {dst_inc}")
+
+
+def _assemble_fhs(dist_dir: Path):
+    """FHS-compliant layout for Linux/macOS.
+
+    Produces:
+        <dist>/bin/pengu
+        <dist>/lib/pengu/*.a
+        <dist>/include/pengu/*.h
+        <dist>/share/pengu/std/
+        <dist>/share/pengu/VERSION
+    """
+    # Clean previous portable-layout artifacts if switching layouts
+    for sub in ("bin", "lib", "include", "share", "runtime", "std"):
+        p = dist_dir / sub
+        if p.exists():
+            shutil.rmtree(p)
+    for f in ("pengu", "pengu.exe", "VERSION"):
+        p = dist_dir / f
+        if p.is_file():
+            p.unlink()
+
+    # std/ -> share/pengu/std/
+    dst_std = dist_dir / "share" / "pengu" / "std"
+    dst_std.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(STD_DIR, dst_std)
+    print(f"  [STD] Copied standard library to {dst_std}")
+
+    # VERSION -> share/pengu/VERSION
+    version_file = ROOT_DIR / "VERSION"
+    if version_file.is_file():
+        shutil.copy2(version_file, dist_dir / "share" / "pengu" / "VERSION")
+
+    # Static libs -> lib/pengu/
+    src_lib = BUILD_DIR / "lib"
+    dst_lib = dist_dir / "lib" / "pengu"
+    dst_lib.mkdir(parents=True, exist_ok=True)
+    if src_lib.is_dir():
+        for f in src_lib.glob("*.*"):
+            if f.suffix in (".a", ".lib"):
+                shutil.copy2(f, dst_lib / f.name)
+                print(f"  [LIB] Copied {f.name} to lib/pengu/")
+
+    # Headers -> include/pengu/
+    src_inc = BUILD_DIR / "include"
+    dst_inc = dist_dir / "include" / "pengu"
+    dst_inc.mkdir(parents=True, exist_ok=True)
+    if src_inc.is_dir():
+        for entry in src_inc.iterdir():
+            target = dst_inc / entry.name
+            if entry.is_dir():
+                if target.exists():
+                    shutil.rmtree(target)
+                shutil.copytree(entry, target)
+            else:
+                shutil.copy2(entry, target)
+        print(f"  [INC] Copied dependency headers to {dst_inc}")
+
+    # pengu_runtime.h -> include/pengu/pengu_runtime.h
+    runtime_h = ROOT_DIR / "pengu_runtime.h"
+    if runtime_h.is_file():
+        shutil.copy2(runtime_h, dst_inc / "pengu_runtime.h")
 
 
 def get_version() -> str:
@@ -159,8 +241,15 @@ def get_version() -> str:
     return "0.1.0"
 
 
-def package_with_pyinstaller(py_exe: Path, dist_dir: Path):
-    """Packages pengu_project.py into a standalone pengu / pengu.exe binary."""
+def package_with_pyinstaller(py_exe: Path, dist_dir: Path, bin_subdir: str = ""):
+    """Packages pengu_project.py into a standalone pengu / pengu.exe binary.
+
+    ``bin_subdir`` (e.g. ``"bin"``) selects the FHS-layout output directory;
+    the default places the binary at the root of ``dist_dir``.
+    """
+    output_dir = dist_dir / bin_subdir if bin_subdir else dist_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     entry_point = ROOT_DIR / "pengu_project.py"
     data_sep = ";" if IS_WINDOWS else ":"
 
@@ -174,6 +263,7 @@ def package_with_pyinstaller(py_exe: Path, dist_dir: Path):
 
     # Hidden imports that PyInstaller may not auto-detect
     hidden_imports = [
+        "pengu_paths",
         "pygls",
         "pygls.lsp",
         "pygls.lsp.server",
@@ -225,7 +315,7 @@ def package_with_pyinstaller(py_exe: Path, dist_dir: Path):
         "--name", "pengu",
         "--onefile",
         "--console",
-        "--distpath", str(dist_dir),
+        "--distpath", str(output_dir),
         "--workpath", str(BUILD_DIR / "pyinstaller_work"),
         "--specpath", str(BUILD_DIR),
         "--noconfirm",
@@ -244,10 +334,10 @@ def package_with_pyinstaller(py_exe: Path, dist_dir: Path):
     run_cmd(cmd)
 
 
-def verify_executable(dist_dir: Path):
+def verify_executable(dist_dir: Path, bin_subdir: str = ""):
     """Runs smoke tests against the generated standalone binary."""
     exe_name = "pengu.exe" if IS_WINDOWS else "pengu"
-    exe_path = dist_dir / exe_name
+    exe_path = (dist_dir / bin_subdir / exe_name) if bin_subdir else (dist_dir / exe_name)
 
     if not exe_path.exists():
         print(f"[ERROR] Expected binary not found: {exe_path}")
@@ -352,10 +442,131 @@ def build_vscode_extension(dist_dir: Path):
         print(f"  [VSCODE] Copied {vf.name} -> {dest_vsix}")
 
 
-def generate_release_readme(dist_dir: Path):
+def generate_install_script(dist_dir: Path) -> None:
+    """Writes an install.sh / uninstall.sh pair for the FHS layout."""
+    version = get_version()
+
+    install_sh = dist_dir / "install.sh"
+    install_sh.write_text(
+        f"""#!/bin/sh
+# PenguScript {version} installer (FHS layout).
+#
+# Usage:
+#   ./install.sh                            # install to ~/.local  (user)
+#   PREFIX=/usr/local sudo ./install.sh     # system-wide
+#   DESTDIR=/tmp/stage PREFIX=/usr ./install.sh   # package-manager staging
+#
+set -eu
+
+PREFIX="${{PREFIX:-$HOME/.local}}"
+DESTDIR="${{DESTDIR:-}}"
+
+SRC="$(cd "$(dirname "$0")" && pwd)"
+DEST="${{DESTDIR}}${{PREFIX}}"
+
+echo "Installing PenguScript {version} into $DEST"
+
+install -d "$DEST/bin" "$DEST/lib/pengu" "$DEST/include/pengu" "$DEST/share/pengu"
+
+# Binary
+if [ -f "$SRC/bin/pengu" ]; then
+    install -m 755 "$SRC/bin/pengu" "$DEST/bin/pengu"
+fi
+
+# Static libraries
+if [ -d "$SRC/lib/pengu" ]; then
+    for f in "$SRC"/lib/pengu/*; do
+        [ -e "$f" ] || continue
+        install -m 644 "$f" "$DEST/lib/pengu/$(basename "$f")"
+    done
+fi
+
+# C headers
+if [ -d "$SRC/include/pengu" ]; then
+    cp -R "$SRC/include/pengu/." "$DEST/include/pengu/"
+fi
+
+# Standard library + VERSION
+if [ -d "$SRC/share/pengu" ]; then
+    cp -R "$SRC/share/pengu/." "$DEST/share/pengu/"
+fi
+
+echo
+echo "Done."
+case ":$PATH:" in
+    *":$PREFIX/bin:"*) ;;
+    *) echo "Add $PREFIX/bin to your PATH:"
+       echo "    export PATH=\\"$PREFIX/bin:\\$PATH\\"" ;;
+esac
+echo "Then run: pengu --help"
+""",
+        encoding="utf-8",
+    )
+    install_sh.chmod(0o755)
+    print(f"  [INSTALL] Wrote {install_sh}")
+
+    uninstall_sh = dist_dir / "uninstall.sh"
+    uninstall_sh.write_text(
+        """#!/bin/sh
+# PenguScript uninstaller (FHS layout).
+set -eu
+
+PREFIX="${PREFIX:-$HOME/.local}"
+DEST="${DESTDIR:-}${PREFIX}"
+
+rm -f  "$DEST/bin/pengu"
+rm -rf "$DEST/lib/pengu"
+rm -rf "$DEST/include/pengu"
+rm -rf "$DEST/share/pengu"
+
+echo "PenguScript removed from $DEST"
+""",
+        encoding="utf-8",
+    )
+    uninstall_sh.chmod(0o755)
+    print(f"  [INSTALL] Wrote {uninstall_sh}")
+
+
+def generate_release_readme(dist_dir: Path, layout: str = "portable"):
     """Creates README_RELEASE.md explaining how to use the distribution."""
     version = get_version()
     vsix_name = f"pengus-{version}.vsix"
+
+    if layout == "fhs":
+        body_tree = f"""\\
+{dist_dir.name}/
+├── bin/pengu                        # Standalone CLI + LSP server
+├── lib/pengu/*.a                    # Runtime static libraries
+├── include/pengu/*.h                # Runtime + dependency headers
+├── share/pengu/std/                 # Standard library modules
+├── share/pengu/VERSION
+├── {vsix_name}     # VS Code extension
+├── install.sh                       # FHS installer (PREFIX/DESTDIR aware)
+└── uninstall.sh"""
+        quickstart = """\\
+### 1. Install
+
+```bash
+./install.sh                         # ~/.local
+PREFIX=/usr/local sudo ./install.sh  # system-wide
+DESTDIR=/tmp/stage PREFIX=/usr ./install.sh   # package-manager staging
+```
+"""
+    else:
+        body_tree = f"""\\
+{dist_dir.name}/
+├── pengu{' .exe' if IS_WINDOWS else ''}
+├── {vsix_name}
+├── std/
+└── runtime/
+    ├── pengu_runtime.h
+    ├── libpengu_runtime.a
+    └── include/"""
+        quickstart = f"""\\
+### 1. Add to PATH
+Add `{dist_dir.resolve()}` to your system `PATH` environment variable.
+"""
+
     readme_content = f"""# PenguScript Standalone Release Package
 
 This directory contains the standalone distribution of the **PenguScript Compiler, Project Manager, Standard Library, and Visual Studio Code Extension**.
@@ -365,27 +576,14 @@ This directory contains the standalone distribution of the **PenguScript Compile
 ## Directory Structure
 
 ```
-{dist_dir.name}/
-├── pengu{' .exe' if IS_WINDOWS else ''}                # Standalone PenguScript CLI (Compiler + Build Manager + LSP)
-├── {vsix_name}         # VS Code Extension (Syntax, LSP, Go-To-Definition, Cargo Commands)
-├── std/                      # Complete Standard Library (24 modules)
-│   ├── spark.pengu
-│   ├── oracle.pengu
-│   ├── ward.pengu
-│   ├── trial.pengu
-│   └── ... (all .pengu modules)
-└── runtime/                  # C Runtime and static dependencies
-    ├── pengu_runtime.h       # Master runtime header
-    ├── libpengu_runtime.a    # Static runtime library
-    └── include/              # Header files for regex, XML, crypto, HTTP, etc.
+{body_tree}
 ```
 
 ---
 
 ## Quick Start
 
-### 1. Add PenguScript to your PATH
-Add `{dist_dir.resolve()}` to your system `PATH` environment variable to access `pengu` from any terminal or command prompt.
+{quickstart}
 
 ### 2. Install the VS Code Extension
 1. Open Visual Studio Code.
@@ -425,9 +623,21 @@ def main():
     parser.add_argument("--rebuild", action="store_true", default=True, help="Force clean rebuild of C runtime")
     parser.add_argument("--skip-tests", action="store_true", help="Skip post-packaging smoke tests")
     parser.add_argument("--dist-dir", type=str, default=str(DEFAULT_DIST_DIR), help="Target release directory")
+    parser.add_argument(
+        "--layout",
+        choices=["portable", "fhs"],
+        default="portable",
+        help="Distribution layout: 'portable' (default, self-contained bundle) "
+             "or 'fhs' (Linux/macOS FHS: bin/ lib/pengu include/pengu share/pengu + install.sh)",
+    )
     args = parser.parse_args()
 
+    if args.layout == "fhs" and IS_WINDOWS:
+        print("[ERROR] --layout fhs is only supported on Linux/macOS.")
+        sys.exit(1)
+
     dist_dir = Path(args.dist_dir).resolve()
+    bin_subdir = "bin" if args.layout == "fhs" else ""
 
     total_steps = 6 if args.skip_tests else 7
 
@@ -449,8 +659,8 @@ def main():
     build_runtime(py_exe, rebuild=args.rebuild)
 
     # Step 4: Assemble distribution folder
-    log_step(4, total_steps, f"Assembling distribution assets in {dist_dir}...")
-    assemble_distribution(dist_dir)
+    log_step(4, total_steps, f"Assembling distribution assets ({args.layout} layout) in {dist_dir}...")
+    assemble_distribution(dist_dir, layout=args.layout)
 
     # Step 5: Package VS Code extension
     log_step(5, total_steps, "Building and packaging VS Code Extension (.vsix)...")
@@ -458,19 +668,24 @@ def main():
 
     # Step 6: Package binary with PyInstaller
     log_step(6, total_steps, "Packaging standalone CLI executable with PyInstaller...")
-    package_with_pyinstaller(py_exe, dist_dir)
-    generate_release_readme(dist_dir)
+    package_with_pyinstaller(py_exe, dist_dir, bin_subdir=bin_subdir)
+
+    if args.layout == "fhs":
+        generate_install_script(dist_dir)
+
+    generate_release_readme(dist_dir, layout=args.layout)
 
     # Step 7: Smoke Tests
     if not args.skip_tests:
         log_step(7, total_steps, "Running release verification & smoke tests...")
-        verify_executable(dist_dir)
+        verify_executable(dist_dir, bin_subdir=bin_subdir)
 
     exe_name = "pengu.exe" if IS_WINDOWS else "pengu"
     vsix_name = f"pengus-{get_version()}.vsix"
+    exe_rel = (Path(bin_subdir) / exe_name) if bin_subdir else Path(exe_name)
     print("\n================================================================")
     print(f"  SUCCESS! PenguScript release packaged at: {dist_dir}")
-    print(f"  Executable: {dist_dir / exe_name}")
+    print(f"  Executable: {dist_dir / exe_rel}")
     print(f"  VS Code Extension: {dist_dir / vsix_name}")
     print("================================================================\n")
 

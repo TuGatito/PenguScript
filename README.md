@@ -1,6 +1,6 @@
 # PenguScript
 
-![Version](https://img.shields.io/badge/version-0.13.14-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+![Version](https://img.shields.io/badge/version-0.14.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 
 **PenguScript** is a statically typed, compiled programming language that combines the clean, indentation-based readability of **Python** (with a nod to MoonScript), the strict scoping and memory-discipline principles of **V**, and the raw speed, tiny footprint, and seamless C interoperability of **C**.
 
@@ -86,8 +86,44 @@ PenguScript compiles directly to clean, human-readable **C99/C11** source code, 
 
 - **Python 3.11+** (3.10 also works — `requirements.txt` installs the `tomli` backport automatically there).
 - A **C compiler** (`gcc` or `clang`) and static archiver (`ar`/`llvm-ar`) on your `PATH` — on Windows use MinGW-w64 `gcc`.
-- **CMake** — required only for the static builds of libuv, libzip, and libexpat; every other bundled library compiles with plain `gcc`/`clang`.
+- **CMake and Ninja** — required for the static builds of libuv, libzip, and libexpat.
 - **Node.js 18+ and npm** — only needed to develop or package the VS Code extension.
+
+#### System Dependencies for Linux & macOS
+
+On Linux and macOS, compiling the language runtime and native dependencies requires development packages (including `pkg-config`, `libxml2`, `libcurl`, `mbedtls`, `libmicrohttpd`, `sqlite3`, `openssl`, X11, OpenGL):
+
+**Fedora / RHEL:**
+```bash
+sudo dnf install -y @development-tools \
+    cmake ninja-build pkgconf-pkg-config gcc gcc-c++ \
+    zlib-ng-devel pcre2-devel libxml2-devel libcurl-devel \
+    mbedtls-devel libmicrohttpd-devel sqlite-devel openssl-devel \
+    libX11-devel libXcursor-devel libXrandr-devel libXinerama-devel \
+    libXi-devel mesa-libGL-devel
+```
+
+**Ubuntu / Debian:**
+```bash
+sudo apt-get update && sudo apt-get install -y \
+    build-essential cmake ninja-build pkg-config gcc g++ \
+    libxml2-dev libcurl4-openssl-dev libmbedtls-dev \
+    libmicrohttpd-dev libsqlite3-dev libssl-dev \
+    libpcre2-dev zlib1g-dev libx11-dev libxcursor-dev \
+    libxrandr-dev libxinerama-dev libxi-dev libgl1-mesa-dev
+```
+
+**Arch Linux:**
+```bash
+sudo pacman -S --needed base-devel cmake ninja pkgconf gcc \
+    libxml2 curl mbedtls libmicrohttpd sqlite openssl \
+    pcre2 zlib libx11 libxcursor libxrandr libxinerama libxi mesa
+```
+
+**macOS (Homebrew):**
+```bash
+brew install cmake ninja pkg-config libxml2 curl mbedtls libmicrohttpd sqlite openssl
+```
 
 ### Setup
 

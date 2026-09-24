@@ -7,33 +7,37 @@ This directory contains the standalone distribution of the **PenguScript Compile
 ## Directory Structure
 
 ```
+\
 pengucc_build/
-├── pengu .exe                # Standalone PenguScript CLI (Compiler + Build Manager + LSP)
-├── pengus-0.10.0.vsix         # VS Code Extension (Syntax, LSP, Go-To-Definition, Cargo Commands)
-├── std/                      # Complete Standard Library (24 modules)
-│   ├── spark.pengu
-│   ├── oracle.pengu
-│   ├── ward.pengu
-│   ├── trial.pengu
-│   └── ... (all .pengu modules)
-└── runtime/                  # C Runtime and static dependencies
-    ├── pengu_runtime.h       # Master runtime header
-    ├── libpengu_runtime.a    # Static runtime library
-    └── include/              # Header files for regex, XML, crypto, HTTP, etc.
+├── bin/pengu                        # Standalone CLI + LSP server
+├── lib/pengu/*.a                    # Runtime static libraries
+├── include/pengu/*.h                # Runtime + dependency headers
+├── share/pengu/std/                 # Standard library modules
+├── share/pengu/VERSION
+├── pengus-0.14.0.vsix     # VS Code extension
+├── install.sh                       # FHS installer (PREFIX/DESTDIR aware)
+└── uninstall.sh
 ```
 
 ---
 
 ## Quick Start
 
-### 1. Add PenguScript to your PATH
-Add `D:\Proyectos\PenguScript\pengucc_build` to your system `PATH` environment variable to access `pengu` from any terminal or command prompt.
+\
+### 1. Install
+
+```bash
+./install.sh                         # ~/.local
+PREFIX=/usr/local sudo ./install.sh  # system-wide
+DESTDIR=/tmp/stage PREFIX=/usr ./install.sh   # package-manager staging
+```
+
 
 ### 2. Install the VS Code Extension
 1. Open Visual Studio Code.
 2. Go to **Extensions** (`Ctrl+Shift+X`).
 3. Click the `...` menu (Views and More Actions) in the top-right corner.
-4. Select **Install from VSIX...** and choose `D:\Proyectos\PenguScript\pengucc_build\pengus-0.10.0.vsix`.
+4. Select **Install from VSIX...** and choose `/home/tugatito/Documentos/GitHub/PenguScript/pengucc_build/pengus-0.14.0.vsix`.
 
 ### 3. Create a new project
 ```bash

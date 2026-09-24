@@ -43,6 +43,10 @@ IS_WINDOWS = sys.platform.startswith("win")
 IS_DARWIN = sys.platform.startswith("darwin")
 IS_POSIX = not IS_WINDOWS
 
+_venv_bin = Path(sys.executable).resolve().parent
+if str(_venv_bin) not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = str(_venv_bin) + os.pathsep + os.environ.get("PATH", "")
+
 
 def platform_machine():
     """Returns the CPU architecture of the host (normalized)."""
@@ -228,8 +232,13 @@ def build_libxml2(cc, ar, rebuild=False):
         # libxml2's build system is autotools-only for this vintage; a static
         # build would need a platform-generated config.h. On POSIX hosts we
         # link the system libxml2 (dev package; headers under the standard
-        # pkg-config include dir). The bundled 2.9.0 headers are NOT staged
-        # here so the native system headers stay in charge.
+        # pkg-config include dir). If pkg-config has no headers, stage the
+        # bundled 2.9.0 headers so pengu_runtime.c can compile.
+        if not _pkg_config_cflags("libxml-2.0"):
+            xml_include_dst = INCLUDE_DIR / "libxml"
+            xml_include_dst.mkdir(parents=True, exist_ok=True)
+            for h in (xml_dir / "include" / "libxml").glob("*.h"):
+                shutil.copy2(h, xml_include_dst / h.name)
         print("[LIBXML2] Skipped on this platform (uses system libxml2).")
         return None
 
@@ -369,8 +378,13 @@ def build_curl(cc, ar, rebuild=False):
     if IS_POSIX:
         # The static curl build is Windows-tuned (config-win32.h,
         # system_win32.c, schannel TLS). On POSIX hosts the system libcurl
-        # (dev package) is used instead and its headers are NOT staged here so
-        # the native system headers stay in charge.
+        # (dev package) is used instead. If pkg-config has no headers,
+        # stage the bundled headers so pengu_runtime.c can compile.
+        if not _pkg_config_cflags("libcurl"):
+            curl_inc_dst = INCLUDE_DIR / "curl"
+            curl_inc_dst.mkdir(parents=True, exist_ok=True)
+            for h in (curl_dir / "include" / "curl").glob("*.h"):
+                shutil.copy2(h, curl_inc_dst / h.name)
         print("[CURL] Skipped on this platform (uses system libcurl).")
         return None
 
@@ -462,9 +476,12 @@ def build_microhttpd(cc, ar, rebuild=False):
         raise FileNotFoundError(f"libmicrohttpd source directory not found: {mhd_dir}")
 
     if IS_POSIX:
-        # The bundled 1.0.1 header mixes POSIX and <winsock2.h> includes and
-        # cannot compile on POSIX hosts; use the system libmicrohttpd (dev
-        # package) and its native headers there.
+        # The bundled microhttpd static build relies on Win32-specific glue;
+        # on POSIX use the system libmicrohttpd. If pkg-config has no headers,
+        # stage the bundled header so pengu_runtime.c can compile.
+        if not _pkg_config_cflags("libmicrohttpd"):
+            INCLUDE_DIR.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(mhd_dir / "src" / "include" / "microhttpd.h", INCLUDE_DIR / "microhttpd.h")
         print("[MICROHTTPD] Skipped on this platform (uses system libmicrohttpd).")
         return None
 
@@ -681,6 +698,9 @@ def build_xlsxio(cc, ar, rebuild=False):
     if done and not rebuild:
         print("[XLSXIO] libxlsxio_*.a are up to date.")
         return LIB_DIR / "libxlsxio_read.a"
+    if not (INCLUDE_DIR / "zipconf.h").exists():
+        print("[XLSXIO] Skipped: zipconf.h not found (libzip build was skipped).")
+        return None
     libdir = src / "lib"
     objdir = BUILD_DIR / "obj_xlsxio_lib"
     objdir.mkdir(parents=True, exist_ok=True)

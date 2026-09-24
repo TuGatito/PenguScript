@@ -501,9 +501,21 @@ class SymbolTable:
 
 def get_stdlib_dirs(base_abs: str) -> List[str]:
     """Returns list of candidate directories containing standard library modules."""
+    candidates: List[str] = []
+    try:
+        from pengu_paths import std_dirs
+        for d in std_dirs():
+            s = str(d)
+            if os.path.isdir(s):
+                ap = os.path.abspath(s)
+                if ap not in candidates:
+                    candidates.append(ap)
+    except ImportError:
+        pass
+
     exe_dir = os.path.dirname(os.path.abspath(sys.executable))
     meipass = getattr(sys, "_MEIPASS", "")
-    candidates = [
+    legacy_candidates = [
         os.path.join(base_abs, "std"),
         os.path.join(exe_dir, "std"),
         os.path.join(exe_dir, "..", "std"),
@@ -512,9 +524,15 @@ def get_stdlib_dirs(base_abs: str) -> List[str]:
         os.path.join(os.path.dirname(__file__), "..", "std"),
         os.path.join(os.path.expanduser("~"), ".pengu", "std"),
     ]
-    if os.environ.get("PENGU_STD_PATH"):
-        candidates.insert(0, os.environ["PENGU_STD_PATH"])
-    return [os.path.abspath(p) for p in candidates if p and os.path.isdir(p)]
+    env_std = os.environ.get("PENGU_STD_DIR") or os.environ.get("PENGU_STD_PATH")
+    if env_std:
+        legacy_candidates.insert(0, env_std)
+    for p in legacy_candidates:
+        if p and os.path.isdir(p):
+            ap = os.path.abspath(p)
+            if ap not in candidates:
+                candidates.append(ap)
+    return candidates
 
 
 def find_module_path(base_dir: str, dot_path: str, from_dir: Optional[str] = None) -> Optional[str]:

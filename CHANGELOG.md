@@ -2,6 +2,17 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.14.0] - 2026-09-24
+
+### Añadido (empaquetado y arquitectura)
+
+- **Nuevo módulo `pengu_paths.py` para localización unificada de artefactos**: Se centraliza la detección del runtime (`pengu_runtime.h`), bibliotecas estáticas (`*.a`), biblioteca estándar (`std/*.pengu`) y archivo `VERSION` en `pengu_paths.py`. Soporta 4 layouts ordenados por prioridad: FHS (`$PREFIX/{bin,lib/pengu,include/pengu,share/pengu}`), bundle portable (`<exe_dir>/{runtime/{lib,include},std,VERSION}`), source checkout de desarrollo (`<repo>/{build/{lib,include},std,VERSION}`) y payload de PyInstaller (`_MEIPASS`). Se implementan overrides directos por variables de entorno: `PENGU_PREFIX`, `PENGU_INCLUDE_DIR`, `PENGU_LIB_DIR`, `PENGU_STD_DIR`, `PENGU_STD_PATH`, `PENGU_VERSION_FILE` y `PENGU_RUNTIME_HEADER`.
+- **Layout de distribución FHS para Linux y macOS (`--layout fhs`)**: `make_release.py` incorpora el flag `--layout {portable,fhs}` (con `portable` como default intacto para Windows y entornos autocontenidos). El layout FHS estructura la salida en `bin/pengu`, `lib/pengu/*.a`, `include/pengu/*.h` y `share/pengu/{std/,VERSION}`.
+- **Generación de scripts de instalación y desinstalación (`install.sh` y `uninstall.sh`)**: En modo FHS, `make_release.py` genera scripts POSIX que soportan instalación a nivel de usuario (`PREFIX=$HOME/.local`), instalación de sistema (`PREFIX=/usr/local`) y staging para empaquetadores de distribuciones mediante `DESTDIR`.
+- **Inyección de flags `pkg-config` en sistemas POSIX**: En `pengu_project.py::build_compile_commands`, se consultan dinámicamente cflags y link flags mediante `pkg-config` para dependencias de sistema en Linux/macOS (`libxml-2.0`, `libcurl`, `libmicrohttpd`, `mbedtls`), además de agregar las rutas de cabeceras y bibliotecas de Homebrew (`/opt/homebrew` y `/usr/local`) en compilaciones POSIX.
+- **Resolución nativa de la librería estándar en FHS**: Se actualizó `pengu_symbols.py::get_stdlib_dirs` para consultar `pengu_paths.std_dirs()`, permitiendo que ejecutables standalone en `$PREFIX/bin/pengu` resuelvan automáticamente módulos `import std.*` desde `$PREFIX/share/pengu/std`.
+- **Copia de versión en bundles portables y delegación en `pengu_version.py`**: `pengu_version.py::read_version_file` delega en `pengu_paths.find_version_file()`, asegurando que `pengu --version` y banners del compilador lean la versión correcta en cualquier instalación o empaquetado.
+
 ## [0.13.14] - 2026-09-18
 
 ### Corregido (alto)

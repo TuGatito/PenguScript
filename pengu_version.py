@@ -18,7 +18,7 @@ import re
 from typing import Optional
 
 #: Version used when the ``VERSION`` file cannot be read (frozen/packaged runs).
-FALLBACK_VERSION = "0.13.14"
+FALLBACK_VERSION = "0.14.0"
 
 #: Root of the source checkout (the directory that holds ``VERSION``).
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -35,7 +35,15 @@ def read_version_file(path: Optional[str] = None) -> Optional[str]:
     Returns:
         The version string, or None when the file is missing or malformed.
     """
-    version_path = path or os.path.join(ROOT_DIR, "VERSION")
+    if path:
+        version_path = path
+    else:
+        try:
+            from pengu_paths import find_version_file
+            found = find_version_file()
+            version_path = str(found) if found else os.path.join(ROOT_DIR, "VERSION")
+        except ImportError:
+            version_path = os.path.join(ROOT_DIR, "VERSION")
     try:
         with open(version_path, "r", encoding="utf-8") as handle:
             text = handle.read()

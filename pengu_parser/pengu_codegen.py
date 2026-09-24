@@ -25,7 +25,7 @@ from lark import Tree, Token
 try:  # The toolchain root (which holds VERSION) is the parent package directory.
     from pengu_version import __version__ as PENGU_VERSION
 except ImportError:  # pragma: no cover - vendored/frozen fallback, guarded by tests
-    PENGU_VERSION = "0.13.14"
+    PENGU_VERSION = "0.14.0"
 
 from pengu_parser.pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ManyType, ListType, MapType, MaybeType,

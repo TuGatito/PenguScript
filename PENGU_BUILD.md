@@ -171,4 +171,54 @@ y auto-detecta en `build/lib` los archivos estáticos adicionales (`-lsqlite3 -l
 `std.nanosvg` y `std.nanosvgrast` declaran el surface C nativo (`.d.pengu`),
 generado con `pengu bind` y verificado con `pengu check`.
 
+---
+
+## 5. Linux/macOS distribution layouts
+
+PenguScript supports two release layouts; both are produced by `make_release.py`
+and consumed transparently by `pengu`/`pengu.exe` via the `pengu_paths` module.
+
+### Portable (`--layout portable`, default)
+
+```
+pengucc_build/
+├── pengu                # binary
+├── std/
+└── runtime/
+    ├── pengu_runtime.h
+    ├── lib/*.a
+    └── include/*.h
+```
+
+Copy anywhere and add to `PATH`. `pengu` looks for the runtime next to the
+binary (`<exe_dir>/runtime/…`).
+
+### FHS (`--layout fhs`, Linux/macOS)
+
+```
+pengucc_build/
+├── bin/pengu
+├── lib/pengu/*.a
+├── include/pengu/*.h
+├── share/pengu/std/
+├── share/pengu/VERSION
+├── install.sh
+└── uninstall.sh
+```
+
+Install with:
+
+```bash
+./install.sh                            # ~/.local
+PREFIX=/usr/local sudo ./install.sh     # /usr/local
+DESTDIR=/tmp/stage PREFIX=/usr ./install.sh   # package-manager staging
+```
+
+At runtime the CLI derives its prefix from `sys.executable` (e.g.
+`~/.local/bin/pengu` → prefix `~/.local`) and probes
+`$PREFIX/{include,lib,share}/pengu`. Overrides: `PENGU_PREFIX`,
+`PENGU_INCLUDE_DIR`, `PENGU_LIB_DIR`, `PENGU_STD_DIR`, `PENGU_VERSION_FILE`,
+`PENGU_RUNTIME_HEADER`.
+
+
 

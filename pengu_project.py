@@ -43,6 +43,16 @@ from pengu_parser.pengu_errors import ErrorReporter, PenguError
 from pengu_parser.pengu_codegen import PenguCodegen
 from pengu_parser.pengu_comptime import main_flag_requested, parse_cli_defines
 from pengu_version import __version__ as PENGU_VERSION
+from pengu_paths import (
+    find_runtime_header,
+    runtime_include_dirs,
+    runtime_lib_dirs,
+    std_dirs,
+    version_files,
+    pkg_config_cflags,
+    pkg_config_libs,
+)
+
 
 
 def file_content_digest(path: str) -> str:
@@ -528,43 +538,29 @@ class PenguBuilder:
     def locate_and_copy_runtime(self, dest_dir: str) -> str:
         """Locates pengu_runtime.h and copies it to destination directory if needed.
 
-        Args:
-            dest_dir: Target directory path where bundle.c is generated.
-
-        Returns:
-            Path to copied pengu_runtime.h.
-
-        Raises:
-            FileNotFoundError: If pengu_runtime.h cannot be found in search candidates.
+        Search is delegated to ``pengu_paths`` so that FHS installs
+        (``$PREFIX/include/pengu``), portable bundles (``<exe_dir>/runtime``),
+        source checkouts (``build/include``) and PyInstaller ``_MEIPASS``
+        payloads are all handled uniformly.
         """
-        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
-        meipass = getattr(sys, "_MEIPASS", "")
-        candidates = [
-            os.path.join(self.config.base_dir, "pengu_runtime.h"),
-            os.path.join(self.config.base_dir, "pengu_parser", "pengu_runtime.h"),
-            os.path.join(self.config.base_dir, "runtime", "pengu_runtime.h"),
-            os.path.join(self.config.base_dir, "build", "include", "pengu_runtime.h"),
-            os.path.join(exe_dir, "runtime", "include", "pengu_runtime.h"),
-            os.path.join(exe_dir, "runtime", "pengu_runtime.h"),
-            os.path.join(exe_dir, "pengu_runtime.h"),
-            os.path.join(exe_dir, "..", "runtime", "pengu_runtime.h"),
-            os.path.join(meipass, "runtime", "include") if meipass else "",
-            os.path.join(meipass, "runtime") if meipass else "",
-            os.path.join(meipass, "pengu_runtime.h") if meipass else "",
-            os.path.join(os.path.dirname(__file__), "pengu_runtime.h"),
-            os.path.join(os.path.dirname(__file__), "pengu_parser", "pengu_runtime.h"),
-        ]
-
-        found_src = None
-        for cand in candidates:
-            if cand and os.path.isfile(cand):
-                found_src = os.path.abspath(cand)
-                break
+        # The project root may ship its own pengu_runtime.h (vendored runtime);
+        # honour it first, then fall back to the toolchain-wide search.
+        project_local = os.path.join(self.config.base_dir, "pengu_runtime.h")
+        found_src: Optional[str] = None
+        if os.path.isfile(project_local):
+            found_src = os.path.abspath(project_local)
+        else:
+            found = find_runtime_header()
+            if found is not None:
+                found_src = str(found)
 
         if not found_src:
             raise FileNotFoundError(
-                "Cannot locate 'pengu_runtime.h'. Place pengu_runtime.h in project root or pengu_parser/"
+                "Cannot locate 'pengu_runtime.h'. Run 'python build_runtime.py', "
+                "install the PenguScript runtime (e.g. via install.sh), or set "
+                "PENGU_INCLUDE_DIR / PENGU_RUNTIME_HEADER to override the search path."
             )
+
 
         dest_file = os.path.join(dest_dir, "pengu_runtime.h")
         if os.path.abspath(found_src) != os.path.abspath(dest_file):
@@ -664,24 +660,18 @@ class PenguBuilder:
             if os.path.isdir(abs_inc) and abs_inc not in dirs:
                 dirs.append(abs_inc)
 
-        # 4. Standard runtime candidates
-        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
-        meipass = getattr(sys, "_MEIPASS", "")
-        extra_inc_candidates = [
-            os.path.join(self.config.base_dir, "build", "include"),
-            os.path.join(self.config.base_dir, "runtime", "include"),
-            os.path.join(self.config.base_dir, "runtime"),
-            os.path.join(exe_dir, "runtime", "include"),
-            os.path.join(exe_dir, "runtime"),
-            os.path.join(exe_dir, "..", "runtime"),
-            os.path.join(meipass, "runtime", "include") if meipass else "",
-            os.path.join(meipass, "runtime") if meipass else "",
-        ]
-        for extra in extra_inc_candidates:
-            if extra and os.path.isdir(extra):
-                abs_e = os.path.abspath(extra)
-                if abs_e not in dirs:
-                    dirs.append(abs_e)
+        # 4. Toolchain runtime include dirs (source checkout, portable bundle,
+        #    FHS install, PyInstaller _MEIPASS).  Also covers <project>/runtime
+        #    when the user vendored the runtime into the project tree.
+        for extra_dir in (self.config.base_dir,):
+            for sub in ("build/include", "runtime/include", "runtime"):
+                p = os.path.join(extra_dir, sub)
+                if os.path.isdir(p) and p not in dirs:
+                    dirs.append(p)
+        for extra in runtime_include_dirs():
+            s = str(extra)
+            if os.path.isdir(s) and s not in dirs:
+                dirs.append(s)
 
         return dirs
 
@@ -728,24 +718,17 @@ class PenguBuilder:
             if os.path.isdir(abs_ld) and abs_ld not in lib_dirs:
                 lib_dirs.append(abs_ld)
 
-        # 4. Standard runtime candidates
-        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
-        meipass = getattr(sys, "_MEIPASS", "")
-        extra_lib_candidates = [
-            os.path.join(self.config.base_dir, "build", "lib"),
-            os.path.join(self.config.base_dir, "runtime", "lib"),
-            os.path.join(self.config.base_dir, "runtime"),
-            os.path.join(exe_dir, "runtime", "lib"),
-            os.path.join(exe_dir, "runtime"),
-            os.path.join(exe_dir, "..", "runtime"),
-            os.path.join(meipass, "runtime", "lib") if meipass else "",
-            os.path.join(meipass, "runtime") if meipass else "",
-        ]
-        for extra in extra_lib_candidates:
-            if extra and os.path.isdir(extra):
-                abs_e = os.path.abspath(extra)
-                if abs_e not in lib_dirs:
-                    lib_dirs.append(abs_e)
+        # 4. Toolchain runtime lib dirs (source checkout, portable bundle,
+        #    FHS install, PyInstaller _MEIPASS), plus a project-local runtime/
+        #    vendored next to the project.
+        for sub in ("build/lib", "runtime/lib", "runtime"):
+            p = os.path.join(self.config.base_dir, sub)
+            if os.path.isdir(p) and p not in lib_dirs:
+                lib_dirs.append(p)
+        for extra in runtime_lib_dirs():
+            s = str(extra)
+            if os.path.isdir(s) and s not in lib_dirs:
+                lib_dirs.append(s)
 
         # 5. Automatically detect libraries to link in all lib_dirs
         for ld in lib_dirs:
@@ -1032,6 +1015,21 @@ class PenguBuilder:
         # Ensure build_dir is included in include search path for pengu_runtime.h
         common_flags.append(f"-I{build_dir}")
 
+        # POSIX: the runtime is linked against the system libxml2 / libcurl /
+        # libmicrohttpd (build_runtime.py skips the Windows-tuned static
+        # builds there), so we must ask pkg-config where their headers live.
+        # Plain clang on macOS does not search the Homebrew prefix by
+        # default, so we also add it explicitly.
+        if not is_win:
+            for pkg in ("libxml-2.0", "libcurl", "libmicrohttpd", "mbedtls"):
+                for tok in pkg_config_cflags(pkg):
+                    if tok not in common_flags:
+                        common_flags.append(tok)
+            for brew_inc in ("/opt/homebrew/include", "/usr/local/include"):
+                flag = f"-I{brew_inc}"
+                if os.path.isdir(brew_inc) and flag not in common_flags:
+                    common_flags.append(flag)
+
         # Include directories (-I)
         include_dirs = self.collect_include_dirs()
         for inc in include_dirs:
@@ -1078,14 +1076,21 @@ class PenguBuilder:
                         "-lpsapi", "-luserenv", "-liphlpapi",
                     ])
                 else:
-                    # POSIX: prefer the static archives in build/lib (searched
-                    # first via -L) but fall back to the system libraries for
-                    # the ones build_runtime.py skips on this platform
-                    # (libxml2/libcurl/libmicrohttpd on Linux/macOS). Plain
-                    # clang does not search the Homebrew prefix by default.
+                    # POSIX: prefer the static archives shipped by the runtime
+                    # (searched first via -L) but fall back to the system
+                    # libraries for the ones build_runtime.py skips on this
+                    # platform (libxml2/libcurl/libmicrohttpd on Linux/macOS).
+                    # Plain clang does not search the Homebrew prefix by default.
                     for brew_lib in ("/opt/homebrew/lib", "/usr/local/lib"):
                         if os.path.isdir(brew_lib) and f"-L{brew_lib}" not in link_flags:
                             link_flags.append(f"-L{brew_lib}")
+                    # pkg-config also contributes the exact -L / -l flags the
+                    # distro's dev packages need (matters for multiarch paths
+                    # such as /usr/lib/x86_64-linux-gnu).
+                    for pkg in ("libxml-2.0", "libcurl", "libmicrohttpd", "mbedtls"):
+                        for tok in pkg_config_libs(pkg):
+                            if tok not in link_flags:
+                                link_flags.append(tok)
             else:
                 link_flags.append(f"-l{link}")
 
