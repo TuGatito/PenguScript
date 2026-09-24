@@ -133,7 +133,7 @@ transmute size of try defined not and or lambda null true false maybe none error
 
 `frozen` and `borrowed` are **soft** keywords:
 - `frozen` only acts in type position (`frozen T`, `ref to frozen T`); identifiers named `frozen` keep working everywhere else. See [§9.5](#95-frozen--read-only-qualification).
-- `borrowed` only acts immediately following `var` or `let` (`var borrowed x is ...`, `let borrowed x is ...`); identifiers named `borrowed` keep working everywhere else (fields, parameters, functions, etc.). See [§5.4](#54-the-borrowed-modifier) and [§13.4](#134-scope-owned-locals-auto-banish).
+- `borrowed` only acts immediately following `var` or `let` (`var borrowed x is ...`, `let borrowed x is ...`); in any other context, the parser treats `borrowed` as a standard identifier `NAME` (fields, parameters, functions, etc.). See [§5.4](#54-the-borrowed-modifier) and [§13.4](#134-scope-owned-locals-auto-banish).
 
 ---
 
@@ -1190,11 +1190,14 @@ Semantics and codegen:
 - `maybe T` / `result of T to E` are value containers in C
   (`PenguMaybe`/`PenguResult`). Present values are heap copies inside the
   container.
+- `result of T to E` exposes three inspection fields:
+  - `res.is_ok` (`bool`): `true` when the operation succeeded.
+  - `res.value` (`T`): the success payload (only safe to access when `res.is_ok` is `true`).
+  - `res.error` / `res.err` (`E`): the error payload (only safe to access when `res.is_ok` is `false`).
 - `or else` yields the fallback lazily on absence/error (ternary in a GNU
   statement-expression).
 - `or return X` returns `X` from the enclosing function on failure.
-- `or:` runs a handler block; the failure is bound to `error` (only legal
-  inside `or:` → `E0015`).
+- `or:` runs a handler block; the failure payload is bound to the contextual variable `error` (of type `string` for `maybe T` or `E` for `result of T to E`). Referencing `error` outside an `or:` handler is a compile-time semantic error (`E0015`).
 - `try expr` unwraps and **propagates** to the caller: allowed only inside a
   function whose return type is `maybe T` (for a maybe operand) or a
   compatible `result` (error type must match) — otherwise `E0045`. On failure
@@ -1390,6 +1393,7 @@ A variable is **not** auto-banished when:
 - It is a scalar type (`int`, `bool`, `float`, etc.), a reference (`ref to T`), a `maybe T`, a `result of T to E`, a rune/echo/omen, a stack array (`array of T with size N`), or a non-owning slice (`slice of T`).
 - It is initialized with a string constant / literal (`var s is "hello"`): the underlying `PenguString` references static `.rodata` memory and does not require heap deallocation.
 - It is declared with the `borrowed` modifier.
+- It is a nominal seal (`seal S as string`): nominal seals convey type opacity and do **not** participate in automatic scope deallocation even when wrapping `string`, `list of T`, or `map of K to V`. Explicit disposal with `banish` requires converting or casting back: `var s as string is (my_seal to string); banish s`.
 - It is reassigned with `set` within the same scope.
 - It escapes into a persistent container, data structure, outer variable, or is returned to the caller.
 
@@ -1667,7 +1671,7 @@ var cols as int is ((m at 0) length)   # 3
   `[None]` size.
 - A 2-D array decays for C interop as `T (*)[inner]` (only the outer dimension is
   dropped), so it can be passed where a `ref to array of T with size N` is
-  expected; `m at 0` is a `ref to f32` to the first row.
+  expected; `m at 0` yields the first row (an `array of f32 with size 3`), which decays to `ref to f32` for element pointer interop.
 - Like every fixed array, a 2-D array needs an initializer (`is [[…]]`); an
   indented literal (see §15.4) is the readable spelling for bigger grids.
 
@@ -1994,7 +1998,7 @@ const ASSET_LOGO_PNG_A731E040 as string is "logo.png"
 const ASSET_SHADERS_GRAYSCALE_FS_E362493E as string is "shaders/grayscale.fs"
 ```
 
-You can pass either the generated constant (`arca.ASSET_LOGO_PNG_A731E040`) or the string literal (`"logo.png"` / `"shaders/grayscale.fs"`). Run `pengu assets --list` to view all constants and file sizes.
+You can pass either the generated constant (`arca.ASSET_LOGO_PNG_A731E040`) or the string literal (`"logo.png"` / `"shaders/grayscale.fs"`). For the default module `arca`, constants are prefixed with `ASSET_`; for a custom module `module: X`, the prefix is `ASSET_X_` (e.g. `ASSET_RECURSOS_LOGO_PNG_A731E040`). Run `pengu assets --list` to view all constants and file sizes.
 
 #### Usage Examples
 

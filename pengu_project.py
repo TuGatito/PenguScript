@@ -16,6 +16,7 @@ import shutil
 import hashlib
 import argparse
 import subprocess
+import re
 from enum import Enum
 from pathlib import Path
 from typing import List, Dict, Optional, Any, Tuple, Set
@@ -1208,8 +1209,25 @@ class PenguBuilder:
             return []
 
         elif out_type == OutputType.OBJ:
-            cmd = [cc, "-c", bundle_path] + c_sources + ["-o", output_path] + common_flags
-            commands.append(cmd)
+            if not c_sources:
+                cmd = [cc, "-c", bundle_path, "-o", output_path] + common_flags
+                commands.append(cmd)
+            else:
+                temp_objs = [os.path.join(build_dir, "bundle.o")]
+                cmd_bundle = [cc, "-c", bundle_path, "-o", temp_objs[0]] + common_flags
+                commands.append(cmd_bundle)
+
+                for i, c_file in enumerate(c_sources):
+                    c_base = os.path.splitext(os.path.basename(c_file))[0]
+                    c_obj = os.path.join(build_dir, f"{c_base}_{i}.o")
+                    temp_objs.append(c_obj)
+                    commands.append([cc, "-c", c_file, "-o", c_obj] + common_flags)
+
+                if is_win and ("cl" in cc.lower() or "msvc" in cc.lower()):
+                    cmd_combine = ["link", "-lib", f"/OUT:{output_path}"] + temp_objs
+                else:
+                    cmd_combine = [cc, "-r", "-nostdlib", "-o", output_path] + temp_objs
+                commands.append(cmd_combine)
 
         elif out_type == OutputType.STATIC:
             temp_objs = [os.path.join(build_dir, "bundle.o")]
@@ -1567,10 +1585,25 @@ def _update_config_dependency(base_dir: str, dep_name: str, source: str, branch:
             json.dump(data, f, indent=2)
 
     elif ext == ".toml":
-        with open(cfg_file, "a", encoding="utf-8") as f:
-            f.write(f'\n[dependencies.{dep_name}]\nurl = "{source}"\n')
+        content = ""
+        if os.path.isfile(cfg_file):
+            with open(cfg_file, "r", encoding="utf-8") as f:
+                content = f.read()
+        section = f"[dependencies.{dep_name}]"
+        if section in content:
+            pattern = re.compile(rf"\[dependencies\.{re.escape(dep_name)}\][^\[]*", re.MULTILINE)
+            block = f'[dependencies.{dep_name}]\nurl = "{source}"\n'
             if branch:
-                f.write(f'branch = "{branch}"\n')
+                block += f'branch = "{branch}"\n'
+            content = pattern.sub(block, content, count=1)
+            with open(cfg_file, "w", encoding="utf-8") as f:
+                f.write(content)
+        else:
+            with open(cfg_file, "a", encoding="utf-8") as f:
+                f.write(f'\n[dependencies.{dep_name}]\nurl = "{source}"\n')
+                if branch:
+                    f.write(f'branch = "{branch}"\n')
+
 
 
 def _run_dependency_build(target_dir: str, dep_name: str) -> bool:
@@ -2084,8 +2117,12 @@ def _watch_and_test(config_path: Optional[str] = None, profile: str = "debug", e
     config = ProjectConfig.load(config_path, profile=profile)
     base_dir = config.base_dir
     # Initial run
-    test_project(config_path=config_path, profile=profile, entry=entry,
-                 defines=defines, cc=cc, verbose=verbose, json_output=json_output)
+    try:
+        test_project(config_path=config_path, profile=profile, entry=entry,
+                     defines=defines, cc=cc, verbose=verbose, json_output=json_output)
+    except Exception as exc:
+        print(f"Initial test failed: {exc}", file=sys.stderr)
+        print("Watching for changes...", file=sys.stderr)
 
     files = _find_watch_files(base_dir)
     mtimes = {f: os.path.getmtime(f) for f in files if os.path.exists(f)}
@@ -2104,8 +2141,9 @@ def _watch_and_test(config_path: Optional[str] = None, profile: str = "debug", e
                 except OSError:
                     pass
             if changed:
-                sys.stdout.write("\033[2J\033[H")
-                sys.stdout.flush()
+                if not json_output:
+                    sys.stdout.write("\033[2J\033[H")
+                    sys.stdout.flush()
                 msg = "\033[1;36m[watching]\033[0m change detected, rebuilding..."
                 print(msg, file=sys.stderr if json_output else sys.stdout)
                 try:
@@ -2170,16 +2208,21 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
     env = dict(os.environ)
     env["PENGU_TEST_JSON"] = "1"
     res = subprocess.run([artifact], cwd=config.base_dir, env=env, capture_output=True, text=True)
+    saw_end = False
     if res.stdout:
         for line in res.stdout.splitlines():
             line_s = line.strip()
             if not line_s:
                 continue
             try:
-                json.loads(line_s)
+                obj = json.loads(line_s)
+                if isinstance(obj, dict) and obj.get("event") == "end":
+                    saw_end = True
                 print(line_s)
             except Exception:
                 print(line, file=sys.stderr)
+    if not saw_end:
+        print(json.dumps({"event": "end", "aborted": res.returncode != 0, "exit_code": res.returncode}))
     if res.stderr:
         print(res.stderr, file=sys.stderr, end="" if res.stderr.endswith("\n") else "\n")
     sys.stdout.flush()
@@ -2531,7 +2574,7 @@ def main():
                 total_bytes = 0
                 for rel, full_path in items:
                     sz = full_path.stat().st_size
-                    const_name = _asset_const_name(rel)
+                    const_name = _asset_const_name(rel, module=getattr(config, "assets_module", "arca"))
                     total_bytes += sz
                     print(f"  {rel:40} {const_name:45} {sz:>10} bytes")
                 print(f"Total: {len(items)} asset(s), {total_bytes} bytes")

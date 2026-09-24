@@ -388,6 +388,11 @@ def _same_pointee(a: Type, b: Type) -> bool:
     if isinstance(a, (AnyType, TypeParam)) or isinstance(b, (AnyType, TypeParam)):
         return True
 
+    if isinstance(a, RefType) and isinstance(b, RefType):
+        if _is_frozen_target(a.target) != _is_frozen_target(b.target):
+            return False
+        return _same_pointee(a.target, b.target)
+
     if a == b:
         return True
 
@@ -1428,10 +1433,10 @@ class AliasType(Type):
         return self.target.element_type()
 
     def __eq__(self, other: Any) -> bool:
-        """Checks equality by alias name or target type."""
+        """Checks equality by alias name and target type."""
         if isinstance(other, AliasType):
-            return self.name == other.name
-        return self.target == other
+            return self.name == other.name and self.target == other.target
+        return False
 
     def __hash__(self) -> int:
         """Returns hash of type alias."""
@@ -1784,7 +1789,18 @@ def estimate_size(t: Optional[Type], custom_types: Optional[Dict[str, Type]] = N
         return max_v + 4
 
     if isinstance(t, AliasType):
+        key = f"alias::{t.name}"
+        if key in seen:
+            return 8
+        seen.add(key)
         return estimate_size(t.target, custom_types, seen)
+
+    if isinstance(t, SealType):
+        key = f"seal::{t.name}"
+        if key in seen:
+            return 8
+        seen.add(key)
+        return estimate_size(t.underlying, custom_types, seen)
 
     if isinstance(t, FnType):
         return 8  # Function pointer

@@ -9,7 +9,9 @@ from .pengu_checker import PenguChecker
 from .pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ListType, MapType, MaybeType,
     RuneType, EchoType, OmenType, ResultType, FnType, OPAQUE_TYPE, AliasType, RangeType,
-    CVarArgsType,
+    CVarArgsType, FrozenType, TypeParam, NullType, NULL_TYPE, ConceptType, SealType,
+    AnyType, ManyType, estimate_size, mangle_type, implements_concept,
+    resolve_concept_method, is_opaque_type, ast_to_type,
     INT_TYPE, FLOAT_TYPE, BOOL_TYPE, STRING_TYPE, VOID_TYPE
 )
 from .pengu_symbols import SymbolTable, Symbol, Scope, resolve_imports
@@ -25,7 +27,9 @@ __all__ = [
     "UnknownArrayDimensionError",
     "Type", "BaseType", "RefType", "ArrayType", "SliceType", "ListType", "MapType", "MaybeType",
     "RuneType", "EchoType", "OmenType", "ResultType", "FnType", "OPAQUE_TYPE", "AliasType", "RangeType",
-    "CVarArgsType",
+    "CVarArgsType", "FrozenType", "TypeParam", "NullType", "NULL_TYPE", "ConceptType", "SealType",
+    "AnyType", "ManyType", "estimate_size", "mangle_type", "implements_concept",
+    "resolve_concept_method", "is_opaque_type", "ast_to_type",
 
     "INT_TYPE", "FLOAT_TYPE", "BOOL_TYPE", "STRING_TYPE", "VOID_TYPE",
     "SymbolTable", "Symbol", "Scope", "TypeInferrer", "ConstFolder", "resolve_imports",

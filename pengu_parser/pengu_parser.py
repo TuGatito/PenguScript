@@ -80,7 +80,29 @@ class PenguParser:
                 return "\r\n"
             if line.endswith("\n"):
                 return "\n"
-            return ""
+            return "\n"
+
+        def _strip_inline_comment(line_str: str) -> str:
+            in_str = None
+            escape = False
+            for idx, ch in enumerate(line_str):
+                if escape:
+                    escape = False
+                    continue
+                if ch == '\\' and in_str:
+                    escape = True
+                    continue
+                if in_str:
+                    if ch == in_str:
+                        in_str = None
+                    continue
+                if ch in ('"', "'"):
+                    in_str = ch
+                    continue
+                if ch == '#':
+                    nl = "\r\n" if line_str.endswith("\r\n") else ("\n" if line_str.endswith("\n") else "")
+                    return line_str[:idx].rstrip(" \t") + nl
+            return line_str
 
         out: List[str] = []
         i = 0
@@ -117,7 +139,7 @@ class PenguParser:
                     # Regular single-line '#' comment.
                     out.append(blank(line))
             else:
-                out.append(line)
+                out.append(_strip_inline_comment(line))
             i += 1
         return ''.join(out)
 

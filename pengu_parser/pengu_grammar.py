@@ -449,7 +449,7 @@ do_expr: "do" ":" _NEWLINE _INDENT stmt+ _DEDENT
               | comparison
 
 map_lit: "{" [map_entry ("," map_entry)*] "}"
-map_entry: (NAME | string_token) ":" list_expr
+map_entry: (NAME | string_token | expr) ":" list_expr
 
 string_lit: string_token
 ?string_token: STRING | TRIPLE_STRING | RAW_STRING | RAW_TRIPLE_STRING

@@ -371,12 +371,12 @@ extern "C"
    * @note Usa _exit(134) para evitar el doble dump del signal handler.
    *       Los buffers stdio no se flushan.
    */
-  static inline void pengu_bounds_panic(int32_t idx, int32_t len, const char *loc)
+  static inline void pengu_bounds_panic(int64_t idx, int64_t len, const char *loc)
   {
     char buf[256];
     int n = snprintf(buf, sizeof(buf),
-                     "\n[PENGU] Index out of bounds: %d (length %d) at %s\n",
-                     (int)idx, (int)len, loc ? loc : "?");
+                     "\n[PENGU] Index out of bounds: %lld (length %lld) at %s\n",
+                     (long long)idx, (long long)len, loc ? loc : "?");
     if (n > 0) {
 #if PENGU_WINDOWS
       (void)_write(2, buf, (unsigned int)n);
@@ -388,7 +388,7 @@ extern "C"
     _exit(134);
   }
 
-  static inline void pengu_assert_bounds(int32_t idx, int32_t len, const char *loc)
+  static inline void pengu_assert_bounds(int64_t idx, int64_t len, const char *loc)
   {
 #if PENGU_FRAME_TRACE
     if (idx < 0 || idx >= len) {

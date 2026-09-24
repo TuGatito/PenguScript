@@ -715,14 +715,22 @@ class TypeInferrer:
                 )
 
             seen_keys: Dict[str, str] = {}
+            key_types: List[Type] = []
             value_types: List[Type] = []
+            exp_k = expected_type.key if (expected_type and isinstance(expected_type, MapType)) else None
+            exp_v = expected_type.value if (expected_type and isinstance(expected_type, MapType)) else None
             for entry in entries:
                 key_node = entry.children[0]
                 val_node = entry.children[1]
                 if isinstance(key_node, Token) and key_node.type == "STRING":
                     key_text = str(key_node).strip('"')
+                    key_types.append(STRING_TYPE)
+                elif isinstance(key_node, Token) and key_node.type == "NAME":
+                    key_text = str(key_node)
+                    key_types.append(exp_k or STRING_TYPE)
                 else:
                     key_text = str(key_node)
+                    key_types.append(self.infer(key_node, expected_type=exp_k))
                 if key_text in seen_keys:
                     raise self._make_error(
                         SemanticError,
@@ -733,7 +741,7 @@ class TypeInferrer:
                         note="Map literal keys must not repeat."
                     )
                 seen_keys[key_text] = key_text
-                value_types.append(self.infer(val_node, expected_type=(expected_type.value if (expected_type and isinstance(expected_type, MapType)) else None)))
+                value_types.append(self.infer(val_node, expected_type=exp_v))
 
             value_t = _unify_map_value_types(value_types, node)
             if expected_type is not None and isinstance(expected_type, MapType):
@@ -747,7 +755,8 @@ class TypeInferrer:
                         note="Map value types must match the declared map type."
                     )
                 return MapType(key=expected_type.key, value=expected_type.value)
-            return MapType(key=STRING_TYPE, value=value_t)
+            key_t = _unify_map_value_types(key_types, node) if key_types else STRING_TYPE
+            return MapType(key=key_t, value=value_t)
         elif rule == "maybe_none":
             if expected_type is not None and isinstance(expected_type, MaybeType):
                 return expected_type
@@ -2494,7 +2503,7 @@ class TypeInferrer:
         elif rule in ("add", "sub", "mul", "div", "mod"):
             left_t = self.infer(node.children[0])
             right_t = self.infer(node.children[1])
-            if rule == "add" and (left_t.is_string() or right_t.is_string() or isinstance(left_t, AnyType) or isinstance(right_t, AnyType)):
+            if rule == "add" and (left_t.is_string() or right_t.is_string()):
                 return STRING_TYPE
             if not left_t.is_numeric() and not isinstance(left_t, AnyType):
                 raise self._make_error(
@@ -2516,6 +2525,10 @@ class TypeInferrer:
                 )
             if left_t.is_float() or right_t.is_float():
                 return FLOAT_TYPE
+            if left_t.is_int() or right_t.is_int():
+                return INT_TYPE
+            if isinstance(left_t, AnyType) or isinstance(right_t, AnyType):
+                return AnyType()
             return INT_TYPE
 
         elif rule in ("bitwise_or", "bitwise_and", "bitwise_xor", "shl", "shr"):
@@ -3302,12 +3315,41 @@ class TypeInferrer:
                         if type_resolved is not None or obj_name in self.symbols.runes or obj_name in self.symbols.seals or obj_name in self.symbols.concepts:
                             if (obj_name, m_name) in self.symbols.methods:
                                 m_fn = self.symbols.methods[(obj_name, m_name)]
+                                if not getattr(m_fn, "is_ritual", False):
+                                    raise self._make_error(
+                                        InvalidRitualCallError,
+                                        f"Method '{m_name}' of type '{obj_name}' is an instance method and cannot be called statically without an instance",
+                                        target_node,
+                                        code="E0034",
+                                        help=f"Call as 'instance.{m_name}(...)' instead, or declare as 'weave ritual {m_name}' in 'enchanting {obj_name}:'.",
+                                        note=f"Method '{m_name}' requires an instance."
+                                    )
                                 return m_fn, None
                             if f"{obj_name}_{m_name}" in self.symbols.functions:
-                                return self.symbols.functions[f"{obj_name}_{m_name}"], None
+                                fn_sym = self.symbols.functions[f"{obj_name}_{m_name}"]
+                                if not getattr(fn_sym, "is_ritual", False):
+                                    raise self._make_error(
+                                        InvalidRitualCallError,
+                                        f"Method '{m_name}' of type '{obj_name}' is an instance method and cannot be called statically without an instance",
+                                        target_node,
+                                        code="E0034",
+                                        help=f"Call as 'instance.{m_name}(...)' instead, or declare as 'weave ritual {m_name}' in 'enchanting {obj_name}:'.",
+                                        note=f"Method '{m_name}' requires an instance."
+                                    )
+                                return fn_sym, None
                             for (b_type, b_concept), b_methods in self.symbols.concept_bindings.items():
                                 if b_type == obj_name and m_name in b_methods:
-                                    return b_methods[m_name], None
+                                    m_fn = b_methods[m_name]
+                                    if not getattr(m_fn, "is_ritual", False):
+                                        raise self._make_error(
+                                            InvalidRitualCallError,
+                                            f"Method '{m_name}' of type '{obj_name}' is an instance method and cannot be called statically without an instance",
+                                            target_node,
+                                            code="E0034",
+                                            help=f"Call as 'instance.{m_name}(...)' instead, or declare as 'weave ritual {m_name}' in 'enchanting {obj_name}:'.",
+                                            note=f"Method '{m_name}' requires an instance."
+                                        )
+                                    return m_fn, None
                             raise self._make_error(
                                 UndefinedIdentifierError,
                                 f"Type '{obj_name}' has no ritual method '{m_name}'",

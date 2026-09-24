@@ -782,6 +782,7 @@ class PenguChecker:
                 mod_doc = self._extract_preceding_doc(line) or f"Module `{dot_path}`"
                 self.symbols.global_scope.define(Symbol(
                     name=bind_name,
+                    c_name=last_name,
                     type=RuneType(name=bind_name),
                     kind="import",
                     line=line, column=col,
@@ -4006,10 +4007,13 @@ class PenguChecker:
                 target = n.children[0] if n.children else None
                 method_name = None
                 if isinstance(target, Tree):
-                    for ch in target.children:
-                        if isinstance(ch, Tree) and ch.data == "dot_access" and ch.children:
-                            method_name = str(ch.children[0])
-                            break
+                    if target.data == "with_target" and target.children:
+                        method_name = str(target.children[0])
+                    else:
+                        for ch in target.children:
+                            if isinstance(ch, Tree) and ch.data in ("dot_access", "arrow_access") and ch.children:
+                                method_name = str(ch.children[0])
+                                break
                 if method_name in ("push", "append", "put", "insert", "set"):
                     arg_list = next((c for c in n.children if isinstance(c, Tree) and c.data == "arg_list"), None)
                     if arg_list and self._contains_var_ref(arg_list, sym_name):
