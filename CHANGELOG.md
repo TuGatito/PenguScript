@@ -13,6 +13,10 @@ All notable changes to PenguScript will be documented in this file.
 - **Resolución nativa de la librería estándar en FHS**: Se actualizó `pengu_symbols.py::get_stdlib_dirs` para consultar `pengu_paths.std_dirs()`, permitiendo que ejecutables standalone en `$PREFIX/bin/pengu` resuelvan automáticamente módulos `import std.*` desde `$PREFIX/share/pengu/std`.
 - **Copia de versión en bundles portables y delegación en `pengu_version.py`**: `pengu_version.py::read_version_file` delega en `pengu_paths.find_version_file()`, asegurando que `pengu --version` y banners del compilador lean la versión correcta en cualquier instalación o empaquetado.
 
+### Corregido (compilación y pruebas CI)
+
+- **Aislamiento de bibliotecas del toolchain runtime en detección de auto-links (`pengu_project.py`)**: Se corrigió `PenguBuilder.collect_lib_dirs_and_links` para que la detección automática de bibliotecas (`auto_links`) escanee únicamente los directorios de bibliotecas del proyecto y de bindings (`lib/`, `lib/*/lib/`, `config.lib_dirs`), evitando que los archivos `.a` del runtime del toolchain (`build/lib`, `runtime/lib`) sean vinculados inadvertidamente en binarios donde `links` está vacío o no los requiere. Esto soluciona los fallos en CI (`test_no_hardcoded_raylib_with_empty_links`) en Windows, Linux y macOS.
+
 ## [0.13.14] - 2026-09-18
 
 ### Corregido (alto)

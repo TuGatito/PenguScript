@@ -718,20 +718,9 @@ class PenguBuilder:
             if os.path.isdir(abs_ld) and abs_ld not in lib_dirs:
                 lib_dirs.append(abs_ld)
 
-        # 4. Toolchain runtime lib dirs (source checkout, portable bundle,
-        #    FHS install, PyInstaller _MEIPASS), plus a project-local runtime/
-        #    vendored next to the project.
-        for sub in ("build/lib", "runtime/lib", "runtime"):
-            p = os.path.join(self.config.base_dir, sub)
-            if os.path.isdir(p) and p not in lib_dirs:
-                lib_dirs.append(p)
-        for extra in runtime_lib_dirs():
-            s = str(extra)
-            if os.path.isdir(s) and s not in lib_dirs:
-                lib_dirs.append(s)
-
-        # 5. Automatically detect libraries to link in all lib_dirs
-        for ld in lib_dirs:
+        # 4. Automatically detect libraries to link in project and binding lib_dirs only
+        # (toolchain runtime libraries must be linked explicitly via `link "..."` or config.links)
+        for ld in list(lib_dirs):
             if os.path.isdir(ld):
                 try:
                     for fname in os.listdir(ld):
@@ -742,6 +731,19 @@ class PenguBuilder:
                                 auto_links.append(lname)
                 except Exception:
                     pass
+
+        # 5. Toolchain runtime lib dirs (source checkout, portable bundle,
+        #    FHS install, PyInstaller _MEIPASS), plus a project-local runtime/
+        #    vendored next to the project. These provide search paths (-L) so
+        #    explicit links (e.g. -lpengu_runtime, -lraylib) resolve.
+        for sub in ("build/lib", "runtime/lib", "runtime"):
+            p = os.path.join(self.config.base_dir, sub)
+            if os.path.isdir(p) and p not in lib_dirs:
+                lib_dirs.append(p)
+        for extra in runtime_lib_dirs():
+            s = str(extra)
+            if os.path.isdir(s) and s not in lib_dirs:
+                lib_dirs.append(s)
 
         return lib_dirs, auto_links
 
