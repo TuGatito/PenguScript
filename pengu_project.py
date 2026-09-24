@@ -524,8 +524,12 @@ class PenguBuilder:
             digest.update(file_content_digest(c_file).encode("ascii"))
 
         # Embedded assets content fingerprint
-        assets_dir = os.path.join(self.config.base_dir, getattr(self.config, "assets_dir", "assets"))
-        if os.path.isdir(assets_dir):
+        assets_dir_rel = getattr(self.config, "assets_dir", None)
+        assets_dir = None
+        if assets_dir_rel:
+            assets_dir = (assets_dir_rel if os.path.isabs(assets_dir_rel)
+                          else os.path.join(self.config.base_dir, assets_dir_rel))
+        if assets_dir and os.path.isdir(assets_dir):
             digest.update(b"\0assets_embed\0" + (b"1" if getattr(self.config, "assets_embed", True) else b"0"))
             for root, _, files in os.walk(assets_dir):
                 for f in sorted(files):
@@ -616,14 +620,16 @@ class PenguBuilder:
 
         Returns dict from `pengu_assets.generate()` or None if assets dir does not exist.
         """
-        if not getattr(self.config, "assets_dir", None):
+        assets_dir_rel = getattr(self.config, "assets_dir", None)
+        if not assets_dir_rel:
             return None
         from pathlib import Path
         from pengu_assets import AssetConfig, generate
 
         src_dir = os.path.abspath(os.path.join(self.config.base_dir, self.config.src_dir))
         build_dir = self.get_build_directory()
-        assets_dir = os.path.abspath(os.path.join(self.config.base_dir, self.config.assets_dir))
+        assets_dir = (assets_dir_rel if os.path.isabs(assets_dir_rel)
+                      else os.path.abspath(os.path.join(self.config.base_dir, assets_dir_rel)))
         if not os.path.isdir(assets_dir):
             return None
         cfg = AssetConfig(
@@ -2338,7 +2344,7 @@ def create_cli_parser() -> argparse.ArgumentParser:
     # assets
     assets_p = subparsers.add_parser("assets", help="Generate or inspect embedded asset modules")
     assets_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
-    assets_p.add_argument("--list", action="store_true", help="List tracked assets with sizes and C identifiers")
+    assets_p.add_argument("--list", action="store_true", help="List tracked assets with sizes and PenguScript asset constants")
     assets_p.add_argument("--force", action="store_true", help="Force regeneration ignoring caches")
 
     return parser

@@ -387,16 +387,20 @@ weave main into void:
     print("  [TEST 3b] Testing embedded assets ('arca')...")
     assets_smoke = proj_dir / "assets" / "smoke.txt"
     assets_smoke.write_text("Arca smoke asset OK!", encoding="utf-8")
+    from pengu_assets import _asset_const_name
+    cname = _asset_const_name("smoke.txt")
     src_main.write_text(
-        """import arca
+        f"""import arca
 import std.spark
 import std.ward
 
 weave main into void:
     calling ward.assert_true with calling arca.has with "smoke.txt"
-    var txt as string is calling arca.string with "smoke.txt"
+    calling ward.assert_true with calling arca.has with arca.{cname}
+    var txt as string is calling arca.string with arca.{cname}
     calling spark.println with txt
     calling ward.assert_true with txt == "Arca smoke asset OK!"
+    banish txt
     calling spark.println with "Embedded assets smoke test passed!"
 """,
         encoding="utf-8",

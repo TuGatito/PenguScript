@@ -94,7 +94,7 @@ from tests.conftest import (
     requires_cc,
     requires_runtime,
 )
-from pengu_project import PenguBuilder, ProjectConfig, fmt_files
+from pengu_project import PenguBuilder, ProjectConfig, OutputType, fmt_files
 
 
 def _make_project(proj: Path, source: str, embed: bool = True, module: str = "arca") -> ProjectConfig:
@@ -154,6 +154,7 @@ weave main into int:
     var s as string is calling arca.string with "msg.txt"
     if s != "Hello from embedded assets!":
         return 15
+    banish s
     var b as slice of byte is calling arca.bytes with "data.bin"
     if b length != 4:
         return 16
@@ -313,5 +314,30 @@ def test_disk_mode_caches_missing_files(tmp_path):
     c_text = Path(res["impl"]).read_text(encoding="utf-8")
     assert "int attempted;" in c_text
     assert "e->attempted = 1;" in c_text
+
+
+def test_empty_assets_dir_does_not_walk_project_root(tmp_path):
+    # Simulate a project or script run with assets_dir=""
+    src = tmp_path / "main.pengu"
+    src.write_text("weave main into int:\n    return 0\n", encoding="utf-8")
+    dummy = tmp_path / "large_dummy.dat"
+    dummy.write_bytes(b"x" * 1024)
+
+    cfg = ProjectConfig(
+        entry="main.pengu",
+        base_dir=str(tmp_path),
+        output=OutputType.EXE,
+        output_name="main",
+        name="main",
+        assets_dir="",
+    )
+    builder = PenguBuilder(cfg)
+    fp1 = builder.compute_sources_fingerprint([str(src)])
+
+    # Modifying dummy file in root must NOT change fingerprint when assets_dir is ""
+    dummy.write_bytes(b"y" * 1024)
+    fp2 = builder.compute_sources_fingerprint([str(src)])
+    assert fp1 == fp2
+
 
 

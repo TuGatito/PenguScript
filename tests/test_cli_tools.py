@@ -507,7 +507,13 @@ class TestBuildCommands:
             "bundle.c", "headless_app.exe")
         cmd_str = " ".join(cmds[0])
         assert "-lraylib" not in cmd_str
-        assert "-l" not in cmd_str
+
+        # Check that no *token* starts with "-l" (linker library flag).
+        # A naive `"-l" not in cmd_str` false-positives on path components
+        # like "-I/usr/lib/x86_64-linux-gnu".
+        tokens = cmd_str.split()
+        library_flags = [t for t in tokens if t.startswith("-l")]
+        assert not library_flags, f"unexpected library flags: {library_flags}\n{cmd_str}"
 
     def test_profiles_apply_flags(self, proj_dir):
         from pengu_project import PenguBuilder, OutputType, ProjectConfig
