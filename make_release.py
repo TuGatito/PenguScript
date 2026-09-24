@@ -384,6 +384,27 @@ weave main into void:
     print(run_res.stdout)
     assert "Release smoke test passed!" in run_res.stdout
 
+    print("  [TEST 3b] Testing embedded assets ('arca')...")
+    assets_smoke = proj_dir / "assets" / "smoke.txt"
+    assets_smoke.write_text("Arca smoke asset OK!", encoding="utf-8")
+    src_main.write_text(
+        """import arca
+import std.spark
+import std.ward
+
+weave main into void:
+    calling ward.assert_true with calling arca.has with "smoke.txt"
+    var txt as string is calling arca.string with "smoke.txt"
+    calling spark.println with txt
+    calling ward.assert_true with txt == "Arca smoke asset OK!"
+    calling spark.println with "Embedded assets smoke test passed!"
+""",
+        encoding="utf-8",
+    )
+    run_res_assets = run_cmd([str(exe_path), "run"], cwd=str(proj_dir), capture=True)
+    print(run_res_assets.stdout)
+    assert "Embedded assets smoke test passed!" in run_res_assets.stdout
+
     print("  [SUCCESS] All smoke tests passed!")
 
 
@@ -610,6 +631,7 @@ pengu run
 - `pengu init <name>` : Initializes a new project template with `pengu.toml`.
 - `pengu build`        : Bundles and compiles to executable / static lib / DLL.
 - `pengu run`          : Builds and runs the binary immediately.
+- `pengu assets`       : Inspects (`--list`) or regenerates (`--force`) embedded project assets.
 - `pengu clean`        : Cleans intermediate build artifacts.
 - `pengu lsp`          : Starts the Language Server Protocol (LSP) for VS Code / Neovim.
 """

@@ -40,8 +40,8 @@ PenguScript compiles directly to clean, human-readable **C99/C11** source code, 
 >   **scope-owned locals** (automatic deterministic cleanup on block exit with `borrowed` opt-out),
 >   **module state idioms** (`static var` accessors and context structs),
 >   **C variadic declarations** (`declare ... with fmt as ref to frozen char, ... into int`),
->   **struct literals in array literals**, **pointer indexing** (`p at i`) and generic
->   slice bridging (`ffi.slice_from_ptr shard T`).
+>   **struct literals in array literals**, **pointer indexing** (`p at i`), generic
+>   slice bridging (`ffi.slice_from_ptr shard T`), and **embedded project assets** (`arca`).
 >
 > **What is not there yet (do not plan a production project around these)**
 >
@@ -74,8 +74,9 @@ PenguScript compiles directly to clean, human-readable **C99/C11** source code, 
 - **`pengu bind`** — auto-generates a `.d.pengu` declaration file from any C header (structs → `rune`, unions → `echo`, enums → `omen`, functions → `declare`, callbacks → `alias … as ref to weave`, doc comments preserved). It blanks GNU compiler extensions before parsing, auto-imports the bindings of included headers, and takes `--define/-D`, `--cpp-flags`, `--system-includes`, `--include-paths` and `--preprocessed FILE.i` for headers that need a specific preprocessor setup, with diagnostics that name the offending construct and the flag to try.
 - **Bundled C libraries** — SQLite, Raylib, WebUI, libuv, PCRE2, libxml2, zlib, Mbed TLS, cURL, libmicrohttpd, YAML, XLSX (libzip + libexpat + xlsxio), and TOML are compiled once into static archives and linked automatically.
 - **Rich standard library** — `std/` ships **52 modules**: 27 implemented in pure PenguScript (I/O, strings, files, math, time, regex bindings, HTTP client/server, JSON, CSV, concurrency, logging, unit testing, …) plus 25 curated C declaration bindings (`*.d.pengu`) for the bundled libraries (including **raylib**, **raymath**, and **rlgl**).
+- **Embedded project assets (`arca`)** — embed binary and text assets (textures, shaders, audio, fonts, HTML/JS/CSS, config files) directly into your native binary or stream them from disk with in-memory caching. The CLI generates an ergonomic, fully-typed PenguScript module (`import arca`) with constant names, byte slices, string accessors, and zero-copy pointer views.
 - **Language Server (LSP)** — diagnostics with `help:`/`note:`/line spans, documentation from `#` and `##` doc comments, type & memory-size hovers, module-scoped autocompletion, go-to-definition, formatting, and code actions.
-- **Cargo-style project manager** — the `pengu` CLI creates, builds, runs, tests, checks, cleans, and formats projects, runs standalone scripts, and manages external dependencies.
+- **Cargo-style project manager** — the `pengu` CLI creates, builds, runs, tests, checks, cleans, formats projects, and manages assets via `pengu assets`.
 - **Compile-time features** — `when` conditionals, `defined(...)`, `-D name=value` defines, `static var`, and `when main:` guards so a file can act as both an importable module and a runnable script.
 
 ---
@@ -183,6 +184,7 @@ pengu run hello.pengu
 | `clean`    | Remove the build directory and generated artifacts.                                               |
 | `lsp`      | Launch the Language Server (stdio by default; `--tcp --host … --port …`).                        |
 | `doc`      | Generate a Markdown API reference from `##` doc comments (`-o` sets the output directory).         |
+| `assets`   | Generate or inspect embedded asset modules (`--list`, `--force`).                                 |
 
 ```bash
 pengu init my_app --type exe
@@ -190,6 +192,7 @@ cd my_app
 pengu build                 # debug profile (bounds-checking active)
 pengu build --profile release
 pengu run                   # build + run
+pengu assets --list         # inspect tracked embedded assets
 pengu check                 # type-check everything (CI)
 pengu test                  # run integrated unit tests
 pengu test --json           # emit JSON Lines events for CI

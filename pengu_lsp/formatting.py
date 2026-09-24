@@ -83,6 +83,10 @@ def format_pengu_source(text: str, tab_size: int = 2, insert_spaces: bool = True
     Returns:
         The formatted document text.
     """
+    head = "\n".join(text.splitlines()[:5])
+    if "@generated" in head:
+        return text
+
     lines = text.splitlines()
     formatted_lines: List[str] = []
     indent_unit = " " * tab_size if insert_spaces else "\t"

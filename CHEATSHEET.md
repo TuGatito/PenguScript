@@ -2498,6 +2498,7 @@ Install from the **Extensions** panel → *Install from VSIX…* → select the 
 | `pengu clean` | Remove the build directory and generated artifacts |
 | `pengu lsp` | Launch the Language Server Protocol server |
 | `pengu doc` | Generate Markdown documentation from `##` comments |
+| `pengu assets` | Generate or inspect embedded asset modules (`src/arca.pengu`) |
 
 ### 17.2 Options by command
 
@@ -2515,6 +2516,7 @@ Install from the **Extensions** panel → *Install from VSIX…* → select the 
 | `clean` | `--config/-c` |
 | `lsp` | `--stdio` (default), `--tcp`, `--host` (default `127.0.0.1`), `--port` (default `2087`) |
 | `doc` | `--config/-c`, `--entry/-e`, `--output/-o` (default `<project>/docs`) |
+| `assets` | `--config/-c`, `--list`, `--force` |
 
 `-D` defines feed the compile-time `when` environment: plain `-D NAME` sets `defined(NAME)`; `-D os=…`, `-D arch=…`, `-D compiler=…`, and `-D main` override the context variables (repeatable).
 

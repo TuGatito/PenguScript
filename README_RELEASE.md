@@ -58,5 +58,6 @@ pengu run
 - `pengu init <name>` : Initializes a new project template with `pengu.toml`.
 - `pengu build`        : Bundles and compiles to executable / static lib / DLL.
 - `pengu run`          : Builds and runs the binary immediately.
+- `pengu assets`       : Inspects (`--list`) or regenerates (`--force`) embedded project assets.
 - `pengu clean`        : Cleans intermediate build artifacts.
 - `pengu lsp`          : Starts the Language Server Protocol (LSP) for VS Code / Neovim.

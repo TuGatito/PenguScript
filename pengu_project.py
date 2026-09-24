@@ -17,6 +17,7 @@ import hashlib
 import argparse
 import subprocess
 from enum import Enum
+from pathlib import Path
 from typing import List, Dict, Optional, Any, Tuple, Set
 from dataclasses import dataclass, field
 
@@ -184,6 +185,10 @@ class ProjectConfig:
     })
     profile: str = "debug"
     base_dir: str = field(default_factory=lambda: os.path.abspath(os.getcwd()))
+    assets_dir: str = "assets"
+    assets_module: str = "arca"
+    assets_embed: bool = True
+    assets_exclude: List[str] = field(default_factory=list)
 
     def resolve_entry(self) -> str:
         """Resolves main entry file path checking configured paths, src/ directory, and root.
@@ -355,6 +360,12 @@ class ProjectConfig:
                 if isinstance(p_vals, dict):
                     resolved_profiles[p_name] = p_vals
 
+        assets_sec = data.get("assets", {}) or {}
+        assets_dir = str(assets_sec.get("dir", "assets"))
+        assets_module = str(assets_sec.get("module", "arca"))
+        assets_embed = bool(assets_sec.get("embed", True))
+        assets_exclude = list(assets_sec.get("exclude", []))
+
         return cls(
             name=name,
             version=version,
@@ -377,6 +388,10 @@ class ProjectConfig:
             cc=cc,
             profiles=resolved_profiles,
             base_dir=base_dir,
+            assets_dir=assets_dir,
+            assets_module=assets_module,
+            assets_embed=assets_embed,
+            assets_exclude=assets_exclude,
         )
 
 
@@ -468,6 +483,8 @@ class PenguBuilder:
             "test_mode": bool(getattr(self, "is_test_mode", False)),
             "entry_main": bool(getattr(self, "entry_as_main", False)),
             "cc": str(getattr(self.config, "cc", "") or ""),
+            "assets_embed": bool(getattr(self.config, "assets_embed", True)),
+            "assets_module": str(getattr(self.config, "assets_module", "arca")),
         }, sort_keys=True)
         return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
@@ -505,6 +522,20 @@ class PenguBuilder:
         for c_file in sorted(self.collect_c_sources()):
             digest.update(b"\0csrc\0" + os.path.normcase(os.path.abspath(c_file)).encode("utf-8") + b"\0")
             digest.update(file_content_digest(c_file).encode("ascii"))
+
+        # Embedded assets content fingerprint
+        assets_dir = os.path.join(self.config.base_dir, getattr(self.config, "assets_dir", "assets"))
+        if os.path.isdir(assets_dir):
+            digest.update(b"\0assets_embed\0" + (b"1" if getattr(self.config, "assets_embed", True) else b"0"))
+            for root, _, files in os.walk(assets_dir):
+                for f in sorted(files):
+                    fp = os.path.join(root, f)
+                    try:
+                        rel = os.path.relpath(fp, self.config.base_dir).replace("\\", "/")
+                    except ValueError:
+                        rel = fp
+                    digest.update(b"\0asset\0" + rel.encode("utf-8") + b"\0")
+                    digest.update(file_content_digest(fp).encode("ascii"))
 
         return digest.hexdigest()
 
@@ -580,6 +611,32 @@ class PenguBuilder:
 
         return dest_file
 
+    def generate_assets(self, force: bool = False) -> Optional[dict]:
+        """Generates src/<module>.pengu and build/<module>_assets.c.
+
+        Returns dict from `pengu_assets.generate()` or None if assets dir does not exist.
+        """
+        if not getattr(self.config, "assets_dir", None):
+            return None
+        from pathlib import Path
+        from pengu_assets import AssetConfig, generate
+
+        src_dir = os.path.abspath(os.path.join(self.config.base_dir, self.config.src_dir))
+        build_dir = self.get_build_directory()
+        assets_dir = os.path.abspath(os.path.join(self.config.base_dir, self.config.assets_dir))
+        if not os.path.isdir(assets_dir):
+            return None
+        cfg = AssetConfig(
+            project_root=Path(self.config.base_dir),
+            src_dir=Path(src_dir),
+            build_dir=Path(build_dir),
+            assets_dir=Path(assets_dir),
+            module=getattr(self.config, "assets_module", "arca"),
+            embed=getattr(self.config, "assets_embed", True),
+            exclude=getattr(self.config, "assets_exclude", []),
+        )
+        return generate(cfg, force=force)
+
     def collect_c_sources(self) -> List[str]:
         """Collects all C glue/source files from project c_dir and all lib/*/c/ directories.
 
@@ -614,6 +671,14 @@ class PenguBuilder:
                                         c_files.append(os.path.abspath(os.path.join(root, f)))
             except Exception:
                 pass
+
+        # 3. Generated embedded assets C source (build/<module>_assets.c)
+        if getattr(self.config, "assets_module", None):
+            gen_c = os.path.join(self.get_build_directory(), f"{self.config.assets_module}_assets.c")
+            if os.path.isfile(gen_c):
+                abs_gen_c = os.path.abspath(gen_c)
+                if abs_gen_c not in c_files:
+                    c_files.append(abs_gen_c)
 
         return sorted(list(set(c_files)))
 
@@ -834,6 +899,9 @@ class PenguBuilder:
         build_dir = self.get_build_directory()
         os.makedirs(build_dir, exist_ok=True)
 
+        # Regenerate embedded assets if configured
+        self.generate_assets()
+
         bundle_path = output_file or os.path.join(build_dir, "bundle.c")
         entry_abs = self.config.resolve_entry()
 
@@ -925,6 +993,7 @@ class PenguBuilder:
             Tuple of (ok, messages) where each message is a human readable
             problem line ("file:line:col [CODE] message").
         """
+        self.generate_assets()
         entry_abs = self.config.resolve_entry()
         if os.path.isfile(entry_abs):
             try:
@@ -1366,6 +1435,11 @@ def fmt_files(paths: List[str], check_only: bool = False, write: bool = True,
             display = fp
         with open(fp, "r", encoding="utf-8") as f:
             original = f.read()
+        head = "\n".join(original.splitlines()[:5])
+        if "@generated" in head:
+            if verbose:
+                print(f"   skip (generated) {display}")
+            continue
         formatted = format_pengu_source(original, tab_size=indent, insert_spaces=not tabs)
         if verbose:
             print(f"   fmt {display}")
@@ -1728,11 +1802,13 @@ def init_project(
     lib_dir = os.path.join(proj_dir, "lib")
     inc_dir = os.path.join(proj_dir, "include")
     c_dir = os.path.join(proj_dir, "c")
+    assets_dir = os.path.join(proj_dir, "assets")
 
     os.makedirs(src_dir, exist_ok=True)
     os.makedirs(lib_dir, exist_ok=True)
     os.makedirs(inc_dir, exist_ok=True)
     os.makedirs(c_dir, exist_ok=True)
+    os.makedirs(assets_dir, exist_ok=True)
 
     links_list = links or []
     links_formatted = json.dumps(links_list)
@@ -1758,6 +1834,11 @@ build:
   ldflags: []
   defines: []
   cc: "{cc}"
+
+assets:
+  dir: "assets"
+  module: "arca"
+  embed: true
 
 dependencies: {{}}
 
@@ -1810,6 +1891,25 @@ weave add with a as int, b as int into int:
 *.dylib
 *.dll
 *.exe
+# src/arca.pengu is committed intentionally so IDE navigation works
+# on fresh clones. Remove this comment if you prefer to regenerate it.
+"""
+
+    assets_readme_content = """# Assets
+
+Files placed here are embedded into the binary by `pengu build` / `pengu run`
+(when `assets.embed` is `true`) or read from disk at runtime
+(when `assets.embed` is `false`).
+
+The generator produces `src/arca.pengu` — import it from your code:
+
+    import arca
+
+    weave main into int:
+        let icon_bytes is calling arca.bytes with "icon.png"
+        return 0
+
+Run `pengu assets --list` to see the current embedded assets.
 """
 
     readme_content = f"""# {name}
@@ -1823,6 +1923,7 @@ A PenguScript v{PENGU_VERSION} project targeting `{out_t.value}` output.
 ├── pengu.yaml          # Project & build configuration
 ├── src/                # PenguScript source files
 │   └── main.pengu      # Main entry point
+├── assets/             # Project assets (embedded via arca)
 ├── lib/                # External bindings & dependencies
 ├── include/            # C header files (.h)
 ├── c/                  # C glue/source files (.c)
@@ -1853,6 +1954,8 @@ pengu clean
         f.write(yaml_content)
     with open(os.path.join(src_dir, "main.pengu"), "w", encoding="utf-8") as f:
         f.write(main_content)
+    with open(os.path.join(assets_dir, "README.md"), "w", encoding="utf-8") as f:
+        f.write(assets_readme_content)
     with open(os.path.join(proj_dir, ".gitignore"), "w", encoding="utf-8") as f:
         f.write(gitignore_content)
     with open(os.path.join(proj_dir, "README.md"), "w", encoding="utf-8") as f:
@@ -1926,6 +2029,7 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         output=OutputType.EXE,
         output_name=out_name,
         name=out_name,
+        assets_dir="",
     )
     # Script runs get their own build sub-directory so concurrent/sequential
     # script executions (and test suites) never fight over a shared
@@ -2095,6 +2199,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
   pengu run hello.pengu             # run a standalone script (when main: enabled)
   pengu update                      # git pull + rebuild every dependency
   pengu bind webui.h --prefix webui_ --links webui-2-static ole32 stdc++ uuid
+  pengu assets                      # regenerate src/arca.pengu & build/arca_assets.c
+  pengu assets --list               # list tracked assets, sizes, and identifiers
   pengu clean
 """
     )
@@ -2228,6 +2334,12 @@ def create_cli_parser() -> argparse.ArgumentParser:
     doc_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
     doc_p.add_argument("--entry", "-e", default=None, help="Override entry file path")
     doc_p.add_argument("--output", "-o", default=None, help="Output directory (default: <project>/docs)")
+
+    # assets
+    assets_p = subparsers.add_parser("assets", help="Generate or inspect embedded asset modules")
+    assets_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
+    assets_p.add_argument("--list", action="store_true", help="List tracked assets with sizes and C identifiers")
+    assets_p.add_argument("--force", action="store_true", help="Force regeneration ignoring caches")
 
     return parser
 
@@ -2392,6 +2504,38 @@ def main():
     elif args.command == "doc":
         from pengu_doc import doc_project
         doc_project(config_path=args.config, output=args.output, entry=getattr(args, "entry", None))
+    elif args.command == "assets":
+        config = ProjectConfig.load(args.config)
+        if not getattr(config, "assets_dir", None):
+            print("No assets directory configured in pengu.yaml.")
+            sys.exit(0)
+        assets_abs = os.path.abspath(os.path.join(config.base_dir, config.assets_dir))
+        if not os.path.isdir(assets_abs):
+            print(f"Assets directory not found: {assets_abs}")
+            sys.exit(1)
+
+        from pengu_assets import _collect, _asset_const_name
+        items = _collect(Path(assets_abs), getattr(config, "assets_exclude", []))
+        if getattr(args, "list", False):
+            mode = "embed" if getattr(config, "assets_embed", True) else "disk"
+            print(f"Assets for {config.name} (dir: {config.assets_dir}, module: {config.assets_module}, mode: {mode}):")
+            if not items:
+                print("  (no assets found)")
+            else:
+                total_bytes = 0
+                for rel, full_path in items:
+                    sz = full_path.stat().st_size
+                    const_name = _asset_const_name(rel)
+                    total_bytes += sz
+                    print(f"  {rel:40} {const_name:45} {sz:>10} bytes")
+                print(f"Total: {len(items)} asset(s), {total_bytes} bytes")
+        else:
+            builder = PenguBuilder(config)
+            res = builder.generate_assets(force=getattr(args, "force", False))
+            if res:
+                print(f"\033[1;32m    Assets\033[0m generated {res['interface_path']} and {res['c_path']} ({len(res['assets'])} assets)")
+            else:
+                print(f"\033[1;33m    Assets\033[0m no assets found in {config.assets_dir}")
     else:
         parser.print_help()
 

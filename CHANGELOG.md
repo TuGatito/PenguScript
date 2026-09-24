@@ -13,6 +13,25 @@ All notable changes to PenguScript will be documented in this file.
 - **Resolución nativa de la librería estándar en FHS**: Se actualizó `pengu_symbols.py::get_stdlib_dirs` para consultar `pengu_paths.std_dirs()`, permitiendo que ejecutables standalone en `$PREFIX/bin/pengu` resuelvan automáticamente módulos `import std.*` desde `$PREFIX/share/pengu/std`.
 - **Copia de versión en bundles portables y delegación en `pengu_version.py`**: `pengu_version.py::read_version_file` delega en `pengu_paths.find_version_file()`, asegurando que `pengu --version` y banners del compilador lean la versión correcta en cualquier instalación o empaquetado.
 
+### Añadido (assets embebidos en el binario — módulo `arca`)
+
+- **Soporte de Assets Embebidos en Proyectos (`arca`)**:
+  - Nuevo módulo generador `pengu_assets.py` que empaqueta archivos estáticos (imágenes, shaders, audio, configuraciones, etc.) desde un directorio configurado (por defecto `assets/`) generando una interfaz PenguScript autocontenida (`src/arca.pengu`), una cabecera C (`build/arca_assets.h`) y su implementación C (`build/arca_assets.c`).
+  - Dos modos de operación configurables en `pengu.yaml` (`assets.embed`):
+    - `embed: true` (por defecto): Empaqueta los bytes directamente en la sección `.rodata` del ejecutable como arreglos estáticos de bytes C con terminador nulo, permitiendo binarios 100% autocontenidos y portables.
+    - `embed: false`: Generador de lectura diferida en disco mediante `fopen` con caché dinámica en memoria y soporte de override por variable de entorno `PENGU_ASSETS_DIR`.
+  - Constantes de ruta por asset generadas automáticamente con sufijo hash SHA-1 de 8 caracteres `ASSET_<IDENTIFICADOR_MAYUSCULAS>_<HASH8>` (ej. `const ASSET_LOGO_PNG_A731E040 as string is "logo.png"`), garantizando identificadores C únicos y libres de colisiones incluso ante rutas con caracteres especiales, extensiones compartidas o dígitos iniciales.
+  - Sanitización de nombres de módulo (`_sanitize_module`): normaliza el identificador de módulo en `pengu.yaml` a identificadores C válidos para archivos de interfaz, cabeceras y guardas `#ifndef`.
+  - Caché de lecturas fallidas en modo disco: `_ArcaCacheEntry` en `_emit_disk_c` incorpora la bandera `attempted`, evitando llamadas redundantes a `fopen` en disco para archivos que no existen.
+  - Const-correctness y seguridad de tipos en la interfaz PenguScript: se declaran punteros con `ref to frozen char` en funciones C de acceso y se transmuta a `ref to frozen byte` en `arca.bytes`, satisfaciendo las reglas estrictas de tipo de PenguScript sin descartar `frozen`.
+  - API pública completa en `arca`: `count`, `name` / `name_at`, `size`, `has` / `exists`, `ptr` (puntero directo a `.rodata` o caché), `bytes` (slice de bytes no propietario) y `string` (copia propietaria mediante `pengu_string_new`, segura para `banish`).
+  - Subcomando CLI `pengu assets`: Permite regenerar la interfaz y C (`pengu assets`), inspeccionar archivos rastreados, tamaños y constantes generadas en formato tabular (`pengu assets --list`) y forzar regeneración ignorando la caché de contenido (`pengu assets --force`).
+  - Integración en el ciclo de vida del compilador (`PenguBuilder`): `generate_assets` se ejecuta antes de resolver importaciones en `bundle()`, `compile()` y `check_sources()`, agregando automáticamente `build/<module>_assets.c` a las fuentes C recopiladas y `build/<module>_assets.h` a las cabeceras.
+  - Invalidación de caché incremental: `compute_sources_fingerprint` y `compute_config_hash` incorporan el digest criptográfico de los assets y la bandera `embed`, reconstruyendo el bundle cuando cambian los archivos en `assets/`.
+  - Soporte en `pengu init`: Inicializa la carpeta `assets/`, genera `assets/README.md`, agrega la sección `assets:` a la plantilla `pengu.yaml` y `.gitignore`.
+  - Ignorado en formateador: `pengu fmt` y el servidor LSP detectan la cabecera `## @generated` en las primeras 5 líneas de archivos como `src/arca.pengu` y omiten su reformateo.
+  - Pruebas automatizadas y humo: Suite completa de pruebas unitarias y de integración en `tests/test_assets.py` (incluyendo prevención de colisiones, sanitización de módulos y caché de disco), test de humo `[TEST 3b]` en `make_release.py` y caso de uso real de Raylib con carga de texturas y shaders desde memoria en `scratch/port/assets_raylib/`.
+
 ### Corregido (compilación y pruebas CI)
 
 - **Aislamiento de bibliotecas del toolchain runtime en detección de auto-links (`pengu_project.py`)**: Se corrigió `PenguBuilder.collect_lib_dirs_and_links` para que la detección automática de bibliotecas (`auto_links`) escanee únicamente los directorios de bibliotecas del proyecto y de bindings (`lib/`, `lib/*/lib/`, `config.lib_dirs`), evitando que los archivos `.a` del runtime del toolchain (`build/lib`, `runtime/lib`) sean vinculados inadvertidamente en binarios donde `links` está vacío o no los requiere. Esto soluciona los fallos en CI (`test_no_hardcoded_raylib_with_empty_links`) en Windows, Linux y macOS.

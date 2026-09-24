@@ -31,6 +31,7 @@
 17. [Unit tests (`test`)](#17-unit-tests-test)
 18. [Block-style construction (`with:` expressions)](#18-block-style-construction-with-expressions)
 19. [Standard library](#19-standard-library)
+    - 19.1 [Embedded Project Assets (`arca`)](#191-embedded-project-assets-arca)
 20. [Tooling & project layout](#20-tooling--project-layout)
 21. [Complete example](#21-complete-example)
 
@@ -1942,17 +1943,127 @@ Binding `.d.pengu` modules (import as `std.raylib`, `std.sqlite3`,
 `std.webui`, `std.miniaudio`, `std.tomlum`, `std.uuid`, `std.yaml`, …) expose
 native C APIs 1:1 with upstream documentation retained inline.
 
+### 19.1 Embedded Project Assets (`arca`)
+
+PenguScript projects can bundle static files (shaders, audio, images, configs, fonts, templates, HTML/JS/CSS) directly into the executable via the `assets` feature. The compiler generates a pure PenguScript module (default: `src/arca.pengu`) and a C implementation (`build/arca_assets.c`).
+
+#### Configuration (`pengu.yaml`)
+
+```yaml
+assets:
+  dir: "assets"           # directory relative to project root
+  module: "arca"          # module name (generates src/arca.pengu)
+  embed: true             # true = compiled into .rodata; false = runtime disk reader
+  exclude: ["*.psd", "*.tmp"]
+```
+
+#### API Reference (`arca`)
+
+All functions are pure, null-safe, and self-contained:
+
+| Function | Signature | Description |
+|---|---|---|
+| `count` | `weave count into int` | Total number of tracked assets. |
+| `name` / `name_at` | `weave name with index as int into string` | Logical relative path of the $i$-th asset (0-indexed). |
+| `has` / `exists` | `weave has with name as string into bool` | `true` if an asset with `name` exists and has non-zero size. |
+| `size` | `weave size with name as string into usize` | Size in bytes (0 if not found). |
+| `ptr` | `weave ptr with name as string into ref to frozen void` | Direct pointer to asset bytes in `.rodata` or heap cache (`null` if not found). |
+| `bytes` | `weave bytes with name as string into slice of byte` | Non-owning slice view over the asset bytes (do not `banish`). |
+| `string` | `weave string with name as string into string` | Content as an **owned string** (`PenguString` copy, safe to `banish` or store). |
+
+> [!NOTE]
+> **Memory Ownership Model:**
+> - `arca.string(name)` returns an **owned copy** of the asset as a `string` (via `pengu_string_new`). It is safe to store in structs, pass across threads, or release with `banish`.
+> - `arca.bytes(name)` and `arca.ptr(name)` return **read-only views** directly referencing the embedded binary section (`.rodata`) in `embed: true` mode, or the internal memory cache in `embed: false` mode. They do not allocate heap memory and must **never** be banished or freed.
+
+#### Supported Formats & Format Agnosticism
+
+PenguScript asset embedding is completely binary and format-agnostic. The bytes are preserved 1:1 without modification or re-encoding. Common file types include:
+- **Images**: PNG, JPG/JPEG, QOI, BMP, SVG
+- **Audio**: WAV, OGG, MP3, QOA, FLAC
+- **Shaders & 3D**: GLSL (`.vs`, `.fs`), HLSL, WGSL, OBJ, MTL, GLTF/GLB
+- **Web & UI**: HTML, CSS, JS, WASM, JSON, SVG
+- **Fonts & Data**: TTF, OTF, FNT, TOML, YAML, CSV, SQLite database files
+
+#### Asset Constants
+
+Constants for every tracked asset are emitted with an 8-character hash suffix (derived from the relative path) to guarantee collision-free C identifiers even when filenames differ only by punctuation, directory separators, or leading digits:
+
+```pengu
+const ASSET_LOGO_PNG_A731E040 as string is "logo.png"
+const ASSET_SHADERS_GRAYSCALE_FS_E362493E as string is "shaders/grayscale.fs"
+```
+
+You can pass either the generated constant (`arca.ASSET_LOGO_PNG_A731E040`) or the string literal (`"logo.png"` / `"shaders/grayscale.fs"`). Run `pengu assets --list` to view all constants and file sizes.
+
+#### Usage Examples
+
+**Raylib Texture & Shader Loading (Direct Memory):**
+```pengu
+import arca
+import std.raylib
+import std.ffi
+import std.spark
+
+weave main into int:
+    var title as ref to char is calling ffi.cstr_from_string with "Embedded Assets Demo"
+    calling raylib.InitWindow with 800, 600, (transmute title to ref to frozen char)
+    calling raylib.SetTargetFPS with 60
+
+    # Load image from embedded buffer directly in memory (zero disk I/O)
+    var p_logo as ref to frozen void is calling arca.ptr with "logo.png"
+    var sz_logo as usize is calling arca.size with "logo.png"
+    var ext as ref to char is calling ffi.cstr_from_string with ".png"
+    var img as raylib.Image is calling raylib.LoadImageFromMemory with (transmute ext to ref to frozen char), (transmute p_logo to ref to frozen byte), (sz_logo to int)
+    var texture as raylib.Texture2D is calling raylib.LoadTextureFromImage with img
+    calling raylib.UnloadImage with img
+
+    # Load shader from embedded string
+    var fs_str as string is calling arca.string with "shaders/grayscale.fs"
+    var fs_cstr as ref to char is calling ffi.cstr_from_string with fs_str
+    var shader as raylib.Shader is calling raylib.LoadShaderFromMemory with (transmute 0 to ref to frozen char), (transmute fs_cstr to ref to frozen char)
+
+    while not calling raylib.WindowShouldClose:
+        calling raylib.BeginDrawing
+        calling raylib.ClearBackground with raylib.RAYWHITE
+        calling raylib.BeginShaderMode with shader
+        calling raylib.DrawTexture with texture, 200, 150, raylib.WHITE
+        calling raylib.EndShaderMode
+        calling raylib.EndDrawing
+
+    calling raylib.UnloadTexture with texture
+    calling raylib.UnloadShader with shader
+    calling raylib.CloseWindow
+    return 0
+```
+
+**WebUI Standalone Application:**
+```pengu
+import arca
+import std.webui
+import std.spark
+
+weave main into int:
+    var w as int is calling webui.new_window
+    # Retrieve embedded HTML interface
+    var html as string is calling arca.string with "ui/index.html"
+    calling webui.show with w, html
+    calling webui.wait
+    return 0
+```
+
 ---
 
 ## 20. Tooling & project layout
 
+- **Assets** (`pengu assets`): inspects and generates the project's embedded asset module (`src/arca.pengu` and `build/arca_assets.c`). Use `--list` to display all tracked assets with their size and C identifier, or `--force` to regenerate unconditionally.
 - **LSP** (`pengu lsp`): diagnostics, contextual completion, hover with
   memory sizes, go-to-definition/implementation, find references, rename,
   highlight, signature help, code actions (add import, remove unused,
   organize imports, implement concept methods), formatting.
 - **Formatter** (`pengu fmt`): 2-space indentation (configurable via client
   options or `pengu.yaml`), strips trailing whitespace, keeps `#`/`##`
-  comments intact.
+  comments intact. Automatically skips files marked with `## @generated`.
 - **Docs** (`pengu doc`): generates Markdown from the `##` / `#` comments
   directly above a declaration (generated bindings use `#`, like `pengu bind`).
 - **Bind** (`pengu bind`): generates `.d.pengu` bindings from C headers. It blanks

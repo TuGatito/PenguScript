@@ -52,6 +52,12 @@ project:
   output: "exe"        # Options: exe, c, obj, static, shared
   output_name: "space_game"
 
+assets:
+  dir: "assets"        # Directory containing asset files
+  module: "arca"       # Generates src/arca.pengu
+  embed: true          # true = embedded into .rodata, false = runtime disk reader
+  exclude: ["*.psd"]   # Glob patterns to exclude
+
 build:
   build_dir: "build"   # Isolated build directory for all artifacts
   includes: ["raylib.h"]
@@ -82,10 +88,17 @@ All build artifacts (`bundle.c`, `bundle.o`, `pengu_runtime.h`, `.exe`, `.a`, `.
 ### 2. Runtime Copying
 `pengu_runtime.h` is automatically located and copied into the `build_dir`, ensuring `#include "pengu_runtime.h"` resolves reliably without needing manual include paths.
 
-### 3. Incremental Compilation Caching
-If `bundle.c` is newer than all `.pengu` source modules and the project configuration file, the builder skips unnecessary re-bundling and prints `Finished (cached)`.
+### 3. Embedded Assets (`arca`)
+Projects can bundle binary and text assets directly into the output executable:
+- `pengu assets` regenerates `src/arca.pengu` and `build/arca_assets.c`.
+- `pengu assets --list` displays tracked files, sizes, and C identifiers.
+- `pengu assets --force` forces regeneration ignoring content digests.
+- Two modes: `embed: true` (compiles bytes into binary `.rodata`) and `embed: false` (lazy disk cache with `PENGU_ASSETS_DIR` override support).
 
-### 4. Profiles (`debug` / `release`)
+### 4. Incremental Compilation Caching
+If `bundle.c` is newer than all `.pengu` source modules, asset files, and the project configuration file, the builder skips unnecessary re-bundling and prints `Finished (cached)`. Changes to files in `assets/` automatically invalidate the compilation cache.
+
+### 5. Profiles (`debug` / `release`)
 - `debug`: Enables debugging symbols (`-g`, `-O0`) and define `DEBUG`.
 - `release`: Enables aggressive optimization (`-O3`) and define `NDEBUG`.
 - Switch profiles using `--profile release` or `-p release`.
