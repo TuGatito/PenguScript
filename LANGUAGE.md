@@ -550,7 +550,6 @@ let evens  is for x in nums when x % 2 == 0 then x
 let state_desc is judge state:
     when Ready -> "ready"
     when Loading -> "loading"
-    when Done with result is 200 -> "done-200"
     when Done -> "done"
     else -> "unknown"
 ```
@@ -558,8 +557,7 @@ let state_desc is judge state:
 - Works on `omen`s (variants), integers and strings.
 - On an `omen`/`bool` subject without an `else ->` the checker enforces
   **exhaustiveness** (`E0044`).
-- Compiles to a C `switch` over integer enums, or to a ternary chain for
-  non-integer matches.
+- Compiles to a C `switch` over integer enums/constants when all patterns are compile-time constants, or falls back to a ternary chain for non-integer or variable patterns.
 
 ### 7.5 `break` / `continue` / `return`
 
@@ -1197,7 +1195,7 @@ Semantics and codegen:
 - `or else` yields the fallback lazily on absence/error (ternary in a GNU
   statement-expression).
 - `or return X` returns `X` from the enclosing function on failure.
-- `or:` runs a handler block; the failure payload is bound to the contextual variable `error` (of type `string` for `maybe T` or `E` for `result of T to E`). Referencing `error` outside an `or:` handler is a compile-time semantic error (`E0015`).
+- `or:` runs a handler block; the failure payload is bound to the contextual variable `error` (of type `string` for `maybe T` or `E` for `result of T to E`). Referencing `error` outside an `or:` handler is a compile-time semantic error (`E0015`). The `error` symbol is scoped strictly to the lexical body of the `or:` block; once the block exits and its scope pops, any subsequent reference to `error` refers to an outer/global symbol or is rejected.
 - `try expr` unwraps and **propagates** to the caller: allowed only inside a
   function whose return type is `maybe T` (for a maybe operand) or a
   compatible `result` (error type must match) — otherwise `E0045`. On failure

@@ -1323,8 +1323,9 @@ class PenguChecker:
                         implemented_methods[m_name] = impl_fn_t
                         self.symbols.methods[(target_name, m_name)] = impl_fn_t
                         self.symbols.methods[(base_tname, m_name)] = impl_fn_t
-                        if type_params:
-                            self.symbols.generic_methods[(base_tname, m_name)] = (type_params, m_decl)
+                        if type_params or m_tparams:
+                            comb = (type_params or []) + (m_tparams or [])
+                            self.symbols.generic_methods[(base_tname, m_name)] = (comb, m_decl)
 
                 if concept_obj is not None:
                     for c_mname, c_mfn in concept_obj.methods.items():
@@ -1452,8 +1453,9 @@ class PenguChecker:
                         impl_fn_t = FnType(params=m_params, return_type=m_ret, default_count=default_count, is_ritual=m_ritual, type_params=m_tparams)
                         self.symbols.methods[(target_name, m_name)] = impl_fn_t
                         self.symbols.methods[(base_tname, m_name)] = impl_fn_t
-                        if type_params:
-                            self.symbols.generic_methods[(base_tname, m_name)] = (type_params, m_decl)
+                        if type_params or m_tparams:
+                            comb = (type_params or []) + (m_tparams or [])
+                            self.symbols.generic_methods[(base_tname, m_name)] = (comb, m_decl)
 
             elif rule == "declare_stmt":
                 is_inline, is_ritual, idx = _extract_weave_modifiers(stmt.children)
@@ -1899,7 +1901,7 @@ class PenguChecker:
             is_lvalue = isinstance(curr, Token) or (
                 isinstance(curr, Tree) and curr.data in (
                     "var_ref", "normal_target", "field_access", "dot_access",
-                    "arrow_access", "at_access"
+                    "arrow_access", "at_access", "essence_of"
                 )
             )
             if not is_lvalue:
@@ -1988,6 +1990,7 @@ class PenguChecker:
                 is_valid_type = (
                     isinstance(t, (RefType, ListType, MapType, AnyType))
                     or (isinstance(t, BaseType) and t.name == "string")
+                    or (isinstance(curr, Tree) and curr.data == "essence_of")
                 )
                 if not is_valid_type:
                     err = self._make_error(
@@ -2097,6 +2100,38 @@ class PenguChecker:
         if node.children and isinstance(node.children[0], Tree):
             self._check_node(Tree("expr_stmt", node.children, meta=node.meta))
 
+    def _is_static_const_expr(self, node: Any) -> bool:
+        """Determines if an expression is a valid compile-time constant expression for static/global constants."""
+        if self.const_folder.fold(node) is not None:
+            return True
+        if isinstance(node, Token):
+            if node.type in ("INT", "FLOAT", "CHAR_LIT", "STRING", "RAW_STRING", "TRIPLE_STRING", "RAW_TRIPLE_STRING"):
+                return True
+            if node.type == "NAME":
+                sym = self.symbols.lookup(str(node))
+                return sym is not None and (sym.kind in ("const", "omen_variant", "omen"))
+            return False
+        if not isinstance(node, Tree):
+            return False
+        rule = node.data
+        if rule in ("null_lit", "maybe_none"):
+            return True
+        if rule == "var_ref":
+            name = str(node.children[0])
+            sym = self.symbols.lookup(name)
+            return sym is not None and (sym.kind in ("const", "omen_variant", "omen"))
+        if rule in ("field_access", "normal_target") and len(node.children) == 2:
+            base = str(node.children[0])
+            sym = self.symbols.lookup(base)
+            if sym is not None and sym.kind == "omen":
+                return True
+        if rule == "array_lit":
+            return all(self._is_static_const_expr(c) for c in node.children if isinstance(c, (Tree, Token)))
+        if rule == "struct_init":
+            field_inits = [c for c in node.children if isinstance(c, Tree) and c.data == "field_init"]
+            return all(self._is_static_const_expr(fi.children[-1]) for fi in field_inits)
+        return False
+
     def _check_const_decl(self, node: Tree) -> None:
         """Checks constant declaration for V-safety and compile-time type validity.
 
@@ -2195,6 +2230,15 @@ class PenguChecker:
                     )
 
                 folded_val = self.const_folder.fold(c_expr)
+                if not self.filename.endswith(".d.pengu") and not self._is_static_const_expr(c_expr):
+                    raise self._make_error(
+                        SemanticError,
+                        f"Constant '{c_name}' initializer is not a compile-time constant expression",
+                        c_expr,
+                        code="E0005",
+                        help="Constants must evaluate to a compile-time constant (literal, constant folding, or another const). Use 'let' or 'var' for runtime expressions.",
+                        note="Top-level constants are emitted as compile-time macros or static initializers in C."
+                    )
                 doc = self._extract_preceding_doc(line)
                 existing_sym = self.symbols.lookup(c_name)
                 c_c_name = existing_sym.c_name if existing_sym else None
@@ -2420,14 +2464,14 @@ class PenguChecker:
         else:
             elem_t = self._check_for_in_stmt(node, collect=True, expected_element=expected_element)
 
-        if elem_t == VOID_TYPE or isinstance(elem_t, NullType):
+        if elem_t == VOID_TYPE or isinstance(elem_t, (NullType, AnyType)):
             if required:
                 err = self._make_error(
                     TypeMismatchError,
                     "loop used as a value must produce a value on every iteration",
                     node,
                     code="E0005",
-                    help="End the loop body with an expression (the value collected "
+                    help="End the loop body with a concrete expression (the value collected "
                          "for that iteration), or use the loop as a statement.",
                     note="A loop in a value position builds a list from the body's "
                          "value on each iteration."
@@ -2710,6 +2754,18 @@ class PenguChecker:
 
     def _check_judge_expr(self, node: Tree) -> None:
         """Checks judge expression constraints."""
+        subj_node = node.children[0]
+        try:
+            subj_t = self.inferrer.infer(subj_node)
+        except Exception:
+            subj_t = None
+
+        unwrapped_subj = subj_t
+        while isinstance(unwrapped_subj, (AliasType, FrozenType)) and getattr(unwrapped_subj, "target", None):
+            unwrapped_subj = unwrapped_subj.target
+        if isinstance(unwrapped_subj, SealType):
+            unwrapped_subj = unwrapped_subj.underlying
+
         for child in node.children[1:]:
             if isinstance(child, Tree) and child.data == "when_clause":
                 for sub in child.children:
@@ -2721,9 +2777,100 @@ class PenguChecker:
                             code="E0005",
                             help="Pattern match omen variants without 'with' payload bindings.",
                         ))
+                if unwrapped_subj is not None and len(child.children) >= 1:
+                    pat_node = child.children[0]
+                    self._check_when_pattern_type(pat_node, unwrapped_subj, subj_t)
+
         for child in node.children:
             if isinstance(child, Tree):
                 self._check_node(child)
+
+    def _check_when_pattern_type(self, pat_node: Any, unwrapped_subj: Type, subj_t: Type) -> None:
+        if not isinstance(pat_node, Tree) or pat_node.data != "when_pattern":
+            return
+        children = pat_node.children
+        if not children:
+            return
+        if all(isinstance(c, Token) and c.type == "NAME" for c in children):
+            if isinstance(unwrapped_subj, OmenType):
+                raw_name = str(children[-1])
+                var_name = raw_name
+                c_name = getattr(unwrapped_subj, "c_name", None) or unwrapped_subj.name
+                for prefix in (f"{unwrapped_subj.name}_", f"{c_name}_"):
+                    if var_name.startswith(prefix):
+                        var_name = var_name[len(prefix):]
+                        break
+                if var_name not in unwrapped_subj.variants and raw_name not in unwrapped_subj.variants:
+                    self._record_error(self._make_error(
+                        TypeMismatchError,
+                        f"Pattern '{raw_name}' is not a variant of omen '{unwrapped_subj.name}'",
+                        pat_node,
+                        code="E0005"
+                    ))
+            elif unwrapped_subj.is_int():
+                var_name = str(children[0])
+                sym = self.symbols.lookup(var_name)
+                if sym is not None and not sym.type.is_int():
+                    self._record_error(self._make_error(
+                        TypeMismatchError,
+                        f"Pattern '{var_name}' of type '{sym.type}' cannot match integer subject",
+                        pat_node,
+                        code="E0005"
+                    ))
+            elif unwrapped_subj.is_string():
+                var_name = str(children[0])
+                sym = self.symbols.lookup(var_name)
+                if sym is not None and not sym.type.is_string():
+                    self._record_error(self._make_error(
+                        TypeMismatchError,
+                        f"Pattern '{var_name}' of type '{sym.type}' cannot match string subject",
+                        pat_node,
+                        code="E0005"
+                    ))
+            return
+
+        first = children[0]
+        pat_t = None
+        if isinstance(first, Token):
+            if first.type in ("INT", "CHAR_LIT"):
+                pat_t = INT_TYPE
+            elif first.type == "FLOAT":
+                pat_t = FLOAT_TYPE
+            elif first.type in ("STRING", "RAW_STRING", "TRIPLE_STRING", "RAW_TRIPLE_STRING"):
+                pat_t = STRING_TYPE
+        elif isinstance(first, Tree) and first.data in ("true_lit", "false_lit"):
+            pat_t = BOOL_TYPE
+
+        if pat_t is not None:
+            if unwrapped_subj.is_int() and not pat_t.is_int():
+                self._record_error(self._make_error(
+                    TypeMismatchError,
+                    f"Pattern of type '{pat_t}' cannot match integer subject",
+                    pat_node,
+                    code="E0005"
+                ))
+            elif unwrapped_subj.is_string() and not pat_t.is_string():
+                self._record_error(self._make_error(
+                    TypeMismatchError,
+                    f"Pattern of type '{pat_t}' cannot match string subject",
+                    pat_node,
+                    code="E0005"
+                ))
+            elif (unwrapped_subj == BOOL_TYPE or unwrapped_subj.is_compatible(BOOL_TYPE)) and pat_t != BOOL_TYPE:
+                self._record_error(self._make_error(
+                    TypeMismatchError,
+                    f"Pattern of type '{pat_t}' cannot match boolean subject",
+                    pat_node,
+                    code="E0005"
+                ))
+            elif isinstance(unwrapped_subj, OmenType):
+                if not pat_t.is_int() and not pat_t.is_string():
+                    self._record_error(self._make_error(
+                        TypeMismatchError,
+                        f"Pattern of type '{pat_t}' cannot match omen '{unwrapped_subj.name}'",
+                        pat_node,
+                        code="E0005"
+                    ))
 
     def _validate_array_literal_size(self, declared_t: Type, lit_node: Any) -> None:
         """Validates array dimensions against array literals (indent_literal and array_lit)."""
@@ -2930,7 +3077,8 @@ class PenguChecker:
 
         # Block values nested in the initializer (call arguments, struct-literal
         # fields, …) are value-checked before inference.
-        self._check_value_exprs(v_expr, v_type)
+        if not (isinstance(v_expr, Tree) and v_expr.data == "with_init_expr"):
+            self._check_value_exprs(v_expr, v_type)
 
         try:
             inferred = self.inferrer.infer(v_expr, expected_type=v_type)
@@ -3047,7 +3195,8 @@ class PenguChecker:
 
         # 'static var x is if/unless/for ...:' or block values nested in the
         # initializer (e.g. inside a struct literal) — positional value check.
-        self._check_value_exprs(v_expr, v_type)
+        if not (isinstance(v_expr, Tree) and v_expr.data == "with_init_expr"):
+            self._check_value_exprs(v_expr, v_type)
 
         try:
             inferred = self.inferrer.infer(v_expr, expected_type=v_type)
@@ -3126,7 +3275,8 @@ class PenguChecker:
             self._validate_type_node(type_node)
             l_type = ast_to_type(type_node, self.symbols.lookup_type)
 
-        self._check_value_exprs(l_expr, l_type)
+        if not (isinstance(l_expr, Tree) and l_expr.data == "with_init_expr"):
+            self._check_value_exprs(l_expr, l_type)
         try:
             inferred = self.inferrer.infer(l_expr, expected_type=l_type)
             folded_val = self.const_folder.fold(l_expr)
@@ -3265,7 +3415,7 @@ class PenguChecker:
             node = node.children[0]
         if not isinstance(node, Tree):
             return None
-        through = len(node.children) > 1
+        through = len(node.children) > 1 or node.data == "with_target"
         if not through:
             return None
 
@@ -3324,6 +3474,24 @@ class PenguChecker:
                         help="Wrap in a 'with' block (e.g. 'with player:') or assign directly to an object.",
                         note="Leading dot field assignments require an active 'with' context."
                     )
+                curr_frozen = with_t
+                is_frozen_with = False
+                while isinstance(curr_frozen, (AliasType, RefType)):
+                    curr_frozen = getattr(curr_frozen, "target", None)
+                    if isinstance(curr_frozen, FrozenType):
+                        is_frozen_with = True
+                        break
+                if isinstance(with_t, FrozenType):
+                    is_frozen_with = True
+                if is_frozen_with:
+                    raise self._make_error(
+                        MutabilityError,
+                        f"Cannot mutate field '.{field_name}' on frozen target '{with_t}' in 'with'",
+                        target_node,
+                        code="E0006",
+                        help="The receiver passed to 'with' is frozen and cannot be modified.",
+                        note="'frozen' values are read-only."
+                    )
                 if not self.symbols.current_with_is_mutable():
                     raise self._make_error(
                         MutabilityError,
@@ -3374,6 +3542,15 @@ class PenguChecker:
                             curr_t = target_type
                             while isinstance(curr_t, RefType):
                                 curr_t = curr_t.target
+                            if curr_t == STRING_TYPE or (isinstance(curr_t, BaseType) and curr_t.name == "string"):
+                                raise self._make_error(
+                                    InvalidMemoryOpError,
+                                    "Cannot modify characters in an immutable string directly",
+                                    acc,
+                                    code="E0006",
+                                    help="Strings in PenguScript are immutable. Create a new string with string operations instead.",
+                                    note="String characters cannot be assigned to directly."
+                                )
                             if isinstance(curr_t, (ArrayType, SliceType, ManyType, ListType)):
                                 target_type = curr_t.element
 
@@ -3464,6 +3641,32 @@ class PenguChecker:
                                     help=f"Change 'let {first_str}' to 'var {first_str}' to allow {what} mutation.",
                                     note=f"{what.capitalize()}s of 'let' bindings cannot be modified."
                                 )
+                        curr_chk_t = sym.type
+                        for acc in target_node.children[1:]:
+                            if isinstance(acc, Tree) and acc.data == "at_access":
+                                unwrapped_t = curr_chk_t
+                                while isinstance(unwrapped_t, RefType):
+                                    unwrapped_t = unwrapped_t.target
+                                if unwrapped_t == STRING_TYPE or (isinstance(unwrapped_t, BaseType) and unwrapped_t.name == "string"):
+                                    raise self._make_error(
+                                        InvalidMemoryOpError,
+                                        "Cannot modify characters in an immutable string directly",
+                                        acc,
+                                        code="E0006",
+                                        help="Strings in PenguScript are immutable. Create a new string with string operations instead.",
+                                        note="String characters cannot be assigned to directly."
+                                    )
+                                if hasattr(unwrapped_t, "element"):
+                                    curr_chk_t = unwrapped_t.element
+                                elif hasattr(unwrapped_t, "value"):
+                                    curr_chk_t = unwrapped_t.value
+                            elif isinstance(acc, Tree) and acc.data in ("dot_access", "arrow_access") and acc.children:
+                                fname = str(acc.children[0])
+                                unwrapped_t = curr_chk_t.target if isinstance(curr_chk_t, RefType) else curr_chk_t
+                                while isinstance(unwrapped_t, (AliasType, FrozenType, SealType)):
+                                    unwrapped_t = getattr(unwrapped_t, "target", None) or getattr(unwrapped_t, "underlying", None)
+                                if hasattr(unwrapped_t, "fields") and fname in unwrapped_t.fields:
+                                    curr_chk_t = unwrapped_t.fields[fname]
                         target_type = self.inferrer.infer(target_node)
 
             elif rule == "essence_target":
@@ -4010,7 +4213,7 @@ class PenguChecker:
                     if target.data == "with_target" and target.children:
                         method_name = str(target.children[0])
                     else:
-                        for ch in target.children:
+                        for ch in reversed(target.children):
                             if isinstance(ch, Tree) and ch.data in ("dot_access", "arrow_access") and ch.children:
                                 method_name = str(ch.children[0])
                                 break
@@ -4055,7 +4258,12 @@ class PenguChecker:
         fn_name = str(node.children[idx])
         rem_children = [c for c in node.children[idx+1:] if c is not None]
 
-        tp_list = type_params or []
+        m_tparams = []
+        if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "shard_params":
+            m_tparams, _ = extract_shard_params(rem_children[0])
+            rem_children = rem_children[1:]
+
+        tp_list = list(type_params or []) + m_tparams
         def lookup_m_tp(tname: str):
             if tname in tp_list:
                 return TypeParam(tname)
@@ -4445,7 +4653,7 @@ class PenguChecker:
         elem_type: Type = AnyType()
         try:
             it = self.inferrer.infer(iter_node)
-            if not it.is_iterable() and it != STRING_TYPE and not isinstance(it, AnyType):
+            if not it.is_iterable() and not it.is_string() and not isinstance(it, AnyType):
                 err = self._make_error(
                     SemanticError,
                     f"Cannot iterate over non-collection type '{it}'",
@@ -4455,7 +4663,7 @@ class PenguChecker:
                     note="'for ... in' loops require iterable collections."
                 )
                 self._record_error(err)
-            if it == STRING_TYPE:
+            if it.is_string():
                 elem_type = STRING_TYPE  # iterating a string yields characters
             else:
                 elem_type = it.element_type() or AnyType()
@@ -4591,13 +4799,34 @@ class PenguChecker:
 
         try:
             target_type = self.inferrer.infer(target_expr)
-            if isinstance(target_expr, Tree) and target_expr.data == "var_ref":
+            is_frozen = False
+            curr_f = target_type
+            while isinstance(curr_f, (AliasType, RefType)):
+                curr_f = getattr(curr_f, "target", None)
+                if isinstance(curr_f, FrozenType):
+                    is_frozen = True
+                    break
+            if isinstance(target_type, FrozenType):
+                is_frozen = True
+
+            if is_frozen:
+                is_mut = False
+            elif isinstance(target_expr, Tree) and target_expr.data == "var_ref":
                 target_var_name = str(target_expr.children[0])
                 sym = self.symbols.lookup(target_var_name)
                 if sym:
-                    is_mut = sym.is_mutable or isinstance(sym.type, RefType)
+                    sym_frozen = False
+                    curr_s = sym.type
+                    while isinstance(curr_s, (AliasType, RefType)):
+                        curr_s = getattr(curr_s, "target", None)
+                        if isinstance(curr_s, FrozenType):
+                            sym_frozen = True
+                            break
+                    if isinstance(sym.type, FrozenType):
+                        sym_frozen = True
+                    is_mut = (not sym_frozen) and (sym.is_mutable or isinstance(sym.type, RefType))
             elif isinstance(target_type, RefType):
-                is_mut = True
+                is_mut = not is_frozen
         except SemanticError as e:
             self._record_error(e)
 
@@ -4808,6 +5037,7 @@ class PenguChecker:
         Args:
             node: AST Tree for or-block statement.
         """
+        left_t: Type = AnyType()
         if node.children and isinstance(node.children[0], Tree):
             self._check_node(node.children[0])
             try:
@@ -4825,8 +5055,19 @@ class PenguChecker:
                     note="'or:' handles the failure path of maybe/result values.",
                 ))
                 # Do not return early: continue checking the or: block body to accumulate all errors
+        elif node.children and not isinstance(node.children[0], Tree):
+            self._record_error(self._make_error(
+                TypeMismatchError,
+                f"'or:' requires a 'maybe T' or 'result of T to E' operand, got '{node.children[0]}'",
+                node,
+                code="E0005",
+                help="Only maybe/result values can be unwrapped with 'or:'.",
+                note="'or:' handles the failure path of maybe/result values.",
+            ))
         span_start, span_end = self._get_node_span(node)
         self.symbols.push_scope(kind="or_block", in_or_block=True, start_line=span_start, end_line=span_end)
+        err_t = left_t.err_type if isinstance(left_t, ResultType) else STRING_TYPE
+        self.symbols.define(Symbol(name="error", type=err_t, kind="var", line=span_start, column=0, is_mutable=False))
         or_stmts = [child for child in node.children[1:] if isinstance(child, Tree)]
         self.block_stmts_stack.append(or_stmts)
         try:

@@ -484,8 +484,13 @@ class PenguBuilder:
             "test_mode": bool(getattr(self, "is_test_mode", False)),
             "entry_main": bool(getattr(self, "entry_as_main", False)),
             "cc": str(getattr(self.config, "cc", "") or ""),
+            "include_dirs": sorted(getattr(self.config, "include_dirs", []) or []),
+            "lib_dirs": sorted(getattr(self.config, "lib_dirs", []) or []),
             "assets_embed": bool(getattr(self.config, "assets_embed", True)),
             "assets_module": str(getattr(self.config, "assets_module", "arca")),
+            "src_dir": str(getattr(self.config, "src_dir", "") or ""),
+            "c_dir": str(getattr(self.config, "c_dir", "") or ""),
+            "output_name": str(getattr(self.config, "output_name", "") or ""),
         }, sort_keys=True)
         return hashlib.sha256(key.encode("utf-8")).hexdigest()
 

@@ -129,7 +129,9 @@ class ConstFolder:
             elif node.type in ("STRING", "TRIPLE_STRING", "RAW_STRING", "RAW_TRIPLE_STRING"):
                 raw = str(node)
                 is_raw, is_triple, parts = extract_string_parts(raw)
-                return "".join(p.text for p in parts if not p.is_expr)
+                if any(p.is_expr for p in parts):
+                    return None
+                return "".join(p.text for p in parts)
             elif node.type == "CHAR_LIT":
                 return str(node)
             elif node.type == "NAME":
@@ -162,7 +164,11 @@ class ConstFolder:
         elif rule == "char_lit":
             return str(node.children[0])
         elif rule == "string_lit":
-            return str(node.children[0]).strip('"')
+            raw = str(node.children[0]) if node.children else ""
+            is_raw, is_triple, parts = extract_string_parts(raw)
+            if any(p.is_expr for p in parts):
+                return None
+            return "".join(p.text for p in parts)
         elif rule == "true_lit":
             return True
         elif rule == "false_lit":
@@ -778,7 +784,10 @@ class TypeInferrer:
                     help="Use 'error' only within an 'or:' block attached to a failing expression.",
                     note="'error' accesses the Result/Maybe error value in an 'or:' block."
                 )
-            return ERROR_TYPE
+            sym = self.symbols.lookup("error")
+            if sym is not None and sym.type is not None:
+                return sym.type
+            return STRING_TYPE
 
         # Identifiers
         elif rule == "var_ref":
@@ -1454,13 +1463,13 @@ class TypeInferrer:
             iter_expr = node.children[1]
             iter_type = self.infer(iter_expr)
 
-            if not iter_type.is_iterable() and not isinstance(iter_type, AnyType):
+            if not iter_type.is_iterable() or isinstance(iter_type, AnyType) or iter_type.element_type() is None:
                 raise self._make_error(
                     SemanticError,
                     f"Cannot iterate over non-iterable type '{iter_type}' in comprehension",
                     node,
                     code="E0005",
-                    help="Provide an iterable collection like an array, slice, or list.",
+                    help="Provide an iterable collection like an array, slice, or list with a known element type.",
                     note="'for ... in' comprehensions require iterable collections."
                 )
 
@@ -1590,9 +1599,19 @@ class TypeInferrer:
                             else:
                                 p_name = str(pat)
                             if p_name:
-                                if "_" in p_name:
-                                    covered_variants.add(p_name.split("_", 1)[1])
-                                covered_variants.add(p_name)
+                                if isinstance(unwrapped_matched, OmenType):
+                                    if p_name.startswith(f"{unwrapped_matched.name}_"):
+                                        covered_variants.add(p_name[len(unwrapped_matched.name) + 1:])
+                                    elif getattr(unwrapped_matched, "c_name", None) and p_name.startswith(f"{unwrapped_matched.c_name}_"):
+                                        covered_variants.add(p_name[len(unwrapped_matched.c_name) + 1:])
+                                    elif p_name in unwrapped_matched.variants:
+                                        covered_variants.add(p_name)
+                                    elif "_" in p_name:
+                                        covered_variants.add(p_name.rsplit("_", 1)[-1])
+                                    else:
+                                        covered_variants.add(p_name)
+                                else:
+                                    covered_variants.add(p_name)
                     else:
                         covered_variants.add(str(pattern_node))
                     body_expr = child.children[-1]
@@ -1780,12 +1799,12 @@ class TypeInferrer:
             col_t = self.infer(col_node)
             is_valid_col = (
                 isinstance(col_t, (RangeType, MapType, ArrayType, SliceType, ManyType, ListType, AnyType))
-                or col_t == STRING_TYPE
+                or (col_t is not None and col_t.is_string())
                 or (isinstance(col_t, BaseType) and col_t.name == "string")
                 or (col_t is None and isinstance(col_node, Tree) and col_node.data in ("to_expr", "range_dotdot"))
             )
+            op_name = "not in" if rule == "not_in_expr" else "in"
             if not is_valid_col:
-                op_name = "not in" if rule == "not_in_expr" else "in"
                 raise self._make_error(
                     TypeMismatchError,
                     f"Operator '{op_name}' expects a collection (range, string, array, slice, list, or map), got '{col_t}'",
@@ -1794,6 +1813,38 @@ class TypeInferrer:
                     help="Verify that the right operand is a collection or range.",
                     note=f"Cannot perform membership testing on type '{col_t}'."
                 )
+            if col_t is not None and (col_t.is_string() or (isinstance(col_t, BaseType) and col_t.name == "string")):
+                unwrapped_elem = elem_t
+                while isinstance(unwrapped_elem, (AliasType, FrozenType)) and getattr(unwrapped_elem, "target", None):
+                    unwrapped_elem = unwrapped_elem.target
+                elem_name = getattr(unwrapped_elem, "name", "")
+                if not (unwrapped_elem.is_string() or elem_name in ("char", "byte", "u8", "int8_t", "uint8_t")):
+                    raise self._make_error(
+                        TypeMismatchError,
+                        f"Operator '{op_name}' for string collection requires char, byte, or string element, got '{elem_t}'",
+                        elem_node,
+                        code="E0005",
+                        help="Pass a character (e.g. 'a') or substring (e.g. \"bc\") to test membership in a string.",
+                        note="Integer or other types cannot be searched directly in strings."
+                    )
+            elif isinstance(col_t, (ArrayType, SliceType, ManyType, ListType)):
+                if not elem_t.is_compatible(col_t.element):
+                    raise self._make_error(
+                        TypeMismatchError,
+                        f"Operator '{op_name}' element type '{elem_t}' is incompatible with collection element type '{col_t.element}'",
+                        elem_node,
+                        code="E0005",
+                        help=f"Ensure the searched item matches collection element type '{col_t.element}'.",
+                    )
+            elif isinstance(col_t, MapType):
+                if not elem_t.is_compatible(col_t.key):
+                    raise self._make_error(
+                        TypeMismatchError,
+                        f"Operator '{op_name}' key type '{elem_t}' is incompatible with map key type '{col_t.key}'",
+                        elem_node,
+                        code="E0005",
+                        help=f"Ensure the searched key matches map key type '{col_t.key}'.",
+                    )
             return BOOL_TYPE
 
         elif rule == "indent_literal":
@@ -1848,11 +1899,12 @@ class TypeInferrer:
         elif rule == "some_expr":
             # 'some expr' allocates a copy of expr on the heap and wraps it in a
             # present Maybe container:  maybe T.
-            inner_t = self.infer(node.children[0])
-            if inner_t == VOID_TYPE:
+            exp_inner = expected_type.element if isinstance(expected_type, MaybeType) else None
+            inner_t = self.infer(node.children[0], expected_type=exp_inner)
+            if inner_t == VOID_TYPE or isinstance(inner_t, AnyType):
                 raise self._make_error(
                     TypeMismatchError,
-                    "'some' cannot wrap a void value",
+                    "'some' cannot wrap a void or unknown value",
                     node,
                     code="E0005",
                     help="'some' requires a value of a concrete type.",
@@ -2025,11 +2077,11 @@ class TypeInferrer:
             if target_node.data == "normal_target":
                 if len(target_node.children) == 1:
                     fn_name = str(target_node.children[0])
-                elif len(target_node.children) >= 2 and isinstance(target_node.children[1], Tree) and target_node.children[1].data == "dot_access":
+                elif len(target_node.children) >= 2 and isinstance(target_node.children[-1], Tree) and target_node.children[-1].data in ("dot_access", "arrow_access"):
                     first_name = str(target_node.children[0])
-                    m_name = str(target_node.children[1].children[0])
+                    m_name = str(target_node.children[-1].children[0])
                     first_sym = self.symbols.lookup(first_name) if self.symbols else None
-                    if first_sym and first_sym.kind == "import":
+                    if first_sym and first_sym.kind == "import" and len(target_node.children) == 2:
                         fn_name = f"{first_name}_{m_name}"
                         if fn_name not in self.symbols.generic_functions and m_name in self.symbols.generic_functions:
                             self.symbols.generic_functions[fn_name] = self.symbols.generic_functions[m_name]
@@ -2235,12 +2287,14 @@ class TypeInferrer:
                 base_tname = receiver_type.name.split("_")[0] if getattr(receiver_type, "type_args", None) else receiver_type.name
                 if (base_tname, method_name) in self.symbols.generic_methods:
                     type_params, method_ast = self.symbols.generic_methods[(base_tname, method_name)]
-                    if getattr(receiver_type, "type_args", None) and len(receiver_type.type_args) == len(type_params):
-                        subst_map = dict(zip(type_params, receiver_type.type_args))
+                    rec_args = getattr(receiver_type, "type_args", None) or []
+                    all_args = list(rec_args) + explicit_type_args
+                    if len(all_args) == len(type_params):
+                        subst_map = dict(zip(type_params, all_args))
                         specialized_method_type = fn_type.substitute(subst_map)
-                        mangled_args = "_".join(t.get_mangled_name() for t in receiver_type.type_args)
-                        mangled_method_name = f"{base_tname}_{mangled_args}_{method_name}"
-                        self.symbols.monomorphized_methods[mangled_method_name] = (method_ast, subst_map)
+                        mangled_args = "_".join(t.get_mangled_name() for t in all_args)
+                        mangled_method_name = f"{base_tname}_{mangled_args}_{method_name}" if not explicit_type_args else f"{base_tname}_{method_name}_{mangled_args}"
+                        self.symbols.monomorphized_methods[mangled_method_name] = (method_ast, subst_map, receiver_type)
                         self.symbols.methods[(receiver_type.name, method_name)] = specialized_method_type
                         fn_type = specialized_method_type
 
@@ -3155,108 +3209,96 @@ class TypeInferrer:
 
             if len(target_node.children) >= 2:
                 obj_name = str(target_node.children[0])
-                method_acc = target_node.children[1]
-                if isinstance(method_acc, Tree) and method_acc.data == "dot_access":
+                method_acc = target_node.children[-1]
+                if isinstance(method_acc, Tree) and method_acc.data in ("dot_access", "arrow_access"):
                     m_name = str(method_acc.children[0])
-                    obj_sym = self.symbols.lookup(obj_name)
-                    if obj_sym is not None and obj_sym.kind not in ("rune", "echo", "omen", "seal", "alias", "concept", "type"):
-                        if obj_sym.kind == "import":
-                            # Module member calls (e.g. 'calling archivum.write_file')
-                            # resolve against the import's module_scope first:
-                            # that is where the real FnType signature lives. Then
-                            # fall back to the prefixed function registry names
-                            # registered during import collection. Never silently
-                            # guess 'void' when the member simply does not exist
-                            # (that used to turn every missed member into void and
-                            # produce spurious E0020 return-type mismatches).
-                            scope = getattr(obj_sym, "module_scope", None)
-                            if scope is not None:
-                                mem_sym = scope.symbols.get(m_name)
-                                if mem_sym is not None:
-                                    if getattr(mem_sym, "is_public", False) is False or m_name.startswith("_"):
-                                        raise self._make_error(
-                                            PrivateSymbolAccessError,
-                                            f"Symbol '{m_name}' is private to module '{obj_name}'",
-                                            node,
-                                            code="E0043",
-                                            help=f"Rename '{m_name}' without the leading underscore to make it public, or access it from inside module '{obj_name}'.",
-                                            note="Private symbols starting with '_' are not exported."
-                                        )
-                                    m_type = getattr(mem_sym, "type", None)
-                                    if isinstance(m_type, FnType):
-                                        return m_type, None
-                                    if getattr(mem_sym, "kind", "") in ("function", "declare") and m_type is not None:
-                                        return FnType(params=[], return_type=m_type), None
+                    is_self = (obj_name == "self")
+                    obj_sym = None if is_self else self.symbols.lookup(obj_name)
 
-                            for cand_name in (f"{obj_name}_{m_name}", m_name):
-                                fn_t = self.symbols.functions.get(cand_name)
-                                if fn_t is not None:
-                                    return fn_t, None
-                                s = self.symbols.lookup(cand_name)
-                                if s is not None and isinstance(getattr(s, "type", None), FnType):
-                                    return s.type, None
-                            raise self._make_error(
-                                UndefinedIdentifierError,
-                                f"Module '{obj_name}' has no exported member '{m_name}'",
-                                target_node,
-                                code="E0004",
-                                help=f"Check the member name or import the module that exports '{m_name}'.",
-                                note="Module member calls must resolve to a declared weave/declare in that module."
-                            )
-                        obj_type = obj_sym.type
-                        if isinstance(obj_type, TypeParam):
-                            for bound in obj_type.bounds:
-                                concept_obj = self.symbols.lookup_concept(bound)
-                                if concept_obj and m_name in concept_obj.methods:
-                                    return concept_obj.methods[m_name], obj_type
-
-                        if isinstance(obj_type, RefType):
-                            t_name = _unfrozen_name(obj_type.target)
+                    if is_self or (obj_sym is not None and obj_sym.kind not in ("rune", "echo", "omen", "seal", "alias", "concept", "type")):
+                        if is_self:
+                            ench_t = self.symbols.current_enchanting_type() if self.symbols else None
+                            obj_type = RefType(ench_t) if ench_t else AnyType()
                         else:
-                            t_name = _unfrozen_name(obj_type)
-                        if (t_name, m_name) in self.symbols.methods:
-                            m_fn = self.symbols.methods[(t_name, m_name)]
-                            if getattr(m_fn, "is_ritual", False):
+                            if obj_sym.kind == "import" and len(target_node.children) == 2:
+                                # Module member calls (e.g. 'calling archivum.write_file')
+                                # resolve against the import's module_scope first:
+                                # that is where the real FnType signature lives. Then
+                                # fall back to the prefixed function registry names
+                                # registered during import collection. Never silently
+                                # guess 'void' when the member simply does not exist
+                                # (that used to turn every missed member into void and
+                                # produce spurious E0020 return-type mismatches).
+                                scope = getattr(obj_sym, "module_scope", None)
+                                if scope is not None:
+                                    mem_sym = scope.symbols.get(m_name)
+                                    if mem_sym is not None:
+                                        if getattr(mem_sym, "is_public", False) is False or m_name.startswith("_"):
+                                            raise self._make_error(
+                                                PrivateSymbolAccessError,
+                                                f"Symbol '{m_name}' is private to module '{obj_name}'",
+                                                node,
+                                                code="E0043",
+                                                help=f"Rename '{m_name}' without the leading underscore to make it public, or access it from inside module '{obj_name}'.",
+                                                note="Private symbols starting with '_' are not exported."
+                                            )
+                                        m_type = getattr(mem_sym, "type", None)
+                                        if isinstance(m_type, FnType):
+                                            return m_type, None
+                                        if getattr(mem_sym, "kind", "") in ("function", "declare") and m_type is not None:
+                                            return FnType(params=[], return_type=m_type), None
+
+                                for cand_name in (f"{obj_name}_{m_name}", m_name):
+                                    fn_t = self.symbols.functions.get(cand_name)
+                                    if fn_t is not None:
+                                        return fn_t, None
+                                    s = self.symbols.lookup(cand_name)
+                                    if s is not None and isinstance(getattr(s, "type", None), FnType):
+                                        return s.type, None
                                 raise self._make_error(
-                                    InvalidRitualCallError,
-                                    f"Method '{m_name}' is a 'ritual' (static) method and must be called on the type '{t_name}', not an instance",
+                                    UndefinedIdentifierError,
+                                    f"Module '{obj_name}' has no exported member '{m_name}'",
                                     target_node,
-                                    code="E0034",
-                                    help=f"Call as '{t_name}.{m_name}(...)' instead.",
-                                    note="Ritual methods cannot be called on instances."
+                                    code="E0004",
+                                    help=f"Check the member name or import the module that exports '{m_name}'.",
+                                    note="Module member calls must resolve to a declared weave/declare in that module."
                                 )
-                            return m_fn, obj_type
-                        if f"{t_name}_{m_name}" in self.symbols.functions:
-                            return self.symbols.functions[f"{t_name}_{m_name}"], obj_type
+                            obj_type = obj_sym.type
 
-                        base_tname = t_name.split("_")[0]
-                        if (base_tname, m_name) in self.symbols.generic_methods:
-                            type_params, method_ast = self.symbols.generic_methods[(base_tname, m_name)]
-                            gm_type = self.symbols.methods.get((base_tname, m_name))
-                            if not gm_type:
-                                for (k_t, k_m), m_fn in self.symbols.methods.items():
-                                    if k_t.split("_")[0] == base_tname and k_m == m_name:
-                                        gm_type = m_fn
+                        if obj_type is not None:
+                            for acc in target_node.children[1:-1]:
+                                if isinstance(acc, Tree) and acc.data in ("dot_access", "arrow_access") and acc.children:
+                                    fld = str(acc.children[0])
+                                    unwrapped = obj_type.target if isinstance(obj_type, RefType) else obj_type
+                                    while isinstance(unwrapped, (AliasType, FrozenType, SealType)):
+                                        unwrapped = getattr(unwrapped, "target", None) or getattr(unwrapped, "underlying", None)
+                                    if hasattr(unwrapped, "fields") and fld in unwrapped.fields:
+                                        obj_type = unwrapped.fields[fld]
+                                    else:
                                         break
-                            if gm_type:
-                                rec_type = obj_type.target if isinstance(obj_type, RefType) else obj_type
-                                t_args = getattr(rec_type, "type_args", [])
-                                if not t_args:
-                                    sym_t = self.symbols.lookup_type(rec_type.name)
-                                    if sym_t:
-                                        t_args = getattr(sym_t, "type_args", [])
-                                if not t_args and "_" in rec_type.name:
-                                    parts = rec_type.name.split("_")[1:]
-                                    t_args = [self.symbols.lookup_type(p) or BaseType(p) for p in parts]
-                                if t_args and len(t_args) == len(type_params):
-                                    subst_map = dict(zip(type_params, t_args))
-                                    gm_type = gm_type.substitute(subst_map)
-                                return gm_type, obj_type
+                                elif isinstance(acc, Tree) and acc.data == "at_access":
+                                    unwrapped = obj_type.target if isinstance(obj_type, RefType) else obj_type
+                                    while isinstance(unwrapped, (AliasType, FrozenType, SealType)):
+                                        unwrapped = getattr(unwrapped, "target", None) or getattr(unwrapped, "underlying", None)
+                                    if isinstance(unwrapped, (ListType, ArrayType, SliceType)):
+                                        obj_type = unwrapped.element
+                                    elif isinstance(unwrapped, MapType):
+                                        obj_type = unwrapped.value
+                                    else:
+                                        break
 
-                        # Concept method resolution on instance
-                        for (b_type, b_concept), b_methods in self.symbols.concept_bindings.items():
-                            if (b_type == t_name or b_type == base_tname) and m_name in b_methods:
-                                m_fn = b_methods[m_name]
+                            if isinstance(obj_type, TypeParam):
+                                for bound in obj_type.bounds:
+                                    concept_obj = self.symbols.lookup_concept(bound)
+                                    if concept_obj and m_name in concept_obj.methods:
+                                        return concept_obj.methods[m_name], obj_type
+
+                            if isinstance(obj_type, RefType):
+                                t_name = _unfrozen_name(obj_type.target)
+                            else:
+                                t_name = _unfrozen_name(obj_type)
+                            if (t_name, m_name) in self.symbols.methods:
+                                m_fn = self.symbols.methods[(t_name, m_name)]
                                 if getattr(m_fn, "is_ritual", False):
                                     raise self._make_error(
                                         InvalidRitualCallError,
@@ -3267,48 +3309,89 @@ class TypeInferrer:
                                         note="Ritual methods cannot be called on instances."
                                     )
                                 return m_fn, obj_type
+                            if f"{t_name}_{m_name}" in self.symbols.functions:
+                                return self.symbols.functions[f"{t_name}_{m_name}"], obj_type
 
-                        if isinstance(obj_type, ListType):
-                            if m_name in ("push", "append", "pop", "clear", "len", "is_empty", "contains", "index_of", "at"):
-                                if m_name in ("push", "append"):
-                                    return FnType(params=[("item", obj_type.element)], return_type=VOID_TYPE), obj_type
-                                elif m_name == "pop":
-                                    return FnType(params=[], return_type=obj_type.element), obj_type
-                                elif m_name == "clear":
-                                    return FnType(params=[], return_type=VOID_TYPE), obj_type
+                            base_tname = t_name.split("_")[0]
+                            if (base_tname, m_name) in self.symbols.generic_methods:
+                                type_params, method_ast = self.symbols.generic_methods[(base_tname, m_name)]
+                                gm_type = self.symbols.methods.get((base_tname, m_name))
+                                if not gm_type:
+                                    for (k_t, k_m), m_fn in self.symbols.methods.items():
+                                        if k_t.split("_")[0] == base_tname and k_m == m_name:
+                                            gm_type = m_fn
+                                            break
+                                if gm_type:
+                                    rec_type = obj_type.target if isinstance(obj_type, RefType) else obj_type
+                                    t_args = getattr(rec_type, "type_args", [])
+                                    if not t_args:
+                                        sym_t = self.symbols.lookup_type(rec_type.name)
+                                        if sym_t:
+                                            t_args = getattr(sym_t, "type_args", [])
+                                    if not t_args and "_" in rec_type.name:
+                                        parts = rec_type.name.split("_")[1:]
+                                        t_args = [self.symbols.lookup_type(p) or BaseType(p) for p in parts]
+                                    if t_args and len(t_args) == len(type_params):
+                                        subst_map = dict(zip(type_params, t_args))
+                                        gm_type = gm_type.substitute(subst_map)
+                                    return gm_type, obj_type
+
+                            # Concept method resolution on instance
+                            for (b_type, b_concept), b_methods in self.symbols.concept_bindings.items():
+                                if (b_type == t_name or b_type == base_tname) and m_name in b_methods:
+                                    m_fn = b_methods[m_name]
+                                    if getattr(m_fn, "is_ritual", False):
+                                        raise self._make_error(
+                                            InvalidRitualCallError,
+                                            f"Method '{m_name}' is a 'ritual' (static) method and must be called on the type '{t_name}', not an instance",
+                                            target_node,
+                                            code="E0034",
+                                            help=f"Call as '{t_name}.{m_name}(...)' instead.",
+                                            note="Ritual methods cannot be called on instances."
+                                        )
+                                    return m_fn, obj_type
+
+                            if isinstance(obj_type, ListType):
+                                if m_name in ("push", "append", "pop", "clear", "len", "is_empty", "contains", "index_of", "at"):
+                                    if m_name in ("push", "append"):
+                                        return FnType(params=[("item", obj_type.element)], return_type=VOID_TYPE), obj_type
+                                    elif m_name == "pop":
+                                        return FnType(params=[], return_type=obj_type.element), obj_type
+                                    elif m_name == "clear":
+                                        return FnType(params=[], return_type=VOID_TYPE), obj_type
+                                    elif m_name == "len":
+                                        return FnType(params=[], return_type=INT_TYPE), obj_type
+                                    elif m_name == "is_empty":
+                                        return FnType(params=[], return_type=BOOL_TYPE), obj_type
+                                    elif m_name == "contains":
+                                        return FnType(params=[("item", obj_type.element)], return_type=BOOL_TYPE), obj_type
+                                    elif m_name == "index_of":
+                                        return FnType(params=[("item", obj_type.element)], return_type=INT_TYPE), obj_type
+                                    elif m_name == "at":
+                                        return FnType(params=[("index", INT_TYPE)], return_type=obj_type.element), obj_type
+                            if isinstance(obj_type, MapType):
+                                if m_name in ("put", "insert", "set"):
+                                    return FnType(params=[("key", obj_type.key), ("value", obj_type.value)], return_type=VOID_TYPE), obj_type
+                                elif m_name == "get":
+                                    return FnType(params=[("key", obj_type.key)], return_type=obj_type.value), obj_type
+                                elif m_name == "remove":
+                                    return FnType(params=[("key", obj_type.key)], return_type=BOOL_TYPE), obj_type
+                                elif m_name in ("contains", "contains_key", "has"):
+                                    return FnType(params=[("key", obj_type.key)], return_type=BOOL_TYPE), obj_type
                                 elif m_name == "len":
                                     return FnType(params=[], return_type=INT_TYPE), obj_type
+                                elif m_name == "clear":
+                                    return FnType(params=[], return_type=VOID_TYPE), obj_type
                                 elif m_name == "is_empty":
                                     return FnType(params=[], return_type=BOOL_TYPE), obj_type
-                                elif m_name == "contains":
-                                    return FnType(params=[("item", obj_type.element)], return_type=BOOL_TYPE), obj_type
-                                elif m_name == "index_of":
-                                    return FnType(params=[("item", obj_type.element)], return_type=INT_TYPE), obj_type
-                                elif m_name == "at":
-                                    return FnType(params=[("index", INT_TYPE)], return_type=obj_type.element), obj_type
-                        if isinstance(obj_type, MapType):
-                            if m_name in ("put", "insert", "set"):
-                                return FnType(params=[("key", obj_type.key), ("value", obj_type.value)], return_type=VOID_TYPE), obj_type
-                            elif m_name == "get":
-                                return FnType(params=[("key", obj_type.key)], return_type=obj_type.value), obj_type
-                            elif m_name == "remove":
-                                return FnType(params=[("key", obj_type.key)], return_type=BOOL_TYPE), obj_type
-                            elif m_name in ("contains", "contains_key", "has"):
-                                return FnType(params=[("key", obj_type.key)], return_type=BOOL_TYPE), obj_type
-                            elif m_name == "len":
-                                return FnType(params=[], return_type=INT_TYPE), obj_type
-                            elif m_name == "clear":
-                                return FnType(params=[], return_type=VOID_TYPE), obj_type
-                            elif m_name == "is_empty":
-                                return FnType(params=[], return_type=BOOL_TYPE), obj_type
-                        raise self._make_error(
-                            UndefinedIdentifierError,
-                            f"Type '{obj_type}' has no method '{m_name}'",
-                            target_node,
-                            code="E0004",
-                            help=f"Declare 'weave {m_name}' inside 'enchanting {obj_type}:'.",
-                            note=f"Type '{obj_type}' does not define method '{m_name}'."
-                        )
+                            raise self._make_error(
+                                UndefinedIdentifierError,
+                                f"Type '{obj_type}' has no method '{m_name}'",
+                                target_node,
+                                code="E0004",
+                                help=f"Declare 'weave {m_name}' inside 'enchanting {obj_type}:'.",
+                                note=f"Type '{obj_type}' does not define method '{m_name}'."
+                            )
                     else:
                         # Static / ritual method call on type name (e.g. Vec2.zero)
                         type_resolved = self.symbols.lookup_type(obj_name)

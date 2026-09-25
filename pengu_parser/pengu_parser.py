@@ -131,7 +131,10 @@ class PenguParser:
                                 out.append(blank(lines[k]))
                             i = closed + 1
                             continue
-                        out.append(blank(line))
+                        else:
+                            for k in range(i, n):
+                                out.append(blank(lines[k]))
+                            break
                     else:
                         # '## doc' or '## doc ##' single-line documentation.
                         out.append(blank(line))

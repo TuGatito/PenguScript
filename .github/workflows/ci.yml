@@ -73,9 +73,13 @@ jobs:
         run: |
           python build_runtime.py
 
-      - name: Run test suite
+      - name: Run test suite (fast fail on core reviews)
         run: |
-          python -m pytest tests -q -p no:cacheprovider
+          python -m pytest tests/test_p0_review_fixes.py tests/test_p1_review_fixes.py tests/test_p2_review_fixes.py -q -p no:cacheprovider --timeout=600 -x
+
+      - name: Run full test suite
+        run: |
+          python -m pytest tests -q -p no:cacheprovider --timeout=600
 
       - name: Package standalone release + VS Code extension
         run: |

@@ -321,6 +321,7 @@ weave name_at with index as int into string:
 ## Returns the size in bytes of the asset, or 0 if not found.
 weave size with name as string into usize:
     let c as ref to char is calling ffi.cstr_from_string with name
+    defer calling ffi.cstr_free with c
     return calling _{module}_size with (transmute c to ref to frozen char)
 
 ## Returns true if an asset with `name` exists.
@@ -334,6 +335,7 @@ weave exists with name as string into bool:
 ## Returns a read-only pointer to the asset bytes, or null if not found.
 weave ptr with name as string into ref to frozen void:
     let c as ref to char is calling ffi.cstr_from_string with name
+    defer calling ffi.cstr_free with c
     return calling _{module}_data with (transmute c to ref to frozen char)
 
 ## Returns a byte-slice view over the asset (empty if not found).

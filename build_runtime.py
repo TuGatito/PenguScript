@@ -1002,6 +1002,8 @@ def build_raylib(cc, ar, rebuild=False):
         flags.append("-D_GLFW_WIN32")
     elif sys.platform.startswith("linux"):
         flags.append("-D_GLFW_X11")
+    elif sys.platform.startswith("darwin"):
+        flags.append("-D_GLFW_COCOA")
 
     sources = [
         "rcore.c", "rshapes.c", "rtextures.c", "rtext.c", "rmodels.c",

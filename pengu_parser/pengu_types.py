@@ -983,10 +983,10 @@ class RuneType(Type):
         return mangle_type(self)
 
     def substitute(self, type_map: Dict[str, Type]) -> Type:
-        if not type_map:
+        if not type_map or (not self.type_params and not self.type_args):
             return self
         new_fields = {k: v.substitute(type_map) for k, v in self.fields.items()}
-        new_methods = {k: v.substitute(type_map) for k, v in self.methods.items()} if hasattr(self, 'methods') else {}
+        new_methods = dict(self.methods) if hasattr(self, 'methods') else {}
         new_args = [a.substitute(type_map) for a in self.type_args]
         if not new_args and self.type_params:
             new_args = [type_map.get(tp, TypeParam(tp)) for tp in self.type_params]
@@ -1494,6 +1494,34 @@ def is_opaque_type(t: Type) -> bool:
     return False
 
 
+def _resolve_symbol_table(fn: Any) -> Any:
+    if fn is None:
+        return None
+    st = getattr(fn, "__self__", None)
+    if st and hasattr(st, "monomorphized_types"):
+        return st
+    st = getattr(fn, "symbol_table", None)
+    if st and hasattr(st, "monomorphized_types"):
+        return st
+    if hasattr(fn, "__closure__") and fn.__closure__:
+        for cell in fn.__closure__:
+            try:
+                val = cell.cell_contents
+            except ValueError:
+                continue
+            if hasattr(val, "monomorphized_types"):
+                return val
+            if hasattr(val, "symbols") and hasattr(val.symbols, "monomorphized_types"):
+                return val.symbols
+            if callable(val) and getattr(val, "__self__", None) and hasattr(val.__self__, "monomorphized_types"):
+                return val.__self__
+            if callable(val) and hasattr(val, "__closure__"):
+                sub_st = _resolve_symbol_table(val)
+                if sub_st is not None:
+                    return sub_st
+    return None
+
+
 def ast_to_type(type_node: Any, symbol_lookup_fn: Optional[Any] = None) -> Type:
     """Converts a parsed Lark type AST node into a Type object.
 
@@ -1565,7 +1593,7 @@ def ast_to_type(type_node: Any, symbol_lookup_fn: Optional[Any] = None) -> Type:
                     if t_params:
                         subst_map = dict(zip(t_params, type_args))
                         specialized = t.substitute(subst_map)
-                        st = getattr(symbol_lookup_fn, "__self__", None)
+                        st = _resolve_symbol_table(symbol_lookup_fn)
                         if st and hasattr(st, "monomorphized_types"):
                             st.monomorphized_types[specialized.name] = specialized
                             if isinstance(specialized, RuneType):
@@ -1580,7 +1608,7 @@ def ast_to_type(type_node: Any, symbol_lookup_fn: Optional[Any] = None) -> Type:
                     elif isinstance(t, AliasType) and t.type_params:
                         subst_map = dict(zip(t.type_params, type_args))
                         specialized = t.substitute(subst_map)
-                        st = getattr(symbol_lookup_fn, "__self__", None)
+                        st = _resolve_symbol_table(symbol_lookup_fn)
                         if st and hasattr(st, "monomorphized_types"):
                             st.monomorphized_types[specialized.name] = specialized
                             st.aliases[specialized.name] = specialized
@@ -1619,13 +1647,6 @@ def ast_to_type(type_node: Any, symbol_lookup_fn: Optional[Any] = None) -> Type:
             curr = curr.children[0]
         base_elem = ast_to_type(curr, symbol_lookup_fn)
         
-        size_tokens = []
-        for an in array_nodes:
-            if len(an.children) > 1 and an.children[1] is not None:
-                size_tokens.append(an.children[1])
-        
-        size_tokens.sort(key=lambda t: (getattr(t, "line", 0) or 0, getattr(t, "column", 0) or 0))
-        
         def _resolve_sz(sz_tok):
             if sz_tok is None:
                 return None
@@ -1636,17 +1657,28 @@ def ast_to_type(type_node: Any, symbol_lookup_fn: Optional[Any] = None) -> Type:
                     return None
             elif isinstance(sz_tok, Token):
                 sz_name = str(sz_tok)
-                sym = symbol_lookup_fn(sz_name) if symbol_lookup_fn else None
+                sym = None
+                if symbol_lookup_fn:
+                    st = _resolve_symbol_table(symbol_lookup_fn)
+                    if st and hasattr(st, "lookup"):
+                        sym = st.lookup(sz_name)
+                    elif st and hasattr(st, "symbols") and hasattr(st.symbols, "lookup"):
+                        sym = st.symbols.lookup(sz_name)
+                    else:
+                        sym = symbol_lookup_fn(sz_name)
                 if sym and hasattr(sym, "const_val") and isinstance(sym.const_val, int):
                     return sym.const_val
             return None
 
-        while len(size_tokens) < len(array_nodes):
-            size_tokens.append(None)
-            
+        # Depth-based resolution: in right-associative multi-dimensional array types,
+        # array_nodes[0] is outermost AST node and array_nodes[-1] is innermost.
+        # Following LANGUAGE.md §15.3 (outer dimension first), the first 'with size' in source
+        # is held on array_nodes[-1] (outer size), and the last on array_nodes[0] (inner size).
+        size_tokens = [an.children[1] if len(an.children) > 1 else None for an in reversed(array_nodes)]
+
         res = base_elem
-        for i in reversed(range(len(array_nodes))):
-            res = ArrayType(element=res, size=_resolve_sz(size_tokens[i]))
+        for sz_tok in reversed(size_tokens):
+            res = ArrayType(element=res, size=_resolve_sz(sz_tok))
         return res
 
 
@@ -1744,7 +1776,12 @@ def estimate_size(t: Optional[Type], custom_types: Optional[Dict[str, Type]] = N
 
     if isinstance(t, ArrayType):
         elem_sz = estimate_size(t.element, custom_types, seen)
-        return max(1, t.size or 1) * elem_sz
+        sz = t.size
+        if isinstance(sz, str) and sz.isdigit():
+            sz = int(sz)
+        elif not isinstance(sz, int):
+            sz = 1
+        return max(1, sz) * elem_sz
 
     if isinstance(t, (SliceType, ManyType, ListType, MapType)):
         return 24  # struct { void* ptr; size_t len; size_t cap; }
