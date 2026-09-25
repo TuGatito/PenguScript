@@ -143,6 +143,7 @@ def test_raylib_build_flags_macos():
     with patch("sys.platform", "darwin"), \
          patch("build_runtime.run_cmd", side_effect=lambda c: cmds.append(c)), \
          patch("build_runtime.shutil.copy2"), \
+         patch.object(Path, "unlink"), \
          patch.object(Path, "mkdir"):
         build_runtime.build_raylib("gcc", "ar", rebuild=True)
 

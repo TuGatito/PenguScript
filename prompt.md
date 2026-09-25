@@ -1,162 +1,448 @@
-Tenemos problemas. Debido a los cambios que implementaste anteriormente el proyecto no compila en GitHub Actions en ninguna plataforma (Linux, MacOS y Windows). 
+Tenemos problemas. Debido a los cambios que implementaste anteriormente el proyecto no compila en GitHub Actions en plataforma MacOS y Windows solo en Linux. 
 
 Parece ser un problema con los tests. Investiga si el problema es que hay tests desactualizados al estado actual del lenguaje y compilador o si son errores reales.    
 
 Asegurate que todo este bien y correcto para que compilen bien las 3 plataformas en Github Actions. No olvides actualizar el changelog.md
 
-Error de MacOs:
+Windows:
 
-Run python -m pytest tests -q -p no:cacheprovider
-.................................F...................................... [  6%]
-........................................................................ [ 13%]
-........................................................................ [ 19%]
-........................................................................ [ 26%]
-........................................................................ [ 32%]
-........................................................................ [ 39%]
-.............................................................s..ss...... [ 46%]
-........................................................................ [ 52%]
-........................................................................ [ 59%]
-......................................s..............................s.. [ 65%]
-..................s.....................s.s............................. [ 72%]
-........................................................................ [ 78%]
-........................................................................ [ 85%]
-........................................................................ [ 92%]
-.........................s.............................................. [ 98%]
-..............                                                           [100%]
-=================================== FAILURES ===================================
-_________ TestBuildCommands.test_no_hardcoded_raylib_with_empty_links __________
 
-self = <tests.test_cli_tools.TestBuildCommands object at 0x10bcb0b00>
-proj_dir = '/Users/runner/work/PenguScript/PenguScript/build/cli_proj_1l1_5ja7'
-
-    def test_no_hardcoded_raylib_with_empty_links(self, proj_dir):
-        from pengu_project import PenguBuilder, OutputType, ProjectConfig
-    
-        cfg = ProjectConfig(name="headless", output=OutputType.EXE,
-                            output_name="headless_app", links=[],
-                            base_dir=proj_dir)
-        cmds = PenguBuilder(cfg).build_compile_commands(
-            "bundle.c", "headless_app.exe")
-        cmd_str = " ".join(cmds[0])
-        assert "-lraylib" not in cmd_str
->       assert "-l" not in cmd_str
-E       AssertionError: assert '-l' not in 'gcc bundle....ead -lm -ldl'
-E         
-E         '-l' is contained here:
-E            -DSTATIC -lpengu_stb -ltomlc17 -lz -lpengu_runtime -lpcre2-8 -lxml2 -lcurl -lmbedcrypto -lmicrohttpd -lz -L/opt/homebrew/lib -L/opt/homebrew/opt/libxml2/lib -L/opt/homebrew/Cellar/libmicrohttpd/1.0.10/lib -L/opt/homebrew/Cellar/mbedtls/4.2.0/lib -lmbedtls -lcyaml -lxlsxio_write -lpengu_raymath -lzip -lpcre2-8 -lmbedcrypto -luv -lyaml -lexpat -lxlsxio_read -lsqlite3 -framework CoreFoundation -pthread -lm -ldl
-E         ?           ++
-
-tests/test_cli_tools.py:510: AssertionError
-=========================== short test summary info ============================
-FAILED tests/test_cli_tools.py::TestBuildCommands::test_no_hardcoded_raylib_with_empty_links - AssertionError: assert '-l' not in 'gcc bundle....ead -lm -ldl'
-  
-  '-l' is contained here:
-     -DSTATIC -lpengu_stb -ltomlc17 -lz -lpengu_runtime -lpcre2-8 -lxml2 -lcurl -lmbedcrypto -lmicrohttpd -lz -L/opt/homebrew/lib -L/opt/homebrew/opt/libxml2/lib -L/opt/homebrew/Cellar/libmicrohttpd/1.0.10/lib -L/opt/homebrew/Cellar/mbedtls/4.2.0/lib -lmbedtls -lcyaml -lxlsxio_write -lpengu_raymath -lzip -lpcre2-8 -lmbedcrypto -luv -lyaml -lexpat -lxlsxio_read -lsqlite3 -framework CoreFoundation -pthread -lm -ldl
-  ?           ++
-1 failed, 1084 passed, 9 skipped in 153.81s (0:02:33)
-Error: Process completed with exit code 1.
-
-Error de Linux:
-
-Run python -m pytest tests -q -p no:cacheprovider
-.................................F...................................... [  6%]
-........................................................................ [ 13%]
-........................................................................ [ 19%]
-........................................................................ [ 26%]
-........................................................................ [ 32%]
-........................................................................ [ 39%]
-.............................................................s..ss...... [ 46%]
-........................................................................ [ 52%]
-........................................................................ [ 59%]
-......................................s..............................s.. [ 65%]
-..................s.....................s.s............................. [ 72%]
-........................................................................ [ 78%]
-........................................................................ [ 85%]
-........................................................................ [ 92%]
-.........................s.............................................. [ 98%]
-..............                                                           [100%]
-=================================== FAILURES ===================================
-_________ TestBuildCommands.test_no_hardcoded_raylib_with_empty_links __________
-
-self = <tests.test_cli_tools.TestBuildCommands object at 0x7f9ebb73b490>
-proj_dir = '/home/runner/work/PenguScript/PenguScript/build/cli_proj_nj88r8wu'
-
-    def test_no_hardcoded_raylib_with_empty_links(self, proj_dir):
-        from pengu_project import PenguBuilder, OutputType, ProjectConfig
-    
-        cfg = ProjectConfig(name="headless", output=OutputType.EXE,
-                            output_name="headless_app", links=[],
-                            base_dir=proj_dir)
-        cmds = PenguBuilder(cfg).build_compile_commands(
-            "bundle.c", "headless_app.exe")
-        cmd_str = " ".join(cmds[0])
-        assert "-lraylib" not in cmd_str
->       assert "-l" not in cmd_str
-E       AssertionError: assert '-l' not in 'gcc bundle....,--end-group'
-E         
-E         '-l' is contained here:
-E         ?           ^^^^^^^^
-E           ude/x86_64-linux-gnu -I/usr/include/p11-kit-1 -I/usr/local/include -I/home/runner/work/PenguScript/PenguScript/build/include -I/home/runner/work/PenguScript/PenguScript -L/home/runner/work/PenguScript/PenguScript/build/lib -DSTATIC -Wl,--start-group -lpengu_raymath -lyaml -lz -ltomlc17 -lxlsxio_write -lzip -lpengu_runtime -lpcre2-8 -lxml2 -lcurl -lmbedcrypto -lmicrohttpd -lz -L/usr/local/lib -lmbedtls -lmbedcrypto -lxlsxio_read -lcyaml -lsqlite3 -luv -lpengu_stb -lpcre2-8 -lwebui -lexpat -lrt -lcrypto -lssl -pthread -lm -ldl -Wl,--end-group
-E         ?           ^^^^^^^^^^
-
-tests/test_cli_tools.py:510: AssertionError
-=========================== short test summary info ============================
-FAILED tests/test_cli_tools.py::TestBuildCommands::test_no_hardcoded_raylib_with_empty_links - AssertionError: assert '-l' not in 'gcc bundle....,--end-group'
-  
-  '-l' is contained here:
-  ?           ^^^^^^^^
-    ude/x86_64-linux-gnu -I/usr/include/p11-kit-1 -I/usr/local/include -I/home/runner/work/PenguScript/PenguScript/build/include -I/home/runner/work/PenguScript/PenguScript -L/home/runner/work/PenguScript/PenguScript/build/lib -DSTATIC -Wl,--start-group -lpengu_raymath -lyaml -lz -ltomlc17 -lxlsxio_write -lzip -lpengu_runtime -lpcre2-8 -lxml2 -lcurl -lmbedcrypto -lmicrohttpd -lz -L/usr/local/lib -lmbedtls -lmbedcrypto -lxlsxio_read -lcyaml -lsqlite3 -luv -lpengu_stb -lpcre2-8 -lwebui -lexpat -lrt -lcrypto -lssl -pthread -lm -ldl -Wl,--end-group
-  ?           ^^^^^^^^^^
-1 failed, 1084 passed, 9 skipped in 146.64s (0:02:26)
-Error: Process completed with exit code 1.
-
-Error de Windows:
-
-Run python -m pytest tests -q -p no:cacheprovider
-.................................F...................................... [  6%]
-........................................................................ [ 13%]
-........................................................................ [ 19%]
-........................................................................ [ 26%]
-........................................................................ [ 32%]
-........................................................................ [ 39%]
-........................................................................ [ 46%]
-........................................................................ [ 52%]
-........................................................................ [ 59%]
-......................................s................................. [ 65%]
-........................................................................ [ 72%]
-s....................................................................... [ 78%]
-........................................................................ [ 85%]
-........................................................................ [ 92%]
-.........................s.............................................. [ 98%]
-..............                                                           [100%]
+Search logs
+1s
+6s
+4s
+13s
+14s
+0s
+0s
+6m 48s
+6s
+Run python -m pytest tests/test_p0_review_fixes.py tests/test_p1_review_fixes.py tests/test_p2_review_fixes.py -q -p no:cacheprovider --timeout=600 -x
+F
 ================================== FAILURES ===================================
-_________ TestBuildCommands.test_no_hardcoded_raylib_with_empty_links _________
+_______________________ test_1_1_binding_c_keyword_name _______________________
 
-self = <tests.test_cli_tools.TestBuildCommands object at 0x0000024D52892060>
-proj_dir = 'D:\\a\\PenguScript\\PenguScript\\build\\cli_proj_xuqorama'
+tmp_path = WindowsPath('C:/Users/runneradmin/AppData/Local/Temp/pytest-of-runneradmin/pytest-0/test_1_1_binding_c_keyword_nam0')
 
-    def test_no_hardcoded_raylib_with_empty_links(self, proj_dir):
-        from pengu_project import PenguBuilder, OutputType, ProjectConfig
+    def test_1_1_binding_c_keyword_name(tmp_path):
+        """Bug 1.1: Binding if with C keyword (e.g. switch) must escape name and compile valid C."""
+        code = """
+    weave main into int:
+        var o as maybe int is some 42
+        if switch as int is o:
+            return switch
+        return 0
+    """
+>       ret = _build_and_run(code, tmp_path)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_p0_review_fixes.py:65: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+source = '\nweave main into int:\n    var o as maybe int is some 42\n    if switch as int is o:\n        return switch\n    return 0\n'
+tmp_path = WindowsPath('C:/Users/runneradmin/AppData/Local/Temp/pytest-of-runneradmin/pytest-0/test_1_1_binding_c_keyword_nam0')
+extra_files = None
+
+    def _build_and_run(source: str, tmp_path: Path, extra_files=None) -> int:
+        """Helper to check, codegen, compile and run generated C code using gcc."""
+        parser = PenguParser()
+        checker = PenguChecker(base_dir=str(tmp_path))
+        files = list(extra_files or []) + [("main.pengu", source)]
+        trees = {}
+        for idx, (fname, code) in enumerate(files):
+            tree = parser.parse(code)
+            checker.check(tree, source=code, filename=fname, reset_symbols=(idx == 0))
+            trees[fname] = tree
     
-        cfg = ProjectConfig(name="headless", output=OutputType.EXE,
-                            output_name="headless_app", links=[],
-                            base_dir=proj_dir)
-        cmds = PenguBuilder(cfg).build_compile_commands(
-            "bundle.c", "headless_app.exe")
-        cmd_str = " ".join(cmds[0])
->       assert "-lraylib" not in cmd_str
-E       AssertionError: assert '-lraylib' not in 'gcc bundle....,--end-group'
+        codegen = PenguCodegen(checker.symbols, [fname for fname, _ in files], str(tmp_path), compile_env=checker.compile_env)
+        for fname, _ in files:
+            codegen.collect_declarations([(fname, trees[fname])])
+        c_code = codegen.generate_bundle()
+    
+        c_file = tmp_path / "main.c"
+        c_file.write_text(c_code, encoding="utf-8")
+        bin_file = tmp_path / "main_bin"
+        repo_dir = Path(__file__).resolve().parent.parent
+        cmd = [
+            "gcc", "-std=c99",
+            f"-I{repo_dir}",
+            f"-I{repo_dir / 'build' / 'include'}",
+            f"-I{repo_dir / 'build'}",
+            f"-L{repo_dir / 'build' / 'lib'}",
+            str(c_file), "-o", str(bin_file),
+            "-Wno-error=implicit-function-declaration",
+            "-lpengu_runtime", "-lpcre2-8", "-lxml2", "-lcurl", "-lmbedcrypto", "-lmicrohttpd", "-lz",
+            "-lpthread", "-lm", "-ldl"
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+>       assert res.returncode == 0, f"Compilation failed:\n{res.stderr}\nCode:\n{c_code}"
+E       AssertionError: Compilation failed:
+E         C:/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/15.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: cannot find -ldl: No such file or directory
+E         collect2.exe: error: ld returned 1 exit status
 E         
-E         '-lraylib' is contained here:
-E           pengu_stb -lraylib -lsqlite3 -ltomlc17 -lwebui -lxlsxio_read -lxlsxio_write -lxml2 -lyaml -lz -lzip -Wl,--end-group
-E         ?           ++++++++
+E         Code:
+E         /* Auto-generated by PenguScript v0.14.0 */
+E         #include "pengu_runtime.h"
+E         
+E         /* Compiled modules in topological order:
+E          * - main.pengu
+E          */
+E         
+E         /* -------------------------------------------------------------------------
+E          * Forward Declarations
+E          * ------------------------------------------------------------------------- */
+E         #ifndef PENGU_RANGE_DEFINED
+E         #define PENGU_RANGE_DEFINED
+E         typedef struct { int64_t start; int64_t end; } PenguRange;
+E         #endif
+E         
+E         
+E         
+E         /* -------------------------------------------------------------------------
+E          * Function Prototypes
+E          * ------------------------------------------------------------------------- */
+E         int32_t pengu_main(void);
+E         
+E         #line 1
+E         
+E         /* -------------------------------------------------------------------------
+E          * Function Definitions
+E          * ------------------------------------------------------------------------- */
+E         #line 2 "D:/a/PenguScript/PenguScript/main.pengu"
+E         int32_t pengu_main(void) {
+E           pengu_frame_push("pengu_main", "D:/a/PenguScript/PenguScript/main.pengu", 2);
+E         #line 3 "D:/a/PenguScript/PenguScript/main.pengu"
+E           PenguMaybe o = (__extension__({ int32_t _some_1 = 42;
+E           PenguMaybe _maybe_2;
+E           _maybe_2.is_present = true;
+E           _maybe_2.value = pengu_sigil_alloc(sizeof(_some_1));
+E           if (!_maybe_2.value) _maybe_2.is_present = false;
+E           else memcpy(_maybe_2.value, &(_some_1), sizeof(_some_1));
+E           _maybe_2; })); /* stack */
+E         #line 4 "D:/a/PenguScript/PenguScript/main.pengu"
+E           {
+E             PenguMaybe _maybe_3 = o;
+E             if (pengu_maybe_is_present(&_maybe_3)) {
+E               int32_t _switch = (*(int32_t *)_maybe_3.value);
+E         #line 5 "D:/a/PenguScript/PenguScript/main.pengu"
+E               pengu_frame_pop();
+E               return _switch;
+E             }
+E           }
+E         #line 6 "D:/a/PenguScript/PenguScript/main.pengu"
+E           pengu_frame_pop();
+E           return 0;
+E           pengu_frame_pop();
+E         }
+E         
+E         #line 1
+E         /* -------------------------------------------------------------------------
+E          * Entry Point Wrapper
+E          * ------------------------------------------------------------------------- */
+E         int main(int argc, char** argv) {
+E           /* Expose the program arguments to 'rites.get_args()' etc. */
+E           pengu_init(argc, argv);
+E           int pengu_status = (int)pengu_main();
+E           fflush(stdout);
+E           fflush(stderr);
+E           return pengu_status;
+E         }
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['gcc', '-std=c99', '-ID:\\a\\PenguScript\\PenguScript', '-ID:\\a\\PenguScript\\PenguScript\\bui...w64-mingw32/bin/ld.exe: cannot find -ldl: No such file or directory\ncollect2.exe: error: ld returned 1 exit status\n').returncode
 
-tests\test_cli_tools.py:509: AssertionError
+tests\test_p0_review_fixes.py:51: AssertionError
 =========================== short test summary info ===========================
-FAILED tests/test_cli_tools.py::TestBuildCommands::test_no_hardcoded_raylib_with_empty_links - AssertionError: assert '-lraylib' not in 'gcc bundle....,--end-group'
+FAILED tests/test_p0_review_fixes.py::test_1_1_binding_c_keyword_name - AssertionError: Compilation failed:
+  C:/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/15.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: cannot find -ldl: No such file or directory
+  collect2.exe: error: ld returned 1 exit status
   
-  '-lraylib' is contained here:
-    pengu_stb -lraylib -lsqlite3 -ltomlc17 -lwebui -lxlsxio_read -lxlsxio_write -lxml2 -lyaml -lz -lzip -Wl,--end-group
-  ?           ++++++++
-1 failed, 1090 passed, 3 skipped in 197.66s (0:03:17)
+  Code:
+  /* Auto-generated by PenguScript v0.14.0 */
+  #include "pengu_runtime.h"
+  
+  /* Compiled modules in topological order:
+   * - main.pengu
+   */
+  
+  /* -------------------------------------------------------------------------
+   * Forward Declarations
+   * ------------------------------------------------------------------------- */
+  #ifndef PENGU_RANGE_DEFINED
+  #define PENGU_RANGE_DEFINED
+  typedef struct { int64_t start; int64_t end; } PenguRange;
+  #endif
+  
+  
+  
+  /* -------------------------------------------------------------------------
+   * Function Prototypes
+   * ------------------------------------------------------------------------- */
+  int32_t pengu_main(void);
+  
+  #line 1
+  
+  /* -------------------------------------------------------------------------
+   * Function Definitions
+   * ------------------------------------------------------------------------- */
+  #line 2 "D:/a/PenguScript/PenguScript/main.pengu"
+  int32_t pengu_main(void) {
+    pengu_frame_push("pengu_main", "D:/a/PenguScript/PenguScript/main.pengu", 2);
+  #line 3 "D:/a/PenguScript/PenguScript/main.pengu"
+    PenguMaybe o = (__extension__({ int32_t _some_1 = 42;
+    PenguMaybe _maybe_2;
+    _maybe_2.is_present = true;
+    _maybe_2.value = pengu_sigil_alloc(sizeof(_some_1));
+    if (!_maybe_2.value) _maybe_2.is_present = false;
+    else memcpy(_maybe_2.value, &(_some_1), sizeof(_some_1));
+    _maybe_2; })); /* stack */
+  #line 4 "D:/a/PenguScript/PenguScript/main.pengu"
+    {
+      PenguMaybe _maybe_3 = o;
+      if (pengu_maybe_is_present(&_maybe_3)) {
+        int32_t _switch = (*(int32_t *)_maybe_3.value);
+  #line 5 "D:/a/PenguScript/PenguScript/main.pengu"
+        pengu_frame_pop();
+        return _switch;
+      }
+    }
+  #line 6 "D:/a/PenguScript/PenguScript/main.pengu"
+    pengu_frame_pop();
+    return 0;
+    pengu_frame_pop();
+  }
+  
+  #line 1
+  /* -------------------------------------------------------------------------
+   * Entry Point Wrapper
+   * ------------------------------------------------------------------------- */
+  int main(int argc, char** argv) {
+    /* Expose the program arguments to 'rites.get_args()' etc. */
+    pengu_init(argc, argv);
+    int pengu_status = (int)pengu_main();
+    fflush(stdout);
+    fflush(stderr);
+    return pengu_status;
+  }
+  
+assert 1 == 0
+ +  where 1 = CompletedProcess(args=['gcc', '-std=c99', '-ID:\\a\\PenguScript\\PenguScript', '-ID:\\a\\PenguScript\\PenguScript\\bui...w64-mingw32/bin/ld.exe: cannot find -ldl: No such file or directory\ncollect2.exe: error: ld returned 1 exit status\n').returncode
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 4.38s
+Error: Process completed with exit code 1.
+
+MacOS:
+
+Run python -m pytest tests/test_p0_review_fixes.py tests/test_p1_review_fixes.py tests/test_p2_review_fixes.py -q -p no:cacheprovider --timeout=600 -x
+F
+=================================== FAILURES ===================================
+_______________________ test_1_1_binding_c_keyword_name ________________________
+
+tmp_path = PosixPath('/private/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T/pytest-of-runner/pytest-0/test_1_1_binding_c_keyword_nam0')
+
+    def test_1_1_binding_c_keyword_name(tmp_path):
+        """Bug 1.1: Binding if with C keyword (e.g. switch) must escape name and compile valid C."""
+        code = """
+    weave main into int:
+        var o as maybe int is some 42
+        if switch as int is o:
+            return switch
+        return 0
+    """
+>       ret = _build_and_run(code, tmp_path)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_p0_review_fixes.py:65: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+source = '\nweave main into int:\n    var o as maybe int is some 42\n    if switch as int is o:\n        return switch\n    return 0\n'
+tmp_path = PosixPath('/private/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T/pytest-of-runner/pytest-0/test_1_1_binding_c_keyword_nam0')
+extra_files = None
+
+    def _build_and_run(source: str, tmp_path: Path, extra_files=None) -> int:
+        """Helper to check, codegen, compile and run generated C code using gcc."""
+        parser = PenguParser()
+        checker = PenguChecker(base_dir=str(tmp_path))
+        files = list(extra_files or []) + [("main.pengu", source)]
+        trees = {}
+        for idx, (fname, code) in enumerate(files):
+            tree = parser.parse(code)
+            checker.check(tree, source=code, filename=fname, reset_symbols=(idx == 0))
+            trees[fname] = tree
+    
+        codegen = PenguCodegen(checker.symbols, [fname for fname, _ in files], str(tmp_path), compile_env=checker.compile_env)
+        for fname, _ in files:
+            codegen.collect_declarations([(fname, trees[fname])])
+        c_code = codegen.generate_bundle()
+    
+        c_file = tmp_path / "main.c"
+        c_file.write_text(c_code, encoding="utf-8")
+        bin_file = tmp_path / "main_bin"
+        repo_dir = Path(__file__).resolve().parent.parent
+        cmd = [
+            "gcc", "-std=c99",
+            f"-I{repo_dir}",
+            f"-I{repo_dir / 'build' / 'include'}",
+            f"-I{repo_dir / 'build'}",
+            f"-L{repo_dir / 'build' / 'lib'}",
+            str(c_file), "-o", str(bin_file),
+            "-Wno-error=implicit-function-declaration",
+            "-lpengu_runtime", "-lpcre2-8", "-lxml2", "-lcurl", "-lmbedcrypto", "-lmicrohttpd", "-lz",
+            "-lpthread", "-lm", "-ldl"
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+>       assert res.returncode == 0, f"Compilation failed:\n{res.stderr}\nCode:\n{c_code}"
+E       AssertionError: Compilation failed:
+E         ld: library 'microhttpd' not found
+E         clang: error: linker command failed with exit code 1 (use -v to see invocation)
+E         
+E         Code:
+E         /* Auto-generated by PenguScript v0.14.0 */
+E         #include "pengu_runtime.h"
+E         
+E         /* Compiled modules in topological order:
+E          * - main.pengu
+E          */
+E         
+E         /* -------------------------------------------------------------------------
+E          * Forward Declarations
+E          * ------------------------------------------------------------------------- */
+E         #ifndef PENGU_RANGE_DEFINED
+E         #define PENGU_RANGE_DEFINED
+E         typedef struct { int64_t start; int64_t end; } PenguRange;
+E         #endif
+E         
+E         
+E         
+E         /* -------------------------------------------------------------------------
+E          * Function Prototypes
+E          * ------------------------------------------------------------------------- */
+E         int32_t pengu_main(void);
+E         
+E         #line 1
+E         
+E         /* -------------------------------------------------------------------------
+E          * Function Definitions
+E          * ------------------------------------------------------------------------- */
+E         #line 2 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
+E         int32_t pengu_main(void) {
+E           pengu_frame_push("pengu_main", "/Users/runner/work/PenguScript/PenguScript/main.pengu", 2);
+E         #line 3 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
+E           PenguMaybe o = (__extension__({ int32_t _some_1 = 42;
+E           PenguMaybe _maybe_2;
+E           _maybe_2.is_present = true;
+E           _maybe_2.value = pengu_sigil_alloc(sizeof(_some_1));
+E           if (!_maybe_2.value) _maybe_2.is_present = false;
+E           else memcpy(_maybe_2.value, &(_some_1), sizeof(_some_1));
+E           _maybe_2; })); /* stack */
+E         #line 4 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
+E           {
+E             PenguMaybe _maybe_3 = o;
+E             if (pengu_maybe_is_present(&_maybe_3)) {
+E               int32_t _switch = (*(int32_t *)_maybe_3.value);
+E         #line 5 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
+E               pengu_frame_pop();
+E               return _switch;
+E             }
+E           }
+E         #line 6 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
+E           pengu_frame_pop();
+E           return 0;
+E           pengu_frame_pop();
+E         }
+E         
+E         #line 1
+E         /* -------------------------------------------------------------------------
+E          * Entry Point Wrapper
+E          * ------------------------------------------------------------------------- */
+E         int main(int argc, char** argv) {
+E           /* Expose the program arguments to 'rites.get_args()' etc. */
+E           pengu_init(argc, argv);
+E           int pengu_status = (int)pengu_main();
+E           fflush(stdout);
+E           fflush(stderr);
+E           return pengu_status;
+E         }
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['gcc', '-std=c99', '-I/Users/runner/work/PenguScript/PenguScript', '-I/Users/runner/work/PenguS...ld: library 'microhttpd' not found\nclang: error: linker command failed with exit code 1 (use -v to see invocation)\n").returncode
+
+tests/test_p0_review_fixes.py:51: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_p0_review_fixes.py::test_1_1_binding_c_keyword_name - AssertionError: Compilation failed:
+  ld: library 'microhttpd' not found
+  clang: error: linker command failed with exit code 1 (use -v to see invocation)
+  
+  Code:
+  /* Auto-generated by PenguScript v0.14.0 */
+  #include "pengu_runtime.h"
+  
+  /* Compiled modules in topological order:
+   * - main.pengu
+   */
+  
+  /* -------------------------------------------------------------------------
+   * Forward Declarations
+   * ------------------------------------------------------------------------- */
+  #ifndef PENGU_RANGE_DEFINED
+  #define PENGU_RANGE_DEFINED
+  typedef struct { int64_t start; int64_t end; } PenguRange;
+  #endif
+  
+  
+  
+  /* -------------------------------------------------------------------------
+   * Function Prototypes
+   * ------------------------------------------------------------------------- */
+  int32_t pengu_main(void);
+  
+  #line 1
+  
+  /* -------------------------------------------------------------------------
+   * Function Definitions
+   * ------------------------------------------------------------------------- */
+  #line 2 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
+  int32_t pengu_main(void) {
+    pengu_frame_push("pengu_main", "/Users/runner/work/PenguScript/PenguScript/main.pengu", 2);
+  #line 3 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
+    PenguMaybe o = (__extension__({ int32_t _some_1 = 42;
+    PenguMaybe _maybe_2;
+    _maybe_2.is_present = true;
+    _maybe_2.value = pengu_sigil_alloc(sizeof(_some_1));
+    if (!_maybe_2.value) _maybe_2.is_present = false;
+    else memcpy(_maybe_2.value, &(_some_1), sizeof(_some_1));
+    _maybe_2; })); /* stack */
+  #line 4 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
+    {
+      PenguMaybe _maybe_3 = o;
+      if (pengu_maybe_is_present(&_maybe_3)) {
+        int32_t _switch = (*(int32_t *)_maybe_3.value);
+  #line 5 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
+        pengu_frame_pop();
+        return _switch;
+      }
+    }
+  #line 6 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
+    pengu_frame_pop();
+    return 0;
+    pengu_frame_pop();
+  }
+  
+  #line 1
+  /* -------------------------------------------------------------------------
+   * Entry Point Wrapper
+   * ------------------------------------------------------------------------- */
+  int main(int argc, char** argv) {
+    /* Expose the program arguments to 'rites.get_args()' etc. */
+    pengu_init(argc, argv);
+    int pengu_status = (int)pengu_main();
+    fflush(stdout);
+    fflush(stderr);
+    return pengu_status;
+  }
+  
+assert 1 == 0
+ +  where 1 = CompletedProcess(args=['gcc', '-std=c99', '-I/Users/runner/work/PenguScript/PenguScript', '-I/Users/runner/work/PenguS...ld: library 'microhttpd' not found\nclang: error: linker command failed with exit code 1 (use -v to see invocation)\n").returncode
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 2.86s
 Error: Process completed with exit code 1.

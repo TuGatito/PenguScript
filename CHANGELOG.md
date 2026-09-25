@@ -106,6 +106,10 @@ All notable changes to PenguScript will be documented in this file.
 - **Soporte de `-D_GLFW_COCOA` en macOS para Raylib (`build_runtime.py`)**: Se añade el flag específico de Cocoa al compilar `libraylib.a` en plataformas darwin.
 - **Liberación de cadenas temporales en interfaz de assets (`pengu_assets.py`)**: Se añade `defer calling ffi.cstr_free with c` en `size` y `ptr` dentro de la interfaz generada.
 - **Sincronización de documentación (`LANGUAGE.md`)**: Se eliminó el ejemplo obsoleto de patrón `when` con `is` y se aclaró el alcance léxico del binding `error` tras un bloque `or:`.
+- **Corrección de compilación y enlaces C multiplataforma en tests (`tests/test_p0_review_fixes.py`)**: Se migró el helper `_build_and_run` para usar directamente `PenguBuilder` (`OutputType.EXE`) en lugar de comandos `gcc` manuales con flags harcodeados (`-ldl`), resolviendo los fallos en Windows (donde `-ldl` no existe y se requieren bibliotecas de Win32 como `ws2_32`) y en macOS (donde las bibliotecas de Homebrew no estaban en el search path del linker).
+- **Orden de flags `-L` antes de `-l` en invocaciones C (`pengu_project.py` y `tests/conftest.py`)**: Se reestructuró la generación de comandos de compilación para que todos los directorios de búsqueda de bibliotecas de Homebrew y `pkg-config` se incorporen en `common_flags` antes de los flags `-l`, asegurando que `clang` y `gcc` en macOS y Linux resuelvan dependencias como `libmicrohttpd`, `libxml2` y `libcurl` sin ambigüedad.
+- **Protección de biblioteca estática en pruebas de Raylib (`tests/test_p2_review_fixes.py`)**: Se añadió un mock sobre `Path.unlink` en `test_raylib_build_flags_macos` para evitar la eliminación accidental de `build/lib/libraylib.a` durante la ejecución de pruebas deterministas.
+- **Variables de entorno para Homebrew en CI de macOS (`.github/workflows/ci.yml`)**: Se exportaron `LIBRARY_PATH` y `CPATH` con las rutas correspondientes de Homebrew (`libmicrohttpd`, `libxml2`, `curl`) en los runners de macOS de GitHub Actions.
 
 ## [0.13.14] - 2026-09-18
 

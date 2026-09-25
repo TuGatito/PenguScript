@@ -1127,6 +1127,16 @@ class PenguBuilder:
             if ldir_flag not in common_flags:
                 common_flags.append(ldir_flag)
 
+        if not is_win:
+            for brew_lib in ("/opt/homebrew/lib", "/usr/local/lib"):
+                ldir_flag = f"-L{brew_lib}"
+                if os.path.isdir(brew_lib) and ldir_flag not in common_flags:
+                    common_flags.append(ldir_flag)
+            for pkg in ("libxml-2.0", "libcurl", "libmicrohttpd", "mbedtls"):
+                for tok in pkg_config_libs(pkg):
+                    if tok.startswith("-L") and tok not in common_flags:
+                        common_flags.append(tok)
+
         # Collect C glue/support files
         c_sources = self.collect_c_sources()
 
@@ -1159,20 +1169,9 @@ class PenguBuilder:
                         "-lpsapi", "-luserenv", "-liphlpapi",
                     ])
                 else:
-                    # POSIX: prefer the static archives shipped by the runtime
-                    # (searched first via -L) but fall back to the system
-                    # libraries for the ones build_runtime.py skips on this
-                    # platform (libxml2/libcurl/libmicrohttpd on Linux/macOS).
-                    # Plain clang does not search the Homebrew prefix by default.
-                    for brew_lib in ("/opt/homebrew/lib", "/usr/local/lib"):
-                        if os.path.isdir(brew_lib) and f"-L{brew_lib}" not in link_flags:
-                            link_flags.append(f"-L{brew_lib}")
-                    # pkg-config also contributes the exact -L / -l flags the
-                    # distro's dev packages need (matters for multiarch paths
-                    # such as /usr/lib/x86_64-linux-gnu).
                     for pkg in ("libxml-2.0", "libcurl", "libmicrohttpd", "mbedtls"):
                         for tok in pkg_config_libs(pkg):
-                            if tok not in link_flags:
+                            if tok.startswith("-l") and tok not in link_flags:
                                 link_flags.append(tok)
             else:
                 link_flags.append(f"-l{link}")

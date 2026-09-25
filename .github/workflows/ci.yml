@@ -67,7 +67,9 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install cmake ninja pkg-config curl pcre2 libmicrohttpd mbedtls libxml2 || true
-          echo "PKG_CONFIG_PATH=$(brew --prefix)/lib/pkgconfig:$(brew --prefix pcre2)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix libmicrohttpd)/lib/pkgconfig:$(brew --prefix mbedtls)/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$(brew --prefix)/lib/pkgconfig:$(brew --prefix curl)/lib/pkgconfig:$(brew --prefix pcre2)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix libmicrohttpd)/lib/pkgconfig:$(brew --prefix mbedtls)/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "LIBRARY_PATH=$(brew --prefix)/lib:$(brew --prefix libmicrohttpd)/lib:$(brew --prefix libxml2)/lib:$(brew --prefix curl)/lib:$LIBRARY_PATH" >> "$GITHUB_ENV"
+          echo "CPATH=$(brew --prefix)/include:$(brew --prefix libmicrohttpd)/include:$(brew --prefix libxml2)/include:$(brew --prefix curl)/include:$CPATH" >> "$GITHUB_ENV"
 
       - name: Build C runtime & dependencies
         run: |

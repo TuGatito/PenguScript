@@ -17,39 +17,24 @@ from pengu_assets import _emit_disk_c, _asset_const_name
 
 
 def _build_and_run(source: str, tmp_path: Path, extra_files=None) -> int:
-    """Helper to check, codegen, compile and run generated C code using gcc."""
-    parser = PenguParser()
-    checker = PenguChecker(base_dir=str(tmp_path))
-    files = list(extra_files or []) + [("main.pengu", source)]
-    trees = {}
-    for idx, (fname, code) in enumerate(files):
-        tree = parser.parse(code)
-        checker.check(tree, source=code, filename=fname, reset_symbols=(idx == 0))
-        trees[fname] = tree
+    """Helper to check, codegen, compile and run generated C code cross-platform using PenguBuilder."""
+    main_file = tmp_path / "main.pengu"
+    main_file.write_text(source, encoding="utf-8")
+    if extra_files:
+        for fname, code in extra_files:
+            p = Path(fname) if Path(fname).is_absolute() else (tmp_path / fname)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(code, encoding="utf-8")
 
-    codegen = PenguCodegen(checker.symbols, [fname for fname, _ in files], str(tmp_path), compile_env=checker.compile_env)
-    for fname, _ in files:
-        codegen.collect_declarations([(fname, trees[fname])])
-    c_code = codegen.generate_bundle()
-
-    c_file = tmp_path / "main.c"
-    c_file.write_text(c_code, encoding="utf-8")
-    bin_file = tmp_path / "main_bin"
-    repo_dir = Path(__file__).resolve().parent.parent
-    cmd = [
-        "gcc", "-std=c99",
-        f"-I{repo_dir}",
-        f"-I{repo_dir / 'build' / 'include'}",
-        f"-I{repo_dir / 'build'}",
-        f"-L{repo_dir / 'build' / 'lib'}",
-        str(c_file), "-o", str(bin_file),
-        "-Wno-error=implicit-function-declaration",
-        "-lpengu_runtime", "-lpcre2-8", "-lxml2", "-lcurl", "-lmbedcrypto", "-lmicrohttpd", "-lz",
-        "-lpthread", "-lm", "-ldl"
-    ]
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    assert res.returncode == 0, f"Compilation failed:\n{res.stderr}\nCode:\n{c_code}"
-    run_res = subprocess.run([str(bin_file)])
+    cfg = ProjectConfig(
+        entry="main.pengu",
+        base_dir=str(tmp_path),
+        output=OutputType.EXE,
+        links=["pengu_runtime"]
+    )
+    builder = PenguBuilder(cfg)
+    out_path, _ = builder.compile()
+    run_res = subprocess.run([out_path], capture_output=True, text=True)
     return run_res.returncode
 
 
@@ -131,11 +116,10 @@ def test_1_5_obj_output_multiple_c(tmp_path):
     cmds = builder.build_compile_commands(bundle_path, output_path)
     # Should compile bundle.c to bundle.o, each c_source to an object, and link them with -r -nostdlib
     assert len(cmds) == 4
-    # The last command must combine temp objects
     last_cmd = cmds[-1]
-    assert "-r" in last_cmd
-    assert "-nostdlib" in last_cmd
-    assert output_path in last_cmd
+    last_cmd_str = " ".join(last_cmd)
+    assert ("-r" in last_cmd and "-nostdlib" in last_cmd) or ("link" in last_cmd and "-lib" in last_cmd)
+    assert output_path in last_cmd_str
 
 
 def test_1_6_is_present_on_call(tmp_path):

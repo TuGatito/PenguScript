@@ -206,15 +206,39 @@ def runtime_link_flags():
     append :func:`runtime_tail_flags` after their extra libraries so providers
     come last on the command line.
     """
-    flags = ["-lpengu_runtime", "-lpcre2-8", "-lxml2", "-lcurl",
-             "-lmbedcrypto", "-lmicrohttpd", "-lz"]
+    flags = []
     if os.name == "nt":
-        flags += ["-lws2_32", "-lwinmm", "-ladvapi32", "-lcrypt32", "-lbcrypt"]
+        flags = [
+            "-lpengu_runtime", "-lpcre2-8", "-lxml2", "-lcurl",
+            "-lmbedcrypto", "-lmicrohttpd", "-lz",
+            "-lws2_32", "-lwinmm", "-ladvapi32", "-lcrypt32", "-lbcrypt"
+        ]
     else:
-        # Plain clang on macOS does not search the Homebrew prefix by default.
+        # Search paths (-L) MUST come before -l flags
         for brew_lib in ("/opt/homebrew/lib", "/usr/local/lib"):
             if os.path.isdir(brew_lib):
                 flags.append(f"-L{brew_lib}")
+        try:
+            from pengu_paths import pkg_config_libs
+            for pkg in ("libxml-2.0", "libcurl", "libmicrohttpd", "mbedtls"):
+                for tok in pkg_config_libs(pkg):
+                    if tok.startswith("-L") and tok not in flags:
+                        flags.append(tok)
+        except Exception:
+            pass
+
+        flags.extend([
+            "-lpengu_runtime", "-lpcre2-8", "-lxml2", "-lcurl",
+            "-lmbedcrypto", "-lmicrohttpd", "-lz"
+        ])
+        try:
+            from pengu_paths import pkg_config_libs
+            for pkg in ("libxml-2.0", "libcurl", "libmicrohttpd", "mbedtls"):
+                for tok in pkg_config_libs(pkg):
+                    if tok.startswith("-l") and tok not in flags:
+                        flags.append(tok)
+        except Exception:
+            pass
     return flags
 
 
