@@ -3,14 +3,16 @@
 # backed by the C standard library rand() PRNG (process-global state).
 #
 # Ownership / memory model:
-#   * Every function takes plain scalar parameters and returns plain scalar
-#     values: nothing here allocates, borrows or retains memory, so results
-#     can be stored, returned or banished freely.
+#   * Every function taking or returning lists or strings allocates fresh
+#     containers owned by the caller. Scalar functions have no allocations.
 #   * Thread safety: the underlying generator is the shared C rand() state,
 #     so calls are not thread-safe and `seed` re-seeds every later draw in
 #     the whole process.
 #   * Security: this is the plain C PRNG, NOT cryptographically secure - do
 #     not use it for secrets, tokens or keys.
+#   * Reproducibility: libc rand() sequences may differ across operating
+#     systems (glibc, musl, MSVCRT); within the same platform, seed(N)
+#     produces a deterministic sequence.
 #
 # Usage:
 #   import std.lot
@@ -19,6 +21,14 @@
 #   var p as float is calling lot.rand_float
 
 import std.spark
+import std.arithmancy
+
+# ----------------------------------------------------------------------------
+# Module Metadata
+# ----------------------------------------------------------------------------
+
+## Standard library lot module version.
+const LOT_VERSION as string is "0.15.0"
 
 # ----------------------------------------------------------------------------
 # External C declarations (runtime bridges over the C PRNG)
@@ -58,54 +68,541 @@ declare pengu_c_rand_poisson with rate as float into int
 # Seeding and raw uniform draws
 # ----------------------------------------------------------------------------
 
-# Seeds the process-global C PRNG with `s`. After seeding, every later draw
-# in the process follows the deterministic sequence for that seed (re-seeding
-# with the same value reproduces the same sequence).
+## Seeds the process-global C PRNG with `s`.
+##
+## Signature: seed(s as int) into void
+## Ownership: No allocation.
+## Edge cases: Deterministic per platform; re-seeding with the same integer reproduces the sequence.
+## Example: calling lot.seed with 42
 weave seed with s as int into void:
     calling pengu_c_srand with s
 
-# Returns one raw uniform draw from the C rand() generator, an int in
-# [0, RAND_MAX] (RAND_MAX is platform-dependent, at least 32767).
+## Returns one raw uniform draw from the C rand() generator.
+##
+## Signature: rand_int() into int
+## Ownership: No allocation.
+## Edge cases: Value lies in [0, RAND_MAX] (at least 32767).
+## Example: var n as int is calling lot.rand_int
 weave rand_int into int:
     return calling pengu_c_rand
 
-# Returns a uniform float in [0, 1) - the raw rand() range mapped onto the
-# unit interval.
+## Returns the maximum integer value produced by rand_int (C RAND_MAX).
+##
+## Signature: rand_max() into int
+## Ownership: No allocation.
+## Example: var max_val as int is calling lot.rand_max
+weave rand_max into int:
+    return calling pengu_c_rand_max
+
+## Returns a uniform float in [0.0, 1.0).
+##
+## Signature: rand_float() into float
+## Ownership: No allocation.
+## Edge cases: 0.0 is inclusive, 1.0 is exclusive.
+## Example: var f as float is calling lot.rand_float
 weave rand_float into float:
     return calling pengu_c_rand_double
 
 # ----------------------------------------------------------------------------
-# Ranges and probability distributions
+# Core Ranges and Distributions
 # ----------------------------------------------------------------------------
 
-# Returns a uniform int in [min_val, max_val], both bounds inclusive. When
-# min_val >= max_val the function returns min_val unchanged.
+## Returns a uniform int in [min_val, max_val], both bounds inclusive.
+##
+## Signature: rand_range(min_val as int, max_val as int) into int
+## Ownership: No allocation.
+## Edge cases: When min_val >= max_val, returns min_val unchanged.
+## Example: var roll as int is calling lot.rand_range with 1, 6
 weave rand_range with min_val as int , max_val as int into int:
     return calling pengu_c_rand_range with min_val , max_val
 
-# Returns a uniform float in [min_val, max_val) - the lower bound is
-# included, the upper bound is excluded. When min_val >= max_val the
-# function returns min_val unchanged.
+## Returns a uniform float in [min_val, max_val).
+##
+## Signature: rand_range_float(min_val as float, max_val as float) into float
+## Ownership: No allocation.
+## Edge cases: When min_val >= max_val, returns min_val unchanged.
+## Example: var val as float is calling lot.rand_range_float with 0.0, 10.0
 weave rand_range_float with min_val as float , max_val as float into float:
     return calling pengu_c_rand_range_float with min_val , max_val
 
-# Returns a normal (Gaussian) draw with the given `mean` and standard
-# deviation `stddev`, generated with the Box-Muller transform.
+## Returns a normal (Gaussian) draw with the given `mean` and standard
+## deviation `stddev`, generated with the Box-Muller transform.
+##
+## Signature: rand_normal(mean as float, stddev as float) into float
+## Ownership: No allocation.
+## Example: var g as float is calling lot.rand_normal with 0.0, 1.0
 weave rand_normal with mean as float , stddev as float into float:
     return calling pengu_c_rand_normal with mean , stddev
 
-# Returns an exponentially distributed draw with rate `lambda` (mean
-# 1 / lambda, scaled by -ln(u)). When lambda <= 0 the function returns 0.0.
+## Returns an exponentially distributed draw with rate `lambda` (mean 1 / lambda).
+##
+## Signature: rand_exp(rate as float) into float
+## Ownership: No allocation.
+## Edge cases: When rate <= 0 the function returns 0.0.
+## Example: var interval as float is calling lot.rand_exp with 1.5
 weave rand_exp with rate as float into float:
     return calling pengu_c_rand_exp with rate
 
-# Returns true with `probability` and false otherwise. Defaults to a fair
-# coin toss (0.5) when no probability is given; values outside [0, 1] clamp
-# naturally (>= 1 always yields true, <= 0 always yields false).
+## Returns true with `probability` and false otherwise.
+##
+## Signature: rand_bool(probability as float is 0.5) into bool
+## Ownership: No allocation.
+## Edge cases: Clamps naturally (>= 1.0 always true, <= 0.0 always false).
+## Example: var b as bool is calling lot.rand_bool with 0.8
 weave rand_bool with probability as float is 0.5 into bool:
     return calling pengu_c_rand_bool with probability
 
-# Returns a Poisson-distributed non-negative int with mean `lambda`.
-# When lambda <= 0 the function returns 0.
+## Returns a Poisson-distributed non-negative int with mean `lambda`.
+##
+## Signature: rand_poisson(rate as float) into int
+## Ownership: No allocation.
+## Edge cases: When rate <= 0 the function returns 0.
+## Example: var k as int is calling lot.rand_poisson with 3.0
 weave rand_poisson with rate as float into int:
     return calling pengu_c_rand_poisson with rate
+
+# ----------------------------------------------------------------------------
+# Aliases and Ergonomic Helpers
+# ----------------------------------------------------------------------------
+
+## Alias of rand_range for readability.
+##
+## Signature: rand_between(lo as int, hi as int) into int
+## Ownership: No allocation.
+## Example: var roll as int is calling lot.rand_between with 1, 6
+weave rand_between with lo as int , hi as int into int:
+    return calling rand_range with lo , hi
+
+## Alias of rand_range_float for uniform continuous distributions.
+##
+## Signature: rand_uniform(lo as float, hi as float) into float
+## Ownership: No allocation.
+## Example: var u as float is calling lot.rand_uniform with 0.0, 10.0
+weave rand_uniform with lo as float , hi as float into float:
+    return calling rand_range_float with lo , hi
+
+## Alias of rand_normal for Gaussian distributions.
+##
+## Signature: rand_gauss(mean as float, stddev as float) into float
+## Ownership: No allocation.
+## Example: var g as float is calling lot.rand_gauss with 10.0, 2.0
+weave rand_gauss with mean as float , stddev as float into float:
+    return calling rand_normal with mean , stddev
+
+## Alias of rand_bool with explicit probability parameter name.
+##
+## Signature: rand_bool_with(p as float) into bool
+## Ownership: No allocation.
+## Example: var ok as bool is calling lot.rand_bool_with with 0.75
+weave rand_bool_with with p as float into bool:
+    return calling rand_bool with p
+
+## Simulates a fair coin toss returning true (heads) or false (tails).
+##
+## Signature: rand_coin() into bool
+## Ownership: No allocation.
+## Example: if calling lot.rand_coin: ...
+weave rand_coin into bool:
+    return calling rand_bool with 0.5
+
+## Returns a random single bit: 0 or 1.
+##
+## Signature: rand_bit() into int
+## Ownership: No allocation.
+## Example: var bit as int is calling lot.rand_bit
+weave rand_bit into int:
+    if calling rand_bool with 0.5:
+        return 1
+    return 0
+
+## Returns a random sign: -1 or 1.
+##
+## Signature: rand_sign() into int
+## Ownership: No allocation.
+## Example: var s as int is calling lot.rand_sign
+weave rand_sign into int:
+    if calling rand_bool with 0.5:
+        return 1
+    return -1
+
+# ----------------------------------------------------------------------------
+# List Sampling & Combinatorics
+# ----------------------------------------------------------------------------
+
+## Shuffles a list of integers using the Fisher-Yates algorithm into a new list.
+##
+## Signature: shuffle(items as list of int) into list of int
+## Ownership: Allocates and returns a new list of integers.
+## Edge cases: Empty or single-element list returns an identical copy.
+## Example: var shuffled as list of int is calling lot.shuffle with nums
+weave shuffle with items as list of int into list of int:
+    var res as list of int is list of int
+    var n as int is items.len
+    var i as int is 0
+    while i < n:
+        calling res.push with (items at i)
+        set i is i + 1
+    set i is n - 1
+    while i > 0:
+        var j as int is calling rand_range with 0 , i
+        if i != j:
+            var tmp as int is res at i
+            set res at i is res at j
+            set res at j is tmp
+        set i is i - 1
+    return res
+
+## Shuffles a list of strings using the Fisher-Yates algorithm into a new list.
+##
+## Signature: shuffle_string(items as list of string) into list of string
+## Ownership: Allocates and returns a new list of strings.
+## Edge cases: Empty or single-element list returns an identical copy.
+## Example: var shuffled as list of string is calling lot.shuffle_string with words
+weave shuffle_string with items as list of string into list of string:
+    var res as list of string is list of string
+    var n as int is items.len
+    var i as int is 0
+    while i < n:
+        calling res.push with (items at i)
+        set i is i + 1
+    set i is n - 1
+    while i > 0:
+        var j as int is calling rand_range with 0 , i
+        if i != j:
+            var tmp as string is res at i
+            set res at i is res at j
+            set res at j is tmp
+        set i is i - 1
+    return res
+
+## Selects a random integer element from `items`.
+##
+## Signature: choice(items as list of int) into maybe int
+## Ownership: Returns a scalar value inside maybe container.
+## Edge cases: Returns maybe none when `items` is empty.
+## Example: var x as maybe int is calling lot.choice with nums
+weave choice with items as list of int into maybe int:
+    var n as int is items.len
+    if n == 0:
+        return maybe none
+    var idx as int is calling rand_range with 0 , n - 1
+    return some (items at idx)
+
+## Selects a random string element from `items`.
+##
+## Signature: choice_string(items as list of string) into maybe string
+## Ownership: Returns a string copy inside maybe container.
+## Edge cases: Returns maybe none when `items` is empty.
+## Example: var s as maybe string is calling lot.choice_string with words
+weave choice_string with items as list of string into maybe string:
+    var n as int is items.len
+    if n == 0:
+        return maybe none
+    var idx as int is calling rand_range with 0 , n - 1
+    return some (items at idx)
+
+## Selects a random integer element from `items` according to positive `weights`.
+##
+## Signature: choice_weighted(items as list of int, weights as list of int) into maybe int
+## Ownership: Returns a scalar value inside maybe container.
+## Edge cases: Returns maybe none if `items` is empty, lengths differ, or total weight <= 0.
+## Example: var pick as maybe int is calling lot.choice_weighted with items, weights
+weave choice_weighted with items as list of int , weights as list of int into maybe int:
+    var n as int is items.len
+    if n == 0 or n != weights.len:
+        return maybe none
+    var total as int is 0
+    var i as int is 0
+    while i < n:
+        var w as int is weights at i
+        if w > 0:
+            set total is total + w
+        set i is i + 1
+    if total <= 0:
+        return maybe none
+    var r as int is calling rand_range with 1 , total
+    var acc as int is 0
+    set i is 0
+    while i < n:
+        var w2 as int is weights at i
+        if w2 > 0:
+            set acc is acc + w2
+            if r <= acc:
+                return some (items at i)
+        set i is i + 1
+    return some (items at (n - 1))
+
+## Selects a random string element from `items` according to positive `weights`.
+##
+## Signature: choice_weighted_string(items as list of string, weights as list of int) into maybe string
+## Ownership: Returns a string copy inside maybe container.
+## Edge cases: Returns maybe none if `items` is empty, lengths differ, or total weight <= 0.
+## Example: var pick as maybe string is calling lot.choice_weighted_string with items, weights
+weave choice_weighted_string with items as list of string , weights as list of int into maybe string:
+    var n as int is items.len
+    if n == 0 or n != weights.len:
+        return maybe none
+    var total as int is 0
+    var i as int is 0
+    while i < n:
+        var w as int is weights at i
+        if w > 0:
+            set total is total + w
+        set i is i + 1
+    if total <= 0:
+        return maybe none
+    var r as int is calling rand_range with 1 , total
+    var acc as int is 0
+    set i is 0
+    while i < n:
+        var w2 as int is weights at i
+        if w2 > 0:
+            set acc is acc + w2
+            if r <= acc:
+                return some (items at i)
+        set i is i + 1
+    return some (items at (n - 1))
+
+## Samples `k` unique integers from `items` without replacement.
+##
+## Signature: sample(items as list of int, k as int) into list of int
+## Ownership: Allocates and returns a new list of integers.
+## Edge cases: Returns empty list if k <= 0 or k > items.len.
+## Example: var sample_items as list of int is calling lot.sample with nums, 3
+weave sample with items as list of int , k as int into list of int:
+    var res as list of int is list of int
+    var n as int is items.len
+    if k <= 0 or k > n:
+        return res
+    var sh as list of int is calling shuffle with items
+    var i as int is 0
+    while i < k:
+        calling res.push with (sh at i)
+        set i is i + 1
+    return res
+
+## Samples `k` integers from `items` with replacement.
+##
+## Signature: sample_with_replacement(items as list of int, k as int) into list of int
+## Ownership: Allocates and returns a new list of integers.
+## Edge cases: Returns empty list if k <= 0 or items is empty.
+## Example: var res as list of int is calling lot.sample_with_replacement with nums, 5
+weave sample_with_replacement with items as list of int , k as int into list of int:
+    var res as list of int is list of int
+    var n as int is items.len
+    if k <= 0 or n == 0:
+        return res
+    var i as int is 0
+    while i < k:
+        var idx as int is calling rand_range with 0 , n - 1
+        calling res.push with (items at idx)
+        set i is i + 1
+    return res
+
+## Samples `k` unique strings from `items` without replacement.
+##
+## Signature: sample_string(items as list of string, k as int) into list of string
+## Ownership: Allocates and returns a new list of strings.
+## Edge cases: Returns empty list if k <= 0 or k > items.len.
+## Example: var sub as list of string is calling lot.sample_string with words, 2
+weave sample_string with items as list of string , k as int into list of string:
+    var res as list of string is list of string
+    var n as int is items.len
+    if k <= 0 or k > n:
+        return res
+    var sh as list of string is calling shuffle_string with items
+    var i as int is 0
+    while i < k:
+        calling res.push with (sh at i)
+        set i is i + 1
+    return res
+
+## Returns a random permutation of integers in [0, n - 1].
+##
+## Signature: permutation(n as int) into list of int
+## Ownership: Allocates and returns a new list of integers.
+## Edge cases: Returns empty list if n <= 0.
+## Example: var p as list of int is calling lot.permutation with 10
+weave permutation with n as int into list of int:
+    var xs as list of int is list of int
+    if n <= 0:
+        return xs
+    var i as int is 0
+    while i < n:
+        calling xs.push with i
+        set i is i + 1
+    return calling shuffle with xs
+
+# ----------------------------------------------------------------------------
+# Random Strings and Tokens
+# ----------------------------------------------------------------------------
+
+## Generates a random string of length `n` by sampling characters from `charset`.
+##
+## Signature: rand_from_charset(charset as string, n as int) into string
+## Ownership: Allocates and returns a new string.
+## Edge cases: Returns "" if n <= 0 or charset is empty.
+## Example: var s as string is calling lot.rand_from_charset with "ABC", 5
+weave rand_from_charset with charset as string , n as int into string:
+    if n <= 0 or charset.len == 0:
+        return ""
+    var clen as int is charset.len
+    var res as string is ""
+    var i as int is 0
+    while i < n:
+        var idx as int is calling rand_range with 0 , clen - 1
+        set res is "{res}{(charset at idx)}"
+        set i is i + 1
+    return res
+
+## Generates a random string of `n` ASCII alphabetic letters (a-z, A-Z).
+##
+## Signature: rand_alpha(n as int) into string
+## Ownership: Allocates and returns a new string.
+## Example: var token as string is calling lot.rand_alpha with 8
+weave rand_alpha with n as int into string:
+    return calling rand_from_charset with "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" , n
+
+## Generates a random string of `n` decimal digits (0-9).
+##
+## Signature: rand_digit_string(n as int) into string
+## Ownership: Allocates and returns a new string.
+## Example: var pin as string is calling lot.rand_digit_string with 4
+weave rand_digit_string with n as int into string:
+    return calling rand_from_charset with "0123456789" , n
+
+## Generates a random alphanumeric string of length `n` (a-z, A-Z, 0-9).
+##
+## Signature: rand_alnum_string(n as int) into string
+## Ownership: Allocates and returns a new string.
+## Example: var id as string is calling lot.rand_alnum_string with 12
+weave rand_alnum_string with n as int into string:
+    return calling rand_from_charset with "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" , n
+
+## Generates a random lowercase hexadecimal string of length `n`.
+##
+## Signature: rand_hex_string(n as int) into string
+## Ownership: Allocates and returns a new string.
+## Example: var hex_token as string is calling lot.rand_hex_string with 16
+weave rand_hex_string with n as int into string:
+    return calling rand_from_charset with "0123456789abcdef" , n
+
+## Generates random bytes formatted as a hexadecimal string of length `2 * n`.
+##
+## Signature: rand_bytes_hex(n as int) into string
+## Ownership: Allocates and returns a new string.
+## Example: var nonce as string is calling lot.rand_bytes_hex with 8
+weave rand_bytes_hex with n as int into string:
+    if n <= 0:
+        return ""
+    return calling rand_hex_string with (n * 2)
+
+## Generates a random password of length `n`, optionally including ASCII symbols.
+##
+## Signature: rand_password(n as int, include_symbols as bool is false) into string
+## Ownership: Allocates and returns a new string.
+## Example: var pass as string is calling lot.rand_password with 16, true
+weave rand_password with n as int , include_symbols as bool is false into string:
+    var chars as string is "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    if include_symbols:
+        set chars is "{chars}!@#$%^&*()-_=+[]{(chr 123)}{(chr 125)}|;:,.<>?"
+    return calling rand_from_charset with chars , n
+
+# ----------------------------------------------------------------------------
+# Additional Probability Distributions
+# ----------------------------------------------------------------------------
+
+## Returns a log-normally distributed float with log-scale parameters `mu` and `sigma`.
+##
+## Signature: rand_lognormal(mu as float, sigma as float) into float
+## Ownership: No allocation.
+## Example: var v as float is calling lot.rand_lognormal with 0.0, 1.0
+weave rand_lognormal with mu as float , sigma as float into float:
+    var z as float is calling rand_normal with mu , sigma
+    return calling arithmancy.exp with z
+
+## Returns a Weibull-distributed float with `shape` (k) and `scale` (lambda).
+##
+## Signature: rand_weibull(shape as float, scale as float) into float
+## Ownership: No allocation.
+## Edge cases: Returns 0.0 when shape <= 0 or scale <= 0.
+## Example: var w as float is calling lot.rand_weibull with 1.5, 2.0
+weave rand_weibull with shape as float , scale as float into float:
+    if shape <= 0.0 or scale <= 0.0:
+        return 0.0
+    var u as float is calling rand_float
+    while u <= 0.0 or u >= 1.0:
+        set u is calling rand_float
+    var neg_ln as float is 0.0 - (calling arithmancy.log with (1.0 - u))
+    var p as float is 1.0 / shape
+    var pw as float is calling arithmancy.pow with neg_ln , p
+    return scale * pw
+
+## Returns a triangularly distributed float between `lo` and `hi` with peak `mode`.
+##
+## Signature: rand_triangular(lo as float, mode as float, hi as float) into float
+## Ownership: No allocation.
+## Edge cases: Returns lo if hi <= lo or mode is outside [lo, hi].
+## Example: var t as float is calling lot.rand_triangular with 0.0, 5.0, 10.0
+weave rand_triangular with lo as float , mode as float , hi as float into float:
+    if hi <= lo or mode < lo or mode > hi:
+        return lo
+    var u as float is calling rand_float
+    var c as float is (mode - lo) / (hi - lo)
+    if u < c:
+        var term as float is u * (hi - lo) * (mode - lo)
+        return lo + (calling arithmancy.sqrt with term)
+    var term2 as float is (1.0 - u) * (hi - lo) * (hi - mode)
+    return hi - (calling arithmancy.sqrt with term2)
+
+## Returns a Gamma-distributed float with `shape` (alpha) and `scale` (theta).
+##
+## Signature: rand_gamma(shape as float, scale as float) into float
+## Ownership: No allocation.
+## Edge cases: Returns 0.0 when shape <= 0 or scale <= 0.
+## Algorithm: Marsaglia-Tsang (shape >= 1) with Ahrens-Dieter boost for shape < 1.
+## Example: var g as float is calling lot.rand_gamma with 2.0, 1.0
+weave rand_gamma with shape as float , scale as float into float:
+    if shape <= 0.0 or scale <= 0.0:
+        return 0.0
+    if shape < 1.0:
+        var g1 as float is calling rand_gamma with (shape + 1.0) , 1.0
+        var u as float is calling rand_float
+        while u <= 0.0:
+            set u is calling rand_float
+        var p as float is 1.0 / shape
+        var pw as float is calling arithmancy.pow with u , p
+        return scale * g1 * pw
+    var d as float is shape - (1.0 / 3.0)
+    var c as float is 1.0 / (calling arithmancy.sqrt with (9.0 * d))
+    var i as int is 0
+    while i < 1000:
+        var z as float is calling rand_normal with 0.0 , 1.0
+        var v as float is 1.0 + c * z
+        if v > 0.0:
+            set v is v * v * v
+            var u as float is calling rand_float
+            while u <= 0.0 or u >= 1.0:
+                set u is calling rand_float
+            var z2 as float is z * z
+            if u < (1.0 - 0.0331 * z2 * z2):
+                return scale * d * v
+            var ln_u as float is calling arithmancy.log with u
+            var ln_v as float is calling arithmancy.log with v
+            if ln_u < (0.5 * z2 + d * (1.0 - v + ln_v)):
+                return scale * d * v
+        set i is i + 1
+    return scale * d
+
+## Returns a Beta-distributed float with parameters `a` (alpha) and `b` (beta).
+##
+## Signature: rand_beta(a as float, b as float) into float
+## Ownership: No allocation.
+## Edge cases: Returns 0.0 when a <= 0 or b <= 0.
+## Example: var b as float is calling lot.rand_beta with 2.0, 5.0
+weave rand_beta with a as float , b as float into float:
+    var x as float is calling rand_gamma with a , 1.0
+    var y as float is calling rand_gamma with b , 1.0
+    if x + y <= 0.0:
+        return 0.0
+    return x / (x + y)

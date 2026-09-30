@@ -1,448 +1,219 @@
-Tenemos problemas. Debido a los cambios que implementaste anteriormente el proyecto no compila en GitHub Actions en plataforma MacOS y Windows solo en Linux. 
+# std/tally.pengu - The Tally (Lists)
+# Read-only utilities for dynamic `list of int` collections: emptiness
+# checks and scalar reductions (sum, max, min).
+#
+# Ownership / memory model:
+#   * The helpers never allocate, mutate or consume the list they receive:
+#     each one takes a `list of int`, reads it through `.len` / element
+#     indexing and returns a plain int, so the caller keeps full ownership
+#     of the list and may `banish` it afterwards. Empty lists are handled
+#     explicitly (see the per-function notes below).
+#
+# Usage:
+#   import std.tally
+#   import std.spark
+#   var nums as list of int is calling spark.range with 1, 10, 1
+#   var total as int is calling tally.sum with nums
+#   var hi as int is calling tally.max_val with nums
 
-Parece ser un problema con los tests. Investiga si el problema es que hay tests desactualizados al estado actual del lenguaje y compilador o si son errores reales.    
+import std.spark
 
-Asegurate que todo este bien y correcto para que compilen bien las 3 plataformas en Github Actions. No olvides actualizar el changelog.md
+# ----------------------------------------------------------------------------
+# Predicates
+# ----------------------------------------------------------------------------
 
-Windows:
+# Returns true when `l` holds no elements (its length is 0). The list is
+# only read, never modified.
+weave is_empty with l as list of int into bool:
+    return (calling l.len) == 0
 
+# ----------------------------------------------------------------------------
+# Reductions
+# ----------------------------------------------------------------------------
 
-Search logs
-1s
-6s
-4s
-13s
-14s
-0s
-0s
-6m 48s
-6s
-Run python -m pytest tests/test_p0_review_fixes.py tests/test_p1_review_fixes.py tests/test_p2_review_fixes.py -q -p no:cacheprovider --timeout=600 -x
-F
-================================== FAILURES ===================================
-_______________________ test_1_1_binding_c_keyword_name _______________________
+# Returns the arithmetic sum of every element in `l`. An empty list sums to
+# 0. Values must fit in `int` - overflow is not checked here.
+weave sum with l as list of int into int:
+    var total as int is 0
+    var i as int is 0
+    var n as int is calling l.len
+    while i < n:
+        set total is total + (l at i)
+        set i is i + 1
+    return total
 
-tmp_path = WindowsPath('C:/Users/runneradmin/AppData/Local/Temp/pytest-of-runneradmin/pytest-0/test_1_1_binding_c_keyword_nam0')
-
-    def test_1_1_binding_c_keyword_name(tmp_path):
-        """Bug 1.1: Binding if with C keyword (e.g. switch) must escape name and compile valid C."""
-        code = """
-    weave main into int:
-        var o as maybe int is some 42
-        if switch as int is o:
-            return switch
+# Returns the largest element of `l`. An empty list yields 0; otherwise the
+# scan starts from element 0, so a single-element list returns that element.
+weave max_val with l as list of int into int:
+    var n as int is calling l.len
+    if n == 0:
         return 0
-    """
->       ret = _build_and_run(code, tmp_path)
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    var m as int is l at 0
+    var i as int is 1
+    while i < n:
+        if (l at i) > m:
+            set m is l at i
+        set i is i + 1
+    return m
 
-tests\test_p0_review_fixes.py:65: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-
-source = '\nweave main into int:\n    var o as maybe int is some 42\n    if switch as int is o:\n        return switch\n    return 0\n'
-tmp_path = WindowsPath('C:/Users/runneradmin/AppData/Local/Temp/pytest-of-runneradmin/pytest-0/test_1_1_binding_c_keyword_nam0')
-extra_files = None
-
-    def _build_and_run(source: str, tmp_path: Path, extra_files=None) -> int:
-        """Helper to check, codegen, compile and run generated C code using gcc."""
-        parser = PenguParser()
-        checker = PenguChecker(base_dir=str(tmp_path))
-        files = list(extra_files or []) + [("main.pengu", source)]
-        trees = {}
-        for idx, (fname, code) in enumerate(files):
-            tree = parser.parse(code)
-            checker.check(tree, source=code, filename=fname, reset_symbols=(idx == 0))
-            trees[fname] = tree
-    
-        codegen = PenguCodegen(checker.symbols, [fname for fname, _ in files], str(tmp_path), compile_env=checker.compile_env)
-        for fname, _ in files:
-            codegen.collect_declarations([(fname, trees[fname])])
-        c_code = codegen.generate_bundle()
-    
-        c_file = tmp_path / "main.c"
-        c_file.write_text(c_code, encoding="utf-8")
-        bin_file = tmp_path / "main_bin"
-        repo_dir = Path(__file__).resolve().parent.parent
-        cmd = [
-            "gcc", "-std=c99",
-            f"-I{repo_dir}",
-            f"-I{repo_dir / 'build' / 'include'}",
-            f"-I{repo_dir / 'build'}",
-            f"-L{repo_dir / 'build' / 'lib'}",
-            str(c_file), "-o", str(bin_file),
-            "-Wno-error=implicit-function-declaration",
-            "-lpengu_runtime", "-lpcre2-8", "-lxml2", "-lcurl", "-lmbedcrypto", "-lmicrohttpd", "-lz",
-            "-lpthread", "-lm", "-ldl"
-        ]
-        res = subprocess.run(cmd, capture_output=True, text=True)
->       assert res.returncode == 0, f"Compilation failed:\n{res.stderr}\nCode:\n{c_code}"
-E       AssertionError: Compilation failed:
-E         C:/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/15.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: cannot find -ldl: No such file or directory
-E         collect2.exe: error: ld returned 1 exit status
-E         
-E         Code:
-E         /* Auto-generated by PenguScript v0.14.0 */
-E         #include "pengu_runtime.h"
-E         
-E         /* Compiled modules in topological order:
-E          * - main.pengu
-E          */
-E         
-E         /* -------------------------------------------------------------------------
-E          * Forward Declarations
-E          * ------------------------------------------------------------------------- */
-E         #ifndef PENGU_RANGE_DEFINED
-E         #define PENGU_RANGE_DEFINED
-E         typedef struct { int64_t start; int64_t end; } PenguRange;
-E         #endif
-E         
-E         
-E         
-E         /* -------------------------------------------------------------------------
-E          * Function Prototypes
-E          * ------------------------------------------------------------------------- */
-E         int32_t pengu_main(void);
-E         
-E         #line 1
-E         
-E         /* -------------------------------------------------------------------------
-E          * Function Definitions
-E          * ------------------------------------------------------------------------- */
-E         #line 2 "D:/a/PenguScript/PenguScript/main.pengu"
-E         int32_t pengu_main(void) {
-E           pengu_frame_push("pengu_main", "D:/a/PenguScript/PenguScript/main.pengu", 2);
-E         #line 3 "D:/a/PenguScript/PenguScript/main.pengu"
-E           PenguMaybe o = (__extension__({ int32_t _some_1 = 42;
-E           PenguMaybe _maybe_2;
-E           _maybe_2.is_present = true;
-E           _maybe_2.value = pengu_sigil_alloc(sizeof(_some_1));
-E           if (!_maybe_2.value) _maybe_2.is_present = false;
-E           else memcpy(_maybe_2.value, &(_some_1), sizeof(_some_1));
-E           _maybe_2; })); /* stack */
-E         #line 4 "D:/a/PenguScript/PenguScript/main.pengu"
-E           {
-E             PenguMaybe _maybe_3 = o;
-E             if (pengu_maybe_is_present(&_maybe_3)) {
-E               int32_t _switch = (*(int32_t *)_maybe_3.value);
-E         #line 5 "D:/a/PenguScript/PenguScript/main.pengu"
-E               pengu_frame_pop();
-E               return _switch;
-E             }
-E           }
-E         #line 6 "D:/a/PenguScript/PenguScript/main.pengu"
-E           pengu_frame_pop();
-E           return 0;
-E           pengu_frame_pop();
-E         }
-E         
-E         #line 1
-E         /* -------------------------------------------------------------------------
-E          * Entry Point Wrapper
-E          * ------------------------------------------------------------------------- */
-E         int main(int argc, char** argv) {
-E           /* Expose the program arguments to 'rites.get_args()' etc. */
-E           pengu_init(argc, argv);
-E           int pengu_status = (int)pengu_main();
-E           fflush(stdout);
-E           fflush(stderr);
-E           return pengu_status;
-E         }
-E         
-E       assert 1 == 0
-E        +  where 1 = CompletedProcess(args=['gcc', '-std=c99', '-ID:\\a\\PenguScript\\PenguScript', '-ID:\\a\\PenguScript\\PenguScript\\bui...w64-mingw32/bin/ld.exe: cannot find -ldl: No such file or directory\ncollect2.exe: error: ld returned 1 exit status\n').returncode
-
-tests\test_p0_review_fixes.py:51: AssertionError
-=========================== short test summary info ===========================
-FAILED tests/test_p0_review_fixes.py::test_1_1_binding_c_keyword_name - AssertionError: Compilation failed:
-  C:/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/15.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: cannot find -ldl: No such file or directory
-  collect2.exe: error: ld returned 1 exit status
-  
-  Code:
-  /* Auto-generated by PenguScript v0.14.0 */
-  #include "pengu_runtime.h"
-  
-  /* Compiled modules in topological order:
-   * - main.pengu
-   */
-  
-  /* -------------------------------------------------------------------------
-   * Forward Declarations
-   * ------------------------------------------------------------------------- */
-  #ifndef PENGU_RANGE_DEFINED
-  #define PENGU_RANGE_DEFINED
-  typedef struct { int64_t start; int64_t end; } PenguRange;
-  #endif
-  
-  
-  
-  /* -------------------------------------------------------------------------
-   * Function Prototypes
-   * ------------------------------------------------------------------------- */
-  int32_t pengu_main(void);
-  
-  #line 1
-  
-  /* -------------------------------------------------------------------------
-   * Function Definitions
-   * ------------------------------------------------------------------------- */
-  #line 2 "D:/a/PenguScript/PenguScript/main.pengu"
-  int32_t pengu_main(void) {
-    pengu_frame_push("pengu_main", "D:/a/PenguScript/PenguScript/main.pengu", 2);
-  #line 3 "D:/a/PenguScript/PenguScript/main.pengu"
-    PenguMaybe o = (__extension__({ int32_t _some_1 = 42;
-    PenguMaybe _maybe_2;
-    _maybe_2.is_present = true;
-    _maybe_2.value = pengu_sigil_alloc(sizeof(_some_1));
-    if (!_maybe_2.value) _maybe_2.is_present = false;
-    else memcpy(_maybe_2.value, &(_some_1), sizeof(_some_1));
-    _maybe_2; })); /* stack */
-  #line 4 "D:/a/PenguScript/PenguScript/main.pengu"
-    {
-      PenguMaybe _maybe_3 = o;
-      if (pengu_maybe_is_present(&_maybe_3)) {
-        int32_t _switch = (*(int32_t *)_maybe_3.value);
-  #line 5 "D:/a/PenguScript/PenguScript/main.pengu"
-        pengu_frame_pop();
-        return _switch;
-      }
-    }
-  #line 6 "D:/a/PenguScript/PenguScript/main.pengu"
-    pengu_frame_pop();
-    return 0;
-    pengu_frame_pop();
-  }
-  
-  #line 1
-  /* -------------------------------------------------------------------------
-   * Entry Point Wrapper
-   * ------------------------------------------------------------------------- */
-  int main(int argc, char** argv) {
-    /* Expose the program arguments to 'rites.get_args()' etc. */
-    pengu_init(argc, argv);
-    int pengu_status = (int)pengu_main();
-    fflush(stdout);
-    fflush(stderr);
-    return pengu_status;
-  }
-  
-assert 1 == 0
- +  where 1 = CompletedProcess(args=['gcc', '-std=c99', '-ID:\\a\\PenguScript\\PenguScript', '-ID:\\a\\PenguScript\\PenguScript\\bui...w64-mingw32/bin/ld.exe: cannot find -ldl: No such file or directory\ncollect2.exe: error: ld returned 1 exit status\n').returncode
-!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!
-1 failed in 4.38s
-Error: Process completed with exit code 1.
-
-MacOS:
-
-Run python -m pytest tests/test_p0_review_fixes.py tests/test_p1_review_fixes.py tests/test_p2_review_fixes.py -q -p no:cacheprovider --timeout=600 -x
-F
-=================================== FAILURES ===================================
-_______________________ test_1_1_binding_c_keyword_name ________________________
-
-tmp_path = PosixPath('/private/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T/pytest-of-runner/pytest-0/test_1_1_binding_c_keyword_nam0')
-
-    def test_1_1_binding_c_keyword_name(tmp_path):
-        """Bug 1.1: Binding if with C keyword (e.g. switch) must escape name and compile valid C."""
-        code = """
-    weave main into int:
-        var o as maybe int is some 42
-        if switch as int is o:
-            return switch
+# Returns the smallest element of `l`. An empty list yields 0; otherwise the
+# scan starts from element 0, so a single-element list returns that element.
+weave min_val with l as list of int into int:
+    var n as int is calling l.len
+    if n == 0:
         return 0
-    """
->       ret = _build_and_run(code, tmp_path)
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    var m as int is l at 0
+    var i as int is 1
+    while i < n:
+        if (l at i) < m:
+            set m is l at i
+        set i is i + 1
+    return m
 
-tests/test_p0_review_fixes.py:65: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
-source = '\nweave main into int:\n    var o as maybe int is some 42\n    if switch as int is o:\n        return switch\n    return 0\n'
-tmp_path = PosixPath('/private/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T/pytest-of-runner/pytest-0/test_1_1_binding_c_keyword_nam0')
-extra_files = None
+# std/atlas.pengu - The Atlas (Maps)
+# Hash map key-value store utilities for the built-in `map of K to V`
+# collections.
+#
+# Ownership / memory model:
+#   * Helpers only read the map they receive: no entry is copied, added,
+#     removed or reallocated, and the caller keeps ownership of the map
+#     (it can still `banish` it after the call returns).
+#
+# Usage:
+#   import std.atlas
+#   var m as map of string to int is { "a": 1, "b": 2 }
+#   var n as int is calling atlas.map_len_str_int with m
 
-    def _build_and_run(source: str, tmp_path: Path, extra_files=None) -> int:
-        """Helper to check, codegen, compile and run generated C code using gcc."""
-        parser = PenguParser()
-        checker = PenguChecker(base_dir=str(tmp_path))
-        files = list(extra_files or []) + [("main.pengu", source)]
-        trees = {}
-        for idx, (fname, code) in enumerate(files):
-            tree = parser.parse(code)
-            checker.check(tree, source=code, filename=fname, reset_symbols=(idx == 0))
-            trees[fname] = tree
-    
-        codegen = PenguCodegen(checker.symbols, [fname for fname, _ in files], str(tmp_path), compile_env=checker.compile_env)
-        for fname, _ in files:
-            codegen.collect_declarations([(fname, trees[fname])])
-        c_code = codegen.generate_bundle()
-    
-        c_file = tmp_path / "main.c"
-        c_file.write_text(c_code, encoding="utf-8")
-        bin_file = tmp_path / "main_bin"
-        repo_dir = Path(__file__).resolve().parent.parent
-        cmd = [
-            "gcc", "-std=c99",
-            f"-I{repo_dir}",
-            f"-I{repo_dir / 'build' / 'include'}",
-            f"-I{repo_dir / 'build'}",
-            f"-L{repo_dir / 'build' / 'lib'}",
-            str(c_file), "-o", str(bin_file),
-            "-Wno-error=implicit-function-declaration",
-            "-lpengu_runtime", "-lpcre2-8", "-lxml2", "-lcurl", "-lmbedcrypto", "-lmicrohttpd", "-lz",
-            "-lpthread", "-lm", "-ldl"
-        ]
-        res = subprocess.run(cmd, capture_output=True, text=True)
->       assert res.returncode == 0, f"Compilation failed:\n{res.stderr}\nCode:\n{c_code}"
-E       AssertionError: Compilation failed:
-E         ld: library 'microhttpd' not found
-E         clang: error: linker command failed with exit code 1 (use -v to see invocation)
-E         
-E         Code:
-E         /* Auto-generated by PenguScript v0.14.0 */
-E         #include "pengu_runtime.h"
-E         
-E         /* Compiled modules in topological order:
-E          * - main.pengu
-E          */
-E         
-E         /* -------------------------------------------------------------------------
-E          * Forward Declarations
-E          * ------------------------------------------------------------------------- */
-E         #ifndef PENGU_RANGE_DEFINED
-E         #define PENGU_RANGE_DEFINED
-E         typedef struct { int64_t start; int64_t end; } PenguRange;
-E         #endif
-E         
-E         
-E         
-E         /* -------------------------------------------------------------------------
-E          * Function Prototypes
-E          * ------------------------------------------------------------------------- */
-E         int32_t pengu_main(void);
-E         
-E         #line 1
-E         
-E         /* -------------------------------------------------------------------------
-E          * Function Definitions
-E          * ------------------------------------------------------------------------- */
-E         #line 2 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
-E         int32_t pengu_main(void) {
-E           pengu_frame_push("pengu_main", "/Users/runner/work/PenguScript/PenguScript/main.pengu", 2);
-E         #line 3 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
-E           PenguMaybe o = (__extension__({ int32_t _some_1 = 42;
-E           PenguMaybe _maybe_2;
-E           _maybe_2.is_present = true;
-E           _maybe_2.value = pengu_sigil_alloc(sizeof(_some_1));
-E           if (!_maybe_2.value) _maybe_2.is_present = false;
-E           else memcpy(_maybe_2.value, &(_some_1), sizeof(_some_1));
-E           _maybe_2; })); /* stack */
-E         #line 4 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
-E           {
-E             PenguMaybe _maybe_3 = o;
-E             if (pengu_maybe_is_present(&_maybe_3)) {
-E               int32_t _switch = (*(int32_t *)_maybe_3.value);
-E         #line 5 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
-E               pengu_frame_pop();
-E               return _switch;
-E             }
-E           }
-E         #line 6 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
-E           pengu_frame_pop();
-E           return 0;
-E           pengu_frame_pop();
-E         }
-E         
-E         #line 1
-E         /* -------------------------------------------------------------------------
-E          * Entry Point Wrapper
-E          * ------------------------------------------------------------------------- */
-E         int main(int argc, char** argv) {
-E           /* Expose the program arguments to 'rites.get_args()' etc. */
-E           pengu_init(argc, argv);
-E           int pengu_status = (int)pengu_main();
-E           fflush(stdout);
-E           fflush(stderr);
-E           return pengu_status;
-E         }
-E         
-E       assert 1 == 0
-E        +  where 1 = CompletedProcess(args=['gcc', '-std=c99', '-I/Users/runner/work/PenguScript/PenguScript', '-I/Users/runner/work/PenguS...ld: library 'microhttpd' not found\nclang: error: linker command failed with exit code 1 (use -v to see invocation)\n").returncode
+import std.spark
 
-tests/test_p0_review_fixes.py:51: AssertionError
-=========================== short test summary info ============================
-FAILED tests/test_p0_review_fixes.py::test_1_1_binding_c_keyword_name - AssertionError: Compilation failed:
-  ld: library 'microhttpd' not found
-  clang: error: linker command failed with exit code 1 (use -v to see invocation)
-  
-  Code:
-  /* Auto-generated by PenguScript v0.14.0 */
-  #include "pengu_runtime.h"
-  
-  /* Compiled modules in topological order:
-   * - main.pengu
-   */
-  
-  /* -------------------------------------------------------------------------
-   * Forward Declarations
-   * ------------------------------------------------------------------------- */
-  #ifndef PENGU_RANGE_DEFINED
-  #define PENGU_RANGE_DEFINED
-  typedef struct { int64_t start; int64_t end; } PenguRange;
-  #endif
-  
-  
-  
-  /* -------------------------------------------------------------------------
-   * Function Prototypes
-   * ------------------------------------------------------------------------- */
-  int32_t pengu_main(void);
-  
-  #line 1
-  
-  /* -------------------------------------------------------------------------
-   * Function Definitions
-   * ------------------------------------------------------------------------- */
-  #line 2 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
-  int32_t pengu_main(void) {
-    pengu_frame_push("pengu_main", "/Users/runner/work/PenguScript/PenguScript/main.pengu", 2);
-  #line 3 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
-    PenguMaybe o = (__extension__({ int32_t _some_1 = 42;
-    PenguMaybe _maybe_2;
-    _maybe_2.is_present = true;
-    _maybe_2.value = pengu_sigil_alloc(sizeof(_some_1));
-    if (!_maybe_2.value) _maybe_2.is_present = false;
-    else memcpy(_maybe_2.value, &(_some_1), sizeof(_some_1));
-    _maybe_2; })); /* stack */
-  #line 4 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
-    {
-      PenguMaybe _maybe_3 = o;
-      if (pengu_maybe_is_present(&_maybe_3)) {
-        int32_t _switch = (*(int32_t *)_maybe_3.value);
-  #line 5 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
-        pengu_frame_pop();
-        return _switch;
-      }
-    }
-  #line 6 "/Users/runner/work/PenguScript/PenguScript/main.pengu"
-    pengu_frame_pop();
-    return 0;
-    pengu_frame_pop();
-  }
-  
-  #line 1
-  /* -------------------------------------------------------------------------
-   * Entry Point Wrapper
-   * ------------------------------------------------------------------------- */
-  int main(int argc, char** argv) {
-    /* Expose the program arguments to 'rites.get_args()' etc. */
-    pengu_init(argc, argv);
-    int pengu_status = (int)pengu_main();
-    fflush(stdout);
-    fflush(stderr);
-    return pengu_status;
-  }
-  
-assert 1 == 0
- +  where 1 = CompletedProcess(args=['gcc', '-std=c99', '-I/Users/runner/work/PenguScript/PenguScript', '-I/Users/runner/work/PenguS...ld: library 'microhttpd' not found\nclang: error: linker command failed with exit code 1 (use -v to see invocation)\n").returncode
-!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
-1 failed in 2.86s
-Error: Process completed with exit code 1.
+# Map helper utilities
+#
+# Returns the number of key -> value entries currently stored in the
+# `map of string to int` `m`, equivalent to `calling m.len`. The map is
+# only read, never modified.
+weave map_len_str_int with m as map of string to int into int:
+    return calling m.len
+
+
+# std/coven.pengu - The Coven (Sets)
+# Provides dynamic unique set collections over the built-in hash map:
+# SetString holds distinct strings, SetInt holds distinct ints.
+#
+# Ownership / memory model:
+#   * A set OWNS its elements: `add` deep-copies the item (as the key of the
+#     backing map), so later changes to the caller's value never leak into
+#     the set and no element is ever stored twice.
+#   * A set is a rune value record with a single `items` backing map. Build
+#     one with new_set_string / new_set_int, then copy, return or `banish`
+#     it like any owned value.
+#
+# Usage:
+#   import std.coven
+#   var s as SetString is calling coven.new_set_string
+#   calling s.add with "apple"
+#   if calling s.contains with "apple": ...
+#
+# Implementation note: both types store their elements as KEYS of a
+# `map of string to int` (the int values are unused). SetInt stringifies
+# each int with `item to string`, which is unique per int, so membership and
+# insertion behave exactly like a mathematical set with O(1) average cost.
+
+import std.spark
+import std.atlas
+
+# ----------------------------------------------------------------------------
+# Value types
+# ----------------------------------------------------------------------------
+
+# A set of unique string elements: inserting a string that is already
+# present is a no-op. Use the SetString methods (add, contains, remove,
+# len, clear, is_empty) to manipulate it; create one with new_set_string.
+rune SetString:
+    items as map of string to int
+
+# A set of unique int elements with the same behaviour as SetString. Values
+# are stored under their decimal string key (unique per int). Use the SetInt
+# methods below; create one with new_set_int.
+rune SetInt:
+    items as map of string to int
+
+# ----------------------------------------------------------------------------
+# Constructors
+# ----------------------------------------------------------------------------
+
+# Builds a new, empty SetString ready to receive `add` calls.
+weave new_set_string into SetString:
+    var m as map of string to int is map of string to int
+    return with items is m
+
+# Builds a new, empty SetInt ready to receive `add` calls.
+weave new_set_int into SetInt:
+    var m as map of string to int is map of string to int
+    return with items is m
+
+# ----------------------------------------------------------------------------
+# SetString methods
+# ----------------------------------------------------------------------------
+
+# Methods attached to every SetString value (each backed by the set's
+# `items` hash map of string to int).
+enchanting SetString:
+    # Inserts `item` into the set. Inserting a string that is already
+    # present is a no-op, because a set stores each element at most once.
+    weave add with item as string into void:
+        calling self->items.put with item , 1
+
+    # Returns true when `item` is currently a member of the set.
+    weave contains with item as string into bool:
+        return calling self->items.contains with item
+
+    # Removes `item` from the set. Returns true when it was present (and has
+    # been removed); returns false when the set did not contain it.
+    weave remove with item as string into bool:
+        return calling self->items.remove with item
+
+    # Returns the number of distinct elements currently stored in the set.
+    weave len into int:
+        return calling self->items.len
+
+    # Removes every element, leaving the set empty.
+    weave clear into void:
+        calling self->items.clear
+
+    # Returns true when the set holds no elements at all.
+    weave is_empty into bool:
+        return calling self->items.is_empty
+
+# ----------------------------------------------------------------------------
+# SetInt methods
+# ----------------------------------------------------------------------------
+
+# Methods attached to every SetInt value. Each int is stored under its
+# decimal string form (item to string), so the set stays duplicate-free.
+enchanting SetInt:
+    # Inserts `item` into the set, storing it under the decimal string of
+    # the int. Inserting an int that is already present is a no-op.
+    weave add with item as int into void:
+        calling self->items.put with (item to string) , 1
+
+    # Returns true when `item` is currently a member of the set.
+    weave contains with item as int into bool:
+        return calling self->items.contains with (item to string)
+
+    # Removes `item` from the set. Returns true when it was present (and has
+    # been removed); returns false when the set did not contain it.
+    weave remove with item as int into bool:
+        return calling self->items.remove with (item to string)
+
+    # Returns the number of distinct elements currently stored in the set.
+    weave len into int:
+        return calling self->items.len
+
+    # Removes every element, leaving the set empty.
+    weave clear into void:
+        calling self->items.clear
+
+    # Returns true when the set holds no elements at all.
+    weave is_empty into bool:
+        return calling self->items.is_empty

@@ -152,10 +152,21 @@ def test_runtime_bridge_c_driver():
         shutil.rmtree(d, ignore_errors=True)
 
 
-def _bundle_text(source: str, tag: str = "ffi_bundle") -> str:
+def _bundle_text(source: str, tag: str = "ffi_bundle", dce: bool = True) -> str:
+    """Bundles ``source``; ``dce=False`` keeps every std wrapper in the output.
+
+    The FFI tests below assert the C body of *each* wrapper in std/ffi.pengu, so
+    they must disable the dead-code elimination of unused std weaves (a program
+    that only calls one wrapper legitimately drops the others).
+    """
+    import os
+
     from pengu_project import PenguBuilder, ProjectConfig
 
     d = Path(tempfile.mkdtemp(prefix=f"pengu_{tag}_", dir=BUILD_DIR))
+    saved = os.environ.get("PENGU_NO_DCE")
+    if not dce:
+        os.environ["PENGU_NO_DCE"] = "1"
     try:
         entry = d / f"{tag}.pengu"
         entry.write_text(source, encoding="utf-8")
@@ -164,6 +175,11 @@ def _bundle_text(source: str, tag: str = "ffi_bundle") -> str:
         bundle_path, _ = builder.bundle(output_file=str(d / "bundle.c"))
         return Path(bundle_path).read_text(encoding="utf-8")
     finally:
+        if not dce:
+            if saved is None:
+                os.environ.pop("PENGU_NO_DCE", None)
+            else:
+                os.environ["PENGU_NO_DCE"] = saved
         shutil.rmtree(d, ignore_errors=True)
 
 
@@ -176,7 +192,7 @@ def test_std_ffi_module_bundle_emits_expected_c_calls():
         '    var c as ref to char is calling ffi.cstr_from_string with "x"\n'
         "    return 0\n"
     )
-    c = _bundle_text(source)
+    c = _bundle_text(source, dce=False)
     expected_calls = [
         "pengu_ffi_cstr_string",   # string_from_cstr wrapper body
         "pengu_ffi_string_cstr",   # cstr_from_string wrapper body

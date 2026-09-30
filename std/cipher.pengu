@@ -1,20 +1,33 @@
-# std/cipher.pengu - The Cipher (JSON & Base64 Encoding)
-# JSON serialization/deserialization and Base64 encoding/decoding,
+# std/cipher.pengu - The Cipher (JSON & Base64/Hex/Base32 Encoding)
+# JSON serialization/deserialization and Base64/Hex/Base32 encoding/decoding,
 # implemented in pure PenguScript on top of byte access (ord/chr), map/list
 # primitives, and the pengu_map_keys_string runtime helper.
 #
-# Usage: import std.cipher. Encode and decode bytes with
-# "calling cipher.encode_base64" / "calling cipher.decode_base64", serialize a
-# map with "calling cipher.stringify_json", parse it back with
-# "calling cipher.parse_json", and persist it with read_json_file /
-# write_json_file.
-# Ownership: results are owned strings and maps that may be banished or
-# dropped normally; no function returns a view into its input.
-# Null-style safety: decode_base64, parse_json, parse_value and the file
-# readers return maybe values; none signals malformed input or I/O failure.
+# Usage:
+#   import std.cipher
+#   var b64 as string is calling cipher.encode_base64 with "hello"
+#   var dec as maybe string is calling cipher.decode_base64 with b64
+#   var js as maybe string is calling cipher.stringify_json with my_map
+#   var m as maybe map of string to string is calling cipher.parse_json with js.value
+#
+# Ownership model:
+#   Results are owned strings, maps and lists that may be banished or dropped
+#   normally; no function returns a view into its input.
+#
+# Safety:
+#   decode_base64, parse_json, parse_value, json_get_*, and file readers
+#   return maybe values; none signals malformed input or I/O failure.
 
 import std.spark
 import std.archivum
+import std.scrolls
+
+# ----------------------------------------------------------------------------
+# Module Version
+# ----------------------------------------------------------------------------
+
+## Version constant for std.cipher module.
+const CIPHER_VERSION as string is "0.15.0"
 
 # ----------------------------------------------------------------------------
 # Map key enumeration (runtime primitive)
@@ -25,10 +38,45 @@ import std.archivum
 declare pengu_map_keys_string with m as ref to map of string to string into list of string
 
 # ----------------------------------------------------------------------------
-# Base64 API (pure)
+# JSON Value Classification (0.15.0)
 # ----------------------------------------------------------------------------
 
-# Maps a 6-bit value (0-63) to its Base64 alphabet character.
+## Represents the syntactic category of a raw JSON value.
+omen JsonKind:
+    JsonNull
+    JsonBool
+    JsonNumber
+    JsonString
+    JsonArray
+    JsonObject
+
+## Classifies a raw JSON value into its corresponding JsonKind variant.
+##
+## Signature: json_kind_of(v as string) into JsonKind
+## Ownership: Returns an omen value.
+## Edge cases: Returns JsonNull for empty string or "null".
+weave json_kind_of with v as string into JsonKind:
+    var vl as int is v length
+    if vl == 0:
+        return JsonNull
+    var c0 as int is ord (v at 0)
+    if c0 == 123:
+        return JsonObject
+    if c0 == 91:
+        return JsonArray
+    if v == "null":
+        return JsonNull
+    if v == "true" or v == "false":
+        return JsonBool
+    if (c0 >= 48 and c0 <= 57) or c0 == 45:
+        return JsonNumber
+    return JsonString
+
+# ----------------------------------------------------------------------------
+# Base64 API (0.14.x baseline & 0.15.0 extensions)
+# ----------------------------------------------------------------------------
+
+## Maps a 6-bit value (0-63) to its Base64 alphabet character.
 weave cb64_char with v as int into string:
     if v < 26:
         return chr (v + 65)
@@ -40,7 +88,7 @@ weave cb64_char with v as int into string:
         return "+"
     return "/"
 
-# Decodes a single Base64 character to its 6-bit value (-2 invalid, -1 '=').
+## Decodes a single Base64 character to its 6-bit value (-2 invalid, -1 '=').
 weave cb64_val with c as string into int:
     var code as int is ord c
     if code >= 65:
@@ -60,8 +108,11 @@ weave cb64_val with c as string into int:
         return -1
     return -2
 
-# Encodes data (each character treated as one byte) into a Base64 string; an
-# empty input yields "". Returns a new owned string.
+## Encodes data into a standard RFC 4648 Base64 string with padding.
+##
+## Signature: encode_base64(data as string) into string
+## Ownership: Returns a newly allocated string.
+## Edge cases: Empty input returns "".
 weave encode_base64 with data as string into string:
     var dl as int is data length
     if dl == 0:
@@ -87,21 +138,27 @@ weave encode_base64 with data as string into string:
         if b2 >= 0:
             set a2 is b2
         var triple as int is (a0 << 16) | (a1 << 8) | a2
-        set out is out + (calling cb64_char with ((triple >> 18) & 63))
-        set out is out + (calling cb64_char with ((triple >> 12) & 63))
+        set out is "{out}{(calling cb64_char with ((triple >> 18) & 63))}"
+        set out is "{out}{(calling cb64_char with ((triple >> 12) & 63))}"
         if b1 >= 0:
-            set out is out + (calling cb64_char with ((triple >> 6) & 63))
+            set out is "{out}{(calling cb64_char with ((triple >> 6) & 63))}"
         else:
-            set out is out + "="
+            set out is "{out}="
         if b2 >= 0:
-            set out is out + (calling cb64_char with (triple & 63))
+            set out is "{out}{(calling cb64_char with (triple & 63))}"
         else:
-            set out is out + "="
+            set out is "{out}="
     return out
 
-# Decodes a Base64 string back into bytes as a string; whitespace in the input
-# is ignored. Returns maybe none when the input is malformed (bad alphabet
-# characters, wrong length or invalid padding).
+## Explicit alias of `encode_base64` for API consistency.
+weave encode_base64_bytes with data as string into string:
+    return calling encode_base64 with data
+
+## Decodes a Base64 string back into bytes as a string; whitespace in input is ignored.
+##
+## Signature: decode_base64(data as string) into maybe string
+## Ownership: Returns an owned maybe string.
+## Edge cases: Returns maybe none when input is malformed or has invalid padding.
 weave decode_base64 with data as string into maybe string:
     var dl as int is data length
     if dl == 0:
@@ -116,7 +173,7 @@ weave decode_base64 with data as string into maybe string:
                     if code != 13:
                         if code != 12:
                             if code != 11:
-                                set clean is clean + (data at ci)
+                                set clean is "{clean}{(data at ci)}"
         set ci is ci + 1
     var clen as int is clean length
     if clen % 4 != 0:
@@ -147,21 +204,420 @@ weave decode_base64 with data as string into maybe string:
         if v3 >= 0:
             set t3 is v3
         var triple as int is (v0 << 18) | (v1 << 12) | (t2 << 6) | t3
-        set out is out + (chr ((triple >> 16) & 255))
+        set out is "{out}{(chr ((triple >> 16) & 255))}"
         if c2 != "=":
-            set out is out + (chr ((triple >> 8) & 255))
+            set out is "{out}{(chr ((triple >> 8) & 255))}"
         if c3 != "=":
-            set out is out + (chr (triple & 255))
+            set out is "{out}{(chr (triple & 255))}"
         set pos is pos + 4
     return some out
 
-# True when data is well-formed Base64, i.e. decode_base64 succeeds.
+## True when data is well-formed Base64, i.e. decode_base64 succeeds.
 weave is_base64 with data as string into bool:
     var decoded as maybe string is calling decode_base64 with data
     return decoded.is_present
 
+## Encodes data into URL-safe Base64 (using '-' and '_' instead of '+' and '/', unpadded).
+##
+## Signature: encode_base64_url(data as string) into string
+## Ownership: Returns a newly allocated string.
+weave encode_base64_url with data as string into string:
+    var b64 as string is calling encode_base64 with data
+    var s1 as string is calling b64.replace_all with "+" , "-"
+    var s2 as string is calling s1.replace_all with "/" , "_"
+    var s3 as string is calling s2.replace_all with "=" , ""
+    return s3
+
+## Decodes a URL-safe Base64 string (accepts both URL-safe and standard alphabet, padded or unpadded).
+##
+## Signature: decode_base64_url(data as string) into maybe string
+## Ownership: Returns an owned maybe string.
+weave decode_base64_url with data as string into maybe string:
+    var s1 as string is calling data.replace_all with "-" , "+"
+    var s2 as string is calling s1.replace_all with "_" , "/"
+    var rem as int is (s2 length) % 4
+    if rem == 2:
+        set s2 is "{s2}=="
+    else if rem == 3:
+        set s2 is "{s2}="
+    return calling decode_base64 with s2
+
+## Encodes data into unpadded standard Base64 (strips trailing '=' characters).
+##
+## Signature: encode_base64_nopad(data as string) into string
+## Ownership: Returns a newly allocated string.
+weave encode_base64_nopad with data as string into string:
+    var b64 as string is calling encode_base64 with data
+    return calling b64.replace_all with "=" , ""
+
+## Decodes an unpadded Base64 string (automatically restores required '=' padding).
+##
+## Signature: decode_base64_nopad(data as string) into maybe string
+## Ownership: Returns an owned maybe string.
+weave decode_base64_nopad with data as string into maybe string:
+    var rem as int is (data length) % 4
+    var s as string is data
+    if rem == 2:
+        set s is "{s}=="
+    else if rem == 3:
+        set s is "{s}="
+    return calling decode_base64 with s
+
+## Alias for encode_base64_nopad.
+weave encode_base64_unpadded with data as string into string:
+    return calling encode_base64_nopad with data
+
+## Alias for decode_base64_nopad.
+weave decode_base64_unpadded with data as string into maybe string:
+    return calling decode_base64_nopad with data
+
+## Computes the exact length of the padded Base64 encoding for `n` raw bytes without encoding.
+##
+## Signature: base64_length(n as int) into int
+weave base64_length with n as int into int:
+    if n <= 0:
+        return 0
+    return ((n + 2) / 3) * 4
+
 # ----------------------------------------------------------------------------
-# JSON helpers (pure PenguScript tokenizer over a string + cursor)
+# Hex (Base16) API (0.15.0)
+# ----------------------------------------------------------------------------
+
+weave _hex_val with c as string into int:
+    var code as int is ord c
+    if code >= 48 and code <= 57:
+        return code - 48
+    if code >= 97 and code <= 102:
+        return code - 87
+    if code >= 65 and code <= 70:
+        return code - 55
+    return -1
+
+## Encodes raw bytes in `data` into a lowercase hexadecimal (Base16) string.
+##
+## Signature: encode_hex(data as string) into string
+## Ownership: Returns a newly allocated string.
+weave encode_hex with data as string into string:
+    var dl as int is data length
+    if dl == 0:
+        return ""
+    var hex_chars as string is "0123456789abcdef"
+    var out as string is ""
+    var i as int is 0
+    while i < dl:
+        var b as int is ord (data at i)
+        var hi as int is (b >> 4) & 15
+        var lo as int is b & 15
+        set out is "{out}{(hex_chars at hi)}{(hex_chars at lo)}"
+        set i is i + 1
+    return out
+
+## Decodes a hexadecimal string back into bytes.
+##
+## Signature: decode_hex(data as string) into maybe string
+## Ownership: Returns an owned maybe string.
+## Edge cases: Rejects odd-length strings and non-hexadecimal characters with `maybe none`.
+weave decode_hex with data as string into maybe string:
+    var dl as int is data length
+    if dl == 0:
+        return some ""
+    if (dl % 2) != 0:
+        return maybe none
+    var out as string is ""
+    var i as int is 0
+    while i < dl:
+        var c1 as string is data at i
+        var c2 as string is data at (i + 1)
+        var v1 as int is calling _hex_val with c1
+        var v2 as int is calling _hex_val with c2
+        if v1 < 0 or v2 < 0:
+            return maybe none
+        var byte_val as int is (v1 << 4) | v2
+        set out is "{out}{(chr byte_val)}"
+        set i is i + 2
+    return some out
+
+# ----------------------------------------------------------------------------
+# Base32 API (RFC 4648) (0.15.0)
+# ----------------------------------------------------------------------------
+
+weave _b32_char with v as int into string:
+    var alphabet as string is "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+    if v >= 0 and v < 32:
+        return alphabet at v
+    return "="
+
+weave _b32_val with c as string into int:
+    var code as int is ord c
+    if code >= 65 and code <= 90:
+        return code - 65
+    if code >= 97 and code <= 122:
+        return code - 97
+    if code >= 50 and code <= 55:
+        return code - 24
+    if code == 61:
+        return -1
+    return -2
+
+## Encodes raw bytes in `data` into an uppercase Base32 string with '=' padding (RFC 4648).
+##
+## Signature: encode_base32(data as string) into string
+## Ownership: Returns a newly allocated string.
+weave encode_base32 with data as string into string:
+    var dl as int is data length
+    if dl == 0:
+        return ""
+    var out as string is ""
+    var i as int is 0
+    while i < dl:
+        var b0 as int is ord (data at i)
+        set i is i + 1
+        var b1 as int is -1
+        var b2 as int is -1
+        var b3 as int is -1
+        var b4 as int is -1
+        if i < dl:
+            set b1 is ord (data at i)
+            set i is i + 1
+            if i < dl:
+                set b2 is ord (data at i)
+                set i is i + 1
+                if i < dl:
+                    set b3 is ord (data at i)
+                    set i is i + 1
+                    if i < dl:
+                        set b4 is ord (data at i)
+                        set i is i + 1
+        var u1 as int is (b0 >> 3) & 31
+        var u2 as int is (b0 & 7) << 2
+        if b1 >= 0:
+            set u2 is u2 | ((b1 >> 6) & 3)
+        var u3 as int is 0
+        var u4 as int is 0
+        var u5 as int is 0
+        var u6 as int is 0
+        var u7 as int is 0
+        var u8 as int is 0
+        if b1 >= 0:
+            set u3 is (b1 >> 1) & 31
+            set u4 is (b1 & 1) << 4
+        if b2 >= 0:
+            set u4 is u4 | ((b2 >> 4) & 15)
+            set u5 is (b2 & 15) << 1
+        if b3 >= 0:
+            set u5 is u5 | ((b3 >> 7) & 1)
+            set u6 is (b3 >> 2) & 31
+            set u7 is (b3 & 3) << 3
+        if b4 >= 0:
+            set u7 is u7 | ((b4 >> 5) & 7)
+            set u8 is b4 & 31
+
+        set out is "{out}{(calling _b32_char with u1)}"
+        set out is "{out}{(calling _b32_char with u2)}"
+        if b1 >= 0:
+            set out is "{out}{(calling _b32_char with u3)}"
+            set out is "{out}{(calling _b32_char with u4)}"
+        else:
+            set out is "{out}=="
+        if b2 >= 0:
+            set out is "{out}{(calling _b32_char with u5)}"
+        else:
+            set out is "{out}="
+        if b3 >= 0:
+            set out is "{out}{(calling _b32_char with u6)}"
+            set out is "{out}{(calling _b32_char with u7)}"
+        else:
+            set out is "{out}=="
+        if b4 >= 0:
+            set out is "{out}{(calling _b32_char with u8)}"
+        else:
+            set out is "{out}="
+    return out
+
+## Decodes a Base32 string back into bytes (RFC 4648). Case-insensitive.
+##
+## Signature: decode_base32(data as string) into maybe string
+## Ownership: Returns an owned maybe string.
+weave decode_base32 with data as string into maybe string:
+    var dl as int is data length
+    if dl == 0:
+        return some ""
+    var clean as string is ""
+    var ci as int is 0
+    while ci < dl:
+        var ch as string is data at ci
+        var code as int is ord ch
+        if code != 32 and code != 9 and code != 10 and code != 13:
+            set clean is "{clean}{ch}"
+        set ci is ci + 1
+    var clen as int is clean length
+    if clen % 8 != 0:
+        return maybe none
+    var out as string is ""
+    var pos as int is 0
+    while pos < clen:
+        var v0 as int is calling _b32_val with (clean at pos)
+        var v1 as int is calling _b32_val with (clean at (pos + 1))
+        var v2 as int is calling _b32_val with (clean at (pos + 2))
+        var v3 as int is calling _b32_val with (clean at (pos + 3))
+        var v4 as int is calling _b32_val with (clean at (pos + 4))
+        var v5 as int is calling _b32_val with (clean at (pos + 5))
+        var v6 as int is calling _b32_val with (clean at (pos + 6))
+        var v7 as int is calling _b32_val with (clean at (pos + 7))
+        if v0 < 0 or v1 < 0:
+            return maybe none
+        var b0 as int is ((v0 << 3) | ((v1 >> 2) & 7)) & 255
+        set out is "{out}{(chr b0)}"
+        if v2 >= 0:
+            if v3 < 0:
+                return maybe none
+            var b1 as int is (((v1 & 3) << 6) | (v2 << 1) | ((v3 >> 4) & 1)) & 255
+            set out is "{out}{(chr b1)}"
+            if v4 >= 0:
+                var b2 as int is (((v3 & 15) << 4) | ((v4 >> 1) & 15)) & 255
+                set out is "{out}{(chr b2)}"
+                if v5 >= 0:
+                    if v6 < 0:
+                        return maybe none
+                    var b3 as int is (((v4 & 1) << 7) | (v5 << 2) | ((v6 >> 3) & 3)) & 255
+                    set out is "{out}{(chr b3)}"
+                    if v7 >= 0:
+                        var b4 as int is (((v6 & 7) << 5) | v7) & 255
+                        set out is "{out}{(chr b4)}"
+        set pos is pos + 8
+    return some out
+
+# ----------------------------------------------------------------------------
+# String Enchantment Methods (0.15.0)
+# ----------------------------------------------------------------------------
+
+enchanting string:
+    ## Encodes this string into standard Base64.
+    weave to_base64 into string:
+        return calling encode_base64 with (essence of self)
+
+    ## Encodes this string into URL-safe Base64.
+    weave to_base64_url into string:
+        return calling encode_base64_url with (essence of self)
+
+    ## Decodes this Base64 string into its raw representation.
+    weave from_base64 into maybe string:
+        return calling decode_base64 with (essence of self)
+
+    ## Encodes this string into hexadecimal representation.
+    weave to_hex into string:
+        return calling encode_hex with (essence of self)
+
+    ## Decodes this hexadecimal string into its raw representation.
+    weave from_hex into maybe string:
+        return calling decode_hex with (essence of self)
+
+# ----------------------------------------------------------------------------
+# JSON String Escaping (0.15.0 Bug Fix & Public Helper)
+# ----------------------------------------------------------------------------
+
+## Escapes double-quotes, backslashes, and control characters for JSON RFC 8259 compliance.
+##
+## Signature: json_escape(s as string) into string
+## Ownership: Returns a newly allocated escaped string.
+weave json_escape with s as string into string:
+    var sl as int is s length
+    if sl == 0:
+        return ""
+    var out as string is ""
+    var i as int is 0
+    while i < sl:
+        var ch as string is s at i
+        var code as int is ord ch
+        if code == 34:
+            set out is "{out}\\\""
+        else if code == 92:
+            set out is "{out}\\\\"
+        else if code == 10:
+            set out is "{out}\\n"
+        else if code == 13:
+            set out is "{out}\\r"
+        else if code == 9:
+            set out is "{out}\\t"
+        else if code < 32:
+            var hex_chars as string is "0123456789abcdef"
+            var hi as int is code / 16
+            var lo as int is code % 16
+            set out is "{out}\\u00{(hex_chars at hi)}{(hex_chars at lo)}"
+        else:
+            set out is "{out}{ch}"
+        set i is i + 1
+    return out
+
+## Unescapes a JSON-encoded string (translates \", \\, \n, \r, \t, \/ back to literals).
+##
+## Signature: json_unescape(s as string) into string
+## Ownership: Returns a newly allocated unescaped string.
+weave json_unescape with s as string into string:
+    var sl as int is s length
+    if sl == 0:
+        return ""
+    var out as string is ""
+    var i as int is 0
+    while i < sl:
+        var ch as string is s at i
+        if ch == "\\" and (i + 1) < sl:
+            var next_ch as string is s at (i + 1)
+            var ncode as int is ord next_ch
+            if ncode == 34:
+                set out is "{out}\""
+                set i is i + 2
+            else if ncode == 92:
+                set out is "{out}\\"
+                set i is i + 2
+            else if ncode == 47:
+                set out is "{out}/"
+                set i is i + 2
+            else if ncode == 110:
+                set out is "{out}\n"
+                set i is i + 2
+            else if ncode == 114:
+                set out is "{out}\r"
+                set i is i + 2
+            else if ncode == 116:
+                set out is "{out}\t"
+                set i is i + 2
+            else if ncode == 117:
+                if (i + 5) < sl:
+                    var h0 as int is calling _hex_val with (s at (i + 2))
+                    var h1 as int is calling _hex_val with (s at (i + 3))
+                    var h2 as int is calling _hex_val with (s at (i + 4))
+                    var h3 as int is calling _hex_val with (s at (i + 5))
+                    if h0 >= 0 and h1 >= 0 and h2 >= 0 and h3 >= 0:
+                        var cp as int is (h0 * 4096) + (h1 * 256) + (h2 * 16) + h3
+                        if cp <= 127:
+                            set out is "{out}{(chr cp)}"
+                        else if cp <= 2047:
+                            var b1 as int is 192 + (cp / 64)
+                            var b2 as int is 128 + (cp % 64)
+                            set out is "{out}{(chr b1)}{(chr b2)}"
+                        else:
+                            var b1_3 as int is 224 + (cp / 4096)
+                            var b2_3 as int is 128 + ((cp / 64) % 64)
+                            var b3_3 as int is 128 + (cp % 64)
+                            set out is "{out}{(chr b1_3)}{(chr b2_3)}{(chr b3_3)}"
+                        set i is i + 6
+                    else:
+                        set out is "{out}{ch}"
+                        set i is i + 1
+                else:
+                    set out is "{out}{ch}"
+                    set i is i + 1
+            else:
+                set out is "{out}{ch}"
+                set i is i + 1
+        else:
+            set out is "{out}{ch}"
+            set i is i + 1
+    return out
+
+# ----------------------------------------------------------------------------
+# JSON Tokenizer & Parser Helpers (0.14.x baseline)
 # ----------------------------------------------------------------------------
 
 # Advances the cursor past whitespace.
@@ -188,7 +644,7 @@ weave json_skip_ws with s as string , p as ref to int into void:
                         set done is true
     set essence of p is cur
 
-# Reads a quoted JSON string (without the surrounding quotes), handling escapes.
+# Reads a quoted JSON string (without surrounding quotes), handling escapes.
 weave json_read_str with s as string , p as ref to int into string:
     var sl as int is s length
     var cur as int is essence of p
@@ -213,27 +669,46 @@ weave json_read_str with s as string , p as ref to int into string:
                 if cur < sl:
                     var ec as int is ord (s at cur)
                     if ec == 110:
-                        set res is res + "\n"
-                    else:
-                        if ec == 116:
-                            set res is res + "\t"
-                        else:
-                            if ec == 114:
-                                set res is res + "\r"
-                            else:
-                                if ec == 34:
-                                    set res is res + "\""
+                        set res is "{res}\n"
+                    else if ec == 116:
+                        set res is "{res}\t"
+                    else if ec == 114:
+                        set res is "{res}\r"
+                    else if ec == 34:
+                        set res is "{res}\""
+                    else if ec == 92:
+                        set res is "{res}\\"
+                    else if ec == 47:
+                        set res is "{res}/"
+                    else if ec == 117:
+                        if cur + 4 < sl:
+                            var h0 as int is calling _hex_val with (s at (cur + 1))
+                            var h1 as int is calling _hex_val with (s at (cur + 2))
+                            var h2 as int is calling _hex_val with (s at (cur + 3))
+                            var h3 as int is calling _hex_val with (s at (cur + 4))
+                            if h0 >= 0 and h1 >= 0 and h2 >= 0 and h3 >= 0:
+                                var cp as int is (h0 * 4096) + (h1 * 256) + (h2 * 16) + h3
+                                if cp <= 127:
+                                    set res is "{res}{(chr cp)}"
+                                else if cp <= 2047:
+                                    var b1 as int is 192 + (cp / 64)
+                                    var b2 as int is 128 + (cp % 64)
+                                    set res is "{res}{(chr b1)}{(chr b2)}"
                                 else:
-                                    if ec == 92:
-                                        set res is res + "\\"
-                                    else:
-                                        if ec == 47:
-                                            set res is res + "/"
-                                        else:
-                                            set res is res + (s at cur)
+                                    var b1_3 as int is 224 + (cp / 4096)
+                                    var b2_3 as int is 128 + ((cp / 64) % 64)
+                                    var b3_3 as int is 128 + (cp % 64)
+                                    set res is "{res}{(chr b1_3)}{(chr b2_3)}{(chr b3_3)}"
+                                set cur is cur + 4
+                            else:
+                                set res is "{res}u"
+                        else:
+                            set res is "{res}u"
+                    else:
+                        set res is "{res}{(s at cur)}"
                     set cur is cur + 1
             else:
-                set res is res + (s at cur)
+                set res is "{res}{(s at cur)}"
                 set cur is cur + 1
     set essence of p is cur
     return res
@@ -260,10 +735,10 @@ weave json_read_value with s as string , p as ref to int into string:
                 if cc == 125:
                     set depth is depth - 1
                     if depth == 0:
-                        set out is out + (s at cur)
+                        set out is "{out}{(s at cur)}"
                         set cur is cur + 1
                         break
-            set out is out + (s at cur)
+            set out is "{out}{(s at cur)}"
             set cur is cur + 1
         set essence of p is cur
         return out
@@ -279,10 +754,10 @@ weave json_read_value with s as string , p as ref to int into string:
                 if cc2 == 93:
                     set depth2 is depth2 - 1
                     if depth2 == 0:
-                        set out2 is out2 + (s at cur)
+                        set out2 is "{out2}{(s at cur)}"
                         set cur is cur + 1
                         break
-            set out2 is out2 + (s at cur)
+            set out2 is "{out2}{(s at cur)}"
             set cur is cur + 1
         set essence of p is cur
         return out2
@@ -308,7 +783,7 @@ weave json_read_value with s as string , p as ref to int into string:
     set essence of p is cur
     return val
 
-# True when a value is a raw JSON literal (object/array/number/bool/null).
+## True when a value is a raw JSON literal (object/array/number/bool/null).
 weave json_is_literal with v as string into bool:
     var vl as int is v length
     if vl == 0:
@@ -336,14 +811,14 @@ weave json_is_literal with v as string into bool:
     return false
 
 # ----------------------------------------------------------------------------
-# JSON API
+# JSON Core API (0.14.x baseline & RFC 8259 escape fix)
 # ----------------------------------------------------------------------------
 
-# Parses a JSON object into a map of string to string. Quoted string values are
-# stored decoded (without their quotes); numbers, booleans, null and nested
-# object/array literals are kept as their raw JSON text so stringify_json can
-# round-trip them. Returns maybe none for empty, non-object or malformed
-# input.
+## Parses a JSON object into a map of string to string.
+##
+## Signature: parse_json(json as string) into maybe map of string to string
+## Ownership: Returns a newly allocated map.
+## Edge cases: Returns maybe none on malformed or non-object input.
 weave parse_json with json as string into maybe map of string to string:
     var m as map of string to string is map of string to string
     var dl as int is json length
@@ -388,9 +863,11 @@ weave parse_json with json as string into maybe map of string to string:
                 return maybe none
     return maybe none
 
-# Serializes a map into a compact single-line JSON object. Values that look
-# like raw JSON literals (true/false/null, numbers, nested {} or [] text) are
-# emitted unquoted; everything else is emitted as a quoted string.
+## Serializes a map into a compact single-line JSON object.
+## Properly escapes quotes and control characters in keys and string values (RFC 8259).
+##
+## Signature: stringify_json(data as map of string to string) into maybe string
+## Ownership: Returns a newly allocated JSON string.
 weave stringify_json with data as map of string to string into maybe string:
     var out as string is "{"
     var keys as list of string is calling pengu_map_keys_string with sigil of data
@@ -402,18 +879,19 @@ weave stringify_json with data as map of string to string into maybe string:
         if first:
             set first is false
         else:
-            set out is out + ","
-        set out is out + "\"" + key + "\""
-        set out is out + ":"
+            set out is "{out},"
+        set out is "{out}\"{(calling json_escape with key)}\""
+        set out is "{out}:"
         if calling json_is_literal with val:
-            set out is out + val
+            set out is "{out}{val}"
         else:
-            set out is out + "\"" + val + "\""
+            set out is "{out}\"{(calling json_escape with val)}\""
         set i is i + 1
-    return some (out + "}")
+    return some ("{out}}")
 
-# Like stringify_json but pretty-printed across multiple lines, indenting each
-# member with indent spaces (default 2).
+## Like stringify_json but formatted across multiple lines with configurable indentation.
+##
+## Signature: pretty_json(data as map of string to string, indent as int is 2) into maybe string
 weave pretty_json with data as map of string to string , indent as int is 2 into maybe string:
     var out as string is "{\n"
     var keys as list of string is calling pengu_map_keys_string with sigil of data
@@ -425,22 +903,20 @@ weave pretty_json with data as map of string to string , indent as int is 2 into
         if first:
             set first is false
         else:
-            set out is out + ",\n"
+            set out is "{out},\n"
         var sp as int is 0
         while sp < indent:
-            set out is out + " "
+            set out is "{out} "
             set sp is sp + 1
-        set out is out + "\"" + key + "\":"
+        set out is "{out}\"{(calling json_escape with key)}\":"
         if calling json_is_literal with val:
-            set out is out + " " + val
+            set out is "{out} {val}"
         else:
-            set out is out + " \"" + val + "\""
+            set out is "{out} \"{(calling json_escape with val)}\""
         set i is i + 1
-    return some (out + "\n}")
+    return some ("{out}\n}")
 
-# Reads a single JSON value (object, array, string, number or literal) and
-# returns it as raw text; quoted strings come back decoded and unquoted.
-# Returns maybe none for empty input.
+## Reads a single JSON value and returns it as raw text.
 weave parse_value with json as string into maybe string:
     var dl as int is json length
     if dl == 0:
@@ -452,21 +928,300 @@ weave parse_value with json as string into maybe string:
         return maybe none
     return some val
 
-# Passthrough that always returns some value: use it when value is already a
-# complete raw JSON value (e.g. "12345" or "[1,2]") that needs no quoting.
+## Identity passthrough returning `some value`.
 weave stringify_value with value as string into maybe string:
     return some value
 
-# Reads the file at path (via std.archivum) and parses it as a JSON object;
-# maybe none when the file cannot be read or is not a valid JSON object.
+# ----------------------------------------------------------------------------
+# JSON Array Support (0.15.0)
+# ----------------------------------------------------------------------------
+
+## Parses a JSON array string `[v1, v2, ...]` into a list of raw string values.
+##
+## Signature: parse_json_array(json as string) into maybe list of string
+## Ownership: Returns a newly allocated list of strings.
+## Edge cases: Returns maybe none on malformed or non-array input.
+weave parse_json_array with json as string into maybe list of string:
+    var items as list of string is list of string
+    var dl as int is json length
+    if dl == 0:
+        return maybe none
+    var p as int is 0
+    calling json_skip_ws with json , (sigil of p)
+    if p >= dl:
+        return maybe none
+    if ord (json at p) != 91:
+        return maybe none
+    set p is p + 1
+    var running as bool is true
+    while running:
+        calling json_skip_ws with json , (sigil of p)
+        if p >= dl:
+            return maybe none
+        var cc as int is ord (json at p)
+        if cc == 93:
+            set p is p + 1
+            return some items
+        var val as string is calling json_read_value with json , (sigil of p)
+        calling items.push with val
+        calling json_skip_ws with json , (sigil of p)
+        if p >= dl:
+            return maybe none
+        var sep as int is ord (json at p)
+        if sep == 44:
+            set p is p + 1
+        else if sep == 93:
+            set p is p + 1
+            return some items
+        else:
+            return maybe none
+    return maybe none
+
+## Serializes a list of strings into a compact JSON array.
+##
+## Signature: stringify_json_array(items as list of string) into maybe string
+## Ownership: Returns a newly allocated JSON array string.
+weave stringify_json_array with items as list of string into maybe string:
+    var out as string is "["
+    var i as int is 0
+    while i < items.len:
+        var val as string is items at i
+        if i > 0:
+            set out is "{out},"
+        if calling json_is_literal with val:
+            set out is "{out}{val}"
+        else:
+            set out is "{out}\"{(calling json_escape with val)}\""
+        set i is i + 1
+    return some ("{out}]")
+
+## Reads a file and parses its contents as a JSON array.
+##
+## Signature: read_json_array_file(path as string) into maybe list of string
+weave read_json_array_file with path as string into maybe list of string:
+    var content as maybe string is calling archivum.read_file with path
+    if content.is_present:
+        return calling parse_json_array with content.value
+    return maybe none
+
+# ----------------------------------------------------------------------------
+# Typed Getters & Map Accessors (0.15.0)
+# ----------------------------------------------------------------------------
+
+## Returns the value for `key` in `m` if present.
+weave json_get with m as map of string to string , key as string into maybe string:
+    if key in m:
+        return some (calling m.get with key)
+    return maybe none
+
+## Returns the value for `key` in `m`, or `default` when absent.
+weave json_get_or with m as map of string to string , key as string , default as string is "" into string:
+    if key in m:
+        return calling m.get with key
+    return default
+
+## Checks whether `key` is present in JSON map `m`.
+weave json_has with m as map of string to string , key as string into bool:
+    return key in m
+
+## Retrieves `key` from `m` and parses it as an integer via spark.parse_int.
+weave json_get_int with m as map of string to string , key as string into maybe int:
+    var val as maybe string is calling json_get with m , key
+    if val is present:
+        return calling spark.parse_int with val.value
+    return maybe none
+
+## Retrieves `key` from `m` and parses it as a float (supports integers, decimals, and scientific notation e/E).
+weave json_get_float with m as map of string to string , key as string into maybe float:
+    var val as maybe string is calling json_get with m , key
+    if val is present:
+        var s as string is val.value
+        var sl as int is s length
+        if sl == 0:
+            return maybe none
+        var idx as int is 0
+        var neg as bool is false
+        if (s at 0) == "-":
+            set neg is true
+            set idx is 1
+        else if (s at 0) == "+":
+            set idx is 1
+        if idx >= sl:
+            return maybe none
+        var whole as float is 0.0
+        var digits as int is 0
+        while idx < sl:
+            var c as string is s at idx
+            if c == "." or c == "e" or c == "E":
+                break
+            var code as int is ord c
+            if code < 48 or code > 57:
+                return maybe none
+            var d as int is code - 48
+            set whole is whole * 10.0 + (d to float)
+            set digits is digits + 1
+            set idx is idx + 1
+        if idx < sl and (s at idx) == ".":
+            set idx is idx + 1
+            var frac as float is 0.0
+            var div as float is 1.0
+            while idx < sl:
+                var c2 as string is s at idx
+                if c2 == "e" or c2 == "E":
+                    break
+                var code2 as int is ord c2
+                if code2 < 48 or code2 > 57:
+                    return maybe none
+                var d2 as int is code2 - 48
+                set frac is frac * 10.0 + (d2 to float)
+                set div is div * 10.0
+                set digits is digits + 1
+                set idx is idx + 1
+            set whole is whole + (frac / div)
+        if digits == 0:
+            return maybe none
+        if idx < sl and ((s at idx) == "e" or (s at idx) == "E"):
+            set idx is idx + 1
+            var exp_neg as bool is false
+            if idx < sl and (s at idx) == "-":
+                set exp_neg is true
+                set idx is idx + 1
+            else if idx < sl and (s at idx) == "+":
+                set idx is idx + 1
+            var exp_val as int is 0
+            var exp_digits as int is 0
+            while idx < sl:
+                var ce as string is s at idx
+                var code_e as int is ord ce
+                if code_e < 48 or code_e > 57:
+                    return maybe none
+                set exp_val is exp_val * 10 + (code_e - 48)
+                set exp_digits is exp_digits + 1
+                set idx is idx + 1
+            if exp_digits == 0:
+                return maybe none
+            var e_idx as int is 0
+            while e_idx < exp_val:
+                if exp_neg:
+                    set whole is whole / 10.0
+                else:
+                    set whole is whole * 10.0
+                set e_idx is e_idx + 1
+        if idx < sl:
+            return maybe none
+        if neg:
+            set whole is 0.0 - whole
+        return some whole
+    return maybe none
+
+## Retrieves `key` from `m` and parses it as a boolean ("true" or "false").
+weave json_get_bool with m as map of string to string , key as string into maybe bool:
+    var val as maybe string is calling json_get with m , key
+    if val is present:
+        var v as string is val.value
+        if v == "true":
+            return some true
+        if v == "false":
+            return some false
+    return maybe none
+
+## Retrieves the raw value at `key` as a string. Values are stored as JSON raw text:
+## strings come unquoted (via parse_json), but numbers/booleans/nested-objects come as their
+## JSON-literal text. Use json_kind_of to distinguish.
+weave json_get_string with m as map of string to string , key as string into maybe string:
+    return calling json_get with m , key
+
+# ----------------------------------------------------------------------------
+# JSON Navigation, Cloning & Merging (0.15.0)
+# ----------------------------------------------------------------------------
+
+## Creates an independent deep clone of JSON map `m`.
+weave json_deep_clone with m as map of string to string into map of string to string:
+    var res as map of string to string is map of string to string
+    var keys as list of string is calling pengu_map_keys_string with sigil of m
+    var i as int is 0
+    while i < keys.len:
+        var k as string is keys at i
+        var v as string is calling m.get with k
+        calling res.put with k , v
+        set i is i + 1
+    return res
+
+## Merges map `b` into `a` into a new map; keys from `b` overwrite keys from `a`.
+weave json_merge with a as map of string to string , b as map of string to string into map of string to string:
+    var res as map of string to string is calling json_deep_clone with a
+    var keys_b as list of string is calling pengu_map_keys_string with sigil of b
+    var i as int is 0
+    while i < keys_b.len:
+        var k as string is keys_b at i
+        var v as string is calling b.get with k
+        calling res.put with k , v
+        set i is i + 1
+    return res
+
+## Traverses a dot-delimited path (e.g. "user.profile.name") through nested JSON objects.
+##
+## NOTE: The input map 'm' is read-only and is never mutated.
+## Nested JSON values are re-parsed on traversal because JSON objects in
+## map of string to string are stored as raw text strings.
+weave json_path with m as map of string to string , path as string into maybe string:
+    var segs as list of string is calling path.split with "."
+    if segs.len == 0:
+        return maybe none
+    var cur_map as map of string to string is m
+    var i as int is 0
+    while i < segs.len:
+        var seg as string is segs at i
+        if i == segs.len - 1:
+            return calling json_get with cur_map , seg
+        var next_val as maybe string is calling json_get with cur_map , seg
+        if next_val is not present:
+            return maybe none
+        var parsed as maybe map of string to string is calling parse_json with next_val.value
+        if parsed is not present:
+            return maybe none
+        set cur_map is parsed.value
+        set i is i + 1
+    return maybe none
+
+## Traverses to `path` in `m` and parses the target nested object as a map of string to string.
+weave json_parse_at with m as map of string to string , path as string into maybe map of string to string:
+    var val as maybe string is calling json_path with m , path
+    if val is present:
+        return calling parse_json with val.value
+    return maybe none
+
+# ----------------------------------------------------------------------------
+# JSON Validation (0.15.0)
+# ----------------------------------------------------------------------------
+
+## Returns true if `json` represents a valid JSON object or JSON array.
+weave is_valid_json with json as string into bool:
+    var m as maybe map of string to string is calling parse_json with json
+    if m is present:
+        return true
+    var arr as maybe list of string is calling parse_json_array with json
+    if arr is present:
+        return true
+    return false
+
+## Returns true if `v` represents any valid JSON value (object, array, string, number, bool, null).
+weave is_valid_json_value with v as string into bool:
+    var res as maybe string is calling parse_value with v
+    return res is present
+
+# ----------------------------------------------------------------------------
+# File helpers (I/O via std.archivum) (0.14.x baseline)
+# ----------------------------------------------------------------------------
+
+## Reads the file at path and parses it as a JSON object; returns none on error.
 weave read_json_file with path as string into maybe map of string to string:
     var content as maybe string is calling archivum.read_file with path
     if content.is_present:
         return calling parse_json with content.value
     return maybe none
 
-# Serializes data as a compact JSON object and writes it to path; true when the
-# file was written.
+## Serializes data as a compact JSON object and writes it to path.
 weave write_json_file with path as string , data as map of string to string into bool:
     var json as maybe string is calling stringify_json with data
     if json.is_present:
@@ -474,8 +1229,7 @@ weave write_json_file with path as string , data as map of string to string into
         return calling archivum.write_file with path , text
     return false
 
-# Like write_json_file but writes pretty-printed JSON with indent spaces per
-# level (default 2).
+## Writes pretty-printed JSON with indent spaces per level to path.
 weave write_json_file_pretty with path as string , data as map of string to string , indent as int is 2 into bool:
     var json as maybe string is calling pretty_json with data , indent
     if json.is_present:

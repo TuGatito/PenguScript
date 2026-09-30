@@ -1,12 +1,11 @@
 # PenguScript Language Reference
 
-> **Version covered:** see `VERSION` (C99/C11 code generator; runtime headers
-> under `pengu_runtime.h`).
+> **Version covered:** PenguScript **0.14.x** (synchronized with `VERSION` and `pengu_version.py`; C99/C11 code generator; runtime headers under `pengu_runtime.h`).
 > This is the definitive syntax & semantics guide, written against the compiler
 > sources (`pengu_grammar.py`, `pengu_checker.py`, `pengu_codegen.py`,
 > `pengu_infer.py`, `pengu_runtime.h`). It complements the quick
-> [`CHEATSHEET.md`](CHEATSHEET.md) and explains every feature with PenguScript
-> examples and, where relevant, the generated C.
+> [`CHEATSHEET.md`](CHEATSHEET.md) and [`README.md`](README.md), explaining every
+> feature with PenguScript examples and generated C.
 
 ---
 
@@ -31,9 +30,13 @@
 17. [Unit tests (`test`)](#17-unit-tests-test)
 18. [Block-style construction (`with:` expressions)](#18-block-style-construction-with-expressions)
 19. [Standard library](#19-standard-library)
-    - 19.1 [Embedded Project Assets (`arca`)](#191-embedded-project-assets-arca)
+    - 19.1 [Pure PenguScript Modules](#191-pure-penguscript-modules-27-modules)
+    - 19.2 [C Native Binding Modules](#192-c-native-binding-modules-25-dpengu-modules)
+    - 19.3 [Core Standard Library Examples](#193-core-standard-library-examples)
+    - 19.4 [Embedded Project Assets (`arca`)](#194-embedded-project-assets-arca)
 20. [Tooling & project layout](#20-tooling--project-layout)
 21. [Complete example](#21-complete-example)
+22. [Appendix: Compiler Diagnostic Catalog (`E0000`–`E0050` & Warnings)](#22-appendix-compiler-diagnostic-catalog)
 
 ---
 
@@ -101,39 +104,55 @@ $ pengu lsp                      # launch the language server (pygls)
 | `*.d.pengu` | Declaration-only module (bindings). Implementation bodies are an error (`E0025`). Mirrors TypeScript `.d.ts`; no C is emitted for its types. |
 | `std/*` | Standard library modules (wrapper modules or `*.d.pengu` bindings). |
 
+> [!NOTE]
+> **BOM Stripping:** `PenguParser.parse` automatically detects and strips UTF-8 Byte Order Marks (`\xef\xbb\xbf`) from source inputs before tokenization, preventing unexpected syntax errors when files are edited on Windows tools.
+
 ### 3.2 Comments & docs
 
 ```pengu
 # line comment
 ## doc comment (used by `pengu doc` and hover/extraction)
 # banner --------------------------------------------
+## multi-line doc comment
+   describing complex APIs
+##
 ```
 
-Both `#` and `##` are collected as documentation when they appear directly
-above a declaration; `##` is the preferred docstring marker.
+- Single-line comments begin with `#` (`/#[^#\r\n]*$/m`).
+- Documentation comments begin with `##` (`## doc comment` or multi-line `##[\s\S]*?##`). Both `#` and `##` directly preceding declarations are harvested by `pengu doc` and the LSP server.
+- **Line Preservation:** The parser executes `_strip_comments` during lexical analysis, replacing comments with whitespace. This guarantees that source line and column numbers remain 100% exact across error reports, LSP spans, and generated C `#line` directives.
 
 ### 3.3 Identifiers & visibility
 
-Identifiers match `[A-Za-z_][A-Za-z0-9_]*`. Style: `snake_case` for values,
-`PascalCase` for type names.
+Identifiers match `[A-Za-z_][A-Za-z0-9_]*`. Style conventions follow `snake_case` for values, variables, and weaves, and `PascalCase` for user types (`rune`, `echo`, `omen`, `concept`).
 
-- A leading underscore (`_private`, `_secret_field`) makes the symbol
-  **private to its module or rune**: cross-module/rune access raises `E0043`.
-- `_` alone is the **discard binding** (`for _, v in col`), never a variable.
-- `main` is reserved: you cannot `var main`, `let main`, `static var main`, or
-  `const main` (`E0040`) — but you *define* the entry as `weave main …`.
+- **Module & Rune Privacy (`_` prefix):** Any top-level symbol (function, type, constant) starting with `_` is strictly private to its module. Any rune field starting with `_` (e.g. `_internal_ptr`) is strictly private to its rune definition. Accessing a private symbol from outside its module or rune raises `E0043: PrivateSymbolAccessError`.
+- **Compiler Internals (`_pengu_*`):** All compiler-generated symbols, temporaries, and runtime helpers use the `_pengu_` or `pengu_` prefix. Users should avoid declaring identifiers with this prefix to prevent symbol collisions.
+- **Discard Binding (`_`):** A standalone underscore `_` acts as a wildcard discard binding (`for _, v in col`). It discards the value without binding an identifier in the symbol table.
+- **Reserved Entry Point (`main`):** `main` is reserved as the entry point weave (`weave main …`). It cannot be declared as a local or global variable, constant, or static variable (`var main`, `let main`, `const main`, `static var main` all raise `E0040`).
 
 ### 3.4 Reserved words
 
-`import include link insignia const var let set static weave declare enchanting
+The following keywords are reserved by PenguScript:
+
+```text
+import include link insignia const var let set static weave declare enchanting
 rune echo omen alias seal concept bind shard where when test ritual inline if
 unless else while for in from to step judge calling with into as is many return
 break continue defer errdefer banish some ord chr bytes of essence of sigil of
-transmute size of try defined not and or lambda null true false maybe none error`
+transmute size of try defined not and or lambda null true false maybe none error
+derive cyclus donum
+```
 
-`frozen` and `borrowed` are **soft** keywords:
-- `frozen` only acts in type position (`frozen T`, `ref to frozen T`); identifiers named `frozen` keep working everywhere else. See [§9.5](#95-frozen--read-only-qualification).
-- `borrowed` only acts immediately following `var` or `let` (`var borrowed x is ...`, `let borrowed x is ...`); in any other context, the parser treats `borrowed` as a standard identifier `NAME` (fields, parameters, functions, etc.). See [§5.4](#54-the-borrowed-modifier) and [§13.4](#134-scope-owned-locals-auto-banish).
+**Soft Keywords:**
+- `frozen`: Active only in type expression positions (`frozen int`, `ref to frozen T`). Identifiers named `frozen` in variable, field, or function names are valid. See [§9.5](#95-frozen--read-only-qualification).
+- `borrowed`: Active only immediately after `var` or `let` (`var borrowed x is …`, `let borrowed x is …`). Everywhere else (struct fields, parameters, function names), `borrowed` is treated as a regular identifier. Note that `var borrowed is 5` is a syntax error because `borrowed` in that position is parsed as the modifier. See [§5.4](#54-the-borrowed-modifier) and [§13.4](#134-scope-owned-locals-auto-banish).
+
+**C Identifier Protection (`E0035`):**
+To guarantee that generated C compiles cleanly without name collisions against the C standard library or C runtime types, PenguScript reserves C standard library type names (`C_RESERVED_TYPE_NAMES`, e.g. `FILE`, `size_t`, `int8_t`, `uint32_t`, `bool`) and common C function names (`C_RESERVED_FN_NAMES`, e.g. `printf`, `malloc`, `free`, `exit`, `memcpy`). Declaring top-level functions or user types with these names raises `E0035`, unless:
+1. Declared inside a `.d.pengu` binding file;
+2. Prefixed with a leading underscore (`_`); or
+3. Prefixed using the module's `insignia` directive.
 
 ---
 
@@ -144,53 +163,70 @@ transmute size of try defined not and or lambda null true false maybe none error
 | Pengu | C (typical) | Size (bits) | Notes |
 |-------|-------------|-------------|-------|
 | `int` / `i32` | `int32_t` | 32 | default integer |
-| `i8`/`i16`/`i64` | `int8_t`/`int16_t`/`int64_t` | 8/16/64 | |
+| `i8`/`i16`/`i64` | `int8_t`/`int16_t`/`int64_t` | 8/16/64 | signed fixed-width integers |
 | `u8`/`byte` | `uint8_t` | 8 | `byte` aliases `u8` |
-| `u16`/`u32`/`u64` | `uint16_t`/… | 16/32/64 | |
-| `usize`/`isize` | `size_t`/`ssize_t`-ish | pointer width | used for C sizes |
-| `float`/`f64`/`double` | `double` | 64 | default float |
-| `f32` | `float` | 32 | |
-| `bool` | `bool` | 8 | `true`/`false` |
-| `char` | `char` | 8 | single C byte |
-| `string` | `PenguString` | runtime | see 4.2 |
-| `void` | `void` | – | no value |
+| `u16`/`u32`/`u64` | `uint16_t`/… | 16/32/64 | unsigned fixed-width integers |
+| `usize`/`isize` | `size_t`/`ssize_t`-ish | pointer width | platform word size (32 or 64 bits) |
+| `float`/`f64`/`double` | `double` | 64 | default 64-bit IEEE float |
+| `f32` | `float` | 32 | 32-bit IEEE float |
+| `bool` | `bool` | 8 | boolean (`true`/`false`) |
+| `char` | `char` | 8 | single ASCII / C byte |
+| `string` | `PenguString` | runtime | length-prefixed slice + null byte; see §4.2 |
+| `void` | `void` | – | empty type (no value) |
 
-Integer literal suffixes and `to` casts are available (`1.5 to int`, `x to
-string`). `size_t`, `int8_t`… spellings are accepted as type aliases.
+Integer literal suffixes and `to` casts are available (`1.5 to int`, `x to string`). Standard C typedef names (`size_t`, `int8_t`, `uint64_t`) are accepted as built-in aliases.
+
+> [!NOTE]
+> **Size Estimation (`estimate_size`):**
+> The compiler calculates byte size approximations using `estimate_size` (`pengu_types.py`). For `rune` structs, `estimate_size` directly sums the estimated sizes of its constituent fields without computing native C alignment padding. Exact memory layout and struct padding are handled natively by the downstream C compiler during code generation. This estimate is surfaced in LSP hover tooltips and used for container layout heuristics.
 
 ### 4.2 Runtime containers
 
-| Pengu | Runtime C type | Layout summary |
-|-------|----------------|----------------|
-| `string` | `PenguString` | `{ char *data; int len; }` |
-| `slice of T` | `PenguSlice` | `{ void *data; int len; size_t elem_size; }` |
-| `list of T` | `PenguList` | `{ void *data; int len; int cap; size_t elem_size; }` |
-| `map of K to V` | `PenguMap` | hash map with deep-copied entries |
-| `maybe T` | `PenguMaybe` | `{ bool is_present; void *value; }` |
-| `result of T to E` | `PenguResult` | `{ bool is_ok; void *ok_val; void *err_val; }` |
-| `range` (`a to b`, `a..b`) | `PenguRange` | `{ int64_t start; int64_t end; }` |
+PenguScript defines clean, C-compatible container structs in `pengu_runtime.h`:
 
-`PenguString` is a (length, pointer) pair; string literals used at runtime are
-heap-allocated owning buffers (`pengu_string_new`), while `pengu_string_from_cstr`
-returns a non-owning view.
+| Pengu | Runtime C type | Layout & Struct Definition |
+|-------|----------------|----------------------------|
+| `string` | `PenguString` | `typedef struct { char *data; int len; } PenguString;` |
+| `slice of T` | `PenguSlice` | `typedef struct { void *data; int len; size_t elem_size; } PenguSlice;` |
+| `list of T` | `PenguList` | `typedef struct { void *data; int len; int cap; size_t elem_size; } PenguList;` |
+| `map of K to V` | `PenguMap` | `typedef struct { PenguMapEntry *entries; int len; int cap; size_t key_size; size_t val_size; } PenguMap;` |
+| `maybe T` | `PenguMaybe` | `typedef struct { bool is_present; void *value; } PenguMaybe;` |
+| `result of T to E` | `PenguResult` | `typedef struct { bool is_ok; void *ok_val; void *err_val; } PenguResult;` |
+| `range` (`a to b`) | `PenguRange` | `typedef struct { int64_t start; int64_t end; } PenguRange;` |
+| Call Frame | `PenguFrame` | `typedef struct { const char *fn_name; const char *file; int line; } PenguFrame;` |
+
+#### Container Semantics & Memory Ownership:
+- **`PenguString`:** Represents an immutable string view. String literals in runtime expressions allocate heap memory via `pengu_string_new` (or reference `.rodata`), while `pengu_string_from_cstr` creates a non-owning borrowed view over a C string. Dynamic strings created via concatenation (`+`), format `{expr}`, or conversions are heap-allocated and automatically cleaned up by auto-banish (§13.4).
+- **`PenguSlice`:** Represents a non-owning window over contiguous elements. Created via slicing (`nums at 1 to 3`) or through `std.ffi.slice_from_ptr`. Never owns heap memory; do not `banish` a slice.
+- **`PenguList`:** Growable dynamic vector. Manages an internal heap array of size `cap * elem_size`, expanding with 2x amortized growth upon `push`/`append`.
+- **`PenguMap`:** Hash table using open addressing and linear probing. Entries are stored in `PenguMapEntry { void *key; void *val; bool occupied; }`. Keys and values are deep-copied into entry cells. Iteration order is **hash order**, not insertion order.
+- **`PenguMaybe`:** Value container for optional values. If `is_present` is `true`, `value` points to a heap copy allocated via `pengu_sigil_alloc(sizeof(T))`. If `is_present` is `false`, `value` is `NULL`.
+- **`PenguResult`:** Represents either a success (`is_ok = true`, payload at `ok_val`) or failure (`is_ok = false`, payload at `err_val`).
+- **`PenguFrame`:** Circular ring buffer of 64 frames. Tracks active function calls (`pengu_frame_push` / `pengu_frame_pop`) to emit human-readable source backtraces on fatal crashes.
 
 ### 4.3 Composite & user types
 
 - `rune Name:` — C `struct` (records), see [§9.1](#91-rune-structs).
 - `echo Name:` — C `union` (tagged union *without* runtime tag), [§9.2](#92-echo-unions).
-- `omen Name:` — C `enum` or tagged `struct` (algebraic data type), [§9.3](#93-omen-enums--algebraic-data-types).
-- `seal Name as T` — distinct newtype requiring explicit casts, [§9.4](#94-seal--alias--opaque).
-- `alias Name as T` — transparent type alias, [§9.4](#94-seal--alias--opaque).
-- `opaque` — C opaque handle (`void*`-ish; usable via `ref to`), [§9.4](#94-seal--alias--opaque).
-- `ref to T`, `array of T with size N`, `array of array of T with size M with size N`
-  (C `T[M][N]`, outer dimension first — see §15.3), `list of T`, `slice of T`,
-  `map of K to V`, `maybe T`, `result of T to E`, `fn`/weave-pointer types.
-- `frozen T` — read-only qualification (C `const T`) usable on any of the
-  above as a **type modifier**, [§9.5](#95-frozen--read-only-qualification).
+- `omen Name:` — C `enum` (simple/string-valued) or tagged `struct` (algebraic sum type), [§9.3](#93-omen-enums--algebraic-data-types).
+- `seal Name as T` — strong nominal newtype requiring explicit casts, [§9.4](#94-seal--alias--opaque).
+- `alias Name as T` — transparent structural type alias, [§9.4](#94-seal--alias--opaque).
+- `opaque` — C opaque pointer handle (`void*`-ish; usable via `ref to`), [§9.4](#94-seal--alias--opaque).
+- `ref to T`, `array of T with size N`, `array of array of T with size M with size N` (C `T[M][N]`), `list of T`, `slice of T`, `map of K to V`, `maybe T`, `result of T to E`, `fn`/weave-pointer types.
+- `frozen T` — read-only qualification (C `const T`) usable on any type as a **type modifier**, [§9.5](#95-frozen--read-only-qualification).
 
-> [!NOTE]
-> Sizes shown by the LSP hover come from the compiler's `estimate_size`;
-> struct sizes include padding the way C lays the structs out.
+#### Type Compatibility & Conversion Rules:
+
+| Type Family | Target Type | Assignable? | Semantic Rule |
+|-------------|-------------|-------------|---------------|
+| `AliasType` | Any `U` | Transparent | `alias A as B` inherits all compatibility rules of `B`. |
+| `SealType` | Base `T` | ❌ Requires `to` | Strictly nominal. A `seal S as int` cannot be implicitly passed to `int` without `(val to int)`. |
+| `FrozenType` | `T` (mutable) | ❌ Directional | `mutable -> frozen` is valid; `frozen -> mutable` is rejected by `_drops_frozen()`. |
+| `RefType` | `ref to void` | ✅ Wildcard | Pointer to any object type implicitly casts to `ref to void` or `ref to frozen void`. |
+| `RefType` | `ref to T` | Strict pointee | Pointee types must match exactly (`_same_pointee`), with the single exception of `char` ↔ `byte`. |
+| `ArrayType` | `ref to T` | ✅ Decay | Fixed array decays to pointer to its first element. |
+| `FnType` | `ref to weave` | ✅ Decay | Function declarations decay seamlessly to function pointer references. |
+| `CVarArgsType` | Variadic | Special | Only allowed in `declare ...` signatures; extra call arguments pass through verbatim without conversion. |
 
 ---
 
@@ -198,24 +234,100 @@ returns a non-owning view.
 
 ### 5.1 Declarations
 
-```pengu
-const ANSWER as int is 42                 # top-level compile-time constant
-static var cache as int is 0              # function-static state (kept across calls)
-var count as int is 0                     # mutable local (only inside functions)
-let name as string is "Ada"               # immutable local binding
-let a, b is pair_value                    # destructuring a rune into its fields
-```
-
-- `const` is top-level only (`E0001` inside functions). Values are folded and
-  emitted as C constants.
-- `var`/`let` are forbidden at top level (`E0002`) to keep global state
-  read-only (V-safety).
-- `set` reassigns a mutable variable/field (`E0006` if immutable).
+PenguScript supports eight declaration layouts for variables, constants, and destructured bindings:
 
 ```pengu
-var x as int is 1
-set x is x + 1
+# 1. Explicitly typed variable / binding with initializer
+var count as int is 0
+let name as string is "Ada"
+
+# 2. Inferred variable / binding
+var total is 100                          # inferred as int
+let greeting is "Hello"                   # inferred as string
+
+# 3. Zero-initialized variable with explicit type constructor
+var buffer as array of byte with size 64 is array of byte with size 64
+
+# 4. Destructuring binding (inferred container type)
+let (x, y) is point_value
+
+# 5. Destructuring with element-wise type annotations
+var (id, label) as (int, string) is user_record
+
+# 6. Destructuring with composite type annotation
+let (r, g, b, a) as Color is current_color
+
+# 7. Top-level compile-time constant
+const MAX_USERS as int is 1024
+const PI is 3.14159                       # type inferred as float
+
+# 8. Function-static variable (preserved across invocations)
+static var call_count as int is 0
 ```
+
+- **Top-Level Constants (`const`):** Must be declared at top-level scope (`E0001` if placed inside a function). Evaluated and constant-folded at compile time.
+  - **C Codegen per Type:**
+    - `RangeConst` (`a to b`): Emits `static const PenguRange c_name = { .start = a, .end = b };`.
+    - `ref to char` (C-string literal): Emits `#define c_name "..."`.
+    - `string`: Emits `#define c_name pengu_string_from_cstr("...")`.
+    - `bool`: Emits `#define c_name true` or `false`.
+    - Numeric scalars: Emits `#define c_name <folded_val>`.
+    - Fixed arrays (`array of T with size N`): Emits `static const T c_name[N] = { ... };` (and nested dimensions `[M][N]` for multi-dimensional arrays).
+    - Other statically initializable types: Emits `static const T c_name = <expr>;`.
+  - **Validation & Prohibitions (`_check_const_decl`):**
+    - **Reserved Identifier `main` (`E0040`):** Cannot be named `main` (reserved for entrypoint and comptime `when`).
+    - **C Identifier Conflicts (`E0035`):** Cannot shadow C reserved words or standard type names (`C_RESERVED_TYPE_NAMES`, `C_RESERVED_WORDS`).
+    - **No Heap Collections (`E0005`):** `list of T` and `map of K to V` are rejected as constants because they require dynamic heap allocation. Use fixed arrays (`array of T`) instead.
+    - **Statically Initializable Arrays (`E0005`):** Constant array elements must be statically initializable (numeric, bool, char, `ref to char`, or static runes/omens).
+    - **Known Dimensions (`E0015`):** Array constants cannot have unknown or omitted dimensions (`UnknownArrayDimensionError`).
+    - **Compile-Time Expressions (`E0005`):** Initializers must be strictly compile-time constant expressions.
+    - **Explicit Null Typing (`E0014`):** Initializing a constant with `null` requires an explicit type annotation (e.g. `const PTR as ref to int is null`; untyped `const PTR is null` raises `E0014`).
+- **Local Scoping (`var`/`let`):** Forbidden at top-level scope (`E0002`) to guarantee safety against shared mutable global state. `var` bindings are mutable; `let` bindings are immutable.
+- **Static Function Locals (`static var`):** Declared inside a weave to maintain persistent function-local state across repeated invocations (§14.5). Emitted as C `static` variables with one-time initialization guards.
+
+#### Destructuring Rules & Targets (`E0017`):
+
+Destructuring unpacks composite structures into multiple independent local bindings in a single statement.
+- **`rune` Structs:** Unpacks fields in the exact order declared in the `rune` definition.
+- **Fixed Arrays (`array of T with size N`):** Binds elements from index `0` up to `N - 1`.
+- **Slices (`slice of T`):** Binds elements through data pointer indexing `data[i]`.
+- **Lists (`list of T`):** Binds elements sequentially via `pengu_list_at(&lst, i)`.
+
+> [!WARNING]
+> Destructuring is supported exclusively on runes, fixed arrays, slices, and lists. Attempting to destructure any other type (scalars, pointers, maps) or providing a binding count that mismatches the structure raises `E0017: DestructuringTypeError`.
+
+#### Assignment & `set` Targets
+
+`set` reassigns a mutable target. The left-hand side of `set` can be:
+1. A plain variable name: `set x is 42`
+2. A rune field: `set player.hp is 100`
+3. A pointer arrow field: `set self->hp is 80`
+4. A builder dot field: `set .x is 10` (inside `with:` builders)
+5. An indexed container: `set items at (i + 1) is new_item`
+6. A dereferenced pointer: `set essence of ptr is 99`
+
+Attempting to assign to an immutable `let` binding, a `const`, or a `frozen` value/pointee raises `E0006: MutabilityError`.
+
+##### Bounds are enforced on `set`
+
+When the target's type is a **bare type parameter**, the assigned value must
+satisfy every bound declared for that parameter (the same rule the call site
+applies to arguments):
+
+```pengu
+weave store shard T where T: Num with x as ref to T into void:
+    set essence of x is "hello"     # E0005: 'string' does not satisfy 'Num'
+    set essence of x is 42          # OK: 'int' implements 'Num'
+
+weave loose shard T with x as ref to T into void:
+    set essence of x is "anything"  # OK: an unbounded T is a wildcard
+```
+
+The check applies equally to element targets (`set xs at 0 is v` with
+`xs as ref to list of T`) and accepts `any`, `null` and another type parameter
+(those are resolved later). This closes the asymmetry where
+`TypeParam.is_compatible(concrete)` honoured the bounds but
+`concrete.is_compatible(TypeParam)` accepted anything.
 
 #### Compound assignment
 
@@ -228,32 +340,25 @@ set acc *= factor
 set acc /= n
 set mask <<= 2
 set flags |= 0x08
-set text += " suffix"      # string concatenation
+set text is "{text} suffix"  # strings use interpolation, never '+='
+set essence of ptr += 5      # dereference assignment
 ```
 
 | Operator | Allowed types | Notes |
 |---|---|---|
-| `+=` | numeric, `string` | on `string` it concatenates (`pengu_string_concat`) |
+| `+=` | numeric | `E0005` on `string`: compose with `"{expr}"` interpolation |
 | `-=` `*=` `/=` `%=` | numeric | `%` is integer-only, as in `%` |
 | `&=` `\|=` `^=` `<<=` `>>=` | integers | bitwise/shift; `E0005` on non-integers |
 
-The left-hand side follows the normal `set` rules: it must be mutable (`E0006`
-otherwise) and may be a plain variable, a field, or a `.field` inside a `with`
-scope. Type errors are `E0005` (e.g. `set s += 1` where `s` is a `string`, or
-`set b &= true` where `b` is a `bool` — use `and`/`or` for booleans).
+The left-hand side follows normal `set` rules: it must be mutable (`E0006` otherwise). Type errors are reported as `E0005`.
 
 ### 5.2 Scope
 
-Scopes are delimited by indentation: weave bodies, `if`/`while`/`for`
-branches, `with` blocks, `or:` blocks, etc. Lookup is lexical; a name declared
-in an inner scope shadows outer ones. `banish`/`defer`/`errdefer` are only
-allowed inside function bodies (`E0008`).
+Scopes are delimited by indentation: weave bodies, `if`/`while`/`for` branches, `with:` blocks, `or:` blocks, and `do:` expressions. Lookup is lexical; a name declared in an inner scope shadows outer identifiers. `banish`, `defer`, and `errdefer` are only permitted inside function bodies (`E0008`).
 
 ### 5.3 Visibility recap
 
-Public by default; `_`-prefixed symbols are module/rune private. There is no
-`pub` keyword (removed in 0.9.1): the leading underscore is the single
-mechanism.
+Symbols are public across modules by default. Any top-level symbol or rune field starting with a leading underscore (`_`) is strictly private (`E0043`). There is no `pub` keyword; leading underscores provide the sole encapsulation mechanism.
 
 ### 5.4 The `borrowed` modifier
 
@@ -277,56 +382,33 @@ let borrowed tagged as TaggedRef is node_ref
 
 ### 6.1 Precedence (loosest → tightest)
 
-1. `or else`, `or return`, `or:` blocks, then `try`
+1. `or else`, `or return`, `or:` blocks, `try`
 2. `or` (boolean, short-circuit)
 3. `and` (boolean, short-circuit)
 4. `judge … when … -> … else -> …`, `if … then … else …` (expressions), `when … then … else …`
-5. comparisons `== != <= >= < >`, word tests `is present`, `is not present`,
-   `is true`, `is false`
-6. `|` `&` `^` bitwise
+5. comparisons `== != <= >= < >`, word tests `is present`, `is not present`, `is true`, `is false`, membership `in`, `not in`
+6. `|` `&` `^` bitwise operators
 7. shifts `<< >>`
 8. additive `+ -`
 9. multiplicative `* / %`
-10. unary `~ not -`, `sigil of`, `essence of`, `transmute … to`, `size of`,
-    `banish`, `some`, `ord`, `chr`, `bytes of`
+10. unary `~ not -`, `sigil of`, `essence of`, `transmute … to`, `size of`, `banish`, `some`, `ord`, `chr`, `bytes of`
 11. postfix `at`, slicing `at a to b`, `length`, `.field`, `->field`, cast `to`
-12. atoms: literals, `calling`, `with` init/struct-init, containers, `defined(…)`,
-    `lambda … into …`
+12. atoms: literals, `calling`, `with` init/struct-init, containers, `defined(…)`, `lambda … into …`
 
-Everything left-associative. `or` binds looser than `and`, so
-`a or b and c` is `a or (b and c)`. `and`/`or` are **boolean** operators
-(short-circuit); `&`/`|` remain **integer bitwise** operators.
+Everything is left-associative. `or` binds looser than `and`, so `a or b and c` evaluates as `a or (b and c)`. `and`/`or` are **boolean** operators (short-circuiting to `&&`/`||` in C); `&`/`|`/`^` are **integer bitwise** operators.
 
-> **`at` is postfix and takes a single atom as its index.** Since level 11 binds
-> tighter than additive `+ -` (level 8), the index is one operand and a *computed*
-> index needs parentheses:
->
+> [!NOTE]
+> **`at` Postfix Precedence:** Because `at` binds tighter than additive arithmetic (`+` / `-`), indexing expressions involving computed offsets require parentheses:
 > ```pengu
-> xs at i + 1          # (xs at i) + 1 — arithmetic on the element
-> xs at (i + 1)        # the element at index i + 1
-> set xs at (n - 1) is 77      # assignment targets too
+> xs at i + 1          # Parsed as (xs at i) + 1 — arithmetic on the retrieved element
+> xs at (i + 1)        # The element at computed index i + 1
+> set xs at (n - 1) is 77   # Assignment target
 > ```
->
-> `set xs at n - 1 is 77` is a syntax error (`E0000`) whose message says so
-> explicitly. The same rule applies to slices (`arr at a to b`), `length`,
-> `.field`/`->field` and casts.
+> Omitting parentheses (`xs at i + 1` when index calculation was intended) is rejected as a syntax error (`E0000`).
 
-> **BREAKING CHANGE (0.10.0):** `and` is no longer a list separator next to
-> expressions. Use `,` in call arguments, `weave`/`declare` parameters,
-> struct-init literals, array/map literals and indented literals
-> (`calling f with 1, 2`, `weave g with x as int, y as int`,
-> `with x is 1, y is 2`). Writing the old separator is a parse error
-> (`E0000`) that points at the offending `and`. `and` still separates the
-> lists that can never hold an expression — `shard T and U`, concept bounds
-> (`where T: A and T: B`), omen payloads, generic arguments
-> (`Box of int and string`) and function-**type** parameters
-> (`weave with x as int and y as int into int`) — although `,` works there
-> too. In `map of K to V` the separator is `to`.
->
-> **Migration Note:** The standard library (`std/`) and the repository test
-> suite are fully migrated to comma separation in this release.
-> In addition, `lambda` is now a reserved keyword; `std/lot.pengu` renamed its
-> `lambda` parameter to `rate`.
+> [!IMPORTANT]
+> **Comma Separation & Ambiguity Rules (`E0005`):**
+> List items in function calls, parameters, array literals, and struct literals must be separated by commas (`,`). When `and` appears directly after an argument or struct field (`calling find with 1 and true`), the compiler rejects it with `E0005: Ambiguous 'and' after ...` to avoid confusion with legacy syntax. Parenthesize boolean expressions explicitly: `calling find with (1 and true)`.
 
 ### 6.2 Arithmetic & bitwise
 
@@ -338,48 +420,8 @@ let neg as bool is not ready
 let flip as int is ~mask
 ```
 
-String `+` concatenates (emits `pengu_string_concat`); comparing strings with
-`==`/`!=` uses content equality (`pengu_string_equal`).
-
-#### Logical operators (`and` / `or`)
-
-```pengu
-if a > 0 and b > 0:
-    calling print with "both positive\n"
-
-if ready or (retry < 3):
-    calling print with "go\n"
-
-let ok as bool is not (paused or full) and retries < 3
-```
-
-- `and` / `or` are **boolean-only** and **short-circuit**: `or` evaluates its
-  right side only when the left is `false`, `and` only when the left is `true`.
-  Both emit `&&` / `||` in C.
-- Operands must be `bool`; anything else is `E0005` (with a hint to use `&`/`|`
-  for bitwise work).
-- `not` is the boolean negation (`!`); `~` is bitwise.
-- Precedence: `or` < `and` < comparison, so `x > 0 and y > 0 or z` is
-  `((x > 0 and y > 0) or z)`.
-- `&`/`|`/`^` stay **integer** bitwise operators (`&`/`|` on `bool` is `E0005`).
-- Because `and` is now an operator, it is no longer accepted as a separator
-  where an operand could be an expression — see the migration note in §6.1.
-- A bare `and`/`or` is **not** an element of a comma-separated list. Array, map
-  and indented literals (`[1 and 2]`, `{"k": a and b}`) and parameter defaults
-  fail to parse (`E0000`), and a bare `and`/`or` glued to a call with arguments
-  (`calling find with 1 and true`) or a struct literal (`with flag is a and b`)
-  is `E0005` *Ambiguous 'and' after …* — those are exactly the shapes where the
-  old separator was written, and the boolean reading stays valid whenever both
-  operands are `bool`. Parenthesise the boolean value instead:
-
-  ```pengu
-  var xs as array of bool with size 1 is [(a and b)]
-  var v as Vec is with flag is (a and b)
-  var ok as bool is (calling find with 1) and true
-  ```
-
-  Everywhere a single value is expected the operators work unparenthesised
-  (`if a and b:`, `var ok as bool is a and b`, `return a or b`).
+- **Strings (`+` is a compile error, `==` is fine):** `+` is **numeric-only**. String composition has exactly one spelling: `"{expr}"` interpolation inside a string literal (§15.2). `"a" + b` raises `E0005`; there is no implicit `to string` promotion and no hidden temporary. Equality `a == b` emits `pengu_string_equal(a, b)` (passed by value, non-allocating content equality).
+- **Logical Short-Circuit (`and` / `or`):** Operands must be `bool` (`E0005` otherwise). `or` evaluates its right operand only if the left is `false`; `and` evaluates its right operand only if the left is `true`.
 
 ### 6.3 Comparison, membership & word tests
 
@@ -387,68 +429,78 @@ let ok as bool is not (paused or full) and retries < 3
 if x > 0: ...
 if m is present: ...          # m must be 'maybe T'; anything else is E0005
 unless m is present: ...
-if b is true: ...
-if ch in "aeiou": ...
-if key in my_map: ...
+if b is true: ...             # b must be 'bool'
+if ch in "aeiou": ...         # uses strchr for char, strstr for string
+if key in my_map: ...         # uses pengu_map_get
+if p == null: ...             # valid for any pointer/opaque type
 ```
 
-`in` / `not in` work on ranges, strings, slices, arrays, lists and maps.
-`a in b to c` checks membership in a half-open range.
-
-Strings compare by equality (`==`, `!=`). Ordering comparisons (`<`, `<=`, `>`, `>=`) are **not supported** for strings (`E0005: TypeMismatchError`). PenguString is lowered to a struct in C, where ordering operators are undefined. For lexicographical sorting or comparison, convert characters or use a library comparison routine.
-
-`is present` / `is not present` inspect the flag of a `maybe T` value and
-return `bool`; applying them to any other type is `E0005`. The same holds for
-`is true` / `is false` on `bool`.
-
-A word test applies to the expression on its **left**, and the argument list of
-`calling` is greedy, so a bare test in an argument list is rejected as
-ambiguous (`E0005`). Spell out which reading you mean:
-
-```pengu
-calling print_bool with (m is present)        # pass the test as the argument
-if (calling find_user with 1) is present:     # test the call's result
-if calling ready is true:                     # no arguments: unambiguous
-```
+- **Membership (`in` / `not in`):**
+  - **Strings:** If searching for a `char`, emits `strchr`. If searching for a `string`, emits `strstr`.
+  - **Maps:** Emits `pengu_map_get(&map, key)` to test key membership.
+  - **Ranges:** Checks half-open range `a <= x and x < b`.
+- **String Comparisons:** Equality (`==`, `!=`) is supported via `pengu_string_equal`. Relational ordering (`<`, `<=`, `>`, `>=`) on `string` is **not supported** (`E0005`) because `PenguString` is a struct; use character comparisons or `std.scrolls.compare`.
+- **Word Tests (`is present`, `is true`):**
+  - `is present` and `is not present` are valid **only on `maybe T`**. Applying them to `result of T to E` is `E0005` (use `.is_ok` on results).
+  - `is true` and `is false` require a `bool` operand (`E0005` otherwise).
+  - In call argument positions, test keywords must be parenthesized (`calling print_bool with (m is present)`), because `_reject_test_argument` forbids unparenthesized tests to prevent syntactic ambiguity.
+- **`null` Comparisons:** Comparing `p == null` or `p != null` is valid for all pointer types (`ref to T`, `ref to void`, `opaque`). Comparing `null` against non-pointer types (such as `int == null`) raises `E0005`.
 
 ### 6.4 Address, dereference & size
 
 ```pengu
 var p as ref to int is sigil of x     # &x
 var v as int is essence of p          # *p
-let n as usize is size of MyRune      # sizeof
+set essence of p is 42                # *p = 42 (LHS of assignment)
+let n as usize is size of MyRune      # sizeof(MyRune)
+let raw_ptr as ref to void is transmute p to ref to void   # unsafe bit-cast
 ```
 
-- `sigil of expr` requires an addressable value.
-- `essence of ref` dereferences.
-- `transmute x to T` is an unsafe bit reinterpretation (warning `W0001`); use
-  `to` for safe casts.
-- `to` casts: `(int64)`, `(float)`, `(string)` conversions, etc.
-  `10 to float` is a cast; `1 to 10` is a range (context decides).
+- **`sigil of expr` (`&`):** Takes the address of an lvalue. Cannot be applied to literals, expressions, `const`, or `frozen` variables (`E0008: InvalidMemoryOpError`).
+- **`essence of expr` (`*`):** Dereferences a pointer. The operand must be a `ref to T` or `Any`. It can be used both as an rvalue and as the left-hand side target of a `set` assignment (`set essence of ptr is val`).
+- **`size of TYPE`:** Evaluates the compile-time byte size of any type (`sizeof(T)` in C) and returns `usize`.
+- **`transmute expr to TYPE`:** Unsafe bit-level reinterpretation cast. Always triggers compiler warning `[W0001] transmute is unsafe`. If the source and destination types have different estimated sizes, `W0001` includes a size mismatch notification. Safe conversions must use `(expr to TYPE)`.
 
 ### 6.5 Character & byte primitives
 
 ```pengu
-let code as int is ord "A"      # 65
-let ch as string is chr 66      # "B"  (single character)
-let raw as ref to byte is bytes of text
+let code as int is ord "A"            # 65
+let empty_code as int is ord ""       # 0
+let ch as string is chr 66            # "B" (single-character string)
+let raw_str as ref to frozen byte is bytes of my_string   # read-only view
+let raw_arr as ref to byte is bytes of byte_array         # writable view
 ```
 
-- `ord` requires exactly one byte/character (`E0005` otherwise).
-- `chr` requires a byte value in range.
-- `bytes of` yields a read-only byte view of a `string`, `array of byte`, or
-  `ref to byte` buffer; used heavily in C interop (see §14).
+- **`ord expr`:** Converts a single character string or char literal to its ASCII integer value. Multi-character literals raise `E0005`. Empty string `ord ""` evaluates to `0`.
+- **`chr expr`:** Converts an integer byte code (0–255) into a single-character `PenguString`.
+- **`bytes of expr`:** Borrows a byte pointer:
+  - If applied to `string`: returns `ref to frozen byte` (read-only view into the string's character buffer).
+  - If applied to `array of byte with size N`: returns `ref to byte` (writable pointer).
+  - Applying `bytes of` to other types raises `E0005`.
 
-### 6.6 `maybe` constructors & error literal
+### 6.6 `maybe` constructors & `null` context
 
 ```pengu
-var m as maybe int is some 42
-var n as maybe int is maybe none
-# inside an or: block the current failure is bound to `error`
-let v is calling may_fail with x or:
-    let e is error
-    ...
+var m as maybe int is some 42         # boxes 42 into a PenguMaybe heap cell
+var n as maybe int is maybe none      # empty optional
+var p as ref to int is null           # null pointer
 ```
+
+- **`some expr` Boxing:** Evaluates `expr` and copies it into a heap-allocated cell via `pengu_sigil_alloc(sizeof(T))`:
+  ```c
+  /* Generated C for: some 42 */
+  int32_t _some_1 = 42;
+  PenguMaybe _maybe_2;
+  _maybe_2.is_present = true;
+  _maybe_2.value = pengu_sigil_alloc(sizeof(_some_1));
+  if (!_maybe_2.value) _maybe_2.is_present = false;
+  else memcpy(_maybe_2.value, &(_some_1), sizeof(_some_1));
+  ```
+- **`maybe none` Lowering:** `maybe none` lowers to the runtime call `pengu_maybe_none()`, returning an empty `PenguMaybe` with `.is_present = false` and `.value = NULL`.
+- **Context Requirement for `maybe none` & `null` (`E0014`):**
+  Neither `maybe none` nor `null` carry an inherent type. They require an expected type context (such as an explicit variable type annotation `var m as maybe int is maybe none` or `var p as ref to int is null`). Initializing an unannotated variable with `maybe none` or `null` raises `E0014: TypeMismatchError`.
+- **`error` Variable in `or:`:** Inside an `or:` block, failure details are bound to the scoped variable `error` (type `string` for `maybe T`, or error type `E` for `result of T to E`). Accessing `error` outside an `or:` block is an error (`E0015`).
+- **`null` and generic parameters (known limitation):** `null` is accepted where a *bare* type parameter is expected, whatever its bounds, because a `T` without bounds can be instantiated with a pointer. Tightening this (`T: Num` rejecting `null`) is deliberately left permissive for backwards compatibility; casts are checked normally.
 
 ---
 
@@ -468,17 +520,11 @@ unless muted:
 let label as string is if x > 10 then "big" else "small"
 ```
 
-`unless cond:` is `if !cond:`. Conditions must be `bool` (`E0005` otherwise).
-Branches with compile-time constant conditions are folded and the unreachable
-branch is eliminated (warning `W0004` for unreachable code).
-
-An `if` or `unless` whose branches are indented blocks can also be used as a
-**value** when it sits in a value position — see [§7.6](#76-block-expressions-do-value-position-if--unless-and-loops).
+`unless cond:` is equivalent to `if not cond:`. Conditions must evaluate to `bool` (`E0005` otherwise). Branches with compile-time constant conditions are folded and the unreachable branch is eliminated (warning `[W0004]` for unreachable code).
 
 #### `if` bindings: `if v as T is <maybe>:`
 
-An `if` condition may bind the value held by a `maybe` and run the branch only
-when it is present:
+An `if` condition may safely bind the value held by a `maybe T` without an explicit unwrap:
 
 ```pengu
 weave describe with user as maybe User into string:
@@ -488,21 +534,14 @@ weave describe with user as maybe User into string:
         return "anonymous"
 ```
 
-- The operand must be `maybe T` — anything else is `E0005` (`Binding 'u'
-  requires a maybe value, got 'int'`).
-- `T` must match the element type of the maybe (`E0005` otherwise).
-- A redundant trailing `is present` is accepted and means the same thing
-  (`if u as User is user is present:`); `is not present` combined with a binding
-  is rejected, because a binding already implies presence.
-- It works in value position too: `let label is if u as User is user: u.name
-  else: "anonymous"`.
+- The operand must be `maybe T` (`E0005` otherwise).
+- `T` must match the element type of the maybe container.
+- It also works in value position: `let label is if u as User is user: u.name else: "anonymous"`.
+- Lowered to a scoped C block that tests `pengu_maybe_is_present(&tmp)` once and extracts the value; the bound identifier does not leak into the `else` branch or outer scope.
 
-The binding lowers to a scoped C block that evaluates the maybe **once**, tests
-its presence flag and copies the value out of the heap cell — the bound name
-does not leak into the `else` branch or past the `if`.
+#### Single-line statements (`simple_stmt`)
 
-A branch may also hold a **single statement on the same line**; it is sugar for
-an indented one-statement block and behaves identically (same C, same checks):
+A control flow block or branch may contain a single statement on the same line following the colon (`:`):
 
 ```pengu
 if x == 1: return 1
@@ -510,6 +549,8 @@ unless x == 0: calling print with "non-zero"
 while i < n: set i is i + 1
 for j from 0 to 3: calling tick with j
 ```
+
+The allowed statement forms on the same line as a colon (`simple_stmt`) are: `continue`, `break`, `return [expr]`, `set target is expr`, `set target OP expr`, and any general expression (such as `calling fn(...)`). Declarations, blocks, `defer`, `errdefer`, and `banish` cannot be written on the same line as a colon.
 
 ### 7.2 `while`
 
@@ -523,26 +564,43 @@ while i < 10:
 ### 7.3 `for`
 
 ```pengu
-for i from 0 to 10:            # integer range, end-exclusive
+for i from 0 to 10:            # integer range [0, 10), end-exclusive
     calling print with (i to string)
 
 for item in items:             # array / list / slice / string / map iteration
     calling handle with item
 
-for i, item in indexed:        # indexed form (i is the C loop counter)
+for i, item in indexed:        # indexed form (i is iteration counter)
 for _, v in values:            # discard index
 for j from 5 to 0 step -1:     # negative step
 ```
 
-String iteration yields each character as a single-character `PenguString`
-(via `pengu_string_char_at`).
+- **Loop Bindings Validation (`E0037`):** In the indexed form `for i, v in col`, the index identifier `i` and element identifier `v` must be distinct. Using the same identifier name for both raises `E0037`. The wildcard `_` can be used to discard either binding.
+- **String Iteration:** Iterating over a string (`for ch in "abc":`) yields each character as a single-character `PenguString` via `pengu_string_char_at`.
+- **Map Iteration:** Iterating over a map (`for k in my_map` or `for i, k in my_map`) iterates over keys. The codegen scans the internal hash table array (`entries[slot]`), checking `entries[slot].occupied`. **Iteration order is hash order**, not insertion order. In the indexed form, `i` increments only when an occupied slot is visited.
 
-Comprehension:
+#### Comprehensions (`for_comp`)
+
+List comprehensions produce a new `list of T` by evaluating an expression across an iterable:
 
 ```pengu
 let squares is for x in nums then x * x
 let evens  is for x in nums when x % 2 == 0 then x
 ```
+
+- **Syntax:** `for item in col [when condition] then expr`. Inline comprehensions bind a single element variable `item` (the indexed `i, item` form is not supported in inline comprehensions; use a value-position `for` loop block for indexed collection). Supported collection types include fixed arrays (`array of T`), slices (`slice of T`), dynamic lists (`list of T`), ranges (`a to b`), and maps (`map of K to V`, which iterates over active keys in hash order).
+- **Codegen Lowering:** Evaluates into a GNU statement-expression allocating a `PenguList`:
+  ```c
+  (__extension__({
+    PenguList _comp_list = pengu_list_new(sizeof(T));
+    /* loop over col */
+    if (condition) {
+      T _val = expr;
+      pengu_list_push(&_comp_list, &_val);
+    }
+    _comp_list;
+  }))
+  ```
 
 ### 7.4 `judge` — pattern matching
 
@@ -554,123 +612,66 @@ let state_desc is judge state:
     else -> "unknown"
 ```
 
-- Works on `omen`s (variants), integers and strings.
-- On an `omen`/`bool` subject without an `else ->` the checker enforces
-  **exhaustiveness** (`E0044`).
-- Compiles to a C `switch` over integer enums/constants when all patterns are compile-time constants, or falls back to a ternary chain for non-integer or variable patterns.
+- **Supported Subjects:** `omen` variants, `bool`, `int`, `string`, and `char`.
+- **Pattern Forms:**
+  - Bare variant name: `when Ready ->`
+  - Dotted variant name: `when Phase.Ready ->`
+  - Full C name: `when Phase_Ready ->`
+  - Literals: `when 42 ->`, `when "admin" ->`, `when 'X' ->`
+  - Fallback default: `else -> <expr>`
+- **Exhaustiveness Rules (`E0044`):**
+  - For `omen` and `bool` subjects, all possible variants/values must be handled unless a default `else ->` clause is provided. Missing branches raise `E0044: NonExhaustiveJudgeError`.
+  - For `int`, `string`, and `char`, exhaustiveness is not enforced. If no `else ->` is present and no pattern matches, the expression evaluates to its default zero/empty value (`0`, `""`, `'\0'`).
+- **Pattern Payloads (`E0005`):** Extracting payloads directly within pattern branches is currently not supported; extract payloads using explicit variant access or `is_ok`/`value`.
+- **Codegen:** Emits a C `switch` statement when all pattern cases are compile-time integer constants; falls back to an `if-else` ternary chain for string or variable patterns.
 
 ### 7.5 `break` / `continue` / `return`
 
-Standard semantics; `break`/`continue` only inside loops (`E0007`). `return`
-must match the weave's declared `into` type (`E0020`); bare `return` is only
-valid in `void` weaves.
+Standard control flow statements. `break` and `continue` are only permitted inside loop blocks (`E0007`). `return` must produce a type matching the enclosing weave's `into` specification (`E0020`); bare `return` is valid only in `void` weaves.
 
 ### 7.6 Block expressions: `do:`, value-position `if` / `unless`, and loops
 
-An indented block can supply a value:
+Any indented block can evaluate to a value when placed in a value position:
 
 ```pengu
-let x is do:                      # a do: block evaluates to its last statement
+let x is do:                      # evaluates to its last statement's value
     var a is 10
     set a is a + 5
     a * 2                         # x == 30
 
-let status is if score >= 100:    # an if in a value position yields a branch value
+let status is if score >= 100:    # if in value position
     let msg is "winner"
     msg
 else:
     let msg is "keep going"
     msg
 
-let fallback is unless score > 0: # unless is the mirror image
-    "zero or less"
-else:
-    "positive"
-
 let squares as list of int is for i from 0 to 5:
-    i * i                         # a loop collects its body's value per iteration
-
-let steps as list of int is while n < 100:
-    set n is n * 2
-    n
+    i * i                         # collects each iteration value into a list
 ```
 
-- `do:` runs its statements in a fresh local scope; `var`/`let` declared inside
-  do not escape. The block's value is its **last statement's value** — an
-  expression, or a trailing value-position `if`/`unless`/loop.
-- `if`/`unless` supply a value when they appear in a **value position**. Every
-  branch must end with an expression and all branches must share one **common
-  type**; mixing a value branch with a value-less branch, or incompatible branch
-  types, is `E0005`. (`unless` is the mirror: the then-branch runs when the
-  condition is false.) Anywhere else they are ordinary statements (unchanged).
-- **Loops** (`while`, `for i from a to b [step s]`, `for v in col`,
-  `for i, v in col` — all of them) supply a value too: a loop in a value position
-  **collects** its body's last expression on every iteration into a `list of T`.
-  The body must produce a value on each iteration (`E0005` otherwise);
-  `continue` skips that iteration's value and `break` ends the loop. A loop in
-  statement position is unchanged.
-- Value positions:
-  - initializers: `var` / `let` / `static var`
-  - `set` targets (including `set .field is …` inside a `with:` builder)
-  - `return` values — `return if c: …`, `return unless c: …`, `return for …: …`
-  - call arguments (positional and `name is <block>`) and struct-literal fields
-    (`with x is <block>, y is <block>`)
-  - the last statement of a value block (`do:`, an `if`/`unless` branch, a loop
-    body) — which is why these forms nest recursively
-  Block forms are **not** allowed inside operators, parentheses, array/map
-  literals, conditions or iterables: `1 + if c: …`, `(for …: …)`, `[if c: …]`
-  and `for v in for …:` are parse errors. Use the expression forms
-  (`if … then … else`, `for … then …`) or bind to a variable first.
-- Chains: `else if <cond>:` and `else:` followed by an indented nested
-  `if`/`unless` are both accepted, because a block's value is its last
-  statement's value:
-
-```pengu
-let tag is if n < 5:
-    n
-else if n < 10:          # or: else: + an indented if (same semantics)
-    n * 2
-else:
-    n * 3
-
-let other is unless n > 5:
-    n
-else:
-    unless n > 10:       # nested block values compose recursively
-        n * 2
-    else:
-        n * 3
-```
-
-- Building collections of runes works with the `with:` builder inside the loop:
-
-```pengu
-var points as list of Point is for i from 0 to 3:
-    var p as Point with:
-        set .x is i
-        set .y is i * 2
-    p                    # each iteration appends a Point
-
-var more as list of Point is for i from 0 to 3:
-    with:                # the builder itself is the iteration value: the target
-        set .x is i      # type comes from the element type ('Point')
-        set .y is 7
-```
-- Value-ness is decided by **position**, not by a second syntax: `if cond:` +
-  block is token-identical as a statement and as a value, so each keyword has a
-  single grammar rule and the checker/codegen treat the node as a value only in a
-  value slot. Statement semantics — binding conditions, constant folding,
-  `W0004` unreachable-code warnings, loop control — are unchanged.
-- Blocks compile to a GNU statement-expression (with a typed temporary assigned
-  per branch, or a `PenguList` for loops), so they compose with each other, with
-  the `with:` builder (§18) and with struct literals.
+- **`do:` Expression:** Executes statements in a fresh lexical scope. The value of `do:` is the value of its final expression statement. Lowered to GCC statement-expression `__extension__(({ <stmts>; <last_expr>; }))`.
+- **Value-Position `if` / `unless`:** Every branch must conclude with an expression sharing a common type (`E0005` on mismatch). Lowered to:
+  ```c
+  __extension__(({
+    T _if_1;
+    if (cond) { ... _if_1 = then_expr; }
+    else { ... _if_1 = else_expr; }
+    _if_1;
+  }))
+  ```
+- **Value-Position Loops:** Loops (`while`, `for i from ... to ...`, `for x in col`) placed in value position collect each iteration's trailing value into a newly allocated `list of T`.
+- **Valid Tail Statements (`_check_block_value_stmt`):** The final statement of a value block determines the block's resulting value. The compiler recognizes:
+  1. `if_stmt` / `unless_stmt`: Recursively checked in value position, enabling nested branching.
+  2. `while_stmt` / `for_range_stmt` / `for_in_stmt`: Evaluated as collecting loops, yielding a `list of T`.
+  3. `do_expr`: Nested lexical value block.
+  4. `with_init_expr`: Trailing builder block, inferring its type from the enclosing value slot.
+  5. Any standard expression or call statement.
+- **Checker Protocol (`_pengu_value_type`):** The semantic checker attaches `_pengu_value_type` to AST nodes sitting in value slots. The codegen inspects this metadata to select statement-expression emission.
+- **Escape Analysis Protection (`_exclude_escaping_val_from_banish`):** Values yielding from a block expression are explicitly excluded from auto-banish to prevent use-after-free bugs.
 
 > [!NOTE]
-> The block-expression family is complete: `do:`, value-position `if`/`unless`
-> and value-position loops. `judge` and the `for … then` comprehension were
-> already expressions. Remaining ideas (not implemented): block forms inside
-> operators/brackets, `break <value>`, and a `from … to … then` comprehension.
-> CHEATSHEET §6.1.4 has the definitive list of what is and is not an expression.
+> CHEATSHEET §6.1.4 has the definitive list of what is and is not an expression. Statement-level control operations (like bare `break` without value or declarations) cannot serve as block tail values.
 
 ---
 
@@ -681,39 +682,52 @@ var more as list of Point is for i from 0 to 3:
 ```pengu
 weave greet with name as string, times as int is 1 into void:
     for i from 0 to times:
-        calling print with "Hi " + name
+        calling print with "Hi {name}"
 
 weave double with x as int into int:
     return x * 2
 ```
 
-- Parameters may have **default values** (`times as int is 1`).
-- A body whose last expression is a value returns it implicitly
-  (`weave double with x as int into int:\n  x * 2`).
-- `calling` invokes:
-  - positional: `calling greet with "Ada", 3`
-  - named: `calling greet with name is "Ada", times is 2` (`arg: NAME "is" expr`)
-  - module member: `calling spark.println with "x"`
-  - object method: `calling player.move with 5, 3`
+- **Parameters & Defaults:** Parameters may specify default values (`times as int is 1`). Default expressions must be compile-time constants.
+- **Implicit Return:** A function body whose last statement is an expression implicitly returns that value without needing an explicit `return`.
+- **Calling Syntax:**
+  - Positional arguments: `calling greet with "Ada", 3`
+  - Named arguments: `calling greet with name is "Ada", times is 2`
+  - Module member: `calling spark.println with "Hello"`
+  - Object method: `calling player.move with 5, 3`
+- **Parentheses Requirement:** The argument list following `with` is greedy. When a call is nested inside an arithmetic expression or comparison, wrap the call in parentheses: `(calling get_count) > 0`.
+- **Call Diagnostics & Error Codes:**
+  - `E0004`: Module member not found (`Module 'X' has no exported member 'Y'`), or external C function called without a matching `declare`.
+  - `E0018`: `list of T` push argument mismatch (`List of T push expects T, got U`).
+  - `E0034: InvalidRitualCallError`: Attempting to call a `ritual` (static) method on an instance object, or calling an instance method on a type name.
+  - `E0043: PrivateSymbolAccessError`: Calling a private function (prefixed with `_`) from outside its defining module.
+  - `E0045`: `try` used inside a function whose return type is incompatible with the unwrapped failure.
 
-  A `calling … with …` expression used as an **operand** must be parenthesised,
-  because the argument list is greedy: `calling raygui.Button with bounds, "ok" == 1`
-  compares the *argument* `"ok"` with 1, while
-  `(calling raygui.Button with bounds, "ok") == 1` compares the call's result.
+#### Automatic Inlining Heuristic (`inline`)
 
-```pengu
-weave sum_many with values as many int into int:   # variadic
-    var acc as int is 0
-    for v in values:
-        set acc is acc + v
-    return acc
+Functions can be explicitly declared with the `inline` modifier: `inline weave fast_calc ...`. Additionally, the semantic checker (`_check_weave_decl`) automatically marks small functions as `is_inline = True` when:
+1. The function body contains 3 or fewer statements (`len(stmt_children) <= 3`), or the total AST node count is 25 or fewer (`node_count <= 25`).
+2. The function contains **no loops** (`while`, `for i from ...`, `for item in ...`).
+3. The function contains **no static variables** (`static var`).
 
-weave inline fast with x as int into int:          # always-inline in C
-    return x + 1
+For all inlined functions, the code generator emits `static inline __attribute__((always_inline))` on both the forward prototype and the C implementation, eliminating function call overhead in performance-critical code.
+
+#### Entry Point Wrapper (`pengu_main`)
+
+The user entry point must be named `main` (`weave main into int:` or `into void:`). The compiler generates the C function `pengu_main`, wrapped by a standard C runtime `main`:
+
+```c
+/* Generated C runtime entry point wrapper */
+int main(int argc, char** argv) {
+    pengu_init(argc, argv);
+    int pengu_status = (int)pengu_main();
+    fflush(stdout);
+    fflush(stderr);
+    return pengu_status;
+}
 ```
 
-- `many T` is the variadic parameter type (`E0023`/`E0024` misuse checks).
-- The `inline` weave modifier emits `static inline __attribute__((always_inline))`.
+This automatic wrapper initializes the runtime arguments, exposes them to `std.rites.get_args()`, executes `pengu_main()`, flushes standard I/O buffers, and returns the exit status code.
 
 ### 8.2 `declare` — external C functions
 
@@ -724,45 +738,19 @@ declare my_callback with cb as ref to weave with x as int into void into void
 declare printf with fmt as ref to frozen char, ... into int     # C varargs
 ```
 
-`declare` registers the signature so `calling name with …` translates to a
-direct C call with the declared C name (see §14).
+`declare` registers external C function prototypes so that calls translate directly to native C invocations without glue wrappers.
 
-**C variadic functions.** A trailing `...` after the last fixed parameter marks a
-C variadic function (`printf`, raylib's `TextFormat`/`TraceLog`, sqlite3's
-`mprintf`). The fixed parameters keep their declared type and are type-checked;
-the extra arguments are passed through **verbatim** — no `PenguSlice` packing, no
-type checking — so C's default argument promotions apply, exactly as in C:
+#### C Variadic Functions (`...` vs `many T`)
 
-```pengu
-declare printf with fmt as ref to frozen char, ... into int
-declare TextFormat with text as ref to frozen char, ... into ref to frozen char
-
-calling printf with "%d-%d\n", 4, 2
-calling raylib.DrawText with (calling TextFormat with "Score: %08i", score), 200, 80, 20, raylib.RED
-```
-
-Rules and caveats:
-
-- The minimum argument count is the number of fixed parameters; there is no
-  maximum (`calling printf with fmt` alone is valid C and valid here).
-- Extra arguments get **no** expected type, so a runtime `string` must be spelled
-  `bytes of s` (or `ffi.cstr_from_string with s`) when a C `char*` is wanted; a
-  string *literal* is already emitted as a C literal.
-- Because the extra arguments are unchecked, a wrong format specifier is a C-level
-  bug, not a PenguScript error — the same trade-off C makes.
-- A function that is only reachable through `include` (no `declare` in scope) is
-  *not* known to the checker: `calling printf with "%d", 1` type-checks and then
-  fails in C. Declare it (as above) to get correct codegen.
-
-Only `declare` accepts `...`; `weave` bodies, `alias … as ref to weave with …`
-callback types and `shard` generics use `many T` (§8.1) instead, which *is* typed.
-
+A trailing `...` in a `declare` parameter list represents raw C variadic arguments (`CVarArgsType`):
+- **Fixed Parameters:** Are strictly type-checked according to their declared types.
+- **Variadic Arguments:** Extra arguments are passed through **verbatim** to C. No `PenguSlice` packing or runtime boxing occurs; C default argument promotions apply directly.
+- **Distinction from `many T`:** `many T` is PenguScript's safe, slice-backed variadic mechanism for `weave` functions. `...` is reserved exclusively for external C `declare` signatures.
+- **Modifiers:** `declare` can also be combined with `inline` or `ritual` modifiers.
 
 ### 8.3 Function pointers & callbacks
 
-A function-pointer value has type `weave … into …`; a declared
-`ref to weave … into …` (or an alias of it) is the same thing, because a
-function value decays to a pointer in C. Both spellings are interchangeable:
+A function value has type `weave … into …` (`FnType`). In C, function identifiers decay seamlessly to function pointers. Both `weave with … into …` and `ref to weave with … into …` are fully interchangeable:
 
 ```pengu
 alias Handler as weave with x as int into void
@@ -771,93 +759,31 @@ weave handler with x as int into void:
     return
 
 weave main into void:
-    var cb as ref to weave with x as int into void is handler   # or 'as Handler'
-    calling register_cb with handler                            # C callback parameter
-    calling cb with 1                                           # call through the pointer
+    var cb as ref to weave with x as int into void is handler   # function decay
+    calling register_cb with handler                            # passes C callback
+    calling cb with 1                                           # calls through pointer
 ```
 
-**C callbacks.** Bindings declare the callback typedef from the C header, so
-passing a Pengu weave to a C API works directly:
-
-```pengu
-import std.raylib
-
-weave on_audio with buffer as ref to void, frames as u32 into void:
-    return
-
-weave main into int:
-    var stream as raylib.AudioStream is calling raylib.LoadAudioStream with 44100, 32, 2
-    calling raylib.SetAudioStreamCallback with stream, on_audio
-    calling raylib.UnloadAudioStream with stream
-    return 0
-```
-
-The compiler **casts the function value to the declared callback type**
-(`((AudioCallback)on_audio)`). That is what makes headers whose prototypes carry
-qualifiers the `.d.pengu` binding cannot express — `const char*` in raylib's
-`TraceLogCallback`, for instance — compile under GCC 14+.
-
-Two things worth knowing:
-
-- A callback parameter written **inline** (`compar as ref to weave with a as ref
-  to frozen void, b as ref to frozen void into int`) is cast to the type spelled
-  by those Pengu parameters, so spell the qualifiers the C prototype uses: with
-  `ref to frozen void` the cast is `(int32_t (*)(const void*, const void*))` and
-  `qsort` compiles directly (see [§9.5](#95-frozen--read-only-qualification)).
-  Spelling mutable `ref to void` for a `const void*` prototype still makes GCC 14+
-  reject the cast — fix the spelling rather than adding a C shim. Callbacks
-  declared through an alias of a C typedef are unaffected, because the cast names
-  the typedef.
-- `va_list` exists as a parameter type (it is emitted verbatim) for callbacks such
-  as raylib's `TraceLogCallback`, and C variadic functions themselves are declared
-  with a trailing `...` and called normally ([§8.2](#82-declare--external-c-functions)).
+- **Callback Decay to `void*`:** Any `weave` identifier or lambda can be passed where `ref to void` or `ref to frozen void` is expected (common in C APIs taking `void* user_data` callback pointers).
+- **Callback Casting:** The compiler automatically emits explicit function pointer casts (e.g. `((AudioCallback)on_audio)`) to satisfy strict C99/C11 compilers (such as GCC 14+).
 
 ### 8.4 Lambdas
 
-Anonymous functions are written with `lambda`, typed parameters (comma
-separated) and `into` for the body:
+Anonymous inline functions are declared using `lambda`, comma-separated typed parameters, and an `into` expression:
 
 ```pengu
-lambda into 42                            # no parameters
-lambda x as int into x * 2                # one parameter
-lambda a as int, b as int into a + b      # several parameters
+let no_args as weave into int is lambda into 42
+let double as weave with x as int into int is lambda x as int into x * 2
+let add as weave with a as int, b as int into int is lambda a as int, b as int into a + b
 ```
 
-```pengu
-weave apply with f as weave with x as int into int, v as int into int:
-    return calling f with v
-
-weave main into int:
-    let double is lambda x as int into x * 2
-    var f as weave with x as int into int is lambda x as int into x + 1
-
-    var a as int is calling double with 21          # 42
-    var b as int is calling f with 9                # 10
-    var c as int is calling apply with double, 5     # 10
-    return 0
-```
-
-- **Parameters require explicit types** (the language is statically typed); the
-  **return type is inferred** from the body.
-- **There is no capture.** A lambda body only sees its own parameters plus
-  module-level symbols (weaves, constants, types) — it cannot read locals of the
-  enclosing function. That is what lets the compiler emit a plain top-level
-  `static` C function (no GCC nested functions, portable C99).
-- A lambda value has a `weave … into …` (**`FnType`**) type, so it can be
-  stored in a `var`/`let` (with or without that annotation), passed as an
-  argument where a callback/`weave` parameter is expected, and called through
-  (`calling f with v`).
-- Compiles to one `static` function per lambda, named `_pengu_lambda_N`, emitted
-  between the prototypes and the function definitions; the expression itself
-  evaluates to the function's name (a function pointer in C).
-- Lambdas are not usable at compile time (`when`/`defined` contexts) — a lambda
-  is a runtime value.
-- A lambda can be stored in a variable typed with a callback alias
-  (`alias Handler as weave with x as int into int` +
-  `var h as Handler is lambda x as int into x * 2`) as well as with an inline
-  `ref to weave … into …` type, and a named `weave` can be used the same way.
+- **Parameter & Return Types:** Lambda parameters require explicit type annotations. The return type is inferred automatically from the body expression.
+- **No Closures / Static Functions:** Lambdas do not capture surrounding local variables. They can access only their own parameters and module-level constants, types, and weaves.
+- **Codegen:** Lambdas are pre-scanned and emitted as top-level `static` C functions named `_pengu_lambda_1`, `_pengu_lambda_2`, etc. At the call site, the lambda evaluates to the static function's address.
+- **Runtime Callstack Tracking:** Lambda functions participate in the runtime's 64-frame ring buffer by emitting `pengu_frame_push("_pengu_lambda_N", file, line)` and `pengu_frame_pop()`, ensuring panics and fatal crash signals originating within lambdas accurately report their source line.
 
 ### 8.5 `ritual` methods (static)
+
 ```pengu
 enchanting Vec2:
     weave ritual zero into Vec2:
@@ -867,14 +793,13 @@ enchanting Vec2:
         return self->x * self->x + self->y * self->y
 
 weave main into int:
-    var origin as Vec2 is calling Vec2.zero     # ritual: called on the TYPE
-    var l as float is calling origin.length_sq  # instance method: on the value
+    var origin as Vec2 is calling Vec2.zero     # called on TYPE
+    var l as float is calling origin.length_sq  # called on INSTANCE
     return 0
 ```
 
-`ritual` methods have no `self` and are invoked on the type name
-(`Vec2.zero`); instance enchanting methods receive `self` as `ref to T`
-(`self->field`).
+- `ritual` methods are associated functions (static methods) belonging to a type namespace. They have no `self` parameter. Referencing `self` inside a `ritual` raises `E0033: InvalidRitualSelfAccessError`.
+- Calling a `ritual` method on an instance object, or calling an instance method on a type name, raises `E0034: InvalidRitualCallError`.
 
 ---
 
@@ -887,6 +812,7 @@ rune Player:
     name as string
     hp as int
     is_alive as bool
+    _secret_id as int                    # private field (E0043 outside rune)
 ```
 
 Construction:
@@ -897,9 +823,7 @@ var q as Player with:                        # block form, see §18
     set .name is "Villain"
     set .hp is 50
 
-# Nested construction: a field whose type is itself a rune uses another 'with:'
-# block. The inner builder's target type is inferred from the field it is
-# assigned to, so no extra annotation is needed (see §18 for nesting and block forms).
+# Nested construction:
 var hero as Person with:
     set .name is "Ada"
     set .age is 30
@@ -909,9 +833,82 @@ var hero as Person with:
         set .zip is "12345"
 ```
 
-Field access: `p.name`; through a `ref to Player`: `p->name` (see §18 for nesting
-and block forms). Runes map 1:1 to C structs, so native layout is preserved
-across the FFI boundary.
+- **Layout:** Runes map 1:1 to C structs, preserving exact memory layout and field alignment across C FFI boundaries.
+- **Field Access:** Direct access uses `p.name`; access through a reference `ref to Player` uses pointer arrow syntax `p->name` (`E0003` if dot is used on reference).
+- **Encapsulation (`E0043`):** Fields with a leading underscore (e.g. `_secret_id`) are strictly private to the defining rune. Attempting to access or assign a private field via dot (`p._secret_id`) or pointer arrow (`p->_secret_id`) from outside the rune definition or its module owner raises `E0043: PrivateSymbolAccessError`.
+- **Destructuring:** Runes can be unpacked into local variables using destructuring declarations: `let (n, h, a) is p` (§5.1).
+
+#### 9.1.1 `cyclus` — self-referential types
+
+By default a type that contains itself **by value** has infinite size and is
+rejected with `E0050`:
+
+```pengu
+rune Bad:
+    next as Bad          # E0050: infinite type size
+```
+
+`cyclus` states explicitly that the declaration is intentionally
+self-referential; the cycle must still be broken by pointer indirection
+(`ref to`, `maybe ref to`, `slice`, `list`, `map`):
+
+```pengu
+rune Node cyclus shard T:
+    value as T
+    next as maybe ref to Node of T      # OK: indirection breaks the cycle
+```
+
+`cyclus` is documentation-as-syntax: it does **not** make a by-value cycle
+legal (that would still produce a C struct containing itself), it only marks
+recursive declarations so readers and tooling know the recursion is intended.
+
+#### 9.1.2 `derive` — automatic concept implementations
+
+`derive` asks the compiler to generate the C helpers for a built-in concept
+from the rune's fields:
+
+```pengu
+rune Point derive Par, Ordo, Vinculum, Imago:
+    x as int
+    y as int
+```
+
+| Concept | Generated C | Enables |
+|---|---|---|
+| `Par` | `<Rune>_eq`, `<Rune>_eq_val`, `<Rune>_Par` | `==`, `!=` |
+| `Ordo` | `<Rune>_cmp`, `<Rune>_cmp_val`, `<Rune>_Ordo` | `<`, `<=`, `>`, `>=` |
+| `Vinculum` | `<Rune>_Vinculum`, `<Rune>_hash` | rune as a `map` key |
+| `Imago` | `<Rune>_clone`, `_pengu_clone_<Rune>` | deep copy into containers |
+| `Nexus` | `<Rune>_nexus`, `_pengu_cleanup_<Rune>` | recursive release |
+
+Rules:
+
+* Only `Par`, `Ordo`, `Vinculum`, `Imago` and `Nexus` are derivable; anything
+  else raises `E0005`.
+* Every field must itself implement the derived concept, otherwise `E0032`
+  points at the offending field.
+* On a generic rune the derived concepts become **bounds on the type
+  parameters**: `rune Point shard T derive Par` implies `T: Par` in the
+  generated helpers.
+* `Imago` and `Nexus` are implied by each other: a container that deep-copies
+  its elements must also be able to release them, so `derive Imago` also
+  generates (and registers) `Nexus` and vice versa.
+* Comparison on a rune without the matching `derive` is `E0049`; without it the
+  generated C would call a helper that does not exist.
+* `derive` is rejected with `E0005` on `echo` declarations: an `echo` is an
+  untagged C union, so equality/ordering/hashing would read memory the last
+  write did not initialise. Use an algebraic `omen` (§9.3) or implement the
+  concept explicitly with `bind` (§10.3).
+* Algebraic omens are tagged structs and support the same `derive` clause on
+  their payload variants (only the active variant's payload is inspected).
+  A payload-less variant may be used as a value (`var s as Shape is Point`) or
+  in a comparison (`s == Point`), not only as a `judge` pattern.
+* A value with a derived `Nexus` can be released explicitly — `banish doc`
+  lowers to `_pengu_cleanup_Doc(&doc)` (idempotent: the runtime banish helpers
+  null the buffers they free), so `defer banish doc` is the idiom for a local
+  whose fields own heap memory. Local *rune* values are **not** auto-banished
+  (that would need a move/alias analysis to avoid double frees), so release them
+  explicitly or store them in an owning container.
 
 ### 9.2 `echo` — unions
 
@@ -921,43 +918,72 @@ echo Number:
     f as float
 ```
 
-A C `union`. Field access is unchecked and may alias (warning `W0002`);
-usually `omen` (with a tag) is safer for sum types.
+An `echo` compiles directly to a C `union`. Accessing any field of an `echo` union triggers compiler warning `[W0002] Echo union access is unsafe`, because union fields share memory without an automatic discriminant tag. For type-safe sum types, prefer algebraic `omen`s.
 
-### 9.3 `omen` — enums & algebraic data types
+### 9.3 `omen` — enums, string-valued omens & algebraic sum types
+
+PenguScript provides three distinct flavors of `omen`:
 
 ```pengu
-omen Level:
-    One
-    Two
+# 1. Numeric Enum (simple C enum)
+omen Direction:
+    North is 0
+    South is 1
+    East is 2
+    West is 3
 
-omen NetworkState:
+# 2. String-Valued Omen
+omen Color with string:
+    Red
+    Green
+    Blue
+
+# 3. Algebraic Data Type (Sum Type with Payloads)
+omen NetworkEvent:
     Disconnected
-    Connecting with retry as int
-    Connected with session_id as string
+    Connecting with attempt as int
+    Connected with session_id as string, latency_ms as float
 ```
 
-Simple omens compile to C `enum`; algebraic omens compile to a tagged struct
-(`{ tag; union { … } data; }`). Variant references accept the simple name
-(`One`) or the dotted/full name (`Level.One`, `Level_One`). Duplicate variant
-values → `E0027`; **name collisions** between variant names and other global
-symbols or built-in types are reported (`E0046`). In `.d.pengu` declaration
-files an `omen` mirrors a header enum, so C emits the *bare* variant names
-(no `Omen_` prefix) — see §14.
+#### String-Valued Omens (`omen X with string:`):
+- Declared with `with string:` after the omen name.
+- Every variant evaluates to a `PenguString` containing its own variant name (`Red` -> `"Red"`).
+- **No Payloads Allowed:** Variants of a string-valued omen cannot declare payloads; adding `with` to a variant raises `E0028: InvalidOmenPayloadValueError`.
+- **Codegen:** Emits `#define <Omen>_<variant> pengu_string_from_cstr("<variant>")`. In expressions, `Color.Red` or `Red` yields an immutable `string`.
+
+#### Codegen Emission Modes:
+- **Normal `.pengu` numeric omen:** Emits a C `typedef enum { <Omen>_<variant> = val, ... } <Omen>;`.
+- **Declaration `.d.pengu` omen:** Emits **bare variant names** (`KEY_LEFT`, `FLAG_MSAA_4X_HINT`) matching upstream C header enums without prefixing.
+- **Insignia-Prefixed Mode (`c_name != name`):** When the module specifies an `insignia <prefix>` directive, the generated C enum type receives the prefix (`<c_name>`, e.g. `ray_Color`), and all variant enum tags are generated as `<c_name>_<variant>` (e.g. `ray_Color_Red`), avoiding C name collisions across multi-module builds.
+- **String-Valued omen:** Emits string constant definitions (`#define <c_name>_<variant> pengu_string_from_cstr("<variant>")`).
+- **Algebraic omen:** Emits a tagged C struct containing a discriminant tag (`<c_name>_Tag`) and a payload union:
+  ```c
+  typedef struct {
+      int32_t tag;
+      union {
+          struct { int32_t attempt; } Connecting;
+          struct { PenguString session_id; float latency_ms; } Connected;
+      } data;
+  } NetworkEvent;
+  ```
+
+#### Omen Invariants & Validation:
+- Simple variant names can be referenced directly (`Red`) or qualified (`Color.Red`, `Color_Red`).
+- Duplicate variant values raise `E0027: DuplicateOmenValueError`.
+- Variant values must be compile-time integer constants (`E0029`).
+- If variant names collide across different omens in the same module, unqualified references raise `E0046`, requiring explicit qualification.
 
 ### 9.4 `seal`, `alias`, `opaque`
 
 ```pengu
-seal UserId as int          # distinct newtype: needs explicit `to` casts
-alias Inches as int         # transparent alias: interchangeable
-alias Buffer as opaque      # C opaque handle (used behind `ref to`)
+seal UserId as int          # distinct nominal type: needs explicit `to` casts
+alias Inches as int         # transparent structural alias: interchangeable
+alias Buffer as opaque      # C opaque pointer handle (used behind `ref to`)
 ```
 
-- `seal` forbids silent mixing with the underlying type (`E0004`/mismatch
-  errors unless you cast with `to`).
-- `alias` is a pure synonym.
-- `opaque` types are passed through pointers (`ref to Opaque`); never allocate
-  them by value.
+- **`alias` (Structural):** A pure synonym for another type. Passes all type checks interchangeably (`AliasType.is_compatible` is transparent).
+- **`seal` (Nominal):** Strong newtype wrapping an underlying representation. Prohibits implicit assignment to or from the underlying type. Casting requires an explicit conversion: `var id as UserId is (raw_id to UserId)`.
+- **`opaque` (Handles):** Represents incomplete C types. Direct instantiation by value is forbidden (`E0012: Cannot instantiate opaque type`). Opaque types must be manipulated through pointers: `ref to Buffer`.
 
 ### 9.5 `frozen` — read-only qualification
 
@@ -975,7 +1001,7 @@ ref to frozen void              # const void*   ← what qsort asks for
 `frozen` is a **soft** keyword: it is only special in type position, so a
 variable, field or weave named `frozen` keeps working.
 
-#### Assignment
+#### Assignment & Directional Compatibility
 
 A mutable value flows into `frozen` (as in C); the reverse does not:
 
@@ -987,24 +1013,13 @@ var y as frozen int is x        # OK: 'y' is a read-only copy
 # set y is 7                    # E0006: cannot write through 'frozen'
 ```
 
-`let` and `frozen` are orthogonal and compose without conflict:
-
-```pengu
-let a as ref to int             # int* const a        (name fixed, pointee writable)
-var b as ref to frozen int      # const int* b        (name writable, pointee read-only)
-let c as ref to frozen int      # const int* const c  (both)
-```
-
-Writing **through** a frozen pointee is rejected too:
-
-```pengu
-rune P:
-    x as int
-
-weave poke with p as ref to frozen P into int:
-    # set p->x is 1             # E0006
-    return 0
-```
+- **`_drops_frozen()` Enforcement:** The semantic checker strictly forbids stripping the `frozen` qualifier (`frozen -> mutable` raises `E0005: TypeMismatchError`).
+- **Pointee Protection (`_frozen_write_block`):** Writing through a pointer to a frozen pointee (`ref to frozen T`) is rejected:
+  - Setting arrow field: `set p->x is 1` raises `E0006`.
+  - Setting index element: `set p at i is 1` raises `E0006`.
+  - Setting pointer dereference: `set essence of p is 1` raises `E0006`.
+- **Pointer Normalization:** `frozen ref to T` normalizes in `ast_to_type` to `ref to frozen T` (pointee constness). PenguScript never emits `T* const`.
+- **Wildcard Pointers:** `ref to void` and `ref to frozen void` accept any pointer type, enabling universal interop with C APIs.
 
 #### Use in C interop
 
@@ -1099,31 +1114,414 @@ Away from `void`, the qualification still drops in one direction only:
 
 ## 10. Methods, concepts & binding
 
+In PenguScript, methods, contracts, and type extensions are separated from struct definitions:
+- Methods are attached to types via `enchanting T:` blocks.
+- Contracts are declared via `concept Name:` blocks and implemented via `bind Type with Concept:` blocks.
+
+> [!IMPORTANT]
+> **Concepts are compile-time contracts, NOT runtime interfaces.**
+> Unlike interfaces in Java, C#, or Go, a `concept` does not represent a runtime type, does not generate a virtual method table (vtable), and does not support dynamic dispatch or polymorphic fat pointers. Concepts exist strictly to define compile-time constraints and bounds for generic type parameters (`where T: Concept`), guaranteeing zero runtime overhead.
+
+---
+
+### 10.1 `enchanting` — métodos sobre tipos
+
+Methods are attached to any user-defined type (`rune`, `echo`, `omen`) or built-in container using an `enchanting` block:
+
 ```pengu
+rune Player:
+    name as string
+    hp as int
+
 enchanting Player:
+    # Instance method: 'self' is implicit and has type 'ref to Player'
     weave heal with amount as int into void:
         set self->hp is self->hp + amount
 
+    # Associated (static) function: declared with 'ritual', no 'self'
+    weave ritual new_hero with name as string into Player:
+        return with name is name, hp is 100
+```
+
+#### Reglas de `self` y métodos `ritual`:
+1. **Acceso a `self`:** `self` se pasa implícitamente por referencia (`ref to T`). Por tanto, el acceso a sus campos requiere la flecha `self->field`. El uso de punto `self.field` arroja el error `E0003: SelfDotAccessError` (*help: Change 'self.' to 'self->'*).
+2. **Métodos asociados (`ritual`):** Las funciones estáticas asociadas a un tipo se declaran anteponiendo la palabra clave `ritual`. No reciben `self`. Referenciar `self` dentro de un método `ritual` arroja `E0033: InvalidRitualSelfAccessError`.
+3. **Invocación:**
+   - Los métodos de instancia se invocan sobre valores o variables: `calling player.heal with 25` o `calling player->heal with 25`.
+   - Los métodos `ritual` se invocan exclusivamente sobre el nombre del tipo: `var p as Player is calling Player.new_hero with "Ada"`.
+   - Invocar un método `ritual` sobre una instancia o un método de instancia sobre el nombre del tipo arroja `E0034: InvalidRitualCallError`.
+
+#### Nomenclatura en C y prefijos de `insignia`:
+- Los métodos de instancia se emiten en C como `<Type>_<method>(Type* restrict self, ...)`:
+  ```c
+  void Player_heal(Player* restrict self, int32_t amount);
+  ```
+- Los métodos `ritual` se emiten en C como `<Type>_<method>(...)` sin el primer parámetro `self`.
+- **Regla de prefijo de `insignia`:** La directiva `insignia` prefija las funciones de módulo y los tipos de usuario. Sin embargo, para métodos que encantan tipos primitivos o contenedores estándar (`string`, `list`, `map`, `slice`, `maybe`, `result`), el generador de código **no** aplica el prefijo de módulo, emitiendo nombres limpios como `string_trim`, `list_of_int_sum` o `map_of_string_to_int_keys` para evitar colisiones con las funciones internas del runtime (`pengu_string_*`, `pengu_list_*`).
+
+#### Encantamiento de contenedores integrados (`list`, `map`):
+Los módulos de la biblioteca estándar como `std.tally` y `std.atlas` encantan directamente contenedores estándar:
+- `enchanting list of int:` agrega métodos OOP como `calling xs.sum`, `calling xs.first`, `calling xs.reverse`, `calling xs.sort_asc`.
+- `enchanting map of string to int:` agrega métodos como `calling m.keys`, `calling m.keys_sorted`, `calling m.get_or with k, 0`, `calling m.sum_values`.
+- Dentro de un bloque `enchanting` sobre contenedores, `self` tiene tipo `ref to list of ...` o `ref to map of ...`. La iteración sobre la colección se realiza mediante `for x in essence of self:`, y el acceso indexado mediante `self at i` o `self at key`.
+
+#### Encantamiento genérico de contenedores estándar (`shard` en `enchanting`):
+A partir de PenguScript 0.15.0, es posible encantar contenedores estándar (`map`, `list`, `slice`, `maybe`, `result`) de forma genérica usando parámetros `shard`:
+
+```pengu
+enchanting map of shard K to shard V:
+    weave size into int:
+        return calling self.len
+
+    weave is_empty into bool:
+        return (calling self.len) == 0
+
+    weave has_key with k as K into bool:
+        return calling self.contains with k
+
+    weave get_or with k as K, fallback as V into V:
+        if calling self.contains with k:
+            return self at k
+        return fallback
+
+    weave clone into map of K to V:
+        var res as map of K to V is map of K to V
+        with res:
+            for k in essence of self:
+                calling .put with k, (self at k)
+        return res
+
+    weave rename_key with old_key as K, new_key as K into bool:
+        if not (calling self.contains with old_key):
+            return false
+        var val as V is self at old_key
+        with self:
+            calling .remove with old_key
+            calling .put with new_key, val
+        return true
+```
+
+##### Mecánica y Reglas del Encantamiento Genérico:
+1. **Sintaxis de tipo:** El objetivo de `enchanting` acepta la palabra clave `shard` precediendo los parámetros de tipo en contenedores:
+   - `enchanting map of shard K to shard V:`
+   - `enchanting list of shard T:`
+   - `enchanting slice of shard T:`
+   - `enchanting maybe shard T:`
+   - `enchanting result of shard T to shard E:`
+2. **Monomorfización bajo demanda:** Al compilar, el compilador (`pengu_codegen.py`) monomorfiza los métodos genéricos únicamente para las combinaciones de tipos concretas invocadas en el programa (por ejemplo, `map of string to string` o `map of int to float`), emitiendo funciones C especializadas (ej. `map_of_string_to_string_get_or`, `map_of_int_to_float_clone`).
+3. **Resolución de dependencias transitivas:** Cuando un método genérico invoca a otro método genérico sobre `self` (como `copy` delegando en `self.clone`), el compilador detecta la invocación transitiva e itera hasta alcanzar un punto fijo, registrando todas las firmas y prototipos antes de generar el código C.
+4. **Precedencia por especificidad (Overriding concreto):** Si existe un bloque concreto (por ejemplo, `enchanting map of string to int:`), sus métodos tienen precedencia estricta sobre la implementación genérica para ese tipo concreto. Esto permite especializaciones de alto rendimiento o métodos específicos del tipo (como `sum_values` o `all_values_positive` en mapas numéricos) conviviendo con métodos genéricos estructurales (`clone`, `put_all`, `rename_key`).
+5. **Mutación in-place con `with self:`**: Dado que `self` es una referencia (`ref to map of K to V`), la mutación de la colección se realiza de forma natural y segura mediante bloques de contexto `with self:`, invocando métodos del runtime como `.put`, `.remove`, `.clear`.
+6. **Cero sobrecoste en tiempo de ejecución:** Todo el proceso de inferencia y sustitución ocurre en tiempo de compilación. No existen vtables, boxing de primitivos ni sobrecarga dinámica.
+
+> **Implementación:** `pengu_grammar.py` (`type_or_param`), `pengu_types.py` (`shard_param_ref`), `pengu_checker.py::_check_enchanting_decl`, `pengu_codegen.py::_collect_weave`, `pengu_infer.py::_resolve_call_target`.
+
+---
+
+### 10.2 `concept` — contratos de compile-time
+
+Un `concept` define un conjunto de firmas de métodos que un tipo debe satisfacer para cumplir el contrato:
+
+```pengu
 concept Speaker:
-    weave greet with name as string into void
-    weave loudness into int
+    weave greet with target as string into string
+    weave ritual default_greeting into string
+```
+
+#### Características y sintaxis:
+- **Sintaxis completa:** `concept Name [shard T [and U]] [where T: OtherConcept] :` seguido de una o más firmas `weave`.
+- **Sin cuerpos de implementación:** Los métodos dentro de un `concept` son puramente declarativos; no llevan `:` ni sentencias.
+- **Concepts genéricos:** Los concepts pueden aceptar parámetros de tipo (`shard T`), permitiendo modelar contenedores y operaciones parametrizadas:
+  ```pengu
+  concept Container shard T:
+      weave push with item as T into void
+      weave len into int
+  ```
+- **Soporte de métodos `ritual`:** Los concepts pueden exigir métodos estáticos asociados (`weave ritual ...`), obligando al tipo a proveer constructores o utilidades estáticas.
+- **Sin campos:** Un `concept` no puede declarar campos de datos, variables ni estados; únicamente firmas `weave`.
+
+> **Implementación:** `pengu_grammar.py::concept_decl`, `pengu_checker.py::_collect_top_level`, `pengu_symbols.py::define_concept`.
+
+---
+
+### 10.3 `bind` — implementación del contrato
+
+Un bloque `bind` conecta formalmente un tipo concreto con un `concept`:
+
+```pengu
+rune Dog:
+    name as string
+
+bind Dog with Speaker:
+    weave greet with target as string into string:
+        return "Woof, {target}!"
+
+    weave ritual default_greeting into string:
+        return "Woof!"
+```
+
+#### Reglas impuestas por el compilador:
+1. **Exhaustividad obligatoria (`E0031`):** Se deben implementar **todos** los métodos requeridos por el concept. Si falta uno o más métodos, el chequeador emite `E0031: UnimplementedConceptMethodError` (*Type 'T' does not implement method 'm' required by concept 'C'*).
+2. **Concordancia estricta de firmas (`E0030`):** Cada método en el `bind` debe tener exactamente la misma cantidad de parámetros y un tipo de retorno compatible con la definición del concept (`E0030: ConceptMethodMismatchError`).
+3. **Tipos de parámetros idénticos (`E0030`):** Los tipos de cada parámetro deben coincidir exactamente con los declarados en el concept.
+4. **Existencia previa del tipo y concept (`E0004`):** El tipo objetivo (`Type`) y el concept (`Concept`) deben estar declarados antes de su bloque `bind` (salvo que provengan de un `.d.pengu` con includes C).
+5. **Múltiples contratos:** Un tipo puede tener tantos bloques `bind` como concepts necesite (`bind Player with Speaker:`, `bind Player with Serializable:`).
+6. **Sin métodos por defecto:** Los concepts no proveen implementaciones por omisión (*default methods*); cada `bind` debe escribir la implementación completa de cada método.
+
+> **Implementación:** `pengu_checker.py::_collect_top_level` (rama `bind_decl`), `pengu_symbols.py::concept_bindings`.
+
+---
+
+### 10.4 Resolución de métodos en compile-time
+
+Cuando el compilador encuentra una llamada `calling x.method(...)`, el analizador semántico (`pengu_infer.py::_resolve_call_target`) resuelve la función destino siguiendo una búsqueda determinista:
+
+1. **Determinación del receptor:** Se evalúa la expresión `x` para obtener su tipo base (`obj_type`).
+2. **Desenvolvimiento de referencias:** Si `obj_type` es un `ref to T`, un alias (`alias`) o un tipo calificado (`frozen`, `seal`), se desenvuelve hasta el tipo subyacente `t_name`.
+3. **Parámetro de tipo (`TypeParam`):** Si `x` es un parámetro genérico `T`, el compilador consulta los bounds declarados en la cláusula `where T: Concept`. Si el concept contiene el método, resuelve la llamada contra la firma del concept.
+4. **Tabla unificada de métodos:** Se busca la tupla `(t_name, method_name)` en `symbols.methods` (tabla poblada por bloques `enchanting` y `bind`). Si el método es `ritual`, rechaza la llamada con `E0034`.
+5. **Búsqueda por nombre calificado:** Se busca en `symbols.functions[f"{t_name}_{method_name}"]`.
+6. **Caída a plantilla monomorfizada:** Si el tipo fue monomorfizado a partir de un genérico (ej. `Box_int`), se obtiene el nombre base `base_tname = t_name.split("_")[0]` (`Box`) y se busca en `symbols.generic_methods`. Las variables de tipo se sustituyen con los argumentos concretos correspondientes.
+7. **Tabla de bindings de concepts:** Se busca `(base_tname, concept)` en `symbols.concept_bindings` para resolver métodos provistos mediante `bind`.
+8. **Métodos integrados de contenedor:** Se comprueban métodos primitivos de listas (`push`, `pop`, `len`, etc.) y mapas (`get`, `put`, `contains`, etc.).
+9. **Fallo:** Si ningún paso localiza el método, se emite `E0004: Type 't_name' has no method 'method_name'`.
+
+#### Diagrama de resolución:
+
+```text
+  calling x.method(...)
+         │
+         ▼
+  ¿Es 'x' un TypeParam (T)?  ──[Sí]──► Buscar en bounds (where T: Concept)
+         │ [No]
+         ▼
+  Desenvolver punteros / alias -> t_name
+         │
+         ▼
+  ¿Existe en symbols.methods[(t_name, method)]? ──[Sí]──► Verificar !ritual -> FnType
+         │ [No]
+         ▼
+  ¿Existe en symbols.functions[t_name_method]? ──[Sí]──► Retornar FnType
+         │ [No]
+         ▼
+  base_tname = t_name.split("_")[0]
+  ¿Existe en generic_methods[(base_tname, method)]? ──[Sí]──► Sustituir shards -> FnType
+         │ [No]
+         ▼
+  ¿Existe en concept_bindings[(base_tname, concept)]? ──[Sí]──► Retornar FnType
+         │ [No]
+         ▼
+  ¿Es método nativo de ListType o MapType? ──[Sí]──► Retornar FnType sintético
+         │ [No]
+         ▼
+  Error E0004: Type 't_name' has no method 'method'
+```
+
+> **Implementación:** `pengu_infer.py::_resolve_call_target`.
+
+---
+
+### 10.5 Bounds en genéricos (`where T: A and T: B`)
+
+Los concepts se emplean principalmente como restricciones de tipo (*bounds*) en funciones y estructuras genéricas:
+
+```pengu
+concept Measurable:
+    weave weight into float
+
+concept Printable:
+    weave print_me into void
+
+weave display_weight shard T where T: Measurable and T: Printable with item as T into void:
+    calling item.print_me
+    calling spark.println with "Weight: {(calling item.weight to string)}"
+```
+
+- **Sintaxis de restricciones:** Se declaran tras `shard` mediante la cláusula `where T: Concept1 and T: Concept2` (o separadas por comas `where T: Concept1, T: Concept2`).
+- **Verificación en el punto de llamada:** Cuando una función genérica se especializa con un tipo concreto (ej. `calling display_weight with my_dog`), el compilador invoca `implements_concept(arg_t, bound, symbols)`.
+- **Falta de bound (`E0032`):** Si el tipo argumento no cuenta con un bloque `bind` para el concept requerido, el compilador emite:
+  ```text
+  error[E0032]: generic type argument 'Dog' does not implement required concept bound 'Printable'
+  ```
+  *(help: Bind the required concept to the type using 'bind Type with Concept:'.)*
+
+> **Implementación:** `pengu_checker.py::_check_type_bounds`, `pengu_infer.py::implements_concept`.
+
+---
+
+### 10.6 Limitaciones explícitas de los concepts
+
+Un `concept` en PenguScript no es un tipo de datos ordinario en tiempo de ejecución. Las siguientes limitaciones son fundamentales por diseño:
+
+1. **No puede utilizarse como tipo de valor de primera clase:** Aunque declarar `var s as Speaker` pasa la fase sintáctica (porque internamente `ConceptType` se acepta durante el chequeo preliminar), **el generador de C mapea cualquier `ConceptType` directamente a `void*`** (`CTypeMapper.to_c_type`), perdiendo la estructura de tipos. En consecuencia, invocar `calling s.greet` fallará con `E0004: Type 'Speaker' has no method 'greet'`.
+2. **Sin despacho dinámico ni vtables:** El compilador emite llamadas directas en C. No existen punteros a tablas virtuales ni sobrecarga de indirección en tiempo de ejecución.
+3. **Sin colecciones heterogéneas:** No es posible crear una lista `list of Speaker` que contenga instancias mixtas de `Dog`, `Player` y `Robot` para despachar llamadas polimórficas.
+4. **Sin herencia entre concepts:** No existe `concept A extends B`. Las combinaciones de contratos se expresan mediante bounds múltiples (`where T: A and T: B`).
+5. **Sin campos o variables de instancia:** Los concepts no pueden definir campos de datos.
+6. **Sin métodos por omisión:** Cada tipo debe implementar explícitamente todos los métodos requeridos.
+7. **Sin verificación ni introspección en runtime:** No existen operadores como `instanceof`, `as`, ni `is Speaker` en tiempo de ejecución. La conformidad con un concept es 100% estática.
+
+#### Ejemplo de uso incorrecto vs. corrección idiomática:
+
+```pengu
+concept Speaker:
+    weave greet into string
 
 rune Dog:
     name as string
 
 bind Dog with Speaker:
-    weave greet with name as string into void:
-        return
-    weave loudness into int:
-        return 1
+    weave greet into string:
+        return "Woof"
+
+weave main into void:
+    var d as Dog is with name is "Buddy"
+
+    # ❌ INCORRECTO: Usar el concept como tipo de variable
+    # var s as Speaker is d           # El C codegen mapea 'Speaker' a void*
+    # calling s.greet                 # E0004: Type 'Speaker' has no method 'greet'
+
+    # ✅ CORRECTO 1: Invocación directa sobre el tipo concreto
+    calling d.greet
+
+    # ✅ CORRECTO 2: Invocación polimórfica estática mediante genéricos con bounds
+    calling greet_anyone with d
+
+weave greet_anyone shard T where T: Speaker with s as T into void:
+    calling spark.println with calling s.greet
 ```
 
-- `enchanting T:` attaches methods to a type (`self` is `ref to T`).
-- `concept C:` declares a trait/interface; `bind T with C:` implements it.
-  Missing methods → `E0031`; signature mismatches → `E0030`.
-- Generic constraints `where T: Concept` (see next section).
-- The LSP offers *"Implement missing concept methods"* as a code action inside
-  a `bind` block.
+> **Implementación:** `pengu_codegen.py::CTypeMapper.to_c_type`, `pengu_infer.py::_resolve_call_target`.
+
+---
+
+### 10.7 Comparativa con interfaces de Java/C#
+
+| Característica | Interfaces (Java / C#) | Concepts (PenguScript) |
+|---|---|---|
+| **Mecanismo de despacho** | Dinámico (vtable / itable) en runtime | Estático (direct C call) en compile-time |
+| **Uso como tipo de variable (`var x as T`)** | ✅ Sí (referencia polimórfica) | ❌ No (se mapea a `void*`) |
+| **Colecciones heterogéneas (`list of T`)** | ✅ Sí (`List<Speaker>`) | ❌ No (`list of Speaker` no es utilizable) |
+| **Herencia entre contratos** | ✅ Sí (`interface B extends A`) | ❌ No (bounds múltiples `where T: A and T: B`) |
+| **Métodos por defecto (*default methods*)** | ✅ Sí (Java 8+, C# 8+) | ❌ No (cada `bind` implementa todo) |
+| **Campos o propiedades** | ✅ En C# / constantes en Java | ❌ No (solo firmas `weave`) |
+| **Inspección en runtime (`instanceof` / `is`)** | ✅ Sí | ❌ No (resuelto en tiempo de compilación) |
+| **Restricciones genéricas (*bounds*)** | ✅ Sí (`<T extends Speaker>`) | ✅ Sí (`shard T where T: Speaker`) |
+| **Implementación externa (*ad-hoc*)** | ❌ Requiere declarar `implements` en la clase | ✅ Sí (`bind` se declara fuera del `rune`) |
+| **Parámetros genéricos en el contrato** | ✅ Sí (`Comparable<T>`) | ✅ Sí (`concept Container shard T:`) |
+| **Métodos estáticos requeridos** | ❌ Limitado o no exigible | ✅ Sí (`weave ritual` en `concept`) |
+| **Sobrecarga de rendimiento** | Puntero a objeto + puntero a vtable | **Cero overhead** (inlined o salto directo) |
+
+---
+
+### 10.8 Ejemplo end-to-end compilable
+
+El siguiente programa ilustra la definición de un `concept` con métodos de instancia y `ritual`, su implementación mediante `bind`, y su consumo a través de funciones genéricas con cláusulas `where`:
+
+```pengu
+import std.spark
+
+# 1. Definición del contrato
+concept Formatter:
+    weave format_entry with title as string into string
+    weave ritual category_name into string
+
+# 2. Tipos de datos
+rune LogEntry:
+    level as string
+    message as string
+
+# 3. Implementación del contrato
+bind LogEntry with Formatter:
+    weave format_entry with title as string into string:
+        return "[{self->level}] {title}: {self->message}"
+
+    weave ritual category_name into string:
+        return "SYSTEM_LOG"
+
+# 4. Función genérica restringida por el concept
+weave print_formatted shard T where T: Formatter with item as T, header as string into void:
+    var rendered as string is calling item.format_entry with header
+    calling spark.println with rendered
+
+# 5. Punto de entrada
+weave main into int:
+    var entry as LogEntry is with level is "INFO", message is "Compiler pipeline ready"
+
+    # Llamada al método ritual estático del concept directamente sobre el tipo
+    calling spark.println with "Category: {calling LogEntry.category_name}"
+
+    # Llamada a través de la función genérica con bound comprobado estáticamente
+    calling print_formatted with entry, "Build"
+    return 0
+```
+
+### 10.9 Built-in concepts
+
+PenguScript ships a closed set of concepts that the compiler, the checker and
+the generated C already understand. They are **not** keywords: they are
+reserved names in the global scope. They may be used as `where` bounds, and the
+ones marked *derivable* may also appear in a `derive` clause.
+
+| Concept | Latin | Operations / capabilities it enables |
+|---|---|---|
+| `Num` | *numerus* | `+`, `-`, `*`, `/` and unary `-` on a type parameter |
+| `Integrum` | *integer* | integer-only operators: `%`, `&`, `|`, `^`, `<<`, `>>`, `~` |
+| `Par` | *par* | `==`, `!=` |
+| `Ordo` | *ordo* | `<`, `<=`, `>`, `>=` |
+| `Vinculum` | *vinculum* | usable as a `map` key (hashing) |
+| `Imago` | *imago* | deep copy (`clone` callback for owned containers) |
+| `Nexus` | *nexus* | destruction (`cleanup` callback for owned containers) |
+| `Forma` | *forma* | string interpolation / formatting (`"{x}"`) |
+| `Iterabilis` | *iterabilis* | `for x in col` iteration |
+| `Donum` | *donum* | default value via the `donum T` expression |
+
+`Integrum` is a strict refinement of `Num`: an `Integrum` bound also satisfies
+`Num` (so `where T: Integrum` allows `+`), but not the other way round — this is
+what makes `%` reject `float`.
+
+Which primitive and container types satisfy which concept is fixed by the
+compiler's concept table:
+
+| Type | Concepts |
+|---|---|
+| integer primitives (`int`, `i8`…`u64`, `usize`, `isize`, `byte`, …) | `Num`, `Integrum`, `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
+| floats (`float`, `f32`, `f64`, `double`) | `Num`, `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
+| `bool` | `Par`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
+| `char` | `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma` |
+| `string` | `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum`, `Iterabilis` |
+| `list of T` / `map of K to V` | `Par`, `Iterabilis`, `Imago`, `Nexus` |
+| `slice of T` | `Par`, `Iterabilis` |
+| `maybe T` / `result of T to E` | `Par`, `Imago`, `Nexus` |
+
+Runes, echos and algebraic omens gain a concept through `derive` (§9.1.2) or an
+explicit `bind` (§10.3); a `where` bound is then satisfied by the derived
+implementation.
+
+### 10.10 Coherence of `bind`
+
+A type may bind several concepts, but the `(type, method)` pair may only be
+provided once:
+
+```pengu
+concept A:
+    weave f into int
+
+concept B:
+    weave f into int
+
+bind Foo with A:
+    weave f into int:
+        return 1
+
+bind Foo with B:
+    weave f into int:
+        return 2      # E0047: 'f' of 'Foo' is already provided by concept 'A'
+```
+
+Binding the *same* `(type, concept)` pair twice is also `E0047`. Splitting the
+object-safe operations of one type over two concepts is fine as long as the
+method names are distinct.
 
 ---
 
@@ -1151,12 +1549,170 @@ weave output shard T where T: Printable with item as T into void:
 - Generic `rune`s may appear with `of` in signatures; inference for type
   parameters that only appear in return/container positions is limited (see
   the note in §18’s references) — provide concrete argument types.
+- **Generic container enchanting:** Standard containers can be enchanted with type parameters directly (`enchanting map of shard K to shard V:`, `enchanting list of shard T:`, `enchanting slice of shard T:`). The compiler monomorphizes methods per concrete usage with full support for transitive calls on `self` and priority override from concrete blocks (see §10.1).
 
 > [!IMPORTANT]
 > PenguScript has no “turbofish” (`f::<T>`). Type parameters are inferred from
 > argument types; when a type only appears in the *result* (e.g. a generic
 > container builder) you must give the compiler concrete context, or the check
 > fails with “Could not infer type parameter(s)”.
+
+### 11.1 `shard` fundamentals
+
+A type parameter is declared with `shard` and is in scope from the `with`
+parameter list to the end of the declaration; it may also be used in the return
+type and inside `rune` bodies:
+
+```pengu
+rune Box shard T:
+    value as T
+
+weave identity shard T with x as T into T:
+    return x
+
+weave first_or shard T where T: Par with xs as list of T, fallback as T into T:
+    if calling xs.len == 0:
+        return fallback
+    return xs at 0
+```
+
+Every *concrete* call instantiates a specialized C function/struct
+(`identity_int`, `Box_of_string`, …). Nesting a generic inside a generic is
+supported without redeclaring helpers: `Box of (Box of int)`.
+
+Explicit type arguments are available when inference cannot see them:
+
+```pengu
+var a as int is calling identity of int with 5
+var b as string is calling identity of string with "hi"
+```
+
+### 11.2 Bounds
+
+`where` clauses attach concepts to type parameters (see §10.5 for the full
+grammar and §10.9 for the concept table):
+
+```pengu
+weave sum shard T where T: Num with xs as list of T into T:
+    ...
+
+weave clamped shard T where T: Num and T: Ordo with lo as T, hi as T into T:
+    ...
+```
+
+Bounds are also propagated **into method bodies**: every `TypeParam` built while
+checking a generic `weave`, `enchanting` or `bind` carries the bounds declared on
+the receiver (`enchanting Box shard T where T: Par`) and on the method itself.
+
+Bounds are enforced in **both directions**:
+
+* reading/deriving — `T` may only be used where its bounds allow it
+  (operators, `donum T`, iteration, …);
+* writing — assigning into a `T` target requires a value that implements every
+  bound (`set essence of x is "s"` with `T: Num` is `E0005`, §5.1); an unbounded
+  `T` stays a wildcard, and `any`/`null`/another parameter are always accepted.
+
+### 11.3 Operators in generic contexts
+
+Operators are only available when the corresponding concept is in the bounds:
+
+| Bound | Operators available on `T` |
+|---|---|
+| `Num` | `+`, `-`, `*`, `/`, unary `-` |
+| `Integrum` | `%`, `&`, `\|`, `^`, `<<`, `>>`, `~` (and everything `Num` allows) |
+| `Par` | `==`, `!=` |
+| `Ordo` | `<`, `<=`, `>`, `>=` |
+
+Using an operator without its bound raises `E0049` with the exact `where`
+clause to add:
+
+```pengu
+weave bad shard T with a as T, b as T into T:
+    return a + b            # E0049: add 'where T: Num'
+
+weave mod2 shard T where T: Num with a as T, b as T into T:
+    return a % b            # E0049: '%' needs 'where T: Integrum'
+```
+
+### 11.4 `donum T` — default values
+
+`donum T` is the zero/default value of a defaultable type. It lowers to the C
+compound literal `(T){0}`, which is valid for scalars, pointers and structs:
+
+```pengu
+weave sum shard T where T: Num with xs as list of T into T:
+    var acc as T is donum T
+    for x in xs:
+        set acc is acc + x
+    return acc
+```
+
+`donum T` needs a bound whose types are defaultable (`Num`, `Integrum`, `Par`,
+`Ordo`, `Forma`, `Donum`), or a concrete type that implements `Donum`:
+
+```pengu
+var n as int is donum int                 # 0
+var s as string is donum string           # empty string
+var f as float is donum float             # 0.0
+```
+
+### 11.5 Iterating generics
+
+Iteration needs a concrete element type. `list of T`, `slice of T`, arrays,
+strings and maps all work inside generic code:
+
+```pengu
+weave count shard T where T: Par with xs as list of T into int:
+    var n as int is 0
+    for x in xs:                 # element type is T
+        set n is n + 1
+    return n
+```
+
+Iterating a *bare* type parameter (`xs as T` with `for x in xs`) is rejected
+with `E0005`: the element type is unknown and the generated C could not index
+the value. Use `list of T` / `slice of T`, or wait for associated types
+(§11.7).
+
+### 11.6 `derive` on generic types
+
+`derive` works on generic declarations; the derived concepts become bounds on
+the type parameters of the helper functions:
+
+```pengu
+rune Point shard T derive Par, Ordo:
+    x as T
+    y as T
+```
+
+`Point of int` and `Point of string` both get working `==`, `<`, … as long as
+the substituted argument implements the concept (checked at the call site).
+
+### 11.7 Associated types (future work)
+
+Iterator-style concepts such as Rust's `Iterator` need an *associated type* so
+generic code can name the element:
+
+```pengu
+concept Iterabilis shard Self:
+    alias Item
+    weave next with it as ref to Self into maybe Self.Item
+```
+
+The syntax for declaring the associated type (`alias Item`) is accepted for
+forward compatibility, but resolving `Self.Item` to a concrete C type during
+monomorphization is **not implemented yet**. Until it lands, generic iteration
+uses `list of T`/`slice of T` (§11.5), and `for x in xs` over a bare `T: Iterabilis`
+is a compile error.
+
+### 11.8 Related sections
+
+* Generic methods and containers: §10.1.
+* Concept definitions and `bind`: §10.2, §10.3.
+* Built-in concept table: §10.9.
+* Coherence rules for `bind`: §10.10.
+* Derived concept implementations: §9.1.2.
+* Container ownership (`Imago`/`Nexus`): §13.5.
 
 ---
 
@@ -1176,54 +1732,40 @@ weave main into void:
         calling print with name
 
     let fallback is user or else "Guest"          # value or fallback
-    # let u is user or return 0                   # value or early return
-    # let f is calling risky() or:                # handle failure with a block
-    #     let err is error                        # 'error' is bound here
-    #     ...
-    # let f2 is try calling risky()               # propagate to the caller
+    let u is user or return 0                     # value or early return
+    let f is calling risky with 42 or:            # handle failure with a block
+        calling spark.println with error
+        return 1
+    let f2 is try calling risky with 10           # propagate to caller
 ```
 
-Semantics and codegen:
+### Semantics & Codegen Lowering:
 
-- `maybe T` / `result of T to E` are value containers in C
-  (`PenguMaybe`/`PenguResult`). Present values are heap copies inside the
-  container.
-- `result of T to E` exposes three inspection fields:
-  - `res.is_ok` (`bool`): `true` when the operation succeeded.
-  - `res.value` (`T`): the success payload (only safe to access when `res.is_ok` is `true`).
-  - `res.error` / `res.err` (`E`): the error payload (only safe to access when `res.is_ok` is `false`).
-- `or else` yields the fallback lazily on absence/error (ternary in a GNU
-  statement-expression).
-- `or return X` returns `X` from the enclosing function on failure.
-- `or:` runs a handler block; the failure payload is bound to the contextual variable `error` (of type `string` for `maybe T` or `E` for `result of T to E`). Referencing `error` outside an `or:` handler is a compile-time semantic error (`E0015`). The `error` symbol is scoped strictly to the lexical body of the `or:` block; once the block exits and its scope pops, any subsequent reference to `error` refers to an outer/global symbol or is rejected.
-- `try expr` unwraps and **propagates** to the caller: allowed only inside a
-  function whose return type is `maybe T` (for a maybe operand) or a
-  compatible `result` (error type must match) — otherwise `E0045`. On failure
-  the codegen `return`s `maybe none` / the error result.
-- `some v` boxes a value; `maybe none` needs an explicit type context
-  (`E0014` otherwise).
-
-```pengu
-weave parse_int_or_default with s as string into maybe int:
-    return calling parse_int with s      # runtime parse → maybe int
-
-weave load into maybe string:
-    let f is try calling open_file with "data.txt"
-    return some f
-```
-
-`E0020` guards return-type compatibility, `E0045` guards `try` placement.
+- **Value Containers:** `maybe T` and `result of T to E` are represented in C as `PenguMaybe` and `PenguResult` structs. Present values are heap-allocated copies allocated via `pengu_sigil_alloc(sizeof(T))`.
+- **Field Inspection:**
+  - `maybe T`: exposes `.is_present` (`bool`) and `.value` (`T`, safe to access when `is_present` is true).
+  - `result of T to E`: exposes `.is_ok` (`bool`), `.value` (`T`, safe when `is_ok` is true), and `.error` / `.err` (`E`, safe when `is_ok` is false).
+- **`or else <expr>` (Lazy Fallback):** Evaluates `<expr>` only if the primary value is absent or an error. Emits a GNU statement-expression:
+  ```c
+  __extension__(({
+    PenguMaybe _m = user;
+    _m.is_present ? (*(string*)_m.value) : ("Guest");
+  }))
+  ```
+- **`or return <expr>` (Early Return):** Checks presence/success. If absent or failed, it automatically runs all registered cleanup handlers (`defer`, `errdefer`, scope auto-banish) and returns `<expr>` from the enclosing weave.
+- **`try <expr>` (Propagation):** Unwraps the value or immediately returns an empty/error result from the enclosing function:
+  - Requires the enclosing function to return `maybe T` (for a `maybe` operand) or a compatible `result` type (`E0045: TypeMismatchError` if mismatched).
+  - On failure, cleans up active scopes and executes `pengu_frame_pop(); return pengu_maybe_none();` (or returns the error result).
+- **`or:` Blocks (Statement vs Expression):**
+  - **As Target Initializer (`var x is f() or: ...`):** Emitted as clean C statements (`if (res.is_ok) { x = res.value; } else { ... }`).
+  - **As Standalone Expression:** Emitted as a GNU statement-expression.
+  - **Lexical `error` Scope:** Inside an `or:` block, the failure payload is bound to `error` (type `string` for `maybe T`, or error type `E` for `result`). Accessing `error` outside an `or:` block is a compile-time error (`E0015`). Once the block closes, `error` is removed from the scope.
+- **Syntactic Positions (`list_value_expr` vs Arithmetic):**
+  - **In Call Arguments & Struct Initializers:** `or else`, `or return`, and `or:` blocks are valid directly without parentheses in function/weave arguments (`calling f with a, b or else "default"`) and struct field initializers (`with name is get_name() or else "guest"`), because `list_value_expr` parses unwrap expressions directly.
+  - **In Binary Arithmetic:** `or else` and `or return` bind with lower precedence than binary operators (`+`, `-`, `*`, `/`). When used as an operand in arithmetic, parentheses are required around the unwrap expression: `var total is 10 + (bonus or else 0)`. Writing `10 + bonus or else 0` groups as `(10 + bonus) or else 0`, which triggers a type mismatch error (`E0005`) when evaluating the binary addition.
 
 > [!NOTE]
-> `or:` blocks work in any statement position where a value is expected:
-> as the initializer of `var` / `let` / `static var` (`var x is f() or: …`),
-> in `set x is f() or: …`, in `return f() or: …`, and as a bare
-> expression statement (`f() or: …`). They cannot appear inside a larger
-> expression (`a + (b or: …)`, `calling g with (x or: …)`): bind the result
-> to a variable first, or use `or else` / `or return`.
-> When an `or:` block handles failure, the unwrapped value is only accessed
-> on success; if the handler falls through without an explicit return or jump,
-> the target binding defaults safely to its zero/null representation.
+> For a module-level API over these operators, see the native helpers in `std.oracle` (`some_int`, `unwrap_int`, `unwrap_or_string`, …).
 
 ---
 
@@ -1241,26 +1783,26 @@ banish map_var                            # free map allocation and string keys/
 ```
 
 Rules:
-
-- `banish target` accepts an lvalue of type `ref to T`, `string`, `list of T`, or `map of K to V`. Rejects non-lvalues, literals, `const`, and `frozen` (`E0008`).
+- `banish target` accepts a mutable lvalue of type `ref to T`, `string`, `list of T`, or `map of K to V`.
 - `banish ptr` (where `ptr as ref to T`): emits `pengu_banish((void*)(ptr))` to release heap-allocated memory.
 - `banish s` (where `s as string`): emits `pengu_banish_string(&s)`. Frees dynamically allocated string heap buffers (`free(s.data)`), sets `s.data = NULL` and `s.len = 0`, emptying the string. Do not access after banishing.
 - `banish l` (where `l as list of T`): emits `pengu_banish_list(&l)`. Frees the internal items buffer and resets capacity and length to 0.
 - `banish m` (where `m as map of K to V`): emits `pengu_banish_map(&m)`. Frees hash buckets and entries, and automatically frees all `string` keys and `string` values (`pengu_banish_string`), avoiding leaks in dynamic dictionaries.
 - `defer`/`errdefer` statements work with `banish` (e.g. `defer banish s`) as well as blocks; execution is LIFO on scope exit (or only on error paths for `errdefer`).
 - `ref to T` is passed as a pointer: enables mutation from C and efficient `self` receivers.
-- The runtime also ships explicit cleanup bridges for native handles (e.g. `std.filum` `free` methods, `std.regulus.regex_free`, `std.parchment.free_document`, `pengu_precis_free_response`).
 
-> [!WARNING]
-> `ref to` pointing at a local value is only valid while that local lives —
-> like C. There is no borrow checker; keeping a returned reference to a local
-> is user error, not compiler-managed.
+#### Validation & Prohibitions (`_check_banish_stmt` & `banish_expr`):
+- **Literals & Non-Lvalues (`E0008`):** Attempting to banish a literal (`banish "str"`, `banish 10`) raises `E0008: InvalidMemoryOpError`.
+- **Temporary Expressions (`E0008`):** Expressions without an assignable memory location (calls, binary operators, unwraps) raise `E0008`. Assign the temporary to a variable first: `var tmp is f(); banish tmp`.
+- **Nominal `seal` Types (`E0008`):** Strong newtypes cannot be banished directly even if their underlying type is a string or pointer. An explicit conversion is required: `banish (v to string)`.
+- **`frozen` (Read-Only) Targets (`E0008`):** Banish modifies and deallocates target memory; banishing a `frozen` variable or value raises `E0008`.
+- **Constants (`E0008`):** Constants cannot be banished.
+- **Auto-Owned Locals (`E0047`):** Explicitly banishing a scope-owned local variable raises `E0047: AutoOwnedBanishError` to prevent double-free bugs, as the compiler automatically injects cleanup at the end of the enclosing block.
+- **Borrowed Locals (`E0048`):** Banishing a variable marked `borrowed` raises `E0048: BorrowedBanishError`, because borrowed references do not hold ownership over the underlying memory.
 
 ### 13.1 Indexing through pointers and borrowing C buffers
 
-A `ref to T` can be indexed directly, in reads and in writes, with the same `at`
-operator arrays use (one more reason to prefer `p at i` over pointer
-arithmetic):
+A `ref to T` can be indexed directly, in reads and in writes, with the same `at` operator arrays use:
 
 ```pengu
 weave fill with p as ref to int, count as int into int:
@@ -1274,36 +1816,9 @@ weave main into int:
     return 0
 ```
 
-- The element type is the pointee: `set p at i is v` through a
-  `ref to frozen T` is `E0006`, and `p at i` yields `frozen T` there.
-- `ref to void` and `ref to opaque` cannot be indexed (their element size is
-  unknown): the error's `help:` suggests `transmute p to ref to T` or a slice
-  (below).
-- The index must be an integer; it is an additive expression, so `p at n - 1`
-  indexes `n - 1` (see the note on `at` in §6.1).
-
-To hand a pointer *and its length* to code that wants a view, use the generic
-bridge in `std.ffi` — it works for any element type, including structs:
-
-```pengu
-import std.ffi
-import std.raylib
-
-weave main into int:
-    # any buffer: a local array, or memory handed to you by C
-    var pts as array of Vector2 with size 4 is [with x is 1.0, y is 2.0]
-    var sl as slice of Vector2 is calling ffi.slice_from_ptr of Vector2 with (sigil of pts), 4
-    var total as f32 is 0.0
-    for p in sl:
-        set total += p.x
-    return 0
-```
-
-**Pointer arithmetic (`p + 1`) is not part of the language.** Indexing
-(`p at i`), slices (`ffi.slice_from_ptr`, `arr at a to b`) and `transmute` cover
-the same ground with bounds-carrying or explicit types; use them.
-
-> **Note:** Starting in 0.10.0, heap-owned locals are automatically freed at scope exit; see §13.4.
+- Slices can be constructed over arbitrary C pointers using `std.ffi.slice_from_ptr`:
+  `var sl as slice of Vector2 is calling ffi.slice_from_ptr of Vector2 with (sigil of pts), 4`.
+- **Pointer arithmetic (`p + 1`) is deliberately unsupported.** Indexing (`p at i`), slices (`ffi.slice_from_ptr`), and `transmute` provide bounds-carrying or explicit alternatives.
 
 ### 13.2 Strict Pointer Typing & Interoperability
 
@@ -1311,7 +1826,7 @@ PenguScript enforces strict pointee typing for `ref to T` to prevent silent buff
 
 | Source Pointer (`src`) | Destination Expected (`dst`) | Allowed? | Rule / Note |
 |---|---|---|---|
-| `ref to T` | `ref to T` | ✅ Yes | Exact pointee match |
+| `ref to T` | `ref to T` | ✅ Yes | Exact pointee match (`_same_pointee`) |
 | `ref to char` | `ref to frozen char` | ✅ Yes | Mutable flows into frozen (`const`) |
 | `ref to byte` | `ref to char` | ✅ Yes | Raw C byte buffer interop (`char*` ↔ `uint8_t*`) |
 | `ref to char` | `ref to byte` | ✅ Yes | Raw C byte buffer interop (`char*` ↔ `uint8_t*`) |
@@ -1326,111 +1841,133 @@ PenguScript enforces strict pointee typing for `ref to T` to prevent silent buff
 
 ### 13.3 C Buffer Ownership & Lifetime Conventions
 
-C bindings declare functions that return heap buffers allocated by the underlying library (`malloc`, `strdup`, `LoadAudioStream`, `sqlite3_open`, etc.). The lifetime conventions are:
-
-1. **The binding documents deallocation.** The `##` docstrings on the binding (generated from C headers or authored manually) specify the corresponding free function.
-2. **PenguScript never guesses external allocators.** Memory allocated by an external C library must be freed using that library's own cleanup routine, **not** with `banish`. `banish` only manages memory owned by the PenguScript runtime (`pengu_sigil_alloc`, dynamic strings, lists, maps).
-3. **Recommended pattern: `defer calling lib_free with p`**
-
-   ```pengu
-   import std.raylib
-
-   weave play_and_free into int:
-       var stream as raylib.AudioStream is calling raylib.LoadAudioStream with 44100, 32, 2
-       defer calling raylib.UnloadAudioStream with stream
-       calling raylib.PlayAudioStream with stream
-       while (not calling raylib.WindowShouldClose):
-           calling raylib.UpdateAudioStream with stream
-       return 0
-       # 'UnloadAudioStream' runs deterministically upon exiting the weave.
-   ```
-
-4. **`banish` manages native PenguScript containers.** `banish s` (`string`), `banish l` (`list of T`), and `banish m` (`map of K to V`) free internal heap buffers managed by `pengu_runtime.h`. A `PenguString` returned by a C function that created it via `pengu_string_new` is freed with `banish`.
-5. **Closing opaque handles with `defer`.** File descriptors, network sockets, database connections, and OS handles follow the same pattern:
-
-   ```pengu
-   var sock is calling connect_tcp with host, port
-   defer calling close_socket with sock
-   ```
-
-6. **Error cleanup with `errdefer`.** When a function acquires resources and subsequent operations may fail, use `errdefer` to ensure cleanup occurs only along error exit paths:
-
-   ```pengu
-   var f is calling open_file with path
-   errdefer calling close_file with f
-   # ... if any error or early failure returns here, close_file executes.
-   ```
+C bindings declare functions that return heap buffers allocated by underlying libraries (`malloc`, `strdup`, `LoadAudioStream`, `sqlite3_open`, etc.):
+1. **Binding Documentation:** The `##` docstrings specify the library's designated cleanup function.
+2. **Library Cleanup vs Banish:** Memory allocated by an external C library must be released with that library's own cleanup routine (e.g. `defer calling raylib.UnloadTexture with tex`), **not** with `banish`. `banish` is reserved for memory managed by the PenguScript runtime (`pengu_sigil_alloc`, dynamic strings, lists, maps).
 
 ### 13.4 Scope-Owned Locals (Auto-Banish)
 
-Starting in version 0.10.0, PenguScript features automatic deterministic scope-owned memory management (*scope-owned locals*). Local variables holding heap containers (`string`, `list of T`, `map of K to V`) with fresh, non-aliasing initializers are automatically managed by their enclosing lexical block (`is_auto_banished`).
+PenguScript implements deterministic automatic memory management for locally allocated heap values (*scope-owned locals*). Local variables holding heap containers (`string`, `list of T`, `map of K to V`) initialized with fresh, non-aliasing expressions are tracked by the compiler (`is_auto_banished`).
 
-When execution exits the lexical block where the variable was declared (`weave`, `if`, `while`, `for`, `with:`, `or:`, `test`), the compiler automatically emits deterministic, LIFO-ordered calls to `pengu_banish_string`, `pengu_banish_list`, or `pengu_banish_map`.
+When execution exits the lexical block where the variable was declared, the compiler emits deterministic, LIFO-ordered cleanup calls (`pengu_banish_string`, `pengu_banish_list`, `pengu_banish_map`).
 
-```pengu
-weave build_greeting with name as string into string:
-    var greeting is "Hello, " + name + "!"
-    calling print with greeting
-    return greeting            # Ownership transferred to caller; auto-banish is disabled
+#### Conditions for Auto-Ownership (`_compute_auto_banished`):
+
+A local variable `x` is marked auto-owned if and only if **all six** conditions are satisfied simultaneously:
+1. **Container Type:** Its type is `string`, `list of T`, or `map of K to V` (not nominal `seal S as string`, not pointers, not primitives).
+2. **Not Borrowed:** It is declared **without** the `borrowed` soft modifier.
+3. **Fresh Heap Expression:** Its initializer expression is a fresh allocation:
+   - String interpolation format `"{x} and {y}"`
+   - Character conversion `chr(n)` or conversion `(x to string)`
+   - Collection constructors: `list of T with capacity N` or literals with elements `[a, b]`
+   - Map constructors: `map of K to V` or map literals with entries
+   *(String literals `"hello"` referencing static memory, empty collections `[]`, and aliased variables do NOT trigger auto-banish. `+` is numeric-only, so it can no longer produce a fresh string.)*
+4. **No Reassignment:** The variable is never reassigned via `set x is ...` in the scope.
+5. **No Explicit Banish / Defer:** It does not appear in `banish x`, `defer banish x`, or `errdefer banish x`.
+6. **No Scope Escape:** It does not escape its lexical scope according to escape analysis.
+
+#### Static Escape Analysis Triggers:
+
+A variable is marked as **escaped** (which automatically turns off auto-banish to prevent use-after-free) if:
+- **Returned:** Returned directly (`return x`), via pointer (`sigil of x`), or from within a block expression (`return if c: x else: y`, `return do: x`).
+- **Pushed into Containers _without_ deep copy:** Passed as an argument to container mutating methods (`calling lst.push with x`, `append`, `map.put`, `insert`, `set`) whose element type has **no clone callback**. Owning containers (`list of string`, `list of list of T`, `map of string to V`, runes with `derive Imago`, …) deep-copy on `push`/`put`, so the local keeps ownership and is still auto-banished (§13.5); only shallow/aliasing stores mark the value as escaped. The receiver type is resolved through **access chains** — `self->items`, `self.items`, `o->inner.items`, `bag.items`, `bag->items` and indexed forms all reach the underlying container, so a `push` through a rune field is classified by that field's element type, not by the enclosing rune.
+- **Embedded in Compound Literals:** Embedded in struct literals (`with f is x`), arrays `[x]`, maps, `tuple_lit`, `some x`, `ok x`, `err x`, or indented block literals (`indent_entries`, `indent_array`, `map_entry`).
+- **Aliased:** Assigned to another variable (`var b is x`, `let b is x`).
+- **Address-of:** Explicit pointer taken via `sigil of x`.
+- **Field of Escaping Container:** Setting field of an escaping container `set container.item is x`.
+- **Not an escape (owned string slots):** a `string` written into a resolvable string slot — a struct/omen field (`set p.name is x`, `.name` inside a `with:` builder, `with name is x`), a `list`/array element (`set xs at 0 is x`) or a pointee (`set essence of p is x`) — is **deep-copied** into that slot, so the local keeps its buffer and is still auto-banished. Non-string slots (lists, maps, runes) and targets whose type cannot be resolved keep the conservative behaviour above.
+
+#### Diagnostics & Safety Invariants:
+- **`AutoOwnedBanishError` (`E0047`):** Calling manual `banish x` on an auto-owned variable is rejected at compile time to prevent double-free bugs.
+- **`BorrowedBanishError` (`E0048`):** Calling `banish x` on a variable declared with `borrowed` is rejected at compile time because borrowed references do not own memory.
+
+#### Runtime Heap Functions Summary:
+
+| Function | Signature / Operation | Behavior | Ownership Semantics |
+|----------|-----------------------|----------|---------------------|
+| `pengu_sigil_alloc` | `void* pengu_sigil_alloc(size_t sz)` | Allocates zero-initialized heap memory for `some` optionals. | Caller owns returned pointer. |
+| `pengu_string_new` | `PenguString pengu_string_new(const char *s, int len)` | Allocates an owned string buffer on the heap. | Caller owns returned `PenguString.data`. |
+| `pengu_string_from_cstr` | `PenguString pengu_string_from_cstr(const char *s)` | Creates a non-owning borrowed view over a C string. | Borrowed; non-owning (do not banish static literals). |
+| `pengu_string_format_ex` | `PenguString pengu_string_format_ex(const char *fmt, ...)` | Byte-exact `"{expr}"` formatter: `%.*s` copies `len` bytes (NULs included). | Allocates new buffer; caller owns result. |
+| `pengu_string_concat` | `PenguString pengu_string_concat(PenguString a, PenguString b)` | Allocates and returns concatenated string. | Allocates new buffer; caller owns result. Inputs `a`, `b` unchanged. |
+| `pengu_string_equal` | `bool pengu_string_equal(PenguString a, PenguString b)` | Compares byte content and length for equality. | Non-allocating; inputs borrowed by value. |
+| `pengu_to_string` | `pengu_to_string(x)` | Generic macro converting primitive `x` to `PenguString`. | Returns owned heap string for formatted values, or borrowed view. |
+| `pengu_string_format` | `PenguString pengu_string_format(const char *fmt, ...)` | Allocates formatted string via `vsnprintf`. | Caller owns returned `PenguString.data`. |
+| `pengu_banish_string`| `void pengu_banish_string(PenguString *s)` | Frees heap string buffer and nullifies data pointer. | Releases owned heap string buffer. |
+| `pengu_banish_list`  | `void pengu_banish_list(PenguList *l)` | Frees dynamic list items buffer and resets length/capacity. | Releases list buffer. |
+| `pengu_banish_map`   | `void pengu_banish_map(PenguMap *m)` | Frees map entries and recursively banishes string keys/values. | Releases hash table and heap keys. |
+| `pengu_banish`       | `void pengu_banish(void *ptr)` | Calls standard heap `free(ptr)`. | Releases raw pointer allocation. |
+
+### 13.5 Container ownership & deep copy
+
+A `PenguList` / `PenguMap` may carry two ownership callbacks:
+
+```c
+typedef void (*PenguElemCleanup)(void *elem);              /* drop   */
+typedef void (*PenguElemClone)(void *dst, const void *src); /* clone  */
 ```
 
-#### When a Local is Auto-Owned
+```c
+typedef struct {
+    void *data; int len; int cap; size_t elem_size;
+    PenguElemCleanup elem_cleanup;   /* called per element by pengu_banish_list */
+    PenguElemClone   elem_clone;     /* called by pengu_list_push              */
+} PenguList;
 
-A local variable `x` is marked `is_auto_banished = True` when all of the following hold:
+typedef struct {
+    PenguMapEntry *entries; int len; int cap;
+    size_t key_size, val_size;
+    PenguElemCleanup key_cleanup, val_cleanup;
+    PenguElemClone   key_clone,   val_clone;
+} PenguMap;
+```
 
-1. Its type is an owned heap container: `string`, `list of T`, or `map of K to V`.
-2. It is declared **without** the `borrowed` modifier.
-3. Its initializer is a fresh heap expression (e.g. dynamic string concatenation `a + b`, dynamic format `{name}`, collection constructor `list of T`, `map of K to V`, etc.).
-4. It does **not** escape its scope (see escape analysis below).
-5. It is not reassigned with `set x is ...` within its scope.
-6. It does not appear in an explicit `defer banish x` or `errdefer banish x`.
+* `pengu_list_new_owned(elem_size, cap, cleanup, clone)` and
+  `pengu_map_new_owned(…)` register the callbacks; the code generator emits them
+  automatically whenever the element/key/value type owns memory (`string`,
+  `list`, `map`, a rune with `derive Imago`, …).
+* `pengu_list_push` **deep-copies** when `elem_clone` is set (`memcpy`
+  otherwise); `pengu_map_alloc_slot`/`pengu_map_put` do the same per key and
+  value.
+* `pengu_banish_list` / `pengu_banish_map` invoke `*_cleanup` for every live
+  element before freeing the buffer, so nested containers are released
+  recursively (`list of string`, `map of string to list of int`, …).
+* Helpers `pengu_list_cleanup` / `pengu_list_clone` / `pengu_map_cleanup` /
+  `pengu_map_clone` / `pengu_string_cleanup` / `pengu_string_clone` adapt a
+  container or string for use as an element callback.
+* **Invariant:** `elem_size` / `key_size` / `val_size` and the callbacks are
+  immutable once the container exists — the stride and the destructor must stay
+  consistent with the elements already stored.
+* FFI helpers `pengu_list_of_string_from_cstrs(arr, count)` and
+  `pengu_list_of_string_from_cstrv(arr)` build an owned `list of string` from a C
+  array, copying each string so the caller keeps ownership of the input.
 
-#### When Auto-Banish is Inactive
-
-A variable is **not** auto-banished when:
-- It is a scalar type (`int`, `bool`, `float`, etc.), a reference (`ref to T`), a `maybe T`, a `result of T to E`, a rune/echo/omen, a stack array (`array of T with size N`), or a non-owning slice (`slice of T`).
-- It is initialized with a string constant / literal (`var s is "hello"`): the underlying `PenguString` references static `.rodata` memory and does not require heap deallocation.
-- It is declared with the `borrowed` modifier.
-- It is a nominal seal (`seal S as string`): nominal seals convey type opacity and do **not** participate in automatic scope deallocation even when wrapping `string`, `list of T`, or `map of K to V`. Explicit disposal with `banish` requires converting or casting back: `var s as string is (my_seal to string); banish s`.
-- It is reassigned with `set` within the same scope.
-- It escapes into a persistent container, data structure, outer variable, or is returned to the caller.
-
-#### Static Escape Analysis
-
-The compiler's semantic checker analyzes variable usage across the lexical scope. A variable is marked as **escaped** (disabling auto-banish) in the following scenarios:
-
-- **Return Statements**: Returning `x` directly (`return x`), via pointer (`sigil of x`), or as a branch value in a block return (`return if c: x else: "fallback"`, `return do: x`, loop expressions) transfers ownership to the caller.
-- **Collection Insertion**: Passing `x` as an argument to persistent collection methods (`calling lst.push with x`, `append`, `put`, `insert`, `set`).
-- **Compound & Container Literals**: Embedding `x` inside struct initializers, rune literals, container literals, or indented block literals transfers or shares ownership:
-  - Standard literals: `with field is x`, `struct_init`, `field_init`, `[x]`, `list_lit`, `map_lit`, `tuple_lit`, `some x`, `ok x`, `err x`.
-  - Indented literals: `indent_literal`, `indent_entries`, `indent_array`, `indent_row`, `field_entry`, `map_entry`.
-- **Variable Aliasing / Ownership Transfer**: Assigning `x` into another variable declaration (`var b is x`, `let b is x`) shares/transfers ownership to `b`, preventing premature deallocation of `x`.
-- **Address-of Escapes**: Taking an explicit reference (`sigil of x`) or assigning `sigil of x` to a field or global.
-- **Explicit Defer**: Explicit `defer banish x` or `errdefer banish x` delegates cleanup to the defer queue.
-
-#### Diagnostics & Ownership Invariants
-
-- **`AutoOwnedBanishError` (`E0047`)**: Prohibits manual `banish x` on an already auto-owned variable, preventing double-free errors.
-- **`BorrowedBanishError` (`E0048`)**: Prohibits `banish x` on variables marked `borrowed`, guaranteeing that borrowed references cannot destroy caller-owned memory.
-
-#### Container Ownership Notice
-
-Pushing an owned value into a collection (`calling lst.push with x`) transfers ownership to the list, but not automatically to the caller of the list. The receiver of the container is responsible for deallocating elements before banishing the container if the elements require custom cleanup (see §13.3).
-
-#### The `borrowed` Soft Keyword
-
-`borrowed` is reserved **only** immediately following `var` or `let`. Everywhere else (struct field names, parameter names, function names, module names), it remains a valid identifier:
+Because `push`/`put` copy, the source variable is still released by the
+auto-banish (§13.4) and there is no aliasing between the container and the
+original:
 
 ```pengu
-rune Resource:
-    borrowed as int           # Struct field named 'borrowed' ✅
+var rows as list of list of string is list of list of string
+var row as list of string is ["a", "b"]     # owned
+calling rows.push with row                  # deep copy into rows
+# both 'row' and 'rows' own disjoint buffers; both are banished at scope exit
+```
 
-weave process with borrowed as int into int:
-    return borrowed           # Parameter and local named 'borrowed' ✅
+Rune values are different: a local `rune` that owns heap fields is **not**
+auto-banished, so release it explicitly with `banish` (which requires
+`derive Nexus`, §9.1.2) or keep it inside an owning container:
+
+```pengu
+rune Doc derive Par, Nexus:
+    title as string
+    tags as list of string
 
 weave main into int:
-    var borrowed is 5         # ❌ Syntax error: 'borrowed' is modifier here, identifier expected
-    return 0
+    var d as Doc with:
+        set .title is "spec!"
+        set .tags is ["a", "b"]
+    defer banish d          # -> _pengu_cleanup_Doc(&d) at scope exit
+    ...
 ```
 
 ---
@@ -1445,10 +1982,15 @@ import std.scrolls as s              # alias
 import components.player             # project module (src/components/player.pengu)
 ```
 
-Module resolution: dotted path → file lookup (`.pengu`, then `.d.pengu`)
-relative to `src/` or configured roots; `std.…` maps to the bundled standard
-library. Import alias collisions are `E0036`; module-private members are not
-exported (`E0043`).
+#### Resolution, Dependency Ordering & Import Rules:
+- **Module Resolution:** Dotted paths map directly to file paths relative to `src/` or configured roots (`components.player` -> `src/components/player.pengu` or `player.d.pengu`). Standard library modules (`std.*`) resolve to the bundled compiler standard library.
+- **Topological Sorting (`import_order`):** `resolve_imports` (`pengu_symbols.py`) visits modules recursively, computing a topological sort order (reverse post-order) so that dependencies are type-checked and emitted in C before their dependents.
+- **Circular Dependency Detection (`E0004`):** Dependency resolution uses a three-color DFS traversal (`visited` / `visiting`). If an active module is revisited, a circular import cycle is detected and raises `SemanticError` (`E0004`), displaying the full cycle path (e.g. `a.pengu -> b.pengu -> a.pengu`).
+- **Duplicate Imports (`E0004`):** Importing the same module multiple times in the same file raises `E0004: Duplicate import of module '...'`.
+- **Import Alias Restrictions (`E0036`):**
+  - **Discard Alias Forbidden:** Binding an import to `_` (`import std.math as _`) raises `E0036: Import alias cannot be '_' (discard)`.
+  - **Local Symbol Conflicts:** An alias colliding with an existing local symbol in the current module raises `E0036`.
+- **Encapsulation (`E0043`):** Top-level symbols starting with `_` are module-private and cannot be accessed from importing modules (`E0043: PrivateSymbolAccessError`).
 
 ### 14.2 `include`, `link`, `insignia`, `declare`
 
@@ -1506,30 +2048,63 @@ declare sqlite3_open with filename as ref to char, ppDb as ref to opaque into in
 - An `omen` declared in a `.d.pengu` mirrors a header enum, so emitted C uses
   the **bare** variant names (`KEY_LEFT`, not `KeyboardKey_KEY_LEFT`).
 
-### 14.4 Project structure & `pengu.yaml`
+### 14.4 Project structure & configuration (`pengu.yaml` / `pengu.toml`)
+
+PenguScript projects are configured via `pengu.yaml` or `pengu.toml` located at the project root. If both files exist, `pengu.toml` takes precedence.
+
+#### Complete `pengu.yaml` Schema:
 
 ```yaml
 name: my_app
-output: exe            # exe | c | obj | static | shared
-# entry defaults to src/main.pengu; source roots default to ./src
+version: 0.14.0
+output: exe                  # exe | c | obj | static | shared
+entry: src/main.pengu        # main entry module (defaults to src/main.pengu)
+src_dirs: [src]              # source lookup roots (default: [src])
+include_dirs: [include]      # additional C header search paths (-I)
+lib_dirs: [lib]              # additional library search paths (-L)
+links: [m, pthread]          # static / dynamic libraries to link (-l)
+ldflags: []                  # raw linker flags
+cflags: []                   # raw C compiler flags
+defines: [ENABLE_LOGS]       # preprocessor macros (-D)
+cc: gcc                      # default C compiler (gcc, clang)
+
+profiles:
+  debug:
+    cflags: ["-g", "-O0"]
+    defines: ["DEBUG=1"]
+  release:
+    cflags: ["-O3", "-DNDEBUG"]
+    defines: []
+
+assets:
+  dir: "assets"              # directory relative to project root
+  module: "arca"             # generated PenguScript module name (src/arca.pengu)
+  embed: true                # true = embedded in .rodata; false = runtime disk reader
+  exclude: ["*.tmp", "*.bak"]
+
+dependencies:
+  - name: my_c_lib
+    git: "https://github.com/example/my_c_lib.git"
+    build: "make"
 ```
 
-The CLI supports `init`, `add`, `build`, `run`, `test`, `check`, `update`,
-`bind`, `fmt`, `clean`, `lsp`, `doc`.
+#### Project Directory Layout & Build Artifacts:
+- **`c/` Directory for Glue Code:** Any `.c` or `.h` files placed in `./c/` are automatically included, compiled, and linked into the final executable alongside `bundle.c`.
+- **`lib/<binding>/pengu/`:** Standard directory layout for external PenguScript package bindings.
+- **Generated Build Directory (`build/`):**
+  - `build/bundle.c`: The unified C translation unit emitted by the code generator.
+  - `build/arca_assets.c`: The embedded binary asset data table generated when `assets.embed` is enabled.
+  - `build/lib/*.a`: Precompiled static archives for the PenguScript runtime (`libpengu_runtime.a`) and bundled C libraries.
+  - `build/include/`: Header files for bundled third-party C libraries.
 
 ### 14.5 Module state patterns (singletons & services)
 
 Top-level `var` and `let` declarations are strictly forbidden by design (`E0002`). All module-level symbols must be compile-time constants (`const`).
 
-**Why mutable globals are forbidden:**
-- **Concurrency & Safety:** Mutable globals create hidden data races, non-local side effects, and reentrancy bugs.
-- **Deterministic Initialisation:** C compilation order across separate modules produces undefined global initialisation order. Forbidding global `var` ensures reproducible compilation and predictable lifetimes.
-- **V-like Scoping:** PenguScript adheres to strict lexical scoping where mutable state belongs to execution scopes, not module namespaces.
-
 When creating stateful services, singletons, or tracking state across calls, use one of two idiomatic patterns:
 
 #### Pattern A: Encapsulated State via `static var` Accessor Weaves
-State is contained inside accessor functions using `static var`. A `static var` inside a `weave` maintains its value across repeated calls and is initialized only once:
+State is contained inside accessor functions using `static var`. A `static var` maintains its value across repeated calls:
 
 ```pengu
 # score_tracker.pengu
@@ -1540,26 +2115,30 @@ weave add_score with delta as int into int:
 
 weave get_score into int:
     return calling add_score with 0
-
-weave reset_score into void:
-    static var score as int is 0
-    set score is 0
 ```
 
-```c
-// Generated C mapping
-int32_t score_tracker_add_score(int32_t delta) {
-    static int32_t score = 0;
-    score = score + delta;
-    return score;
-}
-```
+**Codegen Initialization Strategy:**
+- For compile-time constant scalars (`int`, `float`, `bool`), the codegen emits a simple static C initializer: `static int32_t score = 0;`.
+- For complex, dynamic, or heap-allocated initializers, the codegen emits a static guard boolean:
+  ```c
+  static MyStruct ctx;
+  static bool ctx_initialized = false;
+  if (!ctx_initialized) {
+      ctx = ...;
+      ctx_initialized = true;
+  }
+  ```
+
+**`static var` Rules & Validation (`_check_static_var_decl`):**
+- **Direct Weave Child Only (`E0035` / `E0002`):** `static var` must be declared directly inside a `weave` body. Placing it at module top-level raises `E0002`; nesting it inside control-flow blocks (`if`, `while`, `for`, `do:`, `or:`) raises `E0035`.
+- **Reserved Identifier `main` (`E0040`):** Cannot be named `main`.
+- **Arrays Prohibited (`E0035`):** Static variables cannot have an array type (`array of T with size N`). Because C arrays cannot be reassigned at runtime, array statics are rejected. Use a pointer (`ref to T`), a rune wrapper, or a `list of T` instead.
+- **Explicit Null Typing (`E0014`):** Initializing a static variable with `null` requires an explicit type annotation (e.g. `static var buf as ref to byte is null`; untyped `static var buf is null` raises `E0014`).
 
 #### Pattern B: Explicit Context Struct (`ref to Context`)
-A clean, reentrant, and thread-safe pattern where the module defines a state `rune` and functions accept a pointer (`ref to Context`):
+A reentrant, thread-safe pattern where the module defines a state `rune` and functions receive a reference:
 
 ```pengu
-# audio_manager.pengu
 rune AudioContext:
     volume as float
     is_muted as bool
@@ -1569,16 +2148,6 @@ weave init into AudioContext:
 
 weave set_volume with ctx as ref to AudioContext, vol as float into void:
     set ctx->volume is vol
-```
-
-```pengu
-# main.pengu
-import audio_manager as audio
-
-weave main into int:
-    var ctx as audio.AudioContext is calling audio.init
-    calling audio.set_volume with sigil of ctx, 0.75
-    return 0
 ```
 
 ---
@@ -1594,89 +2163,71 @@ weave main into int:
 true  false  null
 ```
 
+- **`null`:** The literal `null` represents a null pointer. It requires an expected pointer type context (`var p as ref to int is null`). Standalone `null` declarations without type annotations raise `E0014: TypeMismatchError`.
+
 ### 15.2 Strings
 
 ```pengu
 let a as string is "plain"
 let b as string is "value: {x} and {name}"      # interpolation → pengu_string_format
-let c as string is r"raw \n no escapes"          # raw string
+let c as string is r"raw \n no escapes"          # raw single-line
 let d as string is """triple
    quoted   string"""                            # dedented multiline
-let e as string is r"""raw triple"""             # raw + triple
+let e as string is r"""raw triple"""             # raw + multiline
 ```
 
-- Interpolated strings compile to `pengu_string_format` / `snprintf`-style C.
-- Raw strings keep backslashes verbatim.
-- Triple quotes strip a common leading indent.
+- **Interpolation (`{expr}`) is *the* string-composition operator.** It emits `pengu_string_format` using type-specific format specifiers:
+  - `%c` for `char` and `byte`
+  - `%d` for signed and unsigned integers (`int`, `i8`..`i64`, `u8`..`u64`)
+  - `%f` for floating-point numbers (`float`, `f32`, `f64`)
+  - `%s` for `bool` (`"true"` / `"false"`)
+  - `%.*s` for `string` (passing `.len` and `.data`)
+  - `%s` for C string pointers (`ref to char`)
+  Passing unsupported complex types (e.g. runes) without conversion raises a compiler error.
+- **Byte-exact composition:** an interpolated `string` argument is copied using its
+  length, not `printf`'s NUL-terminated `%s` rule. `"a{nul}b"` therefore keeps the
+  embedded `\0` and is 3 characters long — binary payloads (hash digests,
+  Base64/hex decoders) survive composition. Note that `%f` and `to string` format
+  floats differently (`0.500000` vs `0.5`); use the explicit conversion when the
+  textual form matters.
+- **Quotes inside `{expr}`:** the interpolated expression may contain a
+  double-quoted literal (`"v={(calling getenv_or with k, "")}"`). Expressions with
+  unbalanced braces are not supported inside a literal; build them in a local.
+- **Why `+` is not a string operator:** `"a" + b` raises `E0005`. There is exactly one way to build a dynamic string, so there is no ambiguity between `+` on numbers and `+` on text, no implicit `to string` promotion, and no extra hidden allocation on every concatenation. Convert explicitly when you need it (`"{b}"` or `b to string`), and accumulate with interpolation:
 
-> [!IMPORTANT]
-> **Use raw strings for text that is not PenguScript** — GLSL/HLSL shader source,
-> regexes, JSON templates, Windows paths. In a normal string `{…}` is an
-> *interpolation* and `\n`/`\t`/`\\` are escapes, so unescaped syntax inside `{…}`
-> like `"#version 330\nvoid main() { gl_Position = …; }"` produces diagnostic
-> `E0019` located against the string literal with an explicit hint recommending
-> raw strings. The idiom is a raw triple string, which keeps the newlines *and*
-> the braces literal:
->
-> ```pengu
-> var vs as string is r"""#version 330
-> in vec3 vertexPosition;
-> uniform mat4 mvp;
-> void main() { gl_Position = mvp * vec4(vertexPosition, 1.0); }
-> """
-> var sh as raylib.Shader is calling raylib.LoadShaderFromMemory with (calling ffi.cstr_from_string with vs), (calling ffi.cstr_from_string with fs)
-> ```
->
-> Pass such a string to a C `const char*` with
-> `ffi.cstr_from_string with s` (owning copy) or `bytes of s` (borrow, emits a
-> pointer-sign warning).
+  ```pengu
+  # instead of:  "Hello, " + name
+  let greeting as string is "Hello, {name}"
+
+  # instead of:  set acc += item
+  set acc is "{acc}{item}"      # O(n²) in a loop: prefer a 'list of string' + join
+  ```
+
+- **Triple-Quoted Strings (`"""..."""`):** Strips common leading indentation automatically.
+- **Raw Strings (`r"..."` and `r"""..."""`):** Treat backslashes, escape sequences, and curly braces literally without interpolation. Essential for GLSL/HLSL shaders, regex patterns, and embedded templates.
 
 ### 15.3 Arrays, lists, slices, maps
 
 ```pengu
-let nums as array of int with size 3 is [10, 20, 30]      # fixed C array
-let dyn as list of int is list of int                      # growable PenguList
-let sl as slice of int is nums at 1 to 3                   # view, end-exclusive
+const MAX as int is 3
+let nums as array of int with size MAX is [10, 20, 30]   # size by const name
+let dyn as list of int is list of int                    # growable PenguList
+let sl as slice of int is nums at 1 to 3                 # non-owning view
 let m as map of string to int is map of string to int
-calling m.put with "a", 1                          # insert/update
-let v as int is calling m.get with "a"                # value for an existing key
 ```
 
-Bracket literals `[1, 2, 3]` always produce a **fixed array** whose size is
-inferred from the element count; element type follows the first element and
-all must be compatible (`E0005`). Growable lists are created with `list of T`
-(optionally `with capacity N`) and filled with `push`/`append`; slices are
-non-owning views (`PenguSlice`).
-
-**Multidimensional arrays.** Nesting `array of` gives a C multidimensional array.
-The **outer dimension comes first**, and the inner one may be omitted when the
-rows are literal, because it is inferred from them:
-
-```pengu
-var m as array of array of f32 with size 2 with size 3 is [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
-# same type:  var m as array of array of f32 with size 2 is [...]   (3 inferred from the rows)
-
-set m at 1 at 0 is 9.5          # m[1][0] = 9.5
-var v as f32 is m at 0 at 1     # m[0][1]
-var rows as int is (m length)          # 2
-var cols as int is ((m at 0) length)   # 3
-```
-
-- Emitted C is `float m[2][3]`, so the layout matches C exactly (outer first).
-- Rows must all have the same length; otherwise `E0041`.
-- If no dimension can be inferred (e.g. `... with size 2 is []`), the checker
-  raises `E0015` (`UnknownArrayDimensionError`) instead of emitting an invalid
-  `[None]` size.
-- A 2-D array decays for C interop as `T (*)[inner]` (only the outer dimension is
-  dropped), so it can be passed where a `ref to array of T with size N` is
-  expected; `m at 0` yields the first row (an `array of f32 with size 3`), which decays to `ref to f32` for element pointer interop.
-- Like every fixed array, a 2-D array needs an initializer (`is [[…]]`); an
-  indented literal (see §15.4) is the readable spelling for bigger grids.
-
+- **Array Size by Constant Identifier:** Fixed arrays support sizing via constant names (`array of T with size NAME`), where `NAME` is resolved from the symbol table during semantic checking (`ast_to_type`).
+- **Bracket Literals (`[1, 2, 3]`):** Produce fixed stack arrays. Element types must be mutually compatible (`E0005`).
+- **Multidimensional Arrays:** Declared outer-dimension first:
+  ```pengu
+  var grid as array of array of f32 with size 2 with size 3 is [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+  ```
+  Emits `float grid[2][3]`. The inner dimension can be omitted if inferred from rows. Rows must have identical lengths (`E0041: ArraySizeMismatchError`).
+- **Map Iteration Order:** Iterating over a map visits slots in internal hash table order, not insertion order.
 
 ### 15.4 Indentation literals
 
-Arrays, maps and rune/struct literals can be written block style:
+Arrays, maps, and struct literals can be declared using clean, block-indented syntax:
 
 ```pengu
 var grid as array of array of int with size 2 with size 3 is:
@@ -1692,57 +2243,70 @@ var p as Player is:
     hp is 100
 ```
 
-Grammar: `indent_array` rows for arrays (2-D = one row per sub-array),
-`indent_entries` (`NAME: expr` map entries and `NAME is expr` field entries)
-for maps and structs.
-
 ### 15.5 Ranges & membership
 
 ```pengu
-1 to 10         # PenguRange [1, 10)
-1..10           # same range syntax
+1 to 10         # PenguRange [1, 10), end-exclusive
+1..10           # alternate range syntax
 for i in 1 to 5: ...
 if x in 0 to 100: ...
 ```
 
-Ranges are half-open (`end` excluded) and compile to `PenguRange`
-(`int64_t start/end`). `to` doubles as the cast keyword when the right side is
-a type (`10 to float`); context disambiguates.
+- Ranges are half-open (`[start, end)`).
+- **Compile-Time Range Validation (`E0042`):** When start and end are known at compile time, `start <= end` is enforced for positive ranges. If `start > end` without a negative step, the compiler raises `E0042: InvalidRangeError`.
 
 ---
 
 ## 16. Conditional compilation (`when`)
 
-`when` works at three levels:
+PenguScript evaluates `when` blocks strictly at compile time before semantic checking and C code generation. Inactive branches are pruned entirely from the AST and emit no C.
+
+### Three Forms of `when`:
+
+#### 1. Top-Level Declarations (`when_top_decl`)
+Conditionally include or exclude functions, types, constants, or bindings. Supports chained `else when` branches and a fallback `else:`:
 
 ```pengu
-when main:                     # top-level: only compile the chosen block
-    weave app_main into int: return 0
-when os == "windows":          # per-block / per-item
-    declare win_only with ... into void
-when os == "linux": ...
-```
-
-```pengu
-when main:                     # inside a body
-    calling platform_main with ...
+when os == "windows":
+    include "windows.h"
+    declare Sleep with dwMilliseconds as u32 into void
+else when os == "linux":
+    include "unistd.h"
+    declare usleep with usec as u32 into int
 else:
-    calling module_main with ...
+    declare dummy_sleep into void
 ```
+
+`when_top_decl` branches are evaluated at compile time via `_active_when_top_stmts`. Only statements in the active branch are registered in the symbol table and type-checked; inactive branches are pruned before semantic analysis.
+
+#### 2. Statement Blocks & Chains (`when_stmt`)
+Compile-time branching inside function bodies, supporting `else when` chains and final `else:`:
 
 ```pengu
-let scale as int is when arch == "x64" then 2 else 1    # expression form
+weave sleep_ms with ms as int into void:
+    when os == "windows":
+        calling Sleep with (ms to u32)
+    else when os == "linux" or os == "macos":
+        calling usleep with ((ms * 1000) to u32)
+    else:
+        calling spark.println with "Unsupported OS"
 ```
 
-Available compile-time variables: `main` (bool: true for the module executed
-directly), `debug` (bool: true when the active build profile is `debug` or `-D debug`),
-`os` (`'windows'|'linux'|'macos'|…`), `arch` (`'x64'|'x86'|'arm64'
-|…`), `compiler` (`'gcc'|'clang'|'msvc'|…`), and `defined(NAME)` for `-D`
-macros. Non-constant conditions are rejected (`E0039`).
+#### 3. Expression Form (`when_expr`)
+Compile-time ternary expression:
 
-Blocks guarded with `when debug:` are useful for assertions, diagnostics, and development-only
-instrumentation; `debug` evaluates to true when the build profile is `debug` (the default) and
-evaluates to false under `release`.
+```pengu
+let buffer_size as int is when arch == "x64" then 8192 else 4096
+```
+
+### Comptime Variables & Intrinsics:
+- **`defined(NAME)`:** Evaluates to `true` if identifier `NAME` was provided via `-D NAME` or exists in the predefined compiler environment.
+- **`main`:** `bool`. Evaluates to `true` **only** for the project entry-point module (`compile_env.is_main`). When the `-D main` or `-D main=true` CLI flag is passed (e.g. `pengu build -D main` or `pengu run main.pengu -D main`), `main_flag_requested` enables entry-main semantics exclusively for the entry module; imported secondary modules always compile with `is_main = false`, preventing conflicting entry points.
+- **`debug`:** `bool`, `true` when compiling with the `debug` profile or `-D debug`; `false` under `--profile release`.
+- **`os`:** String constant matching the target operating system (`'windows'`, `'linux'`, `'macos'`, `'freebsd'`).
+- **`arch`:** String constant matching target CPU architecture (`'x64'` / `'x86_64'`, `'arm64'`, `'x86'`).
+- **`compiler`:** String constant matching target C compiler (`'gcc'`, `'clang'`, `'msvc'`).
+- Non-constant conditions in `when` constructs raise `E0039: SemanticError`.
 
 ---
 
@@ -1755,12 +2319,13 @@ test "arithmetic":
     calling expect_eq_int with 1 + 1, 2
 
 test string_formatting:
-    calling expect_eq_string with "ab" + "c", "abc"
+    calling expect_eq_string with "abc", "abc"
 ```
 
-- **Definition:** Test blocks are declared with `test <name>:`, where `<name>` can be a double-quoted string literal or an identifier.
-- **Isolation:** Test blocks are compiled and executed only by the test runner (`pengu test`). They are completely omitted from production executable builds.
-- **Declarations:** `test` blocks inside `.d.pengu` declaration files are rejected (`E0025`).
+- **Definition:** Test blocks are declared with `test <name>:`, where `<name>` can be a string literal or an identifier.
+- **Semantic Validation:** Test bodies are semantically validated and type-checked across **all** compilation modes (`pengu check`, `pengu build`, `pengu run`, `pengu test`) via `_check_test_decl`. Syntax and type errors inside test blocks surface immediately even during regular builds.
+- **C Codegen Isolation:** C test harnesses, test runner weaves, and test execution calls are emitted only when compiling under `--test` mode (`pengu test`). Production executables and library builds omit test code entirely.
+- **Declarations:** `test` blocks inside `.d.pengu` declaration files are strictly forbidden (`E0025`).
 
 ### Running Tests
 
@@ -1770,16 +2335,14 @@ $ pengu test --watch      # Watch mode: monitor .pengu sources and rerun on chan
 $ pengu test --json       # Machine-readable JSON Lines (JSONL) events for CI
 ```
 
-- **Watch Mode (`--watch`):** Continuously polls project source files and configuration (`mtime`), automatically clearing the terminal and rerunning the suite whenever changes are saved.
-- **CI / Machine Output (`--json`):** Emits structured JSON Lines events to stdout (`start`, `test_start`, `test_pass`, `end`), keeping stderr clean for CI integrations.
+- **Watch Mode (`--watch`):** Continuously polls project source files (`mtime`), clearing the terminal and rerunning tests upon change.
+- **CI Output (`--json`):** Emits structured JSON Lines events to stdout (`start`, `test_start`, `test_pass`, `end`), keeping stderr clean.
 
 ---
 
 ## 18. Block-style construction (`with:` expressions)
 
-For long/complex initializers, a `with:` block builds a *fresh* value of an
-explicitly typed target by mutating an implicit temporary; the block evaluates
-to the built value:
+For complex struct construction and in-place mutation, PenguScript provides `with:` builder blocks. A `with:` block allocates a zeroed temporary and evaluates to the resulting struct value:
 
 ```pengu
 rune Point:
@@ -1795,30 +2358,33 @@ weave main into int:
     var p as Point with:
         set .x is 10
         set .y is 20
-        calling .shift with 5, 3     # enchanting method on the temporary
-    return p.x + p.y                    # 38
+        calling .shift with 5, 3     # call enchanting method on temporary
+    return p.x + p.y                 # 38
 ```
 
-Rules (enforced by the checker):
-
-- The declaration must annotate the target type (`var p as Point with:`);
-  otherwise `E0014` (“requires an explicit type annotation”).
-- Inside the block, `.field` refers to the value under construction; only
-  `set .field is expr` and `calling .method` statements are allowed (`E0007`
-  for anything else).
-- Unknown fields (`E0004`-style: “Rune … has no field”), unknown methods, and
-  missing type annotations are compile errors.
-- Codegen emits a GNU statement-expression
-  (`Tipo _with = {0}; …assignments…; _with;`), so the construct is usable in
-  any expression position.
+### Builder Rules & Validation (`E0014`):
+- **Allowed Statements:** Only `set .field is expr` assignments and method calls on the target (`calling .method with ...` or normal calls) are permitted inside builder blocks.
+- **Forbidden Statements:** Control flow statements (`if`, `while`, `for`, `return`, `break`, `continue`), variable declarations (`var`, `let`), and memory management (`defer`, `banish`) are strictly rejected with `E0014: InvalidBuilderStatementError`.
+- **Target Mutability Rules:**
+  - `var x with:` or `with var_target:`: mutable, fields can be modified.
+  - `let x with:` (rune value): immutable binding after construction.
+  - `with let_val:`: attempting to mutate an existing immutable `let` rune raises `E0006: MutabilityError`.
+  - `with let_ptr:` (where `let_ptr as ref to T`): mutable, because a `ref to T` points to mutable memory.
+  - `frozen T` or `ref to frozen T`: immutable; field modification raises `E0006`.
+- **Codegen Statement-Expression Lowering:**
+  ```c
+  __extension__(({
+    Point _with_1 = {0};
+    _with_1.x = 10;
+    _with_1.y = 20;
+    Point_shift(&_with_1, 5, 3);
+    _with_1;
+  }))
+  ```
 
 ### Nesting `with:` blocks
 
-A `with:` builder can be nested at any depth, both in **construction** position
-(the value of a field being assigned) and in **editing** position (a `set`
-inside a `with target:` scope). The inner builder's target type is inferred
-from the field it is being assigned to, so the `as T` annotation is only
-required at the outermost level:
+A `with:` builder can be nested at any depth. Inner builders infer their target types from the fields they are assigned to, requiring no redundant type annotations:
 
 ```pengu
 rune Address:
@@ -1831,20 +2397,19 @@ rune Person:
     age as int
     address as Address
 
-# Construction: 'var x as T with:' (annotation required at the outermost level)
 weave build into Person:
-    return with:                       # (see below for 'return with:')
+    return with:                       # target type inferred from weave return type
         set .name is "Ada"
         set .age is 30
-        set .address is with:          # type comes from Person.address
+        set .address is with:          # target type inferred as Address
             set .street is "123 Main St"
             set .city is "New York"
             set .zip is "12345"
 
-# Editing: 'with target:' mutates an existing value in place
 weave rename into void:
     var p as Person with:
         set .name is "Ada"
+        set .age is 30
         set .address is with:
             set .street is "1 First Ave"
             set .city is "Springfield"
@@ -1905,47 +2470,263 @@ see [§7.6](#76-block-expressions-do-value-position-if--unless-and-loops).
 > outermost level; inner builders infer their type from the field they are
 > assigned to.
 
+### 18.2 `with` scopes on collections (`list` and `map`)
+
+The `with` statement also operates directly on existing collections (`list of T` and `map of K to V`, or references to them `ref to list of T` / `ref to map of K to V`). Inside the block, leading-dot method calls invoke the collection's built-in methods without repeating the collection variable name:
+
+```pengu
+var scores as list of int is list of int
+with scores:
+    calling .push with 10
+    calling .push with 20
+    calling .push with 30
+
+var registry as map of string to int is map of string to int
+with registry:
+    calling .put with "alpha", 1
+    calling .put with "beta", 2
+```
+
+Supported built-in methods inside collection `with` blocks:
+- **`list`:** `.push(item)`, `.append(item)`, `.pop()`, `.clear()`, `.contains(item)`, `.index_of(item)`, `.at(idx)`, `.len()`, `.is_empty()`
+- **`map`:** `.put(key, val)`, `.insert(key, val)`, `.set(key, val)`, `.get(key)`, `.remove(key)`, `.contains(key)`, `.len()`, `.is_empty()`, `.clear()`
+
 ---
 
 ## 19. Standard library
 
+PenguScript ships with a comprehensive standard library consisting of **52 modules**:
+- **27 pure PenguScript modules** (`std.<module>`) providing high-level, idiomatic abstractions for I/O, strings, concurrency, networking, serialization, math, testing, and memory bridging.
+- **25 C declaration binding modules** (`std.<binding>`, implemented via `.d.pengu`) providing direct, zero-overhead access to native C libraries (Raylib, SQLite3, WebUI, STB, etc.) with 1:1 upstream documentation preserved.
+
 ### Builtin `print`
 `print` is a compiler builtin that lowers directly to `printf` according to the argument type (`print "hello"`, `print 42`, etc.). For structured or formatted printing with broader options, use `std.spark.println` or `std.spark.print`.
 
-Wrapper modules (import `std.…`):
+### 19.1 Pure PenguScript Modules (27 modules)
 
-| Module | Purpose |
-|--------|---------|
-| `spark` | I/O: `print`, `println`, `print_line`, `input`, panic, conversion helpers |
-| `oracle` | `Maybe*`/`Result*` runes: constructors and unwrap helpers |
-| `scrolls` | string utilities (`upper`, `contains`, `split`, `substring`, …) |
-| `compass` | path manipulation (join, basename, normalize, …) |
-| `archivum` | files & directories (read/write/copy/metadata, CSV) |
-| `cipher` | base64 + JSON parse/serialize |
-| `chronicle` | date/time helpers (UTC formatting/parsing) |
-| `lot` | pseudo-random numbers (seeded ranges, normal/exponential) |
-| `rites` | process helpers (`exec`, `spawn`, env, pid, hostname) |
-| `whisper` | leveled logging |
-| `ward` | assertions and invariants |
-| `trial` | lightweight test framework |
-| `tally` | list helpers (`sum`, `max`, `min`) |
-| `atlas` | map helpers |
-| `coven` | string/int set helpers |
-| `regulus` | regex (PCRE2): compile/search/match/find_all/replace/split + free |
-| `parchment` | XML/HTML parsing (libxml2) + node/doc frees |
-| `seal` | compression & hashing (gzip/zlib, md5/sha1/sha256/sha512, crc32) |
-| `precis` | HTTP client/server, TCP, DNS, URL codecs, query parsing |
-| `filum` | concurrency: threads, channels, mutex/wait-group/once/cond, atomics |
-| `loom` | JSON/structured weaving helpers |
-| `invoke` | CLI argument parsing |
-| `ffi` | C ⇄ Pengu bridge helpers (strings, byte views, slices/lists, maps) |
-| `celeris`, `xlsx`, `ledger`, `whisper`… | convenience packs / formats |
+All pure modules are located in the `std/` directory and imported as `import std.<module>`.
 
-Binding `.d.pengu` modules (import as `std.raylib`, `std.sqlite3`,
-`std.webui`, `std.miniaudio`, `std.tomlum`, `std.uuid`, `std.yaml`, …) expose
-native C APIs 1:1 with upstream documentation retained inline.
+| Module | Purpose & Core Capabilities |
+|---|---|
+| `std.spark` | Fundamental I/O and core runtime: `print`, `println`, `print_line`, `input`, `panic`, numeric conversions (`str_int`, `parse_int`, `parse_float`), integer ranges (`range_to`, `range_inclusive`), numeric helpers (`min_int`, `max_int`, `abs_int`, `clamp_int`), typed print variants (`print_int`, `println_int`, `print_float`, `println_float`, `print_bool`, `println_bool`), `eprintln`, and typed input (`read_line`, `read_int`, `read_float`). |
+| `std.scrolls` | High-level string manipulation via enchanting methods and module functions: case conversions (`capitalize`, `title`, `swap_case`, `to_snake_case`, `to_kebab_case`, `upper`, `lower`), search and metrics (`find`, `rfind`, `count`, `line_count`, `word_count`), trimming and padding (`trim`, `lstrip`, `rstrip`, `ljust`, `rjust`, `zfill`, `center`), prefixes and splits (`removeprefix`, `removesuffix`, `partition`, `split`, `split_lines`), character and byte access (`chars`, `bytes`), formatting (`ellipsis`, `join`), validations (`is_lower`, `is_upper`, `is_space`, `is_palindrome`, `starts_with`, `ends_with`, `contains`), and three-way ordering via `compare` (the canonical way to sort and order strings in PenguScript, as `< <= > >=` are forbidden on `string`). |
+| `std.oracle` | Container unwrap and propagation helpers with native/legacy API split: native constructors (`some_int`, `some_float`, `some_string`, `some_bool`, `none_*`), native unwrappers (`unwrap_*`, `unwrap_or_*`), native result helpers (`is_ok_int_result`, `is_err_int_result`, `unwrap_int_result`, `unwrap_or_int_result`), bridge conversions between legacy runes and native containers (`to_native_*`, `from_native_*`), string formatters (`describe_int`, `describe_string`, `describe_result_*`, `describe_maybe_*`), and legacy runes (`MaybeInt`, `ResultInt`, etc.) with `judge`-powered `is_none`, `is_err`, and `unwrap_or`. |
+| `std.compass` | Cross-platform filesystem path manipulation: `join`, `join_all`, `basename`, `filename`, `dirname`, `ext`, `stem`, `file_stem`, `with_extension`, `without_extension`, `with_filename`, `add_ext`, `normalize`, `is_absolute`, `is_relative`, `is_root`, `is_hidden`, `is_unc`, `has_wildcard`, `matches` (glob pattern matching with `*` and `?`), `parent`, `split`, `components`, `has_component`, `cwd`, `expand_user`, `absolute`, separator queries (`separator`, `alt_separator`, `is_windows`, `is_unix`), and the `Path` rune (`from_str`, `cwd`, `new_path`, `current_dir`) with chainable query and transform methods (`to_string`, `name`, `parent`, `stem`, `suffix`, `suffixes`, `drive`, `parts`, `components`, `is_absolute`, `is_relative`, `is_root`, `has_suffix`, `has_suffix_with`, `is_empty`, `is_hidden`, `matches`, `exists`, `is_file`, `is_dir`, `to_absolute`, `expand_user`, `to_uri`, `normalize`, `relative_to`, `with_suffix`, `with_name`, `add_suffix`, `without_suffix`). |
+| `std.archivum` | Filesystem operations: text and binary file I/O (`read_file`, `read_bytes`, `write_file`, `write_bytes`, `append_file`, `append_bytes`), line operations (`read_lines`, `read_first_n_lines`, `count_lines`, `write_lines`, `append_lines`), file lifecycle (`delete_file`, `copy_file`, `move_file`, `rename`, `touch`), entry predicates (`exists`, `is_file`, `is_dir`, `is_symlink`, `is_empty_file`, `is_empty_dir`), directory operations (`create_dir`, `remove_dir`, `read_dir`, `copy_tree`, `list_files_recursive`), search and traversal (`find_files`, `find_dirs`, `find_by_name`, `find_by_ext`, `glob`, `walk`), symlink and canonical path handling (`symlink`, `read_symlink`, `realpath`), temporary filesystem helpers (`temp_dir`, `temp_file`), and comprehensive metadata inspection (`metadata`, `file_size`, `dir_size`, `modified_time`, `created_time`, `accessed_time`, `permissions`). |
+| `std.cipher` | Cryptographic encodings, hashing, and JSON manipulation: Base64 and variants (`encode_base64`, `decode_base64`, `is_base64`, `encode_base64_url`, `decode_base64_url`, `encode_base64_unpadded`, `encode_hex`, `decode_hex`, `is_hex`, `encode_base32`, `decode_base32`, `is_base32`), string enchantments (`to_base64`, `from_base64`, `to_base64_url`, `from_base64_url`, `to_hex`, `from_hex`, `to_base32`, `from_base32`), JSON escaping/unescaping (`json_escape`, `json_unescape`), JSON arrays (`parse_json_array`, `stringify_json_array`), typed getters (`json_get`, `json_get_int`, `json_get_float`, `json_get_bool`, `json_get_string`), navigation (`json_deep_clone`, `json_merge`, `json_path`, `json_parse_at`), and validation (`omen JsonKind`, `json_kind_of`, `is_valid_json`). |
+| `std.chronicle` | Date, time, calendar, and timer management: clocks and delays (`time`, `now_ms`, `time_ms`, `monotonic`, `monotonic_ms`, `sleep`, `sleep_ms`), formatted string conversion and parsing (`format`, `format_now`, `parse`, `from_iso`, `to_iso`, `to_date_string`, `to_time_string`, `to_datetime_string`, `now_utc_iso`, `now_local_iso`, `now_date`, `now_time`), UTC and local calendar component getters (`utc_year`, `utc_month`, `utc_day`, `utc_hour`, `utc_minute`, `utc_second`, `utc_weekday`, `utc_yearday`, `utc_is_dst`, `local_year`, `local_month`, `local_day`, `local_hour`, `local_minute`, `local_second`, `local_weekday`, `local_yearday`, `local_is_dst`), calendar helpers and boundaries (`is_leap_year`, `days_in_month`, `days_in_year`, `start_of_day`, `end_of_day`, `today`, `yesterday`, `tomorrow`, `start_of_month`, `start_of_year`), timestamp arithmetic and relations (`add_seconds`, `add_minutes`, `add_hours`, `add_days`, `add_weeks`, `diff_seconds`, `diff_days`, `is_before`, `is_after`, `is_between`), duration helpers (`format_duration`, `parse_duration`), the `DateTime` rune (`datetime_utc`, `datetime_local`, `to_iso`, `to_date`, `to_time`), and monotonic high-resolution timer rune `Stopwatch` (`new`, `new_stopwatch`, `elapsed_sec`, `elapsed_ms`, `reset`). |
+| `std.lot` | Pseudo-random number generation (PRNG), sampling, and statistical distributions: LCG state management (`seed`, `next_int`, `next_float`, `rand_int`, `rand_float`), continuous and discrete distributions (`rand_uniform`, `rand_gauss`, `rand_exp`, `rand_between`, `rand_sign`, `rand_bit`, `rand_coin`, `rand_bool_with`, `rand_triangular`, `rand_lognormal`, `rand_weibull`, `rand_gamma`, `rand_beta`), collection sampling and shuffling (`choice`, `choice_string`, `choice_weighted`, `choice_weighted_string`, `shuffle`, `shuffle_string`, `sample`, `sample_with_replacement`, `sample_string`, `permutation`), and randomized string generators (`rand_alpha`, `rand_digit_string`, `rand_alnum_string`, `rand_hex_string`, `rand_bytes_hex`, `rand_password`, `rand_from_charset`). |
+| `std.rites` | Operating system process, environment, and system utilities: environment variables and bulk management (`getenv`, `setenv`, `unsetenv`, `get_env_keys`, `getenv_or`, `has_env`, `getenv_int`, `getenv_float`, `getenv_bool`, `get_env_map`, `set_env_map`, `clear_env`), variable expansion (`expand_env`, `env_substitute`), program arguments (`get_argc`, `get_argv`, `get_args`, `arg_at_or`, `parse_flags`, `has_flag`, `get_flag_value`), standard directories (`home_dir`, `temp_dir`, `config_dir`, `cache_dir`, `data_dir`), platform inspection (`uname`, `hostname`, `os_arch`, `os_family`, `is_windows`, `is_unix`, `is_macos`, `is_linux`), executable resolution (`which`, `which_all`), process identity and control (`getpid`, `getppid`, `getcwd`, `chdir`, `exit`, `exec`, `spawn`, `exec_ok`, `exec_or_panic`, `run_shell`, `shell_escape`, `current_user`). |
+| `std.whisper` | Structured leveled logging with severity levels (`LOG_TRACE` through `LOG_FATAL`, `COLOR_*`): global helpers (`log`, `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `set_level`, `get_level`, `get_level_name`, `get_level_color`, `is_enabled`, `set_level_from_string`, `set_level_from_env`, `fatal_and_exit`, `log_json`, `log_levels`), and object-oriented `Logger` rune (`Logger.new`, `Logger.named`, `Logger.from_env`, `default_logger`) with methods (`.log`, `.trace`, `.debug`, `.info`, `.warn`, `.error`, `.fatal`, `.set_level`, `.get_level`, `.is_enabled`, `.enable_timestamp`, `.disable_timestamp`, `.enable_color`, `.disable_color`, `.to_file`, `.child`, `.log_json`). |
+| `std.ward` | Defensive programming, invariant assertions, and contract validation with informative failure messages: core assertions (`assert_true`, `assert_false`, `assert_eq_int`, `assert_ne_int`, `assert_eq_string`, `assert_ne_string`, `assert_eq_bool`), floating-point tolerance (`assert_eq_float`, `assert_ne_float`, `assert_almost_eq`), ordering and range checks (`assert_gt_int`, `assert_ge_int`, `assert_lt_int`, `assert_le_int`, `assert_gt_float`, `assert_ge_float`, `assert_lt_float`, `assert_le_float`, `assert_in_range_int`, `assert_in_range_float`), string and container validation (`assert_string_contains`, `assert_string_starts_with`, `assert_string_ends_with`, `assert_string_empty`, `assert_string_not_empty`, `assert_eq_int_list`, `assert_eq_string_list`, `assert_list_empty_int`, `assert_list_not_empty_int`, `assert_list_len_int`, `assert_map_has_key`, `assert_map_not_has_key`), generic container assertions (`shard T`: `assert_maybe_present`, `assert_maybe_none`, `assert_result_ok`, `assert_result_err`), non-fatal test wrappers (`expect_*`, `check_*`), and invariant failure utilities (`fail`, `fail_unreachable`). |
+| `std.trial` | Integrated unit test framework: test suites, assertions (`assert_eq`, `assert_true`), benchmark runners, and structured test reporting. |
+| `std.tally` | Integer list utilities: enchants `list of int` directly (`calling xs.sum`, `calling xs.first`, `calling xs.reverse`) alongside module-level functions (`calling tally.sum with xs`). Includes length and access (`len`, `first`, `last`, `at_or`, `at_safe`), search (`contains`, `index_of`, `count_of`, `find_first_gt`, `find_first_lt`), reductions (`sum`, `product`, `max_val`, `min_val`, `max_index`, `min_index`), statistics (`mean`, `median`, `mode`), transformations (`reverse`, `sort_asc`, `sort_desc`, `unique`, `dedup`, `flatten`), selection (`take`, `drop`, `slice_list`), combination (`concat`, `zip_sum`, `dot`, `repeat`), predicates, filters (`filter_*`), and mappings (`map_*`). |
+| `std.atlas` | Multi-type map collection utilities across 6 key-value combinations (`map of string to int`, `map of string to string`, `map of string to float`, `map of int to int`, `map of int to string`, `map of string to bool`). Enchants map types directly (`calling m.keys`, `calling m.get_or with k, default`, `calling m.update with k, v`, `calling m.rename_key with old_k, new_k`, `calling m.clone`, `calling m.remove with k`, `calling m.clear`) alongside module-level functions (`calling atlas.keys with m`, `calling atlas.get_or_ss with m, k, def`). Includes length & predicates (`size`, `is_empty`, `has_key`, `has_any_key`, `has_all_keys`), access (`get_or`, `get_safe`, `find_key_by_value`), in-place mutation (`update`, `rename_key`, `remove`, `clear`, `remove_all`), bulk accessors (`keys`, `values`, `keys_sorted`, `values_sorted`), numeric reductions (`sum_values`, `max_value`, `min_value`), bool counters (`count_true`, `count_false`), filters and transformations (`filter_*`, `map_values_*`), combination (`merge_*`, `merge_keep_left_*`), conversions (`from_lists_*`, `to_keys_list`, `to_values_list`), and generic utilities (`shard K, V`: `map_size`, `map_has_key`, `map_get_or`, `map_keys`, `map_values`, `map_put`, `map_remove`, `map_clear`). |
+| `std.coven` | Unique-set collections (`SetString`, `SetInt`): insertion and predicates (`add`, `contains`, `remove`, `len`, `clear`, `is_empty`), full set algebra (`union`, `intersect`, `difference`, `symmetric_difference`, `is_subset`, `is_superset`, `is_disjoint`, `equals`), conversions (`to_list`, `to_set_int`, `to_set_string`, `from_list`, `clone`), and specialized filters (`filter_starts_with`, `filter_length_ge`). |
+| `std.regulus` | PCRE2-backed regular expression engine: regex compilation (`compile`), whole/partial matching (`match`, `search`, `is_match`, `is_full_match`, `is_match_at`), match extraction (`find_all`, `match_count`, `match_at`, `match_offsets`), string replacement (`replace`, `replace_all`, `replace_fn`), splitting (`split`, `split_n`), pattern utilities (`escape`, `is_valid_pattern`, `flag_is_case_insensitive`), and string enchanting methods (`to_regex`, `matches_regex`, `regex_replace`, `regex_split`). |
+| `std.parchment` | libxml2-backed XML and HTML DOM parser: document trees (`Document` with `parse_xml`, `parse_html`, `doc_to_string`), element navigation and mutation (`Node` with `find`, `find_all`, `attr`, `set_attr`, `text`, `set_text`, `remove_child`), DOM queries (`find_by_id`, `find_by_class`, `find_all_by_class`, `has_class`, `add_class`, `remove_class`), tag utilities (`is_void_element`, `normalize_tag`, `is_valid_tag_name`), HTML cleaning (`strip_html_tags`, `extract_text`), and string/Node enchantments. |
+| `std.seal` | Data compression & cryptographic digests: CRC32, MD5, SHA-1, SHA-256, SHA-512, HMAC (RFC 2104: `hmac_sha256`, `hmac_sha1`, `hmac_md5`), constant-time comparison (`constant_time_eq`, `verify_sha256`, `verify_hmac_sha256`), zlib raw deflate/inflate, and Gzip compression with string enchanting methods (`to_sha256`, `to_md5`, `to_crc32`, `to_gzip`, `from_gzip`). |
+| `std.precis` | Network programming & Web protocols: HTTP client (`get`, `post`, `head`, `put`, `delete_req`), HTTP request/response builders (`Request`, `Response` with headers and query parameter encoding), embedded HTTP server (`serve_http`), status code predicates (`is_success`, `is_redirect`, `is_client_error`, `is_server_error`, `status_text`), and URL codecs (`url_encode`, `url_decode`, `parse_url`, `build_url`, `url_join`). |
+| `std.filum` | Multithreaded concurrency primitives: mutual exclusion (`Mutex` with `lock`, `unlock`, `try_lock`, `free`), synchronization counters (`WaitGroup` with `add`, `done`, `wait`, `free`), once guards (`Once` with `do_once`, `do_action`, `free`), condition variables (`Cond` with `cond_wait`, `wait_mutex`, `signal`, `broadcast`, `free`), thread-safe integers (`AtomicInt` with `load`, `store`, `add`, `sub`, `inc`, `dec`, `inc_and_get`, `dec_and_get`, `swap`, `get_and_set`, `compare_swap`, `is_zero`, `reset`, `free`), typed channels (`ChanInt`, `ChanString`, `ChanFloat`, `ChanBool` with `new`, `with_capacity`, `send`, `recv`, `close`, `len`, `cap`, `free`), and system/time utilities (`sleep`, `sleep_sec`, `num_cpu`, `goroutine_id`). |
+| `std.loom` | Sequence generation, functional transformations, and generic algorithms: sequences (`range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`), reductions (`mean`, `sum_squares`, `running_sum`, `running_max`, `running_min`, `differences`), predicates (`any_zero`, `all_equal`, `is_strictly_asc`, `is_strictly_desc`, `is_sorted_asc`, `is_sorted_desc`), transforms (`zip_with`, `zip_longest`, `enumerate`, `interleave`, `round_robin`, `rotate_left`, `rotate_right`, `intersperse`, `pairwise`, `flat_map_identity`), sorted set-like operations (`union_sorted`, `intersect_sorted`, `difference_sorted`, `symmetric_difference_sorted`), search (`find_first`, `find_last`, `binary_search`, `count_if_even`, `count_if_positive`, `index_min`, `index_max`), structural modifications (`insert_at`, `remove_at`, `replace_at`, `swap_at`, `pad_left`, `pad_right`), statistics (`median`, `mode`, `variance`, `stddev`, `percentile`), and generic algorithms (`shard T`: `first_or`, `generic_take`, `generic_take_last`, `generic_reverse`, `generic_chain`, `generic_index_of`). |
+| `std.invoke` | Command-line interface (CLI) argument parsing: POSIX and GNU syntax (`--flag`, `--key=value`, `-k=value`), boolean flag negation (`--no-flag`), subcommands (`rune Subcommand`), typed options (int, float, bool, string, multi), repeat multi-options (`rune MultiOption`), Levenshtein typo suggestions, formatted help and usage strings (`usage_string`, `full_help`), error reporting, and robust parse variants (`parse`, `parse_no_exit`, `parse_or_exit`, `parse_or_usage`, `ParseResult` accessors `get`, `get_or`, `get_int`, `get_int_or`, `get_float`, `get_float_or`, `get_bool`, `get_bool_or`, `get_all`, `to_map_values`, `to_map_flags`). |
+| `std.ffi` | Low-level C foreign function interface bridge: null pointer utilities (`null_void`, `null_char`, `null_byte`, `is_null`, `is_valid`, `ptr_eq`), architecture constants and inspection (`SIZEOF_POINTER`, `SIZEOF_INT`, `SIZEOF_FLOAT`, `pointer_size`, `size_of shard T`, `alignment_of shard T`), null-terminated C string conversions (`string_from_cstr`, `cstr_from_string`, `string_from_cstr_n`, `string_from_bytes`, `bytes_from_string`), memory views (`slice_from_ptr`), generic collections from C buffers (`list_from_ptr shard T`, `map_from_entries shard K, V`), raw memory copy/set (`memcpy_raw`, `memset_raw`), and 10 canonical C interop patterns. |
+| `std.celeris` | High-precision benchmarking and performance profiling: monotonic nanosecond timers and iteration benchmarking suites. |
+| `std.xlsx` | Excel spreadsheet workbook generation and cell data extraction. |
+| `std.ledger` | Tabular data, CSV/TSV parsing, serialization, and matrix operations: parsing (`parse_csv`, `parse_tsv`, `parse_line`, `detect_delimiter`, `parse_csv_strict`, `parse_csv_nocomments`, `parse_csv_skip`, `parse_line_strict`, `parse_csv_normalized`), table abstraction `rune CsvTable` (`from_csv`, `from_rows`, `row_count`, `column_count`, `has_column`, `column_index`, `get`, `get_or`, `column`, `row_as_map`, `to_csv`), matrix enchantments (`list of list of string`: `row_count`, `column_count`, `is_rectangular`, `column`, `transpose`), key-value map conversions (`parse_csv_as_pairs`, `parse_csv_key_value`, `write_key_value_map`), escaping (`escape_field`, `escape_field_rfc4180`, `escape_field_backslash`), formatters (`to_csv_string`, `to_tsv_string`, `to_csv_string_no_trailing_newline`, `to_csv_string_crlf`), and file operations (`read_csv`, `read_tsv`, `write_csv`, `write_tsv`, `write_csv_safe`). |
+| `std.arithmancy` | Game-ready linear algebra and advanced mathematical functions: constants (`PI`, `TAU`, `E`, `EPSILON`), scalar functions (`abs_i`, `abs_f`, `min_i`, `max_i`, `min_f`, `max_f`, `clamp_i`, `clamp_f`, `sqrt_f`, `pow_f`, `sin_f`, `cos_f`, `tan_f`, `asin_f`, `acos_f`, `atan_f`, `atan2_f`, `deg_to_rad`, `rad_to_deg`, `lerp_f`, `smoothstep_f`), 2D vectors (`rune Vec2` with `dot`, `cross`, `length`, `normalize`, `distance`), 3D vectors (`rune Vec3` with `dot`, `cross`, `length`, `normalize`, `distance`), 4D vectors (`rune Vec4`), 4x4 transformation matrices (`rune Mat4` with `identity`, `translation`, `scaling`, `rotation_x/y/z`, `multiply`, `transpose`, `look_at`, `perspective`, `orthographic`), and quaternions (`rune Quat` with `identity`, `from_axis_angle`, `multiply`, `slerp`, `to_mat4`). |
 
-### 19.1 Embedded Project Assets (`arca`)
+### 19.2 C Native Binding Modules (25 `.d.pengu` modules)
+
+These declaration bindings expose native C libraries with zero abstraction overhead. The compiler links the corresponding C libraries during build:
+
+| Module | Native Library & Description |
+|---|---|
+| `std.raylib` | **Raylib 5.x**: 2D and 3D graphics rendering, windowing, audio, input handling, textures, and cameras. |
+| `std.raymath` | **Raylib Math**: 2D/3D vector mathematics (`Vector2`, `Vector3`), 4x4 transform matrices (`Matrix`), and quaternions. |
+| `std.rlgl` | **rlgl**: Low-level OpenGL 1.1, 2.1, 3.3, and ES 2.0 graphics abstraction layer. |
+| `std.rlights` | **rlights**: Raylib multi-light shader management (directional, point, and spot lights). |
+| `std.raygui` | **raygui**: Immediate-mode graphical user interface (IMGUI) components for Raylib. |
+| `std.sqlite3` | **SQLite 3**: Embedded serverless relational database engine, prepared statements, and query execution. |
+| `std.webui` | **WebUI**: Modern desktop GUI binding leveraging the user's installed web browser (Chrome, Edge, Firefox) via HTML/CSS/JS with two-way RPC. |
+| `std.miniaudio` | **miniaudio**: Cross-platform audio playback, multi-track mixing, sound recording, and 3D spatial audio. |
+| `std.tomlum` | **tomlc99**: Fast, compliant TOML configuration file parser. |
+| `std.yaml` | **libyaml**: Compliant YAML configuration and data document parser. |
+| `std.uuid` | **RFC 4122 UUID**: Cryptographically sound UUID version 4 generation, parsing, and canonical string representation. |
+| `std.xxhash` | **xxHash**: Extremely fast non-cryptographic hash algorithm operating at RAM bandwidth limits. |
+| `std.xlsxio` | **libxlsxio**: High-performance C streaming reader and writer for Excel `.xlsx` files. |
+| `std.imago` | **stb_image**: Image file loading (PNG, JPEG, BMP, TGA, PSD, GIF, HDR, PIC, PNM) from disk or memory. |
+| `std.typis` | **stb_truetype**: Font loading, vector glyph decoding, and rasterization into bitmap atlases. |
+| `std.scriptor` | **stb_sprintf**: High-performance, portable implementation of `sprintf` without locale dependencies. |
+| `std.perlinum` | **stb_perlin**: Procedural Perlin and simplex noise generation for terrain and textures. |
+| `std.stb_image_resize2` | **stb_image_resize2**: High-quality SIMD image scaling with Catmull-Rom, Mitchell, and Lanczos filters. |
+| `std.stb_herringbone_wang_tile` | **stb_herringbone_wang_tile**: Procedural non-periodic map generation using Herringbone Wang tiles. |
+| `std.nanosvg` | **NanoSVG**: Single-header SVG vector parser for path extraction and polygon tesselation. |
+| `std.nanosvgrast` | **NanoSVGrast**: High-speed software rasterizer for NanoSVG vector images. |
+| `std.minicoro` | **minicoro**: Asymmetric stackful coroutines and fiber context switching. |
+| `std.datastructura` | High-performance C data structures: dynamic vector buffers, hash maps, and FIFO queues. |
+| `std.fenestra` | Cross-platform native window dialogs: open file, save file, select folder, message boxes, and notification popups. |
+| `std.pactum` | Compact binary protocol packing and schema-free network message serialization. |
+
+### 19.3 Core Standard Library Examples
+
+#### Memory & C Interop (`std.ffi`)
+Provides bridge routines between C pointers and PenguScript types. Memory views do **not** copy and must **not** be banished; conversions returning owned containers deep-copy their source:
+
+```pengu
+import std.ffi
+import std.spark
+
+weave demonstrate_ffi with c_buf as ref to frozen byte, len as int into void:
+    # 1. Borrow C memory as a slice view (zero allocations, non-owning)
+    var view as slice of byte is calling ffi.slice_from_ptr with (transmute c_buf to ref to void), len
+    calling spark.println with "Slice length: {(view.length to string)}"
+
+    # 2. Convert null-terminated C string into an owned PenguScript string
+    var c_str as ref to frozen char is transmute c_buf to ref to frozen char
+    var owned_s as string is calling ffi.string_from_cstr with c_str
+
+    # 3. Obtain non-owning null-terminated C string pointer from PenguScript string
+    var back_to_c as ref to char is calling ffi.cstr_from_string with owned_s
+    calling spark.println with "Converted string successfully"
+```
+
+#### String Manipulation (`std.scrolls`)
+Pure PenguScript string algorithms operating through the `string` type enchantment:
+
+```pengu
+import std.spark
+import std.scrolls
+
+weave demonstrate_strings into void:
+    var raw as string is "  PenguScript,Systems,Language  "
+    var trimmed as string is calling raw.trim
+    var parts as list of string is calling trimmed.split with ","
+
+    for part in parts:
+        var upper_part as string is calling part.upper
+        if calling upper_part.contains with "SYSTEMS":
+            calling spark.println with "Found target: {upper_part}"
+
+    var sub as string is calling scrolls.substring with trimmed, 0, 11
+    calling spark.println with "Substring: {sub}"
+```
+
+#### Cryptographic Hashes & Compression (`std.seal`)
+Provides digest computation and data compression:
+
+```pengu
+import std.spark
+import std.seal
+
+weave demonstrate_seal with payload as string into void:
+    # Calculate SHA-256 and MD5 hex digests
+    var sha as string is calling seal.sha256 with payload
+    var md5_sum as string is calling seal.md5 with payload
+    calling spark.println with "SHA-256: {sha}"
+    calling spark.println with "MD5: {md5_sum}"
+
+    # Compress with Gzip
+    var compressed as maybe string is calling seal.gzip with payload
+    if compressed.is_present:
+        var original as maybe string is calling seal.unzip with compressed.value
+        if original.is_present:
+            calling spark.println with "Roundtrip match: {(original.value == payload to string)}"
+```
+
+#### Networking & HTTP (`std.precis`)
+Performs outgoing HTTP requests and operates socket endpoints:
+
+```pengu
+import std.spark
+import std.precis
+
+weave fetch_web_data with url as string into void:
+    var headers as map of string to string is map of string to string
+    var resp as maybe precis.ClientResponse is calling precis.get with url, headers
+
+    if resp.is_present:
+        var response as precis.ClientResponse is resp.value
+        calling spark.println with "Status Code: {(response.status_code to string)}"
+        if response.status_code == 200 and response.body.is_present:
+            calling spark.println with "Body: {response.body.value}"
+    else:
+        calling spark.println with "Network request failed"
+```
+
+#### Multithreaded Concurrency (`std.filum`)
+Thread spawning, mutual exclusion, wait groups, and channels:
+
+```pengu
+import std.spark
+import std.filum
+
+weave worker_routine with wg_ptr as ref to filum.WaitGroup, m_ptr as ref to filum.Mutex into void:
+    calling filum.lock with m_ptr
+    calling spark.println with "Inside synchronized critical section"
+    calling filum.unlock with m_ptr
+    calling filum.done with wg_ptr
+
+weave demonstrate_concurrency into void:
+    var m as filum.Mutex is calling filum.mutex
+    var wg as filum.WaitGroup is calling filum.wait_group
+
+    calling filum.add with (sigil of wg), 1
+    # Run worker tasks with explicit handle passing
+    calling worker_routine with (sigil of wg), (sigil of m)
+    calling filum.wait with (sigil of wg)
+
+    calling filum.free_mutex with m
+    calling filum.free_wait_group with wg
+```
+
+#### PCRE2 Regular Expressions (`std.regulus`)
+Fast pattern matching, group extraction, and replacement:
+
+```pengu
+import std.spark
+import std.regulus
+
+weave demonstrate_regex into void:
+    var re as regulus.Regex is calling regulus.compile with "[a-zA-Z]+@([a-zA-Z0-9-]+\\.[a-z]+)", "i"
+    var m as maybe regulus.Match is calling regulus.search with re, "Contact: admin@penguscript.org"
+
+    if m.is_present:
+        var match_data as regulus.Match is m.value
+        calling spark.println with "Matched text: {match_data.matched}"
+        calling regulus.match_free with match_data
+
+    var replaced as string is calling regulus.replace with re, "Send to user@domain.com", "[hidden]"
+    calling spark.println with "Sanitized: {replaced}"
+    calling regulus.regex_free with re
+```
+
+#### 2D & 3D Interactive Graphics (`std.raylib` & `std.raymath`)
+Interactive windowing and rendering pipeline:
+
+```pengu
+import std.raylib
+import std.raymath
+import std.ffi
+
+weave main into int:
+    var title as ref to char is calling ffi.cstr_from_string with "PenguScript Raylib Window"
+    calling raylib.InitWindow with 800, 450, (transmute title to ref to frozen char)
+    calling raylib.SetTargetFPS with 60
+
+    var position as raymath.Vector2 is with x is 400.0, y is 225.0
+
+    while not calling raylib.WindowShouldClose:
+        calling raylib.BeginDrawing
+        calling raylib.ClearBackground with raylib.RAYWHITE
+        calling raylib.DrawCircle with (position.x to int), (position.y to int), 20.0, raylib.MAROON
+        calling raylib.EndDrawing
+
+    calling raylib.CloseWindow
+    return 0
+```
+
+### 19.4 Embedded Project Assets (`arca`)
 
 PenguScript projects can bundle static files (shaders, audio, images, configs, fonts, templates, HTML/JS/CSS) directly into the executable via the `assets` feature. The compiler generates a pure PenguScript module (default: `src/arca.pengu`) and a C implementation (`build/arca_assets.c`).
 
@@ -1989,14 +2770,22 @@ PenguScript asset embedding is completely binary and format-agnostic. The bytes 
 
 #### Asset Constants
 
-Constants for every tracked asset are emitted with an 8-character hash suffix (derived from the relative path) to guarantee collision-free C identifiers even when filenames differ only by punctuation, directory separators, or leading digits:
+Constants for every tracked asset are emitted with a deterministic, collision-free identifier format (`ASSET_<MODULE>_<CLEANED>_<SHA1_8>`):
+- **`CLEANED`:** The relative file path with all non-alphanumeric characters replaced by underscores and converted to uppercase (`re.sub(r"[^A-Za-z0-9]", "_", name).upper()`). If the cleaned name begins with a digit, a leading underscore `_` is prepended.
+- **`SHA1_8`:** The first 8 hexadecimal characters of the uppercase SHA-1 digest of the UTF-8 relative path string:
+  ```python
+  hashlib.sha1(name.encode("utf-8")).hexdigest()[:8].upper()
+  ```
+- **Prefix:** `ASSET_` when using the default module `arca`, or `ASSET_<MODULE>_` when a custom module name is configured in `pengu.yaml` (e.g. `ASSET_RECURSOS_`).
+
+This ensures unique, C99-compliant identifiers even when filenames differ only by punctuation, path separators, or case:
 
 ```pengu
 const ASSET_LOGO_PNG_A731E040 as string is "logo.png"
 const ASSET_SHADERS_GRAYSCALE_FS_E362493E as string is "shaders/grayscale.fs"
 ```
 
-You can pass either the generated constant (`arca.ASSET_LOGO_PNG_A731E040`) or the string literal (`"logo.png"` / `"shaders/grayscale.fs"`). For the default module `arca`, constants are prefixed with `ASSET_`; for a custom module `module: X`, the prefix is `ASSET_X_` (e.g. `ASSET_RECURSOS_LOGO_PNG_A731E040`). Run `pengu assets --list` to view all constants and file sizes.
+You can pass either the generated constant (`arca.ASSET_LOGO_PNG_A731E040`) or the string literal (`"logo.png"` / `"shaders/grayscale.fs"`). Run `pengu assets --list` to view all constants and file sizes.
 
 #### Usage Examples
 
@@ -2058,53 +2847,224 @@ weave main into int:
 
 ## 20. Tooling & project layout
 
-- **Assets** (`pengu assets`): inspects and generates the project's embedded asset module (`src/arca.pengu` and `build/arca_assets.c`). Use `--list` to display all tracked assets with their size and C identifier, or `--force` to regenerate unconditionally.
-- **LSP** (`pengu lsp`): diagnostics, contextual completion, hover with
-  memory sizes, go-to-definition/implementation, find references, rename,
-  highlight, signature help, code actions (add import, remove unused,
-  organize imports, implement concept methods), formatting.
-- **Formatter** (`pengu fmt`): 2-space indentation (configurable via client
-  options or `pengu.yaml`), strips trailing whitespace, keeps `#`/`##`
-  comments intact. Automatically skips files marked with `## @generated`.
-- **Docs** (`pengu doc`): generates Markdown from the `##` / `#` comments
-  directly above a declaration (generated bindings use `#`, like `pengu bind`).
-- **Bind** (`pengu bind`): generates `.d.pengu` bindings from C headers. It blanks
-  GNU compiler extensions before parsing, auto-imports the bindings of included
-  headers, and takes `--define/-D NAME[=V]`, `--cpp-flags "…"`,
-  `--system-includes`, `--include-paths DIR…`, `--preprocessed FILE.i` and
-  `--no-blank-extensions` for headers that need a specific preprocessor setup.
-  Failures name the offending construct and the flag to try.
-- **Diagnostics point at your source.** Generated C carries `#line` directives
-  back to the `.pengu` file and line, so a gcc/clang error (including one caused
-  by a construct the checker accepted) is reported against your code, not against
-  `build/bundle.c`.
-- **Minimal Runtime Backtraces:** The runtime maintains a thread-local circular frame ring buffer (`pengu_frame_push` / `pengu_frame_pop`), recording active function frames (up to `PENGU_MAX_FRAMES`, 64 by default). Async-signal-safe crash handlers for `SIGSEGV` and `SIGABRT` (as well as `SetUnhandledExceptionFilter` on Windows) write the exact `.pengu` call stack with source files and line numbers directly to `stderr` upon fatal errors.
-- **Opt-in Bounds Checking:** Under the `debug` build profile, indexing operations (`xs at i` and `set xs at i`) automatically emit bounds checks (`pengu_assert_bounds`), throwing descriptive panics with callstack traces on out-of-bounds access. Under `release`, bounds checks are completely omitted with zero runtime cost.
-- **Exit status.** The value of `weave main` becomes the process exit status
-  (widened to `int`; `weave main into void` exits `0`), so CI and `pengu run`
-  see failures. `pengu --version` / `-V` prints the toolchain version, and the
-  version lives in the `VERSION` file (`pengu_version.py`).
-- **Program arguments**: the entry wrapper calls `pengu_init(argc, argv)`, so
-  `rites.get_argc()` / `get_argv()` / `get_args()` return the real arguments.
-- **Release packaging**: `make_release.py` builds the compiler binary +
-  VS Code extension; `build_runtime.py` builds `libpengu_runtime.a` and the
-  vendored C libraries.
+The `pengu` unified command-line toolchain manages project creation, compilation, testing, formatting, C header binding generation, documentation, and Language Server Protocol (LSP) integration.
 
-Known tooling gaps (as of 0.10.0): the `pengu` CLI has no `-I`/`-L`/`-l` flags
-(use `pengu.yaml`), and `build/app.exe` is a shared default output path so building a
-different entry reuses the same binary name (the cache is content-keyed, so it
-rebuilds correctly). Parameters passed as `ref to T` and `self` are emitted as
-standard C pointers without `restrict`, guaranteeing safety for aliasing buffers.
+### 20.1 Project Initialization (`pengu init`)
 
-Typical layout:
+Generates a new project directory with standard folder structure, gitignore, and boilerplate:
+
+```bash
+pengu init <name> [--type {exe,c,obj,static,shared}] [--links LINKS] [--output-name OUTPUT_NAME] [--cc CC]
+```
+
+- `--type, -t`: Target artifact format:
+  - `exe`: Standalone native executable (default).
+  - `c`: Transpiled single-file C source bundle (`build/bundle.c`).
+  - `obj`: Compiled native object file (`.o` / `.obj`).
+  - `static`: Compiled static library (`.a` / `.lib`).
+  - `shared`: Compiled dynamically linked shared library (`.so` / `.dll` / `.dylib`).
+- `--links, -l`: Comma-separated native C libraries to link (e.g. `raylib,m,pthread`).
+- `--output-name`: Custom output binary base name.
+- `--cc`: C compiler override (default: `gcc`).
+
+### 20.2 Compilation & Build Profiles (`pengu build`)
+
+Compiles the PenguScript project into the designated target:
+
+```bash
+pengu build [--profile PROFILE] [--config CONFIG] [--entry ENTRY] [--output OUTPUT] [--test] [--cc CC] [--verbose] [-D DEFINES]
+```
+
+- `--profile, -p`: Selects optimization and diagnostic profiles:
+  - `debug` (default): Includes debug symbols (`-g`), runtime bounds checking (`pengu_assert_bounds`), runtime callstack tracking (`pengu_frame_push`/`pop`), and asserts.
+  - `release`: Maximizes performance (`-O3`), omits bounds checks, disables runtime callstack tracking for zero overhead.
+- `--test`: Includes and compiles all top-level `test` blocks into the executable bundle.
+- `-D, --define`: Sets compile-time variables for `when` conditions (e.g. `-D os=linux`, `-D arch=x64`, `-D compiler=clang`, `-D debug`, `-D main`). Repeatable.
+- `--verbose`: Emits detailed phase timings, module resolution order, and invoked C compiler commands.
+- `--config, -c`: Path to custom `pengu.yaml` or project root.
+- `--entry, -e`: Overrides root entrypoint file (default: `src/main.pengu`).
+- `--output, -o`: Custom target output path (e.g. `build/bundle.c` or `build/game.exe`).
+
+### 20.3 Execution & Script Mode (`pengu run`)
+
+Compiles and immediately executes the project target:
+
+```bash
+pengu run [--profile PROFILE] [--config CONFIG] [--entry ENTRY] [--test] [--cc CC] [--verbose] [-D DEFINES] [script]
+```
+
+- `[script]`: When an optional `.pengu` source file is provided (e.g. `pengu run hello.pengu`), the compiler executes it as a standalone script on the fly, evaluating its `when main:` conditional blocks without requiring a full project directory.
+- **The compiled binary is cached by content hash** (`~/.cache/pengu/scripts/<key>/app`), so an unchanged script starts in milliseconds and never touches the project's `build/` directory. `--keep` builds into `build/<name>_run/` instead, `--no-cache` bypasses the cache, `--ephemeral` uses a throw-away directory (CI) and `--clear-cache` empties the store.
+- Arguments after `--` are forwarded to the script (`std.rites.get_args`).
+- `PENGU_CACHE=0` disables the caches, `PENGU_DEV_CC`/`PENGU_TCC`/`PENGU_NO_TCC` control the compiler choice. See `docs/PERFORMANCE.md`.
+
+### 20.3.1 Diagnostics, cache and one-liners
+
+| Command | What it does |
+| ------- | ------------ |
+| `pengu doctor [--json]` | Reports the compiler, TCC availability, runtime header, `std/`, cache paths and write permissions. |
+| `pengu gc [--all] [--max-age N]` | Collects cached script binaries older than N days (30 by default). |
+| `pengu expand FILE.pengu [-o OUT]` | Prints the generated `bundle.c` (useful to inspect dead-code elimination). |
+| `pengu time FILE.pengu` | Runs the script and prints per-phase timings (imports, check, codegen, C compiler, run). |
+| `pengu eval "EXPR"` | Wraps the expression in a temporary script, compiles it through the cache and prints the result. |
+| `pengu watch FILE.pengu` | Re-runs the script whenever it or any module it imports changes. |
+
+Global flags: `--quiet`, `--no-color` (or `NO_COLOR=1`) and `--verbose`.
+
+### 20.4 Integrated Unit Testing (`pengu test`)
+
+Compiles and runs all `test "..."` blocks defined across the project:
+
+```bash
+pengu test [--profile PROFILE] [--config CONFIG] [--entry ENTRY] [--cc CC] [--verbose] [-D DEFINES] [--json] [--watch]
+```
+
+- `--watch`: Runs in file-watcher mode, automatically recompiling and re-executing unit tests whenever any `.pengu` file is modified.
+- `--json`: Emits machine-readable JSON Lines to `stdout` for CI/CD integration, containing test results, duration, and failure diagnostics.
+
+### 20.5 Fast Type Checking (`pengu check`)
+
+Validates project syntax and types without invoking GCC/Clang or emitting C code:
+
+```bash
+pengu check [--profile PROFILE] [--config CONFIG] [--entry ENTRY] [--cc CC] [--verbose] [-D DEFINES]
+```
+
+- Rapidly type-checks all ASTs and verifies module symbol tables. Ideal for git pre-commit hooks and continuous integration lint steps.
+
+### 20.6 C Header Binding Generator (`pengu bind`)
+
+Translates C header files (`.h`) directly into native PenguScript declaration bindings (`.d.pengu`):
+
+```bash
+pengu bind <header> [--prefix PREFIX] [--links LINKS...] [--output OUTPUT] [--no-comments] [--ignore IGNORE...] [--include-paths INCLUDE_PATHS...] [--define DEFINES] [--cpp-flags CPP_FLAGS] [--system-includes] [--preprocessed FILE.i] [--no-blank-extensions] [--no-cpp] [--auto-import DIR]
+```
+
+- Automatically blanks GNU compiler extensions (`__attribute__`, `__asm__`, `__extension__`) prior to parsing.
+- `--define, -D`: Defines C preprocessor macros (e.g. `-D Z_SOLO`).
+- `--cpp-flags`: Raw preprocessor flags (e.g. `"-DZ_SOLO -DXXH_INLINE_ALL=0"`).
+- `--system-includes`: Preserves system compiler headers instead of minimal stubs.
+- `--preprocessed FILE.i`: Bypasses preprocessor invocation and parses an existing `.i` file directly.
+- `--auto-import DIR`: Automatically emits `import` statements for sibling `.d.pengu` bindings corresponding to included headers.
+- `--links`: Emits `link "..."` directives in the binding output.
+
+### 20.7 Source Code Formatter (`pengu fmt`)
+
+Formats `.pengu` source files according to the standard style conventions:
+
+```bash
+pengu fmt <paths...> [--check] [--write] [--indent INDENT] [--tabs] [--verbose]
+```
+
+- Enforces 2-space indentation (configurable via `--indent` or `--tabs`).
+- Strips trailing whitespace, normalizes block indentation, and preserves `#` / `##` comments intact.
+- `--check`: Verifies formatting without writing back to disk; exits with non-zero status if changes are needed.
+- Automatically skips any source file starting with `## @generated`.
+
+### 20.8 Documentation Generator (`pengu doc`)
+
+Generates Markdown documentation from source docstrings:
+
+```bash
+pengu doc [--config CONFIG] [--entry ENTRY] [--output OUTPUT]
+```
+
+- Extracts doc comments (`##`) preceding weaves, runes, concepts, omens, and constants across all project modules into structured Markdown files in `docs/`.
+
+### 20.9 Embedded Assets Manager (`pengu assets`)
+
+Inspects and updates embedded project assets:
+
+```bash
+pengu assets [--config CONFIG] [--list] [--force]
+```
+
+- Rebuilds `src/arca.pengu` and `build/arca_assets.c` from the configured `assets:` directory.
+- `--list`: Displays all tracked asset files, their exact byte size, and their generated PenguScript constant identifiers.
+- `--force`: Regenerates all asset tables unconditionally, bypassing modification caches.
+
+### 20.10 Language Server Protocol (`pengu lsp`)
+
+Powers IDE integration (VS Code, Neovim, Emacs, Helix):
+
+```bash
+pengu lsp [--stdio] [--tcp] [--host HOST] [--port PORT]
+```
+
+- `--stdio`: Standard I/O communication (default for editor sub-processes).
+- `--tcp`, `--host`, `--port`: Runs the LSP server over a TCP socket (default port: `2087`).
+- Capabilities:
+  - Real-time diagnostic reporting with Rust-like caret spans.
+  - Contextual code completion (keywords, runes, methods, local variables, module symbols).
+  - Hover information showing type signatures, docstrings, and calculated struct memory sizes/alignments.
+  - Go to definition and go to implementation.
+  - Find references and workspace symbol search.
+  - Document symbol outline and workspace symbols.
+  - Rename symbol across files.
+  - Code actions: import module, remove unused symbols, implement concept methods.
+  - Document formatting.
+
+### 20.11 Dependency Management (`pengu add` & `pengu update`)
+
+Integrates external PenguScript modules and C bindings:
+
+```bash
+pengu add <source> [--branch BRANCH] [--name NAME] [--config CONFIG] [--no-build]
+pengu update [--config CONFIG] [--verbose]
+```
+
+- `pengu add`: Clones a remote git repository or symlinks a local directory into `lib/<name>`, and records the dependency in `pengu.yaml`.
+- `pengu update`: Performs `git pull` across all dependencies in `lib/` and re-runs dependency build scripts.
+
+### 20.12 Project Clean (`pengu clean`)
+
+Cleans the project workspace:
+
+```bash
+pengu clean [--config CONFIG]
+```
+
+- Deletes the `build/` directory, compiled objects, C bundles, and temporary caches.
+
+### 20.13 Toolchain Versioning (`pengu -V` / `--version`)
+
+```bash
+pengu -V
+pengu --version
+```
+
+- Outputs the version string (e.g. `PenguScript v0.14.0`). The compiler version is tracked in `VERSION` and mirrored in `pengu_version.py`.
+
+### 20.14 Runtime Infrastructure & Diagnostics
+
+#### Minimal Runtime Backtraces
+The runtime maintains a lightweight, thread-local circular frame ring buffer:
+- `pengu_frame_push(fn_name, file, line)` and `pengu_frame_pop()` record active callstack frames up to `PENGU_MAX_FRAMES` (64 by default).
+- Async-signal-safe crash handlers for `SIGSEGV` and `SIGABRT` (and `SetUnhandledExceptionFilter` on Windows) intercept fatal errors and write the exact callstack with `.pengu` source filenames and line numbers directly to `stderr`.
+
+#### Opt-in Bounds Checking
+- Under the `debug` build profile, indexing operations (`xs at i` and `set xs at i`) emit bounds assertions (`pengu_assert_bounds`), halting with a callstack trace on out-of-bounds access.
+- Under `release`, bounds checks are completely omitted with zero runtime overhead.
+
+#### `#line` Directives
+Generated C code carries `#line` directives mapping every C statement back to the originating `.pengu` source file and line. C compiler diagnostics and GDB/LLDB debuggers point directly to the PenguScript source.
+
+#### Program Arguments & Exit Codes
+- `int32_t pengu_main(void)` returns the process exit code (`0` for success).
+- The C `main(argc, argv)` initializes the runtime via `pengu_init(argc, argv)` before invoking `pengu_main`, ensuring `std.rites.get_argc()`, `get_argv()`, and `get_args()` receive authentic OS arguments.
+
+#### Standard Project Directory Layout
 
 ```
 my_project/
-├── pengu.yaml
+├── pengu.yaml          # Project configuration (dependencies, build flags, assets)
 ├── src/
-│   └── main.pengu
-├── lib/            # external dependencies/bindings
-└── build/          # generated artifacts (gitignored)
+│   ├── main.pengu      # Entrypoint module
+│   └── arca.pengu      # Auto-generated embedded assets module (optional)
+├── assets/             # Static game/application assets (optional)
+├── lib/                # External dependencies and C bindings
+├── c/                  # Native C/C++ helper source files (compiled automatically)
+└── build/              # Output binaries, object files, and bundle.c (gitignored)
 ```
 
 ---
@@ -2116,7 +3076,7 @@ import std.spark
 import std.scrolls
 import std.tally
 
-# --- types --------------------------------------------------------------
+# --- Types --------------------------------------------------------------
 rune Player:
     name as string
     hp as int
@@ -2130,7 +3090,7 @@ concept Named:
 
 bind Player with Named:
     weave display_name into string:
-        return "Hero"
+        return self->name
 
 enchanting Player:
     weave ritual new_hero with name as string into Player:
@@ -2141,7 +3101,7 @@ enchanting Player:
         if self->hp < 0:
             set self->hp is 0
 
-# --- generics -----------------------------------------------------------
+# --- Generics -----------------------------------------------------------
 rune Pair shard A, B:
     first as A
     second as B
@@ -2149,9 +3109,9 @@ rune Pair shard A, B:
 weave first_of shard A, B with p as Pair of A, B into A:
     return p.first
 
-# --- main ---------------------------------------------------------------
+# --- Main Entrypoint ---------------------------------------------------
 weave main into int:
-    var hero as Player with:                    # block construction
+    var hero as Player with:                    # Block-style builder construction
         set .name is "Ada"
         calling .damage with 30
 
@@ -2164,7 +3124,7 @@ weave main into int:
     calling scores.push with 10
     calling scores.push with 20
     calling scores.push with 30
-    calling spark.println with "sum: " + ((calling tally.sum with scores) to string)
+    calling spark.println with "sum: {((calling tally.sum with scores) to string)}"
     var part as string is calling scrolls.substring with "done", 0, 4
     calling spark.println with part
 
@@ -2174,13 +3134,170 @@ weave main into int:
     return 1
 ```
 
-Generated C is a single translation unit: `struct Player { PenguString name;
-int32_t hp; }; enum Phase { Phase_Idle, Phase_Fighting };` (plus methods as
-`Player_new_hero`, `Player_damage`, monomorphized `Pair` structs, etc.),
-wrapped by `int32_t pengu_main(void)` and a standard `main`.
+Generated C is a single translation unit containing struct layouts (`struct Player`, `enum Phase`), monomorphized types (`Pair_int_string`), methods (`Player_new_hero`, `Player_damage`), and the entrypoint wrapper `pengu_main(void)`.
+
+---
+
+## 22. Appendix: Compiler Diagnostic Catalog
+
+PenguScript uses a Rust-inspired compiler diagnostic reporter with ANSI color output, line gutters, caret span underlines, error codes (`[Exxxx]`), `note:`, and `help:` hints.
+
+### 22.1 Diagnostic Format
+
+When an error occurs, the compiler formats the diagnostic as follows:
+
+```text
+error[E0006]: cannot assign to immutable variable 'count'
+  --> src/main.pengu:14:5
+   |
+14 |     set count is count + 1
+   |     ^^^^^^^^^^^^^^^^^^^^^^ cannot assign to 'let' binding
+   |
+   = note: 'let' bindings are immutable by default.
+   = help: Declare the variable with 'var' instead of 'let' to allow mutation.
+```
+
+### 22.2 Compiler Error Catalog (`E0000`–`E0050`)
+
+| Code | Exception Class | Semantic Condition & Explanation | Default Help / Note |
+|---|---|---|---|
+| `E0000` | `ParseError` | Syntax error: invalid token, improper indentation, or missing comma separators. | Check syntax around location; verify indentation consistency. |
+| `E0001` | `ConstInsideWeaveError` | `const` declared inside a function body. Constants are top-level only. | Move constant declaration outside function, or use `let`/`var`. |
+| `E0002` | `VarLetTopLevelError` | `var` or `let` declared at top-level. Global mutable state is forbidden. | Use `const` for top-level, or use `static var` inside a weave. |
+| `E0003` | `SelfDotAccessError` | `self.` dot access used instead of arrow `self->`. | Change `self.` to `self->` (`self` is always a pointer reference). |
+| `E0004` | `UndefinedIdentifierError` / `SemanticError` | Symbol not found, circular import cycle detected, or duplicate module import. | Check spelling, verify declaration/import, or break circular dependency. |
+| `E0005` | `TypeMismatchError` / `SemanticError` | Incompatible types in assignment, argument, or operator. Includes string composition with `+`/`+=` (`"a" + b`, `set s += x`), which must use `"{expr}"` interpolation. | Match expected type, convert with `to <Type>`, or compose strings with `"{expr}"`. |
+| `E0006` | `MutabilityError` | Attempted assignment to immutable `let` binding, `const`, or `frozen` target. | Declare variable with `var` instead of `let` to allow mutation. |
+| `E0007` | `InvalidControlFlowError` | `break` or `continue` statement used outside of a loop block. | Remove control flow statement or place inside a `while` or `for` loop. |
+| `E0008` | `InvalidMemoryOpError` / `SemanticError` | Invalid `sigil of` on literal/const, or invalid `banish` on non-pointer/seal/frozen. | Address-of and manual banish require valid mutable memory targets. |
+| `E0009` | `InvalidWithTargetError` | Leading dot member access (`.field`) used outside an active `with` block. | Wrap call in a `with` block or use explicit target object access. |
+| `E0010` | `SemanticError` (`code="E0010"`) | Struct init `with x is 1` matches no known `rune` type in scope. | Check field names or annotate target type explicitly (`as RuneName`). |
+| `E0011` | `SemanticError` (`code="E0011"`) | Struct init matches multiple runes with identical field names. | Disambiguate by specifying the rune type explicitly with `as RuneName`. |
+| `E0012` | `SemanticError` (`code="E0012"`) | Attempt to instantiate an `opaque` type directly with `with`. | Opaque types cannot be instantiated directly; obtain via C interop. |
+| `E0013` | `SemanticError` (`code="E0013"`) | Field does not exist on rune, echo, maybe, result, or primitive type. | Check field spelling or verify declared fields on the struct/union. |
+| `E0014` | `InvalidBuilderStatementError` / `TypeMismatchError` | Forbidden statement in `with:` builder, or untyped `null`/`maybe none` initialization. | Use only field assignments/calls in builders; provide explicit type for `null`. |
+| `E0015` | `UnknownArrayDimensionError` / `SemanticError` | Fixed array dimension cannot be determined, or `error` accessed outside `or:`. | Specify all dimensions explicitly; access `error` only within `or:` blocks. |
+| `E0016` | `SemanticError` (`code="E0016"`) | C macro define used without prior `include "header.h"` directive. | Add `include "header.h"` before referencing C constants. |
+| `E0017` | `SemanticError` (`code="E0017"`) | Cannot destructure expression (target is not rune, fixed array, slice, or list).| Destructuring only supports runes, fixed arrays, slices, and lists. |
+| `E0018` | `TypeMismatchError` (`code="E0018"`) | Element type incompatible with container (`list.push` or map insert). | Pass a value compatible with the container's declared element type. |
+| `E0019` | `SemanticError` (`code="E0019"`) | Undefined variable or malformed expression inside string `{expr}`. | Ensure variable exists in scope, or use raw string `r"..."` to disable. |
+| `E0020` | `TypeMismatchError` (`code="E0020"`) | Return expression or `or return` value incompatible with function return type. | Return a value matching the function's declared return type. |
+| `E0021` | `GenericTypeMissingArgsError` | Generic type used without required type arguments (`of`). | Provide type arguments using `of` (e.g. `Pair of int and float`). |
+| `E0022` | `TypeParamOutsideGenericError`| Type parameter used outside a generic declaration context. | Declare type parameter with `shard` or use a concrete type. |
+| `E0023` | `MultipleManyParamsError` | Multiple `many` variadic parameters declared in a single function. | A function can have at most one `many` variadic parameter. |
+| `E0024` | `ManyParamNotLastError` | `many` variadic parameter is not the final parameter in parameter list. | Move the `many` variadic parameter to the end of the parameter list. |
+| `E0025` | `SemanticError` (`code="E0025"`) | Function body or `test` block placed inside a `.d.pengu` declaration file. | Use `declare` without body in declaration files; remove test blocks. |
+| `E0026` | `MultipleInsigniaError` | Multiple `insignia` directives defined in the same module file. | Only one `insignia` directive is allowed per module file. |
+| `E0027` | `DuplicateOmenValueError` | Duplicate explicit integer value assigned to omen variants. | Ensure all omen variant values are distinct. |
+| `E0028` | `InvalidOmenPayloadValueError`| Explicit value assignment `is <val>` on algebraic omen with payload (`with`). | Remove `is <value>` from algebraic variants with payloads. |
+| `E0029` | `InvalidOmenConstantValueError`| Non-constant or non-integer value assigned to omen variant. | Omen variant values must evaluate to a compile-time integer constant. |
+| `E0030` | `ConceptMethodMismatchError` | Method signature in `bind` does not match concept declaration. | Ensure parameter types and return type match concept specification. |
+| `E0031` | `UnimplementedConceptMethodError`| `bind` block fails to implement all required concept methods. | Implement every method declared in the bound concept. |
+| `E0032` | `ConceptBoundNotSatisfiedError`| Generic type argument does not implement required concept bound (`where`). | Implement concept via `bind Type with Concept:` before passing as argument. |
+| `E0033` | `InvalidRitualSelfAccessError` | `self` accessed inside a `ritual` (static) method. | Ritual methods are static; remove `self` or remove `ritual` modifier. |
+| `E0034` | `InvalidRitualCallError` | Calling instance method statically or calling ritual method on instance. | Call ritual methods on type (`Type.method`) and instance methods on objects. |
+| `E0035` | `SemanticError` (`code="E0035"`) | C reserved identifier collision, nested static var, array static, or empty test. | Choose a non-reserved identifier; declare statics directly in weaves. |
+| `E0036` | `SemanticError` (`code="E0036"`) | Duplicate top-level symbol, import alias `_`, or conflicting import alias. | Rename the duplicate symbol or change the import alias. |
+| `E0037` | `SemanticError` (`code="E0037"`) | Loop index and element bindings share the same name in `for i, v in col`. | Rename one of the two loop bindings to maintain distinct identifiers. |
+| `E0038` | `SemanticError` (`code="E0038"`) | Duplicate key literal defined inside a map literal. | Map literal keys must be unique. |
+| `E0039` | `SemanticError` (`code="E0039"`) | `when` condition does not evaluate to a compile-time boolean constant. | Use compile-time booleans, `defined()`, or comptime variables. |
+| `E0040` | `SemanticError` (`code="E0040"`) | `main` used as a local/static variable, parameter, constant, or field name. | `main` is reserved for program entrypoint and `when main:` checks. |
+| `E0041` | `ArraySizeMismatchError` | Array literal element count or row length does not match declared size. | Ensure literal element count matches declared fixed array size. |
+| `E0042` | `InvalidRangeError` | Invalid range bounds: `start > end` in compile-time known range expression. | Ensure range start bound is less than or equal to end bound. |
+| `E0043` | `PrivateSymbolAccessError` | Access to private symbol (leading `_`) from outside defining module or rune. | Symbols with `_` prefix are private; use public name or C `insignia`. |
+| `E0044` | `NonExhaustiveJudgeError` | `judge` expression over omen or bool is non-exhaustive without `else ->`. | Cover all omen variants or add an `else ->` default branch. |
+| `E0045` | `SemanticError` (`code="E0045"`) / `TypeMismatchError` | `try` used inside function not returning compatible `maybe` or `result`. | Change function return type to `maybe T` or `result of T to E`. |
+| `E0046` | `SemanticError` (`code="E0046"`) | Omen variant name collides across omens without qualification. | Use distinct variant names or refer via qualified `Omen.variant` form. |
+| `E0047` | `AutoOwnedBanishError` / `DuplicateConceptBindingError` | Attempted manual `banish` on an auto-owned variable, **or** a concept is bound twice to the same type / two concepts provide the same method (`(type, method)` must be unique). | Remove the manual `banish`, or remove/rename the duplicate `bind` method. |
+| `E0048` | `BorrowedBanishError` | Attempted manual `banish` on a borrowed reference (`borrowed` or view). | Only the owner of an allocation may banish it; remove `banish`. |
+| `E0049` | `SemanticError` (`code="E0049"`) | Operation used on a generic type parameter (or struct-like type) that does not carry the required concept bound: arithmetic without `Num`, `%`/bitwise without `Integrum`, `==` without `Par`, ordering without `Ordo`, `donum T` without a defaultable bound, `==`/`<` on a rune or algebraic omen without `derive Par`/`Ordo`. | Add the reported `where T: Concept` clause or `derive Concept` to the declaration. |
+| `E0050` | `InfiniteTypeSizeError` | A rune (or algebraic omen) contains itself **by value**, directly or through another by-value type, so its C size cannot be computed. | Break the cycle with pointer indirection: `ref to T`, `maybe ref to T`, `list of T`, `map of K to V`. |
+
+### 22.3 Compiler Warning Catalog (`W0001`–`W0004`)
+
+| Code | Warning Name | Trigger Condition | Recommended Practice |
+|---|---|---|---|
+| `W0001` | `UnsafeTransmuteWarning` | `transmute` between types of differing byte sizes or non-pointer types. | Use safe `to <Type>` casting where possible, or verify memory layout sizes match. |
+| `W0002` | `UnsafeEchoAccessWarning` | Accessing fields of an untagged union (`echo`). | Untagged union reads are inherently unsafe; prefer algebraic `omen` variants with payloads. |
+| `W0004` | `UnreachableCodeWarning` | Unreachable statements detected after early `return`, `panic`, or in `if`/`when` branch. | Remove dead code following unconditional returns or compile-time false branches. |
+
+### 22.4 Illustrative Diagnostic Scenarios
+
+#### Scenario 1: Top-Level Mutable State (`E0002`)
+```pengu
+# Invalid:
+var counter as int is 0
+
+# Fix: Use const or encapsulate in a stateful weave with static var:
+const INITIAL_COUNTER as int is 0
+
+weave next_counter into int:
+    static var counter as int is 0
+    set counter is counter + 1
+    return counter
+```
+
+#### Scenario 2: Leading Dot Access Outside Builder (`E0009`)
+```pengu
+# Invalid:
+set .hp is 100
+
+# Fix: Wrap inside with block or assign directly to instance:
+with player:
+    set .hp is 100
+# Or:
+set player.hp is 100
+```
+
+#### Scenario 3: Non-Exhaustive Judge (`E0044`)
+```pengu
+# Invalid (missing Fighting variant):
+let name is judge current_phase:
+    when Phase.Idle -> "Standing by"
+
+# Fix: Add missing variant or else branch:
+let name is judge current_phase:
+    when Phase.Idle -> "Standing by"
+    when Phase.Fighting -> "In battle"
+    else -> "Unknown"
+```
+
+#### Scenario 4: Scope-Owned Banish (`E0047`)
+```pengu
+# Invalid:
+var words as list of string is list of string
+calling words.push with "hello"
+banish words  # E0047: words is locally allocated and scope-owned
+
+# Fix: Remove manual banish; the compiler frees 'words' at scope exit:
+var words as list of string is list of string
+calling words.push with "hello"
+# Compiler automatically frees 'words' here
+```
+
+#### Scenario 5: String Composition (`E0005`)
+```pengu
+# Invalid: '+' never concatenates strings.
+var name as string is "world"
+calling print with "Hello, " + name
+#   E0005: Cannot concatenate strings with '+' (the left operand is 'string')
+#   = help: Use string interpolation: "text{value}more". '+' only adds numbers.
+
+# Fix: one interpolation literal composes the whole string:
+calling print with "Hello, {name}"
+
+# Invalid: '+=' on a string.
+var acc as string is "a"
+set acc += "b"
+#   E0005: Cannot concatenate strings with '+='
+
+# Fix: rebind through interpolation.
+set acc is "{acc}b"
+```
 
 ---
 
 *End of reference. Corrections welcome — this document mirrors compiler
-behavior at version 0.10.x; run `pengu check` on any snippet to confirm
+behavior at version 0.14.x; run `pengu check` on any snippet to confirm
 semantics on your toolchain.*
+

@@ -1,0 +1,5 @@
+# EXPECTED: E0005
+# EXPECTED TO FAIL: echos are untagged C unions, so 'derive' is unsound.
+echo Number derive Par:
+    as_int as int
+    as_float as float

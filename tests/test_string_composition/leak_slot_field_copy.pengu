@@ -1,0 +1,24 @@
+# #37: a string local stored into a rune's string field is deep-copied, so the
+# local keeps ownership and is still auto-banished (no leak, no aliasing).
+import std.spark
+
+rune Player derive Nexus:
+    name as string
+
+weave build with n as int into Player:
+    var s as string is (n to string)
+    var p as Player with:
+        set .name is s
+    return p
+
+weave main into int:
+    var p as Player is calling build with 7
+    calling spark.println with p.name
+    banish p
+
+    var n as int is 9
+    var t as string is (n to string)
+    var q as Player is with name is t
+    calling spark.println with q.name
+    banish q
+    return 0

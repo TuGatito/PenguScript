@@ -1,0 +1,110 @@
+import std.invoke
+import std.spark
+
+weave main into int:
+    # Build a parser
+    var p as invoke.Parser is calling invoke.new_parser with "test" , "A test program"
+    calling p.add_flag with "verbose" , "v" , "Verbose output" , false
+    calling p.add_option with "output" , "o" , "Output file" , false , "out.txt"
+    calling p.add_option_int with "count" , "c" , "Repeat count" , false , 1
+    calling p.add_option_float with "rate" , "r" , "Processing rate" , false , 0.5
+    calling p.add_option_bool with "dry-run" , "d" , "Dry run flag" , false , false
+    calling p.add_positional with "input" , "Input file" , true , ""
+
+    # Simulate argv
+    var argv as list of string is list of string
+    calling argv.push with "test"                     # program name
+    calling argv.push with "-v"
+    calling argv.push with "--output=result.txt"
+    calling argv.push with "-c"
+    calling argv.push with "5"
+    calling argv.push with "-r"
+    calling argv.push with "2.5"
+    calling argv.push with "input.csv"
+
+    var res as invoke.ParseResult is calling p.parse_no_exit with argv
+    calling spark.assert with calling res.is_ok
+
+    calling spark.assert with calling res.is_set with "verbose"
+    calling spark.assert with (calling res.get with "output") == "result.txt"
+    calling spark.assert with (calling res.get with "input") == "input.csv"
+
+    var cnt as maybe int is calling res.get_int with "count"
+    calling spark.assert with (cnt is present) == true
+    if cnt is present:
+        calling spark.assert with (cnt.value == 5)
+
+    var cnt_or as int is calling res.get_int_or with "count" , 99
+    calling spark.assert with (cnt_or == 5)
+
+    var cnt_def as int is calling res.get_int_or with "missing" , 42
+    calling spark.assert with (cnt_def == 42)
+
+    var rt as maybe float is calling res.get_float with "rate"
+    calling spark.assert with (rt is present) == true
+    if rt is present:
+        calling spark.assert with (rt.value > 2.0 and rt.value < 3.0)
+
+    # Typo suggestion
+    var argv2 as list of string is list of string
+    calling argv2.push with "test"
+    calling argv2.push with "--verbos"
+    calling argv2.push with "input.csv"
+    var res2 as invoke.ParseResult is calling p.parse_no_exit with argv2
+    calling spark.assert with calling res2.is_err
+
+    # Multi-value option
+    var p2 as invoke.Parser is calling invoke.new_parser with "multi" , ""
+    calling p2.add_option_multi with "tag" , "t" , "Tag"
+    var argv3 as list of string is list of string
+    calling argv3.push with "multi"
+    calling argv3.push with "--tag"
+    calling argv3.push with "a"
+    calling argv3.push with "--tag"
+    calling argv3.push with "b"
+    var res3 as invoke.ParseResult is calling p2.parse_no_exit with argv3
+    var tags as list of string is calling res3.get_all with "tag"
+    calling spark.assert with (tags.len == 2)
+
+    # Subcommand
+    var p3 as invoke.Parser is calling invoke.new_parser with "git" , "Git CLI"
+    var sub as invoke.Parser is calling p3.add_subcommand with "commit" , "Commit changes"
+    calling sub.add_flag with "amend" , "a" , "Amend last commit" , false
+    var argv4 as list of string is list of string
+    calling argv4.push with "git"
+    calling argv4.push with "commit"
+    calling argv4.push with "-a"
+    var res4 as invoke.ParseResult is calling p3.parse_no_exit with argv4
+    calling spark.assert with ((calling res4.subcommand) == "commit")
+
+    # Version
+    calling p3.set_version with "1.0.0"
+    var argv5 as list of string is list of string
+    calling argv5.push with "git"
+    calling argv5.push with "--version"
+    var res5 as invoke.ParseResult is calling p3.parse_no_exit with argv5
+    calling spark.assert with calling res5.is_err
+
+    # Positional terminator '--'
+    var p4 as invoke.Parser is calling invoke.new_parser with "grep" , ""
+    calling p4.add_positional with "pattern" , "Search pattern" , true , ""
+    calling p4.add_positional with "file" , "Target file" , true , ""
+    var argv6 as list of string is list of string
+    calling argv6.push with "grep"
+    calling argv6.push with "--"
+    calling argv6.push with "-n"
+    calling argv6.push with "test.txt"
+    var res6 as invoke.ParseResult is calling p4.parse_no_exit with argv6
+    calling spark.assert with (calling res6.get with "pattern") == "-n"
+    calling spark.assert with (calling res6.get with "file") == "test.txt"
+
+    # Helpers: usage, full_help, errors_to_string
+    var u_str as string is calling p.usage_string
+    calling spark.assert with (u_str.len > 0)
+    var h_str as string is calling p.full_help
+    calling spark.assert with (h_str.len > 0)
+    var err_str as string is calling res2.errors_to_string
+    calling spark.assert with (err_str.len > 0)
+
+    calling spark.println with "invoke extended: OK"
+    return 0

@@ -1,0 +1,134 @@
+import std.spark
+import std.atlas
+
+weave test_string_string into void:
+    var m as map of string to string is map of string to string
+    calling spark.assert with (calling m.is_empty)
+    calling m.put with "user", "alice"
+    calling m.put with "role", "admin"
+    calling spark.assert with (calling m.size == 2)
+    calling spark.assert with (calling m.has_key with "user")
+    calling spark.assert with (not (calling m.has_key with "pass"))
+    calling spark.assert with ((calling m.get_or with "user", "none") == "alice")
+    calling spark.assert with ((calling m.get_or with "pass", "none") == "none")
+
+    var opt as maybe string is calling m.get_safe with "role"
+    calling spark.assert with opt.is_present
+    calling spark.assert with (opt.value == "admin")
+
+    calling spark.assert with (calling m.update with "role", "superuser")
+    calling spark.assert with ((calling m.get_or with "role", "none") == "superuser")
+
+    calling spark.assert with (calling m.rename_key with "user", "username")
+    calling spark.assert with (calling m.has_key with "username")
+    calling spark.assert with (not (calling m.has_key with "user"))
+
+    var c as map of string to string is calling m.clone
+    calling spark.assert with (calling m.is_equal with c)
+
+    var ks as list of string is calling m.keys
+    var vs as list of string is calling m.values
+    calling spark.assert with (ks.len == 2)
+    calling spark.assert with (vs.len == 2)
+
+    var match_k as maybe string is calling m.find_key_by_value with "superuser"
+    calling spark.assert with match_k.is_present
+    calling spark.assert with (match_k.value == "role")
+
+    var del_keys as list of string is list of string
+    calling del_keys.push with "username"
+    calling del_keys.push with "nonexistent"
+    calling spark.assert with (calling m.has_any_key with del_keys)
+    calling spark.assert with (not (calling m.has_all_keys with del_keys))
+
+    var removed as int is calling m.remove_all with del_keys
+    calling spark.assert with (removed == 1)
+    calling spark.assert with (calling m.size == 1)
+
+    calling m.clear
+    calling spark.assert with (calling m.is_empty)
+
+weave test_int_int into void:
+    var m as map of int to int is map of int to int
+    calling m.put with 100, 1000
+    calling m.put with 200, 2000
+    calling spark.assert with (calling m.size == 2)
+    calling spark.assert with ((calling m.get_or with 100, 0) == 1000)
+    calling spark.assert with ((calling m.get_or with 999, 0) == 0)
+
+    var opt as maybe int is calling m.get_safe with 200
+    calling spark.assert with opt.is_present
+    calling spark.assert with (opt.value == 2000)
+
+    calling spark.assert with (calling m.rename_key with 100, 101)
+    calling spark.assert with (calling m.has_key with 101)
+    calling spark.assert with (not (calling m.has_key with 100))
+
+    var other as map of int to int is map of int to int
+    calling other.put with 300, 3000
+    calling m.put_all with other
+    calling spark.assert with (calling m.size == 3)
+    calling spark.assert with (calling m.has_key with 300)
+
+weave test_float_string_arbitrary into void:
+    # Testing arbitrary combination not present in concrete enchanting blocks
+    var m as map of float to string is map of float to string
+    calling spark.assert with (calling m.is_empty)
+    calling m.put with 3.14, "pi"
+    calling m.put with 2.71, "e"
+    calling spark.assert with (calling m.size == 2)
+    calling spark.assert with (calling m.has_key with 3.14)
+    calling spark.assert with ((calling m.get_or with 3.14, "none") == "pi")
+    calling spark.assert with ((calling m.get_or with 1.41, "none") == "none")
+
+    var c as map of float to string is calling m.copy
+    calling spark.assert with (calling c.size == 2)
+    calling spark.assert with (calling m.is_equal with c)
+
+    var ks as list of float is calling m.keys
+    var vs as list of string is calling m.values
+    calling spark.assert with (ks.len == 2)
+    calling spark.assert with (vs.len == 2)
+
+    calling spark.assert with (calling m.remove with 3.14)
+    calling spark.assert with (calling m.size == 1)
+    calling spark.assert with (not (calling m.has_key with 3.14))
+
+weave test_int_float_arbitrary into void:
+    # Testing another arbitrary combination not present in concrete enchanting blocks
+    var m as map of int to float is map of int to float
+    calling m.put with 1, 10.5
+    calling m.put with 2, 20.5
+    calling spark.assert with (calling m.size == 2)
+    calling spark.assert with ((calling m.get_or with 1, 0.0) == 10.5)
+    calling spark.assert with ((calling m.get_or with 3, 0.0) == 0.0)
+
+    calling spark.assert with (calling m.update with 1, 15.5)
+    calling spark.assert with ((calling m.get_or with 1, 0.0) == 15.5)
+
+    var ks as list of int is calling m.keys
+    var vs as list of float is calling m.values
+    calling spark.assert with (ks.len == 2)
+    calling spark.assert with (vs.len == 2)
+
+weave test_empty_maps into void:
+    var m as map of string to string is map of string to string
+    calling spark.assert with (calling m.is_empty)
+    calling spark.assert with (calling m.size == 0)
+    var ks as list of string is calling m.keys
+    calling spark.assert with (ks.len == 0)
+    var vs as list of string is calling m.values
+    calling spark.assert with (vs.len == 0)
+    var c as map of string to string is calling m.clone
+    calling spark.assert with (calling c.is_empty)
+    calling spark.assert with (calling m.is_equal with c)
+
+weave main into int:
+    calling spark.println with "=== Test Atlas Generic Matrix ==="
+    calling test_string_string
+    calling test_int_int
+    calling test_float_string_arbitrary
+    calling test_int_float_arbitrary
+    calling test_empty_maps
+    calling spark.println with "atlas_generic_matrix: OK"
+    return 0

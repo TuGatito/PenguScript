@@ -1,0 +1,155 @@
+import std.atlas
+import std.spark
+
+weave main into int:
+    calling spark.println with "=== Test Atlas Extended ==="
+
+    # --- Setup fixture ---
+    var m as map of string to int is map of string to int
+    calling m.put with "apple", 10
+    calling m.put with "banana", 20
+    calling m.put with "cherry", 30
+
+    # --- Length & predicates ---
+    calling spark.assert with (calling atlas.size with m) == 3
+    calling spark.assert with (calling atlas.is_empty with m) == false
+    calling spark.assert with calling atlas.has_key with m, "banana"
+    calling spark.assert with (calling atlas.has_key with m, "unknown") == false
+    calling spark.assert with calling atlas.all_values_positive with m
+    calling spark.assert with (calling atlas.any_value_negative with m) == false
+    calling spark.assert with calling atlas.values_in_range with m, 5, 35
+    calling spark.println with "length & predicates: OK"
+
+    # --- Access ---
+    calling spark.assert with (calling atlas.get_or with m, "banana", 0) == 20
+    calling spark.assert with (calling atlas.get_or with m, "unknown", 99) == 99
+    var opt as maybe int is calling atlas.get_safe with m, "apple"
+    calling spark.assert with (opt is present)
+    calling spark.assert with (opt.value == 10)
+    var opt_miss as maybe int is calling atlas.get_safe with m, "missing"
+    calling spark.assert with (opt_miss is present) == false
+    calling spark.println with "access: OK"
+
+    # --- Mutation wrappers ---
+    calling spark.assert with calling atlas.update with m, "banana", 25
+    calling spark.assert with (calling atlas.get_or with m, "banana", 0) == 25
+    calling spark.assert with (calling atlas.update with m, "unknown", 100) == false
+    var scratch as map of string to int is map of string to int
+    calling scratch.put with "temp", 42
+    calling atlas.put with scratch, "temp2", 84
+    calling spark.assert with calling atlas.remove with scratch, "temp"
+    calling spark.assert with (calling atlas.remove with scratch, "temp") == false
+    calling spark.assert with calling m.remove with "banana"
+    calling spark.assert with (calling atlas.size with m) == 2
+    calling spark.println with "mutation: OK"
+
+    # --- Bulk accessors ---
+    var ks as list of string is calling atlas.keys with m
+    calling spark.assert with (calling ks.len) == 2
+    var vs as list of int is calling atlas.values with m
+    calling spark.assert with (calling vs.len) == 2
+    var sorted_k as list of string is calling atlas.keys_sorted with m
+    calling spark.assert with (sorted_k at 0) == "apple"
+    calling spark.assert with (sorted_k at 1) == "cherry"
+    calling spark.println with "bulk accessors: OK"
+
+    # --- Reductions ---
+    calling spark.assert with (calling atlas.sum_values with m) == 40
+    calling spark.assert with (calling atlas.max_value with m) == 30
+    calling spark.assert with (calling atlas.min_value with m) == 10
+    calling spark.println with "reductions: OK"
+
+    # --- Combination ---
+    var m2 as map of string to int is map of string to int
+    calling m2.put with "cherry", 35
+    calling m2.put with "date", 40
+    var merged as map of string to int is calling atlas.merge with m, m2
+    calling spark.assert with (calling atlas.size with merged) == 3
+    calling spark.assert with (calling atlas.get_or with merged, "cherry", 0) == 35
+    var kept as map of string to int is calling atlas.merge_keep_left with m, m2
+    calling spark.assert with (calling atlas.get_or with kept, "cherry", 0) == 30
+    calling spark.println with "combination: OK"
+
+    # --- Filters ---
+    var filt_sub as map of string to int is calling atlas.filter_keys_contains with merged, "ch"
+    calling spark.assert with (calling atlas.size with filt_sub) == 1
+    calling spark.assert with calling atlas.has_key with filt_sub, "cherry"
+    var filt_pre as map of string to int is calling atlas.filter_keys_startswith with merged, "ch"
+    calling spark.assert with (calling atlas.size with filt_pre) == 1
+    calling spark.assert with calling atlas.has_key with filt_pre, "cherry"
+    var filt_rng as map of string to int is calling atlas.filter_values_range with merged, 32, 45
+    calling spark.assert with (calling atlas.size with filt_rng) == 2
+    calling spark.println with "filters: OK"
+
+    # --- Transformations ---
+    var dbl as map of string to int is calling atlas.map_values_double with m
+    calling spark.assert with (calling atlas.get_or with dbl, "apple", 0) == 20
+    var neg as map of string to int is calling atlas.map_values_negate with m
+    calling spark.assert with (calling atlas.get_or with neg, "apple", 0) == -10
+    calling spark.println with "transformations: OK"
+
+    # --- Conversions ---
+    var k_list as list of string is list of string
+    calling k_list.push with "x"
+    calling k_list.push with "y"
+    var v_list as list of int is list of int
+    calling v_list.push with 100
+    calling v_list.push with 200
+    var from_l as map of string to int is calling atlas.from_lists with k_list, v_list
+    calling spark.assert with (calling atlas.size with from_l) == 2
+    calling spark.assert with (calling atlas.get_or with from_l, "x", 0) == 100
+    calling spark.assert with (calling atlas.get_or with from_l, "y", 0) == 200
+    var ks_alias as list of string is calling atlas.to_keys_list with from_l
+    calling spark.assert with (calling ks_alias.len) == 2
+    var vs_alias as list of int is calling atlas.to_values_list with from_l
+    calling spark.assert with (calling vs_alias.len) == 2
+    calling spark.println with "conversions: OK"
+
+    # --- Clear ---
+    var m_clr as map of string to int is map of string to int
+    calling m_clr.put with "a", 1
+    calling atlas.clear with m_clr
+    calling m.clear
+    calling spark.assert with calling atlas.is_empty with m
+    calling spark.println with "clear: OK"
+
+    # --- Direct enchanting method syntax ---
+    var d as map of string to int is map of string to int
+    calling d.put with "alpha", 100
+    calling d.put with "beta", 200
+    calling d.put with "gamma", 300
+    calling spark.assert with (calling d.size) == 3
+    calling spark.assert with calling d.has_key with "beta"
+    calling spark.assert with (calling d.has_key with "delta") == false
+    calling spark.assert with calling d.all_values_positive
+    calling spark.assert with (calling d.any_value_negative) == false
+    calling spark.assert with calling d.values_in_range with 50, 350
+    calling spark.assert with (calling d.get_or with "beta", 0) == 200
+    calling spark.assert with (calling d.get_or with "delta", -1) == -1
+    var d_opt as maybe int is calling d.get_safe with "alpha"
+    calling spark.assert with (d_opt is present)
+    calling spark.assert with (d_opt.value == 100)
+    calling spark.assert with calling d.update with "beta", 250
+    calling spark.assert with (calling d.get_or with "beta", 0) == 250
+    calling spark.assert with (calling d.sum_values) == 650
+    calling spark.assert with (calling d.max_value) == 300
+    calling spark.assert with (calling d.min_value) == 100
+    var d_keys as list of string is calling d.keys_sorted
+    calling spark.assert with (d_keys at 0) == "alpha"
+    calling spark.assert with (d_keys at 1) == "beta"
+    calling spark.assert with (d_keys at 2) == "gamma"
+    var d_sub as map of string to int is calling d.filter_keys_contains with "ma"
+    calling spark.assert with (calling d_sub.size) == 1
+    calling spark.assert with calling d_sub.has_key with "gamma"
+    var d_pre as map of string to int is calling d.filter_keys_startswith with "be"
+    calling spark.assert with (calling d_pre.size) == 1
+    calling spark.assert with calling d_pre.has_key with "beta"
+    var d_dbl as map of string to int is calling d.map_values_double
+    calling spark.assert with (calling d_dbl.get_or with "alpha", 0) == 200
+    var d_neg as map of string to int is calling d.map_values_negate
+    calling spark.assert with (calling d_neg.get_or with "alpha", 0) == -100
+    calling spark.println with "direct enchanting methods: OK"
+
+    calling spark.println with "atlas extended: OK"
+    return 0
+

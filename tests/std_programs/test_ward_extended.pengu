@@ -1,0 +1,118 @@
+import std.ward
+import std.spark
+import std.oracle
+
+declare pengu_result_ok with ok_val as ref to void into result of int to string
+declare pengu_result_err with err_val as ref to void into result of int to string
+
+weave main into int:
+    # Legacy asserts (should not panic on success)
+    calling ward.assert_true with true
+    calling ward.assert_false with false
+    calling ward.assert_eq_int with 5 , 5
+    calling ward.assert_eq_string with "a" , "a"
+    calling ward.assert_eq_bool with true , true
+    calling ward.assert_ne_int with 1 , 2
+    calling ward.assert_ne_string with "a" , "b"
+    calling ward.assert_ne_bool with true , false
+    calling ward.assert_gt_int with 5 , 3
+    calling ward.assert_lt_int with 3 , 5
+    calling ward.assert_ge_int with 5 , 5
+    calling ward.assert_le_int with 5 , 5
+
+    # Float with epsilon
+    calling ward.assert_eq_float with 1.0 , 1.0 , 0.0001
+    calling ward.assert_ne_float with 1.5 , 1.0 , 0.0001
+    calling ward.assert_almost_eq with 3.141592 , 3.141593 , 0.001
+    calling ward.assert_gt_float with 2.5 , 1.0
+    calling ward.assert_ge_float with 2.5 , 2.5
+    calling ward.assert_lt_float with 1.0 , 2.5
+    calling ward.assert_le_float with 2.5 , 2.5
+
+    # Range
+    calling ward.assert_in_range_int with 5 , 0 , 10
+    calling ward.assert_in_range_float with 0.5 , 0.0 , 1.0
+
+    # String helpers
+    calling ward.assert_string_contains with "hello world" , "world"
+    calling ward.assert_string_starts_with with "hello" , "he"
+    calling ward.assert_string_ends_with with "hello" , "lo"
+    calling ward.assert_string_empty with ""
+    calling ward.assert_string_not_empty with "x"
+
+    # List helpers
+    var xs as list of int is list of int
+    calling xs.push with 1
+    calling xs.push with 2
+    calling ward.assert_list_not_empty_int with xs
+    calling ward.assert_list_len_int with xs , 2
+
+    var xs2 as list of int is list of int
+    calling xs2.push with 1
+    calling xs2.push with 2
+    calling ward.assert_eq_int_list with xs , xs2
+
+    var empty_l as list of int is list of int
+    calling ward.assert_list_empty_int with empty_l
+
+    var ws1 as list of string is list of string
+    calling ws1.push with "foo"
+    calling ws1.push with "bar"
+    var ws2 as list of string is list of string
+    calling ws2.push with "foo"
+    calling ws2.push with "bar"
+    calling ward.assert_eq_string_list with ws1 , ws2
+
+    # Map helpers
+    var m as map of string to string is map of string to string
+    calling m.put with "env" , "prod"
+    calling ward.assert_map_has_key with m , "env"
+    calling ward.assert_map_not_has_key with m , "secret"
+
+    # Native maybe and result (0.15.0 shard T)
+    var m_opt as maybe int is some 42
+    calling ward.assert_maybe_present with m_opt
+    var m_none as maybe string is maybe none
+    calling ward.assert_maybe_none with m_none
+
+    var r_ok as result of int to string is calling pengu_result_ok with null
+    calling ward.assert_result_ok with r_ok
+    calling ward.assert_result_ok_int with r_ok
+    var r_err as result of int to string is calling pengu_result_err with null
+    calling ward.assert_result_err with r_err
+    calling ward.assert_result_err_int with r_err
+
+    # Legacy oracle maybe/result
+    var legacy_m as oracle.MaybeInt is with is_present is true , value is 99
+    calling ward.assert_present_int with legacy_m
+    var legacy_none as oracle.MaybeInt is with is_present is false , value is 0
+    calling ward.assert_none_int with legacy_none
+
+    # Expect helpers
+    calling ward.expect with true , "should be true"
+    calling ward.expect_eq_int with 10 , 10 , "equal ints"
+    calling ward.expect_eq_string with "a" , "a" , "equal strings"
+    calling ward.expect_eq_float with 1.0 , 1.0 , "equal floats" , 0.0001
+    calling ward.expect_ne_int with 1 , 2 , "not equal ints"
+    calling ward.expect_ne_string with "a" , "b" , "not equal strings"
+    calling ward.expect_ne_bool with true , false , "not equal bools"
+    calling ward.expect_gt_int with 10 , 5 , "gt"
+    calling ward.expect_ge_int with 5 , 5 , "ge"
+    calling ward.expect_lt_int with 3 , 5 , "lt"
+    calling ward.expect_le_int with 5 , 5 , "le"
+    calling ward.expect_present_int with legacy_m , "present"
+
+    # Check helpers (non-panicking)
+    var c1 as oracle.ResultString is calling ward.check with true , "err"
+    calling spark.assert with c1.is_ok
+    var c2 as oracle.ResultString is calling ward.check_eq_int with 5 , 5 , "err"
+    calling spark.assert with c2.is_ok
+    var c3 as oracle.ResultString is calling ward.check_eq_string with "k" , "k" , "err"
+    calling spark.assert with c3.is_ok
+    var c4 as oracle.ResultString is calling ward.check_eq_bool with true , true , "err"
+    calling spark.assert with c4.is_ok
+    var c5 as oracle.ResultString is calling ward.check_eq_float with 1.0 , 1.0 , "err"
+    calling spark.assert with c5.is_ok
+
+    calling spark.println with "ward extended: OK"
+    return 0

@@ -1,0 +1,13 @@
+# 'where T: Integrum' is the integer-only refinement used by % and bitwise ops.
+weave mod2 shard T where T: Integrum with a as T, b as T into T:
+    return a % b
+
+weave mask shard T where T: Integrum with a as T, b as T into T:
+    return a & b
+
+weave main into int:
+    var m as int is calling mod2 with 7, 4
+    var k as int is calling mask with 6, 3
+    if m == 3 and k == 2:
+        return 0
+    return 1

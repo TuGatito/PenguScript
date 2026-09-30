@@ -1,0 +1,123 @@
+import std.spark
+import std.atlas
+
+weave main into int:
+    calling spark.println with "=== Test Atlas (String -> Bool) ==="
+
+    var m as map of string to bool is map of string to bool
+    calling spark.assert with (calling m.is_empty)
+    calling spark.assert with (calling m.size == 0)
+
+    # 1. Insertion & basic access
+    calling m.put with "feature_fast_math", true
+    calling m.put with "feature_experimental", false
+    calling m.put with "feature_debug_logs", true
+    calling spark.assert with (not (calling m.is_empty))
+    calling spark.assert with (calling m.size == 3)
+    calling spark.assert with (calling m.has_key with "feature_fast_math")
+    calling spark.assert with (not (calling m.has_key with "nonexistent"))
+
+    # 2. get_or and get_safe
+    calling spark.assert with (calling m.get_or with "feature_fast_math", false)
+    calling spark.assert with (not (calling m.get_or with "feature_experimental", true))
+    calling spark.assert with (calling m.get_or with "missing", true)
+
+    var opt1 as maybe bool is calling m.get_safe with "feature_fast_math"
+    calling spark.assert with (opt1.is_present)
+    if opt1.is_present:
+        calling spark.assert with opt1.value
+
+    var opt2 as maybe bool is calling m.get_safe with "missing"
+    calling spark.assert with (not opt2.is_present)
+
+    # 3. Predicates & counting
+    calling spark.assert with (calling m.count_true == 2)
+    calling spark.assert with (calling m.count_false == 1)
+
+    var k_sub as list of string is list of string
+    calling k_sub.push with "feature_fast_math"
+    calling k_sub.push with "feature_debug_logs"
+    calling spark.assert with (calling m.has_all_keys with k_sub)
+
+    # 4. Update & rename
+    var up_ok as bool is calling m.update with "feature_experimental", true
+    calling spark.assert with up_ok
+    calling spark.assert with (calling m.get_or with "feature_experimental", false)
+    calling spark.assert with (calling m.count_true == 3)
+    calling spark.assert with (calling m.count_false == 0)
+
+    var ren_ok as bool is calling m.rename_key with "feature_debug_logs", "feature_verbose"
+    calling spark.assert with ren_ok
+    calling spark.assert with (not (calling m.has_key with "feature_debug_logs"))
+    calling spark.assert with (calling m.has_key with "feature_verbose")
+    calling spark.assert with (calling m.get_or with "feature_verbose", false)
+
+    # 5. Keys, values and sorted keys
+    var ks as list of string is calling m.keys
+    calling spark.assert with (ks.len == 3)
+    var vs as list of bool is calling m.values
+    calling spark.assert with (vs.len == 3)
+
+    var sorted_ks as list of string is calling m.keys_sorted
+    calling spark.assert with (sorted_ks.len == 3)
+    # Alphabetical: "feature_experimental", "feature_fast_math", "feature_verbose"
+    calling spark.assert with ((sorted_ks at 0) == "feature_experimental")
+    calling spark.assert with ((sorted_ks at 1) == "feature_fast_math")
+    calling spark.assert with ((sorted_ks at 2) == "feature_verbose")
+
+    # 6. Filter & clone
+    var f_sub as map of string to bool is calling m.filter_keys_contains with "verbose"
+    calling spark.assert with (calling f_sub.size == 1)
+    calling spark.assert with (calling f_sub.has_key with "feature_verbose")
+
+    var cloned as map of string to bool is calling m.clone
+    calling spark.assert with (calling cloned.size == 3)
+    calling spark.assert with (calling cloned.has_key with "feature_verbose")
+
+    # 7. remove & remove_all & clear
+    var rem_one as bool is calling m.remove with "feature_verbose"
+    calling spark.assert with rem_one
+    calling spark.assert with (calling m.size == 2)
+
+    var to_rem as list of string is list of string
+    calling to_rem.push with "feature_fast_math"
+    calling to_rem.push with "feature_experimental"
+    var rem_count as int is calling m.remove_all with to_rem
+    calling spark.assert with (rem_count == 2)
+    calling spark.assert with (calling m.size == 0)
+
+    # 8. Binary ops (merge, from_lists)
+    var a as map of string to bool is map of string to bool
+    calling a.put with "flag1", true
+    calling a.put with "shared", false
+
+    var b as map of string to bool is map of string to bool
+    calling b.put with "flag2", true
+    calling b.put with "shared", true
+
+    var merged as map of string to bool is calling atlas.merge_sb with a, b
+    calling spark.assert with (calling merged.size == 3)
+    calling spark.assert with (calling merged.get_or with "shared", false)
+
+    var merged_l as map of string to bool is calling atlas.merge_keep_left_sb with a, b
+    calling spark.assert with (calling merged_l.size == 3)
+    calling spark.assert with (not (calling merged_l.get_or with "shared", true))
+
+    var lk as list of string is list of string
+    calling lk.push with "opt_a"
+    calling lk.push with "opt_b"
+    var lv as list of bool is list of bool
+    calling lv.push with true
+    calling lv.push with false
+    var fl as map of string to bool is calling atlas.from_lists_sb with lk, lv
+    calling spark.assert with (calling fl.size == 2)
+    calling spark.assert with (calling fl.get_or with "opt_a", false)
+    calling spark.assert with (not (calling fl.get_or with "opt_b", true))
+
+    # 9. Generic module utilities
+    calling spark.assert with ((calling atlas.map_size of string, bool with fl) == 2)
+    calling spark.assert with (calling atlas.map_has_key of string, bool with fl, "opt_a")
+    calling spark.assert with (calling atlas.map_get_or of string, bool with fl, "opt_a", false)
+
+    calling spark.println with "atlas_sb: OK"
+    return 0

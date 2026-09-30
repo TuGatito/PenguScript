@@ -1,0 +1,8 @@
+import std.spark
+
+weave main into int:
+    var n as int is 7
+    var name as string is "pengu"
+    var msg as string is "value {n} for {name}"
+    calling spark.assert with msg == "value 7 for pengu"
+    return 0

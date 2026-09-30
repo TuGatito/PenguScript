@@ -1,0 +1,17 @@
+# Self-referential generic rune broken with pointer indirection.
+rune Node cyclus shard T:
+    val as T
+    next as maybe ref to Node of T
+
+weave main into int:
+    var n2 as Node of int with:
+        set .val is 20
+        set .next is maybe none
+    var n1 as Node of int with:
+        set .val is 10
+        set .next is some (sigil of n2)
+    var tail as ref to Node of int is n1.next or:
+        return 1
+    if n1.val + tail->val == 30:
+        return 0
+    return 2

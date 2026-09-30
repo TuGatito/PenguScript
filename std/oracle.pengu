@@ -9,16 +9,18 @@
 #     (is_ok false, `error_msg` set). It never carries both.
 #   * unwrap panics on the absent / error case; unwrap_or returns a caller
 #     supplied default instead of panicking.
+#   * Native `maybe T` and `result of T to E` helpers provide module-level
+#     constructors and inspection functions.
 #
-# Ownership model: these are plain runes holding scalar fields or ordinary
-# owned strings. String payloads follow normal string ownership (banish them
-# when done) and the rune values keep no native handles open.
+# Ownership model: legacy runes hold scalar fields or ordinary owned strings.
+# Native `maybe T` and `result of T to E` values follow native language value
+# semantics and clean up automatically upon scope exit.
 
 import std.spark
 
-# ----------------------------------------------------------------------------
-# Type Definitions
-# ----------------------------------------------------------------------------
+# ============================================================================
+# Legacy runes (kept for backward compatibility)
+# ============================================================================
 
 # Optional int: `is_present` is true when a value is stored, `value` holds it
 # (0 when none).
@@ -53,9 +55,9 @@ rune ResultString:
     value as string
     error_msg as string
 
-# ----------------------------------------------------------------------------
-# Functional API (constructors)
-# ----------------------------------------------------------------------------
+# ============================================================================
+# Legacy constructors
+# ============================================================================
 
 # Wraps `val` in a present MaybeInt (is_present true, value `val`).
 weave maybe_some_int with val as int into MaybeInt:
@@ -92,9 +94,9 @@ weave result_ok_string with val as string into ResultString:
 weave result_err_string with msg as string into ResultString:
     return with is_ok is false , value is "" , error_msg is msg
 
-# ----------------------------------------------------------------------------
-# Object Methods (enchanting)
-# ----------------------------------------------------------------------------
+# ============================================================================
+# Legacy enchanting methods
+# ============================================================================
 
 # Methods on MaybeInt values, invoked as `calling m.is_present` / `m.unwrap`.
 enchanting MaybeInt:
@@ -104,7 +106,9 @@ enchanting MaybeInt:
 
     # True when the wrapper is empty (no value stored).
     weave is_none into bool:
-        return (self->is_present) == false
+        return judge self->is_present:
+            when true -> false
+            when false -> true
 
     # Returns the stored value, or panics with "Unwrapped none MaybeInt" when
     # the wrapper is empty.
@@ -116,9 +120,9 @@ enchanting MaybeInt:
 
     # Returns the stored value when present, otherwise `default_val`.
     weave unwrap_or with default_val as int into int:
-        if self->is_present:
-            return self->value
-        return default_val
+        return judge self->is_present:
+            when true -> self->value
+            when false -> default_val
 
 # Methods on MaybeString values, invoked as `calling m.is_present` / `m.unwrap`.
 enchanting MaybeString:
@@ -128,7 +132,9 @@ enchanting MaybeString:
 
     # True when the wrapper is empty (no value stored).
     weave is_none into bool:
-        return (self->is_present) == false
+        return judge self->is_present:
+            when true -> false
+            when false -> true
 
     # Returns the stored value, or panics with "Unwrapped none MaybeString"
     # when the wrapper is empty.
@@ -140,9 +146,9 @@ enchanting MaybeString:
 
     # Returns the stored value when present, otherwise `default_val`.
     weave unwrap_or with default_val as string into string:
-        if self->is_present:
-            return self->value
-        return default_val
+        return judge self->is_present:
+            when true -> self->value
+            when false -> default_val
 
 # Methods on ResultInt values, invoked as `calling r.is_ok` / `r.unwrap`.
 enchanting ResultInt:
@@ -152,7 +158,9 @@ enchanting ResultInt:
 
     # True when the result carries an error (no value stored).
     weave is_err into bool:
-        return (self->is_ok) == false
+        return judge self->is_ok:
+            when true -> false
+            when false -> true
 
     # Returns the ok value, or panics with the stored error message when the
     # result is err.
@@ -168,9 +176,9 @@ enchanting ResultInt:
 
     # Returns the ok value when present, otherwise `default_val`.
     weave unwrap_or with default_val as int into int:
-        if self->is_ok:
-            return self->value
-        return default_val
+        return judge self->is_ok:
+            when true -> self->value
+            when false -> default_val
 
 # Methods on ResultString values, invoked as `calling r.is_ok` / `r.unwrap`.
 enchanting ResultString:
@@ -180,7 +188,9 @@ enchanting ResultString:
 
     # True when the result carries an error (no value stored).
     weave is_err into bool:
-        return (self->is_ok) == false
+        return judge self->is_ok:
+            when true -> false
+            when false -> true
 
     # Returns the ok value, or panics with the stored error message when the
     # result is err.
@@ -196,6 +206,286 @@ enchanting ResultString:
 
     # Returns the ok value when present, otherwise `default_val`.
     weave unwrap_or with default_val as string into string:
-        if self->is_ok:
-            return self->value
-        return default_val
+        return judge self->is_ok:
+            when true -> self->value
+            when false -> default_val
+
+# ============================================================================
+# Native maybe helpers (recommended for new code)
+# ============================================================================
+
+## Wraps integer `val` in a present native `maybe int` container.
+##
+## Signature: some_int(val as int) into maybe int
+## Ownership: Returns a value `maybe int` container.
+weave some_int with val as int into maybe int:
+    return some val
+
+## Wraps float `val` in a present native `maybe float` container.
+##
+## Signature: some_float(val as float) into maybe float
+## Ownership: Returns a value `maybe float` container.
+weave some_float with val as float into maybe float:
+    return some val
+
+## Wraps string `val` in a present native `maybe string` container.
+##
+## Signature: some_string(val as string) into maybe string
+## Ownership: Returns a value `maybe string` container owning a copy of the string.
+weave some_string with val as string into maybe string:
+    return some val
+
+## Wraps boolean `val` in a present native `maybe bool` container.
+##
+## Signature: some_bool(val as bool) into maybe bool
+## Ownership: Returns a value `maybe bool` container.
+weave some_bool with val as bool into maybe bool:
+    return some val
+
+## Returns an empty native `maybe int` container.
+##
+## Signature: none_int() into maybe int
+## Ownership: Returns an empty value `maybe int` container.
+weave none_int into maybe int:
+    return maybe none
+
+## Returns an empty native `maybe float` container.
+##
+## Signature: none_float() into maybe float
+## Ownership: Returns an empty value `maybe float` container.
+weave none_float into maybe float:
+    return maybe none
+
+## Returns an empty native `maybe string` container.
+##
+## Signature: none_string() into maybe string
+## Ownership: Returns an empty value `maybe string` container.
+weave none_string into maybe string:
+    return maybe none
+
+## Returns an empty native `maybe bool` container.
+##
+## Signature: none_bool() into maybe bool
+## Ownership: Returns an empty value `maybe bool` container.
+weave none_bool into maybe bool:
+    return maybe none
+
+## Returns the stored integer from `m`, or panics if `m` is none.
+##
+## Signature: unwrap_int(m as maybe int) into int
+## Ownership: Operates on value container; returns scalar integer.
+## Edge cases: Panics with "Unwrapped none maybe int" if absent.
+weave unwrap_int with m as maybe int into int:
+    if m is present:
+        return m.value
+    calling spark.panic with "Unwrapped none maybe int"
+    return 0
+
+## Returns the stored float from `m`, or panics if `m` is none.
+##
+## Signature: unwrap_float(m as maybe float) into float
+## Ownership: Operates on value container; returns scalar float.
+## Edge cases: Panics with "Unwrapped none maybe float" if absent.
+weave unwrap_float with m as maybe float into float:
+    if m is present:
+        return m.value
+    calling spark.panic with "Unwrapped none maybe float"
+    return 0.0
+
+## Returns the stored string from `m`, or panics if `m` is none.
+##
+## Signature: unwrap_string(m as maybe string) into string
+## Ownership: Operates on value container; returns owned string.
+## Edge cases: Panics with "Unwrapped none maybe string" if absent.
+weave unwrap_string with m as maybe string into string:
+    if m is present:
+        return m.value
+    calling spark.panic with "Unwrapped none maybe string"
+    return ""
+
+## Returns the stored boolean from `m`, or panics if `m` is none.
+##
+## Signature: unwrap_bool(m as maybe bool) into bool
+## Ownership: Operates on value container; returns scalar boolean.
+## Edge cases: Panics with "Unwrapped none maybe bool" if absent.
+weave unwrap_bool with m as maybe bool into bool:
+    if m is present:
+        return m.value
+    calling spark.panic with "Unwrapped none maybe bool"
+    return false
+
+## Returns the stored integer from `m` if present, otherwise returns `fallback`.
+##
+## Signature: unwrap_or_int(m as maybe int, fallback as int) into int
+## Ownership: Operates on value container; returns scalar integer.
+weave unwrap_or_int with m as maybe int , fallback as int into int:
+    return m or else fallback
+
+## Returns the stored float from `m` if present, otherwise returns `fallback`.
+##
+## Signature: unwrap_or_float(m as maybe float, fallback as float) into float
+## Ownership: Operates on value container; returns scalar float.
+weave unwrap_or_float with m as maybe float , fallback as float into float:
+    return m or else fallback
+
+## Returns the stored string from `m` if present, otherwise returns `fallback`.
+##
+## Signature: unwrap_or_string(m as maybe string, fallback as string) into string
+## Ownership: Operates on value container; returns owned string.
+weave unwrap_or_string with m as maybe string , fallback as string into string:
+    return m or else fallback
+
+## Returns the stored boolean from `m` if present, otherwise returns `fallback`.
+##
+## Signature: unwrap_or_bool(m as maybe bool, fallback as bool) into bool
+## Ownership: Operates on value container; returns scalar boolean.
+weave unwrap_or_bool with m as maybe bool , fallback as bool into bool:
+    return m or else fallback
+
+## Converts a legacy `MaybeInt` rune into a native `maybe int` value.
+##
+## Signature: to_native_int(m as MaybeInt) into maybe int
+## Ownership: Converts rune fields to native container.
+weave to_native_int with m as MaybeInt into maybe int:
+    if m.is_present:
+        return some m.value
+    return maybe none
+
+## Converts a native `maybe int` value into a legacy `MaybeInt` rune.
+##
+## Signature: from_native_int(m as maybe int) into MaybeInt
+## Ownership: Constructs and returns a legacy MaybeInt rune.
+weave from_native_int with m as maybe int into MaybeInt:
+    if m is present:
+        return with is_present is true , value is m.value
+    return with is_present is false , value is 0
+
+## Converts a legacy `MaybeString` rune into a native `maybe string` value.
+##
+## Signature: to_native_string(m as MaybeString) into maybe string
+## Ownership: Converts rune fields to native container.
+weave to_native_string with m as MaybeString into maybe string:
+    if m.is_present:
+        return some m.value
+    return maybe none
+
+## Converts a native `maybe string` value into a legacy `MaybeString` rune.
+##
+## Signature: from_native_string(m as maybe string) into MaybeString
+## Ownership: Constructs and returns a legacy MaybeString rune.
+weave from_native_string with m as maybe string into MaybeString:
+    if m is present:
+        return with is_present is true , value is m.value
+    return with is_present is false , value is ""
+
+## Returns a human-readable description of native `m` ("some(N)" or "none").
+##
+## Signature: describe_maybe_int(m as maybe int) into string
+## Ownership: Returns a freshly allocated owned string.
+weave describe_maybe_int with m as maybe int into string:
+    if m is present:
+        return "some({(m.value to string)})"
+    return "none"
+
+## Returns a human-readable description of native `m` ("some(\"s\")" or "none").
+##
+## Signature: describe_maybe_string(m as maybe string) into string
+## Ownership: Returns a freshly allocated owned string.
+weave describe_maybe_string with m as maybe string into string:
+    if m is present:
+        return "some(\"{m.value}\")"
+    return "none"
+
+## Returns a human-readable description of native `m` ("some(F)" or "none").
+##
+## Signature: describe_maybe_float(m as maybe float) into string
+## Ownership: Returns a freshly allocated owned string.
+weave describe_maybe_float with m as maybe float into string:
+    if m is present:
+        return "some({(m.value to string)})"
+    return "none"
+
+## Returns a human-readable description of native `m` ("some(true)" or "none").
+##
+## Signature: describe_maybe_bool(m as maybe bool) into string
+## Ownership: Returns a freshly allocated owned string.
+weave describe_maybe_bool with m as maybe bool into string:
+    if m is present:
+        return "some({(m.value to string)})"
+    return "none"
+
+## Returns a human-readable description of `m` ("some(N)" or "none").
+##
+## Signature: describe_int(m as MaybeInt) into string
+## Ownership: Returns a freshly allocated owned string.
+weave describe_int with m as MaybeInt into string:
+    return judge m.is_present:
+        when true -> "some({(m.value to string)})"
+        when false -> "none"
+
+## Returns a human-readable description of `m` ("some(\"s\")" or "none").
+##
+## Signature: describe_string(m as MaybeString) into string
+## Ownership: Returns a freshly allocated owned string.
+weave describe_string with m as MaybeString into string:
+    return judge m.is_present:
+        when true -> "some(\"{m.value}\")"
+        when false -> "none"
+
+## Returns a human-readable description of `r` ("ok(N)" or "err(msg)").
+##
+## Signature: describe_result_int(r as ResultInt) into string
+## Ownership: Returns a freshly allocated owned string.
+weave describe_result_int with r as ResultInt into string:
+    return judge r.is_ok:
+        when true -> "ok({(r.value to string)})"
+        when false -> "err({r.error_msg})"
+
+## Returns a human-readable description of `r` ("ok(\"s\")" or "err(msg)").
+##
+## Signature: describe_result_string(r as ResultString) into string
+## Ownership: Returns a freshly allocated owned string.
+weave describe_result_string with r as ResultString into string:
+    return judge r.is_ok:
+        when true -> "ok(\"{r.value}\")"
+        when false -> "err({r.error_msg})"
+
+# ============================================================================
+# Native result helpers
+# ============================================================================
+
+## Returns true if the native result `r` represents success.
+##
+## Signature: is_ok_int_result(r as result of int to string) into bool
+## Ownership: Operates on value container; returns a scalar boolean.
+weave is_ok_int_result with r as result of int to string into bool:
+    return r.is_ok
+
+## Returns true if the native result `r` represents an error.
+##
+## Signature: is_err_int_result(r as result of int to string) into bool
+## Ownership: Operates on value container; returns a scalar boolean.
+weave is_err_int_result with r as result of int to string into bool:
+    return judge r.is_ok:
+        when true -> false
+        when false -> true
+
+## Unwraps the success integer from `r`, or panics with the error message.
+##
+## Signature: unwrap_int_result(r as result of int to string) into int
+## Ownership: Operates on value container; returns scalar integer.
+## Edge cases: Panics with the result error string if failed.
+weave unwrap_int_result with r as result of int to string into int:
+    if r.is_ok:
+        return r.value
+    calling spark.panic with r.error
+    return 0
+
+## Unwraps the success integer from `r` if ok, otherwise returns `fallback`.
+##
+## Signature: unwrap_or_int_result(r as result of int to string, fallback as int) into int
+## Ownership: Operates on value container; returns scalar integer.
+weave unwrap_or_int_result with r as result of int to string , fallback as int into int:
+    return judge r.is_ok:
+        when true -> r.value
+        when false -> fallback

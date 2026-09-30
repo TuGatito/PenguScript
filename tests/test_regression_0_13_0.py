@@ -96,17 +96,7 @@ weave main into int:
 @requires_runtime
 def test_p1_2_loop_value_fresh_local_runs():
     """B2: Local with auto-banish used as loop value avoids use-after-free."""
-    code = """weave main into int:
-  var words as list of string is for i from 0 to 3:
-    var s is "item-" + (i to string)
-    s
-  var w0 as string is words at 0
-  var w1 as string is words at 1
-  var w2 as string is words at 2
-  if w0 == "item-0" and w1 == "item-1" and w2 == "item-2":
-    return 0
-  return 1
-"""
+    code = 'weave main into int:\n  var words as list of string is for i from 0 to 3:\n    var s is "item-{(i to string)}"\n    s\n  var w0 as string is words at 0\n  var w1 as string is words at 1\n  var w2 as string is words at 2\n  if w0 == "item-0" and w1 == "item-1" and w2 == "item-2":\n    return 0\n  return 1\n'
     res = compile_run(code, tag="loop_uaf")
     assert res.returncode == 0
 
@@ -114,16 +104,7 @@ def test_p1_2_loop_value_fresh_local_runs():
 @requires_runtime
 def test_p1_3_value_if_fresh_local_runs():
     """B3: Fresh local in if block used as value avoids use-after-free."""
-    code = """weave main into int:
-  let x as string is if true:
-    var s is "hello" + " world"
-    s
-  else:
-    "fallback"
-  if x == "hello world":
-    return 0
-  return 1
-"""
+    code = 'weave main into int:\n  let x as string is if true:\n    var s is "hello world"\n    s\n  else:\n    "fallback"\n  if x == "hello world":\n    return 0\n  return 1\n'
     res = compile_run(code, tag="if_val_uaf")
     assert res.returncode == 0
 
@@ -131,14 +112,7 @@ def test_p1_3_value_if_fresh_local_runs():
 @requires_runtime
 def test_p1_3_do_expr_fresh_local_runs():
     """B3: Fresh local in do: block used as value avoids use-after-free."""
-    code = """weave main into int:
-  let y as string is do:
-    var t is "pengu" + "script"
-    t
-  if y == "penguscript":
-    return 0
-  return 1
-"""
+    code = 'weave main into int:\n  let y as string is do:\n    var t is "penguscript"\n    t\n  if y == "penguscript":\n    return 0\n  return 1\n'
     res = compile_run(code, tag="do_val_uaf")
     assert res.returncode == 0
 
@@ -201,13 +175,17 @@ weave main into int:
 
 
 def test_p3_3_ord_empty_string_safe():
-    """m3: ord on string generates safe NULL-checked C expression."""
+    """m3: ord on string generates safe NULL/length-checked C expression.
+
+    Audit#5-#10 unified both branches on the 'data && len > 0' guard, so a
+    non-literal empty string no longer reads an uninitialized byte.
+    """
     code = """weave main into int:
   let s is ""
   return ord s
 """
     c = gen_bundle(code)
-    assert "data) ? (s).data[0] : '\\0'" in c
+    assert "data && (s).len > 0) ? (s).data[0] : '\\0'" in c
 
 
 def test_p3_5_unreachable_branch_still_type_checked():

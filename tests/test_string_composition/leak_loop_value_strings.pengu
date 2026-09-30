@@ -1,0 +1,28 @@
+# Audit#2-#19: a loop-value collects deep copies, so the fresh iteration
+# temporary must be released (it used to leak one buffer per iteration).
+import std.spark
+
+rune Holder derive Nexus:
+    name as string
+
+weave main into int:
+    var fresh as list of string is for i from 0 to 3:
+        "n{(i to string)}"
+
+    var owned as list of string is for i from 0 to 2:
+        var s as string is "x{(i to string)}"
+        s
+
+    var h as Holder with:
+        set .name is "shared"
+    var shared_vals as list of string is for i from 0 to 2:
+        h.name
+    banish h
+
+    var ints as list of int is for i from 0 to 4:
+        i * 2
+
+    calling spark.println with (fresh at 0)
+    if calling fresh.len == 3 and calling owned.len == 2 and calling shared_vals.len == 2 and calling ints.len == 4:
+        return 0
+    return 1

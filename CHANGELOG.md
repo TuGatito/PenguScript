@@ -2,6 +2,742 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.15.0] - Unreleased
+
+### Changed — ownership contract for `maybe` and rune lifetime (audit #5)
+
+- **`some expr` deep-copies its payload (`pengu_codegen.py`)**: the box owns a
+  private copy (`pengu_string_clone`/`pengu_list_clone`/`_pengu_auto_clone_*`), so
+  it can no longer dangle when the source local is released. The escape analysis
+  follows: boxing an owning payload is no longer an escape, so the source is
+  released as usual (this removed a systematic leak).
+- **`maybe T` boxes are released (`pengu_codegen.py`, `pengu_checker.py`,
+  `pengu_runtime.h`)**: a binding releases the payload it owns and then the box
+  (`pengu_banish_string((PenguString *)m.value)`, `free(m.value)`), including POD
+  payloads; `pengu_banish_maybe`/`pengu_banish_result` were added. `result` boxes
+  stay C-owned (the std/oracle helpers own their payloads).
+- **`or:` moves the payload out of a maybe (`pengu_codegen.py`)**: the success
+  value is transferred to the result and only the box allocation is freed, so
+  `var s is (calling f) or: "fallback"` no longer leaks the box.
+- **`x to string` on a string is the identity (`pengu_codegen.py`)**: it used to
+  emit `pengu_to_string(x)`, which returned the *same* buffer; the interpolation
+  temporary then freed it (`free(): invalid pointer` on a literal).
+- **Implicit Imago/Nexus for runes with owned fields (`pengu_types.py`,
+  `pengu_codegen.py`)**: a user rune with `string`/`list`/`map`/rune/array fields
+  gets private `_pengu_auto_clone_*`/`_pengu_auto_cleanup_*` helpers and is
+  deep-copied/released by containers, `some` boxes and `banish` — `list of Rune`
+  used to leak every element's fields. std and `.d.pengu` runes are excluded
+  (they free their buffers through explicit helpers, which would double-free).
+- **Bare array literals as arguments (`pengu_codegen.py`)**: emitted as C99
+  compound literals (`((int32_t[3]){ 1, 2, 3 })`) instead of the invalid
+  `f({ 1, 2, 3 })`.
+- **Iteration temporaries (`pengu_codegen.py`)**: the materialized list of a
+  non-lvalue `for v in (calling f)` is released after the loop, and string
+  iteration (statement and comprehension) releases each fresh character.
+- **String comprehensions (`pengu_infer.py`, `pengu_codegen.py`)**: `for c in
+  "abc" then c` works like the `for-in` statement.
+- **`ord` (`pengu_codegen.py`)**: both paths guard on `data && len > 0`.
+- **`defined(...)` at runtime (`pengu_infer.py`, `pengu_checker.py`)**: rejected
+  with E0039 instead of emitting the bare identifier.
+- **`or:` error binding (`pengu_checker.py`)**: the implicit `error` is a `let`.
+
+### Fixed — compiler audit #4 (value blocks, nested escape, omen collisions)
+
+- **`void` value blocks (`pengu_codegen.py`, `pengu_checker.py`)**: a `do:`/`if`
+  whose value is `void` emits the expression as a statement instead of the
+  invalid `void _val_N = f();`, and `var`/`let`/`static var x as void is …` is
+  rejected (E0005) because a `void` value cannot be bound.
+- **Loop values fed by `if`/`unless` (`pengu_codegen.py`)**: the block node
+  reaches the ownership test, which now looks through value blocks — all
+  branches fresh → the iteration temporary is released (it leaked one buffer per
+  iteration); any borrowed branch → nothing is released.
+- **Nested loop values (`pengu_codegen.py`)**: `_expr_owns_value` generalises the
+  freshness test to collection elements, so an inner `list of T` produced by a
+  loop value or a literal is released after the deep-copying push.
+- **Escape analysis (`pengu_checker.py`)**: nested value blocks (`do: do: y`) and
+  `else` branches of a value `if` are flattened, a trailing value-`if`/`do`/loop
+  counts as the block's value, and the source local is no longer banished while
+  the outer value borrows it (a use-after-free).
+- **Omen variant collisions (`pengu_checker.py`)**: a `.d.pengu` declaration
+  emits variants under the simple C name and an `insignia` module emits them
+  prefixed, so only the *emitted* name is registered — a user
+  `const KeyboardKey_KEY_LEFT` no longer collides with a binding, while real
+  PenguScript omen collisions still report E0046.
+- **`_check_or_block` (`pengu_checker.py`)**: the `or:` scope is popped in a
+  `finally`.
+
+### Fixed — compiler audit #3 (value blocks, interop, validation)
+
+- **Value blocks (`pengu_codegen.py`)**: a `do:`/`if`/`unless` used as a value now
+  snapshots its value into a temporary **before** the scope banish flush, so
+  `let x is do: var y as string is …; y.length` no longer reads the nulled buffer.
+- **Function-pointer aliases (`pengu_codegen.py`)**: `alias Cb as ref to weave …`
+  emits `typedef void (*Cb)(int32_t);` (the identifier must live inside the C
+  declarator) instead of invalid C.
+- **Lambdas (`pengu_codegen.py`)**: parameter definitions live in their own
+  pushed scope; they no longer leak into the global symbol table.
+- **Integer literals (`pengu_infer.py`)**: literals outside the `int32` range are
+  typed `i64` instead of silently truncating in C.
+- **`enchanting` methods (`pengu_checker.py`)**: the implicit-return rules of a
+  `weave` (last expression type / `_stmt_always_returns`) now apply, so a method
+  that falls off the end into a non-void return type is E0020.
+- **Ranges (`pengu_infer.py`)**: `to`/`..` require integer bounds (E0005);
+  string bounds used to emit `int64_t = PenguString`.
+- **Destructuring + `insignia` (`pengu_codegen.py`)**: fields are looked up by the
+  C name, so `let health, who is p` reads the declared fields.
+- **`derive Imago`/`Nexus` over arrays (`pengu_types.py`, `pengu_codegen.py`)**:
+  an array implements its element's concepts, and the plain-rune Imago/Nexus
+  loops now share the field helpers, cloning/releasing array elements per element.
+- **Imports (`pengu_checker.py`)**: `file_imports` survives the `when` recursion
+  and a module is never queued twice in `symbols.imports`.
+- **Inlining (`pengu_codegen.py`)**: the checker's small-weave heuristic
+  (`is_inline`) now reaches the emitted C as a plain `static inline` hint
+  (`always_inline` stays reserved for the explicit `inline` keyword: forcing it
+  on a recursive weave is a hard GCC error).
+- **`static var` (`pengu_checker.py`, `pengu_codegen.py`)**: the declaration node
+  carries its symbol, so the code generator no longer relies on a popped scope.
+- **`or:` fallback typing (`pengu_checker.py`)**: the fallback value must match the
+  success type (`maybe int or: "text"` is E0005); returning/void fallbacks remain
+  valid. The `or:` result is deliberately **not** treated as owned: `some "x"`
+  boxes a borrowed pointer, so releasing it would free `.rodata`.
+- **Escape analysis (`pengu_checker.py`)**: block values (`do:`/`if`) participate,
+  a view-bound local keeps the source alive only when the view itself escapes,
+  and scalar members (`s.len`) are not views (no leak regression).
+- **`judge_expr` (`pengu_codegen.py`)**: the `switch` fallback uses
+  `__typeof__((subject))` instead of guessing `int32_t`.
+- **Omen collisions (`pengu_checker.py`)**: a `pengu_bind`-generated const no
+  longer clashes with its own variant.
+
+### Fixed — compiler audit #2 (regressions introduced by the fixes + gaps)
+
+- **Named arguments (`pengu_infer.py`, `pengu_codegen.py`)**: an all-named call is
+  now emitted as a *complete positional* argument list with the skipped defaults
+  inlined (`calling greet with times is 5` → `greet("world", 5)`), and the checker
+  rejects unknown, duplicated and missing required named arguments. Previously a
+  skipped default shifted every later value into the wrong parameter.
+- **`let` with `or:` (`pengu_codegen.py`)**: the binding is declared non-const
+  (the `or:` branch assigns it), which used to be a guaranteed C error.
+- **Container aliases (`pengu_codegen.py`, `pengu_infer.py`)**: `.length`/
+  `.capacity` map to the real C fields (`len`/`cap`) in direct and chained
+  access, and `capacity`/`cap` are rejected for `string`/`slice`.
+- **`%=` (`pengu_checker.py`)**: integer-only, matching the binary `%`
+  (`set f %= 2.0` on a float is `E0005` instead of invalid C).
+- **Views bound to locals (`pengu_checker.py`)**: escape analysis propagates
+  through locals bound to a view (`var v is xs at 0`), so the source is left
+  alive only when the view escapes; a locally-used view still releases it
+  (leak-free) and a returned view can no longer dangle.
+- **`for x in (<call>) then …` (`pengu_codegen.py`)**: non-lvalue iterables are
+  bound to a temporary, like the `for-in` statement.
+- **Comment stripping (`pengu_parser.py`)**: `_strip_comments` is a stateful
+  scanner that understands `"`/`'`/`"""`/raw strings and `{…}` interpolation
+  across lines. A `#` line inside a triple-quoted string and quotes/`#` inside a
+  nested string in `{expr}` are no longer treated as comments (a JSON literal
+  starting with `{` no longer swallowed following doc comments).
+- **Signature validation completed (`pengu_checker.py`)**: `concept` methods,
+  omen variant payloads and *concrete* `enchanting` methods are validated too;
+  the old "any `include` disables validation" bail-out was replaced by a
+  C-typedef heuristic (`va_list`, `FILE`, `…_t`, uppercase, `_`-prefixed) so a
+  PenguScript typo is still reported in files that include a header.
+- **Loop values (`pengu_codegen.py`)**: a fresh iteration temporary is released
+  right after the deep-copying push (one buffer used to leak per iteration);
+  borrowed values and shallow pushes keep the previous ownership rule.
+- **`some` (`pengu_codegen.py`)**: an uninferable payload is a compiler error
+  instead of a silent `int32_t` assumption.
+- **`pengu_to_string` (`pengu_runtime.h`)**: accepts `char*`/`const char*`.
+
+### Fixed — compiler audit round (correctness, codegen, ownership)
+
+- **`insignia` + user types/methods (`pengu_checker.py`, `pengu_codegen.py`)**:
+  `RuneType`/`EchoType`/`AliasType` now carry the prefixed `c_name`
+  (`insignia my_` ⇒ `my_Player`), so declarations, struct literals and
+  `CTypeMapper` agree. Enchanting call sites look the emitted name up in the
+  collected weaves instead of rebuilding `<Type>_<method>` from the logical
+  name, and `_element_cleanup_fn`/`_element_clone_fn` emit
+  `_pengu_cleanup_my_Player` / `_pengu_clone_my_Player`. Previously any project
+  using `insignia` with `enchanting` or a `list of Rune` failed to compile.
+- **Type-parameter bounds (`pengu_types.py`, `pengu_checker.py`,
+  `pengu_infer.py`)**: `BaseType.is_compatible(TypeParam)` is bound-aware for
+  built-in concepts, and `typeparam_accepts_value` is now shared. A `T: Num`
+  target rejects strings in `return`, `var`/`let` annotations, `maybe T`
+  payloads, container elements and struct fields (`E0005`; container methods
+  keep `E0018`). Unbounded `T`, `any`, `null` and `T`-to-`T` stay permissive.
+- **Named arguments (`pengu_codegen.py`)**: `calling f with b is 2, a is 1` is
+  emitted in declaration order (`f(1, 2)`); previously the C arguments kept the
+  source order, silently swapping them. Positional/mixed calls and unresolved
+  callees are left untouched.
+- **Interpolation of wide integers (`pengu_codegen.py`, `pengu_runtime.h`)**:
+  `"{x}"` picks `%lld`/`%llu`/`%u` + the matching cast instead of truncating
+  every integer to `int32_t`.
+- **`pengu_string_format_ex` (`pengu_runtime.h`)**: `%d`/`%f` used
+  `snprintf`'s *would-be* length as the append count, which read past the
+  64-byte scratch buffer for values like `1e300` (heap-buffer-overflow). It now
+  retries into a heap buffer when the value does not fit, and also handles
+  `%llu`/`%lld`/`%u`.
+- **Compile-time integers (`pengu_comptime.py`, `pengu_infer.py`,
+  `pengu_types.py`)**: `08`/`09` no longer crash the checker with a Python
+  `ValueError`, and folded `div`/`mod` now truncate toward zero like C
+  (`-7 / 2` is `-3`, not `-4`), so `when`/constant folding agrees with runtime.
+- **Function/parameter validation (`pengu_checker.py`)**: `weave int` (any C
+  keyword) is rejected with `E0035` instead of emitting `int32_t int(...)`, and
+  duplicate parameter names are rejected (`E0005`) instead of silently
+  overwriting the first one. Methods named after keywords stay valid
+  (`<Type>_union`).
+- **Ownership (`pengu_checker.py`, `pengu_codegen.py`)**:
+  - A string stored into a rune/omen **string field** (`.field`, `with f is s`,
+    `with:` builders) is deep-copied *and* the source is still auto-banished, so
+    `var p as Player is with name is s` no longer leaks `s`.
+  - `banish p` on a `ref to Rune derive Nexus` runs the field destructor before
+    freeing the pointee (its fields used to leak).
+  - A destructured **rvalue** list (`let a, b is calling make`) releases its
+    temporary `PenguList`; a destructured *variable* list is still left alone.
+- **Build speed (`pengu_checker.py`)**: imported modules are parsed once per
+  (path, mtime, size) instead of once per importing file. A program importing
+  several `std` modules re-parsed the graph ~200 times per build; a full bundle
+  now takes roughly half the time (the `std_integration_backward_compat`
+  release profile went from ~34 s to ~18 s). The `when_top_decl` recursion also
+  keeps the precomputed import order instead of re-resolving it.
+- **Tests**: `tests/test_audit_fixes.py` (44 regression tests) plus new
+  `tests/test_modules_bindings.py::TestInsigniaCEmission` and
+  `tests/test_string_composition/leak_slot_field_copy.pengu`.
+
+### Breaking change — strings compose only with `"{expr}"` interpolation
+
+- **`+` and `+=` no longer concatenate strings.** `"a" + b` raises `E0005` and
+  `set s += x` raises `E0005`, both pointing at interpolation. `+` is
+  numeric-only (integers, floats); the implicit `to string` promotion it used to
+  perform is gone, so there is a single, explicit string-composition operator.
+  - `ConstFolder` no longer folds `"a" + "b"` into `"ab"`, so the type checker
+    always sees (and rejects) string concatenation instead of a silent fold.
+  - Migration: `"a" + b` → `"a{b}"`; `a + b` (both strings) → `"{a}{b}"`;
+    `prefix + ": " + value` → `"{prefix}: {value}"`;
+    `set acc += item` → `set acc is "{acc}{item}"`; `(x to string) + y` →
+    `"{(x to string)}{y}"` (the `to string` conversion is kept because
+    interpolation formats floats with `%f` while `to string` uses `%g`).
+  - The whole standard library (`std/*.pengu`, 27 modules, ~630 call sites) and
+    every test program/doc example were migrated; `std` now contains no string
+    `+`/`+=`.
+
+### Added — owned string slots are deep-copied (soundness)
+
+- **A `string` written into an owned slot is copied, not aliased
+  (`pengu_codegen.py`)**: struct fields (`.field`, `p.field`, `p->field`,
+  `with f is …`, `with:` builders), fixed/`list` elements (`xs at 0`) and
+  pointee slots (`set essence of p is s`) now receive
+  `pengu_string_copy(...)` unless the value is a fresh temporary
+  (interpolation, `to string`, `chr`), which is moved in.
+  - This fixes a real hazard exposed by the migration: a `derive Nexus` rune
+    whose string field had been assigned a static literal (or a borrowed view)
+    freed a `.rodata`/foreign pointer on `banish` → `free(): invalid pointer`.
+  - The escape analysis was relaxed accordingly: a string local stored into a
+    resolvable string slot no longer counts as escaping, so it is still
+    auto-banished (the slot owns a copy). Non-string slots and unresolvable
+    targets keep the previous conservative behaviour.
+- **Interpolation temporaries are released (`pengu_codegen.py`)**: when an
+  interpolated expression is a *fresh* string producer that needs a temporary
+  (`"{(x to string)}"`), the temporary is freed right after
+  `pengu_string_format` copied its bytes. Borrowed views (fields, parameters)
+  are never freed.
+- **Interpolation inside methods (`pengu_codegen.py`)**: `{expr}` re-inference
+  now uses the general node-typing helper, so `"{(calling self.to_date)}"`
+  works inside `enchanting` bodies (previously `E0019`/“cannot determine type”).
+- **Byte-exact interpolation (`pengu_runtime.h`, `pengu_codegen.py`)**: the
+  generated code now calls `pengu_string_format_ex`, which copies `%.*s`
+  (PenguString) arguments with `memcpy(…, len)` instead of `printf`'s
+  NUL-terminated rule. Interpolation previously truncated any string at its
+  first `\0`, so `cipher.decode_base64`, the pure-Pengu hashes in `seal` and
+  every migrated `a + (chr n)` site produced corrupted binary data (the `seal`
+  extended test hung because of it).
+- **Double quotes inside `{expr}` (`pengu_grammar.py`)**: the `STRING` terminal
+  now matches a balanced `{…}` group as a unit, so an interpolated expression may
+  contain a string literal (`"{calling getenv_or with k, \"\"}"`) without
+  terminating the surrounding literal early.
+
+### Known issues — remaining temporary leaks
+
+- An inline freshly allocated argument (`calling f with "a{b}"`) is still not
+  released by the caller, and a call result assigned to a local
+  (`var s as string is calling f`) is not auto-banished. Freeing them requires a
+  *fresh-return contract* (string-returning functions must return owned buffers,
+  copying borrowed views), call-result ownership, plus storage copies for statics
+  and a retention analysis for `declare`d C functions; anything less dangles on
+  `weave identity with s as string into string: return s`. The earlier naive
+  prototype produced `free(): invalid pointer` in `std.invoke`.
+- Accumulating with `set acc is "{acc}{item}"` in a loop is O(n²); use a
+  `list of string` plus a join for hot paths.
+
+### Fixed — Generics soundness gaps (escape chains & `set` bounds)
+
+- **Escape analysis resolves access chains (`pengu_checker.py`)**:
+  - `_escape_receiver_type` now walks `dot_access` / `arrow_access` / `at_access`
+    steps (`_resolve_chain_type` + `_lookup_field_type_on`) instead of stopping at
+    the first identifier. The container behind `self->items`, `self.items`,
+    `bag.items`, `bag->items`, `o->inner.items` and `xs at 0` is now found, so a
+    `push`/`put` through a rune field is classified by that field's element type.
+  - Previously the receiver resolved to the enclosing rune (e.g. `Bag`), whose
+    `receiver_deep_copies_on_store` is `False`, so a fresh local string pushed
+    through a field was marked as escaping and **never auto-banished** (silent
+    leak). No case becomes more restrictive: chains that cannot be resolved keep
+    the old conservative behaviour.
+- **Bounds are enforced when assigning into a type parameter (`pengu_checker.py`)**:
+  - `_check_set_stmt` rejects `set <target of type T: …> is <value>` when the
+    value does not implement every bound (`_typeparam_accepts_value`), e.g.
+    `set essence of x is "hello"` with `T: Num` — previously accepted and lowered
+    to invalid C at monomorphization (`E0005` now, with the violated bound in the
+    message). `any`, `null`, another type parameter and unbounded `T` stay
+    accepted, so the change is strictly additive.
+  - `Type.is_compatible` / `TypeParam.is_compatible` / `BaseType.is_compatible`
+    are untouched: the hardening is local to `set`, which keeps the documented
+    wildcard behaviour everywhere else (§6.6).
+- **Tests**: `tests/test_generics/gap1_self_field_push/` (5 programs, leak-checked),
+  `tests/test_generics/leak_self_field_push.pengu` (acceptance),
+  `tests/test_generics/gap2_set_typeparam_bounds/` (6 passing + 4 expected-error
+  programs). `tests/test_generics_suite.py` and `run_all.sh` now discover
+  programs recursively.
+
+### Known issue — fresh call arguments still leak
+
+An inline freshly allocated argument (`calling f with "a{b}"`, previously
+`calling f with "a" + b`) is not released by the caller. A local fix was prototyped (bind the argument to a temporary and
+banish it after the call) but reverted: PenguScript passes parameters by value
+and a callee may **alias** the buffer (e.g. `std.invoke`'s
+`add_option_bool` stores `default_val` into a struct field, and `list of Option`
+pushes it with `memcpy` because `Option` has no `derive Imago`). Freeing the
+caller's temporary then produced `free(): invalid pointer`. A sound fix needs
+deep-copying field assignment or a cross-function move/alias analysis; the issue
+is documented rather than patched unsoundly.
+
+### Added — Production generics: bounds, `derive`, `cyclus`, `donum`, ownership
+
+- **Concepts & bounds (`pengu_types.py`, `pengu_infer.py`, `pengu_checker.py`)**:
+  - New built-in concept `Integrum` (integer refinement of `Num`): `%`, `&`, `|`, `^`, `<<`, `>>` and `~` now require an `Integrum` bound instead of silently accepting floats.
+  - `TypeParam.is_int()`/`is_float()`/`is_numeric()` are bound-driven; `Integrum` satisfies `Num`.
+  - Every primitive type now participates in `Nexus` (trivial drop) so `derive Nexus` works with scalar fields; `PRIMITIVE_IMPLS` was extended with the missing integer spellings.
+  - Bounds are propagated into the bodies of generic `weave`, `enchanting` **and** `bind` declarations (previously the `bind` path dropped them).
+  - `TypeParam.is_compatible` is bound-aware: a `T: Num` value is no longer accepted where a `string` is required.
+- **`derive` clause (`pengu_checker.py`, `pengu_codegen.py`)**:
+  - Runes, algebraic omens and generic instantiations can derive `Par`, `Ordo`, `Vinculum`, `Imago` and `Nexus`; the code generator emits `_eq`/`_cmp`/`_Vinculum`/`_clone`/`_nexus` helpers (only the active variant's payload is inspected for omens).
+  - `Imago` and `Nexus` are implied by each other so an owned container can always both copy and release its elements.
+  - `derive` on an `echo` is rejected (`E0005`) because `echo` is an untagged C union; comparison on a rune/algebraic omen without the matching derive is `E0049` instead of an undefined-symbol link error.
+  - Derived-concept cross-module detection now also consults `symbols.concept_bindings`.
+- **`cyclus` modifier, `donum T`, generics polish**:
+  - `cyclus` marks intentionally self-referential declarations; by-value cycles still raise `E0050`.
+  - `donum T` yields the C zero value `(T){0}` for defaultable type parameters (`where T: Num`, `Par`, `Forma`, `Donum`, …).
+  - Generic call resolution now unifies declared parameter types to pick the right monomorphized instance when several exist (`sum of int` vs `sum of float`).
+  - Iterating a bare type parameter is rejected with a clear `E0005` pointing at `list of T`/`slice of T`.
+  - `enchanting` methods on container receivers (`self`) emit pointer-correct member access (`self->len`) and `for k in self` iterates through the reference.
+- **Runtime ownership (`pengu_runtime.h`)**:
+  - Documented the `elem_cleanup`/`elem_clone` (and map `key_*`/`val_*`) immutability invariant after `pengu_list_new_owned` / `pengu_map_new_owned`.
+  - Added FFI helpers `pengu_list_of_string_from_cstrs` and `pengu_list_of_string_from_cstrv` that build an owned `list of string` from a C array.
+  - The generated `PenguList`/`PenguMap` compound literals used by `push`/`put` now carry the ownership callbacks, so deeply nested containers (`list of list of string`) keep their recursive cleanup.
+- **Tests & tooling**:
+  - `tests/test_generics/` (25 runnable programs + 7 expected-error programs), `tests/test_generics_suite.py`, `run_all.sh`, `run_valgrind.sh` and a README documenting the ownership model.
+  - `tests/leakcheck.c`: an `LD_PRELOAD` malloc interposer with a conservative mark-and-sweep at exit, used automatically when `valgrind` is not installed.
+  - `pengu run <script>` / `pengu build --entry <file>` now link the Pengu runtime archive, so standalone string/container programs link instead of failing with `undefined reference to pengu_string_copy`.
+
+### Fixed — Generics and memory
+
+- Deep copy and recursive cleanup for nested containers (`list of string`, `list of list of string`, `map of string to list of int`): pushing a container now transfers a *copy*, so the source keeps ownership and is still auto-banished — previously the source was treated as escaped and leaked.
+- Escape analysis now classifies `push`/`put`/`insert` by the receiver's clone callbacks (including inside `with …:` blocks) instead of always disabling auto-banish.
+- `bind` coherence: two `bind` blocks providing the same `(type, method)` pair raise `E0047` (`DuplicateConceptBindingError`).
+- The rune record's `derived_concepts` now includes the `Imago`/`Nexus` pair implied by `derive`, so the checker/codegen see the destructor that the `derive` clause registered.
+- Payload-less variants of algebraic omens now produce a tagged-struct value (`(Omen){ .tag = Omen_Variant }`) in value and comparison positions, instead of leaking the raw C enum tag into struct-typed slots (`invalid initializer` before).
+- `banish` accepts a value whose type derives `Nexus` (runes and algebraic omens), lowering to the generated `_pengu_cleanup_<T>` destructor; this gives local runes with owned fields a leak-free release path.
+- `std/loom.pengu`: `generic_index_of` now declares `where T: Par`.
+
+### Added — Native Generic Container Enchanting (`enchanting map of shard K to shard V:`)
+
+- **Grammar & AST (`pengu_grammar.py`, `pengu_types.py`)**:
+  - Container type rules now accept `shard NAME` in element and key/value positions (`type_or_param`), enabling generic container enchanting declarations like `enchanting map of shard K to shard V:` and `enchanting list of shard T:`.
+  - Added `shard_param_ref` rule returning `TypeParam`.
+  - Added `type_args` property on container types (`MapType`, `ListType`, `SliceType`, `ArrayType`, `MaybeType`, `ResultType`) and implemented `get_type_base_name` and `extract_type_params_from_type` for reliable generic base-type resolution.
+- **Type Checker & Symbol Resolution (`pengu_checker.py`, `pengu_infer.py`)**:
+  - Generic enchanting method signatures are stored in `symbols.generic_methods[(base_tname, method_name)]`.
+  - Added isolation guards ensuring concrete enchanting declarations (such as `enchanting map of string to int:`) do not overwrite or pollute generic method definitions under base container types like `"map"`.
+  - Integrated generic method resolution into `pengu_infer.py`, matching generic signatures against concrete container invocations and auto-dereferencing `RefType(MapType)`.
+  - Protected built-in container methods (`len`, `put`, `get`, `remove`, `clear`, `contains`, `is_empty`) on container references.
+- **On-Demand Monomorphization Pipeline (`pengu_codegen.py`)**:
+  - Implemented dynamic monomorphization of generic container methods on demand when invoked on concrete container instances.
+  - Deep-scanned method bodies (`_collect_monomorphized_weave`) for calls on `self` to capture and register transitive dependencies (e.g. `m.copy()` delegating to `self.clone()`).
+  - Transformed declaration collection into an iterative fixed-point loop, ensuring all transitive monomorphized function declarations and prototypes are registered before translation.
+  - Preserved specialized concrete weave names (`c_name`) whenever a concrete specialization is available.
+- **C Runtime Helpers (`pengu_runtime.h`)**:
+  - Added `pengu_map_keys(const PenguMap *m)` and `pengu_map_values(const PenguMap *m)` supporting generic key and value extraction with deep-copy semantics for `PenguString` and clean auto-banish tracking.
+- **Generic Map Operations in `std/atlas.pengu`**:
+  - Added Section 0 `enchanting map of shard K to shard V:` providing universal implementations for:
+    - Accessors & Predicates: `size`, `is_empty`, `has_key`, `get_or`, `get_safe`.
+    - Lifecycle & Duplication: `clone`, `copy`.
+    - Bulk Mutations & In-Place Operations: `put_all`, `remove_all`, `rename_key`.
+    - Equality & Search: `is_equal`, `find_key_by_value`.
+    - Collection Views: `keys`, `values`.
+  - Retained 100% backward compatibility for concrete `map of string to int:` and all existing multi-type map blocks (`string->string`, `string->float`, `int->int`, `int->string`, `string->bool`) and module-level wrappers.
+- **Zero Memory Leaks & Test Matrix**:
+  - Created `tests/std_programs/test_atlas_generic_matrix.pengu` and `tests/test_std_atlas_generic_matrix.py` testing generic enchanting across 5 distinct key-value type combinations (`string->string`, `int->int`, `float->string`, `int->float`, empty maps).
+  - Verified 0 memory leaks across container creation, insertion, cloning, renaming, and banishing via GNU `ld` wrapper memory tracking.
+
+
+### Added — Standard Library Expansion (`std/spark`, `std/scrolls`, `std/oracle`)
+
+- **`std/spark`**: Added 16 new I/O, range, and math helpers alongside updated version constants (`SPARK_VERSION = "0.7.0-spark"`, `STD_VERSION = "0.14.1"`):
+  - Formatted and typed output: `print_int`, `println_int`, `print_float`, `println_float`, `print_bool`, `println_bool`.
+  - Standard error output: `eprintln` (writing diagnostic messages to `stderr` via C `fputs`/`fputc`).
+  - Typed console input: `read_line` (returns trimmed input string), `read_int` (reads and parses integer, fallback 0), `read_float` (reads and parses float, fallback 0.0).
+  - Range generators: `range_to(start, end)` (half-open `[start, end)`), `range_inclusive(start, end)` (closed `[start, end]`).
+  - Integer math utilities: `min_int(a, b)`, `max_int(a, b)`, `abs_int(n)`, `clamp_int(v, lo, hi)`.
+  - Reordered `bool_to_string` before `print_bool` and reimplemented with `judge` pattern matching.
+- **`std/scrolls`**: Expanded string enchanting methods with 25+ pure PenguScript algorithms and module-level helpers:
+  - Casing transformations: `capitalize`, `title` (with `title_case` alias), `swap_case`, `to_snake_case`, `to_kebab_case`, `upper` (with `to_upper` alias), `lower` (with `to_lower` alias).
+  - Searching and metrics: `find`, `rfind`, `count` (with `count_matches` alias), `line_count`, `word_count`.
+  - Trimming, alignment, and padding: `lstrip`, `rstrip`, `ljust` (with `pad_right` alias), `rjust` (with `pad_left` alias), `zfill`, `center`, `truncate`.
+  - Affixes and partitioning: `removeprefix`, `removesuffix`, `partition`, `split_lines`.
+  - Iteration and representations: `chars` (returns `list of string` containing single-character elements), `bytes` (returns `list of int` byte values), `ellipsis(max_len)`.
+  - Character and string classifications: `is_lower`, `is_upper`, `is_space` (with `is_whitespace` alias), `is_palindrome`.
+  - Three-way string comparison: `compare` (returns -1, 0, or 1 based on lexicographical order, providing canonical string sorting).
+  - Module-level `join(parts as list of string, sep as string) into string`.
+- **`std/oracle`**: Introduced native `maybe` and `result` container helpers and modernized legacy runes:
+  - Native constructors: `some_int`, `some_float`, `some_string`, `some_bool`, `none_int`, `none_float`, `none_string`, `none_bool`.
+  - Native unwrappers with panics: `unwrap_int`, `unwrap_float`, `unwrap_string`, `unwrap_bool`.
+  - Native fallback unwrappers (`or else`): `unwrap_or_int`, `unwrap_or_float`, `unwrap_or_string`, `unwrap_or_bool`.
+  - Native `result of int to string` helpers: `is_ok_int_result`, `is_err_int_result`, `unwrap_int_result`, `unwrap_or_int_result`.
+  - Bidirectional bridge conversions: `to_native_int`, `from_native_int`, `to_native_string`, `from_native_string`.
+  - Description formatters: `describe_int`, `describe_string`, `describe_result_int`, `describe_result_string`, `describe_maybe_int`, `describe_maybe_string`, `describe_maybe_float`, `describe_maybe_bool`.
+  - Reimplemented legacy enchanting methods `is_none`, `is_err`, and `unwrap_or` on `MaybeInt`, `MaybeString`, `ResultInt`, and `ResultString` using `judge` pattern matching.
+- **`std/tally`**: Re-architected integer list utilities with `enchanting list of int:` and module-level functional wrappers (`TALLY_VERSION = "0.15.0"`):
+  - Object-oriented method calling syntax (`calling xs.sum`, `calling xs.first`, `calling xs.reverse`, `calling xs.sort_asc`) alongside 100% backward-compatible module-level syntax (`calling tally.sum with xs`).
+  - Length & access: `len`, `is_empty`, `first`, `last`, `at_or` (with fallback), `at_safe` (returns `maybe int`).
+  - Search: `contains`, `index_of`, `count_of`, `find_first_gt`, `find_first_lt`, `last_index_of`.
+  - Reductions: `sum`, `product` (returns 1 for empty list as multiplicative identity), `max_val`, `min_val`, `max_index`, `min_index`, `argmin`, `argmax`, `sum_of_squares`.
+  - Statistics: `mean` (with `average` alias, documented integer division truncation toward zero), `median` (sorted mid-point), `mode`.
+  - Transformations: `reverse`, `sort_asc`, `sort_desc` (insertion sort on freshly allocated lists), `unique`, `dedup`, `flatten`, `abs_all`, `clamp_all`.
+  - Selection: `take`, `drop`, `slice_list`.
+  - Combination (module-level): `concat`, `zip_sum`, `dot`, `repeat`.
+  - Predicates: `is_sorted_asc`, `is_sorted_desc`, `all_positive`, `all_zero`, `any_negative`, `all_in_range`.
+  - Filters: `filter_even`, `filter_odd`, `filter_positive`, `filter_negative`, `filter_in_range` (with `filter_range` alias).
+  - Mappings: `map_double`, `map_square`, `map_negate`, `map_add_scalar`, `map_increment`.
+- **`std/atlas`**: Multi-type map collection expansion across 6 key-value combinations (`ATLAS_VERSION = "0.15.0"`):
+  - Supported concrete map types via direct `enchanting`:
+    - `map of string to int` (baseline: counters, discrete IDs, numeric config)
+    - `map of string to string` (JSON objects, HTTP headers, textual config)
+    - `map of string to float` (metrics, stats, weights, embeddings, scientific computing)
+    - `map of int to int` (caches, frequency tables, sparse integer arrays)
+    - `map of int to string` (ID-to-label lookups, enum stringification tables)
+    - `map of string to bool` (feature flags, capabilities, permission sets)
+  - Object-oriented method calling syntax across all types (`calling m.keys`, `calling m.keys_sorted`, `calling m.get_or with k, default`, `calling m.update with k, v`, `calling m.rename_key with old_k, new_k`, `calling m.clone`, `calling m.remove with k`, `calling m.clear`).
+  - Safe in-place mutation using `with self:` context blocks for reference mutation.
+  - Predicates & accessors: `size`, `is_empty`, `has_key`, `has_any_key`, `has_all_keys`, `get_or`, `get_safe`, `find_key_by_value`.
+  - Type-specific predicates & reductions:
+    - Numeric maps (`string -> int`, `string -> float`, `int -> int`): `all_values_positive`, `any_value_negative`, `values_in_range`, `count_if_value_positive`, `count_if_value_negative`, `sum_values`, `max_value`, `min_value`.
+    - Boolean maps (`string -> bool`): `count_true`, `count_false`.
+  - Type-specific filters and transformations:
+    - Substring and prefix filters (`filter_keys_contains`, `filter_keys_startswith`, `filter_values_contains`).
+    - Numeric filters and scale/negate mappings (`filter_values_range`, `map_values_double`, `map_values_scale`, `map_values_negate`).
+  - Sorted accessors: `keys_sorted` (alphabetical via `std.scrolls.compare` or numerical) and `values_sorted`.
+  - Module-level binary operations per type: `merge_*` (right-precedence), `merge_keep_left_*` (left-precedence), `from_lists_*`.
+  - Generic module-level utilities (`shard K, V`): `map_size`, `map_is_empty`, `map_has_key`, `map_get_or`, `map_keys`, `map_values`, `map_put`, `map_remove`, `map_clear`.
+  - 100% backward compatible with all pre-existing `std.atlas` functions and calling conventions.
+- **`std/coven`**: Expanded unique set collections `SetString` and `SetInt` (`COVEN_VERSION = "0.15.0"`):
+  - 100% backward compatible: preserved `new_set_string`, `new_set_int`, and all pre-existing methods (`add`, `contains`, `remove`, `len`, `clear`, `is_empty`).
+  - Ritual constructors: top-level `empty_set_string`, `empty_set_int`, `from_list_string`, `from_list_int`, plus static rituals `SetString::empty`, `SetString::from_items`, `SetInt::empty`, `SetInt::from_items`.
+  - Full set algebra on both `SetString` and `SetInt`: `union`, `intersect`, `difference`, `symmetric_difference`, `is_subset`, `is_superset`, `is_disjoint`, `equals`, `clone`.
+  - Specialized conversions and filters: `SetString.to_list`, `SetString.to_set_int` (symmetric with `to_set_string`), `SetString.filter_starts_with`, `SetString.filter_length_ge`, `SetInt.to_list_int`, `SetInt.sum_ints`, `SetInt.min_int`, `SetInt.max_int`, `SetInt.to_set_string`.
+- **`std/chronicle`**: Expanded date, time, calendar, and timer management (`CHRONICLE_VERSION = "0.15.0"`):
+  - Clocks & high-resolution measurements: `now_ms`, `time_ms`, `monotonic_ms` millisecond resolution clocks.
+  - Native PenguScript wrappers for UTC and local calendar components: `utc_weekday`, `utc_yearday`, `utc_is_dst`, `local_weekday`, `local_yearday`, `local_is_dst`.
+  - Date & time formatting and ISO parsing: `now_utc_iso`, `now_local_iso`, `now_date`, `now_time`, `to_iso`, `from_iso`, `to_date_string`, `to_time_string`, `to_datetime_string`.
+  - Calendar helpers & day boundaries: `is_leap_year`, `days_in_month`, `days_in_year`, `start_of_day`, `end_of_day`, `today`, `yesterday`, `tomorrow`, `start_of_month`, `start_of_year`.
+  - Timestamp arithmetic & relations: `add_seconds`, `add_minutes`, `add_hours`, `add_days`, `add_weeks`, `diff_seconds`, `diff_days`, `is_before`, `is_after`, `is_between`.
+  - Human duration formatting & parsing: `format_duration` ("1h 15m 30s"), `parse_duration` ("45s", "30m", "2h", "7d" returning `maybe float`).
+  - `rune DateTime`: record holding year, month, day, hour, minute, second, weekday, yearday, is_dst with constructor helpers `datetime_utc`, `datetime_local` and methods `to_iso`, `to_date`, `to_time`.
+  - `rune Stopwatch`: high-resolution monotonic timer with ritual constructor `Stopwatch.new`, module wrapper `new_stopwatch`, and methods `elapsed_sec`, `elapsed_ms`, `reset`.
+- **`std/compass`**: Expanded cross-platform path manipulation with pure PenguScript and `Path` rune (`COMPASS_VERSION = "0.15.0"`):
+  - 100% backward compatible: preserved all pre-existing functions and `Path` methods with clean internal `cp_*` architectural decoupling preventing method/weave symbol collision in codegen.
+  - Aliases and extension utilities: `filename`, `file_stem`, `with_extension`, `without_extension`, `with_filename`.
+  - Path classification predicates: `is_hidden` (leading dot detection), `is_unc` (UNC network path detection), `has_wildcard` (`*` and `?` detection).
+  - Wildcard pattern matching: `matches` implementing non-allocating iterative glob pattern matching.
+  - Component analysis: `components` (split normalized components), `has_component` (membership check).
+  - System environment & resolution: `cwd`, `expand_user` (expanding `~` via `HOME` or `USERPROFILE`), `absolute` (resolving against current working directory).
+  - Enhanced `Path` rune: `ritual from_str`, `ritual cwd`, top-level `new_path`, `current_dir`, and instance methods `components`, `is_hidden`, `matches`, `exists`, `is_file`, `is_dir`, `to_absolute`, `expand_user`, `to_uri` (formatting `file://` URI).
+- **`std/archivum`**: Expanded filesystem operations with metadata inspection, search, and binary I/O (`ARCHIVUM_VERSION = "0.15.0"`):
+  - 100% backward compatible: preserved all pre-existing file and directory operations with updated `##` docstrings.
+  - Binary I/O buffers: `read_bytes`, `write_bytes`, `append_bytes`.
+  - Extended metadata inspection: `file_size` (returns `maybe int` bytes), `dir_size` (direct or recursive total bytes), `modified_time`, `created_time`, `accessed_time` (Unix timestamp floats), `permissions` (octal integer mode).
+  - Emptiness predicates: `is_empty_file` (0-byte file check), `is_empty_dir` (0-entry directory check).
+  - Directory search & find helpers: `find_files` (direct or recursive regular files), `find_dirs` (subdirectories), `find_by_name` (basename match), `find_by_ext` (extension match).
+  - Line utilities: `count_lines` (total line count), `read_first_n_lines` (streaming prefix slice).
+- **`std/rites`**: Expanded OS, process, environment, and platform utilities (`RITES_VERSION = "0.15.0"`):
+  - 100% backward compatible: preserved all 16 pre-existing 0.14.x functions (`getenv`, `setenv`, `unsetenv`, `get_argc`, `get_argv`, `get_args`, `getpid`, `getppid`, `getcwd`, `chdir`, `exit`, `exec`, `spawn`, `uname`, `hostname`, `get_env_keys`).
+  - Environment variable accessors: `getenv_or(name, default)` (safe lookup with fallback), `has_env(name)` (presence check), `getenv_int(name)` (parsed maybe int), `getenv_float(name)` (parsed maybe float), `getenv_bool(name)` (parsed maybe bool supporting boolean/numeric representations).
+  - Bulk environment management: `get_env_map()` (snapshot key-value map of process environment), `set_env_map(m)` (bulk environment updates), `clear_env()` (removes variables from process environment with explicit safety warning).
+  - Variable expansion: `expand_env(s)` and alias `env_substitute(s)` (cross-platform single-pass expansion supporting `$VAR`, `${VAR}`, `%VAR%`, and `$$` escaping).
+  - Program arguments: `arg_at_or(idx, default)`, `parse_flags()` (parsing `--key=value` and `--flag` -> `"true"` while ignoring positionals), `has_flag(name)`, `get_flag_value(name)`.
+  - Standard user and system directories: `home_dir()` (`USERPROFILE` / `HOME`), `temp_dir()` (`TEMP`/`TMP` with cross-platform fallback), `config_dir()` (`%APPDATA%` / `$XDG_CONFIG_HOME` / `~/.config`), `cache_dir()` (`%LOCALAPPDATA%` / `$XDG_CACHE_HOME` / `~/.cache`), `data_dir()` (`%APPDATA%` / `$XDG_DATA_HOME` / `~/.local/share`).
+  - System and platform information: `os_arch()` (compile-time CPU architecture `"x64"`, `"arm64"`, `"x86"`, `"arm"`), `os_family()` (alias of `uname`), `is_windows()`, `is_unix()`, `is_macos()`, `is_linux()`.
+  - Path and binary resolution: `which(cmd)` (locating first matching executable on `PATH`), `which_all(cmd)` (returning all candidates on `PATH` with platform-specific delimiters `;`/`:` and Windows executable extensions `.exe`, `.bat`, `.cmd`). Avoids circular imports with `std.archivum` by directly declaring runtime bridge `pengu_c_archivum_is_file`.
+  - Process and shell execution: `exec_ok(cmd, args)` (boolean success check), `exec_or_panic(cmd, args)` (asserting exit code 0), `run_shell(cmdline)` (executing raw command line strings through platform shell), `shell_escape(s)` (cross-platform shell escaping), `current_user()` (resolving username across Windows and POSIX).
+  - Documented TODOs for POSIX UID/GID manipulation, fork/waitpid, and process output capture.
+- **`std/filum`**: Expanded concurrency primitives and added typed channels (`FILUM_VERSION = "0.15.0"`):
+  - 100% backward compatible: preserved all pre-existing functions, runes (`Mutex`, `WaitGroup`, `Once`, `Cond`, `AtomicInt`, `Chan`), and methods.
+  - New typed channels: `ChanInt`, `ChanString`, `ChanFloat`, and `ChanBool` with rituals `new` (unbuffered) and `with_capacity(cap)` (buffered), methods `.send(v)`, `.recv()`, `.close()`, `.len()`, `.cap()`, `.free()`, and module-level constructors `chan_int`, `chan_string`, `chan_float`, `chan_bool`. Implemented using zero-overhead pointer transmutation into native C channel bridges.
+  - Extended AtomicInt operations: `.sub(delta)` (atomic subtraction returning new value), `.inc_and_get()` and `.dec_and_get()` (atomic increment/decrement aliases), `.get_and_set(v)` (atomic swap alias), `.is_zero()` (atomic zero check), `.reset()` (atomic store zero), with corresponding module-level functions `sub_atomic`, `inc_and_get`, `dec_and_get`, `get_and_set`, `is_zero`, `reset_atomic`.
+  - System helpers: `sleep_sec(sec as float)` (convenience wrapper with millisecond resolution).
+  - Documented TODOs for `Barrier`, `RwLock`, `Semaphore`, `yield_now`, `park`/`unpark`, RAII `with_mutex` blocks, and non-destructive channel status inspection (`is_closed`).
+- **`std/whisper`**: Expanded structured logging with instance-based `Logger` rune (`WHISPER_VERSION = "0.15.0"`):
+  - 100% backward compatible: preserved all pre-existing global log levels (`LOG_TRACE` through `LOG_FATAL`), ANSI color codes, and module weaves (`log`, `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `get_level`, `set_level`, `get_level_name`, `get_level_color`).
+  - `rune Logger`: instance-based structured logger supporting namespaces, independent log levels, optional timestamps, ANSI color toggles, JSON logging, and direct-to-file emission.
+  - Ritual constructors: `Logger.new(name)` (LOG_TRACE minimum), `Logger.named(name, min_level)`, `Logger.from_env()` (configured from `LOG_LEVEL`, `RUST_LOG`, etc. with fallback `LOG_INFO`), plus module-level `default_logger()`.
+  - Logger instance methods: `.log(level, msg)`, `.trace(msg)`, `.debug(msg)`, `.info(msg)`, `.warn(msg)`, `.error(msg)`, `.fatal(msg)`, `.set_level(level)`, `.get_level()`, `.is_enabled(level)`, `.enable_timestamp()`, `.disable_timestamp()`, `.enable_color()`, `.disable_color()`, `.to_file(path)` (redirecting logs to disk with silent failure fallback), `.child(subname)` (hierarchical child logger naming `parent.child`), `.log_json(level, msg, fields)`.
+  - Global conveniences: `set_level_from_string(s)` (case-insensitive string parsing), `set_level_from_env()`, `is_enabled(level)`, `log_json(level, msg, fields)`, `fatal_and_exit(msg, code)`.
+  - Level catalog: `log_levels()` returning ordered list of standard level names.
+- **`std/cipher`**: Expanded cryptographic encodings, binary/text transforms, RFC 8259 JSON manipulation, and validation (`CIPHER_VERSION = "0.15.0"`):
+  - 100% backward compatible: preserved all 0.14.x baseline functions (`encode_base64`, `decode_base64`, `is_base64`, `parse_json`, `stringify_json`, `pretty_json`, `parse_value`).
+  - Base64 & variants: `encode_base64_url`, `decode_base64_url`, `encode_base64_unpadded`, `encode_hex`, `decode_hex`, `is_hex`, `encode_base32`, `decode_base32`, `is_base32`.
+  - String enchanting methods: `to_base64`, `from_base64`, `to_base64_url`, `from_base64_url`, `to_hex`, `from_hex`, `to_base32`, `from_base32`.
+  - RFC 8259 JSON escaping & unescaping: fixed quote and backslash escaping bug in `stringify_json` and `pretty_json`; added standalone `json_escape` and `json_unescape`.
+  - JSON arrays: `parse_json_array`, `stringify_json_array`.
+  - Typed JSON getters: `json_get`, `json_get_int`, `json_get_float` (pure PenguScript decimal float parser bypassing runtime `sizeof(double)` bug), `json_get_bool`, `json_get_string`.
+  - Navigation & transformation: `json_deep_clone`, `json_merge`, `json_path` (dot/bracket path traversal), `json_parse_at`.
+  - Validation & classification: `omen JsonKind`, `json_kind_of`, `is_valid_json`.
+- **`std/loom`**: Expanded functional sequence processing and generic algorithms (`LOOM_VERSION = "0.15.0"`):
+  - 100% backward compatible: preserved all 0.14.x baseline functions (`range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`, `sum`, `product_num`, `max_int`, `min_int`).
+  - Reductions & aggregates: `mean`, `sum_squares`, `running_sum`, `running_max`, `running_min`, `differences`.
+  - Predicates & sorting checks: `any_zero`, `all_equal`, `is_strictly_asc`, `is_strictly_desc`, `is_sorted_asc`, `is_sorted_desc`.
+  - Transformations & combinatorics: `zip_with`, `zip_longest`, `enumerate`, `interleave`, `round_robin`, `rotate_left`, `rotate_right`, `intersperse`, `pairwise`, `flat_map_identity`.
+  - Set-like sorted operations: `union_sorted`, `intersect_sorted`, `difference_sorted`, `symmetric_difference_sorted`.
+  - Search & indexing: `find_first`, `find_last`, `binary_search`, `count_if_even`, `count_if_positive`, `index_min`, `index_max`.
+  - Structural modifications: `insert_at`, `remove_at`, `replace_at`, `swap_at`, `pad_left`, `pad_right`.
+  - Summary statistics: `median`, `mode`, `variance`, `stddev` (utilizing `arithmancy.sqrt`), `percentile`.
+  - Generic algorithms (`shard T`): `first_or`, `generic_take`, `generic_take_last`, `generic_reverse`, `generic_chain`, `generic_index_of`.
+- **`std/ledger`**: Expanded CSV/TSV processing, matrix operations, and table abstractions (`LEDGER_VERSION = "0.15.0"`):
+  - 100% backward compatible: preserved all 0.14.x baseline functions (`escape_field`, `detect_delimiter`, `parse_line`, `parse_csv`, `parse_tsv`, `to_csv_string`, `to_tsv_string`, `read_csv`, `read_tsv`, `write_csv`, `write_tsv`).
+  - Enhanced parsing: `parse_csv_strict` (validating uniform row lengths), `parse_csv_nocomments` (skipping `#` comment rows), `parse_csv_skip` (skipping header lines), `parse_line_strict`, `parse_csv_normalized`.
+  - `rune CsvTable`: tabular representation with rituals `from_csv`, `from_rows`, and methods `row_count`, `column_count`, `has_column`, `column_index`, `get`, `get_or`, `column`, `row_as_map`, `to_csv`.
+  - Matrix operations (`enchanting list of list of string`): `row_count`, `column_count`, `is_rectangular`, `column`, `transpose`.
+  - Key-value conversions: `parse_csv_as_pairs`, `parse_csv_key_value`, `write_key_value_map`.
+  - Generators & formatters: `escape_field_rfc4180`, `escape_field_backslash`, `to_csv_string_no_trailing_newline`, `to_csv_string_crlf`, `write_csv_safe` (atomic temp-file write and replacement).
+- **`std/lot`**: Expanded randomness, sampling, combinatorics, and probability distributions (`LOT_VERSION = "0.15.0"`):
+  - 100% backward compatible: preserved all 0.14.x functions (`seed`, `rand_int`, `rand_float`, `rand_range`, `rand_range_float`, `rand_normal`, `rand_exp`, `rand_bool`, `rand_poisson`).
+  - Constants & bounds: `LOT_VERSION`, `rand_max`.
+  - Sampling & selection: `choice`, `choice_string`, `choice_weighted`, `choice_weighted_string`, `shuffle`, `shuffle_string`, `sample`, `sample_with_replacement`, `sample_string`, `permutation`.
+  - Booleans & signs: `rand_coin`, `rand_bit`, `rand_sign`, `rand_bool_with`.
+  - Aliases: `rand_between` (alias of `rand_range`), `rand_uniform` (alias of `rand_range_float`), `rand_gauss` (alias of `rand_normal`).
+  - Random strings: `rand_alpha`, `rand_digit_string`, `rand_alnum_string`, `rand_hex_string`, `rand_password` (with optional symbols), `rand_bytes_hex`, `rand_from_charset`.
+  - Distributions (backed by `std.arithmancy`): `rand_triangular`, `rand_lognormal`, `rand_weibull`, `rand_gamma` (Marsaglia-Tsang), `rand_beta`.
+- **`std/ward`**: Modernized and expanded assertions, invariants, and failure diagnostics (`WARD_VERSION = "0.15.0"`):
+  - **Informative failure messages**: Rewrote failure messages across all pre-existing assertions (`assert_eq_int`, `assert_eq_string`, `assert_eq_bool`, `assert_true`, `assert_false`, `assert_ne_int`, `assert_ne_string`, `assert_ne_bool`, `assert_present_int`, `assert_present_string`, `assert_none_int`, `assert_none_string`, `assert_ok_int`, `assert_ok_string`, `assert_err_int`, `assert_err_string`) to display expected vs actual values, significantly improving debugging productivity.
+  - Floating-point assertions: `assert_eq_float`, `assert_ne_float`, `assert_almost_eq` with configurable `epsilon` tolerance.
+  - Relational & range comparisons: `assert_gt_int`, `assert_ge_int`, `assert_lt_int`, `assert_le_int`, `assert_gt_float`, `assert_ge_float`, `assert_lt_float`, `assert_le_float`, `assert_in_range_int`, `assert_in_range_float`.
+  - String helpers: `assert_string_contains`, `assert_string_starts_with`, `assert_string_ends_with`, `assert_string_empty`, `assert_string_not_empty`.
+  - Container assertions: `assert_eq_int_list`, `assert_eq_string_list`, `assert_list_empty_int`, `assert_list_not_empty_int`, `assert_list_len_int`, `assert_map_has_key`, `assert_map_not_has_key`.
+  - Native `maybe`/`result` assertions (`shard T`): `assert_maybe_present`, `assert_maybe_none`, `assert_result_ok`, `assert_result_err`, `assert_result_ok_int`, `assert_result_err_int`.
+  - Expectations & non-panicking checks: `expect_eq_float`, `expect_ne_int`, `expect_ne_string`, `expect_ne_bool`, `expect_gt_int`, `expect_ge_int`, `expect_lt_int`, `expect_le_int`, `expect_present_int`, `expect_present_string`, `expect_ok_int`, `expect_ok_string`, `check_eq_bool`, `check_eq_float`, `check_present_int`, `check_present_string`, `check_ok_int`, `check_ok_string`.
+  - Invariant helpers: `fail`, `fail_unreachable`, `unreachable`.
+- **`std/invoke`**: Expanded CLI parsing with subcommands, typed options, and typo suggestions (`INVOKE_VERSION = "0.15.0"`):
+  - 100% backward compatible: preserved existing `Parser` and `ParseResult` workflows.
+  - Subcommands: `rune Subcommand`, `Parser.add_subcommand`, routing and `ParseResult.subcommand`.
+  - Syntax improvements: `--key=value`, `-k=value`, `--no-flag` boolean negation, `--` positional argument terminator.
+  - Typed options: `add_option_int`, `add_option_float`, `add_option_bool`, with corresponding `ParseResult.get_int`, `get_int_or`, `get_float`, `get_float_or`, `get_bool`, `get_bool_or`.
+  - Multi-value options: `rune MultiOption`, `add_option_multi`, `ParseResult.get_all`.
+  - Version handling: `Parser.set_version`, automatic `--version` and `-V` response.
+  - Typo suggestions: Levenshtein distance matching (dist <= 2) offering helpful "Did you mean --<option>?" diagnostics.
+  - Parse variants: `parse_no_exit` (non-terminating parse for tests and embedding), `parse_or_exit`, `parse_or_usage`.
+  - Help formatting: Aligned column layout, categorized sections (`Usage`, `Description`, `Arguments`, `Subcommands`, `Options`), `usage_string`, `full_help`.
+- **`std/regulus`**: Expanded PCRE2 regular expression engine and string enchanting methods (`REGULUS_VERSION = "0.15.0"`):
+  - 100% backward compatible: preserved existing `compile`, `match`, `search`, `find_all`, `replace`, `is_match`, `is_full_match`.
+  - Match extraction and offsets: `match_count`, `match_at`, `match_offsets` (flat list of start/end byte offsets).
+  - Pattern utilities & case-folding: `escape` (escaping PCRE meta-characters), `flag_is_case_insensitive`, `is_valid_pattern`.
+  - Splitting: `split` (split string by regex delimiter), `split_n` (limited count splitting).
+  - Advanced replacements: `replace_all` (global regex substitution), `replace_fn` (functional callback replacement bridge).
+  - String enchanting methods: `to_regex`, `matches_regex`, `regex_replace`, `regex_split`.
+- **`std/precis`**: Expanded HTTP client/server abstractions and URL utilities (`PRECIS_VERSION = "0.15.0"`):
+  - 100% backward compatible: preserved `get`, `post`, `head`, `put`, `delete_req`, `serve_http`, `url_encode`, `url_decode`, `parse_url`, `build_url`.
+  - Request and Response builders: `rune Request` and `rune Response` supporting method, URL, headers map, body, status code, query parameters.
+  - Ritual constructors: `Request.get`, `Request.post`, `Request.new`, `Response.ok`, `Response.json`, `Response.text`, `Response.status`, `Response.error`.
+  - Instance methods: `Request.header`, `Request.with_header`, `Request.with_query_param`, `Response.header`, `Response.with_header`, `Response.is_success`.
+  - Status classification helpers: `is_informational`, `is_success`, `is_redirect`, `is_client_error`, `is_server_error`, `status_text` (RFC 9110 status message mapping).
+  - URL helpers: `url_join`, `url_query_encode` (map to query string), `url_query_decode` (query string to key-value map).
+- **`std/parchment`**: Expanded libxml2-backed XML and HTML DOM parser (`PARCHMENT_VERSION = "0.15.0"`):
+  - 100% backward compatible: preserved `parse_xml`, `parse_html`, `to_string`, `doc_to_string`, `find`, `find_all`, `attr`, `set_attr`, `text`, `set_text`, `create_element`, `create_text`, `append_child`.
+  - Node navigation & mutation: `remove_child`, `Node.attr`, `Node.set_attr`, `Node.text`, `Node.set_text`, `Node.free`.
+  - CSS/class queries: `find_by_id`, `find_by_class`, `find_all_by_class`, `has_class`, `add_class`, `remove_class`.
+  - Tag utilities: `is_void_element`, `normalize_tag`, `is_valid_tag_name`.
+  - HTML text extraction: `strip_html_tags` (removes markup preserving text), `extract_text` (recursively extracts descendant text).
+  - Enchanting methods: `enchanting Node:`, `enchanting Document:`, string enchantments `parse_xml`, `parse_html`.
+- **`std/seal`**: Expanded cryptographic hashing, HMAC, and verification (`SEAL_VERSION = "0.15.0"`):
+  - 100% backward compatible: preserved `sha256`, `sha1`, `md5`, `crc32`, `adler32`, `hex_digest`, `base64_encode`, `base64_decode`, `zlib_compress`, `zlib_decompress`, `gzip_compress`, `gzip_decompress`.
+  - Keyed HMAC (RFC 2104): `hmac_sha256`, `hmac_sha256_hex`, `hmac_sha1`, `hmac_md5`.
+  - Constant-time verification: `constant_time_eq` (timing attack mitigation), `verify_sha256`, `verify_hmac_sha256`.
+  - String enchanting methods: `to_sha256`, `to_md5`, `to_crc32`, `to_gzip`, `from_gzip`.
+- **`std/ffi`**: Expanded null-safe C foreign function interface and canonical patterns (`FFI_VERSION = "0.15.0"`):
+  - 100% backward compatible: preserved `string_from_cstr`, `cstr_from_string`, `slice_from_ptr`.
+  - Platform architecture & sizes: `SIZEOF_POINTER`, `SIZEOF_INT`, `SIZEOF_FLOAT`, `SIZEOF_BYTE`, `SIZEOF_CHAR`, `SIZEOF_BOOL`, `SIZEOF_SHORT`, `SIZEOF_LONG`, `SIZEOF_SIZE_T`, `pointer_size`, `pointer_size_bytes`.
+  - Generic type queries: `size_of shard T`, `alignment_of shard T`.
+  - Pointer & NULL utilities: `null_void`, `null_char`, `null_byte`, `is_null`, `is_valid`, `ptr_is_valid`, `ptr_eq`.
+  - Generic collection bridges: `list_from_ptr shard T`, `map_from_entries shard K, V`.
+  - Raw memory operations: `memcpy_raw`, `memset_raw`.
+  - String & buffer conversions: `string_from_cstr_n`, `string_from_bytes`, `bytes_from_string`.
+  - 10 Canonical C Interop Patterns documented in module header.
+- **`std/arithmancy`**: Game-ready linear algebra and 2D/3D mathematics (`ARITHMANCY_VERSION = "0.15.0"`):
+  - 100% backward compatible: preserved all 0.14.x math helpers (`abs_i`, `abs_f`, `min_i`, `max_i`, `min_f`, `max_f`, `clamp_i`, `clamp_f`, `sqrt_f`, `pow_f`, `sin_f`, `cos_f`, `tan_f`, `floor_f`, `ceil_f`, `round_f`, `deg_to_rad`, `rad_to_deg`).
+  - Mathematical constants: `PI`, `TAU`, `E`, `EPSILON`.
+  - Scalar functions: `sign_i`, `sign_f`, `lerp_f`, `smoothstep_f`, `asin_f`, `acos_f`, `atan_f`, `atan2_f`, `hypot_f`.
+  - `rune Vec2`: 2D vector with rituals `new`, `zero`, `unit_x`, `unit_y`, and methods `add`, `sub`, `scale`, `dot`, `cross`, `length`, `length_sq`, `normalize`, `distance`, `lerp`.
+  - `rune Vec3`: 3D vector with rituals `new`, `zero`, `unit_x`, `unit_y`, `unit_z`, and methods `add`, `sub`, `scale`, `dot`, `cross`, `length`, `length_sq`, `normalize`, `distance`, `lerp`.
+  - `rune Vec4`: 4D vector with rituals `new`, `zero`, and methods `add`, `sub`, `scale`, `dot`, `length`, `normalize`.
+  - `rune Mat4`: 4x4 matrix with 16 explicit fields `m00..m33`, rituals `identity`, `zero`, `translation`, `scaling`, `rotation_x`, `rotation_y`, `rotation_z`, `look_at`, `perspective`, `orthographic`, and methods `multiply`, `transpose`, `transform_vec4`, `transform_point3`.
+  - `rune Quat`: Quaternion with rituals `identity`, `from_axis_angle`, `from_euler`, and methods `multiply`, `length`, `normalize`, `conjugate`, `slerp`, `to_mat4`.
+
+### Fixed — Codegen Method Symbol Collision & Generic Monomorphization
+
+- **`pengu_parser/pengu_codegen.py`**:
+  - In `_lookup_type_fn`: checked `self.current_subst_map` during AST conversion within function bodies, ensuring generic type parameters (`shard T`) resolve to their monomorphized concrete types (`int`, etc.) instead of raising undefined type errors.
+  - In `_collect_top_stmt`, guarded `self.fn_info[name]` registration with `if enchanted_type is None:`. Previously, instance methods declared in `enchanting T:` unconditionally overwrote standalone top-level functions with the same name in `self.fn_info[name]`, causing bare function calls (e.g. `calling log with ...`, `calling get_level`) within standard library modules to resolve to instance methods (e.g. `Logger_log`, `Logger_get_level`) and trigger C compiler signature mismatch errors.
+
+### Fixed — Standard Library System Tier Review Fixes
+
+- **`std/chronicle`**:
+  - Fixed `now_local_iso`, `now_date`, and `now_time` which previously formatted UTC strings via `format_now`; they now correctly decompose the current timestamp via `datetime_local` using the OS local timezone.
+  - Fixed `from_iso` to parse ISO 8601 strings (both with and without trailing "Z", as well as date-only "YYYY-MM-DD" and space-separated datetime), guaranteeing an exact second-precision round-trip `from_iso(to_iso(ts)) == ts` without timezone distortion.
+  - Simplified `is_before` and `is_after` to return direct float comparison expressions (`a < b`, `a > b`).
+  - Improved `parse_duration` to accept purely numeric strings as seconds (e.g. `"45"` -> 45.0s), and replaced non-idiomatic presence check with `if val_opt is not present:`.
+  - Removed unused dead import `import std.oracle`.
+- **`std/compass`**:
+  - Fixed `cp_suffixes` to ensure only non-empty suffix strings are returned (`if slen > 0:`), preventing trailing dot edge cases (e.g. `"file."`) from emitting empty suffixes.
+  - Eliminated dead code `if seg == ".": set i is i` in `cp_normalize`.
+  - Updated `cp_split` to push platform-specific root separator (`cp_sep`) instead of hardcoded `"/"`.
+  - Updated `Path.to_uri` to percent-encode spaces as `"%20"` and documented best-effort RFC 3986 file URI conversion.
+  - Documented in `expand_user` that named user expansions (`~user`) are not supported and are returned unchanged.
+- **`std/archivum`**:
+  - Documented complete `metadata` contract: all returned map keys (`"size"`, `"is_file"`, `"is_dir"`, `"is_symlink"`, `"modified"`, `"created"`, `"accessed"`, `"permissions"`) and their value string formats.
+  - Fixed variable reference in `find_by_ext`: `set ext_target is "." + ext_target` (previously referenced `extension`).
+  - Documented non-transactional partial failure semantics in `copy_tree`.
+
+### Fixed — Standard Library Concurrency, OS, and Logging Review Fixes (Batch 3)
+
+- **`std/filum`**:
+  - **`ChanString.send` Heap Ownership**: Fixed string buffer ownership in `ChanString.send` by allocating an owned deep copy of the string buffer via runtime bridge `pengu_string_copy`. Prevents use-after-free and memory corruption when strings created inside temporary function scopes are enqueued and subsequently auto-banished upon scope exit. Documented receiver ownership semantics and added cleanup safety warning on `free`.
+  - Added naming rationale note on module-level functions `sub_atomic`, `add_atomic`, and `reset_atomic` explaining the `_atomic` suffix to avoid collisions with arithmetic or reset operations.
+- **`std/whisper`**:
+  - **JSON String Escaping**: Implemented internal `_json_escape` escaping backslashes (`\`), double-quotes (`"`), and whitespace control characters (`\n`, `\r`, `\t`) in `log_json` and `Logger.log_json` across keys, values, and messages, preventing invalid JSON formatting on structured log lines.
+  - **Dual-Level Logging Documentation**: Added comprehensive architectural documentation in module header explaining the relationship between the global runtime log level (set via `set_level`/`set_level_from_env`) and instance-based `Logger` runes which evaluate independently against their own `min_level`.
+  - Clarified `Logger.to_file` docstring noting lazy file open and append behavior on each emission via `std.archivum`, with silent discard if file writing fails.
+- **`std/rites`**:
+  - Removed unused dead imports `import std.oracle` and `import std.tally`.
+  - Fixed `getenv` docstring to clarify that variables set to empty strings return `some ""`, not `maybe none`.
+  - Added support for `%%` -> `%` escape handling in `expand_env`.
+  - Documented that `which_all` checks for regular file existence in PATH directories via `pengu_c_archivum_is_file` on POSIX systems, noting that checking executable permission bits requires a dedicated runtime permission bridge.
+- **Compiler / Codegen Regression Test**:
+  - Added `tests/test_codegen_method_shadowing.py` verifying both compile-time bundle generation and runtime execution ensuring methods declared in `enchanting T:` do not shadow top-level functions with the same name.
+
+### Fixed — Standard Library Data Tier Review Fixes (Batch 4)
+
+- **`std/cipher`**:
+  - **JSON Control & Unicode Character Unescaping**: Fixed asymmetric escape/unescape behavior in `json_unescape` and `json_read_str` by adding hex decoding for `\uXXXX` sequences. ASCII control characters (`\u0000`–`\u001F`) decode directly to their raw byte values, and unicode code points up to `0xFFFF` are properly UTF-8 encoded, ensuring RFC 8259 round-tripping with `json_escape`.
+  - **Base64 Unpadded Aliases**: Added `encode_base64_unpadded` and `decode_base64_unpadded` aliases alongside `_nopad` variants.
+  - **Decimal Float Parser**: Implemented pure PenguScript decimal float parser in `json_get_float` supporting scientific notation (`e`/`E`), explicit signs (`+`/`-`), and strict trailing syntax, cleanly bypassing the C runtime bridge `sizeof(double)` bug.
+  - **Docstrings**: Clarified string format expectations in `json_get_string` and confirmed non-destructive immutable map traversal in `json_path`.
+- **`std/loom`**:
+  - Fixed `rotate_right` returning `list of int` expression on empty list by creating and returning an explicit local variable `var empty as list of int is list of int\n return empty`.
+  - Added `flatten` alias for `flat_map_identity`.
+  - Delegated `pairwise` to `calling windows with items, 2`.
+- **`std/ledger`**:
+  - Reordered `parse_csv_skip` parameters to put `skip_rows as int is 0` at the end (`data as string, delimiter as string is ",", skip_rows as int is 0`).
+  - Added `csv_table_from_csv` alias for `CsvTable.from_csv`.
+  - Updated `to_csv_string_no_trailing_newline` to strip both `\r\n` (CRLF) and `\n` (LF) endings.
+  - Clarified `write_csv_safe` docstring explaining temp-file rename semantics and lack of crash atomicity due to runtime unlink-before-rename.
+- **Compiler / Codegen Regression Test**:
+  - Added `tests/test_codegen_generic_subst.py` verifying both compile-time bundle generation and runtime execution ensuring `shard T` type substitutions in local constructors monomorphize cleanly.
+
+### Tests — Standard Library Expansion
+
+- Added `tests/std_programs/test_spark_extended.pengu` testing all 16 new I/O, range, and math helpers.
+- Added `tests/std_programs/test_scrolls_extended.pengu` testing all new string methods, casing, searching, padding, and ordering.
+- Added `tests/std_programs/test_oracle_extended.pengu` testing native maybe/result constructors, unwrappers, bridges, and judge reimplementations.
+- Added `tests/std_programs/test_tally_extended.pengu` testing all 43 list manipulation, reduction, sorting, and transformation functions.
+- Added `tests/std_programs/test_atlas_extended.pengu` testing map predicates, access, combination, filtering, and sorting.
+- Added `tests/std_programs/test_coven_extended.pengu` testing SetString and SetInt set algebra, rituals, conversions, and predicates.
+- Added `tests/std_programs/test_chronicle_extended.pengu` testing calendar components, formatting, ISO parsing, day boundaries, arithmetic, and Stopwatch.
+- Added `tests/std_programs/test_compass_extended.pengu` testing pure PenguScript path operations, wildcards, glob matching, CWD, and Path rune methods.
+- Added `tests/std_programs/test_archivum_extended.pengu` testing binary I/O, file/dir sizes, timestamps, permissions, emptiness, and search.
+- Added `tests/std_programs/test_rites_extended.pengu` testing OS environment, arguments, directories, architecture, search, and process helpers.
+- Added `tests/std_programs/test_filum_extended.pengu` testing typed channels (ChanInt, ChanString, ChanFloat, ChanBool), extended atomics, and system helpers.
+- Added `tests/std_programs/test_whisper_extended.pengu` testing Logger rune, level parsing, rituals, child loggers, JSON output, and file redirection.
+- Added `tests/std_programs/test_cipher_extended.pengu` testing RFC 8259 JSON escaping/unescaping, control characters, JSON array manipulation, path navigation, and base64/hex/base32 encoding.
+- Added `tests/std_programs/test_loom_extended.pengu` testing reductions, combinatorics, windows, zip, rotate, statistics, and generic shard T helpers.
+- Added `tests/std_programs/test_ledger_extended.pengu` testing CSV/TSV parsing variants, matrix enchanting, CsvTable rune rituals, and key-value serialization.
+- Added `tests/std_programs/test_lot_extended.pengu` testing randomness draws, sampling, shuffling, strings, and distributions.
+- Added `tests/std_programs/test_ward_extended.pengu` testing all new asserts, float tolerance, string/list/map helpers, native maybe/result assertions, and checks.
+- Added `tests/std_programs/test_invoke_extended.pengu` testing subcommands, inline key=val, typed options, multi options, typo suggestions, and terminator.
+- Added `tests/std_programs/test_regulus_extended.pengu` testing PCRE2 matching, search, offsets, escape, split, and string enchantments.
+- Added `tests/std_programs/test_precis_extended.pengu` testing HTTP Request/Response builders, URL query codecs, and status predicates.
+- Added `tests/std_programs/test_parchment_extended.pengu` testing XML/HTML parsing, DOM class queries, tag utils, and text stripping.
+- Added `tests/std_programs/test_seal_extended.pengu` testing HMAC SHA256/SHA1/MD5, constant-time verification, and hash enchantments.
+- Added `tests/std_programs/test_ffi_extended.pengu` testing NULL safety, architecture constants, pointer comparisons, generic list/map from pointers, and string views.
+- Added `tests/std_programs/test_arithmancy_extended.pengu` testing scalar helpers, constants, Vec2, Vec3, Vec4, Mat4, and Quat conversions and slerp.
+- Added pytest test runners parameterized over `debug` and `release` compilation profiles:
+  - `tests/test_std_spark_extended.py`
+  - `tests/test_std_scrolls_extended.py`
+  - `tests/test_std_oracle_extended.py`
+  - `tests/test_std_tally_extended.py`
+  - `tests/test_std_atlas_extended.py`
+  - `tests/test_std_coven_extended.py`
+  - `tests/test_std_chronicle_extended.py`
+  - `tests/test_std_compass_extended.py`
+  - `tests/test_std_archivum_extended.py`
+  - `tests/test_std_rites_extended.py`
+  - `tests/test_std_filum_extended.py`
+  - `tests/test_std_whisper_extended.py`
+  - `tests/test_std_cipher_extended.py`
+  - `tests/test_std_loom_extended.py`
+  - `tests/test_std_ledger_extended.py`
+  - `tests/test_std_lot_extended.py`
+  - `tests/test_std_ward_extended.py`
+  - `tests/test_std_invoke_extended.py`
+  - `tests/test_std_regulus_extended.py`
+  - `tests/test_std_precis_extended.py`
+  - `tests/test_std_parchment_extended.py`
+  - `tests/test_std_seal_extended.py`
+  - `tests/test_std_ffi_extended.py`
+  - `tests/test_std_arithmancy_extended.py`
+  - `tests/test_std_backward_compat.py` (verifying legacy 0.14.x collections API surface)
+  - `tests/test_std_system_backward_compat.py` (verifying legacy 0.14.x system tier and batch 3 API surfaces)
+  - `tests/test_std_data_backward_compat.py` (verifying legacy 0.14.x data processing API surface)
+  - `tests/test_std_util_backward_compat.py` (verifying legacy 0.14.x utility API surface)
+  - `tests/test_std_integration_backward_compat.py` (verifying legacy 0.14.x integration and math API surfaces)
+
+### Documentation — Standard Library Expansion
+
+- Added comprehensive `##` docstrings for all new methods and functions in `std/spark.pengu`, `std/scrolls.pengu`, `std/oracle.pengu`, `std/tally.pengu`, `std/atlas.pengu`, `std/coven.pengu`, `std/chronicle.pengu`, `std/compass.pengu`, `std/archivum.pengu`, `std/rites.pengu`, `std/filum.pengu`, `std/whisper.pengu`, `std/cipher.pengu`, `std/loom.pengu`, `std/ledger.pengu`, `std/lot.pengu`, `std/ward.pengu`, `std/invoke.pengu`, `std/regulus.pengu`, `std/precis.pengu`, `std/parchment.pengu`, `std/seal.pengu`, `std/ffi.pengu`, and `std/arithmancy.pengu` detailing signatures, ownership models, and edge cases.
+- Updated `LANGUAGE.md` §19.1 module catalog entries for all standard library modules across Batches 1 through 6, declaring PenguScript 0.15.0 standard library Feature-Complete.
+- Updated `LANGUAGE.md` §12 with cross-reference note directing users to `std.oracle` native container helpers.
+- Updated `README.md` standard library overview with expanded capability descriptions.
+
+### Fixed
+
+- **Codegen (`_translate_binding_if` in `pengu_codegen.py`)**: Fixed duplicate closing braces emission (`}\n  }else {`) in if-binding statements with `else` blocks, properly formatting the branch closure as `} else {` without orphan braces. (Bug 1.1)
+- **Codegen (`_build_call_args` in `pengu_codegen.py`)**: Fixed variadic `many T` call argument construction when passed a single `ArrayType` (such as `[1, 2, 3]` or an array variable), eliminating invalid nested brace initializers `{ { 1, 2, 3 } }` and correctly populating slice length `.len = N`. (Bug 1.2)
+- **Codegen (`_translate_expr_impl` in `pengu_codegen.py`)**: Implemented code generation for built-in method calls (`.push`, `.append`, `.pop`, `.clear`, `.len`, etc.) on `list` and `map` collections (and references to them) inside `with target:` blocks, emitting C runtime calls (`pengu_list_push`, `pengu_map_put`, etc.) instead of invalid C++ dot member calls (`target.push(...)`). (Bug 1.3)
+- **Checker (`_check_set_stmt` in `pengu_checker.py`)**: Added missing semantic validation in `normal_target` and `with_target` assignments for nonexistent fields on runes, correctly raising `E0013: SemanticError` ("Rune 'T' has no field 'f'") instead of silently ignoring unknown fields. (Bug 2.1)
+- **Checker (`_check_set_stmt` in `pengu_checker.py`)**: Added intermediate type validation for nested field accesses (`set p.hp.sub is v` and `with p: set .hp.sub is v`), rejecting attempts to access fields on non-rune types with `E0013`. (Bug 2.2)
+- **Checker (`_resolve_call_target` in `pengu_infer.py`)**: Fixed built-in collection method resolution under `with target:` when targeting a reference (`ref to list of T` or `ref to map of K to V`) by unwrapping `base_with_type` before checking `isinstance(base_with_type, (ListType, MapType))`. (Bug 2.3)
+- **Checker (`_check_set_stmt` in `pengu_checker.py`)**: Added complete validation for arrow access in `set` statements (`set ptr->unknown_field is v` and `set p->field on non-reference`), raising `E0013` and `E0003` respectively. (Gap 4.2)
+- **Docstrings & Translations (`pengu_infer.py`, `pengu_parser.py`, `pengu_checker.py`)**: Translated Spanish `NonExhaustiveJudgeError` messages to English, updated `PenguParser` docstring version to `v0.14.x`, cleaned up obsolete Lark rule references in `_check_banish_stmt`, and documented `essence of length_expr` compatibility. (Docs 3.3, 3.4, 3.5, 3.6)
+
+### Docs
+
+- **`LANGUAGE.md` §5.1**: Corrected example 3 to include explicit zero-initialization for array variable declaration (`var buffer as array of byte with size 64 is array of byte with size 64`). (Doc 3.1)
+- **`LANGUAGE.md` §6.2 & §13.4**: Updated string operator descriptions and runtime table to document pass-by-value signatures for `pengu_string_concat(PenguString a, PenguString b)` and `pengu_string_equal(PenguString a, PenguString b)`, added `pengu_to_string` macro, and documented explicit memory ownership semantics. (Doc 3.2, Gap 4.6)
+- **`LANGUAGE.md` §18.2**: Added documentation for `with` blocks operating on `list` and `map` collections with supported built-in methods. (Gap 4.1)
+- **`LANGUAGE.md` §7.3**: Documented that `map` is a supported iterable in `for_comp` list comprehensions (iterating over active keys in hash order). (Gap 4.3)
+- **`LANGUAGE.md` §16**: Documented `-D main` CLI flag usage example (`pengu build -D main`). (Gap 4.5)
+
+### Tests
+
+- Added `tests/test_codegen_binding_if.py` verifying Bug 1.1 with C syntax and runtime execution checks.
+- Added `tests/test_codegen_variadic.py` verifying Bug 1.2 array arguments passed to variadic `many` parameters.
+- Added `tests/test_codegen_with_list.py` verifying Bug 1.3 and Gap 4.1 collection `with` blocks.
+- Added `tests/test_checker_fields.py` verifying Bugs 2.1, 2.2, and Gap 4.2 semantic field validation.
+- Added `tests/test_checker_with_builtin_methods.py` verifying Bug 2.3 `ref to list/map` methods under `with`.
+- Added `check_c_syntax` helper in `tests/conftest.py` running `gcc -fsyntax-only` / `clang -fsyntax-only` on generated C code.
+
 ## [0.14.0] - 2026-09-24
 
 ### Añadido (empaquetado y arquitectura)
@@ -31,6 +767,34 @@ All notable changes to PenguScript will be documented in this file.
   - Soporte en `pengu init`: Inicializa la carpeta `assets/`, genera `assets/README.md`, agrega la sección `assets:` a la plantilla `pengu.yaml` y `.gitignore`.
   - Ignorado en formateador: `pengu fmt` y el servidor LSP detectan la cabecera `## @generated` en las primeras 5 líneas de archivos como `src/arca.pengu` y omiten su reformateo.
   - Pruebas automatizadas y humo: Suite completa de pruebas unitarias y de integración en `tests/test_assets.py` (incluyendo prevención de colisiones, sanitización de módulos y caché de disco), test de humo `[TEST 3b]` en `make_release.py` y caso de uso real de Raylib con carga de texturas y shaders desde memoria en `scratch/port/assets_raylib/`.
+
+### Documentación
+
+- **Sincronización integral de `LANGUAGE.md` con PenguScript 0.14.x**:
+  - Actualización completa de metadatos, tabla de contenidos y referencias cruzadas con `CHEATSHEET.md` y `README.md`.
+  - §3: Documentación del strip de BOM (`strip_bom`), comentarios de una (`#`) y doble almohadilla (`##`), convención de visibilidad privada con prefijo `_` (`E0043`), identificador reservado `main` (`E0040`), y palabras reservadas de C (`C_RESERVED_*`, `E0035`).
+  - §4: Tipos primitivos, cálculo de alineación y padding en tiempo de compilación con `estimate_size`, estructuras de memoria del runtime (`PenguString`, `PenguSlice`, `PenguList`, `PenguMap`, `PenguMaybe`, `PenguResult`, `PenguRange`, `PenguFrame`), y tabla de compatibilidad de tipos (`AliasType`, `SealType`, `FrozenType`, `RefType`, `ArrayType`, `FnType`, `CVarArgsType`).
+  - §5: Las 8 sintaxis de declaración de variables/constantes, reglas de destructuring (`E0017`), los 6 targets de asignación `set` (incluyendo `set essence of ptr is val`), asignaciones compuestas y el modificador suave `borrowed`.
+  - §6: Tabla completa de precedencia de operadores, reglas de desambiguación `and`/`or` (`_reject_list_glued_operator`, `E0005`), operador `in` sobre strings y mapas, tests de palabras clave (`is present`, `is not present`, `is true`, `is false`), reglas de paréntesis en argumentos con tests (`_reject_test_argument`), operadores de memoria (`sigil of`, `essence of`, `size of`, `transmute` con `W0001`, `bytes of`), y boxing en heap con `some`.
+  - §7: Formas de `simple_stmt`, bindings `if`, bucles `for i, v in col` con validación de identificadores disjuntos (`E0037`), iteración sobre mapas y strings, comprensiones de listas `for_comp`, expresiones `judge` con chequeo de exhaustividad (`E0044`), y bloques de expresión (`do:`, `_pengu_value_type`, `_exclude_escaping_val_from_banish`).
+  - §8: Diagnósticos en llamadas (`E0004`, `E0018`, `E0034`, `E0043`, `E0045`), wrapper `pengu_main` y `main(argc, argv)` con `pengu_init`, funciones variádicas de C (`declare ... with ...`) vs `many T`, decaimiento a puntero de función `FnType`, lambdas estáticas `_pengu_lambda_N`, y métodos estáticos `ritual` (`E0033`, `E0034`).
+  - §9: Runes con campos privados `_` (`E0043`), uniones `echo` con warning `W0002`, omens con valores de cadena (`omen X with string:`), modos de emisión de omens (normal, `.d.pengu`, string-valued, algebraico), unicidad de variantes (`E0027`, `E0029`, `E0046`), `seal` nominal vs `alias` estructural vs `opaque` (`E0012`), y compatibilidad direccional de `frozen` (`_drops_frozen`) con protección de escritura de pointee.
+  - §12: Manejo de `maybe T` y `result of T to E`, desazucarado de statement-expressions para `or else`, `or return` (con limpieza de frames y variables auto-owned) y `try` (`E0045`), y bloques `or:` con ámbito léxico de variable `error` (`E0015`).
+  - §13: Indexación de punteros `p at i`, tabla de tipos estrictos de punteros (`_same_pointee`), convención de propiedad con buffers C, las 5 condiciones del auto-banish (`_compute_auto_banished`), análisis estático de escape, y errores `AutoOwnedBanishError` (`E0047`) y `BorrowedBanishError` (`E0048`).
+  - §14: Esquema completo de `pengu.yaml` y prioridad de `pengu.toml`, integración de código C en `./c/`, layout `lib/<binding>/pengu/`, artefactos de compilación y estrategias de inicialización de `static var`.
+  - §15: Requisitos de contexto de tipo para `null` (`E0014`), especificadores de formato en interpolación `{expr}` (`%c`, `%d`, `%f`, `%s`, `%.*s`), cadenas raw y multilínea, tamaño de arreglos referenciando constantes nombradas, arreglos multidimensionales, y validación estática de rangos (`E0042`).
+  - §16: Bloques `when` en nivel superior con `else:`, `when_stmt` con `else when` y `else:`, expresiones `when_expr`, intrínseco `defined(NAME)`, y variables comptime (`main`, `debug`, `os`, `arch`, `compiler`).
+  - §17: Bloques de test integrados, aislamiento, y flags `--watch` y `--json`.
+  - §18: Construcción tipo builder (`with:`), desazucarado `_with_N = {0}`, sentencias permitidas vs prohibidas (`E0014`), mutabilidad y anidamiento.
+  - §19: Inventario exhaustivo de los 52 módulos de la biblioteca estándar (27 módulos puros PenguScript y 25 bindings C `.d.pengu`), ejemplos detallados para `std.ffi`, `std.spark`, `std.scrolls`, `std.seal`, `std.precis`, `std.filum`, `std.regulus` y `std.raylib`/`std.raymath`, y documentación completa de assets embebidos (`arca`).
+  - §20: Referencia completa y flags de todos los subcomandos de la CLI (`init`, `build`, `run`, `test`, `check`, `bind`, `fmt`, `doc`, `assets`, `lsp`, `add`, `update`, `clean`, `-V`), anillo circular de backtraces de 64 frames en tiempo de ejecución, comprobación opcional de límites en debug, y mapeo de fuentes C con directivas `#line`.
+  - §21: Ejemplo completo y funcional actualizado a versión 0.14.x.
+  - §22 (Apéndice): Catálogo completo de diagnósticos del compilador que cubre todos los códigos de error (`E0000` a `E0048`) y warnings (`W0001`, `W0002`, `W0004`), formato de reporte Rust-style, tabla de causas y sugerencias `help:`, y ejemplos de código erróneo con su resolución.
+- **Actualización de `README.md`**:
+  - Conciliación de notas Beta eliminando elementos marcados erróneamente como no implementados.
+  - Enlaces directos a las secciones correspondientes de `LANGUAGE.md` en los Feature Highlights.
+  - Inventario completo de los 52 módulos de la biblioteca estándar.
+  - Incorporación de `LANGUAGE.md` en la tabla de documentación oficial.
 
 ### Corregido (compilación y pruebas CI)
 

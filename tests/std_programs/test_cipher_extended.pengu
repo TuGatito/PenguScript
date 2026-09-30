@@ -1,0 +1,253 @@
+import std.spark
+import std.cipher
+
+weave main into int:
+    calling spark.println with "=== Test Cipher Extended ==="
+
+    # 1. Version constant
+    calling spark.assert with (cipher.CIPHER_VERSION == "0.15.0")
+    calling spark.println with "constants: OK"
+
+    # 2. Base64 Standard & Length
+    var raw as string is "Hello, PenguScript 0.15.0!"
+    var b64 as string is calling cipher.encode_base64 with raw
+    var dec as maybe string is calling cipher.decode_base64 with b64
+    calling spark.assert with (dec.is_present)
+    calling spark.assert with (dec.value == raw)
+    calling spark.assert with (calling cipher.is_base64 with b64)
+    calling spark.assert with (not (calling cipher.is_base64 with "!!!not b64###"))
+
+    var exp_len as int is calling cipher.base64_length with (raw length)
+    calling spark.assert with (exp_len == (b64 length))
+
+    var b64_bytes as string is calling cipher.encode_base64_bytes with raw
+    calling spark.assert with (b64_bytes == b64)
+    calling spark.println with "base64 standard: OK"
+
+    # 3. Base64 URL-safe & No-pad
+    var url_raw as string is "subjects?_d=1&test=true"
+    var url_enc as string is calling cipher.encode_base64_url with url_raw
+    var url_dec as maybe string is calling cipher.decode_base64_url with url_enc
+    calling spark.assert with (url_dec.is_present)
+    calling spark.assert with (url_dec.value == url_raw)
+
+    var nopad_enc as string is calling cipher.encode_base64_nopad with raw
+    var nopad_dec as maybe string is calling cipher.decode_base64_nopad with nopad_enc
+    calling spark.assert with (nopad_dec.is_present)
+    calling spark.assert with (nopad_dec.value == raw)
+
+    var unpad_enc as string is calling cipher.encode_base64_unpadded with raw
+    calling spark.assert with (unpad_enc == nopad_enc)
+    var unpad_dec as maybe string is calling cipher.decode_base64_unpadded with unpad_enc
+    calling spark.assert with (unpad_dec.is_present)
+    calling spark.assert with (unpad_dec.value == raw)
+    calling spark.println with "base64 variants: OK"
+
+    # 4. Hex Encoding & Decoding
+    var hex_raw as string is "Pengu"
+    var hex_enc as string is calling cipher.encode_hex with hex_raw
+    calling spark.assert with (hex_enc == "50656e6775")
+    var hex_dec as maybe string is calling cipher.decode_hex with hex_enc
+    calling spark.assert with (hex_dec.is_present)
+    calling spark.assert with (hex_dec.value == hex_raw)
+
+    var hex_empty as string is calling cipher.encode_hex with ""
+    calling spark.assert with (hex_empty == "")
+    var hex_empty_dec as maybe string is calling cipher.decode_hex with ""
+    calling spark.assert with (hex_empty_dec.is_present)
+    calling spark.assert with (hex_empty_dec.value == "")
+    calling spark.println with "hex: OK"
+
+    # 5. Base32 Encoding & Decoding
+    var b32_raw as string is "Pengu"
+    var b32_enc as string is calling cipher.encode_base32 with b32_raw
+    calling spark.assert with (b32_enc == "KBSW4Z3V")
+    var b32_dec as maybe string is calling cipher.decode_base32 with b32_enc
+    calling spark.assert with (b32_dec.is_present)
+    calling spark.assert with (b32_dec.value == b32_raw)
+
+    var b32_empty as string is calling cipher.encode_base32 with ""
+    calling spark.assert with (b32_empty == "")
+    var b32_empty_dec as maybe string is calling cipher.decode_base32 with ""
+    calling spark.assert with (b32_empty_dec.is_present)
+    calling spark.assert with (b32_empty_dec.value == "")
+    calling spark.println with "base32: OK"
+
+    # 6. String Enchantment Methods
+    var test_str as string is "TestString"
+    var s_b64 as string is calling test_str.to_base64
+    var s_b64_dec as maybe string is calling s_b64.from_base64
+    calling spark.assert with (s_b64_dec.is_present)
+    calling spark.assert with (s_b64_dec.value == test_str)
+
+    var s_b64_url as string is calling test_str.to_base64_url
+    calling spark.assert with ((s_b64_url length) > 0)
+
+    var s_hex as string is calling test_str.to_hex
+    var s_hex_dec as maybe string is calling s_hex.from_hex
+    calling spark.assert with (s_hex_dec.is_present)
+    calling spark.assert with (s_hex_dec.value == test_str)
+    calling spark.println with "enchanting string: OK"
+
+    # 7. JSON Escaping & Critical Bug Fix Verification
+    var unescaped as string is "line1\nline2\t\"quoted\" and \\slash"
+    var escaped as string is calling cipher.json_escape with unescaped
+    var back as string is calling cipher.json_unescape with escaped
+    calling spark.assert with (back == unescaped)
+
+    # Unicode & control character round-trip via \u00XX
+    var ctrl_char as string is chr 1
+    var esc_ctrl as string is calling cipher.json_escape with ctrl_char
+    calling spark.assert with (esc_ctrl == "\\u0001")
+    var unesc_ctrl as string is calling cipher.json_unescape with esc_ctrl
+    calling spark.assert with (unesc_ctrl == ctrl_char)
+
+    var ctrl_map as map of string to string is map of string to string
+    calling ctrl_map.put with "ctrl", ctrl_char
+    var ctrl_json as maybe string is calling cipher.stringify_json with ctrl_map
+    calling spark.assert with (ctrl_json.is_present)
+    var ctrl_back as maybe map of string to string is calling cipher.parse_json with ctrl_json.value
+    calling spark.assert with (ctrl_back.is_present)
+    calling spark.assert with ((ctrl_back.value at "ctrl") == ctrl_char)
+
+    # Critical bug fix: map with special characters serialization & parse
+    var data_map as map of string to string is map of string to string
+    set data_map at "greeting" is "she said \"hello\"\nand left."
+    set data_map at "path" is "C:\\Users\\Pengu"
+    var json_str_opt as maybe string is calling cipher.stringify_json with data_map
+    calling spark.assert with (json_str_opt.is_present)
+    var parsed_map_opt as maybe map of string to string is calling cipher.parse_json with json_str_opt.value
+    calling spark.assert with (parsed_map_opt.is_present)
+    var pmap as map of string to string is parsed_map_opt.value
+    calling spark.assert with ((pmap at "greeting") == "she said \"hello\"\nand left.")
+    calling spark.assert with ((pmap at "path") == "C:\\Users\\Pengu")
+    calling spark.println with "json escaping & bug fix: OK"
+
+    var arr_items as list of string is list of string
+    calling arr_items.push with "apple"
+    calling arr_items.push with "banana"
+    calling arr_items.push with "cherry"
+    var arr_json_opt as maybe string is calling cipher.stringify_json_array with arr_items
+    calling spark.assert with (arr_json_opt.is_present)
+    var parsed_arr_opt as maybe list of string is calling cipher.parse_json_array with arr_json_opt.value
+    calling spark.assert with (parsed_arr_opt.is_present)
+    var parr as list of string is parsed_arr_opt.value
+    calling spark.assert with ((parr length) == 3)
+    calling spark.assert with ((parr at 0) == "apple")
+    calling spark.assert with ((parr at 1) == "banana")
+    calling spark.assert with ((parr at 2) == "cherry")
+    calling spark.println with "json array: OK"
+
+    # 9. Typed Getters
+    var doc as map of string to string is map of string to string
+    set doc at "name" is "Alice"
+    set doc at "age" is "30"
+    set doc at "score" is "95.5"
+    set doc at "active" is "true"
+
+    var name_opt as maybe string is calling cipher.json_get_string with doc, "name"
+    calling spark.assert with (name_opt.is_present)
+    calling spark.assert with (name_opt.value == "Alice")
+
+    var age_opt as maybe int is calling cipher.json_get_int with doc, "age"
+    calling spark.assert with (age_opt.is_present)
+    calling spark.assert with (age_opt.value == 30)
+
+    var score_opt as maybe float is calling cipher.json_get_float with doc, "score"
+    calling spark.assert with (score_opt.is_present)
+    calling spark.assert with (score_opt.value > 95.0)
+
+    set doc at "sci" is "1.5e3"
+    var sci_opt as maybe float is calling cipher.json_get_float with doc, "sci"
+    calling spark.assert with (sci_opt.is_present)
+    calling spark.assert with (sci_opt.value > 1499.0 and sci_opt.value < 1501.0)
+
+    set doc at "sci_neg" is "-2.5e-2"
+    var sci_neg_opt as maybe float is calling cipher.json_get_float with doc, "sci_neg"
+    calling spark.assert with (sci_neg_opt.is_present)
+    calling spark.assert with (sci_neg_opt.value < -0.02 and sci_neg_opt.value > -0.03)
+
+    var active_opt as maybe bool is calling cipher.json_get_bool with doc, "active"
+    calling spark.assert with (active_opt.is_present)
+    calling spark.assert with (active_opt.value == true)
+
+    var missing_def as string is calling cipher.json_get_or with doc, "missing", "default_val"
+    calling spark.assert with (missing_def == "default_val")
+
+    calling spark.assert with (calling cipher.json_has with doc, "name")
+    calling spark.assert with (not (calling cipher.json_has with doc, "unknown"))
+    calling spark.println with "typed getters: OK"
+
+    # 10. Navigation & Manipulation
+    var clone_map as map of string to string is calling cipher.json_deep_clone with doc
+    calling spark.assert with ((calling cipher.json_get_or with clone_map, "name", "") == "Alice")
+
+    var b_map as map of string to string is map of string to string
+    set b_map at "role" is "admin"
+    set b_map at "name" is "Alice Updated"
+    var merged as map of string to string is calling cipher.json_merge with doc, b_map
+    calling spark.assert with ((calling cipher.json_get_or with merged, "name", "") == "Alice Updated")
+    calling spark.assert with ((calling cipher.json_get_or with merged, "role", "") == "admin")
+    calling spark.assert with ((calling cipher.json_get_or with merged, "age", "") == "30")
+
+    # Nested path
+    var nested_doc as map of string to string is map of string to string
+    var inner_doc as map of string to string is map of string to string
+    set inner_doc at "host" is "localhost"
+    set inner_doc at "port" is "8080"
+    var inner_json as maybe string is calling cipher.stringify_json with inner_doc
+    set nested_doc at "server" is inner_json.value
+
+    var path_res as maybe string is calling cipher.json_path with nested_doc, "server.host"
+    calling spark.assert with (path_res.is_present)
+    calling spark.assert with (path_res.value == "localhost")
+
+    var parsed_at as maybe map of string to string is calling cipher.json_parse_at with nested_doc, "server"
+    calling spark.assert with (parsed_at.is_present)
+    var parsed_inner as map of string to string is parsed_at.value
+    calling spark.assert with ((parsed_inner at "port") == "8080")
+    calling spark.println with "navigation & merge: OK"
+
+    # 11. Validation & Classification (omen JsonKind)
+    calling spark.assert with (calling cipher.is_valid_json with r"""{"a":"1"}""")
+    calling spark.assert with (not (calling cipher.is_valid_json with r"invalid json {"))
+    calling spark.assert with (calling cipher.is_valid_json_value with "\"hello\"")
+    calling spark.assert with (calling cipher.is_valid_json_value with "12345")
+    calling spark.assert with (calling cipher.is_valid_json_value with "true")
+
+    var k_obj as cipher.JsonKind is calling cipher.json_kind_of with r"""{"x": 1}"""
+    var k_arr as cipher.JsonKind is calling cipher.json_kind_of with "[1, 2, 3]"
+    var k_str as cipher.JsonKind is calling cipher.json_kind_of with "\"abc\""
+    var k_num as cipher.JsonKind is calling cipher.json_kind_of with "42"
+    var k_bool as cipher.JsonKind is calling cipher.json_kind_of with "true"
+    var k_null as cipher.JsonKind is calling cipher.json_kind_of with "null"
+
+    var s_obj as string is judge k_obj:
+        when JsonKind.JsonObject -> "obj"
+        else -> "other"
+    calling spark.assert with (s_obj == "obj")
+    calling spark.println with "kind obj: OK"
+
+    var s_arr as string is judge k_arr:
+        when JsonKind.JsonArray -> "arr"
+        else -> "other"
+    calling spark.assert with (s_arr == "arr")
+    calling spark.println with "kind arr: OK"
+
+    var s_num as string is judge k_num:
+        when JsonKind.JsonNumber -> "num"
+        else -> "other"
+    calling spark.assert with (s_num == "num")
+    calling spark.println with "kind num: OK"
+
+    # 12. File operations
+    var tmp_json_path as string is "/tmp/pengu_test_cipher.json"
+    var ok_write as bool is calling cipher.write_json_file with tmp_json_path, doc
+    calling spark.assert with ok_write
+    var read_back as maybe map of string to string is calling cipher.read_json_file with tmp_json_path
+    calling spark.assert with (read_back.is_present)
+    var rmap as map of string to string is read_back.value
+    calling spark.assert with ((rmap at "name") == "Alice")
+
+    calling spark.println with "cipher extended: OK"
+    return 0

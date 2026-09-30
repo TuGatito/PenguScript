@@ -1,0 +1,9 @@
+import std.spark
+
+weave main into int:
+    var inner as string is "in"
+    var outer as string is "outer {inner} {inner}"
+    calling spark.assert with outer == "outer in in"
+    var combined as string is "[{outer}]"
+    calling spark.assert with combined == "[outer in in]"
+    return 0

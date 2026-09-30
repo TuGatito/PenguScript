@@ -1,0 +1,10 @@
+# EXPECTED: E0005
+# 'string' does not satisfy the 'Num' bound of T, so it cannot be stored
+# through a 'ref to T'.
+weave store shard T where T: Num with x as ref to T into void:
+    set essence of x is "hello"
+
+weave main into int:
+    var n as int is 0
+    calling store with (sigil of n)
+    return 0

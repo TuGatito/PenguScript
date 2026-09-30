@@ -1,32 +1,45 @@
 # std/rites.pengu - The Rites (OS & System)
 # Provides process, environment, and system utilities.
 #
-# The helpers cover four areas: environment variables (getenv/setenv/
-# unsetenv/get_env_keys), program arguments (get_argc/get_argv/get_args),
-# process identity and control (getpid/getppid/getcwd/chdir/exit/exec/spawn)
-# and platform information (uname/hostname).
+# The helpers cover six primary areas:
+#   * Environment variables: getenv, setenv, unsetenv, get_env_keys, getenv_or,
+#     has_env, getenv_int, getenv_float, getenv_bool, get_env_map, set_env_map,
+#     clear_env, expand_env, env_substitute.
+#   * Program arguments: get_argc, get_argv, get_args, arg_at_or, parse_flags,
+#     has_flag, get_flag_value.
+#   * Process identity and directory: getpid, getppid, getcwd, chdir.
+#   * Standard user/system directories: home_dir, temp_dir, config_dir,
+#     cache_dir, data_dir.
+#   * Platform & host information: uname, hostname, os_arch, os_family,
+#     is_windows, is_unix, is_macos, is_linux.
+#   * Executable search: which, which_all.
+#   * Process termination & execution: exit, exec, spawn, exec_ok,
+#     exec_or_panic, run_shell, shell_escape, current_user.
 #
-# Typical usage:
-#   import std.rites
-#   var home as maybe string is calling rites.getenv with "HOME"
-#   if home.is_present:
-#       calling spark.println with home.value
-#   calling rites.setenv with "MY_VAR", "1"
-#   var status as int is calling rites.exec with "echo", list of string
-#   calling rites.exit with 0
+# Documented TODOs (require new C runtime bridges):
+#   * get_uid() / get_gid(): POSIX user/group ID inspection
+#   * set_uid() / set_gid(): POSIX user/group ID switching
+#   * fork() / waitpid(): low-level POSIX process lifecycle
+#   * pipe(): unidirectional IPC channel between processes
+#   * exec_capture() / run_capture(): process spawning with stdout/stderr capture
 #
 # Ownership model:
 #   Every returned string or list of string (getenv, get_argv, get_args,
-#   getcwd, get_env_keys, uname, hostname) is a fresh copy made by the C
-#   runtime, so results follow normal PenguScript value lifetime and never
-#   alias OS-owned buffers: nothing returned is caller-owned heap and there is
-#   no caller cleanup. String arguments are read-only for the duration of the
-#   call and are never retained. getcwd/getenv return a maybe string (none
-#   when the value is unavailable).
+#   getcwd, get_env_keys, uname, hostname, standard directories) is a fresh copy
+#   made by the C runtime or standard library, so results follow normal
+#   PenguScript value lifetimes and never alias OS-owned buffers.
+#   Nothing returned is caller-owned heap requiring manual cleanup beyond
+#   standard variable lifecycle. String arguments are read-only for the duration
+#   of the call and are never retained.
 
 import std.spark
-import std.oracle
-import std.tally
+
+# ----------------------------------------------------------------------------
+# Module Version
+# ----------------------------------------------------------------------------
+
+## Version constant for std.rites module.
+const RITES_VERSION as string is "0.15.0"
 
 # ----------------------------------------------------------------------------
 # External C Runtime Declarations (environment, args, process, platform)
@@ -93,109 +106,713 @@ declare pengu_c_hostname into string
 # set environment variables.
 declare pengu_c_get_env_keys into list of string
 
+# External file check declaration to avoid circular import with std.archivum.
+declare pengu_c_archivum_is_file with path as string into bool
+
 # ----------------------------------------------------------------------------
-# Environment Variables
+# Environment Variables (0.14.x baseline)
 # ----------------------------------------------------------------------------
 
-# Looks up environment variable `name`; returns a maybe string holding its
-# value (a fresh copy) or none when the variable is not set.
+## Looks up environment variable `name`.
+##
+## Signature: getenv(name as string) into maybe string
+## Ownership: Returns a fresh copy of the environment variable value.
+## Edge cases: Returns maybe none when the variable is not set (or name is empty). If the variable is set to an empty string, returns some "".
+## Cross-platform: Supported uniformly across Windows (GetEnvironmentVariableA) and POSIX (getenv).
 weave getenv with name as string into maybe string:
     return calling pengu_c_getenv with name
 
-# Sets environment variable `name` to `value`, replacing an existing value
-# only when `overwrite` is true (the default). Returns true on success.
+## Sets environment variable `name` to `value`.
+##
+## Signature: setenv(name as string, value as string, overwrite as bool is true) into bool
+## Ownership: Value string is copied by the runtime; caller retains ownership of arguments.
+## Edge cases: When `overwrite` is false and `name` already exists, returns true without modifying value.
+## Cross-platform: Uses SetEnvironmentVariableA on Windows and setenv on POSIX.
 weave setenv with name as string , value as string , overwrite as bool is true into bool:
     return calling pengu_c_setenv with name , value , overwrite
 
-# Removes environment variable `name`. Returns true when it was unset
-# successfully.
+## Removes environment variable `name` from the process environment.
+##
+## Signature: unsetenv(name as string) into bool
+## Ownership: Arguments are not retained.
+## Edge cases: Returns true on success or if variable was already unset; false on invalid names.
+## Cross-platform: Uses SetEnvironmentVariableA(name, NULL) on Windows and unsetenv on POSIX.
 weave unsetenv with name as string into bool:
     return calling pengu_c_unsetenv with name
 
+## Returns the names of all currently set environment variables.
+##
+## Signature: get_env_keys() into list of string
+## Ownership: Returns a new list of owned strings.
+## Edge cases: Returns an empty list when no environment variables are defined.
+## Cross-platform: Iterates environ on POSIX and GetEnvironmentStringsA on Windows.
+weave get_env_keys into list of string:
+    return calling pengu_c_get_env_keys
+
 # ----------------------------------------------------------------------------
-# Program Arguments
+# Extended Environment Accessors & Bulk Operations (0.15.0)
 # ----------------------------------------------------------------------------
 
-# Returns the program's argument count, including the program name at index 0.
+## Looks up environment variable `name`, returning `default` if unset.
+##
+## Signature: getenv_or(name as string, default as string is "") into string
+## Ownership: Returns a fresh string copy.
+## Edge cases: Returns `default` when `name` is not present in the environment.
+## Cross-platform: Works across all platforms.
+weave getenv_or with name as string , default as string is "" into string:
+    var opt as maybe string is calling getenv with name
+    if opt is present:
+        return opt.value
+    return default
+
+## Checks whether environment variable `name` is currently set.
+##
+## Signature: has_env(name as string) into bool
+## Ownership: No persistent allocations.
+## Edge cases: Returns true even if the variable is set to an empty string.
+## Cross-platform: Works across all platforms.
+weave has_env with name as string into bool:
+    var opt as maybe string is calling getenv with name
+    return opt is present
+
+## Looks up environment variable `name` and parses it as an integer.
+##
+## Signature: getenv_int(name as string) into maybe int
+## Ownership: No persistent allocations.
+## Edge cases: Returns maybe none if unset or if value cannot be parsed as an int.
+## Cross-platform: Works across all platforms.
+weave getenv_int with name as string into maybe int:
+    var opt as maybe string is calling getenv with name
+    if opt is not present:
+        return maybe none
+    return calling spark.parse_int with opt.value
+
+## Looks up environment variable `name` and parses it as a float.
+##
+## Signature: getenv_float(name as string) into maybe float
+## Ownership: No persistent allocations.
+## Edge cases: Returns maybe none if unset or if value cannot be parsed as a float.
+## Cross-platform: Works across all platforms.
+weave getenv_float with name as string into maybe float:
+    var opt as maybe string is calling getenv with name
+    if opt is not present:
+        return maybe none
+    return calling spark.parse_float with opt.value
+
+## Looks up environment variable `name` and parses it as a boolean.
+##
+## Signature: getenv_bool(name as string) into maybe bool
+## Ownership: No persistent allocations.
+## Edge cases: Accepts "1", "true", "TRUE", "yes", "YES" -> some true.
+##             Accepts "0", "false", "FALSE", "no", "NO" -> some false.
+##             Unset or unrecognized values return maybe none.
+## Cross-platform: Works across all platforms.
+weave getenv_bool with name as string into maybe bool:
+    var opt as maybe string is calling getenv with name
+    if opt is not present:
+        return maybe none
+    var val as string is opt.value
+    if val == "1" or val == "true" or val == "TRUE" or val == "True" or val == "yes" or val == "YES" or val == "Yes":
+        return some true
+    if val == "0" or val == "false" or val == "FALSE" or val == "False" or val == "no" or val == "NO" or val == "No":
+        return some false
+    return maybe none
+
+## Returns a snapshot map of all environment variables and their values.
+##
+## Signature: get_env_map() into map of string to string
+## Ownership: Returns a newly allocated map owning its keys and values.
+## Edge cases: Returns empty map if no environment variables are defined.
+## Cross-platform: Works across all platforms.
+weave get_env_map into map of string to string:
+    var res as map of string to string is map of string to string
+    var keys as list of string is calling get_env_keys
+    for k in keys:
+        var v_opt as maybe string is calling getenv with k
+        if v_opt is present:
+            calling res.put with k , v_opt.value
+    return res
+
+## Sets multiple environment variables from a key-value map.
+##
+## Signature: set_env_map(m as map of string to string) into int
+## Ownership: Does not consume the input map.
+## Edge cases: Returns the count of variables successfully set.
+## Cross-platform: Works across all platforms.
+weave set_env_map with m as map of string to string into int:
+    var count as int is 0
+    for k in m:
+        var v as string is m at k
+        var ok as bool is calling setenv with k , v , true
+        if ok:
+            set count is count + 1
+    return count
+
+## Clears all environment variables in the current process.
+##
+## Signature: clear_env() into int
+## Ownership: Mutates process environment. No persistent allocations returned.
+## Edge cases: Returns count of variables successfully removed.
+## Cross-platform: On all platforms, variables are removed via platform unsetenv / SetEnvironmentVariableA.
+## WARNING: Only removes variables from the current process environment, does not affect the OS or parent processes.
+weave clear_env into int:
+    var keys as list of string is calling get_env_keys
+    var count as int is 0
+    for k in keys:
+        var ok as bool is calling unsetenv with k
+        if ok:
+            set count is count + 1
+    return count
+
+## Expands environment variable placeholders in string `s`.
+## Supports `$VAR`, `${VAR}`, `%VAR%` syntax, and `$$` / `%%` escape -> `$` / `%`.
+##
+## Signature: expand_env(s as string) into string
+## Ownership: Returns a newly allocated string with variables substituted.
+## Edge cases: Unset variables expand to empty strings. Unterminated braces `${...}` or `%...%` are preserved verbatim.
+## Cross-platform: Cross-platform support for Unix and Windows placeholders. Single-pass non-recursive expansion.
+weave expand_env with s as string into string:
+    var n as int is s length
+    var i as int is 0
+    var res as string is ""
+    while i < n:
+        var c as string is s at i
+        if c == "$":
+            if (i + 1) < n and (s at (i + 1)) == "$":
+                set res is "{res}$"
+                set i is i + 2
+            else if (i + 1) < n and (s at (i + 1)) == "{":
+                var j as int is i + 2
+                while j < n and (s at j) != "}":
+                    set j is j + 1
+                if j < n:
+                    var vname as string is s at (i + 2) to j
+                    set res is "{res}{(calling getenv_or with vname , "")}"
+                    set i is j + 1
+                else:
+                    set res is "{res}{c}"
+                    set i is i + 1
+            else:
+                var j as int is i + 1
+                while j < n:
+                    var ch as string is s at j
+                    var code as int is ord ch
+                    if (code >= 65 and code <= 90) or (code >= 97 and code <= 122) or (code >= 48 and code <= 57) or code == 95:
+                        set j is j + 1
+                    else:
+                        break
+                if j > (i + 1):
+                    var vname as string is s at (i + 1) to j
+                    set res is "{res}{(calling getenv_or with vname , "")}"
+                    set i is j
+                else:
+                    set res is "{res}$"
+                    set i is i + 1
+        else if c == "%":
+            if (i + 1) < n and (s at (i + 1)) == "%":
+                set res is "{res}%"
+                set i is i + 2
+            else:
+                var j as int is i + 1
+                while j < n and (s at j) != "%":
+                    set j is j + 1
+                if j < n and j > (i + 1):
+                    var vname as string is s at (i + 1) to j
+                    set res is "{res}{(calling getenv_or with vname , "")}"
+                    set i is j + 1
+                else:
+                    set res is "{res}{c}"
+                    set i is i + 1
+        else:
+            set res is "{res}{c}"
+            set i is i + 1
+    return res
+
+## Alias of `expand_env`.
+##
+## Signature: env_substitute(s as string) into string
+## Ownership: Returns a new string with environment variables replaced.
+weave env_substitute with s as string into string:
+    return calling expand_env with s
+
+# ----------------------------------------------------------------------------
+# Program Arguments (0.14.x baseline & 0.15.0 helpers)
+# ----------------------------------------------------------------------------
+
+## Returns the program's argument count, including the program name at index 0.
+##
+## Signature: get_argc() into int
+## Ownership: No allocations.
+## Cross-platform: Returns argc across all platforms.
 weave get_argc into int:
     return calling pengu_c_get_argc
 
-# Returns a copy of the program argument at index `idx` (0 = program name);
-# an out-of-range `idx` yields an empty string.
+## Returns a copy of the program argument at index `idx` (0 = program name).
+##
+## Signature: get_argv(idx as int) into string
+## Ownership: Returns a fresh string copy.
+## Edge cases: Out-of-range `idx` yields an empty string.
 weave get_argv with idx as int into string:
     return calling pengu_c_get_argv with idx
 
-# Returns a new list of string holding one copy per program argument, from
-# index 0 (program name) upward; the returned list owns its string elements.
+## Returns a new list of string holding one copy per program argument.
+##
+## Signature: get_args() into list of string
+## Ownership: The returned list owns its string elements.
 weave get_args into list of string:
     return calling pengu_c_get_args
 
+## Returns the argument at index `idx`, or `default` if `idx` is out of range.
+##
+## Signature: arg_at_or(idx as int, default as string is "") into string
+## Ownership: Returns a fresh string copy.
+## Edge cases: Returns `default` when `idx < 0` or `idx >= get_argc()`.
+weave arg_at_or with idx as int , default as string is "" into string:
+    var argc as int is calling get_argc
+    if idx >= 0 and idx < argc:
+        return calling get_argv with idx
+    return default
+
+## Parses command-line flags from `get_args()` (skipping argv[0]).
+## Handles `--key=value` -> map["key"] = "value" and `--flag` -> map["flag"] = "true".
+##
+## Signature: parse_flags() into map of string to string
+## Ownership: Returns a newly allocated map.
+## Edge cases: Positional arguments (not starting with `--`) are ignored.
+weave parse_flags into map of string to string:
+    var res as map of string to string is map of string to string
+    var args as list of string is calling get_args
+    var n as int is calling args.len
+    var i as int is 1
+    while i < n:
+        var arg as string is args at i
+        var l as int is arg length
+        if l >= 3 and (arg at 0 to 2) == "--":
+            var eq_idx as int is -1
+            var j as int is 2
+            while j < l:
+                if (arg at j) == "=":
+                    set eq_idx is j
+                    break
+                set j is j + 1
+            if eq_idx != -1:
+                var key as string is arg at 2 to eq_idx
+                var val as string is arg at (eq_idx + 1) to l
+                calling res.put with key , val
+            else:
+                var key as string is arg at 2 to l
+                calling res.put with key , "true"
+        set i is i + 1
+    return res
+
+## Checks if flag `--name` was passed on the command line.
+##
+## Signature: has_flag(name as string) into bool
+## Ownership: No persistent allocations.
+weave has_flag with name as string into bool:
+    var flags as map of string to string is calling parse_flags
+    return calling flags.contains with name
+
+## Returns the value of flag `--name` if passed, or maybe none.
+##
+## Signature: get_flag_value(name as string) into maybe string
+## Ownership: Returns a fresh maybe string.
+weave get_flag_value with name as string into maybe string:
+    var flags as map of string to string is calling parse_flags
+    if calling flags.contains with name:
+        return some (flags at name)
+    return maybe none
+
 # ----------------------------------------------------------------------------
-# Process Identity
+# Process Identity (0.14.x baseline)
 # ----------------------------------------------------------------------------
 
-# Returns the current process id (int).
+## Returns the current process id (int).
+##
+## Signature: getpid() into int
+## Ownership: No allocations.
 weave getpid into int:
     return calling pengu_c_getpid
 
-# Returns the parent process id (int); always 0 on Windows, where the
-# underlying C bridge cannot report a parent.
+## Returns the parent process id (int). Always 0 on Windows.
+##
+## Signature: getppid() into int
+## Ownership: No allocations.
 weave getppid into int:
     return calling pengu_c_getppid
 
 # ----------------------------------------------------------------------------
-# Working Directory
+# Working Directory (0.14.x baseline)
 # ----------------------------------------------------------------------------
 
-# Returns the current working directory as a maybe string (a fresh copy), or
-# none when it cannot be determined.
+## Returns the current working directory as a maybe string.
+##
+## Signature: getcwd() into maybe string
+## Ownership: Returns a fresh string copy.
+## Edge cases: Returns maybe none when current directory cannot be determined.
 weave getcwd into maybe string:
     return calling pengu_c_getcwd
 
-# Changes the current working directory to `path`; returns true on success,
-# false when the directory does not exist or cannot be entered.
+## Changes the current working directory to `path`.
+##
+## Signature: chdir(path as string) into bool
+## Ownership: Arguments are not retained.
+## Edge cases: Returns true on success, false when path does not exist or access is denied.
 weave chdir with path as string into bool:
     return calling pengu_c_chdir with path
 
 # ----------------------------------------------------------------------------
-# Process Termination & Shell Execution
+# Standard User & System Directories (0.15.0)
 # ----------------------------------------------------------------------------
 
-# Terminates the process immediately with exit code `code` (never returns).
-weave exit with code as int into void:
-    calling pengu_c_exit with code
+## Returns the current user's home directory.
+##
+## Signature: home_dir() into maybe string
+## Ownership: Returns an owned maybe string.
+## Cross-platform: On Windows, inspects USERPROFILE or HOMEDRIVE+HOMEPATH.
+##                 On POSIX, inspects HOME.
+weave home_dir into maybe string:
+    when os == "windows":
+        var up as maybe string is calling getenv with "USERPROFILE"
+        if up is present:
+            return up
+        var hd as maybe string is calling getenv with "HOMEDRIVE"
+        var hp as maybe string is calling getenv with "HOMEPATH"
+        if hd is present and hp is present:
+            return some ("{hd.value}{hp.value}")
+        return maybe none
+    var h as maybe string is calling getenv with "HOME"
+    if h is present:
+        return h
+    return maybe none
 
-# Runs `cmd` plus each `args` entry (space-joined) through the platform shell
-# and blocks until it finishes. Returns the raw status reported by the shell
-# (-1 when the shell could not be started; otherwise the encoded status, not
-# a normalized exit code).
-weave exec with cmd as string , args as list of string into int:
-    return calling pengu_c_exec with cmd , args
+## Returns the system temporary directory path.
+##
+## Signature: temp_dir() into maybe string
+## Ownership: Returns an owned maybe string.
+## Cross-platform: On Windows, inspects TEMP/TMP with fallback "C:\\Temp".
+##                 On POSIX, inspects TMPDIR/TEMP/TMP with fallback "/tmp".
+weave temp_dir into maybe string:
+    when os == "windows":
+        var t as maybe string is calling getenv with "TEMP"
+        if t is present:
+            return t
+        var tmp as maybe string is calling getenv with "TMP"
+        if tmp is present:
+            return tmp
+        return some "C:\\Temp"
+    var td as maybe string is calling getenv with "TMPDIR"
+    if td is present:
+        return td
+    var t2 as maybe string is calling getenv with "TEMP"
+    if t2 is present:
+        return t2
+    var t3 as maybe string is calling getenv with "TMP"
+    if t3 is present:
+        return t3
+    return some "/tmp"
 
-# Launches `cmd` with `args` and blocks until it finishes. Currently shares
-# exec's implementation (a blocking shell call) and returns the same raw
-# status value.
-weave spawn with cmd as string , args as list of string into int:
-    return calling pengu_c_spawn with cmd , args
+## Returns the user configuration directory path.
+##
+## Signature: config_dir() into maybe string
+## Ownership: Returns an owned maybe string.
+## Cross-platform: On Windows, returns %APPDATA%.
+##                 On POSIX, returns $XDG_CONFIG_HOME or ~/.config.
+weave config_dir into maybe string:
+    when os == "windows":
+        var appdata as maybe string is calling getenv with "APPDATA"
+        if appdata is present:
+            return appdata
+        return maybe none
+    var xdg as maybe string is calling getenv with "XDG_CONFIG_HOME"
+    if xdg is present:
+        return xdg
+    var h as maybe string is calling home_dir
+    if h is present:
+        return some ("{h.value}/.config")
+    return maybe none
+
+## Returns the user cache directory path.
+##
+## Signature: cache_dir() into maybe string
+## Ownership: Returns an owned maybe string.
+## Cross-platform: On Windows, returns %LOCALAPPDATA%.
+##                 On POSIX, returns $XDG_CACHE_HOME or ~/.cache.
+weave cache_dir into maybe string:
+    when os == "windows":
+        var localappdata as maybe string is calling getenv with "LOCALAPPDATA"
+        if localappdata is present:
+            return localappdata
+        return maybe none
+    var xdg as maybe string is calling getenv with "XDG_CACHE_HOME"
+    if xdg is present:
+        return xdg
+    var h as maybe string is calling home_dir
+    if h is present:
+        return some ("{h.value}/.cache")
+    return maybe none
+
+## Returns the user local data directory path.
+##
+## Signature: data_dir() into maybe string
+## Ownership: Returns an owned maybe string.
+## Cross-platform: On Windows, returns %APPDATA%.
+##                 On POSIX, returns $XDG_DATA_HOME or ~/.local/share.
+weave data_dir into maybe string:
+    when os == "windows":
+        var appdata as maybe string is calling getenv with "APPDATA"
+        if appdata is present:
+            return appdata
+        return maybe none
+    var xdg as maybe string is calling getenv with "XDG_DATA_HOME"
+    if xdg is present:
+        return xdg
+    var h as maybe string is calling home_dir
+    if h is present:
+        return some ("{h.value}/.local/share")
+    return maybe none
 
 # ----------------------------------------------------------------------------
-# Platform & Host Information
+# Platform & Host Information (0.14.x baseline & 0.15.0)
 # ----------------------------------------------------------------------------
 
-# Returns the operating-system family name: "Windows", "Darwin", "Linux" or
-# "Unknown" (a fresh string copy).
+## Returns the operating-system family name: "Windows", "Darwin", "Linux" or "Unknown".
+##
+## Signature: uname() into string
+## Ownership: Returns a fresh string copy.
 weave uname into string:
     return calling pengu_c_uname
 
-# Returns the machine's host name (a fresh string copy).
+## Returns the machine's host name.
+##
+## Signature: hostname() into string
+## Ownership: Returns a fresh string copy.
 weave hostname into string:
     return calling pengu_c_hostname
 
+## Returns the host CPU architecture string ("x64", "arm64", "x86", "arm", or "unknown").
+##
+## Signature: os_arch() into string
+## Ownership: Returns a static string copy evaluated at compile time.
+weave os_arch into string:
+    when arch == "x64":
+        return "x64"
+    when arch == "arm64":
+        return "arm64"
+    when arch == "x86":
+        return "x86"
+    when arch == "arm":
+        return "arm"
+    return "unknown"
+
+## Returns the operating-system family name. Alias of `uname()`.
+##
+## Signature: os_family() into string
+## Ownership: Returns a fresh string copy.
+weave os_family into string:
+    return calling pengu_c_uname
+
+## Checks if the current target operating system is Windows.
+##
+## Signature: is_windows() into bool
+## Ownership: Compile-time constant result.
+weave is_windows into bool:
+    when os == "windows":
+        return true
+    return false
+
+## Checks if the current target operating system is Unix-like (Linux, macOS, BSD).
+##
+## Signature: is_unix() into bool
+## Ownership: Compile-time constant result.
+weave is_unix into bool:
+    when os == "windows":
+        return false
+    return true
+
+## Checks if the current target operating system is macOS (Darwin).
+##
+## Signature: is_macos() into bool
+## Ownership: Compile-time constant result.
+weave is_macos into bool:
+    when os == "macos":
+        return true
+    return false
+
+## Checks if the current target operating system is Linux.
+##
+## Signature: is_linux() into bool
+## Ownership: Compile-time constant result.
+weave is_linux into bool:
+    when os == "linux":
+        return true
+    return false
+
 # ----------------------------------------------------------------------------
-# Environment Variable Names
+# Executable Search (PATH resolution) (0.15.0)
 # ----------------------------------------------------------------------------
 
-# Returns a new list of string with the names of all currently set
-# environment variables (an empty list when the environment is empty).
-weave get_env_keys into list of string:
-    return calling pengu_c_get_env_keys
+## Searches the system PATH for all executable candidates matching `cmd`.
+##
+## Signature: which_all(cmd as string) into list of string
+## Ownership: Returns a new list of absolute/relative path strings.
+## Cross-platform: On Windows, uses ';' delimiter and tests .exe, .bat, .cmd extensions.
+##                 On POSIX, uses ':' delimiter.
+## NOTE: On POSIX systems, `which_all` checks for regular file existence in PATH directories
+## (`pengu_c_archivum_is_file`). It does not currently inspect POSIX executable permission bits
+## (e.g. access(X_OK)), which requires a dedicated runtime permission bridge.
+weave which_all with cmd as string into list of string:
+    var res as list of string is list of string
+    var path_var as maybe string is calling getenv with "PATH"
+    if path_var is not present:
+        return res
+    var path_str as string is path_var.value
+    var plen as int is path_str length
+    if plen == 0:
+        return res
+
+    var sep as string is ":"
+    when os == "windows":
+        set sep is ";"
+
+    var dirs as list of string is list of string
+    var start as int is 0
+    var i as int is 0
+    while i < plen:
+        if (path_str at i) == sep:
+            if i > start:
+                calling dirs.push with (path_str at start to i)
+            set start is i + 1
+        set i is i + 1
+    if start < plen:
+        calling dirs.push with (path_str at start to plen)
+
+    for d in dirs:
+        when os == "windows":
+            var candidate as string is "{d}\\{cmd}"
+            var exts as list of string is list of string
+            calling exts.push with ""
+            calling exts.push with ".exe"
+            calling exts.push with ".bat"
+            calling exts.push with ".cmd"
+            for ext in exts:
+                var full_c as string is "{candidate}{ext}"
+                if calling pengu_c_archivum_is_file with full_c:
+                    calling res.push with full_c
+        when os != "windows":
+            var candidate as string is "{d}/{cmd}"
+            if calling pengu_c_archivum_is_file with candidate:
+                calling res.push with candidate
+    return res
+
+## Locates the first executable matching `cmd` on the system PATH.
+##
+## Signature: which(cmd as string) into maybe string
+## Ownership: Returns an owned maybe string.
+## Edge cases: Returns maybe none if `cmd` is not found on PATH.
+weave which with cmd as string into maybe string:
+    var matches as list of string is calling which_all with cmd
+    if (calling matches.len) > 0:
+        return some (matches at 0)
+    return maybe none
+
+# ----------------------------------------------------------------------------
+# Process Termination & Shell Execution (0.14.x baseline & 0.15.0)
+# ----------------------------------------------------------------------------
+
+## Terminates the process immediately with exit code `code` (never returns).
+##
+## Signature: exit(code as int) into void
+## Ownership: Process exit.
+weave exit with code as int into void:
+    calling pengu_c_exit with code
+
+## Runs `cmd` plus `args` through the platform shell and blocks until completion.
+## Returns the raw status code reported by the shell (-1 on error).
+##
+## Signature: exec(cmd as string, args as list of string) into int
+## Ownership: Caller owns arguments.
+## WARNING: Uses system() internally; do NOT pass untrusted user input without sanitization.
+weave exec with cmd as string , args as list of string into int:
+    return calling pengu_c_exec with cmd , args
+
+## Launches `cmd` with `args` and blocks until it finishes. Shares exec's implementation.
+##
+## Signature: spawn(cmd as string, args as list of string) into int
+## Ownership: Caller owns arguments.
+weave spawn with cmd as string , args as list of string into int:
+    return calling pengu_c_spawn with cmd , args
+
+## Runs `cmd` with `args` and returns true if the command succeeded (exit code == 0).
+##
+## Signature: exec_ok(cmd as string, args as list of string) into bool
+## Ownership: Arguments are not retained.
+weave exec_ok with cmd as string , args as list of string into bool:
+    return (calling exec with cmd , args) == 0
+
+## Runs `cmd` with `args` and panics if the command fails (exit code != 0).
+##
+## Signature: exec_or_panic(cmd as string, args as list of string) into void
+## Ownership: Arguments are not retained.
+weave exec_or_panic with cmd as string , args as list of string into void:
+    var status as int is calling exec with cmd , args
+    if status != 0:
+        calling spark.panic with "Command execution failed with status: {(status to string)}"
+
+## Executes a raw command line string directly through the platform shell.
+##
+## Signature: run_shell(cmdline as string) into int
+## Ownership: Returns raw return status from platform shell.
+## WARNING: Uses system() internally; do NOT pass untrusted user input without sanitization.
+weave run_shell with cmdline as string into int:
+    var empty_args as list of string is list of string
+    return calling pengu_c_exec with cmdline , empty_args
+
+## Escapes string `s` for safe inclusion as a command line argument.
+##
+## Signature: shell_escape(s as string) into string
+## Ownership: Returns a newly allocated escaped string.
+## Cross-platform: Uses double-quote escaping on Windows and single-quote escaping on POSIX.
+weave shell_escape with s as string into string:
+    var slen as int is s length
+    if slen == 0:
+        when os == "windows":
+            return "\"\""
+        return "''"
+    when os == "windows":
+        var res as string is "\""
+        var i as int is 0
+        while i < slen:
+            var c as string is s at i
+            if c == "\"":
+                set res is "{res}\\\""
+            else:
+                set res is "{res}{c}"
+            set i is i + 1
+        set res is "{res}\""
+        return res
+    var res as string is "'"
+    var i as int is 0
+    while i < slen:
+        var c as string is s at i
+        if c == "'":
+            set res is "{res}'\\''"
+        else:
+            set res is "{res}{c}"
+        set i is i + 1
+    set res is "{res}'"
+    return res
+
+## Returns the username of the current logged-in user.
+##
+## Signature: current_user() into maybe string
+## Ownership: Returns an owned maybe string.
+## Cross-platform: On Windows, inspects USERNAME.
+##                 On POSIX, inspects USER with fallback to LOGNAME.
+weave current_user into maybe string:
+    when os == "windows":
+        return calling getenv with "USERNAME"
+    var u as maybe string is calling getenv with "USER"
+    if u is present:
+        return u
+    return calling getenv with "LOGNAME"

@@ -44,16 +44,7 @@ def test_r1_normalize_banish_ident():
 @requires_runtime
 def test_r1_parenthesized_value_if_no_uaf():
     """R1: Parenthesized identifier in value if block escapes without use-after-free."""
-    code = """weave main into int:
-  let x as string is if true:
-    var s is "hello " + "world"
-    (s)
-  else:
-    "fallback"
-  if x == "hello world":
-    return 0
-  return 1
-"""
+    code = 'weave main into int:\n  let x as string is if true:\n    var s is "hello world"\n    (s)\n  else:\n    "fallback"\n  if x == "hello world":\n    return 0\n  return 1\n'
     res = compile_run(code, tag="r1_if_uaf")
     assert res.returncode == 0
 
@@ -61,14 +52,7 @@ def test_r1_parenthesized_value_if_no_uaf():
 @requires_runtime
 def test_r1_parenthesized_value_do_no_uaf():
     """R1: Parenthesized identifier in do: block escapes without use-after-free."""
-    code = """weave main into int:
-  let y as string is do:
-    var t is "pengu" + "script"
-    ((t))
-  if y == "penguscript":
-    return 0
-  return 1
-"""
+    code = 'weave main into int:\n  let y as string is do:\n    var t is "penguscript"\n    ((t))\n  if y == "penguscript":\n    return 0\n  return 1\n'
     res = compile_run(code, tag="r1_do_uaf")
     assert res.returncode == 0
 
@@ -76,17 +60,7 @@ def test_r1_parenthesized_value_do_no_uaf():
 @requires_runtime
 def test_r1_parenthesized_value_loop_no_uaf():
     """R1: Parenthesized identifier in loop value collection escapes without use-after-free."""
-    code = """weave main into int:
-  var words as list of string is for i from 0 to 3:
-    var s is "item-" + (i to string)
-    (s)
-  var w0 as string is words at 0
-  var w1 as string is words at 1
-  var w2 as string is words at 2
-  if w0 == "item-0" and w1 == "item-1" and w2 == "item-2":
-    return 0
-  return 1
-"""
+    code = 'weave main into int:\n  var words as list of string is for i from 0 to 3:\n    var s is "item-{(i to string)}"\n    (s)\n  var w0 as string is words at 0\n  var w1 as string is words at 1\n  var w2 as string is words at 2\n  if w0 == "item-0" and w1 == "item-1" and w2 == "item-2":\n    return 0\n  return 1\n'
     res = compile_run(code, tag="r1_loop_uaf")
     assert res.returncode == 0
 

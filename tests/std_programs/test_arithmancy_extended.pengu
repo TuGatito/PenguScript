@@ -1,0 +1,150 @@
+import std.spark
+import std.arithmancy
+
+weave main into int:
+    calling spark.println with "=== Test Arithmancy Extended ==="
+
+    # 1. Constants
+    calling spark.assert with (arithmancy.ARITHMANCY_VERSION == "0.15.0")
+    calling spark.assert with (calling arithmancy.approx_eq with arithmancy.PI, 3.14159265, 0.0001)
+    calling spark.assert with (calling arithmancy.approx_eq with arithmancy.TAU, 6.2831853, 0.0001)
+    calling spark.assert with (calling arithmancy.approx_eq with arithmancy.E, 2.7182818, 0.0001)
+    calling spark.assert with (calling arithmancy.approx_eq with arithmancy.HALF_PI, 1.5707963, 0.0001)
+    calling spark.assert with (calling arithmancy.approx_eq with arithmancy.SQRT2, 1.4142135, 0.0001)
+    calling spark.assert with (calling arithmancy.approx_eq with arithmancy.SQRT3, 1.7320508, 0.0001)
+    calling spark.println with "constants: OK"
+
+    # 2. Scalar helpers
+    calling spark.assert with ((calling arithmancy.sign with 5.0) == 1.0)
+    calling spark.assert with ((calling arithmancy.sign with -3.0) == -1.0)
+    calling spark.assert with ((calling arithmancy.sign with 0.0) == 0.0)
+    calling spark.assert with ((calling arithmancy.sign_i with 10) == 1)
+    calling spark.assert with ((calling arithmancy.sign_i with -10) == -1)
+    calling spark.assert with ((calling arithmancy.sign_i with 0) == 0)
+
+    calling spark.assert with ((calling arithmancy.min_i with 3, 7) == 3)
+    calling spark.assert with ((calling arithmancy.max_i with 3, 7) == 7)
+    calling spark.assert with ((calling arithmancy.clamp_i with 15, 0, 10) == 10)
+    calling spark.assert with ((calling arithmancy.clamp_i with -5, 0, 10) == 0)
+
+    calling spark.assert with (calling arithmancy.is_power_of_two with 1)
+    calling spark.assert with (calling arithmancy.is_power_of_two with 16)
+    calling spark.assert with (not (calling arithmancy.is_power_of_two with 14))
+    calling spark.assert with ((calling arithmancy.next_power_of_two with 5) == 8)
+
+    calling spark.assert with ((calling arithmancy.step with 0.5, 0.2) == 0.0)
+    calling spark.assert with ((calling arithmancy.step with 0.5, 0.8) == 1.0)
+    calling spark.assert with (calling arithmancy.approx_eq with (calling arithmancy.smoothstep with 0.0, 1.0, 0.5), 0.5)
+    calling spark.assert with (calling arithmancy.approx_eq with (calling arithmancy.remap with 5.0, 0.0, 10.0, 0.0, 100.0), 50.0)
+
+    calling spark.assert with (calling arithmancy.approx_eq with (calling arithmancy.hypot with 3.0, 4.0), 5.0)
+    calling spark.assert with (calling arithmancy.approx_eq with (calling arithmancy.dist_2d with 0.0, 0.0, 3.0, 4.0), 5.0)
+    calling spark.assert with (calling arithmancy.approx_eq with (calling arithmancy.dist_3d with 0.0, 0.0, 0.0, 1.0, 2.0, 2.0), 3.0)
+
+    calling spark.assert with ((calling arithmancy.to_int_round with 3.7) == 4)
+    calling spark.assert with ((calling arithmancy.to_int_floor with 3.7) == 3)
+    calling spark.assert with ((calling arithmancy.to_int_ceil with 3.2) == 4)
+    calling spark.println with "scalar helpers: OK"
+
+    # 3. Vec2 algebra & enchanting
+    var v2a as arithmancy.Vec2 is calling arithmancy.vec2 with 3.0, 4.0
+    var v2b as arithmancy.Vec2 is calling arithmancy.vec2 with 1.0, 2.0
+    calling spark.assert with (calling arithmancy.approx_eq with (calling v2a.length), 5.0)
+    calling spark.assert with (calling arithmancy.approx_eq with (calling v2a.length_sq), 25.0)
+
+    var v2_add as arithmancy.Vec2 is calling v2a.add with v2b
+    calling spark.assert with (v2_add.x == 4.0 and v2_add.y == 6.0)
+
+    var v2_sub as arithmancy.Vec2 is calling v2a.sub with v2b
+    calling spark.assert with (v2_sub.x == 2.0 and v2_sub.y == 2.0)
+
+    var v2_sc as arithmancy.Vec2 is calling v2a.scale with 2.0
+    calling spark.assert with (v2_sc.x == 6.0 and v2_sc.y == 8.0)
+
+    calling spark.assert with (calling arithmancy.approx_eq with (calling v2a.dot with v2b), 11.0)
+    calling spark.assert with (calling arithmancy.approx_eq with (calling v2a.cross_2d with v2b), 2.0)
+
+    var v2_norm as arithmancy.Vec2 is calling v2a.normalize
+    calling spark.assert with (calling arithmancy.approx_eq with (calling v2_norm.length), 1.0)
+
+    var v2_perp as arithmancy.Vec2 is calling v2a.perpendicular
+    calling spark.assert with (v2_perp.x == -4.0 and v2_perp.y == 3.0)
+
+    var v2_zero as arithmancy.Vec2 is calling Vec2.zero
+    calling spark.assert with (calling v2_zero.is_zero)
+    var v2_up as arithmancy.Vec2 is calling Vec2.up
+    calling spark.assert with (v2_up.x == 0.0 and v2_up.y == -1.0)
+    calling spark.println with "Vec2: OK"
+
+    # 4. Vec3 algebra & enchanting
+    var v3a as arithmancy.Vec3 is calling arithmancy.vec3 with 1.0, 0.0, 0.0
+    var v3b as arithmancy.Vec3 is calling arithmancy.vec3 with 0.0, 1.0, 0.0
+    var v3_cross as arithmancy.Vec3 is calling v3a.cross with v3b
+    calling spark.assert with (v3_cross.x == 0.0 and v3_cross.y == 0.0 and v3_cross.z == 1.0)
+
+    var v3_rot as arithmancy.Vec3 is calling v3a.rotate_around_axis with v3_cross, arithmancy.HALF_PI
+    calling spark.assert with (calling arithmancy.approx_eq with v3_rot.x, 0.0, 0.0001)
+    calling spark.assert with (calling arithmancy.approx_eq with v3_rot.y, 1.0, 0.0001)
+
+    var v3_zero as arithmancy.Vec3 is calling Vec3.zero
+    calling spark.assert with (calling v3_zero.is_zero)
+    var v3_fwd as arithmancy.Vec3 is calling Vec3.forward
+    calling spark.assert with (v3_fwd.z == -1.0)
+    calling spark.println with "Vec3: OK"
+
+    # 5. Vec4
+    var v4 as arithmancy.Vec4 is calling arithmancy.vec4 with 2.0, 4.0, 6.0, 2.0
+    var v3_xyz as arithmancy.Vec3 is calling v4.xyz
+    calling spark.assert with (v3_xyz.x == 2.0 and v3_xyz.y == 4.0 and v3_xyz.z == 6.0)
+    var v3_homo as arithmancy.Vec3 is calling v4.homogeneous_divide
+    calling spark.assert with (v3_homo.x == 1.0 and v3_homo.y == 2.0 and v3_homo.z == 3.0)
+    calling spark.println with "Vec4: OK"
+
+    # 6. Mat4
+    var id as arithmancy.Mat4 is calling arithmancy.mat4_identity
+    calling spark.assert with (calling arithmancy.approx_eq with (calling id.determinant), 1.0)
+
+    var tr as arithmancy.Mat4 is calling arithmancy.mat4_translate with 10.0, 20.0, 30.0
+    var pt as arithmancy.Vec3 is calling arithmancy.vec3 with 1.0, 2.0, 3.0
+    var pt_trans as arithmancy.Vec3 is calling tr.transform_point with pt
+    calling spark.assert with (pt_trans.x == 11.0 and pt_trans.y == 22.0 and pt_trans.z == 33.0)
+
+    var dir as arithmancy.Vec3 is calling arithmancy.vec3 with 1.0, 0.0, 0.0
+    var dir_trans as arithmancy.Vec3 is calling tr.transform_direction with dir
+    calling spark.assert with (dir_trans.x == 1.0 and dir_trans.y == 0.0 and dir_trans.z == 0.0)
+
+    var inv_opt as maybe arithmancy.Mat4 is calling tr.inverse
+    calling spark.assert with (inv_opt.is_present)
+    if inv_opt.is_present:
+        var inv_m as arithmancy.Mat4 is inv_opt.value
+        var back_pt as arithmancy.Vec3 is calling inv_m.transform_point with pt_trans
+        calling spark.assert with (calling arithmancy.approx_eq with back_pt.x, pt.x, 0.0001)
+        calling spark.assert with (calling arithmancy.approx_eq with back_pt.y, pt.y, 0.0001)
+        calling spark.assert with (calling arithmancy.approx_eq with back_pt.z, pt.z, 0.0001)
+
+    var zero_m as arithmancy.Mat4 is calling arithmancy.mat4_zero
+    var no_inv as maybe arithmancy.Mat4 is calling zero_m.inverse
+    calling spark.assert with (not no_inv.is_present)
+    calling spark.println with "Mat4: OK"
+
+    # 7. Quat
+    var q_id as arithmancy.Quat is calling arithmancy.quat_identity
+    calling spark.assert with (q_id.w == 1.0 and q_id.x == 0.0)
+
+    var axis_y as arithmancy.Vec3 is calling arithmancy.vec3 with 0.0, 1.0, 0.0
+    var q_rot as arithmancy.Quat is calling arithmancy.quat_from_axis_angle with axis_y, arithmancy.HALF_PI
+    var rotated_pt as arithmancy.Vec3 is calling q_rot.rotate_vector with (calling arithmancy.vec3 with 1.0, 0.0, 0.0)
+    calling spark.assert with (calling arithmancy.approx_eq with rotated_pt.x, 0.0, 0.0001)
+    calling spark.assert with (calling arithmancy.approx_eq with rotated_pt.z, -1.0, 0.0001)
+
+    var q_slerp as arithmancy.Quat is calling q_id.slerp with q_rot, 0.5
+    calling spark.assert with (calling arithmancy.approx_eq with (calling q_slerp.length), 1.0, 0.0001)
+
+    var q_mat as arithmancy.Mat4 is calling q_rot.to_matrix
+    var pt_m as arithmancy.Vec3 is calling q_mat.transform_point with (calling arithmancy.vec3 with 1.0, 0.0, 0.0)
+    calling spark.assert with (calling arithmancy.approx_eq with pt_m.x, 0.0, 0.0001)
+    calling spark.assert with (calling arithmancy.approx_eq with pt_m.z, -1.0, 0.0001)
+    calling spark.println with "Quat: OK"
+
+    calling spark.println with "arithmancy extended: OK"
+    return 0

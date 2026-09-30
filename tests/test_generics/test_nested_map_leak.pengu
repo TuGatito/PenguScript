@@ -1,0 +1,13 @@
+weave main into int:
+    var cache as map of string to list of int is map of string to list of int
+    var l1 as list of int is [2, 3, 5, 7]
+    var l2 as list of int is [1, 4, 9, 16]
+    calling cache.put with "primes", l1
+    calling cache.put with "squares", l2
+
+    var primes as list of int is cache at "primes"
+    var p_len as int is calling primes.len
+
+    if p_len == 4:
+        return 0
+    return 1

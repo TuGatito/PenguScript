@@ -1,0 +1,19 @@
+# Generic enchanting methods and a generic ritual constructor.
+rune Box shard T:
+    val as T
+
+enchanting Box shard T:
+    weave ritual create with v as T into Box of T:
+        var b as Box of T with:
+            set .val is v
+        return b
+
+    weave unwrap_or with fallback as T into T:
+        return self->val
+
+weave main into int:
+    var b as Box of int is calling Box.create with 100
+    var v as int is calling b.unwrap_or with 0
+    if v == 100:
+        return 0
+    return 1

@@ -1,0 +1,6 @@
+# EXPECTED: E0005
+# 'int + string' is rejected too (numeric '+' never produces text).
+weave main into int:
+    var n as int is 1
+    var s as string is n + "a"
+    return 0

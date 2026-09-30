@@ -16,6 +16,7 @@ import shutil
 import hashlib
 import argparse
 import subprocess
+import tempfile
 import re
 from enum import Enum
 from pathlib import Path
@@ -30,20 +31,51 @@ except ImportError:
     except ImportError:
         tomllib = None  # type: ignore
 
-try:
-    import yaml
-except ImportError:
-    yaml = None  # type: ignore
+# 'yaml' is imported lazily (see _load_yaml_module): it costs ~15 ms of startup
+# and is only needed when a pengu.yaml is actually parsed.
+yaml = None  # type: ignore
+
+
+def _load_yaml_module():
+    """Imports PyYAML on first use (None when it is not installed)."""
+    global yaml
+    if yaml is None:
+        try:
+            import yaml as _yaml  # type: ignore
+            yaml = _yaml
+        except ImportError:
+            yaml = False  # type: ignore
+    return yaml or None
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
-from pengu_parser.pengu_parser import PenguParser
-from pengu_parser.pengu_checker import PenguChecker
-from pengu_parser.pengu_symbols import resolve_imports
-from pengu_parser.pengu_errors import ErrorReporter, PenguError
-from pengu_parser.pengu_codegen import PenguCodegen
-from pengu_parser.pengu_comptime import main_flag_requested, parse_cli_defines
+# The compiler front end (Lark, checker, codegen) is imported on first use: a
+# 'pengu run' cache hit never needs it, and importing Lark costs ~45 ms.
+_LAZY_IMPORTS = {
+    "PenguParser": ("pengu_parser.pengu_parser", "PenguParser"),
+    "PenguChecker": ("pengu_parser.pengu_checker", "PenguChecker"),
+    "resolve_imports": ("pengu_parser.pengu_symbols", "resolve_imports"),
+    "ErrorReporter": ("pengu_parser.pengu_errors", "ErrorReporter"),
+    "PenguError": ("pengu_parser.pengu_errors", "PenguError"),
+    "PenguCodegen": ("pengu_parser.pengu_codegen", "PenguCodegen"),
+    "main_flag_requested": ("pengu_parser.pengu_comptime", "main_flag_requested"),
+    "parse_cli_defines": ("pengu_parser.pengu_comptime", "parse_cli_defines"),
+}
+
+
+def __getattr__(name: str):
+    """PEP 562 lazy import of the compiler front end."""
+    entry = _LAZY_IMPORTS.get(name)
+    if entry is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import importlib
+    module = importlib.import_module(entry[0])
+    value = getattr(module, entry[1])
+    globals()[name] = value
+    return value
+
+
 from pengu_version import __version__ as PENGU_VERSION
 from pengu_paths import (
     find_runtime_header,
@@ -54,6 +86,17 @@ from pengu_paths import (
     pkg_config_cflags,
     pkg_config_libs,
 )
+from pengu_cache import (
+    cache_disabled,
+    cache_root,
+    cache_summary,
+    clear_script_cache,
+    gc_script_cache,
+    lookup_cached_binary,
+    script_cache_key,
+    store_cached_binary,
+)
+from pengu_tcc import pick_dev_compiler, tcc_available, tcc_version, find_tcc
 
 
 
@@ -250,6 +293,11 @@ class ProjectConfig:
 
         if config_path is None:
             cfg = cls(base_dir=search_dir)
+            # No project file (bare checkout, single-file build): the Pengu
+            # runtime is still required because pengu_string_copy & friends are
+            # compiled into libpengu_runtime.a rather than being header-only.
+            if "pengu_runtime" not in cfg.links:
+                cfg.links.append("pengu_runtime")
             if profile:
                 cfg.profile = profile
             return cfg
@@ -271,7 +319,7 @@ class ProjectConfig:
             return json.loads(content)
 
         elif ext in (".yaml", ".yml"):
-            if yaml is not None:
+            if _load_yaml_module() is not None:
                 return yaml.safe_load(content) or {}
             return cls._fallback_yaml_parse(content)
 
@@ -413,15 +461,19 @@ class PenguBuilder:
         self.config = config
         self.source_code = source_code
         self.is_test_mode = False
-        self.parser = PenguParser()
-        self.compile_env = parse_cli_defines(config.defines)
+        from pengu_parser.pengu_parser import PenguParser as _PenguParser
+        from pengu_parser.pengu_comptime import main_flag_requested as _main_flag_requested
+        from pengu_parser.pengu_comptime import parse_cli_defines as _parse_cli_defines
+
+        self.parser = _PenguParser()
+        self.compile_env = _parse_cli_defines(config.defines)
         explicit_debug = any(str(d).strip() == "debug" or str(d).strip().startswith("debug=") for d in (config.defines or []))
         if not explicit_debug:
             self.compile_env.is_debug = (getattr(config, "profile", "debug") == "debug")
         # Entry-as-main mode: when enabled (pengu run <file> scripts, or an
         # explicit -D main define), only the *entry* module is compiled with
         # the compile-time 'main' flag true; imported modules keep it false.
-        self.entry_as_main = bool(main_flag_requested(config.defines))
+        self.entry_as_main = bool(_main_flag_requested(config.defines))
         self._entry_abs_cache: Optional[str] = None
         if config.cc:
             from pengu_parser.pengu_comptime import default_compiler_name
@@ -435,10 +487,21 @@ class PenguBuilder:
                     self.compile_env.compiler = compiler_name
                     self.compile_env.defines.pop(old_compiler, None)
                     self.compile_env.defines[compiler_name] = True
-        self.checker = PenguChecker(base_dir=config.base_dir, compile_env=self.compile_env)
+        from pengu_parser.pengu_checker import PenguChecker as _PenguChecker
+        self.checker = _PenguChecker(base_dir=config.base_dir, compile_env=self.compile_env)
         # Verbose mode: print the resolved module order, the exact C commands
         # being executed and phase timings.
         self.verbose = False
+        # Script runs ('pengu run x.pengu') trade debug info for startup speed: a
+        # build that is cached or thrown away never needs -g, PLT stubs, ident
+        # strings or unwind tables.
+        self.dev_fast_flags = False
+        # Precompiled header of pengu_runtime.h (gcc/clang only, opt-in: on a
+        # normal build gcc's own startup plus the link dominates the front end,
+        # so the PCH only pays off when the compile is header-bound).
+        self.use_pch = False
+        # Phase timings collected for 'pengu time' / '--verbose'.
+        self.timings: Dict[str, float] = {}
 
     # ------------------------------------------------------- verbose helpers
 
@@ -920,7 +983,8 @@ class PenguBuilder:
         # 1. Resolve module order
         module_order: List[str] = []
         if os.path.isfile(entry_abs):
-            module_order = resolve_imports(self.config.base_dir, entry_abs, self.parser)
+            from pengu_parser.pengu_symbols import resolve_imports as _resolve_imports
+            module_order = _resolve_imports(self.config.base_dir, entry_abs, self.parser)
         elif self.source_code is not None:
             module_order = [entry_abs]
         else:
@@ -960,9 +1024,10 @@ class PenguBuilder:
                 self.checker.check(tree, source=code, filename=mod_path, reset_symbols=(i == 0), import_order=module_order)
                 parsed_trees.append((mod_path, tree))
 
+        self.timings["check"] = time.time() - t_check
         if self.verbose:
             self._vlog(f"[pengu] semantic check finished in {time.time() - t_check:.3f}s")
-            t_codegen = time.time()
+        t_codegen = time.time()
 
         # 4. Copy runtime header to build directory
         self.locate_and_copy_runtime(build_dir)
@@ -981,9 +1046,16 @@ class PenguBuilder:
             is_test=self.is_test_mode
         )
 
+        self.timings["codegen"] = time.time() - t_codegen
         if self.verbose:
             self._vlog(f"[pengu] codegen finished in {time.time() - t_codegen:.3f}s")
             self._vlog(f"[pengu] bundle written: {bundle_path}")
+        try:
+            self.timings["bundle_bytes"] = os.path.getsize(bundle_path)
+            with open(bundle_path, "r", encoding="utf-8", errors="replace") as fh:
+                self.timings["bundle_lines"] = sum(1 for _ in fh)
+        except OSError:
+            pass
 
         # 6. Save the compilation cache key: config hash + content fingerprint
         hash_file = os.path.join(os.path.dirname(bundle_path), ".bundle_hash")
@@ -1009,7 +1081,8 @@ class PenguBuilder:
         entry_abs = self.config.resolve_entry()
         if os.path.isfile(entry_abs):
             try:
-                module_order = resolve_imports(self.config.base_dir, entry_abs, self.parser)
+                from pengu_parser.pengu_symbols import resolve_imports as _resolve_imports
+                module_order = _resolve_imports(self.config.base_dir, entry_abs, self.parser)
             except Exception as e:  # noqa: BLE001 - parse/import failure in the entry graph
                 err_line = getattr(e, "line", None) or 0
                 err_col = getattr(e, "column", None) or getattr(e, "col", None) or 0
@@ -1094,7 +1167,38 @@ class PenguBuilder:
 
         common_flags: List[str] = merged_cflags + merged_defines
 
+        cc_base = os.path.basename(cc).lower()
+        is_tcc = "tcc" in cc_base
+        is_msvc = cc_base in ("cl", "cl.exe") or "msvc" in cc_base
+
+        # Development runs do not need debug info or PLT/unwind metadata: the
+        # binary is cached or discarded, never debugged.  TCC rejects unknown
+        # options, so it only gets '-O0'.
+        if self.dev_fast_flags and not is_msvc:
+            if is_tcc:
+                if "-O0" not in merged_cflags:
+                    common_flags.append("-O0")
+            else:
+                for flag in ("-g0", "-fno-plt", "-pipe", "-fno-ident",
+                             "-fno-asynchronous-unwind-tables"):
+                    if flag not in common_flags:
+                        common_flags.append(flag)
+                # Drop the debug-info flags of the profile: '-g0' already wins on
+                # gcc, but removing '-g' keeps the command line (and the PCH
+                # signature) clean.
+                common_flags = [f for f in common_flags if f != "-g"]
+
         build_dir = self.get_build_directory()
+
+        # A precompiled header of pengu_runtime.h saves the front-end work of
+        # parsing the (large) runtime on every compile.  It must be generated
+        # with the same -I/-D/-std set the build uses, otherwise gcc silently
+        # ignores it.
+        if self.use_pch and not is_tcc and not is_msvc:
+            pch_dir = self._ensure_runtime_pch(build_dir, common_flags, cc)
+            if pch_dir:
+                common_flags.insert(0, f"-I{pch_dir}")
+
         # Ensure build_dir is included in include search path for pengu_runtime.h
         common_flags.append(f"-I{build_dir}")
 
@@ -1266,6 +1370,83 @@ class PenguBuilder:
 
         return commands
 
+    def _ensure_runtime_pch(self, build_dir: str, base_flags: List[str],
+                            cc: str) -> Optional[str]:
+        """Builds (or reuses) ``<build>/pch/pengu_runtime.h.gch``.
+
+        Returns the directory to put *before* ``build_dir`` in the include path
+        so that gcc/clang picks up the precompiled header, or ``None`` when the
+        PCH is unavailable/disabled (the build then proceeds normally).
+        """
+        from pengu_paths import find_runtime_header
+        try:
+            runtime_src = find_runtime_header()
+        except Exception:
+            runtime_src = None
+        if not runtime_src:
+            return None
+        pch_dir = os.path.join(build_dir, "pch")
+        try:
+            os.makedirs(pch_dir, exist_ok=True)
+        except OSError:
+            return None
+        header_copy = os.path.join(pch_dir, "pengu_runtime.h")
+        gch = header_copy + ".gch"
+        try:
+            needs_build = (not os.path.isfile(gch)
+                           or os.path.getmtime(str(runtime_src)) > os.path.getmtime(gch))
+        except OSError:
+            needs_build = True
+        if needs_build:
+            # The .gch is tied to the flags used to create it, so reuse exactly
+            # the build's base flags (minus outputs/inputs).
+            sig = self._pch_signature(base_flags)
+            sig_file = gch + ".sig"
+            try:
+                if os.path.isfile(sig_file) and open(sig_file, encoding="utf-8").read() == sig:
+                    return pch_dir
+            except OSError:
+                pass
+            try:
+                shutil.copy2(str(runtime_src), header_copy)
+            except OSError:
+                return None
+            header_flags = [f for f in base_flags if f.startswith(("-I", "-D", "-U"))]
+            cmd = [cc, "-x", "c-header", header_copy, "-o", gch, "-std=c11", "-O0"] + header_flags
+            if self.verbose:
+                self._vlog(f"[pengu] building runtime PCH: {' '.join(cmd)}")
+            t_pch = time.time()
+            try:
+                res = subprocess.run(cmd, cwd=self.config.base_dir,
+                                     capture_output=True, text=True)
+            except OSError:
+                return None
+            if res.returncode != 0:
+                # Best effort: a failed PCH must never fail the build.
+                if self.verbose:
+                    self._vlog("[pengu] PCH generation failed; continuing without it")
+                try:
+                    os.unlink(gch)
+                except OSError:
+                    pass
+                return None
+            try:
+                with open(sig_file, "w", encoding="utf-8") as fh:
+                    fh.write(sig)
+            except OSError:
+                pass
+            if self.verbose:
+                self._vlog(f"[pengu] PCH ready in {time.time() - t_pch:.3f}s -> {gch}")
+        elif self.verbose:
+            self._vlog(f"[pengu] reusing runtime PCH {gch}")
+        return pch_dir
+
+    @staticmethod
+    def _pch_signature(base_flags: List[str]) -> str:
+        """Flags that must match between the PCH and the compilation."""
+        relevant = [f for f in base_flags if f.startswith(("-I", "-D", "-U", "-std"))]
+        return " ".join(sorted(relevant))
+
     def compile(self, bundle_path: Optional[str] = None) -> Tuple[str, bool]:
         """Bundles and compiles project according to ProjectConfig and profile.
 
@@ -1295,6 +1476,7 @@ class PenguBuilder:
 
         commands = self.build_compile_commands(bundle_path, out_path)
 
+        t_cc_all = time.time()
         for cmd in commands:
             self._vlog(f"[pengu] running C compiler: {' '.join(cmd)}")
             t_cmd = time.time()
@@ -1312,6 +1494,7 @@ class PenguBuilder:
                     f"C compilation failed ({self.config.name})\n\n{detail}"
                 )
 
+        self.timings["cc"] = time.time() - t_cc_all
         return out_path, False
 
 
@@ -1324,6 +1507,8 @@ def build_project(
     defines: Optional[List[str]] = None,
     cc: Optional[str] = None,
     verbose: bool = False,
+    pch: bool = False,
+    no_dce: bool = False,
 ) -> str:
     """Builds project from configuration file with status printing.
 
@@ -1358,6 +1543,9 @@ def build_project(
     builder = PenguBuilder(config)
     builder.is_test_mode = test
     builder.verbose = verbose
+    builder.use_pch = bool(pch)
+    if no_dce:
+        os.environ["PENGU_NO_DCE"] = "1"
     if output and (output.endswith(".c") or output == "bundle.c"):
         artifact, is_cached = builder.bundle(output_file=output)
     else:
@@ -1535,7 +1723,7 @@ def _update_config_dependency(base_dir: str, dep_name: str, source: str, branch:
             with open(cfg_file, "r", encoding="utf-8") as f:
                 content = f.read()
 
-        if yaml is not None:
+        if _load_yaml_module() is not None:
             try:
                 parsed = yaml.safe_load(content) or {}
                 if "dependencies" not in parsed or not isinstance(parsed["dependencies"], dict):
@@ -2008,6 +2196,271 @@ pengu clean
     return proj_dir
 
 
+def doctor_report(as_json: bool = False) -> int:
+    """Reports the health of the toolchain (used by ``pengu doctor``)."""
+    import platform
+
+    def _writable(path: str) -> bool:
+        try:
+            os.makedirs(path, exist_ok=True)
+            probe = os.path.join(path, ".pengu_probe")
+            with open(probe, "w", encoding="utf-8") as fh:
+                fh.write("")
+            os.unlink(probe)
+            return True
+        except OSError:
+            return False
+
+    runtime = find_runtime_header()
+    std_dir = None
+    try:
+        dirs = std_dirs()
+        std_dir = str(dirs[0]) if dirs else None
+    except Exception:
+        std_dir = None
+    tcc_path = find_tcc()
+    info = {
+        "pengu": PENGU_VERSION,
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "frozen": bool(getattr(sys, "frozen", False)),
+        "cc": os.environ.get("PENGU_DEV_CC") or "gcc",
+        "tcc": tcc_path,
+        "tcc_version": tcc_version(tcc_path) if tcc_path else None,
+        "runtime_header": str(runtime) if runtime else None,
+        "std_dir": std_dir,
+        "cache_root": cache_root(),
+        "cache_writable": _writable(cache_root()),
+        "cache_disabled": cache_disabled(),
+        "runtime_libs": [str(p) for p in runtime_lib_dirs()],
+    }
+    problems = []
+    if not runtime:
+        problems.append("pengu_runtime.h not found (run build_runtime.py)")
+    if not std_dir:
+        problems.append("std/ directory not found")
+    if not info["cache_writable"] and not info["cache_disabled"]:
+        problems.append(f"cache directory is not writable: {info['cache_root']}")
+    try:
+        libs = runtime_lib_dirs()
+        if not any(os.path.isfile(os.path.join(str(d), "libpengu_runtime.a")) for d in libs):
+            problems.append("libpengu_runtime.a not built (run build_runtime.py)")
+    except Exception:
+        pass
+    info["problems"] = problems
+
+    if as_json:
+        print(json.dumps(info))
+        return 1 if problems else 0
+
+    def row(label: str, value: object) -> None:
+        print(f"  {label:<18} {value}")
+
+    print(f"\033[1;36mPenguScript doctor\033[0m")
+    row("version", info["pengu"])
+    row("python", f"{info['python']} ({'frozen bundle' if info['frozen'] else 'source checkout'})")
+    row("platform", info["platform"])
+    row("C compiler", info["cc"])
+    row("tcc", f"{tcc_path} ({info['tcc_version']})" if tcc_path else "not available (falls back to gcc/clang)")
+    row("runtime header", runtime or "MISSING")
+    row("std/", std_dir or "MISSING")
+    row("cache root", cache_root())
+    row("cache writable", info["cache_writable"])
+    if cache_disabled():
+        row("cache", "disabled by PENGU_CACHE=0")
+    for line in cache_summary():
+        print(f"  {line}")
+    if problems:
+        print("\033[1;31mproblems:\033[0m")
+        for prob in problems:
+            print(f"  - {prob}")
+        return 1
+    print("\033[1;32m  everything looks good\033[0m")
+    return 0
+
+
+def expand_script(script: str, output: Optional[str] = None,
+                  defines: Optional[List[str]] = None,
+                  verbose: bool = False) -> int:
+    """Prints the generated ``bundle.c`` of a script (no project tree changes)."""
+    script_abs = os.path.abspath(script)
+    if not os.path.isfile(script_abs):
+        raise FileNotFoundError(f"Script not found: {script}")
+    out_name = os.path.splitext(os.path.basename(script_abs))[0]
+    tmp = tempfile.mkdtemp(prefix=f"pengu_expand_{out_name}_")
+    try:
+        cfg = ProjectConfig(
+            entry=script_abs,
+            base_dir=os.getcwd(),
+            output=OutputType.C,
+            output_name=out_name,
+            name=out_name,
+            links=["pengu_runtime"],
+            build_dir=tmp,
+        )
+        if defines:
+            cfg.defines = list(cfg.defines or []) + defines
+        builder = PenguBuilder(cfg)
+        builder.entry_as_main = True
+        builder.verbose = verbose
+        bundle_path, _ = builder.bundle()
+        text = Path(bundle_path).read_text(encoding="utf-8")
+        if output:
+            Path(output).write_text(text, encoding="utf-8")
+            print(f"wrote {output} ({len(text.splitlines())} lines, {len(text)} bytes)")
+        else:
+            sys.stdout.write(text)
+        return 0
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def time_script(script: str, defines: Optional[List[str]] = None,
+                cc: Optional[str] = None, script_args: Optional[List[str]] = None,
+                use_cache: bool = True) -> int:
+    """Runs a script and reports the time spent in every phase."""
+    import platform
+    t_start = time.time()
+    script_abs = os.path.abspath(script)
+    base_dir = os.getcwd()
+    out_name = os.path.splitext(os.path.basename(script_abs))[0]
+    tmp = tempfile.mkdtemp(prefix=f"pengu_time_{out_name}_")
+    phases: Dict[str, float] = {}
+    try:
+        cfg = ProjectConfig(
+            entry=script_abs,
+            base_dir=base_dir,
+            output=OutputType.EXE,
+            output_name=out_name,
+            name=out_name,
+            links=["pengu_runtime"],
+            build_dir=tmp,
+        )
+        if defines:
+            cfg.defines = list(cfg.defines or []) + defines
+        cfg.cc = pick_dev_compiler(cfg.cc or cc)
+        t_imports = time.time()
+        try:
+            from pengu_cache import resolve_module_list_cached
+            from pengu_parser.pengu_parser import PenguParser as _P
+            from pengu_parser.pengu_symbols import resolve_imports as _ri
+            module_order = resolve_module_list_cached(
+                script_abs, lambda: _ri(base_dir, script_abs, _P()))
+        except Exception:
+            module_order = [script_abs]
+        phases["resolve imports"] = time.time() - t_imports
+
+        builder = PenguBuilder(cfg)
+        builder.entry_as_main = True
+        t_build = time.time()
+        artifact, _ = builder.compile()
+        phases["total build"] = time.time() - t_build
+        for key, label in (("check", "parse + check"), ("codegen", "codegen"), ("cc", "C compiler (incl. link)")):
+            if key in builder.timings:
+                phases[label] = builder.timings[key]
+        if "bundle_lines" in builder.timings:
+            phases["bundle.c"] = 0.0
+        t_run = time.time()
+        rc = subprocess.run([artifact] + list(script_args or []), cwd=base_dir).returncode
+        phases["run"] = time.time() - t_run
+        phases["TOTAL"] = time.time() - t_start
+        print("\n\033[1;36mphase timings\033[0m")
+        for label, seconds in phases.items():
+            if label == "bundle.c":
+                print(f"  {label:<24} {builder.timings.get('bundle_lines', 0)} lines, "
+                      f"{builder.timings.get('bundle_bytes', 0) / 1024:.1f} KB")
+                continue
+            print(f"  {label:<24} {seconds * 1000:8.1f} ms")
+        print(f"  {'modules':<24} {len(module_order)}")
+        print(f"  {'compiler':<24} {cfg.cc} ({platform.system()})")
+        return rc
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def eval_expression(expression: str, defines: Optional[List[str]] = None,
+                    cc: Optional[str] = None, no_cache: bool = False) -> int:
+    """Runs a one-liner expression through a generated temporary script."""
+    # Binding the expression first (instead of interpolating it) keeps nested
+    # string literals in the expression (`calling ord with "A"`) valid.
+    script = (
+        "import std.spark\n\n"
+        "weave main into int:\n"
+        f"    var __value is {expression}\n"
+        '    calling spark.println with "{__value}"\n'
+        "    return 0\n"
+    )
+    tmp = tempfile.mkdtemp(prefix="pengu_eval_")
+    try:
+        path = os.path.join(tmp, "eval.pengu")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(script)
+        return run_script(path, defines=defines, cc=cc, no_cache=no_cache,
+                          ephemeral=True, quiet=True)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def watch_script(script: str, defines: Optional[List[str]] = None,
+                 cc: Optional[str] = None, keep: bool = False,
+                 interval: float = 0.4) -> int:
+    """Re-runs a script whenever it (or one of its imports) changes."""
+    script_abs = os.path.abspath(script)
+    base_dir = os.getcwd()
+    try:
+        from pengu_parser.pengu_parser import PenguParser as _P
+        from pengu_parser.pengu_symbols import resolve_imports as _ri
+        watched = _ri(base_dir, script_abs, _P())
+    except Exception:
+        watched = [script_abs]
+
+    def snapshot() -> Dict[str, float]:
+        stamps = {}
+        for path in list(watched) + [script_abs]:
+            try:
+                stamps[path] = os.path.getmtime(path)
+            except OSError:
+                stamps[path] = 0.0
+        return stamps
+
+    print(f"\033[1;36m   Watching\033[0m {os.path.basename(script_abs)} "
+          f"({len(watched)} module(s)); Ctrl-C to stop")
+    last = snapshot()
+    try:
+        while True:
+            rc = run_script(script_abs, defines=defines, cc=cc, keep=keep)
+            print(f"\033[1;90m   exit={rc}; waiting for changes…\033[0m")
+            while True:
+                time.sleep(interval)
+                current = snapshot()
+                if current != last:
+                    last = current
+                    print("\033[1;33m    Change detected, rebuilding\033[0m")
+                    try:
+                        from pengu_parser.pengu_parser import PenguParser as _P2
+                        from pengu_parser.pengu_symbols import resolve_imports as _ri2
+                        watched = _ri2(base_dir, script_abs, _P2())
+                    except Exception:
+                        pass
+                    break
+    except KeyboardInterrupt:
+        print("\n\033[1;90m   stopped\033[0m")
+        return 0
+
+
+def _consume_script_args(raw: Optional[List[str]]) -> List[str]:
+    """Strips argparse's leading '--' from the script argument list.
+
+    With ``nargs=argparse.REMAINDER`` the separator itself is part of the list;
+    ``pengu run x.pengu -- --flag`` must hand ``--flag`` (not ``-- --flag``) to
+    the script, which reads it through ``std.rites.get_args``.
+    """
+    args = list(raw or [])
+    if args and args[0] == "--":
+        args = args[1:]
+    return args
+
+
 def run_project(config_path: Optional[str] = None, profile: str = "debug", test: bool = False,
                 defines: Optional[List[str]] = None, cc: Optional[str] = None,
                 verbose: bool = False) -> int:
@@ -2038,7 +2491,12 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
 
 
 def run_script(script: str, defines: Optional[List[str]] = None,
-               cc: Optional[str] = None, verbose: bool = False) -> int:
+               cc: Optional[str] = None, verbose: bool = False,
+               keep: bool = False, no_cache: bool = False,
+               clear_cache: bool = False, ephemeral: bool = False,
+               script_args: Optional[List[str]] = None,
+               quiet: bool = False, no_pch: bool = True,
+               no_dce: bool = False) -> int:
     """Compiles and runs a standalone .pengu file directly (script mode).
 
     The script itself is compiled as the entry point with the compile-time
@@ -2046,11 +2504,26 @@ def run_script(script: str, defines: Optional[List[str]] = None,
     Any module the script imports is compiled with 'main' false, regardless of
     this script's own mode.
 
+    By default the *binary* is cached under ``~/.cache/pengu/scripts/<key>``
+    (keyed by content hashes), nothing is written to the project's ``build/``
+    and the temporary build directory is removed afterwards:
+
+    ``--keep``       build in ``build/<name>_run/`` and keep it (old behaviour)
+    ``--ephemeral``  build in a fresh temp dir and never populate the cache
+    ``--no-cache``   ignore the cache (read and write) for this run
+    ``--clear-cache`` wipe the script cache before running
+
     Args:
         script: Path to the .pengu file to execute.
         defines: Optional -D NAME / -D NAME=value compile-time defines.
         cc: Optional C compiler override (e.g. 'clang').
         verbose: True to print module order, C commands and phase timings.
+        keep: Compile in ``build/<name>_run`` and keep the artefacts.
+        no_cache: Bypass the binary cache for this invocation.
+        clear_cache: Empty the script cache before running.
+        ephemeral: Use a throw-away temp directory and do not cache the binary.
+        script_args: Extra arguments forwarded to the script (``pengu run x -- a``).
+        quiet: Suppress the progress banner (errors still go to stderr).
 
     Returns:
         Process exit code of the executed binary.
@@ -2060,6 +2533,14 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         raise FileNotFoundError(f"Script not found: {script}")
     if not script_abs.endswith(".pengu"):
         raise ValueError(f"Not a PenguScript file: {script}")
+
+    def say(message: str) -> None:
+        if not quiet:
+            print(message)
+
+    if clear_cache:
+        removed = clear_script_cache(verbose=verbose)
+        say(f"\033[1;36m    Cleared\033[0m {removed} cached script(s)")
 
     base_dir = os.getcwd()
     rel = os.path.relpath(script_abs, base_dir)
@@ -2073,34 +2554,116 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         output_name=out_name,
         name=out_name,
         assets_dir="",
+        # 'pengu run script.pengu' needs the runtime archive: the string /
+        # container helpers it calls live in libpengu_runtime.a.
+        links=["pengu_runtime"],
     )
-    # Script runs get their own build sub-directory so concurrent/sequential
-    # script executions (and test suites) never fight over a shared
-    # bundle.c / pengu_runtime.h / executable in build/.
-    cfg.build_dir = os.path.join("build", f"{out_name}_run")
     if defines:
         cfg.defines = list(cfg.defines or []) + defines
     if cc:
         cfg.cc = cc
 
+    # --- cache lookup -----------------------------------------------------
+    # Resolving the import graph only parses the modules (no semantic checks),
+    # and the parser tables are cached, so this costs a few milliseconds.
+    module_order: List[str] = []
+    try:
+        from pengu_cache import resolve_module_list_cached
+        from pengu_parser.pengu_parser import PenguParser
+
+        from pengu_parser.pengu_symbols import resolve_imports as _resolve_imports3
+        from pengu_parser.pengu_parser import PenguParser as _PenguParser2
+
+        def _resolve() -> List[str]:
+            return _resolve_imports3(base_dir, script_abs, _PenguParser2())
+
+        module_order = resolve_module_list_cached(script_abs, _resolve)
+    except Exception:
+        module_order = [script_abs]
+    if script_abs not in module_order:
+        module_order.append(script_abs)
+
+    dev_cc = pick_dev_compiler(cfg.cc)
+    cfg.cc = dev_cc
+
+    use_cache = not no_cache and not ephemeral and not cache_disabled()
+    cache_key: Optional[str] = None
+    # '--keep' exists to inspect the generated C, so it always rebuilds (but it
+    # still refreshes the cache entry).
+    use_lookup = use_cache and not keep
+    if use_cache:
+        try:
+            include = find_runtime_header()
+        except Exception:
+            include = None
+        cache_key = script_cache_key(
+            script_abs,
+            module_order,
+            version=PENGU_VERSION,
+            profile="debug",
+            cc=dev_cc,
+            defines=cfg.defines,
+            links=cfg.links,
+            cflags=cfg.cflags,
+            runtime_header=str(include) if include else None,
+        )
+        cached = lookup_cached_binary(cache_key) if use_lookup else None
+        if cached:
+            if verbose:
+                print(f"[pengu] cache hit {cache_key} -> {cached}")
+            say(f"\033[1;32m    Finished\033[0m (cached)")
+            say(f"\033[1;36m     Running\033[0m {cached}\n")
+            sys.stdout.flush()
+            sys.stderr.flush()
+            return subprocess.run([cached] + list(script_args or []), cwd=base_dir).returncode
+        if verbose:
+            print(f"[pengu] cache miss {cache_key} (cc={dev_cc})")
+
+    # --- build ------------------------------------------------------------
+    # '--keep' reproduces the historical layout; everything else builds in a
+    # throw-away directory so the project tree stays clean.
+    build_root: Optional[str] = None
+    if keep:
+        cfg.build_dir = os.path.join("build", f"{out_name}_run")
+    else:
+        build_root = tempfile.mkdtemp(prefix=f"pengu_run_{out_name}_")
+        cfg.build_dir = build_root
+
     t0 = time.time()
-    print(f"\033[1;36m   Scripting\033[0m {os.path.basename(script_abs)}")
+    say(f"\033[1;36m   Scripting\033[0m {os.path.basename(script_abs)}")
     builder = PenguBuilder(cfg)
+    pch_enabled = not no_pch
+    if no_dce:
+        os.environ["PENGU_NO_DCE"] = "1"
     builder.is_test_mode = False
     builder.entry_as_main = True
     builder.verbose = verbose
-    artifact, is_cached = builder.compile()
-    elapsed = time.time() - t0
-    if is_cached:
-        print(f"\033[1;32m    Finished\033[0m (cached) in {elapsed:.2f}s -> {artifact}")
-    else:
-        print(f"\033[1;32m    Finished\033[0m in {elapsed:.2f}s -> {artifact}")
+    builder.dev_fast_flags = True
+    builder.use_pch = not no_pch and pch_enabled
+    try:
+        artifact, is_cached = builder.compile()
+        elapsed = time.time() - t0
+        if is_cached:
+            say(f"\033[1;32m    Finished\033[0m (cached) in {elapsed:.2f}s -> {artifact}")
+        else:
+            say(f"\033[1;32m    Finished\033[0m in {elapsed:.2f}s -> {artifact}")
 
-    print(f"\033[1;36m     Running\033[0m {artifact}\n")
-    sys.stdout.flush()
-    sys.stderr.flush()
-    res = subprocess.run([artifact], cwd=base_dir)
-    return res.returncode
+        if cache_key and not ephemeral:
+            stored = store_cached_binary(cache_key, artifact)
+            if stored and verbose:
+                print(f"[pengu] cached binary -> {stored}")
+
+        run_target = artifact
+        if cache_key and not ephemeral:
+            run_target = lookup_cached_binary(cache_key) or artifact
+        say(f"\033[1;36m     Running\033[0m {run_target}\n")
+        sys.stdout.flush()
+        sys.stderr.flush()
+        res = subprocess.run([run_target] + list(script_args or []), cwd=base_dir)
+        return res.returncode
+    finally:
+        if build_root:
+            shutil.rmtree(build_root, ignore_errors=True)
 
 
 def _find_watch_files(base_dir: str) -> List[str]:
@@ -2263,6 +2826,10 @@ def create_cli_parser() -> argparse.ArgumentParser:
         version=f"pengu {PENGU_VERSION}",
         help="Print the PenguScript toolchain version and exit",
     )
+    parser.add_argument("-q", "--quiet", action="store_true",
+                        help="Suppress progress output (errors still go to stderr)")
+    parser.add_argument("--no-color", action="store_true",
+                        help="Disable ANSI colours (also honoured: NO_COLOR=1)")
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
 
     # init
@@ -2292,6 +2859,12 @@ def create_cli_parser() -> argparse.ArgumentParser:
     build_p.add_argument("--verbose", action="store_true", help="Print module order, C commands and phase timings")
     build_p.add_argument("-D", "--define", dest="defines", action="append", default=None,
                          help="Compile-time define: -D NAME or -D os=linux / arch=x64 / compiler=clang / main (repeatable)")
+    build_p.add_argument("--pch", action="store_true",
+                         help="Precompile pengu_runtime.h (gcc/clang; off by default, see docs/PERFORMANCE.md)")
+    build_p.add_argument("--no-pch", "--no_pch", dest="no_pch", action="store_true",
+                         help="Force the precompiled header off (it is already the default)")
+    build_p.add_argument("--no-dce", "--no_dce", dest="no_dce", action="store_true",
+                         help="Keep every std/lib weave in bundle.c (disable dead-code elimination)")
 
     # run
     run_p = subparsers.add_parser("run", help="Build and execute the project target, or run a standalone .pengu script")
@@ -2305,6 +2878,68 @@ def create_cli_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--verbose", action="store_true", help="Print module order, C commands and phase timings")
     run_p.add_argument("-D", "--define", dest="defines", action="append", default=None,
                        help="Compile-time define: -D NAME or -D os=linux / arch=x64 / compiler=clang / main (repeatable)")
+    run_p.add_argument("--keep", action="store_true",
+                       help="Compile scripts into build/<name>_run/ and keep bundle.c and the binary")
+    run_p.add_argument("--no-cache", "--no_cache", dest="no_cache", action="store_true",
+                       help="Ignore the binary cache (do not read or write it) for this run")
+    run_p.add_argument("--clear-cache", "--clear_cache", dest="clear_cache", action="store_true",
+                       help="Empty the cached script binaries before running (alias of 'pengu gc --all')")
+    run_p.add_argument("--ephemeral", action="store_true",
+                       help="Build in a throw-away temp directory and never populate the cache (CI)")
+    run_p.add_argument("--pch", action="store_true",
+                       help="Precompile pengu_runtime.h (off by default; see docs/PERFORMANCE.md)")
+    run_p.add_argument("--no-pch", "--no_pch", dest="no_pch", action="store_true",
+                       help="Force the precompiled header off (already the default)")
+    run_p.add_argument("--no-dce", "--no_dce", dest="no_dce", action="store_true",
+                       help="Disable dead-code elimination of unused std weaves")
+    # Script arguments are collected with parse_known_args: 'pengu run x.pengu -- a b'
+    # and 'pengu run x.pengu a b' both forward 'a b'.
+
+    # doctor
+    doctor_p = subparsers.add_parser("doctor", help="Report toolchain health (compiler, tcc, runtime, cache, std/)")
+    doctor_p.add_argument("--json", action="store_true", help="Emit the report as a single JSON object")
+
+    # gc
+    gc_p = subparsers.add_parser("gc", help="Garbage-collect the global caches")
+    gc_p.add_argument("--all", action="store_true", help="Remove every cached script (ignore the age threshold)")
+    gc_p.add_argument("--max-age", "--max_age", dest="max_age", type=int, default=30,
+                      help="Remove cached scripts unused for N days (default: 30)")
+    gc_p.add_argument("--verbose", action="store_true", help="List the removed entries")
+    gc_p.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+
+    # expand
+    expand_p = subparsers.add_parser("expand", help="Print the generated bundle.c of a script to stdout")
+    expand_p.add_argument("script", help="Path to the .pengu file")
+    expand_p.add_argument("--output", "-o", default=None, help="Write the bundle to this file instead of stdout")
+    expand_p.add_argument("--verbose", action="store_true", help="Print module order and phase timings")
+    expand_p.add_argument("-D", "--define", dest="defines", action="append", default=None,
+                          help="Compile-time define (repeatable)")
+
+    # time
+    time_p = subparsers.add_parser("time", help="Run a script and report per-phase timings")
+    time_p.add_argument("script", help="Path to the .pengu file")
+    time_p.add_argument("--cc", default=None, help="C compiler override")
+    time_p.add_argument("-D", "--define", dest="defines", action="append", default=None,
+                        help="Compile-time define (repeatable)")
+    time_p.add_argument("script_args", nargs="*", default=None,
+                        help="Arguments forwarded to the script (after '--')")
+
+    # eval
+    eval_p = subparsers.add_parser("eval", help="Evaluate a one-line PenguScript expression")
+    eval_p.add_argument("expression", help="Expression to evaluate, e.g. '1 + 2'")
+    eval_p.add_argument("--cc", default=None, help="C compiler override")
+    eval_p.add_argument("--no-cache", "--no_cache", dest="no_cache", action="store_true",
+                        help="Do not use or populate the binary cache")
+    eval_p.add_argument("-D", "--define", dest="defines", action="append", default=None,
+                        help="Compile-time define (repeatable)")
+
+    # watch
+    watch_p = subparsers.add_parser("watch", help="Re-run a script whenever it or its imports change")
+    watch_p.add_argument("script", help="Path to the .pengu file")
+    watch_p.add_argument("--cc", default=None, help="C compiler override")
+    watch_p.add_argument("--keep", action="store_true", help="Keep the build directory of each run")
+    watch_p.add_argument("-D", "--define", dest="defines", action="append", default=None,
+                         help="Compile-time define (repeatable)")
 
     # test
     test_p = subparsers.add_parser("test", help="Compile and run the project's integrated unit tests")
@@ -2397,17 +3032,63 @@ def create_cli_parser() -> argparse.ArgumentParser:
     return parser
 
 
+_CC_DIAG_RE = re.compile(
+    r"^(?P<file>[^:\n]+):(?P<line>\d+):(?P<col>\d+):\s*(?P<kind>error|warning|note|fatal error):\s*(?P<msg>.*)$"
+)
+
+
+def remap_c_diagnostics(text: str) -> List[str]:
+    """Rewrites gcc/clang 'bundle.c:LINE:COL' diagnostics to .pengu positions.
+
+    The bundle carries ``#line N "source.pengu"`` markers, so passing the bundle
+    through ``gcc -E`` (or trusting gcc's own file report) is enough; gcc usually
+    prints the *original* file already.  What it does not do is normalise the
+    shape, so this adds a stable ``[gcc]`` prefix, keeps the code, and drops the
+    bundle path when gcc fell back to it.
+    """
+    out: List[str] = []
+    for raw in (text or "").splitlines():
+        match = _CC_DIAG_RE.match(raw.strip())
+        if not match:
+            continue
+        fname = match.group("file")
+        if fname.endswith("bundle.c"):
+            continue  # not actionable for the user; the .pengu marker follows
+        kind = match.group("kind")
+        prefix = "error" if kind in ("error", "fatal error") else kind
+        out.append(f"{fname}:{match.group('line')}:{match.group('col')} "
+                   f"[cc] {prefix}: {match.group('msg')}")
+    return out
+
+
 def _print_compile_error(err: "CompileFailedError") -> None:
     """Prints a formatted C-compilation error and exits with status 1."""
     print("\n\033[1;31mError:\033[0m", file=sys.stderr)
-    print(str(err), file=sys.stderr)
+    text = str(err)
+    mapped = remap_c_diagnostics(text)
+    if mapped:
+        # Lead with the remapped, user-actionable lines, then the raw output.
+        print("C compiler diagnostics (mapped to .pengu sources):", file=sys.stderr)
+        for line in mapped[:40]:
+            print("  " + line, file=sys.stderr)
+        print("", file=sys.stderr)
+    print(text, file=sys.stderr)
     sys.exit(1)
 
 
 def main():
     """Main execution entry point."""
     parser = create_cli_parser()
-    args = parser.parse_args()
+    # parse_known_args (instead of parse_args) lets 'pengu run script.pengu'
+    # forward *unknown* arguments to the script while still honouring the
+    # documented flags that follow the script path -- something a REMAINDER
+    # positional would swallow.
+    args, unknown = parser.parse_known_args()
+    if getattr(args, "no_color", False) or os.environ.get("NO_COLOR"):
+        os.environ["NO_COLOR"] = "1"
+    if getattr(args, "command", None) == "run" and getattr(args, "script", None):
+        forwarded = list(getattr(args, "script_args", None) or []) + list(unknown)
+        setattr(args, "script_args", forwarded)
 
     if args.command == "init":
         links_list = [i.strip() for i in args.links.split(",") if i.strip()] if args.links else []
@@ -2436,7 +3117,9 @@ def main():
                 test=getattr(args, "test", False),
                 defines=getattr(args, "defines", None),
                 cc=getattr(args, "cc", None),
-                verbose=getattr(args, "verbose", False)
+                verbose=getattr(args, "verbose", False),
+                pch=getattr(args, "pch", False) and not getattr(args, "no_pch", False),
+                no_dce=getattr(args, "no_dce", False),
             )
         except CompileFailedError as e:
             _print_compile_error(e)
@@ -2447,7 +3130,15 @@ def main():
                     script=args.script,
                     defines=getattr(args, "defines", None),
                     cc=getattr(args, "cc", None),
-                    verbose=getattr(args, "verbose", False)
+                    verbose=getattr(args, "verbose", False),
+                    keep=getattr(args, "keep", False),
+                    no_cache=getattr(args, "no_cache", False),
+                    clear_cache=getattr(args, "clear_cache", False),
+                    ephemeral=getattr(args, "ephemeral", False),
+                    script_args=_consume_script_args(getattr(args, "script_args", None)),
+                    quiet=getattr(args, "quiet", False),
+                    no_pch=not getattr(args, "pch", False) or getattr(args, "no_pch", False),
+                    no_dce=getattr(args, "no_dce", False),
                 ))
             sys.exit(run_project(
                 config_path=args.config,
@@ -2527,6 +3218,33 @@ def main():
         except (HeaderParseError, FileNotFoundError, ValueError) as e:
             print(f"\033[1;31m       Bind\033[0m {e}", file=sys.stderr)
             sys.exit(1)
+    elif args.command == "doctor":
+        sys.exit(doctor_report(as_json=getattr(args, "json", False)))
+    elif args.command == "gc":
+        removed = gc_script_cache(max_age_days=getattr(args, "max_age", 30),
+                                  verbose=getattr(args, "verbose", False),
+                                  everything=getattr(args, "all", False))
+        if getattr(args, "json", False):
+            print(json.dumps({"removed": removed, "cache_root": cache_root()}))
+        else:
+            print(f"\033[1;32m    Collected\033[0m {removed} cached script(s)")
+        sys.exit(0)
+    elif args.command == "expand":
+        sys.exit(expand_script(args.script, output=getattr(args, "output", None),
+                               defines=getattr(args, "defines", None),
+                               verbose=getattr(args, "verbose", False)))
+    elif args.command == "time":
+        sys.exit(time_script(args.script, defines=getattr(args, "defines", None),
+                             cc=getattr(args, "cc", None),
+                             script_args=_consume_script_args(getattr(args, "script_args", None))))
+    elif args.command == "eval":
+        sys.exit(eval_expression(args.expression, defines=getattr(args, "defines", None),
+                                 cc=getattr(args, "cc", None),
+                                 no_cache=getattr(args, "no_cache", False)))
+    elif args.command == "watch":
+        sys.exit(watch_script(args.script, defines=getattr(args, "defines", None),
+                              cc=getattr(args, "cc", None),
+                              keep=getattr(args, "keep", False)))
     elif args.command == "clean":
         clean_project(config_path=args.config)
     elif args.command == "lsp":

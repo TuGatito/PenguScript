@@ -18,7 +18,7 @@ from tests.conftest import (
 def test_banish_on_auto_owned_errors():
     """Manual banish of an auto-owned local is an error (E0047)."""
     check_error(
-        'weave f into void:\n  var s is "a" + "b"\n  banish s\n',
+        'weave f into void:\n  var s as string is (1 to string)\n  banish s\n',
         contains="E0047",
     )
 
@@ -44,7 +44,7 @@ def test_borrowed_disables_auto_banish():
 def test_defer_banish_disables_auto_banish():
     """An explicit defer banish disables auto-banish (runs only once via defer)."""
     c = gen_bundle(
-        'weave f into void:\n  var s is "a" + "b"\n  defer banish s\n  return\n',
+        'weave f into void:\n  var s as string is (1 to string)\n  defer banish s\n  return\n',
     )
     assert c.count("pengu_banish_string(&s)") == 1
 
@@ -52,47 +52,54 @@ def test_defer_banish_disables_auto_banish():
 def test_return_of_string_disables_auto_banish():
     """Returning an owned string transfers ownership to caller, no auto-banish."""
     c = gen_bundle(
-        'weave f into string:\n  var s is "a" + "b"\n  return s\n',
+        'weave f into string:\n  var s as string is (1 to string)\n  return s\n',
     )
     assert "pengu_banish_string(&s)" not in c
 
 
-def test_list_push_disables_auto_banish():
-    """Pushing an owned value into a collection transfers ownership."""
+def test_list_push_deep_copies_keeps_source_ownership():
+    """push() on a 'list of string' deep-copies (elem_clone is registered), so
+    the source keeps ownership of its own buffer and must still be banished --
+    otherwise every pushed string would leak."""
     c = gen_bundle(
-        'weave f into void:\n'
-        '  var lst as list of string is list of string\n'
-        '  var s is "a" + "b"\n'
-        '  calling lst.push with s\n'
-        '  return\n'
+        'weave f into void:\n  var lst as list of string is list of string\n  var s as string is (1 to string)\n  calling lst.push with s\n  return\n'
     )
-    assert "pengu_banish_string(&s)" not in c
+    assert "pengu_banish_string(&s)" in c
     assert "pengu_banish_list(&lst)" in c
 
 
-def test_map_put_disables_auto_banish():
-    """Putting an owned value into a map transfers ownership."""
+def test_map_put_deep_copies_keeps_source_ownership():
+    """put() deep-copies both key and value when their clone callbacks exist,
+    so the local value is still released by the auto-banish."""
     c = gen_bundle(
-        'weave f into void:\n'
-        '  var m as map of string to string is map of string to string\n'
-        '  var v is "a" + "b"\n'
-        '  calling m.put with "k", v\n'
-        '  return\n'
+        'weave f into void:\n  var m as map of string to string is map of string to string\n  var v as string is (1 to string)\n  calling m.put with "k", v\n  return\n'
     )
-    assert "pengu_banish_string(&v)" not in c
+    assert "pengu_banish_string(&v)" in c
 
 
-def test_set_field_disables_auto_banish():
-    """Assigning an owned value to a struct field transfers ownership."""
+def test_list_push_shallow_alias_still_disables_auto_banish():
+    """Without a clone callback the element is memcpy'd: the container aliases
+    the local's buffer, so the local must NOT be banished (it would dangle)."""
     c = gen_bundle(
-        'rune Holder:\n  name as string\n'
+        'rune Handle:\n  raw as ref to opaque\n'
         'weave f into void:\n'
-        '  var h as Holder is with name is "x"\n'
-        '  var s is "a" + "b"\n'
-        '  set h.name is s\n'
+        '  var lst as list of Handle is list of Handle\n'
+        '  var h as Handle is with raw is null\n'
+        '  calling lst.push with h\n'
         '  return\n'
     )
-    assert "pengu_banish_string(&s)" not in c
+    assert "pengu_banish_list(&lst)" in c
+
+
+def test_set_field_deep_copies_keeps_source_ownership():
+    """A string stored into a struct field is deep-copied, so the source keeps
+    ownership of its own buffer and is still auto-banished (otherwise the field
+    would alias a buffer freed at scope exit)."""
+    c = gen_bundle(
+        'rune Holder:\n  name as string\nweave f into void:\n  var h as Holder is with name is "x"\n  var s as string is (1 to string)\n  set h.name is s\n  return\n'
+    )
+    assert "h.name = pengu_string_copy(s)" in c
+    assert "pengu_banish_string(&s)" in c
 
 
 def test_alias_init_disables_auto_banish():
@@ -142,11 +149,7 @@ def test_string_literal_init_not_auto_banished():
 def test_defer_banish_inside_if_disables_auto_banish():
     """Defer banish inside an if block disables auto-banish for the variable."""
     c = gen_bundle(
-        'weave f with c as bool into int:\n'
-        '  var s is "a" + "b"\n'
-        '  if c:\n'
-        '    defer banish s\n'
-        '  return (s length)\n'
+        'weave f with c as bool into int:\n  var s as string is (1 to string)\n  if c:\n    defer banish s\n  return (s length)\n'
     )
     assert c.count("pengu_banish_string(&s);") == 1
 
@@ -154,11 +157,7 @@ def test_defer_banish_inside_if_disables_auto_banish():
 def test_reassignment_inside_if_disables_auto_banish():
     """Reassigning a variable inside an if disables auto-banish."""
     c = gen_bundle(
-        'weave f with c as bool into int:\n'
-        '  var s is "a" + "b"\n'
-        '  if c:\n'
-        '    set s is "c" + "d"\n'
-        '  return (s length)\n'
+        'weave f with c as bool into int:\n  var s as string is (1 to string)\n  if c:\n    set s is "cd"\n  return (s length)\n'
     )
     assert "pengu_banish_string(&s)" not in c
 
@@ -187,7 +186,7 @@ def test_borrowed_as_identifier_elsewhere_is_ok():
 def test_banish_emitted_at_scope_end():
     """Auto-banish is emitted before returning or at scope exit."""
     c = gen_bundle(
-        'weave f into int:\n  var s is "a" + "b"\n  return (s length)\n'
+        'weave f into int:\n  var s as string is (1 to string)\n  return (s length)\n'
     )
     assert "pengu_banish_string(&s);" in c
 
@@ -195,11 +194,7 @@ def test_banish_emitted_at_scope_end():
 def test_banish_emitted_in_if_branch():
     """Auto-banish is emitted inside the if block when declared inside it."""
     c = gen_bundle(
-        'weave f with c as bool into int:\n'
-        '  if c:\n'
-        '    var s is "a" + "b"\n'
-        '    return (s length)\n'
-        '  return 0\n'
+        'weave f with c as bool into int:\n  if c:\n    var s as string is (1 to string)\n    return (s length)\n  return 0\n'
     )
     assert "pengu_banish_string(&s);" in c
 
@@ -207,11 +202,7 @@ def test_banish_emitted_in_if_branch():
 def test_early_return_transfers_ownership():
     """Early return of the owned local transfers ownership without auto-banish."""
     c = gen_bundle(
-        'weave f with c as bool into string:\n'
-        '  var s is "a" + "b"\n'
-        '  if c:\n'
-        '    return s\n'
-        '  return s\n'
+        'weave f with c as bool into string:\n  var s as string is (1 to string)\n  if c:\n    return s\n  return s\n'
     )
     assert c.count("pengu_banish_string(&s)") == 0
 
@@ -219,14 +210,7 @@ def test_early_return_transfers_ownership():
 def test_break_emits_only_inner_scope_banish():
     """Break emits auto-banish for scopes internal to loop, not loop scope itself."""
     c = gen_bundle(
-        'weave f into int:\n'
-        '  for i from 0 to 3:\n'
-        '    var outer is "o" + "1"\n'
-        '    if (outer length) > 0:\n'
-        '      var inner is "i" + "2"\n'
-        '      if (inner length) > 0:\n'
-        '        break\n'
-        '  return 0\n'
+        'weave f into int:\n  for i from 0 to 3:\n    var outer as string is (1 to string)\n    if (outer length) > 0:\n      var inner as string is (2 to string)\n      if (inner length) > 0:\n        break\n  return 0\n'
     )
     assert c.count("pengu_banish_string(&inner);") >= 1
     assert "pengu_banish_string(&outer);" in c
@@ -235,11 +219,7 @@ def test_break_emits_only_inner_scope_banish():
 def test_auto_banish_emitted_on_each_exit_path():
     """Auto-banish is emitted once on each exit path for variables in scope."""
     c = gen_bundle(
-        'weave f with c as bool into int:\n'
-        '  var s is "a" + "b"\n'
-        '  if c:\n'
-        '    return 0\n'
-        '  return (s length)\n'
+        'weave f with c as bool into int:\n  var s as string is (1 to string)\n  if c:\n    return 0\n  return (s length)\n'
     )
     # Both paths exit the function, so both emit banish for s
     assert c.count("pengu_banish_string(&s);") == 2
@@ -248,11 +228,7 @@ def test_auto_banish_emitted_on_each_exit_path():
 def test_auto_banish_scoped_to_if_branch():
     """A variable declared inside an if branch is only banished on that branch."""
     c = gen_bundle(
-        'weave f with c as bool into int:\n'
-        '  if c:\n'
-        '    var s is "a" + "b"\n'
-        '    return 0\n'
-        '  return 1\n'
+        'weave f with c as bool into int:\n  if c:\n    var s as string is (1 to string)\n    return 0\n  return 1\n'
     )
     assert c.count("pengu_banish_string(&s);") == 1
 
@@ -260,10 +236,7 @@ def test_auto_banish_scoped_to_if_branch():
 def test_auto_banish_lifo_order():
     """Auto-banishes are emitted in LIFO order (last declared, first freed)."""
     c = gen_bundle(
-        'weave f into int:\n'
-        '  var a is "x" + "1"\n'
-        '  var b is "y" + "2"\n'
-        '  return (a length) + (b length)\n'
+        'weave f into int:\n  var a as string is (1 to string)\n  var b as string is (2 to string)\n  return (a length) + (b length)\n'
     )
     idx_a = c.find("pengu_banish_string(&a)")
     idx_b = c.find("pengu_banish_string(&b)")
@@ -280,12 +253,7 @@ def test_auto_banish_lifo_order():
 def test_loop_of_strings_runs_clean():
     """Loop creating auto-owned strings in each iteration runs cleanly."""
     src = (
-        'weave main into int:\n'
-        '  var total as int is 0\n'
-        '  for i from 0 to 100:\n'
-        '    var s is "item_" + (i to string)\n'
-        '    set total is total + (s length)\n'
-        '  return 0\n'
+        'weave main into int:\n  var total as int is 0\n  for i from 0 to 100:\n    var s is "item_{(i to string)}"\n    set total is total + (s length)\n  return 0\n'
     )
     res = compile_run(src, tag="scope_owned_loop")
     assert res.returncode == 0
@@ -300,9 +268,9 @@ def test_borrowed_does_not_crash():
         '  var borrowed v is src\n'
         '  return (v length)\n'
         'weave main into int:\n'
-        '  var s is "hello world"\n'
+        '  var s as string is (1 to string)\n'
         '  var len as int is calling f with s\n'
-        '  if len == 11:\n'
+        '  if len == (s length):\n'
         '    return 0\n'
         '  return 1\n'
     )
@@ -315,15 +283,11 @@ def test_borrowed_does_not_crash():
 def test_defer_banish_runs_exactly_once():
     """Explicit defer banish runs cleanly and exactly once."""
     src = (
-        'weave main into int:\n'
-        '  var s is "a" + "b"\n'
-        '  defer banish s\n'
-        '  calling print with s\n'
-        '  return 0\n'
+        'weave main into int:\n  var s as string is (1 to string)\n  defer banish s\n  calling print with s\n  return 0\n'
     )
     res = compile_run(src, tag="defer_banish_once")
     assert res.returncode == 0
-    assert "ab" in res.stdout
+    assert "1" in res.stdout
 
 
 def test_or_block_creates_own_auto_banish_scope():
@@ -332,13 +296,7 @@ def test_or_block_creates_own_auto_banish_scope():
     Before the fix, the generated C contained a `pengu_banish_string(&s)`
     after the block where `s` was already out of scope."""
     c = gen_bundle(
-        'weave may_fail into maybe int:\n'
-        '  return some 1\n'
-        'weave f into void:\n'
-        '  var r is calling may_fail or:\n'
-        '    var s is "a" + "b"\n'
-        '    calling print with s\n'
-        '  return\n'
+        'weave may_fail into maybe int:\n  return some 1\nweave f into void:\n  var r is calling may_fail or:\n    var s as string is (1 to string)\n    calling print with s\n  return\n'
     )
     assert c.count("pengu_banish_string(&s);") == 1
     idx_if = c.find("if (!pengu_maybe_is_present") if "if (!pengu_maybe_is_present" in c else c.find("if (!pengu_result_is_ok")
@@ -364,13 +322,7 @@ def test_or_block_creates_own_auto_banish_scope():
 def test_let_or_block_creates_own_auto_banish_scope():
     """`let ... is expr or:` also auto-banishes locals inside error handler."""
     c = gen_bundle(
-        'weave may_fail into maybe int:\n'
-        '  return some 1\n'
-        'weave f into void:\n'
-        '  let r is calling may_fail or:\n'
-        '    var s is "a" + "b"\n'
-        '    calling print with s\n'
-        '  return\n'
+        'weave may_fail into maybe int:\n  return some 1\nweave f into void:\n  let r is calling may_fail or:\n    var s as string is (1 to string)\n    calling print with s\n  return\n'
     )
     assert c.count("pengu_banish_string(&s);") == 1
     idx_if = c.find("if (!pengu_maybe_is_present") if "if (!pengu_maybe_is_present" in c else c.find("if (!pengu_result_is_ok")
@@ -396,15 +348,7 @@ def test_or_block_runs_clean():
     """Compile+run: an or: block that declares a heap local must run without
     crashes and without leaks (ASan-less smoke: just must not abort)."""
     src = (
-        'weave may_fail with x as int into maybe int:\n'
-        '  if x > 0:\n'
-        '    return some x\n'
-        '  return maybe none\n'
-        'weave main into int:\n'
-        '  var v is (calling may_fail with 1) or:\n'
-        '    var s is "err" + "or"\n'
-        '    calling print with s\n'
-        '  return 0\n'
+        'weave may_fail with x as int into maybe int:\n  if x > 0:\n    return some x\n  return maybe none\nweave main into int:\n  var v is (calling may_fail with 1) or:\n    var s is "error"\n    calling print with s\n  return 0\n'
     )
     res = compile_run(src, tag="or_block_auto_banish")
     assert res.returncode == 0
@@ -413,12 +357,7 @@ def test_or_block_runs_clean():
 def test_struct_init_escapes_disables_auto_banish():
     """Embedding an owned variable into a struct literal transfers ownership, disabling auto-banish."""
     c = gen_bundle(
-        'rune Task:\n'
-        '  s as string\n'
-        'weave f into void:\n'
-        '  var sp is "hello" + "world"\n'
-        '  var t as Task is with s is sp\n'
-        '  return\n'
+        'rune Task:\n  s as string\nweave f into void:\n  var sp is "helloworld"\n  var t as Task is with s is sp\n  return\n'
     )
     assert "pengu_banish_string(&sp)" not in c
 
@@ -426,10 +365,7 @@ def test_struct_init_escapes_disables_auto_banish():
 def test_list_lit_escapes_disables_auto_banish():
     """Embedding an owned variable into a list literal transfers ownership, disabling auto-banish."""
     c = gen_bundle(
-        'weave f into void:\n'
-        '  var s is "hello" + "world"\n'
-        '  var xs is [s]\n'
-        '  return\n'
+        'weave f into void:\n  var s is "helloworld"\n  var xs is [s]\n  return\n'
     )
     assert "pengu_banish_string(&s)" not in c
 
@@ -437,10 +373,7 @@ def test_list_lit_escapes_disables_auto_banish():
 def test_aliased_var_decl_escapes_disables_auto_banish():
     """Aliasing an owned variable into another local transfers/shares ownership, disabling auto-banish on the source."""
     c = gen_bundle(
-        'weave f into void:\n'
-        '  var s is "hello" + "world"\n'
-        '  var b is s\n'
-        '  return\n'
+        'weave f into void:\n  var s is "helloworld"\n  var b is s\n  return\n'
     )
     assert "pengu_banish_string(&s)" not in c
 
@@ -448,13 +381,7 @@ def test_aliased_var_decl_escapes_disables_auto_banish():
 def test_indent_entries_escapes_disables_auto_banish():
     """Embedding an owned variable into an indented rune literal disables auto-banish."""
     src = (
-        'rune Player:\n'
-        '  name as string\n'
-        'weave f into void:\n'
-        '  var s is "hello" + "world"\n'
-        '  var p as Player is:\n'
-        '    name: s\n'
-        '  return\n'
+        'rune Player:\n  name as string\nweave f into void:\n  var s is "helloworld"\n  var p as Player is:\n    name: s\n  return\n'
     )
     from pengu_parser.pengu_parser import PenguParser
     from pengu_parser.pengu_checker import PenguChecker
@@ -470,11 +397,7 @@ def test_indent_entries_escapes_disables_auto_banish():
 def test_indent_array_escapes_disables_auto_banish():
     """Embedding an owned variable into an indented array literal disables auto-banish."""
     src = (
-        'weave f into void:\n'
-        '  var s is "hello" + "world"\n'
-        '  var arr as array of string with size 1 is:\n'
-        '    s\n'
-        '  return\n'
+        'weave f into void:\n  var s is "helloworld"\n  var arr as array of string with size 1 is:\n    s\n  return\n'
     )
     from pengu_parser.pengu_parser import PenguParser
     from pengu_parser.pengu_checker import PenguChecker
@@ -490,11 +413,7 @@ def test_indent_array_escapes_disables_auto_banish():
 def test_indent_map_escapes_disables_auto_banish():
     """Embedding an owned variable into an indented map literal disables auto-banish."""
     src = (
-        'weave f into void:\n'
-        '  var s is "hello" + "world"\n'
-        '  var dict is:\n'
-        '    "greeting": s\n'
-        '  return\n'
+        'weave f into void:\n  var s is "helloworld"\n  var dict is:\n    "greeting": s\n  return\n'
     )
     from pengu_parser.pengu_parser import PenguParser
     from pengu_parser.pengu_checker import PenguChecker
@@ -510,12 +429,7 @@ def test_indent_map_escapes_disables_auto_banish():
 def test_return_if_block_escapes_disables_auto_banish():
     """Returning an owned variable from an if block expression disables auto-banish."""
     src = (
-        'weave pick with c as bool into string:\n'
-        '  var s is "hello" + "world"\n'
-        '  return if c:\n'
-        '    s\n'
-        '  else:\n'
-        '    "other"\n'
+        'weave pick with c as bool into string:\n  var s is "helloworld"\n  return if c:\n    s\n  else:\n    "other"\n'
     )
     from pengu_parser.pengu_parser import PenguParser
     from pengu_parser.pengu_checker import PenguChecker
@@ -531,10 +445,7 @@ def test_return_if_block_escapes_disables_auto_banish():
 def test_return_do_block_escapes_disables_auto_banish():
     """Returning an owned variable from a do block expression disables auto-banish."""
     src = (
-        'weave pick into string:\n'
-        '  var s is "hello" + "world"\n'
-        '  return do:\n'
-        '    s\n'
+        'weave pick into string:\n  var s is "helloworld"\n  return do:\n    s\n'
     )
     from pengu_parser.pengu_parser import PenguParser
     from pengu_parser.pengu_checker import PenguChecker

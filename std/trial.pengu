@@ -89,7 +89,7 @@ rune TestSuite:
 # Creates a new empty TestSuite named `name` and prints a
 # "=== Suite: <name> ===" banner to stdout. Returns the fresh suite value.
 weave new_suite with name as string into TestSuite:
-    calling spark.println with "=== Suite: " + name + " ==="
+    calling spark.println with "=== Suite: {name} ==="
     var s as TestSuite is with name is name , total is 0 , passed is 0 , failed is 0
     return s
 
@@ -101,10 +101,10 @@ weave test_case with s as ref to TestSuite , name as string , passed as bool , e
     set s->total is s->total + 1
     if passed:
         set s->passed is s->passed + 1
-        calling spark.println with "  [PASS] " + name
+        calling spark.println with "  [PASS] {name}"
     else:
         set s->failed is s->failed + 1
-        calling spark.println with "  [FAIL] " + name + " - " + err_msg
+        calling spark.println with "  [FAIL] {name} - {err_msg}"
 
 # Runs the test weave `fn` on suite `s`: increments `total`, calls `fn`, and
 # records the test as passed (printing "  [PASS] <name>") when `fn` returns
@@ -114,17 +114,17 @@ weave test with s as ref to TestSuite , name as string , fn as weave into void i
     set s->total is s->total + 1
     calling fn
     set s->passed is s->passed + 1
-    calling spark.println with "  [PASS] " + name
+    calling spark.println with "  [PASS] {name}"
 
 # Prints the full report for suite `s` (name, totals, pass/fail bars) and
 # returns true when no test failed (failed == 0), false otherwise.
 weave summary with s as ref to TestSuite into bool:
     calling spark.println with ""
     calling spark.println with "=========================================="
-    calling spark.println with "Suite: " + s->name
-    calling spark.println with "Total Tests: " + (s->total to string)
-    calling spark.println with "Passed: " + (s->passed to string)
-    calling spark.println with "Failed: " + (s->failed to string)
+    calling spark.println with "Suite: {s->name}"
+    calling spark.println with "Total Tests: {(s->total to string)}"
+    calling spark.println with "Passed: {(s->passed to string)}"
+    calling spark.println with "Failed: {(s->failed to string)}"
     calling spark.println with "=========================================="
     if s->failed == 0:
         calling spark.println with "ALL TESTS PASSED!"

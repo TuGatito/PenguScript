@@ -12,25 +12,30 @@
 #     the call and never retained) and returns a freshly allocated list owned by
 #     the caller: banish the result when done.
 #   * None of these functions modify their inputs; returned lists are new
-#     containers holding int copies, so callers may keep and reuse the inputs.
-#   * All helpers are int-specific (list of int in, int / list of int out).
+#     containers holding copies, so callers may keep and reuse the inputs.
+#   * Most helpers are int-specific; generic helpers (shard T) are monomorphized
+#     at compile time for arbitrary element types.
 
 import std.spark
 import std.oracle
 import std.tally
 import std.atlas
 import std.scrolls
+import std.arithmancy
 
 # ----------------------------------------------------------------------------
-# Sequence generation
+# Module Version
 # ----------------------------------------------------------------------------
-#
-# Generators that build a list of int without an input list.
-# Builds the integer sequence from `start` (inclusive) up to `end` (exclusive),
-# advancing by `step` (default 1). A positive `step` counts up while the value
-# is below `end`; a negative `step` counts down while the value is above `end`;
-# `step` of 0 (or a sign mismatch with the bounds) yields an empty list. The
-# returned list is owned by the caller.
+
+## Version constant for std.loom module.
+const LOOM_VERSION as string is "0.15.0"
+
+# ----------------------------------------------------------------------------
+# Sequence generation (0.14.x baseline)
+# ----------------------------------------------------------------------------
+
+## Builds the integer sequence from `start` (inclusive) up to `end` (exclusive),
+## advancing by `step` (default 1).
 weave range with start as int , end as int , step as int is 1 into list of int:
     var result as list of int is list of int
     var cur as int is start
@@ -44,8 +49,7 @@ weave range with start as int , end as int , step as int is 1 into list of int:
             set cur is cur + step
     return result
 
-# Builds a list containing `value` repeated `times` times. A `times` of 0 or
-# less yields an empty list. The returned list is owned by the caller.
+## Builds a list containing `value` repeated `times` times.
 weave repeat with value as int , times as int into list of int:
     var result as list of int is list of int
     var i as int is 0
@@ -55,13 +59,10 @@ weave repeat with value as int , times as int into list of int:
     return result
 
 # ----------------------------------------------------------------------------
-# Slicing & composition
+# Slicing & composition (0.14.x baseline)
 # ----------------------------------------------------------------------------
-#
-# Helpers that cut or join whole lists of int.
-# Returns a new list holding the first `n` elements of `items` (all of them when
-# `items` is shorter). A non-positive `n` yields an empty list. The result is
-# owned by the caller; `items` is left untouched.
+
+## Returns a new list holding the first `n` elements of `items`.
 weave take with items as list of int , n as int into list of int:
     var result as list of int is list of int
     var count as int is n
@@ -74,9 +75,7 @@ weave take with items as list of int , n as int into list of int:
         set i is i + 1
     return result
 
-# Returns a new list holding every element of `items` from index `n` onward. A
-# negative `n` is treated as 0 and `n` beyond the end yields an empty list. The
-# result is owned by the caller; `items` is left untouched.
+## Returns a new list holding every element of `items` from index `n` onward.
 weave skip with items as list of int , n as int into list of int:
     var result as list of int is list of int
     var start as int is n
@@ -89,8 +88,7 @@ weave skip with items as list of int , n as int into list of int:
         set i is i + 1
     return result
 
-# Returns a new list that concatenates `a` followed by `b` (a deep copy of both;
-# neither input is modified). The result is owned by the caller.
+## Returns a new list that concatenates `a` followed by `b`.
 weave chain with a as list of int , b as list of int into list of int:
     var result as list of int is list of int
     var i as int is 0
@@ -106,13 +104,10 @@ weave chain with a as list of int , b as list of int into list of int:
     return result
 
 # ----------------------------------------------------------------------------
-# Batching: chunks & sliding windows
+# Batching: chunks & sliding windows (0.14.x baseline)
 # ----------------------------------------------------------------------------
-#
-# Helpers that reorganise a list of int into a list of smaller lists.
-# Splits `items` into consecutive non-overlapping chunks of at most `n` elements
-# each (the last chunk may be shorter). A non-positive `n` yields an empty list.
-# The outer and inner lists are all new and owned by the caller.
+
+## Splits `items` into consecutive non-overlapping chunks of at most `n` elements each.
 weave chunks with items as list of int , n as int into list of list of int:
     var result as list of list of int is list of list of int
     if n <= 0:
@@ -131,10 +126,7 @@ weave chunks with items as list of int , n as int into list of list of int:
         set i is i + n
     return result
 
-# Returns every contiguous sliding window of exactly `n` consecutive elements of
-# `items` (each window is a new list of length `n`; the windows overlap by
-# n - 1 elements). Yields an empty list when `n` is non-positive or larger than
-# the list. The outer and inner lists are all new and owned by the caller.
+## Returns every contiguous sliding window of exactly `n` consecutive elements of `items`.
 weave windows with items as list of int , n as int into list of list of int:
     var result as list of list of int is list of list of int
     if n <= 0:
@@ -155,11 +147,10 @@ weave windows with items as list of int , n as int into list of list of int:
     return result
 
 # ----------------------------------------------------------------------------
-# Reductions & statistics
+# Reductions & Aggregates (0.14.x baseline & 0.15.0 additions)
 # ----------------------------------------------------------------------------
-#
-# Helpers that fold a list of int down to a single int.
-# Sums every element of `nums` (0 for an empty list).
+
+## Sums every element of `nums` (0 for an empty list).
 weave sum with nums as list of int into int:
     var total as int is 0
     var i as int is 0
@@ -169,8 +160,7 @@ weave sum with nums as list of int into int:
         set i is i + 1
     return total
 
-# Multiplies every element of `nums` together (1 for an empty list). Watch for
-# int overflow on large inputs.
+## Multiplies every element of `nums` together (1 for an empty list).
 weave product_num with nums as list of int into int:
     var total as int is 1
     var i as int is 0
@@ -180,9 +170,7 @@ weave product_num with nums as list of int into int:
         set i is i + 1
     return total
 
-# Returns the greatest value in `nums` (0 for an empty list). Note that this
-# means an empty list is indistinguishable from a list containing only 0/negatives
-# when no element exceeds 0.
+## Returns the greatest value in `items` (0 for an empty list).
 weave max_int with items as list of int into int:
     if items.len == 0:
         return 0
@@ -195,9 +183,7 @@ weave max_int with items as list of int into int:
         set i is i + 1
     return best
 
-# Returns the smallest value in `items` (0 for an empty list). Note that this
-# means an empty list is indistinguishable from a list containing only 0/positives
-# when no element is below 0.
+## Returns the smallest value in `items` (0 for an empty list).
 weave min_int with items as list of int into int:
     if items.len == 0:
         return 0
@@ -209,3 +195,732 @@ weave min_int with items as list of int into int:
             set best is cur
         set i is i + 1
     return best
+
+## Returns the arithmetic mean of `nums` as a float (0.0 for an empty list).
+weave mean with nums as list of int into float:
+    if nums.len == 0:
+        return 0.0
+    var s as int is calling sum with nums
+    return (s to float) / (nums.len to float)
+
+## Returns the sum of squares of all elements in `nums` (0 for an empty list).
+weave sum_squares with nums as list of int into int:
+    var total as int is 0
+    var i as int is 0
+    while i < nums.len:
+        var n as int is nums at i
+        set total is total + (n * n)
+        set i is i + 1
+    return total
+
+## Computes cumulative prefix sums: [x0, x0+x1, x0+x1+x2, ...].
+weave running_sum with nums as list of int into list of int:
+    var result as list of int is list of int
+    var acc as int is 0
+    var i as int is 0
+    while i < nums.len:
+        set acc is acc + (nums at i)
+        calling result.push with acc
+        set i is i + 1
+    return result
+
+## Computes running prefix maximums.
+weave running_max with nums as list of int into list of int:
+    var result as list of int is list of int
+    if nums.len == 0:
+        return result
+    var m as int is nums at 0
+    calling result.push with m
+    var i as int is 1
+    while i < nums.len:
+        var cur as int is nums at i
+        if cur > m:
+            set m is cur
+        calling result.push with m
+        set i is i + 1
+    return result
+
+## Computes running prefix minimums.
+weave running_min with nums as list of int into list of int:
+    var result as list of int is list of int
+    if nums.len == 0:
+        return result
+    var m as int is nums at 0
+    calling result.push with m
+    var i as int is 1
+    while i < nums.len:
+        var cur as int is nums at i
+        if cur < m:
+            set m is cur
+        calling result.push with m
+        set i is i + 1
+    return result
+
+## Computes adjacent element differences: [x1 - x0, x2 - x1, ...].
+weave differences with nums as list of int into list of int:
+    var result as list of int is list of int
+    if nums.len <= 1:
+        return result
+    var i as int is 0
+    var limit as int is nums.len - 1
+    while i < limit:
+        var d as int is (nums at (i + 1)) - (nums at i)
+        calling result.push with d
+        set i is i + 1
+    return result
+
+# ----------------------------------------------------------------------------
+# Predicates (0.15.0 additions)
+# ----------------------------------------------------------------------------
+
+## Returns true if any element in `nums` is zero.
+weave any_zero with nums as list of int into bool:
+    var i as int is 0
+    while i < nums.len:
+        if (nums at i) == 0:
+            return true
+        set i is i + 1
+    return false
+
+## Returns true if all elements in `nums` are equal, or if `nums` has fewer than 2 elements.
+weave all_equal with nums as list of int into bool:
+    if nums.len <= 1:
+        return true
+    var first as int is nums at 0
+    var i as int is 1
+    while i < nums.len:
+        if (nums at i) != first:
+            return false
+        set i is i + 1
+    return true
+
+## Returns true if `nums` is strictly ascending (each element < next).
+weave is_strictly_asc with nums as list of int into bool:
+    if nums.len <= 1:
+        return true
+    var i as int is 0
+    var limit as int is nums.len - 1
+    while i < limit:
+        if (nums at i) >= (nums at (i + 1)):
+            return false
+        set i is i + 1
+    return true
+
+## Returns true if `nums` is strictly descending (each element > next).
+weave is_strictly_desc with nums as list of int into bool:
+    if nums.len <= 1:
+        return true
+    var i as int is 0
+    var limit as int is nums.len - 1
+    while i < limit:
+        if (nums at i) <= (nums at (i + 1)):
+            return false
+        set i is i + 1
+    return true
+
+## Returns true if `nums` is sorted in ascending order (non-decreasing).
+weave is_sorted_asc with nums as list of int into bool:
+    if nums.len <= 1:
+        return true
+    var i as int is 0
+    var limit as int is nums.len - 1
+    while i < limit:
+        if (nums at i) > (nums at (i + 1)):
+            return false
+        set i is i + 1
+    return true
+
+## Returns true if `nums` is sorted in descending order (non-increasing).
+weave is_sorted_desc with nums as list of int into bool:
+    if nums.len <= 1:
+        return true
+    var i as int is 0
+    var limit as int is nums.len - 1
+    while i < limit:
+        if (nums at i) < (nums at (i + 1)):
+            return false
+        set i is i + 1
+    return true
+
+# ----------------------------------------------------------------------------
+# Transforms & Combinations (0.15.0 additions)
+# ----------------------------------------------------------------------------
+
+## Combines lists `a` and `b` elementwise with operator `op`:
+## 0: add (+), 1: sub (-), 2: mul (*), 3: min, 4: max.
+weave zip_with with a as list of int , b as list of int , op as int is 0 into list of int:
+    var result as list of int is list of int
+    var limit as int is a.len
+    if b.len < limit:
+        set limit is b.len
+    var i as int is 0
+    while i < limit:
+        var va as int is a at i
+        var vb as int is b at i
+        var res as int is 0
+        if op == 0:
+            set res is va + vb
+        else if op == 1:
+            set res is va - vb
+        else if op == 2:
+            set res is va * vb
+        else if op == 3:
+            set res is va
+            if vb < res:
+                set res is vb
+        else if op == 4:
+            set res is va
+            if vb > res:
+                set res is vb
+        else:
+            set res is va + vb
+        calling result.push with res
+        set i is i + 1
+    return result
+
+## Pairs elements from `a` and `b` up to max length, padding missing entries with `fill`.
+weave zip_longest with a as list of int , b as list of int , fill as int is 0 into list of list of int:
+    var result as list of list of int is list of list of int
+    var max_len as int is a.len
+    if b.len > max_len:
+        set max_len is b.len
+    var i as int is 0
+    while i < max_len:
+        var pair as list of int is list of int
+        if i < a.len:
+            calling pair.push with (a at i)
+        else:
+            calling pair.push with fill
+        if i < b.len:
+            calling pair.push with (b at i)
+        else:
+            calling pair.push with fill
+        calling result.push with pair
+        set i is i + 1
+    return result
+
+## Returns pairs of [index, value] for every element in `items`.
+weave enumerate with items as list of int into list of list of int:
+    var result as list of list of int is list of list of int
+    var i as int is 0
+    while i < items.len:
+        var pair as list of int is list of int
+        calling pair.push with i
+        calling pair.push with (items at i)
+        calling result.push with pair
+        set i is i + 1
+    return result
+
+## Alternates elements from `a` and `b`: [a0, b0, a1, b1, ...] up to min length.
+weave interleave with a as list of int , b as list of int into list of int:
+    var result as list of int is list of int
+    var limit as int is a.len
+    if b.len < limit:
+        set limit is b.len
+    var i as int is 0
+    while i < limit:
+        calling result.push with (a at i)
+        calling result.push with (b at i)
+        set i is i + 1
+    return result
+
+## Fair round-robin merge across multiple lists until all elements are exhausted.
+weave round_robin with lists as list of list of int into list of int:
+    var result as list of int is list of int
+    var max_len as int is 0
+    var i as int is 0
+    while i < lists.len:
+        var l as list of int is lists at i
+        if l.len > max_len:
+            set max_len is l.len
+        set i is i + 1
+    var step as int is 0
+    while step < max_len:
+        var j as int is 0
+        while j < lists.len:
+            var cur as list of int is lists at j
+            if step < cur.len:
+                calling result.push with (cur at step)
+            set j is j + 1
+        set step is step + 1
+    return result
+
+## Rotates `items` left by `k` positions.
+weave rotate_left with items as list of int , k as int into list of int:
+    var result as list of int is list of int
+    var n as int is items.len
+    if n == 0:
+        return result
+    var shift as int is k % n
+    if shift < 0:
+        set shift is shift + n
+    var i as int is shift
+    while i < n:
+        calling result.push with (items at i)
+        set i is i + 1
+    var j as int is 0
+    while j < shift:
+        calling result.push with (items at j)
+        set j is j + 1
+    return result
+
+## Rotates `items` right by `k` positions.
+weave rotate_right with items as list of int , k as int into list of int:
+    var n as int is items.len
+    if n == 0:
+        var empty as list of int is list of int
+        return empty
+    var shift as int is (n - (k % n)) % n
+    return calling rotate_left with items , shift
+
+## Inserts `sep` between each adjacent pair of elements in `items`.
+weave intersperse with items as list of int , sep as int into list of int:
+    var result as list of int is list of int
+    if items.len == 0:
+        return result
+    calling result.push with (items at 0)
+    var i as int is 1
+    while i < items.len:
+        calling result.push with sep
+        calling result.push with (items at i)
+        set i is i + 1
+    return result
+
+## Returns overlapping adjacent pairs: [[x0, x1], [x1, x2], ...].
+weave pairwise with items as list of int into list of list of int:
+    return calling windows with items , 2
+
+## Flattens a nested list of lists into a single list of elements.
+weave flat_map_identity with nested as list of list of int into list of int:
+    var result as list of int is list of int
+    var i as int is 0
+    while i < nested.len:
+        var inner as list of int is nested at i
+        var j as int is 0
+        while j < inner.len:
+            calling result.push with (inner at j)
+            set j is j + 1
+        set i is i + 1
+    return result
+
+## Flattens a nested list of lists into a single list of elements (alias for flat_map_identity).
+weave flatten with nested as list of list of int into list of int:
+    return calling flat_map_identity with nested
+
+# ----------------------------------------------------------------------------
+# Set-like operations on sorted lists (0.15.0 additions)
+# ----------------------------------------------------------------------------
+
+## Deduplicated union of two ascending sorted lists.
+weave union_sorted with a as list of int , b as list of int into list of int:
+    var result as list of int is list of int
+    var ia as int is 0
+    var ib as int is 0
+    var last as int is 0
+    var has_last as bool is false
+    while ia < a.len or ib < b.len:
+        var val as int is 0
+        if ia < a.len and ib < b.len:
+            var va as int is a at ia
+            var vb as int is b at ib
+            if va < vb:
+                set val is va
+                set ia is ia + 1
+            else if vb < va:
+                set val is vb
+                set ib is ib + 1
+            else:
+                set val is va
+                set ia is ia + 1
+                set ib is ib + 1
+        else if ia < a.len:
+            set val is a at ia
+            set ia is ia + 1
+        else:
+            set val is b at ib
+            set ib is ib + 1
+        if (not has_last) or val != last:
+            calling result.push with val
+            set last is val
+            set has_last is true
+    return result
+
+## Deduplicated intersection of two ascending sorted lists.
+weave intersect_sorted with a as list of int , b as list of int into list of int:
+    var result as list of int is list of int
+    var ia as int is 0
+    var ib as int is 0
+    var last as int is 0
+    var has_last as bool is false
+    while ia < a.len and ib < b.len:
+        var va as int is a at ia
+        var vb as int is b at ib
+        if va < vb:
+            set ia is ia + 1
+        else if vb < va:
+            set ib is ib + 1
+        else:
+            if (not has_last) or va != last:
+                calling result.push with va
+                set last is va
+                set has_last is true
+            set ia is ia + 1
+            set ib is ib + 1
+    return result
+
+## Deduplicated set difference (a \ b) of two ascending sorted lists.
+weave difference_sorted with a as list of int , b as list of int into list of int:
+    var result as list of int is list of int
+    var ia as int is 0
+    var ib as int is 0
+    var last as int is 0
+    var has_last as bool is false
+    while ia < a.len:
+        if ib < b.len:
+            var va as int is a at ia
+            var vb as int is b at ib
+            if va < vb:
+                if (not has_last) or va != last:
+                    calling result.push with va
+                    set last is va
+                    set has_last is true
+                set ia is ia + 1
+            else if vb < va:
+                set ib is ib + 1
+            else:
+                set ia is ia + 1
+        else:
+            var va2 as int is a at ia
+            if (not has_last) or va2 != last:
+                calling result.push with va2
+                set last is va2
+                set has_last is true
+            set ia is ia + 1
+    return result
+
+## Deduplicated symmetric difference of two ascending sorted lists.
+weave symmetric_difference_sorted with a as list of int , b as list of int into list of int:
+    var d1 as list of int is calling difference_sorted with a , b
+    var d2 as list of int is calling difference_sorted with b , a
+    return calling union_sorted with d1 , d2
+
+# ----------------------------------------------------------------------------
+# Search & Indexing (0.15.0 additions)
+# ----------------------------------------------------------------------------
+
+## Returns the 0-based index of the first occurrence of `target` in `items`.
+weave find_first with items as list of int , target as int into maybe int:
+    var i as int is 0
+    while i < items.len:
+        if (items at i) == target:
+            return some i
+        set i is i + 1
+    return maybe none
+
+## Returns the 0-based index of the last occurrence of `target` in `items`.
+weave find_last with items as list of int , target as int into maybe int:
+    var i as int is items.len - 1
+    while i >= 0:
+        if (items at i) == target:
+            return some i
+        set i is i - 1
+    return maybe none
+
+## Binary search for `target` in ascending sorted list; returns index or none.
+weave binary_search with sorted_items as list of int , target as int into maybe int:
+    var low as int is 0
+    var high as int is sorted_items.len - 1
+    while low <= high:
+        var mid as int is low + ((high - low) / 2)
+        var val as int is sorted_items at mid
+        if val == target:
+            return some mid
+        if val < target:
+            set low is mid + 1
+        else:
+            set high is mid - 1
+    return maybe none
+
+## Counts the number of even elements in `items`.
+weave count_if_even with items as list of int into int:
+    var c as int is 0
+    var i as int is 0
+    while i < items.len:
+        if ((items at i) % 2) == 0:
+            set c is c + 1
+        set i is i + 1
+    return c
+
+## Counts the number of strictly positive elements in `items`.
+weave count_if_positive with items as list of int into int:
+    var c as int is 0
+    var i as int is 0
+    while i < items.len:
+        if (items at i) > 0:
+            set c is c + 1
+        set i is i + 1
+    return c
+
+## Returns the index of the first minimum value in `items`, or none if empty.
+weave index_min with items as list of int into maybe int:
+    if items.len == 0:
+        return maybe none
+    var best_idx as int is 0
+    var best_val as int is items at 0
+    var i as int is 1
+    while i < items.len:
+        var cur as int is items at i
+        if cur < best_val:
+            set best_val is cur
+            set best_idx is i
+        set i is i + 1
+    return some best_idx
+
+## Returns the index of the first maximum value in `items`, or none if empty.
+weave index_max with items as list of int into maybe int:
+    if items.len == 0:
+        return maybe none
+    var best_idx as int is 0
+    var best_val as int is items at 0
+    var i as int is 1
+    while i < items.len:
+        var cur as int is items at i
+        if cur > best_val:
+            set best_val is cur
+            set best_idx is i
+        set i is i + 1
+    return some best_idx
+
+# ----------------------------------------------------------------------------
+# Structural updates (pure, return new lists) (0.15.0 additions)
+# ----------------------------------------------------------------------------
+
+## Inserts `value` at `index`, shifting subsequent elements to the right.
+weave insert_at with items as list of int , index as int , value as int into list of int:
+    var result as list of int is list of int
+    var pos as int is index
+    if pos < 0:
+        set pos is 0
+    if pos > items.len:
+        set pos is items.len
+    var i as int is 0
+    while i < pos:
+        calling result.push with (items at i)
+        set i is i + 1
+    calling result.push with value
+    while i < items.len:
+        calling result.push with (items at i)
+        set i is i + 1
+    return result
+
+## Returns a new list without the element at `index`.
+weave remove_at with items as list of int , index as int into list of int:
+    var result as list of int is list of int
+    var i as int is 0
+    while i < items.len:
+        if i != index:
+            calling result.push with (items at i)
+        set i is i + 1
+    return result
+
+## Returns a new list with the element at `index` replaced by `value`.
+weave replace_at with items as list of int , index as int , value as int into list of int:
+    var result as list of int is list of int
+    var i as int is 0
+    while i < items.len:
+        if i == index:
+            calling result.push with value
+        else:
+            calling result.push with (items at i)
+        set i is i + 1
+    return result
+
+## Returns a new list with elements at indices `i` and `j` swapped.
+weave swap_at with items as list of int , i as int , j as int into list of int:
+    var result as list of int is list of int
+    var k as int is 0
+    while k < items.len:
+        if k == i and j >= 0 and j < items.len:
+            calling result.push with (items at j)
+        else if k == j and i >= 0 and i < items.len:
+            calling result.push with (items at i)
+        else:
+            calling result.push with (items at k)
+        set k is k + 1
+    return result
+
+## Pads `items` on the left with `fill` until its length reaches `target_len`.
+weave pad_left with items as list of int , target_len as int , fill as int is 0 into list of int:
+    var result as list of int is list of int
+    var needed as int is target_len - items.len
+    var i as int is 0
+    while i < needed:
+        calling result.push with fill
+        set i is i + 1
+    var j as int is 0
+    while j < items.len:
+        calling result.push with (items at j)
+        set j is j + 1
+    return result
+
+## Pads `items` on the right with `fill` until its length reaches `target_len`.
+weave pad_right with items as list of int , target_len as int , fill as int is 0 into list of int:
+    var result as list of int is list of int
+    var j as int is 0
+    while j < items.len:
+        calling result.push with (items at j)
+        set j is j + 1
+    var needed as int is target_len - items.len
+    var i as int is 0
+    while i < needed:
+        calling result.push with fill
+        set i is i + 1
+    return result
+
+# ----------------------------------------------------------------------------
+# Statistics (0.15.0 additions)
+# ----------------------------------------------------------------------------
+
+## Returns the median of `items` as a float, or none if empty.
+weave median with items as list of int into maybe float:
+    if items.len == 0:
+        return maybe none
+    var s as list of int is calling items.sort_asc
+    var n as int is s.len
+    var mid as int is n / 2
+    if (n % 2) == 1:
+        return some ((s at mid) to float)
+    var v1 as float is (s at (mid - 1)) to float
+    var v2 as float is (s at mid) to float
+    return some ((v1 + v2) / 2.0)
+
+## Returns the most frequently occurring value in `items`, or none if empty.
+weave mode with items as list of int into maybe int:
+    if items.len == 0:
+        return maybe none
+    var best_val as int is items at 0
+    var best_count as int is 0
+    var i as int is 0
+    while i < items.len:
+        var cand as int is items at i
+        var count as int is 0
+        var j as int is 0
+        while j < items.len:
+            if (items at j) == cand:
+                set count is count + 1
+            set j is j + 1
+        if count > best_count:
+            set best_count is count
+            set best_val is cand
+        set i is i + 1
+    return some best_val
+
+## Computes the population variance of `items`, or none if empty.
+weave variance with items as list of int into maybe float:
+    if items.len == 0:
+        return maybe none
+    var m as float is calling mean with items
+    var sum_diff_sq as float is 0.0
+    var i as int is 0
+    while i < items.len:
+        var diff as float is ((items at i) to float) - m
+        set sum_diff_sq is sum_diff_sq + (diff * diff)
+        set i is i + 1
+    return some (sum_diff_sq / (items.len to float))
+
+## Computes the population standard deviation of `items`, or none if empty.
+weave stddev with items as list of int into maybe float:
+    var var_opt as maybe float is calling variance with items
+    if var_opt is present:
+        return some (calling arithmancy.sqrt with var_opt.value)
+    return maybe none
+
+## Computes the p-th percentile (0.0 <= p <= 100.0) with linear interpolation.
+weave percentile with items as list of int , p as float into maybe float:
+    if items.len == 0 or p < 0.0 or p > 100.0:
+        return maybe none
+    var s as list of int is calling items.sort_asc
+    var n as int is s.len
+    if n == 1:
+        return some ((s at 0) to float)
+    var rank as float is (p / 100.0) * ((n - 1) to float)
+    var low as int is rank to int
+    var frac as float is rank - (low to float)
+    var v_low as float is (s at low) to float
+    if low >= n - 1:
+        return some v_low
+    var v_high as float is (s at (low + 1)) to float
+    return some (v_low + (frac * (v_high - v_low)))
+
+# ----------------------------------------------------------------------------
+# Generic Algorithms (shard T) (0.15.0 additions)
+# ----------------------------------------------------------------------------
+
+## Returns the first element of `items` if non-empty, otherwise `default_val`.
+weave first_or shard T with items as list of T , default_val as T into T:
+    if items.len > 0:
+        return items at 0
+    return default_val
+
+## Returns the first `n` elements of generic list `items`.
+weave generic_take shard T with items as list of T , n as int into list of T:
+    var result as list of T is list of T
+    var count as int is n
+    if count > items.len:
+        set count is items.len
+    var i as int is 0
+    while i < count:
+        var val as T is items at i
+        calling result.push with val
+        set i is i + 1
+    return result
+
+## Returns the last `n` elements of generic list `items`.
+weave generic_take_last shard T with items as list of T , n as int into list of T:
+    var result as list of T is list of T
+    var count as int is n
+    if count > items.len:
+        set count is items.len
+    if count <= 0:
+        return result
+    var start as int is items.len - count
+    var i as int is start
+    while i < items.len:
+        var val as T is items at i
+        calling result.push with val
+        set i is i + 1
+    return result
+
+## Returns a reversed copy of generic list `items`.
+weave generic_reverse shard T with items as list of T into list of T:
+    var result as list of T is list of T
+    var i as int is items.len - 1
+    while i >= 0:
+        var val as T is items at i
+        calling result.push with val
+        set i is i - 1
+    return result
+
+## Concatenates two generic lists `a` and `b`.
+weave generic_chain shard T with a as list of T , b as list of T into list of T:
+    var result as list of T is list of T
+    var i as int is 0
+    while i < a.len:
+        var val as T is a at i
+        calling result.push with val
+        set i is i + 1
+    var j as int is 0
+    while j < b.len:
+        var val2 as T is b at j
+        calling result.push with val2
+        set j is j + 1
+    return result
+
+## Returns the index of the first occurrence of `target` in generic list `items`, or -1 if absent.
+weave generic_index_of shard T where T: Par with items as list of T , target as T into int:
+    var i as int is 0
+    while i < items.len:
+        if (items at i) == target:
+            return i
+        set i is i + 1
+    return -1

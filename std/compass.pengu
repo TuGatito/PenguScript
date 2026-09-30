@@ -2,23 +2,40 @@
 # File-path manipulation implemented in pure PenguScript.
 #
 # High-level path logic (separator detection, basename/dirname, extension
-# handling, normalization, joining, relative paths) lives here in PenguScript.
-# The former C implementations (pengu_c_path_*) were removed from the runtime
-# header; nothing below calls the C runtime for path work.
+# handling, normalization, joining, relative paths, glob matching, and
+# Path rune manipulation) lives here in PenguScript.
 #
 # Internal helpers use the 'cp_' prefix so they never collide with the
 # enchanting Path methods or module-level member names in the code generator's
 # function registry.
 #
-# Usage: import std.compass. Call module members directly, e.g. joining parts
-# with "calling compass.join with parts" and normalizing with
-# "calling compass.normalize with path", or build an owned Path value with
-# "calling compass.path with raw" and query it through methods such as
-# "calling p.name" and "calling p.with_suffix with ext".
-# Ownership: every function below takes plain strings and returns new owned
-# strings, lists or maybe values; Path owns its raw path string, so results
-# can be banished or dropped normally. Nothing here borrows or aliases input
-# memory.
+# Usage:
+#   import std.compass
+#   var p as string is calling compass.join with parts
+#   var norm as string is calling compass.normalize with p
+#   var obj as compass.Path is calling compass.new_path with "/tmp/notes.txt"
+#   calling spark.println with calling obj.name
+
+import std.spark
+import std.oracle
+import std.scrolls
+
+# ----------------------------------------------------------------------------
+# Version Constant
+# ----------------------------------------------------------------------------
+
+## Module version identifier for std.compass.
+const COMPASS_VERSION as string is "0.15.0"
+
+# ----------------------------------------------------------------------------
+# External C Runtime Declarations
+# ----------------------------------------------------------------------------
+
+declare pengu_c_getcwd into maybe string
+declare pengu_c_getenv with name as string into maybe string
+declare pengu_c_archivum_exists with path as string into bool
+declare pengu_c_archivum_is_file with path as string into bool
+declare pengu_c_archivum_is_dir with path as string into bool
 
 # ----------------------------------------------------------------------------
 # Internal helpers (cp_*)
@@ -31,8 +48,7 @@ weave cp_win into bool:
     else:
         return false
 
-# True when c is a path separator: "/" or a backslash (both accepted on every
-# platform).
+# True when c is a path separator: "/" or a backslash.
 weave cp_is_sep with c as string into bool:
     if c == "/":
         return true
@@ -40,8 +56,7 @@ weave cp_is_sep with c as string into bool:
         return true
     return false
 
-# True when c is an ASCII letter (A-Z or a-z); used to detect Windows drive
-# letters.
+# True when c is an ASCII letter (A-Z or a-z); used to detect Windows drive letters.
 weave cp_is_letter with c as string into bool:
     var code as int is ord c
     if code >= 65:
@@ -52,15 +67,13 @@ weave cp_is_letter with c as string into bool:
             return true
     return false
 
-# Preferred separator for this platform: a backslash on Windows, "/" everywhere
-# else.
+# Preferred separator for this platform: "\\" on Windows, "/" elsewhere.
 weave cp_sep into string:
     if calling cp_win:
         return "\\"
     return "/"
 
-# True when path is absolute: it starts with a separator, or on Windows with a
-# drive prefix such as "C:".
+# True when path is absolute.
 weave cp_is_abs with path as string into bool:
     var pl as int is path length
     if pl == 0:
@@ -81,8 +94,7 @@ weave cp_is_abs with path as string into bool:
         return true
     return false
 
-# True when path is exactly a filesystem root: a bare separator or a Windows
-# drive prefix, with an optional trailing separator.
+# True when path is exactly a filesystem root.
 weave cp_is_root with path as string into bool:
     var pl as int is path length
     if pl == 0:
@@ -117,7 +129,7 @@ weave cp_drive with path as string into string:
             var d1 as string is path at 1
             if calling cp_is_letter with d0:
                 if d1 == ":":
-                    return d0 + ":"
+                    return "{d0}:"
     return ""
 
 # Final component of path; "" for an empty path or one that ends in separators.
@@ -157,8 +169,7 @@ weave cp_basename with path as string into string:
         return ""
     return path at s to (e + 1)
 
-# Directory portion of path without a trailing separator; "" when path has no
-# parent directory.
+# Directory portion of path without a trailing separator; "" when path has no parent directory.
 weave cp_dirname with path as string into string:
     var pl as int is path length
     if pl == 0:
@@ -211,7 +222,6 @@ weave cp_dirname with path as string into string:
     return path at 0 to (e + 1)
 
 # Extension of the basename, dot included (e.g. ".txt"); "" when there is none.
-# A leading dot (hidden file) is not treated as an extension.
 weave cp_ext with path as string into string:
     var base as string is calling cp_basename with path
     var bl as int is base length
@@ -229,8 +239,7 @@ weave cp_ext with path as string into string:
         return ""
     return base at last_dot to bl
 
-# Basename without its final extension; the whole basename when there is no
-# extension.
+# Basename without its final extension.
 weave cp_stem with path as string into string:
     var base as string is calling cp_basename with path
     var bl as int is base length
@@ -248,25 +257,20 @@ weave cp_stem with path as string into string:
         return base
     return base at 0 to last_dot
 
-# True when the basename has an extension (cp_ext is non-empty).
+# True when the basename has an extension.
 weave cp_has_ext with path as string into bool:
     var ex as string is calling cp_ext with path
-    var el as int is ex length
-    if el > 0:
-        return true
-    return false
+    return (ex length) > 0
 
-# True when the tail of path equals suffix (plain, case-sensitive endswith).
-weave cp_has_suffix with path as string , suffix as string into bool:
+# True when the tail of path equals suffix.
+weave cp_has_suffix with path as string, suffix as string into bool:
     var sl as int is path length
     var xl as int is suffix length
     if xl > sl:
         return false
     var st as int is sl - xl
     var tail as string is path at st to sl
-    if tail == suffix:
-        return true
-    return false
+    return tail == suffix
 
 # Suffixes of the basename split at dots, e.g. "a.tar.gz" gives ["tar", "gz"].
 weave cp_suffixes with path as string into list of string:
@@ -293,14 +297,13 @@ weave cp_suffixes with path as string into list of string:
                     else:
                         set j is j + 1
             var slen as int is nd - (i + 1)
-            if slen >= 0:
+            if slen > 0:
                 var piece as string is base at (i + 1) to nd
                 calling out.push with piece
         set i is i + 1
     return out
 
-# Collapses redundant separators and resolves "." and ".." segments; empty
-# input becomes ".". Keeps the drive prefix and uses the platform separator.
+# Collapses redundant separators and resolves "." and ".." segments.
 weave cp_normalize with path as string into string:
     var pl as int is path length
     if pl == 0:
@@ -314,12 +317,12 @@ weave cp_normalize with path as string into string:
             var d1 as string is path at 1
             if calling cp_is_letter with d0:
                 if d1 == ":":
-                    set drv is d0 + ":"
+                    set drv is "{d0}:"
                     set p_idx is 2
     var is_abs as bool is false
     if p_idx < pl:
-        var pc as string is path at p_idx
-        if calling cp_is_sep with pc:
+        var c as string is path at p_idx
+        if calling cp_is_sep with c:
             set is_abs is true
             set p_idx is p_idx + 1
     var stack as list of string is list of string
@@ -337,9 +340,7 @@ weave cp_normalize with path as string into string:
             var seg_len as int is i - cur_start
             if seg_len > 0:
                 var seg as string is path at cur_start to i
-                if seg == ".":
-                    set i is i
-                else:
+                if seg != ".":
                     if seg == "..":
                         var stl as int is stack.len
                         if stl > 0:
@@ -360,24 +361,23 @@ weave cp_normalize with path as string into string:
     if drv length > 0:
         set out is drv
     if is_abs:
-        set out is out + sep
+        set out is "{out}{sep}"
     var k as int is 0
     while k < stack.len:
         if k > 0:
-            set out is out + sep
+            set out is "{out}{sep}"
         else:
             if is_abs == false:
                 if out length > 0:
-                    set out is out + sep
+                    set out is "{out}{sep}"
         var item as string is stack at k
-        set out is out + item
+        set out is "{out}{item}"
         set k is k + 1
     if out length == 0:
         set out is "."
     return out
 
-# Parent directory of path as maybe string; none when path is a root or has no
-# directory part.
+# Parent directory of path as maybe string.
 weave cp_parent with path as string into maybe string:
     if calling cp_is_root with path:
         return maybe none
@@ -386,8 +386,7 @@ weave cp_parent with path as string into maybe string:
         return maybe none
     return some dir
 
-# Splits path into components: optional drive prefix, the root separator
-# (reported as "/"), then each remaining segment.
+# Splits path into components: optional drive prefix, root separator, and segments.
 weave cp_split with path as string into list of string:
     var out as list of string is list of string
     var pl as int is path length
@@ -400,12 +399,12 @@ weave cp_split with path as string into list of string:
             var d1 as string is path at 1
             if calling cp_is_letter with d0:
                 if d1 == ":":
-                    calling out.push with (d0 + ":")
+                    calling out.push with ("{d0}:")
                     set p_idx is 2
     if p_idx < pl:
         var pc as string is path at p_idx
         if calling cp_is_sep with pc:
-            calling out.push with "/"
+            calling out.push with (calling cp_sep)
             set p_idx is p_idx + 1
     var cur_start as int is p_idx
     var i as int is p_idx
@@ -426,8 +425,7 @@ weave cp_split with path as string into list of string:
         set i is i + 1
     return out
 
-# Joins parts with the platform separator and normalizes the result; "" for an
-# empty list. An absolute part restarts the accumulated path.
+# Joins parts with the platform separator and normalizes the result.
 weave cp_join with parts as list of string into string:
     if parts.len == 0:
         return ""
@@ -443,45 +441,42 @@ weave cp_join with parts as list of string into string:
                 if buf length > 0:
                     var last_c as string is buf at (buf length - 1)
                     if not (calling cp_is_sep with last_c):
-                        set buf is buf + sep
-                set buf is buf + p
+                        set buf is "{buf}{sep}"
+                set buf is "{buf}{p}"
         set i is i + 1
     return calling cp_normalize with buf
 
-# Replaces the extension of path with new_ext, adding the dot when new_ext
-# lacks one and removing the extension when new_ext is empty.
-weave cp_change_ext with path as string , new_ext as string into string:
+# Replaces the extension of path with new_ext.
+weave cp_change_ext with path as string, new_ext as string into string:
     var dir as string is calling cp_dirname with path
     var st as string is calling cp_stem with path
     var buf as string is ""
     if dir length > 0:
         var sd as string is calling cp_sep
-        set buf is dir + sd + st
+        set buf is "{dir}{sd}{st}"
     else:
         set buf is st
     if new_ext length > 0:
         var n0 as string is new_ext at 0
         if n0 == ".":
-            set buf is buf + new_ext
+            set buf is "{buf}{new_ext}"
         else:
-            set buf is buf + "." + new_ext
+            set buf is "{buf}.{new_ext}"
     return buf
 
-# Appends ext to path only when path has no extension yet; otherwise returns
-# path unchanged.
-weave cp_add_ext with path as string , ext as string into string:
+# Appends ext to path only when path has no extension yet.
+weave cp_add_ext with path as string, ext as string into string:
     if calling cp_has_ext with path:
         return path
     if ext length == 0:
         return path
     var e0 as string is ext at 0
     if e0 == ".":
-        return path + ext
-    return path + "." + ext
+        return "{path}{ext}"
+    return "{path}.{ext}"
 
-# Relative path that reaches target from base, using ".." segments when needed;
-# none when the paths are absolute and unrelated.
-weave cp_relative_to with target as string , base as string into maybe string:
+# Relative path from base to target.
+weave cp_relative_to with target as string, base as string into maybe string:
     var nt as string is calling cp_normalize with target
     var nb as string is calling cp_normalize with base
     var tp as list of string is calling cp_split with nt
@@ -521,108 +516,327 @@ weave cp_relative_to with target as string , base as string into maybe string:
     var joined as string is calling cp_join with res
     return some joined
 
+# Glob pattern matcher (* and ?).
+weave cp_glob_match with s as string, p as string into bool:
+    var sl as int is s length
+    var pl as int is p length
+    var si as int is 0
+    var pi as int is 0
+    var star_idx as int is -1
+    var match_idx as int is 0
+    while si < sl:
+        if pi < pl:
+            var pc as string is p at pi
+            var sc as string is s at si
+            if (pc == "?") or (pc == sc):
+                set si is si + 1
+                set pi is pi + 1
+            else:
+                if pc == "*":
+                    set star_idx is pi
+                    set match_idx is si
+                    set pi is pi + 1
+                else:
+                    if star_idx != -1:
+                        set pi is star_idx + 1
+                        set match_idx is match_idx + 1
+                        set si is match_idx
+                    else:
+                        return false
+        else:
+            if star_idx != -1:
+                set pi is star_idx + 1
+                set match_idx is match_idx + 1
+                set si is match_idx
+            else:
+                return false
+    while pi < pl:
+        var p_tail as string is p at pi
+        if p_tail != "*":
+            return false
+        set pi is pi + 1
+    return true
+
+# Splits normalized path into components.
+weave cp_components with path as string into list of string:
+    return calling cp_split with (calling cp_normalize with path)
+
+# True when any component of `path` matches `name`.
+weave cp_has_component with path as string, name as string into bool:
+    var comps as list of string is calling cp_components with path
+    var i as int is 0
+    while i < comps.len:
+        if (comps at i) == name:
+            return true
+        set i is i + 1
+    return false
+
+# True when path starts with a dot and is not "." or "..".
+weave cp_is_hidden with path as string into bool:
+    var b as string is calling cp_basename with path
+    if b length == 0:
+        return false
+    if b == ".":
+        return false
+    if b == "..":
+        return false
+    var first as string is b at 0
+    return first == "."
+
+# True when path is a Universal Naming Convention (UNC) path.
+weave cp_is_unc with path as string into bool:
+    var pl as int is path length
+    if pl < 3:
+        return false
+    var c0 as string is path at 0
+    var c1 as string is path at 1
+    if calling cp_is_sep with c0:
+        if calling cp_is_sep with c1:
+            var c2 as string is path at 2
+            if not (calling cp_is_sep with c2):
+                return true
+    return false
+
+# True when path contains glob wildcards (* or ?).
+weave cp_has_wildcard with path as string into bool:
+    var pl as int is path length
+    var i as int is 0
+    while i < pl:
+        var c as string is path at i
+        if c == "*":
+            return true
+        if c == "?":
+            return true
+        set i is i + 1
+    return false
+
+# Tests if filename or path matches a wildcard pattern.
+weave cp_matches with path as string, pattern as string into bool:
+    var has_sep as bool is false
+    var i as int is 0
+    var pl as int is pattern length
+    while i < pl:
+        if calling cp_is_sep with (pattern at i):
+            set has_sep is true
+            break
+        set i is i + 1
+    if has_sep:
+        return calling cp_glob_match with (calling cp_normalize with path), pattern
+    return calling cp_glob_match with (calling cp_basename with path), pattern
+
+# Returns current working directory as an owned string.
+weave cp_cwd into string:
+    var m as maybe string is calling pengu_c_getcwd
+    if m is present:
+        return m.value
+    return "."
+
+# Expands user home directory.
+weave cp_expand_user with path as string into string:
+    var pl as int is path length
+    if pl == 0:
+        return path
+    var c0 as string is path at 0
+    if c0 != "~":
+        return path
+    var home as string is ""
+    if calling cp_win:
+        var u_opt as maybe string is calling pengu_c_getenv with "USERPROFILE"
+        if u_opt is present:
+            set home is u_opt.value
+        else:
+            var h_opt as maybe string is calling pengu_c_getenv with "HOME"
+            if h_opt is present:
+                set home is h_opt.value
+    else:
+        var h_opt2 as maybe string is calling pengu_c_getenv with "HOME"
+        if h_opt2 is present:
+            set home is h_opt2.value
+    if home length == 0:
+        return path
+    if pl == 1:
+        return home
+    var c1 as string is path at 1
+    if calling cp_is_sep with c1:
+        var rest as string is path at 2 to pl
+        var parts as list of string is list of string
+        calling parts.push with home
+        calling parts.push with rest
+        return calling cp_join with parts
+    return path
+
+# Returns the normalized absolute path.
+weave cp_absolute with path as string into string:
+    if calling cp_is_abs with path:
+        return calling cp_normalize with path
+    var cur as string is calling cp_cwd
+    var parts as list of string is list of string
+    calling parts.push with cur
+    calling parts.push with path
+    return calling cp_join with parts
+
+# Replaces final component (basename) of path with new_name.
+weave cp_with_filename with path as string, new_name as string into string:
+    var p as string is calling cp_dirname with path
+    if p length == 0:
+        return new_name
+    var parts as list of string is list of string
+    calling parts.push with p
+    calling parts.push with new_name
+    return calling cp_join with parts
+
 # ----------------------------------------------------------------------------
-# Module-level members
+# Module-level Functions
 # ----------------------------------------------------------------------------
 
-# Joins path parts with the platform separator and normalizes the result.
+## Joins path parts with the platform separator and normalizes the result.
 weave join with parts as list of string into string:
     return calling cp_join with parts
 
-# Joins path parts with the platform separator and normalizes the result; kept
-# as a twin of join.
+## Joins path parts with the platform separator and normalizes the result; twin of join.
 weave join_all with parts as list of string into string:
     return calling cp_join with parts
 
-# Final component of path, or "" when there is none.
+## Final component of path (filename), or "" when there is none.
 weave basename with path as string into string:
     return calling cp_basename with path
 
-# Directory portion of path without a trailing separator, or "" when there is
-# none.
+## Alias of basename: returns the final component of `path`.
+weave filename with path as string into string:
+    return calling cp_basename with path
+
+## Directory portion of path without a trailing separator, or "" when there is none.
 weave dirname with path as string into string:
     return calling cp_dirname with path
 
-# Extension of the basename including the dot, or "" when there is none.
+## Extension of the basename including the dot (e.g. ".txt"), or "" when there is none.
 weave ext with path as string into string:
     return calling cp_ext with path
 
-# Basename without its final extension.
+## Basename without its final extension.
 weave stem with path as string into string:
     return calling cp_stem with path
 
-# True when path is absolute (drive prefix on Windows, or a leading separator).
+## Alias of stem: returns basename without its final extension.
+weave file_stem with path as string into string:
+    return calling cp_stem with path
+
+## True when path is absolute (drive prefix on Windows, or a leading separator).
 weave is_absolute with path as string into bool:
     return calling cp_is_abs with path
 
-# True when path is not absolute.
+## True when path is not absolute.
 weave is_relative with path as string into bool:
-    var abs as bool is calling cp_is_abs with path
-    return not abs
+    return not (calling cp_is_abs with path)
 
-# Collapses redundant separators and resolves "." and ".." segments.
+## Collapses redundant separators and resolves "." and ".." segments.
 weave normalize with path as string into string:
     return calling cp_normalize with path
 
-# Parent directory as maybe string; none when path is a root or has no parent
-# directory.
+## Parent directory as maybe string; none when path is a root or has no parent directory.
 weave parent with path as string into maybe string:
     return calling cp_parent with path
 
-# Splits path into its drive, root separator and segment components.
+## Splits path into its drive, root separator and segment components.
 weave split with path as string into list of string:
     return calling cp_split with path
 
-# True when the basename has an extension.
+## Splits normalized path into components.
+weave components with path as string into list of string:
+    return calling cp_components with path
+
+## True when any component of `path` matches `name`.
+weave has_component with path as string, name as string into bool:
+    return calling cp_has_component with path, name
+
+## True when the basename has an extension.
 weave has_ext with path as string into bool:
     return calling cp_has_ext with path
 
-# Preferred path separator for this platform.
+## Preferred path separator for this platform ("\\" on Windows, "/" elsewhere).
 weave separator into string:
     return calling cp_sep
 
-# Alternate path separator as maybe string: some "/" on Windows, none on other
-# platforms.
+## Alternate path separator: some "/" on Windows, none on other platforms.
 weave alt_separator into maybe string:
     if calling cp_win:
         return some "/"
     return maybe none
 
-# True when path is exactly a filesystem root.
+## True when path is exactly a filesystem root.
 weave is_root with path as string into bool:
     return calling cp_is_root with path
 
-# Windows drive prefix of path (e.g. "C:"), or "" when there is none.
+## Windows drive prefix of path (e.g. "C:"), or "" when there is none.
 weave drive with path as string into string:
     return calling cp_drive with path
 
-# Replaces the extension of path with new_ext (dot added when missing; ""
-# removes the extension).
-weave change_ext with path as string , new_ext as string into string:
-    return calling cp_change_ext with path , new_ext
+## Replaces the extension of path with new_ext (dot added when missing; "" removes extension).
+weave change_ext with path as string, new_ext as string into string:
+    return calling cp_change_ext with path, new_ext
 
-# Appends ext only when path has no extension yet.
-weave add_ext with path as string , ext as string into string:
-    return calling cp_add_ext with path , ext
+## Replaces the extension of path with new_ext.
+weave with_extension with path as string, new_ext as string into string:
+    return calling cp_change_ext with path, new_ext
 
-# Relative path from base to target, using ".." segments when needed; none for
-# unrelated absolute paths.
-weave relative_to with target as string , base as string into maybe string:
-    return calling cp_relative_to with target , base
+## Returns path without its final extension.
+weave without_extension with path as string into string:
+    return calling cp_change_ext with path, ""
 
-# True when the tail of path equals suffix.
-weave has_suffix with path as string , suffix as string into bool:
-    return calling cp_has_suffix with path , suffix
+## Replaces final component (basename) of path with new_name.
+weave with_filename with path as string, new_name as string into string:
+    return calling cp_with_filename with path, new_name
 
-# The dotted suffixes of the basename, e.g. "a.tar.gz" gives ["tar", "gz"].
+## Appends ext only when path has no extension yet.
+weave add_ext with path as string, ext as string into string:
+    return calling cp_add_ext with path, ext
+
+## Relative path from base to target, using ".." segments when needed.
+weave relative_to with target as string, base as string into maybe string:
+    return calling cp_relative_to with target, base
+
+## True when the tail of path equals suffix.
+weave has_suffix with path as string, suffix as string into bool:
+    return calling cp_has_suffix with path, suffix
+
+## The dotted suffixes of the basename, e.g. "a.tar.gz" gives ["tar", "gz"].
 weave suffixes with path as string into list of string:
     return calling cp_suffixes with path
 
-# True when this build targets Windows.
+## True when path starts with a dot and is not "." or "..".
+weave is_hidden with path as string into bool:
+    return calling cp_is_hidden with path
+
+## True when path is a Universal Naming Convention (UNC) path (e.g. "\\server\share").
+weave is_unc with path as string into bool:
+    return calling cp_is_unc with path
+
+## True when path contains glob wildcards (* or ?).
+weave has_wildcard with path as string into bool:
+    return calling cp_has_wildcard with path
+
+## Tests if filename or path matches a wildcard pattern.
+weave matches with path as string, pattern as string into bool:
+    return calling cp_matches with path, pattern
+
+## Returns the current working directory as an owned string.
+weave cwd into string:
+    return calling cp_cwd
+
+## Expands leading '~' or '~/...' to user home directory.
+## Note: Named user expansions ('~username') are not supported and are returned unchanged.
+weave expand_user with path as string into string:
+    return calling cp_expand_user with path
+
+## Returns the normalized absolute path.
+weave absolute with path as string into string:
+    return calling cp_absolute with path
+
+## True when this build targets Windows.
 weave is_windows into bool:
     return calling cp_win
 
-# True when this build targets a Unix-like platform (not Windows).
+## True when this build targets a Unix-like platform (not Windows).
 weave is_unix into bool:
     if calling cp_win:
         return false
@@ -632,90 +846,146 @@ weave is_unix into bool:
 # Path value type
 # ----------------------------------------------------------------------------
 
-# Path value: an owned wrapper around a raw path string that exposes
-# chainable query and transform methods.
+## An owned wrapper around a raw path string exposing chainable query and transform methods.
 rune Path:
     raw as string
 
-# Method implementations for Path; each method operates on the wrapped raw
-# string (self->raw).
+## Method implementations for Path.
 enchanting Path:
-    # The underlying raw path as a plain string.
+    ## Ritual constructor creating a Path from a raw string.
+    weave ritual from_str with s as string into Path:
+        return with raw is s
+
+    ## Ritual constructor returning the current working directory as a Path.
+    weave ritual cwd into Path:
+        var cur as string is calling cp_cwd
+        return with raw is cur
+
+    ## The underlying raw path as a plain string.
     weave to_string into string:
         return self->raw
 
-    # Final component of the path (basename), "" when there is none.
+    ## Final component of the path (basename), "" when there is none.
     weave name into string:
         return calling cp_basename with self->raw
 
-    # Directory of the path as maybe string; none when it is a root or has no
-    # parent directory.
+    ## Directory of the path as maybe string; none when it is a root or has no parent directory.
     weave parent into maybe string:
         return calling cp_parent with self->raw
 
-    # Basename without the final extension.
+    ## Basename without the final extension.
     weave stem into string:
         return calling cp_stem with self->raw
 
-    # Extension including the dot, "" when there is none.
+    ## Extension including the dot, "" when there is none.
     weave suffix into string:
         return calling cp_ext with self->raw
 
-    # Dotted suffixes of the basename, e.g. "a.tar.gz" gives ["tar", "gz"].
+    ## Dotted suffixes of the basename, e.g. "a.tar.gz" gives ["tar", "gz"].
     weave suffixes into list of string:
         return calling cp_suffixes with self->raw
 
-    # Windows drive prefix, "" when there is none.
+    ## Windows drive prefix, "" when there is none.
     weave drive into string:
         return calling cp_drive with self->raw
 
-    # Path split into drive, root separator and segment components.
+    ## Path split into drive, root separator and segment components.
     weave parts into list of string:
         return calling cp_split with self->raw
 
-    # True when the path is absolute.
+    ## Normalized path components.
+    weave components into list of string:
+        return calling cp_components with self->raw
+
+    ## True when the path is absolute.
     weave is_absolute into bool:
         return calling cp_is_abs with self->raw
 
-    # True when the path is relative (not absolute).
+    ## True when the path is relative (not absolute).
     weave is_relative into bool:
-        var abs as bool is calling cp_is_abs with self->raw
-        return not abs
+        return not (calling cp_is_abs with self->raw)
 
-    # True when the path is exactly a filesystem root.
+    ## True when the path is exactly a filesystem root.
     weave is_root into bool:
         return calling cp_is_root with self->raw
 
-    # True when the basename carries an extension.
+    ## True when the basename carries an extension.
     weave has_suffix into bool:
         return calling cp_has_ext with self->raw
 
-    # True when the tail of the path equals the given suffix.
+    ## True when the tail of the path equals the given suffix.
     weave has_suffix_with with suffix as string into bool:
-        return calling cp_has_suffix with self->raw , suffix
+        return calling cp_has_suffix with self->raw, suffix
 
-    # True when the wrapped path is the empty string.
+    ## True when the wrapped path is the empty string.
     weave is_empty into bool:
         return self->raw == ""
 
-    # A new Path with redundant separators and "." / ".." segments resolved.
+    ## True when path starts with a dot and is not "." or "..".
+    weave is_hidden into bool:
+        return calling cp_is_hidden with self->raw
+
+    ## True when the path matches the given wildcard pattern.
+    weave matches with pattern as string into bool:
+        return calling cp_matches with self->raw, pattern
+
+    ## True when the entry exists on the filesystem.
+    weave exists into bool:
+        return calling pengu_c_archivum_exists with self->raw
+
+    ## True when the entry is a regular file.
+    weave is_file into bool:
+        return calling pengu_c_archivum_is_file with self->raw
+
+    ## True when the entry is a directory.
+    weave is_dir into bool:
+        return calling pengu_c_archivum_is_dir with self->raw
+
+    ## Returns a new Path with normalized absolute path.
+    weave to_absolute into Path:
+        var abs_str as string is calling cp_absolute with self->raw
+        return with raw is abs_str
+
+    ## Returns a new Path with expanded user directory.
+    weave expand_user into Path:
+        var exp_str as string is calling cp_expand_user with self->raw
+        return with raw is exp_str
+
+    ## Converts path to a file:// URI (best effort: backslashes normalized to '/', spaces encoded as '%20').
+    weave to_uri into string:
+        var norm as string is calling cp_normalize with self->raw
+        var buf as string is ""
+        var i as int is 0
+        var nl as int is norm length
+        while i < nl:
+            var c as string is norm at i
+            if c == "\\":
+                set buf is "{buf}/"
+            else:
+                if c == " ":
+                    set buf is "{buf}%20"
+                else:
+                    set buf is "{buf}{c}"
+            set i is i + 1
+        if (buf length > 0) and ((buf at 0) == "/"):
+            return "file://{buf}"
+        return "file:///{buf}"
+
+    ## A new Path with redundant separators and "." / ".." segments resolved.
     weave normalize into Path:
         var res as string is calling cp_normalize with self->raw
         return with raw is res
 
-    # Relative path from base to this path as maybe string; none when the paths
-    # are unrelated.
+    ## Relative path from base to this path as maybe string.
     weave relative_to with base as string into maybe string:
-        return calling cp_relative_to with self->raw , base
+        return calling cp_relative_to with self->raw, base
 
-    # A new Path whose extension is replaced by new_ext (dot added when missing;
-    # "" removes the extension).
+    ## A new Path whose extension is replaced by new_ext.
     weave with_suffix with new_ext as string into Path:
-        var res as string is calling cp_change_ext with self->raw , new_ext
+        var res as string is calling cp_change_ext with self->raw, new_ext
         return with raw is res
 
-    # A new Path with its final component replaced by new_name; the directory
-    # portion is kept.
+    ## A new Path with its final component replaced by new_name.
     weave with_name with new_name as string into Path:
         var parent_str as string is calling cp_dirname with self->raw
         if parent_str == "":
@@ -726,23 +996,33 @@ enchanting Path:
         var res as string is calling cp_join with parts
         return with raw is res
 
-    # A new Path with ext appended when it has no extension yet, unchanged
-    # otherwise.
+    ## A new Path with ext appended when it has no extension yet, unchanged otherwise.
     weave add_suffix with ext as string into Path:
-        var res as string is calling cp_add_ext with self->raw , ext
+        var res as string is calling cp_add_ext with self->raw, ext
         return with raw is res
 
-    # A new Path without its final extension.
+    ## A new Path without its final extension.
     weave without_suffix into Path:
-        var res as string is calling cp_change_ext with self->raw , ""
+        var res as string is calling cp_change_ext with self->raw, ""
         return with raw is res
 
-# Builds an owned Path value from a raw path string.
+# ----------------------------------------------------------------------------
+# Path Constructors & Wrappers
+# ----------------------------------------------------------------------------
+
+## Builds an owned Path value from a raw path string.
 weave path with raw as string into Path:
     return with raw is raw
 
-# Builds an owned Path by joining parts with the platform separator and
-# normalizing the result.
+## Builds an owned Path value from a raw path string (alias of Path.from_str).
+weave new_path with s as string into Path:
+    return calling Path.from_str with s
+
+## Returns the current working directory as an owned Path.
+weave current_dir into Path:
+    return calling Path.cwd
+
+## Builds an owned Path by joining parts with the platform separator and normalizing.
 weave path_join with parts as list of string into Path:
     var joined as string is calling cp_join with parts
     return with raw is joined

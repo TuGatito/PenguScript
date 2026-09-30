@@ -1,0 +1,22 @@
+# valgrind/leakcheck: a list of runes with Imago/Nexus deep-copies its elements.
+import std.spark
+
+rune Box derive Par, Imago:
+    label as string
+
+weave main into int:
+    var boxes as list of Box is list of Box
+    var b as Box with:
+        set .label is "first"
+    calling boxes.push with b
+    var c as Box with:
+        set .label is "second"
+    calling boxes.push with c
+    calling spark.println with (boxes at 1).label
+    # A rune local owns its string fields: the slot deep-copy is released by
+    # 'banish' (the list holds its own independent copies).
+    banish b
+    banish c
+    if calling boxes.len == 2:
+        return 0
+    return 1

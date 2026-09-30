@@ -1,0 +1,10 @@
+# Explicit type arguments: 'calling fn of T with ...'.
+weave identity shard T with x as T into T:
+    return x
+
+weave main into int:
+    var a as int is calling identity of int with 5
+    var b as string is calling identity of string with "hi"
+    if a == 5 and b == "hi":
+        return 0
+    return 1

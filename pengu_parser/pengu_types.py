@@ -30,7 +30,7 @@ def mangle_type(t: Optional[Type]) -> str:
         return f"result_{mangle_type(t.ok_type)}_{mangle_type(t.err_type)}"
     if isinstance(t, (RuneType, EchoType, OmenType, AliasType)):
         if getattr(t, "type_args", []):
-            base = t.name.split("_")[0] if "_" in t.name and not getattr(t, "type_params", []) else t.name
+            base = t.get_base_name() if hasattr(t, "get_base_name") else (t.name.split("_")[0] if "_" in t.name and not getattr(t, "type_params", []) else t.name)
             args_str = "_".join(mangle_type(a) for a in t.type_args)
             name = f"{base}_{args_str}"
         else:
@@ -187,10 +187,47 @@ class TypeParam(Type):
         return type_map.get(self.name, self)
 
     def is_compatible(self, other: Type) -> bool:
+        """Checks whether a value of this type parameter fits the ``other`` slot.
+
+        A type parameter without bounds is a wildcard (backwards compatible with
+        the pre-bounds behaviour).  With bounds, the target must satisfy every
+        bound: ``T: Num`` is not a ``string``, but it *is* compatible with an
+        unconstrained ``U`` or with an ``AnyType`` placeholder.
+        """
+        if isinstance(other, (AnyType, TypeParam, NullType)):
+            return True
+        if isinstance(other, FrozenType):
+            return self.is_compatible(other.target)
+        if isinstance(other, AliasType):
+            return self.is_compatible(other.target)
+        if not self.bounds:
+            return True
+        for b in self.bounds:
+            if not type_implements_builtin_concept(other, b):
+                return False
         return True
 
     def can_cast_to(self, other: Type) -> bool:
         return True
+
+    def is_numeric(self) -> bool:
+        # 'Integrum' refines 'Num': integers are numeric.
+        return "Num" in self.bounds or "Integrum" in self.bounds
+
+    def is_int(self) -> bool:
+        return "Integrum" in self.bounds
+
+    def is_float(self) -> bool:
+        return "Num" in self.bounds and "Integrum" not in self.bounds
+
+    def is_string(self) -> bool:
+        return "Forma" in self.bounds
+
+    def is_bool(self) -> bool:
+        return "Par" in self.bounds and not self.is_numeric()
+
+    def is_iterable(self) -> bool:
+        return "Iterabilis" in self.bounds
 
     def __repr__(self) -> str:
         return self.name
@@ -294,7 +331,17 @@ class BaseType(Type):
             # A mutable value flows into a read-only view (C allows
             # adding 'const'); the reverse is rejected by FrozenType.
             return self.is_compatible(other.target)
-        if isinstance(other, AnyType) or isinstance(other, TypeParam):
+        if isinstance(other, AnyType):
+            return True
+        if isinstance(other, TypeParam):
+            # A type parameter is a wildcard for the value direction, but only
+            # while its *builtin* bounds hold: 'int' cannot flow into 'T: Forma'
+            # unless the primitive table says it implements the concept.
+            # User-defined concepts are decided by the checker (which has the
+            # symbol table), so they stay permissive here.
+            for bound in getattr(other, "bounds", []) or []:
+                if bound in BUILTIN_CONCEPTS and not type_implements_builtin_concept(self, bound):
+                    return False
             return True
         if self.name in ("opaque", "any") and isinstance(other, NullType):
             return True
@@ -809,6 +856,10 @@ class ListType(Type):
         """Returns formatted list type string."""
         return f"list of {self.element}"
 
+    @property
+    def type_args(self) -> List[Type]:
+        return [self.element]
+
     def substitute(self, type_map: Dict[str, Type]) -> Type:
         return ListType(element=self.element.substitute(type_map))
 
@@ -855,6 +906,10 @@ class MapType(Type):
         """Returns formatted map type string."""
         return f"map of {self.key} to {self.value}"
 
+    @property
+    def type_args(self) -> List[Type]:
+        return [self.key, self.value]
+
     def substitute(self, type_map: Dict[str, Type]) -> Type:
         return MapType(key=self.key.substitute(type_map), value=self.value.substitute(type_map))
 
@@ -900,6 +955,10 @@ class MaybeType(Type):
         """Returns formatted maybe type string."""
         return f"maybe {self.element}"
 
+    @property
+    def type_args(self) -> List[Type]:
+        return [self.element]
+
     def substitute(self, type_map: Dict[str, Type]) -> Type:
         return MaybeType(element=self.element.substitute(type_map))
 
@@ -938,6 +997,10 @@ class ResultType(Type):
         """Returns formatted result type string."""
         return f"result of {self.ok_type} to {self.err_type}"
 
+    @property
+    def type_args(self) -> List[Type]:
+        return [self.ok_type, self.err_type]
+
     def substitute(self, type_map: Dict[str, Type]) -> Type:
         return ResultType(ok_type=self.ok_type.substitute(type_map), err_type=self.err_type.substitute(type_map))
 
@@ -974,6 +1037,18 @@ class RuneType(Type):
     type_params: List[str] = field(default_factory=list)
     type_args: List[Type] = field(default_factory=list)
     c_name: Optional[str] = None
+    base_name: Optional[str] = None
+    derived_concepts: List[str] = field(default_factory=list)
+
+    def get_base_name(self) -> str:
+        if self.base_name:
+            return self.base_name
+        if self.type_args and "_" in self.name:
+            return self.name.split("_")[0]
+        return self.name
+
+    def implements(self, concept_name: str) -> bool:
+        return concept_name in self.derived_concepts
 
     @property
     def is_generic(self) -> bool:
@@ -990,11 +1065,11 @@ class RuneType(Type):
         new_args = [a.substitute(type_map) for a in self.type_args]
         if not new_args and self.type_params:
             new_args = [type_map.get(tp, TypeParam(tp)) for tp in self.type_params]
-        base_name = self.name.split("_")[0] if self.type_args else self.name
+        base = self.get_base_name()
         if new_args and not any(isinstance(a, TypeParam) for a in new_args):
-            mangled = f"{base_name}_{'_'.join(a.get_mangled_name() for a in new_args)}"
-            return RuneType(name=mangled, fields=new_fields, methods=new_methods, type_params=[], type_args=new_args)
-        return RuneType(name=self.name, fields=new_fields, methods=new_methods, type_params=self.type_params, type_args=new_args)
+            mangled = f"{base}_{'_'.join(a.get_mangled_name() for a in new_args)}"
+            return RuneType(name=mangled, fields=new_fields, methods=new_methods, type_params=[], type_args=new_args, base_name=base, derived_concepts=list(self.derived_concepts))
+        return RuneType(name=self.name, fields=new_fields, methods=new_methods, type_params=self.type_params, type_args=new_args, base_name=base, derived_concepts=list(self.derived_concepts))
 
     def is_compatible(self, other: Type) -> bool:
         """Checks rune compatibility by nominal type name."""
@@ -1008,8 +1083,8 @@ class RuneType(Type):
             if self.name == other.name:
                 return True
             if self.type_args and other.type_args and len(self.type_args) == len(other.type_args):
-                base_self = self.name.split("_")[0]
-                base_other = other.name.split("_")[0]
+                base_self = self.get_base_name()
+                base_other = other.get_base_name()
                 return base_self == base_other and all(a1.is_compatible(a2) for a1, a2 in zip(self.type_args, other.type_args))
         return False
 
@@ -1030,6 +1105,18 @@ class EchoType(Type):
     type_params: List[str] = field(default_factory=list)
     type_args: List[Type] = field(default_factory=list)
     c_name: Optional[str] = None
+    base_name: Optional[str] = None
+    derived_concepts: List[str] = field(default_factory=list)
+
+    def get_base_name(self) -> str:
+        if self.base_name:
+            return self.base_name
+        if self.type_args and "_" in self.name:
+            return self.name.split("_")[0]
+        return self.name
+
+    def implements(self, concept_name: str) -> bool:
+        return concept_name in self.derived_concepts
 
     @property
     def is_generic(self) -> bool:
@@ -1045,11 +1132,11 @@ class EchoType(Type):
         new_args = [a.substitute(type_map) for a in self.type_args]
         if not new_args and self.type_params:
             new_args = [type_map.get(tp, TypeParam(tp)) for tp in self.type_params]
-        base_name = self.name.split("_")[0] if self.type_args else self.name
+        base_name = self.get_base_name()
         if new_args and not any(isinstance(a, TypeParam) for a in new_args):
             mangled = f"{base_name}_{'_'.join(a.get_mangled_name() for a in new_args)}"
-            return EchoType(name=mangled, fields=new_fields, type_params=[], type_args=new_args)
-        return EchoType(name=self.name, fields=new_fields, type_params=self.type_params, type_args=new_args)
+            return EchoType(name=mangled, fields=new_fields, type_params=[], type_args=new_args, base_name=base_name, derived_concepts=list(self.derived_concepts))
+        return EchoType(name=self.name, fields=new_fields, type_params=self.type_params, type_args=new_args, base_name=base_name, derived_concepts=list(self.derived_concepts))
 
     def is_compatible(self, other: Type) -> bool:
         """Checks echo union compatibility by nominal type name."""
@@ -1081,6 +1168,18 @@ class OmenType(Type):
     type_params: List[str] = field(default_factory=list)
     type_args: List[Type] = field(default_factory=list)
     c_name: Optional[str] = None
+    base_name: Optional[str] = None
+    derived_concepts: List[str] = field(default_factory=list)
+
+    def get_base_name(self) -> str:
+        if self.base_name:
+            return self.base_name
+        if self.type_args and "_" in self.name:
+            return self.name.split("_")[0]
+        return self.name
+
+    def implements(self, concept_name: str) -> bool:
+        return concept_name in self.derived_concepts
 
     @property
     def is_generic(self) -> bool:
@@ -1120,16 +1219,18 @@ class OmenType(Type):
         new_args = [a.substitute(type_map) for a in self.type_args]
         if not new_args and self.type_params:
             new_args = [type_map.get(tp, TypeParam(tp)) for tp in self.type_params]
-        base_name = self.name.split("_")[0] if self.type_args else self.name
+        base_name = self.get_base_name()
         if new_args and not any(isinstance(a, TypeParam) for a in new_args):
             mangled = f"{base_name}_{'_'.join(a.get_mangled_name() for a in new_args)}"
             # A specialization is a fresh concrete type: clear the template's
             # c_name so CTypeMapper emits the mangled specialization name
             # (Status_string), not the generic base (Status).
             return OmenType(name=mangled, variants=new_variants, variant_values=self.variant_values,
-                            type_params=[], type_args=new_args, c_name=None)
+                            type_params=[], type_args=new_args, c_name=None, base_name=base_name,
+                            derived_concepts=list(self.derived_concepts))
         return OmenType(name=self.name, variants=new_variants, variant_values=self.variant_values,
-                        type_params=self.type_params, type_args=new_args, c_name=self.c_name)
+                        type_params=self.type_params, type_args=new_args, c_name=self.c_name, base_name=base_name,
+                        derived_concepts=list(self.derived_concepts))
 
     def is_compatible(self, other: Type) -> bool:
         """Checks omen sum type compatibility by nominal type name."""
@@ -1356,13 +1457,21 @@ class SealType(Type):
 class AliasType(Type):
     """Type alias representing a user-defined alias for an underlying target type."""
 
-    def __init__(self, name: str, target: Type, type_params: Optional[List[str]] = None, type_args: Optional[List[Type]] = None, c_name: Optional[str] = None):
+    def __init__(self, name: str, target: Type, type_params: Optional[List[str]] = None, type_args: Optional[List[Type]] = None, c_name: Optional[str] = None, base_name: Optional[str] = None):
         """Initializes a new Type alias."""
         self.name = name
         self.target = target
         self.type_params = type_params or []
         self.type_args = type_args or []
         self.c_name = c_name
+        self.base_name = base_name
+
+    def get_base_name(self) -> str:
+        if self.base_name:
+            return self.base_name
+        if self.type_args and "_" in self.name:
+            return self.name.split("_")[0]
+        return self.name
 
     @property
     def is_generic(self) -> bool:
@@ -1378,11 +1487,11 @@ class AliasType(Type):
         new_args = [a.substitute(type_map) for a in self.type_args]
         if not new_args and self.type_params:
             new_args = [type_map.get(tp, TypeParam(tp)) for tp in self.type_params]
-        base_name = self.name.split("_")[0] if self.type_args else self.name
+        base_name = self.get_base_name()
         if new_args and not any(isinstance(a, TypeParam) for a in new_args):
             mangled = f"{base_name}_{'_'.join(a.get_mangled_name() for a in new_args)}"
-            return AliasType(name=mangled, target=new_target, type_params=[], type_args=new_args)
-        return AliasType(name=self.name, target=new_target, type_params=self.type_params, type_args=new_args)
+            return AliasType(name=mangled, target=new_target, type_params=[], type_args=new_args, base_name=base_name)
+        return AliasType(name=self.name, target=new_target, type_params=self.type_params, type_args=new_args, base_name=base_name)
 
     def is_compatible(self, other: Type) -> bool:
         """Checks compatibility by alias name or underlying target type."""
@@ -1443,22 +1552,281 @@ class AliasType(Type):
         return hash(("alias", self.name))
 
 
-def implements_concept(t: Type, concept_name: str, symbols: Any) -> bool:
-    """Checks if type t implements concept_name via registered concept bindings."""
-    if t is None or symbols is None:
+BUILTIN_CONCEPTS: Dict[str, ConceptType] = {
+    "Num": ConceptType(name="Num", methods={}),
+    "Integrum": ConceptType(name="Integrum", methods={}),
+    "Par": ConceptType(name="Par", methods={}),
+    "Ordo": ConceptType(name="Ordo", methods={}),
+    "Vinculum": ConceptType(name="Vinculum", methods={}),
+    "Imago": ConceptType(name="Imago", methods={}),
+    "Nexus": ConceptType(name="Nexus", methods={}),
+    "Forma": ConceptType(name="Forma", methods={}),
+    "Iterabilis": ConceptType(name="Iterabilis", methods={}),
+    "Donum": ConceptType(name="Donum", methods={}),
+}
+
+# Concept sets shared by the primitive tables below.  ``Integrum`` is a strict
+# refinement of ``Num``: integer types satisfy both, floating-point types only
+# satisfy ``Num``.  That is what makes ``%``/bitwise operators reject ``float``.
+# Every primitive is trivially droppable, so they all carry ``Nexus`` (a no-op
+# destructor) which is what lets 'rune P derive Nexus' have scalar fields.
+_INT_CONCEPTS: Set[str] = {"Num", "Integrum", "Par", "Ordo", "Vinculum", "Imago", "Nexus", "Forma", "Donum"}
+_FLOAT_CONCEPTS: Set[str] = {"Num", "Par", "Ordo", "Vinculum", "Imago", "Nexus", "Forma", "Donum"}
+
+_INT_NAMES = (
+    "int", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64",
+    "usize", "isize", "int8", "uint8", "int16", "uint16", "int32",
+    "uint32", "int64", "uint64", "size_t", "short", "ushort", "long",
+    "ulong", "uint", "int8_t", "uint8_t", "int16_t", "uint16_t",
+    "int32_t", "uint32_t", "int64_t", "uint64_t", "ptrdiff_t", "intptr_t",
+    "uintptr_t",
+)
+_FLOAT_NAMES = ("float", "f32", "f64", "double", "float32", "float64")
+
+PRIMITIVE_IMPLS: Dict[str, Set[str]] = {
+    name: set(_INT_CONCEPTS) for name in _INT_NAMES
+}
+PRIMITIVE_IMPLS.update({name: set(_FLOAT_CONCEPTS) for name in _FLOAT_NAMES})
+PRIMITIVE_IMPLS.update({
+    "bool": {"Par", "Vinculum", "Imago", "Nexus", "Forma", "Donum"},
+    "char": {"Par", "Ordo", "Vinculum", "Imago", "Nexus", "Forma"},
+    "byte": {"Par", "Integrum", "Ordo", "Vinculum", "Imago", "Nexus"},
+    "string": {"Par", "Ordo", "Vinculum", "Imago", "Nexus", "Forma", "Donum", "Iterabilis"},
+    "list": {"Par", "Iterabilis", "Imago", "Nexus"},
+    "map": {"Par", "Iterabilis", "Imago", "Nexus"},
+    "slice": {"Par", "Iterabilis"},
+    "maybe": {"Par", "Imago", "Nexus"},
+    "result": {"Par", "Imago", "Nexus"},
+})
+
+
+def type_owns_heap(t: Optional[Type], _depth: int = 0) -> bool:
+    """True when a value of this type owns memory that must be released.
+
+    Used for the *implicit* Imago/Nexus of a rune whose fields need a deep copy
+    or a destructor: otherwise a 'list of Rune' would silently leak every
+    element's buffer.
+    """
+    if t is None or _depth > 12:
         return False
-    if isinstance(t, AnyType) or isinstance(t, TypeParam):
+    u = t
+    while isinstance(u, (AliasType, FrozenType, SealType)):
+        nxt = getattr(u, "target", None) or getattr(u, "underlying", None)
+        if nxt is None or nxt is u:
+            break
+        u = nxt
+    if isinstance(u, BaseType):
+        return u.name == "string"
+    if isinstance(u, (ListType, MapType, MaybeType, ResultType)):
         return True
+    if isinstance(u, ArrayType):
+        return type_owns_heap(getattr(u, "element", None), _depth + 1)
+    if isinstance(u, RuneType):
+        derived = list(getattr(u, "derived_concepts", []) or [])
+        if "Imago" in derived or "Nexus" in derived:
+            return True
+        fields = getattr(u, "fields", None) or {}
+        return any(type_owns_heap(f, _depth + 1) for f in fields.values())
+    return False
+
+
+def type_implements_builtin_concept(t: Type, concept_name: str) -> bool:
+    """Checks if type inherently implements one of the built-in concepts.
+
+    Covers the primitive tables, container capabilities and the ``derive``
+    clause recorded on runes/omens/echos.  Named concept *bindings* live in the
+    symbol table and are resolved by :func:`implements_concept` instead.
+    """
+    if isinstance(t, TypeParam):
+        return concept_name in t.bounds
+    if isinstance(t, AnyType):
+        return True
+    if isinstance(t, FrozenType):
+        return type_implements_builtin_concept(t.target, concept_name)
+    if isinstance(t, AliasType):
+        return type_implements_builtin_concept(t.target, concept_name)
+    if isinstance(t, BaseType):
+        return concept_name in PRIMITIVE_IMPLS.get(t.name, set())
+    if isinstance(t, ArrayType):
+        # A fixed array borrows its element's capabilities: 'array of string'
+        # is an Imago/Nexus field, 'array of int' too.
+        if getattr(t, "element", None) is None:
+            return False
+        return type_implements_builtin_concept(t.element, concept_name)
+    if isinstance(t, ListType):
+        return concept_name in PRIMITIVE_IMPLS.get("list", set())
+    if isinstance(t, MapType):
+        return concept_name in PRIMITIVE_IMPLS.get("map", set())
+    if isinstance(t, SliceType):
+        return concept_name in PRIMITIVE_IMPLS.get("slice", set())
+    if isinstance(t, MaybeType):
+        return concept_name in PRIMITIVE_IMPLS.get("maybe", set())
+    if isinstance(t, ResultType):
+        return concept_name in PRIMITIVE_IMPLS.get("result", set())
+    derived = getattr(t, "derived_concepts", None)
+    if derived:
+        concept_base = concept_name.split("_")[0] if "_" in concept_name else concept_name
+        if concept_name in derived or concept_base in derived:
+            return True
+    if isinstance(t, RuneType) and concept_name in ("Imago", "Nexus"):
+        # A rune with heap-owning fields gets an implicit deep copy/destructor so
+        # that containers and 'some' boxes can own it safely.
+        if type_owns_heap(t):
+            return True
+    t_name = getattr(t, "name", str(t))
+    if t_name in PRIMITIVE_IMPLS and concept_name in PRIMITIVE_IMPLS[t_name]:
+        return True
+    return False
+
+
+def unwrap_aliasish(t: Optional[Type]) -> Optional[Type]:
+    """Strips alias/frozen/seal wrappers, returning the underlying type."""
+    seen = 0
+    while t is not None and seen < 32:
+        if isinstance(t, (AliasType, FrozenType, SealType)):
+            nxt = getattr(t, "target", None) or getattr(t, "underlying", None)
+            if nxt is None or nxt is t:
+                break
+            t = nxt
+            seen += 1
+        else:
+            break
+    return t
+
+
+def type_needs_deep_clone(t: Optional[Type], symbols: Any = None) -> bool:
+    """True when a value of type ``t`` must be deep-copied to own it.
+
+    Mirrors the codegen's ``_element_clone_fn`` decision: strings, lists, maps
+    and runes carrying the ``Imago``/``Nexus`` concept (via ``derive`` or a
+    ``bind``) own heap memory and therefore register a clone callback.
+    ``TypeParam`` is unknown at check time, so it reports False (conservative).
+    """
+    u = unwrap_aliasish(t)
+    if u is None or isinstance(u, (AnyType, TypeParam)):
+        return False
+    if isinstance(u, BaseType):
+        return u.name == "string"
+    if isinstance(u, (ListType, MapType)):
+        return True
+    if isinstance(u, (RuneType, EchoType, OmenType)):
+        derived = set(getattr(u, "derived_concepts", None) or [])
+        base_n = u.get_base_name() if hasattr(u, "get_base_name") else getattr(u, "name", "")
+        if symbols is not None:
+            runes = getattr(symbols, "runes", None) or {}
+            if base_n in runes:
+                derived |= set(getattr(runes[base_n], "derived_concepts", None) or [])
+            bindings = getattr(symbols, "concept_bindings", None) or {}
+            names = {getattr(u, "name", ""), base_n}
+            for concept in ("Imago", "Nexus"):
+                if any((n, concept) in bindings for n in names if n):
+                    derived.add(concept)
+        return bool(derived & {"Imago", "Nexus"})
+    return False
+
+
+def type_has_derived_nexus(t: Optional[Type], symbols: Any = None) -> bool:
+    """True when ``t`` carries a *derived* ``Nexus`` implementation.
+
+    Only ``derive Nexus`` (or the implicit pairing with ``derive Imago``)
+    generates the ``_pengu_cleanup_<C>`` helper that ``banish`` lowers to; a
+    concept implemented through ``bind`` provides methods, not that helper.
+    """
+    u = unwrap_aliasish(t)
+    if u is None:
+        return False
+    if not isinstance(u, (RuneType, EchoType, OmenType)):
+        return False
+    if isinstance(u, OmenType) and not u.is_algebraic:
+        return False
+    derived = set(getattr(u, "derived_concepts", None) or [])
+    base_n = u.get_base_name() if hasattr(u, "get_base_name") else getattr(u, "name", "")
+    if symbols is not None:
+        reg = getattr(symbols, "runes", None) or {}
+        entry = reg.get(base_n)
+        if entry is None:
+            reg2 = getattr(symbols, "omens", None) or {}
+            entry = reg2.get(base_n)
+        if entry is not None:
+            derived |= set(getattr(entry, "derived_concepts", None) or [])
+    if "Nexus" in derived:
+        return True
+    # A rune (or algebraic omen) whose fields own heap gets an implicit Nexus, so
+    # its generated destructor exists and 'banish' can lower to it.
+    return type_owns_heap(u)
+
+
+def receiver_deep_copies_on_store(t: Optional[Type], symbols: Any = None) -> bool:
+    """True when storing into the container ``t`` deep-copies the stored value.
+
+    A ``list``/``map`` built with the ``_owned`` constructors registers
+    clone callbacks for its elements, so ``push``/``put`` copy instead of
+    aliasing and the source variable keeps ownership of its own buffer.
+    A ``ref to list``/``ref to map`` receiver is looked through: the pointer
+    does not change the ownership semantics of the container itself.
+    """
+    u = t
+    if isinstance(u, RefType):
+        u = u.target
+    u = unwrap_aliasish(u)
+    if isinstance(u, ListType):
+        return type_needs_deep_clone(u.element, symbols)
+    if isinstance(u, MapType):
+        return (type_needs_deep_clone(u.key, symbols)
+                and type_needs_deep_clone(u.value, symbols))
+    return False
+
+
+def implements_concept(t: Type, concept_name: str, symbols: Any) -> bool:
+    """Checks if type t implements concept_name via registered concept bindings or built-ins."""
+    if t is None:
+        return False
+    if isinstance(t, AnyType):
+        return True
+    if isinstance(t, TypeParam):
+        if not t.bounds:
+            return True
+        if concept_name in t.bounds:
+            return True
+        # 'Integrum' refines 'Num': an integer bound satisfies numeric needs.
+        if concept_name == "Num" and "Integrum" in t.bounds:
+            return True
+        return False
+    if type_implements_builtin_concept(t, concept_name):
+        return True
+    if symbols is None:
+        return False
 
     t_name = getattr(t, "name", str(t))
-    base_tname = t_name.split("_")[0] if "_" in t_name else t_name
+    base_tname = t.get_base_name() if hasattr(t, "get_base_name") else (t_name.split("_")[0] if "_" in t_name else t_name)
     concept_base = concept_name.split("_")[0] if "_" in concept_name else concept_name
 
     if hasattr(symbols, "concept_bindings"):
         for key in [(t_name, concept_name), (base_tname, concept_base), (t_name, concept_base), (base_tname, concept_name)]:
             if key in symbols.concept_bindings:
                 return True
+    if hasattr(t, "derived_concepts") and (concept_name in t.derived_concepts or concept_base in t.derived_concepts):
+        return True
     return False
+
+
+def typeparam_accepts_value(tp: "TypeParam", val_t: Optional[Type], symbols: Any) -> bool:
+    """True when ``val_t`` may flow into a bare type-parameter target.
+
+    ``TypeParam`` is a wildcard for the *value* direction
+    (``BaseType.is_compatible(TypeParam)`` is always True), so bounds must be
+    enforced explicitly: nothing but a bound-satisfying value can flow into
+    ``T: Num``.  Unbounded parameters stay fully permissive, and ``any``/``null``
+    plus another parameter are accepted (they are resolved later).
+    """
+    if tp is None or not getattr(tp, "bounds", None):
+        return True
+    if val_t is None or isinstance(val_t, (AnyType, NullType, TypeParam)):
+        return True
+    for b in tp.bounds:
+        if not implements_concept(val_t, b, symbols):
+            return False
+    return True
 
 
 def resolve_concept_method(t: Type, concept_name: str, method_name: str, symbols: Any) -> Optional[FnType]:
@@ -1559,7 +1927,10 @@ def ast_to_type(type_node: Any, symbol_lookup_fn: Optional[Any] = None) -> Type:
         return AnyType()
 
     rule = type_node.data
-    if rule == "base_type":
+    if rule == "shard_param_ref":
+        return TypeParam(str(type_node.children[0]))
+
+    elif rule == "base_type":
         if type_node.children:
             b_name = str(type_node.children[0])
             if b_name in ("any", "Any"):
@@ -1594,8 +1965,11 @@ def ast_to_type(type_node: Any, symbol_lookup_fn: Optional[Any] = None) -> Type:
                         subst_map = dict(zip(t_params, type_args))
                         specialized = t.substitute(subst_map)
                         st = _resolve_symbol_table(symbol_lookup_fn)
-                        if st and hasattr(st, "monomorphized_types"):
+                        if st and hasattr(st, "monomorphized_types") and not any(isinstance(a, TypeParam) for a in type_args):
                             st.monomorphized_types[specialized.name] = specialized
+                            if hasattr(st, "concept_bindings") and hasattr(specialized, "derived_concepts"):
+                                for d_concept in specialized.derived_concepts:
+                                    st.concept_bindings[(specialized.name, d_concept)] = {}
                             if isinstance(specialized, RuneType):
                                 st.runes[specialized.name] = specialized
                             elif isinstance(specialized, EchoType):
@@ -1651,8 +2025,9 @@ def ast_to_type(type_node: Any, symbol_lookup_fn: Optional[Any] = None) -> Type:
             if sz_tok is None:
                 return None
             if isinstance(sz_tok, Token) and sz_tok.type == "INT":
+                from .pengu_comptime import parse_int_literal
                 try:
-                    return int(str(sz_tok), 0)
+                    return parse_int_literal(str(sz_tok))
                 except ValueError:
                     return None
             elif isinstance(sz_tok, Token):
@@ -1846,4 +2221,73 @@ def estimate_size(t: Optional[Type], custom_types: Optional[Dict[str, Type]] = N
         return 0
 
     return 8
+
+
+def get_type_base_name(t: Any) -> str:
+    """Returns canonical base type identifier for method lookup (e.g. 'map', 'list', 'Box')."""
+    if isinstance(t, str):
+        if t.startswith("map of ") or t.startswith("map_"):
+            return "map"
+        if t.startswith("list of ") or t.startswith("list_"):
+            return "list"
+        if t.startswith("slice of ") or t.startswith("slice_"):
+            return "slice"
+        if t.startswith("maybe ") or t.startswith("maybe_"):
+            return "maybe"
+        if t.startswith("result of ") or t.startswith("result_"):
+            return "result"
+        return t.split("_")[0]
+    if isinstance(t, RefType):
+        return get_type_base_name(t.target)
+    if isinstance(t, FrozenType):
+        return get_type_base_name(t.target)
+    if isinstance(t, MapType):
+        return "map"
+    if isinstance(t, ListType):
+        return "list"
+    if isinstance(t, SliceType):
+        return "slice"
+    if isinstance(t, ManyType):
+        return "many"
+    if isinstance(t, MaybeType):
+        return "maybe"
+    if isinstance(t, ResultType):
+        return "result"
+    name = getattr(t, "name", str(t))
+    if name.startswith("map of "):
+        return "map"
+    if name.startswith("list of "):
+        return "list"
+    if name.startswith("slice of "):
+        return "slice"
+    if name.startswith("maybe "):
+        return "maybe"
+    if name.startswith("result of "):
+        return "result"
+    return name.split("_")[0]
+
+
+def extract_type_params_from_type(t: Any) -> List[str]:
+    """Extracts all TypeParam names found recursively within a type."""
+    params: List[str] = []
+    def _rec(curr: Any):
+        if isinstance(curr, TypeParam):
+            if curr.name not in params:
+                params.append(curr.name)
+        elif isinstance(curr, MapType):
+            _rec(curr.key)
+            _rec(curr.value)
+        elif isinstance(curr, (ListType, SliceType, ManyType, MaybeType)):
+            _rec(curr.element)
+        elif isinstance(curr, ResultType):
+            _rec(curr.ok_type)
+            _rec(curr.err_type)
+        elif isinstance(curr, (RefType, FrozenType)):
+            _rec(curr.target)
+        elif isinstance(curr, RuneType) and curr.type_args:
+            for a in curr.type_args:
+                _rec(a)
+    _rec(t)
+    return params
+
 

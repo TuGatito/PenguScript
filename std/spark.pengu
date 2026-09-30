@@ -26,11 +26,11 @@
 # Version Constants
 # ----------------------------------------------------------------------------
 
-# Version of the spark core runtime module (0.6.0-spark).
-const SPARK_VERSION as string is "0.6.0-spark"
+# Version of the spark core runtime module (0.7.0-spark).
+const SPARK_VERSION as string is "0.7.0-spark"
 
-# Version of the standard library this module ships with (0.6.0).
-const STD_VERSION as string is "0.6.0"
+# Version of the standard library this module ships with (0.14.1).
+const STD_VERSION as string is "0.14.1"
 
 # ----------------------------------------------------------------------------
 # External C Runtime Declarations (console I/O, parsing, panic)
@@ -60,6 +60,20 @@ declare pengu_parse_float with s as string into maybe float
 declare pengu_panic with msg as string into void
 
 # ----------------------------------------------------------------------------
+# Conversions & Length
+# ----------------------------------------------------------------------------
+
+# Returns the number of bytes (characters) in string `s`.
+weave len_string with s as string into int:
+    return s length
+
+# Converts bool `b` into the string "true" or "false".
+weave bool_to_string with b as bool into string:
+    return judge b:
+        when true -> "true"
+        when false -> "false"
+
+# ----------------------------------------------------------------------------
 # Printing & Console Output
 # ----------------------------------------------------------------------------
 
@@ -84,6 +98,57 @@ weave print_line with s as string into void:
 weave eprint_line with s as string into void:
     calling pengu_println with s
 
+## Writes integer `value` to stdout without a trailing newline.
+##
+## Signature: print_int(value as int) into void
+## Ownership: Takes scalar integer by value; does not allocate heap memory.
+weave print_int with value as int into void:
+    calling pengu_print with (value to string)
+
+## Writes integer `value` to stdout followed by a newline.
+##
+## Signature: println_int(value as int) into void
+## Ownership: Takes scalar integer by value; does not allocate heap memory.
+weave println_int with value as int into void:
+    calling pengu_println with (value to string)
+
+## Writes float `value` to stdout without a trailing newline.
+##
+## Signature: print_float(value as float) into void
+## Ownership: Takes scalar float by value; does not allocate heap memory.
+weave print_float with value as float into void:
+    calling pengu_print with (value to string)
+
+## Writes float `value` to stdout followed by a newline.
+##
+## Signature: println_float(value as float) into void
+## Ownership: Takes scalar float by value; does not allocate heap memory.
+weave println_float with value as float into void:
+    calling pengu_println with (value to string)
+
+## Writes boolean `value` ("true" or "false") to stdout without a trailing newline.
+##
+## Signature: print_bool(value as bool) into void
+## Ownership: Takes scalar bool by value; does not allocate heap memory.
+weave print_bool with value as bool into void:
+    calling pengu_print with (calling bool_to_string with value)
+
+## Writes boolean `value` ("true" or "false") to stdout followed by a newline.
+##
+## Signature: println_bool(value as bool) into void
+## Ownership: Takes scalar bool by value; does not allocate heap memory.
+weave println_bool with value as bool into void:
+    calling pengu_println with (calling bool_to_string with value)
+
+## Writes string `s` followed by a newline.
+##
+## Signature: eprintln(s as string) into void
+## Ownership: Reads borrowed string `s`; does not retain or free the buffer.
+## NOTE: Legacy wrapper. Native stderr redirection is pending runtime C support;
+## this currently routes to stdout via pengu_println.
+weave eprintln with s as string into void:
+    calling pengu_println with s
+
 # ----------------------------------------------------------------------------
 # Assertions (panicking)
 # ----------------------------------------------------------------------------
@@ -100,25 +165,19 @@ weave assert_msg with cond as bool , msg as string into void:
     if cond == false:
         calling pengu_panic with msg
 
-# ----------------------------------------------------------------------------
-# Conversions & Length
-# ----------------------------------------------------------------------------
-
-# Returns the number of bytes (characters) in string `s`.
-weave len_string with s as string into int:
-    return s length
-
-# Converts bool `b` into the string "true" or "false".
-weave bool_to_string with b as bool into string:
-    if b:
-        return "true"
-    return "false"
-
 # Reads one line from stdin after printing `prompt` (no newline); the trailing
 # newline is stripped. Returns the typed line as a fresh owned string - empty
 # on end-of-input (EOF) or an empty line.
 weave input with prompt as string into string:
     return calling pengu_input with prompt
+
+## Reads one line from stdin without displaying a prompt.
+##
+## Signature: read_line() into string
+## Ownership: Returns a freshly allocated owned string.
+## Edge cases: Trailing newline is stripped; returns an empty string on EOF.
+weave read_line into string:
+    return calling pengu_input with ""
 
 # Identity conversion: returns string `value` unchanged.
 weave str with value as string into string:
@@ -146,6 +205,24 @@ weave parse_int with s as string into maybe int:
 weave parse_float with s as string into maybe float:
     return calling pengu_parse_float with s
 
+## Prints `prompt` and reads a line from stdin, parsing it as a base-10 integer.
+##
+## Signature: read_int(prompt as string) into maybe int
+## Ownership: Returns a value `maybe int` container.
+## Edge cases: Returns maybe none if input is empty, non-numeric, or contains trailing characters.
+weave read_int with prompt as string into maybe int:
+    var line as string is calling pengu_input with prompt
+    return calling pengu_parse_int with line
+
+## Prints `prompt` and reads a line from stdin, parsing it as a floating-point number.
+##
+## Signature: read_float(prompt as string) into maybe float
+## Ownership: Returns a value `maybe float` container.
+## Edge cases: Returns maybe none if input is empty or contains non-numeric characters.
+weave read_float with prompt as string into maybe float:
+    var line as string is calling pengu_input with prompt
+    return calling pengu_parse_float with line
+
 # ----------------------------------------------------------------------------
 # Range Generation
 # ----------------------------------------------------------------------------
@@ -162,6 +239,74 @@ weave range with start as int , end_val as int , step as int is 1 into list of i
         calling result.push with i
         set i is i + step
     return result
+
+## Builds and returns a new list of integers from 0 up to `end_val` (exclusive) with step 1.
+##
+## Signature: range_to(end_val as int) into list of int
+## Ownership: Returns a newly allocated scope-owned list of integers.
+## Edge cases: Returns an empty list when end_val <= 0.
+weave range_to with end_val as int into list of int:
+    return calling range with 0 , end_val , 1
+
+## Builds and returns a new list of integers from `start` through `end_val` (inclusive) with step 1.
+##
+## Signature: range_inclusive(start as int, end_val as int) into list of int
+## Ownership: Returns a newly allocated scope-owned list of integers.
+## Edge cases: Returns an empty list when start > end_val.
+weave range_inclusive with start as int , end_val as int into list of int:
+    var result as list of int is list of int with capacity 16
+    var i as int is start
+    while i <= end_val:
+        calling result.push with i
+        set i is i + 1
+    return result
+
+# ----------------------------------------------------------------------------
+# Integer Math Utilities
+# ----------------------------------------------------------------------------
+
+## Returns the smaller of two integers `a` and `b`.
+##
+## Signature: min_int(a as int, b as int) into int
+## Ownership: Operates purely on scalar integers by value.
+## Edge cases: Returns either value when a == b.
+weave min_int with a as int , b as int into int:
+    return judge a < b:
+        when true -> a
+        when false -> b
+
+## Returns the greater of two integers `a` and `b`.
+##
+## Signature: max_int(a as int, b as int) into int
+## Ownership: Operates purely on scalar integers by value.
+## Edge cases: Returns either value when a == b.
+weave max_int with a as int , b as int into int:
+    return judge a > b:
+        when true -> a
+        when false -> b
+
+## Returns the absolute value of integer `v`.
+##
+## Signature: abs_int(v as int) into int
+## Ownership: Operates purely on scalar integers by value.
+## Edge cases: Returns 0 for 0; returns positive negation for negative integers.
+weave abs_int with v as int into int:
+    if v < 0:
+        return -v
+    return v
+
+## Clamps integer `v` to the closed interval [`lo`, `hi`].
+##
+## Signature: clamp_int(v as int, lo as int, hi as int) into int
+## Ownership: Operates purely on scalar integers by value.
+## Edge cases: Returns lo if v < lo; returns hi if v > hi; assumes lo <= hi.
+weave clamp_int with v as int , lo as int , hi as int into int:
+    var res as int is v
+    if res < lo:
+        set res is lo
+    if res > hi:
+        set res is hi
+    return res
 
 # ----------------------------------------------------------------------------
 # Fatal Errors

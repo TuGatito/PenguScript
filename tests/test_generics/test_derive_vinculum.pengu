@@ -1,0 +1,15 @@
+# 'derive Vinculum' provides the hash used when the rune is a map key.
+rune Key derive Par, Vinculum:
+    id as int
+
+weave main into int:
+    var m as map of Key to int is map of Key to int
+    var k1 as Key with:
+        set .id is 1
+    var k2 as Key with:
+        set .id is 2
+    calling m.put with k1, 100
+    calling m.put with k2, 200
+    if (m at k1) == 100 and (m at k2) == 200:
+        return 0
+    return 1

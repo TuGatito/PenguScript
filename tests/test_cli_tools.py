@@ -124,20 +124,7 @@ def write_file(root: str, rel: str, content: str) -> str:
 # fixtures used by several tests (script module + small projects)
 # --------------------------------------------------------------------------
 
-SCRIPTMOD = """\
-import std.spark
-
-weave greet with who as string into void:
-    calling spark.println with "greeting " + who
-    when main:
-        calling spark.println with "greet inner-main"
-
-when main:
-    weave main into int:
-        calling spark.println with "scriptmod entry"
-        calling greet with "World"
-        return 0
-"""
+SCRIPTMOD = 'import std.spark\n\nweave greet with who as string into void:\n    calling spark.println with "greeting {who}"\n    when main:\n        calling spark.println with "greet inner-main"\n\nwhen main:\n    weave main into int:\n        calling spark.println with "scriptmod entry"\n        calling greet with "World"\n        return 0\n'
 
 RUNNER = """\
 import std.spark
@@ -715,24 +702,7 @@ url = "."
 # ==========================================================================
 
 
-DOC_SOURCE = """\
-## Greets a name warmly.
-weave greet with name as string into string:
-  return "hello " + name
-
-## A 2D vector type.
-rune Vec2:
-  x as float
-  y as float
-
-## Supported output levels.
-omen Level with string:
-  Info
-  Error
-
-## Default greeting.
-const DEFAULT_GREET as string is "hi"
-"""
+DOC_SOURCE = '## Greets a name warmly.\nweave greet with name as string into string:\n  return "hello {name}"\n\n## A 2D vector type.\nrune Vec2:\n  x as float\n  y as float\n\n## Supported output levels.\nomen Level with string:\n  Info\n  Error\n\n## Default greeting.\nconst DEFAULT_GREET as string is "hi"\n'
 
 
 class TestPenguDoc:

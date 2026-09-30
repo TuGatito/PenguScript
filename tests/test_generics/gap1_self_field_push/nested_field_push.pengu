@@ -1,0 +1,20 @@
+# Gap 1: longer chains ('outer->inner.items.push').
+rune Inner derive Nexus:
+    items as list of string
+
+rune Outer derive Nexus:
+    inner as Inner
+
+weave fill with o as ref to Outer, n as int into void:
+    var local as string is n to string
+    calling o->inner.items.push with local
+
+weave main into int:
+    var o as Outer with:
+        set .inner is with:
+            set .items is list of string
+    defer banish o
+    calling fill with (sigil of o), 5
+    if calling o.inner.items.len == 1 and (o.inner.items at 0) == "5":
+        return 0
+    return 1

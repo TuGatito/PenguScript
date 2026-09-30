@@ -1,5 +1,6 @@
 # std/chronicle.pengu - The Chronicle (Time)
-# Provides time, dates, timestamps, monotonic clocks, and delays.
+# Provides time, dates, timestamps, monotonic clocks, calendar calculations,
+# and high-resolution stopwatch timers.
 #
 # All timestamps are Unix seconds expressed as float (double) values. The
 # utc_* getters interpret a timestamp in Coordinated Universal Time; the
@@ -13,17 +14,25 @@
 #   calling spark.println with calling chronicle.format_now with "%Y-%m-%d %H:%M:%S"
 #   calling chronicle.sleep with 0.25
 #   var year as int is calling chronicle.utc_year with now
+#   var dt as chronicle.DateTime is calling chronicle.datetime_utc with now
+#   calling spark.println with calling dt.to_iso
 #
 # Ownership model:
 #   Clocks, delays and calendar-field getters are plain scalar bridges that
 #   own nothing. `format`/`format_now` return freshly formatted strings and
 #   `parse` returns a maybe float (none on failure): results are fresh owned
 #   values with normal PenguScript value lifetime. Nothing returned aliases
-#   input or caller-owned memory, and no argument is retained after the call,
-#   so there is nothing extra to banish.
+#   input or caller-owned memory, and no argument is retained after the call.
 
 import std.spark
-import std.oracle
+import std.scrolls
+
+# ----------------------------------------------------------------------------
+# Version constant
+# ----------------------------------------------------------------------------
+
+## Chronicle module version constant.
+const CHRONICLE_VERSION as string is "0.15.0"
 
 # ----------------------------------------------------------------------------
 # External C Runtime Declarations (time, sleep, formatting, calendar fields)
@@ -43,11 +52,11 @@ declare pengu_c_sleep_sec with sec as float into void
 
 # C bridge that formats `timestamp` with a strftime `fmt` pattern (UTC) into a
 # new string; an empty fmt falls back to "%Y-%m-%d %H:%M:%S".
-declare pengu_c_strftime with fmt as string , timestamp as float into string
+declare pengu_c_strftime with fmt as string, timestamp as float into string
 
 # C bridge that parses a date/time string into Unix seconds; returns a maybe
 # float holding none when the text does not match a supported pattern.
-declare pengu_c_strptime with s as string , fmt as string into maybe float
+declare pengu_c_strptime with s as string, fmt as string into maybe float
 
 # C bridge returning the UTC year of a timestamp (e.g. 2026).
 declare pengu_c_get_utc_year with ts as float into int
@@ -110,100 +119,517 @@ declare pengu_c_get_local_is_dst with ts as float into bool
 # Clocks & Delays
 # ----------------------------------------------------------------------------
 
-# Returns the current wall-clock time as Unix seconds (float). No parameters.
+## Returns the current wall-clock time as Unix seconds (float). No parameters.
 weave time into float:
     return calling pengu_c_time
 
-# Returns a high-resolution monotonic clock reading in seconds (float). It is
-# immune to wall-clock adjustments, so it is the right clock for stopwatches
-# and measuring elapsed time.
+## Returns a high-resolution monotonic clock reading in seconds (float).
 weave monotonic into float:
     return calling pengu_c_time_monotonic
 
-# Suspends the current thread for `ms` milliseconds. A non-positive `ms`
-# returns immediately.
+## Suspends the current thread for `ms` milliseconds.
 weave sleep_ms with ms as int into void:
     calling pengu_c_sleep_ms with ms
 
-# Suspends the current thread for `sec` fractional seconds (internally rounded
-# to milliseconds). A non-positive `sec` returns immediately.
+## Suspends the current thread for `sec` fractional seconds.
 weave sleep with sec as float into void:
     calling pengu_c_sleep_sec with sec
 
-# ----------------------------------------------------------------------------
-# Formatting & Parsing
-# ----------------------------------------------------------------------------
+## Returns the current wall-clock time in milliseconds since the Unix epoch.
+weave now_ms into int:
+    return ((calling time) * 1000.0) to int
 
-# Formats `timestamp` (Unix seconds) with a strftime `fmt` pattern in UTC.
-# Returns the formatted string; an empty `fmt` uses "%Y-%m-%d %H:%M:%S".
-weave format with fmt as string , timestamp as float into string:
-    return calling pengu_c_strftime with fmt , timestamp
+## Alias of `now_ms`.
+weave time_ms into int:
+    return ((calling time) * 1000.0) to int
 
-# Formats the current wall-clock time with a strftime `fmt` pattern (UTC);
-# equivalent to format with the result of time. Returns the formatted string.
-weave format_now with fmt as string into string:
-    var now as float is calling time
-    return calling format with fmt , now
-
-# Parses `s` into Unix seconds, returning a maybe float: some value when the
-# text matches "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM:SS" (interpreted in local
-# time), none otherwise. The `fmt` argument mirrors strptime's signature but
-# is currently ignored by the runtime parser.
-weave parse with s as string , fmt as string into maybe float:
-    return calling pengu_c_strptime with s , fmt
+## Returns high-resolution monotonic clock in milliseconds.
+weave monotonic_ms into int:
+    return ((calling monotonic) * 1000.0) to int
 
 # ----------------------------------------------------------------------------
 # UTC Calendar Field Getters (timestamp interpreted in Coordinated Universal Time)
 # ----------------------------------------------------------------------------
 
-# Returns the UTC year of timestamp `ts` (e.g. 2026).
+## Returns the UTC year of timestamp `ts` (e.g. 2026).
 weave utc_year with ts as float into int:
     return calling pengu_c_get_utc_year with ts
 
-# Returns the UTC month of timestamp `ts`, 1..12.
+## Returns the UTC month of timestamp `ts`, 1..12.
 weave utc_month with ts as float into int:
     return calling pengu_c_get_utc_month with ts
 
-# Returns the UTC day-of-month of timestamp `ts`, 1..31.
+## Returns the UTC day-of-month of timestamp `ts`, 1..31.
 weave utc_day with ts as float into int:
     return calling pengu_c_get_utc_day with ts
 
-# Returns the UTC hour of timestamp `ts`, 0..23.
+## Returns the UTC hour of timestamp `ts`, 0..23.
 weave utc_hour with ts as float into int:
     return calling pengu_c_get_utc_hour with ts
 
-# Returns the UTC minute of timestamp `ts`, 0..59.
+## Returns the UTC minute of timestamp `ts`, 0..59.
 weave utc_minute with ts as float into int:
     return calling pengu_c_get_utc_minute with ts
 
-# Returns the UTC second of timestamp `ts`, 0..60 (no leap-second folding).
+## Returns the UTC second of timestamp `ts`, 0..60.
 weave utc_second with ts as float into int:
     return calling pengu_c_get_utc_second with ts
+
+## Returns the UTC day-of-week of timestamp `ts` (0 = Sunday .. 6 = Saturday).
+weave utc_weekday with ts as float into int:
+    return calling pengu_c_get_utc_weekday with ts
+
+## Returns the UTC day-of-year of timestamp `ts`, 0..365.
+weave utc_yearday with ts as float into int:
+    return calling pengu_c_get_utc_yearday with ts
+
+## Reports daylight-saving time for a timestamp in UTC (always false).
+weave utc_is_dst with ts as float into bool:
+    return calling pengu_c_get_utc_is_dst with ts
 
 # ----------------------------------------------------------------------------
 # Local Calendar Field Getters (timestamp interpreted in the local time zone)
 # ----------------------------------------------------------------------------
 
-# Returns the local-timezone year of timestamp `ts` (e.g. 2026).
+## Returns the local-timezone year of timestamp `ts` (e.g. 2026).
 weave local_year with ts as float into int:
     return calling pengu_c_get_local_year with ts
 
-# Returns the local-timezone month of timestamp `ts`, 1..12.
+## Returns the local-timezone month of timestamp `ts`, 1..12.
 weave local_month with ts as float into int:
     return calling pengu_c_get_local_month with ts
 
-# Returns the local-timezone day-of-month of timestamp `ts`, 1..31.
+## Returns the local-timezone day-of-month of timestamp `ts`, 1..31.
 weave local_day with ts as float into int:
     return calling pengu_c_get_local_day with ts
 
-# Returns the local-timezone hour of timestamp `ts`, 0..23.
+## Returns the local-timezone hour of timestamp `ts`, 0..23.
 weave local_hour with ts as float into int:
     return calling pengu_c_get_local_hour with ts
 
-# Returns the local-timezone minute of timestamp `ts`, 0..59.
+## Returns the local-timezone minute of timestamp `ts`, 0..59.
 weave local_minute with ts as float into int:
     return calling pengu_c_get_local_minute with ts
 
-# Returns the local-timezone second of timestamp `ts`, 0..60.
+## Returns the local-timezone second of timestamp `ts`, 0..60.
 weave local_second with ts as float into int:
     return calling pengu_c_get_local_second with ts
+
+## Returns the local-timezone day-of-week of timestamp `ts` (0 = Sunday .. 6 = Saturday).
+weave local_weekday with ts as float into int:
+    return calling pengu_c_get_local_weekday with ts
+
+## Returns the local-timezone day-of-year of timestamp `ts`, 0..365.
+weave local_yearday with ts as float into int:
+    return calling pengu_c_get_local_yearday with ts
+
+## Reports whether daylight-saving time is in effect for `ts` in the local time zone.
+weave local_is_dst with ts as float into bool:
+    return calling pengu_c_get_local_is_dst with ts
+
+# ----------------------------------------------------------------------------
+# DateTime Rune & Builders
+# ----------------------------------------------------------------------------
+
+## Represents a decomposed date and time with individual calendar components.
+rune DateTime:
+    year as int
+    month as int
+    day as int
+    hour as int
+    minute as int
+    second as int
+    weekday as int
+    yearday as int
+    is_dst as bool
+
+enchanting DateTime:
+    ## Formats this DateTime into a "YYYY-MM-DD" string.
+    weave to_date into string:
+        var yr as string is (self->year) to string
+        var mo as string is (self->month) to string
+        if self->month < 10:
+            set mo is "0{mo}"
+        var da as string is (self->day) to string
+        if self->day < 10:
+            set da is "0{da}"
+        return "{yr}-{mo}-{da}"
+
+    ## Formats this DateTime into an "HH:MM:SS" string.
+    weave to_time into string:
+        var hr as string is (self->hour) to string
+        if self->hour < 10:
+            set hr is "0{hr}"
+        var mn as string is (self->minute) to string
+        if self->minute < 10:
+            set mn is "0{mn}"
+        var sc as string is (self->second) to string
+        if self->second < 10:
+            set sc is "0{sc}"
+        return "{hr}:{mn}:{sc}"
+
+    ## Formats this DateTime into an ISO 8601 "YYYY-MM-DDTHH:MM:SSZ" string.
+    weave to_iso into string:
+        return "{(calling self.to_date)}T{(calling self.to_time)}Z"
+
+## Builds a DateTime record from `ts` interpreted in UTC.
+weave datetime_utc with ts as float into DateTime:
+    var yr as int is calling utc_year with ts
+    var mo as int is calling utc_month with ts
+    var da as int is calling utc_day with ts
+    var hr as int is calling utc_hour with ts
+    var mn as int is calling utc_minute with ts
+    var sc as int is calling utc_second with ts
+    var wd as int is calling utc_weekday with ts
+    var yd as int is calling utc_yearday with ts
+    var dst as bool is calling utc_is_dst with ts
+    return with year is yr, month is mo, day is da, hour is hr, minute is mn, second is sc, weekday is wd, yearday is yd, is_dst is dst
+
+## Builds a DateTime record from `ts` interpreted in the local time zone.
+weave datetime_local with ts as float into DateTime:
+    var yr as int is calling local_year with ts
+    var mo as int is calling local_month with ts
+    var da as int is calling local_day with ts
+    var hr as int is calling local_hour with ts
+    var mn as int is calling local_minute with ts
+    var sc as int is calling local_second with ts
+    var wd as int is calling local_weekday with ts
+    var yd as int is calling local_yearday with ts
+    var dst as bool is calling local_is_dst with ts
+    return with year is yr, month is mo, day is da, hour is hr, minute is mn, second is sc, weekday is wd, yearday is yd, is_dst is dst
+
+# ----------------------------------------------------------------------------
+# Calendar Helpers & Day Boundaries
+# ----------------------------------------------------------------------------
+
+## Returns true if `y` is a leap year in the Gregorian calendar.
+weave is_leap_year with y as int into bool:
+    if (y % 400) == 0:
+        return true
+    if (y % 100) == 0:
+        return false
+    if (y % 4) == 0:
+        return true
+    return false
+
+## Returns the number of days in month `m` (1..12) for year `y`.
+weave days_in_month with y as int, m as int into int:
+    if m == 2:
+        return judge (calling is_leap_year with y):
+            when true -> 29
+            when false -> 28
+    if m == 4:
+        return 30
+    if m == 6:
+        return 30
+    if m == 9:
+        return 30
+    if m == 11:
+        return 30
+    return 31
+
+## Returns the number of days in year `y` (366 for leap years, 365 otherwise).
+weave days_in_year with y as int into int:
+    return judge (calling is_leap_year with y):
+        when true -> 366
+        when false -> 365
+
+## Returns timestamp rounded down to the start of the UTC day (00:00:00 UTC).
+weave start_of_day with ts as float into float:
+    var sec as int is ts to int
+    var rem as int is sec % 86400
+    if rem < 0:
+        set rem is rem + 86400
+    return (sec - rem) to float
+
+## Returns timestamp of the end of the UTC day (23:59:59 UTC).
+weave end_of_day with ts as float into float:
+    return (calling start_of_day with ts) + 86399.0
+
+## Returns the start of the current UTC day (00:00:00 UTC).
+weave today into float:
+    return calling start_of_day with (calling time)
+
+## Returns the start of yesterday in UTC.
+weave yesterday into float:
+    return (calling today) - 86400.0
+
+## Returns the start of tomorrow in UTC.
+weave tomorrow into float:
+    return (calling today) + 86400.0
+
+## Returns the start of the month in UTC (00:00:00 UTC on the 1st of the month).
+weave start_of_month with ts as float into float:
+    var d as int is calling utc_day with ts
+    var h as int is calling utc_hour with ts
+    var m as int is calling utc_minute with ts
+    var s as int is calling utc_second with ts
+    var elapsed as int is ((d - 1) * 86400) + (h * 3600) + (m * 60) + s
+    return ts - (elapsed to float)
+
+## Returns the start of the year in UTC (00:00:00 UTC on January 1st).
+weave start_of_year with ts as float into float:
+    var yd as int is calling utc_yearday with ts
+    var h as int is calling utc_hour with ts
+    var m as int is calling utc_minute with ts
+    var s as int is calling utc_second with ts
+    var elapsed as int is (yd * 86400) + (h * 3600) + (m * 60) + s
+    return ts - (elapsed to float)
+
+# ----------------------------------------------------------------------------
+# Formatting & Parsing
+# ----------------------------------------------------------------------------
+
+## Formats `timestamp` (Unix seconds) with a strftime `fmt` pattern in UTC.
+weave format with fmt as string, timestamp as float into string:
+    return calling pengu_c_strftime with fmt, timestamp
+
+## Formats the current wall-clock time with a strftime `fmt` pattern in UTC.
+weave format_now with fmt as string into string:
+    var now as float is calling time
+    return calling format with fmt, now
+
+## Parses `s` into Unix seconds, returning a maybe float.
+weave parse with s as string, fmt as string into maybe float:
+    return calling pengu_c_strptime with s, fmt
+
+## Formats the current UTC time as an ISO 8601 string (e.g. "2026-09-25T14:30:00Z").
+weave now_utc_iso into string:
+    return calling format with "%Y-%m-%dT%H:%M:%SZ", (calling time)
+
+## Formats the current local time as an ISO 8601 string (e.g. "2026-09-25T14:30:00").
+weave now_local_iso into string:
+    var dt as DateTime is calling datetime_local with (calling time)
+    return "{(calling dt.to_date)}T{(calling dt.to_time)}"
+
+## Formats the current local date as "YYYY-MM-DD".
+weave now_date into string:
+    var dt as DateTime is calling datetime_local with (calling time)
+    return calling dt.to_date
+
+## Formats the current local time as "HH:MM:SS".
+weave now_time into string:
+    var dt as DateTime is calling datetime_local with (calling time)
+    return calling dt.to_time
+
+## Formats `ts` (Unix seconds) as an ISO 8601 UTC string (e.g. "2026-09-25T14:30:00Z").
+weave to_iso with ts as float into string:
+    return calling format with "%Y-%m-%dT%H:%M:%SZ", ts
+
+## Parses an ISO 8601 date or datetime string (e.g. "2026-09-25T14:30:24Z",
+## "2026-09-25T14:30:24", "2026-09-25 14:30:24", or "2026-09-25") into UTC Unix seconds.
+## Round-trip with to_iso(ts) is guaranteed exact to the second.
+weave from_iso with s as string into maybe float:
+    var text as string is calling s.trim
+    var tl as int is calling text.len
+    if tl < 10:
+        return maybe none
+    if (calling text.ends_with with "Z"):
+        set text is calling text.substring with 0, (tl - 1)
+        set tl is calling text.len
+    if (text at 4) != "-":
+        return maybe none
+    if (text at 7) != "-":
+        return maybe none
+    var y_opt as maybe int is calling spark.parse_int with (calling text.substring with 0, 4)
+    var m_opt as maybe int is calling spark.parse_int with (calling text.substring with 5, 7)
+    var d_opt as maybe int is calling spark.parse_int with (calling text.substring with 8, 10)
+    if y_opt is not present:
+        return maybe none
+    if m_opt is not present:
+        return maybe none
+    if d_opt is not present:
+        return maybe none
+    var y as int is y_opt.value
+    var m as int is m_opt.value
+    var d as int is d_opt.value
+    if y < 1970:
+        return maybe none
+    if (m < 1) or (m > 12):
+        return maybe none
+    if d < 1:
+        return maybe none
+    var max_d as int is calling days_in_month with y, m
+    if d > max_d:
+        return maybe none
+    var h as int is 0
+    var min as int is 0
+    var sec as int is 0
+    if tl >= 19:
+        var sep_t as string is text at 10
+        if (sep_t != "T") and (sep_t != " "):
+            return maybe none
+        if (text at 13) != ":":
+            return maybe none
+        if (text at 16) != ":":
+            return maybe none
+        var h_opt as maybe int is calling spark.parse_int with (calling text.substring with 11, 13)
+        var min_opt as maybe int is calling spark.parse_int with (calling text.substring with 14, 16)
+        var sec_opt as maybe int is calling spark.parse_int with (calling text.substring with 17, 19)
+        if h_opt is not present:
+            return maybe none
+        if min_opt is not present:
+            return maybe none
+        if sec_opt is not present:
+            return maybe none
+        set h is h_opt.value
+        set min is min_opt.value
+        set sec is sec_opt.value
+        if (h < 0) or (h > 23):
+            return maybe none
+        if (min < 0) or (min > 59):
+            return maybe none
+        if (sec < 0) or (sec > 60):
+            return maybe none
+    var days as int is 0
+    var cur_y as int is 1970
+    while cur_y < y:
+        set days is days + (calling days_in_year with cur_y)
+        set cur_y is cur_y + 1
+    var cur_m as int is 1
+    while cur_m < m:
+        set days is days + (calling days_in_month with y, cur_m)
+        set cur_m is cur_m + 1
+    set days is days + (d - 1)
+    var total_sec as float is ((days to float) * 86400.0) + ((h to float) * 3600.0) + ((min to float) * 60.0) + (sec to float)
+    return some total_sec
+
+## Formats `ts` as a date string "YYYY-MM-DD" in UTC.
+weave to_date_string with ts as float into string:
+    return calling format with "%Y-%m-%d", ts
+
+## Formats `ts` as a time string "HH:MM:SS" in UTC.
+weave to_time_string with ts as float into string:
+    return calling format with "%H:%M:%S", ts
+
+## Formats `ts` as a datetime string "YYYY-MM-DD HH:MM:SS" in UTC.
+weave to_datetime_string with ts as float into string:
+    return calling format with "%Y-%m-%d %H:%M:%S", ts
+
+# ----------------------------------------------------------------------------
+# Arithmetic & Comparisons
+# ----------------------------------------------------------------------------
+
+## Adds `n` seconds to `ts`.
+weave add_seconds with ts as float, n as int is 1 into float:
+    return ts + (n to float)
+
+## Adds `n` minutes (60s each) to `ts`.
+weave add_minutes with ts as float, n as int is 1 into float:
+    return ts + ((n to float) * 60.0)
+
+## Adds `n` hours (3600s each) to `ts`.
+weave add_hours with ts as float, n as int is 1 into float:
+    return ts + ((n to float) * 3600.0)
+
+## Adds `n` days (86400s each) to `ts`.
+weave add_days with ts as float, n as int is 1 into float:
+    return ts + ((n to float) * 86400.0)
+
+## Adds `n` weeks (604800s each) to `ts`.
+weave add_weeks with ts as float, n as int is 1 into float:
+    return ts + ((n to float) * 604800.0)
+
+## Returns the difference in seconds between two timestamps (`a - b`).
+weave diff_seconds with a as float, b as float into float:
+    return a - b
+
+## Returns the difference in whole days between two timestamps (`(a - b) / 86400`).
+weave diff_days with a as float, b as float into int:
+    return ((a - b) / 86400.0) to int
+
+## Returns true if timestamp `a` occurs strictly before `b`.
+weave is_before with a as float, b as float into bool:
+    return a < b
+
+## Returns true if timestamp `a` occurs strictly after `b`.
+weave is_after with a as float, b as float into bool:
+    return a > b
+
+## Returns true if `ts` falls within `[lo, hi]` inclusive.
+weave is_between with ts as float, lo as float, hi as float into bool:
+    if ts < lo:
+        return false
+    if ts > hi:
+        return false
+    return true
+
+# ----------------------------------------------------------------------------
+# Duration Formatting & Parsing
+# ----------------------------------------------------------------------------
+
+## Formats duration in seconds into human-readable text (e.g. "2h 30m 45s", "15m 30s", "10s").
+weave format_duration with sec as float into string:
+    var total as int is sec to int
+    if total <= 0:
+        return "0s"
+    var h as int is total / 3600
+    var rem as int is total % 3600
+    var m as int is rem / 60
+    var s as int is rem % 60
+    if h > 0:
+        return "{(h to string)}h {(m to string)}m {(s to string)}s"
+    if m > 0:
+        return "{(m to string)}m {(s to string)}s"
+    return "{(s to string)}s"
+
+## Parses human duration string ("45s", "30m", "2h", "7d", or raw seconds "45") into seconds.
+weave parse_duration with s as string into maybe float:
+    var trimmed as string is calling s.trim
+    var n as int is calling trimmed.len
+    if n == 0:
+        return maybe none
+    # Direct integer seconds if string is purely numeric
+    var num_only as maybe int is calling spark.parse_int with trimmed
+    if num_only is present:
+        return some ((num_only.value) to float)
+    if n < 2:
+        return maybe none
+    var last_c as string is calling trimmed.char_at with (n - 1)
+    var num_part as string is calling trimmed.substring with 0, (n - 1)
+    var val_opt as maybe int is calling spark.parse_int with (calling num_part.trim)
+    if val_opt is not present:
+        return maybe none
+    var val as float is (val_opt.value) to float
+    if last_c == "s":
+        return some val
+    if last_c == "m":
+        return some (val * 60.0)
+    if last_c == "h":
+        return some (val * 3600.0)
+    if last_c == "d":
+        return some (val * 86400.0)
+    return maybe none
+
+# ----------------------------------------------------------------------------
+# Stopwatch
+# ----------------------------------------------------------------------------
+
+## High-resolution monotonic elapsed time measurement.
+rune Stopwatch:
+    started_at as float
+
+enchanting Stopwatch:
+    ## Creates and starts a new Stopwatch using monotonic clock.
+    weave ritual new into Stopwatch:
+        var t as float is calling monotonic
+        return with started_at is t
+
+
+    ## Returns elapsed seconds since stopwatch was created or reset.
+    weave elapsed_sec into float:
+        var now as float is calling monotonic
+        return now - self->started_at
+
+    ## Returns elapsed milliseconds since stopwatch was created or reset.
+    weave elapsed_ms into int:
+        var sec as float is calling self.elapsed_sec
+        return (sec * 1000.0) to int
+
+    ## Resets the stopwatch start time to now.
+    weave reset into void:
+        set self->started_at is calling monotonic
+
+## Creates and starts a new Stopwatch using monotonic clock.
+weave new_stopwatch into Stopwatch:
+    return calling Stopwatch.new

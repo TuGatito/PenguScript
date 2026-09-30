@@ -1,0 +1,17 @@
+# valgrind/leakcheck: keys and list values are released recursively.
+import std.spark
+
+weave main into int:
+    var m as map of string to list of int is map of string to list of int
+    var l1 as list of int is [1, 2, 3]
+    var l2 as list of int is [4, 5, 6]
+    with m:
+        calling .put with "a", l1
+        calling .put with "b", l2
+    var got as list of int is m at "a"
+    var second as list of int is m at "b"
+    var third as int is second at 2
+    calling spark.println with (third to string)
+    if calling got.len == 3:
+        return 0
+    return 1

@@ -131,7 +131,7 @@ The executed file is compiled with the compile-time variable `main` set to `true
 import std.spark
 
 weave greet with name as string into void:
-    calling spark.println with "Hello, " + name
+    calling spark.println with "Hello, {name}"
 
 when main:
     weave main into int:
@@ -306,7 +306,7 @@ var matrix is [
 #### Strings, Interpolation & Raw Literals
 String literals are context aware and support several modern forms:
 
-- **Standard strings**: `"Hello {name}"` performs expression interpolation (`{expr}`) in string contexts, translated to `pengu_string_format` in C.
+- **Standard strings**: `"Hello {name}"` performs expression interpolation (`{expr}`) in string contexts, translated to `pengu_string_format` in C. **Interpolation is the only string-composition operator**: `+` is numeric-only and `"a" + b` (or `set s += x`) is `E0005`.
 - **Triple-quoted strings**: `"""..."""` span multiple lines and automatically dedent common leading whitespace.
 - **Raw strings**: Prefixing with `r` (e.g. `r"C:\path\to\file"` or `r"""raw multiline"""`) disables escape sequence interpretation and prevents `{expr}` interpolation.
 - **C-string context**: Where a `ref to char` (C `const char*`) is expected, literals are emitted directly as `"..."` with zero runtime allocation. Interpolation is rejected in `ref to char` contexts.
@@ -728,7 +728,7 @@ void operators_demo(void) {
 }
 ```
 
-`+` concatenates strings (`"a" + "b"`), and every arithmetic operator requires numeric operands. Conditions must be real `bool` values — there is no truthiness coercion.
+`+` is **numeric-only**; string composition is exclusively `"{expr}"` interpolation. Every arithmetic operator requires numeric operands. Conditions must be real `bool` values — there is no truthiness coercion.
 
 #### Logical operators
 
@@ -748,14 +748,14 @@ Since 0.10.0 they are **not** list separators any more — use `,`
 #### Compound assignment
 
 ```pengu
-set x += 1          set s += "!"
-set mask <<= 2      set acc /= n
-set total -= fee    set flags |= 0x08
+set x += 1          set mask <<= 2
+set acc /= n        set total -= fee
+set flags |= 0x08   set s is "{s}!"   # strings: interpolation, never '+='
 ```
 
-`+= -= *= /= %=` need numerics (`+=` also concatenates strings); `&= |= ^= <<= >>=`
-need integers. The target keeps all normal `set` rules (mutable, may be a field
-or `.field` in a `with` scope).
+`+= -= *= /= %=` need numerics — `+=` on a `string` is `E0005`; compose strings
+with `"{expr}"` interpolation. `&= |= ^= <<= >>=` need integers. The target keeps
+all normal `set` rules (mutable, may be a field or `.field` in a `with` scope).
 
 ### 6.3 Word operators
 
@@ -786,6 +786,7 @@ let m as maybe int is some 42
 - `chr` accepts an int in 0–255 (constant range is checked) and returns a single-character string backed by a heap copy.
 - `some` heap-copies its operand (`pengu_sigil_alloc` + `memcpy`) so the value outlives the expression.
 - Strings compare by equality (`==`, `!=`). Ordering comparisons (`<`, `<=`, `>`, `>=`) on strings are rejected with `E0005`.
+- Strings never concatenate with `+`/`+=` (`E0005`): compose them with `"{expr}"`. Use `"{a}{b}"` instead of `a + b`, and `set s is "{s}{more}"` instead of `set s += more`.
 
 ### 6.4 String operations
 
@@ -1084,7 +1085,7 @@ else:
 
 ```pengu
 weave audit with what as string into void:
-    calling spark.println with "audit: " + what
+    calling spark.println with "audit: {what}"
     when main:
         calling spark.println with "(running as a script)"
 ```
@@ -2499,6 +2500,12 @@ Install from the **Extensions** panel → *Install from VSIX…* → select the 
 | `pengu lsp` | Launch the Language Server Protocol server |
 | `pengu doc` | Generate Markdown documentation from `##` comments |
 | `pengu assets` | Generate or inspect embedded asset modules (`src/arca.pengu`) |
+| `pengu doctor` | Report toolchain health: compiler, TCC, runtime, `std/`, cache |
+| `pengu gc` | Collect cached script binaries (`--all`, `--max-age N`) |
+| `pengu expand FILE.pengu` | Print the generated `bundle.c` (`-o FILE` to write it) |
+| `pengu time FILE.pengu` | Run a script and report per-phase timings |
+| `pengu eval "<expr>"` | Compile and run a one-line expression |
+| `pengu watch FILE.pengu` | Re-run the script whenever it (or an import) changes |
 
 ### 17.2 Options by command
 
@@ -2506,8 +2513,8 @@ Install from the **Extensions** panel → *Install from VSIX…* → select the 
 | ------- | ----- |
 | `init` | `--type/-t exe\|c\|obj\|static\|shared` (default `exe`), `--links/-l`, `--output-name`, `--cc` (default `gcc`) |
 | `add` | `--branch/-b`, `--name/-n`, `--config/-c`, `--no-build` |
-| `build` | `--profile/-p debug`, `--config/-c`, `--entry/-e`, `--output/-o`, `--test`, `--cc`, `--verbose`, `-D/--define` (repeatable) |
-| `run` | `script` (optional), `--profile/-p`, `--config/-c`, `--entry/-e`, `--test`, `--cc`, `--verbose`, `-D/--define` |
+| `build` | `--profile/-p debug`, `--config/-c`, `--entry/-e`, `--output/-o`, `--test`, `--cc`, `--verbose`, `-D/--define` (repeatable), `--pch`/`--no-pch`, `--no-dce` |
+| `run` | `script` (optional), `--profile/-p`, `--config/-c`, `--entry/-e`, `--test`, `--cc`, `--verbose`, `-D/--define`, `--keep`, `--no-cache`, `--clear-cache`, `--ephemeral`, `--pch`/`--no-pch`, `--no-dce`, `-- ARGS…` |
 | `test` | `--profile/-p`, `--config/-c`, `--entry/-e`, `--cc`, `--verbose`, `-D/--define` |
 | `check` | `--profile/-p`, `--config/-c`, `--entry/-e`, `--cc`, `--verbose`, `-D/--define` |
 | `fmt` | `paths…`, `--check`, `--write` (default), `--indent N` (default 2), `--tabs`, `--verbose` |
@@ -2615,7 +2622,7 @@ rune Player:
 
 enchanting Player:
     weave label into string:
-        return self->name + " (" + (self->score to string) + ")"
+        return "{self->name} ({(self->score to string)})"
 
 weave best with players as list of Player into maybe Player:
     var found as bool is false
@@ -2639,7 +2646,7 @@ weave main into int:
     let winner as maybe Player is calling best with roster
     if winner is present:
         let top as Player is winner.value
-        calling spark.println with "winner: " + calling top.label
+        calling spark.println with "winner: {calling top.label}"
     else:
         calling spark.println with "no players"
 
@@ -2671,9 +2678,9 @@ weave safe_divide with a as int, b as int into maybe int:
 weave main into int:
     let q as maybe int is calling safe_divide with 10, 2
     if q is present:
-        calling spark.println with "10 / 2 = " + (q.value to string)
+        calling spark.println with "10 / 2 = {(q.value to string)}"
     let fallback is q or else -1
-    calling spark.println with "fallback: " + (fallback to string)
+    calling spark.println with "fallback: {(fallback to string)}"
     return 0
 ```
 
@@ -2734,7 +2741,7 @@ omen Direction:
 weave main into int:
     let a as Vec2 is calling Vec2.origin
     var b as Vec2 is with x is 3.0, y is 4.0
-    calling spark.println with "dist² = " + (calling b.len_squared to string)
+    calling spark.println with "dist² = {(calling b.len_squared to string)}"
 
     var move as Direction is with North is with dy is -1
     calling spark.println with "move chosen"
@@ -2754,7 +2761,7 @@ move chosen
 import std.spark
 
 weave greet with name as string into void:
-    calling spark.println with "Hello, " + name + "!"
+    calling spark.println with "Hello, {name}!"
 
 when main:
     weave main into int:

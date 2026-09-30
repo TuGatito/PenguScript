@@ -25,16 +25,7 @@ from tests.conftest import (
 
 def test_n1_break_continue_flushes_loop_auto_banish():
     """N1: break and continue flush auto-banished variables declared directly in the loop body."""
-    code = """weave main into int:
-  for i from 0 to 5:
-    var s is "hello " + (i to string)
-    if i == 2:
-      continue
-    if i == 4:
-      break
-    calling print with s
-  return 0
-"""
+    code = 'weave main into int:\n  for i from 0 to 5:\n    var s is "hello {(i to string)}"\n    if i == 2:\n      continue\n    if i == 4:\n      break\n    calling print with s\n  return 0\n'
     c = gen_bundle(code)
     # Both break and continue must be preceded by pengu_banish_string(&s);
     # Verify s is cleaned up at least 3 times (continue path, break path, normal end of loop)
@@ -52,19 +43,7 @@ def test_n1_break_continue_flushes_loop_auto_banish():
 @requires_cc
 def test_n1_break_continue_executes_cleanly():
     """N1: Loop with continue and break executes without memory leaks or crashes."""
-    code = """weave main into int:
-  var count is 0
-  for i from 0 to 5:
-    var s is "item " + (i to string)
-    if i == 1:
-      continue
-    if i == 3:
-      break
-    set count += 1
-  if count == 2:
-    return 0
-  return 1
-"""
+    code = 'weave main into int:\n  var count is 0\n  for i from 0 to 5:\n    var s is "item {(i to string)}"\n    if i == 1:\n      continue\n    if i == 3:\n      break\n    set count += 1\n  if count == 2:\n    return 0\n  return 1\n'
     res = compile_run(code, tag="test_n1_loop")
     assert res.returncode == 0
 

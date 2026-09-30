@@ -1,0 +1,20 @@
+# 'derive Nexus' releases owned fields; 'banish' on a local rune with a
+# derived destructor frees them without freeing the stack value itself.
+rune Doc derive Par, Nexus:
+    title as string
+    tags as list of string
+
+weave make_doc into Doc:
+    var d as Doc with:
+        set .title is "beta!"
+        set .tags is ["x", "y", "z"]
+    # 'd' is returned: its fields move to the caller (escape analysis keeps
+    # the callee from banishing it), so no release here.
+    return d
+
+weave main into int:
+    var d as Doc is calling make_doc
+    defer banish d
+    if d.title == "beta!" and calling d.tags.len == 3:
+        return 0
+    return 1

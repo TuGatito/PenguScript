@@ -1,0 +1,28 @@
+# Algebraic (tagged) omens derive Par/Ordo like runes; simple omens are enums.
+omen Shape derive Par, Ordo:
+    Circle with radius as float
+    Square with side as float
+    Point
+
+omen Dir derive Par, Ordo:
+    North is 0
+    South is 1
+
+weave main into int:
+    var a as Shape is with Circle is with radius is 1.0
+    var b as Shape is with Circle is with radius is 1.0
+    var c as Shape is with Square is with side is 2.0
+    var p as Shape is Point
+    var n as Dir is North
+    var s as Dir is South
+    if not (a == b):
+        return 1
+    if a == c:
+        return 2
+    if not (a < c):
+        return 3
+    if not (n < s):
+        return 4
+    if a == p:
+        return 5
+    return 0

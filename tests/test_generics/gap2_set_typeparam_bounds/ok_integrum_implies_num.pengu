@@ -1,0 +1,10 @@
+# 'Integrum' refines 'Num', so an integer value is valid for either bound.
+weave add_one shard T where T: Integrum with x as ref to T, v as T into void:
+    set essence of x is v
+
+weave main into int:
+    var n as int is 0
+    calling add_one with (sigil of n), 5
+    if n == 5:
+        return 0
+    return 1

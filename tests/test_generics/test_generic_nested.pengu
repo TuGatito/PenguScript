@@ -1,0 +1,12 @@
+# Nested monomorphization: Box of Box of int must not redeclare helpers.
+rune Box shard T:
+    val as T
+
+weave main into int:
+    var inner as Box of int with:
+        set .val is 99
+    var outer as Box of (Box of int) with:
+        set .val is inner
+    if outer.val.val == 99:
+        return 0
+    return 1

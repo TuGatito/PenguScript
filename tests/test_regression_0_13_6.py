@@ -185,21 +185,31 @@ weave main into int:
 
 @requires_cc
 def test_item7_compound_set_on_string_alias():
-    """#7: compound set += on AliasType(string) passes checker and concatenates."""
+    """#7: accumulating an AliasType(string) through interpolation works."""
     code = """alias MyText as string
 
 weave main into int:
   var s as MyText is "hello"
-  set s += " world"
+  set s is "{s} world"
   if s == "hello world":
     return 0
   return 1
 """
     check_ok(code)
     c = gen_bundle(code)
-    assert "pengu_string_concat" in c
+    # Strings compose with interpolation; '+' concatenation is gone.
+    assert "pengu_string_concat" not in c
+    assert 'pengu_string_format' in c
     res = compile_run(code, tag="test_item7_compound_alias")
     assert res.returncode == 0
+
+
+def test_item7b_compound_set_on_string_is_rejected():
+    """#7 (0.15.0): 'set s += …' on a string (even an alias of string) is E0005."""
+    check_error(
+        'alias MyText as string\n\nweave main into int:\n  var s as MyText is "hello"\n  set s += " world"\n  return 0\n',
+        contains="E0005",
+    )
 
 
 def test_item8_duplicate_const_intra_file_not_cross_module():

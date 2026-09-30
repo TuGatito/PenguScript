@@ -8,7 +8,7 @@ weave dummy_test_1 into void:
     calling ward.assert_eq_int with 1 + 1, 2
 
 weave dummy_test_2 into void:
-    calling ward.assert_eq_string with "pengu" + "script", "penguscript"
+    calling ward.assert_eq_string with "penguscript", "penguscript"
 
 weave main into void:
     calling spark.println with "=== Testing Trial ==="

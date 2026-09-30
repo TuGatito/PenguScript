@@ -1,0 +1,19 @@
+# 'derive Imago' deep-copies owned fields so a list can store runes by value.
+# Imago implies Nexus, which also lets the local release its own fields.
+rune Tag derive Par, Imago:
+    name as string
+    aliases as list of string
+
+weave main into int:
+    var tags as list of Tag is list of Tag
+    var t as Tag with:
+        set .name is "alpha!"
+        set .aliases is ["a", "b"]
+    calling tags.push with t
+    calling tags.push with t
+    banish t
+    var first as Tag is tags at 0
+    if calling tags.len == 2 and first.name == "alpha!":
+        if calling first.aliases.len == 2 and (tags at 1).name == "alpha!":
+            return 0
+    return 1

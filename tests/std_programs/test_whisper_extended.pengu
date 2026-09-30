@@ -1,0 +1,112 @@
+import std.whisper
+import std.spark
+import std.archivum
+
+weave main into int:
+    calling spark.println with "=== Test Whisper Extended ==="
+
+    # 1. Version & Constants
+    calling spark.assert with whisper.WHISPER_VERSION == "0.15.0"
+    calling spark.assert with whisper.LOG_TRACE == 0
+    calling spark.assert with whisper.LOG_DEBUG == 1
+    calling spark.assert with whisper.LOG_INFO == 2
+    calling spark.assert with whisper.LOG_WARN == 3
+    calling spark.assert with whisper.LOG_ERROR == 4
+    calling spark.assert with whisper.LOG_FATAL == 5
+
+    var lvls as list of string is calling whisper.log_levels
+    calling spark.assert with (calling lvls.len) == 6
+    calling spark.assert with (lvls at 0) == "trace"
+    calling spark.assert with (lvls at 5) == "fatal"
+    calling spark.println with "constants: OK"
+
+    # 2. Level Parsing & Names
+    calling spark.assert with (calling whisper.get_level_name with whisper.LOG_INFO) == "INFO"
+    calling spark.assert with (calling whisper.get_level_name with whisper.LOG_ERROR) == "ERROR"
+    calling spark.assert with (calling whisper.get_level_name with whisper.LOG_FATAL) == "FATAL"
+
+    var p_info as maybe int is calling whisper.parse_level_string with "info"
+    calling spark.assert with (p_info is present)
+    if p_info is present:
+        calling spark.assert with p_info.value == whisper.LOG_INFO
+
+    var p_warn as maybe int is calling whisper.parse_level_string with "WARN"
+    calling spark.assert with (p_warn is present)
+    if p_warn is present:
+        calling spark.assert with p_warn.value == whisper.LOG_WARN
+
+    var p_bad as maybe int is calling whisper.parse_level_string with "not_a_level_xyz"
+    calling spark.assert with (p_bad is not present)
+
+    var ok_str_set as bool is calling whisper.set_level_from_string with "warn"
+    calling spark.assert with ok_str_set
+    calling spark.assert with (calling whisper.get_level) == whisper.LOG_WARN
+
+    var bad_str_set as bool is calling whisper.set_level_from_string with "not_a_level_xyz"
+    calling spark.assert with (bad_str_set == false)
+    calling spark.println with "level parsing: OK"
+
+    # 3. Global Functional Logger (baseline & helpers)
+    calling whisper.set_level with whisper.LOG_INFO
+    calling spark.assert with (calling whisper.get_level) == whisper.LOG_INFO
+    calling spark.assert with (calling whisper.is_enabled with whisper.LOG_INFO)
+    calling spark.assert with ((calling whisper.is_enabled with whisper.LOG_DEBUG) == false)
+
+    calling whisper.info with "hello global info"
+    calling whisper.debug with "suppressed global debug"
+
+    var flds as map of string to string is map of string to string
+    calling flds.put with "env" , "test"
+    calling flds.put with "run" , "1"
+    calling whisper.log_json with whisper.LOG_INFO , "json message" , flds
+    calling spark.println with "global logger: OK"
+
+    # 4. Object-Oriented Logger Rune & Rituals
+    var lg as whisper.Logger is calling Logger.named with "my_app" , whisper.LOG_INFO
+    calling spark.assert with lg.name == "my_app"
+    calling spark.assert with (calling lg.get_level) == whisper.LOG_INFO
+    calling spark.assert with (calling lg.is_enabled with whisper.LOG_INFO)
+    calling spark.assert with ((calling lg.is_enabled with whisper.LOG_DEBUG) == false)
+
+    calling lg.info with "info from instance logger"
+    calling lg.debug with "debug suppressed from instance logger"
+
+    calling lg.set_level with whisper.LOG_DEBUG
+    calling spark.assert with (calling lg.get_level) == whisper.LOG_DEBUG
+    calling spark.assert with (calling lg.is_enabled with whisper.LOG_DEBUG)
+
+    calling lg.enable_timestamp
+    calling lg.disable_timestamp
+    calling lg.disable_color
+    calling lg.enable_color
+
+    # Child Logger
+    var child_lg as whisper.Logger is calling lg.child with "worker"
+    calling spark.assert with child_lg.name == "my_app.worker"
+    calling spark.assert with (calling child_lg.get_level) == whisper.LOG_DEBUG
+
+    calling child_lg.info with "child logger operational"
+    calling spark.println with "instance logger: OK"
+
+    # 5. File Redirection & JSON escaping
+    var tmp_log_file as string is "/tmp/test_whisper_output.log"
+    calling lg.to_file with tmp_log_file
+    calling lg.info with "logged directly into file"
+    var esc_map as map of string to string is map of string to string
+    calling esc_map.put with "esc_key" , "val with \"quotes\" and \\slash"
+    calling lg.log_json with whisper.LOG_INFO , "msg with \"quotes\" and \\slash" , esc_map
+    calling lg.to_file with ""
+
+    calling spark.assert with (calling archivum.exists with tmp_log_file)
+    var read_back as maybe string is calling archivum.read_file with tmp_log_file
+    calling spark.assert with (read_back is present)
+    if read_back is present:
+        var content as string is read_back.value
+        calling spark.assert with (calling content.contains with "logged directly into file")
+        calling spark.assert with (calling content.contains with "\\\"quotes\\\"")
+        calling spark.assert with (calling content.contains with "\\\\slash")
+    calling archivum.delete_file with tmp_log_file
+    calling spark.println with "file target: OK"
+
+    calling spark.println with "whisper extended: OK"
+    return 0

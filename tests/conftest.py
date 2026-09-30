@@ -153,6 +153,32 @@ def gen_bundle(source: str, filename: str = "t.pengu", extra_files=None) -> str:
     return cg.generate_bundle()
 
 
+def check_c_syntax(c_code: str) -> None:
+    """Verifies that generated C code passes syntax checking with gcc or clang (-fsyntax-only)."""
+    if not HAVE_CC:
+        return
+    cc = "gcc" if have_tool("gcc") else ("clang" if have_tool("clang") else "cc")
+    with tempfile.NamedTemporaryFile("w", suffix=".c", delete=False) as f:
+        f.write(c_code)
+        c_path = f.name
+    try:
+        cmd = [
+            cc, "-fsyntax-only", "-std=c11", c_path,
+            f"-I{REPO}", f"-I{BUILD_DIR}", f"-I{BUILD_INCLUDE}",
+            "-Wno-error=implicit-function-declaration",
+            "-Wno-error=implicit-int",
+            "-Wno-error=int-conversion"
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        assert res.returncode == 0, f"C syntax error: {res.stderr}\n\nGenerated C:\n{c_code}"
+    finally:
+        try:
+            os.remove(c_path)
+        except OSError:
+            pass
+
+
+
 # --------------------------------------------------------------------------
 # Level 3: compile + run with a C compiler
 # --------------------------------------------------------------------------
@@ -243,7 +269,7 @@ def runtime_link_flags():
 
 
 def compile_run(source: str, tag: str = "t", extra_libs=None, cwd=None,
-                timeout: int = 180) -> subprocess.CompletedProcess:
+                timeout: int = 180, profile: str = "debug") -> subprocess.CompletedProcess:
     """Writes ``source`` to a temp project, bundles, compiles and runs it.
 
     Returns the CompletedProcess of the executed binary. Decorating tests with
@@ -258,7 +284,7 @@ def compile_run(source: str, tag: str = "t", extra_libs=None, cwd=None,
     try:
         entry = d / f"{tag}.pengu"
         entry.write_text(source, encoding="utf-8")
-        cfg = ProjectConfig(entry=str(entry), base_dir=str(REPO), output="c")
+        cfg = ProjectConfig(entry=str(entry), base_dir=str(REPO), profile=profile, output="c")
         builder = PenguBuilder(cfg)
         bundle_path, _ = builder.bundle(output_file=str(d / "bundle.c"))
 
@@ -267,6 +293,10 @@ def compile_run(source: str, tag: str = "t", extra_libs=None, cwd=None,
         cmd = [cc, str(bundle_path),
                f"-I{REPO}", f"-I{BUILD_DIR}", f"-I{BUILD_INCLUDE}",
                f"-L{BUILD_LIB}"]
+        if profile == "release":
+            cmd.append("-O3")
+        else:
+            cmd.append("-g")
         # GCC 14 turns implicit declarations / int-conversion into errors by
         # default; generated C may trigger those warnings on newer toolchains,
         # so keep them as warnings across compilers.

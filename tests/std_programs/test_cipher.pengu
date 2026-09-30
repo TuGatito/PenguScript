@@ -9,11 +9,11 @@ weave main into void:
     # Base64 test
     var original as string is "Hello Pengu World!"
     var encoded as string is calling cipher.encode_base64 with original
-    calling spark.println with "encoded: " + encoded
+    calling spark.println with "encoded: {encoded}"
 
     var decoded_res as maybe string is calling cipher.decode_base64 with encoded
     if decoded_res.is_present:
-        calling spark.println with "decoded: " + decoded_res.value
+        calling spark.println with "decoded: {decoded_res.value}"
 
     var is_b64 as bool is calling cipher.is_base64 with encoded
     if is_b64:
@@ -37,6 +37,6 @@ weave main into void:
 
     var val_res as maybe string is calling cipher.parse_value with "12345"
     if val_res.is_present:
-        calling spark.println with "parse_value: " + val_res.value
+        calling spark.println with "parse_value: {val_res.value}"
 
     calling spark.println with "=== Cipher OK ==="

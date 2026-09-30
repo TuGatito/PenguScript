@@ -1,28 +1,33 @@
 # std/coven.pengu - The Coven (Sets)
-# Provides dynamic unique set collections over the built-in hash map:
-# SetString holds distinct strings, SetInt holds distinct ints.
+# Dynamic unique set collections over the built-in hash map: SetString holds
+# distinct strings, SetInt holds distinct ints. Fully backward compatible
+# with 0.14.x.
 #
 # Ownership / memory model:
 #   * A set OWNS its elements: `add` deep-copies the item (as the key of the
 #     backing map), so later changes to the caller's value never leak into
 #     the set and no element is ever stored twice.
-#   * A set is a rune value record with a single `items` backing map. Build
-#     one with new_set_string / new_set_int, then copy, return or `banish`
-#     it like any owned value.
+#   * A set is a rune value record with an `items` backing map of string to int.
+#   * Methods that return a new set (`union`, `intersect`, `difference`,
+#     `symmetric_difference`, `clone`, `filter_*`) allocate a fresh set owned
+#     by the caller; the compiler's auto-banish cleans it at scope exit if not
+#     escaped.
+#   * NEVER banish the input set from inside a helper.
 #
-# Usage:
-#   import std.coven
-#   var s as SetString is calling coven.new_set_string
-#   calling s.add with "apple"
-#   if calling s.contains with "apple": ...
-#
-# Implementation note: both types store their elements as KEYS of a
-# `map of string to int` (the int values are unused). SetInt stringifies
-# each int with `item to string`, which is unique per int, so membership and
-# insertion behave exactly like a mathematical set with O(1) average cost.
+# Implementation note: both types store elements as keys of a
+# `map of string to int`. SetInt stringifies each int with `item to string`,
+# preserving uniqueness with O(1) average lookup and insertion.
 
 import std.spark
 import std.atlas
+import std.scrolls
+
+# ----------------------------------------------------------------------------
+# Version constant
+# ----------------------------------------------------------------------------
+
+## Coven module version constant.
+const COVEN_VERSION as string is "0.15.0"
 
 # ----------------------------------------------------------------------------
 # Value types
@@ -41,7 +46,7 @@ rune SetInt:
     items as map of string to int
 
 # ----------------------------------------------------------------------------
-# Constructors
+# Pre-existing constructors (kept verbatim for backward compatibility)
 # ----------------------------------------------------------------------------
 
 # Builds a new, empty SetString ready to receive `add` calls.
@@ -55,12 +60,70 @@ weave new_set_int into SetInt:
     return with items is m
 
 # ----------------------------------------------------------------------------
-# SetString methods
+# Ritual constructors (module-level)
 # ----------------------------------------------------------------------------
 
-# Methods attached to every SetString value (each backed by the set's
-# `items` hash map of string to int).
+## Creates an empty SetString. Alias of `new_set_string`.
+##
+## Signature: empty_set_string() into SetString
+## Ownership: Returns an owned fresh SetString.
+weave ritual empty_set_string into SetString:
+    return calling new_set_string
+
+## Creates an empty SetInt. Alias of `new_set_int`.
+##
+## Signature: empty_set_int() into SetInt
+## Ownership: Returns an owned fresh SetInt.
+weave ritual empty_set_int into SetInt:
+    return calling new_set_int
+
+## Builds a SetString from a list of strings, automatically deduplicating items.
+##
+## Signature: from_list_string(items as list of string) into SetString
+## Ownership: Returns an owned fresh SetString.
+weave ritual from_list_string with items as list of string into SetString:
+    var s as SetString is calling new_set_string
+    var n as int is calling items.len
+    var i as int is 0
+    while i < n:
+        calling s.add with (items at i)
+        set i is i + 1
+    return s
+
+## Builds a SetInt from a list of ints, automatically deduplicating items.
+##
+## Signature: from_list_int(items as list of int) into SetInt
+## Ownership: Returns an owned fresh SetInt.
+weave ritual from_list_int with items as list of int into SetInt:
+    var s as SetInt is calling new_set_int
+    var n as int is calling items.len
+    var i as int is 0
+    while i < n:
+        calling s.add with (items at i)
+        set i is i + 1
+    return s
+
+# ----------------------------------------------------------------------------
+# SetString enchanting methods
+# ----------------------------------------------------------------------------
+
 enchanting SetString:
+    # ------------------------------------------------------------------------
+    # Static ritual constructors attached to type
+    # ------------------------------------------------------------------------
+
+    ## Creates an empty SetString.
+    weave ritual empty into SetString:
+        return calling new_set_string
+
+    ## Builds a SetString from a list of strings.
+    weave ritual from_items with items as list of string into SetString:
+        return calling from_list_string with items
+
+    # ------------------------------------------------------------------------
+    # Pre-existing instance methods (kept verbatim)
+    # ------------------------------------------------------------------------
+
     # Inserts `item` into the set. Inserting a string that is already
     # present is a no-op, because a set stores each element at most once.
     weave add with item as string into void:
@@ -87,13 +150,165 @@ enchanting SetString:
     weave is_empty into bool:
         return calling self->items.is_empty
 
+    # ------------------------------------------------------------------------
+    # Set algebra & operations
+    # ------------------------------------------------------------------------
+
+    ## Returns a fresh SetString containing every element present in `self` or `other`.
+    ##
+    ## Signature: union(other as SetString) into SetString
+    ## Ownership: Returns an owned fresh SetString.
+    weave union with other as SetString into SetString:
+        var result as SetString is calling new_set_string
+        for k in self->items:
+            calling result.add with k
+        for k in other.items:
+            calling result.add with k
+        return result
+
+    ## Returns a fresh SetString containing only elements present in both `self` and `other`.
+    ##
+    ## Signature: intersect(other as SetString) into SetString
+    ## Ownership: Returns an owned fresh SetString.
+    weave intersect with other as SetString into SetString:
+        var result as SetString is calling new_set_string
+        for k in self->items:
+            if calling other.contains with k:
+                calling result.add with k
+        return result
+
+    ## Returns a fresh SetString with elements present in `self` but absent from `other`.
+    ##
+    ## Signature: difference(other as SetString) into SetString
+    ## Ownership: Returns an owned fresh SetString.
+    weave difference with other as SetString into SetString:
+        var result as SetString is calling new_set_string
+        for k in self->items:
+            if (calling other.contains with k) == false:
+                calling result.add with k
+        return result
+
+    ## Returns a fresh SetString with elements in either `self` or `other`, but not both.
+    ##
+    ## Signature: symmetric_difference(other as SetString) into SetString
+    ## Ownership: Returns an owned fresh SetString.
+    weave symmetric_difference with other as SetString into SetString:
+        var a_minus_b as SetString is calling self.difference with other
+        var b_minus_a as SetString is calling other.difference with (essence of self)
+        return calling a_minus_b.union with b_minus_a
+
+    ## Returns true if every element in `self` is also present in `other`.
+    ##
+    ## Signature: is_subset(other as SetString) into bool
+    ## Ownership: Reads sets; returns scalar boolean.
+    weave is_subset with other as SetString into bool:
+        for k in self->items:
+            if (calling other.contains with k) == false:
+                return false
+        return true
+
+    ## Returns true if every element in `other` is also present in `self`.
+    ##
+    ## Signature: is_superset(other as SetString) into bool
+    ## Ownership: Reads sets; returns scalar boolean.
+    weave is_superset with other as SetString into bool:
+        return calling other.is_subset with (essence of self)
+
+    ## Returns true if `self` and `other` have no elements in common.
+    ##
+    ## Signature: is_disjoint(other as SetString) into bool
+    ## Ownership: Reads sets; returns scalar boolean.
+    weave is_disjoint with other as SetString into bool:
+        for k in self->items:
+            if calling other.contains with k:
+                return false
+        return true
+
+    ## Returns true if `self` and `other` contain exactly the same set of elements.
+    ##
+    ## Signature: equals(other as SetString) into bool
+    ## Ownership: Reads sets; returns scalar boolean.
+    weave equals with other as SetString into bool:
+        if (calling self.len) != (calling other.len):
+            return false
+        return calling self.is_subset with other
+
+    ## Returns a fresh independent copy of `self`.
+    ##
+    ## Signature: clone() into SetString
+    ## Ownership: Returns an owned fresh SetString.
+    weave clone into SetString:
+        var result as SetString is calling new_set_string
+        for k in self->items:
+            calling result.add with k
+        return result
+
+    ## Returns a fresh list containing all elements of `self` in internal hash order.
+    ##
+    ## Signature: to_list() into list of string
+    ## Ownership: Returns an owned fresh list of string elements.
+    weave to_list into list of string:
+        var result as list of string is list of string
+        for k in self->items:
+            calling result.push with k
+        return result
+
+    ## Converts this SetString to a SetInt, parsing each element with `std.spark.parse_int`.
+    ## Elements that cannot be parsed are skipped.
+    ##
+    ## Signature: to_set_int() into SetInt
+    ## Ownership: Returns an owned fresh SetInt.
+    weave to_set_int into SetInt:
+        var result as SetInt is calling new_set_int
+        for k in self->items:
+            var opt as maybe int is calling spark.parse_int with k
+            if opt is present:
+                calling result.add with opt.value
+        return result
+
+    ## Returns a fresh SetString containing only elements that start with `prefix`.
+    ##
+    ## Signature: filter_starts_with(prefix as string) into SetString
+    ## Ownership: Returns an owned fresh SetString.
+    weave filter_starts_with with prefix as string into SetString:
+        var result as SetString is calling new_set_string
+        for k in self->items:
+            if calling k.starts_with with prefix:
+                calling result.add with k
+        return result
+
+    ## Returns a fresh SetString containing only elements with string length >= `n`.
+    ##
+    ## Signature: filter_length_ge(n as int) into SetString
+    ## Ownership: Returns an owned fresh SetString.
+    weave filter_length_ge with n as int into SetString:
+        var result as SetString is calling new_set_string
+        for k in self->items:
+            if (calling k.len) >= n:
+                calling result.add with k
+        return result
+
 # ----------------------------------------------------------------------------
-# SetInt methods
+# SetInt enchanting methods
 # ----------------------------------------------------------------------------
 
-# Methods attached to every SetInt value. Each int is stored under its
-# decimal string form (item to string), so the set stays duplicate-free.
 enchanting SetInt:
+    # ------------------------------------------------------------------------
+    # Static ritual constructors attached to type
+    # ------------------------------------------------------------------------
+
+    ## Creates an empty SetInt.
+    weave ritual empty into SetInt:
+        return calling new_set_int
+
+    ## Builds a SetInt from a list of ints.
+    weave ritual from_items with items as list of int into SetInt:
+        return calling from_list_int with items
+
+    # ------------------------------------------------------------------------
+    # Pre-existing instance methods (kept verbatim)
+    # ------------------------------------------------------------------------
+
     # Inserts `item` into the set, storing it under the decimal string of
     # the int. Inserting an int that is already present is a no-op.
     weave add with item as int into void:
@@ -119,3 +334,172 @@ enchanting SetInt:
     # Returns true when the set holds no elements at all.
     weave is_empty into bool:
         return calling self->items.is_empty
+
+    # ------------------------------------------------------------------------
+    # Set algebra & operations
+    # ------------------------------------------------------------------------
+
+    ## Returns a fresh SetInt containing every element present in `self` or `other`.
+    ##
+    ## Signature: union(other as SetInt) into SetInt
+    ## Ownership: Returns an owned fresh SetInt.
+    weave union with other as SetInt into SetInt:
+        var result as SetInt is calling new_set_int
+        for k in self->items:
+            calling result.items.put with k, 1
+        for k in other.items:
+            calling result.items.put with k, 1
+        return result
+
+    ## Returns a fresh SetInt containing only elements present in both `self` and `other`.
+    ##
+    ## Signature: intersect(other as SetInt) into SetInt
+    ## Ownership: Returns an owned fresh SetInt.
+    weave intersect with other as SetInt into SetInt:
+        var result as SetInt is calling new_set_int
+        for k in self->items:
+            if calling other.items.contains with k:
+                calling result.items.put with k, 1
+        return result
+
+    ## Returns a fresh SetInt with elements present in `self` but absent from `other`.
+    ##
+    ## Signature: difference(other as SetInt) into SetInt
+    ## Ownership: Returns an owned fresh SetInt.
+    weave difference with other as SetInt into SetInt:
+        var result as SetInt is calling new_set_int
+        for k in self->items:
+            if (calling other.items.contains with k) == false:
+                calling result.items.put with k, 1
+        return result
+
+    ## Returns a fresh SetInt with elements in either `self` or `other`, but not both.
+    ##
+    ## Signature: symmetric_difference(other as SetInt) into SetInt
+    ## Ownership: Returns an owned fresh SetInt.
+    weave symmetric_difference with other as SetInt into SetInt:
+        var a_minus_b as SetInt is calling self.difference with other
+        var b_minus_a as SetInt is calling other.difference with (essence of self)
+        return calling a_minus_b.union with b_minus_a
+
+    ## Returns true if every element in `self` is also present in `other`.
+    ##
+    ## Signature: is_subset(other as SetInt) into bool
+    ## Ownership: Reads sets; returns scalar boolean.
+    weave is_subset with other as SetInt into bool:
+        for k in self->items:
+            if (calling other.items.contains with k) == false:
+                return false
+        return true
+
+    ## Returns true if every element in `other` is also present in `self`.
+    ##
+    ## Signature: is_superset(other as SetInt) into bool
+    ## Ownership: Reads sets; returns scalar boolean.
+    weave is_superset with other as SetInt into bool:
+        return calling other.is_subset with (essence of self)
+
+    ## Returns true if `self` and `other` have no elements in common.
+    ##
+    ## Signature: is_disjoint(other as SetInt) into bool
+    ## Ownership: Reads sets; returns scalar boolean.
+    weave is_disjoint with other as SetInt into bool:
+        for k in self->items:
+            if calling other.items.contains with k:
+                return false
+        return true
+
+    ## Returns true if `self` and `other` contain exactly the same set of elements.
+    ##
+    ## Signature: equals(other as SetInt) into bool
+    ## Ownership: Reads sets; returns scalar boolean.
+    weave equals with other as SetInt into bool:
+        if (calling self.len) != (calling other.len):
+            return false
+        return calling self.is_subset with other
+
+    ## Returns a fresh independent copy of `self`.
+    ##
+    ## Signature: clone() into SetInt
+    ## Ownership: Returns an owned fresh SetInt.
+    weave clone into SetInt:
+        var result as SetInt is calling new_set_int
+        for k in self->items:
+            calling result.items.put with k, 1
+        return result
+
+    ## Returns a fresh list containing all parsed integer elements of `self`.
+    ##
+    ## Signature: to_list_int() into list of int
+    ## Ownership: Returns an owned fresh list of integers.
+    weave to_list_int into list of int:
+        var result as list of int is list of int
+        for k in self->items:
+            var opt as maybe int is calling spark.parse_int with k
+            if opt is present:
+                calling result.push with opt.value
+        return result
+
+    ## Returns the arithmetic sum of all integers in `self`. Returns 0 if empty.
+    ##
+    ## Signature: sum_ints() into int
+    ## Ownership: Reads set; returns scalar integer.
+    weave sum_ints into int:
+        var total as int is 0
+        for k in self->items:
+            var opt as maybe int is calling spark.parse_int with k
+            if opt is present:
+                set total is total + opt.value
+        return total
+
+    ## Returns the minimum integer in `self`. Returns 0 if empty.
+    ##
+    ## Signature: min_int() into int
+    ## Ownership: Reads set; returns scalar integer.
+    weave min_int into int:
+        var n as int is calling self.len
+        if n == 0:
+            return 0
+        var first as bool is true
+        var lo as int is 0
+        for k in self->items:
+            var opt as maybe int is calling spark.parse_int with k
+            if opt is present:
+                if first:
+                    set lo is opt.value
+                    set first is false
+                else:
+                    if opt.value < lo:
+                        set lo is opt.value
+        return lo
+
+    ## Returns the maximum integer in `self`. Returns 0 if empty.
+    ##
+    ## Signature: max_int() into int
+    ## Ownership: Reads set; returns scalar integer.
+    weave max_int into int:
+        var n as int is calling self.len
+        if n == 0:
+            return 0
+        var first as bool is true
+        var hi as int is 0
+        for k in self->items:
+            var opt as maybe int is calling spark.parse_int with k
+            if opt is present:
+                if first:
+                    set hi is opt.value
+                    set first is false
+                else:
+                    if opt.value > hi:
+                        set hi is opt.value
+        return hi
+
+    ## Converts this SetInt to an equivalent SetString with stringified keys.
+    ##
+    ## Signature: to_set_string() into SetString
+    ## Ownership: Returns an owned fresh SetString.
+    weave to_set_string into SetString:
+        var result as SetString is calling new_set_string
+        for k in self->items:
+            calling result.add with k
+        return result

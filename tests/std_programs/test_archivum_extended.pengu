@@ -1,0 +1,154 @@
+import std.archivum
+import std.compass
+import std.spark
+import std.scrolls
+
+weave main into int:
+    calling spark.println with "=== Test Archivum Extended ==="
+
+    # --- Version ---
+    calling spark.assert with archivum.ARCHIVUM_VERSION == "0.15.0"
+    calling spark.println with "version: OK"
+
+    # --- Temp helpers ---
+    var tdir as string is calling archivum.temp_dir
+    calling spark.assert with tdir length > 0
+    calling spark.assert with calling archivum.is_dir with tdir
+
+    var tfile as string is calling archivum.temp_file with "p_test"
+    calling spark.assert with tfile length > 0
+    calling spark.assert with (calling archivum.exists with tfile) == false
+    calling spark.println with "temp helpers: OK"
+
+    # --- Binary Bytes & File I/O ---
+    var bfile as string is "test_arch_bytes.bin"
+    calling spark.assert with calling archivum.write_bytes with bfile, "PenguByteData"
+    var read_b as maybe string is calling archivum.read_bytes with bfile
+    calling spark.assert with read_b.is_present
+    calling spark.assert with read_b.value == "PenguByteData"
+
+    calling spark.assert with calling archivum.append_bytes with bfile, "_Appended"
+    var read_b2 as maybe string is calling archivum.read_bytes with bfile
+    calling spark.assert with read_b2.is_present
+    calling spark.assert with read_b2.value == "PenguByteData_Appended"
+
+    var bsz as maybe int is calling archivum.file_size with bfile
+    calling spark.assert with bsz.is_present
+    calling spark.assert with bsz.value == 22
+    calling spark.println with "binary bytes and file size: OK"
+
+    # --- Emptiness Checks ---
+    var efile as string is "test_arch_empty.txt"
+    calling spark.assert with calling archivum.write_file with efile, ""
+    calling spark.assert with calling archivum.is_empty_file with efile
+    calling spark.assert with (calling archivum.is_empty_file with bfile) == false
+
+    var edir as string is "test_arch_empty_dir"
+    calling spark.assert with calling archivum.create_dir with edir, false
+    calling spark.assert with calling archivum.is_empty_dir with edir
+    calling spark.println with "emptiness checks: OK"
+
+    # --- Directory Size & Metadata ---
+    var subfile as string is "{edir}/content.txt"
+    calling spark.assert with calling archivum.write_file with subfile, "12345678"
+    calling spark.assert with (calling archivum.is_empty_dir with edir) == false
+
+    var dsz as maybe int is calling archivum.dir_size with edir, false
+    calling spark.assert with dsz.is_present
+    calling spark.assert with dsz.value == 8
+
+    var m_time as maybe float is calling archivum.modified_time with subfile
+    calling spark.assert with m_time.is_present
+    calling spark.assert with m_time.value > 0.0
+
+    var c_time as maybe float is calling archivum.created_time with subfile
+    calling spark.assert with c_time.is_present
+    calling spark.assert with c_time.value > 0.0
+
+    var a_time as maybe float is calling archivum.accessed_time with subfile
+    calling spark.assert with a_time.is_present
+    calling spark.assert with a_time.value > 0.0
+
+    var perms as maybe int is calling archivum.permissions with subfile
+    calling spark.assert with perms.is_present
+    calling spark.assert with perms.value > 0
+
+    # --- Metadata map contract verification ---
+    var meta_opt as maybe map of string to string is calling archivum.metadata with subfile
+    calling spark.assert with meta_opt.is_present
+    var mmap as map of string to string is meta_opt.value
+    calling spark.assert with calling mmap.contains with "size"
+    calling spark.assert with calling mmap.contains with "is_file"
+    calling spark.assert with calling mmap.contains with "is_dir"
+    calling spark.assert with calling mmap.contains with "is_symlink"
+    calling spark.assert with calling mmap.contains with "modified"
+    calling spark.assert with calling mmap.contains with "created"
+    calling spark.assert with calling mmap.contains with "accessed"
+    calling spark.assert with calling mmap.contains with "permissions"
+    calling spark.assert with (calling mmap.get with "is_file") == "true"
+    calling spark.assert with (calling mmap.get with "is_dir") == "false"
+    var size_parsed as maybe int is calling spark.parse_int with (calling mmap.get with "size")
+    calling spark.assert with size_parsed.is_present
+    calling spark.assert with size_parsed.value == 8
+    var mod_parsed as maybe int is calling spark.parse_int with (calling mmap.get with "modified")
+    calling spark.assert with mod_parsed.is_present
+    calling spark.assert with mod_parsed.value > 0
+
+    calling spark.println with "dir size and timestamps: OK"
+
+    # --- Search & Find Helpers ---
+    var sdir as string is "test_arch_search"
+    calling spark.assert with calling archivum.create_dir with ("{sdir}/nested"), true
+    calling spark.assert with calling archivum.write_file with ("{sdir}/one.log"), "1"
+    calling spark.assert with calling archivum.write_file with ("{sdir}/two.txt"), "22"
+    calling spark.assert with calling archivum.write_file with ("{sdir}/nested/three.log"), "333"
+
+    var all_files as list of string is calling archivum.find_files with sdir, true
+    calling spark.assert with all_files.len == 3
+
+    var direct_files as list of string is calling archivum.find_files with sdir, false
+    calling spark.assert with direct_files.len == 2
+
+    var all_dirs as list of string is calling archivum.find_dirs with sdir, true
+    calling spark.assert with all_dirs.len >= 1
+
+    var by_name as list of string is calling archivum.find_by_name with sdir, "two.txt", true
+    calling spark.assert with by_name.len == 1
+
+    var by_ext1 as list of string is calling archivum.find_by_ext with sdir, "log", true
+    calling spark.assert with by_ext1.len == 2
+
+    var by_ext2 as list of string is calling archivum.find_by_ext with sdir, ".log", true
+    calling spark.assert with by_ext2.len == 2
+    calling spark.println with "search and find helpers: OK"
+
+    # --- Line Operations ---
+    var lines_file as string is "test_arch_lines.txt"
+    var lines_data as list of string is list of string
+    calling lines_data.push with "alpha"
+    calling lines_data.push with "beta"
+    calling lines_data.push with "gamma"
+    calling spark.assert with calling archivum.write_lines with lines_file, lines_data
+
+    var n_lines as maybe int is calling archivum.count_lines with lines_file
+    calling spark.assert with n_lines.is_present
+    calling spark.assert with n_lines.value >= 3
+
+    var first2 as maybe list of string is calling archivum.read_first_n_lines with lines_file, 2
+    calling spark.assert with first2.is_present
+    var f2 as list of string is first2.value
+    calling spark.assert with f2.len == 2
+    calling spark.assert with (f2 at 0) == "alpha"
+    calling spark.assert with (f2 at 1) == "beta"
+    calling spark.println with "line helpers: OK"
+
+    # --- Cleanup ---
+    calling archivum.delete_file with bfile
+    calling archivum.delete_file with efile
+    calling archivum.delete_file with lines_file
+    calling archivum.remove_dir with edir, true
+    calling archivum.remove_dir with sdir, true
+    calling spark.println with "cleanup: OK"
+
+    calling spark.println with "archivum extended: OK"
+    return 0

@@ -1,0 +1,67 @@
+import std.spark
+
+weave main into int:
+    calling spark.println with "=== Test Spark Extended ==="
+
+    # 1. Version constants
+    var sv as string is calling spark.spark_version
+    calling spark.assert with (sv == "0.7.0-spark")
+    calling spark.assert with (spark.SPARK_VERSION == "0.7.0-spark")
+    calling spark.assert with (spark.STD_VERSION == "0.14.1")
+    calling spark.println with "versions: OK"
+
+    # 2. bool_to_string via judge
+    var ts as string is calling spark.bool_to_string with true
+    var fs as string is calling spark.bool_to_string with false
+    calling spark.assert with (ts == "true")
+    calling spark.assert with (fs == "false")
+    calling spark.println with "bool_to_string: OK"
+
+    # 3. Formatted scalar printing
+    calling spark.print_int with 42
+    calling spark.println with ""
+    calling spark.println_int with 100
+    calling spark.print_float with 3.14
+    calling spark.println with ""
+    calling spark.println_float with 2.718
+    calling spark.print_bool with true
+    calling spark.println with ""
+    calling spark.println_bool with false
+    calling spark.eprintln with "eprintln test message"
+    calling spark.println with "scalar printing: OK"
+
+    # 4. Range helpers
+    var r1 as list of int is calling spark.range_to with 5
+    calling spark.assert with ((r1 length) == 5)
+    calling spark.assert with ((r1 at 0) == 0)
+    calling spark.assert with ((r1 at 4) == 4)
+
+    var r2 as list of int is calling spark.range_inclusive with 1, 5
+    calling spark.assert with ((r2 length) == 5)
+    calling spark.assert with ((r2 at 0) == 1)
+    calling spark.assert with ((r2 at 4) == 5)
+
+    var r_empty as list of int is calling spark.range_inclusive with 5, 2
+    calling spark.assert with ((r_empty length) == 0)
+    calling spark.println with "ranges: OK"
+
+    # 5. Integer math utilities
+    calling spark.assert with ((calling spark.min_int with 10, 20) == 10)
+    calling spark.assert with ((calling spark.min_int with -5, -10) == -10)
+    calling spark.assert with ((calling spark.min_int with 7, 7) == 7)
+
+    calling spark.assert with ((calling spark.max_int with 10, 20) == 20)
+    calling spark.assert with ((calling spark.max_int with -5, -10) == -5)
+    calling spark.assert with ((calling spark.max_int with 7, 7) == 7)
+
+    calling spark.assert with ((calling spark.abs_int with 42) == 42)
+    calling spark.assert with ((calling spark.abs_int with -42) == 42)
+    calling spark.assert with ((calling spark.abs_int with 0) == 0)
+
+    calling spark.assert with ((calling spark.clamp_int with 5, 0, 10) == 5)
+    calling spark.assert with ((calling spark.clamp_int with -5, 0, 10) == 0)
+    calling spark.assert with ((calling spark.clamp_int with 15, 0, 10) == 10)
+    calling spark.println with "math: OK"
+
+    calling spark.println with "spark extended: OK"
+    return 0

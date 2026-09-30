@@ -1,0 +1,6 @@
+# EXPECTED: E0005
+# '+=' only accumulates numbers; rebind with interpolation instead.
+weave main into int:
+    var s as string is "a"
+    set s += "b"
+    return 0

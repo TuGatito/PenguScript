@@ -1,0 +1,102 @@
+import std.spark
+import std.scrolls
+
+weave main into int:
+    calling spark.println with "=== Test Scrolls Extended ==="
+
+    # 1. Case conversion
+    var str_mixed as string is "Hello, World!"
+    calling spark.assert with ((calling str_mixed.to_upper) == "HELLO, WORLD!")
+    calling spark.assert with ((calling str_mixed.to_lower) == "hello, world!")
+
+    var str_lower as string is "hello world"
+    calling spark.assert with ((calling str_lower.capitalize) == "Hello world")
+    calling spark.assert with ((calling str_lower.title_case) == "Hello World")
+    calling spark.assert with ((calling str_mixed.swap_case) == "hELLO, wORLD!")
+    calling spark.println with "case: OK"
+
+    # 2. Search & Query
+    var str_sample as string is "abracadabra"
+    calling spark.assert with (calling str_sample.starts_with with "abra")
+    calling spark.assert with (not (calling str_sample.starts_with with "cad"))
+    calling spark.assert with (calling str_sample.ends_with with "abra")
+    calling spark.assert with (not (calling str_sample.ends_with with "cad"))
+    calling spark.assert with ((calling str_sample.index_of with "cad") == 4)
+    calling spark.assert with ((calling str_sample.index_of with "xyz") == -1)
+    calling spark.assert with ((calling str_sample.last_index_of with "abra") == 7)
+    calling spark.assert with ((calling str_sample.last_index_of with "xyz") == -1)
+    calling spark.assert with ((calling str_sample.count_matches with "a") == 5)
+    calling spark.assert with ((calling str_sample.count_matches with "abra") == 2)
+    calling spark.println with "search: OK"
+
+    # 3. Whitespace handling
+    var str_spaced as string is "  hello world  "
+    calling spark.assert with ((calling str_spaced.trim) == "hello world")
+    calling spark.assert with ((calling str_spaced.trim_start) == "hello world  ")
+    calling spark.assert with ((calling str_spaced.trim_end) == "  hello world")
+    calling spark.println with "whitespace: OK"
+
+    # 4. Padding & Alignment
+    var str_short as string is "42"
+    calling spark.assert with ((calling str_short.pad_left with 5, "0") == "00042")
+    calling spark.assert with ((calling str_short.pad_right with 5, ".") == "42...")
+    calling spark.assert with ((calling str_short.center with 6, "-") == "--42--")
+    calling spark.println with "padding: OK"
+
+    # 5. Modification & Transformation
+    var str_orig as string is "cat, dog, cat"
+    calling spark.assert with ((calling str_orig.replace with "cat", "bird") == "bird, dog, cat")
+    calling spark.assert with ((calling str_orig.replace_all with "cat", "bird") == "bird, dog, bird")
+    var str_rep as string is "ha"
+    calling spark.assert with ((calling str_rep.repeat with 3) == "hahaha")
+    calling spark.assert with ((calling str_rep.repeat with 0) == "")
+    var str_rev as string is "pengu"
+    calling spark.assert with ((calling str_rev.reverse) == "ugnep")
+    calling spark.println with "modification: OK"
+
+    # 6. Predicates
+    var str_empty as string is ""
+    var str_spaces as string is "   \t\n  "
+    var str_pal as string is "racecar"
+    var str_not_pal as string is "penguin"
+    calling spark.assert with (calling str_empty.is_empty)
+    calling spark.assert with (not (calling str_rev.is_empty))
+    calling spark.assert with (calling str_spaces.is_whitespace)
+    calling spark.assert with (not (calling str_rev.is_whitespace))
+    calling spark.assert with (calling str_pal.is_palindrome)
+    calling spark.assert with (not (calling str_not_pal.is_palindrome))
+    calling spark.println with "predicates: OK"
+
+    # 7. Comparison
+    var str_a as string is "apple"
+    var str_b as string is "banana"
+    var str_a2 as string is "apple"
+    calling spark.assert with ((calling str_a.compare with str_b) < 0)
+    calling spark.assert with ((calling str_b.compare with str_a) > 0)
+    calling spark.assert with ((calling str_a.compare with str_a2) == 0)
+    calling spark.println with "comparison: OK"
+
+    # 8. Iteration & Slicing
+    var str_word as string is "abc"
+    var ch_list as list of string is calling str_word.chars
+    calling spark.assert with ((ch_list length) == 3)
+    calling spark.assert with ((ch_list at 0) == "a")
+    calling spark.assert with ((ch_list at 1) == "b")
+    calling spark.assert with ((ch_list at 2) == "c")
+
+    var str_long as string is "Hello, PenguScript!"
+    calling spark.assert with ((calling str_long.truncate with 10, "...") == "Hello, ...")
+    calling spark.assert with ((calling str_long.truncate with 50, "...") == "Hello, PenguScript!")
+    calling spark.println with "iteration: OK"
+
+    # 9. Module-level join
+    var parts as list of string is list of string with capacity 4
+    calling parts.push with "alpha"
+    calling parts.push with "beta"
+    calling parts.push with "gamma"
+    var joined as string is calling scrolls.join with parts, ", "
+    calling spark.assert with (joined == "alpha, beta, gamma")
+    calling spark.println with "join: OK"
+
+    calling spark.println with "scrolls extended: OK"
+    return 0

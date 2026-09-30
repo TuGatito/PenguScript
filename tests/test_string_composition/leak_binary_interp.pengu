@@ -1,0 +1,10 @@
+# Byte-exact interpolation of binary data does not leak its temporaries.
+import std.spark
+
+weave main into int:
+    var n as int is 200
+    var ch as string is chr n
+    var joined as string is "x{ch}y{(chr n)}"
+    calling spark.assert with (joined length) == 4
+    calling spark.println with (joined length to string)
+    return 0

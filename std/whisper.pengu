@@ -3,70 +3,92 @@
 #
 # Levels are plain ints: LOG_TRACE = 0, LOG_DEBUG = 1, LOG_INFO = 2,
 # LOG_WARN = 3, LOG_ERROR = 4, LOG_FATAL = 5. A message is emitted only when
-# its level is >= the globally configured minimum level (which defaults to
-# LOG_TRACE, i.e. everything is logged until set_level raises the bar).
-# Output lines are prefixed with the level name and colored with ANSI escapes
-# (COLOR_* constants), written through spark.println, and end with a reset.
+# its level is >= the configured minimum level.
 #
-# Typical usage:
-#   import std.whisper
-#   calling whisper.set_level with whisper.LOG_DEBUG
-#   calling whisper.debug with "entering parse"
-#   calling whisper.info with "done"
-#   calling whisper.error with "something failed"
+# Dual-Level Architecture:
+#   * Global functional logger (log, trace, debug, info, warn, error, fatal):
+#     Filters messages using the global runtime minimum level configured via
+#     set_level(), set_level_from_env(), or set_level_from_string(). Always writes
+#     to stdout.
+#   * Instance-based Logger rune:
+#     Maintains its own independent `min_level` per instance. Calls to logger.log()
+#     and its level shortcuts filter exclusively against `self.min_level` and do not
+#     consult or mutate the global runtime level. Supports independent destinations
+#     (stdout or to_file), timestamps, colors, and hierarchical child naming.
+#
+# Features:
+#   * Global functional logger: log, trace, debug, info, warn, error, fatal.
+#   * rune Logger: Instance-based logger supporting namespacing (hierarchical child loggers),
+#     independent log levels, optional timestamps, ANSI color toggles, JSON output,
+#     and direct-to-file emission.
+#   * Ritual constructors: Logger.new, Logger.named, Logger.from_env.
+#   * Level parsing and configuration: set_level_from_string, set_level_from_env.
+#   * Fatal termination helper: fatal_and_exit.
+#
+# Documented TODOs (future enhancements):
+#   * Custom log format templates (e.g. set_format("{time} [{level}] {msg}"))
+#   * Asynchronous lock-free ring-buffer logging
+#   * File log rotation (size or daily interval)
 #
 # Ownership model:
-#   Every helper takes and returns plain values and owns nothing: no caller
-#   string is retained after the call and the level-name/color strings are
-#   built internally and discarded. There are no heap handles to free.
+#   Helpers take and return plain values. Logger runes own their name and configuration
+#   strings. Returned strings (level names, colors, formatted lines) follow standard
+#   value lifetimes and require no manual cleanup.
 
 import std.spark
+import std.scrolls
+import std.chronicle
+import std.archivum
+import std.rites
 
 # ----------------------------------------------------------------------------
-# Level Constants (ints; higher = more severe)
+# Module Version & Level Constants
 # ----------------------------------------------------------------------------
 
-# Severity 0: most verbose level, used for fine-grained tracing.
+## Version constant for std.whisper module.
+const WHISPER_VERSION as string is "0.15.0"
+
+## Severity 0: most verbose level, used for fine-grained tracing.
 const LOG_TRACE as int is 0
 
-# Severity 1: diagnostic detail useful while debugging.
+## Severity 1: diagnostic detail useful while debugging.
 const LOG_DEBUG as int is 1
 
-# Severity 2: default operating level for notable, normal events.
+## Severity 2: default operating level for notable, normal events.
 const LOG_INFO as int is 2
 
-# Severity 3: suspicious but non-fatal conditions.
+## Severity 3: suspicious but non-fatal conditions.
 const LOG_WARN as int is 3
 
-# Severity 4: errors that the program recovers from.
+## Severity 4: errors that the program recovers from.
 const LOG_ERROR as int is 4
 
-# Severity 5: unrecoverable failures; also the fallback level for unknown ids.
+## Severity 5: unrecoverable failures; also the fallback level for unknown ids.
 const LOG_FATAL as int is 5
 
 # ----------------------------------------------------------------------------
 # ANSI Color Constants (used to colorize log lines by level)
 # ----------------------------------------------------------------------------
 
-# ANSI escape that resets terminal colors back to the default.
+## ANSI escape that resets terminal colors back to the default.
 const COLOR_RESET as string is "\033[0m"
 
-# ANSI bright-black (gray) foreground, used for trace lines.
+## ANSI bright-black (gray) foreground, used for trace lines.
 const COLOR_GRAY as string is "\033[90m"
 
-# ANSI cyan foreground, used for debug lines.
+## ANSI cyan foreground, used for debug lines.
 const COLOR_CYAN as string is "\033[36m"
 
-# ANSI green foreground, used for info lines.
+## ANSI green foreground, used for info lines.
 const COLOR_GREEN as string is "\033[32m"
 
-# ANSI yellow foreground, used for warn lines.
+## ANSI yellow foreground, used for warn lines.
 const COLOR_YELLOW as string is "\033[33m"
 
-# ANSI red foreground, used for error lines.
+## ANSI red foreground, used for error lines.
 const COLOR_RED as string is "\033[31m"
 
-# ANSI bright-red foreground, used for fatal lines.
+## ANSI bright-red foreground, used for fatal lines.
 const COLOR_BRIGHT_RED as string is "\033[91m"
 
 # ----------------------------------------------------------------------------
@@ -79,84 +101,320 @@ declare pengu_log_set_level with level as int into void
 # C bridge that returns the global minimum log level (an int, 0..5).
 declare pengu_log_get_level into int
 
-# Sets the global minimum log level to `level`; messages below `level` are
-# suppressed by the log helper. Returns nothing.
+## Sets the global minimum log level to `level`; messages below `level` are
+## suppressed by the log helper.
 weave set_level with level as int into void:
     calling pengu_log_set_level with level
 
-# Returns the current global minimum log level (one of the LOG_* constants).
+## Returns the current global minimum log level (one of the LOG_* constants).
 weave get_level into int:
     return calling pengu_log_get_level
+
+## Checks if `level` meets or exceeds the current global minimum log level.
+weave is_enabled with level as int into bool:
+    return level >= (calling get_level)
+
+## Returns a list containing all standard log level names in order of increasing severity.
+weave log_levels into list of string:
+    var res as list of string is list of string
+    calling res.push with "trace"
+    calling res.push with "debug"
+    calling res.push with "info"
+    calling res.push with "warn"
+    calling res.push with "error"
+    calling res.push with "fatal"
+    return res
 
 # ----------------------------------------------------------------------------
 # Level Names & Colors
 # ----------------------------------------------------------------------------
 
-# Maps a level int to its uppercase name: "TRACE", "DEBUG", "INFO", "WARN",
-# "ERROR", or "FATAL" (any unrecognized level falls through to "FATAL").
+## Maps a level int to its uppercase name: "TRACE", "DEBUG", "INFO", "WARN",
+## "ERROR", or "FATAL" (any unrecognized level falls through to "FATAL").
 weave get_level_name with level as int into string:
-    if level == LOG_TRACE:
-        return "TRACE"
-    if level == LOG_DEBUG:
-        return "DEBUG"
-    if level == LOG_INFO:
-        return "INFO"
-    if level == LOG_WARN:
-        return "WARN"
-    if level == LOG_ERROR:
-        return "ERROR"
-    return "FATAL"
+    return judge level:
+        when 0 -> "TRACE"
+        when 1 -> "DEBUG"
+        when 2 -> "INFO"
+        when 3 -> "WARN"
+        when 4 -> "ERROR"
+        else -> "FATAL"
 
-# Maps a level int to its ANSI color escape (a COLOR_* constant): gray for
-# trace, cyan for debug, green for info, yellow for warn, red for error and
-# bright red for fatal (and for any unrecognized level).
+## Maps a level int to its ANSI color escape (a COLOR_* constant).
 weave get_level_color with level as int into string:
-    if level == LOG_TRACE:
-        return COLOR_GRAY
-    if level == LOG_DEBUG:
-        return COLOR_CYAN
-    if level == LOG_INFO:
-        return COLOR_GREEN
-    if level == LOG_WARN:
-        return COLOR_YELLOW
-    if level == LOG_ERROR:
-        return COLOR_RED
-    return COLOR_BRIGHT_RED
+    return judge level:
+        when 0 -> COLOR_GRAY
+        when 1 -> COLOR_CYAN
+        when 2 -> COLOR_GREEN
+        when 3 -> COLOR_YELLOW
+        when 4 -> COLOR_RED
+        else -> COLOR_BRIGHT_RED
+
+## Parses a string representation of a log level into its integer constant.
+weave parse_level_string with s as string into maybe int:
+    var sl as string is calling s.lower
+    if sl == "trace":
+        return some LOG_TRACE
+    if sl == "debug":
+        return some LOG_DEBUG
+    if sl == "info":
+        return some LOG_INFO
+    if sl == "warn" or sl == "warning":
+        return some LOG_WARN
+    if sl == "error":
+        return some LOG_ERROR
+    if sl == "fatal":
+        return some LOG_FATAL
+    return maybe none
+
+## Sets the global minimum log level from a string name (case-insensitive).
+## Returns true on success, false if the level name was not recognized.
+weave set_level_from_string with s as string into bool:
+    var opt as maybe int is calling parse_level_string with s
+    if opt is present:
+        calling set_level with opt.value
+        return true
+    return false
+
+## Configures the global minimum log level from environment variables.
+## Checks LOG_LEVEL, RUST_LOG, PENGU_LOG, RITES_LOG_LEVEL, WHISPER_LOG.
+weave set_level_from_env into void:
+    var env_names as list of string is list of string
+    calling env_names.push with "LOG_LEVEL"
+    calling env_names.push with "RUST_LOG"
+    calling env_names.push with "PENGU_LOG"
+    calling env_names.push with "RITES_LOG_LEVEL"
+    calling env_names.push with "WHISPER_LOG"
+    for name in env_names:
+        var opt as maybe string is calling rites.getenv with name
+        if opt is present:
+            var ok as bool is calling set_level_from_string with opt.value
+            if ok:
+                return
 
 # ----------------------------------------------------------------------------
-# Core Logger & Level Conveniences
+# Core Logger & Level Conveniences (0.14.x baseline)
 # ----------------------------------------------------------------------------
 
-# Emits `msg` at severity `level` when `level` >= the configured minimum:
-# prints "[NAME] msg" through spark.println, colored by the level's ANSI code
-# and followed by a reset escape. Lower-severity messages are dropped silently.
+## Emits `msg` at severity `level` when `level` >= the configured global minimum.
 weave log with level as int , msg as string into void:
     var current_level as int is calling get_level
     if level >= current_level:
         var name as string is calling get_level_name with level
         var color as string is calling get_level_color with level
-        calling spark.println with color + "[" + name + "] " + msg + COLOR_RESET
+        calling spark.println with "{color}[{name}] {msg}{COLOR_RESET}"
 
-# Logs `msg` at TRACE level (emitted only when LOG_TRACE >= the set minimum).
+## Logs `msg` at TRACE level.
 weave trace with msg as string into void:
     calling log with LOG_TRACE , msg
 
-# Logs `msg` at DEBUG level (emitted only when LOG_DEBUG >= the set minimum).
+## Logs `msg` at DEBUG level.
 weave debug with msg as string into void:
     calling log with LOG_DEBUG , msg
 
-# Logs `msg` at INFO level (emitted only when LOG_INFO >= the set minimum).
+## Logs `msg` at INFO level.
 weave info with msg as string into void:
     calling log with LOG_INFO , msg
 
-# Logs `msg` at WARN level (emitted only when LOG_WARN >= the set minimum).
+## Logs `msg` at WARN level.
 weave warn with msg as string into void:
     calling log with LOG_WARN , msg
 
-# Logs `msg` at ERROR level (emitted only when LOG_ERROR >= the set minimum).
+## Logs `msg` at ERROR level.
 weave error with msg as string into void:
     calling log with LOG_ERROR , msg
 
-# Logs `msg` at FATAL level (always emitted, since no minimum can exceed it).
+## Logs `msg` at FATAL level.
 weave fatal with msg as string into void:
     calling log with LOG_FATAL , msg
+
+## Logs `msg` at FATAL level and immediately terminates the process with `code`.
+weave fatal_and_exit with msg as string , code as int is 1 into void:
+    calling fatal with msg
+    calling rites.exit with code
+
+## Internal helper to escape backslashes, double-quotes, and whitespace control chars in JSON strings.
+weave _json_escape with s as string into string:
+    var s1 as string is calling s.replace_all with "\\", "\\\\"
+    var s2 as string is calling s1.replace_all with "\"", "\\\""
+    var s3 as string is calling s2.replace_all with "\n", "\\n"
+    var s4 as string is calling s3.replace_all with "\r", "\\r"
+    var s5 as string is calling s4.replace_all with "\t", "\\t"
+    return s5
+
+## Emits a JSON-structured log line to stdout when `level` >= global minimum.
+weave log_json with level as int , msg as string , fields as map of string to string into void:
+    var cur as int is calling get_level
+    if level >= cur:
+        var lvl_name as string is calling get_level_name with level
+        var esc_msg as string is calling _json_escape with msg
+        var out as string is "{\"level\":\"{lvl_name}\",\"msg\":\"{esc_msg}\""
+        for k in fields:
+            var v as string is fields at k
+            var esc_k as string is calling _json_escape with k
+            var esc_v as string is calling _json_escape with v
+            set out is "{out},\"{esc_k}\":\"{esc_v}\""
+        set out is "{out}}"
+        calling spark.println with out
+
+# ----------------------------------------------------------------------------
+# Object-Oriented Logger Rune (0.15.0)
+# ----------------------------------------------------------------------------
+
+## Instance-based structured logger supporting namespacing, independent log levels,
+## optional timestamps, ANSI colors, file redirection, and JSON emission.
+rune Logger:
+    name as string
+    min_level as int
+    show_timestamp as bool
+    use_color as bool
+    file_path as string
+
+## Returns a default logger named "default".
+weave default_logger into Logger:
+    return calling Logger.new with "default"
+
+enchanting Logger:
+    ## Creates a new Logger with the specified `name` and LOG_TRACE minimum level.
+    weave ritual new with name as string into Logger:
+        return with name is name, min_level is LOG_TRACE, show_timestamp is false, use_color is true, file_path is ""
+
+    ## Creates a new Logger with `name` and explicit `min_level`.
+    weave ritual named with name as string , min_level as int into Logger:
+        return with name is name, min_level is min_level, show_timestamp is false, use_color is true, file_path is ""
+
+    ## Creates a Logger configured from environment variables (fallback: LOG_INFO).
+    weave ritual from_env into Logger:
+        var lvl as int is LOG_INFO
+        var env_names as list of string is list of string
+        calling env_names.push with "LOG_LEVEL"
+        calling env_names.push with "RUST_LOG"
+        calling env_names.push with "PENGU_LOG"
+        calling env_names.push with "RITES_LOG_LEVEL"
+        calling env_names.push with "WHISPER_LOG"
+        for name in env_names:
+            var opt as maybe string is calling rites.getenv with name
+            if opt is present:
+                var parsed as maybe int is calling parse_level_string with opt.value
+                if parsed is present:
+                    set lvl is parsed.value
+                    break
+        return with name is "default", min_level is lvl, show_timestamp is false, use_color is true, file_path is ""
+
+    ## Sets this logger's minimum log level.
+    weave set_level with level as int into void:
+        set self->min_level is level
+
+    ## Returns this logger's minimum log level.
+    weave get_level into int:
+        return self->min_level
+
+    ## Checks if `level` would be emitted by this logger.
+    weave is_enabled with level as int into bool:
+        return level >= self->min_level
+
+    ## Enables ISO/time timestamps on output lines.
+    weave enable_timestamp into void:
+        set self->show_timestamp is true
+
+    ## Disables timestamps on output lines.
+    weave disable_timestamp into void:
+        set self->show_timestamp is false
+
+    ## Enables ANSI color formatting on output lines.
+    weave enable_color into void:
+        set self->use_color is true
+
+    ## Disables ANSI color formatting on output lines.
+    weave disable_color into void:
+        set self->use_color is false
+
+    ## Redirects log messages to the specified file path (empty string restores stdout).
+    ##
+    ## Note: Does not create or open the file immediately; file writes are performed lazily
+    ## on each log emission via `archivum.append_file`. If the file cannot be opened or written,
+    ## log output is discarded silently without interrupting execution.
+    weave to_file with path as string into void:
+        set self->file_path is path
+
+    ## Creates a child logger with hierarchical name `"{parent}.{sub}"`.
+    weave child with sub as string into Logger:
+        var child_name as string is self->name
+        if (child_name length) > 0:
+            set child_name is "{child_name}.{sub}"
+        else:
+            set child_name is sub
+        return with name is child_name, min_level is self->min_level, show_timestamp is self->show_timestamp, use_color is self->use_color, file_path is ""
+
+    ## Emits `msg` at severity `level` through this logger.
+    weave log with level as int , msg as string into void:
+        if level < self->min_level:
+            return
+
+        var ts_prefix as string is ""
+        if self->show_timestamp:
+            set ts_prefix is "[{(calling chronicle.now_time)}] "
+
+        var lvl_name as string is calling get_level_name with level
+        var lvl_prefix as string is "[{lvl_name}] "
+
+        var name_prefix as string is ""
+        if (self->name length) > 0:
+            set name_prefix is "[{self->name}] "
+
+        var plain_line as string is "{ts_prefix}{lvl_prefix}{name_prefix}{msg}"
+
+        if (self->file_path length) > 0:
+            calling archivum.append_file with self->file_path , ("{plain_line}\n")
+        else:
+            if self->use_color:
+                var color as string is calling get_level_color with level
+                calling spark.println with "{color}{plain_line}{COLOR_RESET}"
+            else:
+                calling spark.println with plain_line
+
+    ## Logs `msg` at TRACE level.
+    weave trace with msg as string into void:
+        calling self.log with LOG_TRACE , msg
+
+    ## Logs `msg` at DEBUG level.
+    weave debug with msg as string into void:
+        calling self.log with LOG_DEBUG , msg
+
+    ## Logs `msg` at INFO level.
+    weave info with msg as string into void:
+        calling self.log with LOG_INFO , msg
+
+    ## Logs `msg` at WARN level.
+    weave warn with msg as string into void:
+        calling self.log with LOG_WARN , msg
+
+    ## Logs `msg` at ERROR level.
+    weave error with msg as string into void:
+        calling self.log with LOG_ERROR , msg
+
+    ## Logs `msg` at FATAL level.
+    weave fatal with msg as string into void:
+        calling self.log with LOG_FATAL , msg
+
+    ## Emits a JSON-structured log line from this logger.
+    weave log_json with level as int , msg as string , fields as map of string to string into void:
+        if level < self->min_level:
+            return
+        var lvl_name as string is calling get_level_name with level
+        var esc_msg as string is calling _json_escape with msg
+        var out as string is "{\"level\":\"{lvl_name}\",\"msg\":\"{esc_msg}\""
+        if (self->name length) > 0:
+            var esc_name as string is calling _json_escape with self->name
+            set out is "{out},\"logger\":\"{esc_name}\""
+        for k in fields:
+            var v as string is fields at k
+            var esc_k as string is calling _json_escape with k
+            var esc_v as string is calling _json_escape with v
+            set out is "{out},\"{esc_k}\":\"{esc_v}\""
+        set out is "{out}}"
+
+        if (self->file_path length) > 0:
+            calling archivum.append_file with self->file_path , ("{out}\n")
+        else:
+            calling spark.println with out

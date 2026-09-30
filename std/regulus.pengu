@@ -1,6 +1,6 @@
 # std/regulus.pengu - The Regulus (Regular Expressions)
 # PCRE2-backed regular expressions: compile, match / search, find all,
-# replace, split, one-shot helpers and resource cleanup.
+# replace, split, one-shot helpers, string enchantments and resource cleanup.
 #
 # Ownership model:
 #   * A compiled Regex OWNS native PCRE2 state (`_ptr`). Release it exactly
@@ -12,13 +12,45 @@
 #     returns a list of owned strings - free / reuse the entries before
 #     banishing those lists.
 #   * replace returns an owned string (banish when done). escape is currently
-#     an identity passthrough and owns nothing extra.
+#     an identity passthrough and owns nothing extra; quote_meta escapes all
+#     regex metacharacters for literal matching.
 #
 # Flags accepted by compile / quick_match / quick_replace (any letter case):
 #   'i' case-insensitive, 'm' multiline, 's' dotall, 'u' UTF-8, 'x' extended.
+#
+# Documented TODOs (blocked by runtime):
+#   * Capture groups (numbered `$1`..`$9`, named `(?<name>...)`):
+#     pengu_c_regulus_* currently returns only the whole match; the C bridge
+#     does not expose pcre2_get_ovector_pointer / named captures. Requires a
+#     new runtime function pengu_c_regulus_search_with_groups that fills a
+#     PenguList of PenguString groups, or a PenguMatchWithGroups rune.
+#   * Match position iteration without string allocations: requires an iterator
+#     or callback-based C runtime bridge.
 
 import std.spark
 import std.oracle
+
+# ----------------------------------------------------------------------------
+# Version and Constants
+# ----------------------------------------------------------------------------
+
+## Module version identifier for std.regulus (0.15.0 expansion).
+const REGULUS_VERSION as string is "0.15.0"
+
+## Standard regex pattern for validating email addresses.
+const REGEX_EMAIL as string is "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z][a-zA-Z]+$"
+
+## Standard regex pattern for validating HTTP/HTTPS URLs.
+const REGEX_URL as string is "^https?://[a-zA-Z0-9.-]+(:[0-9]+)?(/.*)?$"
+
+## Standard regex pattern for validating IPv4 addresses in dotted decimal notation.
+const REGEX_IPV4 as string is "^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"
+
+## Standard regex pattern for validating canonical 8-4-4-4-12 UUID strings.
+const REGEX_UUID as string is "^[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$"
+
+## Standard regex pattern for validating 3- or 6-digit hex color codes with leading '#'.
+const REGEX_HEX_COLOR as string is "^#([0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]|[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F])$"
 
 # ----------------------------------------------------------------------------
 # Type Definitions
@@ -83,6 +115,59 @@ declare pengu_c_regulus_match_free with m as ref to Match into void
 weave compile with pattern as string , flags as string is "" into maybe Regex:
     return calling pengu_c_regulus_compile with pattern , flags
 
+## Compiles `pattern` with the case-insensitive flag ('i').
+weave compile_ci with pattern as string into maybe Regex:
+    return calling compile with pattern , "i"
+
+## Compiles `pattern` with the multiline flag ('m').
+weave compile_multiline with pattern as string into maybe Regex:
+    return calling compile with pattern , "m"
+
+## Compiles `pattern` with the dotall / single-line flag ('s', '.' matches newlines).
+weave compile_dotall with pattern as string into maybe Regex:
+    return calling compile with pattern , "s"
+
+## Compiles `pattern` with the extended flag ('x', ignores whitespace and comments).
+weave compile_extended with pattern as string into maybe Regex:
+    return calling compile with pattern , "x"
+
+## Combines two flag strings into one without repeating flag characters.
+weave combine_flags with a as string , b as string into string:
+    var out as string is a
+    var i as int is 0
+    while i < b.len:
+        var ch as string is b at i
+        var found as bool is false
+        var j as int is 0
+        while j < out.len:
+            if (out at j) == ch:
+                set found is true
+                break
+            set j is j + 1
+        if not found:
+            set out is "{out}{ch}"
+        set i is i + 1
+    return out
+
+## Returns true if `flags` contains the case-insensitive modifier ('i' or 'I').
+weave flag_is_case_insensitive with flags as string into bool:
+    var i as int is 0
+    while i < flags.len:
+        var ch as string is flags at i
+        if ch == "i" or ch == "I":
+            return true
+        set i is i + 1
+    return false
+
+## Tests if `pattern` is a valid regular expression that compiles successfully.
+weave is_valid_pattern with pattern as string , flags as string is "" into bool:
+    var re as maybe Regex is calling compile with pattern , flags
+    if re.is_present:
+        var r as Regex is re.value
+        calling regex_free with sigil of r
+        return true
+    return false
+
 # True when `regex` matches somewhere inside `text` (i.e. search succeeds).
 # No Match is produced, so there is nothing to free.
 weave is_match with regex as ref to Regex , text as string into bool:
@@ -94,6 +179,17 @@ weave is_match with regex as ref to Regex , text as string into bool:
 weave is_full_match with regex as ref to Regex , text as string into bool:
     var m as maybe Match is calling pengu_c_regulus_match with regex , text
     return m.is_present
+
+## Checks whether `regex` matches starting exactly at byte offset `pos` in `text`.
+weave is_match_at with regex as ref to Regex , text as string , pos as int into bool:
+    if pos < 0 or pos > text.len:
+        return false
+    var sub as string is ""
+    var i as int is pos
+    while i < text.len:
+        set sub is "{sub}{(text at i)}"
+        set i is i + 1
+    return calling is_full_match with regex , sub
 
 # Returns the first match of `regex` anywhere in `text` as a new Match. A
 # present Match owns its matched text buffer: release it with match_free (or
@@ -113,6 +209,41 @@ weave match with regex as ref to Regex , text as string into maybe Match:
 weave find_all with regex as ref to Regex , text as string into list of Match:
     return calling pengu_c_regulus_find_all with regex , text
 
+## Returns the number of non-overlapping matches of `regex` in `text`.
+weave match_count with regex as ref to Regex , text as string into int:
+    var matches as list of Match is calling pengu_c_regulus_find_all with regex , text
+    var count as int is matches.len
+    for m in matches:
+        calling match_free with sigil of m
+    return count
+
+## Returns the i-th non-overlapping match of `regex` in `text`, or none if out of bounds.
+weave match_at with regex as ref to Regex , text as string , idx as int into maybe Match:
+    var matches as list of Match is calling pengu_c_regulus_find_all with regex , text
+    if idx >= 0 and idx < matches.len:
+        var target as Match is matches at idx
+        var res as Match is with start is target.start , end is target.end , matched is target.matched
+        var i as int is 0
+        while i < matches.len:
+            if i != idx:
+                var m as Match is matches at i
+                calling match_free with sigil of m
+            set i is i + 1
+        return some res
+    for m in matches:
+        calling match_free with sigil of m
+    return maybe none
+
+## Returns a flat list of alternating start and end byte offsets [start0, end0, start1, end1, ...] for all matches.
+weave match_offsets with regex as ref to Regex , text as string into list of int:
+    var matches as list of Match is calling pengu_c_regulus_find_all with regex , text
+    var out as list of int is list of int
+    for m in matches:
+        calling out.push with m.start
+        calling out.push with m.end
+        calling match_free with sigil of m
+    return out
+
 # Globally replaces every non-overlapping match of `regex` in `text` with
 # `replacement` and returns the result as an owned string (banish when done).
 # `replacement` may reference capture groups ($1, $2, ...). When the regex
@@ -130,6 +261,19 @@ weave split with regex as ref to Regex , text as string , limit as int is 0 into
 # identity passthrough: `text` is returned unchanged as an owned string.
 weave escape with text as string into string:
     return calling pengu_c_regulus_escape with text
+
+## Escapes all ASCII regex metacharacters in `text` with leading backslashes so it matches literally.
+weave quote_meta with text as string into string:
+    var out as string is ""
+    var i as int is 0
+    while i < text.len:
+        var ch as string is text at i
+        if ch == "\\" or ch == "^" or ch == "$" or ch == "." or ch == "*" or ch == "+" or ch == "?" or ch == "(" or ch == ")" or ch == "[" or ch == "]" or ch == "{" or ch == "}" or ch == "|":
+            set out is "{out}\\{ch}"
+        else:
+            set out is "{out}{ch}"
+        set i is i + 1
+    return out
 
 # True when `regex` still wraps a compiled pattern. A Regex obtained from
 # compile is always valid; this is false only when a null reference is passed.
@@ -157,6 +301,60 @@ weave quick_replace with pattern as string , text as string , replacement as str
     return text
 
 # ----------------------------------------------------------------------------
+# Presets & Validation Predicates
+# ----------------------------------------------------------------------------
+
+## Returns true if `s` is a valid email address matching `REGEX_EMAIL`.
+weave is_email with s as string into bool:
+    var re as maybe Regex is calling compile with REGEX_EMAIL , ""
+    if re.is_present:
+        var r as Regex is re.value
+        var ok as bool is calling is_full_match with sigil of r , s
+        calling regex_free with sigil of r
+        return ok
+    return false
+
+## Returns true if `s` is a valid HTTP/HTTPS URL matching `REGEX_URL`.
+weave is_url with s as string into bool:
+    var re as maybe Regex is calling compile with REGEX_URL , ""
+    if re.is_present:
+        var r as Regex is re.value
+        var ok as bool is calling is_full_match with sigil of r , s
+        calling regex_free with sigil of r
+        return ok
+    return false
+
+## Returns true if `s` is a valid IPv4 dotted-quad address matching `REGEX_IPV4`.
+weave is_ipv4 with s as string into bool:
+    var re as maybe Regex is calling compile with REGEX_IPV4 , ""
+    if re.is_present:
+        var r as Regex is re.value
+        var ok as bool is calling is_full_match with sigil of r , s
+        calling regex_free with sigil of r
+        return ok
+    return false
+
+## Returns true if `s` is a valid UUID string matching `REGEX_UUID`.
+weave is_uuid with s as string into bool:
+    var re as maybe Regex is calling compile with REGEX_UUID , "i"
+    if re.is_present:
+        var r as Regex is re.value
+        var ok as bool is calling is_full_match with sigil of r , s
+        calling regex_free with sigil of r
+        return ok
+    return false
+
+## Returns true if `s` is a valid CSS hex color code matching `REGEX_HEX_COLOR`.
+weave is_hex_color with s as string into bool:
+    var re as maybe Regex is calling compile with REGEX_HEX_COLOR , "i"
+    if re.is_present:
+        var r as Regex is re.value
+        var ok as bool is calling is_full_match with sigil of r , s
+        calling regex_free with sigil of r
+        return ok
+    return false
+
+# ----------------------------------------------------------------------------
 # Resource Cleanup
 # ----------------------------------------------------------------------------
 
@@ -172,7 +370,7 @@ weave match_free with m as ref to Match into void:
     calling pengu_c_regulus_match_free with m
 
 # ----------------------------------------------------------------------------
-# Object Methods (enchanting)
+# Object Methods (enchanting Regex and Match)
 # ----------------------------------------------------------------------------
 
 # Regex methods: mirror the module-level functional API with `self` as the
@@ -190,6 +388,10 @@ enchanting Regex:
         var m as maybe Match is calling pengu_c_regulus_match with self , text
         return m.is_present
 
+    ## Checks whether `self` matches `text` starting at byte position `pos`.
+    weave is_match_at with text as string , pos as int into bool:
+        return calling is_match_at with self , text , pos
+
     # Returns the first match of `self` anywhere in `text`; release the
     # returned Match with free when done (see search).
     weave search with text as string into maybe Match:
@@ -204,6 +406,18 @@ enchanting Regex:
     # entry before banishing the list (see find_all).
     weave find_all with text as string into list of Match:
         return calling pengu_c_regulus_find_all with self , text
+
+    ## Returns the number of non-overlapping matches of `self` in `text`.
+    weave match_count with text as string into int:
+        return calling match_count with self , text
+
+    ## Returns the i-th non-overlapping match of `self` in `text`.
+    weave match_at with text as string , idx as int into maybe Match:
+        return calling match_at with self , text , idx
+
+    ## Returns the byte offset pairs of all non-overlapping matches of `self` in `text`.
+    weave match_offsets with text as string into list of int:
+        return calling match_offsets with self , text
 
     # Globally replaces every match of `self` in `text` with `replacement`;
     # the result is an owned string (see replace).
@@ -229,3 +443,65 @@ enchanting Match:
     # Releases the owned matched text buffer of this Match (see match_free).
     weave free into void:
         calling pengu_c_regulus_match_free with self
+
+# ----------------------------------------------------------------------------
+# Object Methods (enchanting string)
+# ----------------------------------------------------------------------------
+
+## String regex enchantments for ergonomic pattern searching and replacement.
+enchanting string:
+    ## Returns true when `self` matches the regex pattern `pat`.
+    weave matches_regex with pat as string , flags as string is "" into bool:
+        var r as maybe Regex is calling compile with pat , flags
+        if r.is_present:
+            var re as Regex is r.value
+            var ok as bool is calling is_match with sigil of re , essence of self
+            calling regex_free with sigil of re
+            return ok
+        return false
+
+    ## Returns true when `self` fully matches the regex pattern `pat` from the beginning.
+    weave full_matches_regex with pat as string , flags as string is "" into bool:
+        var r as maybe Regex is calling compile with pat , flags
+        if r.is_present:
+            var re as Regex is r.value
+            var ok as bool is calling is_full_match with sigil of re , essence of self
+            calling regex_free with sigil of re
+            return ok
+        return false
+
+    ## Counts non-overlapping matches of `pat` in `self`.
+    weave regex_count with pat as string , flags as string is "" into int:
+        var r as maybe Regex is calling compile with pat , flags
+        if r.is_present:
+            var re as Regex is r.value
+            var count as int is calling match_count with sigil of re , essence of self
+            calling regex_free with sigil of re
+            return count
+        return 0
+
+    ## Replaces non-overlapping matches of `pat` in `self` with `replacement`.
+    weave regex_replace with pat as string , replacement as string , flags as string is "" into string:
+        return calling quick_replace with pat , essence of self , replacement , flags
+
+    ## Splits `self` on matches of `pat` into a list of owned strings.
+    weave regex_split with pat as string , limit as int is 0 , flags as string is "" into list of string:
+        var r as maybe Regex is calling compile with pat , flags
+        if r.is_present:
+            var re as Regex is r.value
+            var res as list of string is calling split with sigil of re , essence of self , limit
+            calling regex_free with sigil of re
+            return res
+        var fallback as list of string is list of string
+        calling fallback.push with essence of self
+        return fallback
+
+    ## Returns alternating start and end byte offsets of all matches of `pat` in `self`.
+    weave regex_offsets with pat as string , flags as string is "" into list of int:
+        var r as maybe Regex is calling compile with pat , flags
+        if r.is_present:
+            var re as Regex is r.value
+            var res as list of int is calling match_offsets with sigil of re , essence of self
+            calling regex_free with sigil of re
+            return res
+        return list of int

@@ -1,0 +1,13 @@
+# A fresh interpolated string moved into a Nexus field is released by 'banish'.
+import std.spark
+
+rune Doc derive Nexus:
+    title as string
+
+weave main into int:
+    var n as int is 5
+    var d as Doc with:
+        set .title is "doc-{n}"
+    calling spark.println with d.title
+    banish d
+    return 0

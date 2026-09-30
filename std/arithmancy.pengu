@@ -1,189 +1,180 @@
-# std/arithmancy.pengu - Arithmancy (Mathematics)
-# Provides comprehensive mathematical functions.
+# std/arithmancy.pengu - Arithmancy (Game-Ready Mathematics)
+# Provides comprehensive mathematical functions, scalar utilities, and
+# pure PenguScript geometric types (Vec2, Vec3, Vec4, Mat4, Quat) for
+# 2D/3D game development and scientific computing without dependencies.
 #
 # Typical usage:
 #   import std.arithmancy
-#   var x as float is calling arithmancy.sqrt with 16.0
-#   var g as int is calling arithmancy.gcd with 24, 36
-#   var c as float is calling arithmancy.clamp with x, 0.0, 1.0
+#   var v as arithmancy.Vec2 is calling arithmancy.vec2 with 3.0, 4.0
+#   var len as float is calling v.length
+#   var rot as arithmancy.Mat4 is calling arithmancy.mat4_rotate_z with arithmancy.HALF_PI
 #
-# Notes:
-#   * Every function here takes and returns scalar floats/ints/bools by value,
-#     so there are no ownership, aliasing or null concerns.
-#   * The trig/exponential wrappers forward to the C math library: out-of-domain
-#     inputs (e.g. sqrt of a negative number, log of a non-positive number)
-#     follow C semantics and yield NaN / infinity instead of an error.
+# Notes & Architecture:
+#   * Vector and Matrix types are pure PenguScript value records (runes).
+#     They are passed and returned by value; no heap allocations, no banish.
+#   * Trigonometric and transcendental functions bind to libm via C99 bridges.
+#   * Coexists with 'std.raymath': arithmancy covers ~90% of common game math
+#     in pure PenguScript; raymath provides specialized C raylib bindings.
+#   * Unsupported here (use raymath if needed): Perlin/simplex noise,
+#     complex spline curves, and specialized 3D mesh collision queries.
 
 import std.spark
 
 # ----------------------------------------------------------------------------
-# C Math Runtime Declarations
+# Module Version & Mathematical Constants
 # ----------------------------------------------------------------------------
-#
-# Each declare is the runtime binding for the libm function of the same name;
-# all of them take and return IEEE double values by value.
-# Runtime primitive: absolute value of `x` (C fabs).
-declare pengu_c_fabs with x as float into float
-# Runtime primitive: square root of `x` (C sqrt).
-declare pengu_c_sqrt with x as float into float
-# Runtime primitive: `x` raised to the power `y` (C pow).
-declare pengu_c_pow with x as float , y as float into float
-# Runtime primitive: largest integer not greater than `x`, as a float (C floor).
-declare pengu_c_floor with x as float into float
-# Runtime primitive: smallest integer not less than `x`, as a float (C ceil).
-declare pengu_c_ceil with x as float into float
-# Runtime primitive: `x` rounded to the nearest integer (C round).
-declare pengu_c_round with x as float into float
-# Runtime primitive: `x` truncated towards zero, as a float (C trunc).
-declare pengu_c_trunc with x as float into float
-# Runtime primitive: floating-point remainder of `x` / `y` (C fmod).
-declare pengu_c_fmod with x as float , y as float into float
-# Runtime primitive: sine of `x` radians (C sin).
-declare pengu_c_sin with x as float into float
-# Runtime primitive: cosine of `x` radians (C cos).
-declare pengu_c_cos with x as float into float
-# Runtime primitive: tangent of `x` radians (C tan).
-declare pengu_c_tan with x as float into float
-# Runtime primitive: arc sine of `x` (C asin).
-declare pengu_c_asin with x as float into float
-# Runtime primitive: arc cosine of `x` (C acos).
-declare pengu_c_acos with x as float into float
-# Runtime primitive: arc tangent of `x` (C atan).
-declare pengu_c_atan with x as float into float
-# Runtime primitive: arc tangent of `y` / `x` honouring both signs (C atan2).
-declare pengu_c_atan2 with y as float , x as float into float
-# Runtime primitive: e raised to the power `x` (C exp).
-declare pengu_c_exp with x as float into float
-# Runtime primitive: natural logarithm of `x` (C log).
-declare pengu_c_log with x as float into float
-# Runtime primitive: base-10 logarithm of `x` (C log10).
-declare pengu_c_log10 with x as float into float
-# Runtime primitive: base-2 logarithm of `x` (C log2).
-declare pengu_c_log2 with x as float into float
-# Runtime primitive: hyperbolic sine of `x` (C sinh).
-declare pengu_c_sinh with x as float into float
-# Runtime primitive: hyperbolic cosine of `x` (C cosh).
-declare pengu_c_cosh with x as float into float
-# Runtime primitive: hyperbolic tangent of `x` (C tanh).
-declare pengu_c_tanh with x as float into float
-# Runtime primitive: inverse hyperbolic sine of `x` (C asinh).
-declare pengu_c_asinh with x as float into float
-# Runtime primitive: inverse hyperbolic cosine of `x` (C acosh).
-declare pengu_c_acosh with x as float into float
-# Runtime primitive: inverse hyperbolic tangent of `x` (C atanh).
-declare pengu_c_atanh with x as float into float
+
+## Arithmancy module version.
+const ARITHMANCY_VERSION as string is "0.15.0"
+
+## Pi: ratio of a circle's circumference to its diameter.
+const PI as float is 3.141592653589793
+## Tau: one full turn in radians (equal to 2 * PI).
+const TAU as float is 6.283185307179586
+## Euler's number: base of the natural logarithm.
+const E as float is 2.718281828459045
+
+## Degrees to radians conversion factor (PI / 180).
+const DEG2RAD as float is 0.017453292519943295
+## Radians to degrees conversion factor (180 / PI).
+const RAD2DEG as float is 57.29577951308232
+## Standard floating-point comparison epsilon.
+const EPSILON as float is 0.000001
+
+## Half Pi (90 degrees in radians).
+const HALF_PI as float is 1.5707963267948966
+## Quarter Pi (45 degrees in radians).
+const QUARTER_PI as float is 0.7853981633974483
+## Two Pi (alias for TAU, 360 degrees in radians).
+const TWO_PI as float is 6.283185307179586
+## Inverse of Pi (1 / PI).
+const INV_PI as float is 0.3183098861837907
+## Square root of 2.
+const SQRT2 as float is 1.4142135623730951
+## Square root of 3.
+const SQRT3 as float is 1.7320508075688772
 
 # ----------------------------------------------------------------------------
-# Mathematical Constants
+# C Math Runtime Declarations (libm bridges)
 # ----------------------------------------------------------------------------
-#
-# Pi, the ratio of a circle's circumference to its diameter.
-const PI as float is 3.141592653589793
-# Tau, one full turn in radians (equal to 2 * PI).
-const TAU as float is 6.283185307179586
-# Euler's number, the base of the natural logarithm.
-const E as float is 2.718281828459045
+
+declare pengu_c_fabs with x as float into float
+declare pengu_c_sqrt with x as float into float
+declare pengu_c_pow with x as float , y as float into float
+declare pengu_c_floor with x as float into float
+declare pengu_c_ceil with x as float into float
+declare pengu_c_round with x as float into float
+declare pengu_c_trunc with x as float into float
+declare pengu_c_fmod with x as float , y as float into float
+declare pengu_c_sin with x as float into float
+declare pengu_c_cos with x as float into float
+declare pengu_c_tan with x as float into float
+declare pengu_c_asin with x as float into float
+declare pengu_c_acos with x as float into float
+declare pengu_c_atan with x as float into float
+declare pengu_c_atan2 with y as float , x as float into float
+declare pengu_c_exp with x as float into float
+declare pengu_c_log with x as float into float
+declare pengu_c_log10 with x as float into float
+declare pengu_c_log2 with x as float into float
+declare pengu_c_sinh with x as float into float
+declare pengu_c_cosh with x as float into float
+declare pengu_c_tanh with x as float into float
+declare pengu_c_asinh with x as float into float
+declare pengu_c_acosh with x as float into float
+declare pengu_c_atanh with x as float into float
 
 # ----------------------------------------------------------------------------
 # C Math Wrappers (float in, float out)
 # ----------------------------------------------------------------------------
-#
-# These weaves expose the C math library; unless noted they take radians for
-# angles and return the mathematical result by value. Domain errors follow C.
-# Absolute value of `x` (C fabs). Always returns a non-negative float.
+
+## Absolute value of `x` (C fabs).
 weave abs with x as float into float:
     return calling pengu_c_fabs with x
 
-# Absolute value of `x` as an int. Returns `x` unchanged when it is already
-# non-negative.
+## Absolute value of integer `x`.
 weave abs_i with x as int into int:
     if x < 0:
         return -x
     return x
 
-# Square root of `x` (C sqrt). Domain: x >= 0; a negative input yields NaN.
+## Square root of `x` (C sqrt). Domain: x >= 0.
 weave sqrt with x as float into float:
     return calling pengu_c_sqrt with x
 
-# Raises `x` to the power `y` (C pow). Returns x^y as a float.
+## Raises `x` to the power `y` (C pow).
 weave pow with x as float , y as float into float:
     return calling pengu_c_pow with x , y
 
-# Largest integer not greater than `x`, returned as a float (C floor).
+## Largest integer not greater than `x`, returned as a float (C floor).
 weave floor with x as float into float:
     return calling pengu_c_floor with x
 
-# Smallest integer not less than `x`, returned as a float (C ceil).
+## Smallest integer not less than `x`, returned as a float (C ceil).
 weave ceil with x as float into float:
     return calling pengu_c_ceil with x
 
-# Rounds `x` to the nearest integer, returned as a float (C round: halfway
-# cases round away from zero).
+## Rounds `x` to the nearest integer, returned as a float (C round).
 weave round with x as float into float:
     return calling pengu_c_round with x
 
-# Truncates `x` towards zero (drops the fractional part), returned as a float.
+## Truncates `x` towards zero (drops fractional part), returned as a float.
 weave trunc with x as float into float:
     return calling pengu_c_trunc with x
 
-# Floating-point remainder of `x` divided by `y` (C fmod). Domain: y != 0; the
-# result carries the sign of `x`.
+## Floating-point remainder of `x` divided by `y` (C fmod).
 weave fmod with x as float , y as float into float:
     return calling pengu_c_fmod with x , y
 
-# Sine of angle `x` given in radians (C sin).
+## Sine of angle `x` in radians (C sin).
 weave sin with x as float into float:
     return calling pengu_c_sin with x
 
-# Cosine of angle `x` given in radians (C cos).
+## Cosine of angle `x` in radians (C cos).
 weave cos with x as float into float:
     return calling pengu_c_cos with x
 
-# Tangent of angle `x` given in radians (C tan).
+## Tangent of angle `x` in radians (C tan).
 weave tan with x as float into float:
     return calling pengu_c_tan with x
 
-# Arc sine of `x` in radians (C asin). Domain: x in [-1, 1]; outside that range
-# the result is NaN.
+## Arc sine of `x` in radians (C asin). Domain: [-1, 1].
 weave asin with x as float into float:
     return calling pengu_c_asin with x
 
-# Arc cosine of `x` in radians (C acos). Domain: x in [-1, 1]; outside that
-# range the result is NaN.
+## Arc cosine of `x` in radians (C acos). Domain: [-1, 1].
 weave acos with x as float into float:
     return calling pengu_c_acos with x
 
-# Arc tangent of `x` in radians (C atan).
+## Arc tangent of `x` in radians (C atan).
 weave atan with x as float into float:
     return calling pengu_c_atan with x
 
-# Arc tangent of the ratio `y` / `x` in radians, using the signs of both
-# arguments to select the correct quadrant (C atan2).
+## Four-quadrant arc tangent of `y` / `x` in radians (C atan2).
 weave atan2 with y as float , x as float into float:
     return calling pengu_c_atan2 with y , x
 
-# Exponential: e raised to the power `x` (C exp).
+## Exponential: e raised to the power `x` (C exp).
 weave exp with x as float into float:
     return calling pengu_c_exp with x
 
-# Natural logarithm of `x` (C log). Domain: x > 0.
+## Natural logarithm of `x` (C log). Domain: x > 0.
 weave log with x as float into float:
     return calling pengu_c_log with x
 
-# Base-10 logarithm of `x` (C log10). Domain: x > 0.
+## Base-10 logarithm of `x` (C log10). Domain: x > 0.
 weave log10 with x as float into float:
     return calling pengu_c_log10 with x
 
-# Base-2 logarithm of `x` (C log2). Domain: x > 0.
+## Base-2 logarithm of `x` (C log2). Domain: x > 0.
 weave log2 with x as float into float:
     return calling pengu_c_log2 with x
 
 # ----------------------------------------------------------------------------
-# Pure PenguScript helpers (integer & float algorithms)
+# Pure PenguScript Scalar & Integer Helpers
 # ----------------------------------------------------------------------------
-#
-# Primality test for a non-negative integer `n` (6k +/- 1 trial division).
-# Returns true for primes; 0 and 1 are not prime, and n <= 0 is not prime.
+
+## Primality test for integer `n` using 6k +/- 1 trial division.
 weave is_prime with n as int into bool:
     if n <= 1:
         return false
@@ -202,8 +193,7 @@ weave is_prime with n as int into bool:
         set i is i + 6
     return true
 
-# Greatest common divisor of `a` and `b` (Euclid's algorithm over absolute
-# values). gcd(0, b) is |b| and gcd(0, 0) is 0. Always non-negative.
+## Greatest common divisor of `a` and `b` (Euclid's algorithm).
 weave gcd with a as int , b as int into int:
     var x as int is calling abs_i with a
     var y as int is calling abs_i with b
@@ -213,30 +203,38 @@ weave gcd with a as int , b as int into int:
         set x is t
     return x
 
-# Least common multiple of `a` and `b`. Returns 0 when either argument is 0;
-# otherwise |a * b / gcd(a, b)| (watch for int overflow on large inputs).
+## Least common multiple of `a` and `b`.
 weave lcm with a as int , b as int into int:
-    if a == 0:
-        return 0
-    if b == 0:
+    if a == 0 or b == 0:
         return 0
     var g as int is calling gcd with a , b
     return calling abs_i with (a / g) * b
 
-# Smaller of `a` and `b` (float comparison).
+## Smaller of two floats.
 weave min with a as float , b as float into float:
     if a < b:
         return a
     return b
 
-# Larger of `a` and `b` (float comparison).
+## Smaller of two ints.
+weave min_i with a as int , b as int into int:
+    if a < b:
+        return a
+    return b
+
+## Larger of two floats.
 weave max with a as float , b as float into float:
     if a > b:
         return a
     return b
 
-# Clamps `val` into the inclusive range [min_val, max_val]: values below
-# `min_val` become `min_val` and values above `max_val` become `max_val`.
+## Larger of two ints.
+weave max_i with a as int , b as int into int:
+    if a > b:
+        return a
+    return b
+
+## Clamps float `val` into the inclusive range [min_val, max_val].
 weave clamp with val as float , min_val as float , max_val as float into float:
     if val < min_val:
         return min_val
@@ -244,15 +242,800 @@ weave clamp with val as float , min_val as float , max_val as float into float:
         return max_val
     return val
 
-# Linear interpolation between `a` and `b`: a + (b - a) * t. `t` of 0.0 yields
-# `a`, `t` of 1.0 yields `b`; values outside [0, 1] extrapolate.
+## Clamps int `val` into the inclusive range [lo, hi].
+weave clamp_i with val as int , lo as int , hi as int into int:
+    if val < lo:
+        return lo
+    if val > hi:
+        return hi
+    return val
+
+## Linear interpolation between `a` and `b`: a + (b - a) * t.
 weave lerp with a as float , b as float , t as float into float:
     return a + (b - a) * t
 
-# Converts an angle from degrees to radians (deg * PI / 180).
+## Converts angle from degrees to radians.
 weave deg_to_rad with deg as float into float:
     return deg * (PI / 180.0)
 
-# Converts an angle from radians to degrees (rad * 180 / PI).
+## Converts angle from radians to degrees.
 weave rad_to_deg with rad as float into float:
     return rad * (180.0 / PI)
+
+## Returns -1.0, 0.0, or 1.0 depending on the sign of float `x`.
+weave sign with x as float into float:
+    if x > 0.0:
+        return 1.0
+    if x < 0.0:
+        return -1.0
+    return 0.0
+
+## Returns -1, 0, or 1 depending on the sign of int `x`.
+weave sign_i with x as int into int:
+    if x > 0:
+        return 1
+    if x < 0:
+        return -1
+    return 0
+
+## Compares two floats for approximate equality within `eps` tolerance.
+weave approx_eq with a as float , b as float , eps as float is 0.000001 into bool:
+    return (calling abs with (a - b)) <= eps
+
+## Smoothstep: Hermite interpolation between `edge0` and `edge1`.
+weave smoothstep with edge0 as float , edge1 as float , x as float into float:
+    if edge0 == edge1:
+        return 0.0
+    var t as float is calling clamp with ((x - edge0) / (edge1 - edge0)) , 0.0 , 1.0
+    return t * t * (3.0 - 2.0 * t)
+
+## Step function: returns 0.0 if `x < edge`, 1.0 otherwise.
+weave step with edge as float , x as float into float:
+    if x < edge:
+        return 0.0
+    return 1.0
+
+## Remaps `v` from range [in_min, in_max] to range [out_min, out_max].
+weave remap with v as float , in_min as float , in_max as float , out_min as float , out_max as float into float:
+    var t as float is (v - in_min) / (in_max - in_min)
+    return out_min + t * (out_max - out_min)
+
+## Wraps `val` into the range [lo, hi).
+weave wrap_val with val as float , lo as float , hi as float into float:
+    var range as float is hi - lo
+    if range == 0.0:
+        return lo
+    var rem as float is calling fmod with (val - lo) , range
+    if rem < 0.0:
+        set rem is rem + range
+    return lo + rem
+
+## Normalizes an angle into [0, 2*PI).
+weave wrap_angle with a as float into float:
+    return calling wrap_val with a , 0.0 , TAU
+
+## Shortest angular difference from angle `a` to `b` in radians (range [-PI, PI]).
+weave angle_diff with a as float , b as float into float:
+    var diff as float is calling fmod with (b - a + PI) , TAU
+    if diff < 0.0:
+        set diff is diff + TAU
+    return diff - PI
+
+## Moves `current` towards `target` by at most `max_delta`.
+weave move_towards with current as float , target as float , max_delta as float into float:
+    if (calling abs with (target - current)) <= max_delta:
+        return target
+    return current + (calling sign with (target - current)) * max_delta
+
+## Ping-pong oscillating value between 0.0 and `length`.
+weave ping_pong with t as float , length as float into float:
+    if length == 0.0:
+        return 0.0
+    var l2 as float is 2.0 * length
+    var rem as float is calling fmod with t , l2
+    if rem < 0.0:
+        set rem is rem + l2
+    if rem > length:
+        return l2 - rem
+    return rem
+
+## Repeats `t` in the range [0.0, length).
+weave repeat_val with t as float , length as float into float:
+    if length == 0.0:
+        return 0.0
+    var rem as float is calling fmod with t , length
+    if rem < 0.0:
+        set rem is rem + length
+    return rem
+
+## Returns true if integer `n` is a positive power of two.
+weave is_power_of_two with n as int into bool:
+    return n > 0 and (n & (n - 1)) == 0
+
+## Returns the smallest power of two greater than or equal to `n`.
+weave next_power_of_two with n as int into int:
+    if n <= 1:
+        return 1
+    var p as int is 1
+    while p < n:
+        set p is p * 2
+    return p
+
+## Rounds float `x` to nearest int.
+weave to_int_round with x as float into int:
+    return (calling round with x) to int
+
+## Rounds float `x` down to int.
+weave to_int_floor with x as float into int:
+    return (calling floor with x) to int
+
+## Rounds float `x` up to int.
+weave to_int_ceil with x as float into int:
+    return (calling ceil with x) to int
+
+## Inverse square: 1 / (x * x). Returns 0.0 if x == 0.
+weave inv_sq with x as float into float:
+    if x == 0.0:
+        return 0.0
+    return 1.0 / (x * x)
+
+## Hypotenuse: sqrt(a^2 + b^2).
+weave hypot with a as float , b as float into float:
+    return calling sqrt with (a * a + b * b)
+
+## 2D Euclidean distance between (x1, y1) and (x2, y2).
+weave dist_2d with x1 as float , y1 as float , x2 as float , y2 as float into float:
+    var dx as float is x2 - x1
+    var dy as float is y2 - y1
+    return calling sqrt with (dx * dx + dy * dy)
+
+## 3D Euclidean distance between (x1, y1, z1) and (x2, y2, z2).
+weave dist_3d with x1 as float , y1 as float , z1 as float , x2 as float , y2 as float , z2 as float into float:
+    var dx as float is x2 - x1
+    var dy as float is y2 - y1
+    var dz as float is z2 - z1
+    return calling sqrt with (dx * dx + dy * dy + dz * dz)
+
+# ----------------------------------------------------------------------------
+# Vector & Matrix Geometric Types (Pure PenguScript)
+# ----------------------------------------------------------------------------
+
+## 2D Vector with x and y float components.
+rune Vec2:
+    x as float
+    y as float
+
+## 3D Vector with x, y, and z float components.
+rune Vec3:
+    x as float
+    y as float
+    z as float
+
+## 4D Vector with x, y, z, and w float components.
+rune Vec4:
+    x as float
+    y as float
+    z as float
+    w as float
+
+## 4x4 Transformation Matrix in row-major order.
+rune Mat4:
+    m00 as float
+    m01 as float
+    m02 as float
+    m03 as float
+    m10 as float
+    m11 as float
+    m12 as float
+    m13 as float
+    m20 as float
+    m21 as float
+    m22 as float
+    m23 as float
+    m30 as float
+    m31 as float
+    m32 as float
+    m33 as float
+
+## Unit Quaternion representing 3D rotation (x, y, z, w).
+rune Quat:
+    x as float
+    y as float
+    z as float
+    w as float
+
+# ----------------------------------------------------------------------------
+# Vec2 Construction & Methods
+# ----------------------------------------------------------------------------
+
+## Constructs a new Vec2 with components `x` and `y`.
+weave vec2 with x as float , y as float into Vec2:
+    return with x is x , y is y
+
+enchanting Vec2:
+    weave ritual zero into Vec2:
+        return with x is 0.0 , y is 0.0
+
+    weave ritual one into Vec2:
+        return with x is 1.0 , y is 1.0
+
+    weave ritual up into Vec2:
+        return with x is 0.0 , y is -1.0
+
+    weave ritual down into Vec2:
+        return with x is 0.0 , y is 1.0
+
+    weave ritual left into Vec2:
+        return with x is -1.0 , y is 0.0
+
+    weave ritual right into Vec2:
+        return with x is 1.0 , y is 0.0
+
+    weave add with other as Vec2 into Vec2:
+        return with x is self->x + other.x , y is self->y + other.y
+
+    weave sub with other as Vec2 into Vec2:
+        return with x is self->x - other.x , y is self->y - other.y
+
+    weave scale with s as float into Vec2:
+        return with x is self->x * s , y is self->y * s
+
+    weave div with s as float into Vec2:
+        if s == 0.0:
+            return with x is 0.0 , y is 0.0
+        return with x is self->x / s , y is self->y / s
+
+    weave negate into Vec2:
+        return with x is -self->x , y is -self->y
+
+    weave dot with other as Vec2 into float:
+        return self->x * other.x + self->y * other.y
+
+    weave cross_2d with other as Vec2 into float:
+        return self->x * other.y - self->y * other.x
+
+    weave length_sq into float:
+        return self->x * self->x + self->y * self->y
+
+    weave length into float:
+        return calling sqrt with (calling self.length_sq)
+
+    weave distance_sq with other as Vec2 into float:
+        var dx as float is self->x - other.x
+        var dy as float is self->y - other.y
+        return dx * dx + dy * dy
+
+    weave distance with other as Vec2 into float:
+        return calling sqrt with (calling self.distance_sq with other)
+
+    weave normalize into Vec2:
+        var l as float is calling self.length
+        if l == 0.0:
+            return with x is 0.0 , y is 0.0
+        return with x is self->x / l , y is self->y / l
+
+    weave normalize_or_zero into Vec2:
+        return calling self.normalize
+
+    weave perpendicular into Vec2:
+        return with x is -self->y , y is self->x
+
+    weave rotate with angle_rad as float into Vec2:
+        var c as float is calling cos with angle_rad
+        var s as float is calling sin with angle_rad
+        return with x is self->x * c - self->y * s , y is self->x * s + self->y * c
+
+    weave rotate_around with center as Vec2 , angle_rad as float into Vec2:
+        var rel as Vec2 is calling self.sub with center
+        var rot as Vec2 is calling rel.rotate with angle_rad
+        return calling rot.add with center
+
+    weave angle into float:
+        return calling atan2 with self->y , self->x
+
+    weave angle_between with other as Vec2 into float:
+        var d as float is calling self.dot with other
+        var mag as float is (calling self.length) * (calling other.length)
+        if mag == 0.0:
+            return 0.0
+        var cos_theta as float is calling clamp with (d / mag) , -1.0 , 1.0
+        return calling acos with cos_theta
+
+    weave direction_to with other as Vec2 into Vec2:
+        var diff as Vec2 is with x is other.x - self->x , y is other.y - self->y
+        return calling diff.normalize
+
+    weave lerp with other as Vec2 , t as float into Vec2:
+        return with x is self->x + (other.x - self->x) * t , y is self->y + (other.y - self->y) * t
+
+    weave move_towards with other as Vec2 , max_dist as float into Vec2:
+        var diff as Vec2 is with x is other.x - self->x , y is other.y - self->y
+        var dist as float is calling diff.length
+        if dist <= max_dist or dist == 0.0:
+            return other
+        var sc as Vec2 is calling diff.scale with (max_dist / dist)
+        return calling self.add with sc
+
+    weave reflect with normal as Vec2 into Vec2:
+        var d as float is 2.0 * (calling self.dot with normal)
+        return calling self.sub with (calling normal.scale with d)
+
+    weave min_v with other as Vec2 into Vec2:
+        return with x is (calling min with self->x , other.x) , y is (calling min with self->y , other.y)
+
+    weave max_v with other as Vec2 into Vec2:
+        return with x is (calling max with self->x , other.x) , y is (calling max with self->y , other.y)
+
+    weave equals with other as Vec2 , eps as float is 0.000001 into bool:
+        return (calling approx_eq with self->x , other.x , eps) and (calling approx_eq with self->y , other.y , eps)
+
+    weave is_zero into bool:
+        return (calling approx_eq with self->x , 0.0) and (calling approx_eq with self->y , 0.0)
+
+    weave to_vec3 with z as float into Vec3:
+        return with x is self->x , y is self->y , z is z
+
+    weave to_vec4 with z as float , w as float into Vec4:
+        return with x is self->x , y is self->y , z is z , w is w
+
+    weave to_string into string:
+        return "({(self->x to string)}, {(self->y to string)})"
+
+# ----------------------------------------------------------------------------
+# Vec3 Construction & Methods
+# ----------------------------------------------------------------------------
+
+## Constructs a new Vec3 with components `x`, `y`, and `z`.
+weave vec3 with x as float , y as float , z as float into Vec3:
+    return with x is x , y is y , z is z
+
+enchanting Vec3:
+    weave ritual zero into Vec3:
+        return with x is 0.0 , y is 0.0 , z is 0.0
+
+    weave ritual one into Vec3:
+        return with x is 1.0 , y is 1.0 , z is 1.0
+
+    weave ritual up into Vec3:
+        return with x is 0.0 , y is 1.0 , z is 0.0
+
+    weave ritual down into Vec3:
+        return with x is 0.0 , y is -1.0 , z is 0.0
+
+    weave ritual left into Vec3:
+        return with x is -1.0 , y is 0.0 , z is 0.0
+
+    weave ritual right into Vec3:
+        return with x is 1.0 , y is 0.0 , z is 0.0
+
+    weave ritual forward into Vec3:
+        return with x is 0.0 , y is 0.0 , z is -1.0
+
+    weave ritual back into Vec3:
+        return with x is 0.0 , y is 0.0 , z is 1.0
+
+    weave add with other as Vec3 into Vec3:
+        return with x is self->x + other.x , y is self->y + other.y , z is self->z + other.z
+
+    weave sub with other as Vec3 into Vec3:
+        return with x is self->x - other.x , y is self->y - other.y , z is self->z - other.z
+
+    weave scale with s as float into Vec3:
+        return with x is self->x * s , y is self->y * s , z is self->z * s
+
+    weave div with s as float into Vec3:
+        if s == 0.0:
+            return with x is 0.0 , y is 0.0 , z is 0.0
+        return with x is self->x / s , y is self->y / s , z is self->z / s
+
+    weave negate into Vec3:
+        return with x is -self->x , y is -self->y , z is -self->z
+
+    weave dot with other as Vec3 into float:
+        return self->x * other.x + self->y * other.y + self->z * other.z
+
+    weave cross with other as Vec3 into Vec3:
+        return with x is self->y * other.z - self->z * other.y , y is self->z * other.x - self->x * other.z , z is self->x * other.y - self->y * other.x
+
+    weave length_sq into float:
+        return self->x * self->x + self->y * self->y + self->z * self->z
+
+    weave length into float:
+        return calling sqrt with (calling self.length_sq)
+
+    weave distance_sq with other as Vec3 into float:
+        var dx as float is self->x - other.x
+        var dy as float is self->y - other.y
+        var dz as float is self->z - other.z
+        return dx * dx + dy * dy + dz * dz
+
+    weave distance with other as Vec3 into float:
+        return calling sqrt with (calling self.distance_sq with other)
+
+    weave normalize into Vec3:
+        var l as float is calling self.length
+        if l == 0.0:
+            return with x is 0.0 , y is 0.0 , z is 0.0
+        return with x is self->x / l , y is self->y / l , z is self->z / l
+
+    weave normalize_or_zero into Vec3:
+        return calling self.normalize
+
+    weave rotate_around_axis with axis as Vec3 , angle_rad as float into Vec3:
+        var a as Vec3 is calling axis.normalize
+        var cos_a as float is calling cos with angle_rad
+        var sin_a as float is calling sin with angle_rad
+        var dot_a as float is calling self.dot with a
+        var cr as Vec3 is calling a.cross with (essence of self)
+        var term1 as Vec3 is calling self.scale with cos_a
+        var term2 as Vec3 is calling cr.scale with sin_a
+        var term3 as Vec3 is calling a.scale with (dot_a * (1.0 - cos_a))
+        var sum1 as Vec3 is calling term1.add with term2
+        return calling sum1.add with term3
+
+    weave angle_between with other as Vec3 into float:
+        var d as float is calling self.dot with other
+        var mag as float is (calling self.length) * (calling other.length)
+        if mag == 0.0:
+            return 0.0
+        var cos_theta as float is calling clamp with (d / mag) , -1.0 , 1.0
+        return calling acos with cos_theta
+
+    weave direction_to with other as Vec3 into Vec3:
+        var diff as Vec3 is with x is other.x - self->x , y is other.y - self->y , z is other.z - self->z
+        return calling diff.normalize
+
+    weave lerp with other as Vec3 , t as float into Vec3:
+        return with x is self->x + (other.x - self->x) * t , y is self->y + (other.y - self->y) * t , z is self->z + (other.z - self->z) * t
+
+    weave move_towards with other as Vec3 , max_dist as float into Vec3:
+        var diff as Vec3 is with x is other.x - self->x , y is other.y - self->y , z is other.z - self->z
+        var dist as float is calling diff.length
+        if dist <= max_dist or dist == 0.0:
+            return other
+        var sc as Vec3 is calling diff.scale with (max_dist / dist)
+        return calling self.add with sc
+
+    weave reflect with normal as Vec3 into Vec3:
+        var d as float is 2.0 * (calling self.dot with normal)
+        return calling self.sub with (calling normal.scale with d)
+
+    weave min_v with other as Vec3 into Vec3:
+        return with x is (calling min with self->x , other.x) , y is (calling min with self->y , other.y) , z is (calling min with self->z , other.z)
+
+    weave max_v with other as Vec3 into Vec3:
+        return with x is (calling max with self->x , other.x) , y is (calling max with self->y , other.y) , z is (calling max with self->z , other.z)
+
+    weave equals with other as Vec3 , eps as float is 0.000001 into bool:
+        return (calling approx_eq with self->x , other.x , eps) and (calling approx_eq with self->y , other.y , eps) and (calling approx_eq with self->z , other.z , eps)
+
+    weave is_zero into bool:
+        return (calling approx_eq with self->x , 0.0) and (calling approx_eq with self->y , 0.0) and (calling approx_eq with self->z , 0.0)
+
+    weave to_vec2 into Vec2:
+        return with x is self->x , y is self->y
+
+    weave to_vec4 with w as float into Vec4:
+        return with x is self->x , y is self->y , z is self->z , w is w
+
+    weave to_string into string:
+        return "({(self->x to string)}, {(self->y to string)}, {(self->z to string)})"
+
+# ----------------------------------------------------------------------------
+# Vec4 Construction & Methods
+# ----------------------------------------------------------------------------
+
+## Constructs a new Vec4 with components `x`, `y`, `z`, and `w`.
+weave vec4 with x as float , y as float , z as float , w as float into Vec4:
+    return with x is x , y is y , z is z , w is w
+
+enchanting Vec4:
+    weave ritual zero into Vec4:
+        return with x is 0.0 , y is 0.0 , z is 0.0 , w is 0.0
+
+    weave ritual one into Vec4:
+        return with x is 1.0 , y is 1.0 , z is 1.0 , w is 1.0
+
+    weave add with other as Vec4 into Vec4:
+        return with x is self->x + other.x , y is self->y + other.y , z is self->z + other.z , w is self->w + other.w
+
+    weave sub with other as Vec4 into Vec4:
+        return with x is self->x - other.x , y is self->y - other.y , z is self->z - other.z , w is self->w - other.w
+
+    weave scale with s as float into Vec4:
+        return with x is self->x * s , y is self->y * s , z is self->z * s , w is self->w * s
+
+    weave div with s as float into Vec4:
+        if s == 0.0:
+            return with x is 0.0 , y is 0.0 , z is 0.0 , w is 0.0
+        return with x is self->x / s , y is self->y / s , z is self->z / s , w is self->w / s
+
+    weave negate into Vec4:
+        return with x is -self->x , y is -self->y , z is -self->z , w is -self->w
+
+    weave dot with other as Vec4 into float:
+        return self->x * other.x + self->y * other.y + self->z * other.z + self->w * other.w
+
+    weave length_sq into float:
+        return self->x * self->x + self->y * self->y + self->z * self->z + self->w * self->w
+
+    weave length into float:
+        return calling sqrt with (calling self.length_sq)
+
+    weave normalize into Vec4:
+        var l as float is calling self.length
+        if l == 0.0:
+            return with x is 0.0 , y is 0.0 , z is 0.0 , w is 0.0
+        return with x is self->x / l , y is self->y / l , z is self->z / l , w is self->w / l
+
+    weave normalize_or_zero into Vec4:
+        return calling self.normalize
+
+    weave lerp with other as Vec4 , t as float into Vec4:
+        return with x is self->x + (other.x - self->x) * t , y is self->y + (other.y - self->y) * t , z is self->z + (other.z - self->z) * t , w is self->w + (other.w - self->w) * t
+
+    weave equals with other as Vec4 , eps as float is 0.000001 into bool:
+        return (calling approx_eq with self->x , other.x , eps) and (calling approx_eq with self->y , other.y , eps) and (calling approx_eq with self->z , other.z , eps) and (calling approx_eq with self->w , other.w , eps)
+
+    weave is_zero into bool:
+        return (calling approx_eq with self->x , 0.0) and (calling approx_eq with self->y , 0.0) and (calling approx_eq with self->z , 0.0) and (calling approx_eq with self->w , 0.0)
+
+    weave xyz into Vec3:
+        return with x is self->x , y is self->y , z is self->z
+
+    weave to_vec2 into Vec2:
+        return with x is self->x , y is self->y
+
+    weave to_vec3 into Vec3:
+        return with x is self->x , y is self->y , z is self->z
+
+    weave homogeneous_divide into Vec3:
+        if self->w == 0.0:
+            return with x is self->x , y is self->y , z is self->z
+        return with x is self->x / self->w , y is self->y / self->w , z is self->z / self->w
+
+    weave to_string into string:
+        return "({(self->x to string)}, {(self->y to string)}, {(self->z to string)}, {(self->w to string)})"
+
+# ----------------------------------------------------------------------------
+# Mat4 Construction & Operations
+# ----------------------------------------------------------------------------
+
+## Returns a 4x4 identity matrix.
+weave mat4_identity into Mat4:
+    return with m00 is 1.0 , m01 is 0.0 , m02 is 0.0 , m03 is 0.0 , m10 is 0.0 , m11 is 1.0 , m12 is 0.0 , m13 is 0.0 , m20 is 0.0 , m21 is 0.0 , m22 is 1.0 , m23 is 0.0 , m30 is 0.0 , m31 is 0.0 , m32 is 0.0 , m33 is 1.0
+
+## Returns an all-zero 4x4 matrix.
+weave mat4_zero into Mat4:
+    return with m00 is 0.0 , m01 is 0.0 , m02 is 0.0 , m03 is 0.0 , m10 is 0.0 , m11 is 0.0 , m12 is 0.0 , m13 is 0.0 , m20 is 0.0 , m21 is 0.0 , m22 is 0.0 , m23 is 0.0 , m30 is 0.0 , m31 is 0.0 , m32 is 0.0 , m33 is 0.0
+
+## Returns a 4x4 translation matrix for offsets tx, ty, tz.
+weave mat4_translate with tx as float , ty as float , tz as float into Mat4:
+    var m as Mat4 is calling mat4_identity
+    set m.m03 is tx
+    set m.m13 is ty
+    set m.m23 is tz
+    return m
+
+## Returns a 4x4 scaling matrix for factors sx, sy, sz.
+weave mat4_scale with sx as float , sy as float , sz as float into Mat4:
+    return with m00 is sx , m01 is 0.0 , m02 is 0.0 , m03 is 0.0 , m10 is 0.0 , m11 is sy , m12 is 0.0 , m13 is 0.0 , m20 is 0.0 , m21 is 0.0 , m22 is sz , m23 is 0.0 , m30 is 0.0 , m31 is 0.0 , m32 is 0.0 , m33 is 1.0
+
+## Returns a 4x4 rotation matrix around the X axis by `angle_rad` radians.
+weave mat4_rotate_x with angle_rad as float into Mat4:
+    var c as float is calling cos with angle_rad
+    var s as float is calling sin with angle_rad
+    return with m00 is 1.0 , m01 is 0.0 , m02 is 0.0 , m03 is 0.0 , m10 is 0.0 , m11 is c , m12 is -s , m13 is 0.0 , m20 is 0.0 , m21 is s , m22 is c , m23 is 0.0 , m30 is 0.0 , m31 is 0.0 , m32 is 0.0 , m33 is 1.0
+
+## Returns a 4x4 rotation matrix around the Y axis by `angle_rad` radians.
+weave mat4_rotate_y with angle_rad as float into Mat4:
+    var c as float is calling cos with angle_rad
+    var s as float is calling sin with angle_rad
+    return with m00 is c , m01 is 0.0 , m02 is s , m03 is 0.0 , m10 is 0.0 , m11 is 1.0 , m12 is 0.0 , m13 is 0.0 , m20 is -s , m21 is 0.0 , m22 is c , m23 is 0.0 , m30 is 0.0 , m31 is 0.0 , m32 is 0.0 , m33 is 1.0
+
+## Returns a 4x4 rotation matrix around the Z axis by `angle_rad` radians.
+weave mat4_rotate_z with angle_rad as float into Mat4:
+    var c as float is calling cos with angle_rad
+    var s as float is calling sin with angle_rad
+    return with m00 is c , m01 is -s , m02 is 0.0 , m03 is 0.0 , m10 is s , m11 is c , m12 is 0.0 , m13 is 0.0 , m20 is 0.0 , m21 is 0.0 , m22 is 1.0 , m23 is 0.0 , m30 is 0.0 , m31 is 0.0 , m32 is 0.0 , m33 is 1.0
+
+## Returns a 4x4 rotation matrix around an arbitrary 3D axis.
+weave mat4_rotate with axis as Vec3 , angle_rad as float into Mat4:
+    var a as Vec3 is calling axis.normalize
+    var x as float is a.x
+    var y as float is a.y
+    var z as float is a.z
+    var c as float is calling cos with angle_rad
+    var s as float is calling sin with angle_rad
+    var t as float is 1.0 - c
+    return with m00 is t * x * x + c , m01 is t * x * y - s * z , m02 is t * x * z + s * y , m03 is 0.0 , m10 is t * x * y + s * z , m11 is t * y * y + c , m12 is t * y * z - s * x , m13 is 0.0 , m20 is t * x * z - s * y , m21 is t * y * z + s * x , m22 is t * z * z + c , m23 is 0.0 , m30 is 0.0 , m31 is 0.0 , m32 is 0.0 , m33 is 1.0
+
+## Returns a 4x4 perspective projection matrix.
+weave mat4_perspective with fovy_rad as float , aspect as float , near_v as float , far_v as float into Mat4:
+    var half_fovy as float is fovy_rad * 0.5
+    var f as float is 1.0 / (calling tan with half_fovy)
+    var range_inv as float is 1.0 / (near_v - far_v)
+    return with m00 is f / aspect , m01 is 0.0 , m02 is 0.0 , m03 is 0.0 , m10 is 0.0 , m11 is f , m12 is 0.0 , m13 is 0.0 , m20 is 0.0 , m21 is 0.0 , m22 is (far_v + near_v) * range_inv , m23 is 2.0 * far_v * near_v * range_inv , m30 is 0.0 , m31 is 0.0 , m32 is -1.0 , m33 is 0.0
+
+## Returns a 4x4 orthographic projection matrix.
+weave mat4_ortho with left as float , right as float , bottom as float , top as float , near_v as float , far_v as float into Mat4:
+    var rl as float is 1.0 / (right - left)
+    var tb as float is 1.0 / (top - bottom)
+    var fn as float is 1.0 / (far_v - near_v)
+    return with m00 is 2.0 * rl , m01 is 0.0 , m02 is 0.0 , m03 is -(right + left) * rl , m10 is 0.0 , m11 is 2.0 * tb , m12 is 0.0 , m13 is -(top + bottom) * tb , m20 is 0.0 , m21 is 0.0 , m22 is -2.0 * fn , m23 is -(far_v + near_v) * fn , m30 is 0.0 , m31 is 0.0 , m32 is 0.0 , m33 is 1.0
+
+## Returns a 4x4 view matrix looking from `eye` to `center` with `up` vector.
+weave mat4_look_at with eye as Vec3 , center as Vec3 , up as Vec3 into Mat4:
+    var f as Vec3 is calling center.sub with eye
+    set f is calling f.normalize
+    var s as Vec3 is calling f.cross with up
+    set s is calling s.normalize
+    var s_dot_eye as float is calling s.dot with eye
+    var u as Vec3 is calling s.cross with f
+    var u_dot_eye as float is calling u.dot with eye
+    var f_dot_eye as float is calling f.dot with eye
+    return with m00 is s.x , m01 is s.y , m02 is s.z , m03 is -s_dot_eye , m10 is u.x , m11 is u.y , m12 is u.z , m13 is -u_dot_eye , m20 is -f.x , m21 is -f.y , m22 is -f.z , m23 is f_dot_eye , m30 is 0.0 , m31 is 0.0 , m32 is 0.0 , m33 is 1.0
+
+enchanting Mat4:
+    weave ritual identity into Mat4:
+        return calling mat4_identity
+
+    weave ritual zero into Mat4:
+        return calling mat4_zero
+
+    weave multiply with other as Mat4 into Mat4:
+        return with m00 is self->m00 * other.m00 + self->m01 * other.m10 + self->m02 * other.m20 + self->m03 * other.m30 , m01 is self->m00 * other.m01 + self->m01 * other.m11 + self->m02 * other.m21 + self->m03 * other.m31 , m02 is self->m00 * other.m02 + self->m01 * other.m12 + self->m02 * other.m22 + self->m03 * other.m32 , m03 is self->m00 * other.m03 + self->m01 * other.m13 + self->m02 * other.m23 + self->m03 * other.m33 , m10 is self->m10 * other.m00 + self->m11 * other.m10 + self->m12 * other.m20 + self->m13 * other.m30 , m11 is self->m10 * other.m01 + self->m11 * other.m11 + self->m12 * other.m21 + self->m13 * other.m31 , m12 is self->m10 * other.m02 + self->m11 * other.m12 + self->m12 * other.m22 + self->m13 * other.m32 , m13 is self->m10 * other.m03 + self->m11 * other.m13 + self->m12 * other.m23 + self->m13 * other.m33 , m20 is self->m20 * other.m00 + self->m21 * other.m10 + self->m22 * other.m20 + self->m23 * other.m30 , m21 is self->m20 * other.m01 + self->m21 * other.m11 + self->m22 * other.m21 + self->m23 * other.m31 , m22 is self->m20 * other.m02 + self->m21 * other.m12 + self->m22 * other.m22 + self->m23 * other.m32 , m23 is self->m20 * other.m03 + self->m21 * other.m13 + self->m22 * other.m23 + self->m23 * other.m33 , m30 is self->m30 * other.m00 + self->m31 * other.m10 + self->m32 * other.m20 + self->m33 * other.m30 , m31 is self->m30 * other.m01 + self->m31 * other.m11 + self->m32 * other.m21 + self->m33 * other.m31 , m32 is self->m30 * other.m02 + self->m31 * other.m12 + self->m32 * other.m22 + self->m33 * other.m32 , m33 is self->m30 * other.m03 + self->m31 * other.m13 + self->m32 * other.m23 + self->m33 * other.m33
+
+    weave transpose into Mat4:
+        return with m00 is self->m00 , m01 is self->m10 , m02 is self->m20 , m03 is self->m30 , m10 is self->m01 , m11 is self->m11 , m12 is self->m21 , m13 is self->m31 , m20 is self->m02 , m21 is self->m12 , m22 is self->m22 , m23 is self->m32 , m30 is self->m03 , m31 is self->m13 , m32 is self->m23 , m33 is self->m33
+
+    weave determinant into float:
+        var b00 as float is self->m00 * self->m11 - self->m01 * self->m10
+        var b01 as float is self->m00 * self->m12 - self->m02 * self->m10
+        var b02 as float is self->m00 * self->m13 - self->m03 * self->m10
+        var b03 as float is self->m01 * self->m12 - self->m02 * self->m11
+        var b04 as float is self->m01 * self->m13 - self->m03 * self->m11
+        var b05 as float is self->m02 * self->m13 - self->m03 * self->m12
+        var b06 as float is self->m20 * self->m31 - self->m21 * self->m30
+        var b07 as float is self->m20 * self->m32 - self->m22 * self->m30
+        var b08 as float is self->m20 * self->m33 - self->m23 * self->m30
+        var b09 as float is self->m21 * self->m32 - self->m22 * self->m31
+        var b10 as float is self->m21 * self->m33 - self->m23 * self->m31
+        var b11 as float is self->m22 * self->m33 - self->m23 * self->m32
+        return b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06
+
+    weave inverse into maybe Mat4:
+        var det as float is calling self.determinant
+        if det == 0.0:
+            return maybe none
+        var inv_det as float is 1.0 / det
+
+        var b00 as float is self->m00 * self->m11 - self->m01 * self->m10
+        var b01 as float is self->m00 * self->m12 - self->m02 * self->m10
+        var b02 as float is self->m00 * self->m13 - self->m03 * self->m10
+        var b03 as float is self->m01 * self->m12 - self->m02 * self->m11
+        var b04 as float is self->m01 * self->m13 - self->m03 * self->m11
+        var b05 as float is self->m02 * self->m13 - self->m03 * self->m12
+        var b06 as float is self->m20 * self->m31 - self->m21 * self->m30
+        var b07 as float is self->m20 * self->m32 - self->m22 * self->m30
+        var b08 as float is self->m20 * self->m33 - self->m23 * self->m30
+        var b09 as float is self->m21 * self->m32 - self->m22 * self->m31
+        var b10 as float is self->m21 * self->m33 - self->m23 * self->m31
+        var b11 as float is self->m22 * self->m33 - self->m23 * self->m32
+
+        var res as Mat4 is with m00 is (self->m11 * b11 - self->m12 * b10 + self->m13 * b09) * inv_det , m01 is (self->m02 * b10 - self->m01 * b11 - self->m03 * b09) * inv_det , m02 is (self->m31 * b05 - self->m32 * b04 + self->m33 * b03) * inv_det , m03 is (self->m22 * b04 - self->m21 * b05 - self->m23 * b03) * inv_det , m10 is (self->m12 * b08 - self->m10 * b11 - self->m13 * b07) * inv_det , m11 is (self->m00 * b11 - self->m02 * b08 + self->m03 * b07) * inv_det , m12 is (self->m32 * b02 - self->m30 * b05 - self->m33 * b01) * inv_det , m13 is (self->m20 * b05 - self->m22 * b02 + self->m23 * b01) * inv_det , m20 is (self->m10 * b10 - self->m11 * b08 + self->m13 * b06) * inv_det , m21 is (self->m01 * b08 - self->m00 * b10 - self->m03 * b06) * inv_det , m22 is (self->m30 * b04 - self->m31 * b02 + self->m33 * b00) * inv_det , m23 is (self->m21 * b02 - self->m20 * b04 - self->m23 * b00) * inv_det , m30 is (self->m11 * b07 - self->m10 * b09 - self->m12 * b06) * inv_det , m31 is (self->m00 * b09 - self->m01 * b07 + self->m02 * b06) * inv_det , m32 is (self->m31 * b01 - self->m30 * b03 - self->m32 * b00) * inv_det , m33 is (self->m20 * b03 - self->m21 * b01 + self->m22 * b00) * inv_det
+        return some res
+
+    weave transform_point with p as Vec3 into Vec3:
+        var w as float is self->m30 * p.x + self->m31 * p.y + self->m32 * p.z + self->m33
+        var x as float is self->m00 * p.x + self->m01 * p.y + self->m02 * p.z + self->m03
+        var y as float is self->m10 * p.x + self->m11 * p.y + self->m12 * p.z + self->m13
+        var z as float is self->m20 * p.x + self->m21 * p.y + self->m22 * p.z + self->m23
+        if w != 0.0 and w != 1.0:
+            return with x is x / w , y is y / w , z is z / w
+        return with x is x , y is y , z is z
+
+    weave transform_direction with d as Vec3 into Vec3:
+        return with x is self->m00 * d.x + self->m01 * d.y + self->m02 * d.z , y is self->m10 * d.x + self->m11 * d.y + self->m12 * d.z , z is self->m20 * d.x + self->m21 * d.y + self->m22 * d.z
+
+    weave to_string into string:
+        return "[Mat4]"
+
+# ----------------------------------------------------------------------------
+# Quat Construction & Operations
+# ----------------------------------------------------------------------------
+
+## Constructs a new Quaternion (x, y, z, w).
+weave quat with x as float , y as float , z as float , w as float into Quat:
+    return with x is x , y is y , z is z , w is w
+
+## Returns an identity Quaternion (0, 0, 0, 1).
+weave quat_identity into Quat:
+    return with x is 0.0 , y is 0.0 , z is 0.0 , w is 1.0
+
+## Constructs a Quaternion from an axis and rotation angle in radians.
+weave quat_from_axis_angle with axis as Vec3 , angle_rad as float into Quat:
+    var half_angle as float is angle_rad * 0.5
+    var s as float is calling sin with half_angle
+    var a as Vec3 is calling axis.normalize
+    return with x is a.x * s , y is a.y * s , z is a.z * s , w is calling cos with half_angle
+
+## Constructs a Quaternion from Euler angles roll (rx), pitch (ry), yaw (rz) in radians.
+weave quat_from_euler with rx as float , ry as float , rz as float into Quat:
+    var c1 as float is calling cos with (rx * 0.5)
+    var s1 as float is calling sin with (rx * 0.5)
+    var c2 as float is calling cos with (ry * 0.5)
+    var s2 as float is calling sin with (ry * 0.5)
+    var c3 as float is calling cos with (rz * 0.5)
+    var s3 as float is calling sin with (rz * 0.5)
+    return with x is s1 * c2 * c3 - c1 * s2 * s3 , y is c1 * s2 * c3 + s1 * c2 * s3 , z is c1 * c2 * s3 - s1 * s2 * c3 , w is c1 * c2 * c3 + s1 * s2 * s3
+
+enchanting Quat:
+    weave ritual identity into Quat:
+        return calling quat_identity
+
+    weave ritual zero into Quat:
+        return with x is 0.0 , y is 0.0 , z is 0.0 , w is 0.0
+
+    weave multiply with other as Quat into Quat:
+        return with x is self->w * other.x + self->x * other.w + self->y * other.z - self->z * other.y , y is self->w * other.y - self->x * other.z + self->y * other.w + self->z * other.x , z is self->w * other.z + self->x * other.y - self->y * other.x + self->z * other.w , w is self->w * other.w - self->x * other.x - self->y * other.y - self->z * other.z
+
+    weave conjugate into Quat:
+        return with x is -self->x , y is -self->y , z is -self->z , w is self->w
+
+    weave length_sq into float:
+        return self->x * self->x + self->y * self->y + self->z * self->z + self->w * self->w
+
+    weave length into float:
+        return calling sqrt with (calling self.length_sq)
+
+    weave normalize into Quat:
+        var l as float is calling self.length
+        if l == 0.0:
+            return with x is 0.0 , y is 0.0 , z is 0.0 , w is 1.0
+        return with x is self->x / l , y is self->y / l , z is self->z / l , w is self->w / l
+
+    weave dot with other as Quat into float:
+        return self->x * other.x + self->y * other.y + self->z * other.z + self->w * other.w
+
+    weave inverse into Quat:
+        var lsq as float is calling self.length_sq
+        if lsq == 0.0:
+            return calling quat_identity
+        return with x is -self->x / lsq , y is -self->y / lsq , z is -self->z / lsq , w is self->w / lsq
+
+    weave rotate_vector with v as Vec3 into Vec3:
+        var qv as Vec3 is with x is self->x , y is self->y , z is self->z
+        var uv as Vec3 is calling qv.cross with v
+        var uuv as Vec3 is calling qv.cross with uv
+        var term1 as Vec3 is calling uv.scale with (2.0 * self->w)
+        var term2 as Vec3 is calling uuv.scale with 2.0
+        var sum1 as Vec3 is calling v.add with term1
+        return calling sum1.add with term2
+
+    weave slerp with other as Quat , t as float into Quat:
+        var cos_half_theta as float is calling self.dot with other
+        var target as Quat is other
+        if cos_half_theta < 0.0:
+            set target is with x is -other.x , y is -other.y , z is -other.z , w is -other.w
+            set cos_half_theta is -cos_half_theta
+        if cos_half_theta > 0.9995:
+            var res as Quat is with x is self->x + (target.x - self->x) * t , y is self->y + (target.y - self->y) * t , z is self->z + (target.z - self->z) * t , w is self->w + (target.w - self->w) * t
+            return calling res.normalize
+        var half_theta as float is calling acos with cos_half_theta
+        var sin_half_theta as float is calling sqrt with (1.0 - cos_half_theta * cos_half_theta)
+        if sin_half_theta == 0.0:
+            return essence of self
+        var ratio_a as float is (calling sin with ((1.0 - t) * half_theta)) / sin_half_theta
+        var ratio_b as float is (calling sin with (t * half_theta)) / sin_half_theta
+        return with x is self->x * ratio_a + target.x * ratio_b , y is self->y * ratio_a + target.y * ratio_b , z is self->z * ratio_a + target.z * ratio_b , w is self->w * ratio_a + target.w * ratio_b
+
+    weave to_matrix into Mat4:
+        var qx as float is self->x
+        var qy as float is self->y
+        var qz as float is self->z
+        var qw as float is self->w
+        return with m00 is 1.0 - 2.0 * (qy * qy + qz * qz) , m01 is 2.0 * (qx * qy - qz * qw) , m02 is 2.0 * (qx * qz + qy * qw) , m03 is 0.0 , m10 is 2.0 * (qx * qy + qz * qw) , m11 is 1.0 - 2.0 * (qx * qx + qz * qz) , m12 is 2.0 * (qy * qz - qx * qw) , m13 is 0.0 , m20 is 2.0 * (qx * qz - qy * qw) , m21 is 2.0 * (qy * qz + qx * qw) , m22 is 1.0 - 2.0 * (qx * qx + qy * qy) , m23 is 0.0 , m30 is 0.0 , m31 is 0.0 , m32 is 0.0 , m33 is 1.0
+
+    weave to_string into string:
+        return "({(self->x to string)}, {(self->y to string)}, {(self->z to string)}, {(self->w to string)})"

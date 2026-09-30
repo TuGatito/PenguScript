@@ -1,0 +1,9 @@
+# EXPECTED: E0005
+# The element type of 'list of T' carries T's bounds too.
+weave fill shard T where T: Num with xs as ref to list of T into void:
+    set xs at 0 is "nope"
+
+weave main into int:
+    var xs as list of int is [1, 2, 3]
+    calling fill with (sigil of xs)
+    return 0

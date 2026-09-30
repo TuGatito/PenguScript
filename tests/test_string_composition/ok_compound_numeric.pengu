@@ -1,0 +1,10 @@
+import std.spark
+
+weave main into int:
+    var n as int is 1
+    set n += 2
+    var f as float is 1.5
+    set f *= 2.0
+    calling spark.assert with n == 3
+    calling spark.assert with f == 3.0
+    return 0

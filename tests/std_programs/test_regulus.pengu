@@ -28,7 +28,7 @@ weave main into void:
             calling spark.println with "find_all: ok"
 
         var rep as string is calling regulus.replace with sigil of r, "hello abc world", "pengu"
-        calling spark.println with "replace: " + rep
+        calling spark.println with "replace: {rep}"
 
         var sp as list of string is calling regulus.split with sigil of r, "oneabctwoabcthree", 0
         if sp.len > 0:
@@ -39,6 +39,6 @@ weave main into void:
         calling spark.println with "quick_match: ok"
 
     var qr as string is calling regulus.quick_replace with "cat", "the cat sleeps", "dog", ""
-    calling spark.println with "quick_replace: " + qr
+    calling spark.println with "quick_replace: {qr}"
 
     calling spark.println with "=== Regulus OK ==="

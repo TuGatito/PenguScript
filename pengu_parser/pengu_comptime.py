@@ -211,6 +211,36 @@ def main_flag_requested(defines: Optional[list]) -> bool:
     return False
 
 
+def parse_int_literal(text: str) -> int:
+    """Parses a PenguScript integer literal without crashing on leading zeros.
+
+    '0x'/'0o'/'0b' prefixes are honoured; plain decimal literals always use base
+    10, so '08' is 8 instead of raising like Python's base-0 parsing.
+    """
+    t = text.strip().replace("_", "")
+    try:
+        if t.lower().lstrip("+-").startswith(("0x", "0o", "0b")):
+            return int(t, 0)
+        return int(t, 10)
+    except ValueError:
+        return int(t, 0)
+
+
+def c_int_div(a: int, b: int) -> int:
+    """C-style integer division: truncates toward zero (Python's '//' floors).
+
+    'when' conditions and constant folding must agree with the generated C, so
+    '-7 / 2' is -3 everywhere (not Python's -4).
+    """
+    q = abs(a) // abs(b)
+    return q if (a < 0) == (b < 0) else -q
+
+
+def c_int_mod(a: int, b: int) -> int:
+    """C-style integer remainder: the sign follows the dividend."""
+    return a - c_int_div(a, b) * b
+
+
 def eval_comptime(env: CompileTimeEnv, node: Any) -> Optional[Any]:
     """Evaluates a compile-time expression tree.
 
@@ -221,7 +251,7 @@ def eval_comptime(env: CompileTimeEnv, node: Any) -> Optional[Any]:
         return None
     if isinstance(node, Token):
         if node.type == "INT":
-            return int(str(node), 0)
+            return parse_int_literal(str(node))
         if node.type == "FLOAT":
             return float(str(node))
         if node.type == "STRING":
@@ -232,7 +262,7 @@ def eval_comptime(env: CompileTimeEnv, node: Any) -> Optional[Any]:
 
     rule = node.data
     if rule == "int_lit":
-        return int(str(node.children[0]), 0)
+        return parse_int_literal(str(node.children[0]))
     if rule == "float_lit":
         return float(str(node.children[0]))
     if rule == "string_lit":
@@ -294,8 +324,12 @@ def eval_comptime(env: CompileTimeEnv, node: Any) -> Optional[Any]:
             if rule == "mul":
                 return left * right
             if rule == "div":
-                return left // right if isinstance(left, int) and isinstance(right, int) else left / right
+                if isinstance(left, int) and isinstance(right, int) and not isinstance(left, bool) and not isinstance(right, bool):
+                    return c_int_div(left, right)
+                return left / right
             if rule == "mod":
+                if isinstance(left, int) and isinstance(right, int) and not isinstance(left, bool) and not isinstance(right, bool):
+                    return c_int_mod(left, right)
                 return left % right
             if rule == "bitwise_or":
                 return left | right if isinstance(left, bool) and isinstance(right, bool) else int(left) | int(right)

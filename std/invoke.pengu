@@ -1,5 +1,5 @@
 # std/invoke.pengu - The Invocation (Command-Line Argument Parsing)
-# Provides command-line parsing for CLI applications.
+# Provides command-line parsing for CLI applications, subcommands, and flags.
 #
 # Typical usage:
 #   import std.invoke
@@ -15,11 +15,9 @@
 #   * All arguments are plain strings/lists borrowed for the call; nothing is
 #     retained by the parser.
 #   * parse() builds and returns a freshly allocated ParseResult (maps + error
-#     list) owned by the caller; banish it when done.
-#   * The accessors on ParseResult return plain string/bool values (copies), so
-#     no borrowed view escapes the result.
+#     list) owned by the caller.
 #   * When parse() sees "--help" or "-h" it prints the help and exits the
-#     process (rites.exit 0); it never returns a ParseResult in that case.
+#     process (rites.exit 0); use parse_no_exit() when you wish to avoid exit.
 
 import std.spark
 import std.oracle
@@ -29,32 +27,32 @@ import std.atlas
 import std.rites
 
 # ----------------------------------------------------------------------------
-# CLI Types (argument specification & result records)
+# Module Metadata
 # ----------------------------------------------------------------------------
-#
-# A boolean switch that can be passed as "--long" or "-short" (e.g. --verbose).
-# When not given on the command line, `default` (false unless configured) is
-# reported for it in the parse result. No value is consumed after the flag.
+
+## Standard library invoke module version.
+const INVOKE_VERSION as string is "0.15.0"
+
+# ----------------------------------------------------------------------------
+# CLI Specification Types
+# ----------------------------------------------------------------------------
+
+## A boolean switch that can be passed as "--long" or "-short" (e.g. --verbose).
 rune Flag:
     long as string
     short as string
     help as string
     default as bool
 
-# A positional argument: a bare token collected in declaration order. `name` is
-# the key under which the collected value is stored in ParseResult.values;
-# `required` forces the argument to be present and `default` fills it in when it
-# is optional and missing.
+## A positional argument: a bare token collected in declaration order.
 rune Positional:
     name as string
     help as string
     required as bool
     default as string
 
-# A value-taking option that can be passed as "--long <value>" or "-short
-# <value>". `long` is the key under which its value is stored in
-# ParseResult.values; `required` forces the option and `default` fills it in
-# when it is optional and missing.
+## A value-taking option that can be passed as "--long <value>", "--long=<value>",
+## "-short <value>", or "-short=<value>".
 rune Option:
     long as string
     short as string
@@ -62,100 +60,311 @@ rune Option:
     required as bool
     default as string
 
-# The mutable configuration of a CLI: program `name`/`description` plus the
-# ordered lists of Positional, Option and Flag specs registered with the
-# add_* enchanting methods below. parse() reads these lists to interpret argv.
+## A multi-value option that can appear multiple times on the command line.
+rune MultiOption:
+    long as string
+    short as string
+    help as string
+
+## A subcommand specification for hierarchical commands (e.g. git commit).
+rune Subcommand:
+    name as string
+    description as string
+
+## The mutable configuration of a CLI parser.
 rune Parser:
     name as string
     description as string
     positionals as list of Positional
     options as list of Option
     flags as list of Flag
+    subcommands as list of Subcommand
+    multi_options as list of MultiOption
+    version as string
 
-# The outcome of a parse run. `values` maps positional names and option long
-# names to their string values (defaults already applied); `flags` maps flag
-# long names to booleans; `errors` collects every problem found (unknown
-# options, missing required arguments, unexpected positionals).
+## The outcome of an argument parse run.
 rune ParseResult:
     values as map of string to string
     flags as map of string to bool
     errors as list of string
+    subcommand as string
+    multi_keys as list of string
+    multi_vals as list of string
 
 # ----------------------------------------------------------------------------
-# Parser construction
+# Parser Construction
 # ----------------------------------------------------------------------------
-#
-# Creates a new empty Parser for a program called `name` with the human
-# readable `description` (shown by print_help). The returned Parser owns its
-# (empty) spec lists; populate it with add_positional/add_option/add_flag.
+
+## Creates a new empty Parser for a program called `name` with `description`.
+##
+## Signature: new_parser(name as string, description as string) into Parser
+## Ownership: Allocates and returns a fresh Parser struct.
+## Example: var p as Parser is calling invoke.new_parser with "git", "VCS tool"
 weave new_parser with name as string , description as string into Parser:
     var p as list of Positional is list of Positional
     var o as list of Option is list of Option
     var f as list of Flag is list of Flag
-    return with name is name , description is description , positionals is p , options is o , flags is f
+    var sc as list of Subcommand is list of Subcommand
+    var mo as list of MultiOption is list of MultiOption
+    return with name is name , description is description , positionals is p , options is o , flags is f , subcommands is sc , multi_options is mo , version is ""
 
-# Enchanting block that gives every Parser its configuration and parsing
-# methods: add_positional, add_option, add_flag, print_help and parse.
+# ----------------------------------------------------------------------------
+# Helper: Levenshtein Distance for Typo Suggestions
+# ----------------------------------------------------------------------------
+
+weave _levenshtein with a as string , b as string into int:
+    var la as int is a.len
+    var lb as int is b.len
+    if la == 0:
+        return lb
+    if lb == 0:
+        return la
+    var v0 as list of int is list of int
+    var v1 as list of int is list of int
+    var j as int is 0
+    while j <= lb:
+        calling v0.push with j
+        calling v1.push with 0
+        set j is j + 1
+    var i as int is 0
+    while i < la:
+        set v1 at 0 is i + 1
+        var ca as string is a at i
+        set j is 0
+        while j < lb:
+            var cb as string is b at j
+            var cost as int is 1
+            if ca == cb:
+                set cost is 0
+            var del_cost as int is (v0 at (j + 1)) + 1
+            var ins_cost as int is (v1 at j) + 1
+            var sub_cost as int is (v0 at j) + cost
+            var min_cost as int is del_cost
+            if ins_cost < min_cost:
+                set min_cost is ins_cost
+            if sub_cost < min_cost:
+                set min_cost is sub_cost
+            set v1 at (j + 1) is min_cost
+            set j is j + 1
+        set j is 0
+        while j <= lb:
+            set v0 at j is v1 at j
+            set j is j + 1
+        set i is i + 1
+    return v0 at lb
+
+# ----------------------------------------------------------------------------
+# Parser Methods
+# ----------------------------------------------------------------------------
+
 enchanting Parser:
-    # Appends a positional-argument spec to the parser. Positionals are filled
-    # in declaration order from the bare tokens of argv. With `required` true a
-    # missing value is reported as an error; otherwise `default` (only used when
-    # non-empty) is stored instead.
-    weave add_positional with name as string , help as string , required as bool is true , default as string is "" into void:
-        var pos as Positional is with name is name , help is help , required is required , default is default
+    ## Appends a positional-argument spec to the parser.
+    weave add_positional with name as string , help as string , required as bool , default_val as string into void:
+        var pos as Positional is with name is name , help is help , required is required , default is default_val
         calling self->positionals.push with pos
 
-    # Appends a value-taking option spec ("--long <value>" / "-short <value>")
-    # to the parser. The value is stored under `long` in the result. With
-    # `required` true a missing option is an error; otherwise `default` (only
-    # used when non-empty) is stored instead.
-    weave add_option with long as string , short as string , help as string , required as bool is false , default as string is "" into void:
-        var opt as Option is with long is long , short is short , help is help , required is required , default is default
+    ## Appends an option-argument spec to the parser.
+    weave add_option with long as string , short as string , help as string , required as bool , default_val as string into void:
+        var opt as Option is with long is long , short is short , help is help , required is required , default is default_val
         calling self->options.push with opt
 
-    # Appends a boolean flag spec ("--long" / "-short", no value) to the
-    # parser. When the flag is seen the result reports true under `long`;
-    # otherwise `default` is reported.
-    weave add_flag with long as string , short as string , help as string , default as bool is false into void:
-        var flg as Flag is with long is long , short is short , help is help , default is default
+    ## Appends a typed integer option to the parser.
+    weave add_option_int with long as string , short as string , help as string , required as bool is false , default_val as int is 0 into void:
+        calling self.add_option with long , short , help , required , (default_val to string)
+
+    ## Appends a typed float option to the parser.
+    weave add_option_float with long as string , short as string , help as string , required as bool is false , default_val as float is 0.0 into void:
+        calling self.add_option with long , short , help , required , (default_val to string)
+
+    ## Appends a typed boolean option to the parser.
+    weave add_option_bool with long as string , short as string , help as string , required as bool is false , default_val as bool is false into void:
+        calling self.add_option with long , short , help , required , (default_val to string)
+
+    ## Appends a multi-value option to the parser (can be passed multiple times).
+    weave add_option_multi with long as string , short as string , help as string into void:
+        var mo as MultiOption is with long is long , short is short , help is help
+        calling self->multi_options.push with mo
+
+    ## Appends a boolean flag spec to the parser.
+    weave add_flag with long as string , short as string , help as string , default_val as bool is false into void:
+        var flg as Flag is with long is long , short is short , help is help , default is default_val
         calling self->flags.push with flg
 
-    # Prints the usage line ("Usage: <name> [OPTIONS] [ARGS]") and, when the
-    # description is not empty, the description itself to stdout.
-    weave print_help into void:
-        calling spark.println with "Usage: " + self->name + " [OPTIONS] [ARGS]"
-        if self->description != "":
-            calling spark.println with self->description
+    ## Registers a subcommand and returns a fresh Parser configured for it.
+    weave add_subcommand with name as string , description as string into Parser:
+        var sc as Subcommand is with name is name , description is description
+        calling self->subcommands.push with sc
+        var sub_name as string is "{self->name} {name}"
+        return calling new_parser with sub_name , description
 
-    # Parses a command line. `argv` is the full argument vector, so element 0
-    # (the program name) is skipped and scanning starts at index 1.
-    #
-    # Recognised forms: "--help" / "-h" (prints help and exits 0), "--long",
-    # "--long <value>", "-short", "-short <value>" and bare positionals. The
-    # returned ParseResult maps positional names / option long names to their
-    # values, flag long names to booleans (defaults applied) and collects every
-    # error message (unknown option, missing value, missing required argument,
-    # unexpected positional). The result is owned by the caller; banish it when
-    # done. Never returns when "--help"/"-h" is seen, because that path exits.
-    weave parse with argv as list of string into ParseResult:
+    ## Sets the program version string for automatic --version / -V output.
+    weave set_version with version as string into void:
+        set self->version is version
+
+    ## Returns a single-line usage string (e.g. "Usage: myapp [OPTIONS] <input>").
+    weave usage_string into string:
+        var out as string is "Usage: {self->name}"
+        if self->flags.len > 0 or self->options.len > 0 or self->multi_options.len > 0:
+            set out is "{out} [OPTIONS]"
+        var pi as int is 0
+        while pi < self->positionals.len:
+            var pos as Positional is self->positionals at pi
+            if pos.required:
+                set out is "{out} <{pos.name}>"
+            else:
+                set out is "{out} [{pos.name}]"
+            set pi is pi + 1
+        if self->subcommands.len > 0:
+            set out is "{out} <SUBCOMMAND>"
+        return out
+
+    ## Formats a comprehensive, aligned help screen for the CLI.
+    weave full_help into string:
+        var out as string is "{(calling self.usage_string)}\n\n"
+        if self->description != "":
+            set out is "{out}{self->description}\n\n"
+        if self->positionals.len > 0:
+            set out is "{out}Arguments:\n"
+            var pi as int is 0
+            while pi < self->positionals.len:
+                var pos as Positional is self->positionals at pi
+                set out is "{out}  {pos.name}"
+                if pos.help != "":
+                    set out is "{out}    {pos.help}"
+                set out is "{out}\n"
+                set pi is pi + 1
+            set out is "{out}\n"
+        if self->subcommands.len > 0:
+            set out is "{out}Subcommands:\n"
+            var sci as int is 0
+            while sci < self->subcommands.len:
+                var sc as Subcommand is self->subcommands at sci
+                set out is "{out}  {sc.name}"
+                if sc.description != "":
+                    set out is "{out}    {sc.description}"
+                set out is "{out}\n"
+                set sci is sci + 1
+            set out is "{out}\n"
+        if self->options.len > 0 or self->flags.len > 0 or self->multi_options.len > 0:
+            set out is "{out}Options:\n"
+            var fi as int is 0
+            while fi < self->flags.len:
+                var flg as Flag is self->flags at fi
+                var line as string is "  "
+                if flg.short != "":
+                    set line is "{line}-{flg.short}, "
+                set line is "{line}--{flg.long}"
+                if flg.help != "":
+                    set line is "{line}    {flg.help}"
+                set out is "{out}{line}\n"
+                set fi is fi + 1
+            var oi as int is 0
+            while oi < self->options.len:
+                var opt as Option is self->options at oi
+                var line as string is "  "
+                if opt.short != "":
+                    set line is "{line}-{opt.short}, "
+                set line is "{line}--{opt.long} <value>"
+                if opt.help != "":
+                    set line is "{line}    {opt.help}"
+                set out is "{out}{line}\n"
+                set oi is oi + 1
+            var mi as int is 0
+            while mi < self->multi_options.len:
+                var mo as MultiOption is self->multi_options at mi
+                var line as string is "  "
+                if mo.short != "":
+                    set line is "{line}-{mo.short}, "
+                set line is "{line}--{mo.long} <value>..."
+                if mo.help != "":
+                    set line is "{line}    {mo.help}"
+                set out is "{out}{line}\n"
+                set mi is mi + 1
+            set out is "{out}  -h, --help    Show this help message and exit\n"
+        return out
+
+    ## Prints the help text for the program to stdout.
+    weave print_help into void:
+        calling spark.println with (calling self.full_help)
+
+    ## Internal parsing engine implementing options, flags, positionals, and subcommands.
+    weave parse_impl with argv as list of string , exit_on_help as bool into ParseResult:
         var vals as map of string to string is map of string to string
         var flgs as map of string to bool is map of string to bool
         var errs as list of string is list of string
+        var mkeys as list of string is list of string
+        var mvals as list of string is list of string
+        var subcmd as string is ""
+
         var pos_idx as int is 0
+        var has_terminator as bool is false
         var i as int is 1
         while i < argv.len:
             var arg as string is argv at i
-            if arg == "--help":
-                calling self.print_help
-                calling rites.exit with 0
-            else if arg == "-h":
-                calling self.print_help
-                calling rites.exit with 0
-            
+            if has_terminator:
+                if pos_idx < self->positionals.len:
+                    var pos as Positional is self->positionals at pos_idx
+                    calling vals.put with pos.name , arg
+                    set pos_idx is pos_idx + 1
+                else:
+                    calling errs.push with "Unexpected positional argument: {arg}"
+                set i is i + 1
+                continue
+
+            if arg == "--":
+                set has_terminator is true
+                set i is i + 1
+                continue
+
+            if arg == "--help" or arg == "-h":
+                if exit_on_help:
+                    calling self.print_help
+                    calling rites.exit with 0
+                else:
+                    calling errs.push with "help requested"
+                set i is i + 1
+                continue
+
+            if self->version != "" and (arg == "--version" or arg == "-V"):
+                if exit_on_help:
+                    calling spark.println with ("{self->name} {self->version}")
+                    calling rites.exit with 0
+                else:
+                    calling errs.push with "version requested"
+                set i is i + 1
+                continue
+
             var is_long as bool is calling scrolls.starts_with with arg , "--"
-            var is_short as bool is calling scrolls.starts_with with arg , "-"
+            var is_short as bool is (not is_long) and (calling scrolls.starts_with with arg , "-") and (arg.len > 1)
+
             if is_long:
-                var opt_name as string is calling scrolls.substring with arg , 2 , arg.len
+                var opt_token as string is calling scrolls.substring with arg , 2 , arg.len
+                var opt_name as string is opt_token
+                var inline_val as string is ""
+                var has_eq as bool is false
+                var eq_pos as int is calling opt_token.find with "="
+                if eq_pos >= 0:
+                    set has_eq is true
+                    set opt_name is calling scrolls.substring with opt_token , 0 , eq_pos
+                    set inline_val is calling scrolls.substring with opt_token , (eq_pos + 1) , opt_token.len
+
+                # Check --no-flag negation
+                if (calling scrolls.starts_with with opt_name , "no-") and (not has_eq):
+                    var flag_name as string is calling scrolls.substring with opt_name , 3 , opt_name.len
+                    var found_no as bool is false
+                    var fi as int is 0
+                    while fi < self->flags.len:
+                        var f as Flag is self->flags at fi
+                        if f.long == flag_name:
+                            calling flgs.put with f.long , false
+                            set found_no is true
+                            break
+                        set fi is fi + 1
+                    if found_no:
+                        set i is i + 1
+                        continue
+
+                # Check Flag
                 var found_flg as bool is false
                 var fi as int is 0
                 while fi < self->flags.len:
@@ -165,25 +374,81 @@ enchanting Parser:
                         set found_flg is true
                         break
                     set fi is fi + 1
+
                 if not found_flg:
-                    var found_opt as bool is false
-                    var oi as int is 0
-                    while oi < self->options.len:
-                        var opt as Option is self->options at oi
-                        if opt.long == opt_name:
-                            set found_opt is true
-                            if i + 1 < argv.len:
+                    # Check MultiOption
+                    var found_mo as bool is false
+                    var mi as int is 0
+                    while mi < self->multi_options.len:
+                        var mo as MultiOption is self->multi_options at mi
+                        if mo.long == opt_name:
+                            set found_mo is true
+                            if has_eq:
+                                calling mkeys.push with mo.long
+                                calling mvals.push with inline_val
+                            else if i + 1 < argv.len:
                                 set i is i + 1
-                                var opt_val as string is argv at i
-                                calling vals.put with opt.long , opt_val
+                                calling mkeys.push with mo.long
+                                calling mvals.push with (argv at i)
                             else:
-                                calling errs.push with "Option --" + opt_name + " requires a value"
+                                calling errs.push with "Option --{opt_name} requires a value"
                             break
-                        set oi is oi + 1
-                    if not found_opt:
-                        calling errs.push with "Unknown option: " + arg
+                        set mi is mi + 1
+
+                    if not found_mo:
+                        # Check Option
+                        var found_opt as bool is false
+                        var oi as int is 0
+                        while oi < self->options.len:
+                            var opt as Option is self->options at oi
+                            if opt.long == opt_name:
+                                set found_opt is true
+                                if has_eq:
+                                    calling vals.put with opt.long , inline_val
+                                else if i + 1 < argv.len:
+                                    set i is i + 1
+                                    calling vals.put with opt.long , (argv at i)
+                                else:
+                                    calling errs.push with "Option --{opt_name} requires a value"
+                                break
+                            set oi is oi + 1
+
+                        if not found_opt:
+                            # Suggest typo
+                            var best_dist as int is 99
+                            var best_cand as string is ""
+                            var ci as int is 0
+                            while ci < self->options.len:
+                                var copt as Option is self->options at ci
+                                var d as int is calling _levenshtein with opt_name , copt.long
+                                if d < best_dist:
+                                    set best_dist is d
+                                    set best_cand is copt.long
+                                set ci is ci + 1
+                            var cfi as int is 0
+                            while cfi < self->flags.len:
+                                var cflg as Flag is self->flags at cfi
+                                var d as int is calling _levenshtein with opt_name , cflg.long
+                                if d < best_dist:
+                                    set best_dist is d
+                                    set best_cand is cflg.long
+                                set cfi is cfi + 1
+                            if best_dist <= 2 and best_cand != "":
+                                calling errs.push with "Unknown option: {arg}. Did you mean --{best_cand}?"
+                            else:
+                                calling errs.push with "Unknown option: {arg}"
+
             else if is_short:
-                var s_name as string is calling scrolls.substring with arg , 1 , arg.len
+                var s_token as string is calling scrolls.substring with arg , 1 , arg.len
+                var s_name as string is s_token
+                var inline_val as string is ""
+                var has_eq as bool is false
+                var eq_pos as int is calling s_token.find with "="
+                if eq_pos >= 0:
+                    set has_eq is true
+                    set s_name is calling scrolls.substring with s_token , 0 , eq_pos
+                    set inline_val is calling scrolls.substring with s_token , (eq_pos + 1) , s_token.len
+
                 var found_flg as bool is false
                 var fi as int is 0
                 while fi < self->flags.len:
@@ -193,99 +458,281 @@ enchanting Parser:
                         set found_flg is true
                         break
                     set fi is fi + 1
+
                 if not found_flg:
-                    var found_opt as bool is false
-                    var oi as int is 0
-                    while oi < self->options.len:
-                        var opt as Option is self->options at oi
-                        if opt.short == s_name:
-                            set found_opt is true
-                            if i + 1 < argv.len:
+                    var found_mo as bool is false
+                    var mi as int is 0
+                    while mi < self->multi_options.len:
+                        var mo as MultiOption is self->multi_options at mi
+                        if mo.short == s_name:
+                            set found_mo is true
+                            if has_eq:
+                                calling mkeys.push with mo.long
+                                calling mvals.push with inline_val
+                            else if i + 1 < argv.len:
                                 set i is i + 1
-                                var opt_val as string is argv at i
-                                calling vals.put with opt.long , opt_val
+                                calling mkeys.push with mo.long
+                                calling mvals.push with (argv at i)
                             else:
-                                calling errs.push with "Option -" + s_name + " requires a value"
+                                calling errs.push with "Option -{s_name} requires a value"
                             break
-                        set oi is oi + 1
-                    if not found_opt:
-                        calling errs.push with "Unknown option: " + arg
+                        set mi is mi + 1
+
+                    if not found_mo:
+                        var found_opt as bool is false
+                        var oi as int is 0
+                        while oi < self->options.len:
+                            var opt as Option is self->options at oi
+                            if opt.short == s_name:
+                                set found_opt is true
+                                if has_eq:
+                                    calling vals.put with opt.long , inline_val
+                                else if i + 1 < argv.len:
+                                    set i is i + 1
+                                    calling vals.put with opt.long , (argv at i)
+                                else:
+                                    calling errs.push with "Option -{s_name} requires a value"
+                                break
+                            set oi is oi + 1
+                        if not found_opt:
+                            calling errs.push with "Unknown option: {arg}"
+
             else:
+                # Token does not begin with '-'
+                if subcmd == "" and self->subcommands.len > 0:
+                    var matched_sub as bool is false
+                    var sci as int is 0
+                    while sci < self->subcommands.len:
+                        var sc as Subcommand is self->subcommands at sci
+                        if sc.name == arg:
+                            set matched_sub is true
+                            set subcmd is sc.name
+                            break
+                        set sci is sci + 1
+                    if matched_sub:
+                        # Subcommand routed: parent stops consuming flags/options
+                        break
+
                 if pos_idx < self->positionals.len:
                     var pos as Positional is self->positionals at pos_idx
                     calling vals.put with pos.name , arg
                     set pos_idx is pos_idx + 1
                 else:
-                    calling errs.push with "Unexpected positional argument: " + arg
+                    calling errs.push with "Unexpected positional argument: {arg}"
+
             set i is i + 1
 
         # Check required positionals
-        var pi as int is 0
-        while pi < self->positionals.len:
-            var pos as Positional is self->positionals at pi
-            if not (calling vals.contains with pos.name):
-                if pos.required:
-                    calling errs.push with "Missing required positional: " + pos.name
-                else if pos.default != "":
-                    calling vals.put with pos.name , pos.default
-            set pi is pi + 1
+        if subcmd == "":
+            var pi as int is 0
+            while pi < self->positionals.len:
+                var pos as Positional is self->positionals at pi
+                if not (calling vals.contains with pos.name):
+                    if pos.required:
+                        calling errs.push with "Missing required positional: {pos.name}"
+                    else if pos.default != "":
+                        calling vals.put with pos.name , pos.default
+                set pi is pi + 1
 
-        # Check required options
-        var oi as int is 0
-        while oi < self->options.len:
-            var opt as Option is self->options at oi
-            if not (calling vals.contains with opt.long):
-                if opt.required:
-                    calling errs.push with "Missing required option: --" + opt.long
-                else if opt.default != "":
-                    calling vals.put with opt.long , opt.default
-            set oi is oi + 1
+            # Check required options
+            var oi as int is 0
+            while oi < self->options.len:
+                var opt as Option is self->options at oi
+                if not (calling vals.contains with opt.long):
+                    if opt.required:
+                        calling errs.push with "Missing required option: --{opt.long}"
+                    else if opt.default != "":
+                        calling vals.put with opt.long , opt.default
+                set oi is oi + 1
 
-        # Default flags
-        var fi as int is 0
-        while fi < self->flags.len:
-            var f as Flag is self->flags at fi
+        # Apply default flags
+        var fi2 as int is 0
+        while fi2 < self->flags.len:
+            var f as Flag is self->flags at fi2
             if not (calling flgs.contains with f.long):
                 calling flgs.put with f.long , f.default
-            set fi is fi + 1
+            set fi2 is fi2 + 1
 
-        return with values is vals , flags is flgs , errors is errs
+        return with values is vals , flags is flgs , errors is errs , subcommand is subcmd , multi_keys is mkeys , multi_vals is mvals
+
+    ## Parses argv, printing help and exiting process on --help/-h.
+    weave parse with argv as list of string into ParseResult:
+        return calling self.parse_impl with argv , true
+
+    ## Parses argv without terminating process on --help/-h or --version.
+    weave parse_no_exit with argv as list of string into ParseResult:
+        return calling self.parse_impl with argv , false
+
+    ## Parses argv or exits with error code and prints errors on failure.
+    weave parse_or_exit with argv as list of string , error_code as int is 1 into ParseResult:
+        var res as ParseResult is calling self.parse_no_exit with argv
+        if calling res.is_err:
+            calling spark.eprint_line with (calling res.errors_to_string)
+            calling rites.exit with error_code
+        return res
+
+    ## Parses argv or prints errors followed by usage string and exits.
+    weave parse_or_usage with argv as list of string , error_code as int is 2 into ParseResult:
+        var res as ParseResult is calling self.parse_no_exit with argv
+        if calling res.is_err:
+            calling spark.eprint_line with (calling res.errors_to_string)
+            calling spark.eprint_line with (calling self.usage_string)
+            calling rites.exit with error_code
+        return res
 
 # ----------------------------------------------------------------------------
-# ParseResult accessors
+# ParseResult Accessors
 # ----------------------------------------------------------------------------
-#
-# Enchanting block that gives every ParseResult its read helpers: get, get_or,
-# is_set, is_ok and is_err.
+
 enchanting ParseResult:
-    # Returns the string value stored for a positional name or an option long
-    # name, or "" when the parse did not record one. The string is a copy owned
-    # by the caller.
+    ## Returns the string value stored for an option or positional, or "".
     weave get with name as string into string:
         if calling self->values.contains with name:
             return calling self->values.get with name
         return ""
 
-    # Returns the string value stored for a positional name or an option long
-    # name, or `fallback` when the parse did not record one.
+    ## Returns the string value stored for an option or positional, or `fallback`.
     weave get_or with name as string , fallback as string into string:
         if calling self->values.contains with name:
             return calling self->values.get with name
         return fallback
 
-    # Returns true when the flag `name` was given on the command line (or was
-    # set to true by its default); false when it was not passed and has no true
-    # default. Unknown names report false.
+    ## Returns a parsed integer value if present and valid.
+    weave get_int with name as string into maybe int:
+        if calling self->values.contains with name:
+            var s as string is calling self->values.get with name
+            return calling spark.parse_int with s
+        return maybe none
+
+    ## Returns a parsed integer value, or `fallback`.
+    weave get_int_or with name as string , fallback as int into int:
+        var opt as maybe int is calling self.get_int with name
+        if opt is present:
+            return opt.value
+        return fallback
+
+    ## Returns a parsed float value if present and valid.
+    weave get_float with name as string into maybe float:
+        if calling self->values.contains with name:
+            var s as string is calling self->values.get with name
+            var n as int is s.len
+            if n == 0:
+                return maybe none
+            var idx as int is 0
+            var sign as float is 1.0
+            if (s at 0) == "-":
+                set sign is 0.0 - 1.0
+                set idx is 1
+            else if (s at 0) == "+":
+                set idx is 1
+            if idx >= n:
+                return maybe none
+            var int_part as float is 0.0
+            var has_digits as bool is false
+            while idx < n:
+                var ch as string is s at idx
+                var code as int is ord ch
+                if code >= 48 and code <= 57:
+                    set int_part is int_part * 10.0 + ((code - 48) to float)
+                    set has_digits is true
+                    set idx is idx + 1
+                else:
+                    break
+            var frac_part as float is 0.0
+            var frac_div as float is 1.0
+            if idx < n and (s at idx) == ".":
+                set idx is idx + 1
+                while idx < n:
+                    var ch2 as string is s at idx
+                    var code2 as int is ord ch2
+                    if code2 >= 48 and code2 <= 57:
+                        set frac_div is frac_div * 10.0
+                        set frac_part is frac_part + (((code2 - 48) to float) / frac_div)
+                        set has_digits is true
+                        set idx is idx + 1
+                    else:
+                        break
+            if not has_digits:
+                return maybe none
+            var total as float is sign * (int_part + frac_part)
+            return some total
+        return maybe none
+
+    ## Returns a parsed float value, or `fallback`.
+    weave get_float_or with name as string , fallback as float into float:
+        var opt as maybe float is calling self.get_float with name
+        if opt is present:
+            return opt.value
+        return fallback
+
+    ## Returns a parsed boolean value if present and recognized.
+    weave get_bool with name as string into maybe bool:
+        if calling self->flags.contains with name:
+            return some (calling self->flags.get with name)
+        if calling self->values.contains with name:
+            var v as string is calling self->values.get with name
+            if v == "true" or v == "1" or v == "yes" or v == "on":
+                return some true
+            if v == "false" or v == "0" or v == "no" or v == "off":
+                return some false
+        return maybe none
+
+    ## Returns a parsed boolean value, or `fallback`.
+    weave get_bool_or with name as string , fallback as bool into bool:
+        var opt as maybe bool is calling self.get_bool with name
+        if opt is present:
+            return opt.value
+        return fallback
+
+    ## Returns all values collected for a MultiOption long name.
+    weave get_all with name as string into list of string:
+        var res as list of string is list of string
+        var i as int is 0
+        while i < self->multi_keys.len:
+            if (self->multi_keys at i) == name:
+                calling res.push with (self->multi_vals at i)
+            set i is i + 1
+        return res
+
+    ## Returns true when the flag `name` was set to true.
     weave is_set with name as string into bool:
         if calling self->flags.contains with name:
             return calling self->flags.get with name
         return false
 
-    # Returns true when the parse completed without any error message.
+    ## Returns true when the parse completed without any errors.
     weave is_ok into bool:
         return self->errors.len == 0
 
-    # Returns true when the parse collected at least one error message (unknown
-    # option, missing value, missing required argument, unexpected positional).
+    ## Returns true when the parse collected at least one error message.
     weave is_err into bool:
         return self->errors.len > 0
+
+    ## Returns a cloned map of all parsed positional and option string values.
+    weave to_map_values into map of string to string:
+        var res as map of string to string is map of string to string
+        for k in self->values:
+            calling res.put with k , (calling self->values.get with k)
+        return res
+
+    ## Returns a cloned map of all parsed flag boolean values.
+    weave to_map_flags into map of string to bool:
+        var res as map of string to bool is map of string to bool
+        for k in self->flags:
+            calling res.put with k , (calling self->flags.get with k)
+        return res
+
+    ## Returns all error messages joined by newlines.
+    weave errors_to_string into string:
+        var res as string is ""
+        var i as int is 0
+        while i < self->errors.len:
+            if i > 0:
+                set res is "{res}\n"
+            set res is "{res}{(self->errors at i)}"
+            set i is i + 1
+        return res
+
+    ## Returns the invoked subcommand name, or "" if none.
+    weave subcommand into string:
+        return self->subcommand

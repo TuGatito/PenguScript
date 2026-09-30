@@ -4,176 +4,672 @@
 #
 # Model:
 #   * assert_* / expect_* abort the program through spark.panic when the
-#     checked condition fails. The assert_* family uses fixed messages;
-#     expect_* embeds a caller-supplied message.
+#     checked condition fails. All assert_* helpers now produce informative
+#     failure messages including expected and actual values.
+#   * expect_* embeds a caller-supplied message.
 #   * check_* never panic: they return an oracle ResultString (ok with "ok",
 #     or err with the caller message) so the caller can react to failure.
-#   * panic aborts directly and unreachable marks code that must never run.
+#   * fail / panic abort directly and unreachable marks code that must never run.
 #
 # Ownership model: every helper takes plain values and keeps no handles, so
 # there is nothing to free.
 
 import std.spark
 import std.oracle
+import std.scrolls
 
 # ----------------------------------------------------------------------------
-# Core Assertions
+# Module Metadata
 # ----------------------------------------------------------------------------
 
-# Panics with "assertion failed" when `cond` is false. Void.
+## Standard library ward module version.
+const WARD_VERSION as string is "0.15.0"
+
+# ----------------------------------------------------------------------------
+# Core Internal Formatting Helpers
+# ----------------------------------------------------------------------------
+
+weave _w_fmt_string with s as string into string:
+    if s.len > 80:
+        return "\"{(calling scrolls.substring with s , 0 , 77)}...\""
+    return "\"{s}\""
+
+# ----------------------------------------------------------------------------
+# Core Assertions (with informative error messages)
+# ----------------------------------------------------------------------------
+
+## Panics with "assertion failed" when `cond` is false.
+##
+## Signature: assert(cond as bool) into void
+## Ownership: No allocation.
+## Example: calling ward.assert with x > 0
 weave assert with cond as bool into void:
     if cond == false:
         calling spark.panic with "assertion failed"
 
-# Panics with `msg` when `cond` is false. Void.
+## Panics with `msg` when `cond` is false.
+##
+## Signature: assert_msg(cond as bool, msg as string) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_msg with x > 0, "x must be positive"
 weave assert_msg with cond as bool , msg as string into void:
     if cond == false:
         calling spark.panic with msg
 
-# Panics with "assertion failed: expected true" when `cond` is false. Void.
+## Panics with "assertion failed: expected true, got false" when `cond` is false.
+##
+## Signature: assert_true(cond as bool) into void
+## Ownership: No allocation.
+## Message: "assertion failed: expected true, got false"
+## Example: calling ward.assert_true with is_valid
 weave assert_true with cond as bool into void:
     if cond == false:
-        calling spark.panic with "assertion failed: expected true"
+        calling spark.panic with "assertion failed: expected true, got false"
 
-# Panics with "assertion failed: expected false" when `cond` is true. Void.
+## Panics with "assertion failed: expected false, got true" when `cond` is true.
+##
+## Signature: assert_false(cond as bool) into void
+## Ownership: No allocation.
+## Message: "assertion failed: expected false, got true"
+## Example: calling ward.assert_false with is_closed
 weave assert_false with cond as bool into void:
     if cond:
-        calling spark.panic with "assertion failed: expected false"
+        calling spark.panic with "assertion failed: expected false, got true"
 
-# Panics with "assertion failed: left != right" when `a` differs from `b`.
-# Void.
+## Panics when `a` differs from `b`, reporting both values.
+##
+## Signature: assert_eq_int(a as int, b as int) into void
+## Ownership: No allocation.
+## Message: "assertion failed: left != right: expected <b>, got <a>"
+## Example: calling ward.assert_eq_int with 2 + 2, 4
 weave assert_eq_int with a as int , b as int into void:
     if a != b:
-        calling spark.panic with "assertion failed: left != right"
+        calling spark.panic with "assertion failed: left != right: expected {(b to string)}, got {(a to string)}"
 
-# Panics with "assertion failed: left != right" when `a` differs from `b`
-# (exact string comparison). Void.
+## Panics when string `a` differs from string `b` (exact equality).
+##
+## Signature: assert_eq_string(a as string, b as string) into void
+## Ownership: No allocation.
+## Message: "assertion failed: left != right: expected \"<b>\", got \"<a>\""
+## Example: calling ward.assert_eq_string with name, "Alice"
 weave assert_eq_string with a as string , b as string into void:
     if a != b:
-        calling spark.panic with "assertion failed: left != right"
+        calling spark.panic with "assertion failed: left != right: expected {(calling _w_fmt_string with b)}, got {(calling _w_fmt_string with a)}"
 
-# Panics with "assertion failed: left != right" when `a` differs from `b`.
-# Void.
+## Panics when boolean `a` differs from boolean `b`.
+##
+## Signature: assert_eq_bool(a as bool, b as bool) into void
+## Ownership: No allocation.
+## Message: "assertion failed: left != right: expected <b>, got <a>"
+## Example: calling ward.assert_eq_bool with flag, true
 weave assert_eq_bool with a as bool , b as bool into void:
     if a != b:
-        calling spark.panic with "assertion failed: left != right"
+        calling spark.panic with "assertion failed: left != right: expected {(b to string)}, got {(a to string)}"
 
-# Panics with "assertion failed: left == right" when `a` equals `b`. Void.
+## Panics when integer `a` equals integer `b`.
+##
+## Signature: assert_ne_int(a as int, b as int) into void
+## Ownership: No allocation.
+## Message: "assertion failed: left == right: unexpected <a>"
+## Example: calling ward.assert_ne_int with status, 0
 weave assert_ne_int with a as int , b as int into void:
     if a == b:
-        calling spark.panic with "assertion failed: left == right"
+        calling spark.panic with "assertion failed: left == right: unexpected {(a to string)}"
 
-# Panics with "assertion failed: left == right" when `a` equals `b` (exact
-# string comparison). Void.
+## Panics when string `a` equals string `b`.
+##
+## Signature: assert_ne_string(a as string, b as string) into void
+## Ownership: No allocation.
+## Message: "assertion failed: left == right: unexpected \"<a>\""
+## Example: calling ward.assert_ne_string with token, ""
 weave assert_ne_string with a as string , b as string into void:
     if a == b:
-        calling spark.panic with "assertion failed: left == right"
+        calling spark.panic with "assertion failed: left == right: unexpected {(calling _w_fmt_string with a)}"
 
-# Panics with "assertion failed: left == right" when `a` equals `b`. Void.
+## Panics when boolean `a` equals boolean `b`.
+##
+## Signature: assert_ne_bool(a as bool, b as bool) into void
+## Ownership: No allocation.
+## Message: "assertion failed: left == right: unexpected <a>"
+## Example: calling ward.assert_ne_bool with flag, false
 weave assert_ne_bool with a as bool , b as bool into void:
     if a == b:
-        calling spark.panic with "assertion failed: left == right"
+        calling spark.panic with "assertion failed: left == right: unexpected {(a to string)}"
 
-# Panics with "assertion failed: maybe is none" when the MaybeInt `m` is
-# empty. Void.
+# ----------------------------------------------------------------------------
+# Floating Point Assertions
+# ----------------------------------------------------------------------------
+
+## Panics when the absolute difference between `a` and `b` exceeds `epsilon`.
+##
+## Signature: assert_eq_float(a as float, b as float, epsilon as float is 0.000001) into void
+## Ownership: No allocation.
+## Message: "assertion failed: left != right: expected <b>, got <a> (diff <d> > <eps>)"
+## Example: calling ward.assert_eq_float with 1.000001, 1.0, 0.0001
+weave assert_eq_float with a as float , b as float , epsilon as float is 0.000001 into void:
+    var diff as float is a - b
+    if diff < 0.0:
+        set diff is 0.0 - diff
+    if diff > epsilon:
+        calling spark.panic with "assertion failed: left != right: expected {(b to string)}, got {(a to string)} (diff {(diff to string)} > epsilon {(epsilon to string)})"
+
+## Panics when the absolute difference between `a` and `b` is within `epsilon`.
+##
+## Signature: assert_ne_float(a as float, b as float, epsilon as float is 0.000001) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_ne_float with 1.5, 1.0, 0.0001
+weave assert_ne_float with a as float , b as float , epsilon as float is 0.000001 into void:
+    var diff as float is a - b
+    if diff < 0.0:
+        set diff is 0.0 - diff
+    if diff <= epsilon:
+        calling spark.panic with "assertion failed: left == right: unexpected {(a to string)} within epsilon {(epsilon to string)}"
+
+## Alias of assert_eq_float with tolerance comparison.
+##
+## Signature: assert_almost_eq(a as float, b as float, epsilon as float is 0.000001) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_almost_eq with pi_calc, 3.14159, 0.001
+weave assert_almost_eq with a as float , b as float , epsilon as float is 0.000001 into void:
+    calling assert_eq_float with a , b , epsilon
+
+# ----------------------------------------------------------------------------
+# Ordering and Range Assertions
+# ----------------------------------------------------------------------------
+
+## Panics unless integer `a` is strictly greater than `b`.
+##
+## Signature: assert_gt_int(a as int, b as int) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_gt_int with count, 0
+weave assert_gt_int with a as int , b as int into void:
+    if a <= b:
+        calling spark.panic with "assertion failed: expected {(a to string)} > {(b to string)}"
+
+## Panics unless integer `a` is greater than or equal to `b`.
+##
+## Signature: assert_ge_int(a as int, b as int) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_ge_int with age, 18
+weave assert_ge_int with a as int , b as int into void:
+    if a < b:
+        calling spark.panic with "assertion failed: expected {(a to string)} >= {(b to string)}"
+
+## Panics unless integer `a` is strictly less than `b`.
+##
+## Signature: assert_lt_int(a as int, b as int) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_lt_int with index, max_len
+weave assert_lt_int with a as int , b as int into void:
+    if a >= b:
+        calling spark.panic with "assertion failed: expected {(a to string)} < {(b to string)}"
+
+## Panics unless integer `a` is less than or equal to `b`.
+##
+## Signature: assert_le_int(a as int, b as int) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_le_int with used, total
+weave assert_le_int with a as int , b as int into void:
+    if a > b:
+        calling spark.panic with "assertion failed: expected {(a to string)} <= {(b to string)}"
+
+## Panics unless float `a` is strictly greater than `b`.
+##
+## Signature: assert_gt_float(a as float, b as float) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_gt_float with score, 0.0
+weave assert_gt_float with a as float , b as float into void:
+    if a <= b:
+        calling spark.panic with "assertion failed: expected {(a to string)} > {(b to string)}"
+
+## Panics unless float `a` is greater than or equal to `b`.
+##
+## Signature: assert_ge_float(a as float, b as float) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_ge_float with score, 0.0
+weave assert_ge_float with a as float , b as float into void:
+    if a < b:
+        calling spark.panic with "assertion failed: expected {(a to string)} >= {(b to string)}"
+
+## Panics unless float `a` is strictly less than `b`.
+##
+## Signature: assert_lt_float(a as float, b as float) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_lt_float with temp, 100.0
+weave assert_lt_float with a as float , b as float into void:
+    if a >= b:
+        calling spark.panic with "assertion failed: expected {(a to string)} < {(b to string)}"
+
+## Panics unless float `a` is less than or equal to `b`.
+##
+## Signature: assert_le_float(a as float, b as float) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_le_float with ratio, 1.0
+weave assert_le_float with a as float , b as float into void:
+    if a > b:
+        calling spark.panic with "assertion failed: expected {(a to string)} <= {(b to string)}"
+
+## Panics when integer `v` is outside inclusive range `[lo, hi]`.
+##
+## Signature: assert_in_range_int(v as int, lo as int, hi as int) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_in_range_int with month, 1, 12
+weave assert_in_range_int with v as int , lo as int , hi as int into void:
+    if v < lo or v > hi:
+        calling spark.panic with "assertion failed: value {(v to string)} not in range [{(lo to string)}, {(hi to string)}]"
+
+## Panics when float `v` is outside inclusive range `[lo, hi]`.
+##
+## Signature: assert_in_range_float(v as float, lo as float, hi as float) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_in_range_float with prob, 0.0, 1.0
+weave assert_in_range_float with v as float , lo as float , hi as float into void:
+    if v < lo or v > hi:
+        calling spark.panic with "assertion failed: value {(v to string)} not in range [{(lo to string)}, {(hi to string)}]"
+
+# ----------------------------------------------------------------------------
+# String Assertions
+# ----------------------------------------------------------------------------
+
+## Panics unless `haystack` contains substring `needle`.
+##
+## Signature: assert_string_contains(haystack as string, needle as string) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_string_contains with log_line, "ERROR"
+weave assert_string_contains with haystack as string , needle as string into void:
+    if not (calling haystack.contains with needle):
+        calling spark.panic with "assertion failed: expected {(calling _w_fmt_string with haystack)} to contain {(calling _w_fmt_string with needle)}"
+
+## Panics unless string `s` starts with prefix `prefix`.
+##
+## Signature: assert_string_starts_with(s as string, prefix as string) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_string_starts_with with url, "https://"
+weave assert_string_starts_with with s as string , prefix as string into void:
+    if not (calling s.starts_with with prefix):
+        calling spark.panic with "assertion failed: expected {(calling _w_fmt_string with s)} to start with {(calling _w_fmt_string with prefix)}"
+
+## Panics unless string `s` ends with suffix `suffix`.
+##
+## Signature: assert_string_ends_with(s as string, suffix as string) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_string_ends_with with path, ".pengu"
+weave assert_string_ends_with with s as string , suffix as string into void:
+    if not (calling s.ends_with with suffix):
+        calling spark.panic with "assertion failed: expected {(calling _w_fmt_string with s)} to end with {(calling _w_fmt_string with suffix)}"
+
+## Panics unless string `s` is empty (length 0).
+##
+## Signature: assert_string_empty(s as string) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_string_empty with err_msg
+weave assert_string_empty with s as string into void:
+    if s.len > 0:
+        calling spark.panic with "assertion failed: expected empty string, got {(calling _w_fmt_string with s)}"
+
+## Panics when string `s` is empty (length 0).
+##
+## Signature: assert_string_not_empty(s as string) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_string_not_empty with name
+weave assert_string_not_empty with s as string into void:
+    if s.len == 0:
+        calling spark.panic with "assertion failed: expected non-empty string, got empty string"
+
+# ----------------------------------------------------------------------------
+# Container Assertions (Lists and Maps)
+# ----------------------------------------------------------------------------
+
+## Panics unless integer lists `a` and `b` have identical length and elements.
+##
+## Signature: assert_eq_int_list(a as list of int, b as list of int) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_eq_int_list with xs, ys
+weave assert_eq_int_list with a as list of int , b as list of int into void:
+    var na as int is a.len
+    var nb as int is b.len
+    if na != nb:
+        calling spark.panic with "assertion failed: list length mismatch: expected {(nb to string)}, got {(na to string)}"
+    var i as int is 0
+    while i < na:
+        var va as int is a at i
+        var vb as int is b at i
+        if va != vb:
+            calling spark.panic with "assertion failed: element mismatch at index {(i to string)}: expected {(vb to string)}, got {(va to string)}"
+        set i is i + 1
+
+## Panics unless string lists `a` and `b` have identical length and elements.
+##
+## Signature: assert_eq_string_list(a as list of string, b as list of string) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_eq_string_list with words, expected_words
+weave assert_eq_string_list with a as list of string , b as list of string into void:
+    var na as int is a.len
+    var nb as int is b.len
+    if na != nb:
+        calling spark.panic with "assertion failed: list length mismatch: expected {(nb to string)}, got {(na to string)}"
+    var i as int is 0
+    while i < na:
+        var va as string is a at i
+        var vb as string is b at i
+        if va != vb:
+            calling spark.panic with "assertion failed: element mismatch at index {(i to string)}: expected {(calling _w_fmt_string with vb)}, got {(calling _w_fmt_string with va)}"
+        set i is i + 1
+
+## Panics unless integer list `l` is empty.
+##
+## Signature: assert_list_empty_int(l as list of int) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_list_empty_int with queue
+weave assert_list_empty_int with l as list of int into void:
+    if l.len > 0:
+        calling spark.panic with "assertion failed: expected empty list, got len {(l.len to string)}"
+
+## Panics when integer list `l` is empty.
+##
+## Signature: assert_list_not_empty_int(l as list of int) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_list_not_empty_int with results
+weave assert_list_not_empty_int with l as list of int into void:
+    if l.len == 0:
+        calling spark.panic with "assertion failed: expected non-empty list, got len 0"
+
+## Panics unless integer list `l` has exact length `expected`.
+##
+## Signature: assert_list_len_int(l as list of int, expected as int) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_list_len_int with items, 3
+weave assert_list_len_int with l as list of int , expected as int into void:
+    if l.len != expected:
+        calling spark.panic with "assertion failed: expected list len {(expected to string)}, got {(l.len to string)}"
+
+## Panics unless string map `m` contains key `key`.
+##
+## Signature: assert_map_has_key(m as map of string to string, key as string) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_map_has_key with config, "host"
+weave assert_map_has_key with m as map of string to string , key as string into void:
+    if not (calling m.contains with key):
+        calling spark.panic with "assertion failed: expected map to contain key {(calling _w_fmt_string with key)}"
+
+## Panics when string map `m` contains key `key`.
+##
+## Signature: assert_map_not_has_key(m as map of string to string, key as string) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_map_not_has_key with config, "secret"
+weave assert_map_not_has_key with m as map of string to string , key as string into void:
+    if calling m.contains with key:
+        calling spark.panic with "assertion failed: unexpected key {(calling _w_fmt_string with key)} in map"
+
+# ----------------------------------------------------------------------------
+# Native Optionals & Errors Assertions (0.15.0 shard T)
+# ----------------------------------------------------------------------------
+
+## Panics unless native maybe container `m` holds a value.
+##
+## Signature: assert_maybe_present shard T(m as maybe T) into void
+## Ownership: Generic value unwrap; no extra allocation.
+## Example: calling ward.assert_maybe_present with user_opt
+weave assert_maybe_present shard T with m as maybe T into void:
+    if m is not present:
+        calling spark.panic with "assertion failed: expected maybe to be present, got none"
+
+## Panics when native maybe container `m` holds a value.
+##
+## Signature: assert_maybe_none shard T(m as maybe T) into void
+## Ownership: Generic inspection; no extra allocation.
+## Example: calling ward.assert_maybe_none with missing_opt
+weave assert_maybe_none shard T with m as maybe T into void:
+    if m is present:
+        calling spark.panic with "assertion failed: expected maybe to be none, got present"
+
+## Panics unless native result container `r` is successful (is_ok).
+##
+## Signature: assert_result_ok shard T and E(r as result of T to E) into void
+## Ownership: Generic inspection; no extra allocation.
+## Example: calling ward.assert_result_ok with op_result
+weave assert_result_ok shard T and E with r as result of T to E into void:
+    if r.is_ok == false:
+        calling spark.panic with "assertion failed: expected result to be ok, got err"
+
+## Panics when native result container `r` is successful (is_ok).
+##
+## Signature: assert_result_err shard T and E(r as result of T to E) into void
+## Ownership: Generic inspection; no extra allocation.
+## Example: calling ward.assert_result_err with failed_result
+weave assert_result_err shard T and E with r as result of T to E into void:
+    if r.is_ok:
+        calling spark.panic with "assertion failed: expected result to be err, got ok"
+
+## Panics unless native result of int to string is ok, reporting the error string.
+##
+## Signature: assert_result_ok_int(r as result of int to string) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_result_ok_int with res
+weave assert_result_ok_int with r as result of int to string into void:
+    if r.is_ok == false:
+        calling spark.panic with "assertion failed: result is error: {r.error}"
+
+## Panics when native result of int to string is ok, reporting the unexpected value.
+##
+## Signature: assert_result_err_int(r as result of int to string) into void
+## Ownership: No allocation.
+## Example: calling ward.assert_result_err_int with res
+weave assert_result_err_int with r as result of int to string into void:
+    if r.is_ok:
+        calling spark.panic with "assertion failed: result is ok: unexpected value {(r.value to string)}"
+
+# ----------------------------------------------------------------------------
+# Legacy Oracle Assertions (0.14.x MaybeInt/MaybeString/ResultInt/ResultString)
+# ----------------------------------------------------------------------------
+
+## Panics with "assertion failed: maybe is none" when the MaybeInt `m` is empty.
 weave assert_present_int with m as MaybeInt into void:
     if m.is_present == false:
         calling spark.panic with "assertion failed: maybe is none"
 
-# Panics with "assertion failed: maybe is none" when the MaybeString `m` is
-# empty. Void.
+## Panics with "assertion failed: maybe is none" when the MaybeString `m` is empty.
 weave assert_present_string with m as MaybeString into void:
     if m.is_present == false:
         calling spark.panic with "assertion failed: maybe is none"
 
-# Panics with "assertion failed: maybe is present" when the MaybeInt `m`
-# holds a value. Void.
+## Panics with "assertion failed: maybe is present" when the MaybeInt `m` holds a value.
 weave assert_none_int with m as MaybeInt into void:
     if m.is_present:
-        calling spark.panic with "assertion failed: maybe is present"
+        calling spark.panic with "assertion failed: maybe is present: unexpected value {(m.value to string)}"
 
-# Panics with "assertion failed: maybe is present" when the MaybeString `m`
-# holds a value. Void.
+## Panics with "assertion failed: maybe is present" when the MaybeString `m` holds a value.
 weave assert_none_string with m as MaybeString into void:
     if m.is_present:
-        calling spark.panic with "assertion failed: maybe is present"
+        calling spark.panic with "assertion failed: maybe is present: unexpected value {(calling _w_fmt_string with m.value)}"
 
-# Panics with "assertion failed: result is error" when the ResultInt `r` is
-# err. Void.
+## Panics with "assertion failed: result is error" when the ResultInt `r` is err.
 weave assert_ok_int with r as ResultInt into void:
     if r.is_ok == false:
-        calling spark.panic with "assertion failed: result is error"
+        calling spark.panic with "assertion failed: result is error: {r.error_msg}"
 
-# Panics with "assertion failed: result is error" when the ResultString `r`
-# is err. Void.
+## Panics with "assertion failed: result is error" when the ResultString `r` is err.
 weave assert_ok_string with r as ResultString into void:
     if r.is_ok == false:
-        calling spark.panic with "assertion failed: result is error"
+        calling spark.panic with "assertion failed: result is error: {r.error_msg}"
 
-# Panics with "assertion failed: result is ok" when the ResultInt `r` is ok.
-# Void.
+## Panics with "assertion failed: result is ok" when the ResultInt `r` is ok.
 weave assert_err_int with r as ResultInt into void:
     if r.is_ok:
-        calling spark.panic with "assertion failed: result is ok"
+        calling spark.panic with "assertion failed: result is ok: unexpected value {(r.value to string)}"
 
-# Panics with "assertion failed: result is ok" when the ResultString `r` is
-# ok. Void.
+## Panics with "assertion failed: result is ok" when the ResultString `r` is ok.
 weave assert_err_string with r as ResultString into void:
     if r.is_ok:
-        calling spark.panic with "assertion failed: result is ok"
+        calling spark.panic with "assertion failed: result is ok: unexpected value {(calling _w_fmt_string with r.value)}"
 
 # ----------------------------------------------------------------------------
 # Expect Functions (with custom messages)
 # ----------------------------------------------------------------------------
 
-# Panics with `msg` when `cond` is false (named variant of assert_msg). Void.
+## Panics with `msg` when `cond` is false.
 weave expect with cond as bool , msg as string into void:
     if cond == false:
         calling spark.panic with msg
 
-# Panics with `msg` when `a` differs from `b`. Void.
+## Panics with `msg` when `a` differs from `b`.
 weave expect_eq_int with a as int , b as int , msg as string into void:
     if a != b:
         calling spark.panic with msg
 
-# Panics with `msg` when `a` differs from `b` (exact string comparison).
-# Void.
+## Panics with `msg` when `a` differs from `b` (exact string comparison).
 weave expect_eq_string with a as string , b as string , msg as string into void:
     if a != b:
         calling spark.panic with msg
 
+## Panics with `msg` when absolute difference between floats exceeds `epsilon`.
+weave expect_eq_float with a as float , b as float , msg as string , epsilon as float is 0.000001 into void:
+    var diff as float is a - b
+    if diff < 0.0:
+        set diff is 0.0 - diff
+    if diff > epsilon:
+        calling spark.panic with msg
+
+## Panics with `msg` when integer `a` equals `b`.
+weave expect_ne_int with a as int , b as int , msg as string into void:
+    if a == b:
+        calling spark.panic with msg
+
+## Panics with `msg` when string `a` equals `b`.
+weave expect_ne_string with a as string , b as string , msg as string into void:
+    if a == b:
+        calling spark.panic with msg
+
+## Panics with `msg` when boolean `a` equals `b`.
+weave expect_ne_bool with a as bool , b as bool , msg as string into void:
+    if a == b:
+        calling spark.panic with msg
+
+## Panics with `msg` unless `a > b`.
+weave expect_gt_int with a as int , b as int , msg as string into void:
+    if a <= b:
+        calling spark.panic with msg
+
+## Panics with `msg` unless `a >= b`.
+weave expect_ge_int with a as int , b as int , msg as string into void:
+    if a < b:
+        calling spark.panic with msg
+
+## Panics with `msg` unless `a < b`.
+weave expect_lt_int with a as int , b as int , msg as string into void:
+    if a >= b:
+        calling spark.panic with msg
+
+## Panics with `msg` unless `a <= b`.
+weave expect_le_int with a as int , b as int , msg as string into void:
+    if a > b:
+        calling spark.panic with msg
+
+## Panics with `msg` when MaybeInt is empty.
+weave expect_present_int with m as MaybeInt , msg as string into void:
+    if m.is_present == false:
+        calling spark.panic with msg
+
+## Panics with `msg` when MaybeString is empty.
+weave expect_present_string with m as MaybeString , msg as string into void:
+    if m.is_present == false:
+        calling spark.panic with msg
+
+## Panics with `msg` when ResultInt is error.
+weave expect_ok_int with r as ResultInt , msg as string into void:
+    if r.is_ok == false:
+        calling spark.panic with msg
+
+## Panics with `msg` when ResultString is error.
+weave expect_ok_string with r as ResultString , msg as string into void:
+    if r.is_ok == false:
+        calling spark.panic with msg
+
 # ----------------------------------------------------------------------------
-# Panic & Unreachable
+# Panic, Fail & Unreachable
 # ----------------------------------------------------------------------------
 
-# Aborts the program with `msg` (delegates to spark.panic). Never returns.
+## Aborts the program with `msg` (delegates to spark.panic). Never returns.
 weave panic with msg as string into void:
     calling spark.panic with msg
 
-# Marks code that must never execute: panics with `msg` (default "internal
-# error: unreachable code") when reached. Void.
+## Aborts the program with `msg`. Ergonomic alias of panic.
+##
+## Signature: fail(msg as string) into void
+## Ownership: No allocation.
+## Example: calling ward.fail with "invalid state"
+weave fail with msg as string into void:
+    calling spark.panic with msg
+
+## Marks code that must never execute: panics with `msg` when reached.
 weave unreachable with msg as string is "internal error: unreachable code" into void:
     calling spark.panic with msg
+
+## Explicit alias of unreachable with failure prefix.
+##
+## Signature: fail_unreachable(msg as string is "unreachable") into void
+## Ownership: No allocation.
+## Example: calling ward.fail_unreachable with "unhandled judge branch"
+weave fail_unreachable with msg as string is "unreachable" into void:
+    calling spark.panic with "internal error: {msg}"
 
 # ----------------------------------------------------------------------------
 # Result-based Checks (Non-panicking)
 # ----------------------------------------------------------------------------
 
-# Returns ok("ok") when `cond` is true, otherwise err(`msg`). Never panics.
+## Returns ok("ok") when `cond` is true, otherwise err(`msg`). Never panics.
 weave check with cond as bool , msg as string into ResultString:
     if cond:
         return calling oracle.result_ok_string with "ok"
     return calling oracle.result_err_string with msg
 
-# Returns ok("ok") when `a` equals `b`, otherwise err(`msg`). Never panics.
+## Returns ok("ok") when `a` equals `b`, otherwise err(`msg`). Never panics.
 weave check_eq_int with a as int , b as int , msg as string into ResultString:
     if a == b:
         return calling oracle.result_ok_string with "ok"
     return calling oracle.result_err_string with msg
 
-# Returns ok("ok") when `a` equals `b` (exact string comparison), otherwise
-# err(`msg`). Never panics.
+## Returns ok("ok") when `a` equals `b` (exact string comparison), otherwise err(`msg`).
 weave check_eq_string with a as string , b as string , msg as string into ResultString:
     if a == b:
+        return calling oracle.result_ok_string with "ok"
+    return calling oracle.result_err_string with msg
+
+## Returns ok("ok") when boolean `a` equals `b`, otherwise err(`msg`).
+weave check_eq_bool with a as bool , b as bool , msg as string into ResultString:
+    if a == b:
+        return calling oracle.result_ok_string with "ok"
+    return calling oracle.result_err_string with msg
+
+## Returns ok("ok") when float difference is within `epsilon`, otherwise err(`msg`).
+weave check_eq_float with a as float , b as float , msg as string , epsilon as float is 0.000001 into ResultString:
+    var diff as float is a - b
+    if diff < 0.0:
+        set diff is 0.0 - diff
+    if diff <= epsilon:
+        return calling oracle.result_ok_string with "ok"
+    return calling oracle.result_err_string with msg
+
+## Returns ok("ok") when MaybeInt holds a value, otherwise err(`msg`).
+weave check_present_int with m as MaybeInt , msg as string into ResultString:
+    if m.is_present:
+        return calling oracle.result_ok_string with "ok"
+    return calling oracle.result_err_string with msg
+
+## Returns ok("ok") when MaybeString holds a value, otherwise err(`msg`).
+weave check_present_string with m as MaybeString , msg as string into ResultString:
+    if m.is_present:
+        return calling oracle.result_ok_string with "ok"
+    return calling oracle.result_err_string with msg
+
+## Returns ok("ok") when ResultInt is ok, otherwise err(`msg`).
+weave check_ok_int with r as ResultInt , msg as string into ResultString:
+    if r.is_ok:
+        return calling oracle.result_ok_string with "ok"
+    return calling oracle.result_err_string with msg
+
+## Returns ok("ok") when ResultString is ok, otherwise err(`msg`).
+weave check_ok_string with r as ResultString , msg as string into ResultString:
+    if r.is_ok:
         return calling oracle.result_ok_string with "ok"
     return calling oracle.result_err_string with msg

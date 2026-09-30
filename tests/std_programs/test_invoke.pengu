@@ -27,8 +27,8 @@ weave main into void:
     var tgt_val as string is calling res.get with "target"
     var v_set as bool is calling res.is_set with "verbose"
 
-    calling spark.println with "config: " + cfg_val
-    calling spark.println with "target: " + tgt_val
+    calling spark.println with "config: {cfg_val}"
+    calling spark.println with "target: {tgt_val}"
     if v_set:
         calling spark.println with "verbose: true"
 

@@ -1,0 +1,148 @@
+import std.spark
+import std.oracle
+import std.precis
+
+weave main into int:
+    calling spark.println with "=== Test Precis Extended ==="
+
+    # 1. Version and Status constants
+    calling spark.assert with (precis.PRECIS_VERSION == "0.15.0")
+    calling spark.assert with (precis.STATUS_OK == 200)
+    calling spark.assert with (precis.STATUS_NOT_FOUND == 404)
+    calling spark.assert with (precis.STATUS_INTERNAL_SERVER_ERROR == 500)
+    calling spark.println with "constants: OK"
+
+    # 2. Status helpers and judge
+    calling spark.assert with (calling precis.is_valid_status_code with 200)
+    calling spark.assert with (calling precis.is_valid_status_code with 404)
+    calling spark.assert with (not (calling precis.is_valid_status_code with 999))
+    calling spark.assert with (not (calling precis.is_valid_status_code with 99))
+
+    calling spark.assert with ((calling precis.status_reason with 200) == "OK")
+    calling spark.assert with ((calling precis.status_reason with 201) == "Created")
+    calling spark.assert with ((calling precis.status_reason with 301) == "Moved Permanently")
+    calling spark.assert with ((calling precis.status_reason with 400) == "Bad Request")
+    calling spark.assert with ((calling precis.status_reason with 404) == "Not Found")
+    calling spark.assert with ((calling precis.status_reason with 500) == "Internal Server Error")
+    calling spark.assert with ((calling precis.status_reason with 503) == "Service Unavailable")
+    calling spark.assert with ((calling precis.status_reason with 999) == "Unknown Status")
+
+    var dummy_body as oracle.MaybeString is calling oracle.maybe_some_string with "payload"
+    var dummy_res as precis.ClientResponse is with status_code is 200 , headers is map of string to string , body is dummy_body , url is "https://example.com"
+    calling spark.assert with (calling precis.response_ok with dummy_res)
+    calling spark.assert with ((calling precis.response_status_class with dummy_res) == 2)
+    calling spark.assert with ((calling precis.response_body_or with dummy_res, "default") == "payload")
+
+    var err_body as oracle.MaybeString is calling oracle.maybe_none_string
+    var err_res as precis.ClientResponse is with status_code is 404 , headers is map of string to string , body is err_body , url is "https://example.com/err"
+    calling spark.assert with (not (calling precis.response_ok with err_res))
+    calling spark.assert with ((calling precis.response_status_class with err_res) == 4)
+    calling spark.assert with ((calling precis.response_body_or with err_res, "fallback") == "fallback")
+    calling spark.println with "status utils: OK"
+
+    # 3. Host / IP predicates
+    calling spark.assert with (calling precis.is_localhost_host with "localhost")
+    calling spark.assert with (calling precis.is_localhost_host with "127.0.0.1")
+    calling spark.assert with (calling precis.is_localhost_host with "::1")
+    calling spark.assert with (not (calling precis.is_localhost_host with "penguscript.org"))
+
+    calling spark.assert with (calling precis.is_private_ipv4 with "192.168.1.1")
+    calling spark.assert with (calling precis.is_private_ipv4 with "10.0.0.2")
+    calling spark.assert with (calling precis.is_private_ipv4 with "127.0.0.1")
+    calling spark.assert with (calling precis.is_private_ipv4 with "172.16.0.1")
+    calling spark.assert with (calling precis.is_private_ipv4 with "172.31.255.255")
+    calling spark.assert with (not (calling precis.is_private_ipv4 with "8.8.8.8"))
+    calling spark.assert with (not (calling precis.is_private_ipv4 with "1.1.1.1"))
+    calling spark.println with "host utils: OK"
+
+    # 4. RFC 3986 URL parsing and building
+    var raw_url as string is "https://admin:secret@penguscript.org:8443/docs/api?q=std&page=1#intro"
+    var p_opt as maybe precis.ParsedUrl is calling precis.parse_url with raw_url
+    calling spark.assert with (p_opt.is_present)
+    if p_opt.is_present:
+        var u as precis.ParsedUrl is p_opt.value
+        calling spark.assert with (u.scheme == "https")
+        calling spark.assert with (u.userinfo == "admin:secret")
+        calling spark.assert with (u.host == "penguscript.org")
+        calling spark.assert with (u.port == 8443)
+        calling spark.assert with (u.path == "/docs/api")
+        calling spark.assert with (u.query == "q=std&page=1")
+        calling spark.assert with (u.fragment == "intro")
+        calling spark.assert with (u.has_authority)
+
+        # Enchanted methods on ParsedUrl
+        calling spark.assert with (calling u.is_https)
+        calling spark.assert with (not (calling u.is_http))
+        calling spark.assert with ((calling u.hostname) == "penguscript.org")
+        calling spark.assert with ((calling u.effective_port) == 8443)
+        calling spark.assert with ((calling u.origin) == "https://penguscript.org:8443")
+        calling spark.assert with ((calling u.authority) == "admin:secret@penguscript.org:8443")
+        calling spark.assert with ((calling u.path_with_query) == "/docs/api?q=std&page=1")
+
+        # Rebuilding URL
+        var rebuilt as string is calling precis.build_url with u
+        calling spark.assert with (rebuilt == raw_url)
+
+    # Simple HTTP URL default port
+    var simple_opt as maybe precis.ParsedUrl is calling precis.parse_url with "http://example.com/test"
+    calling spark.assert with (simple_opt.is_present)
+    if simple_opt.is_present:
+        var su as precis.ParsedUrl is simple_opt.value
+        calling spark.assert with (calling su.is_http)
+        calling spark.assert with ((calling su.effective_port) == 80)
+        calling spark.assert with ((calling su.origin) == "http://example.com")
+
+    # URL query parameter extraction
+    var q_val as maybe string is calling precis.url_query_get with "https://api.test/search?cat=books&page=2", "page"
+    calling spark.assert with (q_val.is_present)
+    if q_val.is_present:
+        calling spark.assert with (q_val.value == "2")
+
+    var no_q as maybe string is calling precis.url_query_get with "https://api.test/search?cat=books", "missing"
+    calling spark.assert with (not no_q.is_present)
+
+    # URL join
+    var joined1 as string is calling precis.url_join with "https://penguscript.org/docs/", "api/precis"
+    calling spark.assert with (joined1 == "https://penguscript.org/docs/api/precis")
+    var joined2 as string is calling precis.url_join with "https://penguscript.org/docs", "/root_path"
+    calling spark.assert with (joined2 == "https://penguscript.org/root_path")
+    calling spark.println with "url utils: OK"
+
+    # 5. Header helpers
+    var def_headers as map of string to string is calling precis.client_headers_default
+    calling spark.assert with (calling def_headers.contains with "User-Agent")
+    calling spark.assert with (calling def_headers.contains with "Accept")
+
+    var b_headers as map of string to string is calling precis.bearer_auth with "token123"
+    calling spark.assert with (calling b_headers.contains with "Authorization")
+    calling spark.assert with ((calling b_headers.get with "Authorization") == "Bearer token123")
+
+    var basic_headers as map of string to string is calling precis.basic_auth with "alice", "secret"
+    calling spark.assert with (calling basic_headers.contains with "Authorization")
+    calling spark.println with "header utils: OK"
+
+    # 6. Server response builders
+    var r_html as precis.Response is calling precis.response_html with 200, "<h1>Hello</h1>"
+    calling spark.assert with (r_html.status_code == 200)
+    calling spark.assert with ((calling r_html.headers.get with "Content-Type") == "text/html; charset=utf-8")
+
+    var r_json as precis.Response is calling precis.response_json with 201, "[1, 2, 3]"
+    calling spark.assert with (r_json.status_code == 201)
+    calling spark.assert with ((calling r_json.headers.get with "Content-Type") == "application/json")
+
+    var r_text as precis.Response is calling precis.response_text with 200, "plain content"
+    calling spark.assert with (r_text.status_code == 200)
+
+    var r_red as precis.Response is calling precis.response_redirect with "/dashboard", 302
+    calling spark.assert with (r_red.status_code == 302)
+    calling spark.assert with ((calling r_red.headers.get with "Location") == "/dashboard")
+
+    var r_404 as precis.Response is calling precis.response_404
+    calling spark.assert with (r_404.status_code == 404)
+
+    var r_500 as precis.Response is calling precis.response_500 with "DB Error"
+    calling spark.assert with (r_500.status_code == 500)
+    calling spark.println with "response builders: OK"
+
+    calling spark.println with "precis extended: OK"
+    return 0

@@ -1,0 +1,14 @@
+# valgrind/leakcheck: 'list of string' must free every element on banish.
+import std.spark
+
+weave main into int:
+    var items as list of string is list of string
+    calling items.push with "alpha"
+    calling items.push with "beta"
+    calling items.push with "gamma"
+    var joined as string is "alphabeta"
+    calling items.push with joined
+    calling spark.println with (items at 0)
+    if calling items.len == 4:
+        return 0
+    return 1

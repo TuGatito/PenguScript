@@ -35,6 +35,28 @@ python pengu_project.py clean
 
 ---
 
+## 1.1 Performance: caches, TCC, DCE y PCH
+
+`pengu run` está optimizado para sentirse como ejecutar un script (ver
+`docs/PERFORMANCE.md` para el diseño completo y las mediciones):
+
+| Mecanismo | Qué hace | Cómo desactivarlo |
+| --------- | -------- | ----------------- |
+| Caché del parser | Serializa las tablas LALR de Lark en `~/.cache/pengu/parser/` (≈3 s → ≈0.26 s por arranque) | `PENGU_CACHE=0` |
+| Caché de binarios | Guarda el binario final por *hash de contenido* en `~/.cache/pengu/scripts/<clave>/app` | `--no-cache`, `--ephemeral` |
+| Caché del grafo de imports | Reutiliza la lista de módulos validando el digest de cada uno | `PENGU_CACHE=0` |
+| TCC | Compilador preferido para `pengu run` si está disponible (empaquetado en los releases) | `PENGU_NO_TCC=1`, `PENGU_DEV_CC=gcc` |
+| Flags de desarrollo | `-g0 -fno-plt -pipe -fno-ident -fno-asynchronous-unwind-tables` en el perfil `debug` de `pengu run` | `pengu build --profile release` |
+| DCE | Elimina las funciones de `std/`/`lib/` no alcanzables (435 → 68 líneas en `hello.pengu`) | `--no-dce`, `PENGU_NO_DCE=1` |
+| PCH | Precompila `pengu_runtime.h` (opt-in; sin ganancia medible en esta máquina) | `--pch` lo activa, `--no-pch` lo fuerza a off |
+
+Directorios de caché: `~/.cache/pengu` (Linux/XDG), `~/Library/Caches/pengu`
+(macOS), `%LOCALAPPDATA%\pengu` (Windows). `PENGU_CACHE_DIR` lo reubica y
+`pengu gc` lo limpia. Si el directorio es de solo lectura se usa un temporal.
+
+Comandos nuevos: `pengu doctor`, `pengu gc`, `pengu expand`, `pengu time`,
+`pengu eval`, `pengu watch`.
+
 ## 2. Configuration Files (`pengu.yaml` / `pengu.json` / `pengu.toml`)
 
 The build manager automatically searches for:

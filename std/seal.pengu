@@ -1,6 +1,6 @@
 # std/seal.pengu - The Seal (Compression & Hashing)
-# CRC32 checksums, MD5 / SHA-1 / SHA-256 / SHA-512 digests, gzip and raw zlib
-# deflate / inflate, file helpers and hash verification (zlib + mbedTLS).
+# CRC32 checksums, MD5 / SHA-1 / SHA-256 / SHA-512 digests, HMAC, gzip and raw zlib
+# deflate / inflate, file helpers, string enchantments and hash verification (zlib + mbedTLS).
 #
 # Ownership model:
 #   * Every digest helper (crc32, md5, sha1, sha256, sha512 and their *_file
@@ -12,11 +12,29 @@
 #     after use; none means the operation failed.
 #   * File helpers read whole files through std.archivum and keep no
 #     persistent handles open.
+#
+# Documented TODOs (require runtime changes):
+#   * SHA-3 (Keccak), BLAKE2, BLAKE3 — not currently compiled into the runtime
+#     static archive.
+#   * Streaming hash API (HashState update / final) — requires a native context
+#     handle rune persisted across calls.
+#   * Configurable compression levels (deflateInit2) — currently fixed at default.
+#   * External algorithms (bzip2, xz/lzma, zstd) — not linked into the runtime.
 
 import std.spark
 import std.oracle
 import std.scrolls
 import std.archivum
+
+# ----------------------------------------------------------------------------
+# Version and Constants
+# ----------------------------------------------------------------------------
+
+## Module version identifier for std.seal (0.15.0 expansion).
+const SEAL_VERSION as string is "0.15.0"
+
+## Standard IEEE 802.3 CRC-32 polynomial (0xEDB88320 represented as unsigned int).
+const CRC32_POLYNOMIAL as int is 3988292384
 
 # ----------------------------------------------------------------------------
 # External C Functions (from Runtime)
@@ -58,7 +76,7 @@ weave crc32 with data as string into int:
 # none when it is missing or unreadable.
 weave crc32_file with path as string into MaybeInt:
     var content as maybe string is calling archivum.read_file with path
-    if content is present:
+    if content.is_present:
         var val as int is calling pengu_c_seal_crc32 with content.value
         return calling oracle.maybe_some_int with val
     return calling oracle.maybe_none_int
@@ -112,6 +130,152 @@ weave sha512_file with path as string into maybe string:
     return calling pengu_c_seal_hash_file with path , "sha512"
 
 # ----------------------------------------------------------------------------
+# Internal Binary Helpers
+# ----------------------------------------------------------------------------
+
+## Converts a lowercase or uppercase hex string to a raw binary byte string.
+weave _hex_to_bytes with hex as string into string:
+    var out as string is ""
+    var i as int is 0
+    while (i + 1) < hex.len:
+        var c1 as string is hex at i
+        var c2 as string is hex at (i + 1)
+        var v1 as int is 0
+        var o1 as int is ord c1
+        if o1 >= 48 and o1 <= 57:
+            set v1 is o1 - 48
+        else if o1 >= 97 and o1 <= 102:
+            set v1 is o1 - 87
+        else if o1 >= 65 and o1 <= 70:
+            set v1 is o1 - 55
+
+        var v2 as int is 0
+        var o2 as int is ord c2
+        if o2 >= 48 and o2 <= 57:
+            set v2 is o2 - 48
+        else if o2 >= 97 and o2 <= 102:
+            set v2 is o2 - 87
+        else if o2 >= 65 and o2 <= 70:
+            set v2 is o2 - 55
+
+        set out is "{out}{(chr (v1 * 16 + v2))}"
+        set i is i + 2
+    return out
+
+# ----------------------------------------------------------------------------
+# Public API - HMAC (Keyed-Hash Message Authentication Code, RFC 2104)
+# ----------------------------------------------------------------------------
+
+## Computes the HMAC-SHA256 digest of `message` using `key`, returning a 64-character lowercase hex string.
+weave hmac_sha256 with key as string , message as string into string:
+    var k as string is key
+    if k.len > 64:
+        var k_hex as string is calling sha256 with k
+        set k is calling _hex_to_bytes with k_hex
+    var zero_code as int is 0
+    while k.len < 64:
+        set k is "{k}{(chr zero_code)}"
+    var k_ipad as string is ""
+    var k_opad as string is ""
+    var j as int is 0
+    while j < 64:
+        var b as int is ord (k at j)
+        set k_ipad is "{k_ipad}{(chr (b ^ 54))}"
+        set k_opad is "{k_opad}{(chr (b ^ 92))}"
+        set j is j + 1
+    var inner_hex as string is calling sha256 with ("{k_ipad}{message}")
+    var inner_bytes as string is calling _hex_to_bytes with inner_hex
+    return calling sha256 with ("{k_opad}{inner_bytes}")
+
+## Convenience alias for hmac_sha256 returning hex digest.
+weave hmac_sha256_hex with key as string , message as string into string:
+    return calling hmac_sha256 with key , message
+
+## Computes the HMAC-SHA1 digest of `message` using `key`, returning a 40-character lowercase hex string.
+weave hmac_sha1 with key as string , message as string into string:
+    var k as string is key
+    if k.len > 64:
+        var k_hex as string is calling sha1 with k
+        set k is calling _hex_to_bytes with k_hex
+    var zero_code as int is 0
+    while k.len < 64:
+        set k is "{k}{(chr zero_code)}"
+    var k_ipad as string is ""
+    var k_opad as string is ""
+    var j as int is 0
+    while j < 64:
+        var b as int is ord (k at j)
+        set k_ipad is "{k_ipad}{(chr (b ^ 54))}"
+        set k_opad is "{k_opad}{(chr (b ^ 92))}"
+        set j is j + 1
+    var inner_hex as string is calling sha1 with ("{k_ipad}{message}")
+    var inner_bytes as string is calling _hex_to_bytes with inner_hex
+    return calling sha1 with ("{k_opad}{inner_bytes}")
+
+## Computes the HMAC-MD5 digest of `message` using `key`, returning a 32-character lowercase hex string.
+weave hmac_md5 with key as string , message as string into string:
+    var k as string is key
+    if k.len > 64:
+        var k_hex as string is calling md5 with k
+        set k is calling _hex_to_bytes with k_hex
+    var zero_code as int is 0
+    while k.len < 64:
+        set k is "{k}{(chr zero_code)}"
+    var k_ipad as string is ""
+    var k_opad as string is ""
+    var j as int is 0
+    while j < 64:
+        var b as int is ord (k at j)
+        set k_ipad is "{k_ipad}{(chr (b ^ 54))}"
+        set k_opad is "{k_opad}{(chr (b ^ 92))}"
+        set j is j + 1
+    var inner_hex as string is calling md5 with ("{k_ipad}{message}")
+    var inner_bytes as string is calling _hex_to_bytes with inner_hex
+    return calling md5 with ("{k_opad}{inner_bytes}")
+
+# ----------------------------------------------------------------------------
+# Constant-Time Comparison & Verification
+# ----------------------------------------------------------------------------
+
+## Performs a constant-time equality check between strings `a` and `b` to prevent timing attacks.
+weave const_time_eq with a as string , b as string into bool:
+    if a.len != b.len:
+        return false
+    var diff as int is 0
+    var i as int is 0
+    while i < a.len:
+        var b1 as int is ord (a at i)
+        var b2 as int is ord (b at i)
+        set diff is diff | (b1 ^ b2)
+        set i is i + 1
+    return diff == 0
+
+## Verifies in constant time that the HMAC-SHA256 of `message` with `key` equals `expected_hex`.
+weave verify_hmac_sha256 with key as string , message as string , expected_hex as string into bool:
+    var mac as string is calling hmac_sha256 with key , message
+    return calling const_time_eq with mac , expected_hex
+
+## Verifies in constant time that the SHA-256 digest of `data` equals `expected_hex`.
+weave verify_sha256 with data as string , expected_hex as string into bool:
+    var h as string is calling sha256 with data
+    return calling const_time_eq with h , expected_hex
+
+## Verifies in constant time that the SHA-512 digest of `data` equals `expected_hex`.
+weave verify_sha512 with data as string , expected_hex as string into bool:
+    var h as string is calling sha512 with data
+    return calling const_time_eq with h , expected_hex
+
+## Verifies in constant time that the SHA-1 digest of `data` equals `expected_hex`.
+weave verify_sha1 with data as string , expected_hex as string into bool:
+    var h as string is calling sha1 with data
+    return calling const_time_eq with h , expected_hex
+
+## Verifies in constant time that the MD5 digest of `data` equals `expected_hex`.
+weave verify_md5 with data as string , expected_hex as string into bool:
+    var h as string is calling md5 with data
+    return calling const_time_eq with h , expected_hex
+
+# ----------------------------------------------------------------------------
 # Public API - Gzip Compression
 # ----------------------------------------------------------------------------
 
@@ -132,9 +296,9 @@ weave unzip with data as string into maybe string:
 # otherwise (no output file is produced on failure).
 weave gzip_file with path as string , output_path as string into bool:
     var content as maybe string is calling archivum.read_file with path
-    if content is present:
+    if content.is_present:
         var comp as maybe string is calling pengu_c_seal_gzip with content.value
-        if comp is present:
+        if comp.is_present:
             return calling archivum.write_file with output_path , comp.value
     return false
 
@@ -143,11 +307,25 @@ weave gzip_file with path as string , output_path as string into bool:
 # otherwise (no output file is produced on failure).
 weave unzip_file with path as string , output_path as string into bool:
     var content as maybe string is calling archivum.read_file with path
-    if content is present:
+    if content.is_present:
         var decomp as maybe string is calling pengu_c_seal_unzip with content.value
-        if decomp is present:
+        if decomp.is_present:
             return calling archivum.write_file with output_path , decomp.value
     return false
+
+## Reads `path` and returns its gzip-compressed bytes in memory.
+weave gzip_file_to_bytes with path as string into maybe string:
+    var content as maybe string is calling archivum.read_file with path
+    if content.is_present:
+        return calling gzip with content.value
+    return maybe none
+
+## Reads the gzip file at `path` and returns its decompressed bytes in memory.
+weave unzip_file_to_bytes with path as string into maybe string:
+    var content as maybe string is calling archivum.read_file with path
+    if content.is_present:
+        return calling unzip with content.value
+    return maybe none
 
 # ----------------------------------------------------------------------------
 # Public API - Raw Zlib Deflate / Inflate
@@ -164,6 +342,20 @@ weave zlib_compress with data as string into maybe string:
 # when the input is not a valid zlib stream.
 weave zlib_decompress with data as string into maybe string:
     return calling pengu_c_seal_zlib_decompress with data
+
+## Reads `path` and compresses its contents with raw zlib deflate in memory.
+weave zlib_compress_file with path as string into maybe string:
+    var content as maybe string is calling archivum.read_file with path
+    if content.is_present:
+        return calling zlib_compress with content.value
+    return maybe none
+
+## Reads the zlib file at `path` and returns its decompressed bytes in memory.
+weave zlib_decompress_file with path as string into maybe string:
+    var content as maybe string is calling archivum.read_file with path
+    if content.is_present:
+        return calling zlib_decompress with content.value
+    return maybe none
 
 # ----------------------------------------------------------------------------
 # Public API - Hash Verification
@@ -182,16 +374,40 @@ weave verify_hash with data as string , hash_type as string , expected as string
         set computed is calling sha256 with data
     else if hash_type == "sha512":
         set computed is calling sha512 with data
-    return computed == expected
+    return calling const_time_eq with computed , expected
 
 # Computes the digest of the file at `path` using `hash_type` and returns true
 # when it equals `expected`. False when the file cannot be read or the hash
 # type is unsupported.
 weave verify_hash_file with path as string , hash_type as string , expected as string into bool:
     var computed as maybe string is calling pengu_c_seal_hash_file with path , hash_type
-    if computed is present:
-        return computed.value == expected
+    if computed.is_present:
+        return calling const_time_eq with computed.value , expected
     return false
+
+## Returns a list of supported hash algorithm names.
+weave hash_algos into list of string:
+    var algos as list of string is list of string
+    calling algos.push with "md5"
+    calling algos.push with "sha1"
+    calling algos.push with "sha256"
+    calling algos.push with "sha512"
+    return algos
+
+## Returns true if `alg` is a supported hash algorithm name ("md5", "sha1", "sha256", "sha512").
+weave is_valid_hash_alg with alg as string into bool:
+    var a as string is calling alg.lower
+    return a == "md5" or a == "sha1" or a == "sha256" or a == "sha512"
+
+## Returns the length in hex characters of digests produced by algorithm `alg`.
+weave hash_length with alg as string into int:
+    var a as string is calling alg.lower
+    return judge a:
+        when "md5" -> 32
+        when "sha1" -> 40
+        when "sha256" -> 64
+        when "sha512" -> 128
+        else -> 0
 
 # ----------------------------------------------------------------------------
 # Result / Error Handling Wrappers
@@ -202,7 +418,7 @@ weave verify_hash_file with path as string , hash_type as string , expected as s
 # "Gzip compression failed".
 weave try_gzip with data as string into ResultString:
     var comp as maybe string is calling pengu_c_seal_gzip with data
-    if comp is present:
+    if comp.is_present:
         return calling oracle.result_ok_string with comp.value
     return calling oracle.result_err_string with "Gzip compression failed"
 
@@ -211,6 +427,48 @@ weave try_gzip with data as string into ResultString:
 # message "Gzip decompression failed".
 weave try_unzip with data as string into ResultString:
     var decomp as maybe string is calling pengu_c_seal_unzip with data
-    if decomp is present:
+    if decomp.is_present:
         return calling oracle.result_ok_string with decomp.value
     return calling oracle.result_err_string with "Gzip decompression failed"
+
+# ----------------------------------------------------------------------------
+# Object Methods (enchanting string)
+# ----------------------------------------------------------------------------
+
+## Enchantments extending strings with cryptographic digests and compression methods.
+enchanting string:
+    ## Returns the MD5 hex digest of `self`.
+    weave to_md5 into string:
+        return calling md5 with essence of self
+
+    ## Returns the SHA-1 hex digest of `self`.
+    weave to_sha1 into string:
+        return calling sha1 with essence of self
+
+    ## Returns the SHA-256 hex digest of `self`.
+    weave to_sha256 into string:
+        return calling sha256 with essence of self
+
+    ## Returns the SHA-512 hex digest of `self`.
+    weave to_sha512 into string:
+        return calling sha512 with essence of self
+
+    ## Returns the CRC-32 integer checksum of `self`.
+    weave to_crc32 into int:
+        return calling crc32 with essence of self
+
+    ## Compresses `self` into a gzip stream.
+    weave to_gzip into maybe string:
+        return calling gzip with essence of self
+
+    ## Decompresses `self` as a gzip stream.
+    weave from_gzip into maybe string:
+        return calling unzip with essence of self
+
+    ## Compresses `self` using raw zlib deflate.
+    weave to_zlib into maybe string:
+        return calling zlib_compress with essence of self
+
+    ## Decompresses `self` as a raw zlib stream.
+    weave from_zlib into maybe string:
+        return calling zlib_decompress with essence of self

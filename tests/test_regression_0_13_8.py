@@ -24,30 +24,7 @@ from pengu_parser.pengu_errors import SemanticError, MutabilityError
 @requires_cc
 def test_c1_defer_and_autobanish_on_or_return():
     """C1: defer and auto-banish run when 'or return' exits early."""
-    code = """rune Tracker:
-    cleaned as int
-
-weave compute with should_fail as bool, t as ref to Tracker into maybe int:
-    defer:
-        set t->cleaned += 10
-    var s as string is "temp" + "_alloc"
-    var opt as maybe int is maybe none
-    if not should_fail:
-        set opt is some 42
-    let val is opt or return maybe none
-    return some val
-
-weave main into int:
-    var tr as Tracker with:
-        set .cleaned is 0
-    let r1 is calling compute with true, sigil of tr
-    if tr.cleaned != 10:
-        return 1
-    let r2 is calling compute with false, sigil of tr
-    if tr.cleaned != 20:
-        return 2
-    return 0
-"""
+    code = 'rune Tracker:\n    cleaned as int\n\nweave compute with should_fail as bool, t as ref to Tracker into maybe int:\n    defer:\n        set t->cleaned += 10\n    var s as string is (1 to string)\n    var opt as maybe int is maybe none\n    if not should_fail:\n        set opt is some 42\n    let val is opt or return maybe none\n    return some val\n\nweave main into int:\n    var tr as Tracker with:\n        set .cleaned is 0\n    let r1 is calling compute with true, sigil of tr\n    if tr.cleaned != 10:\n        return 1\n    let r2 is calling compute with false, sigil of tr\n    if tr.cleaned != 20:\n        return 2\n    return 0\n'
     check_ok(code)
     res = compile_run(code, tag="test_c1_or_return")
     assert res.returncode == 0
@@ -56,32 +33,7 @@ weave main into int:
 @requires_cc
 def test_c1_defer_and_autobanish_on_try():
     """C1: defer and auto-banish run when 'try' exits early."""
-    code = """rune Counter:
-    count as int
-
-weave step1 with fail as bool into maybe int:
-    if fail:
-        return maybe none
-    return some 100
-
-weave run_flow with fail as bool, c as ref to Counter into maybe int:
-    defer:
-        set c->count += 5
-    var temp as string is "heap" + "_str"
-    let val is try calling step1 with fail
-    return some val
-
-weave main into int:
-    var ctr as Counter with:
-        set .count is 0
-    let res_err is calling run_flow with true, sigil of ctr
-    if ctr.count != 5:
-        return 1
-    let res_ok is calling run_flow with false, sigil of ctr
-    if ctr.count != 10:
-        return 2
-    return 0
-"""
+    code = 'rune Counter:\n    count as int\n\nweave step1 with fail as bool into maybe int:\n    if fail:\n        return maybe none\n    return some 100\n\nweave run_flow with fail as bool, c as ref to Counter into maybe int:\n    defer:\n        set c->count += 5\n    var temp as string is "heap_str"\n    let val is try calling step1 with fail\n    return some val\n\nweave main into int:\n    var ctr as Counter with:\n        set .count is 0\n    let res_err is calling run_flow with true, sigil of ctr\n    if ctr.count != 5:\n        return 1\n    let res_ok is calling run_flow with false, sigil of ctr\n    if ctr.count != 10:\n        return 2\n    return 0\n'
     check_ok(code)
     res = compile_run(code, tag="test_c1_try")
     assert res.returncode == 0

@@ -1,0 +1,38 @@
+# Gap 1 (acceptance): a fresh string pushed through a field chain must not leak.
+#
+# Two ownership paths are exercised:
+#   * 'add_greeting' builds the string *inside* the method, so resolving
+#     'self->items' to 'list of string' is what enables its auto-banish;
+#   * 'add' receives a caller-owned local, which the caller auto-banishes
+#     ('first'/'second' are fresh, single-allocation strings).
+import std.spark
+
+rune Bag derive Nexus:
+    items as list of string
+
+enchanting Bag:
+    weave add with s as string into void:
+        calling self->items.push with s
+
+    weave add_greeting with n as int into void:
+        var local as string is n to string
+        calling self->items.push with local
+
+weave main into int:
+    var b as Bag with:
+        set .items is list of string
+    defer banish b
+
+    var first as string is "abc"
+    calling b.add with first
+    var second as string is "xy"
+    calling b.add with second
+    calling b.add_greeting with 3
+
+    var count as int is calling b.items.len
+    var msg as string is count to string
+    calling spark.println with msg
+    if count == 3 and (b.items at 0) == "abc":
+        if (b.items at 2) == "3":
+            return 0
+    return 1

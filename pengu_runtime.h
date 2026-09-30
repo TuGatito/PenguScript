@@ -176,6 +176,31 @@ extern "C"
   }
 
   /**
+   * @brief Releases the *box* of a Maybe value (never its payload).
+   *
+   * The payload cleanup is type-specific, so the generated code releases it
+   * first (e.g. 'pengu_banish_string((PenguString *)m.value)') and then calls
+   * this helper to free the allocation itself.  'some' deep-copies an owning
+   * payload into the box (see OWNERSHIP notes in AUDIT_RESPONSE.md), so the
+   * pair of calls owns everything the box refers to.
+   *
+   * @param m Pointer to the Maybe (may be NULL).
+   */
+  static inline void pengu_banish_maybe(PenguMaybe *m)
+  {
+    if (!m)
+    {
+      return;
+    }
+    if (m->is_present && m->value)
+    {
+      free(m->value);
+    }
+    m->value = NULL;
+    m->is_present = false;
+  }
+
+  /**
    * @brief Container representing either a success value or an error value.
    */
   typedef struct
@@ -221,6 +246,39 @@ extern "C"
   static inline bool pengu_result_is_ok(const PenguResult *r)
   {
     return r ? r->is_ok : false;
+  }
+
+  /**
+   * @brief Releases the *box* of a Result value (never its payloads).
+   *
+   * Like pengu_banish_maybe: the generated code releases the payload it owns
+   * and then frees the allocation.  Only the active side (ok_val or err_val)
+   * is non-NULL by construction.
+   *
+   * @param r Pointer to the Result (may be NULL).
+   */
+  static inline void pengu_banish_result(PenguResult *r)
+  {
+    if (!r)
+    {
+      return;
+    }
+    if (r->is_ok)
+    {
+      if (r->ok_val)
+      {
+        free(r->ok_val);
+      }
+      r->ok_val = NULL;
+    }
+    else
+    {
+      if (r->err_val)
+      {
+        free(r->err_val);
+      }
+      r->err_val = NULL;
+    }
   }
 
   /* =========================================================================
@@ -546,6 +604,147 @@ extern "C"
   }
 
   /**
+   * @brief Byte-exact counterpart of pengu_string_format used by `"{expr}"`.
+   *
+   * printf's `%.*s` stops at the first NUL byte, so `pengu_string_format`
+   * silently truncates binary strings (e.g. cipher.decode_base64 or the pure
+   * Pengu hashes in std.seal).  This formatter copies `%.*s` arguments
+   * byte-exactly (using their length) while formatting the scalar specifiers
+   * with snprintf, so interpolation composes strings exactly like
+   * pengu_string_concat did.
+   *
+   * Supported specifiers (the only ones the code generator emits): `%%`, `%d`,
+   * `%u`, `%lld`, `%llu`, `%f`, `%c`, `%s` (C string) and `%.*s` (PenguString
+   * length + data).
+   *
+   * @param fmt Format specification string built by the compiler.
+   * @param ... Formatting arguments (int, double, int, const char*, int, const char*).
+   * @return Freshly allocated PenguString (empty static view when the result is empty).
+   */
+  static inline PenguString pengu_string_format_ex(const char *fmt, ...)
+  {
+    if (!fmt)
+      return pengu_string_from_cstr("");
+    size_t cap = 64;
+    size_t len = 0;
+    char *buf = (char *)malloc(cap);
+    if (!buf)
+      return pengu_string_from_cstr("");
+
+#define PENGU_FMT_APPEND_BYTES(SRC, N)                                        \
+    do {                                                                      \
+      size_t _n = (size_t)(N);                                                \
+      if (len + _n + 1 > cap) {                                               \
+        while (len + _n + 1 > cap) cap *= 2;                                  \
+        char *_nb = (char *)realloc(buf, cap);                                \
+        if (!_nb) { free(buf); return pengu_string_from_cstr(""); }            \
+        buf = _nb;                                                            \
+      }                                                                       \
+      memcpy(buf + len, (SRC), _n);                                           \
+      len += _n;                                                              \
+    } while (0)
+
+    /* snprintf returns the length the whole formatted value *would* have, which
+     * can exceed the small stack buffer (e.g. "%f" of 1e300 returns ~310 while
+     * writing 63).  Appending the return value blindly would read out of
+     * bounds, so retry into a heap buffer when the value does not fit. */
+#define PENGU_FMT_APPEND_FORMATTED(FMT, VAL)                                  \
+    do {                                                                      \
+      char _small[64];                                                        \
+      int _k = snprintf(_small, sizeof(_small), (FMT), (VAL));                \
+      if (_k > 0 && (size_t)_k < sizeof(_small)) {                            \
+        PENGU_FMT_APPEND_BYTES(_small, _k);                                   \
+      } else if (_k > 0) {                                                    \
+        char *_big = (char *)malloc((size_t)_k + 1);                          \
+        if (!_big) { free(buf); return pengu_string_from_cstr(""); }          \
+        snprintf(_big, (size_t)_k + 1, (FMT), (VAL));                         \
+        PENGU_FMT_APPEND_BYTES(_big, _k);                                     \
+        free(_big);                                                           \
+      }                                                                       \
+    } while (0)
+
+    va_list ap;
+    va_start(ap, fmt);
+    const char *p = fmt;
+    while (*p) {
+      if (*p != '%') {
+        PENGU_FMT_APPEND_BYTES(p, 1);
+        p++;
+        continue;
+      }
+      if (p[1] == '%') {
+        PENGU_FMT_APPEND_BYTES("%", 1);
+        p += 2;
+        continue;
+      }
+      if (p[1] == '.' && p[2] == '*' && p[3] == 's') {
+        int n = va_arg(ap, int);
+        const char *s = va_arg(ap, const char *);
+        if (n > 0 && s)
+          PENGU_FMT_APPEND_BYTES(s, n);
+        p += 4;
+        continue;
+      }
+      if (p[1] == 'l' && p[2] == 'l' && (p[3] == 'd' || p[3] == 'u')) {
+        if (p[3] == 'd') {
+          long long v = va_arg(ap, long long);
+          PENGU_FMT_APPEND_FORMATTED("%lld", v);
+        } else {
+          unsigned long long v = va_arg(ap, unsigned long long);
+          PENGU_FMT_APPEND_FORMATTED("%llu", v);
+        }
+        p += 4;
+        continue;
+      }
+      if (p[1] == 'u') {
+        unsigned int v = va_arg(ap, unsigned int);
+        PENGU_FMT_APPEND_FORMATTED("%u", v);
+        p += 2;
+        continue;
+      }
+      if (p[1] == 'd') {
+        int v = va_arg(ap, int);
+        PENGU_FMT_APPEND_FORMATTED("%d", v);
+        p += 2;
+        continue;
+      }
+      if (p[1] == 'f') {
+        double v = va_arg(ap, double);
+        PENGU_FMT_APPEND_FORMATTED("%f", v);
+        p += 2;
+        continue;
+      }
+      if (p[1] == 'c') {
+        int v = va_arg(ap, int);
+        char c = (char)v;
+        PENGU_FMT_APPEND_BYTES(&c, 1);
+        p += 2;
+        continue;
+      }
+      if (p[1] == 's') {
+        const char *s = va_arg(ap, const char *);
+        if (s)
+          PENGU_FMT_APPEND_BYTES(s, strlen(s));
+        p += 2;
+        continue;
+      }
+      /* Unknown specifier: emit it literally (never produced by the compiler). */
+      PENGU_FMT_APPEND_BYTES(p, 1);
+      p++;
+    }
+    va_end(ap);
+#undef PENGU_FMT_APPEND_BYTES
+#undef PENGU_FMT_APPEND_FORMATTED
+
+    if (len == 0) {
+      free(buf);
+      return pengu_string_from_cstr("");
+    }
+    buf[len] = '\0';
+    return (PenguString){buf, (int)len};
+  }
+
+  /**
    * @brief Constructs a formatted PenguString using printf-style arguments.
    * @note En C11, pasar args a vsnprintf consume su estado; el doble va_start y
    *       va_end es deliberado y requerido por el estándar para reutilizar los argumentos.
@@ -626,6 +825,25 @@ extern "C"
     if (!a.data || !b.data)
       return a.data == b.data;
     return memcmp(a.data, b.data, (size_t)a.len) == 0;
+  }
+
+  /**
+   * @brief Lexicographically compares two PenguString objects.
+   * @return Negative if a < b, positive if a > b, 0 if equal.
+   */
+  static inline int pengu_string_compare(PenguString a, PenguString b)
+  {
+    int min_len = a.len < b.len ? a.len : b.len;
+    if (min_len > 0 && a.data && b.data) {
+      int c = memcmp(a.data, b.data, (size_t)min_len);
+      if (c != 0)
+        return c;
+    }
+    if (a.len < b.len)
+      return -1;
+    if (a.len > b.len)
+      return 1;
+    return 0;
   }
 
   /**
@@ -1173,6 +1391,8 @@ extern "C"
     double: pengu_string_from_float,           \
     float: pengu_string_from_float,            \
     bool: pengu_string_from_bool,              \
+    char*: pengu_string_from_cstr,             \
+    const char*: pengu_string_from_cstr,       \
     PenguString: pengu_string_identity)(x)
 
   /* =========================================================================
@@ -1245,7 +1465,23 @@ extern "C"
    * ========================================================================= */
 
   /**
-   * @brief Growable dynamic list with capacity, length, and element size.
+   * @brief Element cleanup and clone callbacks for owned containers.
+   */
+  typedef void (*PenguElemCleanup)(void *elem);
+  typedef void (*PenguElemClone)(void *dst, const void *src);
+
+  static inline void pengu_string_clone(void *dst, const void *src)
+  {
+    *(PenguString *)dst = pengu_string_copy(*(const PenguString *)src);
+  }
+
+  static inline void pengu_string_cleanup(void *elem)
+  {
+    pengu_banish_string((PenguString *)elem);
+  }
+
+  /**
+   * @brief Growable dynamic list with capacity, length, element size, and optional ownership callbacks.
    */
   typedef struct
   {
@@ -1253,12 +1489,18 @@ extern "C"
     int len;
     int cap;
     size_t elem_size;
+    PenguElemCleanup elem_cleanup;
+    PenguElemClone elem_clone;
   } PenguList;
 
-/* NOTE: PenguList owns only its internal element buffer. When the elements are
- * pointers / structs that hold allocated memory (e.g. PenguString), the caller
- * must release each element first (e.g. pengu_banish_string) before calling
- * pengu_banish_list. */
+/* NOTE: When elem_cleanup / elem_clone are provided (via pengu_list_new_owned),
+ * PenguList manages deep copy on push and recursive cleanup on banish.
+ *
+ * INVARIANT: elem_size / elem_cleanup / elem_clone are immutable once the list
+ * has been created.  Changing elem_size later would desynchronise the element
+ * stride from pengu_banish_list's cleanup loop (pengu_list_clone and the
+ * monomorphizer both assume the callbacks stay valid for the whole lifetime of
+ * the buffer), so mutate elements in place instead of re-typing a list. */
 
   /**
    * @brief Creates a new dynamic list with given element size and capacity.
@@ -1272,6 +1514,8 @@ extern "C"
     list.len = 0;
     list.cap = (cap > 0) ? (int)cap : 4;
     list.elem_size = elem_size;
+    list.elem_cleanup = NULL;
+    list.elem_clone = NULL;
     list.data = malloc((size_t)list.cap * elem_size);
     if (!list.data)
     {
@@ -1282,9 +1526,26 @@ extern "C"
   }
 
   /**
+   * @brief Creates a new dynamic list with element ownership callbacks (deep copy on push, recursive cleanup on banish).
+   * @param elem_size Size of each element in bytes.
+   * @param cap Initial capacity.
+   * @param cleanup Element destructor callback (or NULL for POD).
+   * @param clone Element deep clone callback (or NULL for memcpy).
+   * @return Initialized PenguList.
+   */
+  static inline PenguList pengu_list_new_owned(size_t elem_size, size_t cap,
+                                               PenguElemCleanup cleanup,
+                                               PenguElemClone clone)
+  {
+    PenguList list = pengu_list_new(elem_size, cap);
+    list.elem_cleanup = cleanup;
+    list.elem_clone = clone;
+    return list;
+  }
+
+  /**
    * @brief Appends an element to the list, expanding capacity if needed.
-   * @note En fallo de realloc/malloc, retorna silenciosamente sin insertar.
-   *       El caller no puede distinguir entre éxito y OOM.
+   * @note If elem_clone is set, uses deep copy; otherwise uses memcpy.
    * @param list Pointer to PenguList.
    * @param item Pointer to element data to copy into list.
    */
@@ -1306,7 +1567,14 @@ extern "C"
       list->cap = new_cap;
     }
     char *target = (char *)list->data + ((size_t)list->len * list->elem_size);
-    memcpy(target, item, list->elem_size);
+    if (list->elem_clone)
+    {
+      list->elem_clone(target, item);
+    }
+    else
+    {
+      memcpy(target, item, list->elem_size);
+    }
     list->len++;
   }
 
@@ -1410,18 +1678,87 @@ extern "C"
   }
 
   /**
-   * @brief Frees memory allocated by a dynamic list.
+   * @brief Frees memory allocated by a dynamic list, invoking elem_cleanup recursively if set.
    * @param list Pointer to PenguList.
    */
   static inline void pengu_banish_list(PenguList *list)
   {
     if (list && list->data)
     {
+      if (list->elem_cleanup)
+      {
+        for (int i = 0; i < list->len; ++i)
+        {
+          list->elem_cleanup((char *)list->data + (size_t)i * list->elem_size);
+        }
+      }
       free(list->data);
       list->data = NULL;
       list->len = 0;
       list->cap = 0;
+      list->elem_cleanup = NULL;
+      list->elem_clone = NULL;
     }
+  }
+
+  static inline void pengu_list_cleanup(void *elem)
+  {
+    pengu_banish_list((PenguList *)elem);
+  }
+
+  static inline void pengu_list_clone(void *dst, const void *src)
+  {
+    PenguList *d = (PenguList *)dst;
+    const PenguList *s = (const PenguList *)src;
+    *d = pengu_list_new_owned(s->elem_size, (size_t)s->len, s->elem_cleanup, s->elem_clone);
+    for (int i = 0; i < s->len; ++i)
+    {
+      pengu_list_push(d, (const char *)s->data + (size_t)i * s->elem_size);
+    }
+  }
+
+  /* =========================================================================
+   * 7b. Foreign-function helpers: C arrays -> owned PenguList
+   *
+   * These build containers that own fresh copies of the C data, so the
+   * caller keeps ownership of the input array (and of each C string).
+   * ========================================================================= */
+
+  /**
+   * @brief Builds an owned 'list of string' from a counted array of C strings.
+   * @param arr Array of NUL-terminated C strings (may contain NULL entries).
+   * @param count Number of entries in @p arr.
+   * @return PenguList of PenguString owning freshly allocated copies.
+   */
+  static inline PenguList pengu_list_of_string_from_cstrs(const char *const *arr, int count)
+  {
+    PenguList list = pengu_list_new_owned(sizeof(PenguString),
+                                          count > 0 ? (size_t)count : 4,
+                                          pengu_string_cleanup, pengu_string_clone);
+    if (!arr)
+      return list;
+    for (int i = 0; i < count; ++i)
+    {
+      PenguString s = pengu_string_from_cstr(arr[i] ? arr[i] : "");
+      pengu_list_push(&list, &s);
+    }
+    return list;
+  }
+
+  /**
+   * @brief Like pengu_list_of_string_from_cstrs but stops at the first NULL.
+   * @param arr NULL-terminated array of C strings.
+   * @return PenguList of PenguString owning freshly allocated copies.
+   */
+  static inline PenguList pengu_list_of_string_from_cstrv(const char *const *arr)
+  {
+    int n = 0;
+    if (arr)
+    {
+      while (arr[n])
+        n++;
+    }
+    return pengu_list_of_string_from_cstrs(arr, n);
   }
 
   /**
@@ -1465,7 +1802,7 @@ extern "C"
    */
   static inline PenguList pengu_string_split(PenguString s, PenguString delim)
   {
-    PenguList list = pengu_list_new(sizeof(PenguString), 4);
+    PenguList list = pengu_list_new_owned(sizeof(PenguString), 4, pengu_string_cleanup, pengu_string_clone);
     if (!s.data || s.len == 0)
     {
       PenguString empty = pengu_string_from_cstr("");
@@ -1476,14 +1813,8 @@ extern "C"
     {
       for (int i = 0; i < s.len; ++i)
       {
-        char *buf = (char *)malloc(2);
-        if (buf)
-        {
-          buf[0] = s.data[i];
-          buf[1] = '\0';
-          PenguString ch = {buf, 1};
-          pengu_list_push(&list, &ch);
-        }
+        PenguString ch = {s.data + i, 1};
+        pengu_list_push(&list, &ch);
       }
       return list;
     }
@@ -1492,41 +1823,13 @@ extern "C"
     while ((idx = pengu__find_sub(s, delim, cur)) != -1)
     {
       int seg_len = idx - cur;
-      if (seg_len == 0)
-      {
-        PenguString part = pengu_string_from_cstr("");
-        pengu_list_push(&list, &part);
-      }
-      else
-      {
-        char *buf = (char *)malloc((size_t)seg_len + 1);
-        if (buf)
-        {
-          memcpy(buf, s.data + cur, (size_t)seg_len);
-          buf[seg_len] = '\0';
-          PenguString part = {buf, seg_len};
-          pengu_list_push(&list, &part);
-        }
-      }
+      PenguString part = (seg_len > 0) ? (PenguString){s.data + cur, seg_len} : pengu_string_from_cstr("");
+      pengu_list_push(&list, &part);
       cur = idx + delim.len;
     }
     int rem_len = s.len - cur;
-    if (rem_len == 0)
-    {
-      PenguString part = pengu_string_from_cstr("");
-      pengu_list_push(&list, &part);
-    }
-    else
-    {
-      char *buf = (char *)malloc((size_t)rem_len + 1);
-      if (buf)
-      {
-        memcpy(buf, s.data + cur, (size_t)rem_len);
-        buf[rem_len] = '\0';
-        PenguString part = {buf, rem_len};
-        pengu_list_push(&list, &part);
-      }
-    }
+    PenguString rem_part = (rem_len > 0) ? (PenguString){s.data + cur, rem_len} : pengu_string_from_cstr("");
+    pengu_list_push(&list, &rem_part);
     return list;
   }
 
@@ -1622,6 +1925,10 @@ extern "C"
     int cap;
     size_t key_size;
     size_t val_size;
+    PenguElemCleanup key_cleanup;
+    PenguElemCleanup val_cleanup;
+    PenguElemClone key_clone;
+    PenguElemClone val_clone;
   } PenguMap;
 
   /**
@@ -1637,12 +1944,37 @@ extern "C"
     map.cap = 16;
     map.key_size = key_size;
     map.val_size = val_size;
+    map.key_cleanup = NULL;
+    map.val_cleanup = NULL;
+    map.key_clone = NULL;
+    map.val_clone = NULL;
     map.entries = (PenguMapEntry *)calloc((size_t)map.cap, sizeof(PenguMapEntry));
     if (!map.entries)
     {
       map.cap = 0;
       map.len = 0;
     }
+    return map;
+  }
+
+  /**
+   * @brief Creates a new hash map with explicit ownership callbacks for keys and values.
+   *
+   * INVARIANT: key_size / val_size / *_cleanup / *_clone are immutable once the
+   * map exists — pengu_banish_map and pengu_map_clone rely on them matching the
+   * element stride for every entry currently stored.
+   */
+  static inline PenguMap pengu_map_new_owned(size_t key_size, size_t val_size,
+                                             PenguElemCleanup key_cleanup,
+                                             PenguElemCleanup val_cleanup,
+                                             PenguElemClone key_clone,
+                                             PenguElemClone val_clone)
+  {
+    PenguMap map = pengu_map_new(key_size, val_size);
+    map.key_cleanup = key_cleanup;
+    map.val_cleanup = val_cleanup;
+    map.key_clone = key_clone;
+    map.val_clone = val_clone;
     return map;
   }
 
@@ -1663,14 +1995,20 @@ extern "C"
       free(v);
       return false;
     }
-    if (map->key_size == sizeof(PenguString))
+    if (map->key_clone)
+      map->key_clone(k, key);
+    else if (map->key_size == sizeof(PenguString))
       *(PenguString *)k = pengu_string_copy(*(const PenguString *)key);
     else
       memcpy(k, key, map->key_size);
-    if (map->val_size == sizeof(PenguString))
+
+    if (map->val_clone)
+      map->val_clone(v, val);
+    else if (map->val_size == sizeof(PenguString))
       *(PenguString *)v = pengu_string_copy(*(const PenguString *)val);
     else
       memcpy(v, val, map->val_size);
+
     map->entries[idx].hash = h;
     map->entries[idx].occupied = true;
     map->entries[idx].tombstone = false;
@@ -1725,10 +2063,16 @@ extern "C"
         if (old_entries[i].occupied)
         {
           pengu_map_put(map, old_entries[i].key, old_entries[i].val);
-          if (map->key_size == sizeof(PenguString))
+          if (map->key_cleanup)
+            map->key_cleanup(old_entries[i].key);
+          else if (map->key_size == sizeof(PenguString))
             pengu_banish_string((PenguString *)old_entries[i].key);
-          if (map->val_size == sizeof(PenguString))
+
+          if (map->val_cleanup)
+            map->val_cleanup(old_entries[i].val);
+          else if (map->val_size == sizeof(PenguString))
             pengu_banish_string((PenguString *)old_entries[i].val);
+
           free(old_entries[i].key);
           free(old_entries[i].val);
         }
@@ -1770,9 +2114,21 @@ extern "C"
         }
         if (match)
         {
-          if (map->val_size == sizeof(PenguString))
+          if (map->val_cleanup)
+          {
+            map->val_cleanup(map->entries[cur].val);
+          }
+          else if (map->val_size == sizeof(PenguString))
           {
             pengu_banish_string((PenguString *)map->entries[cur].val);
+          }
+
+          if (map->val_clone)
+          {
+            map->val_clone(map->entries[cur].val, val);
+          }
+          else if (map->val_size == sizeof(PenguString))
+          {
             *(PenguString *)map->entries[cur].val = pengu_string_copy(*(const PenguString *)val);
           }
           else
@@ -1870,11 +2226,19 @@ extern "C"
         }
         if (match)
         {
-          if (map->key_size == sizeof(PenguString))
+          if (map->key_cleanup)
+          {
+            map->key_cleanup(map->entries[cur].key);
+          }
+          else if (map->key_size == sizeof(PenguString))
           {
             pengu_banish_string((PenguString *)map->entries[cur].key);
           }
-          if (map->val_size == sizeof(PenguString))
+          if (map->val_cleanup)
+          {
+            map->val_cleanup(map->entries[cur].val);
+          }
+          else if (map->val_size == sizeof(PenguString))
           {
             pengu_banish_string((PenguString *)map->entries[cur].val);
           }
@@ -1907,7 +2271,11 @@ extern "C"
         {
           if (map->entries[i].key)
           {
-            if (map->key_size == sizeof(PenguString))
+            if (map->key_cleanup)
+            {
+              map->key_cleanup(map->entries[i].key);
+            }
+            else if (map->key_size == sizeof(PenguString))
             {
               pengu_banish_string((PenguString *)map->entries[i].key);
             }
@@ -1915,7 +2283,11 @@ extern "C"
           }
           if (map->entries[i].val)
           {
-            if (map->val_size == sizeof(PenguString))
+            if (map->val_cleanup)
+            {
+              map->val_cleanup(map->entries[i].val);
+            }
+            else if (map->val_size == sizeof(PenguString))
             {
               pengu_banish_string((PenguString *)map->entries[i].val);
             }
@@ -1927,6 +2299,31 @@ extern "C"
       map->entries = NULL;
       map->len = 0;
       map->cap = 0;
+      map->key_cleanup = NULL;
+      map->val_cleanup = NULL;
+      map->key_clone = NULL;
+      map->val_clone = NULL;
+    }
+  }
+
+  static inline void pengu_map_cleanup(void *elem)
+  {
+    pengu_banish_map((PenguMap *)elem);
+  }
+
+  static inline void pengu_map_clone(void *dst, const void *src)
+  {
+    PenguMap *d = (PenguMap *)dst;
+    const PenguMap *s = (const PenguMap *)src;
+    *d = pengu_map_new_owned(s->key_size, s->val_size,
+                             s->key_cleanup, s->val_cleanup,
+                             s->key_clone, s->val_clone);
+    for (int i = 0; i < s->cap; ++i)
+    {
+      if (s->entries[i].occupied)
+      {
+        pengu_map_put(d, s->entries[i].key, s->entries[i].val);
+      }
     }
   }
 
@@ -1944,7 +2341,11 @@ extern "C"
       {
         if (map->entries[i].key)
         {
-          if (map->key_size == sizeof(PenguString))
+          if (map->key_cleanup)
+          {
+            map->key_cleanup(map->entries[i].key);
+          }
+          else if (map->key_size == sizeof(PenguString))
           {
             pengu_banish_string((PenguString *)map->entries[i].key);
           }
@@ -1953,7 +2354,11 @@ extern "C"
         }
         if (map->entries[i].val)
         {
-          if (map->val_size == sizeof(PenguString))
+          if (map->val_cleanup)
+          {
+            map->val_cleanup(map->entries[i].val);
+          }
+          else if (map->val_size == sizeof(PenguString))
           {
             pengu_banish_string((PenguString *)map->entries[i].val);
           }
@@ -2148,15 +2553,49 @@ extern "C"
   static inline PenguList pengu_map_keys_string(const PenguMap *m)
   {
     if (!m || m->key_size != sizeof(PenguString) || !m->entries || m->cap == 0)
-      return pengu_list_new(sizeof(PenguString), 0);
-    PenguList list = pengu_list_new(sizeof(PenguString), 8);
+      return pengu_list_new_owned(sizeof(PenguString), 0, pengu_string_cleanup, pengu_string_clone);
+    PenguList list = pengu_list_new_owned(sizeof(PenguString), 8, pengu_string_cleanup, pengu_string_clone);
     for (int i = 0; i < m->cap; ++i)
     {
       if (m->entries[i].occupied && m->entries[i].key)
       {
-        PenguString *k = (PenguString *)m->entries[i].key;
-        PenguString copy = (k->data && k->len > 0) ? pengu_string_copy(*k) : pengu_string_from_cstr("");
-        pengu_list_push(&list, &copy);
+        pengu_list_push(&list, m->entries[i].key);
+      }
+    }
+    return list;
+  }
+
+  /** @brief Collects the keys of any map into a list of keys, deep-copying elements if cleanup/clone are registered or for strings. */
+  static inline PenguList pengu_map_keys(const PenguMap *m)
+  {
+    if (!m || m->key_size <= 0 || !m->entries || m->cap == 0)
+      return pengu_list_new(m && m->key_size > 0 ? m->key_size : sizeof(void *), 0);
+    PenguElemCleanup k_cln = m->key_cleanup ? m->key_cleanup : (m->key_size == sizeof(PenguString) ? pengu_string_cleanup : NULL);
+    PenguElemClone k_clo = m->key_clone ? m->key_clone : (m->key_size == sizeof(PenguString) ? pengu_string_clone : NULL);
+    PenguList list = pengu_list_new_owned(m->key_size, m->len > 0 ? (size_t)m->len : 8, k_cln, k_clo);
+    for (int i = 0; i < m->cap; ++i)
+    {
+      if (m->entries[i].occupied && m->entries[i].key)
+      {
+        pengu_list_push(&list, m->entries[i].key);
+      }
+    }
+    return list;
+  }
+
+  /** @brief Collects the values of any map into a list of values, deep-copying elements if cleanup/clone are registered or for strings. */
+  static inline PenguList pengu_map_values(const PenguMap *m)
+  {
+    if (!m || m->val_size <= 0 || !m->entries || m->cap == 0)
+      return pengu_list_new(m && m->val_size > 0 ? m->val_size : sizeof(void *), 0);
+    PenguElemCleanup v_cln = m->val_cleanup ? m->val_cleanup : (m->val_size == sizeof(PenguString) ? pengu_string_cleanup : NULL);
+    PenguElemClone v_clo = m->val_clone ? m->val_clone : (m->val_size == sizeof(PenguString) ? pengu_string_clone : NULL);
+    PenguList list = pengu_list_new_owned(m->val_size, m->len > 0 ? (size_t)m->len : 8, v_cln, v_clo);
+    for (int i = 0; i < m->cap; ++i)
+    {
+      if (m->entries[i].occupied && m->entries[i].val)
+      {
+        pengu_list_push(&list, m->entries[i].val);
       }
     }
     return list;
@@ -2779,10 +3218,10 @@ extern "C"
   }
   static inline PenguList pengu_c_get_args(void)
   {
-    PenguList list = pengu_list_new(sizeof(PenguString), (size_t)(g_pengu_argc > 0 ? g_pengu_argc : 1));
+    PenguList list = pengu_list_new_owned(sizeof(PenguString), (size_t)(g_pengu_argc > 0 ? g_pengu_argc : 1), pengu_string_cleanup, pengu_string_clone);
     for (int i = 0; i < g_pengu_argc; ++i)
     {
-      PenguString s = pengu_string_new(g_pengu_argv[i]);
+      PenguString s = pengu_string_from_cstr(g_pengu_argv[i]);
       pengu_list_push(&list, &s);
     }
     return list;
@@ -2979,7 +3418,7 @@ extern "C"
    */
   static inline PenguList pengu_c_get_env_keys(void)
   {
-    PenguList list = pengu_list_new(sizeof(PenguString), 16);
+    PenguList list = pengu_list_new_owned(sizeof(PenguString), 16, pengu_string_cleanup, pengu_string_clone);
 #if PENGU_WINDOWS
     char *env = GetEnvironmentStringsA();
     if (env)
@@ -2991,8 +3430,7 @@ extern "C"
         if (eq && eq != p)
         {
           int klen = (int)(eq - p);
-          PenguString full = pengu_string_from_cstr(p);
-          PenguString kstr = pengu_string_substring(full, 0, klen);
+          PenguString kstr = {p, klen};
           pengu_list_push(&list, &kstr);
         }
         p += strlen(p) + 1;
@@ -3009,8 +3447,7 @@ extern "C"
         if (eq && eq != *env)
         {
           int klen = (int)(eq - *env);
-          PenguString full = pengu_string_from_cstr(*env);
-          PenguString kstr = pengu_string_substring(full, 0, klen);
+          PenguString kstr = {*env, klen};
           pengu_list_push(&list, &kstr);
         }
       }
@@ -3371,7 +3808,7 @@ extern "C"
     PenguList *list = (PenguList *)malloc(sizeof(PenguList));
     if (!list)
       return pengu_maybe_none();
-    *list = pengu_list_new(sizeof(PenguString), 16);
+    *list = pengu_list_new_owned(sizeof(PenguString), 16, pengu_string_cleanup, pengu_string_clone);
 
 #if PENGU_WINDOWS
     char pattern[4096];
@@ -3410,7 +3847,7 @@ extern "C"
     {
       if (strcmp(fd.cFileName, ".") != 0 && strcmp(fd.cFileName, "..") != 0)
       {
-        PenguString name = pengu_string_new(fd.cFileName);
+        PenguString name = pengu_string_from_cstr(fd.cFileName);
         pengu_list_push(list, &name);
       }
     } while (FindNextFileA(hFind, &fd));
@@ -3438,7 +3875,7 @@ extern "C"
   {
     if (strcmp(dir->d_name, ".") != 0 && strcmp(dir->d_name, "..") != 0)
     {
-      PenguString name = pengu_string_new(dir->d_name);
+      PenguString name = pengu_string_from_cstr(dir->d_name);
       pengu_list_push(list, &name);
     }
   }
@@ -3632,7 +4069,7 @@ extern "C"
       }
       if (match)
       {
-        PenguString match_str = pengu_string_new(target_full);
+        PenguString match_str = pengu_string_from_cstr(target_full);
         pengu_list_push(res, &match_str);
       }
       if (allocated_full)
@@ -3650,7 +4087,7 @@ extern "C"
    */
   static inline PenguList pengu_c_archivum_glob(PenguString pattern)
   {
-    PenguList list = pengu_list_new(sizeof(PenguString), 16);
+    PenguList list = pengu_list_new_owned(sizeof(PenguString), 16, pengu_string_cleanup, pengu_string_clone);
     pengu_c_archivum_glob_rec(".", pattern, &list);
     return list;
   }

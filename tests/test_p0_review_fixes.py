@@ -436,17 +436,15 @@ weave main into int:
 
 
 def test_escape_with_target_push():
-    """Bug 1.3: Variable pushed via with block 'calling .push with s' must be marked as escaped."""
+    """Bug 1.3 (updated): a 'with' block push into an owning list deep-copies,
+    so the source keeps ownership and is still auto-banished."""
     from tests.conftest import gen_bundle
-    src = """
-weave f into void:
-    var lst as list of string is list of string
-    var s as string is "a" + "b"
-    with lst:
-        calling .push with s
-"""
+    src = '\nweave f into void:\n    var lst as list of string is list of string\n    var s as string is (1 to string)\n    with lst:\n        calling .push with s\n'
     c_code = gen_bundle(src)
-    assert "pengu_banish_string(&s)" not in c_code
+    # 'list of string' registers pengu_string_clone: push copies, so 's' must
+    # be released by the auto-banish (otherwise every pushed string leaks).
+    assert "pengu_banish_string(&s)" in c_code
+    assert "pengu_banish_list(&lst)" in c_code
 
 
 def test_struct_init_alias_type():

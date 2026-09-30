@@ -1,0 +1,8 @@
+# The interpolation temporary created for a fresh '(chr n)' is released.
+import std.spark
+
+weave main into int:
+    var n as int is 65
+    var s as string is "letter: {(chr n)}"
+    calling spark.println with s
+    return 0

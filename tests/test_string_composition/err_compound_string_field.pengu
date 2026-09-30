@@ -1,0 +1,10 @@
+# EXPECTED: E0005
+# '+=' on a string field is rejected as well; rebind with interpolation.
+rune Holder:
+    name as string
+
+weave main into int:
+    var h as Holder with:
+        set .name is "a"
+    set h.name += "b"
+    return 0

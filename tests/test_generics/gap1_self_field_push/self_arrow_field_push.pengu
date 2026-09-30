@@ -1,0 +1,21 @@
+# Gap 1: 'calling self->items.push with local' (the common enchanting form).
+# 'local' is a single fresh allocation ('n to string'), so the only question is
+# whether the push target resolves to 'list of string' and the local is banished.
+rune Bag derive Nexus:
+    items as list of string
+
+enchanting Bag:
+    weave fill with n as int into void:
+        var local as string is n to string
+        calling self->items.push with local
+
+weave main into int:
+    var b as Bag with:
+        set .items is list of string
+    defer banish b
+    calling b.fill with 12
+    calling b.fill with 34
+    if calling b.items.len == 2 and (b.items at 0) == "12":
+        if (b.items at 1) == "34":
+            return 0
+    return 1

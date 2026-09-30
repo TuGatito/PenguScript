@@ -1,0 +1,19 @@
+# Two type parameters with an independent pair type.
+rune Pair shard A, B:
+    first as A
+    second as B
+
+weave swap shard A, B with p as Pair of A and B into Pair of B and A:
+    var out as Pair of B and A with:
+        set .first is p.second
+        set .second is p.first
+    return out
+
+weave main into int:
+    var p as Pair of int and string with:
+        set .first is 7
+        set .second is "seven"
+    var q as Pair of string and int is calling swap with p
+    if q.first.len == 5 and q.second == 7:
+        return 0
+    return 1

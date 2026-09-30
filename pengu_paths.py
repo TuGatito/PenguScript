@@ -122,10 +122,18 @@ def runtime_include_dirs() -> List[Path]:
         if p.is_dir():
             dirs.append(p)
 
-    for prefix in fhs_prefixes():
-        p = prefix / "include" / "pengu"
+    env_prefix = os.environ.get("PENGU_PREFIX")
+    if env_prefix:
+        p = Path(env_prefix).expanduser() / "include" / "pengu"
         if p.is_dir():
             dirs.append(p)
+
+    for base in (module_root(), Path.cwd()):
+        p = base / "build" / "include"
+        if p.is_dir():
+            dirs.append(p)
+        if (base / "pengu_runtime.h").is_file():
+            dirs.append(base)
 
     exe_dir = executable_dir()
     if exe_dir is not None:
@@ -134,12 +142,10 @@ def runtime_include_dirs() -> List[Path]:
             if p.is_dir():
                 dirs.append(p)
 
-    for base in (module_root(), Path.cwd()):
-        p = base / "build" / "include"
+    for prefix in fhs_prefixes():
+        p = prefix / "include" / "pengu"
         if p.is_dir():
             dirs.append(p)
-        if (base / "pengu_runtime.h").is_file():
-            dirs.append(base)
 
     mip = getattr(sys, "_MEIPASS", None)
     if mip:
@@ -161,13 +167,18 @@ def runtime_lib_dirs() -> List[Path]:
         if p.is_dir():
             dirs.append(p)
 
-    for prefix in fhs_prefixes():
-        # Scoped strictly to lib/pengu and lib64/pengu to prevent auto-linking
-        # arbitrary system libraries from /usr/lib.
+    env_prefix = os.environ.get("PENGU_PREFIX")
+    if env_prefix:
+        p_env = Path(env_prefix).expanduser()
         for sub in ("lib/pengu", "lib64/pengu"):
-            p = prefix / sub
+            p = p_env / sub
             if p.is_dir():
                 dirs.append(p)
+
+    for base in (module_root(), Path.cwd()):
+        p = base / "build" / "lib"
+        if p.is_dir():
+            dirs.append(p)
 
     exe_dir = executable_dir()
     if exe_dir is not None:
@@ -176,10 +187,13 @@ def runtime_lib_dirs() -> List[Path]:
             if p.is_dir():
                 dirs.append(p)
 
-    for base in (module_root(), Path.cwd()):
-        p = base / "build" / "lib"
-        if p.is_dir():
-            dirs.append(p)
+    for prefix in fhs_prefixes():
+        # Scoped strictly to lib/pengu and lib64/pengu to prevent auto-linking
+        # arbitrary system libraries from /usr/lib.
+        for sub in ("lib/pengu", "lib64/pengu"):
+            p = prefix / sub
+            if p.is_dir():
+                dirs.append(p)
 
     mip = getattr(sys, "_MEIPASS", None)
     if mip:
@@ -201,11 +215,18 @@ def std_dirs() -> List[Path]:
         if p.is_dir():
             dirs.append(p)
 
-    for prefix in fhs_prefixes():
+    env_prefix = os.environ.get("PENGU_PREFIX")
+    if env_prefix:
+        p_env = Path(env_prefix).expanduser()
         for sub in ("share/pengu/std", "lib/pengu/std"):
-            p = prefix / sub
+            p = p_env / sub
             if p.is_dir():
                 dirs.append(p)
+
+    for base in (module_root(), Path.cwd()):
+        p = base / "std"
+        if p.is_dir():
+            dirs.append(p)
 
     exe_dir = executable_dir()
     if exe_dir is not None:
@@ -213,10 +234,11 @@ def std_dirs() -> List[Path]:
         if p.is_dir():
             dirs.append(p)
 
-    for base in (module_root(), Path.cwd()):
-        p = base / "std"
-        if p.is_dir():
-            dirs.append(p)
+    for prefix in fhs_prefixes():
+        for sub in ("share/pengu/std", "lib/pengu/std"):
+            p = prefix / sub
+            if p.is_dir():
+                dirs.append(p)
 
     mip = getattr(sys, "_MEIPASS", None)
     if mip:
@@ -237,11 +259,18 @@ def version_files() -> List[Path]:
         if p.is_file():
             files.append(p)
 
-    for prefix in fhs_prefixes():
+    env_prefix = os.environ.get("PENGU_PREFIX")
+    if env_prefix:
+        p_env = Path(env_prefix).expanduser()
         for sub in ("share/pengu/VERSION", "lib/pengu/VERSION"):
-            p = prefix / sub
+            p = p_env / sub
             if p.is_file():
                 files.append(p)
+
+    for base in (module_root(), Path.cwd()):
+        p = base / "VERSION"
+        if p.is_file():
+            files.append(p)
 
     exe_dir = executable_dir()
     if exe_dir is not None:
@@ -249,10 +278,11 @@ def version_files() -> List[Path]:
         if p.is_file():
             files.append(p)
 
-    for base in (module_root(), Path.cwd()):
-        p = base / "VERSION"
-        if p.is_file():
-            files.append(p)
+    for prefix in fhs_prefixes():
+        for sub in ("share/pengu/VERSION", "lib/pengu/VERSION"):
+            p = prefix / sub
+            if p.is_file():
+                files.append(p)
 
     mip = getattr(sys, "_MEIPASS", None)
     if mip:

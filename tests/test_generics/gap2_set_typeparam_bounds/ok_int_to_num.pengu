@@ -1,0 +1,10 @@
+# 'int' implements 'Num': storing it through 'ref to T: Num' is fine.
+weave store shard T where T: Num with x as ref to T, v as T into void:
+    set essence of x is v
+
+weave main into int:
+    var n as int is 0
+    calling store with (sigil of n), 42
+    if n == 42:
+        return 0
+    return 1

@@ -1,0 +1,18 @@
+# A string parameter stored into a Nexus rune's field is deep-copied, so the
+# caller's local can still be released without a double free.
+import std.spark
+
+rune Holder derive Nexus:
+    name as string
+
+weave build with s as string into Holder:
+    var h as Holder with:
+        set .name is s
+    return h
+
+weave main into int:
+    var local as string is "value{(1 to string)}"
+    var h as Holder is calling build with local
+    calling spark.println with h.name
+    banish h
+    return 0

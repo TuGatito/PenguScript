@@ -10,7 +10,10 @@ from .pengu_types import (
     U8_TYPE, I8_TYPE, U16_TYPE, I16_TYPE, USIZE_TYPE, ISIZE_TYPE, FLOAT_TYPE, F32_TYPE,
     F64_TYPE, DOUBLE_TYPE, BOOL_TYPE, STRING_TYPE, VOID_TYPE, ERROR_TYPE, ConceptType, SealType,
     CVarArgsType,
-    implements_concept, resolve_concept_method, ast_to_type
+    implements_concept,
+    typeparam_accepts_value, resolve_concept_method, ast_to_type,
+    get_type_base_name, extract_type_params_from_type, receiver_deep_copies_on_store,
+    type_has_derived_nexus,
 )
 from .pengu_symbols import SymbolTable, Symbol, Scope, resolve_imports, find_module_path, decl_layout
 from .pengu_infer import TypeInferrer, ConstFolder
@@ -27,6 +30,7 @@ from .pengu_errors import (
     InvalidRitualSelfAccessError, InvalidRitualCallError,
     ArraySizeMismatchError, InvalidRangeError, PrivateSymbolAccessError, NonExhaustiveJudgeError,
     UnknownArrayDimensionError, AutoOwnedBanishError, BorrowedBanishError, InvalidBuilderStatementError,
+    DuplicateConceptBindingError, InfiniteTypeSizeError,
     suggest_similar_identifier
 )
 
@@ -208,6 +212,31 @@ def _extract_weave_modifiers(children: List[Any], start_idx: int = 0) -> Tuple[b
     return is_inline, is_ritual, idx
 
 
+def extract_where_clause(where_node: Tree) -> Dict[str, List[str]]:
+    """Extracts concept bounds dictionary from a where_clause AST node."""
+    bounds: Dict[str, List[str]] = {}
+    if not isinstance(where_node, Tree):
+        return bounds
+    for wb in where_node.children:
+        if isinstance(wb, Tree) and wb.data == "where_bound":
+            t_param_name = _node_to_name(wb.children[0])
+            concept_name = _node_to_name(wb.children[1])
+            bounds.setdefault(t_param_name, []).append(concept_name)
+    return bounds
+
+
+def extract_derive_clause(derive_node: Tree) -> List[str]:
+    """Extracts list of derived concept names from a derive_clause AST node."""
+    concepts: List[str] = []
+    if not isinstance(derive_node, Tree):
+        return concepts
+    for ch in derive_node.children:
+        c_name = _node_to_name(ch)
+        if c_name:
+            concepts.append(c_name)
+    return concepts
+
+
 def extract_shard_params(shard_node: Tree) -> Tuple[List[str], Dict[str, List[str]]]:
     """Extracts type parameter names and optional where concept bounds from a shard_params AST node."""
     type_params: List[str] = []
@@ -218,12 +247,40 @@ def extract_shard_params(shard_node: Tree) -> Tuple[List[str], Dict[str, List[st
         if isinstance(ch, Token) and ch.type == "NAME":
             type_params.append(str(ch))
         elif isinstance(ch, Tree) and ch.data == "where_clause":
-            for wb in ch.children:
-                if isinstance(wb, Tree) and wb.data == "where_bound":
-                    t_param_name = _node_to_name(wb.children[0])
-                    concept_name = _node_to_name(wb.children[1])
-                    bounds.setdefault(t_param_name, []).append(concept_name)
+            bounds.update(extract_where_clause(ch))
     return type_params, bounds
+
+
+def check_infinite_size(t: Type, target_base_name: str, seen: Optional[Set[str]] = None) -> bool:
+    """Checks whether type t contains target_base_name directly by value without indirection."""
+    if t is None:
+        return False
+    if seen is None:
+        seen = set()
+    if isinstance(t, RefType):
+        return False
+    if isinstance(t, (ListType, MapType, SliceType, ManyType)):
+        return False
+    if isinstance(t, FrozenType):
+        return check_infinite_size(t.target, target_base_name, seen)
+    if isinstance(t, MaybeType):
+        return check_infinite_size(t.element, target_base_name, seen)
+    if isinstance(t, ResultType):
+        return check_infinite_size(t.ok_type, target_base_name, seen) or check_infinite_size(t.err_type, target_base_name, seen)
+    if isinstance(t, ArrayType):
+        return check_infinite_size(t.element, target_base_name, seen)
+    if isinstance(t, (RuneType, EchoType)):
+        b_name = get_type_base_name(t)
+        if b_name == target_base_name:
+            return True
+        if b_name in seen:
+            return False
+        seen.add(b_name)
+        for ft in t.fields.values():
+            if check_infinite_size(ft, target_base_name, seen):
+                return True
+    return False
+
 
 
 # Loop rules that can also be used as values (collecting their body's value).
@@ -237,6 +294,32 @@ _ESCAPE_COMPOUND_RULES = (
     "indent_literal", "indent_entries", "indent_array",
     "indent_row", "field_entry", "map_entry",
 )
+
+
+# Imported modules are re-parsed every time a module imports them (the
+# sub-checker below needs their top-level symbols).  Caching the parsed tree by
+# (path, mtime, size) removes ~200 redundant parses per build for a program that
+# pulls in several std modules.  Trees are read-only during collection, so
+# sharing them is safe; the cache is bounded and self-invalidating.
+_MODULE_TREE_CACHE: Dict[Any, Any] = {}
+_MODULE_TREE_CACHE_MAX = 512
+
+
+def _cached_module_tree(path: str, code: str, parser: Any) -> Any:
+    """Parses a module once per (path, mtime, size) within the process."""
+    try:
+        st = os.stat(path)
+        key = (os.path.abspath(path), st.st_mtime_ns, st.st_size)
+    except OSError:
+        return parser.parse(code)
+    hit = _MODULE_TREE_CACHE.get(key)
+    if hit is not None:
+        return hit
+    tree = parser.parse(code)
+    if len(_MODULE_TREE_CACHE) >= _MODULE_TREE_CACHE_MAX:
+        _MODULE_TREE_CACHE.clear()
+    _MODULE_TREE_CACHE[key] = tree
+    return tree
 
 
 class PenguChecker:
@@ -333,6 +416,9 @@ class PenguChecker:
         # Pass 1: Collect all top-level types, functions, declarations, includes, and modules
         self._collect_top_level(tree, import_order=import_order)
         self._check_omen_variant_collisions()
+        # Pass 1b: every top-level type is registered now, so declared type
+        # nodes (params, returns, fields) can be validated.
+        self._validate_declared_types(tree)
 
         # Pass 2: Validate semantic rules and type check
         self.symbols.has_includes = bool(self.symbols.includes) and reset_symbols is False
@@ -623,7 +709,7 @@ class PenguChecker:
     # -------------------------------------------------------------------------
     # Pass 1: Collect Top-Level Declarations
     # -------------------------------------------------------------------------
-    def _collect_top_level(self, tree: Tree, import_order: Optional[List[str]] = None, current_insignia: Optional[str] = None) -> Optional[str]:
+    def _collect_top_level(self, tree: Tree, import_order: Optional[List[str]] = None, current_insignia: Optional[str] = None, file_imports: Optional[Set[str]] = None) -> Optional[str]:
         """Discovers and registers all module definitions, imports, and declarations.
 
         Args:
@@ -631,16 +717,21 @@ class PenguChecker:
             import_order: Optional precomputed topological import order.
             current_insignia: Optional inherited insignia prefix.
         """
+        if not hasattr(self, "_collected_files") or self._collected_files is None:
+            self._collected_files = set()
         has_imports = False
         is_d_pengu = bool(self.filename and self.filename.endswith(".d.pengu"))
         is_std = bool(self.filename and ("std" in self.filename.replace("/", "\\").split("\\") or "std" in self.filename.replace("\\", "/").split("/")))
 
-        file_imports: Set[str] = set()
+        if file_imports is None:
+            file_imports = set()
         for child in tree.children:
             if not isinstance(child, Tree):
                 continue
             if child.data == "file":
-                current_insignia = self._collect_top_level(child, import_order=import_order, current_insignia=current_insignia)
+                current_insignia = self._collect_top_level(child, import_order=import_order,
+                                                           current_insignia=current_insignia,
+                                                           file_imports=file_imports)
                 continue
             if child.data != "top_stmt" or not child.children:
                 continue
@@ -697,8 +788,12 @@ class PenguChecker:
                     )
                     self._record_error(err)
                 file_imports.add(dot_path)
+                # 'file_imports' is per file, but 'symbols.imports' drives the
+                # module scheduler: never append the same module twice (a module
+                # legitimately imported by several files must be processed once).
+                if dot_path not in self.symbols.imported_modules:
+                    self.symbols.imports.append(dot_path)
                 self.symbols.imported_modules.add(dot_path)
-                self.symbols.imports.append(dot_path)
                 last_name = str(path_tree.children[-1])
                 bind_name = alias if alias is not None else last_name
 
@@ -747,13 +842,17 @@ class PenguChecker:
                             mod_code = mf.read()
                         from .pengu_parser import PenguParser
                         sub_parser = PenguParser()
-                        sub_tree = sub_parser.parse(mod_code)
+                        sub_tree = _cached_module_tree(mod_file, mod_code, sub_parser)
                         sub_checker = PenguChecker(base_dir=self.base_dir)
                         sub_checker.source_code = mod_code
                         sub_checker.filename = mod_file
-                        sub_checker._collect_top_level(sub_tree)
+                        sub_checker._collect_top_level(sub_tree, import_order=[])
+                        mod_abs_file = os.path.abspath(mod_file)
                         for sname, sym in sub_checker.symbols.global_scope.symbols.items():
                             if sym.kind != "import":
+                                sym_fp = getattr(sym, "file_path", None)
+                                if sym_fp and os.path.abspath(sym_fp) != mod_abs_file:
+                                    continue
                                 mod_scope.define(sym)
                                 eff_c_name = sym.get_c_name()
                                 if sym.kind in ("weave", "function", "declare") and isinstance(sym.type, FnType):
@@ -776,6 +875,18 @@ class PenguChecker:
                         for gname, ginfo in sub_checker.symbols.generic_functions.items():
                             self.symbols.generic_functions[gname] = ginfo
                             self.symbols.generic_functions[f"{bind_name}_{gname}"] = ginfo
+                except PenguError as mod_err:
+                    # Surface the imported module's own diagnostic instead of
+                    # swallowing it and reporting a confusing 'undefined
+                    # identifier' in the importing file.  Deduplicated because
+                    # the builder also checks each module on its own.
+                    mod_key = (getattr(mod_err, "code", None), getattr(mod_err, "line", None),
+                               getattr(mod_err, "file", None) or getattr(mod_err, "filename", None))
+                    known = {(getattr(e, "code", None), getattr(e, "line", None),
+                              getattr(e, "file", None) or getattr(e, "filename", None))
+                             for e in self.errors}
+                    if mod_key not in known:
+                        self._record_error(mod_err)
                 except Exception:
                     pass
 
@@ -795,7 +906,12 @@ class PenguChecker:
                 chosen = self._active_when_top_items(stmt)
                 if chosen:
                     saved_insignia = current_insignia
-                    self._collect_top_level(Tree("file", chosen), current_insignia=current_insignia)
+                    # Keep the precomputed import order: without it the recursive
+                    # pass re-resolves and re-parses the whole import graph for
+                    # every 'when' block (a large, repeated cost).
+                    self._collect_top_level(Tree("file", chosen), import_order=import_order,
+                                            current_insignia=current_insignia,
+                                            file_imports=file_imports)
                     current_insignia = saved_insignia
                     self.symbols.insignia = saved_insignia
 
@@ -813,11 +929,19 @@ class PenguChecker:
                     self._record_error(err)
                     continue
                 c_r_name = f"{current_insignia}{r_name}" if current_insignia else r_name
+                is_cyclus = False
                 type_params = []
                 bounds = {}
+                derived_concepts: List[str] = []
                 rem_children = [c for c in stmt.children[1:] if c is not None]
+                if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "cyclus_kw":
+                    is_cyclus = True
+                    rem_children = rem_children[1:]
                 if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "shard_params":
                     type_params, bounds = extract_shard_params(rem_children[0])
+                    rem_children = rem_children[1:]
+                if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "derive_clause":
+                    derived_concepts = extract_derive_clause(rem_children[0])
                     rem_children = rem_children[1:]
 
                 if len(type_params) != len(set(type_params)):
@@ -830,13 +954,22 @@ class PenguChecker:
                     )
                     self._record_error(err)
 
+                fields: Dict[str, Type] = {}
+                rune_t = RuneType(name=r_name, fields=fields, type_params=type_params, base_name=r_name, c_name=c_r_name, derived_concepts=list(derived_concepts))
+                if type_params:
+                    self.symbols.generic_runes[r_name] = (type_params, stmt)
+                self.symbols.runes[r_name] = rune_t
+                if c_r_name != r_name:
+                    self.symbols.runes[c_r_name] = rune_t
+
                 def lookup_tp(tname: str):
                     if tname in type_params:
                         return TypeParam(tname, bounds=bounds.get(tname, []))
+                    if tname == r_name:
+                        return rune_t
                     return self.symbols.lookup_type(tname)
 
                 seen_c_fields: Dict[str, str] = {}
-                fields: Dict[str, Type] = {}
                 for f_decl in rem_children:
                     if isinstance(f_decl, Tree) and f_decl.data == "field_decl":
                         f_name = str(f_decl.children[0])
@@ -855,15 +988,63 @@ class PenguChecker:
                         f_type = ast_to_type(f_decl.children[1], lookup_tp)
                         fields[f_name] = f_type
 
-                if type_params:
-                    self.symbols.generic_runes[r_name] = (type_params, stmt)
-                    rune_t = RuneType(name=r_name, fields=fields, type_params=type_params)
-                else:
-                    rune_t = RuneType(name=r_name, fields=fields)
+                        # Bug 9: Detect infinite type size (recursive value struct)
+                        if check_infinite_size(f_type, r_name):
+                            err = self._make_error(
+                                InfiniteTypeSizeError,
+                                f"Recursive type '{r_name}' has infinite size because field '{f_name}' contains '{r_name}' directly by value",
+                                f_decl,
+                                code="E0050",
+                                help=f"Use 'ref to {r_name}' or 'maybe ref to {r_name}' to break the cycle with pointer indirection.",
+                                note="A type cannot contain itself directly by value."
+                            )
+                            self._record_error(err)
 
-                self.symbols.runes[r_name] = rune_t
-                if c_r_name != r_name:
-                    self.symbols.runes[c_r_name] = rune_t
+                # Validate derive clause
+                # Deep copy (Imago) and deep free (Nexus) always come as a pair:
+                # a container that clones its elements must also be able to
+                # release them, so deriving one implicitly derives the other.
+                if "Imago" in derived_concepts and "Nexus" not in derived_concepts:
+                    derived_concepts.append("Nexus")
+                if "Nexus" in derived_concepts and "Imago" not in derived_concepts:
+                    derived_concepts.append("Imago")
+                for d_concept in derived_concepts:
+                    if d_concept not in ("Par", "Ordo", "Vinculum", "Imago", "Nexus"):
+                        err = self._make_error(
+                            SemanticError,
+                            f"Concept '{d_concept}' cannot be automatically derived for rune '{r_name}'",
+                            stmt,
+                            code="E0005",
+                            help="Only 'Par', 'Ordo', 'Vinculum', 'Imago' and 'Nexus' can be derived.",
+                            note="Built-in derivable concepts are Par, Ordo, Vinculum, Imago, Nexus."
+                        )
+                        self._record_error(err)
+                        continue
+
+                    for fn_k, ft_v in fields.items():
+                        if isinstance(ft_v, TypeParam):
+                            if d_concept not in ft_v.bounds:
+                                ft_v.bounds.append(d_concept)
+                            if ft_v.name in bounds and d_concept not in bounds[ft_v.name]:
+                                bounds[ft_v.name].append(d_concept)
+                        elif not implements_concept(ft_v, d_concept, self.symbols):
+                            err = self._make_error(
+                                SemanticError,
+                                f"Cannot derive '{d_concept}' for rune '{r_name}' because field '{fn_k}' of type '{ft_v}' does not implement '{d_concept}'",
+                                stmt,
+                                code="E0032",
+                                help=f"Ensure type '{ft_v}' implements '{d_concept}'.",
+                                note=f"Deriving '{d_concept}' requires all fields to implement '{d_concept}'."
+                            )
+                            self._record_error(err)
+
+                    self.symbols.concept_bindings[(r_name, d_concept)] = {}
+                    if c_r_name != r_name:
+                        self.symbols.concept_bindings[(c_r_name, d_concept)] = {}
+                # 'rune_t' was built before validation appended the implied
+                # Imago/Nexus pair, so refresh the record the checker and the
+                # code generator read derived concepts from.
+                rune_t.derived_concepts = list(derived_concepts)
                 doc = self._extract_preceding_doc(line)
                 self.symbols.global_scope.define(Symbol(
                     name=r_name, type=rune_t, kind="rune", line=line, column=col, doc=doc, file_path=self.filename, c_name=c_r_name
@@ -883,11 +1064,19 @@ class PenguChecker:
                     self._record_error(err)
                     continue
                 c_e_name = f"{current_insignia}{e_name}" if current_insignia else e_name
+                is_cyclus = False
                 type_params = []
                 bounds = {}
+                derived_concepts: List[str] = []
                 rem_children = [c for c in stmt.children[1:] if c is not None]
+                if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "cyclus_kw":
+                    is_cyclus = True
+                    rem_children = rem_children[1:]
                 if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "shard_params":
                     type_params, bounds = extract_shard_params(rem_children[0])
+                    rem_children = rem_children[1:]
+                if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "derive_clause":
+                    derived_concepts = extract_derive_clause(rem_children[0])
                     rem_children = rem_children[1:]
 
                 def lookup_tp(tname: str):
@@ -915,11 +1104,33 @@ class PenguChecker:
                         f_type = ast_to_type(f_decl.children[1], lookup_tp)
                         fields[f_name] = f_type
 
+                # An 'echo' is an *untagged* C union: there is no discriminant,
+                # so equality/ordering/hashing would read whichever member the
+                # last write left behind. Deriving a concept on it is unsound.
+                for d_concept in derived_concepts:
+                    err = self._make_error(
+                        SemanticError,
+                        f"Concept '{d_concept}' cannot be derived for echo '{e_name}'",
+                        stmt,
+                        code="E0005",
+                        help="Echos compile to untagged C unions, so the active member is "
+                             "unknown at runtime; use an algebraic 'omen' (tagged) or "
+                             "implement the concept explicitly with 'bind'.",
+                        note="'derive' is supported for runes and algebraic omens only."
+                    )
+                    self._record_error(err)
+                derived_concepts = []
+
                 if type_params:
                     self.symbols.generic_echos[e_name] = (type_params, stmt)
-                    echo_t = EchoType(name=e_name, fields=fields, type_params=type_params)
+                    echo_t = EchoType(name=e_name, fields=fields, type_params=type_params, c_name=c_e_name, derived_concepts=list(derived_concepts))
                 else:
-                    echo_t = EchoType(name=e_name, fields=fields)
+                    echo_t = EchoType(name=e_name, fields=fields, c_name=c_e_name, derived_concepts=list(derived_concepts))
+
+                for d_concept in derived_concepts:
+                    self.symbols.concept_bindings[(e_name, d_concept)] = {}
+                    if c_e_name != e_name:
+                        self.symbols.concept_bindings[(c_e_name, d_concept)] = {}
 
                 self.symbols.echos[e_name] = echo_t
                 if c_e_name != e_name:
@@ -943,11 +1154,21 @@ class PenguChecker:
                     self._record_error(err)
                     continue
                 c_o_name = f"{current_insignia}{o_name}" if current_insignia else o_name
+                is_cyclus = False
                 type_params = []
                 bounds = {}
+                derived_concepts: List[str] = []
                 rem_children = [c for c in stmt.children[1:] if c is not None]
+                if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "cyclus_kw":
+                    is_cyclus = True
+                    rem_children = rem_children[1:]
                 if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "shard_params":
                     type_params, bounds = extract_shard_params(rem_children[0])
+                    rem_children = rem_children[1:]
+                if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "omen_string_kind":
+                    rem_children = rem_children[1:]
+                if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "derive_clause":
+                    derived_concepts = extract_derive_clause(rem_children[0])
                     rem_children = rem_children[1:]
 
                 def lookup_tp(tname: str):
@@ -1071,11 +1292,76 @@ class PenguChecker:
                 if has_any_payload and not is_string_mode:
                     variant_values = {}
 
+                # Validate 'derive' for omens.  A simple (non-algebraic) omen is
+                # a plain C enum, so equality/ordering/hash come for free; an
+                # algebraic omen is a tagged struct and only the active variant's
+                # payload may be inspected, which the generated code does.
+                if is_string_mode and derived_concepts:
+                    err = self._make_error(
+                        SemanticError,
+                        f"Concept(s) {', '.join(derived_concepts)} cannot be derived for string-valued omen '{o_name}'",
+                        stmt,
+                        code="E0005",
+                        help="String-valued omens are constant macros, not a C type; "
+                             "derive concepts only on numeric/algebraic omens.",
+                        note="Remove the 'derive' clause or use an algebraic omen."
+                    )
+                    self._record_error(err)
+                    derived_concepts = []
+                # Imago/Nexus pairing (see the rune derive validation above).
+                if "Imago" in derived_concepts and "Nexus" not in derived_concepts:
+                    derived_concepts.append("Nexus")
+                if "Nexus" in derived_concepts and "Imago" not in derived_concepts:
+                    derived_concepts.append("Imago")
+                for d_concept in derived_concepts:
+                    if d_concept not in ("Par", "Ordo", "Vinculum", "Imago", "Nexus"):
+                        err = self._make_error(
+                            SemanticError,
+                            f"Concept '{d_concept}' cannot be automatically derived for omen '{o_name}'",
+                            stmt,
+                            code="E0005",
+                            help="Only 'Par', 'Ordo', 'Vinculum', 'Imago' and 'Nexus' can be derived.",
+                            note="Built-in derivable concepts are Par, Ordo, Vinculum, Imago, Nexus."
+                        )
+                        self._record_error(err)
+                        continue
+                    if not is_string_mode and not has_any_payload:
+                        # Simple enum: only the tag exists, nothing to validate.
+                        self.symbols.concept_bindings[(o_name, d_concept)] = {}
+                        if c_o_name != o_name:
+                            self.symbols.concept_bindings[(c_o_name, d_concept)] = {}
+                        continue
+                    for v_name, v_fields in variants.items():
+                        for fn_k, ft_v in v_fields.items():
+                            if isinstance(ft_v, TypeParam):
+                                if d_concept not in ft_v.bounds:
+                                    ft_v.bounds.append(d_concept)
+                                if ft_v.name in bounds and d_concept not in bounds[ft_v.name]:
+                                    bounds[ft_v.name].append(d_concept)
+                            elif not implements_concept(ft_v, d_concept, self.symbols):
+                                err = self._make_error(
+                                    SemanticError,
+                                    f"Cannot derive '{d_concept}' for omen '{o_name}' because variant '{v_name}' field '{fn_k}' of type '{ft_v}' does not implement '{d_concept}'",
+                                    stmt,
+                                    code="E0032",
+                                    help=f"Ensure type '{ft_v}' implements '{d_concept}'.",
+                                    note=f"Deriving '{d_concept}' requires all payload fields to implement it."
+                                )
+                                self._record_error(err)
+                    self.symbols.concept_bindings[(o_name, d_concept)] = {}
+                    if c_o_name != o_name:
+                        self.symbols.concept_bindings[(c_o_name, d_concept)] = {}
+
                 if type_params:
                     self.symbols.generic_omens[o_name] = (type_params, stmt)
-                    omen_t = OmenType(name=o_name, variants=variants, variant_values=variant_values, type_params=type_params, c_name=c_o_name)
+                    omen_t = OmenType(name=o_name, variants=variants, variant_values=variant_values, type_params=type_params, c_name=c_o_name, derived_concepts=list(derived_concepts))
                 else:
-                    omen_t = OmenType(name=o_name, variants=variants, variant_values=variant_values, c_name=c_o_name)
+                    omen_t = OmenType(name=o_name, variants=variants, variant_values=variant_values, c_name=c_o_name, derived_concepts=list(derived_concepts))
+
+                for d_concept in derived_concepts:
+                    self.symbols.concept_bindings.setdefault((o_name, d_concept), {})
+                    if c_o_name != o_name:
+                        self.symbols.concept_bindings.setdefault((c_o_name, d_concept), {})
 
                 self.symbols.omens[o_name] = omen_t
                 if c_o_name != o_name:
@@ -1124,7 +1410,7 @@ class PenguChecker:
                     return self.symbols.lookup_type(tname)
 
                 target_t = ast_to_type(rem_children[0], lookup_tp)
-                alias_obj = AliasType(name=a_name, target=target_t, type_params=type_params)
+                alias_obj = AliasType(name=a_name, target=target_t, type_params=type_params, c_name=c_a_name)
                 if type_params:
                     self.symbols.generic_aliases[a_name] = (type_params, stmt)
                 self.symbols.aliases[a_name] = alias_obj
@@ -1256,7 +1542,18 @@ class PenguChecker:
                 target_type = ast_to_type(target_type_node, lookup_tp)
                 concept_name = _node_to_name(concept_name_node)
                 target_name = getattr(target_type, "name", str(target_type))
-                base_tname = target_name.split("_")[0]
+                base_tname = get_type_base_name(target_type)
+
+                if (target_name, concept_name) in self.symbols.concept_bindings or (base_tname, concept_name) in self.symbols.concept_bindings:
+                    err = self._make_error(
+                        DuplicateConceptBindingError,
+                        f"Duplicate concept binding: '{target_name}' already bound to '{concept_name}'",
+                        stmt,
+                        code="E0047",
+                        help=f"Remove the duplicate 'bind {target_name} with {concept_name}:' declaration.",
+                        note="A type can only bind a concept once."
+                    )
+                    self._record_error(err)
 
                 if not self.symbols.has_includes:
                     target_exists = (
@@ -1321,11 +1618,35 @@ class PenguChecker:
 
                         impl_fn_t = FnType(params=m_params, return_type=m_ret, default_count=default_count, is_ritual=m_is_ritual, type_params=m_tparams)
                         implemented_methods[m_name] = impl_fn_t
+
+                        # Coherence (Phase 3): a type may bind several concepts,
+                        # but the same method name cannot be provided by two
+                        # different concepts — the call site could not choose.
+                        owner_key = (base_tname, m_name)
+                        prev_owner = self.symbols.bind_method_owner.get(owner_key)
+                        if prev_owner is not None and prev_owner != concept_name:
+                            err = self._make_error(
+                                DuplicateConceptBindingError,
+                                f"Method '{m_name}' of type '{base_tname}' is already provided by concept '{prev_owner}'",
+                                m_decl,
+                                code="E0047",
+                                help=f"Rename the method in one of the 'bind' blocks, or merge "
+                                     f"'{prev_owner}' and '{concept_name}'.",
+                                note="A (type, method) pair can only be implemented once."
+                            )
+                            self._record_error(err)
+                        else:
+                            self.symbols.bind_method_owner[owner_key] = concept_name
+
                         self.symbols.methods[(target_name, m_name)] = impl_fn_t
-                        self.symbols.methods[(base_tname, m_name)] = impl_fn_t
                         if type_params or m_tparams:
-                            comb = (type_params or []) + (m_tparams or [])
-                            self.symbols.generic_methods[(base_tname, m_name)] = (comb, m_decl)
+                            self.symbols.methods[(base_tname, m_name)] = impl_fn_t
+                            # (receiver_params, method_params, ast) — keeping the
+                            # two param lists apart lets call sites split the
+                            # receiver's type args from explicit 'of T' args.
+                            self.symbols.generic_methods[(base_tname, m_name)] = (
+                                list(type_params or []), list(m_tparams or []), m_decl,
+                            )
 
                 if concept_obj is not None:
                     for c_mname, c_mfn in concept_obj.methods.items():
@@ -1341,7 +1662,21 @@ class PenguChecker:
                             self._record_error(err)
                         else:
                             impl_mfn = implemented_methods[c_mname]
-                            if len(impl_mfn.params) != len(c_mfn.params) or not impl_mfn.return_type.is_compatible(c_mfn.return_type):
+                            if bool(getattr(impl_mfn, "is_ritual", False)) != bool(getattr(c_mfn, "is_ritual", False)):
+                                err = self._make_error(
+                                    ConceptMethodMismatchError,
+                                    f"Method '{c_mname}' in bind block is "
+                                    f"{'ritual' if getattr(impl_mfn, 'is_ritual', False) else 'not ritual'}, "
+                                    f"but concept '{concept_name}' declares it "
+                                    f"{'ritual' if getattr(c_mfn, 'is_ritual', False) else 'not ritual'}",
+                                    stmt,
+                                    code="E0030",
+                                    help="Add or remove the 'ritual' modifier so the implementation "
+                                         "matches the concept.",
+                                    note="A ritual method has no 'self'; a normal method receives the instance."
+                                )
+                                self._record_error(err)
+                            elif len(impl_mfn.params) != len(c_mfn.params) or not impl_mfn.return_type.is_compatible(c_mfn.return_type):
                                 err = self._make_error(
                                     ConceptMethodMismatchError,
                                     f"Signature of method '{c_mname}' in bind block does not match concept '{concept_name}' declaration (parameter count mismatch: expected {len(c_mfn.params)}, found {len(impl_mfn.params)})",
@@ -1409,12 +1744,34 @@ class PenguChecker:
                 target_type_node = stmt.children[0]
                 target_type = ast_to_type(target_type_node, self.symbols.lookup_type)
                 target_name = getattr(target_type, "name", str(target_type))
-                base_tname = target_name.split("_")[0]
+                base_tname = get_type_base_name(target_type)
                 type_params = []
-                if base_tname in self.symbols.generic_runes:
-                    type_params = self.symbols.generic_runes[base_tname][0]
-                elif isinstance(target_type, RuneType) and target_type.type_args:
-                    type_params = [getattr(t, "name", str(t)) for t in target_type.type_args]
+                enc_bounds: Dict[str, List[str]] = {}
+                for ch in stmt.children[1:]:
+                    if isinstance(ch, Tree) and ch.data == "shard_params":
+                        sp_names, sp_bounds = extract_shard_params(ch)
+                        if sp_names:
+                            type_params = sp_names
+                        enc_bounds.update(sp_bounds)
+                    elif isinstance(ch, Tree) and ch.data == "where_clause":
+                        enc_bounds.update(extract_where_clause(ch))
+
+                if not type_params:
+                    if base_tname in self.symbols.generic_runes:
+                        type_params = self.symbols.generic_runes[base_tname][0]
+                    elif isinstance(target_type, RuneType) and target_type.type_args:
+                        type_params = [getattr(t, "name", str(t)) for t in target_type.type_args]
+                    else:
+                        type_params = extract_type_params_from_type(target_type)
+
+                if isinstance(target_type, MapType):
+                    k_name = getattr(target_type.key, "name", None)
+                    if k_name and k_name in type_params:
+                        k_b = enc_bounds.setdefault(k_name, [])
+                        if "Par" not in k_b: k_b.append("Par")
+                        if "Vinculum" not in k_b: k_b.append("Vinculum")
+
+                target_type = target_type.substitute({tp: TypeParam(tp, bounds=enc_bounds.get(tp, [])) for tp in type_params})
 
                 for m_decl in stmt.children[1:]:
                     if isinstance(m_decl, Tree) and m_decl.data == "weave_decl":
@@ -1422,15 +1779,19 @@ class PenguChecker:
                         m_name = str(m_decl.children[m_idx])
                         m_rem = [c for c in m_decl.children[m_idx+1:] if c is not None]
                         m_tparams = []
+                        m_bounds = {}
                         if m_rem and isinstance(m_rem[0], Tree) and m_rem[0].data == "shard_params":
-                            m_tparams, _ = extract_shard_params(m_rem[0])
+                            m_tparams, m_bounds = extract_shard_params(m_rem[0])
                             m_rem = m_rem[1:]
+
+                        all_bounds = dict(enc_bounds)
+                        all_bounds.update(m_bounds)
 
                         def lookup_m_tp(tname: str):
                             if tname in m_tparams:
-                                return TypeParam(tname)
+                                return TypeParam(tname, bounds=all_bounds.get(tname, []))
                             if tname in type_params:
-                                return TypeParam(tname)
+                                return TypeParam(tname, bounds=all_bounds.get(tname, []))
                             return self.symbols.lookup_type(tname)
 
                         m_params: List[Tuple[Optional[str], Type]] = []
@@ -1452,10 +1813,9 @@ class PenguChecker:
 
                         impl_fn_t = FnType(params=m_params, return_type=m_ret, default_count=default_count, is_ritual=m_ritual, type_params=m_tparams)
                         self.symbols.methods[(target_name, m_name)] = impl_fn_t
-                        self.symbols.methods[(base_tname, m_name)] = impl_fn_t
                         if type_params or m_tparams:
-                            comb = (type_params or []) + (m_tparams or [])
-                            self.symbols.generic_methods[(base_tname, m_name)] = (comb, m_decl)
+                            self.symbols.methods[(base_tname, m_name)] = impl_fn_t
+                            self.symbols.generic_methods[(base_tname, m_name)] = (type_params or [], m_tparams or [], m_decl)
 
             elif rule == "declare_stmt":
                 is_inline, is_ritual, idx = _extract_weave_modifiers(stmt.children)
@@ -1737,12 +2097,35 @@ class PenguChecker:
         elif rule == "enchanting_decl":
             target_type_node = node.children[0]
             target_type = ast_to_type(target_type_node, self.symbols.lookup_type)
-            base_tname = target_type.name.split("_")[0]
+            base_tname = get_type_base_name(target_type)
             type_params = []
-            if base_tname in self.symbols.generic_runes:
-                type_params = self.symbols.generic_runes[base_tname][0]
-            elif isinstance(target_type, RuneType) and target_type.type_args:
-                type_params = [getattr(t, "name", str(t)) for t in target_type.type_args]
+            bounds: Dict[str, List[str]] = {}
+
+            for ch in node.children[1:]:
+                if isinstance(ch, Tree) and ch.data == "shard_params":
+                    sp_names, sp_bounds = extract_shard_params(ch)
+                    if sp_names:
+                        type_params = sp_names
+                    bounds.update(sp_bounds)
+                elif isinstance(ch, Tree) and ch.data == "where_clause":
+                    bounds.update(extract_where_clause(ch))
+
+            if not type_params:
+                if base_tname in self.symbols.generic_runes:
+                    type_params = self.symbols.generic_runes[base_tname][0]
+                elif isinstance(target_type, RuneType) and target_type.type_args:
+                    type_params = [getattr(t, "name", str(t)) for t in target_type.type_args]
+                else:
+                    type_params = extract_type_params_from_type(target_type)
+
+            if isinstance(target_type, MapType):
+                k_name = getattr(target_type.key, "name", None)
+                if k_name and k_name in type_params:
+                    k_b = bounds.setdefault(k_name, [])
+                    if "Par" not in k_b: k_b.append("Par")
+                    if "Vinculum" not in k_b: k_b.append("Vinculum")
+
+            target_type = target_type.substitute({tp: TypeParam(tp, bounds=bounds.get(tp, [])) for tp in type_params})
 
             if isinstance(target_type, RuneType) and base_tname not in self.symbols.runes:
                 err = self._make_error(
@@ -1758,11 +2141,12 @@ class PenguChecker:
             span_start, span_end = self._get_node_span(node)
             self.symbols.push_scope(kind="enchanting", enchanting_type=target_type, start_line=span_start, end_line=span_end)
             for tp in type_params:
-                self.symbols.define(Symbol(name=tp, type=TypeParam(tp), kind="type"))
+                tp_b = list(bounds.get(tp, []))
+                self.symbols.define(Symbol(name=tp, type=TypeParam(tp, bounds=tp_b), kind="type"))
 
             for child in node.children[1:]:
                 if isinstance(child, Tree) and child.data == "weave_decl":
-                    self._check_enchanting_method(child, target_type, type_params=type_params)
+                    self._check_enchanting_method(child, target_type, type_params=type_params, type_bounds=bounds)
                 else:
                     self._check_node(child)
 
@@ -1774,19 +2158,32 @@ class PenguChecker:
             concept_name_node = node.children[1]
             rem_children = [c for c in node.children[2:] if c is not None]
             type_params = []
+            bind_bounds: Dict[str, List[str]] = {}
             if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "shard_params":
-                type_params, _ = extract_shard_params(rem_children[0])
+                type_params, bind_bounds = extract_shard_params(rem_children[0])
+                rem_children = rem_children[1:]
+            elif rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "where_clause":
+                # 'bind Foo with Bar shard T:' may also carry a standalone
+                # 'where T: ...' clause after the shard list.
+                bind_bounds.update(extract_where_clause(rem_children[0]))
                 rem_children = rem_children[1:]
 
             target_type = ast_to_type(target_type_node, self.symbols.lookup_type)
+            if type_params:
+                target_type = target_type.substitute(
+                    {tp: TypeParam(tp, bounds=bind_bounds.get(tp, [])) for tp in type_params}
+                )
             span_start, span_end = self._get_node_span(node)
             self.symbols.push_scope(kind="enchanting", enchanting_type=target_type, start_line=span_start, end_line=span_end)
             for tp in type_params:
-                self.symbols.define(Symbol(name=tp, type=TypeParam(tp), kind="type"))
+                # The shard bounds ('where T: Par') must reach the method bodies:
+                # the body of 'bind Box with Eq shard T where T: Par' compares
+                # 'T' values, and that needs the bound at check time.
+                self.symbols.define(Symbol(name=tp, type=TypeParam(tp, bounds=bind_bounds.get(tp, [])), kind="type"))
 
             for child in rem_children:
                 if isinstance(child, Tree) and child.data == "weave_decl":
-                    self._check_enchanting_method(child, target_type, type_params=type_params)
+                    self._check_enchanting_method(child, target_type, type_params=type_params, type_bounds=bind_bounds)
                 else:
                     self._check_node(child)
 
@@ -1868,8 +2265,8 @@ class PenguChecker:
                 curr = curr.children[0]
 
             if isinstance(curr, Tree) and curr.data in (
-                "str_lit", "string_lit", "raw_string_lit", "int_lit", "float_lit",
-                "bool_lit", "char_lit", "array_lit", "list_lit", "map_lit"
+                "string_lit", "int_lit", "float_lit", "char_lit",
+                "true_lit", "false_lit", "null_lit", "array_lit", "map_lit"
             ):
                 err = self._make_error(
                     InvalidMemoryOpError,
@@ -1991,15 +2388,19 @@ class PenguChecker:
                     isinstance(t, (RefType, ListType, MapType, AnyType))
                     or (isinstance(t, BaseType) and t.name == "string")
                     or (isinstance(curr, Tree) and curr.data == "essence_of")
+                    # A value type with a derived Nexus owns its fields and has
+                    # a generated destructor, so it can be released explicitly:
+                    # 'banish doc' lowers to '_pengu_cleanup_Doc(&doc)'.
+                    or type_has_derived_nexus(t, self.symbols)
                 )
                 if not is_valid_type:
                     err = self._make_error(
                         InvalidMemoryOpError,
-                        f"'banish' requires a reference (ref to T), string, list, or map, got nominal seal type '{t}'" if isinstance(t, SealType) else f"'banish' requires a reference (ref to T), string, list, or map, got '{t}'",
+                        f"'banish' requires a reference (ref to T), string, list, map, or a type with 'derive Nexus', got nominal seal type '{t}'" if isinstance(t, SealType) else f"'banish' requires a reference (ref to T), string, list, map, or a type with 'derive Nexus', got '{t}'",
                         target_expr,
                         code="E0008",
-                        help="Pass a reference (ref to T), string, list, or map to 'banish'. Nominal seal types are also rejected; cast first: 'banish (v to string)'.",
-                        note="'banish' deallocates memory behind references, strings, lists, and maps."
+                        help="Pass a reference (ref to T), string, list, or map to 'banish', or add 'derive Nexus' to the type. Nominal seal types are also rejected; cast first: 'banish (v to string)'.",
+                        note="'banish' deallocates memory behind references, strings, lists, maps, and 'derive Nexus' values."
                     )
                     self._record_error(err)
             except SemanticError as e:
@@ -2059,6 +2460,21 @@ class PenguChecker:
 
         elif rule == "when_stmt":
             self._check_when_stmt(node)
+            return
+
+        elif rule == "defined_expr":
+            # 'defined(NAME)' is a compile-time predicate: 'when'/'when_expr'
+            # evaluate it in pengu_comptime and never reach this dispatcher, so a
+            # runtime occurrence would emit the bare identifier as C.
+            name = str(node.children[0]) if node.children else "?"
+            self._record_error(self._make_error(
+                SemanticError,
+                f"'defined({name})' can only be used in a compile-time 'when' condition",
+                node,
+                code="E0039",
+                help="Move the check into 'when defined(NAME): …' or a 'when …' expression.",
+                note="'defined' is resolved before code generation; it has no runtime value."
+            ))
             return
 
         elif rule == "test_decl":
@@ -2425,11 +2841,14 @@ class PenguChecker:
         self._check_node(stmt)
         return VOID_TYPE
 
-    def _check_value_block(self, stmts: List[Tree], expected: Optional[Type] = None) -> Type:
+    def _check_value_block(self, stmts: List[Tree], expected: Optional[Type] = None,
+                           copies_value: bool = False) -> Type:
         """Validates a value block in a fresh scope and returns its value type.
 
         Every statement is checked normally; the last one supplies the block's
-        value (see :meth:`_check_block_value_stmt`).
+        value (see :meth:`_check_block_value_stmt`).  ``copies_value`` is set for
+        loop bodies: their value is deep-copied into the collected list, so a
+        local that produces it does not escape and stays auto-banished.
         """
         if not stmts:
             return VOID_TYPE
@@ -2438,6 +2857,11 @@ class PenguChecker:
         val = VOID_TYPE
         s_stmts = [s for s in stmts if isinstance(s, Tree)]
         self.block_stmts_stack.append(s_stmts)
+        if not hasattr(self, "_value_block_stack"):
+            self._value_block_stack = []
+        # 'None' marks a block whose value is copied out (a loop body): the
+        # producing local keeps ownership and must still be released.
+        self._value_block_stack.append(None if copies_value else s_stmts)
         try:
             self.symbols.push_scope(kind="do", start_line=s_start, end_line=e_end)
             for ch in stmts[:-1]:
@@ -2445,6 +2869,7 @@ class PenguChecker:
             val = self._check_block_value_stmt(stmts[-1], expected)
         finally:
             self.symbols.pop_scope(end_line=e_end)
+            self._value_block_stack.pop()
             self.block_stmts_stack.pop()
         return val
 
@@ -2972,7 +3397,16 @@ class PenguChecker:
         if not isinstance(curr, Tree):
             return False
 
+        if isinstance(eff_type, MaybeType) and curr.data in ("some_expr", "maybe_none", "calling_expr"):
+            # A 'maybe T' box is heap-allocated by 'some' (or handed over by a
+            # call), so the binding owns it even though the expression is not a
+            # fresh string/container.
+            return True
+
         if curr.data in ("var_ref", "field_access", "arrow_access", "at_expr", "array_at_expr", "null_lit", "none_lit", "try_expr", "or_else", "or_return", "or_block", "calling_expr"):
+            # NOTE: an 'or_block' is deliberately not treated as fresh.  The ok
+            # path of '(maybe T) or:' moves the payload out, so the fallback
+            # decides the ownership of the result.
             return False
 
         if eff_type == STRING_TYPE or (isinstance(eff_type, BaseType) and eff_type.name == "string"):
@@ -3022,6 +3456,44 @@ class PenguChecker:
                         return True
         return False
 
+    # Container members that are plain scalars, not views into the buffer: a
+    # 'return s.len' must not keep 's' alive (that leaked the buffer).
+    _SCALAR_MEMBER_NAMES = frozenset({
+        "len", "length", "capacity", "cap", "size", "count", "is_present",
+        "tag", "hash", "kind", "value_type",
+    })
+
+    def _is_scalar_member_access(self, node: Any) -> bool:
+        """True for 'x.len'/'x.capacity'-style scalar member reads."""
+        return (isinstance(node, Tree) and node.data in ("field_access", "arrow_access")
+                and len(node.children) >= 2 and str(node.children[1]) in self._SCALAR_MEMBER_NAMES)
+
+    def _block_value_node_of(self, stmts: List[Any]) -> Any:
+        """Value expression of a value-position statement list (or None)."""
+        if not stmts:
+            return None
+        last = stmts[-1]
+        while (isinstance(last, Tree) and last.data in ("stmt", "simple_stmt", "block")
+               and last.children):
+            nxt = last.children[-1]
+            if nxt is last:
+                break
+            last = nxt
+        if not isinstance(last, Tree):
+            return None
+        if last.data == "expr_stmt" and last.children:
+            return last.children[0]
+        # A trailing value-position 'if'/'unless'/'do:'/loop *is* its own value.
+        # The inferred type may not be recorded yet (a local earlier in the same
+        # block is analysed before the trailing statement is checked), so the
+        # rule name is enough.
+        if getattr(last, "_pengu_value_type", None) is not None:
+            return last
+        if last.data in ("do_expr", "if_stmt", "unless_stmt",
+                         "while_stmt", "for_range_stmt", "for_in_stmt"):
+            return last
+        return None
+
     def _compute_auto_banished(self, sym_name: str, eff_type: Type, expr_node: Any, is_borrowed: bool) -> bool:
         if is_borrowed:
             return False
@@ -3032,7 +3504,7 @@ class PenguChecker:
 
         is_banishable_type = (
             actual == STRING_TYPE or (isinstance(actual, BaseType) and actual.name == "string")
-            or isinstance(actual, (ListType, MapType))
+            or isinstance(actual, (ListType, MapType, MaybeType))
         )
         if not is_banishable_type:
             return False
@@ -3045,10 +3517,81 @@ class PenguChecker:
             return False
         if self._mentions_set_target(scope_stmts, sym_name):
             return False
-        if self._check_symbol_escape(sym_name, scope_stmts):
-            return False
+        prev_self_type = getattr(self, "_escape_self_type", None)
+        self._escape_self_type = (sym_name, eff_type)
+        try:
+            if self._check_symbol_escape(sym_name, scope_stmts):
+                return False
+            # A local declared inside a value block ('do:'/'if:') escapes when
+            # that block's own value borrows it ('var sl is do: … xs at 0 to 2'):
+            # banishing it would leave the block value dangling.  The check
+            # recurses through nested value blocks ('do: do: y').
+            vb_stack = getattr(self, "_value_block_stack", None)
+            if vb_stack and vb_stack[-1] is not None:
+                if self._value_block_hands_out(vb_stack[-1], sym_name):
+                    return False
+        finally:
+            self._escape_self_type = prev_self_type
 
         return True
+
+    def _value_block_expressions(self, node: Any, _depth: int = 0) -> List[Any]:
+        """Value expressions of a 'do:'/'if' block, nested blocks included."""
+        if not isinstance(node, Tree) or _depth > 16:
+            return []
+        out: List[Any] = []
+        if node.data == "do_expr":
+            v = self._block_value_node_of([c for c in node.children if isinstance(c, Tree)])
+            if v is not None:
+                out.append(v)
+        elif node.data in ("if_stmt", "unless_stmt"):
+            # Value position is guaranteed by the caller (the expression would
+            # not be translated otherwise); the recorded type may not exist yet.
+            for branch in node.children[1:]:
+                if not isinstance(branch, Tree):
+                    continue
+                if branch.data in ("block", "else_block", "when_else_plain", "when_else_when"):
+                    v = self._block_value_node_of([c for c in branch.children if isinstance(c, Tree)])
+                else:
+                    v = self._block_value_node_of([branch])
+                if v is not None:
+                    out.append(v)
+        else:
+            return []
+        for sub in list(out):
+            if (isinstance(sub, Tree) and sub.data in ("do_expr", "if_stmt", "unless_stmt")
+                    and getattr(sub, "_pengu_value_type", None) is not None):
+                out.extend(self._value_block_expressions(sub, _depth + 1))
+        return out
+
+    def _value_block_hands_out(self, stmts_or_node: Any, sym_name: str) -> bool:
+        """True when a value block hands ``sym_name``'s storage to its consumer."""
+        if isinstance(stmts_or_node, list):
+            value = self._block_value_node_of(stmts_or_node)
+            nodes: List[Any] = [value] if value is not None else []
+        else:
+            nodes = [stmts_or_node]
+        # Flatten nested value blocks ('do: do: y', value-'if' branches): their
+        # value is what the enclosing expression finally consumes.
+        candidates: List[Any] = []
+        for n in nodes:
+            candidates.append(n)
+            if isinstance(n, Tree) and n.data in ("do_expr", "if_stmt", "unless_stmt"):
+                candidates.extend(self._value_block_expressions(n))
+        for sub in candidates:
+            un = sub
+            while (isinstance(un, Tree) and un.data in ("paren_expr", "value_expr", "expr")
+                   and len(un.children) == 1):
+                un = un.children[0]
+            if self._is_direct_var_ref(un, sym_name):
+                return True
+            if (isinstance(un, Tree) and un.data in (
+                    "at_expr", "array_at_expr", "slice_at_expr", "bytes_expr",
+                    "field_access", "arrow_access", "self_arrow", "essence_of")
+                    and not self._is_scalar_member_access(un)
+                    and self._contains_var_ref(un, sym_name)):
+                return True
+        return False
 
     def _check_var_decl(self, node: Tree) -> None:
         """Checks local mutable variable declaration for type validity and folds constants.
@@ -3094,7 +3637,29 @@ class PenguChecker:
 
             if v_type is not None and isinstance(v_type, ArrayType) and isinstance(inferred, ArrayType):
                 self._sync_array_sizes(v_type, inferred)
+            # A bare 'T: …' annotation only accepts bound-satisfying values
+            # ('BaseType.is_compatible(TypeParam)' is a wildcard).
+            if isinstance(v_type, TypeParam) and not self._typeparam_accepts_value(v_type, inferred):
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"Cannot initialize '{v_name}' of type '{v_type.name}' (bound: "
+                    f"{', '.join(v_type.bounds)}) with a value of type '{inferred}'",
+                    v_expr,
+                    code="E0005",
+                    help=f"Use a value satisfying 'where {v_type.name}: {', '.join(v_type.bounds)}'.",
+                    note="A bounded type parameter only accepts values implementing its concepts."
+                )
             eff_type = v_type or inferred
+
+            if self._is_void_type_name(eff_type):
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"Variable '{v_name}' cannot be bound to a 'void' value",
+                    node,
+                    code="E0005",
+                    help="A 'void' expression has no value; call it as a statement.",
+                    note="Only expressions with a value can initialize a variable."
+                )
 
             if self._has_unknown_array_dim(eff_type):
                 raise self._make_error(
@@ -3140,6 +3705,76 @@ class PenguChecker:
             node._pengu_symbol = sym
         except SemanticError as e:
             self._record_error(e)
+
+    @staticmethod
+    def _is_void_type_name(t: Any) -> bool:
+        """True when a resolved binding type is exactly 'void'."""
+        if t is None or isinstance(t, AnyType):
+            return False
+        if t is VOID_TYPE:
+            return True
+        return str(getattr(t, "name", "")) == "void"
+
+    @staticmethod
+    def _clone_capable_type(t: Any) -> bool:
+        """True when the value generator can deep-copy a value of this type.
+
+        Mirrors the code generator's ``_element_clone_fn``: such a value may be
+        copied into a 'some' box (or a container) without aliasing the source.
+        """
+        u = t
+        while isinstance(u, (AliasType, FrozenType, SealType)):
+            nxt = getattr(u, "target", None) or getattr(u, "underlying", None)
+            if nxt is None or nxt is u:
+                break
+            u = nxt
+        if isinstance(u, BaseType) and u.name == "string":
+            return True
+        if isinstance(u, (ListType, MapType)):
+            return True
+        if isinstance(u, RuneType):
+            return "Imago" in list(getattr(u, "derived_concepts", []) or [])
+        return False
+
+    def _some_payload_type(self, node: Any, parent: Any = None,
+                           grandparent: Any = None) -> Optional[Type]:
+        """Payload type of a 'some expr' node (inference, else its annotation).
+
+        The escape analysis for a local may run before the binding that boxes it
+        is declared, so the declared 'maybe T' of the enclosing declaration is
+        used as a fallback.
+        """
+        if not (isinstance(node, Tree) and node.data == "some_expr" and node.children):
+            return None
+        payload_t: Optional[Type] = None
+        try:
+            payload_t = self.inferrer.infer(node.children[0])
+        except Exception:
+            payload_t = None
+        if payload_t is None or isinstance(payload_t, AnyType):
+            for anc in (parent, grandparent):
+                if not (isinstance(anc, Tree) and anc.data in ("var_decl", "let_decl")):
+                    continue
+                try:
+                    tnode, _v = _decl_layout(anc)
+                    decl_t = (ast_to_type(tnode, self.symbols.lookup_type)
+                              if tnode is not None else None)
+                except Exception:
+                    decl_t = None
+                if isinstance(decl_t, MaybeType):
+                    payload_t = decl_t.element
+                break
+        if payload_t is None or isinstance(payload_t, AnyType):
+            # 'return some s' (or a value block): the enclosing signature carries
+            # the box type, and the local being analysed may not be in the symbol
+            # table yet (its own declaration is still being checked).
+            try:
+                ret_t = self.symbols.current_return_type()
+            except Exception:
+                ret_t = None
+            if isinstance(ret_t, MaybeType):
+                payload_t = ret_t.element
+        return payload_t
 
     def _check_static_var_decl(self, node: Tree) -> None:
         """Checks 'static var' declarations that persist across function calls.
@@ -3210,6 +3845,15 @@ class PenguChecker:
                     note="'null' requires explicit type context to determine target pointer type."
                 )
             eff_type = v_type or inferred
+            if self._is_void_type_name(eff_type):
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"Static variable '{v_name}' cannot be bound to a 'void' value",
+                    node,
+                    code="E0005",
+                    help="A 'void' expression has no value.",
+                    note="Only expressions with a value can initialize a variable."
+                )
             if isinstance(eff_type, ArrayType):
                 raise self._make_error(
                     SemanticError,
@@ -3245,6 +3889,9 @@ class PenguChecker:
                 file_path=self.filename
             )
             self.symbols.define(sym)
+            # The enclosing weave pops its scope before code generation, so the
+            # symbol must travel on the node (as 'var'/'let' already do).
+            node._pengu_symbol = sym
         except SemanticError as e:
             self._record_error(e)
 
@@ -3282,6 +3929,17 @@ class PenguChecker:
             folded_val = self.const_folder.fold(l_expr)
             doc = self._extract_preceding_doc(line)
 
+            if isinstance(l_type, TypeParam) and not self._typeparam_accepts_value(l_type, inferred):
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"Cannot initialize a binding of type '{l_type.name}' (bound: "
+                    f"{', '.join(l_type.bounds)}) with a value of type '{inferred}'",
+                    l_expr,
+                    code="E0005",
+                    help=f"Use a value satisfying 'where {l_type.name}: {', '.join(l_type.bounds)}'.",
+                    note="A bounded type parameter only accepts values implementing its concepts."
+                )
+
             if len(names) == 1:
                 v_name = names[0]
                 if l_type is None and (inferred is None or isinstance(inferred, NullType) or getattr(inferred, "name", "") == "unknown"):
@@ -3297,6 +3955,16 @@ class PenguChecker:
                 if l_type is not None and isinstance(l_type, ArrayType) and isinstance(inferred, ArrayType):
                     self._sync_array_sizes(l_type, inferred)
                 eff_type = l_type or inferred
+
+                if self._is_void_type_name(eff_type):
+                    raise self._make_error(
+                        TypeMismatchError,
+                        f"Binding '{v_name}' cannot be bound to a 'void' value",
+                        node,
+                        code="E0005",
+                        help="A 'void' expression has no value; call it as a statement.",
+                        note="Only expressions with a value can initialize a binding."
+                    )
 
                 if self._has_unknown_array_dim(eff_type):
                     raise self._make_error(
@@ -3440,6 +4108,17 @@ class PenguChecker:
             return f"'{base_t}'"
         return None
 
+    def _typeparam_accepts_value(self, tp: TypeParam, val_t: Optional[Type]) -> bool:
+        """True when ``val_t`` may be assigned to a bare type-parameter target.
+
+        A ``TypeParam`` is a wildcard for the *value* direction
+        (``BaseType.is_compatible(TypeParam)`` is always True), so the bounds
+        have to be enforced explicitly here: nothing but a bound-satisfying value
+        can flow into ``T: Num``.  Unbounded parameters stay fully permissive and
+        ``any``/``null``/another parameter are accepted (they are resolved later).
+        """
+        return typeparam_accepts_value(tp, val_t, self.symbols)
+
     def _check_set_stmt(self, node: Tree) -> None:
         """Checks reassignment statement for mutability and type soundness.
 
@@ -3504,6 +4183,24 @@ class PenguChecker:
                 while isinstance(with_t, (RefType, AliasType, FrozenType, SealType)):
                     with_t = getattr(with_t, "target", None) or getattr(with_t, "underlying", None)
                 if isinstance(with_t, (RuneType, EchoType)):
+                    if field_name.startswith("_"):
+                        is_enchanting = (
+                            self.symbols.is_in_enchanting()
+                            and self.symbols.current_enchanting_type() == with_t
+                        )
+                        is_module_owner = (
+                            hasattr(with_t, "module")
+                            and with_t.module == getattr(self.symbols, "current_module", None)
+                        )
+                        if not (is_enchanting or is_module_owner):
+                            raise self._make_error(
+                                PrivateSymbolAccessError,
+                                f"Field '{field_name}' is private to rune '{with_t.name}'",
+                                target_node,
+                                code="E0043",
+                                help=f"Field '{field_name}' is private to rune '{with_t.name}'.",
+                                note="Fields starting with '_' cannot be accessed from outside their rune."
+                            )
                     if field_name not in with_t.fields:
                         raise self._make_error(
                             SemanticError,
@@ -3526,10 +4223,35 @@ class PenguChecker:
                                     help="Change '.' to '->' when accessing fields on a reference.",
                                     note="References (ref to T) require arrow operator '->' for field access."
                                 )
-                            curr_t = target_type
+                            if acc.data == "arrow_access" and not isinstance(target_type, RefType):
+                                raise self._make_error(
+                                    SemanticError,
+                                    "Cannot use '->' on non-reference",
+                                    acc,
+                                    code="E0003",
+                                )
+                            curr_t = target_type.target if isinstance(target_type, RefType) else target_type
                             while isinstance(curr_t, (RefType, AliasType, FrozenType, SealType)):
                                 curr_t = getattr(curr_t, "target", None) or getattr(curr_t, "underlying", None)
                             if isinstance(curr_t, (RuneType, EchoType)):
+                                if sub_f.startswith("_"):
+                                    is_enchanting = (
+                                        self.symbols.is_in_enchanting()
+                                        and self.symbols.current_enchanting_type() == curr_t
+                                    )
+                                    is_module_owner = (
+                                        hasattr(curr_t, "module")
+                                        and curr_t.module == getattr(self.symbols, "current_module", None)
+                                    )
+                                    if not (is_enchanting or is_module_owner):
+                                        raise self._make_error(
+                                            PrivateSymbolAccessError,
+                                            f"Field '{sub_f}' is private to rune '{curr_t.name}'",
+                                            acc,
+                                            code="E0043",
+                                            help=f"Field '{sub_f}' is private to rune '{curr_t.name}'.",
+                                            note="Fields starting with '_' cannot be accessed from outside their rune."
+                                        )
                                 if sub_f not in curr_t.fields:
                                     raise self._make_error(
                                         SemanticError,
@@ -3538,21 +4260,57 @@ class PenguChecker:
                                         code="E0013",
                                     )
                                 target_type = curr_t.fields[sub_f]
-                        elif isinstance(acc, Tree) and acc.data == "at_access":
-                            curr_t = target_type
-                            while isinstance(curr_t, RefType):
-                                curr_t = curr_t.target
-                            if curr_t == STRING_TYPE or (isinstance(curr_t, BaseType) and curr_t.name == "string"):
+                            else:
                                 raise self._make_error(
-                                    InvalidMemoryOpError,
-                                    "Cannot modify characters in an immutable string directly",
+                                    SemanticError,
+                                    f"Type '{curr_t}' has no field '{sub_f}'",
                                     acc,
-                                    code="E0006",
-                                    help="Strings in PenguScript are immutable. Create a new string with string operations instead.",
-                                    note="String characters cannot be assigned to directly."
+                                    code="E0013",
                                 )
-                            if isinstance(curr_t, (ArrayType, SliceType, ManyType, ListType)):
-                                target_type = curr_t.element
+                        elif isinstance(acc, Tree) and acc.data == "at_access":
+                            if isinstance(target_type, RefType):
+                                unwrapped_tgt = target_type.target
+                                while isinstance(unwrapped_tgt, (AliasType, FrozenType)):
+                                    unwrapped_tgt = unwrapped_tgt.target
+                                if isinstance(unwrapped_tgt, (ArrayType, SliceType, ManyType, ListType)):
+                                    target_type = unwrapped_tgt.element
+                                elif isinstance(unwrapped_tgt, MapType):
+                                    target_type = unwrapped_tgt.value
+                                else:
+                                    target_type = unwrapped_tgt
+                            else:
+                                curr_t = target_type
+                                while isinstance(curr_t, (AliasType, FrozenType)):
+                                    curr_t = curr_t.target
+                                if curr_t == STRING_TYPE or (isinstance(curr_t, BaseType) and curr_t.name == "string"):
+                                    raise self._make_error(
+                                        InvalidMemoryOpError,
+                                        "Cannot modify characters in an immutable string directly",
+                                        acc,
+                                        code="E0006",
+                                        help="Strings in PenguScript are immutable. Create a new string with string operations instead.",
+                                        note="String characters cannot be assigned to directly."
+                                    )
+                                if isinstance(curr_t, AnyType):
+                                    target_type = AnyType()
+                                elif hasattr(curr_t, "element"):
+                                    target_type = curr_t.element
+                                elif hasattr(curr_t, "value"):
+                                    target_type = curr_t.value
+                                else:
+                                    raise self._make_error(
+                                        SemanticError,
+                                        f"Cannot index non-indexable type '{curr_t}'",
+                                        acc,
+                                        code="E0005",
+                                    )
+                else:
+                    raise self._make_error(
+                        SemanticError,
+                        f"Type '{with_t}' has no field '{field_name}'",
+                        target_node,
+                        code="E0013",
+                    )
 
             elif rule == "normal_target":
                 first = target_node.children[0]
@@ -3577,17 +4335,8 @@ class PenguChecker:
                             help="Use 'self' only inside methods within an 'enchanting' block.",
                             note="'self' represents the instance reference in enchanting methods."
                         )
-                    for acc in target_node.children[1:]:
-                        if isinstance(acc, Tree) and acc.data == "dot_access":
-                            raise self._make_error(
-                                SelfDotAccessError,
-                                "'self' is always a reference in enchanting and must be accessed with '->', not '.'",
-                                target_node,
-                                code="E0003",
-                                help="Change 'self.' to 'self->'.",
-                                note="'self' in enchanting is always a reference (ref to SelfType)."
-                            )
-                    target_type = self.inferrer.infer(target_node)
+                    ench_t = self.symbols.current_enchanting_type()
+                    curr_chk_t = RefType(ench_t) if ench_t else AnyType()
 
                 else:
                     sym = self.symbols.lookup(first_str)
@@ -3603,7 +4352,7 @@ class PenguChecker:
                                     help="Ensure the target passed to 'with' is a 'var' or a reference (ref to T).",
                                     note="'with' blocks on immutable bindings do not allow field mutations."
                                 )
-                            target_type = with_t.fields[first_str]
+                            curr_chk_t = with_t.fields[first_str]
                         else:
                             raise self._make_undefined_error(first_str, target_node, entity_kind="variable")
 
@@ -3627,7 +4376,7 @@ class PenguChecker:
                                 help=f"Change 'let {first_str}' to 'var {first_str}' to allow reassignment.",
                                 note="'let' bindings are immutable in PenguScript."
                             )
-                        target_type = sym.type
+                        curr_chk_t = sym.type
                     else:
                         first_acc = target_node.children[1]
                         if isinstance(first_acc, Tree) and first_acc.data in ("dot_access", "at_access"):
@@ -3642,10 +4391,23 @@ class PenguChecker:
                                     note=f"{what.capitalize()}s of 'let' bindings cannot be modified."
                                 )
                         curr_chk_t = sym.type
-                        for acc in target_node.children[1:]:
-                            if isinstance(acc, Tree) and acc.data == "at_access":
+
+                if len(target_node.children) > 1:
+                    for acc in target_node.children[1:]:
+                        if isinstance(acc, Tree) and acc.data == "at_access":
+                            if isinstance(curr_chk_t, RefType):
+                                unwrapped_tgt = curr_chk_t.target
+                                while isinstance(unwrapped_tgt, (AliasType, FrozenType)):
+                                    unwrapped_tgt = unwrapped_tgt.target
+                                if isinstance(unwrapped_tgt, (ArrayType, SliceType, ManyType, ListType)):
+                                    curr_chk_t = unwrapped_tgt.element
+                                elif isinstance(unwrapped_tgt, MapType):
+                                    curr_chk_t = unwrapped_tgt.value
+                                else:
+                                    curr_chk_t = unwrapped_tgt
+                            else:
                                 unwrapped_t = curr_chk_t
-                                while isinstance(unwrapped_t, RefType):
+                                while isinstance(unwrapped_t, (AliasType, FrozenType)):
                                     unwrapped_t = unwrapped_t.target
                                 if unwrapped_t == STRING_TYPE or (isinstance(unwrapped_t, BaseType) and unwrapped_t.name == "string"):
                                     raise self._make_error(
@@ -3656,18 +4418,82 @@ class PenguChecker:
                                         help="Strings in PenguScript are immutable. Create a new string with string operations instead.",
                                         note="String characters cannot be assigned to directly."
                                     )
-                                if hasattr(unwrapped_t, "element"):
+                                if isinstance(unwrapped_t, AnyType):
+                                    curr_chk_t = AnyType()
+                                elif hasattr(unwrapped_t, "element"):
                                     curr_chk_t = unwrapped_t.element
                                 elif hasattr(unwrapped_t, "value"):
                                     curr_chk_t = unwrapped_t.value
-                            elif isinstance(acc, Tree) and acc.data in ("dot_access", "arrow_access") and acc.children:
-                                fname = str(acc.children[0])
-                                unwrapped_t = curr_chk_t.target if isinstance(curr_chk_t, RefType) else curr_chk_t
-                                while isinstance(unwrapped_t, (AliasType, FrozenType, SealType)):
-                                    unwrapped_t = getattr(unwrapped_t, "target", None) or getattr(unwrapped_t, "underlying", None)
-                                if hasattr(unwrapped_t, "fields") and fname in unwrapped_t.fields:
-                                    curr_chk_t = unwrapped_t.fields[fname]
-                        target_type = self.inferrer.infer(target_node)
+                                else:
+                                    raise self._make_error(
+                                        SemanticError,
+                                        f"Cannot index non-indexable type '{unwrapped_t}'",
+                                        acc,
+                                        code="E0005",
+                                    )
+                        elif isinstance(acc, Tree) and acc.data in ("dot_access", "arrow_access") and acc.children:
+                            fname = str(acc.children[0])
+                            if acc.data == "dot_access" and isinstance(curr_chk_t, RefType):
+                                raise self._make_error(
+                                    SelfDotAccessError,
+                                    "Reference must be accessed with '->', not '.'",
+                                    acc,
+                                    code="E0003",
+                                    help="Change '.' to '->' when accessing fields on a reference.",
+                                    note="References (ref to T) require arrow operator '->' for field access."
+                                )
+                            if acc.data == "arrow_access" and not isinstance(curr_chk_t, RefType):
+                                raise self._make_error(
+                                    SemanticError,
+                                    "Cannot use '->' on non-reference",
+                                    acc,
+                                    code="E0003",
+                                )
+                            unwrapped_t = curr_chk_t.target if isinstance(curr_chk_t, RefType) else curr_chk_t
+                            while isinstance(unwrapped_t, (AliasType, FrozenType, SealType)):
+                                unwrapped_t = getattr(unwrapped_t, "target", None) or getattr(unwrapped_t, "underlying", None)
+                            if isinstance(unwrapped_t, AnyType):
+                                curr_chk_t = AnyType()
+                            elif isinstance(unwrapped_t, (RuneType, EchoType)):
+                                if fname.startswith("_"):
+                                    is_enchanting = (
+                                        self.symbols.is_in_enchanting()
+                                        and self.symbols.current_enchanting_type() == unwrapped_t
+                                    )
+                                    is_module_owner = (
+                                        hasattr(unwrapped_t, "module")
+                                        and unwrapped_t.module == getattr(self.symbols, "current_module", None)
+                                    )
+                                    if not (is_enchanting or is_module_owner):
+                                        raise self._make_error(
+                                            PrivateSymbolAccessError,
+                                            f"Field '{fname}' is private to rune '{unwrapped_t.name}'",
+                                            acc,
+                                            code="E0043",
+                                            help=f"Field '{fname}' is private to rune '{unwrapped_t.name}'.",
+                                            note="Fields starting with '_' cannot be accessed from outside their rune."
+                                        )
+                                if fname not in unwrapped_t.fields:
+                                    raise self._make_error(
+                                        SemanticError,
+                                        f"Rune '{unwrapped_t.name}' has no field '{fname}'",
+                                        acc,
+                                        code="E0013",
+                                        help=f"Check field spelling or verify the definition of rune '{unwrapped_t.name}'.",
+                                        note=f"Rune '{unwrapped_t.name}' only exposes its declared fields."
+                                    )
+                                curr_chk_t = unwrapped_t.fields[fname]
+                            else:
+                                raise self._make_error(
+                                    SemanticError,
+                                    f"Type '{unwrapped_t}' has no field '{fname}'",
+                                    acc,
+                                    code="E0013",
+                                )
+                try:
+                    target_type = self.inferrer.infer(target_node)
+                except Exception:
+                    target_type = curr_chk_t
 
             elif rule == "essence_target":
                 ref_node = target_node.children[0]
@@ -3722,17 +4548,32 @@ class PenguChecker:
             if is_compound:
                 # Operator-specific type rules for 'set TARGET OP VALUE'.
                 if compound_op == "+=" and target_type.is_string() and not isinstance(target_type, SealType):
-                    if not (val_type.is_string() or val_type.is_compatible(STRING_TYPE)) and not isinstance(val_type, AnyType):
-                        raise self._make_error(
-                            TypeMismatchError,
-                            f"Compound '+=' on a string requires a string value, got '{val_type}'",
-                            node,
-                            code="E0005",
-                            help="Concatenate only strings: 'set s += \"more\"'. "
-                                 "Convert numbers with 'to string' first.",
-                            note="String '+=' concatenates, so both sides must be strings."
-                        )
-                elif compound_op in ("+=", "-=", "*=", "/=", "%="):
+                    # String composition has exactly one spelling: '{expr}'
+                    # interpolation.  '+=' is numeric-only (and '&='/'|='/'^='
+                    # '/<<='/'>>=' are integer-only).
+                    raise self._make_error(
+                        TypeMismatchError,
+                        "Cannot concatenate strings with '+='",
+                        node,
+                        code="E0005",
+                        help='Rebind with interpolation: set s is "{s}{more}".',
+                        note="PenguScript composes strings only via '{expr}' inside a "
+                             "string literal; '+=' only accumulates numbers."
+                    )
+                elif compound_op == "%=":
+                    # '%' is integer-only (same rule as the binary operator), so
+                    # 'f %= 2.0' on a float must not reach the C compiler.
+                    for t, side in ((target_type, "target"), (val_type, "value")):
+                        if not t.is_int() and not isinstance(t, AnyType):
+                            raise self._make_error(
+                                TypeMismatchError,
+                                f"Compound '%=' requires integers, got '{t}' for the {side}",
+                                node,
+                                code="E0005",
+                                help="Use '%=' on integers; use '/' for floats.",
+                                note="'%' (and '%=') only accept integer operands, as in C."
+                            )
+                elif compound_op in ("+=", "-=", "*=", "/="):
                     if not target_type.is_numeric() and not isinstance(target_type, AnyType):
                         raise self._make_error(
                             TypeMismatchError,
@@ -3740,8 +4581,8 @@ class PenguChecker:
                             f"got '{target_type}'",
                             node,
                             code="E0005",
-                            help="Use '+=' on numbers (or on strings for concatenation); "
-                                 "use '&='/'|='/'^=' for integers.",
+                            help="Use '+=' on numbers; for integers use '&='/'|='/'^='; "
+                                 "build strings with interpolation.",
                             note="Arithmetic compound assignment needs numeric operands."
                         )
                     if not val_type.is_numeric() and not isinstance(val_type, AnyType):
@@ -3769,6 +4610,30 @@ class PenguChecker:
                             )
                 return
 
+            # A bare type-parameter target must respect its own bounds: a
+            # 'string' is not assignable to 'T: Num', even though
+            # 'string.is_compatible(T)' returns True (TypeParam is a wildcard
+            # for the value direction only).  Unbounded parameters keep the
+            # permissive, backwards-compatible behaviour.
+            unwrapped_tgt = target_type
+            while isinstance(unwrapped_tgt, (AliasType, FrozenType, SealType)):
+                unwrapped_tgt = getattr(unwrapped_tgt, "target", None) or getattr(unwrapped_tgt, "underlying", None)
+            if isinstance(unwrapped_tgt, TypeParam) and not self._typeparam_accepts_value(unwrapped_tgt, val_type):
+                offending = next(
+                    (b for b in unwrapped_tgt.bounds if not implements_concept(val_type, b, self.symbols)),
+                    unwrapped_tgt.bounds[0],
+                )
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"Cannot assign value of type '{val_type}' to target of type "
+                    f"'{unwrapped_tgt.name}' (bound: {', '.join(unwrapped_tgt.bounds)})",
+                    node,
+                    code="E0005",
+                    help=f"'{val_type}' does not satisfy bound '{offending}'. "
+                         f"Assign a value whose type implements all bounds.",
+                    note="A type parameter accepts only values that implement its bounds."
+                )
+
             if not val_type.is_compatible(target_type) and not (val_type.is_numeric() and target_type.is_numeric()) and not isinstance(target_type, AnyType):
                 raise self._make_error(
                     TypeMismatchError,
@@ -3780,6 +4645,113 @@ class PenguChecker:
                 )
         except SemanticError as e:
             self._record_error(e)
+
+    # Type node rules that name a concrete/parameterised type.
+    _TYPE_NODE_RULES = frozenset({
+        "base_type", "custom_type", "ref_type", "array_type", "slice_type",
+        "list_type", "map_type", "maybe_type", "result_type", "opaque_type",
+        "fn_type", "frozen_type", "alias_type",
+    })
+
+    def _validate_declared_types(self, tree: Tree) -> None:
+        """Validates type nodes in signatures and composite-type fields.
+
+        ``_validate_type_node`` was only reached from var/let declarations, so a
+        misspelled type in a parameter, return type, rune/echo field or declare
+        signature reached the C compiler as an undeclared identifier.
+        Generic declarations are skipped: their ``shard`` parameters are only in
+        scope inside the declaration itself.
+        """
+        if self.filename and self.filename.endswith(".d.pengu"):
+            return
+        has_includes = bool(getattr(self.symbols, "includes", None))
+        decl_rules = ("rune_decl", "echo_decl", "omen_decl", "declare_stmt", "weave_decl", "concept_decl")
+        field_rules = ("field_decl", "param", "omen_field")
+        generic_rules = decl_rules + ("enchanting_decl", "enchanting_stmt", "bind_decl")
+
+        def walk(node: Any, generic_ctx: bool) -> None:
+            if not isinstance(node, Tree):
+                return
+            if node.data in ("enchanting_decl", "enchanting_stmt"):
+                # Only a *generic* enchanting block (shard params or a target
+                # such as 'Box of T') brings implicit type parameters; a concrete
+                # 'enchanting Player:' must still validate its signatures.
+                if any(isinstance(c, Tree) and c.data == "shard_params" for c in node.children):
+                    generic_ctx = True
+                else:
+                    target = node.children[0] if node.children else None
+                    if isinstance(target, Tree):
+                        # 'enchanting list of shard T:' inlines the parameter in
+                        # the target type instead of a sibling 'shard_params'.
+                        if any(sub.data in ("shard_param_ref", "shard_params")
+                               for sub in target.iter_subtrees()):
+                            generic_ctx = True
+                        elif any(c is not None for c in target.children[1:]):
+                            generic_ctx = True
+                        else:
+                            first = target.children[0]
+                            base_n = (str(first.children[0]) if isinstance(first, Tree) and first.children
+                                      else str(first))
+                            if base_n in (self.symbols.generic_runes or {}) or \
+                               base_n in (self.symbols.generic_echos or {}) or \
+                               base_n in (self.symbols.generic_omens or {}) or \
+                               base_n in (self.symbols.generic_aliases or {}):
+                                generic_ctx = True
+            elif node.data in generic_rules:
+                if any(isinstance(c, Tree) and c.data == "shard_params" for c in node.children):
+                    generic_ctx = True
+            if node.data in decl_rules and not generic_ctx:
+                for sub in node.iter_subtrees():
+                    if isinstance(sub, Tree) and sub.data in field_rules:
+                        # [name, type, (default)]
+                        tnode = sub.children[1] if len(sub.children) > 1 else None
+                        if has_includes and self._type_node_looks_like_c(tnode):
+                            continue
+                        self._validate_type_node(tnode)
+                for child in node.children:
+                    if isinstance(child, Tree) and child.data in self._TYPE_NODE_RULES:
+                        if has_includes and self._type_node_looks_like_c(child):
+                            continue
+                        self._validate_type_node(child)
+            for child in node.children:
+                walk(child, generic_ctx)
+
+        walk(tree, False)
+
+    # C typedefs that hand-written bindings use in signatures but that the
+    # PenguScript symbol table cannot know about.
+    _C_TYPEDEF_NAMES = frozenset({
+        "va_list", "jmp_buf", "sigjmp_buf", "fpos_t", "wint_t", "locale_t",
+        "sigset_t", "stack_t", "ucontext_t", "pthread_t", "socklen_t",
+        "off_t", "pid_t", "uid_t", "gid_t", "mode_t", "dev_t", "ino_t",
+        "nlink_t", "blksize_t", "blkcnt_t", "clock_t", "time_t", "tm",
+    })
+
+    def _looks_like_c_type(self, name: str) -> bool:
+        """Heuristic for names that come from an included C header."""
+        if not name:
+            return False
+        if name in self._C_TYPEDEF_NAMES:
+            return True
+        if name.startswith("_") or name.isupper():
+            return True
+        if name.endswith("_t") or name.endswith("_T"):
+            return True
+        return False
+
+    def _type_node_looks_like_c(self, type_node: Any) -> bool:
+        """True when every name in a type node looks like a C header typedef.
+
+        Files that ``include`` a header may name C-only types in signatures, so
+        those are not validated; a PenguScript-looking typo still is.
+        """
+        if not isinstance(type_node, Tree):
+            return False
+        names = [str(tok) for tok in type_node.scan_values(
+            lambda v: isinstance(v, Token) and v.type == "NAME")]
+        if not names:
+            return False
+        return all(self._looks_like_c_type(n) for n in names)
 
     def _validate_type_node(self, type_node: Any) -> None:
         """Validates that type nodes properly instantiate generic types and don't use raw type params."""
@@ -3947,6 +4919,7 @@ class PenguChecker:
         many_param_seen = False
         many_count = 0
 
+        seen_param_names: Dict[str, Any] = {}
         for child in rem_children:
             if isinstance(child, Tree) and child.data == "param_list":
                 for p in child.children:
@@ -3954,6 +4927,19 @@ class PenguChecker:
                         pn = str(p.children[0])
                         pt = ast_to_type(p.children[1], lookup_tp) if len(p.children) >= 2 else AnyType()
                         has_default = len(p.children) >= 3 and p.children[2] is not None
+
+                        if pn in seen_param_names:
+                            err = self._make_error(
+                                SemanticError,
+                                f"Duplicate parameter name '{pn}' in function '{fn_name}'",
+                                p,
+                                code="E0005",
+                                help=f"Rename one of the '{pn}' parameters.",
+                                note="Each parameter of a weave must have a distinct name."
+                            )
+                            self._record_error(err)
+                        else:
+                            seen_param_names[pn] = p
 
                         if isinstance(pt, ManyType):
                             if has_default:
@@ -4061,7 +5047,7 @@ class PenguChecker:
         span_start, span_end = self._get_node_span(node)
         self.symbols.push_scope(kind="weave", return_type=ret_type, is_ritual=is_ritual, start_line=span_start, end_line=span_end)
         for tp in type_params:
-            self.symbols.define(Symbol(name=tp, type=TypeParam(tp), kind="type"))
+            self.symbols.define(Symbol(name=tp, type=TypeParam(tp, bounds=bounds.get(tp, [])), kind="type"))
 
         for pn, pt in params:
             self.symbols.define(Symbol(name=pn, type=pt, kind="param", is_mutable=False, line=line, column=col))
@@ -4128,6 +5114,179 @@ class PenguChecker:
 
         self.symbols.pop_scope(end_line=span_end)
 
+    def _lookup_field_type_on(self, base_t: Optional[Type], field_name: str) -> Optional[Type]:
+        """Resolves the type of a field on ``base_t`` for the escape analysis.
+
+        Mirrors the code generator's helper of the same name: references and
+        aliases are looked through, and a primitive that names a user type is
+        resolved through the symbol table (``BaseType('Bag')`` -> ``RuneType``).
+        """
+        u = base_t
+        while isinstance(u, (RefType, AliasType, FrozenType, SealType)):
+            nxt = getattr(u, "target", None) or getattr(u, "underlying", None)
+            if nxt is None or nxt is u:
+                break
+            u = nxt
+        if isinstance(u, BaseType):
+            sym_t = self.symbols.lookup_type(u.name)
+            if sym_t is not None and sym_t is not u:
+                u = sym_t
+                while isinstance(u, (RefType, AliasType, FrozenType, SealType)):
+                    nxt = getattr(u, "target", None) or getattr(u, "underlying", None)
+                    if nxt is None or nxt is u:
+                        break
+                    u = nxt
+        if u is None:
+            return None
+        fields = getattr(u, "fields", None)
+        if isinstance(u, (RuneType, EchoType)) and isinstance(fields, dict):
+            return fields.get(field_name)
+        return None
+
+    def _resolve_chain_type(self, base_t: Optional[Type], accs: List[Any]) -> Optional[Type]:
+        """Applies ``dot_access``/``arrow_access``/``at_access`` steps onto ``base_t``.
+
+        Used by the escape analysis to find the *container* behind chains such as
+        ``self->items`` or ``bag.inner.items`` instead of stopping at the first
+        identifier.  Returns None as soon as a step cannot be resolved so the
+        caller stays conservative.
+        """
+        curr = base_t
+        for acc in accs:
+            if not isinstance(acc, Tree):
+                return None
+            if acc.data in ("dot_access", "arrow_access") and acc.children:
+                curr = self._lookup_field_type_on(curr, str(acc.children[0]))
+            elif acc.data == "at_access":
+                u = curr
+                while isinstance(u, (RefType, AliasType, FrozenType, SealType)):
+                    nxt = getattr(u, "target", None) or getattr(u, "underlying", None)
+                    if nxt is None or nxt is u:
+                        break
+                    u = nxt
+                if isinstance(u, (ListType, ArrayType, SliceType, ManyType)):
+                    curr = u.element
+                elif isinstance(u, MapType):
+                    curr = u.value
+                elif isinstance(u, BaseType) and u.name == "string":
+                    curr = STRING_TYPE  # indexing a string yields a character
+                else:
+                    return None
+            else:
+                return None
+            if curr is None:
+                return None
+        return curr
+
+    def _escape_receiver_type(self, target: Any,
+                              with_types: Optional[List[Optional[Type]]] = None) -> Optional[Type]:
+        """Best-effort type of the container a ``calling X.method`` targets.
+
+        Returns None when it cannot be resolved statically (callers must then
+        stay conservative and treat the store as an escape).
+        """
+        if not isinstance(target, Tree):
+            return None
+        if target.data == "with_target":
+            if with_types:
+                return with_types[-1]
+            getter = getattr(self.symbols, "current_with_type", None)
+            return getter() if callable(getter) else None
+        if target.data == "normal_target" and target.children:
+            first = target.children[0]
+            # The last access operator *is* the method name; everything before
+            # it is the receiver chain to resolve.
+            rest = list(target.children[1:])
+            if rest and isinstance(rest[-1], Tree) and rest[-1].data in ("dot_access", "arrow_access"):
+                rest = rest[:-1]
+
+            base_t: Optional[Type] = None
+            if isinstance(first, Token) and str(first) == "self":
+                getter = getattr(self.symbols, "current_enchanting_type", None)
+                ench = getter() if callable(getter) else None
+                # 'self' is always a pointer to the enchanted type.
+                base_t = RefType(ench) if ench is not None else None
+            elif isinstance(first, Token) and first.type == "NAME":
+                sym = self.symbols.lookup(str(first))
+                if sym is not None:
+                    base_t = sym.type
+                elif with_types and with_types[-1] is not None:
+                    # Bare field name inside 'with x:' (e.g. 'calling items.push').
+                    base_t = with_types[-1]
+            if base_t is None:
+                return None
+            return self._resolve_chain_type(base_t, rest)
+        return None
+
+    def _slot_type_for_target(self, target: Any) -> Optional[Type]:
+        """Type of the storage cell named by a `set` target (None when unknown).
+
+        Mirrors the code generator's resolver so the escape analysis only relaxes
+        when that storage really receives a deep copy.
+        """
+        if not isinstance(target, Tree):
+            return None
+        if target.data == "set_target" and target.children:
+            return self._slot_type_for_target(target.children[0])
+        if target.data == "with_target" and target.children:
+            base = self.symbols.current_with_type() or getattr(self, "_escape_with_type", None)
+            accs = [Tree("dot_access", [target.children[0]])]
+            accs += [c for c in target.children[1:] if isinstance(c, Tree)]
+            return self._resolve_chain_type(base, accs)
+        if target.data == "normal_target" and target.children:
+            first = target.children[0]
+            base: Optional[Type] = None
+            if isinstance(first, Token) and str(first) == "self":
+                ench = self.symbols.current_enchanting_type()
+                base = RefType(ench) if ench is not None else None
+            elif isinstance(first, Token) and first.type == "NAME":
+                sym = self.symbols.lookup(str(first))
+                base = sym.type if sym is not None else None
+            return self._resolve_chain_type(base, [c for c in target.children[1:] if isinstance(c, Tree)])
+        if target.data == "essence_target" and target.children:
+            try:
+                return getattr(self.inferrer.infer(target.children[0]), "target", None)
+            except SemanticError:
+                return None
+        return None
+
+    def _slot_owns_string_copy(self, target: Any, val_node: Any) -> bool:
+        """True when `target = val` deep-copies a string into its slot."""
+        inner = target
+        if isinstance(inner, Tree) and inner.data == "set_target" and inner.children:
+            inner = inner.children[0]
+        if not isinstance(inner, Tree):
+            return False
+        if not (inner.data == "with_target"
+                or (inner.data == "normal_target" and len(inner.children) > 1)
+                or inner.data == "essence_target"):
+            return False
+        slot_t = self._slot_type_for_target(inner)
+        u = slot_t
+        while isinstance(u, (AliasType, FrozenType, SealType)):
+            u = getattr(u, "target", None) or getattr(u, "underlying", None)
+        if not (isinstance(u, BaseType) and u.name == "string"):
+            return False
+        try:
+            val_t = self.inferrer.infer(val_node)
+        except SemanticError:
+            # The value can be the very variable being declared ('var s is …'
+            # is analysed before 's' exists in the scope): fall back to its
+            # declared type when the escape pass provides it.
+            info = getattr(self, "_escape_self_type", None)
+            if info and self._is_direct_var_ref(val_node, info[0]):
+                val_t = info[1]
+            else:
+                return False
+        v = val_t
+        while isinstance(v, (AliasType, FrozenType, SealType)):
+            v = getattr(v, "target", None) or getattr(v, "underlying", None)
+        if isinstance(v, BaseType) and v.name == "string":
+            return True
+        if isinstance(v, TypeParam):
+            return "Forma" in v.bounds
+        return isinstance(v, OmenType) and (v.is_string() or v.is_string_valued)
+
     def _check_symbol_escape(self, sym_name: str, stmts: List[Tree]) -> bool:
         """Determines if a local variable escapes its function scope via pointer, return, or assignment.
 
@@ -4145,6 +5304,9 @@ class PenguChecker:
             True if symbol escapes stack frame (requires heap allocation), False otherwise.
         """
         escaped = False
+        # Type of the innermost 'with <expr>:' target, so that a '.push'/'.put'
+        # inside the block can be classified without a live scope.
+        with_types: List[Optional[Type]] = []
 
         def contains_sigil_of(node: Any) -> bool:
             if not isinstance(node, Tree):
@@ -4157,9 +5319,167 @@ class PenguChecker:
                     return True
             return any(contains_sigil_of(c) for c in node.children if isinstance(c, Tree))
 
-        def walk(n: Any):
+        def _struct_init_type(decl_or_field: Any) -> Optional[Type]:
+            """Type of a struct literal from its enclosing declaration/field."""
+            if not isinstance(decl_or_field, Tree):
+                return None
+            # 'var p as Player is with ...' -> the annotation child.
+            if decl_or_field.data in ("var_decl", "let_decl"):
+                for child in decl_or_field.children:
+                    if isinstance(child, Tree) and child.data in (
+                        "base_type", "custom_type", "ref_type", "alias_type", "rune_type",
+                        "echo_type", "omen_type", "generic_type",
+                    ):
+                        try:
+                            return ast_to_type(child, self.symbols.lookup_type)
+                        except Exception:
+                            return None
+                return None
+            return None
+
+        def _field_type_on(struct_t: Optional[Type], f_name: str) -> Optional[Type]:
+            u = struct_t
+            while isinstance(u, (AliasType, FrozenType, SealType, RefType)):
+                nxt = (getattr(u, "target", None) or getattr(u, "underlying", None))
+                if nxt is None or nxt is u:
+                    break
+                u = nxt
+            fields = getattr(u, "fields", None)
+            if isinstance(fields, dict):
+                return fields.get(f_name)
+            return None
+
+        def _is_string_t(t: Optional[Type]) -> bool:
+            u = t
+            while isinstance(u, (AliasType, FrozenType, SealType)):
+                nxt = (getattr(u, "target", None) or getattr(u, "underlying", None))
+                if nxt is None or nxt is u:
+                    break
+                u = nxt
+            return isinstance(u, BaseType) and u.name == "string"
+
+        # Expressions that yield a *view* into an existing buffer instead of a
+        # fresh/owned value: storing or returning one keeps the source alive.
+        _VIEW_RULES = (
+            "at_expr", "array_at_expr", "slice_at_expr", "bytes_expr",
+            "field_access", "arrow_access", "self_arrow", "essence_of",
+        )
+
+        def _unwrap(node: Any) -> Any:
+            un = node
+            while (isinstance(un, Tree) and un.data in ("paren_expr", "value_expr", "expr")
+                   and len(un.children) == 1):
+                un = un.children[0]
+            return un
+
+        def _is_view_into(node: Any) -> bool:
+            """True when ``node`` borrows into ``sym_name``'s storage."""
+            un = _unwrap(node)
+            if not isinstance(un, Tree):
+                return False
+            if un.data in _VIEW_RULES:
+                if self._is_scalar_member_access(un):
+                    return False
+                return self._contains_var_ref(un, sym_name)
+            return False
+
+        def _last_value_expr(stmts: List[Any]) -> Any:
+            """Value expression of a value-position statement list, if any."""
+            if not stmts:
+                return None
+            last = _unwrap(stmts[-1])
+            while (isinstance(last, Tree) and last.data in ("stmt", "simple_stmt", "block")
+                   and last.children):
+                nxt = _unwrap(last.children[-1])
+                if nxt is last:
+                    break
+                last = nxt
+            if not isinstance(last, Tree):
+                return None
+            if last.data == "expr_stmt" and last.children:
+                return last.children[0]
+            # A trailing value-position 'if'/'unless'/'do:'/loop *is* its own
+            # value (the node carries the type the checker inferred).
+            if getattr(last, "_pengu_value_type", None) is not None:
+                return last
+            return None
+
+        def _block_value_exprs(node: Any, _depth: int = 0) -> List[Any]:
+            """Value expressions produced by a 'do:' or a value-position 'if'.
+
+            Nested value blocks are flattened recursively ('do: do: y'), so the
+            escape analysis sees a local handed out through any depth.
+            """
+            un = _unwrap(node)
+            if not isinstance(un, Tree) or _depth > 16:
+                return []
+            out: List[Any] = []
+            if un.data == "do_expr":
+                stmts = [c for c in un.children if isinstance(c, Tree)]
+                v = _last_value_expr(stmts)
+                if v is not None:
+                    out.append(v)
+            elif un.data in ("if_stmt", "unless_stmt") and getattr(un, "_pengu_value_type", None) is not None:
+                for branch in un.children[1:]:
+                    if not isinstance(branch, Tree):
+                        continue
+                    if branch.data in ("block", "else_block", "when_else_plain", "when_else_when"):
+                        bstmts = [c for c in branch.children if isinstance(c, Tree)]
+                    else:
+                        bstmts = [branch]
+                    v = _last_value_expr(bstmts)
+                    if v is not None:
+                        out.append(v)
+            else:
+                return []
+            # Descend into nested *value blocks* (a loop value copies its
+            # elements, so it never hands a local's storage out).
+            for sub in list(out):
+                su = _unwrap(sub)
+                if (isinstance(su, Tree)
+                        and su.data in ("do_expr", "if_stmt", "unless_stmt")
+                        and getattr(su, "_pengu_value_type", None) is not None):
+                    out.extend(_block_value_exprs(su, _depth + 1))
+            return out
+
+        def _hands_out_storage(node: Any) -> bool:
+            """True when the expression *is* sym_name's value (or a sigil of it)."""
+            if node is None:
+                return False
+            un = _unwrap(node)
+            if isinstance(un, Tree) and un.data in ("do_expr", "if_stmt", "unless_stmt"):
+                return _block_value_hands_out(node)
+            return contains_sigil_of(node) or self._is_direct_var_ref(node, sym_name)
+
+        def _block_value_hands_out(node: Any) -> bool:
+            """True when a 'do:'/'if:' value is (or views into) sym_name.
+
+            A block value is consumed by the enclosing expression *after* the
+            block's own scope was released, so any borrowing value must keep the
+            local alive; the code generator cannot defer that release.
+            """
+            for sub in _block_value_exprs(node):
+                if (contains_sigil_of(sub) or self._is_direct_var_ref(sub, sym_name)
+                        or _is_view_into(sub)):
+                    return True
+            return False
+
+        def walk(n: Any, parent: Any = None, grandparent: Any = None):
             nonlocal escaped
             if escaped or not isinstance(n, Tree):
+                return
+
+            # 0. 'with <expr>:' — remember the target type for the nested calls.
+            if n.data == "with_stmt" and n.children:
+                wt: Optional[Type] = None
+                try:
+                    wt = self.inferrer.infer(n.children[0])
+                except Exception:
+                    wt = None
+                with_types.append(wt)
+                for child in n.children[1:]:
+                    walk(child)
+                with_types.pop()
                 return
 
             # 1. Direct sigil_of taken on sym_name
@@ -4176,8 +5496,18 @@ class PenguChecker:
                     escaped = True
                     return
                 if isinstance(ret_val, Tree):
+                    if ret_val.data == "some_expr":
+                        # 'return some s' deep-copies an owning payload into the
+                        # box, so nothing of s's storage leaves the scope.
+                        payload_t = self._some_payload_type(ret_val, parent, grandparent)
+                        if payload_t is not None and self._clone_capable_type(payload_t):
+                            return
                     for sub in ret_val.iter_subtrees():
                         if sub.data in _ESCAPE_COMPOUND_RULES:
+                            if sub.data == "some_expr":
+                                payload_t = self._some_payload_type(sub, n, parent)
+                                if payload_t is not None and self._clone_capable_type(payload_t):
+                                    continue
                             if self._contains_var_ref(sub, sym_name):
                                 escaped = True
                                 return
@@ -4187,6 +5517,13 @@ class PenguChecker:
                             escaped = True
                             return
                 if contains_sigil_of(ret_val):
+                    escaped = True
+                    return
+                # A view into the local ('return s at 0', 'return s.field',
+                # 'return bytes of s') stays valid only while the local's buffer
+                # lives: banishing the local would hand back a dangling pointer.
+                if (_hands_out_storage(ret_val) or _is_view_into(ret_val)
+                        or _block_value_hands_out(ret_val)):
                     escaped = True
                     return
 
@@ -4199,8 +5536,15 @@ class PenguChecker:
                     return
                 if self._contains_var_ref(val_node, sym_name):
                     if not self._is_direct_var_ref(target_node, sym_name):
-                        escaped = True
-                        return
+                        # A string stored into an owned slot (struct field,
+                        # element, pointee) is deep-copied by the code generator,
+                        # so the local keeps ownership and stays auto-banished.
+                        # The slot deep-copies a string value, so the source
+                        # keeps ownership and stays auto-banished; only a
+                        # non-copying slot (a view target) makes it escape.
+                        if not self._slot_owns_string_copy(target_node, val_node):
+                            escaped = True
+                            return
 
             # 4. Function call arguments
             elif n.data == "calling_expr":
@@ -4220,11 +5564,58 @@ class PenguChecker:
                 if method_name in ("push", "append", "put", "insert", "set"):
                     arg_list = next((c for c in n.children if isinstance(c, Tree) and c.data == "arg_list"), None)
                     if arg_list and self._contains_var_ref(arg_list, sym_name):
-                        escaped = True
-                        return
+                        # A list/map built with the owning constructors registers
+                        # clone callbacks, so push/put deep-copies: the source
+                        # keeps ownership of its own buffer and may still be
+                        # auto-banished.  Only a shallow (aliasing) store makes
+                        # the value escape.
+                        recv_t = self._escape_receiver_type(target, with_types)
+                        if receiver_deep_copies_on_store(recv_t, self.symbols):
+                            pass
+                        else:
+                            escaped = True
+                            return
 
             # 5. Compound data structures or container literals
             elif n.data in _ESCAPE_COMPOUND_RULES:
+                if n.data in ("struct_init", "struct_init_expr", "with_init_expr"):
+                    # Recurse: each field value is classified on its own, since a
+                    # string stored into a string field is deep-copied.
+                    prev_with = getattr(self, "_escape_with_type", None)
+                    with_types.append(_struct_init_type(parent))
+                    self._escape_with_type = _struct_init_type(parent)
+                    try:
+                        for child in n.children:
+                            walk(child, n, parent)
+                    finally:
+                        with_types.pop()
+                        self._escape_with_type = prev_with
+                    return
+                if n.data in ("field_init", "field_entry") and isinstance(parent, Tree) and parent.data == "struct_init":
+                    # 'with name is s' stores a *copy* of a string into an owned
+                    # rune field (see _string_slot_value), so the local keeps
+                    # ownership and may still be auto-banished.
+                    struct_t = _struct_init_type(grandparent)
+                    f_name = str(n.children[0]) if n.children else ""
+                    f_t = _field_type_on(struct_t, f_name)
+                    val = n.children[-1] if len(n.children) > 1 else None
+                    if _is_string_t(f_t):
+                        if contains_sigil_of(val):
+                            escaped = True
+                            return
+                        for child in n.children:
+                            walk(child, n, parent)
+                        return
+                if n.data == "some_expr" and n.children:
+                    # The code generator *deep-copies* an owning payload into the
+                    # box ('some s' no longer shares s's buffer), so the source
+                    # keeps ownership and may still be auto-banished.  A payload
+                    # without a clone callback (slice/ref/POD) is still aliased.
+                    payload_t = self._some_payload_type(n, parent, grandparent)
+                    if payload_t is not None and self._clone_capable_type(payload_t):
+                        for child in n.children:
+                            walk(child, n, parent)
+                        return
                 if contains_sigil_of(n) or self._contains_var_ref(n, sym_name):
                     escaped = True
                     return
@@ -4233,25 +5624,84 @@ class PenguChecker:
             # 6. Variable declarations (aliasing / transferring ownership)
             elif n.data in ("var_decl", "let_decl") and n.children:
                 val_node = n.children[-1]
-                if contains_sigil_of(val_node) or self._is_direct_var_ref(val_node, sym_name):
+                # Binding a *view* is safe while every use precedes the
+                # scope-end banish, so only an identity hand-off escapes here;
+                # the view case is propagated below when the binding escapes.
+                if _hands_out_storage(val_node) or _block_value_hands_out(val_node):
                     escaped = True
                     return
 
 
             for child in n.children:
-                walk(child)
+                walk(child, n, parent)
 
         for stmt in stmts:
             walk(stmt)
-        return escaped
+        if escaped:
+            return True
 
-    def _check_enchanting_method(self, node: Tree, self_type: Type, type_params: Optional[List[str]] = None) -> None:
+        # A local bound to a *view* of sym_name ('var v as string is xs at 0')
+        # borrows sym_name's buffer: if that local escapes, so must the source.
+        # Binding alone is safe (all uses precede the scope-end banish), so this
+        # only fires when the view itself is returned or stored away.
+        guard = getattr(self, "_escape_view_guard", None)
+        if guard is None:
+            guard = set()
+            self._escape_view_guard = guard
+        if sym_name in guard:
+            return False
+        guard.add(sym_name)
+        try:
+            for stmt in stmts:
+                if not isinstance(stmt, Tree):
+                    continue
+                for decl in stmt.iter_subtrees():
+                    if not (isinstance(decl, Tree) and decl.data in ("var_decl", "let_decl")):
+                        continue
+                    if len(decl.children) < 2:
+                        continue
+                    if not _is_view_into(decl.children[-1]):
+                        continue
+                    names = [str(t) for t in decl.children[1:]
+                             if isinstance(t, Token) and t.type == "NAME"]
+                    if not names or names[0] == sym_name:
+                        continue
+                    # A scalar element read ('lst at 0' of an int) is a copy, not
+                    # a borrowed buffer, so its escape does not affect the source.
+                    # The bound type comes from the declaration itself: this
+                    # analysis runs while the *source* is being declared, so a
+                    # later binding is not in the symbol table yet.
+                    bound_t = None
+                    for ch in decl.children[1:-1]:
+                        if isinstance(ch, Tree) and ch.data in self._TYPE_NODE_RULES:
+                            try:
+                                bound_t = ast_to_type(ch, self.symbols.lookup_type)
+                            except Exception:
+                                bound_t = None
+                            break
+                    if bound_t is None:
+                        bound_sym = self.symbols.lookup(names[0]) if self.symbols else None
+                        bound_t = getattr(bound_sym, "type", None)
+                    while isinstance(bound_t, (AliasType, FrozenType)) and getattr(bound_t, "target", None):
+                        bound_t = bound_t.target
+                    if isinstance(bound_t, BaseType) and bound_t.name in (
+                            "int", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64",
+                            "float", "f32", "f64", "bool", "char", "byte"):
+                        continue
+                    if self._check_symbol_escape(names[0], stmts):
+                        return True
+        finally:
+            guard.discard(sym_name)
+        return False
+
+    def _check_enchanting_method(self, node: Tree, self_type: Type, type_params: Optional[List[str]] = None, type_bounds: Optional[Dict[str, List[str]]] = None) -> None:
         """Checks method definition within an enchanting block.
 
         Args:
             node: AST Tree for enchanting weave method.
             self_type: Receiver Type being enchanted.
             type_params: Optional list of generic type parameters.
+            type_bounds: Optional dictionary mapping type parameter names to concept bounds.
         """
         line, col = self._get_loc(node)
         is_inline, is_ritual, idx = _extract_weave_modifiers(node.children)
@@ -4259,14 +5709,17 @@ class PenguChecker:
         rem_children = [c for c in node.children[idx+1:] if c is not None]
 
         m_tparams = []
+        m_bounds = {}
         if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "shard_params":
-            m_tparams, _ = extract_shard_params(rem_children[0])
+            m_tparams, m_bounds = extract_shard_params(rem_children[0])
             rem_children = rem_children[1:]
 
+        combined_bounds = dict(type_bounds or {})
+        combined_bounds.update(m_bounds)
         tp_list = list(type_params or []) + m_tparams
         def lookup_m_tp(tname: str):
             if tname in tp_list:
-                return TypeParam(tname)
+                return TypeParam(tname, bounds=combined_bounds.get(tname, []))
             return self.symbols.lookup_type(tname)
 
         params: List[Tuple[str, Type]] = []
@@ -4277,6 +5730,7 @@ class PenguChecker:
         many_param_seen = False
         many_count = 0
 
+        seen_m_param_names: Dict[str, Any] = {}
         for child in rem_children:
             if isinstance(child, Tree) and child.data == "param_list":
                 for p in child.children:
@@ -4284,6 +5738,19 @@ class PenguChecker:
                         pn = str(p.children[0])
                         pt = ast_to_type(p.children[1], lookup_m_tp) if len(p.children) >= 2 else AnyType()
                         has_default = len(p.children) >= 3 and p.children[2] is not None
+
+                        if pn in seen_m_param_names:
+                            err = self._make_error(
+                                SemanticError,
+                                f"Duplicate parameter name '{pn}' in method '{fn_name}'",
+                                p,
+                                code="E0005",
+                                help=f"Rename one of the '{pn}' parameters.",
+                                note="Each parameter of an enchanting method must have a distinct name."
+                            )
+                            self._record_error(err)
+                        else:
+                            seen_m_param_names[pn] = p
 
                         if isinstance(pt, ManyType):
                             many_count += 1
@@ -4341,7 +5808,7 @@ class PenguChecker:
         if not is_ritual:
             self.symbols.define(Symbol(name="self", type=RefType(target=self_type), kind="param", is_mutable=False, line=line, column=col))
         for tp in tp_list:
-            self.symbols.define(Symbol(name=tp, type=TypeParam(tp), kind="type"))
+            self.symbols.define(Symbol(name=tp, type=TypeParam(tp, bounds=combined_bounds.get(tp, [])), kind="type"))
 
         for pn, pt in params:
             self.symbols.define(Symbol(name=pn, type=pt, kind="param", is_mutable=False, line=line, column=col))
@@ -4351,12 +5818,17 @@ class PenguChecker:
             for stmt in stmt_children:
                 self._check_node(stmt)
 
+            # Same implicit-return rules as a top-level weave: a method declared
+            # 'into T' must either end in an expression of type T or always
+            # return, otherwise the C function falls off the end (UB).
             if stmt_children and ret_type != VOID_TYPE:
                 last_stmt = stmt_children[-1]
-                while isinstance(last_stmt, Tree) and last_stmt.data == "stmt" and last_stmt.children:
-                    last_stmt = last_stmt.children[0]
-                if last_stmt.data == "expr_stmt":
-                    expr_node = last_stmt.children[0]
+                last_inner = last_stmt
+                while (isinstance(last_inner, Tree)
+                       and last_inner.data in ("stmt", "simple_stmt") and last_inner.children):
+                    last_inner = last_inner.children[0]
+                if isinstance(last_inner, Tree) and last_inner.data == "expr_stmt":
+                    expr_node = last_inner.children[0]
                     try:
                         last_type = self.inferrer.infer(expr_node, expected_type=ret_type)
                         if not last_type.is_compatible(ret_type):
@@ -4371,6 +5843,17 @@ class PenguChecker:
                             self._record_error(err)
                     except SemanticError as e:
                         self._record_error(e)
+                elif not isinstance(ret_type, AnyType) and not self._stmt_always_returns(last_inner):
+                    stmt_desc = last_inner.data.replace("_stmt", "").replace("_decl", "")
+                    err = self._make_error(
+                        TypeMismatchError,
+                        f"Method '{fn_name}' declared into '{ret_type}' does not return a value (ends with '{stmt_desc}')",
+                        last_inner,
+                        code="E0020",
+                        help=f"Add a 'return' statement or end with an expression evaluating to '{ret_type}'.",
+                        note="Methods with non-void return types must return a value on every path."
+                    )
+                    self._record_error(err)
         finally:
             self.block_stmts_stack.pop()
 
@@ -4503,7 +5986,8 @@ class PenguChecker:
         self.block_stmts_stack.append(b_stmts)
         try:
             if collect:
-                elem_t = self._check_value_block(list(block_node.children), expected_element)
+                elem_t = self._check_value_block(list(block_node.children), expected_element,
+                                                  copies_value=True)
             else:
                 self._check_node(block_node)
         finally:
@@ -4614,7 +6098,8 @@ class PenguChecker:
         self.block_stmts_stack.append(b_stmts)
         try:
             if collect:
-                elem_t = self._check_value_block(list(block_node.children), expected_element)
+                elem_t = self._check_value_block(list(block_node.children), expected_element,
+                                                  copies_value=True)
             else:
                 self._check_node(block_node)
         finally:
@@ -4653,7 +6138,29 @@ class PenguChecker:
         elem_type: Type = AnyType()
         try:
             it = self.inferrer.infer(iter_node)
-            if not it.is_iterable() and not it.is_string() and not isinstance(it, AnyType):
+            # 'for k in self' inside an enchanting method: the receiver is a
+            # 'ref to map'/'ref to list' pointer, so look through the reference.
+            probe = it
+            while isinstance(probe, (RefType, AliasType, FrozenType)):
+                probe = getattr(probe, "target", None) or probe
+            if isinstance(probe, TypeParam):
+                # A bare 'T' cannot be iterated: the element type is unknown
+                # until monomorphization and generic code may be checked with
+                # an abstract T.  Associated types ('T.Item') make this sound
+                # in the future; until then require a concrete container.
+                err = self._make_error(
+                    SemanticError,
+                    f"Cannot iterate directly over generic type parameter '{probe.name}'",
+                    iter_node,
+                    code="E0005",
+                    help=f"Use 'list of {probe.name}' or 'slice of {probe.name}' as the parameter "
+                         f"type. Direct iteration over a bare '{probe.name}' requires "
+                         "associated types (future feature).",
+                    note="'for ... in' needs to know the element type; a bare type "
+                         "parameter does not provide one."
+                )
+                self._record_error(err)
+            elif not probe.is_iterable() and not probe.is_string() and not isinstance(probe, AnyType):
                 err = self._make_error(
                     SemanticError,
                     f"Cannot iterate over non-collection type '{it}'",
@@ -4663,10 +6170,10 @@ class PenguChecker:
                     note="'for ... in' loops require iterable collections."
                 )
                 self._record_error(err)
-            if it.is_string():
+            if probe.is_string():
                 elem_type = STRING_TYPE  # iterating a string yields characters
             else:
-                elem_type = it.element_type() or AnyType()
+                elem_type = probe.element_type() or AnyType()
         except SemanticError as e:
             self._record_error(e)
 
@@ -4692,7 +6199,8 @@ class PenguChecker:
         self.block_stmts_stack.append(b_stmts)
         try:
             if collect:
-                body_t = self._check_value_block(list(block_node.children), expected_element)
+                body_t = self._check_value_block(list(block_node.children), expected_element,
+                                                  copies_value=True)
             else:
                 self._check_node(block_node)
         finally:
@@ -4867,7 +6375,25 @@ class PenguChecker:
         self._check_value_exprs(expr_node, curr_ret)
         try:
             val_type = self.inferrer.infer(expr_node, expected_type=curr_ret)
-            if curr_ret is not None and not val_type.is_compatible(curr_ret) and not isinstance(curr_ret, AnyType):
+            # 'T' is a wildcard in the value direction
+            # (BaseType.is_compatible(TypeParam) is always true), so a bounded
+            # parameter must be checked explicitly: 'into T' with 'T: Num' cannot
+            # return a string.
+            unwrapped_ret = curr_ret
+            while isinstance(unwrapped_ret, (AliasType, FrozenType, SealType)):
+                unwrapped_ret = getattr(unwrapped_ret, "target", None) or getattr(unwrapped_ret, "underlying", None)
+            if isinstance(unwrapped_ret, TypeParam) and not self._typeparam_accepts_value(unwrapped_ret, val_type):
+                err = self._make_error(
+                    TypeMismatchError,
+                    f"Cannot return value of type '{val_type}' from a function returning "
+                    f"'{unwrapped_ret.name}' (bound: {', '.join(unwrapped_ret.bounds)})",
+                    expr_node,
+                    code="E0005",
+                    help=f"Return a value satisfying 'where {unwrapped_ret.name}: {', '.join(unwrapped_ret.bounds)}'.",
+                    note="A bounded type parameter only accepts values implementing its concepts."
+                )
+                self._record_error(err)
+            elif curr_ret is not None and not val_type.is_compatible(curr_ret) and not isinstance(curr_ret, AnyType):
                 err = self._make_error(
                     TypeMismatchError,
                     f"Returned value of type '{val_type}' does not match weave return type '{curr_ret}'",
@@ -4903,12 +6429,17 @@ class PenguChecker:
         full_names: Dict[str, Tuple[str, str]] = {}
         for o_logical, omen_t in omens_seen.items():
             o_cname = getattr(omen_t, "c_name", None) or o_logical
+            # A 'pengu_bind' declaration emits its variants under the *simple*
+            # name ('KEY_LEFT'), so the logical 'Omen_variant' name does not
+            # exist in C and must not collide with a user symbol.
+            o_sym = (self.symbols.global_scope.symbols.get(o_logical)
+                     or self.symbols.global_scope.symbols.get(o_cname))
+            from_declaration = str(getattr(o_sym, "file_path", "") or "").endswith(".d.pengu")
             for v_name in (omen_t.variants or {}):
-                full = f"{o_logical}_{v_name}"
-                full_names[full] = (o_logical, v_name)
-                if o_cname != o_logical:
-                    full_c = f"{o_cname}_{v_name}"
-                    full_names[full_c] = (o_logical, v_name)
+                # Only the emitted C name (an 'insignia' prefix changes it) can
+                # clash with a C symbol, so the logical name is not registered.
+                if not from_declaration:
+                    full_names[f"{o_cname}_{v_name}"] = (o_logical, v_name)
                 if v_name in simple_owner and simple_owner[v_name] != o_logical:
                     err = self._make_error(
                         SemanticError,
@@ -4933,6 +6464,12 @@ class PenguChecker:
             for chk_name in names_to_check:
                 if chk_name in simple_owner:
                     if self._const_matches_variant(sym, simple_owner[chk_name], chk_name):
+                        continue
+                    # A 'pengu_bind'-generated const re-declares the C enum
+                    # member: same symbol as the variant, not a collision.
+                    if (getattr(sym, "kind", "") == "const"
+                            and getattr(sym, "const_val", None) is None
+                            and str(getattr(sym, "file_path", "") or "").endswith(".d.pengu")):
                         continue
                     if getattr(sym, "kind", "") == "const":
                         clash_desc = f"top-level constant '{chk_name}'"
@@ -5067,12 +6604,59 @@ class PenguChecker:
         span_start, span_end = self._get_node_span(node)
         self.symbols.push_scope(kind="or_block", in_or_block=True, start_line=span_start, end_line=span_end)
         err_t = left_t.err_type if isinstance(left_t, ResultType) else STRING_TYPE
-        self.symbols.define(Symbol(name="error", type=err_t, kind="var", line=span_start, column=0, is_mutable=False))
+        self.symbols.define(Symbol(name="error", type=err_t, kind="let", line=span_start, column=0, is_mutable=False))
         or_stmts = [child for child in node.children[1:] if isinstance(child, Tree)]
         self.block_stmts_stack.append(or_stmts)
         try:
             for child in or_stmts:
                 self._check_node(child)
+
+            # The fallback supplies the same value the success path produces:
+            # 'maybe int or: "text"' used to be accepted and then emitted C that
+            # read an int out of a string (and broke destructuring).
+            ok_t = None
+            if isinstance(left_t, MaybeType):
+                ok_t = left_t.element
+            elif isinstance(left_t, ResultType):
+                ok_t = left_t.ok_type
+            if ok_t is not None and not isinstance(ok_t, AnyType) and str(getattr(ok_t, "name", "")) != "void":
+                v_node = self._or_block_fallback_value_node(or_stmts)
+                if v_node is not None:
+                    fb_t: Optional[Type] = None
+                    try:
+                        fb_t = self.inferrer.infer(v_node)
+                    except SemanticError as e:
+                        self._record_error(e)
+                    if (fb_t is not None and not isinstance(fb_t, (AnyType, NullType))
+                            and str(getattr(fb_t, "name", "")) != "void"
+                            and not fb_t.is_compatible(ok_t)):
+                        self._record_error(self._make_error(
+                            TypeMismatchError,
+                            f"'or:' fallback produces '{fb_t}', but the success value is '{ok_t}'",
+                            v_node,
+                            code="E0005",
+                            help=f"The fallback must produce '{ok_t}' (or return/panic).",
+                            note="Both branches of 'or:' must yield the same value type.",
+                        ))
         finally:
             self.block_stmts_stack.pop()
-        self.symbols.pop_scope(end_line=span_end)
+            # Inside 'finally' so an internal failure cannot leave the scope on
+            # the symbol-table stack (later diagnostics would then resolve names
+            # in the wrong scope).
+            self.symbols.pop_scope(end_line=span_end)
+
+    def _or_block_fallback_value_node(self, or_stmts: List[Tree]) -> Optional[Any]:
+        """AST node whose value an 'or:' fallback block produces, if any."""
+        if not or_stmts:
+            return None
+        last = or_stmts[-1]
+        while isinstance(last, Tree) and last.data in ("stmt", "simple_stmt") and last.children:
+            last = last.children[0]
+        if not isinstance(last, Tree):
+            return None
+        if last.data == "expr_stmt" and last.children:
+            return last.children[0]
+        if (last.data in ("if_stmt", "unless_stmt", "while_stmt", "for_range_stmt", "for_in_stmt")
+                and getattr(last, "_pengu_value_type", None) is not None):
+            return last
+        return None

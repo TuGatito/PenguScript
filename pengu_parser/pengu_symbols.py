@@ -175,7 +175,12 @@ class SymbolTable:
         self.generic_aliases: Dict[str, Tuple[List[str], Any]] = {}
         self.generic_concepts: Dict[str, Tuple[List[str], Any]] = {}
         self.generic_functions: Dict[str, Tuple[List[str], Any]] = {}
-        self.generic_methods: Dict[Tuple[str, str], Tuple[List[str], Any]] = {}
+        # (receiver_type_params, method_type_params, method_ast).  Older
+        # 2-tuples (concatenated params, ast) are still accepted by readers.
+        self.generic_methods: Dict[Tuple[str, str], Tuple[List[str], ...]] = {}
+        # Coherence: (type, method) -> concept that provides it.  Used to reject
+        # two different 'bind' blocks implementing the same method on a type.
+        self.bind_method_owner: Dict[Tuple[str, str], str] = {}
 
         # Monomorphized instances: mangled_name -> instance
         self.monomorphized_types: Dict[str, Type] = {}
@@ -215,6 +220,10 @@ class SymbolTable:
             type=FnType(params=[("val", AnyType())], return_type=VOID_TYPE),
             kind="function"
         ))
+        from .pengu_types import BUILTIN_CONCEPTS
+        for cname, ctype in BUILTIN_CONCEPTS.items():
+            self.concepts[cname] = ctype
+            self.global_scope.define(Symbol(name=cname, type=ctype, kind="concept"))
 
 
     def push_scope(self, kind: str, **kwargs) -> Scope:

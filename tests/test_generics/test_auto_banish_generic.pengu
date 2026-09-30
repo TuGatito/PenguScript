@@ -1,0 +1,17 @@
+# A generic function that builds a 'list of T' must banish it on return.
+weave count_items shard T where T: Par with xs as list of T into int:
+    var copy as list of T is list of T
+    var i as int is 0
+    while i < calling xs.len:
+        calling copy.push with (xs at i)
+        set i is i + 1
+    return calling copy.len
+
+weave main into int:
+    var words as list of string is ["one", "two", "three"]
+    var nums as list of int is [1, 2]
+    var a as int is calling count_items with words
+    var b as int is calling count_items with nums
+    if a == 3 and b == 2:
+        return 0
+    return 1

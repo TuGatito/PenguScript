@@ -29,11 +29,7 @@ from tests.conftest import (
 
 def test_c1_compound_set_string_no_auto_banish_leak():
     """C1: set s += ... marks variable as set target, preventing erroneous auto-banish."""
-    code = """weave main into int:
-  var s as string is "hello" + " world"
-  set s += "!"
-  return 0
-"""
+    code = 'weave main into int:\n  var s as string is "hello world"\n  set s is "{s}!"\n  return 0\n'
     checker = check_ok(code)
     # The variable 's' must not be auto-banished because it is mutated via compound_set_stmt
     c = gen_bundle(code)

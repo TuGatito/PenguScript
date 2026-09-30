@@ -1,0 +1,4 @@
+# EXPECTED: E0049
+# EXPECTED TO FAIL: E0049 — '%' needs Integrum, not just Num.
+weave mod_generic shard T where T: Num with a as T, b as T into T:
+    return a % b

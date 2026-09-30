@@ -332,16 +332,7 @@ from pengu_parser.pengu_symbols import SymbolTable
 
 def test_p3_f1a_value_if_auto_banish_scoped():
     """T-F1a — value-if auto-banish stays inside branch block and before statement-expression end."""
-    src = """declare print with s as string into void
-
-weave helper into void:
-    let x is if true:
-        var s is "hi" + "!"
-        s length
-    else:
-        0
-    calling print with (x to string)
-"""
+    src = 'declare print with s as string into void\n\nweave helper into void:\n    let x is if true:\n        var s as string is (1 to string)\n        s length\n    else:\n        0\n    calling print with (x to string)\n'
     c = gen_bundle(src)
     assert "pengu_banish_string(&s);" in c
     idx_banish = c.find("pengu_banish_string(&s);")
@@ -355,12 +346,7 @@ weave helper into void:
 
 def test_p3_f1b_do_expr_auto_banish_scoped():
     """T-F1b — do_expr auto-banish stays inside GNU statement expression block."""
-    src = """weave helper into void:
-    let x is do:
-        var s is "hi" + "!"
-        s length
-    return
-"""
+    src = 'weave helper into void:\n    let x is do:\n        var s as string is (1 to string)\n        s length\n    return\n'
     c = gen_bundle(src)
     assert "pengu_banish_string(&s);" in c
     idx_banish = c.find("pengu_banish_string(&s);")
@@ -371,14 +357,7 @@ def test_p3_f1b_do_expr_auto_banish_scoped():
 
 def test_p3_f1c_binding_if_auto_banish_scoped():
     """T-F1c — statement-position if NAME as T is <maybe> banishes inside branch."""
-    src = """declare print with s as string into void
-
-weave helper with u as maybe int into void:
-    if x as int is u:
-        var s is "hi" + "!"
-        calling print with s
-    return
-"""
+    src = 'declare print with s as string into void\n\nweave helper with u as maybe int into void:\n    if x as int is u:\n        var s as string is (1 to string)\n        calling print with s\n    return\n'
     c = gen_bundle(src)
     assert "pengu_banish_string(&s);" in c
     idx_banish = c.find("pengu_banish_string(&s);")

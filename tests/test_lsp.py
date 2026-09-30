@@ -257,9 +257,7 @@ class TestDidOpenDiagnostics:
     def test_did_open_semantic_errors_publish_diagnostics(self, monkeypatch):
         published = _capture_diagnostics(monkeypatch)
         source = (
-            'weave main into void:\n'
-            '  var a as int is "hello"\n'
-            '  var b as float is a + "world"\n'
+            'weave main into void:\n  var a as int is "hello"\n  var b as float is "{a}world"\n'
         )
         did_open("file:///errs.pengu", source)
         assert len(published) == 1
@@ -286,12 +284,7 @@ class TestDidOpenDiagnostics:
         from pengu_lsp.server import diagnostics_from_errors
 
         source = (
-            "rune Vec2:\n"
-            "  x as int\n"
-            "\n"
-            "weave main into void:\n"
-            '  var a as int is "hello"\n'
-            '  var b as float is a + "world"\n'
+            'rune Vec2:\n  x as int\n\nweave main into void:\n  var a as int is "hello"\n  var b as float is "{a}world"\n'
         )
         _checker, errors = parse_and_check(source, filename="test.pengu")
         assert len(errors) > 0, "checker should find type mismatch errors"

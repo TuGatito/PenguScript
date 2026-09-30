@@ -16,9 +16,26 @@
 #   * to_string / attr / text return `maybe string`: a present value owns a
 #     freshly allocated string the caller may banish after use; none means the
 #     data does not exist or could not be produced.
+#
+# Documented TODOs (require runtime changes):
+#   * Parent traversal (parent_of) requires exposing xmlNodePtr->parent in the
+#     runtime bridge.
+#   * Sibling traversal (next_sibling, prev_sibling) requires exposing
+#     xmlNodePtr->next and xmlNodePtr->prev in the runtime bridge.
+#   * Attribute iteration (attrs_as_map) requires iterating xmlNodePtr->properties
+#     and copying into a PenguMap.
+#   * Full XPath evaluation (xpath_eval) requires an xmlXPathContext bridge.
 
 import std.spark
 import std.oracle
+import std.scrolls
+
+# ----------------------------------------------------------------------------
+# Version and Constants
+# ----------------------------------------------------------------------------
+
+## Module version identifier for std.parchment (0.15.0 expansion).
+const PARCHMENT_VERSION as string is "0.15.0"
 
 # ----------------------------------------------------------------------------
 # Type Definitions
@@ -165,10 +182,6 @@ weave create_text with text as string into ref to Node:
 weave append_child with parent as ref to Node , child as ref to Node into void:
     calling pengu_c_parchment_append_child with parent , child
 
-# ----------------------------------------------------------------------------
-# Resource Cleanup
-# ----------------------------------------------------------------------------
-
 # Releases the owned tag/text strings of a Node wrapper returned by find /
 # find_all / create_element / create_text. Does not free xml nodes owned by a
 # document - those are released when the document itself is freed.
@@ -195,16 +208,152 @@ weave unescape_text with text as string into string:
 # True when `data` parses as well-formed XML (i.e. parse_xml succeeds).
 weave is_valid_xml with data as string into bool:
     var doc as maybe Document is calling pengu_c_parchment_parse_xml with data
-    return doc.is_present
+    if doc.is_present:
+        var d as Document is doc.value
+        calling free_document with sigil of d
+        return true
+    return false
 
 # True when `data` parses as HTML with a root element (i.e. parse_html
 # succeeds).
 weave is_valid_html with data as string into bool:
     var doc as maybe Document is calling pengu_c_parchment_parse_html with data
-    return doc.is_present
+    if doc.is_present:
+        var d as Document is doc.value
+        calling free_document with sigil of d
+        return true
+    return false
 
 # ----------------------------------------------------------------------------
-# Object Methods (enchanting)
+# HTML & DOM Traversal Helpers (0.15.0 Expansion)
+# ----------------------------------------------------------------------------
+
+## Returns true if `tag` is a void HTML element that cannot have children (e.g. "br", "img", "hr").
+weave is_void_element with tag as string into bool:
+    var t as string is calling tag.lower
+    return t == "br" or t == "hr" or t == "img" or t == "input" or t == "link" or t == "meta" or t == "area" or t == "base" or t == "col" or t == "embed" or t == "param" or t == "source" or t == "track" or t == "wbr"
+
+## Normalizes an HTML/XML tag name by trimming whitespace and converting to lowercase.
+weave normalize_tag with tag as string into string:
+    var s as string is calling tag.trim
+    return calling s.lower
+
+## Validates whether `tag` is a valid XML/HTML tag name.
+weave is_valid_tag_name with tag as string into bool:
+    if tag.len == 0:
+        return false
+    var first as int is ord (tag at 0)
+    var is_alpha as bool is (first >= 65 and first <= 90) or (first >= 97 and first <= 122) or first == 95
+    if not is_alpha:
+        return false
+    var i as int is 1
+    while i < tag.len:
+        var code as int is ord (tag at i)
+        var ok as bool is (code >= 65 and code <= 90) or (code >= 97 and code <= 122) or (code >= 48 and code <= 57) or code == 45 or code == 95 or code == 58
+        if not ok:
+            return false
+        set i is i + 1
+    return true
+
+## Checks whether `node` has the CSS class `cls` in its "class" attribute.
+weave has_class with node as ref to Node , cls as string into bool:
+    var c_opt as maybe string is calling attr with node , "class"
+    if c_opt.is_present:
+        var c_str as string is c_opt.value
+        var classes as list of string is calling c_str.split with " "
+        for c in classes:
+            if c == cls:
+                return true
+    return false
+
+## Finds direct child elements of `node` tagged `tag` that have CSS class `cls`.
+weave find_all_by_class with node as ref to Node , cls as string , tag as string is "div" into list of Node:
+    var candidates as list of Node is calling find_all with node , tag
+    var matches as list of Node is list of Node
+    for c in candidates:
+        if calling has_class with sigil of c , cls:
+            calling matches.push with c
+        else:
+            calling free_node with sigil of c
+    return matches
+
+## Finds the first direct child element of `node` tagged `tag` that has CSS class `cls`.
+weave find_by_class with node as ref to Node , cls as string , tag as string is "div" into maybe Node:
+    var candidates as list of Node is calling find_all with node , tag
+    var i as int is 0
+    while i < candidates.len:
+        var c as Node is candidates at i
+        if calling has_class with sigil of c , cls:
+            # Free the remaining candidates
+            var j as int is 0
+            while j < candidates.len:
+                if j != i:
+                    var other as Node is candidates at j
+                    calling free_node with sigil of other
+                set j is j + 1
+            return some c
+        set i is i + 1
+    for c in candidates:
+        calling free_node with sigil of c
+    return maybe none
+
+## Finds a child element under `node` with the given `id` attribute.
+weave find_by_id with node as ref to Node , id as string , tag as string is "div" into maybe Node:
+    # Check if target node itself matches
+    var self_id as maybe string is calling attr with node , "id"
+    if self_id.is_present and self_id.value == id:
+        return some with tag is node->tag , text is node->text , _ptr is node->_ptr
+    var candidates as list of Node is calling find_all with node , tag
+    var i as int is 0
+    while i < candidates.len:
+        var c as Node is candidates at i
+        var cid as maybe string is calling attr with sigil of c , "id"
+        if cid.is_present and cid.value == id:
+            var j as int is 0
+            while j < candidates.len:
+                if j != i:
+                    var other as Node is candidates at j
+                    calling free_node with sigil of other
+                set j is j + 1
+            return some c
+        set i is i + 1
+    for c in candidates:
+        calling free_node with sigil of c
+    return maybe none
+
+## Extracts the full concatenated text content of `node` and all its descendants.
+weave extract_all_text with node as ref to Node into string:
+    var t as maybe string is calling text with node
+    if t.is_present:
+        return t.value
+    return ""
+
+## Strips all HTML/XML tags from markup `html` and decodes common HTML entities into plain text.
+weave strip_html_tags with html as string into string:
+    var out as string is ""
+    var in_tag as bool is false
+    var i as int is 0
+    while i < html.len:
+        var ch as string is html at i
+        if ch == "<":
+            set in_tag is true
+        else if ch == ">":
+            set in_tag is false
+        else if not in_tag:
+            set out is "{out}{ch}"
+        set i is i + 1
+    var s as string is out
+    set s is calling s.replace with "&amp;" , "&"
+    set s is calling s.replace with "&lt;" , "<"
+    set s is calling s.replace with "&gt;" , ">"
+    set s is calling s.replace with "&quot;" , "\""
+    set s is calling s.replace with "&apos;" , "'"
+    set s is calling s.replace with "&#39;" , "'"
+    set s is calling s.replace with "&nbsp;" , " "
+    return s
+
+# ----------------------------------------------------------------------------
+# Object Methods (enchanting Node)
 # ----------------------------------------------------------------------------
 
 # Node methods: mirror the module-level functional API with `self` as the
@@ -220,6 +369,26 @@ enchanting Node:
     # find_all); free each entry before banishing the list.
     weave find_all with query as string into list of Node:
         return calling pengu_c_parchment_find_all with self , query
+
+    ## Returns true if `self` has the CSS class `cls`.
+    weave has_class with cls as string into bool:
+        return calling has_class with self , cls
+
+    ## Finds child elements with tag `tag` having CSS class `cls`.
+    weave find_all_by_class with cls as string , tag as string is "div" into list of Node:
+        return calling find_all_by_class with self , cls , tag
+
+    ## Finds the first child element with tag `tag` having CSS class `cls`.
+    weave find_by_class with cls as string , tag as string is "div" into maybe Node:
+        return calling find_by_class with self , cls , tag
+
+    ## Finds a child element with the given `id` attribute.
+    weave find_by_id with id as string , tag as string is "div" into maybe Node:
+        return calling find_by_id with self , id , tag
+
+    ## Returns the full concatenated text content of `self` and its descendants.
+    weave extract_text into string:
+        return calling extract_all_text with self
 
     # Reads attribute `name` of `self`; a present result is an owned fresh
     # string (see attr).

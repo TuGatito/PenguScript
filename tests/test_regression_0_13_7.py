@@ -205,18 +205,7 @@ weave main into int:
 @requires_cc
 def test_item8_is_string_expr_alias_support():
     """#8: _is_string_expr uses .is_string() to support AliasType(string)."""
-    code = """alias MyStr as string
-
-weave greet with name as MyStr into MyStr:
-    return "Hello, " + name
-
-weave main into int:
-    let user as MyStr is "Pengu"
-    let greeting is calling greet with user
-    if greeting == "Hello, Pengu":
-        return 0
-    return 1
-"""
+    code = 'alias MyStr as string\n\nweave greet with name as MyStr into MyStr:\n    return "Hello, {name}"\n\nweave main into int:\n    let user as MyStr is "Pengu"\n    let greeting is calling greet with user\n    if greeting == "Hello, Pengu":\n        return 0\n    return 1\n'
     check_ok(code)
     res = compile_run(code, tag="test_item8_alias_str_expr")
     assert res.returncode == 0
@@ -237,20 +226,7 @@ weave main into int:
 @requires_cc
 def test_item10_weave_statement_whitelist_robustness():
     """#10: Diverse statement types (banish, static var, loops) are captured cleanly in weave."""
-    code = """weave compute with n as int into int:
-    static var count as int is 0
-    set count += 1
-    var s as string is "temp" + ""
-    defer banish s
-    return count + n
-
-weave main into int:
-    let a is calling compute with 5
-    let b is calling compute with 5
-    if a == 6 and b == 7:
-        return 0
-    return 1
-"""
+    code = 'weave compute with n as int into int:\n    static var count as int is 0\n    set count += 1\n    var s as string is (1 to string)\n    defer banish s\n    return count + n\n\nweave main into int:\n    let a is calling compute with 5\n    let b is calling compute with 5\n    if a == 6 and b == 7:\n        return 0\n    return 1\n'
     check_ok(code)
     res = compile_run(code, tag="test_item10_weave_stmts")
     assert res.returncode == 0

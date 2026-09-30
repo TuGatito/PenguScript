@@ -75,6 +75,40 @@ jobs:
         run: |
           python build_runtime.py
 
+      - name: Stage TinyCC (Linux/macOS, from source)
+        if: runner.os != 'Windows'
+        run: |
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, ".")
+          from pengu_tcc import ensure_tcc
+          path = ensure_tcc("build/tcc-dist", verbose=True)
+          print("tcc:", path)
+          if not path:
+              print("::warning::TinyCC could not be built; the release will fall back to gcc/clang")
+          PY
+
+      - name: Stage TinyCC (Windows, prebuilt)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dest = "build/tcc-dist"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          $url = $env:PENGU_TCC_URL
+          if (-not $url) {
+            Write-Host "::warning::PENGU_TCC_URL is not set; the Windows release will use the system compiler"
+            exit 0
+          }
+          Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\tcc.zip"
+          Expand-Archive -Path "$env:TEMP\tcc.zip" -DestinationPath $dest -Force
+          $exe = Get-ChildItem -Path $dest -Recurse -Filter tcc.exe | Select-Object -First 1
+          if ($exe) {
+            Copy-Item $exe.FullName "$dest\tcc.exe" -Force
+            Write-Host "staged $($exe.FullName)"
+          } else {
+            Write-Host "::warning::tcc.exe not found in the downloaded archive"
+          }
+
       - name: Run Test Suite
         run: |
           python -m pytest tests -q -p no:cacheprovider

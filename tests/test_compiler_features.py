@@ -334,18 +334,7 @@ enchanting string:
 
     @requires_runtime
     def test_compile_and_run(self):
-        code = """weave main into void:
-  var m as maybe int is some 42
-  if m.is_present:
-    if m.value == 42:
-      var s as maybe string is some "hello"
-      if s.is_present:
-        if s.value == "hello":
-          var c as string is chr 66
-          var o as int is ord "A"
-          var msg as string is "SOME_OK " + c + (o to string)
-          calling print with msg
-"""
+        code = 'weave main into void:\n  var m as maybe int is some 42\n  if m.is_present:\n    if m.value == 42:\n      var s as maybe string is some "hello"\n      if s.is_present:\n        if s.value == "hello":\n          var c as string is chr 66\n          var o as int is ord "A"\n          var msg as string is "SOME_OK {c}{(o to string)}"\n          calling print with msg\n'
         res = compile_run(code, tag="some")
         assert res.returncode == 0, res.stderr
         assert "SOME_OK B65" in res.stdout
@@ -462,7 +451,8 @@ class TestMapLiterals:
 """
         c = gen_bundle(code)
         assert "PenguString" in c
-        assert "pengu_map_new(sizeof(PenguString), sizeof(int32_t))" in c
+        assert ("pengu_map_new(sizeof(PenguString), sizeof(int32_t))" in c or
+                "pengu_map_new_owned(sizeof(PenguString), sizeof(int32_t)" in c)
 
     def test_identifier_keys_become_strings(self):
         # host (string) vs port (int) values are not homogenous -> error
@@ -504,7 +494,8 @@ class TestMapLiterals:
   let scores is { "Alice": 100, "Bob": 90 }
 """
         c = gen_bundle(code)
-        assert "pengu_map_new(sizeof(PenguString), sizeof(int32_t))" in c
+        assert ("pengu_map_new(sizeof(PenguString), sizeof(int32_t))" in c or
+                "pengu_map_new_owned(sizeof(PenguString), sizeof(int32_t)" in c)
         assert "pengu_map_put(&" in c
         assert 'pengu_string_from_cstr("Alice")' in c
 
@@ -777,21 +768,7 @@ when main:
         return 0
 """
 
-_SCRIPTMOD = """\
-# scriptmod.pengu: importable module that is also runnable standalone.
-import std.spark
-
-weave greet with who as string into void:
-    calling spark.println with "greeting " + who
-    when main:
-        calling spark.println with "greet inner-main"
-
-when main:
-    weave main into int:
-        calling spark.println with "scriptmod entry"
-        calling greet with "World"
-        return 0
-"""
+_SCRIPTMOD = '# scriptmod.pengu: importable module that is also runnable standalone.\nimport std.spark\n\nweave greet with who as string into void:\n    calling spark.println with "greeting {who}"\n    when main:\n        calling spark.println with "greet inner-main"\n\nwhen main:\n    weave main into int:\n        calling spark.println with "scriptmod entry"\n        calling greet with "World"\n        return 0\n'
 
 _RUNNER = """\
 # runner.pengu: imports scriptmod as a module (its 'when main' blocks drop).
@@ -1118,18 +1095,7 @@ class TestWeaveFunctionPointers:
 
     @requires_runtime
     def test_runtime_invokes_pengu_weave(self):
-        src = """import std.spark
-
-declare pengu_call_callback_int with cb as ref to void, value as int into void
-
-weave on_value with v as int into void:
-    var msg as string is "callback got " + (v to string)
-    calling spark.println with msg
-
-weave main into int:
-    calling pengu_call_callback_int with on_value, 7
-    return 0
-"""
+        src = 'import std.spark\n\ndeclare pengu_call_callback_int with cb as ref to void, value as int into void\n\nweave on_value with v as int into void:\n    var msg as string is "callback got {(v to string)}"\n    calling spark.println with msg\n\nweave main into int:\n    calling pengu_call_callback_int with on_value, 7\n    return 0\n'
         res = compile_run(src, tag="cb")
         assert res.returncode == 0, res.stderr
         assert "callback got 7" in res.stdout

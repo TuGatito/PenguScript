@@ -1,0 +1,16 @@
+# Regression: an interpolated expression may contain a double-quoted literal.
+import std.spark
+
+weave or_default with s as string into string:
+    if (s length) == 0:
+        return "fallback"
+    return s
+
+weave main into int:
+    var empty as string is ""
+    var filled as string is "x"
+    var a as string is "v={(calling or_default with empty)}"
+    var b as string is "v={(calling or_default with filled)}"
+    calling spark.assert with a == "v=fallback"
+    calling spark.assert with b == "v=x"
+    return 0

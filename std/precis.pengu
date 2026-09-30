@@ -1,6 +1,6 @@
 # std/precis.pengu - The Precis (Networking, HTTP Client/Server & Sockets)
 # Provides HTTP client, embedded HTTP server, TCP sockets, DNS resolution,
-# and URL encoding/decoding utilities.
+# RFC 3986 URL parsing/building, and URL encoding/decoding utilities.
 #
 # Typical usage (HTTP client):
 #   import std.precis
@@ -25,13 +25,64 @@
 #     tcp_close when done. Strings returned by tcp_recv are freshly allocated
 #     and owned by the caller (banish them when done).
 #   * URL/query helpers return freshly allocated strings and maps owned by the
-#     caller.
+#     caller. ParsedUrl structs are value records containing owned strings.
+#
+# Documented TODOs (require runtime changes):
+#   * Dynamic router matching / middleware pipelines require closure captures
+#     with environment bindings (not supported by static C callback signatures).
+#   * Granular per-request timeouts (connect, read, write) require libcurl
+#     option wrappers in pengu_c_precis_http_request.
+#   * Streaming response bodies (transfer-encoding: chunked) require an iterator
+#     or stream handle bridge.
 
 import std.spark
 import std.oracle
 import std.scrolls
 import std.archivum
 import std.compass
+import std.cipher
+
+# ----------------------------------------------------------------------------
+# Version and Status Constants
+# ----------------------------------------------------------------------------
+
+## Module version identifier for std.precis (0.15.0 expansion).
+const PRECIS_VERSION as string is "0.15.0"
+
+## HTTP 200 OK
+const STATUS_OK as int is 200
+## HTTP 201 Created
+const STATUS_CREATED as int is 201
+## HTTP 202 Accepted
+const STATUS_ACCEPTED as int is 202
+## HTTP 204 No Content
+const STATUS_NO_CONTENT as int is 204
+## HTTP 301 Moved Permanently
+const STATUS_MOVED_PERMANENTLY as int is 301
+## HTTP 302 Found / Temporary Redirect
+const STATUS_FOUND as int is 302
+## HTTP 304 Not Modified
+const STATUS_NOT_MODIFIED as int is 304
+## HTTP 400 Bad Request
+const STATUS_BAD_REQUEST as int is 400
+## HTTP 401 Unauthorized
+const STATUS_UNAUTHORIZED as int is 401
+## HTTP 403 Forbidden
+const STATUS_FORBIDDEN as int is 403
+## HTTP 404 Not Found
+const STATUS_NOT_FOUND as int is 404
+## HTTP 405 Method Not Allowed
+const STATUS_METHOD_NOT_ALLOWED as int is 405
+## HTTP 409 Conflict
+const STATUS_CONFLICT as int is 409
+## HTTP 500 Internal Server Error
+const STATUS_INTERNAL_SERVER_ERROR as int is 500
+## HTTP 502 Bad Gateway
+const STATUS_BAD_GATEWAY as int is 502
+## HTTP 503 Service Unavailable
+const STATUS_SERVICE_UNAVAILABLE as int is 503
+## HTTP 504 Gateway Timeout
+const STATUS_GATEWAY_TIMEOUT as int is 504
 
 # ----------------------------------------------------------------------------
 # Core Types
@@ -73,6 +124,17 @@ rune Response:
 # and tcp_close. Every socket from connect_tcp must be released with tcp_close.
 rune TCPSocket:
     _ptr as opaque
+
+## Structured representation of a parsed RFC 3986 URI/URL.
+rune ParsedUrl:
+    scheme as string
+    userinfo as string
+    host as string
+    port as int
+    path as string
+    query as string
+    fragment as string
+    has_authority as bool
 
 # ----------------------------------------------------------------------------
 # External C Functions (from Runtime)
@@ -154,6 +216,84 @@ weave delete with url as string , headers as map of string to string into maybe 
 weave request with method as string , url as string , headers as map of string to string , body as maybe string into maybe ClientResponse:
     return calling pengu_c_precis_http_request with method , url , headers , body
 
+## Convenience helper: sends an HTTP GET with an "Accept: application/json" header.
+weave get_json with url as string , headers as map of string to string into maybe ClientResponse:
+    var hdrs as map of string to string is headers
+    calling hdrs.set with "Accept" , "application/json"
+    return calling get with url , hdrs
+
+## Convenience helper: sends an HTTP POST with "Content-Type: application/json".
+weave post_json with url as string , json_body as string , headers as map of string to string into maybe ClientResponse:
+    var hdrs as map of string to string is headers
+    calling hdrs.set with "Content-Type" , "application/json"
+    return calling post with url , hdrs , json_body
+
+## Convenience helper: sends an HTTP POST of form parameters encoded as application/x-www-form-urlencoded.
+weave post_form with url as string , params as map of string to string into maybe ClientResponse:
+    var body as string is ""
+    var first as bool is true
+    for k in params:
+        var v as string is calling params.get with k
+        if not first:
+            set body is "{body}&"
+        set body is "{body}{(calling url_encode with k)}={(calling url_encode with v)}"
+        set first is false
+    var hdrs as map of string to string is map of string to string
+    calling hdrs.set with "Content-Type" , "application/x-www-form-urlencoded"
+    return calling post with url , hdrs , body
+
+## Sends an HTTP HEAD request to `url` with the given headers.
+weave head with url as string , headers as map of string to string into maybe ClientResponse:
+    return calling request with "HEAD" , url , headers , maybe none
+
+## Sends an HTTP PATCH request to `url` with `body` and the given headers.
+weave patch with url as string , headers as map of string to string , body as string into maybe ClientResponse:
+    return calling request with "PATCH" , url , headers , some body
+
+## Returns true if the HTTP response status code indicates success (200..299).
+weave response_ok with r as ClientResponse into bool:
+    return r.status_code >= 200 and r.status_code < 300
+
+## Returns the status class of the response: 1 for 1xx, 2 for 2xx, 3 for 3xx, 4 for 4xx, 5 for 5xx.
+weave response_status_class with r as ClientResponse into int:
+    return r.status_code / 100
+
+## Returns the response body text if present, or `fallback` if the body is empty or absent.
+weave response_body_or with r as ClientResponse , fallback as string into string:
+    if r.body.is_present:
+        return r.body.value
+    return fallback
+
+## Performs a case-insensitive header lookup on the response headers.
+weave response_header with r as ClientResponse , name as string into maybe string:
+    var target as string is calling name.lower
+    for k in r.headers:
+        var k_str as string is k
+        if (calling k_str.lower) == target:
+            return some (calling r.headers.get with k)
+    return maybe none
+
+## Returns a standard default client header map with User-Agent and Accept.
+weave client_headers_default into map of string to string:
+    var h as map of string to string is map of string to string
+    calling h.set with "User-Agent" , "PenguScript/0.15.0 (std.precis)"
+    calling h.set with "Accept" , "*/*"
+    return h
+
+## Returns a header map containing an "Authorization: Bearer <token>" entry.
+weave bearer_auth with token as string into map of string to string:
+    var h as map of string to string is map of string to string
+    calling h.set with "Authorization" , "Bearer {token}"
+    return h
+
+## Returns a header map containing an HTTP Basic Auth Authorization header encoded with Base64.
+weave basic_auth with user as string , pass as string into map of string to string:
+    var creds as string is "{user}:{pass}"
+    var b64 as string is calling cipher.encode_base64 with creds
+    var h as map of string to string is map of string to string
+    calling h.set with "Authorization" , "Basic {b64}"
+    return h
+
 # ----------------------------------------------------------------------------
 # HTTP Server API
 # ----------------------------------------------------------------------------
@@ -173,6 +313,48 @@ weave response with status_code as int , body as string , headers as map of stri
     var m_body as MaybeString is calling oracle.maybe_some_string with body
     var res as Response is with status_code is status_code , headers is headers , body is m_body
     return res
+
+## Builds an HTML server response with Content-Type "text/html; charset=utf-8".
+weave response_html with status_code as int , body as string into Response:
+    var hdrs as map of string to string is map of string to string
+    calling hdrs.set with "Content-Type" , "text/html; charset=utf-8"
+    var m_body as MaybeString is calling oracle.maybe_some_string with body
+    return with status_code is status_code , headers is hdrs , body is m_body
+
+## Builds a JSON server response with Content-Type "application/json".
+weave response_json with status_code as int , body as string into Response:
+    var hdrs as map of string to string is map of string to string
+    calling hdrs.set with "Content-Type" , "application/json"
+    var m_body as MaybeString is calling oracle.maybe_some_string with body
+    return with status_code is status_code , headers is hdrs , body is m_body
+
+## Builds a plain text server response with Content-Type "text/plain; charset=utf-8".
+weave response_text with status_code as int , body as string into Response:
+    var hdrs as map of string to string is map of string to string
+    calling hdrs.set with "Content-Type" , "text/plain; charset=utf-8"
+    var m_body as MaybeString is calling oracle.maybe_some_string with body
+    return with status_code is status_code , headers is hdrs , body is m_body
+
+## Builds an HTTP redirect response with Location header (default status 302 Found).
+weave response_redirect with location as string , code as int is 302 into Response:
+    var hdrs as map of string to string is map of string to string
+    calling hdrs.set with "Location" , location
+    var m_body as MaybeString is calling oracle.maybe_some_string with ""
+    return with status_code is code , headers is hdrs , body is m_body
+
+## Builds an HTTP 404 Not Found response.
+weave response_404 into Response:
+    var hdrs as map of string to string is map of string to string
+    calling hdrs.set with "Content-Type" , "text/plain; charset=utf-8"
+    var m_body as MaybeString is calling oracle.maybe_some_string with "Not Found"
+    return with status_code is 404 , headers is hdrs , body is m_body
+
+## Builds an HTTP 500 Internal Server Error response.
+weave response_500 with msg as string into Response:
+    var hdrs as map of string to string is map of string to string
+    calling hdrs.set with "Content-Type" , "text/plain; charset=utf-8"
+    var m_body as MaybeString is calling oracle.maybe_some_string with msg
+    return with status_code is 500 , headers is hdrs , body is m_body
 
 # Reads the file at `path` and wraps it in a 200 Response, guessing a
 # Content-Type header from the file extension (.html, .css, .js, .json, .png,
@@ -222,6 +404,14 @@ weave connect_tcp with host as string , port as int into maybe TCPSocket:
 weave tcp_send with sock as ref to TCPSocket , data as string into bool:
     return calling pengu_c_precis_tcp_send with sock , data
 
+## Convenience alias sending raw byte strings over `sock`.
+weave tcp_send_bytes with sock as ref to TCPSocket , data as string into bool:
+    return calling tcp_send with sock , data
+
+## Sends `line` followed by a newline byte '\n' on `sock`.
+weave tcp_send_line with sock as ref to TCPSocket , line as string into bool:
+    return calling tcp_send with sock , "{line}\n"
+
 # Reads up to `max_bytes` bytes from the connected socket `sock` into a fresh
 # string owned by the caller (banish it when done). Returns none when the peer
 # has closed the connection, when no bytes are available at the moment of the
@@ -229,6 +419,56 @@ weave tcp_send with sock as ref to TCPSocket , data as string into bool:
 # message, so loop until the expected data has arrived.
 weave tcp_recv with sock as ref to TCPSocket , max_bytes as int into maybe string:
     return calling pengu_c_precis_tcp_recv with sock , max_bytes
+
+## Reads bytes from `sock` one by one until a newline '\n' is encountered or `max_bytes` is reached.
+weave tcp_recv_line with sock as ref to TCPSocket , max_bytes as int is 4096 into maybe string:
+    var buf as string is ""
+    while buf.len < max_bytes:
+        var chunk as maybe string is calling tcp_recv with sock , 1
+        if chunk is present:
+            var ch as string is chunk.value
+            if ch.len == 0:
+                break
+            set buf is "{buf}{ch}"
+            if ch == "\n":
+                return some buf
+        else:
+            break
+    if buf.len > 0:
+        return some buf
+    return maybe none
+
+## Reads bytes from `sock` in chunks until `terminator` is contained in the buffer or `max_bytes` is reached.
+weave tcp_recv_until with sock as ref to TCPSocket , terminator as string , max_bytes as int is 65536 into maybe string:
+    var buf as string is ""
+    while buf.len < max_bytes:
+        var chunk as maybe string is calling tcp_recv with sock , 128
+        if chunk is present:
+            if chunk.value.len == 0:
+                break
+            set buf is "{buf}{chunk.value}"
+            if calling buf.contains with terminator:
+                return some buf
+        else:
+            break
+    if buf.len > 0:
+        return some buf
+    return maybe none
+
+## Reads all incoming bytes from `sock` until EOF (connection closed) or `max_bytes` is reached.
+weave tcp_recv_all with sock as ref to TCPSocket , max_bytes as int is 65536 into maybe string:
+    var buf as string is ""
+    while buf.len < max_bytes:
+        var chunk as maybe string is calling tcp_recv with sock , 1024
+        if chunk is present:
+            if chunk.value.len == 0:
+                break
+            set buf is "{buf}{chunk.value}"
+        else:
+            break
+    if buf.len > 0:
+        return some buf
+    return maybe none
 
 # Closes the native socket held by `sock` and detaches it from the record.
 # Safe to call once per socket; calling further tcp_send/tcp_recv on a closed
@@ -247,7 +487,7 @@ weave dns_lookup with host as string into maybe string:
     return calling pengu_c_precis_dns_lookup with host
 
 # ----------------------------------------------------------------------------
-# URL & Query Utilities
+# URL & Query Utilities (RFC 3986 Pure PenguScript)
 # ----------------------------------------------------------------------------
 
 # Percent-encodes `s` for safe use in URLs/query strings, returning a fresh
@@ -269,3 +509,250 @@ weave url_decode with s as string into string:
 # keys overwrite earlier ones.
 weave parse_query with s as string into map of string to string:
     return calling pengu_c_precis_parse_query with s
+
+## Parses a full RFC 3986 URL into its constituent components.
+weave parse_url with url as string into maybe ParsedUrl:
+    if url.len == 0:
+        return maybe none
+    var rem as string is url
+    var fragment as string is ""
+    var query as string is ""
+
+    # 1. Fragment (#)
+    var hash_pos as int is calling rem.find with "#"
+    if hash_pos >= 0:
+        set fragment is rem at (hash_pos + 1) to rem.len
+        set rem is rem at 0 to hash_pos
+
+    # 2. Query (?)
+    var q_pos as int is calling rem.find with "?"
+    if q_pos >= 0:
+        set query is rem at (q_pos + 1) to rem.len
+        set rem is rem at 0 to q_pos
+
+    var scheme as string is ""
+    var userinfo as string is ""
+    var host as string is ""
+    var port as int is 0
+    var path as string is ""
+    var has_auth as bool is false
+
+    # 3. Scheme (scheme://)
+    var scheme_pos as int is calling rem.find with "://"
+    var auth_and_path as string is rem
+    if scheme_pos >= 0:
+        var raw_scheme as string is rem at 0 to scheme_pos
+        set scheme is calling raw_scheme.lower
+        set auth_and_path is rem at (scheme_pos + 3) to rem.len
+        set has_auth is true
+    else if calling scrolls.starts_with with rem , "//":
+        set auth_and_path is rem at 2 to rem.len
+        set has_auth is true
+
+    if has_auth:
+        var slash_pos as int is calling auth_and_path.find with "/"
+        var authority as string is auth_and_path
+        if slash_pos >= 0:
+            set authority is auth_and_path at 0 to slash_pos
+            set path is auth_and_path at slash_pos to auth_and_path.len
+        else:
+            set path is ""
+
+        # userinfo@
+        var at_pos as int is calling authority.find with "@"
+        var host_port as string is authority
+        if at_pos >= 0:
+            set userinfo is authority at 0 to at_pos
+            set host_port is authority at (at_pos + 1) to authority.len
+
+        # host:port
+        var colon_pos as int is calling host_port.find with ":"
+        if colon_pos >= 0:
+            set host is host_port at 0 to colon_pos
+            var port_str as string is host_port at (colon_pos + 1) to host_port.len
+            var p_opt as maybe int is calling spark.parse_int with port_str
+            if p_opt is present:
+                set port is p_opt.value
+        else:
+            set host is host_port
+    else:
+        set path is rem
+
+    var res as ParsedUrl is with scheme is scheme , userinfo is userinfo , host is host , port is port , path is path , query is query , fragment is fragment , has_authority is has_auth
+    return some res
+
+## Rebuilds an RFC 3986 URL string from its structured components.
+weave build_url with u as ParsedUrl into string:
+    var out as string is ""
+    if u.scheme != "":
+        set out is "{out}{u.scheme}:"
+    if u.has_authority or u.host != "":
+        set out is "{out}//"
+        if u.userinfo != "":
+            set out is "{out}{u.userinfo}@"
+        set out is "{out}{u.host}"
+        if u.port > 0:
+            set out is "{out}:{(u.port to string)}"
+    set out is "{out}{u.path}"
+    if u.query != "":
+        set out is "{out}?{u.query}"
+    if u.fragment != "":
+        set out is "{out}#{u.fragment}"
+    return out
+
+## Appends or updates query parameters on `url` from a key-value map.
+weave url_with_query with url as string , params as map of string to string into string:
+    if params.len == 0:
+        return url
+    var q as string is ""
+    var first as bool is true
+    for k in params:
+        var v as string is calling params.get with k
+        var enc_k as string is calling url_encode with k
+        var enc_v as string is calling url_encode with v
+        if not first:
+            set q is "{q}&"
+        set q is "{q}{enc_k}={enc_v}"
+        set first is false
+    if calling url.contains with "?":
+        return "{url}&{q}"
+    return "{url}?{q}"
+
+## Extracts the value of a single query parameter `key` from `url`.
+weave url_query_get with url as string , key as string into maybe string:
+    var q_pos as int is calling url.find with "?"
+    if q_pos < 0:
+        return maybe none
+    var q_str as string is url at (q_pos + 1) to url.len
+    var hash_pos as int is calling q_str.find with "#"
+    if hash_pos >= 0:
+        set q_str is q_str at 0 to hash_pos
+    var m as map of string to string is calling parse_query with q_str
+    if calling m.contains with key:
+        return some (calling m.get with key)
+    return maybe none
+
+## Resolves a relative URL `rel` against an absolute base URL `base`.
+weave url_join with base as string , rel as string into string:
+    if (calling scrolls.starts_with with rel , "http://") or (calling scrolls.starts_with with rel , "https://") or (calling scrolls.starts_with with rel , "//"):
+        return rel
+    var u_opt as maybe ParsedUrl is calling parse_url with base
+    if u_opt is present:
+        var u as ParsedUrl is u_opt.value
+        if calling scrolls.starts_with with rel , "/":
+            set u.path is rel
+        else:
+            var p as string is u.path
+            var last_slash as int is calling p.rfind with "/"
+            if last_slash >= 0:
+                set u.path is "{(p at 0 to (last_slash + 1))}{rel}"
+            else:
+                set u.path is "/{rel}"
+        set u.query is ""
+        set u.fragment is ""
+        return calling build_url with u
+    return rel
+
+# ----------------------------------------------------------------------------
+# Status Code & Address Predicates
+# ----------------------------------------------------------------------------
+
+## Returns true if `code` is a standard 3-digit HTTP status code (100..599).
+weave is_valid_status_code with code as int into bool:
+    return code >= 100 and code <= 599
+
+## Returns the canonical HTTP reason phrase for standard status codes.
+weave status_reason with code as int into string:
+    return judge code:
+        when 200 -> "OK"
+        when 201 -> "Created"
+        when 202 -> "Accepted"
+        when 204 -> "No Content"
+        when 301 -> "Moved Permanently"
+        when 302 -> "Found"
+        when 304 -> "Not Modified"
+        when 400 -> "Bad Request"
+        when 401 -> "Unauthorized"
+        when 403 -> "Forbidden"
+        when 404 -> "Not Found"
+        when 405 -> "Method Not Allowed"
+        when 409 -> "Conflict"
+        when 500 -> "Internal Server Error"
+        when 502 -> "Bad Gateway"
+        when 503 -> "Service Unavailable"
+        when 504 -> "Gateway Timeout"
+        else -> "Unknown Status"
+
+## Returns true if `host` points to the local machine (localhost, 127.0.0.1, or ::1).
+weave is_localhost_host with host as string into bool:
+    return host == "localhost" or host == "127.0.0.1" or host == "::1"
+
+## Returns true if `ip` belongs to a private/loopback IPv4 network (10.x, 127.x, 172.16-31.x, 192.168.x).
+weave is_private_ipv4 with ip as string into bool:
+    if calling scrolls.starts_with with ip , "10.":
+        return true
+    if calling scrolls.starts_with with ip , "127.":
+        return true
+    if calling scrolls.starts_with with ip , "192.168.":
+        return true
+    if calling scrolls.starts_with with ip , "172.":
+        var parts as list of string is calling ip.split with "."
+        if parts.len == 4:
+            var second_opt as maybe int is calling spark.parse_int with (parts at 1)
+            if second_opt is present and second_opt.value >= 16 and second_opt.value <= 31:
+                return true
+    return false
+
+# ----------------------------------------------------------------------------
+# Object Methods (enchanting ParsedUrl)
+# ----------------------------------------------------------------------------
+
+## Enchantments providing query and accessor methods on ParsedUrl records.
+enchanting ParsedUrl:
+    ## Returns true if the URL scheme is "http".
+    weave is_http into bool:
+        return self->scheme == "http"
+
+    ## Returns true if the URL scheme is "https".
+    weave is_https into bool:
+        return self->scheme == "https"
+
+    ## Returns the origin string (scheme://authority) of the URL.
+    weave origin into string:
+        var auth as string is self->host
+        if self->port > 0:
+            set auth is "{auth}:{(self->port to string)}"
+        return "{self->scheme}://{auth}"
+
+    ## Returns the authority component ([userinfo@]host[:port]).
+    weave authority into string:
+        var auth as string is ""
+        if self->userinfo != "":
+            set auth is "{self->userinfo}@"
+        set auth is "{auth}{self->host}"
+        if self->port > 0:
+            set auth is "{auth}:{(self->port to string)}"
+        return auth
+
+    ## Returns the host/hostname of the URL.
+    weave hostname into string:
+        return self->host
+
+    ## Returns the explicit port or the scheme default (80 for http, 443 for https).
+    weave effective_port into int:
+        if self->port > 0:
+            return self->port
+        if self->scheme == "http":
+            return 80
+        if self->scheme == "https":
+            return 443
+        return 0
+
+    ## Returns the path and query formatted together (e.g. "/path?a=1").
+    weave path_with_query into string:
+        var p as string is self->path
+        if p == "":
+            set p is "/"
+        if self->query != "":
+            set p is "{p}?{self->query}"
+        return p

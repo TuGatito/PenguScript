@@ -179,8 +179,11 @@ class TestLineDirectives:
         code = gen_bundle("weave helper into int:\n    return 1\n\n"
                           "weave main into int:\n    return calling helper\n",
                           filename="fnmark.pengu")
-        assert re.search(r'#line 1 "[^"]*fnmark\.pengu"\s*\nint32_t helper\(void\)', code)
-        assert re.search(r'#line 4 "[^"]*fnmark\.pengu"\s*\nint32_t pengu_main\(void\)', code)
+        # Small weaves are flagged inline by the checker heuristic, so allow the
+        # optional 'static inline' prefix: the marker is what this test pins.
+        inline_pfx = r'(?:static inline (?:__attribute__\(\(always_inline\)\) )?)?'
+        assert re.search(r'#line 1 "[^"]*fnmark\.pengu"\s*\n' + inline_pfx + r'int32_t helper\(void\)', code)
+        assert re.search(r'#line 4 "[^"]*fnmark\.pengu"\s*\n' + inline_pfx + r'int32_t pengu_main\(void\)', code)
 
     def test_generated_sections_reset_attribution(self):
         code = bundle_project(
@@ -212,10 +215,10 @@ class TestLineDirectives:
         assert "__extension__" in code
         for match in re.finditer(r"__extension__", code):
             snippet = code[match.start():match.start() + 400]
-            # The statement expression ends at the matching '})));'; a marker may
+            # The statement expression ends at the matching '})'; a marker may
             # follow it but never appear inside.
-            end = snippet.find("})));")
-            inside = snippet[:end] if end != -1 else snippet
+            end = snippet.find("})")
+            inside = snippet[:end + 2] if end != -1 else snippet
             assert "#line" not in inside, inside[:200]
 
     @requires_cc

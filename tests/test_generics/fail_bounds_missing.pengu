@@ -1,0 +1,4 @@
+# EXPECTED: E0049
+# EXPECTED TO FAIL: E0049 — '+' needs a Num bound on T.
+weave add_generic shard T with a as T, b as T into T:
+    return a + b

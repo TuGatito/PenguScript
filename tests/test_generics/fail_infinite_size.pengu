@@ -1,0 +1,4 @@
+# EXPECTED: E0050
+# EXPECTED TO FAIL: E0050 — a value field of its own type has infinite size.
+rune BadDirect:
+    inner as BadDirect

@@ -1203,3 +1203,82 @@ class TestPenguBindCurrentLanguage:
         assert "declare name_of with p as ref to frozen point into ref to frozen char" in text
         assert "declare move with p as ref to point, dx as f32, dy as f32 into void" in text
         self._check(text)
+
+
+# ---------------------------------------------------------------------------
+# Insignia: emitted C names must carry the module prefix everywhere the C
+# compiler sees them (type names, method calls, container clone/cleanup
+# callbacks).  Regression tests for the audited 'insignia + enchanting' and
+# 'insignia + list of rune' link failures.
+# ---------------------------------------------------------------------------
+
+
+class TestInsigniaCEmission:
+    def _bundle(self, code: str) -> str:
+        parser = PenguParser()
+        tree = parser.parse(code)
+        checker = PenguChecker()
+        checker.check(tree, source=code, filename="insig.pengu")
+        _assert_semantic_errors(checker)
+        codegen = PenguCodegen(symbols=checker.symbols)
+        codegen.collect_declarations([("insig.pengu", tree)])
+        return codegen.generate_bundle(is_library=True)
+
+    def test_container_callbacks_use_prefixed_names(self):
+        """'list of Rune' registers the *prefixed* clone/cleanup helpers."""
+        c = self._bundle(
+            "insignia my_\n\n"
+            "rune Player derive Par, Imago, Nexus:\n"
+            "    name as string\n\n"
+            "weave main into void:\n"
+            "    var ps as list of Player is list of Player\n"
+            "    return\n"
+        )
+        assert "_pengu_cleanup_my_Player" in c
+        assert "_pengu_clone_my_Player" in c
+        assert "_pengu_cleanup_Player(" not in c
+        assert "_pengu_clone_Player(" not in c
+
+    def test_method_call_uses_prefixed_name(self):
+        """A call site must use the method's emitted (prefixed) C name."""
+        c = self._bundle(
+            "insignia my_\n\n"
+            "rune Player:\n"
+            "    name as string\n\n"
+            "enchanting Player:\n"
+            "    weave heal into string:\n"
+            "        return \"heal:{self->name}\"\n\n"
+            "weave main into void:\n"
+            "    var p as Player with:\n"
+            "        set .name is \"hero\"\n"
+            "    var msg as string is calling p.heal\n"
+            "    return\n"
+        )
+        assert "my_Player_heal" in c
+        assert "Player_heal(" not in c.replace("my_Player_heal(", "")
+
+    @pytest.mark.skipif(not HAVE_CC, reason="no C compiler")
+    def test_insignia_enchanting_runs(self):
+        """End-to-end: insignia + rune + enchanting + generic rune + container."""
+        from tests.conftest import compile_run, requires_runtime
+
+        src = (
+            "insignia pre_\n\n"
+            "rune Box shard T derive Par, Imago, Nexus:\n"
+            "    val as T\n\n"
+            "enchanting Box shard T where T: Par:\n"
+            "    weave same with other as Box of T into bool:\n"
+            "        return self->val == other.val\n\n"
+            "weave main into int:\n"
+            "    var a as Box of int is with val is 7\n"
+            "    var b as Box of int is with val is 7\n"
+            "    if calling a.same with b:\n"
+            "        var xs as list of Box of int is list of Box of int\n"
+            "        calling xs.push with a\n"
+            "        banish a\n"
+            "        banish b\n"
+            "        return 0\n"
+            "    return 1\n"
+        )
+        res = compile_run(src, tag="insignia_runs")
+        assert res.returncode == 0, res.stderr

@@ -8,7 +8,7 @@ weave main into void:
 
     # 1. URL encode & decode
     var enc as string is calling precis.url_encode with "hello world & foo=bar"
-    calling spark.println with "encoded: " + enc
+    calling spark.println with "encoded: {enc}"
     if enc == "hello%20world%20%26%20foo%3Dbar":
         calling spark.println with "url encode ok"
 

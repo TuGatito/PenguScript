@@ -1,0 +1,21 @@
+# 'derive Ordo' generates the C ordering helper used by < <= > >=.
+rune Ver derive Ordo:
+    major as int
+    minor as int
+
+weave main into int:
+    var a as Ver with:
+        set .major is 1
+        set .minor is 9
+    var b as Ver with:
+        set .major is 2
+        set .minor is 0
+    if not (a < b):
+        return 1
+    if not (a <= b):
+        return 2
+    if b < a:
+        return 3
+    if not (b > a):
+        return 4
+    return 0

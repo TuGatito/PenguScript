@@ -1,0 +1,85 @@
+import std.spark
+import std.parchment
+
+weave main into int:
+    calling spark.println with "=== Test Parchment Extended ==="
+
+    # 1. Version constant
+    calling spark.assert with (parchment.PARCHMENT_VERSION == "0.15.0")
+    calling spark.println with "constants: OK"
+
+    # 2. Tag predicates & normalization
+    calling spark.assert with (calling parchment.is_void_element with "br")
+    calling spark.assert with (calling parchment.is_void_element with "IMG")
+    calling spark.assert with (calling parchment.is_void_element with "hr")
+    calling spark.assert with (not (calling parchment.is_void_element with "div"))
+    calling spark.assert with (not (calling parchment.is_void_element with "span"))
+
+    calling spark.assert with ((calling parchment.normalize_tag with "  DIV  ") == "div")
+    calling spark.assert with ((calling parchment.normalize_tag with "SECTION") == "section")
+
+    calling spark.assert with (calling parchment.is_valid_tag_name with "div")
+    calling spark.assert with (calling parchment.is_valid_tag_name with "my-custom-element")
+    calling spark.assert with (calling parchment.is_valid_tag_name with "xml_tag")
+    calling spark.assert with (not (calling parchment.is_valid_tag_name with "123tag"))
+    calling spark.assert with (not (calling parchment.is_valid_tag_name with ""))
+    calling spark.println with "tag utils: OK"
+
+    # 3. Strip HTML tags
+    var html_sample as string is "<p>Hello <b>PenguScript</b> &amp; world!</p>"
+    var stripped as string is calling parchment.strip_html_tags with html_sample
+    calling spark.assert with (stripped == "Hello PenguScript & world!")
+
+    var nested_sample as string is "<div><h1>Title</h1><p>Text &lt;1&gt;</p></div>"
+    var stripped_nested as string is calling parchment.strip_html_tags with nested_sample
+    calling spark.assert with (stripped_nested == "TitleText <1>")
+    calling spark.println with "strip tags: OK"
+
+    # 4. XML / HTML parsing and DOM queries
+    var xml_data as string is "<root><item id=\"first\" class=\"primary active\">Item 1</item><item id=\"second\" class=\"secondary\">Item 2</item></root>"
+    calling spark.assert with (calling parchment.is_valid_xml with xml_data)
+    calling spark.assert with (not (calling parchment.is_valid_xml with "<invalid<xml"))
+
+    var doc_opt as maybe parchment.Document is calling parchment.parse_xml with xml_data
+    calling spark.assert with (doc_opt.is_present)
+    if doc_opt.is_present:
+        var doc as parchment.Document is doc_opt.value
+        var root as parchment.Node is doc.root
+
+        # Class queries
+        var items as list of parchment.Node is calling parchment.find_all_by_class with sigil of root, "primary", "item"
+        calling spark.assert with (items.len == 1)
+        for it in items:
+            calling spark.assert with (calling parchment.has_class with sigil of it, "primary")
+            calling spark.assert with (calling parchment.has_class with sigil of it, "active")
+            calling spark.assert with (not (calling parchment.has_class with sigil of it, "secondary"))
+            calling parchment.free_node with sigil of it
+
+        var first_sec as maybe parchment.Node is calling parchment.find_by_class with sigil of root, "secondary", "item"
+        calling spark.assert with (first_sec.is_present)
+        if first_sec.is_present:
+            var f_node as parchment.Node is first_sec.value
+            calling spark.assert with (calling f_node.has_class with "secondary")
+            var cid as maybe string is calling f_node.attr with "id"
+            calling spark.assert with (cid.is_present)
+            calling spark.assert with (cid.value == "second")
+            calling f_node.free
+
+        # ID queries
+        var by_id_opt as maybe parchment.Node is calling parchment.find_by_id with sigil of root, "first", "item"
+        calling spark.assert with (by_id_opt.is_present)
+        if by_id_opt.is_present:
+            var id_node as parchment.Node is by_id_opt.value
+            calling spark.assert with (calling id_node.has_class with "primary")
+            calling id_node.free
+
+        # Extract text
+        var full_txt as string is calling root.extract_text
+        calling spark.assert with (calling full_txt.contains with "Item 1")
+        calling spark.assert with (calling full_txt.contains with "Item 2")
+
+        calling doc.free
+    calling spark.println with "dom queries: OK"
+
+    calling spark.println with "parchment extended: OK"
+    return 0

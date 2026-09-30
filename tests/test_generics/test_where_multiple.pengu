@@ -1,0 +1,12 @@
+# Multiple bounds on one parameter: 'where T: Num and T: Ordo'.
+weave max_of shard T where T: Num and T: Ordo with a as T, b as T into T:
+    if a > b:
+        return a
+    return b
+
+weave main into int:
+    var m as int is calling max_of with 3, 9
+    var f as float is calling max_of with 1.5, 0.5
+    if m == 9 and f == 1.5:
+        return 0
+    return 1

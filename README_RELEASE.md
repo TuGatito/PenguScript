@@ -4,6 +4,11 @@ This directory contains the standalone distribution of the **PenguScript Compile
 
 ---
 
+> **TinyCC is bundled.** Release archives ship a `tcc` binary (under `tcc/`)
+> that `pengu run` prefers for development builds; if it is missing the
+> toolchain transparently falls back to your system `gcc`/`clang`. Check with
+> `pengu doctor`.
+
 ## Directory Structure
 
 ```

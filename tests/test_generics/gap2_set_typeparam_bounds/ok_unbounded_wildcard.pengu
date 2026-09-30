@@ -1,0 +1,12 @@
+# An unbounded 'T' stays a wildcard: any value is accepted (backwards compatible).
+weave store_any shard T with x as ref to T, v as T into void:
+    set essence of x is v
+
+weave main into int:
+    var n as int is 0
+    calling store_any with (sigil of n), 7
+    var f as float is 0.0
+    calling store_any with (sigil of f), 1.5
+    if n == 7 and f == 1.5:
+        return 0
+    return 1

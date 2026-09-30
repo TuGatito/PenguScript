@@ -1,0 +1,18 @@
+# Generic enchanting on a container: concrete use instantiates the shard params.
+enchanting map of shard K to shard V where K: Vinculum:
+    weave size into int:
+        return calling self.len
+
+enchanting list of shard T:
+    weave first_or_default into T:
+        if calling self.len == 0:
+            return donum T
+        return (self at 0)
+
+weave main into int:
+    var m as map of string to int is map of string to int
+    calling m.put with "one", 1
+    var xs as list of int is [7, 8, 9]
+    if calling m.size == 1 and calling xs.first_or_default == 7:
+        return 0
+    return 1

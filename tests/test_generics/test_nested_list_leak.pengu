@@ -1,0 +1,20 @@
+weave test_list_string into int:
+    var words as list of string is ["alpha", "beta", "gamma", "delta"]
+    var count as int is calling words.len
+    return count
+
+weave test_nested_lists into int:
+    var matrix as list of list of int is list of list of int
+    var row1 as list of int is [1, 2, 3]
+    var row2 as list of int is [4, 5, 6]
+    calling matrix.push with row1
+    calling matrix.push with row2
+    var total as int is calling matrix.len
+    return total
+
+weave main into int:
+    var c1 as int is calling test_list_string
+    var c2 as int is calling test_nested_lists
+    if c1 == 4 and c2 == 2:
+        return 0
+    return 1

@@ -1,0 +1,15 @@
+weave sum shard T where T: Num with xs as list of T into T:
+    var acc as T is xs at 0
+    var i as int is 1
+    var n as int is calling xs.len
+    while i < n:
+        set acc is acc + (xs at i)
+        set i is i + 1
+    return acc
+
+weave main into int:
+    var nums as list of int is [10, 20, 30]
+    var total as int is calling sum with nums
+    if total == 60:
+        return 0
+    return 1

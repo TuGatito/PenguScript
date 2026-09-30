@@ -1,0 +1,18 @@
+# A generic rune used as a parameter type by several weaves.
+rune Cell shard T:
+    value as T
+
+weave get_value shard T with c as Cell of T into T:
+    return c.value
+
+weave make_cell shard T with v as T into Cell of T:
+    var c as Cell of T with:
+        set .value is v
+    return c
+
+weave main into int:
+    var c as Cell of int is calling make_cell with 42
+    var got as int is calling get_value with c
+    if got == 42:
+        return 0
+    return 1

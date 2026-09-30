@@ -1,0 +1,10 @@
+import std.spark
+
+weave main into int:
+    var acc as string is ""
+    var i as int is 0
+    while i < 4:
+        set acc is "{acc}{i}"
+        set i is i + 1
+    calling spark.assert with acc == "0123"
+    return 0

@@ -1,0 +1,12 @@
+# Copying one 'T' into another 'T' keeps the bounds check on the parameter side
+# (a TypeParam value is accepted and resolved at monomorphization time).
+weave copy shard T where T: Num with a as ref to T, b as ref to T into void:
+    set essence of a is (essence of b)
+
+weave main into int:
+    var a as int is 1
+    var b as int is 9
+    calling copy with (sigil of a), (sigil of b)
+    if a == 9:
+        return 0
+    return 1

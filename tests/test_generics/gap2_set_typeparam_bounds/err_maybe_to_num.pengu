@@ -1,0 +1,9 @@
+# EXPECTED: E0005
+# A 'maybe int' does not implement 'Num', so it cannot be stored in T: Num.
+weave store_maybe shard T where T: Num and T: Par with x as ref to T into void:
+    set essence of x is some 42
+
+weave main into int:
+    var n as int is 0
+    calling store_maybe with (sigil of n)
+    return 0

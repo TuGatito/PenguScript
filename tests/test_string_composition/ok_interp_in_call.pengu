@@ -1,0 +1,10 @@
+import std.spark
+
+weave length_of with s as string into int:
+    return s length
+
+weave main into int:
+    var n as int is 12
+    var l as int is calling length_of with "len: {n}"
+    calling spark.assert with l == 7
+    return 0

@@ -1,0 +1,24 @@
+# Generic rune plus generic method with its own type parameter.
+rune Box shard T:
+    val as T
+
+enchanting Box shard T:
+    weave get into T:
+        return self->val
+
+    weave map shard U with f as (weave with T into U) into Box of U:
+        var res as Box of U with:
+            set .val is calling f with self->val
+        return res
+
+weave double_it with x as int into int:
+    return x * 2
+
+weave main into int:
+    var b as Box of int with:
+        set .val is 21
+    var got as int is calling b.get
+    var b2 as Box of int is calling b.map with double_it
+    if got == 21 and b2.val == 42:
+        return 0
+    return 1

@@ -1,0 +1,16 @@
+# 'donum T' yields the zero value of a defaultable type parameter.
+weave count_positive shard T where T: Num with xs as list of T into T:
+    var acc as T is donum T
+    var i as int is 0
+    while i < calling xs.len:
+        if (xs at i) > donum T:
+            set acc is acc + (xs at i)
+        set i is i + 1
+    return acc
+
+weave main into int:
+    var xs as list of int is [1, -2, 3]
+    var total as int is calling count_positive with xs
+    if total == 4:
+        return 0
+    return 1

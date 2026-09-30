@@ -1,0 +1,18 @@
+# Gap 1: a local rune receiver ('bag.items.push') resolves through the chain.
+rune Bag derive Nexus:
+    items as list of string
+
+weave fill with n as int into int:
+    var bag as Bag with:
+        set .items is list of string
+    defer banish bag
+    var local as string is n to string
+    calling bag.items.push with local
+    return calling bag.items.len
+
+weave main into int:
+    var a as int is calling fill with 7
+    var b as int is calling fill with 8
+    if a == 1 and b == 1:
+        return 0
+    return 1

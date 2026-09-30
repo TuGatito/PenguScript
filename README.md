@@ -64,20 +64,22 @@ PenguScript compiles directly to clean, human-readable **C99/C11** source code, 
 
 ## Feature Highlights
 
-- **Pythonic, indentation-based syntax** — no semicolons or braces; blocks are whitespace-delimited.
-- **V-style scoping safety** — `const` is strictly global (top-level) and becomes a C `#define`; `var` (mutable) and `let` (immutable) are strictly local to function bodies, so accidental mutable global state is impossible by construction.
-- **Expressive type system** — fixed-width integers (`u8`…`u64`, `i8`…`i64`), `f32`/`f64`, `char`, `byte`, `string`, `bool`; arrays, slices, dynamic lists, and hash maps.
-- **User types** — `rune` (structs) with `enchanting` method blocks (`self->`), `echo` (C-compatible tagged unions), `omen` (enums / algebraic data types with payloads), and `maybe T` / `or:` optional-and-error handling.
-- **Zero-overhead generics** — `shard` declarations specialized with `of`; each instantiation is monomorphized to plain C.
-- **Deterministic cleanup** — `defer` (LIFO on scope exit), `errdefer` (on error return), scope-owned locals (automatic `banish` at block exit unless marked `borrowed`), and explicit heap release with `banish`.
-- **First-class C FFI** — `include`/`link`/`declare`, opaque types (`alias … as opaque`), `sigil of` (address-of) / `essence of` (deref), zero-copy `bytes of <string>` borrows, and `weave`s that decay to C function pointers (callable from C and usable as coroutine bodies).
-- **`pengu bind`** — auto-generates a `.d.pengu` declaration file from any C header (structs → `rune`, unions → `echo`, enums → `omen`, functions → `declare`, callbacks → `alias … as ref to weave`, doc comments preserved). It blanks GNU compiler extensions before parsing, auto-imports the bindings of included headers, and takes `--define/-D`, `--cpp-flags`, `--system-includes`, `--include-paths` and `--preprocessed FILE.i` for headers that need a specific preprocessor setup, with diagnostics that name the offending construct and the flag to try.
-- **Bundled C libraries** — SQLite, Raylib, WebUI, libuv, PCRE2, libxml2, zlib, Mbed TLS, cURL, libmicrohttpd, YAML, XLSX (libzip + libexpat + xlsxio), and TOML are compiled once into static archives and linked automatically.
-- **Rich standard library** — `std/` ships **52 modules**: 27 implemented in pure PenguScript (I/O, strings, files, math, time, regex bindings, HTTP client/server, JSON, CSV, concurrency, logging, unit testing, …) plus 25 curated C declaration bindings (`*.d.pengu`) for the bundled libraries (including **raylib**, **raymath**, and **rlgl**).
-- **Embedded project assets (`arca`)** — embed binary and text assets (textures, shaders, audio, fonts, HTML/JS/CSS, config files) directly into your native binary or stream them from disk with in-memory caching. The CLI generates an ergonomic, fully-typed PenguScript module (`import arca`) with constant names, byte slices, string accessors, and zero-copy pointer views.
-- **Language Server (LSP)** — diagnostics with `help:`/`note:`/line spans, documentation from `#` and `##` doc comments, type & memory-size hovers, module-scoped autocompletion, go-to-definition, formatting, and code actions.
-- **Cargo-style project manager** — the `pengu` CLI creates, builds, runs, tests, checks, cleans, formats projects, and manages assets via `pengu assets`.
-- **Compile-time features** — `when` conditionals, `defined(...)`, `-D name=value` defines, `static var`, and `when main:` guards so a file can act as both an importable module and a runnable script.
+- **Pythonic, indentation-based syntax** — no semicolons or braces; blocks are whitespace-delimited ([§3](LANGUAGE.md#3-lexical-structure)).
+- **V-style scoping safety** — `const` is strictly global (top-level) and becomes a C `#define`; `var` (mutable) and `let` (immutable) are strictly local to function bodies, preventing accidental mutable global state ([§5](LANGUAGE.md#5-variables-constants--scope)).
+- **Expressive type system** — fixed-width integers (`u8`…`u64`, `i8`…`i64`), `f32`/`f64`, `char`, `byte`, `string`, `bool`; fixed-size 1D/2D arrays, non-owning slices, dynamic lists, and hash maps with compile-time layout estimation ([§4](LANGUAGE.md#4-type-system)).
+- **User types** — `rune` structs with private `_` fields and `enchanting` method blocks (`self->`), `echo` (C-compatible unions), `omen` (simple enums and algebraic data types with payloads), and `maybe T` / `result of T to E` with statement-expression unwrapping (`or else`, `or return`, `try`) ([§9](LANGUAGE.md#9-composite-types), [§12](LANGUAGE.md#12-optionals--errors)).
+- **Methods & compile-time concepts** — `enchanting` attaches methods to structs; `concept` defines compile-time interfaces checked statically with `bind` exhaustiveness, zero runtime overhead, and no vtables ([§10](LANGUAGE.md#10-methods-concepts--binding); see [§10.6 Explicit limitations](LANGUAGE.md#106-limitaciones-explícitas-de-los-concepts)).
+- **Strings built one way** — dynamic strings are composed **only** with `"{expr}"` interpolation; `+`/`+=` on strings raise `E0005` (no implicit `to string` promotion, no hidden temporaries), and a `string` stored into a struct field or collection element is deep-copied so ownership stays unambiguous ([§15.2](LANGUAGE.md#152-strings)).
+- **Zero-overhead generics** — `shard` declarations specialized with `of`; each instantiation is monomorphized to plain C with concept bounds validation (`where T: Printable`) ([§11](LANGUAGE.md#11-generics)).
+- **Deterministic cleanup** — `defer` (LIFO on scope exit), `errdefer` (on error return), scope-owned locals (automatic `banish` at block exit unless marked `borrowed`), and explicit heap release with `banish` ([§13](LANGUAGE.md#13-memory--pointers)).
+- **First-class C FFI** — `include`/`link`/`declare`, opaque types (`alias … as opaque`), `sigil of` (address-of) / `essence of` (deref), zero-copy `bytes of <string>` borrows, and `weave`s that decay to C function pointers ([§14](LANGUAGE.md#14-modules-imports--c-interop)).
+- **`pengu bind`** — auto-generates a `.d.pengu` declaration file from any C header (structs → `rune`, unions → `echo`, enums → `omen`, functions → `declare`, callbacks → `alias … as ref to weave`, doc comments preserved) with preprocessor extension blanking, sibling auto-imports, and flags (`--define`, `--cpp-flags`, `--system-includes`, `--preprocessed`) ([§20.6](LANGUAGE.md#206-c-header-binding-generator-pengu-bind)).
+- **Rich standard library** — `std/` ships **52 modules**: 27 implemented in pure PenguScript (I/O, strings, files, math, time, regex, HTTP client/server, concurrency, logging, unit testing, …) plus 25 curated C declaration bindings (`*.d.pengu`) for bundled native libraries (including **raylib**, **raymath**, **rlgl**, **sqlite3**, **webui**, **miniaudio**, and **stb**) ([§19](LANGUAGE.md#19-standard-library)).
+- **Embedded project assets (`arca`)** — embed binary and text assets (textures, shaders, audio, fonts, HTML/JS/CSS, config files) directly into native `.rodata` sections or stream from disk with zero-copy pointer views and slice accessors ([§19.4](LANGUAGE.md#194-embedded-project-assets-arca)).
+- **Language Server (LSP)** — diagnostics with `help:`/`note:`/caret spans, documentation from `#` and `##` doc comments, type & memory-size hovers, module-scoped autocompletion, go-to-definition, formatting, and code actions ([§20.10](LANGUAGE.md#2010-language-server-protocol-pengu-lsp)).
+- **Unified project manager** — the `pengu` CLI creates (`init`), builds (`build`), runs (`run`), tests (`test`), checks (`check`), formats (`fmt`), cleans (`clean`), and documents (`doc`) projects ([§20](LANGUAGE.md#20-tooling--project-layout)).
+- **Compile-time features** — `when` conditionals with `else when` / `else`, `defined(...)`, `-D name=value` defines, function `static var` state, and `when main:` guards for dual module/script files ([§16](LANGUAGE.md#16-conditional-compilation-when)).
+- **Robust diagnostics** — comprehensive Rust-style error catalog with codes `E0000`–`E0048` and warnings `W0001`–`W0004` ([§22](LANGUAGE.md#22-appendix-compiler-diagnostic-catalog)).
 
 ---
 
@@ -221,6 +223,26 @@ Then open VS Code → **Extensions** (`Ctrl+Shift+X`) → **`…`** → **Instal
 
 ---
 
+## Performance
+
+`pengu run script.pengu` caches the compiled binary by *content hash* and
+serializes the parser tables, so an unchanged script starts in milliseconds
+instead of rebuilding everything. Dead-code elimination removes the parts of
+`std/` you do not use, and releases bundle TinyCC for fast cache misses.
+
+| Scenario | Before | After |
+| -------- | -----: | ----: |
+| `pengu run hello.pengu` — first run (gcc) | 3.41 s | **0.52 s** |
+| `pengu run hello.pengu` — first run (TCC, when bundled) | — | **< 0.3 s** |
+| `pengu run hello.pengu` — second run (cache hit) | 3.00 s | **0.17 s** |
+| `bundle.c` of a script using only `std.spark.println` | 435 lines / 19.7 KB | **68 lines / 2.4 KB** |
+| LALR table construction per process | 2.99 s | **0.26 s** (cached) |
+
+Nothing is written to the project's `build/` directory by default. Run
+`pengu doctor` to see the compiler/cache/TCC status and `pengu time hello.pengu`
+for a per-phase breakdown; see [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for
+the full design and how to disable each optimisation.
+
 ## Language Overview
 
 A fast tour — the authoritative syntax and C-translation reference is **[CHEATSHEET.md](CHEATSHEET.md)**.
@@ -240,7 +262,7 @@ enchanting Vehicle:                        # method block; self is a ref
             set self->speed is self->speed + delta
 
     weave describe into string:
-        return self->model + " at " + (self->speed to string) + " km/h"
+        return "{self->model} at {(self->speed to string)} km/h"
 
 weave main into int:
     var car as Vehicle is with model is "Pengu", speed is 0.0
@@ -283,9 +305,77 @@ weave main into int:
 
   Real-world C headers can be turned into such bindings automatically with `pengu bind`.
 
+### Generics in practice
+
+Type parameters (`shard`), concept bounds (`where`), automatic concept
+implementations (`derive`), default values (`donum T`) and recursive types
+(`cyclus`) all monomorphize to plain C — no vtables, no boxing:
+
+```pengu
+# Generic numeric sum: 'Num' enables + - * /, 'donum T' is the zero value.
+weave sum shard T where T: Num with xs as list of T into T:
+    var acc as T is donum T
+    for x in xs:
+        set acc is acc + x
+    return acc
+
+# Integer-only operators (%, &, |, ^, <<, >>) need the stricter 'Integrum'.
+weave mod2 shard T where T: Integrum with a as T, b as T into T:
+    return a % b
+
+# Derive standard concepts from the fields (Par -> ==, Ordo -> <, ...).
+rune Point derive Par, Ordo, Vinculum, Imago:
+    x as int
+    y as int
+
+# Generic container methods; concrete blocks take priority when both apply.
+enchanting map of shard K to shard V where K: Vinculum:
+    weave size into int:
+        return calling self.len
+
+enchanting Box shard T:
+    weave get into T:
+        return self->val
+
+# Recursive generic type with pointer indirection.
+rune Node cyclus shard T:
+    value as T
+    next as maybe ref to Node of T
+```
+
+Key rules:
+
+- `+ - * /` need `where T: Num`; `% & | ^ << >>` need `where T: Integrum`
+  (which also satisfies `Num`); `==` needs `Par`; `< <= > >=` need `Ordo`.
+  Missing bounds are reported with the exact clause to add (`E0049`).
+- Containers deep-copy on `push`/`put` and release recursively on banish
+  (`list of string`, `map of string to list of int`), so nested ownership is
+  leak-free without manual `banish`; see [LANGUAGE.md §13.5](LANGUAGE.md#135-container-ownership--deep-copy).
+- `derive` works on runes, algebraic omens and generic instantiations; `Imago`
+  (deep copy) and `Nexus` (drop) are implied by each other. `echo` unions reject
+  `derive` because they are untagged.
+- Iterating a bare type parameter (`for x in xs` with `xs as T`) is rejected:
+  use `list of T` / `slice of T` (associated types are future work).
+
+The `tests/test_generics/` directory contains one runnable program per feature
+plus leak checks; run them with `python -m pytest tests/test_generics_suite.py`.
+
 ### Standard library
 
-`std/` contains 52 modules — 27 written in pure PenguScript and 25 curated C bindings (`.d.pengu`). Highlights: **spark** (core I/O & runtime), **scrolls** (strings), **archivum** (files), **compass** (paths), **chronicle** (time), **lot** (randomness), **arithmancy** (math), **oracle** (`Maybe`/`Result`), **atlas**/**coven**/**tally**/**loom** (maps, sets, lists, iterators), **ledger** (CSV), **cipher** (JSON + Base64), **parchment** (XML/HTML via libxml2), **regulus** (regex via PCRE2), **seal** (hashing + compression via Mbed TLS/zlib), **precis** (HTTP client/server via cURL/libmicrohttpd), **filum** (threads & channels), **ward** (assertions), **trial** (unit testing), **whisper** (logging), and **invoke** (CLI argument parsing) — plus bindings such as **sqlite3**, **raylib**, **raymath**, **rlgl**, **webui**, **miniaudio**, **minicoro**, **xxhash** (with the **celeris** wrapper), **uuid**, **imago/scriptor/typis/pactum/datastructura/perlinum** (STB), **nanosvg/nanosvgrast**, **fenestra** (tinyfiledialogs), **rlights**, **yaml**, **tomlum** (TOML validation), and **xlsxio/xlsx** (`.xlsx` writing).
+`std/` contains **52 modules** — 27 written in pure PenguScript and 25 curated C declaration bindings (`.d.pengu`). See [LANGUAGE.md §19](LANGUAGE.md#19-standard-library) for the full module catalog and code examples.
+
+- **Pure PenguScript modules (27):** `spark` (core I/O, formatted output, typed input, ranges & math helpers), `scrolls` (comprehensive string enchanting algorithms, metrics, casing & three-way string ordering), `oracle` (`Maybe`/`Result` containers with native/legacy interoperability), `compass` (cross-platform paths & pattern matching), `archivum` (files, binary I/O & directory traversal), `cipher` (JSON RFC 8259, Base64/32/Hex & validation), `chronicle` (dates, high-res clocks, timers & duration parsing), `lot` (PRNG, statistical distributions, sampling, shuffling & random strings), `arithmancy` (advanced math), `rites` (OS processes, cross-platform environment & system info), `whisper` (structured leveled logging & `Logger` rune), `ward` (defensive invariants, float/range/container assertions & generic `shard T` tests), `trial` (unit testing), `tally` (functional list operations, reductions, insertion sort & statistics), `atlas` (hash map key-value store, combination, bulk accessors & filters), `coven` (unique `SetString`/`SetInt` collections, ritual constructors & set algebra), `regulus` (PCRE2 regex), `parchment` (libxml2 XML/HTML), `seal` (hashing + compression via Mbed TLS/zlib), `precis` (HTTP client/server & sockets), `filum` (threads, typed channels, mutexes & atomic operations), `loom` (sequence pipelines, windowing & generic algorithms), `invoke` (advanced CLI parsing, subcommands, typed flags, multi-options & typo suggestions), `ffi` (C bridge), `celeris` (profiling), `xlsx` (Excel writing), and `ledger` (CSV/TSV parsing, tabular data & matrix enchantments).
+- **C native declaration bindings (25):** `raylib`, `raymath`, `rlgl`, `rlights`, `raygui`, `sqlite3`, `webui`, `miniaudio`, `tomlum`, `yaml`, `uuid`, `xxhash`, `xlsxio`, `imago`, `typis`, `scriptor`, `perlinum`, `stb_image_resize2`, `stb_herringbone_wang_tile`, `nanosvg`, `nanosvgrast`, `minicoro`, `datastructura`, `fenestra`, and `pactum`.
+
+With the completion of **Batch 6 (FINAL)** (`regulus`, `precis`, `parchment`, `seal`, `ffi`, `arithmancy`), the PenguScript 0.15.0 standard library expansion is **🎉 FEATURE-COMPLETE 🎉** across all six planned batches:
+1. **Collections & Data Structures:** `tally`, `atlas`, `coven`
+2. **System & Filesystem:** `chronicle`, `compass`, `archivum`
+3. **Runtime, Concurrency & Logging:** `rites`, `filum`, `whisper`
+4. **Data-Processing & Algorithmic Layer:** `cipher`, `loom`, `ledger`
+5. **Testing, CLI & Utilities:** `lot`, `ward`, `invoke`
+6. **Advanced Integration & Math Tier:** `regulus` (PCRE2 regex), `precis` (HTTP client/server), `parchment` (libxml2 XML/HTML DOM), `seal` (HMAC, SHA/MD5 hashing & compression), `ffi` (null-safe generic C bridge), `arithmancy` (game-ready linear algebra: Vec2/3/4, Mat4, Quat)
+
+All 52 modules feature comprehensive documentation (`##` docstrings), full test coverage across `debug` and `release` compilation profiles, 100% backward compatibility with PenguScript 0.14.x, and zero C compiler warnings.
 
 ---
 
@@ -306,8 +396,8 @@ PenguScript/
 ├── build_runtime.py        # Compiles the C runtime + bundled C libraries into build/lib
 ├── extern_manifest.py      # Manifest + downloader for external C library sources (-> extern/)
 ├── make_release.py         # One-shot release packager -> pengucc_build/ (see below)
-├── std/                    # Standard library: 26 pure-PenguScript modules +
-│                           #   22 C declaration bindings (*.d.pengu)
+├── std/                    # Standard library: 27 pure-PenguScript modules +
+│                           #   25 C declaration bindings (*.d.pengu) (52 modules total)
 ├── std_c/                  # C implementation units, wrappers_*.c shims, and vendored
 │                           #   single-header libraries (STB, nanosvg, xxhash, uuid, …)
 ├── c_bind_stubs/           # Minimal stub C headers used when `pengu bind` preprocesses
@@ -365,6 +455,7 @@ See [README_RELEASE.md](README_RELEASE.md) for the distribution's own documentat
 
 | Document                                              | What it covers                                                |
 | ----------------------------------------------------- | ------------------------------------------------------------- |
+| [LANGUAGE.md](LANGUAGE.md)                            | Comprehensive language specification, stdlib, and diagnostics |
 | [CHEATSHEET.md](CHEATSHEET.md)                        | Full language syntax, keywords, and C-translation reference   |
 | [PENGU_BUILD.md](PENGU_BUILD.md)                      | `pengu` CLI, project config, and the build system             |
 | [CHANGELOG.md](CHANGELOG.md)                          | Version history and per-release feature log                   |

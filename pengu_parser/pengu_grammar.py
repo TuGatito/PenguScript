@@ -68,8 +68,11 @@ shard_params: "shard" NAME (("," | _AND_SEP) NAME)* [where_clause]
 where_clause: "where" where_bound (("," | _AND_SEP) where_bound)*
 where_bound: (NAME | type) ":" custom_type
 
-rune_decl: "rune" NAME [shard_params] ":" _NEWLINE _INDENT field_decl+ _DEDENT
-echo_decl: "echo" NAME [shard_params] ":" _NEWLINE _INDENT field_decl+ _DEDENT
+cyclus_kw: "cyclus"
+derive_clause: "derive" custom_type (("," | _AND_SEP) custom_type)*
+
+rune_decl: "rune" NAME [cyclus_kw] [shard_params] [derive_clause] ":" _NEWLINE _INDENT field_decl+ _DEDENT
+echo_decl: "echo" NAME [cyclus_kw] [shard_params] [derive_clause] ":" _NEWLINE _INDENT field_decl+ _DEDENT
 field_decl: NAME "as" type _NEWLINE
 
 alias_decl: "alias" NAME [shard_params] "as" type _NEWLINE
@@ -84,12 +87,12 @@ concept_method: weave_modifier* "weave" weave_modifier* NAME [shard_params] ["wi
 
 bind_decl: "bind" type "with" custom_type [shard_params] ":" _NEWLINE _INDENT weave_decl+ _DEDENT
 
-omen_decl: "omen" NAME [shard_params] ["with" omen_string_kind] ":" _NEWLINE _INDENT omen_variant+ _DEDENT
+omen_decl: "omen" NAME [cyclus_kw] [shard_params] ["with" omen_string_kind] [derive_clause] ":" _NEWLINE _INDENT omen_variant+ _DEDENT
 omen_string_kind: "string"
 omen_variant: NAME ["is" expr] ["with" omen_field (("," | _AND_SEP) omen_field)*] _NEWLINE
 omen_field: NAME "as" type
 
-enchanting_decl: "enchanting" type [shard_params] ":" _NEWLINE _INDENT weave_decl+ _DEDENT
+enchanting_decl: "enchanting" type [shard_params] [where_clause] ":" _NEWLINE _INDENT weave_decl+ _DEDENT
 
 weave_decl: weave_modifier* "weave" weave_modifier* NAME [shard_params] ["with" param_list] ["into" type] ":" _NEWLINE _INDENT stmt+ _DEDENT
 
@@ -216,13 +219,16 @@ frozen_type: "frozen" type
 fn_type: "weave" ["with" fn_param_list] ["into" type]
 fn_param_list: fn_param (("," | _AND_SEP) fn_param)*
 fn_param: [NAME "as"] type
+type_or_param: "shard" NAME    -> shard_param_ref
+             | type
+
 array_type: "array" "of" type ["with" "size" (INT | NAME)]
-slice_type: "slice" "of" type
-many_type: "many" type
-list_type: "list" "of" type
-map_type: "map" "of" type "to" type
-maybe_type: "maybe" type
-result_type: "result" "of" type ["to" type]
+slice_type: "slice" "of" type_or_param
+many_type: "many" type_or_param
+list_type: "list" "of" type_or_param
+map_type: "map" "of" type_or_param "to" type_or_param
+maybe_type: "maybe" type_or_param
+result_type: "result" "of" type_or_param ["to" type_or_param]
 
 ?expr: or_else_expr
 
@@ -384,7 +390,13 @@ slice_range: unary_no_cast "to" unary_no_cast
         | array_init_expr
         | array_lit
         | map_lit
+        | donum_expr
         | defined_expr
+
+# Default/zero value for a type: 'donum T'.  Only valid where the type
+# implements the built-in 'Donum' concept; the codegen lowers it to the C
+# zero-initialiser '(T){0}'.
+donum_expr: "donum" type
 
 defined_expr: "defined" "(" NAME ")"
 
@@ -481,7 +493,12 @@ NAME: /[a-zA-Z_][a-zA-Z0-9_]*/
 TRIPLE_STRING.2: /\"\"\"[\s\S]*?\"\"\"/
 RAW_TRIPLE_STRING.2: /r\"\"\"[\s\S]*?\"\"\"/
 RAW_STRING.2: /r\"[^\"]*\"/
-STRING: /"([^"\\]|\\.)*"/
+# A normal string may interpolate '{expr}'.  The brace group is matched as a
+# unit ([^{}]*) so an interpolated expression can itself contain a double-quoted
+# string literal (e.g. "{calling getenv_or with name, ""}") without terminating
+# the surrounding literal.  Expressions containing unbalanced braces still
+# require building the string in a local first.
+STRING: /"([^"\\{]|\\.|\{[^{}\n]*\}|[{}])*"/
 CHAR_LIT: /'([^'\\]|\\.)'/
 # Compound assignment operators. Declared after the single-char operators with
 # higher priority so '<<='/'>>=' win over '<<'/'>=' at lexing time.

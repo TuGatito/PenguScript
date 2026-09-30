@@ -1,0 +1,5 @@
+# EXPECTED: E0050
+# EXPECTED TO FAIL: E0050 — generic self-containment by value.
+rune BadGeneric shard T:
+    val as T
+    next as BadGeneric of T

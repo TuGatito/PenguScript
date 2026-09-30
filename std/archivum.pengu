@@ -1,23 +1,12 @@
 # std/archivum.pengu - The Archive (File System Operations)
 # Provides comprehensive file system manipulation: reading, writing, copying, moving,
-# deleting, listing, and metadata.
+# deleting, listing, metadata, and search.
 #
 # Typical usage:
 #   import std.archivum
 #   var text as maybe string is calling archivum.read_file with "notes.txt"
 #   if text.is_present:
 #       calling spark.println with text.value
-#
-# Ownership model:
-#   * Every function takes plain string paths (and optional bool flags); the
-#     arguments are borrowed for the duration of the call and never retained.
-#   * Values returned wrapped in maybe (read_file, read_dir, metadata,
-#     read_symlink, realpath, read_lines) are freshly allocated and owned by the
-#     caller: banish them when done. A none result means the operation failed
-#     (missing file, unreadable directory, ...), never an empty success.
-#   * Lists returned directly (glob, walk, list_files_recursive) are also new
-#     containers owned by the caller.
-#   * bool results report success/failure and should always be checked.
 
 import std.spark
 import std.oracle
@@ -27,19 +16,25 @@ import std.tally
 import std.rites
 
 # ----------------------------------------------------------------------------
+# Version Constant
+# ----------------------------------------------------------------------------
+
+## Module version identifier for std.archivum.
+const ARCHIVUM_VERSION as string is "0.15.0"
+
+# ----------------------------------------------------------------------------
 # External C Runtime Declarations
 # ----------------------------------------------------------------------------
 
-# Runtime primitive: reads the whole file at `path` as UTF-8 text (owned string
-# wrapped in maybe); none when the file cannot be read.
+# Runtime primitive: reads the whole file at `path` as UTF-8 text.
 declare pengu_c_archivum_read_file with path as string into maybe string
 # Runtime primitive: writes `content` to `path`, truncating any existing file.
-declare pengu_c_archivum_write_file with path as string , content as string into bool
+declare pengu_c_archivum_write_file with path as string, content as string into bool
 # Runtime primitive: appends `content` to `path`, creating it when missing.
-declare pengu_c_archivum_append_file with path as string , content as string into bool
+declare pengu_c_archivum_append_file with path as string, content as string into bool
 # Runtime primitive: deletes the entry at `path`.
 declare pengu_c_archivum_delete_file with path as string into bool
-# Runtime primitive: true when an entry exists at `path` (file, dir or symlink).
+# Runtime primitive: true when an entry exists at `path`.
 declare pengu_c_archivum_exists with path as string into bool
 # Runtime primitive: true when `path` is a regular file.
 declare pengu_c_archivum_is_file with path as string into bool
@@ -47,131 +42,122 @@ declare pengu_c_archivum_is_file with path as string into bool
 declare pengu_c_archivum_is_dir with path as string into bool
 # Runtime primitive: true when `path` is a symbolic link.
 declare pengu_c_archivum_is_symlink with path as string into bool
-# Runtime primitive: creates the directory at `path`; when `parents` is true it
-# also creates any missing ancestor directories.
-declare pengu_c_archivum_create_dir with path as string , parents as bool into bool
-# Runtime primitive: removes the directory at `path`; when `recursive` is true it
-# deletes the directory and everything inside it.
-declare pengu_c_archivum_remove_dir with path as string , recursive as bool into bool
-# Runtime primitive: lists the direct entry names of `path` (owned list of string
-# wrapped in maybe); none when the directory cannot be read.
+# Runtime primitive: creates the directory at `path`.
+declare pengu_c_archivum_create_dir with path as string, parents as bool into bool
+# Runtime primitive: removes the directory at `path`.
+declare pengu_c_archivum_remove_dir with path as string, recursive as bool into bool
+# Runtime primitive: lists the direct entry names of `path`.
 declare pengu_c_archivum_read_dir with path as string into maybe list of string
-# Runtime primitive: copies file `src` to `dst`; when `overwrite` is false an
-# existing `dst` makes the copy fail.
-declare pengu_c_archivum_copy_file with src as string , dst as string , overwrite as bool into bool
-# Runtime primitive: moves file `src` to `dst`; when `overwrite` is false an
-# existing `dst` makes the move fail.
-declare pengu_c_archivum_move_file with src as string , dst as string , overwrite as bool into bool
-# Runtime primitive: renames entry `old` to `new` (overwrites an existing `new`).
-declare pengu_c_archivum_rename with old as string , new as string into bool
-# Runtime primitive: stat()es `path` into an owned map of string to string
-# wrapped in maybe (keys: size, is_file, is_dir, is_symlink, modified, created,
-# accessed, permissions); none when stat fails.
+# Runtime primitive: copies file `src` to `dst`.
+declare pengu_c_archivum_copy_file with src as string, dst as string, overwrite as bool into bool
+# Runtime primitive: moves file `src` to `dst`.
+declare pengu_c_archivum_move_file with src as string, dst as string, overwrite as bool into bool
+# Runtime primitive: renames entry `old` to `new`.
+declare pengu_c_archivum_rename with old as string, new as string into bool
+# Runtime primitive: stat()es `path` into an owned map of string to string.
 declare pengu_c_archivum_metadata with path as string into maybe map of string to string
-# Runtime primitive: globs `pattern` from the working directory into an owned
-# list of matching relative paths.
+# Runtime primitive: globs `pattern` from the working directory.
 declare pengu_c_archivum_glob with pattern as string into list of string
-# Runtime primitive: walks `root` depth-first into an owned nested list; each
-# inner list starts with a directory path followed by its direct entry names.
+# Runtime primitive: walks `root` depth-first into an owned nested list.
 declare pengu_c_archivum_walk with root as string into list of list of string
-# Runtime primitive: updates the modification time of `path`, creating an empty
-# file when it does not exist.
+# Runtime primitive: updates modification time of `path`.
 declare pengu_c_archivum_touch with path as string into bool
 # Runtime primitive: creates symbolic link `link` pointing at `target`.
-declare pengu_c_archivum_symlink with target as string , link as string into bool
-# Runtime primitive: resolves the target of the symlink at `path` (owned string
-# wrapped in maybe); none when it is not a symlink.
+declare pengu_c_archivum_symlink with target as string, link as string into bool
+# Runtime primitive: resolves the target of the symlink at `path`.
 declare pengu_c_archivum_read_symlink with path as string into maybe string
-# Runtime primitive: canonicalizes `path` to an absolute path (owned string
-# wrapped in maybe); none when it cannot be resolved.
+# Runtime primitive: canonicalizes `path` to an absolute path.
 declare pengu_c_archivum_realpath with path as string into maybe string
 
 # ----------------------------------------------------------------------------
-# Functional API
+# Core File Operations
 # ----------------------------------------------------------------------------
 
-# Reads the whole file at `path` as UTF-8 text. Returns some owned string on
-# success (banish it when done) or none when the file is missing or unreadable.
+## Reads the whole file at `path` as UTF-8 text. Returns some string or none on failure.
 weave read_file with path as string into maybe string:
     return calling pengu_c_archivum_read_file with path
 
-# Writes `content` verbatim to `path`, creating or truncating the file. Returns
-# true on success; check the result before assuming the write happened.
-weave write_file with path as string , content as string into bool:
-    return calling pengu_c_archivum_write_file with path , content
+## Reads file bytes as an owned string buffer. Alias of read_file.
+weave read_bytes with path as string into maybe string:
+    return calling pengu_c_archivum_read_file with path
 
-# Appends `content` to the end of `path`, creating the file when it does not
-# exist. Returns true on success.
-weave append_file with path as string , content as string into bool:
-    return calling pengu_c_archivum_append_file with path , content
+## Writes `content` verbatim to `path`, creating or truncating the file. Returns true on success.
+weave write_file with path as string, content as string into bool:
+    return calling pengu_c_archivum_write_file with path, content
 
-# Deletes the entry (file, empty dir or symlink) at `path`. Returns true on
-# success; false when the entry does not exist or cannot be removed.
+## Writes binary data buffer to `path`. Alias of write_file.
+weave write_bytes with path as string, data as string into bool:
+    return calling pengu_c_archivum_write_file with path, data
+
+## Appends `content` to the end of `path`, creating it when missing. Returns true on success.
+weave append_file with path as string, content as string into bool:
+    return calling pengu_c_archivum_append_file with path, content
+
+## Appends binary data buffer to `path`. Alias of append_file.
+weave append_bytes with path as string, data as string into bool:
+    return calling pengu_c_archivum_append_file with path, data
+
+## Deletes the entry (file, empty dir or symlink) at `path`. Returns true on success.
 weave delete_file with path as string into bool:
     return calling pengu_c_archivum_delete_file with path
 
-# Returns true when any file system entry exists at `path` (regular file,
-# directory or symbolic link).
+## Returns true when any file system entry exists at `path`.
 weave exists with path as string into bool:
     return calling pengu_c_archivum_exists with path
 
-# Returns true when the entry at `path` is a regular file (not a directory or a
-# symlink to one).
+## Returns true when the entry at `path` is a regular file.
 weave is_file with path as string into bool:
     return calling pengu_c_archivum_is_file with path
 
-# Returns true when the entry at `path` is a directory.
+## Returns true when the entry at `path` is a directory.
 weave is_dir with path as string into bool:
     return calling pengu_c_archivum_is_dir with path
 
-# Returns true when the entry at `path` is a symbolic link.
+## Returns true when the entry at `path` is a symbolic link.
 weave is_symlink with path as string into bool:
     return calling pengu_c_archivum_is_symlink with path
 
-# Creates the directory at `path`. With `parents` set to true, missing ancestor
-# directories are created too (mkdir -p behaviour). Returns true on success.
-weave create_dir with path as string , parents as bool is false into bool:
-    return calling pengu_c_archivum_create_dir with path , parents
+## Creates the directory at `path`. When `parents` is true, creates missing ancestors.
+weave create_dir with path as string, parents as bool is false into bool:
+    return calling pengu_c_archivum_create_dir with path, parents
 
-# Removes the directory at `path`. With `recursive` set to true the directory
-# and all of its contents are deleted (rm -r behaviour); otherwise only an empty
-# directory can be removed. Returns true on success.
-weave remove_dir with path as string , recursive as bool is false into bool:
-    return calling pengu_c_archivum_remove_dir with path , recursive
+## Removes directory at `path`. When `recursive` is true, deletes directory and its contents.
+weave remove_dir with path as string, recursive as bool is false into bool:
+    return calling pengu_c_archivum_remove_dir with path, recursive
 
-# Lists the direct entry names inside `path` (no "." or ".."). Returns some
-# owned list of string on success (banish it when done) or none when the
-# directory does not exist or cannot be read.
+## Lists the direct entry names inside `path` (excluding "." and "..").
 weave read_dir with path as string into maybe list of string:
     return calling pengu_c_archivum_read_dir with path
 
-# Copies the file at `src` to `dst`. When `overwrite` is false an existing `dst`
-# makes the copy fail and return false. Returns true on success.
-weave copy_file with src as string , dst as string , overwrite as bool is false into bool:
-    return calling pengu_c_archivum_copy_file with src , dst , overwrite
+## Copies file `src` to `dst`. When `overwrite` is false, an existing `dst` makes copy fail.
+weave copy_file with src as string, dst as string, overwrite as bool is false into bool:
+    return calling pengu_c_archivum_copy_file with src, dst, overwrite
 
-# Moves the file at `src` to `dst`. When `overwrite` is false an existing `dst`
-# makes the move fail and return false. Returns true on success.
-weave move_file with src as string , dst as string , overwrite as bool is false into bool:
-    return calling pengu_c_archivum_move_file with src , dst , overwrite
+## Moves file `src` to `dst`. When `overwrite` is false, an existing `dst` makes move fail.
+weave move_file with src as string, dst as string, overwrite as bool is false into bool:
+    return calling pengu_c_archivum_move_file with src, dst, overwrite
 
-# Renames the entry at `old` to `new` (an existing `new` is overwritten). Works
-# within the same file system. Returns true on success.
-weave rename with old as string , new as string into bool:
-    return calling pengu_c_archivum_rename with old , new
+## Renames entry `old` to `new` (an existing `new` is overwritten).
+weave rename with old as string, new as string into bool:
+    return calling pengu_c_archivum_rename with old, new
 
-# Reads the metadata of the entry at `path` into an owned map of string to
-# string with the keys: size, is_file, is_dir, is_symlink, modified, created,
-# accessed and permissions (numeric strings, e.g. "true"/"false" for the flags
-# and unix timestamps for the times). Returns some map on success (banish it
-# when done) or none when stat() fails.
+## Reads metadata of entry `path` into an owned map of string to string.
+##
+## Contract of returned map keys and values:
+## - "size": decimal string representation of file size in bytes (e.g. "1024").
+## - "is_file": boolean string ("true" or "false").
+## - "is_dir": boolean string ("true" or "false").
+## - "is_symlink": boolean string ("true" or "false").
+## - "modified": decimal string of Unix epoch timestamp in seconds (e.g. "1790346624").
+## - "created": decimal string of Unix epoch timestamp in seconds.
+## - "accessed": decimal string of Unix epoch timestamp in seconds.
+## - "permissions": decimal string of POSIX permission mode bits (st_mode & 0777).
+##
+## Returns maybe none if `path` does not exist or stat fails.
 weave metadata with path as string into maybe map of string to string:
     return calling pengu_c_archivum_metadata with path
 
-# Reads the file at `path` and splits its raw text on "\n" into an owned list of
-# lines (banish it when done). Returns none when the file cannot be read. Note
-# that a trailing newline leaves a final empty element, and the split is not
-# newline-normalized across platforms.
+## Reads file and splits text on newline into an owned list of lines.
 weave read_lines with path as string into maybe list of string:
     var content as maybe string is calling read_file with path
     if content.is_present:
@@ -180,84 +166,308 @@ weave read_lines with path as string into maybe list of string:
         return some parts
     return maybe none
 
-# Joins `lines` with "\n", appends one trailing "\n" and writes the result to
-# `path`. Returns true on success.
-weave write_lines with path as string , lines as list of string into bool:
+## Reads at most `n` lines from `path`.
+weave read_first_n_lines with path as string, n as int into maybe list of string:
+    var lines as maybe list of string is calling read_lines with path
+    if lines.is_present:
+        var all_l as list of string is lines.value
+        var out as list of string is list of string
+        var count as int is 0
+        while (count < n) and (count < all_l.len):
+            calling out.push with (all_l at count)
+            set count is count + 1
+        return some out
+    return maybe none
+
+## Returns the total number of lines in file `path`.
+weave count_lines with path as string into maybe int:
+    var lines as maybe list of string is calling read_lines with path
+    if lines.is_present:
+        var ll as list of string is lines.value
+        return some (ll.len)
+    return maybe none
+
+## Joins `lines` with "\n", appends a trailing "\n", and writes to `path`.
+weave write_lines with path as string, lines as list of string into bool:
     var out as string is ""
     var i as int is 0
     while i < lines.len:
         if i > 0:
-            set out is out + "\n"
-        set out is out + (lines at i)
+            set out is "{out}\n"
+        set out is "{out}{(lines at i)}"
         set i is i + 1
-    return calling write_file with path , (out + "\n")
+    return calling write_file with path, ("{out}\n")
 
-# Joins `lines` with "\n", appends one trailing "\n" and appends the result to
-# `path`. Returns true on success.
-weave append_lines with path as string , lines as list of string into bool:
+## Joins `lines` with "\n", appends a trailing "\n", and appends to `path`.
+weave append_lines with path as string, lines as list of string into bool:
     var out as string is ""
     var i as int is 0
     while i < lines.len:
         if i > 0:
-            set out is out + "\n"
-        set out is out + (lines at i)
+            set out is "{out}\n"
+        set out is "{out}{(lines at i)}"
         set i is i + 1
-    return calling append_file with path , (out + "\n")
+    return calling append_file with path, ("{out}\n")
 
-# Globs `pattern` starting from the working directory and returns an owned list
-# of matching relative paths (banish it when done). "*" / "**" match every
-# entry, "*.ext" matches by extension and any other pattern is matched as a
-# substring of the path or as an exact entry name. The result may be empty.
+## Globs `pattern` starting from the working directory.
 weave glob with pattern as string into list of string:
     return calling pengu_c_archivum_glob with pattern
 
-# Walks `root` depth-first and returns an owned nested list (banish it when
-# done). Each inner list starts with the path of a visited directory followed by
-# the names of its direct entries, so the whole tree shape can be reconstructed.
+## Walks `root` depth-first and returns an owned nested list.
 weave walk with root as string into list of list of string:
     return calling pengu_c_archivum_walk with root
 
-# Updates the modification time of `path` to now, creating an empty file when it
-# does not exist. Returns true on success.
+## Updates modification time of `path` to now, creating an empty file when missing.
 weave touch with path as string into bool:
     return calling pengu_c_archivum_touch with path
 
-# Creates a symbolic link named `link` that points at `target`. Returns true on
-# success.
-weave symlink with target as string , link as string into bool:
-    return calling pengu_c_archivum_symlink with target , link
+## Creates symbolic link `link` pointing at `target`.
+weave symlink with target as string, link as string into bool:
+    return calling pengu_c_archivum_symlink with target, link
 
-# Reads the target of the symbolic link at `path`. Returns some owned string on
-# success (banish it when done) or none when the entry is not a symlink.
+## Reads target of symbolic link at `path`.
 weave read_symlink with path as string into maybe string:
     return calling pengu_c_archivum_read_symlink with path
 
-# Resolves `path` to a canonical absolute path. Returns some owned string on
-# success (banish it when done) or none when the path cannot be resolved.
+## Resolves `path` to a canonical absolute path.
 weave realpath with path as string into maybe string:
     return calling pengu_c_archivum_realpath with path
 
 # ----------------------------------------------------------------------------
-# Recursive directory helpers (pure PenguScript over the C primitives above)
+# Extended Size, Time & Permission Helpers
 # ----------------------------------------------------------------------------
 
-# Internal record used by copy_tree to queue (source path, destination path)
-# pairs of directories that still need to be copied.
+## Returns the size of file `path` in bytes, or none if file does not exist.
+weave file_size with path as string into maybe int:
+    var m as maybe map of string to string is calling metadata with path
+    if m.is_present:
+        var md as map of string to string is m.value
+        if calling md.contains with "size":
+            var val_str as string is calling md.get with "size"
+            return calling spark.parse_int with val_str
+    return maybe none
+
+## Returns the total size in bytes of files in directory `path`.
+weave dir_size with path as string, recursive as bool is false into maybe int:
+    if not (calling is_dir with path):
+        return maybe none
+    var total as int is 0
+    if recursive:
+        var files as list of string is calling list_files_recursive with path
+        var i as int is 0
+        while i < files.len:
+            var sz as maybe int is calling file_size with (files at i)
+            if sz.is_present:
+                set total is total + sz.value
+            set i is i + 1
+        return some total
+    else:
+        var entries as maybe list of string is calling read_dir with path
+        if entries.is_present:
+            var l as list of string is entries.value
+            var i as int is 0
+            while i < l.len:
+                var fp as string is "{path}/{(l at i)}"
+                if calling is_file with fp:
+                    var sz as maybe int is calling file_size with fp
+                    if sz.is_present:
+                        set total is total + sz.value
+                set i is i + 1
+            return some total
+    return maybe none
+
+## Returns the last modification time of `path` as a Unix timestamp float.
+weave modified_time with path as string into maybe float:
+    var m as maybe map of string to string is calling metadata with path
+    if m.is_present:
+        var md as map of string to string is m.value
+        if calling md.contains with "modified":
+            var val_str as string is calling md.get with "modified"
+            var i_val as maybe int is calling spark.parse_int with val_str
+            if i_val.is_present:
+                return some ((i_val.value) to float)
+    return maybe none
+
+## Returns the creation time of `path` as a Unix timestamp float.
+weave created_time with path as string into maybe float:
+    var m as maybe map of string to string is calling metadata with path
+    if m.is_present:
+        var md as map of string to string is m.value
+        if calling md.contains with "created":
+            var val_str as string is calling md.get with "created"
+            var i_val as maybe int is calling spark.parse_int with val_str
+            if i_val.is_present:
+                return some ((i_val.value) to float)
+    return maybe none
+
+## Returns the last access time of `path` as a Unix timestamp float.
+weave accessed_time with path as string into maybe float:
+    var m as maybe map of string to string is calling metadata with path
+    if m.is_present:
+        var md as map of string to string is m.value
+        if calling md.contains with "accessed":
+            var val_str as string is calling md.get with "accessed"
+            var i_val as maybe int is calling spark.parse_int with val_str
+            if i_val.is_present:
+                return some ((i_val.value) to float)
+    return maybe none
+
+## Returns the file mode/permissions of `path` as an octal integer mode.
+weave permissions with path as string into maybe int:
+    var m as maybe map of string to string is calling metadata with path
+    if m.is_present:
+        var md as map of string to string is m.value
+        if calling md.contains with "permissions":
+            var val_str as string is calling md.get with "permissions"
+            return calling spark.parse_int with val_str
+    return maybe none
+
+## True when `path` exists, is a regular file, and has a size of 0 bytes.
+weave is_empty_file with path as string into bool:
+    if not (calling is_file with path):
+        return false
+    var sz as maybe int is calling file_size with path
+    if sz.is_present:
+        return sz.value == 0
+    return false
+
+## True when `path` is an existing directory containing zero entries.
+weave is_empty_dir with path as string into bool:
+    if not (calling is_dir with path):
+        return false
+    var entries as maybe list of string is calling read_dir with path
+    if entries.is_present:
+        var l as list of string is entries.value
+        return l.len == 0
+    return false
+
+
+# ----------------------------------------------------------------------------
+# Search & Find Helpers
+# ----------------------------------------------------------------------------
+
+## Returns list of all regular files in directory `root`.
+weave find_files with root as string, recursive as bool is true into list of string:
+    if recursive:
+        return calling list_files_recursive with root
+    var out as list of string is list of string
+    var entries as maybe list of string is calling read_dir with root
+    if entries.is_present:
+        var l as list of string is entries.value
+        var i as int is 0
+        while i < l.len:
+            var fp as string is "{root}/{(l at i)}"
+            if calling is_file with fp:
+                calling out.push with fp
+            set i is i + 1
+    return out
+
+## Returns list of all subdirectories in directory `root`.
+weave find_dirs with root as string, recursive as bool is true into list of string:
+    var out as list of string is list of string
+    var stack as list of string is list of string
+    calling stack.push with root
+    while stack.len > 0:
+        var cur as string is stack at (stack.len - 1)
+        calling stack.pop
+        var entries as maybe list of string is calling read_dir with cur
+        if entries.is_present:
+            var l as list of string is entries.value
+            var i as int is 0
+            while i < l.len:
+                var dp as string is "{cur}/{(l at i)}"
+                if calling is_dir with dp:
+                    calling out.push with dp
+                    if recursive:
+                        calling stack.push with dp
+                set i is i + 1
+    return out
+
+## Finds files under `root` whose basename exactly matches `target_name`.
+weave find_by_name with root as string, target_name as string, recursive as bool is true into list of string:
+    var files as list of string is calling find_files with root, recursive
+    var out as list of string is list of string
+    var i as int is 0
+    while i < files.len:
+        var f as string is files at i
+        if (calling compass.basename with f) == target_name:
+            calling out.push with f
+        set i is i + 1
+    return out
+
+## Finds files under `root` whose extension matches `extension` (e.g. ".log" or "log").
+weave find_by_ext with root as string, extension as string, recursive as bool is true into list of string:
+    var ext_target as string is extension
+    if ext_target length > 0:
+        if (ext_target at 0) != ".":
+            set ext_target is ".{ext_target}"
+    var files as list of string is calling find_files with root, recursive
+    var out as list of string is list of string
+    var i as int is 0
+    while i < files.len:
+        var f as string is files at i
+        if (calling compass.ext with f) == ext_target:
+            calling out.push with f
+        set i is i + 1
+    return out
+
+# ----------------------------------------------------------------------------
+# Temporary Directory & File Helpers
+# ----------------------------------------------------------------------------
+
+## Returns the system temporary directory path as a string.
+weave temp_dir into string:
+    when os == "windows":
+        var t1 as maybe string is calling rites.getenv with "TEMP"
+        if t1.is_present:
+            return t1.value
+        var t2 as maybe string is calling rites.getenv with "TMP"
+        if t2.is_present:
+            return t2.value
+        return "C:\\Temp"
+    else:
+        var td as maybe string is calling rites.getenv with "TMPDIR"
+        if td.is_present:
+            return td.value
+        return "/tmp"
+
+## Generates a unique temporary file path within the system temporary directory.
+weave temp_file with prefix as string is "pengu" into string:
+    var tdir as string is calling temp_dir
+    var pid as int is calling rites.getpid
+    var i as int is 0
+    while i < 10000:
+        var name as string is "{prefix}_{(pid to string)}_{(i to string)}.tmp"
+        var parts as list of string is list of string
+        calling parts.push with tdir
+        calling parts.push with name
+        var cand as string is calling compass.join with parts
+        if not (calling exists with cand):
+            return cand
+        set i is i + 1
+    return "{tdir}/{prefix}.tmp"
+
+# ----------------------------------------------------------------------------
+# Recursive Directory Helpers
+# ----------------------------------------------------------------------------
+
+# Internal record used by copy_tree to queue directory pairs.
 rune FsCopyTask:
     s as string
     d as string
 
-# Recursively copies a directory tree (files are copied byte-for-byte as text;
-# symlinks inside the tree are followed and copied as files/directories).
-weave copy_tree with src as string , dst as string into bool:
+## Recursively copies a directory tree from `src` to `dst`. Returns true on success.
+## Note: This operation is non-transactional; any partially created files or subdirectories
+## remain on disk if a subsequent step encounters an error.
+weave copy_tree with src as string, dst as string into bool:
     var src_is_dir as bool is calling is_dir with src
     if src_is_dir == false:
         return false
-    var made_root as bool is calling create_dir with dst , true
+    var made_root as bool is calling create_dir with dst, true
     if made_root == false:
         return false
     var stack as list of FsCopyTask is list of FsCopyTask
-    var seed as FsCopyTask is with s is src , d is dst
+    var seed as FsCopyTask is with s is src, d is dst
     calling stack.push with seed
     while stack.len > 0:
         var last as FsCopyTask is stack at (stack.len - 1)
@@ -268,26 +478,26 @@ weave copy_tree with src as string , dst as string into bool:
             var i as int is 0
             while i < list_e.len:
                 var name as string is list_e at i
-                var sp as string is last.s + "/" + name
-                var dp as string is last.d + "/" + name
+                var sp as string is "{last.s}/{name}"
+                var dp as string is "{last.d}/{name}"
                 if calling is_dir with sp:
-                    var made_sub as bool is calling create_dir with dp , true
+                    var made_sub as bool is calling create_dir with dp, true
                     if made_sub == false:
                         return false
-                    var task as FsCopyTask is with s is sp , d is dp
+                    var task as FsCopyTask is with s is sp, d is dp
                     calling stack.push with task
                 else:
                     if calling is_file with sp:
                         var content as maybe string is calling read_file with sp
                         if content.is_present == false:
                             return false
-                        var wrote as bool is calling write_file with dp , content.value
+                        var wrote as bool is calling write_file with dp, content.value
                         if wrote == false:
                             return false
                 set i is i + 1
     return true
 
-# Recursively lists every file below root (directories are not included).
+## Recursively lists every file below root.
 weave list_files_recursive with root as string into list of string:
     var out as list of string is list of string
     var dirs as list of string is list of string
@@ -301,7 +511,7 @@ weave list_files_recursive with root as string into list of string:
             var i as int is 0
             while i < list_d.len:
                 var name as string is list_d at i
-                var p as string is last_d + "/" + name
+                var p as string is "{last_d}/{name}"
                 if calling is_dir with p:
                     calling dirs.push with p
                 else:

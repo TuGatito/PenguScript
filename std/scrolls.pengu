@@ -193,11 +193,11 @@ enchanting string:
       var code as int is ord (sv at i)
       if code >= 65:
         if code <= 90:
-          set res is res + (chr (code + 32))
+          set res is "{res}{(chr (code + 32))}"
         else:
-          set res is res + (sv at i)
+          set res is "{res}{(sv at i)}"
       else:
-        set res is res + (sv at i)
+        set res is "{res}{(sv at i)}"
       set i is i + 1
     return res
 
@@ -212,13 +212,27 @@ enchanting string:
       var code as int is ord (sv at i)
       if code >= 97:
         if code <= 122:
-          set res is res + (chr (code - 32))
+          set res is "{res}{(chr (code - 32))}"
         else:
-          set res is res + (sv at i)
+          set res is "{res}{(sv at i)}"
       else:
-        set res is res + (sv at i)
+        set res is "{res}{(sv at i)}"
       set i is i + 1
     return res
+
+  ## Copy of the string with ASCII letters A-Z mapped to lowercase (alias of lower).
+  ##
+  ## Signature: to_lower() into string
+  ## Ownership: Returns a freshly allocated owned string.
+  weave to_lower into string:
+    return calling self.lower
+
+  ## Copy of the string with ASCII letters a-z mapped to uppercase (alias of upper).
+  ##
+  ## Signature: to_upper() into string
+  ## Ownership: Returns a freshly allocated owned string.
+  weave to_upper into string:
+    return calling self.upper
 
   # Copy of the string without leading and trailing ASCII whitespace.
   weave trim into string:
@@ -272,7 +286,7 @@ enchanting string:
     var fl as int is from_str length
     var prefix_str as string is calling sc_substring with sv , 0 , hit
     var suffix_str as string is calling sc_substring with sv , (hit + fl) , sv length
-    return prefix_str + to_str + suffix_str
+    return "{prefix_str}{to_str}{suffix_str}"
 
   # Copy of the string with every non-overlapping occurrence of from_str
   # replaced by to_str; an empty from_str returns the string unchanged.
@@ -285,10 +299,10 @@ enchanting string:
     var rest as string is sv
     var hit as int is calling sc_index_of with rest , from_str
     while hit >= 0:
-      set out is out + (calling sc_substring with rest , 0 , hit) + to_str
+      set out is "{out}{(calling sc_substring with rest , 0 , hit)}{to_str}"
       set rest is calling sc_substring with rest , (hit + fl) , rest length
       set hit is calling sc_index_of with rest , from_str
-    return out + rest
+    return "{out}{rest}"
 
   # Splits the string at every occurrence of delim; an empty delim yields a
   # list holding the whole string.
@@ -322,7 +336,7 @@ enchanting string:
     var res as string is ""
     var i as int is 0
     while i < count:
-      set res is res + sv
+      set res is "{res}{sv}"
       set i is i + 1
     return res
 
@@ -333,7 +347,7 @@ enchanting string:
     var res as string is ""
     var i as int is sl - 1
     while i >= 0:
-      set res is res + (sv at i)
+      set res is "{res}{(sv at i)}"
       set i is i - 1
     return res
 
@@ -399,3 +413,702 @@ enchanting string:
           continue
       return false
     return true
+
+  # --------------------------------------------------------------------------
+  # Case Mapping & Transformations
+  # --------------------------------------------------------------------------
+
+  ## Converts the first character to uppercase and the remaining characters to lowercase.
+  ##
+  ## Signature: capitalize() into string
+  ## Ownership: Returns a freshly allocated owned string.
+  ## Edge cases: Returns an empty string if the input string is empty.
+  weave capitalize into string:
+    var sv as string is essence of self
+    var sl as int is sv length
+    if sl == 0:
+      return ""
+    var res as string is ""
+    var first_code as int is ord (sv at 0)
+    if first_code >= 97 and first_code <= 122:
+      set res is "{res}{(chr (first_code - 32))}"
+    else:
+      set res is "{res}{(sv at 0)}"
+    var i as int is 1
+    while i < sl:
+      var code as int is ord (sv at i)
+      if code >= 65 and code <= 90:
+        set res is "{res}{(chr (code + 32))}"
+      else:
+        set res is "{res}{(sv at i)}"
+      set i is i + 1
+    return res
+
+  ## Converts the first character of each whitespace-separated word to uppercase and the rest to lowercase.
+  ##
+  ## Signature: title() into string
+  ## Ownership: Returns a freshly allocated owned string.
+  ## Edge cases: Preserves all whitespace characters; returns empty string if empty.
+  weave title into string:
+    var sv as string is essence of self
+    var sl as int is sv length
+    if sl == 0:
+      return ""
+    var res as string is ""
+    var new_word as bool is true
+    var i as int is 0
+    while i < sl:
+      var c as string is sv at i
+      var code as int is ord c
+      if c == " " or c == "\t" or c == "\n" or c == "\r":
+        set res is "{res}{c}"
+        set new_word is true
+      else:
+        if new_word:
+          if code >= 97 and code <= 122:
+            set res is "{res}{(chr (code - 32))}"
+          else:
+            set res is "{res}{c}"
+          set new_word is false
+        else:
+          if code >= 65 and code <= 90:
+            set res is "{res}{(chr (code + 32))}"
+          else:
+            set res is "{res}{c}"
+      set i is i + 1
+    return res
+
+  ## Converts the first character of each whitespace-separated word to uppercase and the rest to lowercase (alias of title).
+  ##
+  ## Signature: title_case() into string
+  ## Ownership: Returns a freshly allocated owned string.
+  weave title_case into string:
+    return calling self.title
+
+  ## Returns a copy of the string with uppercase characters converted to lowercase and vice versa.
+  ##
+  ## Signature: swap_case() into string
+  ## Ownership: Returns a freshly allocated owned string.
+  ## Edge cases: Non-alphabetic ASCII characters are left unchanged.
+  weave swap_case into string:
+    var sv as string is essence of self
+    var sl as int is sv length
+    var res as string is ""
+    var i as int is 0
+    while i < sl:
+      var code as int is ord (sv at i)
+      if code >= 65 and code <= 90:
+        set res is "{res}{(chr (code + 32))}"
+      else:
+        if code >= 97 and code <= 122:
+          set res is "{res}{(chr (code - 32))}"
+        else:
+          set res is "{res}{(sv at i)}"
+      set i is i + 1
+    return res
+
+  ## Converts camelCase, PascalCase, or space/hyphen-separated strings to snake_case.
+  ##
+  ## Signature: to_snake_case() into string
+  ## Ownership: Returns a freshly allocated owned string.
+  ## Edge cases: Collapses adjacent separators; returns empty string for empty input.
+  weave to_snake_case into string:
+    var sv as string is essence of self
+    var sl as int is sv length
+    if sl == 0:
+      return ""
+    var res as string is ""
+    var i as int is 0
+    while i < sl:
+      var c as string is sv at i
+      var code as int is ord c
+      if c == " " or c == "-" or c == "_":
+        var rl as int is res length
+        if rl > 0:
+          if (res at (rl - 1)) != "_":
+            set res is "{res}_"
+      else:
+        if code >= 65 and code <= 90:
+          var rl as int is res length
+          if rl > 0:
+            var prev_code as int is ord (sv at (i - 1))
+            var is_prev_lower_or_digit as bool is (prev_code >= 97 and prev_code <= 122) or (prev_code >= 48 and prev_code <= 57)
+            var is_next_lower as bool is false
+            if (i + 1) < sl:
+              var next_code as int is ord (sv at (i + 1))
+              if next_code >= 97 and next_code <= 122:
+                set is_next_lower is true
+            if (is_prev_lower_or_digit or (is_next_lower and (prev_code >= 65 and prev_code <= 90))) and ((res at (rl - 1)) != "_"):
+              set res is "{res}_"
+          set res is "{res}{(chr (code + 32))}"
+        else:
+          set res is "{res}{c}"
+      set i is i + 1
+    return res
+
+  ## Converts camelCase, PascalCase, or space/underscore-separated strings to kebab-case.
+  ##
+  ## Signature: to_kebab_case() into string
+  ## Ownership: Returns a freshly allocated owned string.
+  ## Edge cases: Collapses adjacent separators; returns empty string for empty input.
+  weave to_kebab_case into string:
+    var sv as string is essence of self
+    var sl as int is sv length
+    if sl == 0:
+      return ""
+    var res as string is ""
+    var i as int is 0
+    while i < sl:
+      var c as string is sv at i
+      var code as int is ord c
+      if c == " " or c == "-" or c == "_":
+        var rl as int is res length
+        if rl > 0:
+          if (res at (rl - 1)) != "-":
+            set res is "{res}-"
+      else:
+        if code >= 65 and code <= 90:
+          var rl as int is res length
+          if rl > 0:
+            var prev_code as int is ord (sv at (i - 1))
+            var is_prev_lower_or_digit as bool is (prev_code >= 97 and prev_code <= 122) or (prev_code >= 48 and prev_code <= 57)
+            var is_next_lower as bool is false
+            if (i + 1) < sl:
+              var next_code as int is ord (sv at (i + 1))
+              if next_code >= 97 and next_code <= 122:
+                set is_next_lower is true
+            if (is_prev_lower_or_digit or (is_next_lower and (prev_code >= 65 and prev_code <= 90))) and ((res at (rl - 1)) != "-"):
+              set res is "{res}-"
+          set res is "{res}{(chr (code + 32))}"
+        else:
+          set res is "{res}{c}"
+      set i is i + 1
+    return res
+
+  # --------------------------------------------------------------------------
+  # Search & Occurrence Counting
+  # --------------------------------------------------------------------------
+
+  ## Returns the index of the first occurrence of `sub`, or -1 if not found (alias of index_of).
+  ##
+  ## Signature: find(sub as string) into int
+  ## Ownership: Operates on borrowed strings; returns a scalar integer offset.
+  ## Edge cases: Returns 0 when sub is empty; returns -1 when sub is absent.
+  weave find with sub as string into int:
+    var sv as string is essence of self
+    return calling sc_index_of with sv , sub
+
+  ## Returns the index of the last occurrence of `sub`, or -1 if not found (alias of last_index_of).
+  ##
+  ## Signature: rfind(sub as string) into int
+  ## Ownership: Operates on borrowed strings; returns a scalar integer offset.
+  ## Edge cases: Returns string length when sub is empty; returns -1 when sub is absent.
+  weave rfind with sub as string into int:
+    var sv as string is essence of self
+    return calling sc_last_index_of with sv , sub
+
+  ## Returns the number of non-overlapping occurrences of `sub` in the string.
+  ##
+  ## Signature: count(sub as string) into int
+  ## Ownership: Operates on borrowed strings; returns a scalar integer count.
+  ## Edge cases: Returns 0 if `sub` is empty or longer than the string.
+  weave count with sub as string into int:
+    var sv as string is essence of self
+    var sl as int is sv length
+    var sub_l as int is sub length
+    if sub_l == 0 or sub_l > sl:
+      return 0
+    var cnt as int is 0
+    var i as int is 0
+    while i <= sl - sub_l:
+      if (sv at i to (i + sub_l)) == sub:
+        set cnt is cnt + 1
+        set i is i + sub_l
+      else:
+        set i is i + 1
+    return cnt
+
+  ## Counts the number of non-overlapping occurrences of `sub` in this string (alias of count).
+  ##
+  ## Signature: count_matches(sub as string) into int
+  ## Ownership: Operates on borrowed strings; returns a scalar integer count.
+  weave count_matches with sub as string into int:
+    return calling self.count with sub
+
+  # --------------------------------------------------------------------------
+  # Whitespace Manipulation
+  # --------------------------------------------------------------------------
+
+  ## Returns a copy of the string with leading whitespace removed (alias of trim_start).
+  ##
+  ## Signature: lstrip() into string
+  ## Ownership: Returns a freshly allocated owned string.
+  weave lstrip into string:
+    var sv as string is essence of self
+    var sl as int is sv length
+    var start as int is 0
+    while start < sl:
+      if calling sc_is_space with (sv at start):
+        set start is start + 1
+      else:
+        break
+    return calling sc_substring with sv , start , sl
+
+  ## Returns a copy of the string with trailing whitespace removed (alias of trim_end).
+  ##
+  ## Signature: rstrip() into string
+  ## Ownership: Returns a freshly allocated owned string.
+  weave rstrip into string:
+    var sv as string is essence of self
+    var sl as int is sv length
+    var end as int is sl - 1
+    while end >= 0:
+      if calling sc_is_space with (sv at end):
+        set end is end - 1
+      else:
+        break
+    return calling sc_substring with sv , 0 , (end + 1)
+
+  ## Returns true if the string is non-empty and contains only whitespace characters.
+  ##
+  ## Signature: is_space() into bool
+  ## Ownership: Operates on borrowed string; returns a scalar boolean.
+  ## Edge cases: Returns false for an empty string.
+  weave is_space into bool:
+    var sv as string is essence of self
+    var sl as int is sv length
+    if sl == 0:
+      return false
+    var i as int is 0
+    while i < sl:
+      if not (calling sc_is_space with (sv at i)):
+        return false
+      set i is i + 1
+    return true
+
+  ## Returns true if the string is non-empty and contains only whitespace characters (alias of is_space).
+  ##
+  ## Signature: is_whitespace() into bool
+  ## Ownership: Operates on borrowed string; returns a scalar boolean.
+  weave is_whitespace into bool:
+    return calling self.is_space
+
+  ## Splits the string by runs of consecutive ASCII whitespace characters.
+  ##
+  ## Signature: split_whitespace() into list of string
+  ## Ownership: Returns a newly allocated scope-owned list of owned strings.
+  ## Edge cases: Leading/trailing whitespace is ignored; returns an empty list if string is empty or all spaces.
+  weave split_whitespace into list of string:
+    var sv as string is essence of self
+    var parts as list of string is list of string
+    var sl as int is sv length
+    var i as int is 0
+    while i < sl:
+      while i < sl:
+        if calling sc_is_space with (sv at i):
+          set i is i + 1
+        else:
+          break
+      if i >= sl:
+        break
+      var word_start as int is i
+      while i < sl:
+        if not (calling sc_is_space with (sv at i)):
+          set i is i + 1
+        else:
+          break
+      calling parts.push with (sv at word_start to i)
+    return parts
+
+  # --------------------------------------------------------------------------
+  # Alignment & Padding
+  # --------------------------------------------------------------------------
+
+  ## Left-aligns the string within a field of specified width, padding with `pad_char` on the right.
+  ##
+  ## Signature: ljust(width as int, pad_char as string is " ") into string
+  ## Ownership: Returns a freshly allocated owned string.
+  ## Edge cases: If width <= length or pad_char is empty, returns the original string unchanged.
+  weave ljust with width as int , pad_char as string is " " into string:
+    var sv as string is essence of self
+    var sl as int is sv length
+    if sl >= width or (pad_char length) == 0:
+      return sv
+    var res as string is sv
+    while (res length) < width:
+      set res is "{res}{pad_char}"
+    if (res length) > width:
+      return res at 0 to width
+    return res
+
+  ## Right-aligns the string within a field of specified width, padding with `pad_char` on the left.
+  ##
+  ## Signature: rjust(width as int, pad_char as string is " ") into string
+  ## Ownership: Returns a freshly allocated owned string.
+  ## Edge cases: If width <= length or pad_char is empty, returns the original string unchanged.
+  weave rjust with width as int , pad_char as string is " " into string:
+    var sv as string is essence of self
+    var sl as int is sv length
+    if sl >= width or (pad_char length) == 0:
+      return sv
+    var pad as string is ""
+    while ((pad length) + sl) < width:
+      set pad is "{pad}{pad_char}"
+    var total as string is "{pad}{sv}"
+    if (total length) > width:
+      return total at ((total length) - width) to (total length)
+    return total
+
+  ## Right-aligns the string, padding on the left with `pad_char` (alias of rjust).
+  ##
+  ## Signature: pad_left(width as int, pad_char as string is " ") into string
+  ## Ownership: Returns a freshly allocated owned string.
+  weave pad_left with width as int , pad_char as string is " " into string:
+    return calling self.rjust with width, pad_char
+
+  ## Left-aligns the string, padding on the right with `pad_char` (alias of ljust).
+  ##
+  ## Signature: pad_right(width as int, pad_char as string is " ") into string
+  ## Ownership: Returns a freshly allocated owned string.
+  weave pad_right with width as int , pad_char as string is " " into string:
+    return calling self.ljust with width, pad_char
+
+  ## Pads a numeric string with zeros on the left until it reaches `width`, preserving leading sign.
+  ##
+  ## Signature: zfill(width as int) into string
+  ## Ownership: Returns a freshly allocated owned string.
+  ## Edge cases: If string starts with '+' or '-', the sign stays at the front and zeros follow it.
+  weave zfill with width as int into string:
+    var sv as string is essence of self
+    var sl as int is sv length
+    if sl >= width:
+      return sv
+    var sign as string is ""
+    var rest as string is sv
+    if sl > 0:
+      var first as string is sv at 0
+      if first == "-" or first == "+":
+        set sign is first
+        set rest is sv at 1 to sl
+    var pad_len as int is width - (rest length) - (sign length)
+    var pad as string is ""
+    var i as int is 0
+    while i < pad_len:
+      set pad is "{pad}0"
+      set i is i + 1
+    return "{sign}{pad}{rest}"
+
+  ## Centers the string in a field of `width` padded with `pad_char` (default space).
+  ##
+  ## Signature: center(width as int, pad_char as string is " ") into string
+  ## Ownership: Returns a freshly allocated owned string.
+  ## Edge cases: If padding is odd, left padding gets the smaller half (Python parity).
+  weave center with width as int , pad_char as string is " " into string:
+    var sv as string is essence of self
+    var sl as int is sv length
+    if sl >= width or (pad_char length) == 0:
+      return sv
+    var total_pad as int is width - sl
+    var left_pad as int is total_pad / 2
+    var right_pad as int is total_pad - left_pad
+    var pad_l as string is ""
+    var i as int is 0
+    while i < left_pad:
+      set pad_l is "{pad_l}{pad_char}"
+      set i is i + 1
+    var pad_r as string is ""
+    var j as int is 0
+    while j < right_pad:
+      set pad_r is "{pad_r}{pad_char}"
+      set j is j + 1
+    return "{pad_l}{sv}{pad_r}"
+
+  # --------------------------------------------------------------------------
+  # Prefix, Suffix & Partition
+  # --------------------------------------------------------------------------
+
+  ## Removes `prefix` from the start of the string if present, returning the remainder.
+  ##
+  ## Signature: removeprefix(prefix as string) into string
+  ## Ownership: Returns a freshly allocated owned string.
+  ## Edge cases: Returns unchanged string if prefix is not matched.
+  weave removeprefix with prefix as string into string:
+    var sv as string is essence of self
+    if calling sc_starts_with with sv , prefix:
+      return sv at (prefix length) to (sv length)
+    return sv
+
+  ## Removes `suffix` from the end of the string if present, returning the remainder.
+  ##
+  ## Signature: removesuffix(suffix as string) into string
+  ## Ownership: Returns a freshly allocated owned string.
+  ## Edge cases: Returns unchanged string if suffix is not matched.
+  weave removesuffix with suffix as string into string:
+    var sv as string is essence of self
+    if calling sc_ends_with with sv , suffix:
+      return sv at 0 to ((sv length) - (suffix length))
+    return sv
+
+  ## Splits the string at the first occurrence of `sep`, returning a list of 3 strings: [before, sep, after].
+  ##
+  ## Signature: partition(sep as string) into list of string
+  ## Ownership: Returns a newly allocated scope-owned list of 3 owned strings.
+  ## Edge cases: If `sep` is not found or empty, returns [sv, "", ""].
+  weave partition with sep as string into list of string:
+    var sv as string is essence of self
+    var parts as list of string is list of string with capacity 3
+    var idx as int is calling sc_index_of with sv , sep
+    if idx < 0 or (sep length) == 0:
+      calling parts.push with sv
+      calling parts.push with ""
+      calling parts.push with ""
+      return parts
+    calling parts.push with (sv at 0 to idx)
+    calling parts.push with sep
+    calling parts.push with (sv at (idx + (sep length)) to (sv length))
+    return parts
+
+  # --------------------------------------------------------------------------
+  # Classification Predicates
+  # --------------------------------------------------------------------------
+
+  ## Returns true if all cased characters are lowercase and there is at least one cased character.
+  ##
+  ## Signature: is_lower() into bool
+  ## Ownership: Operates on borrowed string; returns a scalar boolean.
+  ## Edge cases: Returns false for empty string or strings without cased characters.
+  weave is_lower into bool:
+    var sv as string is essence of self
+    var sl as int is sv length
+    if sl == 0:
+      return false
+    var has_cased as bool is false
+    var i as int is 0
+    while i < sl:
+      var code as int is ord (sv at i)
+      if code >= 65 and code <= 90:
+        return false
+      if code >= 97 and code <= 122:
+        set has_cased is true
+      set i is i + 1
+    return has_cased
+
+  ## Returns true if all cased characters are uppercase and there is at least one cased character.
+  ##
+  ## Signature: is_upper() into bool
+  ## Ownership: Operates on borrowed string; returns a scalar boolean.
+  ## Edge cases: Returns false for empty string or strings without cased characters.
+  weave is_upper into bool:
+    var sv as string is essence of self
+    var sl as int is sv length
+    if sl == 0:
+      return false
+    var has_cased as bool is false
+    var i as int is 0
+    while i < sl:
+      var code as int is ord (sv at i)
+      if code >= 97 and code <= 122:
+        return false
+      if code >= 65 and code <= 90:
+        set has_cased is true
+      set i is i + 1
+    return has_cased
+
+  ## Returns true if the string reads the same forwards and backwards.
+  ##
+  ## Signature: is_palindrome() into bool
+  ## Ownership: Operates on borrowed string; returns a scalar boolean.
+  ## Edge cases: Returns true for strings of length <= 1.
+  weave is_palindrome into bool:
+    var sv as string is essence of self
+    var sl as int is sv length
+    if sl <= 1:
+      return true
+    var i as int is 0
+    var half as int is sl / 2
+    while i < half:
+      if (ord (sv at i)) != (ord (sv at (sl - 1 - i))):
+        return false
+      set i is i + 1
+    return true
+
+  # --------------------------------------------------------------------------
+  # Ordering & Comparison
+  # --------------------------------------------------------------------------
+
+  ## Performs lexicographical byte-by-byte comparison between this string and `other`.
+  ## Returns -1 if self < other, 0 if self == other, and 1 if self > other.
+  ##
+  ## Signature: compare(other as string) into int
+  ## Ownership: Operates on borrowed strings; returns a scalar integer (-1, 0, 1).
+  ## NOTE: PenguScript disallows '<', '<=', '>', '>=' operators on strings (E0005).
+  ## This method is the canonical way to sort or order strings.
+  weave compare with other as string into int:
+    var sv as string is essence of self
+    var l1 as int is sv length
+    var l2 as int is other length
+    var min_l as int is l1
+    if l2 < min_l:
+      set min_l is l2
+    var i as int is 0
+    while i < min_l:
+      var c1 as int is ord (sv at i)
+      var c2 as int is ord (other at i)
+      if c1 < c2:
+        return -1
+      if c1 > c2:
+        return 1
+      set i is i + 1
+    if l1 < l2:
+      return -1
+    if l1 > l2:
+      return 1
+    return 0
+
+  # --------------------------------------------------------------------------
+  # Iteration & Splitting Helpers
+  # --------------------------------------------------------------------------
+
+  ## Returns a list containing every character of the string as a single-character string.
+  ##
+  ## Signature: chars() into list of string
+  ## Ownership: Returns a newly allocated scope-owned list of owned strings.
+  ## Edge cases: Returns an empty list if the string is empty.
+  weave chars into list of string:
+    var sv as string is essence of self
+    var sl as int is sv length
+    var parts as list of string is list of string with capacity sl
+    var i as int is 0
+    while i < sl:
+      calling parts.push with (sv at i to (i + 1))
+      set i is i + 1
+    return parts
+
+  ## Returns a list containing the numeric ASCII byte codes of the characters in the string.
+  ##
+  ## Signature: bytes() into list of int
+  ## Ownership: Returns a newly allocated scope-owned list of scalar integers.
+  ## Edge cases: Returns an empty list if the string is empty.
+  weave bytes into list of int:
+    var sv as string is essence of self
+    var sl as int is sv length
+    var codes as list of int is list of int with capacity sl
+    var i as int is 0
+    while i < sl:
+      calling codes.push with (ord (sv at i))
+      set i is i + 1
+    return codes
+
+  ## Splits the string by newline ('\n') boundaries without stripping carriage returns ('\r').
+  ##
+  ## Signature: split_lines() into list of string
+  ## Ownership: Returns a newly allocated scope-owned list of owned strings.
+  ## Edge cases: Returns an empty list for empty string; preserves '\r'.
+  weave split_lines into list of string:
+    var sv as string is essence of self
+    var parts as list of string is list of string
+    var sl as int is sv length
+    if sl == 0:
+      return parts
+    var start as int is 0
+    var i as int is 0
+    while i < sl:
+      if (ord (sv at i)) == 10:
+        calling parts.push with (sv at start to i)
+        set start is i + 1
+      set i is i + 1
+    calling parts.push with (sv at start to sl)
+    return parts
+
+  ## Returns the number of lines separated by newline ('\n') characters.
+  ##
+  ## Signature: line_count() into int
+  ## Ownership: Operates on borrowed string; returns a scalar integer.
+  ## Edge cases: Returns 0 for empty string, 1 for string without newlines.
+  weave line_count into int:
+    var sv as string is essence of self
+    var sl as int is sv length
+    if sl == 0:
+      return 0
+    var count as int is 1
+    var i as int is 0
+    while i < sl:
+      if (ord (sv at i)) == 10:
+        set count is count + 1
+      set i is i + 1
+    return count
+
+  ## Returns the number of whitespace-delimited words in the string.
+  ##
+  ## Signature: word_count() into int
+  ## Ownership: Operates on borrowed string; returns a scalar integer.
+  ## Edge cases: Returns 0 for empty string or strings containing only whitespace.
+  weave word_count into int:
+    var sv as string is essence of self
+    var sl as int is sv length
+    var count as int is 0
+    var in_word as bool is false
+    var i as int is 0
+    while i < sl:
+      if calling sc_is_space with (sv at i):
+        set in_word is false
+      else:
+        if not in_word:
+          set count is count + 1
+          set in_word is true
+      set i is i + 1
+    return count
+
+  # --------------------------------------------------------------------------
+  # Truncation
+  # --------------------------------------------------------------------------
+
+  ## Truncates the string to at most `max_len` characters, appending `suffix` if truncated.
+  ##
+  ## Signature: truncate(max_len as int, suffix as string) into string
+  ## Ownership: Returns a freshly allocated owned string or original value.
+  ## Edge cases: If length <= max_len, returns unchanged; if max_len <= suffix length, cuts without suffix.
+  weave truncate with max_len as int , suffix as string into string:
+    var sv as string is essence of self
+    var sl as int is sv length
+    if sl <= max_len:
+      return sv
+    var sufl as int is suffix length
+    if max_len <= sufl:
+      if max_len <= 0:
+        return ""
+      return sv at 0 to max_len
+    return "{(sv at 0 to (max_len - sufl))}{suffix}"
+
+  ## Truncates the string to at most `max_len` characters, appending "..." if truncated.
+  ##
+  ## Signature: ellipsis(max_len as int) into string
+  ## Ownership: Returns a freshly allocated owned string or original value.
+  ## Edge cases: If max_len <= 3, truncates without "..."; if length <= max_len, returns unchanged.
+  weave ellipsis with max_len as int into string:
+    var sv as string is essence of self
+    var sl as int is sv length
+    if sl <= max_len:
+      return sv
+    if max_len <= 3:
+      if max_len <= 0:
+        return ""
+      return sv at 0 to max_len
+    return "{(sv at 0 to (max_len - 3))}..."
+
+# ----------------------------------------------------------------------------
+# Module-level Sequence Operations
+# ----------------------------------------------------------------------------
+
+## Concatenates the elements of `parts` into a single string using `sep` as a separator.
+##
+## Signature: join(parts as list of string, sep as string) into string
+## Ownership: Returns a freshly allocated owned string.
+## Edge cases: Returns an empty string for an empty list.
+weave join with parts as list of string , sep as string into string:
+  var res as string is ""
+  for i, p in parts:
+    if i > 0:
+      set res is "{res}{sep}"
+    set res is "{res}{p}"
+  return res

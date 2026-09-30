@@ -1,0 +1,13 @@
+# Generic function with a single type parameter and explicit type arguments.
+weave identity shard T with x as T into T:
+    return x
+
+weave main into int:
+    var a as int is calling identity with 5
+    var b as string is calling identity with "pengu"
+    var c as int is calling identity of int with 7
+    var d as string is calling identity of string with "explicit"
+    if a == 5 and c == 7:
+        if b.len == 5 and d.len == 8:
+            return 0
+    return 1

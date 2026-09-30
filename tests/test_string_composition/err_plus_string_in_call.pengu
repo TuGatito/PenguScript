@@ -1,0 +1,7 @@
+# EXPECTED: E0005
+declare emit with s as string into void
+
+weave main into int:
+    var b as string is "b"
+    calling emit with "a" + b
+    return 0

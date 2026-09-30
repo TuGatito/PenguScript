@@ -1,0 +1,138 @@
+import std.spark
+import std.atlas
+
+weave main into int:
+    calling spark.println with "=== Test Atlas (Int -> Int) ==="
+
+    var m as map of int to int is map of int to int
+    calling spark.assert with (calling m.is_empty)
+    calling spark.assert with (calling m.size == 0)
+
+    # 1. Insertion & basic access
+    calling m.put with 10, 100
+    calling m.put with 20, -50
+    calling m.put with 30, 300
+    calling spark.assert with (not (calling m.is_empty))
+    calling spark.assert with (calling m.size == 3)
+    calling spark.assert with (calling m.has_key with 20)
+    calling spark.assert with (not (calling m.has_key with 99))
+
+    # 2. get_or and get_safe
+    calling spark.assert with ((calling m.get_or with 10, 0) == 100)
+    calling spark.assert with ((calling m.get_or with 999, -1) == -1)
+
+    var opt1 as maybe int is calling m.get_safe with 20
+    calling spark.assert with (opt1.is_present)
+    if opt1.is_present:
+        calling spark.assert with (opt1.value == -50)
+
+    var opt2 as maybe int is calling m.get_safe with 999
+    calling spark.assert with (not opt2.is_present)
+
+    # 3. Predicates & reductions
+    calling spark.assert with (not (calling m.all_values_positive))
+    calling spark.assert with (calling m.any_value_negative)
+    calling spark.assert with (calling m.values_in_range with -100, 500)
+    calling spark.assert with (not (calling m.values_in_range with 0, 500))
+    calling spark.assert with (calling m.count_if_value_positive == 2)
+    calling spark.assert with (calling m.count_if_value_negative == 1)
+
+    calling spark.assert with ((calling m.sum_values) == 350)
+    calling spark.assert with ((calling m.max_value) == 300)
+    calling spark.assert with ((calling m.min_value) == -50)
+
+    var fk as maybe int is calling m.find_key_by_value with 300
+    calling spark.assert with (fk.is_present)
+    if fk.is_present:
+        calling spark.assert with (fk.value == 30)
+
+    # 4. Update & rename
+    var up_ok as bool is calling m.update with 20, 200
+    calling spark.assert with up_ok
+    calling spark.assert with ((calling m.get_or with 20, 0) == 200)
+    calling spark.assert with (calling m.all_values_positive)
+    var up_fail as bool is calling m.update with 999, 10
+    calling spark.assert with (not up_fail)
+
+    var ren_ok as bool is calling m.rename_key with 20, 25
+    calling spark.assert with ren_ok
+    calling spark.assert with (not (calling m.has_key with 20))
+    calling spark.assert with (calling m.has_key with 25)
+    calling spark.assert with ((calling m.get_or with 25, 0) == 200)
+
+    # 5. Keys, values and sorted keys/values
+    var ks as list of int is calling m.keys
+    calling spark.assert with (ks.len == 3)
+    var vs as list of int is calling m.values
+    calling spark.assert with (vs.len == 3)
+
+    var sorted_ks as list of int is calling m.keys_sorted
+    calling spark.assert with (sorted_ks.len == 3)
+    calling spark.assert with ((sorted_ks at 0) == 10)
+    calling spark.assert with ((sorted_ks at 1) == 25)
+    calling spark.assert with ((sorted_ks at 2) == 30)
+
+    var sorted_vs as list of int is calling m.values_sorted
+    calling spark.assert with (sorted_vs.len == 3)
+    calling spark.assert with ((sorted_vs at 0) == 100)
+    calling spark.assert with ((sorted_vs at 1) == 200)
+    calling spark.assert with ((sorted_vs at 2) == 300)
+
+    # 6. Transformations and filters
+    var doubled as map of int to int is calling m.map_values_double
+    calling spark.assert with ((calling doubled.get_or with 10, 0) == 200)
+    calling spark.assert with ((calling doubled.get_or with 30, 0) == 600)
+
+    var negated as map of int to int is calling m.map_values_negate
+    calling spark.assert with ((calling negated.get_or with 10, 0) == -100)
+
+    var f_rng as map of int to int is calling m.filter_values_range with 150, 250
+    calling spark.assert with (calling f_rng.size == 1)
+    calling spark.assert with (calling f_rng.has_key with 25)
+
+    # 7. remove & remove_all & clear
+    var rem_one as bool is calling m.remove with 10
+    calling spark.assert with rem_one
+    calling spark.assert with (calling m.size == 2)
+
+    var to_rem as list of int is list of int
+    calling to_rem.push with 25
+    calling to_rem.push with 30
+    var rem_count as int is calling m.remove_all with to_rem
+    calling spark.assert with (rem_count == 2)
+    calling spark.assert with (calling m.size == 0)
+
+    # 8. Binary ops (merge, from_lists)
+    var a as map of int to int is map of int to int
+    calling a.put with 1, 10
+    calling a.put with 2, 20
+
+    var b as map of int to int is map of int to int
+    calling b.put with 3, 30
+    calling b.put with 2, 99
+
+    var merged as map of int to int is calling atlas.merge_ii with a, b
+    calling spark.assert with (calling merged.size == 3)
+    calling spark.assert with ((calling merged.get_or with 2, 0) == 99)
+
+    var merged_l as map of int to int is calling atlas.merge_keep_left_ii with a, b
+    calling spark.assert with (calling merged_l.size == 3)
+    calling spark.assert with ((calling merged_l.get_or with 2, 0) == 20)
+
+    var lk as list of int is list of int
+    calling lk.push with 100
+    calling lk.push with 200
+    var lv as list of int is list of int
+    calling lv.push with 5
+    calling lv.push with 8
+    var fl as map of int to int is calling atlas.from_lists_ii with lk, lv
+    calling spark.assert with (calling fl.size == 2)
+    calling spark.assert with ((calling fl.get_or with 200, 0) == 8)
+
+    # 9. Generic module utilities
+    calling spark.assert with ((calling atlas.map_size of int, int with fl) == 2)
+    calling spark.assert with (calling atlas.map_has_key of int, int with fl, 100)
+    calling spark.assert with ((calling atlas.map_get_or of int, int with fl, 100, 0) == 5)
+
+    calling spark.println with "atlas_ii: OK"
+    return 0

@@ -285,43 +285,7 @@ class TestRuntimeDeps:
     @requires_runtime
     def test_real_regex_and_xml_execution(self):
         """Regulus (PCRE2) regex matching + Parchment (libxml2) XML parsing."""
-        src = r"""
-import std.spark
-import std.oracle
-import std.regulus
-import std.parchment
-
-weave main into void:
-    calling spark.println with "=== Testing Real Regulus & Parchment ==="
-
-    # 1. Regulus Regex with PCRE2
-    var re_m as maybe Regex is calling regulus.compile with "[a-zA-Z0-9_]+@[a-zA-Z0-9_]+\\.[a-zA-Z0-9_]+", ""
-    if re_m.is_present:
-        calling spark.println with "regex compiled ok"
-        var re as Regex is re_m.value
-        var m as maybe Match is calling re.search with "Contact us at support@penguscript.org for info"
-        if m.is_present:
-            var matched as Match is m.value
-            calling spark.println with "matched: " + matched.matched
-
-    # 2. Parchment XML with libxml2
-    var xml_data as string is "<pengu version=\"1.0\"><wizard name=\"Merlin\"><spell>Fireball</spell></wizard></pengu>"
-    var doc_m as maybe Document is calling parchment.parse_xml with xml_data
-    if doc_m.is_present:
-        calling spark.println with "xml parsed ok"
-        var doc as Document is doc_m.value
-        var root_node as Node is doc.root
-        calling spark.println with "root tag: " + root_node.tag
-
-        var wiz as maybe Node is calling parchment.find with sigil of root_node, "wizard"
-        if wiz.is_present:
-            var wnode as Node is wiz.value
-            var attr_val as maybe string is calling parchment.attr with sigil of wnode, "name"
-            if attr_val.is_present:
-                calling spark.println with "wizard name: " + attr_val.value
-
-    calling spark.println with "=== Real Libs OK ==="
-"""
+        src = '\nimport std.spark\nimport std.oracle\nimport std.regulus\nimport std.parchment\n\nweave main into void:\n    calling spark.println with "=== Testing Real Regulus & Parchment ==="\n\n    # 1. Regulus Regex with PCRE2\n    var re_m as maybe Regex is calling regulus.compile with "[a-zA-Z0-9_]+@[a-zA-Z0-9_]+\\\\.[a-zA-Z0-9_]+", ""\n    if re_m.is_present:\n        calling spark.println with "regex compiled ok"\n        var re as Regex is re_m.value\n        var m as maybe Match is calling re.search with "Contact us at support@penguscript.org for info"\n        if m.is_present:\n            var matched as Match is m.value\n            calling spark.println with "matched: {matched.matched}"\n\n    # 2. Parchment XML with libxml2\n    var xml_data as string is "<pengu version=\\"1.0\\"><wizard name=\\"Merlin\\"><spell>Fireball</spell></wizard></pengu>"\n    var doc_m as maybe Document is calling parchment.parse_xml with xml_data\n    if doc_m.is_present:\n        calling spark.println with "xml parsed ok"\n        var doc as Document is doc_m.value\n        var root_node as Node is doc.root\n        calling spark.println with "root tag: {root_node.tag}"\n\n        var wiz as maybe Node is calling parchment.find with sigil of root_node, "wizard"\n        if wiz.is_present:\n            var wnode as Node is wiz.value\n            var attr_val as maybe string is calling parchment.attr with sigil of wnode, "name"\n            if attr_val.is_present:\n                calling spark.println with "wizard name: {attr_val.value}"\n\n    calling spark.println with "=== Real Libs OK ==="\n'
         res = compile_run(src, tag="real_libs")
         _expect_stdout(res,
                        "=== Testing Real Regulus & Parchment ===",
@@ -332,45 +296,7 @@ weave main into void:
     @requires_runtime
     def test_real_concurrency_execution(self):
         """Filum concurrency primitives: AtomicInt, Mutex, WaitGroup, sleep."""
-        src = r"""
-import std.spark
-import std.oracle
-import std.filum
-
-weave main into void:
-    calling spark.println with "=== Testing Real Filum Concurrency ==="
-
-    # 1. AtomicInt
-    var counter as AtomicInt is calling filum.atomic_int with 10
-    var cur_val as int is calling counter.load
-    calling spark.println with "atomic load: " + cur_val
-
-    var added as int is calling counter.add with 5
-    var new_val as int is calling counter.load
-    calling spark.println with "atomic new: " + new_val
-
-    # 2. Mutex
-    var mtx as Mutex is calling filum.mutex
-    calling mtx.lock
-    calling spark.println with "mutex locked"
-    calling mtx.unlock
-    calling spark.println with "mutex unlocked"
-
-    # 3. WaitGroup
-    var wg as WaitGroup is calling filum.wait_group
-    calling wg.add with 1
-    calling spark.println with "wg added 1"
-    calling wg.done
-    calling spark.println with "wg done"
-    calling wg.wait
-    calling spark.println with "wg wait ok"
-
-    # 4. Sleep
-    calling filum.sleep with 10
-    calling spark.println with "sleep ok"
-
-    calling spark.println with "=== Filum OK ==="
-"""
+        src = '\nimport std.spark\nimport std.oracle\nimport std.filum\n\nweave main into void:\n    calling spark.println with "=== Testing Real Filum Concurrency ==="\n\n    # 1. AtomicInt\n    var counter as AtomicInt is calling filum.atomic_int with 10\n    var cur_val as int is calling counter.load\n    calling spark.println with "atomic load: {cur_val}"\n\n    var added as int is calling counter.add with 5\n    var new_val as int is calling counter.load\n    calling spark.println with "atomic new: {new_val}"\n\n    # 2. Mutex\n    var mtx as Mutex is calling filum.mutex\n    calling mtx.lock\n    calling spark.println with "mutex locked"\n    calling mtx.unlock\n    calling spark.println with "mutex unlocked"\n\n    # 3. WaitGroup\n    var wg as WaitGroup is calling filum.wait_group\n    calling wg.add with 1\n    calling spark.println with "wg added 1"\n    calling wg.done\n    calling spark.println with "wg done"\n    calling wg.wait\n    calling spark.println with "wg wait ok"\n\n    # 4. Sleep\n    calling filum.sleep with 10\n    calling spark.println with "sleep ok"\n\n    calling spark.println with "=== Filum OK ==="\n'
         res = compile_run(src, tag="real_filum")
         _expect_stdout(res,
                        "=== Testing Real Filum Concurrency ===",
@@ -428,42 +354,7 @@ weave main into void:
     @requires_runtime
     def test_regulus_parchment_resource_cleanup(self):
         """Regex / XML/HTML native resources are released via the new frees."""
-        src = r"""
-import std.spark
-import std.oracle
-import std.regulus
-import std.parchment
-
-weave main into void:
-    calling spark.println with "=== Native Cleanup ==="
-
-    # Regulus: compile, search, then release the PCRE2 code and match buffer.
-    var re_m as maybe Regex is calling regulus.compile with "o+", ""
-    if re_m.is_present:
-        calling spark.println with "regex compiled ok"
-        var re as Regex is re_m.value
-        var m as maybe Match is calling re.search with "foo"
-        if m.is_present:
-            var matched as Match is m.value
-            calling spark.println with "matched: " + matched.matched
-            calling regulus.match_free with sigil of matched
-        calling re.free
-
-    # Parchment: parse XML, walk one node, then release the document.
-    var xml_data as string is "<pengu version=\"1.0\"><wizard name=\"Merlin\"><spell>Fireball</spell></wizard></pengu>"
-    var doc_m as maybe Document is calling parchment.parse_xml with xml_data
-    if doc_m.is_present:
-        calling spark.println with "xml parsed ok"
-        var doc as Document is doc_m.value
-        var root_node as Node is doc.root
-        var wiz as maybe Node is calling parchment.find with sigil of root_node, "wizard"
-        if wiz.is_present:
-            var wnode as Node is wiz.value
-            calling parchment.free_node with sigil of wnode
-        calling parchment.free_document with sigil of doc
-
-    calling spark.println with "=== Native Cleanup OK ==="
-"""
+        src = '\nimport std.spark\nimport std.oracle\nimport std.regulus\nimport std.parchment\n\nweave main into void:\n    calling spark.println with "=== Native Cleanup ==="\n\n    # Regulus: compile, search, then release the PCRE2 code and match buffer.\n    var re_m as maybe Regex is calling regulus.compile with "o+", ""\n    if re_m.is_present:\n        calling spark.println with "regex compiled ok"\n        var re as Regex is re_m.value\n        var m as maybe Match is calling re.search with "foo"\n        if m.is_present:\n            var matched as Match is m.value\n            calling spark.println with "matched: {matched.matched}"\n            calling regulus.match_free with sigil of matched\n        calling re.free\n\n    # Parchment: parse XML, walk one node, then release the document.\n    var xml_data as string is "<pengu version=\\"1.0\\"><wizard name=\\"Merlin\\"><spell>Fireball</spell></wizard></pengu>"\n    var doc_m as maybe Document is calling parchment.parse_xml with xml_data\n    if doc_m.is_present:\n        calling spark.println with "xml parsed ok"\n        var doc as Document is doc_m.value\n        var root_node as Node is doc.root\n        var wiz as maybe Node is calling parchment.find with sigil of root_node, "wizard"\n        if wiz.is_present:\n            var wnode as Node is wiz.value\n            calling parchment.free_node with sigil of wnode\n        calling parchment.free_document with sigil of doc\n\n    calling spark.println with "=== Native Cleanup OK ==="\n'
         res = compile_run(src, tag="native_free")
         _expect_stdout(res,
                        "=== Native Cleanup ===",

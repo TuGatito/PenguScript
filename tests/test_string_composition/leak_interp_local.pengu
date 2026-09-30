@@ -1,0 +1,8 @@
+# Interpolation temporaries ('(n to string)') are released after formatting.
+import std.spark
+
+weave main into int:
+    var n as int is 42
+    var s as string is "value: {(n to string)}"
+    calling spark.println with s
+    return 0

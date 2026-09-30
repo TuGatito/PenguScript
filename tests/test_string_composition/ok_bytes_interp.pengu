@@ -1,0 +1,13 @@
+# Regression: interpolation must copy string bytes exactly, including NULs
+# (printf '%.*s' would truncate at the first NUL and corrupt binary data).
+import std.spark
+
+weave main into int:
+    var nul as string is chr 0
+    var joined as string is "a{nul}b"
+    calling spark.assert with (joined length) == 3
+    var last as int is ord (joined at 2)
+    calling spark.assert with last == 98
+    var zero as int is ord (joined at 1)
+    calling spark.assert with zero == 0
+    return 0

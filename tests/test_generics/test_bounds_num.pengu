@@ -1,0 +1,17 @@
+# 'where T: Num' enables arithmetic on a type parameter.
+weave sum shard T where T: Num with xs as list of T into T:
+    var acc as T is donum T
+    var i as int is 0
+    while i < calling xs.len:
+        set acc is acc + (xs at i)
+        set i is i + 1
+    return acc
+
+weave main into int:
+    var ints as list of int is [10, 20, 30]
+    var floats as list of float is [1.5, 2.5]
+    var a as int is calling sum with ints
+    var b as float is calling sum with floats
+    if a == 60 and b == 4.0:
+        return 0
+    return 1

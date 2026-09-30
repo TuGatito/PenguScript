@@ -1,0 +1,22 @@
+# 'derive Par' generates the C equality helper used by == and !=.
+rune Point derive Par:
+    x as int
+    y as int
+
+weave main into int:
+    var a as Point with:
+        set .x is 1
+        set .y is 2
+    var b as Point with:
+        set .x is 1
+        set .y is 2
+    var c as Point with:
+        set .x is 2
+        set .y is 1
+    if not (a == b):
+        return 1
+    if a != b:
+        return 2
+    if a == c:
+        return 3
+    return 0

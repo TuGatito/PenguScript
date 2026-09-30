@@ -1,0 +1,15 @@
+# EXPECTED: E0047
+# EXPECTED TO FAIL: E0047 — duplicate binding of the same concept.
+rune Foo:
+    x as int
+
+concept Showable:
+    weave show into string
+
+bind Foo with Showable:
+    weave show into string:
+        return "a"
+
+bind Foo with Showable:
+    weave show into string:
+        return "b"

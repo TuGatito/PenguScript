@@ -1,0 +1,8 @@
+# 'null' and 'any' keep flowing into a bare (unbounded) type parameter; the
+# permissive rule is documented in LANGUAGE.md §6.6.  The generic weave is only
+# type-checked here, never monomorphized with a scalar.
+weave store_ref shard T with x as ref to T into void:
+    set essence of x is null
+
+weave main into int:
+    return 0

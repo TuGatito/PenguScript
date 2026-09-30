@@ -1,25 +1,524 @@
 # std/tally.pengu - The Tally (Lists)
-# Read-only utilities for dynamic `list of int` collections: emptiness
-# checks and scalar reductions (sum, max, min).
+# Method-based and functional utilities for dynamic `list of int` collections:
+# emptiness, scalar reductions, search, transformations, statistics, and combinations.
+#
+# Methods are attached directly to `list of int` via `enchanting`, allowing natural
+# object-oriented calls (`calling xs.sum`, `calling xs.sort_asc`), while module-level
+# aliases preserve 100% backward compatibility with legacy 0.14.x call syntax.
 #
 # Ownership / memory model:
-#   * The helpers never allocate, mutate or consume the list they receive:
-#     each one takes a `list of int`, reads it through `.len` / element
-#     indexing and returns a plain int, so the caller keeps full ownership
-#     of the list and may `banish` it afterwards. Empty lists are handled
-#     explicitly (see the per-function notes below).
-#
-# Usage:
-#   import std.tally
-#   import std.spark
-#   var nums as list of int is calling spark.range with 1, 10, 1
-#   var total as int is calling tally.sum with nums
-#   var hi as int is calling tally.max_val with nums
+#   * Methods and helpers that take a list NEVER mutate or banish it: they read through
+#     `essence of self` and return scalar values or newly allocated lists.
+#   * Helpers that RETURN a `list of int` allocate a fresh list owned by the
+#     caller. The compiler's auto-banish cleans it at scope exit if not
+#     escaped (§13.4). Never `banish` the input list from inside.
+#   * Empty lists are handled explicitly and safely across all operations.
 
 import std.spark
 
 # ----------------------------------------------------------------------------
-# Predicates
+# Version constant
+# ----------------------------------------------------------------------------
+
+## Tally module version constant.
+const TALLY_VERSION as string is "0.15.0"
+
+# ----------------------------------------------------------------------------
+# Internal length helper for enchanting methods
+# ----------------------------------------------------------------------------
+
+weave _len with l as list of int into int:
+    return calling l.len
+
+# ----------------------------------------------------------------------------
+# Enchanting: methods on `list of int`
+# ----------------------------------------------------------------------------
+
+enchanting list of int:
+    # --- Length & Access ---
+
+    ## Returns the first element of `self`, or 0 if empty.
+    weave first into int:
+        var n as int is calling _len with (essence of self)
+        if n == 0:
+            return 0
+        return self at 0
+
+    ## Returns the last element of `self`, or 0 if empty.
+    weave last into int:
+        var n as int is calling _len with (essence of self)
+        if n == 0:
+            return 0
+        return self at (n - 1)
+
+    ## Returns the element at `idx`, or `default` if index is out of bounds.
+    weave at_or with idx as int, default as int is 0 into int:
+        var n as int is calling _len with (essence of self)
+        if idx < 0:
+            return default
+        if idx >= n:
+            return default
+        return self at idx
+
+    ## Returns `some v` if `idx` is within `[0, len-1]`, or `maybe none` if out of bounds.
+    weave at_safe with idx as int into maybe int:
+        var n as int is calling _len with (essence of self)
+        if idx < 0:
+            return maybe none
+        if idx >= n:
+            return maybe none
+        return some (self at idx)
+
+    # --- Search ---
+
+    ## Returns the number of occurrences of `item` in `self`.
+    weave count_of with item as int into int:
+        var count as int is 0
+        for x in essence of self:
+            if x == item:
+                set count is count + 1
+        return count
+
+    ## Returns the first element strictly greater than `threshold`, or `maybe none`.
+    weave find_first_gt with threshold as int into maybe int:
+        for x in essence of self:
+            if x > threshold:
+                return some x
+        return maybe none
+
+    ## Returns the first element strictly less than `threshold`, or `maybe none`.
+    weave find_first_lt with threshold as int into maybe int:
+        for x in essence of self:
+            if x < threshold:
+                return some x
+        return maybe none
+
+    ## Returns the 0-based index of the last occurrence of `item`, or -1 if absent.
+    weave last_index_of with item as int into int:
+        var n as int is calling _len with (essence of self)
+        var i as int is n - 1
+        while i >= 0:
+            if (self at i) == item:
+                return i
+            set i is i - 1
+        return -1
+
+    # --- Reductions ---
+
+    ## Returns the arithmetic sum of every element in `self`. Empty list sums to 0.
+    weave sum into int:
+        var total as int is 0
+        for x in essence of self:
+            set total is total + x
+        return total
+
+    ## Returns the product of every element in `self`. Empty list yields 1 (multiplicative identity).
+    weave product into int:
+        var n as int is calling _len with (essence of self)
+        if n == 0:
+            return 1
+        var prod as int is 1
+        for x in essence of self:
+            set prod is prod * x
+        return prod
+
+    ## Returns the largest element in `self`. Empty list yields 0.
+    weave max_val into int:
+        var n as int is calling _len with (essence of self)
+        if n == 0:
+            return 0
+        var m as int is self at 0
+        for x in essence of self:
+            if x > m:
+                set m is x
+        return m
+
+    ## Returns the smallest element in `self`. Empty list yields 0.
+    weave min_val into int:
+        var n as int is calling _len with (essence of self)
+        if n == 0:
+            return 0
+        var m as int is self at 0
+        for x in essence of self:
+            if x < m:
+                set m is x
+        return m
+
+    ## Returns the index of the first maximum value in `self`, or -1 if empty.
+    weave max_index into int:
+        var n as int is calling _len with (essence of self)
+        if n == 0:
+            return -1
+        var best_idx as int is 0
+        var best_val as int is self at 0
+        var i as int is 1
+        while i < n:
+            if (self at i) > best_val:
+                set best_val is self at i
+                set best_idx is i
+            set i is i + 1
+        return best_idx
+
+    ## Returns the index of the first minimum value in `self`, or -1 if empty.
+    weave min_index into int:
+        var n as int is calling _len with (essence of self)
+        if n == 0:
+            return -1
+        var best_idx as int is 0
+        var best_val as int is self at 0
+        var i as int is 1
+        while i < n:
+            if (self at i) < best_val:
+                set best_val is self at i
+                set best_idx is i
+            set i is i + 1
+        return best_idx
+
+    ## Alias of `min_index`.
+    weave argmin into int:
+        return calling self.min_index
+
+    ## Alias of `max_index`.
+    weave argmax into int:
+        return calling self.max_index
+
+    # --- Statistics ---
+
+    ## Returns the integer arithmetic mean of `self`. Empty list yields 0.
+    ##
+    ## Note: Integer division truncates toward zero (C99 semantics);
+    ## for precise fractional means use `std.arithmancy`.
+    weave mean into int:
+        var n as int is calling _len with (essence of self)
+        if n == 0:
+            return 0
+        return (calling self.sum) / n
+
+    ## Alias of `mean`.
+    weave average into int:
+        return calling self.mean
+
+    ## Returns the sum of squares of every element in `self`. Returns 0 if empty.
+    weave sum_of_squares into int:
+        var total as int is 0
+        for x in essence of self:
+            set total is total + (x * x)
+        return total
+
+    ## Returns the median element of `self` after sorting. Empty list yields 0.
+    ## For even-length lists, returns the integer average of the two middle elements.
+    ##
+    ## Note: Integer division truncates toward zero (C99 semantics);
+    ## for precise fractional medians use `std.arithmancy`.
+    weave median into int:
+        var n as int is calling _len with (essence of self)
+        if n == 0:
+            return 0
+        var s as list of int is calling self.sort_asc
+        var mid as int is n / 2
+        if n % 2 == 1:
+            return s at mid
+        return ((s at (mid - 1)) + (s at mid)) / 2
+
+    ## Returns the most frequent value in `self`. Returns 0 if empty.
+    weave mode into int:
+        var n as int is calling _len with (essence of self)
+        if n == 0:
+            return 0
+        var best_val as int is self at 0
+        var best_count as int is 0
+        var i as int is 0
+        while i < n:
+            var target as int is self at i
+            var count as int is 0
+            var j as int is 0
+            while j < n:
+                if (self at j) == target:
+                    set count is count + 1
+                set j is j + 1
+            if count > best_count:
+                set best_count is count
+                set best_val is target
+            set i is i + 1
+        return best_val
+
+    # --- Transformations ---
+
+    ## Returns a freshly allocated list with elements in reverse order.
+    weave reverse into list of int:
+        var result as list of int is list of int
+        var n as int is calling _len with (essence of self)
+        var i as int is n - 1
+        while i >= 0:
+            calling result.push with (self at i)
+            set i is i - 1
+        return result
+
+    ## Returns a fresh copy of `self` sorted in ascending order (insertion sort, O(n^2)).
+    weave sort_asc into list of int:
+        var result as list of int is list of int
+        for x in essence of self:
+            calling result.push with x
+        var n as int is calling _len with result
+        var i as int is 0
+        while i < n:
+            var j as int is i + 1
+            while j < n:
+                if (result at j) < (result at i):
+                    var tmp as int is result at i
+                    set result at i is result at j
+                    set result at j is tmp
+                set j is j + 1
+            set i is i + 1
+        return result
+
+    ## Returns a fresh copy of `self` sorted in descending order (insertion sort, O(n^2)).
+    weave sort_desc into list of int:
+        var result as list of int is list of int
+        for x in essence of self:
+            calling result.push with x
+        var n as int is calling _len with result
+        var i as int is 0
+        while i < n:
+            var j as int is i + 1
+            while j < n:
+                if (result at j) > (result at i):
+                    var tmp as int is result at i
+                    set result at i is result at j
+                    set result at j is tmp
+                set j is j + 1
+            set i is i + 1
+        return result
+
+    ## Returns a fresh list with duplicate values removed, preserving order of first appearance.
+    weave unique into list of int:
+        var result as list of int is list of int
+        for x in essence of self:
+            if not (calling result.contains with x):
+                calling result.push with x
+        return result
+
+    ## Functional alias of `unique`.
+    weave dedup into list of int:
+        return calling self.unique
+
+    ## Flattens `self` by returning a fresh identity copy.
+    weave flatten into list of int:
+        var result as list of int is list of int
+        for x in essence of self:
+            calling result.push with x
+        return result
+
+    ## Returns a fresh list with the absolute value of every element.
+    weave abs_all into list of int:
+        var result as list of int is list of int
+        for x in essence of self:
+            if x < 0:
+                calling result.push with (0 - x)
+            else:
+                calling result.push with x
+        return result
+
+    ## Returns a fresh list with all values clamped to `[lo, hi]` inclusive.
+    weave clamp_all with lo as int is 0, hi as int is 100 into list of int:
+        var result as list of int is list of int
+        for x in essence of self:
+            if x < lo:
+                calling result.push with lo
+            else if x > hi:
+                calling result.push with hi
+            else:
+                calling result.push with x
+        return result
+
+    # --- Selection ---
+
+    ## Returns a fresh list containing the first `n` elements of `self`.
+    weave take with n as int is 1 into list of int:
+        var result as list of int is list of int
+        var total as int is calling _len with (essence of self)
+        var limit as int is n
+        if limit > total:
+            set limit is total
+        if limit < 0:
+            set limit is 0
+        var i as int is 0
+        while i < limit:
+            calling result.push with (self at i)
+            set i is i + 1
+        return result
+
+    ## Returns a fresh list omitting the first `n` elements of `self`.
+    weave drop with n as int is 1 into list of int:
+        var result as list of int is list of int
+        var total as int is calling _len with (essence of self)
+        var start as int is n
+        if start < 0:
+            set start is 0
+        var i as int is start
+        while i < total:
+            calling result.push with (self at i)
+            set i is i + 1
+        return result
+
+    ## Returns a fresh sub-list spanning indices `[start, end_idx)`.
+    weave slice_list with start as int, end_idx as int into list of int:
+        var result as list of int is list of int
+        var total as int is calling _len with (essence of self)
+        var s as int is start
+        if s < 0:
+            set s is 0
+        var e as int is end_idx
+        if e > total:
+            set e is total
+        var i as int is s
+        while i < e:
+            calling result.push with (self at i)
+            set i is i + 1
+        return result
+
+    # --- Predicates ---
+
+    ## Returns true if `self` is sorted in non-descending order.
+    weave is_sorted_asc into bool:
+        var n as int is calling _len with (essence of self)
+        if n <= 1:
+            return true
+        var i as int is 0
+        while i < (n - 1):
+            if (self at i) > (self at (i + 1)):
+                return false
+            set i is i + 1
+        return true
+
+    ## Returns true if `self` is sorted in non-ascending order.
+    weave is_sorted_desc into bool:
+        var n as int is calling _len with (essence of self)
+        if n <= 1:
+            return true
+        var i as int is 0
+        while i < (n - 1):
+            if (self at i) < (self at (i + 1)):
+                return false
+            set i is i + 1
+        return true
+
+    ## Returns true if every element in `self` is strictly positive (> 0).
+    weave all_positive into bool:
+        for x in essence of self:
+            if x <= 0:
+                return false
+        return true
+
+    ## Returns true if every element in `self` is zero.
+    weave all_zero into bool:
+        for x in essence of self:
+            if x != 0:
+                return false
+        return true
+
+    ## Returns true if at least one element in `self` is strictly negative (< 0).
+    weave any_negative into bool:
+        for x in essence of self:
+            if x < 0:
+                return true
+        return false
+
+    ## Returns true if every element in `self` falls within `[lo, hi]` inclusive.
+    weave all_in_range with lo as int, hi as int into bool:
+        for x in essence of self:
+            if x < lo:
+                return false
+            if x > hi:
+                return false
+        return true
+
+    # --- Filters ---
+
+    ## Returns a fresh list of all even integers in `self`.
+    weave filter_even into list of int:
+        var result as list of int is list of int
+        for x in essence of self:
+            if (x % 2) == 0:
+                calling result.push with x
+        return result
+
+    ## Returns a fresh list of all odd integers in `self`.
+    weave filter_odd into list of int:
+        var result as list of int is list of int
+        for x in essence of self:
+            if (x % 2) != 0:
+                calling result.push with x
+        return result
+
+    ## Returns a fresh list of all positive integers (> 0) in `self`.
+    weave filter_positive into list of int:
+        var result as list of int is list of int
+        for x in essence of self:
+            if x > 0:
+                calling result.push with x
+        return result
+
+    ## Returns a fresh list of all negative integers (< 0) in `self`.
+    weave filter_negative into list of int:
+        var result as list of int is list of int
+        for x in essence of self:
+            if x < 0:
+                calling result.push with x
+        return result
+
+    ## Returns a fresh list of elements falling within `[lo, hi]` inclusive.
+    weave filter_in_range with lo as int, hi as int into list of int:
+        var result as list of int is list of int
+        for x in essence of self:
+            if x >= lo:
+                if x <= hi:
+                    calling result.push with x
+        return result
+
+    ## Alias of `filter_in_range`.
+    weave filter_range with lo as int, hi as int into list of int:
+        return calling self.filter_in_range with lo, hi
+
+    # --- Mappings ---
+
+    ## Returns a fresh list with every element multiplied by 2.
+    weave map_double into list of int:
+        var result as list of int is list of int
+        for x in essence of self:
+            calling result.push with (x * 2)
+        return result
+
+    ## Returns a fresh list with every element squared.
+    weave map_square into list of int:
+        var result as list of int is list of int
+        for x in essence of self:
+            calling result.push with (x * x)
+        return result
+
+    ## Returns a fresh list with every element negated.
+    weave map_negate into list of int:
+        var result as list of int is list of int
+        for x in essence of self:
+            calling result.push with (0 - x)
+        return result
+
+    ## Returns a fresh list with scalar `k` added to every element.
+    weave map_add_scalar with k as int into list of int:
+        var result as list of int is list of int
+        for x in essence of self:
+            calling result.push with (x + k)
+        return result
+
+    ## Returns a fresh list where each element is increased by delta (equivalent to map_add_scalar).
+    weave map_increment with delta as int is 1 into list of int:
+        var result as list of int is list of int
+        for x in essence of self:
+            calling result.push with (x + delta)
+        return result
+
+# ----------------------------------------------------------------------------
+# Pre-existing functions (kept verbatim for 100% backward compatibility)
 # ----------------------------------------------------------------------------
 
 # Returns true when `l` holds no elements (its length is 0). The list is
@@ -27,45 +526,281 @@ import std.spark
 weave is_empty with l as list of int into bool:
     return (calling l.len) == 0
 
-# ----------------------------------------------------------------------------
-# Reductions
-# ----------------------------------------------------------------------------
-
 # Returns the arithmetic sum of every element in `l`. An empty list sums to
 # 0. Values must fit in `int` - overflow is not checked here.
 weave sum with l as list of int into int:
-    var total as int is 0
-    var i as int is 0
-    var n as int is calling l.len
-    while i < n:
-        set total is total + (l at i)
-        set i is i + 1
-    return total
+    return calling l.sum
 
 # Returns the largest element of `l`. An empty list yields 0; otherwise the
 # scan starts from element 0, so a single-element list returns that element.
 weave max_val with l as list of int into int:
-    var n as int is calling l.len
-    if n == 0:
-        return 0
-    var m as int is l at 0
-    var i as int is 1
-    while i < n:
-        if (l at i) > m:
-            set m is l at i
-        set i is i + 1
-    return m
+    return calling l.max_val
 
 # Returns the smallest element of `l`. An empty list yields 0; otherwise the
 # scan starts from element 0, so a single-element list returns that element.
 weave min_val with l as list of int into int:
-    var n as int is calling l.len
-    if n == 0:
-        return 0
-    var m as int is l at 0
-    var i as int is 1
-    while i < n:
-        if (l at i) < m:
-            set m is l at i
+    return calling l.min_val
+
+# ----------------------------------------------------------------------------
+# Binary operations & combinations (module-level)
+# ----------------------------------------------------------------------------
+
+## Returns a new list containing elements of `a` followed by elements of `b`.
+##
+## Signature: concat(a as list of int, b as list of int) into list of int
+## Ownership: Returns an owned fresh list.
+weave concat with a as list of int, b as list of int into list of int:
+    var result as list of int is list of int
+    for x in a:
+        calling result.push with x
+    for x in b:
+        calling result.push with x
+    return result
+
+## Returns an element-wise sum of two lists up to the length of the shorter list.
+##
+## Signature: zip_sum(a as list of int, b as list of int) into list of int
+## Ownership: Returns an owned fresh list.
+weave zip_sum with a as list of int, b as list of int into list of int:
+    var result as list of int is list of int
+    var na as int is calling a.len
+    var nb as int is calling b.len
+    var limit as int is na
+    if nb < limit:
+        set limit is nb
+    var i as int is 0
+    while i < limit:
+        calling result.push with ((a at i) + (b at i))
         set i is i + 1
-    return m
+    return result
+
+## Returns the dot product of two integer vectors: sum of a[i] * b[i].
+##
+## Signature: dot(a as list of int, b as list of int) into int
+## Ownership: Reads both lists; returns scalar integer.
+weave dot with a as list of int, b as list of int into int:
+    var total as int is 0
+    var na as int is calling a.len
+    var nb as int is calling b.len
+    var limit as int is na
+    if nb < limit:
+        set limit is nb
+    var i as int is 0
+    while i < limit:
+        set total is total + ((a at i) * (b at i))
+        set i is i + 1
+    return total
+
+## Returns a fresh list containing `val` repeated `times` times.
+##
+## Signature: repeat(val as int, times as int) into list of int
+## Ownership: Returns an owned fresh list.
+weave repeat with val as int, times as int into list of int:
+    var result as list of int is list of int
+    if times <= 0:
+        return result
+    var i as int is 0
+    while i < times:
+        calling result.push with val
+        set i is i + 1
+    return result
+
+# ----------------------------------------------------------------------------
+# Module-level wrappers (functional aliases for cross-module & legacy calls)
+# ----------------------------------------------------------------------------
+
+## Returns the number of elements in `l`. Alias of built-in `l.len`.
+weave len with l as list of int into int:
+    return calling l.len
+
+## Returns the first element of `l`, or 0 if empty.
+weave first with l as list of int into int:
+    return calling l.first
+
+## Returns the last element of `l`, or 0 if empty.
+weave last with l as list of int into int:
+    return calling l.last
+
+## Returns the element at `idx`, or `default` if out of bounds.
+weave at_or with l as list of int, idx as int, default as int is 0 into int:
+    return calling l.at_or with idx, default
+
+## Returns `some v` if `idx` is within bounds, or `maybe none`.
+weave at_safe with l as list of int, idx as int into maybe int:
+    return calling l.at_safe with idx
+
+## Returns true if `item` is present in `l`. Alias of built-in `l.contains`.
+weave contains with l as list of int, item as int into bool:
+    return calling l.contains with item
+
+## Returns the 0-based index of the first occurrence of `item`, or -1 if absent.
+weave index_of with l as list of int, item as int into int:
+    return calling l.index_of with item
+
+## Returns the 0-based index of the last occurrence of `item`, or -1 if absent.
+weave last_index_of with l as list of int, item as int into int:
+    return calling l.last_index_of with item
+
+## Returns the number of occurrences of `item` in `l`.
+weave count_of with l as list of int, item as int into int:
+    return calling l.count_of with item
+
+## Returns the first element strictly greater than `threshold`, or `maybe none`.
+weave find_first_gt with l as list of int, threshold as int into maybe int:
+    return calling l.find_first_gt with threshold
+
+## Returns the first element strictly less than `threshold`, or `maybe none`.
+weave find_first_lt with l as list of int, threshold as int into maybe int:
+    return calling l.find_first_lt with threshold
+
+## Returns the product of every element in `l`. Empty list yields 1 (multiplicative identity).
+weave product with l as list of int into int:
+    return calling l.product
+
+## Returns the index of the first maximum value in `l`, or -1 if empty.
+weave max_index with l as list of int into int:
+    return calling l.max_index
+
+## Returns the index of the first minimum value in `l`, or -1 if empty.
+weave min_index with l as list of int into int:
+    return calling l.min_index
+
+## Alias of `min_index`.
+weave argmin with l as list of int into int:
+    return calling l.argmin
+
+## Alias of `max_index`.
+weave argmax with l as list of int into int:
+    return calling l.argmax
+
+## Returns the arithmetic mean of `l`. Empty list yields 0 (truncates toward zero).
+weave mean with l as list of int into int:
+    return calling l.mean
+
+## Alias of `mean`.
+weave average with l as list of int into int:
+    return calling l.average
+
+## Returns the sum of squares of every element in `l`. Returns 0 if empty.
+weave sum_of_squares with l as list of int into int:
+    return calling l.sum_of_squares
+
+## Returns the median element of `l` after sorting. Empty list yields 0 (truncates toward zero).
+weave median with l as list of int into int:
+    return calling l.median
+
+## Returns the most frequent value in `l`. Returns 0 if empty.
+weave mode with l as list of int into int:
+    return calling l.mode
+
+## Returns a freshly allocated list with elements in reverse order.
+weave reverse with l as list of int into list of int:
+    return calling l.reverse
+
+## Returns a fresh copy of `l` sorted in ascending order.
+weave sort_asc with l as list of int into list of int:
+    return calling l.sort_asc
+
+## Returns a fresh copy of `l` sorted in descending order.
+weave sort_desc with l as list of int into list of int:
+    return calling l.sort_desc
+
+## Returns a fresh list with duplicate values removed.
+weave unique with l as list of int into list of int:
+    return calling l.unique
+
+## Functional alias of `unique`.
+weave dedup with l as list of int into list of int:
+    return calling l.dedup
+
+## Flattens `l` into a fresh list.
+weave flatten with l as list of int into list of int:
+    return calling l.flatten
+
+## Returns a fresh list with the absolute value of every element.
+weave abs_all with l as list of int into list of int:
+    return calling l.abs_all
+
+## Returns a fresh list with all values clamped to `[lo, hi]` inclusive.
+weave clamp_all with l as list of int, lo as int is 0, hi as int is 100 into list of int:
+    return calling l.clamp_all with lo, hi
+
+## Returns a fresh list containing the first `n` elements of `l`.
+weave take with l as list of int, n as int is 1 into list of int:
+    return calling l.take with n
+
+## Returns a fresh list omitting the first `n` elements of `l`.
+weave drop with l as list of int, n as int is 1 into list of int:
+    return calling l.drop with n
+
+## Returns a fresh sub-list spanning indices `[start, end_idx)`.
+weave slice_list with l as list of int, start as int, end_idx as int into list of int:
+    return calling l.slice_list with start, end_idx
+
+## Returns true if `l` is sorted in non-descending order.
+weave is_sorted_asc with l as list of int into bool:
+    return calling l.is_sorted_asc
+
+## Returns true if `l` is sorted in non-ascending order.
+weave is_sorted_desc with l as list of int into bool:
+    return calling l.is_sorted_desc
+
+## Returns true if every element in `l` is strictly positive (> 0).
+weave all_positive with l as list of int into bool:
+    return calling l.all_positive
+
+## Returns true if every element in `l` is zero.
+weave all_zero with l as list of int into bool:
+    return calling l.all_zero
+
+## Returns true if at least one element in `l` is strictly negative (< 0).
+weave any_negative with l as list of int into bool:
+    return calling l.any_negative
+
+## Returns true if every element in `l` falls within `[lo, hi]` inclusive.
+weave all_in_range with l as list of int, lo as int, hi as int into bool:
+    return calling l.all_in_range with lo, hi
+
+## Returns a fresh list of all even integers in `l`.
+weave filter_even with l as list of int into list of int:
+    return calling l.filter_even
+
+## Returns a fresh list of all odd integers in `l`.
+weave filter_odd with l as list of int into list of int:
+    return calling l.filter_odd
+
+## Returns a fresh list of all positive integers (> 0) in `l`.
+weave filter_positive with l as list of int into list of int:
+    return calling l.filter_positive
+
+## Returns a fresh list of all negative integers (< 0) in `l`.
+weave filter_negative with l as list of int into list of int:
+    return calling l.filter_negative
+
+## Returns a fresh list of elements falling within `[lo, hi]` inclusive.
+weave filter_in_range with l as list of int, lo as int, hi as int into list of int:
+    return calling l.filter_in_range with lo, hi
+
+## Alias of `filter_in_range`.
+weave filter_range with l as list of int, lo as int, hi as int into list of int:
+    return calling l.filter_range with lo, hi
+
+## Returns a fresh list with every element multiplied by 2.
+weave map_double with l as list of int into list of int:
+    return calling l.map_double
+
+## Returns a fresh list with every element squared.
+weave map_square with l as list of int into list of int:
+    return calling l.map_square
+
+## Returns a fresh list with every element negated.
+weave map_negate with l as list of int into list of int:
+    return calling l.map_negate
+
+## Returns a fresh list with scalar `k` added to every element.
+weave map_add_scalar with l as list of int, k as int into list of int:
+    return calling l.map_add_scalar with k
+
+## Returns a fresh list with `delta` added to every element.
+weave map_increment with l as list of int, delta as int is 1 into list of int:
+    return calling l.map_increment with delta

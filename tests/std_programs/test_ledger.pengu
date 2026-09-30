@@ -13,7 +13,7 @@ weave main into void:
 
     var detected_delim as maybe string is calling ledger.detect_delimiter with csv_data
     if detected_delim.is_present:
-        calling spark.println with "detected_delim: " + detected_delim.value
+        calling spark.println with "detected_delim: {detected_delim.value}"
 
     var single_line as string is "alpha,beta,gamma delta"
     var line_fields as maybe list of string is calling ledger.parse_line with single_line, ","
@@ -21,7 +21,7 @@ weave main into void:
         calling spark.println with "parse_line: ok"
 
     var esc_str as string is calling ledger.escape_field with "Hello, World!", ","
-    calling spark.println with "escaped: " + esc_str
+    calling spark.println with "escaped: {esc_str}"
 
     # Create rows and generate CSV
     var rows as list of list of string is list of list of string

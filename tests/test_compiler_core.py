@@ -836,32 +836,14 @@ weave load into maybe string:
         assert "or else" not in c
         assert "pengu_maybe_is_present" in c
         assert "pengu_string_from_cstr(\"guest\")" in c
-        assert "return (1);" in c
+        # 'or return 1' releases the maybe box on the way out (audit #5) and
+        # returns 1 through the generated return temporary.
+        assert re.search(r"int32_t _ret_\d+ = \(1\);", c)
+        assert re.search(r"return _ret_\d+;", c)
 
     @requires_runtime
     def test_try_propagates_maybe_none_at_runtime(self):
-        src = """weave open_file with path as string into maybe string:
-  if path == "":
-    return maybe none
-  return some path
-
-weave load_try with path as string into maybe string:
-  let f is try calling open_file with path
-  return some f
-
-weave main into int:
-  var a as maybe string is calling load_try with ""
-  if a.is_present:
-    calling print with "unexpected-a"
-    return 1
-  var b as maybe string is calling load_try with "file.txt"
-  if b.is_present:
-    calling print with "got=" + b.value
-  else:
-    calling print with "unexpected-b"
-    return 1
-  return 0
-"""
+        src = 'weave open_file with path as string into maybe string:\n  if path == "":\n    return maybe none\n  return some path\n\nweave load_try with path as string into maybe string:\n  let f is try calling open_file with path\n  return some f\n\nweave main into int:\n  var a as maybe string is calling load_try with ""\n  if a.is_present:\n    calling print with "unexpected-a"\n    return 1\n  var b as maybe string is calling load_try with "file.txt"\n  if b.is_present:\n    calling print with "got={b.value}"\n  else:\n    calling print with "unexpected-b"\n    return 1\n  return 0\n'
         res = compile_run(src, tag="try_prop")
         assert res.returncode == 0, res.stderr
         assert "got=file.txt" in res.stdout
@@ -2691,7 +2673,8 @@ class TestStringInterpolation:
             '  let x is 10\n'
             '  let msg is "player {name} at {x}"\n'
         )
-        assert 'pengu_string_format("player %.*s at %d"' in c
+        # Byte-exact formatter: '%.*s' copies the string argument's bytes.
+        assert 'pengu_string_format_ex("player %.*s at %d"' in c
 
 
 # ---------------------------------------------------------------------------
@@ -2767,7 +2750,8 @@ weave struct_test into void:
         assert "Vec2 v = (Vec2){.x = 10.0f, .y = 20.0f}" in c
         assert "Value val = (Value){.as_int = 42};" in c
         assert "Score sc = 100;" in c
-        assert ".data.Connected = {.session_id = pengu_string_from_cstr(\"sess_123\")}" in c
+        # String payloads are deep-copied into the owned omen slot.
+        assert ".data.Connected = {.session_id = pengu_string_copy(pengu_string_from_cstr(\"sess_123\"))}" in c
         assert "vp->x = 200.0f;" in c
         assert "/* stack */" in c
 
@@ -3218,7 +3202,8 @@ weave main into void:
         # Specialized generic omens use the mangled name for the variable and
         # a single `data` union member matching the generated layout.
         assert "Status_string s = (Status_string){ .tag = Status_string_Failure, .data.Failure = {.code = 404} };" in c
-        assert ".data.Success = {.data = pengu_string_from_cstr(\"hi\")}" in c
+        # String payloads are deep-copied into the owned omen slot.
+        assert ".data.Success = {.data = pengu_string_copy(pengu_string_from_cstr(\"hi\"))}" in c
         assert "} data;" in c
         assert "} as;" not in c
         assert "Status_string_Status" not in c

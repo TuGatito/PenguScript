@@ -1,0 +1,10 @@
+# 'float' also implements 'Num', so it is a valid value for 'T: Num'.
+weave store shard T where T: Num with x as ref to T, v as T into void:
+    set essence of x is v
+
+weave main into int:
+    var f as float is 0.0
+    calling store with (sigil of f), 2.5
+    if f == 2.5:
+        return 0
+    return 1

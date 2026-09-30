@@ -42,19 +42,36 @@ class PenguIndenter(Indenter):
 
 
 class PenguParser:
-    """LALR(1) parser for PenguScript v0.12.0 using embedded grammar."""
+    """LALR(1) parser for PenguScript v0.14.x using embedded grammar."""
     _shared_parser = None
 
     def __init__(self):
         """Initializes Lark parser with embedded grammar and custom indenter."""
         if PenguParser._shared_parser is None:
-            PenguParser._shared_parser = Lark(
-                GRAMMAR,
+            # Building the LALR tables is pure-Python work that dominates the
+            # startup of every command (~2-3 s).  Lark serializes them safely:
+            # the cache header carries a sha256 over the grammar, the options and
+            # the Lark/Python versions, so editing the grammar invalidates it.
+            cache_path = None
+            try:
+                from pengu_cache import grammar_digest, parser_cache_path
+                cache_path = parser_cache_path(grammar_digest(GRAMMAR))
+            except Exception:
+                cache_path = None
+            lark_kwargs = dict(
                 parser='lalr',
                 postlex=PenguIndenter(),
                 propagate_positions=True,
-                start=['start', 'expr']
+                start=['start', 'expr'],
             )
+            if cache_path:
+                lark_kwargs['cache'] = cache_path
+            try:
+                PenguParser._shared_parser = Lark(GRAMMAR, **lark_kwargs)
+            except Exception:
+                # A corrupt or unwritable cache must never break parsing.
+                lark_kwargs.pop('cache', None)
+                PenguParser._shared_parser = Lark(GRAMMAR, **lark_kwargs)
         self.parser = PenguParser._shared_parser
 
     @staticmethod
@@ -82,39 +99,184 @@ class PenguParser:
                 return "\n"
             return "\n"
 
-        def _strip_inline_comment(line_str: str) -> str:
-            in_str = None
-            escape = False
-            for idx, ch in enumerate(line_str):
-                if escape:
-                    escape = False
+        def _has_matching_brace(line_str: str, start: int) -> bool:
+            """Mirrors ``extract_string_parts``: a '{' starts an interpolation only
+            when a balanced '}' follows it in the same literal.
+
+            A JSON-ish literal such as ``"{\"k\":\"{v}\""`` opens with a brace
+            that never closes, so it must stay plain text.
+            """
+            depth = 0
+            in_q = None
+            j = start
+            n = len(line_str)
+            while j < n:
+                cj = line_str[j]
+                if cj == '\\' and j + 1 < n:
+                    j += 2
                     continue
-                if ch == '\\' and in_str:
-                    escape = True
+                if in_q:
+                    if cj == in_q:
+                        in_q = None
+                elif cj in ('"', "'"):
+                    in_q = cj
+                elif cj == '{':
+                    depth += 1
+                elif cj == '}':
+                    depth -= 1
+                    if depth == 0:
+                        return True
+                j += 1
+            return False
+
+        def _scan_line(line_str: str, state: str, brace_depth: int, str_state: str):
+            """Comment stripper that tracks string state across lines.
+
+            ``state`` is one of ``code``/``dquote``/``squote``/``triple``/``interp``;
+            ``interp`` tracks a ``{expr}`` group inside a string so a ``#`` or a
+            nested quote inside the expression does not end the literal.
+            Returns ``(line, state, brace_depth, str_state)``.
+            """
+            out: List[str] = []
+            i = 0
+            n = len(line_str)
+            while i < n:
+                ch = line_str[i]
+                if state == "code":
+                    if ch == '#':
+                        # Comment runs to the end of the line; keep the terminator
+                        # so line numbers stay aligned.
+                        if line_str.endswith("\r\n"):
+                            nl = "\r\n"
+                        elif line_str.endswith("\n"):
+                            nl = "\n"
+                        else:
+                            nl = ""
+                        return "".join(out).rstrip(" \t") + nl, "code", 0, "code"
+                    if ch == 'r' and i + 1 < n and line_str[i + 1] == '"':
+                        if line_str.startswith('r"""', i):
+                            out.append('r"""')
+                            i += 4
+                            state = "triple"
+                            continue
+                        out.append('r"')
+                        i += 2
+                        state = "dquote"
+                        continue
+                    if ch == '"':
+                        if line_str.startswith('"""', i):
+                            out.append('"""')
+                            i += 3
+                            state = "triple"
+                        else:
+                            out.append('"')
+                            i += 1
+                            state = "dquote"
+                        continue
+                    if ch == "'":
+                        out.append("'")
+                        i += 1
+                        state = "squote"
+                        continue
+                    out.append(ch)
+                    i += 1
                     continue
-                if in_str:
-                    if ch == in_str:
-                        in_str = None
+
+                if state == "squote":
+                    out.append(ch)
+                    if ch == '\\' and i + 1 < n:
+                        out.append(line_str[i + 1])
+                        i += 2
+                        continue
+                    if ch == "'":
+                        state = "code"
+                    i += 1
                     continue
-                if ch in ('"', "'"):
-                    in_str = ch
+
+                if state == "dquote":
+                    if ch == '\\' and i + 1 < n:
+                        out.append(ch)
+                        out.append(line_str[i + 1])
+                        i += 2
+                        continue
+                    if ch == '{' and _has_matching_brace(line_str, i):
+                        out.append(ch)
+                        i += 1
+                        str_state = "dquote"
+                        state = "interp"
+                        brace_depth = 1
+                        continue
+                    out.append(ch)
+                    i += 1
+                    if ch == '"':
+                        state = "code"
                     continue
-                if ch == '#':
-                    nl = "\r\n" if line_str.endswith("\r\n") else ("\n" if line_str.endswith("\n") else "")
-                    return line_str[:idx].rstrip(" \t") + nl
-            return line_str
+
+                if state == "triple":
+                    if ch == '\\' and i + 1 < n:
+                        out.append(ch)
+                        out.append(line_str[i + 1])
+                        i += 2
+                        continue
+                    if line_str.startswith('"""', i):
+                        out.append('"""')
+                        i += 3
+                        state = "code"
+                        continue
+                    if ch == '{' and _has_matching_brace(line_str, i):
+                        out.append(ch)
+                        i += 1
+                        str_state = "triple"
+                        state = "interp"
+                        brace_depth = 1
+                        continue
+                    out.append(ch)
+                    i += 1
+                    continue
+
+                if state == "interp":
+                    out.append(ch)
+                    if ch in ('"', "'"):
+                        quote = ch
+                        i += 1
+                        while i < n:
+                            c2 = line_str[i]
+                            out.append(c2)
+                            if c2 == '\\' and i + 1 < n:
+                                out.append(line_str[i + 1])
+                                i += 2
+                                continue
+                            i += 1
+                            if c2 == quote:
+                                break
+                        continue
+                    if ch == '{':
+                        brace_depth += 1
+                    elif ch == '}':
+                        brace_depth -= 1
+                        if brace_depth == 0:
+                            state = str_state
+                    i += 1
+                    continue
+
+            return "".join(out), state, brace_depth, str_state
 
         out: List[str] = []
         i = 0
         n = len(lines)
+        state = "code"
+        brace_depth = 0
+        str_state = "code"
         while i < n:
             line = lines[i]
             stripped = line.strip()
-            if stripped.startswith('#'):
+            if state == "code" and stripped.startswith('#'):
                 if stripped.startswith('##'):
                     rest = stripped[2:].strip()
-                    if rest == '':
-                        # Bare '##': start of a multi-line doc block.
+                    prev_is_comment = (i > 0 and lines[i - 1].strip().startswith('#'))
+                    next_is_comment = (i + 1 < n and lines[i + 1].strip().startswith('#'))
+                    if rest == '' and not prev_is_comment and not next_is_comment:
+                        # Bare '##' isolated from other comments: start of a multi-line doc block.
                         j = i + 1
                         closed = -1
                         while j < n:
@@ -136,13 +298,14 @@ class PenguParser:
                                 out.append(blank(lines[k]))
                             break
                     else:
-                        # '## doc' or '## doc ##' single-line documentation.
+                        # '## doc' or '## doc ##' or bare '##' within a doc comment sequence.
                         out.append(blank(line))
                 else:
                     # Regular single-line '#' comment.
                     out.append(blank(line))
             else:
-                out.append(_strip_inline_comment(line))
+                new_line, state, brace_depth, str_state = _scan_line(line, state, brace_depth, str_state)
+                out.append(new_line)
             i += 1
         return ''.join(out)
 

@@ -1,0 +1,9 @@
+# EXPECTED: E0005
+# 'float' satisfies 'Num' but not the stricter 'Integrum' bound.
+weave store_int shard T where T: Integrum with x as ref to T into void:
+    set essence of x is 1.5
+
+weave main into int:
+    var n as int is 0
+    calling store_int with (sigil of n)
+    return 0

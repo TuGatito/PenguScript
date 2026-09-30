@@ -1,0 +1,202 @@
+import std.spark
+import std.ledger
+
+weave main into int:
+    calling spark.println with "=== Test Ledger Extended ==="
+
+    # 1. Version constant
+    calling spark.assert with (ledger.LEDGER_VERSION == "0.15.0")
+    calling spark.println with "constants: OK"
+
+    # 2. Baseline functions
+    var raw_field as string is "hello, \"world\""
+    var esc as string is calling ledger.escape_field with raw_field
+    calling spark.assert with (esc == "\"hello, \"\"world\"\"\"")
+
+    var pl_opt as maybe list of string is calling ledger.parse_line with "a,b,c"
+    calling spark.assert with (pl_opt.is_present)
+    var pl as list of string is pl_opt.value
+    calling spark.assert with (pl.len == 3)
+    calling spark.assert with ((pl at 0) == "a")
+
+    var csv_data as string is "name,age,city\nAlice,30,Paris\nBob,25,Rome\n"
+    var pcsv_opt as maybe list of list of string is calling ledger.parse_csv with csv_data
+    calling spark.assert with (pcsv_opt.is_present)
+    var rows as list of list of string is pcsv_opt.value
+    calling spark.assert with (rows.len == 3)
+
+    var to_csv_opt as maybe string is calling ledger.to_csv_string with rows
+    calling spark.assert with (to_csv_opt.is_present)
+
+    var delim_opt as maybe string is calling ledger.detect_delimiter with "col1\tcol2\tcol3\n1\t2\t3"
+    calling spark.assert with (delim_opt.is_present)
+    calling spark.assert with (delim_opt.value == "\t")
+
+    var tsv_opt as maybe list of list of string is calling ledger.parse_tsv with "a\tb\n1\t2"
+    calling spark.assert with (tsv_opt.is_present)
+    calling spark.assert with (tsv_opt.value.len == 2)
+    calling spark.println with "baseline: OK"
+
+    # 3. Enhanced Parsing
+    var strict_ok as maybe list of list of string is calling ledger.parse_csv_strict with "a,b\n1,2\n3,4"
+    calling spark.assert with (strict_ok.is_present)
+
+    var strict_fail as maybe list of list of string is calling ledger.parse_csv_strict with "a,b\n1,2,3\n4,5"
+    calling spark.assert with (not strict_fail.is_present)
+
+    var comment_csv as string is "# Metadata header\nname,score\n# A comment\nAlice,100\nBob,90\n"
+    var nocomm_opt as maybe list of list of string is calling ledger.parse_csv_nocomments with comment_csv
+    calling spark.assert with (nocomm_opt.is_present)
+    var nocomm_rows as list of list of string is nocomm_opt.value
+    calling spark.assert with (nocomm_rows.len == 3)
+    calling spark.assert with (((nocomm_rows at 0) at 0) == "name")
+
+    var skip_opt as maybe list of list of string is calling ledger.parse_csv_skip with csv_data, ",", 1
+    calling spark.assert with (skip_opt.is_present)
+    var skip_rows as list of list of string is skip_opt.value
+    calling spark.assert with (skip_rows.len == 2)
+    calling spark.assert with (((skip_rows at 0) at 0) == "Alice")
+
+    var pl_strict as maybe list of string is calling ledger.parse_line_strict with "a,\"b\",c"
+    calling spark.assert with (pl_strict.is_present)
+
+    var pl_bad as maybe list of string is calling ledger.parse_line_strict with "a,\"unclosed,c"
+    calling spark.assert with (not pl_bad.is_present)
+
+    var norm_data as string is "name,age\r\nAlice,30\rBob,25\n"
+    var norm_opt as maybe list of list of string is calling ledger.parse_csv_normalized with norm_data
+    calling spark.assert with (norm_opt.is_present)
+    calling spark.assert with (norm_opt.value.len == 3)
+    calling spark.println with "enhanced parsing: OK"
+
+    # 4. Header API & Tabular Rune (CsvTable)
+    var tbl_direct_opt as maybe ledger.CsvTable is calling CsvTable.from_csv with csv_data, ","
+    calling spark.assert with (tbl_direct_opt.is_present)
+    var tbl_invalid_opt as maybe ledger.CsvTable is calling CsvTable.from_csv with "", ","
+    calling spark.assert with (not tbl_invalid_opt.is_present)
+
+    var tbl_opt as maybe ledger.CsvTable is calling ledger.parse_csv_with_header with csv_data
+    calling spark.assert with (tbl_opt.is_present)
+    var tbl as ledger.CsvTable is tbl_opt.value
+
+    calling spark.assert with ((calling tbl.row_count) == 2)
+    calling spark.assert with ((calling tbl.column_count) == 3)
+
+    calling spark.assert with (calling tbl.has_column with "age")
+    calling spark.assert with (not (calling tbl.has_column with "salary"))
+
+    var age_idx as maybe int is calling tbl.column_index with "age"
+    calling spark.assert with (age_idx.is_present)
+    calling spark.assert with (age_idx.value == 1)
+
+    var cell_val as maybe string is calling tbl.get with 0, "city"
+    calling spark.assert with (cell_val.is_present)
+    calling spark.assert with (cell_val.value == "Paris")
+
+    var cell_def as string is calling tbl.get_or with 1, "missing", "N/A"
+    calling spark.assert with (cell_def == "N/A")
+
+    var cities_opt as maybe list of string is calling tbl.column with "city"
+    calling spark.assert with (cities_opt.is_present)
+    var cities as list of string is cities_opt.value
+    calling spark.assert with (cities.len == 2)
+    calling spark.assert with ((cities at 0) == "Paris")
+    calling spark.assert with ((cities at 1) == "Rome")
+
+    var r0_map_opt as maybe map of string to string is calling tbl.row_as_map with 0
+    calling spark.assert with (r0_map_opt.is_present)
+    var r0 as map of string to string is r0_map_opt.value
+    calling spark.assert with ((r0 at "name") == "Alice")
+    calling spark.assert with ((r0 at "age") == "30")
+    calling spark.assert with ((r0 at "city") == "Paris")
+
+    var tbl_csv_opt as maybe string is calling tbl.to_csv
+    calling spark.assert with (tbl_csv_opt.is_present)
+    calling spark.println with "csv table: OK"
+
+    # 5. Matrix Operations (enchanting list of list of string)
+    var matrix as list of list of string is list of list of string
+    var m_row1 as list of string is list of string
+    calling m_row1.push with "1"
+    calling m_row1.push with "2"
+    calling m_row1.push with "3"
+    var m_row2 as list of string is list of string
+    calling m_row2.push with "4"
+    calling m_row2.push with "5"
+    calling m_row2.push with "6"
+    calling matrix.push with m_row1
+    calling matrix.push with m_row2
+
+    calling spark.assert with ((calling matrix.row_count) == 2)
+    calling spark.assert with ((calling matrix.column_count) == 3)
+    calling spark.assert with (calling matrix.is_rectangular)
+
+    var col1_opt as maybe list of string is calling matrix.column with 1
+    calling spark.assert with (col1_opt.is_present)
+    var col1 as list of string is col1_opt.value
+    calling spark.assert with (col1.len == 2)
+    calling spark.assert with ((col1 at 0) == "2")
+    calling spark.assert with ((col1 at 1) == "5")
+
+    var trans_opt as maybe list of list of string is calling matrix.transpose
+    calling spark.assert with (trans_opt.is_present)
+    var trans as list of list of string is trans_opt.value
+    calling spark.assert with (trans.len == 3)
+    calling spark.assert with ((calling trans.column_count) == 2)
+    calling spark.assert with (((trans at 0) at 0) == "1")
+    calling spark.assert with (((trans at 0) at 1) == "4")
+    calling spark.println with "matrix enchantments: OK"
+
+    # 6. Key-Value & Map Conversions
+    var kv_csv as string is "host,localhost\nport,8080\nenv,prod\n"
+    var pairs_opt as maybe list of list of string is calling ledger.parse_csv_as_pairs with kv_csv
+    calling spark.assert with (pairs_opt.is_present)
+    calling spark.assert with (pairs_opt.value.len == 3)
+
+    var kv_map_opt as maybe map of string to string is calling ledger.parse_csv_key_value with kv_csv
+    calling spark.assert with (kv_map_opt.is_present)
+    var kv_map as map of string to string is kv_map_opt.value
+    calling spark.assert with ((kv_map at "host") == "localhost")
+    calling spark.assert with ((kv_map at "port") == "8080")
+    calling spark.assert with ((kv_map at "env") == "prod")
+
+    var tmp_kv_file as string is "/tmp/pengu_test_kv.csv"
+    var ok_write_kv as bool is calling ledger.write_key_value_map with tmp_kv_file, kv_map
+    var tmp_content_opt as maybe string is calling archivum.read_file with tmp_kv_file
+    calling spark.assert with (tmp_content_opt.is_present)
+    var tmp_content as string is tmp_content_opt.value
+    var read_kv_opt as maybe map of string to string is calling ledger.parse_csv_key_value with tmp_content
+    calling spark.assert with (read_kv_opt.is_present)
+    var read_kv as map of string to string is read_kv_opt.value
+    calling spark.assert with ((read_kv at "port") == "8080")
+    calling spark.println with "key-value conversions: OK"
+
+    # 7. Generators & Formatting
+    var rfc_esc as string is calling ledger.escape_field_rfc4180 with "a,b"
+    calling spark.assert with (rfc_esc == "\"a,b\"")
+
+    var bs_esc as string is calling ledger.escape_field_backslash with "line\nbreak"
+    calling spark.assert with (bs_esc == "\"line\\nbreak\"")
+
+    var no_nl_opt as maybe string is calling ledger.to_csv_string_no_trailing_newline with rows
+    calling spark.assert with (no_nl_opt.is_present)
+    var no_nl as string is no_nl_opt.value
+    calling spark.assert with ((no_nl at (no_nl length - 1)) != "\n")
+
+    var crlf_opt as maybe string is calling ledger.to_csv_string_crlf with rows
+    calling spark.assert with (crlf_opt.is_present)
+    var crlf_str as string is crlf_opt.value
+    var no_crlf_opt as maybe string is calling ledger.to_csv_string_no_trailing_newline with rows
+    calling spark.assert with (no_crlf_opt.is_present)
+    var no_crlf as string is no_crlf_opt.value
+    var no_crlf_len as int is no_crlf length
+    calling spark.assert with ((no_crlf at (no_crlf_len - 1)) != "\n")
+    calling spark.assert with ((no_crlf at (no_crlf_len - 1)) != "\r")
+
+    var tmp_safe_file as string is "/tmp/pengu_test_safe.csv"
+    var ok_safe as bool is calling ledger.write_csv_safe with tmp_safe_file, rows
+    calling spark.assert with ok_safe
+    calling spark.println with "generators & safe write: OK"
+
+    calling spark.println with "ledger extended: OK"
+    return 0

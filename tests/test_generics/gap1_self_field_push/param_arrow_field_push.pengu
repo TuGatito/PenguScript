@@ -1,0 +1,16 @@
+# Gap 1: 'bag->items.push' where bag is a 'ref to Bag' parameter.
+rune Bag derive Nexus:
+    items as list of string
+
+weave fill with bag as ref to Bag, n as int into void:
+    var local as string is n to string
+    calling bag->items.push with local
+
+weave main into int:
+    var b as Bag with:
+        set .items is list of string
+    defer banish b
+    calling fill with (sigil of b), 9
+    if calling b.items.len == 1 and (b.items at 0) == "9":
+        return 0
+    return 1

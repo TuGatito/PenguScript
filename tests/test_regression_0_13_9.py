@@ -36,12 +36,7 @@ def test_version_sync_0_13_9():
 @requires_cc
 def test_c1_let_autobanish_no_const_discard():
     """C1: let + auto-banished string emits non-const C declaration so banish does not discard qualifiers."""
-    code = """weave main into int:
-    let s is "hello " + "world"
-    if s == "hello world":
-        return 0
-    return 1
-"""
+    code = 'weave main into int:\n    let s as string is (1 to string)\n    if s == (1 to string):\n        return 0\n    return 1\n'
     check_ok(code)
     c = gen_bundle(code)
     # The C declaration for auto-banished 's' should be 'PenguString s' without 'const'

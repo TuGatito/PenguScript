@@ -544,6 +544,38 @@ int main(void) {
         /* Nota: NO se ejecuta banish_string sobre s_true / s_false por ser vistas en rodata */
     }
 
+    /* 40. pengu_string_format_ex: byte-exact '%.*s' and overflow-safe scalars */
+    {
+        /* Borrowed 3-byte view whose middle byte is NUL. */
+        PenguString raw;
+        raw.data = (char *)"a\0b";
+        raw.len = 3;
+        PenguString out = pengu_string_format_ex("<%.*s>", (int)raw.len, raw.data);
+        CHECK(out.len == 5, "format_ex keeps embedded NUL (len)");
+        CHECK(out.data[1] == 'a' && out.data[2] == '\0' && out.data[3] == 'b',
+              "format_ex keeps embedded NUL (bytes)");
+        pengu_banish_string(&out);
+
+        /* snprintf returns the whole length for a huge float: the formatter
+         * must not read past its scratch buffer. */
+        PenguString big = pengu_string_format_ex("%f", 1.0e300);
+        CHECK(big.len > 300, "format_ex big float length");
+        pengu_banish_string(&big);
+
+        PenguString scalars = pengu_string_format_ex("%d|%c|%s|%%", -7, 'Z', "ok");
+        CHECK(scalars.len == 9 && strncmp(scalars.data, "-7|Z|ok|%", 9) == 0,
+              "format_ex scalar specifiers");
+        pengu_banish_string(&scalars);
+    }
+
+    /* 41. pengu_to_string also accepts raw C string pointers */
+    {
+        PenguString from_ptr = pengu_to_string((const char *)"hi");
+        CHECK(from_ptr.len == 2 && strcmp(from_ptr.data, "hi") == 0,
+              "pengu_to_string(const char*)");
+        /* borrowed view: do not banish */
+    }
+
     if (failures == 0) {
         printf("RUNTIME STRINGS OK\n");
         return 0;

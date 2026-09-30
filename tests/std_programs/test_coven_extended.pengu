@@ -1,0 +1,189 @@
+import std.coven
+import std.spark
+
+weave main into int:
+    calling spark.println with "=== Test Coven Extended ==="
+
+    # --- Constructors & basic SetString ---
+    var s_empty as coven.SetString is calling coven.empty_set_string
+    calling spark.assert with calling s_empty.is_empty
+    calling spark.assert with (calling s_empty.len) == 0
+
+    var l_str as list of string is list of string
+    calling l_str.push with "apple"
+    calling l_str.push with "banana"
+    calling l_str.push with "apple"
+    var s1 as coven.SetString is calling coven.from_list_string with l_str
+    calling spark.assert with (calling s1.len) == 2
+    calling spark.assert with calling s1.contains with "apple"
+    calling spark.assert with calling s1.contains with "banana"
+    calling spark.assert with (calling s1.contains with "cherry") == false
+
+    # Add & Remove
+    calling s1.add with "cherry"
+    calling spark.assert with (calling s1.len) == 3
+    calling spark.assert with calling s1.contains with "cherry"
+    calling spark.assert with calling s1.remove with "cherry"
+    calling spark.assert with (calling s1.remove with "cherry") == false
+    calling spark.assert with (calling s1.len) == 2
+    calling s1.add with "cherry"
+    calling spark.println with "constructors & basic: OK"
+
+    # --- SetString algebra ---
+    var s2 as coven.SetString is calling coven.new_set_string
+    calling s2.add with "banana"
+    calling s2.add with "date"
+
+    # union: {apple, banana, cherry} U {banana, date} = {apple, banana, cherry, date}
+    var u as coven.SetString is calling s1.union with s2
+    calling spark.assert with (calling u.len) == 4
+    calling spark.assert with calling u.contains with "apple"
+    calling spark.assert with calling u.contains with "banana"
+    calling spark.assert with calling u.contains with "cherry"
+    calling spark.assert with calling u.contains with "date"
+
+    # intersect: {banana}
+    var inter as coven.SetString is calling s1.intersect with s2
+    calling spark.assert with (calling inter.len) == 1
+    calling spark.assert with calling inter.contains with "banana"
+
+    # difference: s1 \ s2 = {apple, cherry}
+    var diff as coven.SetString is calling s1.difference with s2
+    calling spark.assert with (calling diff.len) == 2
+    calling spark.assert with calling diff.contains with "apple"
+    calling spark.assert with calling diff.contains with "cherry"
+    calling spark.assert with (calling diff.contains with "banana") == false
+
+    # symmetric_difference: {apple, cherry, date}
+    var sym_diff as coven.SetString is calling s1.symmetric_difference with s2
+    calling spark.assert with (calling sym_diff.len) == 3
+    calling spark.assert with calling sym_diff.contains with "apple"
+    calling spark.assert with calling sym_diff.contains with "cherry"
+    calling spark.assert with calling sym_diff.contains with "date"
+    calling spark.assert with (calling sym_diff.contains with "banana") == false
+
+    # subset / superset
+    calling spark.assert with calling inter.is_subset with s1
+    calling spark.assert with (calling s1.is_subset with inter) == false
+    calling spark.assert with calling s1.is_superset with inter
+    calling spark.assert with (calling inter.is_superset with s1) == false
+
+    # disjoint
+    var s_disj as coven.SetString is calling coven.new_set_string
+    calling s_disj.add with "grape"
+    calling spark.assert with calling s1.is_disjoint with s_disj
+    calling spark.assert with (calling s1.is_disjoint with s2) == false
+
+    # equals & clone
+    var s1_cloned as coven.SetString is calling s1.clone
+    calling spark.assert with calling s1.equals with s1_cloned
+    calling spark.assert with (calling s1.equals with s2) == false
+
+    # to_list & to_set_int
+    var s1_list as list of string is calling s1.to_list
+    calling spark.assert with (calling s1_list.len) == 3
+    var s_numeric as coven.SetString is calling coven.new_set_string
+    calling s_numeric.add with "10"
+    calling s_numeric.add with "20"
+    calling s_numeric.add with "not_a_number"
+    var si_parsed as coven.SetInt is calling s_numeric.to_set_int
+    calling spark.assert with (calling si_parsed.len) == 2
+    calling spark.assert with calling si_parsed.contains with 10
+    calling spark.assert with calling si_parsed.contains with 20
+    calling spark.println with "string set algebra: OK"
+
+    # --- Filters on SetString ---
+    var filt_pre as coven.SetString is calling s1.filter_starts_with with "a"
+    calling spark.assert with (calling filt_pre.len) == 1
+    calling spark.assert with calling filt_pre.contains with "apple"
+
+    var filt_ge as coven.SetString is calling s1.filter_length_ge with 6
+    calling spark.assert with (calling filt_ge.len) == 2
+    calling spark.assert with calling filt_ge.contains with "banana"
+    calling spark.assert with calling filt_ge.contains with "cherry"
+    calling spark.println with "string filters: OK"
+
+    # --- SetInt constructors & basic ---
+    var si_empty as coven.SetInt is calling coven.empty_set_int
+    calling spark.assert with calling si_empty.is_empty
+
+    var l_int as list of int is list of int
+    calling l_int.push with 10
+    calling l_int.push with 20
+    calling l_int.push with 10
+    calling l_int.push with 30
+    var si1 as coven.SetInt is calling coven.from_list_int with l_int
+    calling spark.assert with (calling si1.len) == 3
+    calling spark.assert with calling si1.contains with 10
+    calling spark.assert with calling si1.contains with 20
+    calling spark.assert with calling si1.contains with 30
+    calling spark.assert with (calling si1.contains with 99) == false
+
+    # remove
+    calling spark.assert with calling si1.remove with 30
+    calling spark.assert with (calling si1.remove with 30) == false
+    calling spark.assert with (calling si1.len) == 2
+    calling si1.add with 30
+    calling spark.println with "int set basic: OK"
+
+    # --- SetInt algebra ---
+    var si2 as coven.SetInt is calling coven.new_set_int
+    calling si2.add with 20
+    calling si2.add with 40
+
+    # union: {10, 20, 30, 40}
+    var u_int as coven.SetInt is calling si1.union with si2
+    calling spark.assert with (calling u_int.len) == 4
+    calling spark.assert with calling u_int.contains with 10
+    calling spark.assert with calling u_int.contains with 40
+
+    # intersect: {20}
+    var inter_int as coven.SetInt is calling si1.intersect with si2
+    calling spark.assert with (calling inter_int.len) == 1
+    calling spark.assert with calling inter_int.contains with 20
+
+    # difference: {10, 30}
+    var diff_int as coven.SetInt is calling si1.difference with si2
+    calling spark.assert with (calling diff_int.len) == 2
+    calling spark.assert with calling diff_int.contains with 10
+    calling spark.assert with calling diff_int.contains with 30
+
+    # symmetric_difference: {10, 30, 40}
+    var sym_int as coven.SetInt is calling si1.symmetric_difference with si2
+    calling spark.assert with (calling sym_int.len) == 3
+    calling spark.assert with calling sym_int.contains with 10
+    calling spark.assert with calling sym_int.contains with 30
+    calling spark.assert with calling sym_int.contains with 40
+
+    # predicates: subset, superset, disjoint, equals
+    calling spark.assert with calling inter_int.is_subset with si1
+    calling spark.assert with calling si1.is_superset with inter_int
+    var si_disj as coven.SetInt is calling coven.new_set_int
+    calling si_disj.add with 99
+    calling spark.assert with calling si1.is_disjoint with si_disj
+    var si1_cloned as coven.SetInt is calling si1.clone
+    calling spark.assert with calling si1.equals with si1_cloned
+    calling spark.println with "int set algebra: OK"
+
+    # --- SetInt conversions & reductions ---
+    var int_list as list of int is calling si1.to_list_int
+    calling spark.assert with (calling int_list.len) == 3
+    calling spark.assert with (calling si1.sum_ints) == 60
+    calling spark.assert with (calling si1.min_int) == 10
+    calling spark.assert with (calling si1.max_int) == 30
+
+    var converted as coven.SetString is calling si1.to_set_string
+    calling spark.assert with (calling converted.len) == 3
+    calling spark.assert with calling converted.contains with "10"
+    calling spark.assert with calling converted.contains with "20"
+    calling spark.assert with calling converted.contains with "30"
+    calling spark.println with "int reductions: OK"
+
+    # Clear tests
+    calling s1.clear
+    calling spark.assert with calling s1.is_empty
+    calling si1.clear
+    calling spark.assert with calling si1.is_empty
+
+    calling spark.println with "coven extended: OK"
+    return 0

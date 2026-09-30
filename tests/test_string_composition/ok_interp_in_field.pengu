@@ -1,0 +1,14 @@
+import std.spark
+
+rune Tag:
+    label as string
+
+weave make_tag with n as int into Tag:
+    var t as Tag with:
+        set .label is "tag-{n}"
+    return t
+
+weave main into int:
+    var t as Tag is calling make_tag with 3
+    calling spark.assert with t.label == "tag-3"
+    return 0

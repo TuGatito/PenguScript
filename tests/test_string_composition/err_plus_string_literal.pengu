@@ -1,0 +1,5 @@
+# EXPECTED: E0005
+# '+' is numeric-only: literal + literal must be a single literal ("ab").
+weave main into int:
+    var text as string is "a" + "b"
+    return 0

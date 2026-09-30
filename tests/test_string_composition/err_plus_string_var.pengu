@@ -1,0 +1,7 @@
+# EXPECTED: E0005
+# Two string variables cannot be joined with '+': use "{a}{b}".
+weave main into int:
+    var a as string is "a"
+    var b as string is "b"
+    var c as string is a + b
+    return 0

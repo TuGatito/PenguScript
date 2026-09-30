@@ -241,6 +241,26 @@ def get_version() -> str:
     return "0.1.0"
 
 
+def ensure_tcc_for_release() -> Optional[Path]:
+    """Builds or downloads TinyCC into ``build/tcc-dist`` (best effort).
+
+    Returns the path of the ``tcc`` binary to bundle, or None when TCC is not
+    available (the release then ships without it and uses gcc/clang).
+    """
+    dist = BUILD_DIR / "tcc-dist"
+    try:
+        from pengu_tcc import ensure_tcc
+    except Exception:
+        return None
+    print("[release] staging TinyCC into", dist)
+    path = ensure_tcc(str(dist), verbose=True)
+    if path:
+        print("[release] tcc bundled:", path)
+        return Path(path)
+    print("[release] WARNING: TinyCC unavailable — the release will use the system compiler")
+    return None
+
+
 def package_with_pyinstaller(py_exe: Path, dist_dir: Path, bin_subdir: str = ""):
     """Packages pengu_project.py into a standalone pengu / pengu.exe binary.
 
@@ -260,6 +280,18 @@ def package_with_pyinstaller(py_exe: Path, dist_dir: Path, bin_subdir: str = "")
         # Stub C headers used by 'pengu bind' when preprocessing C headers.
         f"{str(ROOT_DIR / 'c_bind_stubs')}{data_sep}c_bind_stubs",
     ]
+
+    # TinyCC is bundled so 'pengu run' has a fast compiler without any system
+    # dependency (it is optional: without it the toolchain falls back to gcc).
+    add_binary = []
+    tcc_bin = ensure_tcc_for_release()
+    if tcc_bin:
+        add_binary.append(f"{tcc_bin}{data_sep}tcc/tcc")
+        tcc_root = tcc_bin.parent
+        for inc in (tcc_root / "include", tcc_root.parent / "lib" / "tcc" / "include"):
+            if inc.is_dir():
+                add_binary.append(f"{str(inc)}{data_sep}tcc/include")
+                break
 
     # Hidden imports that PyInstaller may not auto-detect
     hidden_imports = [
@@ -323,6 +355,9 @@ def package_with_pyinstaller(py_exe: Path, dist_dir: Path, bin_subdir: str = "")
 
     for item in add_data:
         cmd.extend(["--add-data", item])
+
+    for item in add_binary:
+        cmd.extend(["--add-binary", item])
 
     for imp in hidden_imports:
         cmd.extend(["--hidden-import", imp])
@@ -408,6 +443,29 @@ weave main into void:
     run_res_assets = run_cmd([str(exe_path), "run"], cwd=str(proj_dir), capture=True)
     print(run_res_assets.stdout)
     assert "Embedded assets smoke test passed!" in run_res_assets.stdout
+
+    print("  [TEST 4] Testing 'pengu doctor' inside the release bundle...")
+    doctor = run_cmd([str(exe_path), "doctor"], cwd=str(test_scratch), capture=True)
+    print(doctor.stdout)
+    assert "PenguScript doctor" in doctor.stdout
+    tcc_line = [ln for ln in doctor.stdout.splitlines() if "tcc" in ln.lower()]
+    if tcc_line and "not available" not in tcc_line[0]:
+        print("  [TEST 5] Verifying the bundled TCC and the script cache...")
+        script = test_scratch / "release_cache.pengu"
+        script.write_text(
+            'import std.spark\n\nweave main into int:\n'
+            '    calling spark.println with "release cache ok"\n'
+            '    return 0\n',
+            encoding="utf-8",
+        )
+        first = run_cmd([str(exe_path), "run", str(script)], cwd=str(test_scratch), capture=True)
+        assert "release cache ok" in first.stdout
+        second = run_cmd([str(exe_path), "run", str(script)], cwd=str(test_scratch), capture=True)
+        assert "release cache ok" in second.stdout
+        assert "cached" in second.stdout.lower(), "the second run should be a cache hit"
+        assert not (test_scratch / "build").exists(), "a cached run must not create build/"
+    else:
+        print("  [TEST 5] Skipped (no TCC inside the bundle; gcc/clang fallback is in use)")
 
     print("  [SUCCESS] All smoke tests passed!")
 
