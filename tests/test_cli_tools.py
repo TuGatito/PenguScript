@@ -951,3 +951,55 @@ weave main into int:
         finally:
             shutil.rmtree(src_dir, ignore_errors=True)
             shutil.rmtree(dst_dir, ignore_errors=True)
+
+
+class TestFormatPreservesLiterals:
+    """`pengu fmt` must never change the bytes of a literal.
+
+    The line-based normalizer used to rewrite commas anywhere in the line
+    (`re.sub(r",\\s*", ", ")`), so `"{out},"` became `"{out}, "` — a silent
+    change of program data.  Literals are now located first and copied verbatim.
+    """
+
+    def test_comma_inside_string_is_untouched(self):
+        from pengu_lsp.formatting import format_pengu_source
+
+        src = 'weave f into void:\n    var s as string is "{out},"\n'
+        assert '"{out},"' in format_pengu_source(src)
+
+    def test_escaped_quotes_and_commas_are_untouched(self):
+        from pengu_lsp.formatting import format_pengu_source
+
+        src = 'weave f into void:\n    var j as string is "{\\"a\\":1,\\"b\\":2}"\n'
+        assert '"{\\"a\\":1,\\"b\\":2}"' in format_pengu_source(src)
+
+    def test_multiline_string_body_is_verbatim(self):
+        from pengu_lsp.formatting import format_pengu_source
+
+        src = 'weave f into void:\n    var s as string is """line  \n  kept   \nend"""\n'
+        assert '"""line  \n  kept   \nend"""' in format_pengu_source(src)
+
+    def test_code_spacing_is_still_normalized(self):
+        from pengu_lsp.formatting import format_pengu_source
+
+        src = "weave f into void:\n    let  x   as  int  is  1\n"
+        assert format_pengu_source(src) == "weave f into void:\n    let  x as int is 1\n"
+
+    def test_formatting_is_ast_preserving(self):
+        """The formatter must not change program semantics."""
+        import sys
+
+        sys.path.insert(0, ".")
+        from pengu_parser.pengu_parser import PenguParser
+        from pengu_lsp.formatting import format_pengu_source
+
+        parser = PenguParser()
+        src = (
+            "weave main into int:\n"
+            "    var m as map of string to string is map of string to string\n"
+            '    with m:\n'
+            '        calling .put with "k", "{v},"\n'
+            '    var j as string is "{\\"a\\":1,\\"b\\":2}"\n'
+            '    return 0\n'
+        )
+        assert parser.parse(src).pretty() == parser.parse(format_pengu_source(src)).pretty()

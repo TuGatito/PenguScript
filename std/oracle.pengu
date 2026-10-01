@@ -1,47 +1,363 @@
-# std/oracle.pengu - The Oracle (Maybe & Result)
-# Optional (Maybe*) and fallible (Result*) value wrappers: constructors to
-# build them plus enchanting methods to inspect, unwrap and fall back.
-#
-# Semantics:
-#   * A Maybe* wrapper is present (is_present true, `value` meaningful) or
-#     none (is_present false, `value` zeroed). It never carries an error text.
-#   * A Result* wrapper is ok (is_ok true, `value` meaningful) or err
-#     (is_ok false, `error_msg` set). It never carries both.
-#   * unwrap panics on the absent / error case; unwrap_or returns a caller
-#     supplied default instead of panicking.
-#   * Native `maybe T` and `result of T to E` helpers provide module-level
-#     constructors and inspection functions.
-#
-# Ownership model: legacy runes hold scalar fields or ordinary owned strings.
-# Native `maybe T` and `result of T to E` values follow native language value
-# semantics and clean up automatically upon scope exit.
+## std/oracle.pengu
+## Contenedores de valor opcional (`maybe T`) y de cómputo falible
+## (`result of T to E`): constructores, inspección, transformación,
+## recuperación y conversión.
+##
+## Cada operación existe dos veces, con la misma semántica: como método
+## (`calling m.map with f`) y como función de módulo
+## (`calling oracle.map_maybe with m, f`).
+##
+## ## Ownership
+## `maybe T` y `result of T to E` poseen su carga. Ninguna función devuelve
+## `self` ni un parámetro contenedor tal cual: se reconstruye el contenedor
+## (`some v`, `ok v`, `err e`, `maybe none`). Los `list` son auto-banishables.
+##
+## ## Ejemplo
+## ```pengu
+## import std.oracle
+## var port as maybe int is calling oracle.some_of with 8080
+## var label as string is calling port.describe
+## ```
+##
+## ## Notas de diseño
+## - **No hay tuplas.** Las operaciones que devuelven dos valores usan los
+##   runes genéricos `Pair` y `Triple`, definidos en este módulo
+##   (`oracle.Pair of int and string`); `Pair` deriva `Par`, `Vinculum`,
+##   `Imago` y `Nexus` para compararse y usarse como clave de `map`.
+## - **`@deprecated` es una convención documental.** El toolchain no tiene
+##   soporte de deprecación: los alias de compatibilidad son `weave` normales
+##   cuyo docstring empieza por `## @deprecated Use X instead.`.
+## - **Constructores de `result`.** `ok_of` / `err_of` son intrínsecos del
+##   compilador (formas desnuda y `oracle.ok_of` / `oracle.err_of`) y exigen
+##   contexto de tipo (`as result of T to E` o un `return` en una `weave` que
+##   declara ese tipo). No se definen aquí.
+## - **`where` no existe en métodos**, así que las operaciones que necesitan
+##   un bound viven como `weave shard T where T: ...` de módulo.
+## - **Parámetros de tipo sólo en el retorno.** `none_of shard T` no puede
+##   inferir `T` (E0005): hay que pasar el argumento explícito
+##   (`calling none_of of int`); por eso se conservan `none_int`,
+##   `none_string`, `none_float` y `none_bool`.
+## - **`flatten`** no puede colapsar `maybe maybe U` (el shard se liga al
+##   elemento del receptor y no hay `where` en métodos): repaqueta la carga en
+##   un contenedor nuevo. Para encadenar de verdad usa `and_then`.
+## - **Funciones de módulo directas y con sufijo.** Un `weave shard T` que
+##   delega en un método genérico genera C sin especializar, y un `weave`
+##   `<familia>_<método>` se confunde con una especialización del método; de
+##   ahí los sufijos (`unwrap_maybe`) y la lógica reimplementada.
+## - **Sin move semantics.** Devolver un parámetro contenedor tal cual
+##   (`return m`) provoca doble free; de ahí la reconstrucción sistemática.
+## - **Tests internos.** El harness es privado (`_expect*` sobre
+##   `spark.panic`) porque `import std.ward` crearía un ciclo (E0004).
 
+# --- Imports ------------------------------------------------------------
 import std.spark
 
-# ============================================================================
-# Legacy runes (kept for backward compatibility)
-# ============================================================================
+# --- Tipos --------------------------------------------------------------
 
-# Optional int: `is_present` is true when a value is stored, `value` holds it
-# (0 when none).
+## Par genérico de valores; base de toda operación que devuelve dos cosas.
+rune Pair shard A and B derive Par, Vinculum, Imago, Nexus:
+    first as A
+    second as B
+
+## Terna genérica de valores; se usa para particiones de tres vías.
+rune Triple shard A and B and C derive Par, Vinculum, Imago, Nexus:
+    first as A
+    second as B
+    third as C
+
+# --- Enchantings --------------------------------------------------------
+
+## Métodos genéricos de `maybe T`: consulta, extracción, transformación y
+## conversión. Se invocan como `calling m.map with f`.
+enchanting maybe shard T:
+    ## True cuando el contenedor guarda un valor (alias de `is_present`).
+    weave is_some into bool:
+        return (essence of self).is_present
+
+    ## True cuando el contenedor está vacío.
+    weave is_none into bool:
+        return not (essence of self).is_present
+
+    ## Devuelve el valor guardado.
+    ##
+    ## ## Ownership
+    ## Devuelve una copia de la carga; el contenedor sigue siendo válido.
+    ##
+    ## Panickea si el contenedor está vacío (precondición: `is_some`).
+    weave unwrap into T:
+        if v as T is essence of self:
+            return v
+        calling spark.panic with "Unwrapped none maybe"
+        return (calling self.unwrap)
+
+    ## Devuelve el valor guardado o `fallback` cuando está vacío.
+    weave unwrap_or with fallback as T into T:
+        if v as T is essence of self:
+            return v
+        return fallback
+
+    ## Devuelve el valor guardado o el resultado de invocar `f`.
+    weave unwrap_or_else with f as weave into T into T:
+        if v as T is essence of self:
+            return v
+        return calling f
+
+    ## Devuelve el valor guardado o panickea con `message` si está vacío.
+    weave expect with message as string into T:
+        if v as T is essence of self:
+            return v
+        calling spark.panic with message
+        return (calling self.expect with message)
+
+    ## Alias de `unwrap_or`: valor guardado o `fallback`.
+    weave value_or with fallback as T into T:
+        if v as T is essence of self:
+            return v
+        return fallback
+
+    ## Transforma la carga con `f`, manteniendo el contenedor.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var doble as maybe int is calling m.map with double_it
+    ## ```
+    weave map shard U with f as weave with x as T into U into maybe U:
+        if v as T is essence of self:
+            return some (calling f with v)
+        return maybe none
+
+    ## Conserva la carga solo cuando `predicate` devuelve `true`.
+    weave filter with predicate as weave with x as T into bool into maybe T:
+        if v as T is essence of self:
+            var keep as bool is calling predicate with v
+            if keep:
+                return some v
+        return maybe none
+
+    ## Encadena `f`, que produce a su vez un `maybe U` (evita anidar).
+    weave and_then shard U with f as weave with x as T into maybe U into maybe U:
+        if v as T is essence of self:
+            var nxt as maybe U is calling f with v
+            if w as U is nxt:
+                return some w
+        return maybe none
+
+    ## Devuelve este contenedor si tiene valor; si no, `fallback`.
+    weave or_else with fallback as maybe T into maybe T:
+        if v as T is essence of self:
+            return some v
+        if w as T is fallback:
+            return some w
+        return maybe none
+
+    ## Devuelve `other` solo cuando este contenedor tiene valor.
+    weave and with other as maybe T into maybe T:
+        if (essence of self).is_present:
+            if w as T is other:
+                return some w
+        return maybe none
+
+    ## Devuelve este contenedor si tiene valor; si no, `other`.
+    weave or with other as maybe T into maybe T:
+        if v as T is essence of self:
+            return some v
+        if w as T is other:
+            return some w
+        return maybe none
+
+    ## Promueve a `result of T to string`, con `error_value` como error.
+    weave to_result with error_value as string into result of T to string:
+        if v as T is essence of self:
+            return calling ok_of with v
+        return calling err_of with error_value
+
+    ## Lista de un elemento con la carga, o lista vacía si no hay valor.
+    weave to_list into list of T:
+        if v as T is essence of self:
+            return [v]
+        return list of T
+
+    ## Descripción legible: `some(v)` o `none`.
+    weave describe into string:
+        if v as T is essence of self:
+            return "some({v})"
+        return "none"
+
+    ## Alias de `to_list`: la carga como lista de cero o un elemento.
+    weave iter into list of T:
+        if v as T is essence of self:
+            return [v]
+        return list of T
+
+    ## Combina dos opcionales presentes en un `Pair`.
+    weave zip shard U with other as maybe U into maybe Pair of T and U:
+        if a as T is essence of self:
+            if b as U is other:
+                var out as Pair of T and U with:
+                    set .first is a
+                    set .second is b
+                return some out
+        return maybe none
+
+    ## Repaqueta la carga en un contenedor nuevo (identidad estructural).
+    weave flatten into maybe T:
+        if inner as T is essence of self:
+            return some inner
+        return maybe none
+
+## Métodos genéricos de `result of T to E`: consulta, extracción,
+## transformación y conversión a `maybe`.
+enchanting result of shard T to shard E:
+    ## True cuando el resultado representa éxito (alias de `is_ok`).
+    weave is_ok into bool:
+        return (essence of self).is_ok
+
+    ## True cuando el resultado representa un error.
+    weave is_err into bool:
+        return not (essence of self).is_ok
+
+    ## Devuelve la carga de éxito.
+    ##
+    ## Panickea con el error almacenado si el resultado es `err`.
+    weave unwrap into T:
+        var owns as result of T to E is essence of self
+        if owns.is_ok:
+            return owns.value
+        calling spark.panic with "Unwrapped err result"
+        return (calling self.unwrap)
+
+    ## Devuelve el error almacenado.
+    weave unwrap_err into E:
+        var owns as result of T to E is essence of self
+        if owns.is_ok:
+            calling spark.panic with "unwrap_err on ok result"
+        return owns.error
+
+    ## Devuelve la carga de éxito o `fallback` si es `err`.
+    weave unwrap_or with fallback as T into T:
+        var owns as result of T to E is essence of self
+        if owns.is_ok:
+            return owns.value
+        return fallback
+
+    ## Devuelve la carga de éxito o `f(error)` si es `err`.
+    weave unwrap_or_else with f as weave with x as E into T into T:
+        var owns as result of T to E is essence of self
+        if owns.is_ok:
+            return owns.value
+        return calling f with owns.error
+
+    ## Devuelve la carga de éxito o panickea con `message` si es `err`.
+    weave expect with message as string into T:
+        var owns as result of T to E is essence of self
+        if owns.is_ok:
+            return owns.value
+        calling spark.panic with message
+        return (calling self.expect with message)
+
+    ## Devuelve el error o panickea con `message` si el resultado es `ok`.
+    weave expect_err with message as string into E:
+        var owns as result of T to E is essence of self
+        if owns.is_ok:
+            calling spark.panic with message
+        return owns.error
+
+    ## Transforma la carga de éxito con `f`, propagando el error.
+    weave map shard U with f as weave with x as T into U into result of U to E:
+        var owns as result of T to E is essence of self
+        if owns.is_ok:
+            return calling ok_of with (calling f with owns.value)
+        return calling err_of with owns.error
+
+    ## Transforma el error con `f`, propagando el éxito.
+    weave map_err shard F with f as weave with x as E into F into result of T to F:
+        var owns as result of T to E is essence of self
+        if owns.is_ok:
+            return calling ok_of with owns.value
+        return calling err_of with (calling f with owns.error)
+
+    ## Encadena `f` sobre la carga de éxito, propagando el error.
+    weave and_then shard U with f as weave with x as T into result of U to E into result of U to E:
+        var owns as result of T to E is essence of self
+        if owns.is_ok:
+            var nxt as result of U to E is calling f with owns.value
+            if nxt.is_ok:
+                return calling ok_of with nxt.value
+            return calling err_of with nxt.error
+        return calling err_of with owns.error
+
+    ## Devuelve este resultado si es `ok`; si es `err`, `fallback`.
+    weave or_else with fallback as result of T to E into result of T to E:
+        var owns as result of T to E is essence of self
+        if owns.is_ok:
+            return calling ok_of with owns.value
+        if fallback.is_ok:
+            return calling ok_of with fallback.value
+        return calling err_of with fallback.error
+
+    ## Descarta el error: `maybe` con la carga de éxito.
+    weave ok into maybe T:
+        var owns as result of T to E is essence of self
+        if owns.is_ok:
+            return some owns.value
+        return maybe none
+
+    ## Descarta el éxito: `maybe` con el error.
+    weave err into maybe E:
+        var owns as result of T to E is essence of self
+        if owns.is_ok:
+            return maybe none
+        return some owns.error
+
+    ## Alias de `ok`: la carga de éxito como `maybe T`.
+    weave to_maybe into maybe T:
+        var owns as result of T to E is essence of self
+        if owns.is_ok:
+            return some owns.value
+        return maybe none
+
+    ## Lista de un elemento con la carga de éxito, o vacía si es `err`.
+    weave to_list into list of T:
+        var owns as result of T to E is essence of self
+        if owns.is_ok:
+            return [owns.value]
+        return list of T
+
+    ## Descripción legible: `ok(v)` o `err(e)`.
+    weave describe into string:
+        var owns as result of T to E is essence of self
+        if owns.is_ok:
+            return "ok({owns.value})"
+        return "err({owns.error})"
+
+# --- Tipos legados (compatibilidad 0.14.x) ------------------------------
+
+## @deprecated Optional entero legado (campo `is_present` + `value`). Usa `maybe T` / `result of T to E`.
+## Optional entero legado (campo `is_present` + `value`).
 rune MaybeInt:
     is_present as bool
     value as int
 
 # Optional float: `is_present` is true when a value is stored, `value` holds
 # it (0.0 when none).
+## @deprecated Optional flotante legado (campo `is_present` + `value`). Usa `maybe T` / `result of T to E`.
+## Optional flotante legado (campo `is_present` + `value`).
 rune MaybeFloat:
     is_present as bool
     value as float
 
 # Optional string: `is_present` is true when a value is stored, `value` holds
 # it ("" when none). The payload string is owned by the wrapper.
+## @deprecated Optional string legado (campo `is_present` + `value`). Usa `maybe T` / `result of T to E`.
+## Optional string legado (campo `is_present` + `value`).
 rune MaybeString:
     is_present as bool
     value as string
 
 # Fallible int: `is_ok` is true when `value` is meaningful; false means the
 # operation failed and `error_msg` describes why.
+## @deprecated Resultado entero legado (`is_ok`, `value`, `error_msg`). Usa `maybe T` / `result of T to E`.
+## Resultado entero legado (`is_ok`, `value`, `error_msg`).
 rune ResultInt:
     is_ok as bool
     value as int
@@ -50,55 +366,17 @@ rune ResultInt:
 # Fallible string: `is_ok` is true when `value` is meaningful; false means the
 # operation failed and `error_msg` describes why. The payload string is owned
 # by the wrapper.
+## @deprecated Resultado string legado (`is_ok`, `value`, `error_msg`). Usa `maybe T` / `result of T to E`.
+## Resultado string legado (`is_ok`, `value`, `error_msg`).
 rune ResultString:
     is_ok as bool
     value as string
     error_msg as string
 
-# ============================================================================
-# Legacy constructors
-# ============================================================================
+# --- Enchantings legados (compatibilidad 0.14.x) ------------------------
 
-# Wraps `val` in a present MaybeInt (is_present true, value `val`).
-weave maybe_some_int with val as int into MaybeInt:
-    return with is_present is true , value is val
-
-# Returns an empty MaybeInt (is_present false, value 0).
-weave maybe_none_int into MaybeInt:
-    return with is_present is false , value is 0
-
-# Wraps `val` in a present MaybeString (is_present true, value `val`). The
-# payload string is owned by the wrapper.
-weave maybe_some_string with val as string into MaybeString:
-    return with is_present is true , value is val
-
-# Returns an empty MaybeString (is_present false, value "").
-weave maybe_none_string into MaybeString:
-    return with is_present is false , value is ""
-
-# Builds an ok ResultInt holding `val` (is_ok true, error_msg "").
-weave result_ok_int with val as int into ResultInt:
-    return with is_ok is true , value is val , error_msg is ""
-
-# Builds an err ResultInt carrying `msg` (is_ok false, value 0).
-weave result_err_int with msg as string into ResultInt:
-    return with is_ok is false , value is 0 , error_msg is msg
-
-# Builds an ok ResultString holding `val` (is_ok true, error_msg ""). The
-# payload string is owned by the wrapper.
-weave result_ok_string with val as string into ResultString:
-    return with is_ok is true , value is val , error_msg is ""
-
-# Builds an err ResultString carrying `msg` (is_ok false, value ""). The error
-# message string is owned by the wrapper.
-weave result_err_string with msg as string into ResultString:
-    return with is_ok is false , value is "" , error_msg is msg
-
-# ============================================================================
-# Legacy enchanting methods
-# ============================================================================
-
-# Methods on MaybeInt values, invoked as `calling m.is_present` / `m.unwrap`.
+## @deprecated Use `enchanting maybe shard T` instead.
+## Métodos legados de `MaybeInt` (compatibilidad 0.14.x).
 enchanting MaybeInt:
     # True when the wrapper holds a value (mirrors the is_present field).
     weave is_present into bool:
@@ -125,6 +403,8 @@ enchanting MaybeInt:
             when false -> default_val
 
 # Methods on MaybeString values, invoked as `calling m.is_present` / `m.unwrap`.
+## @deprecated Use `enchanting maybe shard T` instead.
+## Métodos legados de `MaybeString` (compatibilidad 0.14.x).
 enchanting MaybeString:
     # True when the wrapper holds a value (mirrors the is_present field).
     weave is_present into bool:
@@ -151,6 +431,8 @@ enchanting MaybeString:
             when false -> default_val
 
 # Methods on ResultInt values, invoked as `calling r.is_ok` / `r.unwrap`.
+## @deprecated Use `enchanting result of shard T to shard E` instead.
+## Métodos legados de `ResultInt` (compatibilidad 0.14.x).
 enchanting ResultInt:
     # True when the result holds a value (mirrors the is_ok field).
     weave is_ok into bool:
@@ -181,6 +463,8 @@ enchanting ResultInt:
             when false -> default_val
 
 # Methods on ResultString values, invoked as `calling r.is_ok` / `r.unwrap`.
+## @deprecated Use `enchanting result of shard T to shard E` instead.
+## Métodos legados de `ResultString` (compatibilidad 0.14.x).
 enchanting ResultString:
     # True when the result holds a value (mirrors the is_ok field).
     weave is_ok into bool:
@@ -210,282 +494,1005 @@ enchanting ResultString:
             when true -> self->value
             when false -> default_val
 
-# ============================================================================
-# Native maybe helpers (recommended for new code)
-# ============================================================================
+# --- Funciones legadas de módulo (compatibilidad 0.14.x) ----------------
 
-## Wraps integer `val` in a present native `maybe int` container.
-##
-## Signature: some_int(val as int) into maybe int
-## Ownership: Returns a value `maybe int` container.
+## @deprecated Use `oracle.some_of shard T` instead.
+weave maybe_some_int with val as int into MaybeInt:
+    return with is_present is true , value is val
+
+## @deprecated Use `oracle.none_of of int` instead.
+weave maybe_none_int into MaybeInt:
+    return with is_present is false , value is 0
+
+## @deprecated Use `oracle.some_of shard T` instead.
+weave maybe_some_string with val as string into MaybeString:
+    return with is_present is true , value is val
+
+## @deprecated Use `oracle.none_of of string` instead.
+weave maybe_none_string into MaybeString:
+    return with is_present is false , value is ""
+
+## @deprecated Use the `ok_of` intrinsic (`calling ok_of with v`) instead.
+weave result_ok_int with val as int into ResultInt:
+    return with is_ok is true , value is val , error_msg is ""
+
+## @deprecated Use the `err_of` intrinsic (`calling err_of with e`) instead.
+weave result_err_int with msg as string into ResultInt:
+    return with is_ok is false , value is 0 , error_msg is msg
+
+## @deprecated Use the `ok_of` intrinsic (`calling ok_of with v`) instead.
+weave result_ok_string with val as string into ResultString:
+    return with is_ok is true , value is val , error_msg is ""
+
+## @deprecated Use the `err_of` intrinsic (`calling err_of with e`) instead.
+weave result_err_string with msg as string into ResultString:
+    return with is_ok is false , value is "" , error_msg is msg
+
+## @deprecated Use `oracle.some_of shard T` instead.
 weave some_int with val as int into maybe int:
     return some val
 
-## Wraps float `val` in a present native `maybe float` container.
-##
-## Signature: some_float(val as float) into maybe float
-## Ownership: Returns a value `maybe float` container.
+## @deprecated Use `oracle.some_of shard T` instead.
 weave some_float with val as float into maybe float:
     return some val
 
-## Wraps string `val` in a present native `maybe string` container.
-##
-## Signature: some_string(val as string) into maybe string
-## Ownership: Returns a value `maybe string` container owning a copy of the string.
+## @deprecated Use `oracle.some_of shard T` instead.
 weave some_string with val as string into maybe string:
     return some val
 
-## Wraps boolean `val` in a present native `maybe bool` container.
-##
-## Signature: some_bool(val as bool) into maybe bool
-## Ownership: Returns a value `maybe bool` container.
+## @deprecated Use `oracle.some_of shard T` instead.
 weave some_bool with val as bool into maybe bool:
     return some val
 
-## Returns an empty native `maybe int` container.
-##
-## Signature: none_int() into maybe int
-## Ownership: Returns an empty value `maybe int` container.
+## @deprecated Use `oracle.none_of of int` instead.
 weave none_int into maybe int:
     return maybe none
 
-## Returns an empty native `maybe float` container.
-##
-## Signature: none_float() into maybe float
-## Ownership: Returns an empty value `maybe float` container.
+## @deprecated Use `oracle.none_of of float` instead.
 weave none_float into maybe float:
     return maybe none
 
-## Returns an empty native `maybe string` container.
-##
-## Signature: none_string() into maybe string
-## Ownership: Returns an empty value `maybe string` container.
+## @deprecated Use `oracle.none_of of string` instead.
 weave none_string into maybe string:
     return maybe none
 
-## Returns an empty native `maybe bool` container.
-##
-## Signature: none_bool() into maybe bool
-## Ownership: Returns an empty value `maybe bool` container.
+## @deprecated Use `oracle.none_of of bool` instead.
 weave none_bool into maybe bool:
     return maybe none
 
-## Returns the stored integer from `m`, or panics if `m` is none.
-##
-## Signature: unwrap_int(m as maybe int) into int
-## Ownership: Operates on value container; returns scalar integer.
-## Edge cases: Panics with "Unwrapped none maybe int" if absent.
+## @deprecated Use `oracle.unwrap_maybe shard T` instead.
 weave unwrap_int with m as maybe int into int:
     if m is present:
         return m.value
     calling spark.panic with "Unwrapped none maybe int"
     return 0
 
-## Returns the stored float from `m`, or panics if `m` is none.
-##
-## Signature: unwrap_float(m as maybe float) into float
-## Ownership: Operates on value container; returns scalar float.
-## Edge cases: Panics with "Unwrapped none maybe float" if absent.
+## @deprecated Use `oracle.unwrap_maybe shard T` instead.
 weave unwrap_float with m as maybe float into float:
     if m is present:
         return m.value
     calling spark.panic with "Unwrapped none maybe float"
     return 0.0
 
-## Returns the stored string from `m`, or panics if `m` is none.
-##
-## Signature: unwrap_string(m as maybe string) into string
-## Ownership: Operates on value container; returns owned string.
-## Edge cases: Panics with "Unwrapped none maybe string" if absent.
+## @deprecated Use `oracle.unwrap_maybe shard T` instead.
 weave unwrap_string with m as maybe string into string:
     if m is present:
         return m.value
     calling spark.panic with "Unwrapped none maybe string"
     return ""
 
-## Returns the stored boolean from `m`, or panics if `m` is none.
-##
-## Signature: unwrap_bool(m as maybe bool) into bool
-## Ownership: Operates on value container; returns scalar boolean.
-## Edge cases: Panics with "Unwrapped none maybe bool" if absent.
+## @deprecated Use `oracle.unwrap_maybe shard T` instead.
 weave unwrap_bool with m as maybe bool into bool:
     if m is present:
         return m.value
     calling spark.panic with "Unwrapped none maybe bool"
     return false
 
-## Returns the stored integer from `m` if present, otherwise returns `fallback`.
-##
-## Signature: unwrap_or_int(m as maybe int, fallback as int) into int
-## Ownership: Operates on value container; returns scalar integer.
+## @deprecated Use `oracle.unwrap_or_maybe shard T` instead.
 weave unwrap_or_int with m as maybe int , fallback as int into int:
     return m or else fallback
 
-## Returns the stored float from `m` if present, otherwise returns `fallback`.
-##
-## Signature: unwrap_or_float(m as maybe float, fallback as float) into float
-## Ownership: Operates on value container; returns scalar float.
+## @deprecated Use `oracle.unwrap_or_maybe shard T` instead.
 weave unwrap_or_float with m as maybe float , fallback as float into float:
     return m or else fallback
 
-## Returns the stored string from `m` if present, otherwise returns `fallback`.
-##
-## Signature: unwrap_or_string(m as maybe string, fallback as string) into string
-## Ownership: Operates on value container; returns owned string.
+## @deprecated Use `oracle.unwrap_or_maybe shard T` instead.
 weave unwrap_or_string with m as maybe string , fallback as string into string:
     return m or else fallback
 
-## Returns the stored boolean from `m` if present, otherwise returns `fallback`.
-##
-## Signature: unwrap_or_bool(m as maybe bool, fallback as bool) into bool
-## Ownership: Operates on value container; returns scalar boolean.
+## @deprecated Use `oracle.unwrap_or_maybe shard T` instead.
 weave unwrap_or_bool with m as maybe bool , fallback as bool into bool:
     return m or else fallback
 
-## Converts a legacy `MaybeInt` rune into a native `maybe int` value.
-##
-## Signature: to_native_int(m as MaybeInt) into maybe int
-## Ownership: Converts rune fields to native container.
+## @deprecated Use the native `maybe int` API (`calling m.is_some` / `calling m.unwrap`) instead.
 weave to_native_int with m as MaybeInt into maybe int:
     if m.is_present:
         return some m.value
     return maybe none
 
-## Converts a native `maybe int` value into a legacy `MaybeInt` rune.
-##
-## Signature: from_native_int(m as maybe int) into MaybeInt
-## Ownership: Constructs and returns a legacy MaybeInt rune.
+## @deprecated Use the native `maybe int` API (`oracle.some_of`) instead.
 weave from_native_int with m as maybe int into MaybeInt:
     if m is present:
         return with is_present is true , value is m.value
     return with is_present is false , value is 0
 
-## Converts a legacy `MaybeString` rune into a native `maybe string` value.
-##
-## Signature: to_native_string(m as MaybeString) into maybe string
-## Ownership: Converts rune fields to native container.
+## @deprecated Use the native `maybe string` API instead.
 weave to_native_string with m as MaybeString into maybe string:
     if m.is_present:
         return some m.value
     return maybe none
 
-## Converts a native `maybe string` value into a legacy `MaybeString` rune.
-##
-## Signature: from_native_string(m as maybe string) into MaybeString
-## Ownership: Constructs and returns a legacy MaybeString rune.
+## @deprecated Use the native `maybe string` API instead.
 weave from_native_string with m as maybe string into MaybeString:
     if m is present:
         return with is_present is true , value is m.value
     return with is_present is false , value is ""
 
-## Returns a human-readable description of native `m` ("some(N)" or "none").
-##
-## Signature: describe_maybe_int(m as maybe int) into string
-## Ownership: Returns a freshly allocated owned string.
+## @deprecated Use `oracle.describe_optional shard T` instead.
 weave describe_maybe_int with m as maybe int into string:
     if m is present:
         return "some({(m.value to string)})"
     return "none"
 
-## Returns a human-readable description of native `m` ("some(\"s\")" or "none").
-##
-## Signature: describe_maybe_string(m as maybe string) into string
-## Ownership: Returns a freshly allocated owned string.
+## @deprecated Use `oracle.describe_optional shard T` instead.
 weave describe_maybe_string with m as maybe string into string:
     if m is present:
         return "some(\"{m.value}\")"
     return "none"
 
-## Returns a human-readable description of native `m` ("some(F)" or "none").
-##
-## Signature: describe_maybe_float(m as maybe float) into string
-## Ownership: Returns a freshly allocated owned string.
+## @deprecated Use `oracle.describe_optional shard T` instead.
 weave describe_maybe_float with m as maybe float into string:
     if m is present:
         return "some({(m.value to string)})"
     return "none"
 
-## Returns a human-readable description of native `m` ("some(true)" or "none").
-##
-## Signature: describe_maybe_bool(m as maybe bool) into string
-## Ownership: Returns a freshly allocated owned string.
+## @deprecated Use `oracle.describe_optional shard T` instead.
 weave describe_maybe_bool with m as maybe bool into string:
     if m is present:
         return "some({(m.value to string)})"
     return "none"
 
-## Returns a human-readable description of `m` ("some(N)" or "none").
-##
-## Signature: describe_int(m as MaybeInt) into string
-## Ownership: Returns a freshly allocated owned string.
+## @deprecated Use `oracle.describe_optional shard T` instead.
 weave describe_int with m as MaybeInt into string:
-    return judge m.is_present:
-        when true -> "some({(m.value to string)})"
-        when false -> "none"
+    return if m.is_present then "some({(m.value to string)})" else "none"
 
-## Returns a human-readable description of `m` ("some(\"s\")" or "none").
-##
-## Signature: describe_string(m as MaybeString) into string
-## Ownership: Returns a freshly allocated owned string.
+## @deprecated Use `oracle.describe_optional shard T` instead.
 weave describe_string with m as MaybeString into string:
-    return judge m.is_present:
-        when true -> "some(\"{m.value}\")"
-        when false -> "none"
+    return if m.is_present then "some(\"{m.value}\")" else "none"
 
-## Returns a human-readable description of `r` ("ok(N)" or "err(msg)").
-##
-## Signature: describe_result_int(r as ResultInt) into string
-## Ownership: Returns a freshly allocated owned string.
+## @deprecated Use `oracle.describe_result shard T and E` instead.
 weave describe_result_int with r as ResultInt into string:
-    return judge r.is_ok:
-        when true -> "ok({(r.value to string)})"
-        when false -> "err({r.error_msg})"
+    return if r.is_ok then "ok({(r.value to string)})" else "err({r.error_msg})"
 
-## Returns a human-readable description of `r` ("ok(\"s\")" or "err(msg)").
-##
-## Signature: describe_result_string(r as ResultString) into string
-## Ownership: Returns a freshly allocated owned string.
+## @deprecated Use `oracle.describe_result shard T and E` instead.
 weave describe_result_string with r as ResultString into string:
-    return judge r.is_ok:
-        when true -> "ok(\"{r.value}\")"
-        when false -> "err({r.error_msg})"
+    return if r.is_ok then "ok(\"{r.value}\")" else "err({r.error_msg})"
 
 # ============================================================================
 # Native result helpers
 # ============================================================================
 
-## Returns true if the native result `r` represents success.
-##
-## Signature: is_ok_int_result(r as result of int to string) into bool
-## Ownership: Operates on value container; returns a scalar boolean.
+## @deprecated Use `oracle.is_ok_result shard T and E` instead.
 weave is_ok_int_result with r as result of int to string into bool:
     return r.is_ok
 
-## Returns true if the native result `r` represents an error.
-##
-## Signature: is_err_int_result(r as result of int to string) into bool
-## Ownership: Operates on value container; returns a scalar boolean.
+## @deprecated Use `oracle.is_err_result shard T and E` instead.
 weave is_err_int_result with r as result of int to string into bool:
     return judge r.is_ok:
         when true -> false
         when false -> true
 
-## Unwraps the success integer from `r`, or panics with the error message.
-##
-## Signature: unwrap_int_result(r as result of int to string) into int
-## Ownership: Operates on value container; returns scalar integer.
-## Edge cases: Panics with the result error string if failed.
+## @deprecated Use `oracle.unwrap_result shard T and E` instead.
 weave unwrap_int_result with r as result of int to string into int:
     if r.is_ok:
         return r.value
     calling spark.panic with r.error
     return 0
 
-## Unwraps the success integer from `r` if ok, otherwise returns `fallback`.
-##
-## Signature: unwrap_or_int_result(r as result of int to string, fallback as int) into int
-## Ownership: Operates on value container; returns scalar integer.
+## @deprecated Use `oracle.unwrap_or_result shard T and E` instead.
 weave unwrap_or_int_result with r as result of int to string , fallback as int into int:
     return judge r.is_ok:
         when true -> r.value
         when false -> fallback
+
+
+# --- Funciones de módulo (API genérica) ---------------------------------
+
+## Envuelve `value` en un `maybe T` presente.
+##
+## ## Ejemplo
+## ```pengu
+## var m as maybe int is calling oracle.some_of with 42
+## ```
+weave some_of shard T with value as T into maybe T:
+    return some value
+
+## Devuelve un `maybe T` vacío. Requiere argumento de tipo explícito
+weave none_of shard T into maybe T:
+    return maybe none
+
+## True cuando `m` guarda un valor. Alias funcional de `m.is_some`.
+weave is_some_maybe shard T with m as maybe T into bool:
+    if m is present:
+        return true
+    return false
+
+## True cuando `m` está vacío. Alias funcional de `m.is_none`.
+weave is_none_maybe shard T with m as maybe T into bool:
+    if m is present:
+        return false
+    return true
+
+## Devuelve la carga de `m`; panickea si `m` está vacío.
+weave unwrap_maybe shard T with m as maybe T into T:
+    if v as T is m:
+        return v
+    calling spark.panic with "Unwrapped none maybe"
+    var owns as maybe T is m
+    return owns.value
+
+## Devuelve la carga de `m` o `fallback` cuando `m` está vacío.
+weave unwrap_or_maybe shard T with m as maybe T, fallback as T into T:
+    if v as T is m:
+        return v
+    return fallback
+
+## Devuelve la carga de `m` o el resultado de invocar `f`.
+weave unwrap_or_else_maybe shard T with m as maybe T, f as weave into T into T:
+    if v as T is m:
+        return v
+    return calling f
+
+## Devuelve la carga de `m` o panickea con `message` si está vacío.
+weave expect_maybe shard T with m as maybe T, message as string into T:
+    if v as T is m:
+        return v
+    calling spark.panic with message
+    var owns as maybe T is m
+    return owns.value
+
+## Alias de `unwrap_or_maybe`: carga de `m` o `fallback`.
+weave value_or_maybe shard T with m as maybe T, fallback as T into T:
+    if v as T is m:
+        return v
+    return fallback
+
+## Aplica `f` a la carga de `m`, conservando el contenedor.
+weave map_maybe shard T and U with m as maybe T, f as weave with x as T into U into maybe U:
+    if v as T is m:
+        return some (calling f with v)
+    return maybe none
+
+## Conserva la carga de `m` solo cuando `predicate` devuelve `true`.
+weave filter_maybe shard T with m as maybe T, predicate as weave with x as T into bool into maybe T:
+    if v as T is m:
+        var keep as bool is calling predicate with v
+        if keep:
+            return some v
+    return maybe none
+
+## Encadena `f` sobre la carga de `m` (evita anidar contenedores).
+weave and_then_maybe shard T and U with m as maybe T, f as weave with x as T into maybe U into maybe U:
+    if v as T is m:
+        var nxt as maybe U is calling f with v
+        if w as U is nxt:
+            return some w
+    return maybe none
+
+## Devuelve `m` si tiene valor; si no, `fallback`.
+weave or_else_maybe shard T with m as maybe T, fallback as maybe T into maybe T:
+    if v as T is m:
+        return some v
+    if w as T is fallback:
+        return some w
+    return maybe none
+
+## Devuelve `right` solo cuando `left` tiene valor.
+weave and_maybe shard T with left as maybe T, right as maybe T into maybe T:
+    if left is present:
+        if w as T is right:
+            return some w
+    return maybe none
+
+## Devuelve `left` si tiene valor; si no, `right`.
+weave or_maybe shard T with left as maybe T, right as maybe T into maybe T:
+    if v as T is left:
+        return some v
+    if w as T is right:
+        return some w
+    return maybe none
+
+## Promueve `m` a `result of T to string`, con `error_value` como error.
+weave to_result_maybe shard T with m as maybe T, error_value as string into result of T to string:
+    if v as T is m:
+        return calling ok_of with v
+    return calling err_of with error_value
+
+## Lista de cero o un elemento con la carga de `m`.
+weave to_list_maybe shard T with m as maybe T into list of T:
+    if v as T is m:
+        return [v]
+    return list of T
+
+## Descripción legible de `m`: `some(v)` o `none`.
+weave describe_optional shard T with m as maybe T into string:
+    if v as T is m:
+        return "some({v})"
+    return "none"
+
+## Alias de `to_list_maybe`.
+weave iter_maybe shard T with m as maybe T into list of T:
+    if v as T is m:
+        return [v]
+    return list of T
+
+## Combina dos opcionales presentes en un `Pair of T and U`.
+weave zip_maybe shard T and U with left as maybe T, right as maybe U into maybe Pair of T and U:
+    if a as T is left:
+        if b as U is right:
+            var out as Pair of T and U with:
+                set .first is a
+                set .second is b
+            return some out
+    return maybe none
+
+## Repaqueta la carga de `m` en un contenedor nuevo.
+weave flatten_maybe shard T with m as maybe T into maybe T:
+    if inner as T is m:
+        return some inner
+    return maybe none
+
+## True cuando `r` representa éxito. Alias funcional de `r.is_ok`.
+weave is_ok_result shard T and E with r as result of T to E into bool:
+    return r.is_ok
+
+## True cuando `r` representa un error. Alias funcional de `r.is_err`.
+weave is_err_result shard T and E with r as result of T to E into bool:
+    return not r.is_ok
+
+## Devuelve la carga de éxito de `r`; panickea si `r` es `err`.
+weave unwrap_result shard T and E with r as result of T to E into T:
+    if r.is_ok:
+        return r.value
+    calling spark.panic with "Unwrapped err result"
+    var owns as result of T to E is r
+    return owns.value
+
+## Devuelve el error de `r`; panickea si `r` es `ok`.
+weave unwrap_err_result shard T and E with r as result of T to E into E:
+    if r.is_ok:
+        calling spark.panic with "unwrap_err on ok result"
+    return r.error
+
+## Devuelve la carga de éxito de `r` o `fallback` si es `err`.
+weave unwrap_or_result shard T and E with r as result of T to E, fallback as T into T:
+    if r.is_ok:
+        return r.value
+    return fallback
+
+## Devuelve la carga de éxito de `r` o `f(error)` si es `err`.
+weave unwrap_or_else_result shard T and E with r as result of T to E, f as weave with x as E into T into T:
+    if r.is_ok:
+        return r.value
+    return calling f with r.error
+
+## Devuelve la carga de éxito de `r` o panickea con `message` si es `err`.
+weave expect_result shard T and E with r as result of T to E, message as string into T:
+    if r.is_ok:
+        return r.value
+    calling spark.panic with message
+    var owns as result of T to E is r
+    return owns.value
+
+## Devuelve el error de `r` o panickea con `message` si es `ok`.
+weave expect_err_result shard T and E with r as result of T to E, message as string into E:
+    if r.is_ok:
+        calling spark.panic with message
+    return r.error
+
+## Transforma la carga de éxito de `r` con `f`, propagando el error.
+weave map_result shard T and E and U with r as result of T to E, f as weave with x as T into U into result of U to E:
+    if r.is_ok:
+        return calling ok_of with (calling f with r.value)
+    return calling err_of with r.error
+
+## Transforma el error de `r` con `f`, propagando el éxito.
+weave map_err_result shard T and E and F with r as result of T to E, f as weave with x as E into F into result of T to F:
+    if r.is_ok:
+        return calling ok_of with r.value
+    return calling err_of with (calling f with r.error)
+
+## Encadena `f` sobre la carga de éxito de `r`.
+weave and_then_result shard T and E and U with r as result of T to E, f as weave with x as T into result of U to E into result of U to E:
+    if r.is_ok:
+        var nxt as result of U to E is calling f with r.value
+        if nxt.is_ok:
+            return calling ok_of with nxt.value
+        return calling err_of with nxt.error
+    return calling err_of with r.error
+
+## Devuelve `r` si es `ok`; si es `err`, `fallback` (mismo tipo de error).
+weave or_else_result shard T and E with r as result of T to E, fallback as result of T to E into result of T to E:
+    if r.is_ok:
+        return calling ok_of with r.value
+    if fallback.is_ok:
+        return calling ok_of with fallback.value
+    return calling err_of with fallback.error
+
+## Descarta el error de `r`: `maybe` con la carga de éxito.
+weave ok_result shard T and E with r as result of T to E into maybe T:
+    if r.is_ok:
+        return some r.value
+    return maybe none
+
+## Descarta el éxito de `r`: `maybe` con el error.
+weave err_result shard T and E with r as result of T to E into maybe E:
+    if r.is_ok:
+        return maybe none
+    return some r.error
+
+## Alias de `ok_result`: la carga de éxito como `maybe T`.
+weave to_maybe_result shard T and E with r as result of T to E into maybe T:
+    if r.is_ok:
+        return some r.value
+    return maybe none
+
+## Lista de cero o un elemento con la carga de éxito de `r`.
+weave to_list_result shard T and E with r as result of T to E into list of T:
+    if r.is_ok:
+        return [r.value]
+    return list of T
+
+## Descripción legible de `r`: `ok(v)` o `err(e)`.
+weave describe_result shard T and E with r as result of T to E into string:
+    if r.is_ok:
+        return "ok({r.value})"
+    return "err({r.error})"
+
+## True cuando todos los elementos de `ms` están presentes.
+weave all_present shard T with ms as list of maybe T into bool:
+    for m in ms:
+        if not (m is present):
+            return false
+    return true
+
+## Primera carga presente de `ms`, o `maybe none` si ninguna lo está.
+weave first_present shard T with ms as list of maybe T into maybe T:
+    for m in ms:
+        if v as T is m:
+            return some v
+    return maybe none
+
+## True cuando algún elemento de `ms` está presente.
+weave any_present shard T with ms as list of maybe T into bool:
+    for m in ms:
+        if m is present:
+            return true
+    return false
+
+## Cargas de éxito de `rs`, en orden.
+weave collect_ok shard T and E with rs as list of result of T to E into list of T:
+    var out as list of T is list of T
+    for r in rs:
+        if r.is_ok:
+            calling out.push with r.value
+    return out
+
+## Errores de `rs`, en orden.
+weave collect_err shard T and E with rs as list of result of T to E into list of E:
+    var out as list of E is list of E
+    for r in rs:
+        if not r.is_ok:
+            calling out.push with r.error
+    return out
+
+## Separa `rs` en un `Pair` de éxitos y errores.
+##
+## ## Ownership
+## Ambas listas del `Pair` son auto-banishables.
+##
+## ## Ejemplo
+## ```pengu
+## var p as Pair of list of int and list of string is calling oracle.partition_results with rs
+## ```
+weave partition_results shard T and E with rs as list of result of T to E into Pair of list of T and list of E:
+    var oks as list of T is list of T
+    var errs as list of E is list of E
+    for r in rs:
+        if r.is_ok:
+            calling oks.push with r.value
+        else:
+            calling errs.push with r.error
+    var out as Pair of list of T and list of E with:
+        set .first is oks
+        set .second is errs
+    return out
+
+# --- Helpers privados ---------------------------------------------------
+
+## Harness interno de los tests: panickea con `label` si `cond` es falso.
+weave _expect with cond as bool, label as string into void:
+    if not cond:
+        calling spark.panic with "oracle test failed: {label}"
+
+## Harness interno: igualdad de enteros.
+weave _expect_eq_int with actual as int, expected as int, label as string into void:
+    if actual != expected:
+        calling spark.panic with "oracle test failed: {label}: {(actual to string)} != {(expected to string)}"
+
+## Harness interno: igualdad de strings.
+weave _expect_eq_string with actual as string, expected as string, label as string into void:
+    if actual != expected:
+        calling spark.panic with "oracle test failed: {label}: {actual} != {expected}"
+
+## Harness interno: igualdad de booleanos.
+weave _expect_eq_bool with actual as bool, expected as bool, label as string into void:
+    if actual != expected:
+        calling spark.panic with "oracle test failed: {label}"
+
+# --- Tests --------------------------------------------------------------
+# Las operaciones con callback se ejercitan en `tests/std_programs/oracle.pengu`.
+test "maybe.is_some es true cuando hay valor":
+    var m as maybe int is some 3
+    calling _expect_eq_bool with (calling m.is_some), true, "is_some"
+test "maybe.is_some es false cuando está vacío":
+    var n as maybe int is maybe none
+    calling _expect_eq_bool with (calling n.is_some), false, "is_some none"
+test "maybe.is_none es true cuando está vacío":
+    var n as maybe int is maybe none
+    calling _expect_eq_bool with (calling n.is_none), true, "is_none"
+test "maybe.is_none es false cuando hay valor":
+    var m as maybe int is some 3
+    calling _expect_eq_bool with (calling m.is_none), false, "is_none value"
+test "maybe.unwrap devuelve la carga entera":
+    var m as maybe int is some 7
+    calling _expect_eq_int with (calling m.unwrap), 7, "unwrap int"
+test "maybe.unwrap devuelve la carga string":
+    var s as maybe string is some "hola"
+    calling _expect_eq_string with (calling s.unwrap), "hola", "unwrap string"
+test "maybe.unwrap_or devuelve la carga presente":
+    var m as maybe int is some 4
+    calling _expect_eq_int with (calling m.unwrap_or with 0), 4, "unwrap_or"
+test "maybe.unwrap_or devuelve el fallback en vacío":
+    var n as maybe int is maybe none
+    calling _expect_eq_int with (calling n.unwrap_or with 8), 8, "unwrap_or none"
+test "maybe.value_or devuelve la carga presente":
+    var m as maybe string is some "v"
+    calling _expect_eq_string with (calling m.value_or with "x"), "v", "value_or"
+test "maybe.value_or devuelve el fallback en vacío":
+    var n as maybe string is maybe none
+    calling _expect_eq_string with (calling n.value_or with "x"), "x", "value_or none"
+test "maybe.expect devuelve la carga":
+    var m as maybe string is some "ok"
+    calling _expect_eq_string with (calling m.expect with "falla"), "ok", "expect"
+test "maybe.to_result produce ok con la carga":
+    var m as maybe int is some 11
+    var r as result of int to string is calling m.to_result with "falta"
+    calling _expect_eq_int with (calling r.unwrap), 11, "to_result ok"
+test "maybe.to_result produce err cuando está vacío":
+    var n as maybe int is maybe none
+    var r as result of int to string is calling n.to_result with "falta"
+    calling _expect_eq_string with (calling r.unwrap_err), "falta", "to_result err"
+test "maybe.to_list tiene un elemento si hay valor":
+    var m as maybe int is some 1
+    var l as list of int is calling m.to_list
+    calling _expect_eq_int with l.length, 1, "to_list one"
+test "maybe.to_list está vacía si no hay valor":
+    var n as maybe int is maybe none
+    var l as list of int is calling n.to_list
+    calling _expect_eq_int with l.length, 0, "to_list zero"
+test "maybe.iter es un alias de to_list":
+    var m as maybe string is some "x"
+    var l as list of string is calling m.iter
+    calling _expect_eq_int with l.length, 1, "iter"
+test "maybe.describe distingue presente":
+    var m as maybe int is some 42
+    calling _expect_eq_string with (calling m.describe), "some(42)", "describe"
+test "maybe.describe distingue vacío":
+    var n as maybe int is maybe none
+    calling _expect_eq_string with (calling n.describe), "none", "describe none"
+test "maybe.zip combina dos presentes":
+    var a as maybe int is some 1
+    var b as maybe string is some "uno"
+    var p as maybe Pair of int and string is calling a.zip of string with b
+    if q as Pair of int and string is p:
+        calling _expect_eq_int with q.first, 1, "zip first"
+        calling _expect_eq_string with q.second, "uno", "zip second"
+test "maybe.zip queda vacío si falta alguno":
+    var a as maybe int is some 1
+    var n as maybe string is maybe none
+    var p as maybe Pair of int and string is calling a.zip of string with n
+    calling _expect_eq_bool with (calling p.is_some), false, "zip none"
+test "maybe.flatten repaqueta la carga presente":
+    var m as maybe string is some "z"
+    var d as maybe string is calling m.flatten
+    calling _expect_eq_string with (calling d.unwrap_or with "-"), "z", "flatten"
+test "maybe.flatten de un vacío queda vacío":
+    var n as maybe string is maybe none
+    var d as maybe string is calling n.flatten
+    calling _expect_eq_bool with (calling d.is_some), false, "flatten none"
+test "maybe.or_else conserva el valor presente":
+    var m as maybe int is some 2
+    var alt as maybe int is some 9
+    var d as maybe int is calling m.or_else with alt
+    calling _expect_eq_int with (calling d.unwrap_or with -1), 2, "or_else"
+test "maybe.or_else usa el fallback presente":
+    var n as maybe int is maybe none
+    var alt as maybe int is some 9
+    var d as maybe int is calling n.or_else with alt
+    calling _expect_eq_int with (calling d.unwrap_or with -1), 9, "or_else fallback"
+test "maybe.or_else de dos vacíos queda vacío":
+    var n as maybe int is maybe none
+    var other as maybe int is maybe none
+    var d as maybe int is calling n.or_else with other
+    calling _expect_eq_bool with (calling d.is_some), false, "or_else empty"
+test "maybe.and devuelve el segundo cuando ambos existen":
+    var a as maybe string is some "a"
+    var b as maybe string is some "b"
+    var d as maybe string is calling a.and with b
+    calling _expect_eq_string with (calling d.unwrap_or with "-"), "b", "and"
+test "maybe.and queda vacío si el segundo falta":
+    var a as maybe string is some "a"
+    var n as maybe string is maybe none
+    var d as maybe string is calling a.and with n
+    calling _expect_eq_bool with (calling d.is_some), false, "and none"
+test "maybe.or devuelve el primero cuando existe":
+    var a as maybe string is some "a"
+    var b as maybe string is some "b"
+    var d as maybe string is calling a.or with b
+    calling _expect_eq_string with (calling d.unwrap_or with "-"), "a", "or first"
+test "maybe.or devuelve el segundo si el primero falta":
+    var n as maybe string is maybe none
+    var b as maybe string is some "b"
+    var d as maybe string is calling n.or with b
+    calling _expect_eq_string with (calling d.unwrap_or with "-"), "b", "or second"
+test "maybe.or de dos vacíos queda vacío":
+    var n as maybe string is maybe none
+    var other as maybe string is maybe none
+    var d as maybe string is calling n.or with other
+    calling _expect_eq_bool with (calling d.is_some), false, "or empty"
+test "result.is_ok clasifica el éxito":
+    var a as result of int to string is calling ok_of with 1
+    calling _expect_eq_bool with (calling a.is_ok), true, "is_ok"
+test "result.is_ok es false en err":
+    var b as result of int to string is calling err_of with "e"
+    calling _expect_eq_bool with (calling b.is_ok), false, "is_ok err"
+test "result.is_err clasifica el error":
+    var b as result of int to string is calling err_of with "e"
+    calling _expect_eq_bool with (calling b.is_err), true, "is_err"
+test "result.is_err es false en ok":
+    var a as result of int to string is calling ok_of with 1
+    calling _expect_eq_bool with (calling a.is_err), false, "is_err ok"
+test "result.unwrap devuelve la carga de éxito":
+    var a as result of int to string is calling ok_of with 5
+    calling _expect_eq_int with (calling a.unwrap), 5, "unwrap"
+test "result.unwrap_err devuelve el error":
+    var b as result of int to string is calling err_of with "boom"
+    calling _expect_eq_string with (calling b.unwrap_err), "boom", "unwrap_err"
+test "result.unwrap_or devuelve la carga en ok":
+    var a as result of int to string is calling ok_of with 6
+    calling _expect_eq_int with (calling a.unwrap_or with 0), 6, "unwrap_or ok"
+test "result.unwrap_or devuelve el fallback en err":
+    var b as result of int to string is calling err_of with "e"
+    calling _expect_eq_int with (calling b.unwrap_or with 7), 7, "unwrap_or err"
+test "result.expect devuelve la carga":
+    var a as result of int to string is calling ok_of with 9
+    calling _expect_eq_int with (calling a.expect with "falla"), 9, "expect"
+test "result.expect_err devuelve el error":
+    var b as result of int to string is calling err_of with "x"
+    calling _expect_eq_string with (calling b.expect_err with "falla"), "x", "expect_err"
+test "result.ok convierte el éxito en maybe":
+    var a as result of int to string is calling ok_of with 3
+    var m as maybe int is calling a.ok
+    calling _expect_eq_int with (calling m.unwrap_or with -1), 3, "ok some"
+test "result.ok de un err queda vacío":
+    var b as result of int to string is calling err_of with "e"
+    var m as maybe int is calling b.ok
+    calling _expect_eq_bool with (calling m.is_some), false, "ok err"
+test "result.err expone el error como maybe":
+    var b as result of int to string is calling err_of with "e"
+    var m as maybe string is calling b.err
+    calling _expect_eq_string with (calling m.unwrap_or with "-"), "e", "err some"
+test "result.err de un ok queda vacío":
+    var a as result of int to string is calling ok_of with 3
+    var m as maybe string is calling a.err
+    calling _expect_eq_bool with (calling m.is_some), false, "err ok"
+test "result.to_maybe es un alias de ok":
+    var a as result of int to string is calling ok_of with 8
+    var m as maybe int is calling a.to_maybe
+    calling _expect_eq_int with (calling m.unwrap_or with -1), 8, "to_maybe"
+test "result.to_list tiene un elemento si es ok":
+    var a as result of int to string is calling ok_of with 1
+    var l as list of int is calling a.to_list
+    calling _expect_eq_int with l.length, 1, "to_list ok"
+test "result.to_list está vacía si es err":
+    var b as result of int to string is calling err_of with "e"
+    var l as list of int is calling b.to_list
+    calling _expect_eq_int with l.length, 0, "to_list err"
+test "result.describe formatea el éxito":
+    var a as result of int to string is calling ok_of with 7
+    calling _expect_eq_string with (calling a.describe), "ok(7)", "describe ok"
+test "result.describe formatea el error":
+    var b as result of int to string is calling err_of with "e"
+    calling _expect_eq_string with (calling b.describe), "err(e)", "describe err"
+test "some_of envuelve un entero":
+    var m as maybe int is calling some_of with 12
+    calling _expect_eq_int with (calling m.unwrap_or with 0), 12, "some_of"
+test "some_of envuelve un string":
+    var m as maybe string is calling some_of with "texto"
+    calling _expect_eq_string with (calling m.unwrap_or with "-"), "texto", "some_of string"
+test "none_of con tipo explícito construye un vacío":
+    var m as maybe int is calling none_of of int
+    calling _expect_eq_bool with (calling m.is_some), false, "none_of"
+test "is_some_maybe detecta el valor presente":
+    calling _expect_eq_bool with (calling is_some_maybe with (some 1)), true, "is_some_maybe"
+test "is_some_maybe es false en un vacío":
+    var n as maybe int is maybe none
+    calling _expect_eq_bool with (calling is_some_maybe with n), false, "is_some_maybe none"
+test "is_none_maybe detecta el vacío":
+    var n as maybe int is maybe none
+    calling _expect_eq_bool with (calling is_none_maybe with n), true, "is_none_maybe"
+test "is_none_maybe es false con valor":
+    calling _expect_eq_bool with (calling is_none_maybe with (some 2)), false, "is_none_maybe value"
+test "unwrap_maybe devuelve la carga":
+    calling _expect_eq_int with (calling unwrap_maybe with (some 21)), 21, "unwrap_maybe"
+test "unwrap_or_maybe usa la carga presente":
+    calling _expect_eq_int with (calling unwrap_or_maybe with (some 4), 0), 4, "unwrap_or_maybe"
+test "unwrap_or_maybe usa el fallback en vacío":
+    var n as maybe int is maybe none
+    calling _expect_eq_int with (calling unwrap_or_maybe with n, 33), 33, "unwrap_or_maybe none"
+test "expect_maybe devuelve la carga":
+    calling _expect_eq_string with (calling expect_maybe with (some "y"), "falla"), "y", "expect_maybe"
+test "value_or_maybe usa la carga presente":
+    calling _expect_eq_string with (calling value_or_maybe with (some "a"), "z"), "a", "value_or_maybe"
+test "value_or_maybe usa el fallback en vacío":
+    var n as maybe string is maybe none
+    calling _expect_eq_string with (calling value_or_maybe with n, "z"), "z", "value_or_maybe none"
+test "or_else_maybe prefiere el primer valor":
+    var alt as maybe int is some 9
+    calling _expect_eq_int with (calling unwrap_or_maybe with (calling or_else_maybe with (some 1), alt), -1), 1, "or_else_maybe"
+test "or_else_maybe usa el fallback en vacío":
+    var n as maybe int is maybe none
+    var alt as maybe int is some 9
+    calling _expect_eq_int with (calling unwrap_or_maybe with (calling or_else_maybe with n, alt), -1), 9, "or_else_maybe alt"
+test "and_maybe exige ambos valores":
+    var other as maybe string is some "b"
+    calling _expect_eq_string with (calling unwrap_or_maybe with (calling and_maybe with (some "a"), other), "-"), "b", "and_maybe"
+test "and_maybe queda vacío si falta el segundo":
+    var n as maybe string is maybe none
+    calling _expect_eq_bool with (calling is_some_maybe with (calling and_maybe with (some "a"), n)), false, "and_maybe none"
+test "or_maybe prefiere el primero":
+    var other as maybe string is some "b"
+    calling _expect_eq_string with (calling unwrap_or_maybe with (calling or_maybe with (some "a"), other), "-"), "a", "or_maybe first"
+test "or_maybe usa el segundo si el primero falta":
+    var other as maybe string is some "b"
+    var empty as maybe string is maybe none
+    calling _expect_eq_string with (calling unwrap_or_maybe with (calling or_maybe with empty, other), "-"), "b", "or_maybe second"
+test "to_result_maybe produce ok con la carga":
+    var r as result of int to string is calling to_result_maybe with (some 2), "no"
+    calling _expect_eq_int with (calling r.unwrap), 2, "to_result_maybe"
+test "to_result_maybe produce err en vacío":
+    var n as maybe int is maybe none
+    var r as result of int to string is calling to_result_maybe with n, "no"
+    calling _expect_eq_string with (calling r.unwrap_err), "no", "to_result_maybe err"
+test "to_list_maybe tiene un elemento si hay valor":
+    var l as list of int is calling to_list_maybe with (some 1)
+    calling _expect_eq_int with l.length, 1, "to_list_maybe one"
+test "to_list_maybe está vacía sin valor":
+    var n as maybe int is maybe none
+    var l as list of int is calling to_list_maybe with n
+    calling _expect_eq_int with l.length, 0, "to_list_maybe zero"
+test "describe_optional formatea presente":
+    calling _expect_eq_string with (calling describe_optional with (some 5)), "some(5)", "describe_optional"
+test "describe_optional formatea vacío":
+    var n as maybe int is maybe none
+    calling _expect_eq_string with (calling describe_optional with n), "none", "describe_optional none"
+test "iter_maybe es un alias de to_list_maybe":
+    var l as list of int is calling iter_maybe with (some 1)
+    calling _expect_eq_int with l.length, 1, "iter_maybe"
+test "zip_maybe combina dos presentes":
+    var p as maybe Pair of int and string is calling zip_maybe with (some 1), (some "u")
+    if q as Pair of int and string is p:
+        calling _expect_eq_int with q.first, 1, "zip_maybe first"
+        calling _expect_eq_string with q.second, "u", "zip_maybe second"
+test "zip_maybe queda vacío si falta alguno":
+    var n as maybe string is maybe none
+    calling _expect_eq_bool with (calling is_some_maybe with (calling zip_maybe with (some 1), n)), false, "zip_maybe none"
+test "flatten_maybe repaqueta la carga":
+    calling _expect_eq_string with (calling unwrap_or_maybe with (calling flatten_maybe with (some "k")), "-"), "k", "flatten_maybe"
+test "flatten_maybe de un vacío queda vacío":
+    var n as maybe string is maybe none
+    calling _expect_eq_bool with (calling is_some_maybe with (calling flatten_maybe with n)), false, "flatten_maybe none"
+test "is_ok_result clasifica el éxito":
+    var a as result of int to string is calling ok_of with 1
+    calling _expect_eq_bool with (calling is_ok_result with a), true, "is_ok_result"
+test "is_ok_result es false en err":
+    var b as result of int to string is calling err_of with "e"
+    calling _expect_eq_bool with (calling is_ok_result with b), false, "is_ok_result err"
+test "is_err_result clasifica el error":
+    var b as result of int to string is calling err_of with "e"
+    calling _expect_eq_bool with (calling is_err_result with b), true, "is_err_result"
+test "is_err_result es false en ok":
+    var a as result of int to string is calling ok_of with 1
+    calling _expect_eq_bool with (calling is_err_result with a), false, "is_err_result ok"
+test "unwrap_result devuelve la carga":
+    var a as result of int to string is calling ok_of with 14
+    calling _expect_eq_int with (calling unwrap_result with a), 14, "unwrap_result"
+test "unwrap_err_result devuelve el error":
+    var b as result of int to string is calling err_of with "z"
+    calling _expect_eq_string with (calling unwrap_err_result with b), "z", "unwrap_err_result"
+test "unwrap_or_result usa la carga en ok":
+    var a as result of int to string is calling ok_of with 3
+    calling _expect_eq_int with (calling unwrap_or_result with a, 0), 3, "unwrap_or_result"
+test "unwrap_or_result usa el fallback en err":
+    var b as result of int to string is calling err_of with "e"
+    calling _expect_eq_int with (calling unwrap_or_result with b, 4), 4, "unwrap_or_result err"
+test "expect_result devuelve la carga":
+    var a as result of int to string is calling ok_of with 15
+    calling _expect_eq_int with (calling expect_result with a, "falla"), 15, "expect_result"
+test "expect_err_result devuelve el error":
+    var b as result of int to string is calling err_of with "q"
+    calling _expect_eq_string with (calling expect_err_result with b, "falla"), "q", "expect_err_result"
+test "ok_result convierte el éxito en maybe":
+    var a as result of int to string is calling ok_of with 6
+    var m as maybe int is calling ok_result with a
+    calling _expect_eq_int with (calling m.unwrap_or with -1), 6, "ok_result"
+test "err_result convierte el error en maybe":
+    var b as result of int to string is calling err_of with "w"
+    var m as maybe string is calling err_result with b
+    calling _expect_eq_string with (calling m.unwrap_or with "-"), "w", "err_result"
+test "to_maybe_result es un alias de ok_result":
+    var a as result of int to string is calling ok_of with 6
+    var m as maybe int is calling to_maybe_result with a
+    calling _expect_eq_int with (calling m.unwrap_or with -1), 6, "to_maybe_result"
+test "to_list_result tiene un elemento si es ok":
+    var a as result of int to string is calling ok_of with 1
+    var l as list of int is calling to_list_result with a
+    calling _expect_eq_int with l.length, 1, "to_list_result ok"
+test "to_list_result está vacía si es err":
+    var b as result of int to string is calling err_of with "e"
+    var l as list of int is calling to_list_result with b
+    calling _expect_eq_int with l.length, 0, "to_list_result err"
+test "describe_result formatea ok":
+    var a as result of int to string is calling ok_of with 3
+    calling _expect_eq_string with (calling describe_result with a), "ok(3)", "describe_result"
+test "describe_result formatea err":
+    var b as result of int to string is calling err_of with "m"
+    calling _expect_eq_string with (calling describe_result with b), "err(m)", "describe_result err"
+test "all_present es true cuando todos tienen valor":
+    var ms as list of maybe int is [some 1, some 2]
+    calling _expect_eq_bool with (calling all_present with ms), true, "all_present"
+test "all_present es false con un vacío":
+    var ms as list of maybe int is [some 1, maybe none]
+    calling _expect_eq_bool with (calling all_present with ms), false, "all_present false"
+test "all_present de una lista vacía es true":
+    var ms as list of maybe int is list of maybe int
+    calling _expect_eq_bool with (calling all_present with ms), true, "all_present empty"
+test "first_present devuelve la primera carga":
+    var ms as list of maybe int is [maybe none, some 4, some 5]
+    var f as maybe int is calling first_present with ms
+    calling _expect_eq_int with (calling f.unwrap_or with -1), 4, "first_present"
+test "first_present queda vacío sin cargas":
+    var ms as list of maybe int is [maybe none, maybe none]
+    var f as maybe int is calling first_present with ms
+    calling _expect_eq_bool with (calling f.is_some), false, "first_present none"
+test "any_present detecta al menos una carga":
+    var ms as list of maybe int is [maybe none, some 1]
+    calling _expect_eq_bool with (calling any_present with ms), true, "any_present"
+test "any_present es false sin cargas":
+    var ms as list of maybe int is [maybe none]
+    calling _expect_eq_bool with (calling any_present with ms), false, "any_present false"
+test "collect_ok reúne los éxitos en orden":
+    var a as result of int to string is calling ok_of with 1
+    var b as result of int to string is calling err_of with "e"
+    var c as result of int to string is calling ok_of with 3
+    var rs as list of result of int to string is [a, b, c]
+    var oks as list of int is calling collect_ok with rs
+    calling _expect_eq_int with oks.length, 2, "collect_ok len"
+    calling _expect_eq_int with (oks at 1), 3, "collect_ok second"
+test "collect_err reúne los errores en orden":
+    var a as result of int to string is calling ok_of with 1
+    var b as result of int to string is calling err_of with "e"
+    var rs as list of result of int to string is [a, b]
+    var errs as list of string is calling collect_err with rs
+    calling _expect_eq_int with errs.length, 1, "collect_err len"
+    calling _expect_eq_string with (errs at 0), "e", "collect_err first"
+test "collect_ok y collect_err de una lista vacía":
+    var rs as list of result of int to string is list of result of int to string
+    var oks as list of int is calling collect_ok with rs
+    var errs as list of string is calling collect_err with rs
+    calling _expect_eq_int with oks.length, 0, "collect_ok empty"
+    calling _expect_eq_int with errs.length, 0, "collect_err empty"
+test "partition_results separa éxitos y errores":
+    var a as result of int to string is calling ok_of with 1
+    var b as result of int to string is calling err_of with "e"
+    var c as result of int to string is calling ok_of with 3
+    var rs as list of result of int to string is [a, b, c]
+    var p as Pair of list of int and list of string is calling partition_results with rs
+    var oks as list of int is p.first
+    var errs as list of string is p.second
+    calling _expect_eq_int with oks.length, 2, "partition oks"
+    calling _expect_eq_int with errs.length, 1, "partition errs"
+test "partition_results con sólo errores":
+    var a as result of int to string is calling err_of with "a"
+    var b as result of int to string is calling err_of with "b"
+    var rs as list of result of int to string is [a, b]
+    var p as Pair of list of int and list of string is calling partition_results with rs
+    var oks as list of int is p.first
+    var errs as list of string is p.second
+    calling _expect_eq_int with oks.length, 0, "partition no oks"
+    calling _expect_eq_int with errs.length, 2, "partition errs"
+test "partition_results conserva los valores":
+    var a as result of int to string is calling ok_of with 7
+    var rs as list of result of int to string is [a]
+    var p as Pair of list of int and list of string is calling partition_results with rs
+    var oks as list of int is p.first
+    calling _expect_eq_int with (oks at 0), 7, "partition value"
+test "legacy MaybeInt conserva sus métodos":
+    var m as MaybeInt is calling maybe_some_int with 5
+    var n as MaybeInt is calling maybe_none_int
+    calling _expect_eq_bool with (calling m.is_present), true, "is_present"
+    calling _expect_eq_int with (calling n.unwrap_or with 2), 2, "unwrap_or"
+test "legacy MaybeString conserva su unwrap":
+    var s as MaybeString is calling maybe_some_string with "s"
+    calling _expect_eq_string with (calling s.unwrap_or with "-"), "s", "unwrap_or string"
+test "legacy ResultInt conserva sus métodos":
+    var a as ResultInt is calling result_ok_int with 1
+    var b as ResultInt is calling result_err_int with "bad"
+    calling _expect_eq_bool with (calling a.is_ok), true, "is_ok"
+    calling _expect_eq_string with (calling b.unwrap_err), "bad", "unwrap_err"
+test "legacy ResultString conserva su unwrap_err":
+    var d as ResultString is calling result_err_string with "no"
+    calling _expect_eq_string with (calling d.unwrap_err), "no", "unwrap_err string"
+test "legacy constructores nativos de maybe":
+    var m as maybe int is calling some_int with 9
+    var n as maybe int is calling none_int
+    calling _expect_eq_int with (calling unwrap_int with m), 9, "unwrap_int"
+    calling _expect_eq_int with (calling unwrap_or_int with n, 4), 4, "unwrap_or_int"
+test "legacy constructores nativos de float y bool":
+    var f as maybe float is calling some_float with 1.5
+    var b as maybe bool is calling some_bool with true
+    calling _expect_eq_bool with ((calling unwrap_float with f) > 1.0), true, "unwrap_float"
+    calling _expect_eq_bool with (calling unwrap_bool with b), true, "unwrap_bool"
+test "legacy none_bool y unwrap_or_bool":
+    calling _expect_eq_bool with (calling unwrap_or_bool with (calling none_bool), true), true, "unwrap_or_bool"
+test "legacy describe_maybe_int conserva su formato":
+    var a as maybe int is calling some_int with 8
+    calling _expect_eq_string with (calling describe_maybe_int with a), "some(8)", "describe_maybe_int"
+test "legacy describe_maybe_string conserva su formato":
+    var s as maybe string is calling some_string with "x"
+    calling _expect_eq_string with (calling describe_maybe_string with s), "some(\"x\")", "describe_maybe_string"
+test "legacy describe_maybe_int de un vacío":
+    var n as maybe int is calling none_int
+    calling _expect_eq_string with (calling describe_maybe_int with n), "none", "describe none"
+test "legacy describe_int y describe_string conservan su formato":
+    var a as MaybeInt is calling maybe_some_int with 3
+    var b as MaybeString is calling maybe_some_string with "v"
+    calling _expect_eq_string with (calling describe_int with a), "some(3)", "describe_int"
+    calling _expect_eq_string with (calling describe_string with b), "some(\"v\")", "describe_string"
+test "legacy describe_result_int y describe_result_string":
+    var a as ResultInt is calling result_ok_int with 2
+    var b as ResultString is calling result_err_string with "e"
+    calling _expect_eq_string with (calling describe_result_int with a), "ok(2)", "describe_result_int"
+    calling _expect_eq_string with (calling describe_result_string with b), "err(e)", "describe_result_string"
+test "legacy puentes to_native_int y from_native_int":
+    var m as MaybeInt is calling maybe_some_int with 6
+    var nat as maybe int is calling to_native_int with m
+    var back as MaybeInt is calling from_native_int with nat
+    calling _expect_eq_int with (calling unwrap_int with nat), 6, "to_native_int"
+    calling _expect_eq_int with (calling back.unwrap_or with 0), 6, "from_native_int"
+test "legacy puentes to_native_string y from_native_string":
+    var s as MaybeString is calling maybe_some_string with "puente"
+    var nat as maybe string is calling to_native_string with s
+    var back as MaybeString is calling from_native_string with nat
+    calling _expect_eq_string with (calling back.unwrap_or with ""), "puente", "from_native_string"
+test "legacy helpers de result nativo":
+    var a as result of int to string is calling ok_of with 4
+    var b as result of int to string is calling err_of with "e"
+    calling _expect_eq_bool with (calling is_ok_int_result with a), true, "is_ok_int_result"
+    calling _expect_eq_bool with (calling is_err_int_result with b), true, "is_err_int_result"
+    calling _expect_eq_int with (calling unwrap_int_result with a), 4, "unwrap_int_result"
+    calling _expect_eq_int with (calling unwrap_or_int_result with b, 6), 6, "unwrap_or_int_result"
+test "legacy result_ok_string sigue expuesto":
+    var r as ResultString is calling result_ok_string with "ok"
+    calling _expect_eq_string with (calling r.unwrap_or with "-"), "ok", "result_ok_string"

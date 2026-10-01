@@ -255,8 +255,10 @@ class ConstFolder:
             v = self.fold(node.children[0])
             return not bool(v) if v is not None else None
 
-        elif rule == "some_expr":
-            # Boxing must happen at run time (heap allocation); never fold it.
+        elif rule in ("some_expr", "ok_expr", "err_expr"):
+            # Boxing / result construction must happen at run time (heap
+            # allocation); never fold it.  Without this the generic
+            # single-child fallback below would fold 'ok 41' to just '41'.
             return None
 
         elif rule == "ord_expr":
@@ -2058,6 +2060,54 @@ class TypeInferrer:
                 )
             return MaybeType(element=inner_t)
 
+        elif rule in ("ok_expr", "err_expr"):
+            # 'ok expr' / 'err expr' build a native 'result of T to E'.  The
+            # wrapped side is inferred from the operand; the *other* side has no
+            # syntax of its own, so it comes from the expected type (a 'return'
+            # in a function returning 'result of T to E', a typed target, an
+            # annotated argument...).  Without that context both sides cannot be
+            # known, which is E0014 — the same contract as 'maybe none'.
+            #
+            # NOTE: the grammar no longer produces these nodes ('ok'/'err' are
+            # ordinary identifiers); `calling ok_of with v` / `calling err_of
+            # with e` route through _infer_result_ctor and reuse this contract.
+            is_ok_side = rule == "ok_expr"
+            side_name = "ok" if is_ok_side else "err"
+            exp_inner = None
+            if isinstance(expected_type, ResultType):
+                exp_inner = expected_type.ok_type if is_ok_side else expected_type.err_type
+            inner_t = self.infer(node.children[0], expected_type=exp_inner)
+            if inner_t == VOID_TYPE or isinstance(inner_t, AnyType):
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"'{side_name}' cannot wrap a void or unknown value",
+                    node,
+                    code="E0005",
+                    help=f"'result' requires a value of a concrete type on the '{side_name}' side.",
+                    note="Both sides of a 'result' are statically typed."
+                )
+            if isinstance(inner_t, ArrayType):
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"'{side_name}' cannot wrap a fixed array; use a slice or reference instead",
+                    node,
+                    code="E0005",
+                    help="Convert the array to a slice ('slice of T') or take a reference first.",
+                    note="Fixed arrays decay to pointers in C and cannot be stored by value."
+                )
+            if isinstance(expected_type, ResultType):
+                return expected_type
+            raise self._make_error(
+                TypeMismatchError,
+                f"'{side_name}' requires explicit type context (e.g. 'as result of T to E')",
+                node,
+                code="E0014",
+                help="Annotate the target, e.g. "
+                     f"'var r as result of int to string is {side_name} v', or return it "
+                     "from a weave whose result type is declared.",
+                note="'ok'/'err' need both the success and the error type to be known."
+            )
+
         elif rule == "ord_expr":
             # 'ord s' returns the byte code of the first (and only) character.
             arg = node.children[0]
@@ -2192,6 +2242,13 @@ class TypeInferrer:
         # Calling function or method
         elif rule == "calling_expr":
             target_node = node.children[0]
+            # Compiler-provided result constructors ('calling ok_of with v',
+            # 'calling oracle.err_of with e').  Intercepted before call
+            # resolution: there is no Pengu declaration to look up, and the
+            # missing side of the result type comes from the expected type.
+            ctor = self._result_ctor_call_name(target_node)
+            if ctor is not None:
+                return self._infer_result_ctor(node, ctor, expected_type)
             explicit_type_args = []
             args_tree = None
             for ch in node.children[1:]:
@@ -3360,6 +3417,103 @@ class TypeInferrer:
                 )
 
     
+    # --------------------------------------------------- result constructors
+    _RESULT_CTORS = ("ok_of", "err_of")
+
+    def _result_ctor_call_name(self, target_node: Any) -> Optional[str]:
+        """Returns ``'ok_of'``/``'err_of'`` when a call target is a result ctor.
+
+        Accepted spellings: bare (``calling ok_of with v``) and qualified
+        (``calling oracle.ok_of with v``).  These are compiler intrinsics, so the
+        check must run before the regular call resolution would report an
+        undefined function.
+        """
+        if not isinstance(target_node, Tree) or target_node.data != "normal_target":
+            return None
+        if not target_node.children:
+            return None
+        last = target_node.children[-1]
+        if isinstance(last, Tree) and last.data in ("dot_access", "arrow_access") and last.children:
+            name = str(last.children[0])
+            if name in self._RESULT_CTORS and str(target_node.children[0]) == "oracle":
+                return name
+            return None
+        if len(target_node.children) == 1:
+            name = str(target_node.children[0])
+            if name in self._RESULT_CTORS:
+                return name
+        return None
+
+    def _result_ctor_arg(self, node: Any) -> Optional[Any]:
+        """First argument expression of a ``calling_expr`` node, or None."""
+        for ch in node.children[1:]:
+            if isinstance(ch, Tree) and ch.data == "arg_list":
+                for arg in ch.children:
+                    if isinstance(arg, Tree):
+                        if arg.data == "pos_arg" and arg.children:
+                            return arg.children[0]
+                        if arg.data == "named_arg" and len(arg.children) >= 2:
+                            return arg.children[1]
+                    elif arg is not None:
+                        return arg
+        return None
+
+    def _infer_result_ctor(self, node: Any, ctor: str,
+                           expected_type: Optional[Type]) -> Type:
+        """Infers ``ok_of v`` / ``err_of e``: one side from the value, one from context.
+
+        The value's type gives the ok side (for ``ok_of``) or the error side (for
+        ``err_of``); the opposite side can only come from the expected type, so
+        without context both sides are unknown and E0014 is raised — the same
+        contract as ``maybe none``.
+        """
+        is_ok_side = ctor == "ok_of"
+        side_name = "ok" if is_ok_side else "err"
+        arg_node = self._result_ctor_arg(node)
+        if arg_node is None:
+            raise self._make_error(
+                TypeMismatchError,
+                f"'{ctor}' expects exactly one argument",
+                node,
+                code="E0005",
+                help=f"Use 'calling {ctor} with value'.",
+                note="'ok_of'/'err_of' box a single value into a result."
+            )
+        exp_inner = None
+        if isinstance(expected_type, ResultType):
+            exp_inner = expected_type.ok_type if is_ok_side else expected_type.err_type
+        inner_t = self.infer(arg_node, expected_type=exp_inner)
+        if inner_t == VOID_TYPE or isinstance(inner_t, AnyType):
+            raise self._make_error(
+                TypeMismatchError,
+                f"'{ctor}' cannot wrap a void or unknown value",
+                node,
+                code="E0005",
+                help=f"'result' requires a concrete '{side_name}' payload.",
+                note="Both sides of a 'result' are statically typed."
+            )
+        if isinstance(inner_t, ArrayType):
+            raise self._make_error(
+                TypeMismatchError,
+                f"'{ctor}' cannot wrap a fixed array; use a slice or reference instead",
+                node,
+                code="E0005",
+                help="Convert the array to a slice ('slice of T') or take a reference first.",
+                note="Fixed arrays decay to pointers in C and cannot be stored by value."
+            )
+        if isinstance(expected_type, ResultType):
+            return expected_type
+        raise self._make_error(
+            TypeMismatchError,
+            f"'{ctor}' requires explicit type context (e.g. 'as result of T to E')",
+            node,
+            code="E0014",
+            help="Annotate the target, e.g. 'var r as result of int to string is "
+                 f"calling {ctor} with v', or return it from a weave whose result "
+                 "type is declared.",
+            note="'ok_of'/'err_of' need both the success and the error type to be known."
+        )
+
     def _check_string_interpolation(self, text: str, line: Optional[int], col: Optional[int], node: Any = None):
         """Checks that expressions interpolated inside {expr} are valid and type-checked."""
         is_raw, is_triple, parts = extract_string_parts(text)
@@ -3689,6 +3843,15 @@ class TypeInferrer:
                                 t_name = _unfrozen_name(obj_type.target)
                             else:
                                 t_name = _unfrozen_name(obj_type)
+                            # A generic method must be re-inferred at every call
+                            # site: the specialized signature cached in
+                            # symbols.methods by the first call already carries
+                            # the receiver's substitution, so returning it here
+                            # leaves nothing for the method's own type params
+                            # (U in 'maybe T .map shard U') to bind against and
+                            # the second call fails with E0005.
+                            base_tname = get_type_base_name(obj_type)
+                            is_generic_method = (base_tname, m_name) in self.symbols.generic_methods
                             if (t_name, m_name) in self.symbols.methods:
                                 m_fn = self.symbols.methods[(t_name, m_name)]
                                 if getattr(m_fn, "is_ritual", False):
@@ -3700,12 +3863,12 @@ class TypeInferrer:
                                         help=f"Call as '{t_name}.{m_name}(...)' instead.",
                                         note="Ritual methods cannot be called on instances."
                                     )
-                                return m_fn, obj_type
-                            if f"{t_name}_{m_name}" in self.symbols.functions:
+                                if not is_generic_method:
+                                    return m_fn, obj_type
+                            if not is_generic_method and f"{t_name}_{m_name}" in self.symbols.functions:
                                 return self.symbols.functions[f"{t_name}_{m_name}"], obj_type
 
-                            base_tname = get_type_base_name(obj_type)
-                            if (base_tname, m_name) in self.symbols.generic_methods:
+                            if is_generic_method:
                                 entry = self.symbols.generic_methods[(base_tname, m_name)]
                                 recv_params, m_params, method_ast = (entry[0], entry[1], entry[2]) if len(entry) == 3 else (entry[0], [], entry[1])
                                 type_params = list(recv_params) + list(m_params)

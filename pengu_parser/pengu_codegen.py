@@ -692,6 +692,46 @@ class PenguCodegen:
                 return True
         return False
 
+    def _implicit_return_expr(self, stmts: List[Any],
+                              return_type: Optional[Type]) -> Optional[Any]:
+        """Tail expression of a weave body that becomes its implicit return.
+
+        Implements the documented rule (guide §4.11): "if the last statement of
+        the weave is an expression, do not write `return`".  Returns the
+        expression node when the body ends in a value-position expression and the
+        declared return type is non-void and compatible; ``None`` keeps the
+        previous behaviour (the emitter then appends nothing extra).
+
+        Returning the node (instead of post-processing the emitted C) lets the
+        caller route it through the real ``return_stmt`` path, so ``defer``,
+        ``errdefer`` and scope auto-banishes run exactly once and the returned
+        value is excluded from the banish set.
+        """
+        if not stmts or return_type is None:
+            return None
+        try:
+            if CTypeMapper.to_c_type(return_type) == "void":
+                return None
+        except Exception:
+            return None
+        last = stmts[-1]
+        while isinstance(last, Tree) and last.data in ("stmt", "simple_stmt") and last.children:
+            last = last.children[-1]
+        if not (isinstance(last, Tree) and last.data == "expr_stmt" and last.children):
+            return None
+        expr = last.children[0]
+        # A bare call statement may be void (`calling spark.println with …`):
+        # leave it alone so the author keeps writing `return` when they want the
+        # callee's value.  Every other expression form that can appear in an
+        # `expr_stmt` yields a value, so it is the implicit result.
+        inner = expr
+        while (isinstance(inner, Tree) and inner.data in ("paren_expr", "value_expr", "expr")
+               and len(inner.children) == 1):
+            inner = inner.children[0]
+        if isinstance(inner, Tree) and inner.data == "calling_expr":
+            return None
+        return expr
+
     def _lookup_symbol(self, name: str) -> Optional[Symbol]:
         """Resolves symbol in active symbol table, falling back to un-escaped name if prefixed with _."""
         if not self.symbols:
@@ -3249,14 +3289,29 @@ class PenguCodegen:
             self.errdefer_stack.append([])
             self._auto_banish_push("weave")
 
-            body_code = self._translate_block(w["body_stmts"])
-            lines.append(body_code)
+            # Implicit return (guide §4.11): when the body's last statement is a
+            # value expression and the weave returns a non-void type, that value
+            # is the result.  Translating it as a real ``return_stmt`` gives the
+            # same cleanup/escape handling as an explicit ``return``.
+            body_stmts = w["body_stmts"]
+            tail_expr = self._implicit_return_expr(body_stmts, w.get("return_type"))
+            if tail_expr is not None:
+                body_code = self._translate_block(body_stmts[:-1])
+                lines.append(body_code)
+                lines.append(self._translate_stmt(Tree("return_stmt", [tail_expr],
+                                                       meta=getattr(tail_expr, "meta", None))))
+            else:
+                body_code = self._translate_block(body_stmts)
+                lines.append(body_code)
 
             # Emit any remaining top-level defers and auto-banishes before function exit
             active_defers = self.defer_stack.pop() if self.defer_stack else []
             if self.errdefer_stack:
                 self.errdefer_stack.pop()
-            if not self._stmts_end_with_jump(w["body_stmts"]):
+            # With a synthesized implicit return the deferred cleanup and the
+            # scope banishes are already emitted *inside* the return statement;
+            # emitting them again here would double-free.
+            if tail_expr is None and not self._stmts_end_with_jump(w["body_stmts"]):
                 if active_defers:
                     lines.append(f"{self.indent()}/* Deferred cleanup */")
                     for d in reversed(active_defers):
@@ -4848,16 +4903,30 @@ class PenguCodegen:
 
         bind_name = str(node.children[0])
         c_bind_name = self._c_ident(bind_name)
-        bind_type = ast_to_type(
+        # Inside a monomorphized generic weave/method the bound types are still
+        # spelled with their type parameters: substitute the active map, or the
+        # unwrapping cast would be emitted as 'void*' instead of the concrete
+        # element type ('int32_t v = *(void* *)m.value' → wrong C).
+        subst = getattr(self, "current_subst_map", None) or {}
+
+        def _resolve(t: Optional[Type]) -> Optional[Type]:
+            if t is None or not subst:
+                return t
+            try:
+                return t.substitute(subst)
+            except Exception:
+                return t
+
+        bind_type = _resolve(ast_to_type(
             node.children[1],
             self._lookup_type_fn,
-        )
+        ))
         expr_node = getattr(node, "_pengu_bind_source", None) or node.children[2]
         if isinstance(expr_node, Tree) and expr_node.data == "is_present" and expr_node.children:
             # Redundant presence test: the binding implies it.
             expr_node = expr_node.children[0]
-        elem_t = getattr(node, "_pengu_bind_elem_type", None) or bind_type
-        maybe_t = getattr(node, "_pengu_bind_maybe_type", None) or MaybeType(element=elem_t)
+        elem_t = _resolve(getattr(node, "_pengu_bind_elem_type", None) or bind_type)
+        maybe_t = _resolve(getattr(node, "_pengu_bind_maybe_type", None) or MaybeType(element=elem_t))
         decl_c = CTypeMapper.to_c_decl(bind_type, c_bind_name)
         elem_cast = CTypeMapper.to_c_decl(elem_t, "*")
         return (
@@ -5195,11 +5264,14 @@ class PenguCodegen:
                 return False
             # 'x to string' with 'x' already a string is the identity: the value
             # reuses x's buffer, so releasing it would free borrowed memory.
+            # 'bool to string' is also NOT owned: pengu_string_from_bool returns
+            # a static '.rodata' view ("true"/"false") and the runtime header
+            # documents banishing it as undefined behaviour.
             operand_t = self._infer_node_type(node.children[0]) if node.children else None
             while (isinstance(operand_t, (AliasType, FrozenType))
                    and getattr(operand_t, "target", None)):
                 operand_t = operand_t.target
-            if isinstance(operand_t, BaseType) and operand_t.name == "string":
+            if isinstance(operand_t, BaseType) and operand_t.name in ("string", "bool"):
                 return False
             return True
         if node.data == "chr_expr":
@@ -5598,6 +5670,92 @@ class PenguCodegen:
             f"if ({is_fail}) {fail_stmt} {ok_read}; }})))"
         )
 
+    # --------------------------------------------------- result constructors
+    def _result_ctor_name(self, target_node: Any) -> Optional[str]:
+        """Returns ``'ok_of'``/``'err_of'`` when a call target is a result ctor.
+
+        Accepted spellings: bare (``calling ok_of with v``) and qualified
+        (``calling oracle.ok_of with v``) — the way ``std.oracle`` documents it.
+        These are compiler intrinsics (no Pengu body to resolve), which is why
+        the check runs before normal call resolution: ``ok``/``err`` cannot be
+        grammar keywords without shadowing the many identifiers named ``ok`` in
+        the wild.
+        """
+        if not isinstance(target_node, Tree) or target_node.data != "normal_target":
+            return None
+        if not target_node.children:
+            return None
+        last = target_node.children[-1]
+        if isinstance(last, Tree) and last.data in ("dot_access", "arrow_access") and last.children:
+            name = str(last.children[0])
+            if name in ("ok_of", "err_of") and str(target_node.children[0]) == "oracle":
+                return name
+            return None
+        if len(target_node.children) == 1:
+            name = str(target_node.children[0])
+            if name in ("ok_of", "err_of"):
+                return name
+        return None
+
+    def _first_call_arg(self, node: Any) -> Optional[Any]:
+        """First argument expression of a ``calling_expr`` node, or None."""
+        for ch in node.children[1:]:
+            if isinstance(ch, Tree) and ch.data == "arg_list":
+                for arg in ch.children:
+                    if isinstance(arg, Tree):
+                        if arg.data == "pos_arg" and arg.children:
+                            return arg.children[0]
+                        if arg.data == "named_arg" and len(arg.children) >= 2:
+                            return arg.children[1]
+                    elif arg is not None:
+                        return arg
+        return None
+
+    def _translate_result_ctor(self, arg_node: Any, is_ok: bool) -> str:
+        """Lower ``ok_of v`` / ``err_of e`` to a heap-boxed ``PenguResult``.
+
+        Mirrors the 'some' contract (LANGUAGE.md §6.6): the payload is copied into
+        a ``pengu_sigil_alloc`` cell so the result owns it, using the deep-copy
+        helper when the payload itself owns memory.
+        """
+        arg_c = self._translate_expr(arg_node)
+        arg_t = self._infer_node_type(arg_node)
+        if arg_t is None:
+            if isinstance(arg_node, Tree) and arg_node.data in ("int_lit", "true_lit", "false_lit"):
+                arg_t = INT_TYPE
+            elif isinstance(arg_node, Tree) and arg_node.data == "string_lit":
+                arg_t = STRING_TYPE
+            elif isinstance(arg_node, Tree) and arg_node.data == "float_lit":
+                arg_t = FLOAT_TYPE
+            else:
+                raise SemanticError(
+                    f"Cannot determine the payload type of '{'ok_of' if is_ok else 'err_of'}'",
+                    code="E0005",
+                    help="Annotate the value or bind it to a typed variable first "
+                         "('var v as T is ...' then 'calling ok_of with v').",
+                    note="The constructor boxes a value of a statically known type."
+                )
+        side = "ok_val" if is_ok else "err_val"
+        tmp = self.get_temp_name("_res_val")
+        decl_tmp = CTypeMapper.to_c_decl(arg_t, tmp)
+        res_tmp = self.get_temp_name("_result")
+        clone_fn = self._element_clone_fn(arg_t)
+        if clone_fn != "NULL":
+            store = f"  else {{ {clone_fn}({res_tmp}.{side}, &({tmp})); }}"
+        else:
+            store = f"  else memcpy({res_tmp}.{side}, &({tmp}), sizeof({tmp}));"
+        return (
+            f"(__extension__({{ {decl_tmp} = {arg_c};\n"
+            f"  PenguResult {res_tmp};\n"
+            f"  {res_tmp}.is_ok = {'true' if is_ok else 'false'};\n"
+            f"  {res_tmp}.ok_val = NULL;\n"
+            f"  {res_tmp}.err_val = NULL;\n"
+            f"  {res_tmp}.{side} = pengu_sigil_alloc(sizeof({tmp}));\n"
+            f"  if (!{res_tmp}.{side}) {res_tmp}.is_ok = {'false' if is_ok else 'true'};\n"
+            f"{store}\n"
+            f"  {res_tmp}; }}))"
+        )
+
     def _translate_expr(self, node: Any, expected_type: Optional[Type] = None) -> str:
         """Translates an expression node, tracking that we are in expression context.
 
@@ -5820,9 +5978,18 @@ class PenguCodegen:
                 getattr(sym, "kind", "") in ("declare", "weave", "function")
                 or name in self.fn_info
             )
-            if is_fn_symbol:
-                # A weave used as a value (callback argument, assignment).
-                return self._cast_fn_value(code, expected_type)
+            # A local (parameter, loop variable, `var`/`let`) shadows a module
+            # level weave of the same name: `var words as list of string is
+            # calling s.words` followed by `words.length` must read the local,
+            # not decay the function to a pointer.
+            if is_fn_symbol and name not in self.local_vars:
+                # A weave used as a value (callback argument, assignment).  Use
+                # the symbol's recorded C name when it has one: in a prefixed
+                # module (std.* modules carry an insignia) the definition is
+                # emitted as '<prefix>_<name>', so decaying to a function
+                # pointer must reference that same C symbol.
+                fn_code = getattr(sym, "c_name", None) or code
+                return self._cast_fn_value(fn_code, expected_type)
             return code
 
         elif rule == "self_ref":
@@ -6079,6 +6246,48 @@ class PenguCodegen:
                 f"  {maybe_tmp}; }}))"
             )
 
+        # 3b-bis. 'ok expr' / 'err expr': native result construction.
+        elif rule in ("ok_expr", "err_expr"):
+            arg_node = node.children[0]
+            arg_c = self._translate_expr(arg_node)
+            arg_t = self._infer_node_type(arg_node)
+            if arg_t is None:
+                if isinstance(arg_node, Tree) and arg_node.data in ("int_lit", "true_lit", "false_lit"):
+                    arg_t = INT_TYPE
+                elif isinstance(arg_node, Tree) and arg_node.data == "string_lit":
+                    arg_t = STRING_TYPE
+                elif isinstance(arg_node, Tree) and arg_node.data == "float_lit":
+                    arg_t = FLOAT_TYPE
+                else:
+                    raise SemanticError(
+                        f"Cannot determine the payload type of '{rule[:-5]}'",
+                        code="E0005",
+                        help="Annotate the value or bind it to a typed variable first "
+                             "('var v as T is ...' then 'ok v' / 'err v').",
+                        note="'ok'/'err' box a value of a statically known type."
+                    )
+            is_ok = rule == "ok_expr"
+            side = "ok_val" if is_ok else "err_val"
+            tmp = self.get_temp_name("_res_val")
+            decl_tmp = CTypeMapper.to_c_decl(arg_t, tmp)
+            res_tmp = self.get_temp_name("_result")
+            clone_fn = self._element_clone_fn(arg_t)
+            if clone_fn != "NULL":
+                store = f"  else {{ {clone_fn}({res_tmp}.{side}, &({tmp})); }}"
+            else:
+                store = f"  else memcpy({res_tmp}.{side}, &({tmp}), sizeof({tmp}));"
+            return (
+                f"(__extension__({{ {decl_tmp} = {arg_c};\n"
+                f"  PenguResult {res_tmp};\n"
+                f"  {res_tmp}.is_ok = {'true' if is_ok else 'false'};\n"
+                f"  {res_tmp}.ok_val = NULL;\n"
+                f"  {res_tmp}.err_val = NULL;\n"
+                f"  {res_tmp}.{side} = pengu_sigil_alloc(sizeof({tmp}));\n"
+                f"  if (!{res_tmp}.{side}) {res_tmp}.is_ok = {'false' if is_ok else 'true'};\n"
+                f"{store}\n"
+                f"  {res_tmp}; }}))"
+            )
+
         # 3c. 'ord expr': byte code of a single-character string.
         elif rule == "ord_expr":
             arg_node = node.children[0]
@@ -6112,6 +6321,20 @@ class PenguCodegen:
         # 4. Invocations / Calling
         elif rule == "calling_expr":
             target_node = node.children[0]
+            # Compiler-provided result constructors: 'calling ok_of with v' /
+            # 'calling oracle.ok_of with v' (same for err_of).  They are handled
+            # as intrinsics because 'ok'/'err' cannot become grammar keywords
+            # without breaking existing code that uses them as identifiers.
+            ctor = self._result_ctor_name(target_node)
+            if ctor is not None:
+                ctor_arg = self._first_call_arg(node)
+                if ctor_arg is None:
+                    raise SemanticError(
+                        f"'{ctor}' expects exactly one argument",
+                        code="E0005",
+                        help=f"Use 'calling {ctor} with value'.",
+                    )
+                return self._translate_result_ctor(ctor_arg, ctor == "ok_of")
             explicit_type_args = []
             args_node = None
             for ch in node.children[1:]:
@@ -6772,6 +6995,22 @@ class PenguCodegen:
                 var_t = sym.type if sym else self._lookup_var_type(base)
             is_ref = isinstance(var_t, RefType)
             inner_t = var_t.target if is_ref else var_t
+            # A non-identifier base ('(essence of self)', a cast, a call...) has
+            # no symbol to look up, so fall back to the checker's inferred type.
+            if not isinstance(inner_t, (MaybeType, ResultType)):
+                _inf = self._infer_node_type(target_node)
+                _inf = _inf.target if isinstance(_inf, RefType) else _inf
+                if isinstance(_inf, (MaybeType, ResultType)):
+                    inner_t = _inf
+            # Inside a monomorphized generic weave the container still spells its
+            # element with the type parameter: substitute it or the unwrapping
+            # cast is emitted as the erased 'void*' ('int32_t v = m.value').
+            _subst = getattr(self, "current_subst_map", None) or {}
+            if _subst and isinstance(inner_t, (MaybeType, ResultType)):
+                try:
+                    inner_t = inner_t.substitute(_subst)
+                except Exception:
+                    pass
             sep = "->" if (base == "self" or is_ref) else "."
 
             alias_c = self._container_field_c_name(inner_t, raw_field)

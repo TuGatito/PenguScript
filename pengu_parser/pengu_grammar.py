@@ -320,6 +320,12 @@ for_comp_expr: "for" NAME "in" expr ["when" expr] "then" expr -> for_comp
       | "size" "of" type                 -> size_of
       | "banish" unary                   -> banish_expr
       | "some" unary                     -> some_expr
+      # NOTE: 'ok expr' / 'err expr' are deliberately NOT grammar keywords yet.
+      # 'ok' and 'err' are ordinary identifiers throughout the stdlib and the
+      # tests ('var ok as bool is ...'), and reserving them broke 60 test files.
+      # Result construction goes through the compiler-provided constructors
+      # ('ok_of'/'err_of'), whose lowering reuses the ok_expr/err_expr code paths
+      # in pengu_codegen/pengu_infer.
       | "ord" unary                      -> ord_expr
       | "chr" unary                      -> chr_expr
       | "bytes" "of" unary               -> bytes_expr

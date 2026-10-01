@@ -1,0 +1,281 @@
+# Exercise program for the rewritten `std.oracle` (Pengunic API).
+#
+# Complements `test_oracle.pengu` (which pins the legacy rune API): this program
+# drives the *native* containers — `maybe T` and `result of T to E` — through
+# their generic enchantings, through the module-level functions and through the
+# compiler's `ok_of`/`err_of` constructors.  Every printed line is a stable
+# marker checked by `tests/test_stdlib.py::test_std_module_program`.
+#
+# The module-level functions are called with explicit type arguments
+# (`of int and string`): deducing them across modules is still being fixed in
+# the compiler, and the explicit form is always valid.
+import std.oracle
+import std.spark
+
+
+## Callback: duplica un entero.
+weave double_it with x as int into int:
+    return x * 2
+
+## Callback: true cuando el entero es par.
+weave is_even with x as int into bool:
+    return (x % 2) == 0
+
+## Callback: mitad exacta o `maybe none`.
+weave half_of with x as int into maybe int:
+    if (x % 2) == 0:
+        return some (x / 2)
+    return maybe none
+
+## Callback: prefija un string.
+weave shout with s as string into string:
+    return "!{s}"
+
+## Callback: longitud fija de un error (5).
+weave err_len with e as string into int:
+    return 5
+
+## Callback: avanza un éxito.
+weave next_ok with x as int into result of int to string:
+    return calling ok_of with (x + 1)
+
+## Callback: falla siempre.
+weave fail_ok with x as int into result of int to string:
+    return calling err_of with "nope"
+
+## Callback: valor de reemplazo constante.
+weave fallback_int into int:
+    return 99
+
+
+weave main into int:
+    calling spark.println with "=== Oracle Pengunic ==="
+
+    ## Presence, absence and the safe unwrap.
+    var present as maybe int is some 7
+    var absent as maybe int is maybe none
+    let unwrapped is calling present.unwrap_or with 0
+    let is_some is calling present.is_some
+    let is_none is calling absent.is_none
+    calling spark.println with "oracle present unwrap_or ok {unwrapped}"
+    calling spark.println with "oracle is_some ok {is_some}"
+    calling spark.println with "oracle is_none ok {is_none}"
+
+    ## `fallback` is used when the optional is empty.
+    let fallback is calling absent.unwrap_or with 42
+    calling spark.println with "oracle none unwrap_or ok {fallback}"
+
+    ## Native results built with the compiler constructors.
+    var good as result of int to string is calling ok_of with 5
+    var bad as result of int to string is calling err_of with "boom"
+    let good_value is (good.value to string)
+    let good_ok is good.is_ok
+    let bad_ok is bad.is_ok
+    let bad_error is bad.error
+    calling spark.println with "oracle result ok value={good_value} is_ok={good_ok}"
+    calling spark.println with "oracle result err error={bad_error} is_ok={bad_ok}"
+
+    ## Legacy endpoints stay reachable (`## @deprecated` forwarders).
+    let legacy_desc is calling oracle.describe_maybe_int with (calling oracle.some_int with 3)
+    calling spark.println with "oracle legacy describe ok {legacy_desc}"
+
+    ## --- maybe: transformaciones con callback (métodos) -------------------
+    var six as maybe int is some 6
+    var odd as maybe int is some 7
+    let mapped is calling six.map of int with double_it
+    let filtered is calling six.filter with is_even
+    let dropped is calling odd.filter with is_even
+    let chained is calling six.and_then of int with half_of
+    let or_else_present is calling present.or_else with absent
+    let or_else_backup is calling absent.or_else with present
+    let both is calling present.and with six
+    let first is calling present.or with six
+    let mapped_value is calling mapped.unwrap_or with -1
+    let filtered_kept is calling filtered.is_some
+    let dropped_kept is calling dropped.is_some
+    let chained_value is calling chained.unwrap_or with -1
+    let or_else_a is calling or_else_present.unwrap_or with -1
+    let or_else_b is calling or_else_backup.unwrap_or with -1
+    let both_value is calling both.unwrap_or with -1
+    let first_value is calling first.unwrap_or with -1
+    calling spark.println with "oracle map ok {mapped_value}"
+    calling spark.println with "oracle filter ok {filtered_kept} {dropped_kept}"
+    calling spark.println with "oracle and_then ok {chained_value}"
+    calling spark.println with "oracle or_else ok {or_else_a} {or_else_b}"
+    calling spark.println with "oracle and_or ok {both_value} {first_value}"
+
+    ## --- maybe: conversiones (métodos) -------------------------------------
+    let as_result is calling present.to_result with "falta"
+    let as_result_err is calling absent.to_result with "falta"
+    let as_list is calling present.to_list
+    let as_iter is calling absent.iter
+    let described is calling present.describe
+    let described_none is calling absent.describe
+    let result_value is calling as_result.unwrap
+    let result_error is calling as_result_err.unwrap_err
+    let list_len is as_list.length
+    let iter_len is as_iter.length
+    var pair_other as maybe string is some "uno"
+    let zipped is calling present.zip of string with pair_other
+    let flat is calling present.flatten
+    let value_or_present is calling present.value_or with 0
+    let expected is calling present.expect with "falla"
+    let unwrapped_direct is calling present.unwrap
+    calling spark.println with "oracle to_result ok {result_value} {result_error}"
+    calling spark.println with "oracle to_list ok {list_len} {iter_len}"
+    calling spark.println with "oracle describe ok {described} {described_none}"
+    if pair as Pair of int and string is zipped:
+        calling spark.println with "oracle zip pair {pair.first}:{pair.second}"
+    let flat_value is calling flat.unwrap_or with -1
+    calling spark.println with "oracle flatten ok {flat_value}"
+    calling spark.println with "oracle accessors ok {value_or_present} {expected} {unwrapped_direct}"
+
+    ## --- result: transformaciones con callback (métodos) -------------------
+    let r_mapped is calling good.map of int with double_it
+    let r_mapped_err is calling bad.map of int with double_it
+    let r_map_err is calling bad.map_err of int with err_len
+    let r_chained is calling good.and_then of int with next_ok
+    let r_chained_err is calling good.and_then of int with fail_ok
+    let r_or_else is calling bad.or_else with good
+    let r_ok is calling good.ok
+    let r_err is calling bad.err
+    let r_to_maybe is calling good.to_maybe
+    let r_list is calling good.to_list
+    let r_list_err is calling bad.to_list
+    let r_described is calling good.describe
+    let r_described_err is calling bad.describe
+    let r_unwrapped is calling good.unwrap
+    let r_unwrapped_err is calling bad.unwrap_err
+    let r_unwrap_or is calling bad.unwrap_or with 7
+    let r_or_else_else is calling bad.unwrap_or_else with err_len
+    let r_expected is calling good.expect with "falla"
+    let r_expected_err is calling bad.expect_err with "falla"
+    let r_mapped_value is calling r_mapped.unwrap
+    let r_mapped_err_value is calling r_mapped_err.unwrap_err
+    let r_map_err_value is calling r_map_err.unwrap_err
+    let r_chained_value is calling r_chained.unwrap
+    let r_chained_err_value is calling r_chained_err.unwrap_err
+    let r_or_else_value is calling r_or_else.unwrap
+    let r_ok_value is calling r_ok.unwrap_or with -1
+    let r_err_value is calling r_err.unwrap_or with "-"
+    let r_to_maybe_value is calling r_to_maybe.unwrap_or with -1
+    let r_list_len is r_list.length
+    let r_list_err_len is r_list_err.length
+    calling spark.println with "oracle result map ok {r_mapped_value} {r_mapped_err_value}"
+    calling spark.println with "oracle result map_err ok {r_map_err_value}"
+    calling spark.println with "oracle result and_then ok {r_chained_value} {r_chained_err_value}"
+    calling spark.println with "oracle result or_else ok {r_or_else_value}"
+    calling spark.println with "oracle result convert ok {r_ok_value} {r_err_value} {r_to_maybe_value}"
+    calling spark.println with "oracle result to_list ok {r_list_len} {r_list_err_len}"
+    calling spark.println with "oracle result describe ok {r_described} {r_described_err}"
+    calling spark.println with "oracle result extract ok {r_unwrapped} {r_unwrapped_err}"
+    calling spark.println with "oracle result fallback ok {r_unwrap_or} {r_or_else_else}"
+    calling spark.println with "oracle result expected ok {r_expected} {r_expected_err}"
+
+    ## --- funciones de módulo: familia maybe -------------------------------
+    var m21 as maybe int is calling oracle.some_of of int with 21
+    var empty_int as maybe int is calling oracle.none_of of int
+    let f_unwrap is calling oracle.unwrap_maybe of int with m21
+    let f_unwrap_or is calling oracle.unwrap_or_maybe of int with empty_int, 4
+    let f_value_or is calling oracle.value_or_maybe of int with m21, 0
+    let f_expect is calling oracle.expect_maybe of int with m21, "falla"
+    let f_is_some is calling oracle.is_some_maybe of int with m21
+    let f_is_none is calling oracle.is_none_maybe of int with empty_int
+    let f_map is calling oracle.map_maybe of int and int with m21, double_it
+    let f_filter is calling oracle.filter_maybe of int with m21, is_even
+    let f_and_then is calling oracle.and_then_maybe of int and int with m21, half_of
+    let f_or_else is calling oracle.or_else_maybe of int with empty_int, present
+    let f_and is calling oracle.and_maybe of int with present, m21
+    let f_or is calling oracle.or_maybe of int with empty_int, present
+    let f_to_result is calling oracle.to_result_maybe of int with m21, "no"
+    let f_to_list is calling oracle.to_list_maybe of int with m21
+    let f_iter is calling oracle.iter_maybe of int with m21
+    let f_describe is calling oracle.describe_optional of int with m21
+    let f_zip is calling oracle.zip_maybe of int and string with m21, pair_other
+    let f_flatten is calling oracle.flatten_maybe of int with m21
+    let f_unwrap_or_else is calling oracle.unwrap_or_else_maybe of int with empty_int, fallback_int
+    let f_map_value is calling f_map.unwrap_or with -1
+    let f_filter_kept is calling f_filter.is_some
+    let f_and_then_value is calling f_and_then.unwrap_or with -1
+    let f_or_else_value is calling f_or_else.unwrap_or with -1
+    let f_and_value is calling f_and.unwrap_or with -1
+    let f_or_value is calling f_or.unwrap_or with -1
+    let f_to_result_value is calling f_to_result.unwrap
+    let f_to_list_len is f_to_list.length
+    let f_iter_len is f_iter.length
+    let f_flatten_value is calling f_flatten.unwrap_or with -1
+    calling spark.println with "oracle module maybe unwrap ok {f_unwrap} {f_unwrap_or} {f_value_or}"
+    calling spark.println with "oracle module maybe expect ok {f_expect} {f_is_some} {f_is_none}"
+    calling spark.println with "oracle module maybe map ok {f_map_value} {f_filter_kept}"
+    calling spark.println with "oracle module maybe chain ok {f_and_then_value} {f_or_else_value}"
+    calling spark.println with "oracle module maybe logic ok {f_and_value} {f_or_value}"
+    calling spark.println with "oracle module maybe convert ok {f_to_result_value} {f_to_list_len} {f_iter_len}"
+    calling spark.println with "oracle module maybe text ok {f_describe}"
+    calling spark.println with "oracle module maybe flatten ok {f_flatten_value} {f_unwrap_or_else}"
+    if zip_pair as Pair of int and string is f_zip:
+        calling spark.println with "oracle module maybe zip ok {zip_pair.first}:{zip_pair.second}"
+
+    ## --- funciones de módulo: familia result ------------------------------
+    var r14 as result of int to string is calling ok_of with 14
+    var r_z as result of int to string is calling err_of with "z"
+    let g_is_ok is calling oracle.is_ok_result of int and string with r14
+    let g_is_err is calling oracle.is_err_result of int and string with r_z
+    let g_unwrap is calling oracle.unwrap_result of int and string with r14
+    let g_unwrap_err is calling oracle.unwrap_err_result of int and string with r_z
+    let g_unwrap_or is calling oracle.unwrap_or_result of int and string with r_z, 4
+    let g_unwrap_or_else is calling oracle.unwrap_or_else_result of int and string with r_z, err_len
+    let g_expect is calling oracle.expect_result of int and string with r14, "falla"
+    let g_expect_err is calling oracle.expect_err_result of int and string with r_z, "falla"
+    let g_map is calling oracle.map_result of int and string and int with r14, double_it
+    let g_map_err is calling oracle.map_err_result of int and string and int with r_z, err_len
+    let g_and_then is calling oracle.and_then_result of int and string and int with r14, next_ok
+    let g_or_else is calling oracle.or_else_result of int and string with r_z, r14
+    let g_ok is calling oracle.ok_result of int and string with r14
+    let g_err is calling oracle.err_result of int and string with r_z
+    let g_to_maybe is calling oracle.to_maybe_result of int and string with r14
+    let g_to_list is calling oracle.to_list_result of int and string with r14
+    let g_describe is calling oracle.describe_result of int and string with r14
+    let g_map_value is calling g_map.unwrap
+    let g_map_err_value is calling g_map_err.unwrap_err
+    let g_and_then_value is calling g_and_then.unwrap
+    let g_or_else_value is calling g_or_else.unwrap
+    let g_ok_value is calling g_ok.unwrap_or with -1
+    let g_err_value is calling g_err.unwrap_or with "-"
+    let g_to_maybe_value is calling g_to_maybe.unwrap_or with -1
+    let g_to_list_len is g_to_list.length
+    calling spark.println with "oracle module result flags ok {g_is_ok} {g_is_err}"
+    calling spark.println with "oracle module result unwrap ok {g_unwrap} {g_unwrap_err}"
+    calling spark.println with "oracle module result fallback ok {g_unwrap_or} {g_unwrap_or_else}"
+    calling spark.println with "oracle module result expect ok {g_expect} {g_expect_err}"
+    calling spark.println with "oracle module result map ok {g_map_value} {g_map_err_value}"
+    calling spark.println with "oracle module result chain ok {g_and_then_value} {g_or_else_value}"
+    calling spark.println with "oracle module result convert ok {g_ok_value} {g_err_value} {g_to_maybe_value}"
+    calling spark.println with "oracle module result to_list ok {g_to_list_len}"
+    calling spark.println with "oracle module result text ok {g_describe}"
+
+    ## --- colecciones ------------------------------------------------------
+    var opt_a as maybe int is some 1
+    var opt_b as maybe int is maybe none
+    var opts as list of maybe int is [opt_a, opt_b]
+    let all_ok is calling oracle.all_present of int with opts
+    let any_ok is calling oracle.any_present of int with opts
+    let first_ok is calling oracle.first_present of int with opts
+    var res_a as result of int to string is calling ok_of with 1
+    var res_b as result of int to string is calling err_of with "e"
+    var res_c as result of int to string is calling ok_of with 3
+    var results as list of result of int to string is [res_a, res_b, res_c]
+    let oks is calling oracle.collect_ok of int and string with results
+    let errs is calling oracle.collect_err of int and string with results
+    let broken is calling oracle.partition_results of int and string with results
+    let first_opt_value is calling first_ok.unwrap_or with -1
+    let oks_len is oks.length
+    let errs_len is errs.length
+    calling spark.println with "oracle collections ok {all_ok} {any_ok} {first_opt_value}"
+    calling spark.println with "oracle collect ok {oks_len} {errs_len}"
+    var parts as Pair of list of int and list of string is broken
+    var part_oks as list of int is parts.first
+    var part_errs as list of string is parts.second
+    calling spark.println with "oracle partition ok {part_oks.length} {part_errs.length}"
+
+    calling spark.println with "oracle ok"
+    return 0

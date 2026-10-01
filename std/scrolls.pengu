@@ -1,1114 +1,1488 @@
-# std/scrolls.pengu - The Scrolls (Strings)
-# String utilities implemented in pure PenguScript.
-#
-# High-level string logic (search, slicing, trimming, splitting, repetition,
-# reversal, replacement, ASCII case mapping and classification) lives in
-# PenguScript and compiles to optimized C. Only low-level compiler primitives
-# (substring/char_at views, concatenation, equality) come from the runtime.
-#
-# Module-level C names are prefixed with 'pengu_' through 'insignia'; methods
-# enchanting primitive types (string) intentionally keep their plain C names so
-# they never collide with the pengu_string_* runtime primitives.
-#
-# Naming notes:
-# - Methods are exposed through 'enchanting string' (e.g. 'calling s.trim').
-# - 'starts_with' and 'substring' are also module-level members used by other
-#   std modules (e.g. 'calling scrolls.starts_with'), so both names exist.
-# - Internal helpers use the 'sc_' prefix so they never collide with the
-#   enchanting methods' names in the code generator's function registry.
-#
-# Usage: import std.scrolls. String utilities are exposed as methods
-# enchanting the primitive string type, e.g. "calling s.trim",
-# "calling s.split with delim". starts_with and substring are additionally
-# module members so other std modules can call them functionally, e.g.
-# "calling scrolls.starts_with with text, prefix".
-# Ownership: strings are values; every operation returns a new owned string or
-# list and never mutates its input, so results may be banished or dropped
-# normally.
+## std/scrolls.pengu
+## Operaciones sobre strings: consulta, búsqueda, corte, recorte, reemplazo,
+## división, unión, alineación, clasificación ASCII, comparación y parseo.
+##
+## Cada operación existe dos veces: como método (`calling s.trim`) y como
+## función de módulo (`calling scrolls.trim with s`), que delega en el método.
+## `join` solo es función de módulo; `parse_int`/`parse_float`, solo métodos.
+##
+## ## Ownership
+## Un `string` es un valor: nada muta `self`. El texto y los `list` devueltos
+## son nuevos y auto-banishables; los parámetros nunca se banishean.
+##
+## ## ASCII y bytes
+## El módulo es ASCII y trabaja a nivel de byte: `len`, los índices, `chars`,
+## `bytes` y los cortes cuentan bytes, no puntos de código UTF-8; un carácter
+## multi-byte se ve como varios bytes y `char_at` o `reverse` pueden partirlo.
+##
+## ## Ejemplo
+## ```pengu
+## import std.scrolls
+## import std.spark
+##
+## weave main into int:
+##     var raw as string is "  Hello, World  "
+##     var clean as string is calling raw.trim
+##     var parts as list of string is calling clean.split with ", "
+##     var joined as string is calling scrolls.join with parts, "|"
+##     calling spark.println with joined
+##     return 0
+## ```
+##
+## ## Notas de diseño
+## - **Sin `+` para strings** (E0005): la única composición es la interpolación
+##   `"{expr}"`; `_concat` es el único punto de acumulación del módulo.
+## - **`@deprecated` es una convención documental**: el toolchain no soporta
+##   deprecación; los alias empiezan su docstring por `## @deprecated Use X`.
+## - **Forma funcional.** Cada método tiene su `weave` de módulo, que solo
+##   añade el receptor `s` y delega; su contrato es el del método ya
+##   documentado arriba (no se repite la misma línea 68 veces).
+## - **Tests internos sin `std.ward`** (`ward` importa `scrolls`, E0004): la
+##   sección `# --- Tests ---` usa un harness privado sobre `spark.panic`.
+## - **`compare`** devuelve -1/0/1 por el prefijo común y, si empata, la
+##   longitud; `is_space` es false para "" (legado) e `is_blank` es true.
+## - **`parse_int`** delega en `spark.parse_int` (acepta espacios, rechaza el
+##   desbordamiento); **`parse_float`** calcula dígito a dígito y no acepta
+##   exponentes. Ninguno tiene forma funcional: `insignia pengu_` los emitiría
+##   como los intrínsecos `pengu_parse_int`/`pengu_parse_float`.
+##
+## ## Migración
+##
+## Los nombres antiguos siguen funcionando como alias que delegan.
+##
+## | Antiguo | Canónico |
+## |---|---|
+## | `calling s.to_lower` / `s.to_upper` | `calling s.lower` / `s.upper` |
+## | `calling s.title_case` | `calling s.title` |
+## | `calling s.find` / `s.rfind` | `calling s.index_of` / `s.last_index_of` |
+## | `calling s.count_matches` | `calling s.count` |
+## | `calling s.lstrip` / `s.rstrip` | `calling s.trim_start` / `calling s.trim_end` |
+## | `calling s.is_whitespace` | `calling s.is_space` |
+## | `calling s.pad_left` / `s.pad_right` | `calling s.rjust` / `calling s.ljust` |
+##
+## Nuevas: `words`, `lines`, `pascal_case`, `snake_case`, `kebab_case`,
+## `is_blank`, `is_numeric`, `parse_int`, `parse_float`, `repeat_join`.
 
-# Applies the "pengu_" prefix to the module-level C symbol names so they never
-# collide with the enchanting method names (see the header notes).
+# --- Directivas de módulo ------------------------------------------------
 insignia pengu_
 
-import std.spark  # kept for parity with prior module layout
+# --- Imports ------------------------------------------------------------
+import std.spark
 
-# ----------------------------------------------------------------------------
-# Internal helpers (sc_*) - distinct names avoid clashing with methods.
-# ----------------------------------------------------------------------------
-
-# True when c is an ASCII whitespace character (space, tab, line feed,
-# carriage return, vertical tab or form feed).
-weave sc_is_space with c as string into bool:
-  if c == " ":
-    return true
-  if c == "\t":
-    return true
-  if c == "\n":
-    return true
-  if c == "\r":
-    return true
-  if c == "\v":
-    return true
-  if c == "\f":
-    return true
-  return false
-
-# True when s begins with prefix (plain prefix compare).
-weave sc_starts_with with s as string , prefix as string into bool:
-  var sl as int is s length
-  var pl as int is prefix length
-  if pl > sl:
-    return false
-  if (s at 0 to pl) == prefix:
-    return true
-  return false
-
-# True when s ends with suffix.
-weave sc_ends_with with s as string , suffix as string into bool:
-  var sl as int is s length
-  var xl as int is suffix length
-  if xl > sl:
-    return false
-  var start as int is sl - xl
-  if (s at start to sl) == suffix:
-    return true
-  return false
-
-# Index of the first occurrence of sub in s; 0 for an empty sub and -1 when
-# absent.
-weave sc_index_of with s as string , sub as string into int:
-  var sl as int is s length
-  var sub_len as int is sub length
-  if sub_len == 0:
-    return 0
-  if sub_len > sl:
-    return -1
-  var i as int is 0
-  while i <= sl - sub_len:
-    if (s at i to (i + sub_len)) == sub:
-      return i
-    set i is i + 1
-  return -1
-
-# Index of the last occurrence of sub in s; the length of s for an empty sub
-# and -1 when absent.
-weave sc_last_index_of with s as string , sub as string into int:
-  var sl as int is s length
-  var sub_len as int is sub length
-  if sub_len == 0:
-    return sl
-  if sub_len > sl:
-    return -1
-  var i as int is sl - sub_len
-  while i >= 0:
-    if (s at i to (i + sub_len)) == sub:
-      return i
-    set i is i - 1
-  return -1
-
-# Substring of s from start_pos (inclusive) to end_pos (exclusive).
-weave sc_substring with s as string , start_pos as int , end_pos as int into string:
-  return s at start_pos to end_pos
-
-# ----------------------------------------------------------------------------
-# Module-level members used by other std modules.
-# ----------------------------------------------------------------------------
-
-# Functional (module-level) form of starts_with for other std modules, e.g.
-# "calling scrolls.starts_with with text, prefix".
-weave starts_with with s as string , prefix as string into bool:
-  return calling sc_starts_with with s , prefix
-
-# Functional (module-level) form of substring for other std modules, e.g.
-# "calling scrolls.substring with text, 0, 5".
-weave substring with s as string , start_pos as int , end_pos as int into string:
-  return calling sc_substring with s , start_pos , end_pos
-
-# ----------------------------------------------------------------------------
-# String methods (enchanting)
-# ----------------------------------------------------------------------------
-
-# Enchants the primitive string type with the utility methods below, so they
-# can be invoked on any string value, e.g. "calling s.trim".
+# --- Enchantings --------------------------------------------------------
+## Métodos de `string`: consulta, transformación, predicados y parseo.
 enchanting string:
-  # Length of the string.
-  weave len into int:
-    var sv as string is essence of self
-    return sv length
-
-  # True when the string is empty (length 0).
-  weave is_empty into bool:
-    var sv as string is essence of self
-    if sv length == 0:
-      return true
-    return false
-
-  # True when the string contains sub somewhere.
-  weave contains with sub as string into bool:
-    var sv as string is essence of self
-    var found as int is calling sc_index_of with sv , sub
-    if found >= 0:
-      return true
-    return false
-
-  # True when the string begins with prefix.
-  weave starts_with with prefix as string into bool:
-    var sv as string is essence of self
-    return calling sc_starts_with with sv , prefix
-
-  # True when the string ends with suffix.
-  weave ends_with with suffix as string into bool:
-    var sv as string is essence of self
-    return calling sc_ends_with with sv , suffix
-
-  # Index of the first occurrence of sub; 0 for an empty sub and -1 when absent.
-  weave index_of with sub as string into int:
-    var sv as string is essence of self
-    return calling sc_index_of with sv , sub
-
-  # Index of the last occurrence of sub; the string length for an empty sub and
-  # -1 when absent.
-  weave last_index_of with sub as string into int:
-    var sv as string is essence of self
-    return calling sc_last_index_of with sv , sub
-
-  # Substring from start_pos (inclusive) to end_pos (exclusive).
-  weave substring with start_pos as int , end_pos as int into string:
-    var sv as string is essence of self
-    return calling sc_substring with sv , start_pos , end_pos
-
-  # The single character at idx as a one-character string.
-  weave char_at with idx as int into string:
-    var sv as string is essence of self
-    return calling sc_substring with sv , idx , (idx + 1)
-
-  # Copy of the string with ASCII letters A-Z mapped to lowercase; other
-  # characters are unchanged.
-  weave lower into string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    var res as string is ""
-    var i as int is 0
-    while i < sl:
-      var code as int is ord (sv at i)
-      if code >= 65:
-        if code <= 90:
-          set res is "{res}{(chr (code + 32))}"
-        else:
-          set res is "{res}{(sv at i)}"
-      else:
-        set res is "{res}{(sv at i)}"
-      set i is i + 1
-    return res
-
-  # Copy of the string with ASCII letters a-z mapped to uppercase; other
-  # characters are unchanged.
-  weave upper into string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    var res as string is ""
-    var i as int is 0
-    while i < sl:
-      var code as int is ord (sv at i)
-      if code >= 97:
-        if code <= 122:
-          set res is "{res}{(chr (code - 32))}"
-        else:
-          set res is "{res}{(sv at i)}"
-      else:
-        set res is "{res}{(sv at i)}"
-      set i is i + 1
-    return res
-
-  ## Copy of the string with ASCII letters A-Z mapped to lowercase (alias of lower).
-  ##
-  ## Signature: to_lower() into string
-  ## Ownership: Returns a freshly allocated owned string.
-  weave to_lower into string:
-    return calling self.lower
-
-  ## Copy of the string with ASCII letters a-z mapped to uppercase (alias of upper).
-  ##
-  ## Signature: to_upper() into string
-  ## Ownership: Returns a freshly allocated owned string.
-  weave to_upper into string:
-    return calling self.upper
-
-  # Copy of the string without leading and trailing ASCII whitespace.
-  weave trim into string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    var start as int is 0
-    while start < sl:
-      if calling sc_is_space with (sv at start):
-        set start is start + 1
-      else:
-        break
-    var end as int is sl - 1
-    while end >= start:
-      if calling sc_is_space with (sv at end):
-        set end is end - 1
-      else:
-        break
-    return calling sc_substring with sv , start , (end + 1)
-
-  # Copy of the string without leading ASCII whitespace.
-  weave trim_start into string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    var start as int is 0
-    while start < sl:
-      if calling sc_is_space with (sv at start):
-        set start is start + 1
-      else:
-        break
-    return calling sc_substring with sv , start , sl
-
-  # Copy of the string without trailing ASCII whitespace.
-  weave trim_end into string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    var end as int is sl - 1
-    while end >= 0:
-      if calling sc_is_space with (sv at end):
-        set end is end - 1
-      else:
-        break
-    return calling sc_substring with sv , 0 , (end + 1)
-
-  # Copy of the string with the first occurrence of from_str replaced by
-  # to_str; unchanged when from_str does not occur.
-  weave replace with from_str as string , to_str as string into string:
-    var sv as string is essence of self
-    var hit as int is calling sc_index_of with sv , from_str
-    if hit < 0:
-      return sv
-    var fl as int is from_str length
-    var prefix_str as string is calling sc_substring with sv , 0 , hit
-    var suffix_str as string is calling sc_substring with sv , (hit + fl) , sv length
-    return "{prefix_str}{to_str}{suffix_str}"
-
-  # Copy of the string with every non-overlapping occurrence of from_str
-  # replaced by to_str; an empty from_str returns the string unchanged.
-  weave replace_all with from_str as string , to_str as string into string:
-    var sv as string is essence of self
-    var fl as int is from_str length
-    if fl == 0:
-      return sv
-    var out as string is ""
-    var rest as string is sv
-    var hit as int is calling sc_index_of with rest , from_str
-    while hit >= 0:
-      set out is "{out}{(calling sc_substring with rest , 0 , hit)}{to_str}"
-      set rest is calling sc_substring with rest , (hit + fl) , rest length
-      set hit is calling sc_index_of with rest , from_str
-    return "{out}{rest}"
-
-  # Splits the string at every occurrence of delim; an empty delim yields a
-  # list holding the whole string.
-  weave split with delim as string into list of string:
-    var sv as string is essence of self
-    var parts as list of string is list of string
-    var dl as int is delim length
-    var sl as int is sv length
-    if dl == 0:
-      calling parts.push with sv
-      return parts
-    var seg_start as int is 0
-    var pos as int is 0
-    while pos <= sl - dl:
-      if (sv at pos to (pos + dl)) == delim:
-        calling parts.push with (sv at seg_start to pos)
-        set seg_start is pos + dl
-        set pos is pos + dl
-      else:
-        set pos is pos + 1
-    calling parts.push with (sv at seg_start to sl)
-    return parts
-
-  # The string repeated count times; "" for count <= 0 or an empty string.
-  weave repeat with count as int into string:
-    var sv as string is essence of self
-    if count <= 0:
-      return ""
-    if sv length == 0:
-      return ""
-    var res as string is ""
-    var i as int is 0
-    while i < count:
-      set res is "{res}{sv}"
-      set i is i + 1
-    return res
-
-  # Copy of the string with its characters in reverse order.
-  weave reverse into string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    var res as string is ""
-    var i as int is sl - 1
-    while i >= 0:
-      set res is "{res}{(sv at i)}"
-      set i is i - 1
-    return res
-
-  # True when every character is an ASCII letter (A-Z or a-z); false for the
-  # empty string.
-  weave is_alpha into bool:
-    var sv as string is essence of self
-    var sl as int is sv length
-    if sl == 0:
-      return false
-    var i as int is 0
-    while i < sl:
-      var code as int is ord (sv at i)
-      if code >= 65:
-        if code <= 90:
-          set i is i + 1
-          continue
-      if code >= 97:
-        if code <= 122:
-          set i is i + 1
-          continue
-      return false
-    return true
-
-  # True when every character is an ASCII digit (0-9); false for the empty
-  # string.
-  weave is_digit into bool:
-    var sv as string is essence of self
-    var sl as int is sv length
-    if sl == 0:
-      return false
-    var i as int is 0
-    while i < sl:
-      var code as int is ord (sv at i)
-      if code >= 48:
-        if code <= 57:
-          set i is i + 1
-          continue
-      return false
-    return true
-
-  # True when every character is ASCII alphanumeric (letter or digit); false for
-  # the empty string.
-  weave is_alnum into bool:
-    var sv as string is essence of self
-    var sl as int is sv length
-    if sl == 0:
-      return false
-    var i as int is 0
-    while i < sl:
-      var code as int is ord (sv at i)
-      if code >= 65:
-        if code <= 90:
-          set i is i + 1
-          continue
-      if code >= 97:
-        if code <= 122:
-          set i is i + 1
-          continue
-      if code >= 48:
-        if code <= 57:
-          set i is i + 1
-          continue
-      return false
-    return true
-
-  # --------------------------------------------------------------------------
-  # Case Mapping & Transformations
-  # --------------------------------------------------------------------------
-
-  ## Converts the first character to uppercase and the remaining characters to lowercase.
-  ##
-  ## Signature: capitalize() into string
-  ## Ownership: Returns a freshly allocated owned string.
-  ## Edge cases: Returns an empty string if the input string is empty.
-  weave capitalize into string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    if sl == 0:
-      return ""
-    var res as string is ""
-    var first_code as int is ord (sv at 0)
-    if first_code >= 97 and first_code <= 122:
-      set res is "{res}{(chr (first_code - 32))}"
-    else:
-      set res is "{res}{(sv at 0)}"
-    var i as int is 1
-    while i < sl:
-      var code as int is ord (sv at i)
-      if code >= 65 and code <= 90:
-        set res is "{res}{(chr (code + 32))}"
-      else:
-        set res is "{res}{(sv at i)}"
-      set i is i + 1
-    return res
-
-  ## Converts the first character of each whitespace-separated word to uppercase and the rest to lowercase.
-  ##
-  ## Signature: title() into string
-  ## Ownership: Returns a freshly allocated owned string.
-  ## Edge cases: Preserves all whitespace characters; returns empty string if empty.
-  weave title into string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    if sl == 0:
-      return ""
-    var res as string is ""
-    var new_word as bool is true
-    var i as int is 0
-    while i < sl:
-      var c as string is sv at i
-      var code as int is ord c
-      if c == " " or c == "\t" or c == "\n" or c == "\r":
-        set res is "{res}{c}"
-        set new_word is true
-      else:
-        if new_word:
-          if code >= 97 and code <= 122:
-            set res is "{res}{(chr (code - 32))}"
-          else:
-            set res is "{res}{c}"
-          set new_word is false
-        else:
-          if code >= 65 and code <= 90:
-            set res is "{res}{(chr (code + 32))}"
-          else:
-            set res is "{res}{c}"
-      set i is i + 1
-    return res
-
-  ## Converts the first character of each whitespace-separated word to uppercase and the rest to lowercase (alias of title).
-  ##
-  ## Signature: title_case() into string
-  ## Ownership: Returns a freshly allocated owned string.
-  weave title_case into string:
-    return calling self.title
-
-  ## Returns a copy of the string with uppercase characters converted to lowercase and vice versa.
-  ##
-  ## Signature: swap_case() into string
-  ## Ownership: Returns a freshly allocated owned string.
-  ## Edge cases: Non-alphabetic ASCII characters are left unchanged.
-  weave swap_case into string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    var res as string is ""
-    var i as int is 0
-    while i < sl:
-      var code as int is ord (sv at i)
-      if code >= 65 and code <= 90:
-        set res is "{res}{(chr (code + 32))}"
-      else:
-        if code >= 97 and code <= 122:
-          set res is "{res}{(chr (code - 32))}"
-        else:
-          set res is "{res}{(sv at i)}"
-      set i is i + 1
-    return res
-
-  ## Converts camelCase, PascalCase, or space/hyphen-separated strings to snake_case.
-  ##
-  ## Signature: to_snake_case() into string
-  ## Ownership: Returns a freshly allocated owned string.
-  ## Edge cases: Collapses adjacent separators; returns empty string for empty input.
-  weave to_snake_case into string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    if sl == 0:
-      return ""
-    var res as string is ""
-    var i as int is 0
-    while i < sl:
-      var c as string is sv at i
-      var code as int is ord c
-      if c == " " or c == "-" or c == "_":
-        var rl as int is res length
-        if rl > 0:
-          if (res at (rl - 1)) != "_":
-            set res is "{res}_"
-      else:
-        if code >= 65 and code <= 90:
-          var rl as int is res length
-          if rl > 0:
-            var prev_code as int is ord (sv at (i - 1))
-            var is_prev_lower_or_digit as bool is (prev_code >= 97 and prev_code <= 122) or (prev_code >= 48 and prev_code <= 57)
-            var is_next_lower as bool is false
-            if (i + 1) < sl:
-              var next_code as int is ord (sv at (i + 1))
-              if next_code >= 97 and next_code <= 122:
-                set is_next_lower is true
-            if (is_prev_lower_or_digit or (is_next_lower and (prev_code >= 65 and prev_code <= 90))) and ((res at (rl - 1)) != "_"):
-              set res is "{res}_"
-          set res is "{res}{(chr (code + 32))}"
-        else:
-          set res is "{res}{c}"
-      set i is i + 1
-    return res
-
-  ## Converts camelCase, PascalCase, or space/underscore-separated strings to kebab-case.
-  ##
-  ## Signature: to_kebab_case() into string
-  ## Ownership: Returns a freshly allocated owned string.
-  ## Edge cases: Collapses adjacent separators; returns empty string for empty input.
-  weave to_kebab_case into string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    if sl == 0:
-      return ""
-    var res as string is ""
-    var i as int is 0
-    while i < sl:
-      var c as string is sv at i
-      var code as int is ord c
-      if c == " " or c == "-" or c == "_":
-        var rl as int is res length
-        if rl > 0:
-          if (res at (rl - 1)) != "-":
-            set res is "{res}-"
-      else:
-        if code >= 65 and code <= 90:
-          var rl as int is res length
-          if rl > 0:
-            var prev_code as int is ord (sv at (i - 1))
-            var is_prev_lower_or_digit as bool is (prev_code >= 97 and prev_code <= 122) or (prev_code >= 48 and prev_code <= 57)
-            var is_next_lower as bool is false
-            if (i + 1) < sl:
-              var next_code as int is ord (sv at (i + 1))
-              if next_code >= 97 and next_code <= 122:
-                set is_next_lower is true
-            if (is_prev_lower_or_digit or (is_next_lower and (prev_code >= 65 and prev_code <= 90))) and ((res at (rl - 1)) != "-"):
-              set res is "{res}-"
-          set res is "{res}{(chr (code + 32))}"
-        else:
-          set res is "{res}{c}"
-      set i is i + 1
-    return res
-
-  # --------------------------------------------------------------------------
-  # Search & Occurrence Counting
-  # --------------------------------------------------------------------------
-
-  ## Returns the index of the first occurrence of `sub`, or -1 if not found (alias of index_of).
-  ##
-  ## Signature: find(sub as string) into int
-  ## Ownership: Operates on borrowed strings; returns a scalar integer offset.
-  ## Edge cases: Returns 0 when sub is empty; returns -1 when sub is absent.
-  weave find with sub as string into int:
-    var sv as string is essence of self
-    return calling sc_index_of with sv , sub
-
-  ## Returns the index of the last occurrence of `sub`, or -1 if not found (alias of last_index_of).
-  ##
-  ## Signature: rfind(sub as string) into int
-  ## Ownership: Operates on borrowed strings; returns a scalar integer offset.
-  ## Edge cases: Returns string length when sub is empty; returns -1 when sub is absent.
-  weave rfind with sub as string into int:
-    var sv as string is essence of self
-    return calling sc_last_index_of with sv , sub
-
-  ## Returns the number of non-overlapping occurrences of `sub` in the string.
-  ##
-  ## Signature: count(sub as string) into int
-  ## Ownership: Operates on borrowed strings; returns a scalar integer count.
-  ## Edge cases: Returns 0 if `sub` is empty or longer than the string.
-  weave count with sub as string into int:
-    var sv as string is essence of self
-    var sl as int is sv length
-    var sub_l as int is sub length
-    if sub_l == 0 or sub_l > sl:
-      return 0
-    var cnt as int is 0
-    var i as int is 0
-    while i <= sl - sub_l:
-      if (sv at i to (i + sub_l)) == sub:
-        set cnt is cnt + 1
-        set i is i + sub_l
-      else:
-        set i is i + 1
-    return cnt
-
-  ## Counts the number of non-overlapping occurrences of `sub` in this string (alias of count).
-  ##
-  ## Signature: count_matches(sub as string) into int
-  ## Ownership: Operates on borrowed strings; returns a scalar integer count.
-  weave count_matches with sub as string into int:
-    return calling self.count with sub
-
-  # --------------------------------------------------------------------------
-  # Whitespace Manipulation
-  # --------------------------------------------------------------------------
-
-  ## Returns a copy of the string with leading whitespace removed (alias of trim_start).
-  ##
-  ## Signature: lstrip() into string
-  ## Ownership: Returns a freshly allocated owned string.
-  weave lstrip into string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    var start as int is 0
-    while start < sl:
-      if calling sc_is_space with (sv at start):
-        set start is start + 1
-      else:
-        break
-    return calling sc_substring with sv , start , sl
-
-  ## Returns a copy of the string with trailing whitespace removed (alias of trim_end).
-  ##
-  ## Signature: rstrip() into string
-  ## Ownership: Returns a freshly allocated owned string.
-  weave rstrip into string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    var end as int is sl - 1
-    while end >= 0:
-      if calling sc_is_space with (sv at end):
-        set end is end - 1
-      else:
-        break
-    return calling sc_substring with sv , 0 , (end + 1)
-
-  ## Returns true if the string is non-empty and contains only whitespace characters.
-  ##
-  ## Signature: is_space() into bool
-  ## Ownership: Operates on borrowed string; returns a scalar boolean.
-  ## Edge cases: Returns false for an empty string.
-  weave is_space into bool:
-    var sv as string is essence of self
-    var sl as int is sv length
-    if sl == 0:
-      return false
-    var i as int is 0
-    while i < sl:
-      if not (calling sc_is_space with (sv at i)):
-        return false
-      set i is i + 1
-    return true
-
-  ## Returns true if the string is non-empty and contains only whitespace characters (alias of is_space).
-  ##
-  ## Signature: is_whitespace() into bool
-  ## Ownership: Operates on borrowed string; returns a scalar boolean.
-  weave is_whitespace into bool:
-    return calling self.is_space
-
-  ## Splits the string by runs of consecutive ASCII whitespace characters.
-  ##
-  ## Signature: split_whitespace() into list of string
-  ## Ownership: Returns a newly allocated scope-owned list of owned strings.
-  ## Edge cases: Leading/trailing whitespace is ignored; returns an empty list if string is empty or all spaces.
-  weave split_whitespace into list of string:
-    var sv as string is essence of self
-    var parts as list of string is list of string
-    var sl as int is sv length
-    var i as int is 0
-    while i < sl:
-      while i < sl:
-        if calling sc_is_space with (sv at i):
-          set i is i + 1
-        else:
-          break
-      if i >= sl:
-        break
-      var word_start as int is i
-      while i < sl:
-        if not (calling sc_is_space with (sv at i)):
-          set i is i + 1
-        else:
-          break
-      calling parts.push with (sv at word_start to i)
-    return parts
-
-  # --------------------------------------------------------------------------
-  # Alignment & Padding
-  # --------------------------------------------------------------------------
-
-  ## Left-aligns the string within a field of specified width, padding with `pad_char` on the right.
-  ##
-  ## Signature: ljust(width as int, pad_char as string is " ") into string
-  ## Ownership: Returns a freshly allocated owned string.
-  ## Edge cases: If width <= length or pad_char is empty, returns the original string unchanged.
-  weave ljust with width as int , pad_char as string is " " into string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    if sl >= width or (pad_char length) == 0:
-      return sv
-    var res as string is sv
-    while (res length) < width:
-      set res is "{res}{pad_char}"
-    if (res length) > width:
-      return res at 0 to width
-    return res
-
-  ## Right-aligns the string within a field of specified width, padding with `pad_char` on the left.
-  ##
-  ## Signature: rjust(width as int, pad_char as string is " ") into string
-  ## Ownership: Returns a freshly allocated owned string.
-  ## Edge cases: If width <= length or pad_char is empty, returns the original string unchanged.
-  weave rjust with width as int , pad_char as string is " " into string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    if sl >= width or (pad_char length) == 0:
-      return sv
-    var pad as string is ""
-    while ((pad length) + sl) < width:
-      set pad is "{pad}{pad_char}"
-    var total as string is "{pad}{sv}"
-    if (total length) > width:
-      return total at ((total length) - width) to (total length)
-    return total
-
-  ## Right-aligns the string, padding on the left with `pad_char` (alias of rjust).
-  ##
-  ## Signature: pad_left(width as int, pad_char as string is " ") into string
-  ## Ownership: Returns a freshly allocated owned string.
-  weave pad_left with width as int , pad_char as string is " " into string:
-    return calling self.rjust with width, pad_char
-
-  ## Left-aligns the string, padding on the right with `pad_char` (alias of ljust).
-  ##
-  ## Signature: pad_right(width as int, pad_char as string is " ") into string
-  ## Ownership: Returns a freshly allocated owned string.
-  weave pad_right with width as int , pad_char as string is " " into string:
-    return calling self.ljust with width, pad_char
-
-  ## Pads a numeric string with zeros on the left until it reaches `width`, preserving leading sign.
-  ##
-  ## Signature: zfill(width as int) into string
-  ## Ownership: Returns a freshly allocated owned string.
-  ## Edge cases: If string starts with '+' or '-', the sign stays at the front and zeros follow it.
-  weave zfill with width as int into string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    if sl >= width:
-      return sv
-    var sign as string is ""
-    var rest as string is sv
-    if sl > 0:
-      var first as string is sv at 0
-      if first == "-" or first == "+":
-        set sign is first
-        set rest is sv at 1 to sl
-    var pad_len as int is width - (rest length) - (sign length)
-    var pad as string is ""
-    var i as int is 0
-    while i < pad_len:
-      set pad is "{pad}0"
-      set i is i + 1
-    return "{sign}{pad}{rest}"
-
-  ## Centers the string in a field of `width` padded with `pad_char` (default space).
-  ##
-  ## Signature: center(width as int, pad_char as string is " ") into string
-  ## Ownership: Returns a freshly allocated owned string.
-  ## Edge cases: If padding is odd, left padding gets the smaller half (Python parity).
-  weave center with width as int , pad_char as string is " " into string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    if sl >= width or (pad_char length) == 0:
-      return sv
-    var total_pad as int is width - sl
-    var left_pad as int is total_pad / 2
-    var right_pad as int is total_pad - left_pad
-    var pad_l as string is ""
-    var i as int is 0
-    while i < left_pad:
-      set pad_l is "{pad_l}{pad_char}"
-      set i is i + 1
-    var pad_r as string is ""
-    var j as int is 0
-    while j < right_pad:
-      set pad_r is "{pad_r}{pad_char}"
-      set j is j + 1
-    return "{pad_l}{sv}{pad_r}"
-
-  # --------------------------------------------------------------------------
-  # Prefix, Suffix & Partition
-  # --------------------------------------------------------------------------
-
-  ## Removes `prefix` from the start of the string if present, returning the remainder.
-  ##
-  ## Signature: removeprefix(prefix as string) into string
-  ## Ownership: Returns a freshly allocated owned string.
-  ## Edge cases: Returns unchanged string if prefix is not matched.
-  weave removeprefix with prefix as string into string:
-    var sv as string is essence of self
-    if calling sc_starts_with with sv , prefix:
-      return sv at (prefix length) to (sv length)
-    return sv
-
-  ## Removes `suffix` from the end of the string if present, returning the remainder.
-  ##
-  ## Signature: removesuffix(suffix as string) into string
-  ## Ownership: Returns a freshly allocated owned string.
-  ## Edge cases: Returns unchanged string if suffix is not matched.
-  weave removesuffix with suffix as string into string:
-    var sv as string is essence of self
-    if calling sc_ends_with with sv , suffix:
-      return sv at 0 to ((sv length) - (suffix length))
-    return sv
-
-  ## Splits the string at the first occurrence of `sep`, returning a list of 3 strings: [before, sep, after].
-  ##
-  ## Signature: partition(sep as string) into list of string
-  ## Ownership: Returns a newly allocated scope-owned list of 3 owned strings.
-  ## Edge cases: If `sep` is not found or empty, returns [sv, "", ""].
-  weave partition with sep as string into list of string:
-    var sv as string is essence of self
-    var parts as list of string is list of string with capacity 3
-    var idx as int is calling sc_index_of with sv , sep
-    if idx < 0 or (sep length) == 0:
-      calling parts.push with sv
-      calling parts.push with ""
-      calling parts.push with ""
-      return parts
-    calling parts.push with (sv at 0 to idx)
-    calling parts.push with sep
-    calling parts.push with (sv at (idx + (sep length)) to (sv length))
-    return parts
-
-  # --------------------------------------------------------------------------
-  # Classification Predicates
-  # --------------------------------------------------------------------------
-
-  ## Returns true if all cased characters are lowercase and there is at least one cased character.
-  ##
-  ## Signature: is_lower() into bool
-  ## Ownership: Operates on borrowed string; returns a scalar boolean.
-  ## Edge cases: Returns false for empty string or strings without cased characters.
-  weave is_lower into bool:
-    var sv as string is essence of self
-    var sl as int is sv length
-    if sl == 0:
-      return false
-    var has_cased as bool is false
-    var i as int is 0
-    while i < sl:
-      var code as int is ord (sv at i)
-      if code >= 65 and code <= 90:
-        return false
-      if code >= 97 and code <= 122:
-        set has_cased is true
-      set i is i + 1
-    return has_cased
-
-  ## Returns true if all cased characters are uppercase and there is at least one cased character.
-  ##
-  ## Signature: is_upper() into bool
-  ## Ownership: Operates on borrowed string; returns a scalar boolean.
-  ## Edge cases: Returns false for empty string or strings without cased characters.
-  weave is_upper into bool:
-    var sv as string is essence of self
-    var sl as int is sv length
-    if sl == 0:
-      return false
-    var has_cased as bool is false
-    var i as int is 0
-    while i < sl:
-      var code as int is ord (sv at i)
-      if code >= 97 and code <= 122:
-        return false
-      if code >= 65 and code <= 90:
-        set has_cased is true
-      set i is i + 1
-    return has_cased
-
-  ## Returns true if the string reads the same forwards and backwards.
-  ##
-  ## Signature: is_palindrome() into bool
-  ## Ownership: Operates on borrowed string; returns a scalar boolean.
-  ## Edge cases: Returns true for strings of length <= 1.
-  weave is_palindrome into bool:
-    var sv as string is essence of self
-    var sl as int is sv length
-    if sl <= 1:
-      return true
-    var i as int is 0
-    var half as int is sl / 2
-    while i < half:
-      if (ord (sv at i)) != (ord (sv at (sl - 1 - i))):
-        return false
-      set i is i + 1
-    return true
-
-  # --------------------------------------------------------------------------
-  # Ordering & Comparison
-  # --------------------------------------------------------------------------
-
-  ## Performs lexicographical byte-by-byte comparison between this string and `other`.
-  ## Returns -1 if self < other, 0 if self == other, and 1 if self > other.
-  ##
-  ## Signature: compare(other as string) into int
-  ## Ownership: Operates on borrowed strings; returns a scalar integer (-1, 0, 1).
-  ## NOTE: PenguScript disallows '<', '<=', '>', '>=' operators on strings (E0005).
-  ## This method is the canonical way to sort or order strings.
-  weave compare with other as string into int:
-    var sv as string is essence of self
-    var l1 as int is sv length
-    var l2 as int is other length
-    var min_l as int is l1
-    if l2 < min_l:
-      set min_l is l2
-    var i as int is 0
-    while i < min_l:
-      var c1 as int is ord (sv at i)
-      var c2 as int is ord (other at i)
-      if c1 < c2:
-        return -1
-      if c1 > c2:
-        return 1
-      set i is i + 1
-    if l1 < l2:
-      return -1
-    if l1 > l2:
-      return 1
-    return 0
-
-  # --------------------------------------------------------------------------
-  # Iteration & Splitting Helpers
-  # --------------------------------------------------------------------------
-
-  ## Returns a list containing every character of the string as a single-character string.
-  ##
-  ## Signature: chars() into list of string
-  ## Ownership: Returns a newly allocated scope-owned list of owned strings.
-  ## Edge cases: Returns an empty list if the string is empty.
-  weave chars into list of string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    var parts as list of string is list of string with capacity sl
-    var i as int is 0
-    while i < sl:
-      calling parts.push with (sv at i to (i + 1))
-      set i is i + 1
-    return parts
-
-  ## Returns a list containing the numeric ASCII byte codes of the characters in the string.
-  ##
-  ## Signature: bytes() into list of int
-  ## Ownership: Returns a newly allocated scope-owned list of scalar integers.
-  ## Edge cases: Returns an empty list if the string is empty.
-  weave bytes into list of int:
-    var sv as string is essence of self
-    var sl as int is sv length
-    var codes as list of int is list of int with capacity sl
-    var i as int is 0
-    while i < sl:
-      calling codes.push with (ord (sv at i))
-      set i is i + 1
-    return codes
-
-  ## Splits the string by newline ('\n') boundaries without stripping carriage returns ('\r').
-  ##
-  ## Signature: split_lines() into list of string
-  ## Ownership: Returns a newly allocated scope-owned list of owned strings.
-  ## Edge cases: Returns an empty list for empty string; preserves '\r'.
-  weave split_lines into list of string:
-    var sv as string is essence of self
-    var parts as list of string is list of string
-    var sl as int is sv length
-    if sl == 0:
-      return parts
-    var start as int is 0
-    var i as int is 0
-    while i < sl:
-      if (ord (sv at i)) == 10:
-        calling parts.push with (sv at start to i)
-        set start is i + 1
-      set i is i + 1
-    calling parts.push with (sv at start to sl)
-    return parts
-
-  ## Returns the number of lines separated by newline ('\n') characters.
-  ##
-  ## Signature: line_count() into int
-  ## Ownership: Operates on borrowed string; returns a scalar integer.
-  ## Edge cases: Returns 0 for empty string, 1 for string without newlines.
-  weave line_count into int:
-    var sv as string is essence of self
-    var sl as int is sv length
-    if sl == 0:
-      return 0
-    var count as int is 1
-    var i as int is 0
-    while i < sl:
-      if (ord (sv at i)) == 10:
-        set count is count + 1
-      set i is i + 1
-    return count
-
-  ## Returns the number of whitespace-delimited words in the string.
-  ##
-  ## Signature: word_count() into int
-  ## Ownership: Operates on borrowed string; returns a scalar integer.
-  ## Edge cases: Returns 0 for empty string or strings containing only whitespace.
-  weave word_count into int:
-    var sv as string is essence of self
-    var sl as int is sv length
-    var count as int is 0
-    var in_word as bool is false
-    var i as int is 0
-    while i < sl:
-      if calling sc_is_space with (sv at i):
-        set in_word is false
-      else:
-        if not in_word:
-          set count is count + 1
-          set in_word is true
-      set i is i + 1
-    return count
-
-  # --------------------------------------------------------------------------
-  # Truncation
-  # --------------------------------------------------------------------------
-
-  ## Truncates the string to at most `max_len` characters, appending `suffix` if truncated.
-  ##
-  ## Signature: truncate(max_len as int, suffix as string) into string
-  ## Ownership: Returns a freshly allocated owned string or original value.
-  ## Edge cases: If length <= max_len, returns unchanged; if max_len <= suffix length, cuts without suffix.
-  weave truncate with max_len as int , suffix as string into string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    if sl <= max_len:
-      return sv
-    var sufl as int is suffix length
-    if max_len <= sufl:
-      if max_len <= 0:
-        return ""
-      return sv at 0 to max_len
-    return "{(sv at 0 to (max_len - sufl))}{suffix}"
-
-  ## Truncates the string to at most `max_len` characters, appending "..." if truncated.
-  ##
-  ## Signature: ellipsis(max_len as int) into string
-  ## Ownership: Returns a freshly allocated owned string or original value.
-  ## Edge cases: If max_len <= 3, truncates without "..."; if length <= max_len, returns unchanged.
-  weave ellipsis with max_len as int into string:
-    var sv as string is essence of self
-    var sl as int is sv length
-    if sl <= max_len:
-      return sv
-    if max_len <= 3:
-      if max_len <= 0:
-        return ""
-      return sv at 0 to max_len
-    return "{(sv at 0 to (max_len - 3))}..."
-
-# ----------------------------------------------------------------------------
-# Module-level Sequence Operations
-# ----------------------------------------------------------------------------
-
-## Concatenates the elements of `parts` into a single string using `sep` as a separator.
+    # --- Longitud e iteración ------------------------------------------
+    ## Número de bytes del string.
+    weave len into int:
+        let sv is essence of self
+        return sv length
+    ## True cuando el string está vacío (longitud 0).
+    weave is_empty into bool:
+        let sv is essence of self
+        return sv length == 0
+    ## Lista con cada byte como un string de un carácter.
+    weave chars into list of string:
+        let sv is essence of self
+        let parts is for ch in sv then ch
+        return parts
+    ## Lista con el código numérico de cada byte.
+    weave bytes into list of int:
+        let sv is essence of self
+        let codes is for ch in sv then ord ch
+        return codes
+
+    # --- Búsqueda -------------------------------------------------------
+    ## True cuando `sub` aparece en alguna posición del string.
+    weave contains with sub as string into bool:
+        let sv is essence of self
+        return (calling _index_of_from with sv, sub, 0) >= 0
+    ## True cuando el string empieza por `prefix` (un `prefix` vacío encaja).
+    weave starts_with with prefix as string into bool:
+        let sv is essence of self
+        return calling _has_prefix_at with sv, prefix, 0
+    ## True cuando el string termina en `suffix` (un `suffix` vacío encaja).
+    weave ends_with with suffix as string into bool:
+        let sv is essence of self
+        let sl as int is suffix length
+        let ll as int is sv length
+        if sl > ll:
+            return false
+        return calling _has_prefix_at with sv, suffix, ll - sl
+    ## Índice de la primera aparición de `sub`, o -1 si no está.
+    ## Edge cases: Un `sub` vacío devuelve 0.
+    weave index_of with sub as string into int:
+        let sv is essence of self
+        return calling _index_of_from with sv, sub, 0
+    ## Índice de la última aparición de `sub`, o -1 si no está.
+    ## Edge cases: Un `sub` vacío devuelve la longitud del string.
+    weave last_index_of with sub as string into int:
+        let sv is essence of self
+        return calling _last_index_of_from with sv, sub, (sv length) - (sub length)
+    ## @deprecated Use index_of instead.
+    weave find with sub as string into int:
+        return calling self.index_of with sub
+    ## @deprecated Use last_index_of instead.
+    weave rfind with sub as string into int:
+        return calling self.last_index_of with sub
+    ## Cuenta las apariciones **no solapadas** de `sub`.
+    ## Edge cases: Devuelve 0 cuando `sub` está vacío o es más largo.
+    weave count with sub as string into int:
+        let sv is essence of self
+        let sl as int is sub length
+        if sl == 0:
+            return 0
+        var found as int is 0
+        var hit as int is calling _index_of_from with sv, sub, 0
+        while hit >= 0:
+            set found is found + 1
+            set hit is calling _index_of_from with sv, sub, hit + sl
+        return found
+    ## @deprecated Use count instead.
+    weave count_matches with sub as string into int:
+        return calling self.count with sub
+
+    # --- Corte ----------------------------------------------------------
+    ## Substring desde `start_pos` (incluido) hasta `end_pos` (excluido).
+    ## Edge cases: `start_pos == end_pos` devuelve ""; los índices van tal cual al runtime.
+    weave substring with start_pos as int, end_pos as int into string:
+        let sv is essence of self
+        return sv at start_pos to end_pos
+    ## El byte en `idx` como un string de un carácter.
+    weave char_at with idx as int into string:
+        let sv is essence of self
+        return sv at idx to (idx + 1)
+    ## Copia con los bytes en orden inverso.
+    weave reverse into string:
+        let sv is essence of self
+        let ll as int is sv length
+        var parts as list of string is list of string with capacity ll
+        var i as int is ll - 1
+        while i >= 0:
+            calling parts.push with (sv at i to (i + 1))
+            set i is i - 1
+        return calling _concat with parts
+
+    # --- Mayúsculas y minúsculas ---------------------------------------
+    ## Copia con las letras ASCII A-Z convertidas a minúsculas.
+    weave lower into string:
+        let sv is essence of self
+        let parts is for ch in sv then calling _lower_char with ch
+        return calling _concat with parts
+    ## Copia con las letras ASCII a-z convertidas a mayúsculas.
+    weave upper into string:
+        let sv is essence of self
+        let parts is for ch in sv then calling _upper_char with ch
+        return calling _concat with parts
+    ## @deprecated Use lower instead.
+    weave to_lower into string:
+        return calling self.lower
+    ## @deprecated Use upper instead.
+    weave to_upper into string:
+        return calling self.upper
+    ## Copia con la primera letra en mayúscula y el resto en minúsculas.
+    ## Edge cases: Devuelve "" para el string vacío.
+    weave capitalize into string:
+        let sv is essence of self
+        let ll as int is sv length
+        if ll == 0:
+            return ""
+        let head is calling _upper_char with (sv at 0 to 1)
+        let lowered is for ch in (sv at 1 to ll) then calling _lower_char with ch
+        let tail is calling _concat with lowered
+        return "{head}{tail}"
+    ## Copia con la inicial de cada palabra en mayúscula y el resto en minúsculas.
+    weave title into string:
+        let sv is essence of self
+        var parts as list of string is list of string with capacity (sv length)
+        var at_word_start as bool is true
+        for ch in sv:
+            if calling _char_is_space with ch:
+                calling parts.push with ch
+                set at_word_start is true
+            else:
+                if at_word_start:
+                    calling parts.push with (calling _upper_char with ch)
+                else:
+                    calling parts.push with (calling _lower_char with ch)
+                set at_word_start is false
+        return calling _concat with parts
+    ## @deprecated Use title instead.
+    weave title_case into string:
+        return calling self.title
+    ## Copia con cada letra ASCII cambiada de caja; el resto no cambia.
+    weave swap_case into string:
+        let sv is essence of self
+        let parts is for ch in sv then calling _swap_char with ch
+        return calling _concat with parts
+    ## Copia en `snake_case`: separa camelCase y normaliza los separadores a `_`.
+    ## Edge cases: Colapsa separadores repetidos; "" devuelve "".
+    weave to_snake_case into string:
+        let sv is essence of self
+        var parts as list of string is list of string with capacity (sv length)
+        for i, ch in sv:
+            if ch == " " or ch == "-" or ch == "_":
+                if (parts length) > 0:
+                    if (parts at ((parts length) - 1)) != "_":
+                        calling parts.push with "_"
+            else:
+                if calling _char_is_upper with ch:
+                    if (parts length) > 0:
+                        let prev_is_upper as bool is calling _char_is_upper with (sv at (i - 1))
+                        let prev_is_lower as bool is calling _char_is_lower with (sv at (i - 1))
+                        let prev_is_digit as bool is calling _char_is_digit with (sv at (i - 1))
+                        var next_is_lower as bool is false
+                        if (i + 1) < (sv length):
+                            set next_is_lower is calling _char_is_lower with (sv at (i + 1))
+                        let starts_word as bool is (prev_is_lower or prev_is_digit or (next_is_lower and prev_is_upper))
+                        if starts_word and ((parts at ((parts length) - 1)) != "_"):
+                            calling parts.push with "_"
+                    calling parts.push with (calling _lower_char with ch)
+                else:
+                    calling parts.push with ch
+        return calling _concat with parts
+    ## Copia en `kebab-case`: `to_snake_case` con `_` cambiado por `-`.
+    weave to_kebab_case into string:
+        var snake as string is calling self.to_snake_case
+        return calling snake.replace_all with "_", "-"
+    ## Forma corta de `to_snake_case`.
+    weave snake_case into string:
+        return calling self.to_snake_case
+    ## Forma corta de `to_kebab_case`.
+    weave kebab_case into string:
+        return calling self.to_kebab_case
+    ## Copia en `PascalCase`: cada palabra de `snake_case` capitalizada.
+    ## Edge cases: "" devuelve "".
+    weave pascal_case into string:
+        var snake as string is calling self.snake_case
+        let words_list is calling snake.split with "_"
+        var parts as list of string is list of string with capacity (words_list length)
+        for word in words_list:
+            var piece as string is word
+            calling parts.push with (calling piece.capitalize)
+        return calling _concat with parts
+    ## True cuando todos los bytes son letras ASCII y hay al menos uno.
+    weave is_alpha into bool:
+        let sv is essence of self
+        if (sv length) == 0:
+            return false
+        for ch in sv:
+            if not (calling _char_is_alpha with ch):
+                return false
+        return true
+    ## True cuando todos los bytes son dígitos ASCII y hay al menos uno.
+    weave is_digit into bool:
+        let sv is essence of self
+        if (sv length) == 0:
+            return false
+        for ch in sv:
+            if not (calling _char_is_digit with ch):
+                return false
+        return true
+    ## True cuando todos los bytes son letras o dígitos ASCII y hay al menos uno.
+    weave is_alnum into bool:
+        let sv is essence of self
+        if (sv length) == 0:
+            return false
+        for ch in sv:
+            if not (calling _char_is_alnum with ch):
+                return false
+        return true
+    ## True cuando no hay mayúsculas y hay al menos una minúscula.
+    weave is_lower into bool:
+        let sv is essence of self
+        var has_lower as bool is false
+        for ch in sv:
+            if calling _char_is_upper with ch:
+                return false
+            if calling _char_is_lower with ch:
+                set has_lower is true
+        return has_lower
+    ## True cuando no hay minúsculas y hay al menos una mayúscula.
+    weave is_upper into bool:
+        let sv is essence of self
+        var has_upper as bool is false
+        for ch in sv:
+            if calling _char_is_lower with ch:
+                return false
+            if calling _char_is_upper with ch:
+                set has_upper is true
+        return has_upper
+    ## True cuando el string se lee igual al derecho y al revés.
+    ## Edge cases: Los strings de longitud 0 o 1 son palíndromos.
+    weave is_palindrome into bool:
+        let sv is essence of self
+        let ll as int is sv length
+        for i from 0 to (ll / 2):
+            if (sv at i to (i + 1)) != (sv at (ll - 1 - i) to (ll - i)):
+                return false
+        return true
+
+    # --- Espacios -------------------------------------------------------
+    ## Copia sin espacios ASCII al principio ni al final.
+    weave trim into string:
+        var started as string is calling self.trim_start
+        return calling started.trim_end
+    ## Copia sin espacios ASCII al principio.
+    weave trim_start into string:
+        let sv is essence of self
+        let ll as int is sv length
+        var start as int is 0
+        while start < ll:
+            if calling _char_is_space with (sv at start):
+                set start is start + 1
+            else:
+                break
+        return sv at start to ll
+    ## Copia sin espacios ASCII al final.
+    weave trim_end into string:
+        let sv is essence of self
+        var end as int is (sv length) - 1
+        while end >= 0:
+            if calling _char_is_space with (sv at end):
+                set end is end - 1
+            else:
+                break
+        return sv at 0 to (end + 1)
+    ## @deprecated Use trim_start instead.
+    weave lstrip into string:
+        return calling self.trim_start
+    ## @deprecated Use trim_end instead.
+    weave rstrip into string:
+        return calling self.trim_end
+    ## True cuando el string no está vacío y todos sus bytes son espacios.
+    ## Edge cases: Devuelve false para "" (ver `is_blank`).
+    weave is_space into bool:
+        let sv is essence of self
+        if (sv length) == 0:
+            return false
+        for ch in sv:
+            if not (calling _char_is_space with ch):
+                return false
+        return true
+    ## @deprecated Use is_space instead.
+    weave is_whitespace into bool:
+        return calling self.is_space
+    ## True cuando el string está vacío o todos sus bytes son espacios.
+    weave is_blank into bool:
+        let sv is essence of self
+        for ch in sv:
+            if not (calling _char_is_space with ch):
+                return false
+        return true
+    ## Lista de palabras separadas por runs de espacios ASCII.
+    ## Edge cases: ignora espacios extremos; "" o solo espacios dan lista vacía.
+    weave split_whitespace into list of string:
+        let sv is essence of self
+        var parts as list of string is list of string
+        var start as int is -1
+        for i, ch in sv:
+            if calling _char_is_space with ch:
+                if start >= 0:
+                    calling parts.push with (sv at start to i)
+                    set start is -1
+            else:
+                if start < 0:
+                    set start is i
+        if start >= 0:
+            calling parts.push with (sv at start to (sv length))
+        return parts
+    ## Nombre corto de `split_whitespace`.
+    weave words into list of string:
+        return calling self.split_whitespace
+    ## Lista de líneas separadas por `\n`.
+    ## Edge cases: "" da lista vacía; un `\n` final añade una línea vacía.
+    weave split_lines into list of string:
+        var sv as string is essence of self
+        if (sv length) == 0:
+            return list of string
+        let parts is calling sv.split with "\n"
+        return parts
+    ## Número de líneas separadas por `\n`.
+    ## Edge cases: 0 para ""; 1 para un string sin `\n`.
+    weave line_count into int:
+        let parts is calling self.split_lines
+        return parts length
+    ## Número de palabras separadas por espacios ASCII.
+    weave word_count into int:
+        let parts is calling self.words
+        return parts length
+    ## Lista de líneas con el `\r` final de cada una eliminado (CRLF).
+    ## Edge cases: "" da lista vacía; un `\n` final añade una línea vacía.
+    weave lines into list of string:
+        let raw is calling self.split_lines
+        var parts as list of string is list of string with capacity (raw length)
+        for line in raw:
+            var clean_line as string is line
+            calling parts.push with (calling clean_line.removesuffix with "\r")
+        return parts
+
+    # --- Reemplazo y división ------------------------------------------
+    ## Copia con la primera aparición de `from_str` sustituida por `to_str`.
+    ## Edge cases: un `from_str` vacío inserta `to_str` al principio (legado).
+    weave replace with from_str as string, to_str as string into string:
+        let sv is essence of self
+        let hit as int is calling _index_of_from with sv, from_str, 0
+        if hit < 0:
+            return sv
+        let fl as int is from_str length
+        let head is sv at 0 to hit
+        let tail is sv at (hit + fl) to (sv length)
+        return "{head}{to_str}{tail}"
+    ## Copia con **todas** las apariciones no solapadas de `from_str`
+    ## Edge cases: Un `from_str` vacío devuelve el string sin cambios.
+    weave replace_all with from_str as string, to_str as string into string:
+        let parts is calling self.split with from_str
+        return calling _join_parts with parts, to_str
+    ## Divide por cada aparición de `delim`.
+    ## Edge cases: Un `delim` vacío devuelve una lista con el string entero.
+    weave split with delim as string into list of string:
+        let sv is essence of self
+        let dl as int is delim length
+        var parts as list of string is list of string
+        if dl == 0:
+            calling parts.push with sv
+            return parts
+        var start as int is 0
+        var hit as int is calling _index_of_from with sv, delim, start
+        while hit >= 0:
+            calling parts.push with (sv at start to hit)
+            set start is hit + dl
+            set hit is calling _index_of_from with sv, delim, start
+        calling parts.push with (sv at start to (sv length))
+        return parts
+    ## Divide en la **primera** aparición de `sep`: `[antes, sep, después]`.
+    ## Edge cases: si `sep` falta o está vacío devuelve `[self, "", ""]`.
+    weave partition with sep as string into list of string:
+        let sv is essence of self
+        var parts as list of string is list of string with capacity 3
+        let hit as int is calling _index_of_from with sv, sep, 0
+        if hit < 0 or (sep length) == 0:
+            calling parts.push with sv
+            calling parts.push with ""
+            calling parts.push with ""
+            return parts
+        let sl as int is sep length
+        calling parts.push with (sv at 0 to hit)
+        calling parts.push with sep
+        calling parts.push with (sv at (hit + sl) to (sv length))
+        return parts
+    ## Copia repetida `count` veces.
+    ## Edge cases: `count <= 0` o string vacío devuelven "".
+    weave repeat with count as int into string:
+        let sv is essence of self
+        if count <= 0 or (sv length) == 0:
+            return ""
+        var parts as list of string is list of string with capacity count
+        for i from 0 to count:
+            calling parts.push with sv
+        return calling _concat with parts
+    ## Copia repetida `count` veces y unida con `sep`.
+    ## Edge cases: `count <= 0` o string vacío devuelven "".
+    weave repeat_join with count as int, sep as string into string:
+        let sv is essence of self
+        if count <= 0 or (sv length) == 0:
+            return ""
+        var parts as list of string is list of string with capacity count
+        for i from 0 to count:
+            calling parts.push with sv
+        return calling _join_parts with parts, sep
+
+    # --- Alineación -----------------------------------------------------
+    ## Alinea a la izquierda en `width`, rellenando por la derecha con `pad_char`.
+    ## Edge cases: si ya cabe o `pad_char` está vacío no cambia; se recorta a `width`.
+    weave ljust with width as int, pad_char as string is " " into string:
+        let sv is essence of self
+        let ll as int is sv length
+        let pl as int is pad_char length
+        if ll >= width or pl == 0:
+            return sv
+        let pad_count as int is ((width - ll) + pl - 1) / pl
+        let padded is calling _pad_right with sv, pad_count, pad_char
+        if (padded length) > width:
+            return padded at 0 to width
+        return padded
+    ## Alinea a la derecha en `width`, rellenando por la izquierda con `pad_char`.
+    weave rjust with width as int, pad_char as string is " " into string:
+        let sv is essence of self
+        let ll as int is sv length
+        let pl as int is pad_char length
+        if ll >= width or pl == 0:
+            return sv
+        let pad_count as int is ((width - ll) + pl - 1) / pl
+        let padded is calling _pad_left with sv, pad_count, pad_char
+        if (padded length) > width:
+            return padded at ((padded length) - width) to (padded length)
+        return padded
+    ## @deprecated Use rjust instead.
+    weave pad_left with width as int, pad_char as string is " " into string:
+        return calling self.rjust with width, pad_char
+    ## @deprecated Use ljust instead.
+    weave pad_right with width as int, pad_char as string is " " into string:
+        return calling self.ljust with width, pad_char
+    ## Rellena con ceros por la izquierda hasta `width`, conservando el signo.
+    weave zfill with width as int into string:
+        let sv is essence of self
+        if (sv length) >= width:
+            return sv
+        var sign as string is ""
+        var rest as string is sv
+        if (sv length) > 0:
+            let first is sv at 0 to 1
+            if first == "-" or first == "+":
+                set sign is first
+                set rest is sv at 1 to (sv length)
+        let zeros as int is width - (rest length) - (sign length)
+        let padded is calling _pad_left with rest, zeros, "0"
+        return "{sign}{padded}"
+    ## Centra en un campo de `width` rellenando con `pad_char`.
+    ## Edge cases: con relleno impar la izquierda recibe la mitad menor (Python).
+    weave center with width as int, pad_char as string is " " into string:
+        let sv is essence of self
+        let ll as int is sv length
+        if ll >= width or (pad_char length) == 0:
+            return sv
+        let total as int is width - ll
+        let left_count as int is total / 2
+        let right_count as int is total - left_count
+        let left_pad is calling _pad_left with "", left_count, pad_char
+        let right_pad is calling _pad_right with "", right_count, pad_char
+        return "{left_pad}{sv}{right_pad}"
+
+    # --- Prefijos y sufijos --------------------------------------------
+    ## Copia con `prefix` eliminado del principio si está presente.
+    weave removeprefix with prefix as string into string:
+        let sv is essence of self
+        if calling _has_prefix_at with sv, prefix, 0:
+            return sv at (prefix length) to (sv length)
+        return sv
+    ## Copia con `suffix` eliminado del final si está presente.
+    weave removesuffix with suffix as string into string:
+        let sv is essence of self
+        let ll as int is sv length
+        let sl as int is suffix length
+        if sl <= ll:
+            if calling _has_prefix_at with sv, suffix, ll - sl:
+                return sv at 0 to (ll - sl)
+        return sv
+
+    # --- Comparación ----------------------------------------------------
+    ## Compara byte a byte con `other` y devuelve -1, 0 o 1.
+    weave compare with other as string into int:
+        let sv is essence of self
+        let l1 as int is sv length
+        let l2 as int is other length
+        let min_l is if l1 < l2 then l1 else l2
+        for i from 0 to min_l:
+            let c1 as int is ord (sv at i)
+            let c2 as int is ord (other at i)
+            if c1 != c2:
+                return if c1 < c2 then -1 else 1
+        return if l1 < l2 then -1 else (if l1 > l2 then 1 else 0)
+    # --- Truncado -------------------------------------------------------
+    ## Recorta a `max_len` bytes añadiendo `suffix` si hubo recorte.
+    ## Edge cases: `max_len <= len(suffix)` recorta sin sufijo; `max_len <= 0` da "".
+    weave truncate with max_len as int, suffix as string into string:
+        let sv is essence of self
+        let ll as int is sv length
+        if ll <= max_len:
+            return sv
+        let sl as int is suffix length
+        if max_len <= sl:
+            if max_len <= 0:
+                return ""
+            return sv at 0 to max_len
+        let head is sv at 0 to (max_len - sl)
+        return "{head}{suffix}"
+    ## Recorta a `max_len` bytes añadiendo "..." si hubo recorte.
+    weave ellipsis with max_len as int into string:
+        return calling self.truncate with max_len, "..."
+
+    # --- Parseo ---------------------------------------------------------
+    ## Interpreta el string como entero (con espacios y signo opcionales).
+    weave parse_int into maybe int:
+        let sv is essence of self
+        return calling spark.parse_int with sv
+    ## True cuando el string es un literal numérico exacto: signo y `.` opcionales.
+    weave is_numeric into bool:
+        let sv is essence of self
+        var has_digit as bool is false
+        var has_dot as bool is false
+        for i, ch in sv:
+            if ch == "+" or ch == "-":
+                if i != 0:
+                    return false
+            else:
+                if ch == ".":
+                    if has_dot:
+                        return false
+                    set has_dot is true
+                else:
+                    if calling _char_is_digit with ch:
+                        set has_digit is true
+                    else:
+                        return false
+        return has_digit
+    ## Interpreta el string como decimal (con espacios; sin exponentes).
+    weave parse_float into maybe float:
+        var sv as string is essence of self
+        var trimmed as string is calling sv.trim
+        if not (calling trimmed.is_numeric):
+            return maybe none
+        return some (calling _float_from_literal with trimmed)
+# --- Funciones de módulo ------------------------------------------------
+# Forma funcional de cada método: el receptor pasa a ser el primer
+# parámetro `s` y el `weave` delega en el método homónimo, que está
+# documentado arriba. El contrato y los bordes son idénticos.
+weave len with s as string into int:
+    return calling s.len
+weave is_empty with s as string into bool:
+    return calling s.is_empty
+weave contains with s as string, sub as string into bool:
+    return calling s.contains with sub
+weave starts_with with s as string, prefix as string into bool:
+    return calling s.starts_with with prefix
+weave ends_with with s as string, suffix as string into bool:
+    return calling s.ends_with with suffix
+weave index_of with s as string, sub as string into int:
+    return calling s.index_of with sub
+weave last_index_of with s as string, sub as string into int:
+    return calling s.last_index_of with sub
+weave substring with s as string, start_pos as int, end_pos as int into string:
+    return calling s.substring with start_pos, end_pos
+weave char_at with s as string, idx as int into string:
+    return calling s.char_at with idx
+weave lower with s as string into string:
+    return calling s.lower
+weave upper with s as string into string:
+    return calling s.upper
+weave to_lower with s as string into string:
+    return calling s.to_lower
+weave to_upper with s as string into string:
+    return calling s.to_upper
+weave trim with s as string into string:
+    return calling s.trim
+weave trim_start with s as string into string:
+    return calling s.trim_start
+weave trim_end with s as string into string:
+    return calling s.trim_end
+weave replace with s as string, from_str as string, to_str as string into string:
+    return calling s.replace with from_str, to_str
+weave replace_all with s as string, from_str as string, to_str as string into string:
+    return calling s.replace_all with from_str, to_str
+weave split with s as string, delim as string into list of string:
+    return calling s.split with delim
+weave repeat with s as string, count as int into string:
+    return calling s.repeat with count
+weave repeat_join with s as string, count as int, sep as string into string:
+    return calling s.repeat_join with count, sep
+weave reverse with s as string into string:
+    return calling s.reverse
+weave is_alpha with s as string into bool:
+    return calling s.is_alpha
+weave is_digit with s as string into bool:
+    return calling s.is_digit
+weave is_alnum with s as string into bool:
+    return calling s.is_alnum
+weave capitalize with s as string into string:
+    return calling s.capitalize
+weave title with s as string into string:
+    return calling s.title
+weave title_case with s as string into string:
+    return calling s.title_case
+weave swap_case with s as string into string:
+    return calling s.swap_case
+weave to_snake_case with s as string into string:
+    return calling s.to_snake_case
+weave to_kebab_case with s as string into string:
+    return calling s.to_kebab_case
+weave snake_case with s as string into string:
+    return calling s.snake_case
+weave kebab_case with s as string into string:
+    return calling s.kebab_case
+weave pascal_case with s as string into string:
+    return calling s.pascal_case
+weave find with s as string, sub as string into int:
+    return calling s.find with sub
+weave rfind with s as string, sub as string into int:
+    return calling s.rfind with sub
+weave count with s as string, sub as string into int:
+    return calling s.count with sub
+weave count_matches with s as string, sub as string into int:
+    return calling s.count_matches with sub
+weave lstrip with s as string into string:
+    return calling s.lstrip
+weave rstrip with s as string into string:
+    return calling s.rstrip
+weave is_space with s as string into bool:
+    return calling s.is_space
+weave is_whitespace with s as string into bool:
+    return calling s.is_whitespace
+weave is_blank with s as string into bool:
+    return calling s.is_blank
+weave split_whitespace with s as string into list of string:
+    return calling s.split_whitespace
+weave words with s as string into list of string:
+    return calling s.words
+weave split_lines with s as string into list of string:
+    return calling s.split_lines
+weave lines with s as string into list of string:
+    return calling s.lines
+weave line_count with s as string into int:
+    return calling s.line_count
+weave word_count with s as string into int:
+    return calling s.word_count
+weave ljust with s as string, width as int, pad_char as string is " " into string:
+    return calling s.ljust with width, pad_char
+weave rjust with s as string, width as int, pad_char as string is " " into string:
+    return calling s.rjust with width, pad_char
+weave pad_left with s as string, width as int, pad_char as string is " " into string:
+    return calling s.pad_left with width, pad_char
+weave pad_right with s as string, width as int, pad_char as string is " " into string:
+    return calling s.pad_right with width, pad_char
+weave zfill with s as string, width as int into string:
+    return calling s.zfill with width
+weave center with s as string, width as int, pad_char as string is " " into string:
+    return calling s.center with width, pad_char
+weave removeprefix with s as string, prefix as string into string:
+    return calling s.removeprefix with prefix
+weave removesuffix with s as string, suffix as string into string:
+    return calling s.removesuffix with suffix
+weave partition with s as string, sep as string into list of string:
+    return calling s.partition with sep
+weave is_lower with s as string into bool:
+    return calling s.is_lower
+weave is_upper with s as string into bool:
+    return calling s.is_upper
+weave is_palindrome with s as string into bool:
+    return calling s.is_palindrome
+weave compare with a as string, b as string into int:
+    return calling a.compare with b
+weave chars with s as string into list of string:
+    return calling s.chars
+weave bytes with s as string into list of int:
+    return calling s.bytes
+weave truncate with s as string, max_len as int, suffix as string into string:
+    return calling s.truncate with max_len, suffix
+weave ellipsis with s as string, max_len as int into string:
+    return calling s.ellipsis with max_len
+weave is_numeric with s as string into bool:
+    return calling s.is_numeric
+
+## Une los elementos de `parts` con `sep` entre ellos.
 ##
-## Signature: join(parts as list of string, sep as string) into string
-## Ownership: Returns a freshly allocated owned string.
-## Edge cases: Returns an empty string for an empty list.
-weave join with parts as list of string , sep as string into string:
-  var res as string is ""
-  for i, p in parts:
-    if i > 0:
-      set res is "{res}{sep}"
-    set res is "{res}{p}"
-  return res
+## ## Ownership
+## Devuelve un `string` nuevo y auto-banishable.
+##
+## Edge cases: Una lista vacía devuelve "".
+weave join with parts as list of string, sep as string into string:
+    return calling _join_parts with parts, sep
+
+# --- Helpers privados ----------------------------------------------------
+## Une `parts` con `sep` entre elementos (cuerpo real de `join`).
+weave _join_parts with parts as list of string, sep as string into string:
+    let ll as int is parts length
+    if ll == 0:
+        return ""
+    var pieces as list of string is list of string with capacity ll
+    calling pieces.push with (parts at 0)
+    var i as int is 1
+    while i < ll:
+        calling pieces.push with "{sep}{parts at i}"
+        set i is i + 1
+    return calling _concat with pieces
+## Único punto de acumulación de strings del módulo: une `parts` tal cual.
+weave _concat with parts as list of string into string:
+    var out as string is ""
+    for part in parts:
+        set out is "{out}{part}"
+    return out
+## True cuando `ch` es un espacio ASCII: espacio, tab, LF, CR, VT o FF.
+weave _char_is_space with ch as string into bool:
+    return ch == " " or ch == "\t" or ch == "\n" or ch == "\r" or ch == "\v" or ch == "\f"
+## True cuando `ch` es un dígito ASCII (0-9).
+weave _char_is_digit with ch as string into bool:
+    let code as int is ord ch
+    return code >= 48 and code <= 57
+## True cuando `ch` es una letra ASCII mayúscula (A-Z).
+weave _char_is_upper with ch as string into bool:
+    let code as int is ord ch
+    return code >= 65 and code <= 90
+## True cuando `ch` es una letra ASCII minúscula (a-z).
+weave _char_is_lower with ch as string into bool:
+    let code as int is ord ch
+    return code >= 97 and code <= 122
+## True cuando `ch` es una letra ASCII (A-Z o a-z).
+weave _char_is_alpha with ch as string into bool:
+    if calling _char_is_upper with ch:
+        return true
+    return calling _char_is_lower with ch
+## True cuando `ch` es una letra o un dígito ASCII.
+weave _char_is_alnum with ch as string into bool:
+    if calling _char_is_alpha with ch:
+        return true
+    return calling _char_is_digit with ch
+## Copia de `ch` en minúscula si es una letra ASCII mayúscula.
+weave _lower_char with ch as string into string:
+    if calling _char_is_upper with ch:
+        return chr ((ord ch) + 32)
+    return ch
+## Copia de `ch` en mayúscula si es una letra ASCII minúscula.
+weave _upper_char with ch as string into string:
+    if calling _char_is_lower with ch:
+        return chr ((ord ch) - 32)
+    return ch
+## Copia de `ch` con la caja ASCII cambiada.
+weave _swap_char with ch as string into string:
+    if calling _char_is_upper with ch:
+        return chr ((ord ch) + 32)
+    if calling _char_is_lower with ch:
+        return chr ((ord ch) - 32)
+    return ch
+## True cuando `s` contiene `prefix` a partir de la posición `pos`.
+weave _has_prefix_at with s as string, prefix as string, pos as int into bool:
+    let pl as int is prefix length
+    if pos < 0:
+        return false
+    if (pos + pl) > (s length):
+        return false
+    return (s at pos to (pos + pl)) == prefix
+## Primera posición de `sub` en `s` a partir de `from_pos` (incluido), o -1.
+weave _index_of_from with s as string, sub as string, from_pos as int into int:
+    let ll as int is s length
+    let sl as int is sub length
+    if sl == 0:
+        return 0
+    if sl > ll:
+        return -1
+    var i as int is from_pos
+    if i < 0:
+        set i is 0
+    while i <= ll - sl:
+        if calling _has_prefix_at with s, sub, i:
+            return i
+        set i is i + 1
+    return -1
+## Última posición de `sub` en `s` en o antes de `from_pos`, o -1.
+weave _last_index_of_from with s as string, sub as string, from_pos as int into int:
+    if (sub length) == 0:
+        return s length
+    var i as int is from_pos
+    while i >= 0:
+        if calling _has_prefix_at with s, sub, i:
+            return i
+        set i is i - 1
+    return -1
+## Copia de `s` con `count` copias de `pad_char` delante.
+weave _pad_left with s as string, count as int, pad_char as string into string:
+    if count <= 0:
+        return s
+    var parts as list of string is list of string with capacity (count + 1)
+    for i from 0 to count:
+        calling parts.push with pad_char
+    calling parts.push with s
+    return calling _concat with parts
+## Copia de `s` con `count` copias de `pad_char` detrás.
+weave _pad_right with s as string, count as int, pad_char as string into string:
+    if count <= 0:
+        return s
+    var parts as list of string is list of string with capacity (count + 1)
+    calling parts.push with s
+    for i from 0 to count:
+        calling parts.push with pad_char
+    return calling _concat with parts
+## Valor decimal de un literal numérico válido (precondición: `is_numeric`).
+weave _float_from_literal with s as string into float:
+    var int_val as float is 0.0
+    var frac_val as float is 0.0
+    var scale as float is 1.0
+    var seen_dot as bool is false
+    for ch in s:
+        if ch == ".":
+            set seen_dot is true
+        else:
+            if calling _char_is_digit with ch:
+                let digit as float is ((ord ch) - 48) to float
+                if seen_dot:
+                    set scale is scale * 10.0
+                    set frac_val is (frac_val * 10.0) + digit
+                else:
+                    set int_val is (int_val * 10.0) + digit
+    var sign as float is 1.0
+    if (s at 0 to 1) == "-":
+        set sign is -1.0
+    return sign * (int_val + (frac_val / scale))
+## Harness privado de tests: panickea con `label` cuando `cond` es falso.
+weave _expect with cond as bool, label as string into void:
+    if not cond:
+        calling spark.panic with "scrolls test failed: {label}"
+## Harness privado de tests: igualdad de enteros.
+weave _expect_eq_int with actual as int, expected as int, label as string into void:
+    if actual != expected:
+        calling spark.panic with "scrolls test failed: {label}: {(actual to string)} != {(expected to string)}"
+## Harness privado de tests: igualdad de strings.
+weave _expect_eq_string with actual as string, expected as string, label as string into void:
+    if actual != expected:
+        calling spark.panic with "scrolls test failed: {label}: {actual} != {expected}"
+## Harness privado de tests: igualdad de booleanos.
+weave _expect_eq_bool with actual as bool, expected as bool, label as string into void:
+    if actual != expected:
+        calling spark.panic with "scrolls test failed: {label}"
+# --- Tests ---
+# Harness privado en `_expect*` (ver `## Notas de diseño`).
+
+# Longitud e iteración
+test "len cuenta bytes, también en UTF-8":
+    var s as string is "café"
+    calling _expect_eq_int with (calling s.len), 5, "len"
+    calling _expect_eq_int with (calling len with "abc"), 3, "len func"
+test "is_empty distingue el string vacío":
+    var vacio as string is ""
+    calling _expect_eq_bool with (calling vacio.is_empty), true, "is_empty"
+    calling _expect_eq_bool with (calling is_empty with "x"), false, "is_empty func"
+test "chars devuelve un string de un byte por elemento":
+    var s as string is "abc"
+    var partes as list of string is calling s.chars
+    calling _expect_eq_int with (partes length), 3, "chars"
+    var letras as list of string is calling chars with s
+    calling _expect_eq_string with (letras at 1), "b", "chars func"
+test "bytes devuelve los códigos ASCII":
+    var s as string is "AB"
+    var codigos as list of int is calling s.bytes
+    calling _expect_eq_int with (codigos at 0), 65, "bytes"
+    var codigos_func as list of int is calling bytes with s
+    calling _expect_eq_int with (codigos_func at 1), 66, "bytes func"
+
+# Búsqueda
+test "contains encuentra y descarta substrings":
+    var s as string is "abc"
+    calling _expect_eq_bool with (calling s.contains with "bc"), true, "contains"
+    calling _expect_eq_bool with (calling contains with s, "z"), false, "contains func"
+test "starts_with acepta el prefijo vacío":
+    var s as string is "abc"
+    calling _expect_eq_bool with (calling s.starts_with with ""), true, "prefijo vacío"
+    calling _expect_eq_bool with (calling starts_with with s, "bc"), false, "prefijo erróneo"
+test "ends_with reconoce sufijos":
+    var s as string is "abc"
+    calling _expect_eq_bool with (calling s.ends_with with "bc"), true, "ends_with"
+    calling _expect_eq_bool with (calling ends_with with s, "abcd"), false, "sufijo largo"
+test "index_of devuelve la primera posición":
+    var s as string is "abracadabra"
+    calling _expect_eq_int with (calling s.index_of with "cad"), 4, "index_of"
+    calling _expect_eq_int with (calling index_of with s, ""), 0, "sub vacío"
+test "index_of devuelve -1 cuando no encuentra":
+    var s as string is "abc"
+    calling _expect_eq_int with (calling s.index_of with "z"), -1, "ausente"
+    calling _expect_eq_int with (calling s.index_of with "abcd"), -1, "más largo"
+test "last_index_of devuelve la última posición":
+    var s as string is "abracadabra"
+    calling _expect_eq_int with (calling s.last_index_of with "abra"), 7, "last_index_of"
+    calling _expect_eq_int with (calling last_index_of with s, "z"), -1, "ausente"
+test "last_index_of con sub vacío devuelve la longitud":
+    var s as string is "abc"
+    calling _expect_eq_int with (calling s.last_index_of with ""), 3, "sub vacío"
+test "count cuenta apariciones no solapadas":
+    var s as string is "abracadabra"
+    calling _expect_eq_int with (calling s.count with "a"), 5, "count"
+    calling _expect_eq_int with (calling count with s, "abra"), 2, "count func"
+test "count ignora el sub vacío y el sub más largo":
+    var s as string is "abc"
+    calling _expect_eq_int with (calling s.count with ""), 0, "vacío"
+    var repetido as string is "aaaa"
+    calling _expect_eq_int with (calling repetido.count with "aa"), 2, "no solapado"
+test "find, rfind y count_matches siguen funcionando":
+    var s as string is "abracadabra"
+    calling _expect_eq_int with (calling s.find with "cad"), 4, "find"
+    calling _expect_eq_int with (calling s.rfind with "abra"), 7, "rfind"
+    calling _expect_eq_int with (calling s.count_matches with "a"), 5, "count_matches"
+test "formas funcionales de consulta":
+    calling _expect_eq_bool with (calling contains with "abc", "b"), true, "contains"
+    calling _expect_eq_bool with (calling starts_with with "abc", "ab"), true, "starts_with"
+    calling _expect_eq_bool with (calling ends_with with "abc", "bc"), true, "ends_with"
+test "formas funcionales de posición y recuento":
+    calling _expect_eq_int with (calling index_of with "abc", "c"), 2, "index_of"
+    calling _expect_eq_int with (calling last_index_of with "abca", "a"), 3, "last_index_of"
+    calling _expect_eq_int with (calling count_matches with "aaaa", "aa"), 2, "count_matches"
+
+# Corte
+test "substring corta el rango pedido":
+    var s as string is "abcdef"
+    calling _expect_eq_string with (calling s.substring with 1, 4), "bcd", "substring"
+    calling _expect_eq_string with (calling substring with s, 0, 0), "", "rango vacío"
+test "char_at devuelve un byte como string":
+    var s as string is "abc"
+    calling _expect_eq_string with (calling s.char_at with 1), "b", "char_at"
+    calling _expect_eq_string with (calling char_at with s, 2), "c", "char_at func"
+test "reverse invierte el orden de los bytes":
+    var s as string is "pengu"
+    calling _expect_eq_string with (calling s.reverse), "ugnep", "reverse"
+    calling _expect_eq_string with (calling reverse with s), "ugnep", "reverse func"
+test "reverse del string vacío devuelve vacío":
+    var vacio as string is ""
+    calling _expect_eq_string with (calling vacio.reverse), "", "reverse vacío"
+
+# Caja
+test "lower convierte A-Z y no toca el resto":
+    var s as string is "Hello, World!"
+    calling _expect_eq_string with (calling s.lower), "hello, world!", "lower"
+    calling _expect_eq_string with (calling lower with s), "hello, world!", "lower func"
+test "upper convierte a-z a mayúsculas":
+    var s as string is "abc"
+    calling _expect_eq_string with (calling s.upper), "ABC", "upper"
+    calling _expect_eq_string with (calling upper with s), "ABC", "upper func"
+test "to_lower y to_upper siguen funcionando":
+    var s as string is "AbC"
+    calling _expect_eq_string with (calling s.to_lower), "abc", "to_lower"
+    calling _expect_eq_string with (calling to_upper with s), "ABC", "to_upper func"
+test "lower deja intactos los bytes UTF-8":
+    var s as string is "CAFé"
+    calling _expect_eq_string with (calling s.lower), "café", "UTF-8"
+test "capitalize deja solo la primera letra en mayúscula":
+    var s as string is "hELLO world"
+    calling _expect_eq_string with (calling s.capitalize), "Hello world", "capitalize"
+    calling _expect_eq_string with (calling capitalize with "1abc"), "1abc", "dígito inicial"
+test "capitalize del string vacío devuelve vacío":
+    var vacio as string is ""
+    calling _expect_eq_string with (calling vacio.capitalize), "", "capitalize vacío"
+test "title capitaliza la inicial de cada palabra":
+    var s as string is "hello world"
+    calling _expect_eq_string with (calling s.title), "Hello World", "title"
+    calling _expect_eq_string with (calling title with s), "Hello World", "title func"
+test "title conserva el espaciado original":
+    var s as string is "  a  b "
+    calling _expect_eq_string with (calling s.title), "  A  B ", "espacios"
+test "title_case sigue funcionando":
+    var s as string is "hello world"
+    calling _expect_eq_string with (calling s.title_case), "Hello World", "title_case"
+test "swap_case cambia la caja de cada letra":
+    var s as string is "Hello, World!"
+    calling _expect_eq_string with (calling s.swap_case), "hELLO, wORLD!", "swap_case"
+    calling _expect_eq_string with (calling swap_case with "a1B"), "A1b", "no letras"
+test "to_snake_case separa camelCase y PascalCase":
+    var s as string is "helloWorld"
+    calling _expect_eq_string with (calling s.to_snake_case), "hello_world", "camel"
+    calling _expect_eq_string with (calling to_snake_case with "HTTPServer"), "http_server", "siglas"
+test "to_snake_case normaliza separadores":
+    var s as string is "hello--world"
+    calling _expect_eq_string with (calling s.to_snake_case), "hello_world", "guiones"
+    calling _expect_eq_string with (calling to_snake_case with ""), "", "vacío"
+test "to_kebab_case usa guiones":
+    var s as string is "HelloWorld"
+    calling _expect_eq_string with (calling s.to_kebab_case), "hello-world", "kebab"
+    calling _expect_eq_string with (calling to_kebab_case with s), "hello-world", "kebab func"
+test "snake_case y kebab_case son formas cortas":
+    var s as string is "helloWorld"
+    calling _expect_eq_string with (calling s.snake_case), "hello_world", "snake_case"
+    calling _expect_eq_string with (calling kebab_case with s), "hello-world", "kebab_case func"
+test "pascal_case capitaliza cada palabra":
+    var s as string is "hello_world"
+    calling _expect_eq_string with (calling s.pascal_case), "HelloWorld", "snake a pascal"
+    calling _expect_eq_string with (calling pascal_case with "helloWorld"), "HelloWorld", "func"
+test "is_alpha exige solo letras ASCII":
+    var s as string is "aB"
+    calling _expect_eq_bool with (calling s.is_alpha), true, "is_alpha"
+    calling _expect_eq_bool with (calling is_alpha with "a1"), false, "con dígito"
+test "is_digit exige solo dígitos ASCII":
+    var s as string is "123"
+    calling _expect_eq_bool with (calling s.is_digit), true, "is_digit"
+    calling _expect_eq_bool with (calling is_digit with "12a"), false, "con letra"
+test "is_alnum acepta letras y dígitos":
+    var s as string is "a1"
+    calling _expect_eq_bool with (calling s.is_alnum), true, "is_alnum"
+    calling _expect_eq_bool with (calling is_alnum with "a 1"), false, "con espacio"
+test "is_lower e is_upper ignoran lo no alfabético":
+    var s as string is "a1"
+    calling _expect_eq_bool with (calling s.is_lower), true, "is_lower"
+    calling _expect_eq_bool with (calling is_upper with "A1"), true, "is_upper"
+test "is_palindrome detecta palíndromos":
+    var s as string is "racecar"
+    calling _expect_eq_bool with (calling s.is_palindrome), true, "palíndromo"
+    calling _expect_eq_bool with (calling is_palindrome with "ab"), false, "no palíndromo"
+test "formas funcionales de caja":
+    calling _expect_eq_string with (calling capitalize with "hOLA"), "Hola", "capitalize"
+    calling _expect_eq_string with (calling title with "a b"), "A B", "title"
+    calling _expect_eq_string with (calling swap_case with "aB"), "Ab", "swap_case"
+test "formas funcionales de conversión de estilo":
+    calling _expect_eq_string with (calling to_snake_case with "aB"), "a_b", "to_snake_case"
+    calling _expect_eq_string with (calling to_kebab_case with "aB"), "a-b", "to_kebab_case"
+    calling _expect_eq_string with (calling snake_case with "aB"), "a_b", "snake_case"
+    calling _expect_eq_string with (calling pascal_case with "a_b"), "AB", "pascal_case"
+test "formas funcionales de caja antigua":
+    calling _expect_eq_string with (calling to_lower with "AbC"), "abc", "to_lower"
+    calling _expect_eq_string with (calling to_upper with "AbC"), "ABC", "to_upper"
+    calling _expect_eq_string with (calling title_case with "a b"), "A B", "title_case"
+
+# Espacios
+test "trim quita espacios ASCII de los extremos":
+    var s as string is "\t\n x \r\v\f "
+    calling _expect_eq_string with (calling s.trim), "x", "trim"
+    calling _expect_eq_string with (calling trim with "  a  "), "a", "trim func"
+test "trim_start quita solo el principio":
+    var s as string is "  a  "
+    calling _expect_eq_string with (calling s.trim_start), "a  ", "trim_start"
+test "trim_end quita solo el final":
+    var s as string is "  a  "
+    calling _expect_eq_string with (calling s.trim_end), "  a", "trim_end"
+test "lstrip y rstrip siguen funcionando":
+    var s as string is "  a  "
+    calling _expect_eq_string with (calling s.lstrip), "a  ", "lstrip"
+    calling _expect_eq_string with (calling rstrip with s), "  a", "rstrip func"
+test "is_space es false para el string vacío":
+    var vacio as string is ""
+    calling _expect_eq_bool with (calling vacio.is_space), false, "vacío"
+    calling _expect_eq_bool with (calling is_space with "   "), true, "solo espacios"
+test "is_whitespace sigue funcionando":
+    var s as string is "\t\n"
+    calling _expect_eq_bool with (calling s.is_whitespace), true, "is_whitespace"
+    calling _expect_eq_bool with (calling is_whitespace with " x"), false, "con texto"
+test "is_blank es true para vacío o solo espacios":
+    var vacio as string is ""
+    calling _expect_eq_bool with (calling vacio.is_blank), true, "vacío"
+    calling _expect_eq_bool with (calling is_blank with "a"), false, "con texto"
+test "split_whitespace ignora espacios repetidos":
+    var s as string is "  a  b "
+    var partes as list of string is calling s.split_whitespace
+    calling _expect_eq_int with (partes length), 2, "split_whitespace"
+    var palabras_func as list of string is calling split_whitespace with s
+    calling _expect_eq_string with (palabras_func at 0), "a", "func"
+test "words es la forma corta de split_whitespace":
+    var s as string is "a\tb\nc"
+    calling _expect_eq_int with ((calling s.words) length), 3, "words"
+    calling _expect_eq_int with ((calling words with "   ") length), 0, "solo espacios"
+test "split_lines divide por salto de línea y conserva el CR":
+    var s as string is "a\r\nb"
+    var partes as list of string is calling s.split_lines
+    calling _expect_eq_int with (partes length), 2, "split_lines"
+    var lineas_func as list of string is calling split_lines with s
+    calling _expect_eq_string with (lineas_func at 0), "a\r", "func"
+test "lines elimina el CR final de cada línea":
+    var s as string is "a\r\nb\nc"
+    var partes as list of string is calling s.lines
+    calling _expect_eq_int with (partes length), 3, "lines"
+    var limpias_func as list of string is calling lines with s
+    calling _expect_eq_string with (limpias_func at 0), "a", "func"
+test "line_count cuenta líneas separadas por LF":
+    var s as string is "a\nb\nc"
+    calling _expect_eq_int with (calling s.line_count), 3, "line_count"
+    calling _expect_eq_int with (calling line_count with ""), 0, "vacío"
+test "word_count cuenta palabras separadas por espacios":
+    var s as string is "  a  b "
+    calling _expect_eq_int with (calling s.word_count), 2, "word_count"
+    calling _expect_eq_int with (calling word_count with "abc"), 1, "una palabra"
+test "formas funcionales de espacios":
+    calling _expect_eq_string with (calling trim_start with " a"), "a", "trim_start"
+    calling _expect_eq_string with (calling trim_end with "a "), "a", "trim_end"
+    calling _expect_eq_string with (calling lstrip with " a"), "a", "lstrip"
+    calling _expect_eq_string with (calling rstrip with "a "), "a", "rstrip"
+test "formas funcionales de división por espacios":
+    calling _expect_eq_int with ((calling split_whitespace with "a b") length), 2, "split_whitespace"
+    calling _expect_eq_int with ((calling words with "a b") length), 2, "words"
+    calling _expect_eq_int with ((calling lines with "a\nb") length), 2, "lines"
+    calling _expect_eq_int with ((calling split_lines with "a\nb") length), 2, "split_lines"
+test "formas funcionales de recuento de líneas y palabras":
+    calling _expect_eq_int with (calling line_count with "a\nb"), 2, "line_count"
+    calling _expect_eq_int with (calling word_count with "a b"), 2, "word_count"
+    calling _expect_eq_bool with (calling is_whitespace with " "), true, "is_whitespace"
+    calling _expect_eq_bool with (calling is_blank with ""), true, "is_blank"
+
+# Reemplazo y división
+test "replace sustituye solo la primera aparición":
+    var s as string is "cat, dog, cat"
+    calling _expect_eq_string with (calling s.replace with "cat", "bird"), "bird, dog, cat", "replace"
+    calling _expect_eq_string with (calling replace with s, "cat", "bird"), "bird, dog, cat", "func"
+test "replace sin coincidencia no cambia el string":
+    var s as string is "abc"
+    calling _expect_eq_string with (calling s.replace with "z", "x"), "abc", "sin coincidencia"
+test "replace con from_str vacío inserta al principio":
+    var s as string is "abc"
+    calling _expect_eq_string with (calling s.replace with "", "X"), "Xabc", "legado"
+test "replace_all sustituye todas las apariciones":
+    var s as string is "cat, dog, cat"
+    calling _expect_eq_string with (calling s.replace_all with "cat", "bird"), "bird, dog, bird", "replace_all"
+    calling _expect_eq_string with (calling replace_all with s, "cat", "bird"), "bird, dog, bird", "func"
+test "replace_all con from_str vacío no cambia":
+    var s as string is "abc"
+    calling _expect_eq_string with (calling s.replace_all with "", "X"), "abc", "vacío"
+test "split divide por cada delimitador":
+    var s as string is "a,,b"
+    var partes as list of string is calling s.split with ","
+    calling _expect_eq_int with (partes length), 3, "split"
+    var trozos_func as list of string is calling split with s, ","
+    calling _expect_eq_string with (trozos_func at 1), "", "func"
+test "split con delimitador vacío devuelve el string entero":
+    var s as string is "abc"
+    var partes as list of string is calling s.split with ""
+    calling _expect_eq_int with (partes length), 1, "split vacío"
+    calling _expect_eq_string with (partes at 0), "abc", "contenido"
+test "split con delimitador ausente devuelve un elemento":
+    var s as string is "abc"
+    var partes as list of string is calling s.split with "::"
+    calling _expect_eq_int with (partes length), 1, "ausente"
+test "split acepta delimitadores multi-byte":
+    var s as string is "a::b::c"
+    var partes as list of string is calling s.split with "::"
+    calling _expect_eq_int with (partes length), 3, "multi-char"
+test "partition devuelve antes, separador y después":
+    var s as string is "a=b=c"
+    var partes as list of string is calling s.partition with "="
+    calling _expect_eq_int with (partes length), 3, "partition"
+    var partes_func as list of string is calling partition with s, "="
+    calling _expect_eq_string with (partes_func at 2), "b=c", "func"
+test "partition sin separador devuelve el string y dos vacíos":
+    var s as string is "abc"
+    var partes as list of string is calling s.partition with "="
+    calling _expect_eq_string with (partes at 0), "abc", "sin sep"
+    calling _expect_eq_string with (partes at 1), "", "vacío"
+test "repeat repite el string count veces":
+    var s as string is "ha"
+    calling _expect_eq_string with (calling s.repeat with 3), "hahaha", "repeat"
+    calling _expect_eq_string with (calling repeat with s, 1), "ha", "repeat func"
+test "repeat con count no positivo devuelve vacío":
+    var s as string is "ha"
+    calling _expect_eq_string with (calling s.repeat with 0), "", "cero"
+    calling _expect_eq_string with (calling s.repeat with -1), "", "negativo"
+test "repeat_join une las repeticiones con el separador":
+    var s as string is "ab"
+    calling _expect_eq_string with (calling s.repeat_join with 3, ", "), "ab, ab, ab", "repeat_join"
+    calling _expect_eq_string with (calling repeat_join with s, 1, ","), "ab", "una copia"
+test "formas funcionales de reemplazo y división":
+    calling _expect_eq_string with (calling replace with "abc", "b", "X"), "aXc", "replace"
+    calling _expect_eq_string with (calling replace_all with "abc", "", "X"), "abc", "replace_all"
+    calling _expect_eq_int with ((calling split with "a,b", ",") length), 2, "split"
+    calling _expect_eq_int with ((calling partition with "a=b", "=") length), 3, "partition"
+
+# Alineación
+test "ljust rellena por la derecha":
+    var s as string is "ab"
+    calling _expect_eq_string with (calling s.ljust with 4, "."), "ab..", "ljust"
+    calling _expect_eq_string with (calling ljust with s, 4, "."), "ab..", "ljust func"
+test "ljust no cambia lo que ya cabe y respeta pad_char vacío":
+    var s as string is "abc"
+    calling _expect_eq_string with (calling s.ljust with 2, "."), "abc", "ya cabe"
+    calling _expect_eq_string with (calling s.ljust with 5, ""), "abc", "pad vacío"
+test "ljust recorta cuando el relleno multi-carácter se pasa":
+    var s as string is "ab"
+    calling _expect_eq_string with (calling s.ljust with 5, "xy"), "abxyx", "recorte"
+test "rjust rellena por la izquierda":
+    var s as string is "42"
+    calling _expect_eq_string with (calling s.rjust with 5, "0"), "00042", "rjust"
+    calling _expect_eq_string with (calling rjust with s, 5, "0"), "00042", "rjust func"
+test "rjust recorta cuando el relleno multi-carácter se pasa":
+    var s as string is "ab"
+    calling _expect_eq_string with (calling s.rjust with 5, "xy"), "yxyab", "recorte"
+test "pad_left y pad_right siguen funcionando":
+    var s as string is "42"
+    calling _expect_eq_string with (calling s.pad_left with 5, "0"), "00042", "pad_left"
+    calling _expect_eq_string with (calling pad_right with "ab", 4, "."), "ab..", "pad_right"
+test "zfill rellena con ceros por la izquierda":
+    var s as string is "42"
+    calling _expect_eq_string with (calling s.zfill with 5), "00042", "zfill"
+    calling _expect_eq_string with (calling zfill with s, 5), "00042", "zfill func"
+test "zfill conserva el signo y no toca lo que ya cabe":
+    var a as string is "-42"
+    var b as string is "+42"
+    calling _expect_eq_string with (calling a.zfill with 6), "-00042", "negativo"
+    calling _expect_eq_string with (calling b.zfill with 5), "+0042", "positivo"
+test "center reparte el relleno a ambos lados":
+    var s as string is "42"
+    calling _expect_eq_string with (calling s.center with 6, "-"), "--42--", "center"
+    calling _expect_eq_string with (calling center with s, 6, "-"), "--42--", "center func"
+test "center deja la mitad menor a la izquierda":
+    var s as string is "ab"
+    calling _expect_eq_string with (calling s.center with 5, "-"), "-ab--", "impar"
+test "center con pad multi-carácter no recorta":
+    var s as string is "ab"
+    calling _expect_eq_string with (calling s.center with 6, "xy"), "xyxyabxyxy", "multi-char"
+test "formas funcionales de alineación":
+    calling _expect_eq_string with (calling ljust with "ab", 4), "ab  ", "ljust"
+    calling _expect_eq_string with (calling rjust with "ab", 4), "  ab", "rjust"
+    calling _expect_eq_string with (calling zfill with "7", 3), "007", "zfill"
+    calling _expect_eq_string with (calling center with "a", 3, "."), ".a.", "center"
+
+# Prefijos y sufijos
+test "removeprefix quita el prefijo si está":
+    var s as string is "Hello"
+    calling _expect_eq_string with (calling s.removeprefix with "He"), "llo", "removeprefix"
+    calling _expect_eq_string with (calling removeprefix with s, ""), "Hello", "prefijo vacío"
+test "removeprefix no cambia si no coincide":
+    var s as string is "Hello"
+    calling _expect_eq_string with (calling s.removeprefix with "x"), "Hello", "sin coincidencia"
+    calling _expect_eq_string with (calling s.removeprefix with "Hello!"), "Hello", "más largo"
+test "removesuffix quita el sufijo si está":
+    var s as string is "Hello"
+    calling _expect_eq_string with (calling s.removesuffix with "lo"), "Hel", "removesuffix"
+    calling _expect_eq_string with (calling removesuffix with s, ""), "Hello", "sufijo vacío"
+test "removesuffix no cambia si no coincide":
+    var s as string is "Hello"
+    calling _expect_eq_string with (calling s.removesuffix with "x"), "Hello", "sin coincidencia"
+    calling _expect_eq_string with (calling s.removesuffix with "Hello!"), "Hello", "más largo"
+
+# Comparación
+test "compare ordena lexicográficamente por byte":
+    var a as string is "apple"
+    var b as string is "banana"
+    calling _expect_eq_int with (calling a.compare with b), -1, "menor"
+    calling _expect_eq_int with (calling compare with b, a), 1, "func mayor"
+test "compare usa la longitud como desempate":
+    var a as string is "ab"
+    calling _expect_eq_int with (calling a.compare with "abc"), -1, "prefijo menor"
+    calling _expect_eq_int with (calling a.compare with ""), 1, "contra vacío"
+test "compare devuelve 0 para strings iguales":
+    var a as string is "abc"
+    calling _expect_eq_int with (calling a.compare with "abc"), 0, "iguales"
+    calling _expect_eq_int with (calling compare with "", ""), 0, "vacíos"
+test "compare distingue mayúsculas de minúsculas":
+    var a as string is "a"
+    calling _expect_eq_int with (calling a.compare with "A"), 1, "byte mayor"
+
+# Truncado
+test "truncate añade el sufijo al recortar":
+    var s as string is "Hello, PenguScript!"
+    calling _expect_eq_string with (calling s.truncate with 10, "..."), "Hello, ...", "truncate"
+    calling _expect_eq_string with (calling truncate with s, 10, "..."), "Hello, ...", "func"
+test "truncate no cambia lo que ya cabe":
+    var s as string is "abc"
+    calling _expect_eq_string with (calling s.truncate with 10, "..."), "abc", "sin recorte"
+test "truncate con max_len pequeño corta sin sufijo":
+    var s as string is "abcdef"
+    calling _expect_eq_string with (calling s.truncate with 3, "..."), "abc", "sin sufijo"
+    calling _expect_eq_string with (calling s.truncate with 0, "..."), "", "cero"
+test "ellipsis recorta añadiendo puntos suspensivos":
+    var s as string is "Hello, PenguScript!"
+    calling _expect_eq_string with (calling s.ellipsis with 10), "Hello, ...", "ellipsis"
+    calling _expect_eq_string with (calling ellipsis with "abcdef", 3), "abc", "func"
+test "formas funcionales de truncado y prefijos":
+    calling _expect_eq_string with (calling truncate with "abcdef", 4, ".."), "ab..", "truncate"
+    calling _expect_eq_string with (calling ellipsis with "abcdef", 4), "a...", "ellipsis"
+    calling _expect_eq_string with (calling removeprefix with "abc", "a"), "bc", "removeprefix"
+    calling _expect_eq_string with (calling removesuffix with "abc", "c"), "ab", "removesuffix"
+
+# Parseo
+test "parse_int interpreta enteros con espacios y signo":
+    var s as string is " 42 "
+    var m as maybe int is calling s.parse_int
+    calling _expect_eq_bool with (m.is_present), true, "presente"
+    if v as int is m:
+        calling _expect_eq_int with v, 42, "valor"
+test "parse_int rechaza basura y desbordamiento":
+    var s as string is "4x"
+    var m as maybe int is calling s.parse_int
+    calling _expect_eq_bool with (m.is_present), false, "basura"
+    var grande as string is "99999999999999999999"
+    var g as maybe int is calling grande.parse_int
+    calling _expect_eq_bool with (g.is_present), false, "desbordamiento"
+test "parse_float calcula el valor decimal":
+    var s as string is "3.5"
+    var m as maybe float is calling s.parse_float
+    if v as float is m:
+        calling _expect with (v > 3.4 and v < 3.6), "3.5"
+    else:
+        calling _expect with false, "3.5 presente"
+test "parse_float acepta signo, punto inicial y espacios":
+    var a as string is "-0.25"
+    var b as string is ".5"
+    var c as string is " 2 "
+    if va as float is (calling a.parse_float):
+        calling _expect with (va > -0.3 and va < -0.2), "-0.25"
+    if vb as float is (calling b.parse_float):
+        calling _expect with (vb > 0.4 and vb < 0.6), ".5"
+    if vc as float is (calling c.parse_float):
+        calling _expect with (vc > 1.9 and vc < 2.1), " 2 "
+test "parse_float rechaza vacío, basura y exponentes":
+    var vacio as string is ""
+    var basura as string is "abc"
+    var expo as string is "1e3"
+    calling _expect_eq_bool with ((calling vacio.parse_float).is_present), false, "vacío"
+    calling _expect_eq_bool with ((calling basura.parse_float).is_present), false, "basura"
+    calling _expect_eq_bool with ((calling expo.parse_float).is_present), false, "exponente"
+test "is_numeric acepta literales exactos":
+    var a as string is "-3.5"
+    var b as string is ".5"
+    calling _expect_eq_bool with (calling a.is_numeric), true, "negativo"
+    calling _expect_eq_bool with (calling b.is_numeric), true, "punto inicial"
+    calling _expect_eq_bool with (calling is_numeric with "42"), true, "func"
+test "is_numeric rechaza espacios, exponentes y basura":
+    var s as string is " 1"
+    calling _expect_eq_bool with (calling s.is_numeric), false, "espacio"
+    var expo as string is "1e3"
+    var doble as string is "1.2.3"
+    calling _expect_eq_bool with (calling expo.is_numeric), false, "exponente"
+    calling _expect_eq_bool with (calling doble.is_numeric), false, "dos puntos"
+
+# join
+test "join une los elementos con el separador":
+    var partes as list of string is ["alpha", "beta", "gamma"]
+    calling _expect_eq_string with (calling join with partes, ", "), "alpha, beta, gamma", "join"
+    calling _expect_eq_string with (calling join with partes, "|"), "alpha|beta|gamma", "otro sep"
+test "join de una lista vacía devuelve vacío":
+    var partes as list of string is list of string
+    calling _expect_eq_string with (calling join with partes, ","), "", "vacía"
+test "join de un elemento no añade separador":
+    var partes as list of string is ["x"]
+    calling _expect_eq_string with (calling join with partes, ","), "x", "un elemento"
+test "join conserva los elementos vacíos":
+    var partes as list of string is ["", "x", ""]
+    calling _expect_eq_string with (calling join with partes, "|"), "|x|", "vacíos"
+
+# Formas funcionales y bordes
+test "formas funcionales de longitud y corte":
+    calling _expect_eq_int with (calling len with "abcd"), 4, "len"
+    calling _expect_eq_string with (calling substring with "abcdef", 1, 3), "bc", "substring"
+    calling _expect_eq_string with (calling char_at with "abc", 1), "b", "char_at"
+test "formas funcionales de chars y bytes":
+    calling _expect_eq_int with ((calling chars with "ab") length), 2, "chars"
+    var letra_a as string is "A"
+    var codigos_a as list of int is calling bytes with letra_a
+    calling _expect_eq_int with (codigos_a at 0), 65, "bytes"
+    calling _expect_eq_bool with (calling is_empty with ""), true, "is_empty"
+test "los métodos no mutan el receptor":
+    var s as string is "  hola  "
+    var t as string is calling s.trim
+    calling _expect_eq_string with s, "  hola  ", "receptor intacto"
+    calling _expect_eq_string with t, "hola", "resultado"
+test "chars y bytes del string vacío están vacíos":
+    var vacio as string is ""
+    calling _expect_eq_int with ((calling vacio.chars) length), 0, "chars"
+    calling _expect_eq_int with ((calling bytes with vacio) length), 0, "bytes"
+test "los predicados de contenido son false con vacío":
+    var vacio as string is ""
+    calling _expect_eq_bool with (calling vacio.is_alpha), false, "is_alpha"
+    calling _expect_eq_bool with (calling vacio.is_digit), false, "is_digit"
+    calling _expect_eq_bool with (calling vacio.is_alnum), false, "is_alnum"
+test "formas funcionales de predicados":
+    calling _expect_eq_bool with (calling is_alpha with "aB"), true, "is_alpha"
+    calling _expect_eq_bool with (calling is_digit with "12"), true, "is_digit"
+    calling _expect_eq_bool with (calling is_alnum with "a1"), true, "is_alnum"
+    calling _expect_eq_bool with (calling is_lower with "a1"), true, "is_lower"
+test "to_snake_case separa letras de dígitos":
+    var s as string is "a1B"
+    calling _expect_eq_string with (calling s.to_snake_case), "a1_b", "dígito"
+test "parse_int del string vacío devuelve none":
+    var vacio as string is ""
+    var m as maybe int is calling vacio.parse_int
+    calling _expect_eq_bool with (m.is_present), false, "vacío"
+test "index_of y last_index_of con sub vacío en vacío":
+    var vacio as string is ""
+    calling _expect_eq_int with (calling vacio.index_of with ""), 0, "index_of"
+    calling _expect_eq_int with (calling vacio.last_index_of with ""), 0, "last_index_of"
+test "repeat_join con separador vacío":
+    var s as string is "ab"
+    calling _expect_eq_string with (calling s.repeat_join with 2, ""), "abab", "sin separador"
+test "lines con LF final añade una línea vacía":
+    var s as string is "a\n"
+    var partes as list of string is calling s.lines
+    calling _expect_eq_int with (partes length), 2, "dos líneas"
+    calling _expect_eq_string with (partes at 1), "", "última vacía"
+test "is_numeric rechaza un signo suelto":
+    var s as string is "+"
+    calling _expect_eq_bool with (calling s.is_numeric), false, "signo solo"
+    var cinco as string is "5."
+    calling _expect_eq_bool with (calling cinco.is_numeric), true, "punto final"
+test "compare con prefijo común y longitudes distintas":
+    var a as string is "abc"
+    calling _expect_eq_int with (calling a.compare with "ab"), 1, "más largo"
+    var corto as string is "ab"
+    calling _expect_eq_int with (calling corto.compare with "abc"), -1, "más corto"
+test "formas funcionales de reverse y repetición":
+    calling _expect_eq_string with (calling reverse with "abc"), "cba", "reverse"
+    calling _expect_eq_string with (calling repeat with "ab", 2), "abab", "repeat"

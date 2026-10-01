@@ -1,0 +1,133 @@
+# Exercise program for the rewritten `std.scrolls` (Pengunic API).
+#
+# Complements `test_scrolls.pengu` / `test_scrolls_extended.pengu`: it drives the
+# `enchanting string:` surface, the delegating module functions
+# (`scrolls.join`, `scrolls.substring`, `scrolls.starts_with`, ...) and the
+# legacy aliases over deterministic inputs, printing one stable marker per area
+# and ending with `scrolls ok`.
+import std.scrolls
+import std.spark
+
+weave main into int:
+    calling spark.println with "=== Scrolls Pengunic ==="
+
+    var raw as string is "  Hello World  "
+    var clean as string is calling raw.trim
+    calling spark.assert with (clean == "Hello World")
+    calling spark.println with "scrolls trim ok [{clean}]"
+
+    var low as string is calling clean.lower
+    var up as string is calling clean.upper
+    calling spark.assert with (low == "hello world")
+    calling spark.assert with (up == "HELLO WORLD")
+    calling spark.assert with ((calling clean.to_lower) == "hello world")
+    calling spark.assert with ((calling clean.to_upper) == "HELLO WORLD")
+    calling spark.println with "scrolls case ok [{low}|{up}]"
+
+    var n_chars as int is calling clean.len
+    calling spark.assert with (n_chars == 11)
+    calling spark.assert with (not (calling clean.is_empty))
+    calling spark.assert with (calling is_empty with "")
+    calling spark.println with "scrolls len ok [{n_chars}]"
+
+    var hit as int is calling clean.index_of with "World"
+    var last as int is calling clean.last_index_of with "l"
+    calling spark.assert with (hit == 6)
+    calling spark.assert with (last == 9)
+    calling spark.assert with ((calling clean.find with "World") == 6)
+    calling spark.assert with ((calling clean.rfind with "l") == 9)
+    calling spark.assert with (calling clean.contains with "lo Wo")
+    calling spark.assert with (calling clean.starts_with with "Hello")
+    calling spark.assert with (calling clean.ends_with with "World")
+    calling spark.assert with (calling scrolls.starts_with with clean, "Hello")
+    calling spark.println with "scrolls search ok [{hit}|{last}]"
+
+    var head as string is calling clean.substring with 0, 5
+    var one as string is calling clean.char_at with 6
+    calling spark.assert with (head == "Hello")
+    calling spark.assert with (one == "W")
+    calling spark.assert with ((calling scrolls.substring with clean, 0, 5) == "Hello")
+    calling spark.println with "scrolls slice ok [{head}|{one}]"
+
+    var word_list as list of string is calling clean.words
+    var tokens as list of string is calling clean.split_whitespace
+    var first_word as string is word_list at 0
+    calling spark.assert with ((word_list length) == 2)
+    calling spark.assert with ((word_list at 1) == "World")
+    calling spark.assert with ((calling clean.word_count) == 2)
+    calling spark.assert with ((tokens at 0) == "Hello")
+    calling spark.println with "scrolls words ok [{(word_list length)}|{first_word}]"
+
+    var poem as string is "a\nb\nc"
+    var line_list as list of string is calling poem.lines
+    calling spark.assert with ((line_list length) == 3)
+    calling spark.assert with ((line_list at 2) == "c")
+    calling spark.assert with ((calling poem.line_count) == 3)
+    calling spark.println with "scrolls lines ok [{(line_list length)}]"
+
+    var parts as list of string is ["a", "b", "c"]
+    var joined as string is calling scrolls.join with parts, "-"
+    var csv as string is "x,y"
+    var spliced as list of string is calling csv.split with ","
+    calling spark.assert with (joined == "a-b-c")
+    calling spark.assert with ((spliced length) == 2)
+    calling spark.assert with ((calling scrolls.join with parts, "+") == "a+b+c")
+    calling spark.println with "scrolls join ok [{joined}]"
+
+    var camel as string is "helloWorld"
+    var snake as string is calling camel.to_snake_case
+    var kebab as string is calling camel.to_kebab_case
+    var pascal as string is calling camel.pascal_case
+    calling spark.assert with (snake == "hello_world")
+    calling spark.assert with (kebab == "hello-world")
+    calling spark.assert with (pascal == "HelloWorld")
+    calling spark.assert with ((calling camel.snake_case) == "hello_world")
+    calling spark.assert with ((calling camel.kebab_case) == "hello-world")
+    calling spark.println with "scrolls style ok [{snake}|{kebab}|{pascal}]"
+
+    var number as string is " 42 "
+    var opt_int as maybe int is calling number.parse_int
+    var decimal as string is "3.5"
+    var opt_float as maybe float is calling decimal.parse_float
+    calling spark.assert with (opt_int.is_present)
+    calling spark.assert with (calling decimal.is_numeric)
+    calling spark.assert with (not (calling is_numeric with "1e3"))
+    if parsed as int is opt_int:
+        calling spark.assert with (parsed == 42)
+    if exact as float is opt_float:
+        calling spark.println_float with exact
+    calling spark.println with "scrolls numbers ok"
+
+    var digits as string is "42"
+    var padded as string is calling digits.zfill with 5
+    var centred as string is calling digits.center with 6, "-"
+    calling spark.assert with (padded == "00042")
+    calling spark.assert with (centred == "--42--")
+    calling spark.assert with ((calling digits.pad_left with 5, "0") == "00042")
+    var brief as string is "ab"
+    calling spark.assert with ((calling brief.pad_right with 4, ".") == "ab..")
+    calling spark.println with "scrolls padding ok [{padded}|{centred}]"
+
+    var legacy as string is "AbC"
+    var spaced as string is " a "
+    var blank as string is " \t "
+    var empty as string is ""
+    var pal as string is "racecar"
+    var trio as string is "abc"
+    var pair as string is "ab"
+    calling spark.assert with ((calling legacy.to_lower) == "abc")
+    calling spark.assert with ((calling legacy.to_upper) == "ABC")
+    calling spark.assert with ((calling legacy.title_case) == "Abc")
+    calling spark.assert with ((calling legacy.count_matches with "b") == 1)
+    calling spark.assert with ((calling spaced.lstrip) == "a ")
+    calling spark.assert with ((calling spaced.rstrip) == " a")
+    calling spark.assert with (calling blank.is_whitespace)
+    calling spark.assert with (calling blank.is_space)
+    calling spark.assert with (calling empty.is_blank)
+    calling spark.assert with (calling pal.is_palindrome)
+    calling spark.assert with ((calling trio.reverse) == "cba")
+    calling spark.assert with ((calling pair.repeat_join with 2, "-") == "ab-ab")
+    calling spark.println with "scrolls legacy ok"
+
+    calling spark.println with "scrolls ok"
+    return 0

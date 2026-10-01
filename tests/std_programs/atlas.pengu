@@ -1,0 +1,152 @@
+# tests/std_programs/atlas.pengu - Programa Pengunic de std.atlas (0.15.0).
+# Ejercita el nucleo generico de mapas en varias combinaciones de clave/valor
+# (string->int, string->string, int->int, string->bool), los metodos de
+# `enchanting` y los forwarders de modulo.
+import std.spark
+import std.atlas
+
+## Transformacion de prueba: incremento.
+weave _inc with x as int into int:
+    return x + 1
+
+weave main into int:
+    calling spark.println with "=== Atlas Pengunic ==="
+
+    # --- string -> int ---
+    var si as map of string to int is map of string to int
+    with si:
+        calling .put with "one", 1
+        calling .put with "two", 2
+        calling .put with "three", 3
+
+    var si_n as int is calling si.size
+    calling spark.assert with si_n == 3
+    calling spark.println with "atlas str_int size ok {si_n}"
+
+    var si_has as bool is calling si.has_key with "two"
+    calling spark.assert with si_has
+    calling spark.println with "atlas str_int has_key ok"
+
+    var si_got as int is calling si.get_or with "two", 0
+    calling spark.assert with si_got == 2
+    calling spark.println with "atlas str_int get_or ok {si_got}"
+
+    var si_sum as int is calling si.sum_values
+    calling spark.assert with si_sum == 6
+    calling spark.println with "atlas str_int sum ok {si_sum}"
+
+    var si_max as int is calling si.max_value
+    calling spark.assert with si_max == 3
+    calling spark.println with "atlas str_int max ok {si_max}"
+
+    var si_keys as list of string is calling si.keys_sorted
+    calling spark.assert with (calling si_keys.len) == 3
+    calling spark.println with "atlas str_int keys_sorted ok {calling si_keys.len}"
+
+    var si_sub as map of string to int is calling si.filter_keys_startswith with "t"
+    calling spark.assert with (calling si_sub.size) == 2
+    calling spark.println with "atlas str_int filter ok {calling si_sub.size}"
+
+    var si_dbl as map of string to int is calling si.map_values_with with _inc
+    calling spark.assert with (calling si_dbl.get_or with "one", 0) == 2
+    calling spark.println with "atlas str_int map_values ok"
+
+    var si_removed as bool is calling si.remove with "three"
+    var si_after as int is calling si.size
+    calling spark.assert with (si_removed and (si_after == 2))
+    calling spark.println with "atlas str_int remove ok {si_after}"
+
+    # --- string -> string ---
+    var ss as map of string to string is map of string to string
+    with ss:
+        calling .put with "alpha", "uno"
+        calling .put with "beta", "dos"
+
+    var ss_n as int is calling ss.size
+    calling spark.assert with ss_n == 2
+    calling spark.println with "atlas str_str size ok {ss_n}"
+
+    var ss_got as string is calling ss.get_or with "beta", "?"
+    calling spark.assert with (calling ss_got.compare with "dos") == 0
+    calling spark.println with "atlas str_str get_or ok"
+
+    var ss_clone as map of string to string is calling ss.clone
+    calling spark.assert with calling ss.is_equal with ss_clone
+    calling spark.println with "atlas str_str clone ok"
+
+    var ss_vals as list of string is calling ss.values_sorted
+    calling spark.assert with (calling ss_vals.len) == 2
+    calling spark.println with "atlas str_str values_sorted ok {calling ss_vals.len}"
+
+    var ss_fc as map of string to string is calling ss.filter_values_contains with "do"
+    calling spark.assert with (calling ss_fc.size) == 1
+    calling spark.println with "atlas str_str filter_values ok {calling ss_fc.size}"
+
+    # --- int -> int ---
+    var ii as map of int to int is map of int to int
+    with ii:
+        calling .put with 1, 10
+        calling .put with 2, -20
+
+    var ii_n as int is calling ii.size
+    calling spark.assert with ii_n == 2
+    calling spark.println with "atlas int_int size ok {ii_n}"
+
+    var ii_sum as int is calling ii.sum_values
+    calling spark.assert with ii_sum == -10
+    calling spark.println with "atlas int_int sum ok {ii_sum}"
+
+    var ii_keys as list of int is calling ii.keys_sorted
+    calling spark.assert with (ii_keys at 0) == 1
+    calling spark.println with "atlas int_int keys_sorted ok"
+
+    var ii_neg as map of int to int is calling ii.map_values_negate
+    var ii_neg_at as int is calling ii_neg.get_or with 2, 0
+    calling spark.assert with ii_neg_at == 20
+    calling spark.println with "atlas int_int negate ok"
+
+    var ii_merged as map of int to int is calling atlas.map_merge of int, int with ii, ii_neg
+    calling spark.assert with (calling ii_merged.size) == 2
+    calling spark.println with "atlas int_int merge ok {calling ii_merged.size}"
+
+    # --- string -> bool ---
+    var sb as map of string to bool is map of string to bool
+    with sb:
+        calling .put with "on", true
+        calling .put with "off", false
+
+    var sb_n as int is calling sb.size
+    calling spark.assert with sb_n == 2
+    calling spark.println with "atlas str_bool size ok {sb_n}"
+
+    var sb_true as int is calling sb.count_true
+    var sb_false as int is calling sb.count_false
+    calling spark.assert with ((sb_true == 1) and (sb_false == 1))
+    calling spark.println with "atlas str_bool count ok {sb_true} {sb_false}"
+
+    var sb_sub as map of string to bool is calling sb.filter_keys_contains with "f"
+    calling spark.assert with (calling sb_sub.size) == 1
+    calling spark.println with "atlas str_bool filter ok {calling sb_sub.size}"
+
+    # --- API generica de modulo ---
+    var gen_n as int is calling atlas.map_size of string, int with si
+    calling spark.assert with gen_n == 2
+    calling spark.println with "atlas module size ok {gen_n}"
+
+    var gen_key as bool is calling atlas.map_has_key of string, int with si, "one"
+    calling spark.assert with gen_key
+    calling spark.println with "atlas module has_key ok"
+
+    var gen_or as int is calling atlas.map_get_or of string, int with si, "one", 0
+    calling spark.assert with gen_or == 1
+    calling spark.println with "atlas module get_or ok {gen_or}"
+
+    var mk as list of string is ["a", "b"]
+    var mv as list of int is [7, 8]
+    var si_clear as map of string to int is calling atlas.map_from_lists of string, int with mk, mv
+    calling si_clear.clear
+    calling spark.assert with (calling si_clear.is_empty)
+    calling spark.println with "atlas module from_lists ok"
+
+    calling spark.println with "atlas ok"
+    return 0

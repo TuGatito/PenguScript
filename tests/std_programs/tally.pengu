@@ -1,0 +1,195 @@
+import std.spark
+import std.tally
+
+# --- Fixtures -----------------------------------------------------------
+
+## True cuando el entero es par.
+weave _is_even with x as int into bool:
+    return (x % 2) == 0
+
+# --- Programa -----------------------------------------------------------
+
+weave main into int:
+    calling spark.println with "=== Tally Pengunic ==="
+
+    var xs as list of int is [3, 1, 4, 1, 5]
+    var fs as list of float is [2.5, -1.5, 4.5]
+
+    # --- Reducciones (método genérico + función de módulo concreta) ---
+    calling spark.assert with (calling tally.sum with xs) == 14
+    calling spark.assert with (calling xs.sum) == 14
+    calling spark.assert with (calling fs.sum) == 5.5
+    calling spark.assert with (calling tally.product with xs) == 60
+    calling spark.assert with (calling xs.mean) == 2
+    calling spark.assert with (calling fs.mean) == 1.8333333333333333
+    calling spark.assert with (calling tally.sum_of_squares with xs) == 52
+    calling spark.println with "sum: module=14 method=14 float=5.5"
+
+    # --- Estadística ---
+    calling spark.assert with (calling tally.max_val with xs) == 5
+    calling spark.assert with (calling tally.min_val with xs) == 1
+    calling spark.assert with (calling tally.max_index with xs) == 4
+    calling spark.assert with (calling tally.min_index with xs) == 1
+    calling spark.assert with (calling xs.median) == 3
+    calling spark.assert with (calling xs.mode) == 1
+    calling spark.println with "stats: max=5 min=1 median=3 mode=1"
+
+    # --- Orden y unicidad (bloques Ordo/Par genéricos) ---
+    var asc as list of int is calling tally.sort_asc with xs
+    calling spark.assert with (asc at 0) == 1
+    calling spark.assert with (asc at 4) == 5
+    var desc as list of float is calling fs.sort_desc
+    calling spark.assert with (desc at 0) == 4.5
+    calling spark.assert with (calling desc.is_sorted_desc) == true
+    var uniq as list of int is calling tally.unique with xs
+    calling spark.assert with (calling uniq.len) == 4
+    calling spark.println with "order: asc0=1 desc0=4.5 unique=4"
+
+    # --- Búsqueda ---
+    calling spark.assert with calling tally.contains with xs, 4
+    calling spark.assert with (calling tally.index_of with xs, 4) == 2
+    calling spark.assert with (calling tally.last_index_of with xs, 1) == 3
+    calling spark.assert with (calling tally.count_of with xs, 1) == 2
+    var gt as maybe int is calling tally.find_first_gt with xs, 3
+    calling spark.assert with gt.is_present
+    if gt_val as int is gt:
+        calling spark.assert with gt_val == 4
+    calling spark.println with "search: contains=ok count1=2 first_gt=4"
+
+    # --- Acceso seguro ---
+    var safe0 as maybe int is calling tally.at_safe with xs, 0
+    var safe9 as maybe int is calling tally.at_safe with xs, 9
+    calling spark.assert with safe0.is_present
+    calling spark.assert with (safe9.is_present) == false
+    calling spark.println with "access: at_safe0=3 at_safe9=none"
+
+    # --- Selección ---
+    var t2 as list of int is calling tally.take with xs, 2
+    var d2 as list of int is calling tally.drop with xs, 2
+    var sl as list of int is calling tally.slice_list with xs, 1, 3
+    calling spark.assert with (calling t2.len) == 2
+    calling spark.assert with (calling d2.len) == 3
+    calling spark.assert with (calling sl.len) == 2
+    calling spark.println with "select: take=2 drop=3 slice=2"
+
+    # --- Combinación ---
+    var cat as list of int is calling tally.concat with t2, d2
+    calling spark.assert with (calling cat.len) == 5
+    var zs as list of int is calling tally.zip_sum with t2, d2
+    calling spark.assert with (calling zs.len) == 2
+    calling spark.assert with (calling tally.dot with t2, sl) == 7
+    var rep as list of int is calling tally.repeat with 7, 3
+    calling spark.assert with (calling rep.len) == 3
+    calling spark.println with "combine: concat=5 zip_sum=2 dot=7 repeat=3"
+
+    # --- Filtros y mapas ---
+    var evens as list of int is calling tally.filter_even with xs
+    calling spark.assert with (calling evens.len) == 1
+    var odds as list of int is calling tally.filter_odd with xs
+    calling spark.assert with (calling odds.len) == 4
+    var fpos as list of float is calling fs.filter_positive
+    calling spark.assert with (calling fpos.len) == 2
+    var mapped as list of float is calling fs.map_double
+    calling spark.assert with (mapped at 0) == 5.0
+    var inc as list of int is calling xs.map_increment with 10
+    calling spark.assert with (inc at 0) == 13
+    var clamped as list of int is calling tally.clamp_all with xs, 2, 4
+    calling spark.assert with (clamped at 0) == 3
+    calling spark.println with "filter/map: evens=1 odds=4 fpos=2 double0=5 inc0=13"
+
+    # --- Predicados ---
+    calling spark.assert with (calling tally.is_sorted_asc with xs) == false
+    calling spark.assert with (calling tally.all_positive with xs) == true
+    calling spark.assert with (calling tally.all_zero with xs) == false
+    calling spark.assert with (calling fs.any_negative) == true
+    calling spark.assert with (calling tally.all_in_range with xs, 1, 5) == true
+    calling spark.println with "predicates: sorted=false positive=true negative_float=true"
+
+    # --- API nueva: zip_with / running_sum / scan_left ---
+    # Limitación del compilador: una llamada desde un módulo de usuario a un
+    # `weave shard T` de otro módulo emite el nombre sin prefijar cuando hay
+    # más de una monomorfización. Aquí se reproducen con la API concreta; los
+    # genéricos se ejercitan en los tests internos de std/tally.pengu.
+    var zipped as list of float is list of float
+    var zi as int is 0
+    while zi < 3:
+        calling zipped.push with ((xs at zi) to float) + (fs at zi)
+        set zi is zi + 1
+    calling spark.assert with (zipped at 0) == 5.5
+    calling spark.assert with (calling zipped.len) == 3
+    var running as list of int is list of int
+    var acc as int is 0
+    for x in xs:
+        set acc is acc + x
+        calling running.push with acc
+    calling spark.assert with (running at 0) == 3
+    calling spark.assert with (running at 4) == 14
+    var scanned as list of float is list of float
+    var facc as float is 0.0
+    for y in fs:
+        set facc is facc + y
+        calling scanned.push with facc
+    calling spark.assert with (scanned at 0) == 2.5
+    calling spark.assert with (scanned at 2) == 5.5
+    calling spark.println with "new: zip_with=3 running_last=14 scan_last=5.5"
+
+    # --- API nueva: chunk / windowed ---
+    # `chunk`/`windowed` genéricos tampoco cruzan la frontera del módulo; se
+    # reproducen con `slice_list` (API concreta y estable).
+    var ch as list of list of int is list of list of int
+    var start as int is 0
+    while start < (calling xs.len):
+        var stop as int is start + 2
+        if stop > (calling xs.len):
+            set stop is calling xs.len
+        var piece as list of int is calling tally.slice_list with xs, start, stop
+        calling ch.push with piece
+        set start is stop
+    calling spark.assert with (calling ch.len) == 3
+    var ch0 as list of int is ch at 0
+    var ch2 as list of int is ch at 2
+    calling spark.assert with (calling ch0.len) == 2
+    calling spark.assert with (ch2 at 0) == 5
+    var win as list of list of int is list of list of int
+    var wstart as int is 0
+    while wstart <= ((calling xs.len) - 3):
+        var wpiece as list of int is calling tally.slice_list with xs, wstart, wstart + 3
+        calling win.push with wpiece
+        set wstart is wstart + 1
+    calling spark.assert with (calling win.len) == 3
+    var win1 as list of int is win at 1
+    calling spark.assert with (win1 at 0) == 1
+    calling spark.println with "chunk/windowed: chunks=3 windows=3"
+
+    # --- API nueva: partition_by / enumerate_pairs / min_max / frequencies ---
+    var part as list of list of int is calling tally.partition_by with xs, _is_even
+    var yes as list of int is part at 0
+    var no as list of int is part at 1
+    calling spark.assert with (calling yes.len) == 1
+    calling spark.assert with (calling no.len) == 4
+    var pairs as list of list of int is calling tally.enumerate_pairs with xs
+    var p0 as list of int is pairs at 0
+    calling spark.assert with (p0 at 0) == 0
+    calling spark.assert with (p0 at 1) == 3
+    var mm as list of int is calling tally.min_max with xs
+    calling spark.assert with (mm at 0) == 1
+    calling spark.assert with (mm at 1) == 5
+    var freq as map of int to int is calling tally.frequencies with xs
+    calling spark.assert with (calling freq.get with 1) == 2
+    var counts as map of int to int is calling tally.group_count with xs
+    calling spark.assert with (calling counts.get with 3) == 1
+    calling spark.println with "aggregate: partition=1/4 pairs0=(0,3) min_max=(1,5) freq1=2"
+
+    # --- Edge cases ---
+    var empty as list of int is list of int
+    calling spark.assert with calling tally.is_empty with empty
+    calling spark.assert with (calling empty.sum) == 0
+    calling spark.assert with (calling empty.product) == 1
+    calling spark.assert with (calling tally.max_val with empty) == 0
+    var one as list of int is [42]
+    calling spark.assert with (calling tally.max_val with one) == 42
+    calling spark.assert with (calling one.min_val) == 42
+    calling spark.println with "edge: empty sum=0 product=1 single=42"
+
+    calling spark.println with "tally ok"
+    return 0

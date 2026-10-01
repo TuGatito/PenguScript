@@ -4,6 +4,119 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [0.15.0] - Unreleased
 
+### Added — Pengunic rewrite of the five core standard-library modules
+
+- **`std.oracle`, `std.scrolls`, `std.tally`, `std.atlas`, `std.loom` rewritten
+  from scratch in idiomatic Pengunic style** (`PenguScriptGuideSpanish.md` is
+  normative): canonical section order, `##` docstrings with the parameter /
+  return / ownership / complexity contract, no `+` on strings, no Hungarian
+  prefixes, and a generic core instead of hand-specialized copies — e.g.
+  `enchanting maybe shard T:`, `enchanting result of shard T to shard E:`,
+  `enchanting list of shard T where T: Num:` and the existing
+  `enchanting map of shard K to shard V where K: Par, V: Par:`, which let
+  `std.atlas` drop six duplicated concrete map blocks (2168 → under the guide's
+  1500-line limit).
+- **100 % public-endpoint compatibility.** Every legacy rune, enchanting method
+  and module weave keeps its exact signature; the documented aliases are plain
+  forwarding weaves documented with `## @deprecated Use X instead.` (the
+  toolchain has no `@deprecated` marker, so it is a documentation convention).
+  The contracts exercised by `tests/test_std_backward_compat.py`,
+  `test_std_data_backward_compat.py`, `test_std_system_backward_compat.py`,
+  `test_std_util_backward_compat.py` and the `test_<module>.pengu` programs keep
+  passing.
+- **In-module `test` blocks** (private `_expect_*` harness over `std.spark`,
+  because importing `std.ward` from these modules would be a circular import):
+  125 for `std.oracle`, 124 for `std.scrolls`, and equivalent suites for the
+  others, all run by `pengu test`.
+- **`tests/std_programs/<module>.pengu`** exercise programs for the rewritten
+  API, registered in `tests/test_stdlib.py::EXPECTED_MARKERS`.
+
+### Fixed — compiler and formatter issues found while rewriting the stdlib
+
+- **Implicit return is implemented** (`pengu_codegen.py`): the guide's rule
+  ("if the last statement of a weave is an expression, do not write `return`")
+  was documented but never emitted, so `weave f into int: x * 2` compiled to a
+  bare expression statement and returned garbage.
+- **Generic `if v as T is <maybe>` casts to the monomorphized type**
+  (`pengu_codegen.py`): the unwrapping used the erased type
+  (`int32_t v = *(void* *)m.value`), which does not compile.
+- **`.value` / `.error` on a generic `maybe`/`result` cast correctly**
+  (`pengu_codegen.py`): the concrete path cast, but inside
+  `enchanting maybe shard T` the field access fell back to the erased container
+  field (`return ((*self)).value;`).
+- **Native `result` construction** (`pengu_grammar.py`, `pengu_codegen.py`,
+  `pengu_infer.py`): `calling ok_of with v` / `calling err_of with e` build a
+  heap-boxed `result of T to E` (requires type context, `E0014` otherwise).
+  They are compiler intrinsics rather than `ok`/`err` keywords, because
+  reserving those words breaks existing code that uses them as identifiers.
+- **A generic method with its own `shard` parameter can be called more than
+  once** (`pengu_infer.py`): the first call cached its specialized signature and
+  the second failed with `E0005 Could not infer type parameter(s)`.
+- **A module-level `weave` used as a value carries the module's insignia prefix**
+  (`pengu_codegen.py`): inside a prefixed module the definition was emitted as
+  `<prefix>_<name>` while the function-pointer reference used the bare name.
+- **A local variable shadows a module-level weave of the same name**
+  (`pengu_codegen.py`): the local was emitted as a decayed function pointer.
+- **`bool to string` is not treated as an owned temporary**
+  (`pengu_codegen.py`): `pengu_string_from_bool` returns a `.rodata` view, so
+  releasing an interpolation temporary built from it aborted the process
+  (`free(): invalid pointer`).
+- **`pengu fmt` no longer rewrites string literals** (`pengu_lsp/formatting.py`):
+  the line-based normalizer applied its comma/keyword spacing regexes inside
+  literals (`"{out},"` → `"{out}, "`) and stripped trailing bytes inside
+  triple-quoted strings, silently changing program data. Literals are now
+  located first and copied verbatim (verified AST-preserving), and
+  `pengu fmt --check std/` is enforced as a CI step.
+
+### Added — documentation
+
+- **`PenguScriptGuideEnglish.md`**: full English translation of the Pengunic
+  style guide (same structure, code blocks byte-identical).
+- **`LANGUAGE_Spanish.md`**: full Spanish translation of `LANGUAGE.md`.
+- **`README.md` is now bilingual** with a `🌍 Languages / Idiomas` selector and
+  a Documentation table listing all four documents in both languages.
+
+### Compiler bugs found (documented, not fixed)
+
+- **`pengu_infer.py::_resolve_call_target` (~line 2487) — Generic module weave name splitting at `_` resolves to bogus monomorphized methods:**
+  - *Location:* `pengu_parser/pengu_infer.py` (~L2487).
+  - *Symptom:* A generic module weave whose identifier contains an underscore (e.g. `map_size`) splits at the first `_` and erroneously resolves against an existing method of the same name (`(map, size)`). This produces a bogus entry in `symbols.monomorphized_methods` using the return type as receiver type.
+  - *Observed effect:* In `std/atlas.pengu`, this corrupted the monomorphizations of `map_size`, `map_is_empty`, `map_has_key`, `map_get_or`, `map_keys`, `map_values`, `map_remove`, `map_clear`, `map_merge_all`, yielding invalid C such as `(*self).len`, `self->contains(...)`, `self.clear()`.
+  - *Workaround applied:* `std/atlas.pengu` internally invokes the method form (`calling self.size`), and exposes the generic module helpers only via qualified paths (`atlas.map_size`).
+  - *Recommended fix:* Harden `_resolve_call_target` to prefer module-scoped symbols over receiver method resolution when the name contains an underscore.
+
+- **`pengu_codegen.py` (~line 6391) — Dangerous prefix heuristic for `flatten`:**
+  - *Location:* `pengu_parser/pengu_codegen.py` (~L6391).
+  - *Symptom:* The module-prefix heuristic in code generation rewrites a call to `flatten(...)` (such as `loom.flatten`) to `flatten_maybe_string(...)` because `std/oracle` provides a `flatten_maybe` weave with monomorphizations.
+  - *Observed effect:* Breaks any module that bundles a `flatten` weave together with `std.oracle`.
+  - *Workaround applied:* Avoid introducing new bare `flatten` weaves in modules importing `oracle`; recommended fix is renaming `oracle.flatten_maybe` → `oracle.flatten_present` or hardening prefix resolution to prefer module-scoped symbols.
+
+- **Weave-as-value inside `test` blocks loses module prefix:**
+  - *Location:* `pengu_parser/pengu_codegen.py` (test block codegen route).
+  - *Symptom:* Inside a `test "..."` block, a weave referenced as a first-class value (e.g. callback passed by name) is emitted without its module prefix, despite the global fix for general `var_ref`.
+  - *Observed effect:* Linker failure due to unresolved bare identifier for imported weaves passed as values in tests.
+  - *Workaround applied:* `std/loom` uses private module-internal cores to bypass bare references in tests.
+
+- **Unqualified symbol collisions in `test` blocks across bundled modules:**
+  - *Location:* `pengu_parser/pengu_checker.py` / `pengu_codegen.py`.
+  - *Symptom:* In test blocks, unqualified symbol references resolve against symbols from other modules in the same compilation bundle when names collide.
+  - *Workaround applied:* Use unique names or private cores in `std/loom` and related modules.
+
+- **`or` / `and` runtime evaluation lack of short-circuiting for bounds-checks:**
+  - *Location:* `pengu_parser/pengu_codegen.py` / `pengu_runtime.h`.
+  - *Symptom:* Right-hand side expressions under `or`/`and` containing bounds-checked array/list indexing are evaluated before or without short-circuiting in certain runtime macro expansions (e.g. `p at len - 1 or default` can fault when `p` is empty).
+  - *Workaround applied:* Use explicit `if` statements for guard conditions instead of relying on runtime short-circuiting.
+
+- **`pengu test` bundles in-module tests of imported modules:**
+  - *Location:* `pengu_project.py` (test runner).
+  - *Symptom:* Executing `pengu test` on a bundle including `std/atlas` also discovers and runs the internal tests of `std/scrolls`; legacy `atlas.is_empty(map)` shadows `scrolls.is_empty(string)` in the shared test harness, leading to type errors in embedded tests.
+  - *Observed effect:* Affects embedded test runs (`pengu test`) for targets importing `atlas`, while `pengu build`, the standard pytest suite (`test_stdlib.py`), and `pengu fmt --check` remain fully green and unaffected.
+
+- **`pengu_codegen.py` (~line 4781) — Global symbol shadows local variable in `set` target:**
+  - *Location:* `pengu_parser/pengu_codegen.py` (~L4781 in `_translate_set_target`).
+  - *Symptom:* `current_t = sym.type if sym else self._lookup_var_type(base_name)` checks global `symbols.lookup(base_name)` before `self.local_vars`. If another imported module exports a variable of the same name (e.g. `idx: int` in `std.invoke`), a local variable (e.g. `idx: list of int` in `values_sorted_of`) is misidentified as `int`, causing `set idx at i is ...` to emit invalid array indexing `idx[i]` on a struct `PenguList`.
+  - *Workaround applied:* `self.local_vars` must take precedence over global symbol table lookups for target resolution.
+
 ### Changed — ownership contract for `maybe` and rune lifetime (audit #5)
 
 - **`some expr` deep-copies its payload (`pengu_codegen.py`)**: the box owns a

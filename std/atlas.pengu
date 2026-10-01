@@ -1,2168 +1,1498 @@
-# std/atlas.pengu - The Atlas (Maps)
-# Utilities for map collections in PenguScript: key-value access, safe lookups,
-# bulk accessors, predicates, reductions, transformations, and filters.
-#
-# Supported map types (0.15.0 expansion):
-#   * `map of string to int`   (baseline: counters, discrete IDs, numeric config)
-#   * `map of string to string`(JSON objects, HTTP headers, textual config)
-#   * `map of string to float` (metrics, stats, weights, embeddings, scientific)
-#   * `map of int to int`      (caches, frequency tables, sparse integer arrays)
-#   * `map of int to string`   (ID to label lookups, enum stringification tables)
-#   * `map of string to bool`  (feature flags, capabilities, permission sets)
-#
-# Calling conventions:
-#   * Method style (recommended): importing std.atlas enchants all supported map
-#     types directly, allowing object-oriented method calls on map variables:
-#       calling m.size
-#       calling m.has_key with "apple"
-#       calling m.get_or with "cherry", 0
-#       calling m.keys_sorted
-#       calling m.clone
-#   * Module-level style (100% backward compatible for `map of string to int`):
-#       calling atlas.size with m
-#       calling atlas.has_key with m, "apple"
-#       calling atlas.get_or with m, "cherry", 0
-#   * Concrete type wrappers (for non-string-to-int maps):
-#       calling atlas.size_ss with m_ss
-#       calling atlas.get_or_ss with m_ss, "key", "fallback"
-#       calling atlas.size_sf with m_sf
-#       calling atlas.size_ii with m_ii
-#       calling atlas.size_is with m_is
-#       calling atlas.size_sb with m_sb
-#   * Generic module-level utilities (`shard K, V`):
-#       calling atlas.map_size of string, string with m
-#       calling atlas.map_has_key of string, string with m, "k"
-#       calling atlas.map_get_or of int, int with m, 10, -1
-#
-# Ownership / memory model:
-#   * Maps in PenguScript are reference-like structures carrying pointers to
-#     underlying bucket allocations. Modifying helpers modify the map in-place.
-#   * Helpers that RETURN a map or list allocate an owned fresh container.
-#   * Map iteration (`for k in essence of self:` or `for k in m:`) traverses keys
-#     in internal hash bucket order. Deterministic ordering requires `keys_sorted`.
-#
-# Documented TODOs:
-#   * Custom key comparison and hashing for user-defined rune types requires Ord
-#     and Hash concepts, not yet supported in current compiler.
-#   * Streaming serialization of large maps (>2GB) across FFI boundaries.
+## std/atlas.pengu
+## Mapas (`map of K to V`): acceso, consulta, mutación, reducción, filtrado y transformación.
+##
+## El núcleo es genérico: un bloque `enchanting` sobre `map of shard K to shard V
+## where K: Par, V: Par` cubre toda combinación comparable y otro `V: Num` añade
+## la aritmética; solo `string`/`bool` necesitan bloques concretos mínimos.
+##
+## ## Ejemplo
+## ```pengu
+## import std.atlas
+## import std.spark
+##
+## weave main into int:
+##     var m as map of string to int is map of string to int
+##     with m:
+##         calling .put with "apple", 10
+##         calling .put with "apricot", 30
+##     calling spark.println with "{calling m.size}"
+##     var ap as map of string to int is calling m.filter_keys_startswith with "ap"
+##     calling spark.println with "{calling ap.size}"
+##     return 0
+## ```
+##
+## ## Ownership
+## - Los mutadores (`update`, `rename_key`, `remove`, `clear`, `put_all`) cambian
+##   el mapa **en el lugar**; los métodos que devuelven `list`/`map` crean
+##   contenedores nuevos auto-banishables y nunca consumen el receptor.
+## - `keys`, `values` y `entries` recorren el orden interno del hash; usa
+##   `keys_sorted`/`values_sorted` para un orden determinista.
+##
+## ## Notas de diseño
+## - **Núcleo genérico** y **alias de compatibilidad**: todos los nombres
+##   públicos de 0.15.0 siguen existiendo como *forwarders* de una línea.
+## - **`insignia atlas_`:** evita que el envoltorio `remove` colisione con el
+##   símbolo C `remove` de `stdio.h`, sin cambiar ningún nombre Pengu.
+## - **Harness de tests privado:** los `test` en módulo usan `_expect_eq_int`,
+##   `_expect_eq_string` y `_expect_true` sobre `std.spark` (no `std.ward`).
+##
+## ## Migración
+## | Antes (0.15.0) | Ahora |
+## |---|---|
+## | `calling atlas.size_ss with m` | `calling m.size` |
+## | `calling atlas.get_or_ii with m, k, 0` | `calling m.get_or with k, 0` |
+## | `calling atlas.merge_ss with a, b` | `calling map_merge with a, b` |
+## | `calling atlas.from_lists_sf with ks, vs` | `calling map_from_lists with ks, vs` |
+## | `calling m.to_keys_list` | `calling m.keys` |
+## | — | `calling m.entries`, `m.invert`, `m.take_keys` (nuevos) |
+## | — | `calling m.filter_entries`, `m.map_values_with`, `m.count_where` (nuevos) |
+## | — | `calling atlas.from_pairs`, `atlas.merge_all` (nuevos) |
 
-import std.spark
+insignia atlas_
+
+import std.oracle
 import std.scrolls
+import std.spark
 
-# ----------------------------------------------------------------------------
-# Version constant
-# ----------------------------------------------------------------------------
+# --- Constantes públicas ----------------------------------------------------
 
-## Atlas module version constant.
+## Versión del módulo `std.atlas`.
 const ATLAS_VERSION as string is "0.15.0"
 
-# ----------------------------------------------------------------------------
-# Internal helpers (avoiding local essence-of-self auto-banish aliasing crashes)
-# ----------------------------------------------------------------------------
-
-# string -> int helpers
-weave _map_len with m as map of string to int into int:
-    return calling m.len
-
-weave _map_contains with m as map of string to int, k as string into bool:
-    return calling m.contains with k
-
-# string -> string helpers
-weave _contains_ss with m as map of string to string, k as string into bool:
-    return calling m.contains with k
-
-# string -> float helpers
-weave _contains_sf with m as map of string to float, k as string into bool:
-    return calling m.contains with k
-
-# int -> int helpers
-weave _contains_ii with m as map of int to int, k as int into bool:
-    return calling m.contains with k
-
-# int -> string helpers
-weave _contains_is with m as map of int to string, k as int into bool:
-    return calling m.contains with k
-
-# string -> bool helpers
-weave _contains_sb with m as map of string to bool, k as string into bool:
-    return calling m.contains with k
-
-# ----------------------------------------------------------------------------
-# Pre-existing function (kept verbatim for 100% backward compatibility)
-# ----------------------------------------------------------------------------
-
-# Returns the number of key -> value entries currently stored in the
-# `map of string to int` `m`, equivalent to `calling m.len`. The map is
-# only read, never modified.
-weave map_len_str_int with m as map of string to int into int:
-    return calling m.len
-
-# ============================================================================
-# 0. Generic Enchanting: `map of shard K to shard V` (Plan B Monomorphization)
-# ============================================================================
+# --- Enchanting genérico: K: Par, V: Par ------------------------------------
 
 enchanting map of shard K to shard V where K: Par, V: Par:
 
-    # --- Length & predicates ---
-
-    ## Returns the number of entries stored in `self`. Equivalent to `calling self.len`.
+    ## Número de entradas de `self`; equivalente a `calling self.len`.
     weave size into int:
         return (essence of self).len
 
-    ## Returns true when `self` contains no entries.
+    ## Devuelve `true` cuando `self` no tiene entradas.
     weave is_empty into bool:
         return (essence of self).len == 0
 
-    ## Returns true when `key` exists in `self`.
+    ## Devuelve `true` cuando `key` existe en `self`.
     weave has_key with key as K into bool:
         return calling self.contains with key
 
-    ## Returns true if `self` contains at least one key from `keys`.
+    ## `true` si alguna clave de `keys` está en `self`; lista vacía → `false`.
     weave has_any_key with keys as list of K into bool:
         for k in keys:
             if calling self.contains with k:
                 return true
         return false
 
-    ## Returns true if `self` contains all keys in `keys`. Empty keys returns true.
+    ## `true` si todas las claves de `keys` están en `self`; lista vacía → `true`.
     weave has_all_keys with keys as list of K into bool:
         for k in keys:
             if not (calling self.contains with k):
                 return false
         return true
 
-    # --- Access ---
-
-    ## Returns the value associated with `key`, or `default_val` if `key` is absent.
-    weave get_or with key as K, default_val as V into V:
+    ## Valor de `key`, o `fallback` si la clave no está.
+    weave get_or with key as K, fallback as V into V:
         if calling self.contains with key:
             return self at key
-        return default_val
+        return fallback
 
-    ## Returns `some v` when `key` is present in `self`, or `maybe none` when absent.
+    ## `some v` si `key` está presente; `maybe none` en caso contrario.
     weave get_safe with key as K into maybe V:
         if calling self.contains with key:
             return some (self at key)
         return maybe none
 
-    ## Finds the first key associated with `target` value, or none if not found.
+    ## Primera clave cuyo valor es `target`, o `maybe none` si no hay ninguna.
     weave find_key_by_value with target as V into maybe K:
         for k in essence of self:
-            if (self at k) == target:
+            var v as V is self at k
+            if v == target:
                 return some k
         return maybe none
 
-    # --- Mutation ---
-
-    ## Updates the value of an existing `key` in `self`. Returns true if updated, false if absent.
+    ## Actualiza el valor de una clave existente; `false` si no existe.
     weave update with key as K, value as V into bool:
         if calling self.contains with key:
             calling self.put with key, value
             return true
         return false
 
-    ## Renames `old_key` to `new_key` preserving its value. Returns false if `old_key` absent.
+    ## Renombra `old_key` a `new_key` conservando el valor.
     weave rename_key with old_key as K, new_key as K into bool:
-        if calling self.contains with old_key:
-            var v as V is self at old_key
-            calling self.put with new_key, v
-            if not (old_key == new_key):
-                calling self.remove with old_key
+        if not (calling self.contains with old_key):
+            return false
+        var v as V is self at old_key
+        calling self.put with new_key, v
+        if not (old_key == new_key):
+            with self:
+                calling .remove with old_key
+        return true
+
+    ## Elimina `key`; devuelve `true` si existía.
+    weave remove with key as K into bool:
+        if calling self.contains with key:
+            with self:
+                calling .remove with key
             return true
         return false
 
-    ## Removes `key` and its value from `self`. Returns true if key was present.
-    weave remove with key as K into bool:
-        return calling self.remove with key
-
-    ## Removes all entries from `self`.
+    ## Vacía `self` por completo.
     weave clear into void:
-        calling self.clear
+        with self:
+            calling .clear
 
-    ## Removes every key in `keys` from `self`. Returns count of keys actually removed.
+    ## Elimina todas las claves de `keys`; devuelve cuántas se eliminaron.
     weave remove_all with keys as list of K into int:
-        var count as int is 0
+        var removed as int is 0
         for k in keys:
             if calling self.remove with k:
-                set count is count + 1
-        return count
+                set removed is removed + 1
+        return removed
 
-    ## Inserts all entries from `other` into `self`, overwriting existing keys.
+    ## Copia todas las entradas de `other` en `self`, sobrescribiendo claves.
     weave put_all with other as map of K to V into void:
         for k in other:
-            calling self.put with k, (other at k)
+            var v as V is other at k
+            calling self.put with k, v
 
-    # --- Bulk accessors ---
-
-    ## Returns a fresh list of every key in `self`, in internal hash iteration order.
+    ## Lista nueva con todas las claves, en orden interno del hash.
     weave keys into list of K:
-        var result as list of K is list of K
+        var out as list of K is list of K
         for k in essence of self:
-            calling result.push with k
-        return result
+            calling out.push with k
+        return out
 
-    ## Returns a fresh list of every value in `self`, in internal hash iteration order.
+    ## Lista nueva con todos los valores, en orden interno del hash.
     weave values into list of V:
-        var result as list of V is list of V
+        var out as list of V is list of V
         for k in essence of self:
-            calling result.push with self at k
-        return result
+            var v as V is self at k
+            calling out.push with v
+        return out
 
-    ## Returns an independent shallow clone of `self`.
+    ## Copia superficial independiente de `self`.
     weave clone into map of K to V:
-        var result as map of K to V is map of K to V
+        var out as map of K to V is map of K to V
         for k in essence of self:
-            calling result.put with k, (self at k)
-        return result
+            var v as V is self at k
+            calling out.put with k, v
+        return out
 
-    ## Creates an independent copy of `self` (alias for `clone`).
+    ## Alias de `clone`.
     weave copy into map of K to V:
         return calling self.clone
 
-    ## Compares two maps for structural key-value equality.
+    ## Igualdad estructural clave-valor (mismo tamaño y mismos pares).
     weave is_equal with other as map of K to V into bool:
         if (essence of self).len != other.len:
             return false
         for k in essence of self:
             if not (calling other.contains with k):
                 return false
-            if (self at k) != (other at k):
+            var v as V is self at k
+            if v != (other at k):
                 return false
         return true
 
-# ============================================================================
-# 1. Enchanting: `map of string to int` (Baseline + Enhancements)
-# ============================================================================
+    ## Alias de `keys`.
+    weave to_keys_list into list of K:
+        return calling self.keys
 
-enchanting map of string to int:
+    ## Alias de `values`.
+    weave to_values_list into list of V:
+        return calling self.values
 
-    # --- Length & predicates ---
+    ## Lista nueva de pares `oracle.Pair` clave-valor.
+    weave entries into list of oracle.Pair of K and V:
+        var out as list of oracle.Pair of K and V is list of oracle.Pair of K and V
+        for k in essence of self:
+            var v as V is self at k
+            var p as oracle.Pair of K and V with:
+                set .first is k
+                set .second is v
+            calling out.push with p
+        return out
 
-    ## Returns the number of entries stored in `self`. Equivalent to `calling self.len`.
-    weave size into int:
-        return (essence of self).len
+    ## Invierte el mapa: los valores pasan a claves. Con valores repetidos gana el último.
+    weave invert into map of V to K:
+        var out as map of V to K is map of V to K
+        for k in essence of self:
+            var v as V is self at k
+            calling out.put with v, k
+        return out
 
-    ## Returns true when `self` contains no entries.
-    weave is_empty into bool:
-        return (essence of self).len == 0
+    ## Submapa con las claves presentes en `ks`.
+    weave take_keys with ks as list of K into map of K to V:
+        var out as map of K to V is map of K to V
+        for k in ks:
+            if calling self.contains with k:
+                var v as V is self at k
+                calling out.put with k, v
+        return out
 
-    ## Returns true when `key` exists in `self`.
-    weave has_key with key as string into bool:
-        return calling _map_contains with (essence of self), key
+    ## Cuenta las entradas que cumplen `predicate`.
+    weave count_where with predicate as weave with k as K, v as V into bool into int:
+        var n as int is 0
+        for k in essence of self:
+            var v as V is self at k
+            if calling predicate with k, v:
+                set n is n + 1
+        return n
 
-    ## Returns true if every value in `self` is strictly positive (> 0). Empty returns true.
+    ## Submapa con las entradas que cumplen `predicate`.
+    weave filter_entries with predicate as weave with k as K, v as V into bool into map of K to V:
+        var out as map of K to V is map of K to V
+        for k in essence of self:
+            var v as V is self at k
+            if calling predicate with k, v:
+                calling out.put with k, v
+        return out
+
+    ## Mapa nuevo aplicando `f` a cada valor.
+    weave map_values_with with f as weave with x as V into V into map of K to V:
+        var out as map of K to V is map of K to V
+        for k in essence of self:
+            var v as V is self at k
+            calling out.put with k, (calling f with v)
+        return out
+
+    ## Combina `self` con cada mapa de `others`; los mapas posteriores ganan.
+    weave merge_all with others as list of map of K to V into map of K to V:
+        var out as map of K to V is calling self.clone
+        for other in others:
+            for k in other:
+                var v as V is other at k
+                calling out.put with k, v
+        return out
+
+# --- Enchanting numérico/ordenado: K: Par, V: Num ---------------------------
+
+enchanting map of shard K to shard V where K: Par, V: Num:
+
+    ## Suma de todos los valores; `donum V` (cero) si está vacío.
+    weave sum_values into V:
+        var total as V is donum V
+        for k in essence of self:
+            var v as V is self at k
+            set total is total + v
+        return total
+
+    ## Suma de los valores dentro de `[lo, hi]` inclusive.
+    weave sum_values_filtered with lo as V, hi as V into V:
+        var total as V is donum V
+        for k in essence of self:
+            var v as V is self at k
+            if v >= lo and v <= hi:
+                set total is total + v
+        return total
+
+    ## `true` si todos los valores son mayores que cero; vacío → `true`.
     weave all_values_positive into bool:
         for k in essence of self:
-            var v as int is self at k
+            var v as V is self at k
             if v <= 0:
                 return false
         return true
 
-    ## Returns true if any value in `self` is strictly negative (< 0). Empty returns false.
+    ## `true` si algún valor es menor que cero; vacío → `false`.
     weave any_value_negative into bool:
         for k in essence of self:
-            var v as int is self at k
+            var v as V is self at k
             if v < 0:
                 return true
         return false
 
-    ## Returns true if all values in `self` fall within `[lo, hi]` inclusive. Empty returns true.
-    weave values_in_range with lo as int, hi as int into bool:
+    ## Cuenta los valores mayores que cero.
+    weave count_if_value_positive into int:
+        var n as int is 0
         for k in essence of self:
-            var v as int is self at k
+            var v as V is self at k
+            if v > 0:
+                set n is n + 1
+        return n
+
+    ## Cuenta los valores menores que cero.
+    weave count_if_value_negative into int:
+        var n as int is 0
+        for k in essence of self:
+            var v as V is self at k
+            if v < 0:
+                set n is n + 1
+        return n
+
+    ## Mapa nuevo con cada valor duplicado (`v + v`).
+    weave map_values_double into map of K to V:
+        var out as map of K to V is map of K to V
+        for k in essence of self:
+            var v as V is self at k
+            calling out.put with k, (v + v)
+        return out
+
+    ## Mapa nuevo con cada valor negado (`-v`).
+    weave map_values_negate into map of K to V:
+        var out as map of K to V is map of K to V
+        for k in essence of self:
+            var v as V is self at k
+            calling out.put with k, (-v)
+        return out
+
+    ## Mapa nuevo multiplicando cada valor por `factor`.
+    weave map_values_scale with factor as V into map of K to V:
+        var out as map of K to V is map of K to V
+        for k in essence of self:
+            var v as V is self at k
+            calling out.put with k, (v * factor)
+        return out
+
+    ## Valor máximo; `donum V` (cero) si está vacío.
+    weave max_value into V:
+        var best as V is donum V
+        var first as bool is true
+        for k in essence of self:
+            var v as V is self at k
+            if first:
+                set best is v
+                set first is false
+            else:
+                if v > best:
+                    set best is v
+        return best
+
+    ## Valor mínimo; `donum V` (cero) si está vacío.
+    weave min_value into V:
+        var best as V is donum V
+        var first as bool is true
+        for k in essence of self:
+            var v as V is self at k
+            if first:
+                set best is v
+                set first is false
+            else:
+                if v < best:
+                    set best is v
+        return best
+
+    ## `true` si todos los valores están en `[lo, hi]`; vacío → `true`.
+    weave values_in_range with lo as V, hi as V into bool:
+        for k in essence of self:
+            var v as V is self at k
             if v < lo:
                 return false
             if v > hi:
                 return false
         return true
 
-    ## Returns the count of entries whose value is strictly positive (> 0).
-    weave count_if_value_positive into int:
-        var count as int is 0
+    ## Submapa con los valores dentro de `[lo, hi]` inclusive.
+    weave filter_values_range with lo as V, hi as V into map of K to V:
+        var out as map of K to V is map of K to V
         for k in essence of self:
-            if (self at k) > 0:
-                set count is count + 1
-        return count
-
-    ## Returns the count of entries whose value is strictly negative (< 0).
-    weave count_if_value_negative into int:
-        var count as int is 0
-        for k in essence of self:
-            if (self at k) < 0:
-                set count is count + 1
-        return count
-
-    ## Returns true if `self` contains at least one key from `keys`.
-    weave has_any_key with keys as list of string into bool:
-        for k in keys:
-            if calling _map_contains with (essence of self), k:
-                return true
-        return false
-
-    ## Returns true if `self` contains all keys in `keys`. Empty keys returns true.
-    weave has_all_keys with keys as list of string into bool:
-        for k in keys:
-            if not (calling _map_contains with (essence of self), k):
-                return false
-        return true
-
-    # --- Access ---
-
-    ## Returns the value associated with `key`, or `default` if `key` is absent.
-    weave get_or with key as string, default as int is 0 into int:
-        if calling _map_contains with (essence of self), key:
-            return self at key
-        return default
-
-    ## Returns `some v` when `key` is present in `self`, or `maybe none` when absent.
-    weave get_safe with key as string into maybe int:
-        if calling _map_contains with (essence of self), key:
-            return some (self at key)
-        return maybe none
-
-    ## Finds the first key associated with `target` value, or none if not found.
-    weave find_key_by_value with target as int into maybe string:
-        for k in essence of self:
-            if (self at k) == target:
-                return some k
-        return maybe none
-
-    # --- Mutation ---
-
-    ## Updates the value of an existing `key` in `self`. Returns true if updated, false if absent.
-    weave update with key as string, value as int into bool:
-        if calling _map_contains with (essence of self), key:
-            with self:
-                calling .put with key, value
-            return true
-        return false
-
-    ## Removes `key` from `self`. Returns true if present and removed, false otherwise.
-    weave remove with key as string into bool:
-        if calling _map_contains with (essence of self), key:
-            with self:
-                calling .remove with key
-            return true
-        return false
-
-    ## Removes every entry from `self`, resetting its length to 0.
-    weave clear into void:
-        with self:
-            calling .clear
-
-    ## Removes all entries matching keys in `keys`. Returns count of entries removed.
-    weave remove_all with keys as list of string into int:
-        var removed as int is 0
-        for k in keys:
-            if calling self.remove with k:
-                set removed is removed + 1
-        return removed
-
-    ## Renames an existing key `old_key` to `new_key`, preserving its value.
-    weave rename_key with old_key as string, new_key as string into bool:
-        if old_key == new_key:
-            return calling _map_contains with (essence of self), old_key
-        if calling _map_contains with (essence of self), old_key:
-            var v as int is self at old_key
-            with self:
-                calling .put with new_key, v
-                calling .remove with old_key
-            return true
-        return false
-
-    # --- Bulk accessors ---
-
-    ## Returns a fresh list of every key in `self`, in internal hash iteration order.
-    weave keys into list of string:
-        var result as list of string is list of string
-        for k in essence of self:
-            calling result.push with k
-        return result
-
-    ## Returns a fresh list of every value in `self`, in internal hash iteration order.
-    weave values into list of int:
-        var result as list of int is list of int
-        for k in essence of self:
-            var v as int is self at k
-            calling result.push with v
-        return result
-
-    ## Returns a fresh list of all keys in `self` sorted alphabetically using `std.scrolls.compare`.
-    weave keys_sorted into list of string:
-        var ks as list of string is calling self.keys
-        var n as int is calling ks.len
-        var i as int is 0
-        while i < n:
-            var j as int is i + 1
-            while j < n:
-                var a as string is ks at i
-                var b as string is ks at j
-                if (calling a.compare with b) > 0:
-                    var tmp as string is ks at i
-                    set ks at i is ks at j
-                    set ks at j is tmp
-                set j is j + 1
-            set i is i + 1
-        return ks
-
-    ## Returns a fresh list of all values in `self` sorted numerically ascending.
-    weave values_sorted into list of int:
-        var vs as list of int is calling self.values
-        var n as int is calling vs.len
-        var i as int is 0
-        while i < n:
-            var j as int is i + 1
-            while j < n:
-                if (vs at i) > (vs at j):
-                    var tmp as int is vs at i
-                    set vs at i is vs at j
-                    set vs at j is tmp
-                set j is j + 1
-            set i is i + 1
-        return vs
-
-    # --- Reductions ---
-
-    ## Returns the arithmetic sum of every value in `self`. Returns 0 if empty.
-    weave sum_values into int:
-        var total as int is 0
-        for k in essence of self:
-            var v as int is self at k
-            set total is total + v
-        return total
-
-    ## Returns the sum of values that fall within `[lo, hi]` inclusive.
-    weave sum_values_filtered with lo as int, hi as int into int:
-        var total as int is 0
-        for k in essence of self:
-            var v as int is self at k
+            var v as V is self at k
             if v >= lo and v <= hi:
-                set total is total + v
-        return total
+                calling out.put with k, v
+        return out
 
-    ## Returns the maximum value stored across all entries in `self`. Returns 0 if empty.
-    weave max_value into int:
-        if (essence of self).len == 0:
-            return 0
-        var first as bool is true
-        var hi as int is 0
-        for k in essence of self:
-            var v as int is self at k
-            if first:
-                set hi is v
-                set first is false
-            else:
-                if v > hi:
-                    set hi is v
-        return hi
+# --- Bloques concretos mínimos (string / bool) ------------------------------
 
-    ## Returns the minimum value stored across all entries in `self`. Returns 0 if empty.
-    weave min_value into int:
-        if (essence of self).len == 0:
-            return 0
-        var first as bool is true
-        var lo as int is 0
-        for k in essence of self:
-            var v as int is self at k
-            if first:
-                set lo is v
-                set first is false
-            else:
-                if v < lo:
-                    set lo is v
-        return lo
+enchanting map of string to int:
 
-    # --- Filters ---
-
-    ## Returns a fresh map with only the entries whose key contains `sub`.
-    weave filter_keys_contains with sub as string into map of string to int:
-        var result as map of string to int is map of string to int
-        for k in essence of self:
-            if calling k.contains with sub:
-                calling result.put with k, (self at k)
-        return result
-
-    ## Returns a fresh map with only the entries whose key starts with `prefix`.
-    weave filter_keys_startswith with prefix as string into map of string to int:
-        var result as map of string to int is map of string to int
-        for k in essence of self:
-            if calling k.starts_with with prefix:
-                calling result.put with k, (self at k)
-        return result
-
-    ## Returns a fresh map with entries whose value is within `[lo, hi]` inclusive.
-    weave filter_values_range with lo as int, hi as int into map of string to int:
-        var result as map of string to int is map of string to int
-        for k in essence of self:
-            var v as int is self at k
-            if v >= lo:
-                if v <= hi:
-                    calling result.put with k, v
-        return result
-
-    # --- Transformations ---
-
-    ## Returns a fresh map where each value is multiplied by 2 (`v * 2`).
-    weave map_values_double into map of string to int:
-        var result as map of string to int is map of string to int
-        for k in essence of self:
-            var v as int is self at k
-            calling result.put with k, (v * 2)
-        return result
-
-    ## Returns a fresh map where each value is negated (`-v`).
-    weave map_values_negate into map of string to int:
-        var result as map of string to int is map of string to int
-        for k in essence of self:
-            var v as int is self at k
-            calling result.put with k, (-v)
-        return result
-
-    # --- Conversions & Duplication ---
-
-    ## Returns a shallow duplicate of `self` containing fresh entry copies.
-    weave clone into map of string to int:
-        var result as map of string to int is map of string to int
-        for k in essence of self:
-            calling result.put with k, (self at k)
-        return result
-
-    ## Alias of `clone`.
-    weave copy into map of string to int:
-        return calling self.clone
-
-    ## Alias of `keys`.
-    weave to_keys_list into list of string:
-        return calling self.keys
-
-    ## Alias of `values`.
-    weave to_values_list into list of int:
-        return calling self.values
-
-# ============================================================================
-# 2. Enchanting: `map of string to string` (JSON, HTTP, Config)
-# ============================================================================
-
-enchanting map of string to string:
-
-    ## Returns the number of entries stored in `self`.
-    weave size into int:
-        return (essence of self).len
-
-    ## Returns true when `self` contains no entries.
-    weave is_empty into bool:
-        return (essence of self).len == 0
-
-    ## Returns true when `key` exists in `self`.
-    weave has_key with key as string into bool:
-        return calling _contains_ss with (essence of self), key
-
-    ## Returns true if `self` contains at least one key from `keys`.
-    weave has_any_key with keys as list of string into bool:
-        for k in keys:
-            if calling _contains_ss with (essence of self), k:
-                return true
-        return false
-
-    ## Returns true if `self` contains all keys in `keys`.
-    weave has_all_keys with keys as list of string into bool:
-        for k in keys:
-            if not (calling _contains_ss with (essence of self), k):
-                return false
-        return true
-
-    ## Returns the value associated with `key`, or `default` if `key` is absent.
-    weave get_or with key as string, default as string is "" into string:
-        if calling _contains_ss with (essence of self), key:
-            return self at key
-        return default
-
-    ## Returns `some v` when `key` is present in `self`, or `maybe none` when absent.
-    weave get_safe with key as string into maybe string:
-        if calling _contains_ss with (essence of self), key:
-            return some (self at key)
-        return maybe none
-
-    ## Finds the first key associated with `target` value, or none if absent.
-    weave find_key_by_value with target as string into maybe string:
-        for k in essence of self:
-            if (self at k) == target:
-                return some k
-        return maybe none
-
-    ## Updates the value of an existing `key` in `self`. Returns true if updated, false if absent.
-    weave update with key as string, value as string into bool:
-        if calling _contains_ss with (essence of self), key:
-            with self:
-                calling .put with key, value
-            return true
-        return false
-
-    ## Removes `key` from `self`. Returns true if present and removed, false otherwise.
-    weave remove with key as string into bool:
-        if calling _contains_ss with (essence of self), key:
-            with self:
-                calling .remove with key
-            return true
-        return false
-
-    ## Removes every entry from `self`, resetting its length to 0.
-    weave clear into void:
-        with self:
-            calling .clear
-
-    ## Removes all entries matching keys in `keys`. Returns count of entries removed.
-    weave remove_all with keys as list of string into int:
-        var removed as int is 0
-        for k in keys:
-            if calling self.remove with k:
-                set removed is removed + 1
-        return removed
-
-    ## Renames `old_key` to `new_key`, preserving its value.
-    weave rename_key with old_key as string, new_key as string into bool:
-        if old_key == new_key:
-            return calling _contains_ss with (essence of self), old_key
-        if calling _contains_ss with (essence of self), old_key:
-            var v as string is self at old_key
-            with self:
-                calling .put with new_key, v
-                calling .remove with old_key
-            return true
-        return false
-
-    ## Returns a fresh list of every key in `self`.
-    weave keys into list of string:
-        var result as list of string is list of string
-        for k in essence of self:
-            calling result.push with k
-        return result
-
-    ## Returns a fresh list of every value in `self`.
-    weave values into list of string:
-        var result as list of string is list of string
-        for k in essence of self:
-            calling result.push with (self at k)
-        return result
-
-    ## Returns all keys in `self` sorted alphabetically using `std.scrolls.compare`.
     weave keys_sorted into list of string:
-        var ks as list of string is calling self.keys
-        var n as int is calling ks.len
-        var i as int is 0
-        while i < n:
-            var j as int is i + 1
-            while j < n:
-                var a as string is ks at i
-                var b as string is ks at j
-                if (calling a.compare with b) > 0:
-                    var tmp as string is ks at i
-                    set ks at i is ks at j
-                    set ks at j is tmp
-                set j is j + 1
-            set i is i + 1
-        return ks
+        var ks as list of string is list of string
+        for k in essence of self:
+            calling ks.push with k
+        return calling _sort_strings with ks
 
-    ## Returns all values in `self` sorted alphabetically using `std.scrolls.compare`.
-    weave values_sorted into list of string:
-        var vs as list of string is calling self.values
-        var n as int is calling vs.len
-        var i as int is 0
-        while i < n:
-            var j as int is i + 1
-            while j < n:
-                var a as string is vs at i
-                var b as string is vs at j
-                if (calling a.compare with b) > 0:
-                    var tmp as string is vs at i
-                    set vs at i is vs at j
-                    set vs at j is tmp
-                set j is j + 1
-            set i is i + 1
-        return vs
+    weave values_sorted into list of int:
+        return calling values_sorted_of with (essence of self)
 
-    ## Returns a fresh map with only entries whose key contains `sub`.
-    weave filter_keys_contains with sub as string into map of string to string:
-        var result as map of string to string is map of string to string
+    weave filter_keys_contains with sub as string into map of string to int:
+        var out as map of string to int is map of string to int
         for k in essence of self:
             if calling k.contains with sub:
-                calling result.put with k, (self at k)
-        return result
+                var v as int is self at k
+                calling out.put with k, v
+        return out
 
-    ## Returns a fresh map with only entries whose key starts with `prefix`.
-    weave filter_keys_startswith with prefix as string into map of string to string:
-        var result as map of string to string is map of string to string
+    weave filter_keys_startswith with prefix as string into map of string to int:
+        var out as map of string to int is map of string to int
         for k in essence of self:
             if calling k.starts_with with prefix:
-                calling result.put with k, (self at k)
-        return result
-
-    ## Returns a fresh map with only entries whose value contains `sub`.
-    weave filter_values_contains with sub as string into map of string to string:
-        var result as map of string to string is map of string to string
-        for k in essence of self:
-            var v as string is self at k
-            if calling v.contains with sub:
-                calling result.put with k, v
-        return result
-
-    ## Returns an owned shallow copy of `self`.
-    weave clone into map of string to string:
-        var result as map of string to string is map of string to string
-        for k in essence of self:
-            calling result.put with k, (self at k)
-        return result
-
-    ## Alias of `clone`.
-    weave copy into map of string to string:
-        return calling self.clone
-
-    ## Alias of `keys`.
-    weave to_keys_list into list of string:
-        return calling self.keys
-
-    ## Alias of `values`.
-    weave to_values_list into list of string:
-        return calling self.values
-
-# ============================================================================
-# 3. Enchanting: `map of string to float` (Metrics, Stats, Weights)
-# ============================================================================
+                var v as int is self at k
+                calling out.put with k, v
+        return out
 
 enchanting map of string to float:
 
-    ## Returns the number of entries stored in `self`.
-    weave size into int:
-        return (essence of self).len
-
-    ## Returns true when `self` contains no entries.
-    weave is_empty into bool:
-        return (essence of self).len == 0
-
-    ## Returns true when `key` exists in `self`.
-    weave has_key with key as string into bool:
-        return calling _contains_sf with (essence of self), key
-
-    ## Returns true if `self` contains at least one key from `keys`.
-    weave has_any_key with keys as list of string into bool:
-        for k in keys:
-            if calling _contains_sf with (essence of self), k:
-                return true
-        return false
-
-    ## Returns true if `self` contains all keys in `keys`.
-    weave has_all_keys with keys as list of string into bool:
-        for k in keys:
-            if not (calling _contains_sf with (essence of self), k):
-                return false
-        return true
-
-    ## Returns true if every value in `self` is strictly positive (> 0.0). Empty returns true.
-    weave all_values_positive into bool:
-        for k in essence of self:
-            if (self at k) <= 0.0:
-                return false
-        return true
-
-    ## Returns true if any value in `self` is strictly negative (< 0.0). Empty returns false.
-    weave any_value_negative into bool:
-        for k in essence of self:
-            if (self at k) < 0.0:
-                return true
-        return false
-
-    ## Returns true if all values in `self` fall within `[lo, hi]` inclusive.
-    weave values_in_range with lo as float, hi as float into bool:
-        for k in essence of self:
-            var v as float is self at k
-            if v < lo or v > hi:
-                return false
-        return true
-
-    ## Returns the count of entries whose value is strictly positive (> 0.0).
-    weave count_if_value_positive into int:
-        var count as int is 0
-        for k in essence of self:
-            if (self at k) > 0.0:
-                set count is count + 1
-        return count
-
-    ## Returns the count of entries whose value is strictly negative (< 0.0).
-    weave count_if_value_negative into int:
-        var count as int is 0
-        for k in essence of self:
-            if (self at k) < 0.0:
-                set count is count + 1
-        return count
-
-    ## Returns the value associated with `key`, or `default` if `key` is absent.
-    weave get_or with key as string, default as float is 0.0 into float:
-        if calling _contains_sf with (essence of self), key:
-            return self at key
-        return default
-
-    ## Returns `some v` when `key` is present in `self`, or `maybe none` when absent.
-    weave get_safe with key as string into maybe float:
-        if calling _contains_sf with (essence of self), key:
-            return some (self at key)
-        return maybe none
-
-    ## Updates the value of an existing `key` in `self`. Returns true if updated, false if absent.
-    weave update with key as string, value as float into bool:
-        if calling _contains_sf with (essence of self), key:
-            with self:
-                calling .put with key, value
-            return true
-        return false
-
-    ## Removes `key` from `self`. Returns true if present and removed, false otherwise.
-    weave remove with key as string into bool:
-        if calling _contains_sf with (essence of self), key:
-            with self:
-                calling .remove with key
-            return true
-        return false
-
-    ## Removes every entry from `self`, resetting its length to 0.
-    weave clear into void:
-        with self:
-            calling .clear
-
-    ## Removes all entries matching keys in `keys`. Returns count of entries removed.
-    weave remove_all with keys as list of string into int:
-        var removed as int is 0
-        for k in keys:
-            if calling self.remove with k:
-                set removed is removed + 1
-        return removed
-
-    ## Renames an existing key `old_key` to `new_key`, preserving its value.
-    weave rename_key with old_key as string, new_key as string into bool:
-        if old_key == new_key:
-            return calling _contains_sf with (essence of self), old_key
-        if calling _contains_sf with (essence of self), old_key:
-            var v as float is self at old_key
-            with self:
-                calling .put with new_key, v
-                calling .remove with old_key
-            return true
-        return false
-
-    ## Returns a fresh list of every key in `self`.
-    weave keys into list of string:
-        var result as list of string is list of string
-        for k in essence of self:
-            calling result.push with k
-        return result
-
-    ## Returns a fresh list of every value in `self`.
-    weave values into list of float:
-        var result as list of float is list of float
-        for k in essence of self:
-            calling result.push with (self at k)
-        return result
-
-    ## Returns all keys in `self` sorted alphabetically using `std.scrolls.compare`.
     weave keys_sorted into list of string:
-        var ks as list of string is calling self.keys
-        var n as int is calling ks.len
-        var i as int is 0
-        while i < n:
-            var j as int is i + 1
-            while j < n:
-                var a as string is ks at i
-                var b as string is ks at j
-                if (calling a.compare with b) > 0:
-                    var tmp as string is ks at i
-                    set ks at i is ks at j
-                    set ks at j is tmp
-                set j is j + 1
-            set i is i + 1
-        return ks
-
-    ## Returns the arithmetic sum of every value in `self`. Returns 0.0 if empty.
-    weave sum_values into float:
-        var total as float is 0.0
+        var ks as list of string is list of string
         for k in essence of self:
-            set total is total + (self at k)
-        return total
+            calling ks.push with k
+        return calling _sort_strings with ks
 
-    ## Returns the maximum value stored across all entries in `self`. Returns 0.0 if empty.
-    weave max_value into float:
-        if (essence of self).len == 0:
-            return 0.0
-        var first as bool is true
-        var hi as float is 0.0
-        for k in essence of self:
-            var v as float is self at k
-            if first:
-                set hi is v
-                set first is false
-            else:
-                if v > hi:
-                    set hi is v
-        return hi
+    weave values_sorted into list of float:
+        return calling values_sorted_of with (essence of self)
 
-    ## Returns the minimum value stored across all entries in `self`. Returns 0.0 if empty.
-    weave min_value into float:
-        if (essence of self).len == 0:
-            return 0.0
-        var first as bool is true
-        var lo as float is 0.0
-        for k in essence of self:
-            var v as float is self at k
-            if first:
-                set lo is v
-                set first is false
-            else:
-                if v < lo:
-                    set lo is v
-        return lo
-
-    ## Returns a fresh map with only entries whose key contains `sub`.
     weave filter_keys_contains with sub as string into map of string to float:
-        var result as map of string to float is map of string to float
+        var out as map of string to float is map of string to float
         for k in essence of self:
             if calling k.contains with sub:
-                calling result.put with k, (self at k)
-        return result
+                var v as float is self at k
+                calling out.put with k, v
+        return out
 
-    ## Returns a fresh map with only entries whose key starts with `prefix`.
     weave filter_keys_startswith with prefix as string into map of string to float:
-        var result as map of string to float is map of string to float
+        var out as map of string to float is map of string to float
         for k in essence of self:
             if calling k.starts_with with prefix:
-                calling result.put with k, (self at k)
-        return result
+                var v as float is self at k
+                calling out.put with k, v
+        return out
 
-    ## Returns a fresh map with entries whose value is within `[lo, hi]` inclusive.
-    weave filter_values_range with lo as float, hi as float into map of string to float:
-        var result as map of string to float is map of string to float
+enchanting map of string to string:
+
+    weave keys_sorted into list of string:
+        var ks as list of string is list of string
         for k in essence of self:
-            var v as float is self at k
-            if v >= lo and v <= hi:
-                calling result.put with k, v
-        return result
+            calling ks.push with k
+        return calling _sort_strings with ks
 
-    ## Returns a fresh map where each value is multiplied by `factor`.
-    weave map_values_scale with factor as float into map of string to float:
-        var result as map of string to float is map of string to float
-        for k in essence of self:
-            var v as float is self at k
-            calling result.put with k, (v * factor)
-        return result
-
-    ## Returns a fresh map where each value is negated (`-v`).
-    weave map_values_negate into map of string to float:
-        var result as map of string to float is map of string to float
-        for k in essence of self:
-            var v as float is self at k
-            calling result.put with k, (-v)
-        return result
-
-    ## Returns an owned shallow copy of `self`.
-    weave clone into map of string to float:
-        var result as map of string to float is map of string to float
-        for k in essence of self:
-            calling result.put with k, (self at k)
-        return result
-
-    ## Alias of `clone`.
-    weave copy into map of string to float:
-        return calling self.clone
-
-    ## Alias of `keys`.
-    weave to_keys_list into list of string:
-        return calling self.keys
-
-    ## Alias of `values`.
-    weave to_values_list into list of float:
-        return calling self.values
-
-# ============================================================================
-# 4. Enchanting: `map of int to int` (Caches, Frequency Tables)
-# ============================================================================
-
-enchanting map of int to int:
-
-    ## Returns the number of entries stored in `self`.
-    weave size into int:
-        return (essence of self).len
-
-    ## Returns true when `self` contains no entries.
-    weave is_empty into bool:
-        return (essence of self).len == 0
-
-    ## Returns true when `key` exists in `self`.
-    weave has_key with key as int into bool:
-        return calling _contains_ii with (essence of self), key
-
-    ## Returns true if `self` contains at least one key from `keys`.
-    weave has_any_key with keys as list of int into bool:
-        for k in keys:
-            if calling _contains_ii with (essence of self), k:
-                return true
-        return false
-
-    ## Returns true if `self` contains all keys in `keys`.
-    weave has_all_keys with keys as list of int into bool:
-        for k in keys:
-            if not (calling _contains_ii with (essence of self), k):
-                return false
-        return true
-
-    ## Returns true if every value in `self` is strictly positive (> 0). Empty returns true.
-    weave all_values_positive into bool:
-        for k in essence of self:
-            if (self at k) <= 0:
-                return false
-        return true
-
-    ## Returns true if any value in `self` is strictly negative (< 0). Empty returns false.
-    weave any_value_negative into bool:
-        for k in essence of self:
-            if (self at k) < 0:
-                return true
-        return false
-
-    ## Returns true if all values in `self` fall within `[lo, hi]` inclusive.
-    weave values_in_range with lo as int, hi as int into bool:
-        for k in essence of self:
-            var v as int is self at k
-            if v < lo or v > hi:
-                return false
-        return true
-
-    ## Returns the count of entries whose value is strictly positive (> 0).
-    weave count_if_value_positive into int:
-        var count as int is 0
-        for k in essence of self:
-            if (self at k) > 0:
-                set count is count + 1
-        return count
-
-    ## Returns the count of entries whose value is strictly negative (< 0).
-    weave count_if_value_negative into int:
-        var count as int is 0
-        for k in essence of self:
-            if (self at k) < 0:
-                set count is count + 1
-        return count
-
-    ## Returns the value associated with `key`, or `default` if `key` is absent.
-    weave get_or with key as int, default as int is 0 into int:
-        if calling _contains_ii with (essence of self), key:
-            return self at key
-        return default
-
-    ## Returns `some v` when `key` is present in `self`, or `maybe none` when absent.
-    weave get_safe with key as int into maybe int:
-        if calling _contains_ii with (essence of self), key:
-            return some (self at key)
-        return maybe none
-
-    ## Finds the first key associated with `target` value, or none if absent.
-    weave find_key_by_value with target as int into maybe int:
-        for k in essence of self:
-            if (self at k) == target:
-                return some k
-        return maybe none
-
-    ## Updates the value of an existing `key` in `self`. Returns true if updated, false if absent.
-    weave update with key as int, value as int into bool:
-        if calling _contains_ii with (essence of self), key:
-            with self:
-                calling .put with key, value
-            return true
-        return false
-
-    ## Removes `key` from `self`. Returns true if present and removed, false otherwise.
-    weave remove with key as int into bool:
-        if calling _contains_ii with (essence of self), key:
-            with self:
-                calling .remove with key
-            return true
-        return false
-
-    ## Removes every entry from `self`, resetting its length to 0.
-    weave clear into void:
-        with self:
-            calling .clear
-
-    ## Removes all entries matching keys in `keys`. Returns count of entries removed.
-    weave remove_all with keys as list of int into int:
-        var removed as int is 0
-        for k in keys:
-            if calling self.remove with k:
-                set removed is removed + 1
-        return removed
-
-    ## Renames `old_key` to `new_key`, preserving its value.
-    weave rename_key with old_key as int, new_key as int into bool:
-        if old_key == new_key:
-            return calling _contains_ii with (essence of self), old_key
-        if calling _contains_ii with (essence of self), old_key:
-            var v as int is self at old_key
-            with self:
-                calling .put with new_key, v
-                calling .remove with old_key
-            return true
-        return false
-
-    ## Returns a fresh list of every key in `self`.
-    weave keys into list of int:
-        var result as list of int is list of int
-        for k in essence of self:
-            calling result.push with k
-        return result
-
-    ## Returns a fresh list of every value in `self`.
-    weave values into list of int:
-        var result as list of int is list of int
-        for k in essence of self:
-            calling result.push with (self at k)
-        return result
-
-    ## Returns all keys in `self` sorted numerically ascending.
-    weave keys_sorted into list of int:
-        var ks as list of int is calling self.keys
-        var n as int is calling ks.len
-        var i as int is 0
-        while i < n:
-            var j as int is i + 1
-            while j < n:
-                if (ks at i) > (ks at j):
-                    var tmp as int is ks at i
-                    set ks at i is ks at j
-                    set ks at j is tmp
-                set j is j + 1
-            set i is i + 1
-        return ks
-
-    ## Returns all values in `self` sorted numerically ascending.
-    weave values_sorted into list of int:
-        var vs as list of int is calling self.values
-        var n as int is calling vs.len
-        var i as int is 0
-        while i < n:
-            var j as int is i + 1
-            while j < n:
-                if (vs at i) > (vs at j):
-                    var tmp as int is vs at i
-                    set vs at i is vs at j
-                    set vs at j is tmp
-                set j is j + 1
-            set i is i + 1
-        return vs
-
-    ## Returns the arithmetic sum of every value in `self`. Returns 0 if empty.
-    weave sum_values into int:
-        var total as int is 0
-        for k in essence of self:
-            set total is total + (self at k)
-        return total
-
-    ## Returns the maximum value stored across all entries in `self`. Returns 0 if empty.
-    weave max_value into int:
-        if (essence of self).len == 0:
-            return 0
-        var first as bool is true
-        var hi as int is 0
-        for k in essence of self:
-            var v as int is self at k
-            if first:
-                set hi is v
-                set first is false
-            else:
-                if v > hi:
-                    set hi is v
-        return hi
-
-    ## Returns the minimum value stored across all entries in `self`. Returns 0 if empty.
-    weave min_value into int:
-        if (essence of self).len == 0:
-            return 0
-        var first as bool is true
-        var lo as int is 0
-        for k in essence of self:
-            var v as int is self at k
-            if first:
-                set lo is v
-                set first is false
-            else:
-                if v < lo:
-                    set lo is v
-        return lo
-
-    ## Returns a fresh map with entries whose value is within `[lo, hi]` inclusive.
-    weave filter_values_range with lo as int, hi as int into map of int to int:
-        var result as map of int to int is map of int to int
-        for k in essence of self:
-            var v as int is self at k
-            if v >= lo and v <= hi:
-                calling result.put with k, v
-        return result
-
-    ## Returns a fresh map where each value is multiplied by 2 (`v * 2`).
-    weave map_values_double into map of int to int:
-        var result as map of int to int is map of int to int
-        for k in essence of self:
-            var v as int is self at k
-            calling result.put with k, (v * 2)
-        return result
-
-    ## Returns a fresh map where each value is negated (`-v`).
-    weave map_values_negate into map of int to int:
-        var result as map of int to int is map of int to int
-        for k in essence of self:
-            var v as int is self at k
-            calling result.put with k, (-v)
-        return result
-
-    ## Returns an owned shallow copy of `self`.
-    weave clone into map of int to int:
-        var result as map of int to int is map of int to int
-        for k in essence of self:
-            calling result.put with k, (self at k)
-        return result
-
-    ## Alias of `clone`.
-    weave copy into map of int to int:
-        return calling self.clone
-
-    ## Alias of `keys`.
-    weave to_keys_list into list of int:
-        return calling self.keys
-
-    ## Alias of `values`.
-    weave to_values_list into list of int:
-        return calling self.values
-
-# ============================================================================
-# 5. Enchanting: `map of int to string` (ID Lookups, Label Maps)
-# ============================================================================
-
-enchanting map of int to string:
-
-    ## Returns the number of entries stored in `self`.
-    weave size into int:
-        return (essence of self).len
-
-    ## Returns true when `self` contains no entries.
-    weave is_empty into bool:
-        return (essence of self).len == 0
-
-    ## Returns true when `key` exists in `self`.
-    weave has_key with key as int into bool:
-        return calling _contains_is with (essence of self), key
-
-    ## Returns true if `self` contains at least one key from `keys`.
-    weave has_any_key with keys as list of int into bool:
-        for k in keys:
-            if calling _contains_is with (essence of self), k:
-                return true
-        return false
-
-    ## Returns true if `self` contains all keys in `keys`.
-    weave has_all_keys with keys as list of int into bool:
-        for k in keys:
-            if not (calling _contains_is with (essence of self), k):
-                return false
-        return true
-
-    ## Returns the value associated with `key`, or `default` if `key` is absent.
-    weave get_or with key as int, default as string is "" into string:
-        if calling _contains_is with (essence of self), key:
-            return self at key
-        return default
-
-    ## Returns `some v` when `key` is present in `self`, or `maybe none` when absent.
-    weave get_safe with key as int into maybe string:
-        if calling _contains_is with (essence of self), key:
-            return some (self at key)
-        return maybe none
-
-    ## Finds the first key associated with `target` value, or none if absent.
-    weave find_key_by_value with target as string into maybe int:
-        for k in essence of self:
-            if (self at k) == target:
-                return some k
-        return maybe none
-
-    ## Updates the value of an existing `key` in `self`. Returns true if updated, false if absent.
-    weave update with key as int, value as string into bool:
-        if calling _contains_is with (essence of self), key:
-            with self:
-                calling .put with key, value
-            return true
-        return false
-
-    ## Removes `key` from `self`. Returns true if present and removed, false otherwise.
-    weave remove with key as int into bool:
-        if calling _contains_is with (essence of self), key:
-            with self:
-                calling .remove with key
-            return true
-        return false
-
-    ## Removes every entry from `self`, resetting its length to 0.
-    weave clear into void:
-        with self:
-            calling .clear
-
-    ## Removes all entries matching keys in `keys`. Returns count of entries removed.
-    weave remove_all with keys as list of int into int:
-        var removed as int is 0
-        for k in keys:
-            if calling self.remove with k:
-                set removed is removed + 1
-        return removed
-
-    ## Renames `old_key` to `new_key`, preserving its value.
-    weave rename_key with old_key as int, new_key as int into bool:
-        if old_key == new_key:
-            return calling _contains_is with (essence of self), old_key
-        if calling _contains_is with (essence of self), old_key:
-            var v as string is self at old_key
-            with self:
-                calling .put with new_key, v
-                calling .remove with old_key
-            return true
-        return false
-
-    ## Returns a fresh list of every key in `self`.
-    weave keys into list of int:
-        var result as list of int is list of int
-        for k in essence of self:
-            calling result.push with k
-        return result
-
-    ## Returns a fresh list of every value in `self`.
-    weave values into list of string:
-        var result as list of string is list of string
-        for k in essence of self:
-            calling result.push with (self at k)
-        return result
-
-    ## Returns all keys in `self` sorted numerically ascending.
-    weave keys_sorted into list of int:
-        var ks as list of int is calling self.keys
-        var n as int is calling ks.len
-        var i as int is 0
-        while i < n:
-            var j as int is i + 1
-            while j < n:
-                if (ks at i) > (ks at j):
-                    var tmp as int is ks at i
-                    set ks at i is ks at j
-                    set ks at j is tmp
-                set j is j + 1
-            set i is i + 1
-        return ks
-
-    ## Returns all values in `self` sorted alphabetically using `std.scrolls.compare`.
     weave values_sorted into list of string:
-        var vs as list of string is calling self.values
-        var n as int is calling vs.len
-        var i as int is 0
-        while i < n:
-            var j as int is i + 1
-            while j < n:
-                var a as string is vs at i
-                var b as string is vs at j
-                if (calling a.compare with b) > 0:
-                    var tmp as string is vs at i
-                    set vs at i is vs at j
-                    set vs at j is tmp
-                set j is j + 1
-            set i is i + 1
-        return vs
+        var vs as list of string is list of string
+        for k in essence of self:
+            var v as string is self at k
+            calling vs.push with v
+        return calling _sort_strings with vs
 
-    ## Returns a fresh map with only entries whose value contains `sub`.
-    weave filter_values_contains with sub as string into map of int to string:
-        var result as map of int to string is map of int to string
+    weave filter_keys_contains with sub as string into map of string to string:
+        var out as map of string to string is map of string to string
+        for k in essence of self:
+            if calling k.contains with sub:
+                var v as string is self at k
+                calling out.put with k, v
+        return out
+
+    weave filter_keys_startswith with prefix as string into map of string to string:
+        var out as map of string to string is map of string to string
+        for k in essence of self:
+            if calling k.starts_with with prefix:
+                var v as string is self at k
+                calling out.put with k, v
+        return out
+
+    weave filter_values_contains with sub as string into map of string to string:
+        var out as map of string to string is map of string to string
         for k in essence of self:
             var v as string is self at k
             if calling v.contains with sub:
-                calling result.put with k, v
-        return result
-
-    ## Returns an owned shallow copy of `self`.
-    weave clone into map of int to string:
-        var result as map of int to string is map of int to string
-        for k in essence of self:
-            calling result.put with k, (self at k)
-        return result
-
-    ## Alias of `clone`.
-    weave copy into map of int to string:
-        return calling self.clone
-
-    ## Alias of `keys`.
-    weave to_keys_list into list of int:
-        return calling self.keys
-
-    ## Alias of `values`.
-    weave to_values_list into list of string:
-        return calling self.values
-
-# ============================================================================
-# 6. Enchanting: `map of string to bool` (Feature Flags, Capabilities)
-# ============================================================================
+                calling out.put with k, v
+        return out
 
 enchanting map of string to bool:
 
-    ## Returns the number of entries stored in `self`.
-    weave size into int:
-        return (essence of self).len
-
-    ## Returns true when `self` contains no entries.
-    weave is_empty into bool:
-        return (essence of self).len == 0
-
-    ## Returns true when `key` exists in `self`.
-    weave has_key with key as string into bool:
-        return calling _contains_sb with (essence of self), key
-
-    ## Returns true if `self` contains at least one key from `keys`.
-    weave has_any_key with keys as list of string into bool:
-        for k in keys:
-            if calling _contains_sb with (essence of self), k:
-                return true
-        return false
-
-    ## Returns true if `self` contains all keys in `keys`.
-    weave has_all_keys with keys as list of string into bool:
-        for k in keys:
-            if not (calling _contains_sb with (essence of self), k):
-                return false
-        return true
-
-    ## Returns the value associated with `key`, or `default` if `key` is absent.
-    weave get_or with key as string, default as bool is false into bool:
-        if calling _contains_sb with (essence of self), key:
-            return self at key
-        return default
-
-    ## Returns `some v` when `key` is present in `self`, or `maybe none` when absent.
-    weave get_safe with key as string into maybe bool:
-        if calling _contains_sb with (essence of self), key:
-            return some (self at key)
-        return maybe none
-
-    ## Updates the value of an existing `key` in `self`. Returns true if updated, false if absent.
-    weave update with key as string, value as bool into bool:
-        if calling _contains_sb with (essence of self), key:
-            with self:
-                calling .put with key, value
-            return true
-        return false
-
-    ## Removes `key` from `self`. Returns true if present and removed, false otherwise.
-    weave remove with key as string into bool:
-        if calling _contains_sb with (essence of self), key:
-            with self:
-                calling .remove with key
-            return true
-        return false
-
-    ## Removes every entry from `self`, resetting its length to 0.
-    weave clear into void:
-        with self:
-            calling .clear
-
-    ## Removes all entries matching keys in `keys`. Returns count of entries removed.
-    weave remove_all with keys as list of string into int:
-        var removed as int is 0
-        for k in keys:
-            if calling self.remove with k:
-                set removed is removed + 1
-        return removed
-
-    ## Renames `old_key` to `new_key`, preserving its value.
-    weave rename_key with old_key as string, new_key as string into bool:
-        if old_key == new_key:
-            return calling _contains_sb with (essence of self), old_key
-        if calling _contains_sb with (essence of self), old_key:
-            var v as bool is self at old_key
-            with self:
-                calling .put with new_key, v
-                calling .remove with old_key
-            return true
-        return false
-
-    ## Counts how many entries have `true` values.
-    weave count_true into int:
-        var count as int is 0
-        for k in essence of self:
-            if self at k:
-                set count is count + 1
-        return count
-
-    ## Counts how many entries have `false` values.
-    weave count_false into int:
-        var count as int is 0
-        for k in essence of self:
-            if not (self at k):
-                set count is count + 1
-        return count
-
-    ## Returns a fresh list of every key in `self`.
-    weave keys into list of string:
-        var result as list of string is list of string
-        for k in essence of self:
-            calling result.push with k
-        return result
-
-    ## Returns a fresh list of every value in `self`.
-    weave values into list of bool:
-        var result as list of bool is list of bool
-        for k in essence of self:
-            calling result.push with (self at k)
-        return result
-
-    ## Returns all keys in `self` sorted alphabetically using `std.scrolls.compare`.
     weave keys_sorted into list of string:
-        var ks as list of string is calling self.keys
-        var n as int is calling ks.len
-        var i as int is 0
-        while i < n:
-            var j as int is i + 1
-            while j < n:
-                var a as string is ks at i
-                var b as string is ks at j
-                if (calling a.compare with b) > 0:
-                    var tmp as string is ks at i
-                    set ks at i is ks at j
-                    set ks at j is tmp
-                set j is j + 1
-            set i is i + 1
-        return ks
+        var ks as list of string is list of string
+        for k in essence of self:
+            calling ks.push with k
+        return calling _sort_strings with ks
 
-    ## Returns a fresh map with only entries whose key contains `sub`.
     weave filter_keys_contains with sub as string into map of string to bool:
-        var result as map of string to bool is map of string to bool
+        var out as map of string to bool is map of string to bool
         for k in essence of self:
             if calling k.contains with sub:
-                calling result.put with k, (self at k)
-        return result
+                var v as bool is self at k
+                calling out.put with k, v
+        return out
 
-    ## Returns an owned shallow copy of `self`.
-    weave clone into map of string to bool:
-        var result as map of string to bool is map of string to bool
+    weave count_true into int:
+        var n as int is 0
         for k in essence of self:
-            calling result.put with k, (self at k)
-        return result
+            if (self at k):
+                set n is n + 1
+        return n
 
-    ## Alias of `clone`.
-    weave copy into map of string to bool:
-        return calling self.clone
+    weave count_false into int:
+        var n as int is 0
+        for k in essence of self:
+            if not (self at k):
+                set n is n + 1
+        return n
 
-    ## Alias of `keys`.
-    weave to_keys_list into list of string:
-        return calling self.keys
+enchanting map of int to string:
 
-    ## Alias of `values`.
-    weave to_values_list into list of bool:
-        return calling self.values
+    weave keys_sorted into list of int:
+        return calling keys_sorted_of with (essence of self)
 
-# ============================================================================
-# Module-level binary operations & constructors
-# ============================================================================
+    weave values_sorted into list of string:
+        var vs as list of string is list of string
+        for k in essence of self:
+            var v as string is self at k
+            calling vs.push with v
+        return calling _sort_strings with vs
 
-# --- map of string to int ---
+    weave filter_values_contains with sub as string into map of int to string:
+        var out as map of int to string is map of int to string
+        for k in essence of self:
+            var v as string is self at k
+            if calling v.contains with sub:
+                calling out.put with k, v
+        return out
 
-## Returns a fresh map combining all entries of `a` and `b`. Entries in `b` overwrite `a`.
-weave merge with a as map of string to int, b as map of string to int into map of string to int:
-    var result as map of string to int is map of string to int
-    for k in a:
-        calling result.put with k, (calling a.get with k)
-    for k in b:
-        calling result.put with k, (calling b.get with k)
-    return result
+enchanting map of int to int:
 
-## Returns a fresh map combining `a` and `b`, keeping `a`'s values on key collision.
-weave merge_keep_left with a as map of string to int, b as map of string to int into map of string to int:
-    var result as map of string to int is map of string to int
-    for k in a:
-        calling result.put with k, (calling a.get with k)
-    for k in b:
-        if (calling result.contains with k) == false:
-            calling result.put with k, (calling b.get with k)
-    return result
+    weave keys_sorted into list of int:
+        return calling keys_sorted_of with (essence of self)
 
-## Returns a fresh map combining `a` and `b`, with `b`'s values taking precedence on collision (alias of merge).
-weave merge_keep_right with a as map of string to int, b as map of string to int into map of string to int:
-    return calling merge with a, b
+    weave values_sorted into list of int:
+        return calling values_sorted_of with (essence of self)
 
-## Builds a fresh map from parallel lists of keys and values up to `min(ks.len, vs.len)`.
-weave from_lists with ks as list of string, vs as list of int into map of string to int:
-    var result as map of string to int is map of string to int
-    var limit as int is calling ks.len
-    var vs_len as int is calling vs.len
-    if vs_len < limit:
-        set limit is vs_len
-    var i as int is 0
-    while i < limit:
-        calling result.put with (ks at i), (vs at i)
-        set i is i + 1
-    return result
+# --- Funciones genéricas de módulo (shard K, V) -----------------------------
 
-# --- map of string to string ---
-
-## Returns a fresh map combining all entries of `a` and `b`. Entries in `b` overwrite `a`.
-weave merge_ss with a as map of string to string, b as map of string to string into map of string to string:
-    var result as map of string to string is map of string to string
-    for k in a:
-        calling result.put with k, (a at k)
-    for k in b:
-        calling result.put with k, (b at k)
-    return result
-
-## Returns a fresh map combining `a` and `b`, keeping `a`'s values on key collision.
-weave merge_keep_left_ss with a as map of string to string, b as map of string to string into map of string to string:
-    var result as map of string to string is map of string to string
-    for k in a:
-        calling result.put with k, (a at k)
-    for k in b:
-        if not (calling result.contains with k):
-            calling result.put with k, (b at k)
-    return result
-
-## Returns a fresh map combining `a` and `b`, keeping `b`'s values on key collision.
-weave merge_keep_right_ss with a as map of string to string, b as map of string to string into map of string to string:
-    return calling merge_ss with a, b
-
-## Builds a fresh map from parallel lists of keys and values up to `min(ks.len, vs.len)`.
-weave from_lists_ss with ks as list of string, vs as list of string into map of string to string:
-    var result as map of string to string is map of string to string
-    var limit as int is ks.len
-    if vs.len < limit:
-        set limit is vs.len
-    var i as int is 0
-    while i < limit:
-        calling result.put with (ks at i), (vs at i)
-        set i is i + 1
-    return result
-
-# --- map of string to float ---
-
-## Returns a fresh map combining all entries of `a` and `b`. Entries in `b` overwrite `a`.
-weave merge_sf with a as map of string to float, b as map of string to float into map of string to float:
-    var result as map of string to float is map of string to float
-    for k in a:
-        calling result.put with k, (a at k)
-    for k in b:
-        calling result.put with k, (b at k)
-    return result
-
-## Returns a fresh map combining `a` and `b`, keeping `a`'s values on key collision.
-weave merge_keep_left_sf with a as map of string to float, b as map of string to float into map of string to float:
-    var result as map of string to float is map of string to float
-    for k in a:
-        calling result.put with k, (a at k)
-    for k in b:
-        if not (calling result.contains with k):
-            calling result.put with k, (b at k)
-    return result
-
-## Returns a fresh map combining `a` and `b`, keeping `b`'s values on key collision.
-weave merge_keep_right_sf with a as map of string to float, b as map of string to float into map of string to float:
-    return calling merge_sf with a, b
-
-## Builds a fresh map from parallel lists of keys and values up to `min(ks.len, vs.len)`.
-weave from_lists_sf with ks as list of string, vs as list of float into map of string to float:
-    var result as map of string to float is map of string to float
-    var limit as int is ks.len
-    if vs.len < limit:
-        set limit is vs.len
-    var i as int is 0
-    while i < limit:
-        calling result.put with (ks at i), (vs at i)
-        set i is i + 1
-    return result
-
-# --- map of int to int ---
-
-## Returns a fresh map combining all entries of `a` and `b`. Entries in `b` overwrite `a`.
-weave merge_ii with a as map of int to int, b as map of int to int into map of int to int:
-    var result as map of int to int is map of int to int
-    for k in a:
-        calling result.put with k, (a at k)
-    for k in b:
-        calling result.put with k, (b at k)
-    return result
-
-## Returns a fresh map combining `a` and `b`, keeping `a`'s values on key collision.
-weave merge_keep_left_ii with a as map of int to int, b as map of int to int into map of int to int:
-    var result as map of int to int is map of int to int
-    for k in a:
-        calling result.put with k, (a at k)
-    for k in b:
-        if not (calling result.contains with k):
-            calling result.put with k, (b at k)
-    return result
-
-## Returns a fresh map combining `a` and `b`, keeping `b`'s values on key collision.
-weave merge_keep_right_ii with a as map of int to int, b as map of int to int into map of int to int:
-    return calling merge_ii with a, b
-
-## Builds a fresh map from parallel lists of keys and values up to `min(ks.len, vs.len)`.
-weave from_lists_ii with ks as list of int, vs as list of int into map of int to int:
-    var result as map of int to int is map of int to int
-    var limit as int is ks.len
-    if vs.len < limit:
-        set limit is vs.len
-    var i as int is 0
-    while i < limit:
-        calling result.put with (ks at i), (vs at i)
-        set i is i + 1
-    return result
-
-# --- map of int to string ---
-
-## Returns a fresh map combining all entries of `a` and `b`. Entries in `b` overwrite `a`.
-weave merge_is with a as map of int to string, b as map of int to string into map of int to string:
-    var result as map of int to string is map of int to string
-    for k in a:
-        calling result.put with k, (a at k)
-    for k in b:
-        calling result.put with k, (b at k)
-    return result
-
-## Returns a fresh map combining `a` and `b`, keeping `a`'s values on key collision.
-weave merge_keep_left_is with a as map of int to string, b as map of int to string into map of int to string:
-    var result as map of int to string is map of int to string
-    for k in a:
-        calling result.put with k, (a at k)
-    for k in b:
-        if not (calling result.contains with k):
-            calling result.put with k, (b at k)
-    return result
-
-## Returns a fresh map combining `a` and `b`, keeping `b`'s values on key collision.
-weave merge_keep_right_is with a as map of int to string, b as map of int to string into map of int to string:
-    return calling merge_is with a, b
-
-## Builds a fresh map from parallel lists of keys and values up to `min(ks.len, vs.len)`.
-weave from_lists_is with ks as list of int, vs as list of string into map of int to string:
-    var result as map of int to string is map of int to string
-    var limit as int is ks.len
-    if vs.len < limit:
-        set limit is vs.len
-    var i as int is 0
-    while i < limit:
-        calling result.put with (ks at i), (vs at i)
-        set i is i + 1
-    return result
-
-# --- map of string to bool ---
-
-## Returns a fresh map combining all entries of `a` and `b`. Entries in `b` overwrite `a`.
-weave merge_sb with a as map of string to bool, b as map of string to bool into map of string to bool:
-    var result as map of string to bool is map of string to bool
-    for k in a:
-        calling result.put with k, (a at k)
-    for k in b:
-        calling result.put with k, (b at k)
-    return result
-
-## Returns a fresh map combining `a` and `b`, keeping `a`'s values on key collision.
-weave merge_keep_left_sb with a as map of string to bool, b as map of string to bool into map of string to bool:
-    var result as map of string to bool is map of string to bool
-    for k in a:
-        calling result.put with k, (a at k)
-    for k in b:
-        if not (calling result.contains with k):
-            calling result.put with k, (b at k)
-    return result
-
-## Returns a fresh map combining `a` and `b`, keeping `b`'s values on key collision.
-weave merge_keep_right_sb with a as map of string to bool, b as map of string to bool into map of string to bool:
-    return calling merge_sb with a, b
-
-## Builds a fresh map from parallel lists of keys and values up to `min(ks.len, vs.len)`.
-weave from_lists_sb with ks as list of string, vs as list of bool into map of string to bool:
-    var result as map of string to bool is map of string to bool
-    var limit as int is ks.len
-    if vs.len < limit:
-        set limit is vs.len
-    var i as int is 0
-    while i < limit:
-        calling result.put with (ks at i), (vs at i)
-        set i is i + 1
-    return result
-
-# ============================================================================
-# Generic module-level utilities (`shard K, V`)
-# ============================================================================
-
-## Returns the number of entries in generic map `m`.
+## Número de entradas del mapa genérico `m`.
 weave map_size shard K, V with m as map of K to V into int:
     return m.len
 
-## Returns true if generic map `m` has no entries.
+## `true` si el mapa genérico `m` no tiene entradas.
 weave map_is_empty shard K, V with m as map of K to V into bool:
     return m.len == 0
 
-## Returns true if `key` exists in generic map `m`.
+## `true` si `key` existe en el mapa genérico `m`.
 weave map_has_key shard K, V with m as map of K to V, key as K into bool:
     return calling m.contains with key
 
-## Returns the value associated with `key` in `m`, or `fallback` if absent.
+## Valor de `key` en `m`, o `fallback` si no está.
 weave map_get_or shard K, V with m as map of K to V, key as K, fallback as V into V:
     if calling m.contains with key:
         return m at key
     return fallback
 
-## Returns a fresh list of all keys in generic map `m`.
+## Lista nueva con todas las claves de `m`.
 weave map_keys shard K, V with m as map of K to V into list of K:
-    var result as list of K is list of K
+    var out as list of K is list of K
     for k in m:
-        calling result.push with k
-    return result
+        calling out.push with k
+    return out
 
-## Returns a fresh list of all values in generic map `m`.
+## Lista nueva con todos los valores de `m`.
 weave map_values shard K, V with m as map of K to V into list of V:
-    var result as list of V is list of V
+    var out as list of V is list of V
     for k in m:
-        calling result.push with (m at k)
-    return result
+        var v as V is m at k
+        calling out.push with v
+    return out
 
-## Inserts or updates `key -> value` in generic map `m`.
 weave map_put shard K, V with m as map of K to V, key as K, value as V into void:
     calling m.put with key, value
 
-## Removes `key` from generic map `m`.
 weave map_remove shard K, V with m as map of K to V, key as K into bool:
-    return calling m.remove with key
+    if calling m.contains with key:
+        with m:
+            calling .remove with key
+        return true
+    return false
 
-## Clears all entries from generic map `m`.
 weave map_clear shard K, V with m as map of K to V into void:
-    calling m.clear
+    with m:
+        calling .clear
 
-# ============================================================================
-# Module-level wrappers (100% backward compatibility for `map of string to int`)
-# ============================================================================
+## Lista ordenada ascendentemente con las claves de `m` (requiere `K: Ordo`).
+weave keys_sorted_of shard K and V where K: Ordo, V: Par with m as map of K to V into list of K:
+    var ks as list of K is list of K
+    for k in m:
+        calling ks.push with k
+    var idx as list of int is list of int
+    var n as int is calling ks.len
+    var p as int is 0
+    while p < n:
+        calling idx.push with p
+        set p is p + 1
+    var i as int is 0
+    while i < n:
+        var j as int is i + 1
+        while j < n:
+            var a as K is ks at (idx at j)
+            var b as K is ks at (idx at i)
+            if a < b:
+                var tmp as int is idx at i
+                set idx at i is idx at j
+                set idx at j is tmp
+            set j is j + 1
+        set i is i + 1
+    var out as list of K is list of K
+    for q in idx:
+        var w as K is ks at q
+        calling out.push with w
+    return out
 
-## Returns the number of entries stored in `m`. Equivalent to `calling m.len`.
+## Lista ordenada ascendentemente con los valores de `m` (requiere `V: Ordo`).
+weave values_sorted_of shard K and V where K: Par, V: Ordo with m as map of K to V into list of V:
+    var vs as list of V is list of V
+    for k in m:
+        var v as V is m at k
+        calling vs.push with v
+    var idx as list of int is list of int
+    var n as int is calling vs.len
+    var p as int is 0
+    while p < n:
+        calling idx.push with p
+        set p is p + 1
+    var i as int is 0
+    while i < n:
+        var j as int is i + 1
+        while j < n:
+            var a as V is vs at (idx at j)
+            var b as V is vs at (idx at i)
+            if a < b:
+                var tmp as int is idx at i
+                set idx at i is idx at j
+                set idx at j is tmp
+            set j is j + 1
+        set i is i + 1
+    var out as list of V is list of V
+    for q in idx:
+        var w as V is vs at q
+        calling out.push with w
+    return out
+
+## Combina `a` y `b` en un mapa nuevo; las claves de `b` ganan.
+weave map_merge shard K and V where K: Par, V: Par with a as map of K to V, b as map of K to V into map of K to V:
+    var out as map of K to V is map of K to V
+    for k in a:
+        var v as V is a at k
+        calling out.put with k, v
+    for k in b:
+        var v as V is b at k
+        calling out.put with k, v
+    return out
+
+## Combina `a` y `b` en un mapa nuevo; las claves ya presentes en `a` conservan su valor.
+weave map_merge_keep_left shard K and V where K: Par, V: Par with a as map of K to V, b as map of K to V into map of K to V:
+    var out as map of K to V is map of K to V
+    for k in a:
+        var v as V is a at k
+        calling out.put with k, v
+    for k in b:
+        if not (calling out.contains with k):
+            var v as V is b at k
+            calling out.put with k, v
+    return out
+
+## Combina todos los mapas de `maps` en uno nuevo; los posteriores ganan.
+weave map_merge_all shard K and V where K: Par, V: Par with maps as list of map of K to V into map of K to V:
+    var out as map of K to V is map of K to V
+    for m in maps:
+        for k in m:
+            var v as V is m at k
+            calling out.put with k, v
+    return out
+
+## Construye un mapa desde listas paralelas hasta `min(ks.len, vs.len)`.
+weave map_from_lists shard K and V where K: Par, V: Par with ks as list of K, vs as list of V into map of K to V:
+    var out as map of K to V is map of K to V
+    var limit as int is calling ks.len
+    if (calling vs.len) < limit:
+        set limit is calling vs.len
+    var i as int is 0
+    while i < limit:
+        var k as K is ks at i
+        var v as V is vs at i
+        calling out.put with k, v
+        set i is i + 1
+    return out
+
+## Construye un mapa desde una lista de `oracle.Pair of K and V`.
+weave from_pairs shard K and V where K: Par, V: Par with ps as list of oracle.Pair of K and V into map of K to V:
+    var out as map of K to V is map of K to V
+    for p in ps:
+        calling out.put with p.first, p.second
+    return out
+# Envoltorios de compatibilidad (0.15.0): *forwarders* de una línea sobre el método
+# genérico equivalente; la tabla `## Migración` del docstring documenta el mapeo.
+
+# --- Compatibilidad: envoltorios de módulo (0.15.0) -------------------------
+
+## Número de entradas de un `map of string to int` (API histórica).
+weave map_len_str_int with m as map of string to int into int:
+    return calling m.len
+weave merge with a as map of string to int, b as map of string to int into map of string to int:
+    return calling map_merge with a, b
+weave merge_keep_left with a as map of string to int, b as map of string to int into map of string to int:
+    return calling map_merge_keep_left with a, b
+weave merge_keep_right with a as map of string to int, b as map of string to int into map of string to int:
+    return calling map_merge with a, b
+weave from_lists with ks as list of string, vs as list of int into map of string to int:
+    return calling map_from_lists with ks, vs
+weave merge_ss with a as map of string to string, b as map of string to string into map of string to string:
+    return calling map_merge with a, b
+weave merge_keep_left_ss with a as map of string to string, b as map of string to string into map of string to string:
+    return calling map_merge_keep_left with a, b
+weave merge_keep_right_ss with a as map of string to string, b as map of string to string into map of string to string:
+    return calling map_merge with a, b
+weave from_lists_ss with ks as list of string, vs as list of string into map of string to string:
+    return calling map_from_lists with ks, vs
+weave merge_sf with a as map of string to float, b as map of string to float into map of string to float:
+    return calling map_merge with a, b
+weave merge_keep_left_sf with a as map of string to float, b as map of string to float into map of string to float:
+    return calling map_merge_keep_left with a, b
+weave merge_keep_right_sf with a as map of string to float, b as map of string to float into map of string to float:
+    return calling map_merge with a, b
+weave from_lists_sf with ks as list of string, vs as list of float into map of string to float:
+    return calling map_from_lists with ks, vs
+weave merge_ii with a as map of int to int, b as map of int to int into map of int to int:
+    return calling map_merge with a, b
+weave merge_keep_left_ii with a as map of int to int, b as map of int to int into map of int to int:
+    return calling map_merge_keep_left with a, b
+weave merge_keep_right_ii with a as map of int to int, b as map of int to int into map of int to int:
+    return calling map_merge with a, b
+weave from_lists_ii with ks as list of int, vs as list of int into map of int to int:
+    return calling map_from_lists with ks, vs
+weave merge_is with a as map of int to string, b as map of int to string into map of int to string:
+    return calling map_merge with a, b
+weave merge_keep_left_is with a as map of int to string, b as map of int to string into map of int to string:
+    return calling map_merge_keep_left with a, b
+weave merge_keep_right_is with a as map of int to string, b as map of int to string into map of int to string:
+    return calling map_merge with a, b
+weave from_lists_is with ks as list of int, vs as list of string into map of int to string:
+    return calling map_from_lists with ks, vs
+weave merge_sb with a as map of string to bool, b as map of string to bool into map of string to bool:
+    return calling map_merge with a, b
+weave merge_keep_left_sb with a as map of string to bool, b as map of string to bool into map of string to bool:
+    return calling map_merge_keep_left with a, b
+weave merge_keep_right_sb with a as map of string to bool, b as map of string to bool into map of string to bool:
+    return calling map_merge with a, b
+weave from_lists_sb with ks as list of string, vs as list of bool into map of string to bool:
+    return calling map_from_lists with ks, vs
+## Número de entradas de `m`; alias de `calling m.size`.
 weave size with m as map of string to int into int:
     return calling m.size
-
-## Returns true when `m` contains no entries.
 weave is_empty with m as map of string to int into bool:
     return calling m.is_empty
-
-## Returns true when `key` exists in `m`.
 weave has_key with m as map of string to int, key as string into bool:
     return calling m.has_key with key
-
-## Returns true if every value in `m` is strictly positive (> 0). Empty returns true.
+## `true` si todos los valores de `m` son > 0.
 weave all_values_positive with m as map of string to int into bool:
     return calling m.all_values_positive
-
-## Returns true if any value in `m` is strictly negative (< 0). Empty returns false.
+## `true` si algún valor de `m` es < 0.
 weave any_value_negative with m as map of string to int into bool:
     return calling m.any_value_negative
-
-## Returns true if all values in `m` fall within `[lo, hi]` inclusive. Empty returns true.
+## `true` si los valores de `m` están en `[lo, hi]`.
 weave values_in_range with m as map of string to int, lo as int, hi as int into bool:
     return calling m.values_in_range with lo, hi
-
-## Returns the value associated with `key`, or `default` if `key` is absent.
 weave get_or with m as map of string to int, key as string, default as int is 0 into int:
     return calling m.get_or with key, default
-
-## Returns `some v` when `key` is present in `m`, or `maybe none` when absent.
 weave get_safe with m as map of string to int, key as string into maybe int:
     return calling m.get_safe with key
-
-## Inserts or updates the entry `key -> value` in `m`.
+## Inserta o actualiza `key -> value` en `m`.
 weave put with m as map of string to int, key as string, value as int into void:
     calling m.put with key, value
-
-## Removes `key` from `m`. Returns true if the key was present and removed, false otherwise.
+## Elimina `key` de `m`; `true` si existía.
 weave remove with m as map of string to int, key as string into bool:
     return calling m.remove with key
-
-## Removes every entry from `m`, resetting its length to 0.
+## Vacía `m`.
 weave clear with m as map of string to int into void:
     calling m.clear
-
-## Updates the value of an existing `key` in `m`. Returns true if updated, false if absent.
 weave update with m as map of string to int, key as string, value as int into bool:
     return calling m.update with key, value
-
-## Returns a fresh list of every key in `m`, in internal hash iteration order.
 weave keys with m as map of string to int into list of string:
     return calling m.keys
-
-## Returns a fresh list of every value in `m`, in internal hash iteration order.
 weave values with m as map of string to int into list of int:
     return calling m.values
-
-## Returns a fresh list of all keys in `m` sorted alphabetically.
 weave keys_sorted with m as map of string to int into list of string:
     return calling m.keys_sorted
-
-## Returns the arithmetic sum of every value in `m`. Returns 0 if empty.
 weave sum_values with m as map of string to int into int:
     return calling m.sum_values
-
-## Returns the maximum value stored across all entries in `m`. Returns 0 if empty.
 weave max_value with m as map of string to int into int:
     return calling m.max_value
-
-## Returns the minimum value stored across all entries in `m`. Returns 0 if empty.
 weave min_value with m as map of string to int into int:
     return calling m.min_value
-
-## Returns a fresh map with only the entries whose key contains `sub`.
 weave filter_keys_contains with m as map of string to int, sub as string into map of string to int:
     return calling m.filter_keys_contains with sub
-
-## Returns a fresh map with only the entries whose key starts with `prefix`.
 weave filter_keys_startswith with m as map of string to int, prefix as string into map of string to int:
     return calling m.filter_keys_startswith with prefix
-
-## Returns a fresh map with entries whose value is within `[lo, hi]` inclusive.
+## Submapa con los valores de `m` dentro de `[lo, hi]`.
 weave filter_values_range with m as map of string to int, lo as int, hi as int into map of string to int:
     return calling m.filter_values_range with lo, hi
-
-## Returns a fresh map where each value is multiplied by 2 (`v * 2`).
+## Mapa nuevo con cada valor de `m` duplicado.
 weave map_values_double with m as map of string to int into map of string to int:
     return calling m.map_values_double
-
-## Returns a fresh map where each value is negated (`-v`).
+## Mapa nuevo con cada valor de `m` negado.
 weave map_values_negate with m as map of string to int into map of string to int:
     return calling m.map_values_negate
-
-## Alias of `keys`.
 weave to_keys_list with m as map of string to int into list of string:
     return calling m.to_keys_list
-
-## Alias of `values`.
 weave to_values_list with m as map of string to int into list of int:
     return calling m.to_values_list
-
-# ============================================================================
-# Concrete Module-Level Wrappers for Extended Map Types
-# ============================================================================
-
-# --- map of string to string wrappers ---
 weave size_ss with m as map of string to string into int:
     return calling m.size
-
 weave is_empty_ss with m as map of string to string into bool:
     return calling m.is_empty
-
 weave has_key_ss with m as map of string to string, k as string into bool:
     return calling m.has_key with k
-
 weave get_or_ss with m as map of string to string, k as string, default as string is "" into string:
     return calling m.get_or with k, default
-
 weave get_safe_ss with m as map of string to string, k as string into maybe string:
     return calling m.get_safe with k
-
 weave put_ss with m as map of string to string, k as string, v as string into void:
     calling m.put with k, v
-
 weave remove_ss with m as map of string to string, k as string into bool:
     return calling m.remove with k
-
 weave clear_ss with m as map of string to string into void:
     calling m.clear
-
 weave keys_ss with m as map of string to string into list of string:
     return calling m.keys
-
 weave values_ss with m as map of string to string into list of string:
     return calling m.values
-
 weave keys_sorted_ss with m as map of string to string into list of string:
     return calling m.keys_sorted
-
 weave values_sorted_ss with m as map of string to string into list of string:
     return calling m.values_sorted
-
 weave clone_ss with m as map of string to string into map of string to string:
     return calling m.clone
-
-# --- map of string to float wrappers ---
 weave size_sf with m as map of string to float into int:
     return calling m.size
-
 weave is_empty_sf with m as map of string to float into bool:
     return calling m.is_empty
-
 weave has_key_sf with m as map of string to float, k as string into bool:
     return calling m.has_key with k
-
 weave get_or_sf with m as map of string to float, k as string, default as float is 0.0 into float:
     return calling m.get_or with k, default
-
 weave get_safe_sf with m as map of string to float, k as string into maybe float:
     return calling m.get_safe with k
-
 weave put_sf with m as map of string to float, k as string, v as float into void:
     calling m.put with k, v
-
 weave remove_sf with m as map of string to float, k as string into bool:
     return calling m.remove with k
-
 weave clear_sf with m as map of string to float into void:
     calling m.clear
-
 weave keys_sf with m as map of string to float into list of string:
     return calling m.keys
-
 weave values_sf with m as map of string to float into list of float:
     return calling m.values
-
 weave keys_sorted_sf with m as map of string to float into list of string:
     return calling m.keys_sorted
-
 weave sum_values_sf with m as map of string to float into float:
     return calling m.sum_values
-
 weave max_value_sf with m as map of string to float into float:
     return calling m.max_value
-
 weave min_value_sf with m as map of string to float into float:
     return calling m.min_value
-
 weave clone_sf with m as map of string to float into map of string to float:
     return calling m.clone
-
-# --- map of int to int wrappers ---
 weave size_ii with m as map of int to int into int:
     return calling m.size
-
 weave is_empty_ii with m as map of int to int into bool:
     return calling m.is_empty
-
 weave has_key_ii with m as map of int to int, k as int into bool:
     return calling m.has_key with k
-
 weave get_or_ii with m as map of int to int, k as int, default as int is 0 into int:
     return calling m.get_or with k, default
-
 weave get_safe_ii with m as map of int to int, k as int into maybe int:
     return calling m.get_safe with k
-
 weave put_ii with m as map of int to int, k as int, v as int into void:
     calling m.put with k, v
-
 weave remove_ii with m as map of int to int, k as int into bool:
     return calling m.remove with k
-
 weave clear_ii with m as map of int to int into void:
     calling m.clear
-
 weave keys_ii with m as map of int to int into list of int:
     return calling m.keys
-
 weave values_ii with m as map of int to int into list of int:
     return calling m.values
-
 weave keys_sorted_ii with m as map of int to int into list of int:
     return calling m.keys_sorted
-
 weave values_sorted_ii with m as map of int to int into list of int:
     return calling m.values_sorted
-
 weave sum_values_ii with m as map of int to int into int:
     return calling m.sum_values
-
 weave max_value_ii with m as map of int to int into int:
     return calling m.max_value
-
 weave min_value_ii with m as map of int to int into int:
     return calling m.min_value
-
 weave clone_ii with m as map of int to int into map of int to int:
     return calling m.clone
-
-# --- map of int to string wrappers ---
 weave size_is with m as map of int to string into int:
     return calling m.size
-
 weave is_empty_is with m as map of int to string into bool:
     return calling m.is_empty
-
 weave has_key_is with m as map of int to string, k as int into bool:
     return calling m.has_key with k
-
 weave get_or_is with m as map of int to string, k as int, default as string is "" into string:
     return calling m.get_or with k, default
-
 weave get_safe_is with m as map of int to string, k as int into maybe string:
     return calling m.get_safe with k
-
 weave put_is with m as map of int to string, k as int, v as string into void:
     calling m.put with k, v
-
 weave remove_is with m as map of int to string, k as int into bool:
     return calling m.remove with k
-
 weave clear_is with m as map of int to string into void:
     calling m.clear
-
 weave keys_is with m as map of int to string into list of int:
     return calling m.keys
-
 weave values_is with m as map of int to string into list of string:
     return calling m.values
-
 weave keys_sorted_is with m as map of int to string into list of int:
     return calling m.keys_sorted
-
 weave values_sorted_is with m as map of int to string into list of string:
     return calling m.values_sorted
-
 weave clone_is with m as map of int to string into map of int to string:
     return calling m.clone
-
-# --- map of string to bool wrappers ---
 weave size_sb with m as map of string to bool into int:
     return calling m.size
-
 weave is_empty_sb with m as map of string to bool into bool:
     return calling m.is_empty
-
 weave has_key_sb with m as map of string to bool, k as string into bool:
     return calling m.has_key with k
-
 weave get_or_sb with m as map of string to bool, k as string, default as bool is false into bool:
     return calling m.get_or with k, default
-
 weave get_safe_sb with m as map of string to bool, k as string into maybe bool:
     return calling m.get_safe with k
-
 weave put_sb with m as map of string to bool, k as string, v as bool into void:
     calling m.put with k, v
-
 weave remove_sb with m as map of string to bool, k as string into bool:
     return calling m.remove with k
-
 weave clear_sb with m as map of string to bool into void:
     calling m.clear
-
 weave keys_sb with m as map of string to bool into list of string:
     return calling m.keys
-
 weave values_sb with m as map of string to bool into list of bool:
     return calling m.values
-
 weave keys_sorted_sb with m as map of string to bool into list of string:
     return calling m.keys_sorted
-
 weave count_true_sb with m as map of string to bool into int:
     return calling m.count_true
-
 weave count_false_sb with m as map of string to bool into int:
     return calling m.count_false
-
 weave clone_sb with m as map of string to bool into map of string to bool:
     return calling m.clone
+
+
+# --- Helpers privados -------------------------------------------------------
+
+weave _sort_strings with xs as list of string into list of string:
+    var ks as list of string is list of string
+    for s in xs:
+        calling ks.push with s
+    var n as int is calling ks.len
+    var i as int is 0
+    while i < n:
+        var j as int is i + 1
+        while j < n:
+            var a as string is ks at i
+            var b as string is ks at j
+            if (calling a.compare with b) > 0:
+                var tmp as string is ks at i
+                set ks at i is ks at j
+                set ks at j is tmp
+            set j is j + 1
+        set i is i + 1
+    return ks
+
+# --- Tests ------------------------------------------------------------------
+# Harness privado: `std.ward` no puede importarse aquí (ward importa atlas y el
+# ciclo sería E0004), así que las aserciones usan `std.spark` directamente.
+
+## Falla con `label` si `got != want`.
+weave _expect_eq_int with got as int, want as int, label as string into void:
+    if got != want:
+        calling spark.println with "FAIL {label}: got {got}, want {want}"
+        calling spark.panic with "atlas: test failed"
+
+## Falla con `label` si `got != want` (comparación con `std.scrolls.compare`).
+weave _expect_eq_string with got as string, want as string, label as string into void:
+    if (calling got.compare with want) != 0:
+        calling spark.println with "FAIL {label}: got {got}, want {want}"
+        calling spark.panic with "atlas: test failed"
+
+## Falla con `label` si `cond` es falso.
+weave _expect_true with cond as bool, label as string into void:
+    if not cond:
+        calling spark.println with "FAIL {label}"
+        calling spark.panic with "atlas: test failed"
+
+weave _one shard K and V where K: Par, V: Par with k as K, v as V into map of K to V:
+    var m as map of K to V is map of K to V
+    with m:
+        calling .put with k, v
+    return m
+
+weave _count shard T with xs as list of T into int:
+    return calling xs.len
+
+## Fixture `{"alpha": 1, "beta": 2, "gamma": 3}`.
+weave _sample_str_int into map of string to int:
+    var m as map of string to int is map of string to int
+    with m:
+        calling .put with "alpha", 1
+        calling .put with "beta", 2
+        calling .put with "gamma", 3
+    return m
+
+## Fixture `{"alpha": "uno", "beta": "dos", "gamma": "tres"}`.
+weave _sample_str_str into map of string to string:
+    var m as map of string to string is map of string to string
+    with m:
+        calling .put with "alpha", "uno"
+        calling .put with "beta", "dos"
+        calling .put with "gamma", "tres"
+    return m
+
+## Fixture `{"alpha": 1.5, "beta": -2.5, "gamma": 10.0}`.
+weave _sample_str_float into map of string to float:
+    var m as map of string to float is map of string to float
+    with m:
+        calling .put with "alpha", 1.5
+        calling .put with "beta", -2.5
+        calling .put with "gamma", 10.0
+    return m
+
+## Fixture `{"alpha": true, "beta": false, "gamma": true}`.
+weave _sample_str_bool into map of string to bool:
+    var m as map of string to bool is map of string to bool
+    with m:
+        calling .put with "alpha", true
+        calling .put with "beta", false
+        calling .put with "gamma", true
+    return m
+
+## Fixture `{1: 10, 2: -20, 3: 30}`.
+weave _sample_int_int into map of int to int:
+    var m as map of int to int is map of int to int
+    with m:
+        calling .put with 1, 10
+        calling .put with 2, -20
+        calling .put with 3, 30
+    return m
+
+## Fixture `{1: "uno", 2: "dos", 3: "tres"}`.
+weave _sample_int_str into map of int to string:
+    var m as map of int to string is map of int to string
+    with m:
+        calling .put with 1, "uno"
+        calling .put with 2, "dos"
+        calling .put with 3, "tres"
+    return m
+
+## Predicado de prueba: valor mayor que uno.
+weave _value_gt_one with k as string, v as int into bool:
+    v > 1
+
+## Transformación de prueba: incremento.
+weave _inc with x as int into int:
+    x + 1
+test "size cuenta las entradas":
+    let m is calling _sample_str_int
+    calling _expect_eq_int with (calling m.size), 3, "size"
+test "size de un mapa vacío es cero":
+    var m as map of string to int is map of string to int
+    calling _expect_eq_int with (calling m.size), 0, "size vacío"
+test "is_empty es falso con entradas":
+    let m is calling _sample_str_int
+    calling _expect_true with (not (calling m.is_empty)), "is_empty falso"
+test "is_empty es verdadero sin entradas":
+    var m as map of string to int is map of string to int
+    calling _expect_true with (calling m.is_empty), "is_empty"
+test "has_key encuentra una clave presente":
+    let m is calling _sample_str_int
+    calling _expect_true with (calling m.has_key with "beta"), "has_key"
+test "has_key rechaza una clave ausente":
+    let m is calling _sample_str_int
+    calling _expect_true with (not (calling m.has_key with "zeta")), "has_key ausente"
+test "has_any_key con una coincidencia":
+    let m is calling _sample_str_int
+    var ks as list of string is ["zeta", "beta"]
+    calling _expect_true with (calling m.has_any_key with ks), "has_any_key"
+test "has_any_key sin coincidencias":
+    let m is calling _sample_str_int
+    var ks as list of string is ["zeta", "omega"]
+    calling _expect_true with (not (calling m.has_any_key with ks)), "has_any_key no"
+test "has_all_keys con todas las claves":
+    let m is calling _sample_str_int
+    var ks as list of string is ["alpha", "gamma"]
+    calling _expect_true with (calling m.has_all_keys with ks), "has_all_keys"
+test "has_all_keys detecta la clave ausente":
+    let m is calling _sample_str_int
+    var ks as list of string is ["alpha", "zeta"]
+    calling _expect_true with (not (calling m.has_all_keys with ks)), "has_all_keys no"
+test "get_or devuelve el valor presente":
+    let m is calling _sample_str_int
+    calling _expect_eq_int with (calling m.get_or with "beta", 0), 2, "get_or"
+test "get_or devuelve el fallback si falta":
+    let m is calling _sample_str_int
+    calling _expect_eq_int with (calling m.get_or with "zeta", -1), -1, "get_or fallback"
+test "get_safe devuelve some con la clave presente":
+    let m is calling _sample_str_int
+    var got as maybe int is calling m.get_safe with "gamma"
+    calling _expect_eq_int with (got or else -1), 3, "get_safe"
+test "get_safe devuelve maybe none si falta":
+    let m is calling _sample_str_int
+    var got as maybe int is calling m.get_safe with "zeta"
+    calling _expect_true with (not got.is_present), "get_safe ausente"
+test "find_key_by_value encuentra la clave del valor":
+    let m is calling _sample_str_int
+    var got as maybe string is calling m.find_key_by_value with 2
+    calling _expect_eq_string with (got or else "?"), "beta", "find_key_by_value"
+test "find_key_by_value no encuentra valores ausentes":
+    let m is calling _sample_str_int
+    var got as maybe string is calling m.find_key_by_value with 99
+    calling _expect_true with (not got.is_present), "find_key_by_value ausente"
+test "update cambia un valor existente":
+    let m is calling _one with "a", 1
+    calling _expect_true with ((calling m.update with "a", 9) and ((calling m.get_or with "a", 0) == 9)), "update"
+test "update devuelve falso si la clave no existe":
+    let m is calling _one with "a", 1
+    calling _expect_true with (not (calling m.update with "b", 9)), "update falso"
+test "rename_key conserva el valor":
+    let m is calling _one with "a", 5
+    calling _expect_true with ((calling m.rename_key with "a", "b") and ((calling m.get_or with "b", 0) == 5)), "rename_key"
+test "rename_key devuelve falso si falta la clave":
+    let m is calling _one with "a", 5
+    calling _expect_true with (not (calling m.rename_key with "z", "b")), "rename_key no"
+test "rename_key sobre colisión sobrescribe el destino":
+    let m is calling _sample_str_int
+    calling m.rename_key with "alpha", "beta"
+    calling _expect_eq_int with (calling m.get_or with "beta", 0), 1, "rename_key colisión"
+test "remove elimina la clave presente":
+    let m is calling _one with "a", 5
+    calling _expect_true with ((calling m.remove with "a") and ((calling m.size) == 0)), "remove"
+test "remove devuelve falso si la clave falta":
+    let m is calling _one with "a", 5
+    calling _expect_true with (not (calling m.remove with "z")), "remove no"
+test "clear deja el mapa vacío":
+    let m is calling _sample_str_int
+    calling m.clear
+    calling _expect_true with (calling m.is_empty), "clear"
+test "remove_all elimina solo las claves presentes":
+    let m is calling _sample_str_int
+    var ks as list of string is ["alpha", "zeta"]
+    calling _expect_eq_int with (calling m.remove_all with ks), 1, "remove_all"
+test "remove_all devuelve cero sin coincidencias":
+    let m is calling _sample_str_int
+    var ks as list of string is ["zeta"]
+    calling _expect_eq_int with (calling m.remove_all with ks), 0, "remove_all cero"
+test "put_all copia las entradas del otro mapa":
+    let m is calling _one with "a", 1
+    let other is calling _one with "b", 2
+    calling m.put_all with other
+    calling _expect_eq_int with (calling m.size), 2, "put_all"
+test "put_all sobrescribe claves repetidas":
+    let m is calling _one with "a", 1
+    let other is calling _one with "a", 9
+    calling m.put_all with other
+    calling _expect_eq_int with (calling m.get_or with "a", 0), 9, "put_all sobrescribe"
+test "keys devuelve todas las claves":
+    let m is calling _sample_str_int
+    var ks as list of string is calling m.keys
+    calling _expect_eq_int with (calling ks.len), 3, "keys"
+test "values devuelve todos los valores":
+    let m is calling _sample_str_int
+    var vs as list of int is calling m.values
+    calling _expect_eq_int with (calling vs.len), 3, "values"
+test "to_values_list es alias de values":
+    calling _expect_eq_int with (calling _count with (calling to_values_list with (calling _sample_str_int))), 3, "to_values_list"
+test "copy es alias de clone":
+    let m is calling _sample_str_int
+    var c as map of string to int is calling m.copy
+    calling _expect_true with (calling m.is_equal with c), "copy"
+test "is_equal compara por contenido":
+    let a is calling _sample_str_int
+    var b as map of string to int is calling a.clone
+    calling _expect_true with (calling a.is_equal with b), "is_equal"
+test "is_equal distingue tamaños distintos":
+    let a is calling _sample_str_int
+    let b is calling _one with "alpha", 1
+    calling _expect_true with (not (calling a.is_equal with b)), "is_equal tamaño"
+test "is_equal distingue valores distintos":
+    let a is calling _one with "a", 1
+    let b is calling _one with "a", 2
+    calling _expect_true with (not (calling a.is_equal with b)), "is_equal valor"
+test "entries empaqueta clave y valor":
+    let m is calling _one with "solo", 7
+    var es as list of oracle.Pair of string and int is calling m.entries
+    var e0 as oracle.Pair of string and int is es at 0
+    calling _expect_eq_string with e0.first, "solo", "entries.first"
+    calling _expect_eq_int with e0.second, 7, "entries.second"
+test "invert intercambia claves y valores":
+    let m is calling _sample_str_int
+    var inv as map of int to string is calling m.invert
+    calling _expect_eq_string with (calling inv.get_or with 2, "?"), "beta", "invert"
+test "take_keys conserva solo las claves pedidas":
+    let m is calling _sample_str_int
+    var ks as list of string is ["alpha"]
+    var sub as map of string to int is calling m.take_keys with ks
+    calling _expect_eq_int with (calling sub.size), 1, "take_keys"
+test "count_where cuenta las entradas que cumplen el predicado":
+    let m is calling _sample_str_int
+    calling _expect_eq_int with (calling m.count_where with _value_gt_one), 2, "count_where"
+test "filter_entries conserva las entradas que cumplen el predicado":
+    let m is calling _sample_str_int
+    var sub as map of string to int is calling m.filter_entries with _value_gt_one
+    calling _expect_eq_int with (calling sub.size), 2, "filter_entries"
+test "map_values_with transforma cada valor":
+    let m is calling _sample_str_int
+    var out as map of string to int is calling m.map_values_with with _inc
+    calling _expect_eq_int with (calling out.get_or with "alpha", 0), 2, "map_values_with"
+test "merge_all combina el receptor con otros mapas":
+    var m as map of string to int is calling _one with "a", 1
+    let other is calling _one with "b", 2
+    var others as list of map of string to int is [other]
+    var merged as map of string to int is calling m.merge_all with others
+    calling _expect_eq_int with (calling merged.size), 2, "merge_all método"
+test "sum_values suma los valores int":
+    let m is calling _sample_str_int
+    calling _expect_eq_int with (calling m.sum_values), 6, "sum_values"
+test "sum_values de un mapa vacío es cero":
+    var m as map of int to int is map of int to int
+    calling _expect_eq_int with (calling m.sum_values), 0, "sum_values vacío"
+test "sum_values_filtered respeta el rango":
+    let m is calling _sample_str_int
+    calling _expect_eq_int with (calling m.sum_values_filtered with 2, 3), 5, "sum_values_filtered"
+test "all_values_positive con todos positivos":
+    let m is calling _sample_str_int
+    calling _expect_true with (calling m.all_values_positive), "all_values_positive"
+test "all_values_positive en un mapa vacío":
+    var m as map of int to int is map of int to int
+    calling _expect_true with (calling m.all_values_positive), "positivos vacío"
+test "any_value_negative es falso sin negativos":
+    let m is calling _sample_str_int
+    calling _expect_true with (not (calling m.any_value_negative)), "negativos no"
+test "count_if_value_positive cuenta los positivos":
+    let m is calling _sample_str_float
+    calling _expect_eq_int with (calling m.count_if_value_positive), 2, "positivos"
+test "count_if_value_negative cuenta los negativos":
+    let m is calling _sample_str_float
+    calling _expect_eq_int with (calling m.count_if_value_negative), 1, "negativos"
+test "map_values_double duplica cada valor":
+    let m is calling _sample_str_int
+    var out as map of string to int is calling m.map_values_double
+    calling _expect_eq_int with (calling out.get_or with "beta", 0), 4, "map_values_double"
+test "map_values_negate niega cada valor":
+    let m is calling _sample_str_int
+    var out as map of string to int is calling m.map_values_negate
+    calling _expect_eq_int with (calling out.get_or with "gamma", 0), -3, "map_values_negate"
+test "map_values_scale multiplica por el factor":
+    let m is calling _sample_str_float
+    var out as map of string to float is calling m.map_values_scale with 2.0
+    calling _expect_true with ((calling out.get_or with "alpha", 0.0) == 3.0), "map_values_scale"
+test "max_value devuelve el mayor int":
+    let m is calling _sample_str_int
+    calling _expect_eq_int with (calling m.max_value), 3, "max_value"
+test "max_value de un mapa vacío es cero":
+    var m as map of int to int is map of int to int
+    calling _expect_eq_int with (calling m.max_value), 0, "max_value vacío"
+test "min_value devuelve el menor int":
+    let m is calling _sample_str_int
+    calling _expect_eq_int with (calling m.min_value), 1, "min_value"
+test "values_in_range con todos dentro":
+    let m is calling _sample_str_int
+    calling _expect_true with (calling m.values_in_range with 1, 3), "values_in_range"
+test "values_in_range detecta fuera de rango":
+    let m is calling _sample_str_int
+    calling _expect_true with (not (calling m.values_in_range with 2, 3)), "values_in_range no"
+test "filter_values_range deja solo el rango":
+    let m is calling _sample_str_int
+    var sub as map of string to int is calling m.filter_values_range with 2, 3
+    calling _expect_eq_int with (calling sub.size), 2, "filter_values_range"
+test "keys_sorted ordena claves string":
+    let m is calling _sample_str_int
+    var ks as list of string is calling m.keys_sorted
+    calling _expect_eq_string with (ks at 0), "alpha", "keys_sorted"
+test "keys_sorted ordena claves int":
+    let m is calling _sample_int_int
+    var ks as list of int is calling m.keys_sorted
+    calling _expect_eq_int with (ks at 0), 1, "keys_sorted int"
+test "values_sorted ordena valores int":
+    let m is calling _sample_str_int
+    var vs as list of int is calling m.values_sorted
+    calling _expect_eq_int with (vs at 2), 3, "values_sorted int"
+test "values_sorted ordena valores string":
+    let m is calling _sample_str_str
+    var vs as list of string is calling m.values_sorted
+    calling _expect_eq_string with (vs at 0), "dos", "values_sorted ss"
+test "values_sorted ordena valores string de mapa int":
+    let m is calling _sample_int_str
+    var vs as list of string is calling m.values_sorted
+    calling _expect_eq_string with (vs at 2), "uno", "values_sorted is"
+test "keys_sorted_of ordena claves numéricas":
+    var ks as list of int is calling keys_sorted_of with (calling _sample_int_int)
+    calling _expect_eq_int with (ks at 0), 1, "keys_sorted_of"
+test "values_sorted_of ordena valores numéricos":
+    var vs as list of int is calling values_sorted_of with (calling _sample_int_int)
+    calling _expect_eq_int with (vs at 0), -20, "values_sorted_of"
+test "filter_keys_contains busca subcadenas":
+    let m is calling _sample_str_int
+    var sub as map of string to int is calling m.filter_keys_contains with "a"
+    calling _expect_eq_int with (calling sub.size), 2, "filter_keys_contains"
+test "filter_keys_contains en mapas string":
+    let m is calling _sample_str_str
+    var sub as map of string to string is calling m.filter_keys_contains with "et"
+    calling _expect_eq_int with (calling sub.size), 1, "filter_keys_contains ss"
+test "filter_keys_startswith filtra por prefijo":
+    let m is calling _sample_str_int
+    var sub as map of string to int is calling m.filter_keys_startswith with "be"
+    calling _expect_eq_int with (calling sub.size), 1, "filter_keys_startswith"
+test "filter_values_contains filtra por valor string":
+    let m is calling _sample_str_str
+    var sub as map of string to string is calling m.filter_values_contains with "do"
+    calling _expect_eq_int with (calling sub.size), 1, "filter_values_contains"
+test "filter_values_contains con claves int":
+    let m is calling _sample_int_str
+    var sub as map of int to string is calling m.filter_values_contains with "re"
+    calling _expect_eq_int with (calling sub.size), 1, "filter_values_contains is"
+test "count_true cuenta los booleanos verdaderos":
+    let m is calling _sample_str_bool
+    calling _expect_eq_int with (calling m.count_true), 2, "count_true"
+test "count_false cuenta los booleanos falsos":
+    let m is calling _sample_str_bool
+    calling _expect_eq_int with (calling m.count_false), 1, "count_false"
+test "map_size cuenta las entradas genéricas":
+    let m is calling _sample_str_float
+    calling _expect_eq_int with (calling m.size), 3, "map_size"
+test "map_is_empty detecta el mapa vacío":
+    var m as map of string to int is map of string to int
+    calling _expect_true with (calling m.is_empty), "map_is_empty"
+test "map_has_key consulta una clave":
+    let m is calling _sample_str_float
+    calling _expect_true with (calling m.has_key with "beta"), "map_has_key"
+test "map_get_or devuelve valor o fallback":
+    let m is calling _sample_str_float
+    calling _expect_true with ((calling m.get_or with "beta", 0.0) == -2.5), "map_get_or"
+test "map_keys devuelve todas las claves":
+    let m is calling _sample_str_float
+    calling _expect_eq_int with (calling _count with (calling m.keys)), 3, "map_keys"
+test "map_values devuelve todos los valores":
+    let m is calling _sample_str_float
+    calling _expect_eq_int with (calling _count with (calling m.values)), 3, "map_values"
+test "map_put inserta una entrada":
+    var m as map of string to int is map of string to int
+    calling map_put with m, "a", 4
+    calling _expect_eq_int with (calling m.get_or with "a", 0), 4, "map_put"
+test "map_remove elimina una entrada":
+    let m is calling _one with "a", 4
+    calling _expect_true with (calling m.remove with "a"), "map_remove"
+test "map_clear vacía el mapa":
+    var m is calling _sample_str_int
+    calling m.clear
+    calling _expect_true with (calling m.is_empty), "map_clear"
+test "map_len_str_int cuenta las entradas":
+    calling _expect_eq_int with (calling map_len_str_int with (calling _sample_str_int)), 3, "map_len_str_int"
+test "map_merge combina dos mapas":
+    var m as map of string to int is calling map_merge with (calling _one with "a", 1), (calling _one with "b", 2)
+    calling _expect_eq_int with (calling m.size), 2, "map_merge"
+test "map_merge_all combina todos los mapas":
+    var maps as list of map of string to int is list of map of string to int
+    calling maps.push with (calling _one with "a", 1)
+    calling maps.push with (calling _one with "b", 2)
+    var seed as map of string to int is map of string to int
+    var m as map of string to int is calling seed.merge_all with maps
+    calling _expect_eq_int with (calling m.size), 2, "merge_all"
+test "map_from_lists construye desde listas paralelas":
+    var ks as list of string is ["a", "b"]
+    var vs as list of int is [1, 2]
+    var m as map of string to int is calling map_from_lists with ks, vs
+    calling _expect_eq_int with (calling m.get_or with "b", 0), 2, "map_from_lists"
+test "from_pairs construye desde pares":
+    var ps as list of oracle.Pair of string and int is list of oracle.Pair of string and int
+    var p as oracle.Pair of string and int with:
+        set .first is "a"
+        set .second is 1
+    calling ps.push with p
+    var m as map of string to int is calling from_pairs with ps
+    calling _expect_eq_int with (calling m.get_or with "a", 0), 1, "from_pairs"
+test "size_ss delega en el método":
+    calling _expect_eq_int with (calling size_ss with (calling _sample_str_str)), 3, "size_ss"
+test "has_key_ss delega en el método":
+    calling _expect_true with (calling has_key_ss with (calling _sample_str_str), "beta"), "has_key_ss"
+test "get_or_ss delega en el método":
+    calling _expect_eq_string with (calling get_or_ss with (calling _sample_str_str), "alpha", ""), "uno", "get_or_ss"
+test "get_safe_ss envuelve el valor":
+    var got as maybe string is calling get_safe_ss with (calling _sample_str_str), "gamma"
+    calling _expect_eq_string with (got or else "?"), "tres", "get_safe_ss"
+test "clear_ss vacía el mapa":
+    var m as map of string to string is calling _one with "a", "b"
+    calling clear_ss with m
+    calling _expect_eq_int with (calling size_ss with m), 0, "clear_ss"
+test "keys_sorted_ss ordena alfabéticamente":
+    var ks as list of string is calling keys_sorted_ss with (calling _sample_str_str)
+    calling _expect_eq_string with (ks at 0), "alpha", "keys_sorted_ss"
+test "clone_ss copia el mapa":
+    var m as map of string to string is calling _one with "a", "b"
+    var c as map of string to string is calling clone_ss with m
+    calling _expect_eq_string with (calling get_or_ss with c, "a", ""), "b", "clone_ss"
+test "size_sf delega en el método":
+    calling _expect_eq_int with (calling size_sf with (calling _sample_str_float)), 3, "size_sf"
+test "sum_values_sf suma los valores":
+    calling _expect_true with ((calling sum_values_sf with (calling _sample_str_float)) == 9.0), "sum_values_sf"
+test "max_value_sf devuelve el mayor":
+    calling _expect_true with ((calling max_value_sf with (calling _sample_str_float)) == 10.0), "max_value_sf"
+test "size_ii delega en el método":
+    calling _expect_eq_int with (calling size_ii with (calling _sample_int_int)), 3, "size_ii"
+test "get_or_ii delega en el método":
+    calling _expect_eq_int with (calling get_or_ii with (calling _sample_int_int), 3, 0), 30, "get_or_ii"
+test "keys_sorted_ii ordena las claves":
+    var ks as list of int is calling keys_sorted_ii with (calling _sample_int_int)
+    calling _expect_eq_int with (ks at 0), 1, "keys_sorted_ii"
+test "sum_values_ii suma los valores":
+    calling _expect_eq_int with (calling sum_values_ii with (calling _sample_int_int)), 20, "sum_values_ii"
+test "size_is delega en el método":
+    calling _expect_eq_int with (calling size_is with (calling _sample_int_str)), 3, "size_is"
+test "get_or_is delega en el método":
+    calling _expect_eq_string with (calling get_or_is with (calling _sample_int_str), 2, ""), "dos", "get_or_is"
+test "values_sorted_is ordena los valores":
+    var vs as list of string is calling values_sorted_is with (calling _sample_int_str)
+    calling _expect_eq_string with (vs at 0), "dos", "values_sorted_is"
+test "size_sb delega en el método":
+    calling _expect_eq_int with (calling size_sb with (calling _sample_str_bool)), 3, "size_sb"
+test "count_true_sb cuenta los verdaderos":
+    calling _expect_eq_int with (calling count_true_sb with (calling _sample_str_bool)), 2, "count_true_sb"
+test "merge conserva el valor derecho":
+    var m as map of string to int is calling merge with (calling _one with "a", 1), (calling _one with "a", 9)
+    calling _expect_eq_int with (calling m.get_or with "a", 0), 9, "merge"
+test "merge_keep_left conserva el izquierdo":
+    var m as map of string to int is calling merge_keep_left with (calling _one with "a", 1), (calling _one with "a", 9)
+    calling _expect_eq_int with (calling m.get_or with "a", 0), 1, "merge_keep_left"
+test "merge_ss combina mapas string":
+    var m as map of string to string is calling merge_ss with (calling _one with "a", "x"), (calling _one with "b", "y")
+    calling _expect_eq_int with (calling size_ss with m), 2, "merge_ss"
+test "merge_ii combina mapas int":
+    var m as map of int to int is calling merge_ii with (calling _sample_int_int), (calling _one with 9, 9)
+    calling _expect_eq_int with (calling size_ii with m), 4, "merge_ii"
+test "merge_sb combina mapas bool":
+    var m as map of string to bool is calling merge_sb with (calling _sample_str_bool), (calling _one with "z", false)
+    calling _expect_eq_int with (calling size_sb with m), 4, "merge_sb"
+test "from_lists_ii construye desde listas int":
+    var ks as list of int is [1, 2]
+    var vs as list of int is [10, 20]
+    var m as map of int to int is calling from_lists_ii with ks, vs
+    calling _expect_eq_int with (calling get_or_ii with m, 2, 0), 20, "from_lists_ii"
+test "from_lists_sf construye desde listas float":
+    var ks as list of string is ["a"]
+    var vs as list of float is [1.5]
+    var m as map of string to float is calling from_lists_sf with ks, vs
+    calling _expect_true with ((calling get_or_sf with m, "a", 0.0) == 1.5), "from_lists_sf"
+test "values_in_range de módulo":
+    calling _expect_true with (calling values_in_range with (calling _sample_str_int), 1, 3), "values_in_range módulo"
+test "filter_keys_contains de módulo":
+    calling _expect_eq_int with (calling size with (calling filter_keys_contains with (calling _sample_str_int), "a")), 2, "filter_keys_contains módulo"
+test "filter_keys_startswith de módulo":
+    calling _expect_eq_int with (calling size with (calling filter_keys_startswith with (calling _sample_str_int), "be")), 1, "filter_keys_startswith módulo"
+test "map_values_double de módulo":
+    calling _expect_eq_int with (calling get_or with (calling map_values_double with (calling _sample_str_int)), "beta", 0), 4, "map_values_double módulo"
+test "get_or de módulo":
+    calling _expect_eq_int with (calling get_or with (calling _sample_str_int), "gamma", 0), 3, "get_or módulo"
+test "put de módulo":
+    var m as map of string to int is map of string to int
+    calling put with m, "a", 1
+    calling _expect_eq_int with (calling get_or with m, "a", 0), 1, "put módulo"
+test "remove de módulo":
+    calling _expect_true with (calling remove with (calling _one with "a", 1), "a"), "remove módulo"
+test "update de módulo":
+    var m as map of string to int is calling _one with "a", 1
+    calling _expect_true with (calling update with m, "a", 5), "update módulo"
+test "keys de módulo":
+    calling _expect_eq_int with (calling _count with (calling keys with (calling _sample_str_int))), 3, "keys módulo"
+test "is_empty de módulo":
+    var m as map of string to int is map of string to int
+    calling _expect_true with (calling is_empty with m), "is_empty módulo"
+test "size de módulo":
+    calling _expect_eq_int with (calling size with (calling _sample_str_int)), 3, "size módulo"
+test "has_key de módulo":
+    calling _expect_true with (calling has_key with (calling _sample_str_int), "beta"), "has_key módulo"
+test "value_gt_one es un predicado reutilizable":
+    calling _expect_true with (calling _value_gt_one with "k", 2), "predicado"
