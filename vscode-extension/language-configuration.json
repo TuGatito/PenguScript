@@ -23,8 +23,8 @@
     ["'", "'"]
   ],
   "indentationRules": {
-    "increaseIndentPattern": "^\\s*(weave|enchanting|rune|echo|omen|if|else|unless|while|for|with|judge|when|or).*:\\s*$",
-    "decreaseIndentPattern": "^\\s*(else|when).*:\\s*$"
+    "increaseIndentPattern": "^\\s*(weave|enchanting|rune|echo|omen|concept|bind|if|else|unless|while|for|with|judge|when|or|defer|errdefer|test|do).*:\\s*$",
+    "decreaseIndentPattern": "^\\s*(else|when|or).*:\\s*$"
   },
   "folding": {
     "markers": {

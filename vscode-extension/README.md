@@ -15,9 +15,13 @@ Official VS Code extension for **PenguScript** — a statically typed programmin
 - **Cargo-like Project Integration**:
   - **Build Project** (`PenguScript: Build Project`)
   - **Run Project** (`PenguScript: Run Project`)
+  - **Run Tests** (`PenguScript: Run Tests`)
+  - **Generate Documentation** (`PenguScript: Generate Documentation`)
   - **Clean Project** (`PenguScript: Clean Project`)
   - **Init New Project** (`PenguScript: Initialize New Project`)
-- **Status Bar Item**: Quick status bar menu with one-click access to build, run, and server restart.
+  - **Show Menu** (`PenguScript: Show Menu`)
+  - **Restart Language Server** (`PenguScript: Restart Language Server`)
+- **Status Bar & QuickPick Menu**: Quick menu with one-click access to build, run, test, doc, clean, init, and server restart.
 
 ---
 
@@ -57,36 +61,45 @@ You can customize the extension via VS Code Settings (`Ctrl+,` / `Cmd+,`) under 
 
 ---
 
-## v0.10 Feature Support (Phase 2 Ownership)
+## v0.15.0 Feature Support & Enhancements
 
-- **Ownership modifiers**: `borrowed` keyword highlighted for non-owning references (`var borrowed x is ...`, `let borrowed x is ...`).
-- **Comptime variables**: highlighted comptime symbols (`os`, `arch`, `compiler`, `main`, `debug`).
-- **Snippets**: `owned`, `borrowed`, `borrowedlet`, `deferbanish` for rapid scope-owned and borrowed variable declarations.
+The grammar, syntax highlighter, and snippet collection cover the modern PenguScript 0.15.0 language specification:
 
-## v0.3 Feature Support & Extension Notes
+- **Concept & Trait System**:
+  - `concept Name:` interface declarations and `bind Type with Concept:` implementation blocks.
+  - `derive Concept1, Concept2` for automated structural derivations (`Nexus`, `Imago`, `Equitas`, `Donum`...).
+  - `where T: Concept` generic constraint clauses.
+  - `ritual weave` static and factory methods.
+  - `seal NewType as Type` strong opaque newtype wrappers.
+  - Highlighted built-in concepts: `Imago`, `Nexus`, `Donum`, `Equitas`, `Ordo`, `Index`, `IndexSet`, `Iter`, `Len`, `Display`, `Debug`, `Copy`, `Clone`, `Drop`, `Num`, `Integrum`, `Par`, `Vinculum`, `Forma`.
+- **Recursive Types & Cycles**:
+  - `cyclus` keyword on runes, echos, and omens (`rune Node cyclus shard T:`).
+- **Ownership, Immutability & Memory Safety**:
+  - `frozen` modifier for immutable views (`var s as frozen string`, `ref to frozen char`, `frozen int`).
+  - `borrowed` modifier for non-owning references (`var borrowed x`, `let borrowed y`).
+  - `donum T` default-value expression for defaultable types.
+  - `defer:` and `errdefer:` blocks with proper indentation rules and snippets.
+- **Literals & Expressions**:
+  - Number formats: binary (`0b101`), octal (`0o755`), hexadecimal (`0xDEAD_BEEF`), and floats with exponents (`1e-6`, `2.5E+3`).
+  - Character literals with hex (`'\x41'`) and octal (`'\101'`) escapes.
+  - Multi-line raw strings (`r"""..."""`) and formatted strings with embedded `{expression}` interpolation.
+- **Over 110+ Interactive Snippets**:
+  - Structs & tagged unions (`rune`, `rune_derive`, `rune_cyclus`, `echo`, `echo_derive`, `omen`, `omen_derive`, `omen_string_derive`).
+  - Functions & methods (`weave`, `weave_inline`, `weave_ritual`, `weave_where`, `slice_param`, `many_param`).
+  - Concepts & bindings (`concept`, `concept_ritual`, `bind`, `bind_where`, `seal`).
+  - Control flow & error handling (`judge`, `judge_payload`, `or_else`, `or_return`, `or_block_err`, `defer_block`, `errdefer_block`, `try`).
+  - Platform conditionals (`when_os`, `when_arch`, `when_compiler`, `when_defined`, `when_debug`).
+  - Testing (`test`, `test_ward`).
 
-The grammar/highlighter and snippets now cover the v0.3 language extensions:
+### Running PenguScript Tooling
 
-- **New keywords highlighted**: `when` (compile-time conditionals), `test` (unit tests), `static` (`static var`), `defined(...)`, and `omen ... with string`.
-- **New snippets**: `when`, `when_expr`, `test`, `test_name`, `static_var`, `map_lit`, `import_as`, `for_i`, `omen_string`.
-- **Doc comments**: single-line `## text`, self-closed `## text ##` and multi-line `##` ... `##` doc comments are recognized and feed LSP hover tooltips.
+The commands are integrated into the command palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) and the status bar menu:
 
-### Running the new tooling
-
-The new commands live in the `pengu` CLI; run them from VS Code's integrated terminal:
-
-```bash
-pengu test                    # compile in --test mode and run the unit tests
-pengu build --test            # emit a bundle whose main runs the tests
-pengu doc                     # generate Markdown docs from ## comments (default ./docs)
-pengu doc -o site/docs        # custom output directory
-pengu build -D os=linux       # compile-time defines for `when` clauses
-```
-
-### Wiring commands into the extension (optional)
-
-To add first-class VS Code commands for `pengu test` / `pengu doc`:
-
-1. `package.json` -> `contributes.commands`: add entries with `command: "pengus.test"` / `command: "pengus.doc"` and matching titles.
-2. `src/extension.ts`: register the commands in the activation function using the same `runPengu`/`runCli` helper used by the existing `pengus.build` / `pengus.run` commands, passing `--test` / `doc` arguments (then recompile with `npm run compile`).
-3. Optional: surface them in the menu built by `pengus.showMenu`.
+- **PenguScript: Run Project** (`pengu run`)
+- **PenguScript: Build Project** (`pengu build`)
+- **PenguScript: Run Tests** (`pengu test`)
+- **PenguScript: Generate Documentation** (`pengu doc`)
+- **PenguScript: Clean Project** (`pengu clean`)
+- **PenguScript: Initialize New Project** (`pengu init`)
+- **PenguScript: Restart Language Server** (`pengu lsp`)
+- **PenguScript: Show Menu** (interactive quick-pick launcher)

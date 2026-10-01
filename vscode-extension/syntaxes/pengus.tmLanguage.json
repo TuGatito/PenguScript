@@ -18,6 +18,7 @@
     { "include": "#comptime_vars" },
     { "include": "#function_definition" },
     { "include": "#type_definition" },
+    { "include": "#builtin_concepts" },
     { "include": "#builtin_types" },
     { "include": "#keywords_control" },
     { "include": "#keywords_declaration" },
@@ -114,7 +115,7 @@
       "patterns": [
         {
           "name": "string.quoted.single.pengus",
-          "match": "'(?:[^'\\\\]|\\\\.)*'"
+          "match": "'(?:[^'\\\\]|\\\\x[0-9a-fA-F]{2}|\\\\[0-7]{1,3}|\\\\.)'"
         }
       ]
     },
@@ -125,12 +126,16 @@
           "match": "\\b0[bB][01_]+\\b"
         },
         {
+          "name": "constant.numeric.octal.pengus",
+          "match": "\\b0[oO][0-7_]+\\b"
+        },
+        {
           "name": "constant.numeric.hex.pengus",
           "match": "\\b0[xX][0-9a-fA-F_]+\\b"
         },
         {
           "name": "constant.numeric.float.pengus",
-          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*([eE][+-]?[0-9]+)?\\b"
+          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*([eE][+-]?[0-9_]+)?\\b|\\b[0-9][0-9_]*[eE][+-]?[0-9_]+\\b"
         },
         {
           "name": "constant.numeric.integer.pengus",
@@ -180,11 +185,12 @@
     "function_definition": {
       "patterns": [
         {
-          "match": "\\b((?:(?:inline|ritual)\\s+)+)?(weave)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+          "match": "\\b((?:(?:inline|ritual)\\s+)*)(weave)(?:\\s+((?:inline|ritual)\\s*))*\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
           "captures": {
             "1": { "name": "storage.modifier.function.pengus" },
             "2": { "name": "keyword.declaration.function.pengus" },
-            "3": { "name": "entity.name.function.pengus" }
+            "3": { "name": "storage.modifier.function.pengus" },
+            "4": { "name": "entity.name.function.pengus" }
           }
         },
         {
@@ -207,6 +213,14 @@
         }
       ]
     },
+    "builtin_concepts": {
+      "patterns": [
+        {
+          "name": "support.class.concept.pengus",
+          "match": "\\b(Imago|Nexus|Donum|Equitas|Ordo|Index|IndexSet|Iter|Len|Display|Debug|Copy|Clone|Drop|Num|Integrum|Par|Vinculum|Forma)\\b"
+        }
+      ]
+    },
     "builtin_types": {
       "patterns": [
         {
@@ -215,7 +229,7 @@
         },
         {
           "name": "storage.type.collection.pengus",
-          "match": "\\b(array\\s+of|slice\\s+of|list\\s+of|map\\s+of|maybe|result\\s+of|ref\\s+to|array|slice|list|map|result|ref)\\b"
+          "match": "\\b(array\\s+of|slice\\s+of|list\\s+of|map\\s+of|maybe|result\\s+of|ref\\s+to|frozen|many|array|slice|list|map|result|ref)\\b"
         }
       ]
     },
@@ -223,7 +237,7 @@
       "patterns": [
         {
           "name": "keyword.control.pengus",
-          "match": "\\b(if|then|else|unless|while|for|from|to|step|in|not\\s+in|do|with|judge|when|or\\s+else|or\\s+return|or|and|lambda|return|break|continue|defer|errdefer|banish|try|defined|bytes\\s+of|some|ord|chr|transmute|sigil\\s+of|essence\\s+of|size\\s+of)\\b"
+          "match": "\\b(if|then|else|unless|while|for|from|to|step|in|not\\s+in|do|with|judge|when|or\\s+else|or\\s+return|or|and|lambda|return|break|continue|defer|errdefer|banish|try|defined|bytes\\s+of|some|ord|chr|transmute|sigil\\s+of|essence\\s+of|size\\s+of|donum)\\b"
         }
       ]
     },
@@ -231,7 +245,7 @@
       "patterns": [
         {
           "name": "keyword.other.declaration.pengus",
-          "match": "\\b(var|let|const|set|declare|import|include|link|insignia|sigil|essence|shard|many|of|is|as|into|and|capacity|size|length|at|transmute|present|not\\s+present|concept|bind|seal|ritual|where|static|test|borrowed)\\b"
+          "match": "\\b(var|let|const|set|declare|import|include|link|insignia|sigil|essence|shard|many|of|is|as|into|and|capacity|size|length|at|transmute|present|not\\s+present|concept|bind|seal|ritual|inline|where|derive|cyclus|static|test|borrowed|frozen)\\b"
         }
       ]
     },
@@ -240,6 +254,10 @@
         {
           "name": "storage.modifier.borrowed.pengus",
           "match": "\\bborrowed\\b(?=\\s+[a-zA-Z_])"
+        },
+        {
+          "name": "storage.modifier.frozen.pengus",
+          "match": "\\bfrozen\\b(?=\\s+[a-zA-Z_])"
         }
       ]
     },

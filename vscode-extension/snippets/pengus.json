@@ -74,7 +74,7 @@
     "Type Alias": {
         "prefix": "alias",
         "body": [
-            "alias ${1:NewTypeName} is ${2:TargetType}",
+            "alias ${1:NewTypeName} as ${2:TargetType}",
             "${0}"
         ],
         "description": "Declare a type alias (alias)"
@@ -710,34 +710,288 @@
         ],
         "description": "Declare a concept (interface / trait)"
     },
-    "Concept Seal Implementation": {
+    "Sealed Type Definition": {
         "prefix": "seal",
         "body": [
-            "seal ${1:Point} to ${2:Printable}:",
-            "    weave ${3:to_string} with self into string:",
-            "        return \"(${self.x}, ${self.y})\"",
-            "    ${0}"
+            "seal ${1:NewType} as ${2:int}",
+            "${0}"
         ],
-        "description": "Implement a concept for a type using seal to"
+        "description": "Declare a strong opaque/newtype wrapper (seal)"
     },
     "Concept Bind Implementation": {
         "prefix": "bind",
         "body": [
             "bind ${1:Point} with ${2:Printable}:",
-            "    weave ${3:to_string} with self into string:",
+            "    weave ${3:describe} with self into string:",
             "        return \"(${self.x}, ${self.y})\"",
             "    ${0}"
         ],
         "description": "Implement a concept for a type using bind with"
     },
+    "Concept Bind Generic with Where": {
+        "prefix": "bind_where",
+        "body": [
+            "bind ${1:Box of shard T} with ${2:Printable} where ${3:T: Printable}:",
+            "    weave ${4:describe} with self into string:",
+            "        return \"Box({calling self->val.describe})\"",
+            "    ${0}"
+        ],
+        "description": "Implement a concept for a generic type with where bounds"
+    },
+    "Concept with Ritual (Static) Method": {
+        "prefix": "concept_ritual",
+        "body": [
+            "concept ${1:Defaultable}:",
+            "    weave ritual ${2:create_default} into ${3:Self}",
+            "    ${0}"
+        ],
+        "description": "Declare a concept with a static ritual method signature"
+    },
     "Generic Weave with Where Clause": {
         "prefix": "weave_where",
         "body": [
-            "weave ${1:show} shard ${2:T} with item as ${2:T} into void where ${2:T} is ${3:Printable}:",
-            "    calling spark.println with calling item.to_string",
+            "weave ${1:show} shard ${2:T} where ${2:T}: ${3:Printable} with item as ${2:T} into void:",
+            "    calling spark.println with calling item.describe",
             "    ${0}"
         ],
         "description": "Declare a generic weave function with a concept where constraint"
+    },
+    "Rune with Derive": {
+        "prefix": "rune_derive",
+        "body": [
+            "rune ${1:Point} derive ${2:Nexus, Imago}:",
+            "    ${3:x} as ${4:int}",
+            "    ${5:y} as ${4:int}",
+            "    ${0}"
+        ],
+        "description": "Declare a struct with derived concepts (Nexus, Imago, Equitas...)"
+    },
+    "Rune Recursive (cyclus)": {
+        "prefix": "rune_cyclus",
+        "body": [
+            "rune ${1:Node} cyclus shard ${2:T}:",
+            "    value as ${2:T}",
+            "    next as maybe ref to ${1:Node} of ${2:T}",
+            "    ${0}"
+        ],
+        "description": "Declare a recursive or cyclic struct (cyclus)"
+    },
+    "Echo with Derive": {
+        "prefix": "echo_derive",
+        "body": [
+            "echo ${1:Value} derive ${2:Equitas}:",
+            "    ${3:i} as int",
+            "    ${4:s} as string",
+            "    ${0}"
+        ],
+        "description": "Declare a tagged union with derived concepts"
+    },
+    "Omen with Derive": {
+        "prefix": "omen_derive",
+        "body": [
+            "omen ${1:Event} derive ${2:Nexus, Imago}:",
+            "    ${3:Click} with x as int, y as int",
+            "    ${4:Quit}",
+            "    ${0}"
+        ],
+        "description": "Declare an algebraic data type with derived concepts"
+    },
+    "Omen String-Valued with Derive": {
+        "prefix": "omen_string_derive",
+        "body": [
+            "omen ${1:Color} with string derive ${2:Equitas}:",
+            "    ${3:Red}",
+            "    ${4:Green}",
+            "    ${5:Blue}",
+            "    ${0}"
+        ],
+        "description": "Declare a string-valued enum with derived concepts"
+    },
+    "Ritual Static Weave in Enchanting": {
+        "prefix": "weave_ritual",
+        "body": [
+            "ritual weave ${1:create} with ${2:val as int} into ${3:TypeName}:",
+            "    var instance as ${3:TypeName} with:",
+            "        set .${4:field} is ${2:val}",
+            "    return instance",
+            "    ${0}"
+        ],
+        "description": "Declare a static factory/constructor method (ritual weave)"
+    },
+    "Donum Default Value Expression": {
+        "prefix": "donum",
+        "body": [
+            "var ${1:acc} as ${2:T} is donum ${2:T}",
+            "${0}"
+        ],
+        "description": "Initialize a variable with its concept default value (donum T)"
+    },
+    "Frozen Variable Declaration": {
+        "prefix": "frozen_var",
+        "body": [
+            "var ${1:name} as frozen ${2:string} is ${3:\"constant_view\"}",
+            "${0}"
+        ],
+        "description": "Declare an immutable view/frozen variable (frozen T)"
+    },
+    "Reference to Frozen Pointer": {
+        "prefix": "ref_frozen",
+        "body": [
+            "var ${1:p} as ref to frozen ${2:char} is ${3:bytes of s}",
+            "${0}"
+        ],
+        "description": "Declare a pointer to read-only/frozen memory"
+    },
+    "Judge Match with Variant Payload": {
+        "prefix": "judge_payload",
+        "body": [
+            "judge ${1:msg}:",
+            "    when ${2:Text} with content -> calling spark.println with content",
+            "    when ${3:Quit} -> return 0",
+            "    else -> return 1",
+            "${0}"
+        ],
+        "description": "Pattern match on an omen variant extracting payload fields"
+    },
+    "Slice Parameter in Function": {
+        "prefix": "slice_param",
+        "body": [
+            "weave ${1:sum_all} with items as slice of ${2:int} into ${2:int}:",
+            "    var acc as ${2:int} is 0",
+            "    for item in items:",
+            "        set acc += item",
+            "    return acc",
+            "    ${0}"
+        ],
+        "description": "Function accepting a non-owning slice parameter"
+    },
+    "Variadic Many Parameter": {
+        "prefix": "many_param",
+        "body": [
+            "weave ${1:log_all} with items as many ${2:string} into void:",
+            "    for item in items:",
+            "        calling spark.println with item",
+            "    ${0}"
+        ],
+        "description": "Function accepting variadic arguments (many T)"
+    },
+    "List with Initial Capacity": {
+        "prefix": "list_cap",
+        "body": [
+            "var ${1:items} as list of ${2:int} is list of ${2:int} with capacity ${3:16}",
+            "${0}"
+        ],
+        "description": "Initialize a list with pre-allocated capacity"
+    },
+    "Map Initialization": {
+        "prefix": "map_init",
+        "body": [
+            "var ${1:lookup} as map of ${2:string} to ${3:int} is map of ${2:string} to ${3:int}",
+            "${0}"
+        ],
+        "description": "Initialize an empty map"
+    },
+    "Array Initialization with Size": {
+        "prefix": "array_init",
+        "body": [
+            "var ${1:buf} as array of ${2:byte} with size ${3:1024} is array of ${2:byte} with size ${3:1024}",
+            "${0}"
+        ],
+        "description": "Initialize a fixed-size stack array"
+    },
+    "Struct Initialization with: block": {
+        "prefix": "with_init",
+        "body": [
+            "var ${1:p} as ${2:Point} with:",
+            "    set .${3:x} is ${4:10}",
+            "    set .${5:y} is ${6:20}",
+            "${0}"
+        ],
+        "description": "Initialize struct fields with an indented with: block"
+    },
+    "Struct Inline with Initialization": {
+        "prefix": "struct_init",
+        "body": [
+            "var ${1:p} as ${2:Point} is with ${3:x} is ${4:10}, ${5:y} is ${6:20}",
+            "${0}"
+        ],
+        "description": "Initialize struct fields with inline with expr"
+    },
+    "Error Handler Block (or:)": {
+        "prefix": "or_block_err",
+        "body": [
+            "let ${1:res} is ${2:calling fallible_op} or:",
+            "    calling spark.println with \"Failed: {error}\"",
+            "    return ${3:1}",
+            "${0}"
+        ],
+        "description": "Handle errors with an indented or: block accessing {error}"
+    },
+    "Defer Cleanup Block": {
+        "prefix": "defer_block",
+        "body": [
+            "defer:",
+            "    ${1:calling cleanup}",
+            "    ${0}"
+        ],
+        "description": "Multi-statement deferred cleanup block"
+    },
+    "Errdefer Cleanup Block": {
+        "prefix": "errdefer_block",
+        "body": [
+            "errdefer:",
+            "    ${1:calling rollback}",
+            "    ${0}"
+        ],
+        "description": "Multi-statement error-deferred cleanup block"
+    },
+    "When Platform Check (os)": {
+        "prefix": "when_os",
+        "body": [
+            "when os == \"${1|windows,linux,macos|}\":",
+            "    ${2:// platform-specific code}",
+            "else:",
+            "    ${3:// fallback code}",
+            "    ${0}"
+        ],
+        "description": "Compile-time operating system conditional block"
+    },
+    "When Architecture Check (arch)": {
+        "prefix": "when_arch",
+        "body": [
+            "when arch == \"${1|x64,arm64,x86,arm|}\":",
+            "    ${1:// architecture-specific code}",
+            "    ${0}"
+        ],
+        "description": "Compile-time CPU architecture conditional block"
+    },
+    "When Compiler Check (compiler)": {
+        "prefix": "when_compiler",
+        "body": [
+            "when compiler == \"${1|gcc,clang,msvc|}\":",
+            "    ${1:// compiler-specific optimizations}",
+            "    ${0}"
+        ],
+        "description": "Compile-time C compiler conditional block"
+    },
+    "When Feature Defined (defined)": {
+        "prefix": "when_defined",
+        "body": [
+            "when defined(${1:FEATURE_FLAG}):",
+            "    ${2:// feature-gated code}",
+            "    ${0}"
+        ],
+        "description": "Compile-time feature define check"
+    },
+    "Unit Test with Ward Assert": {
+        "prefix": "test_ward",
+        "body": [
+            "test \"${1:feature works as expected}\":",
+            "    let actual is ${2:calling compute}",
+            "    calling ward.assert_eq_int with actual, ${3:expected}",
+            "    ${0}"
+        ],
+        "description": "Unit test block with std.ward assertion"
     },
     "Compile-time when debug block": {
         "prefix": "when_debug",
