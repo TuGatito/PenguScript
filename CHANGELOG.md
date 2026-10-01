@@ -76,14 +76,12 @@ All notable changes to PenguScript will be documented in this file.
 - **`README.md` is now bilingual** with a `🌍 Languages / Idiomas` selector and
   a Documentation table listing all four documents in both languages.
 
-### Compiler bugs found (documented, not fixed)
-
-- **`or` / `and` runtime evaluation lack of short-circuiting for bounds-checks:**
-  - *Location:* `pengu_parser/pengu_codegen.py` / `pengu_runtime.h`.
-  - *Symptom:* Right-hand side expressions under `or`/`and` containing bounds-checked array/list indexing are evaluated before or without short-circuiting in certain runtime macro expansions (e.g. `p at len - 1 or default` can fault when `p` is empty).
-  - *Workaround applied:* Use explicit `if` statements for guard conditions instead of relying on runtime short-circuiting.
-
 ### Fixed — compiler bugs (post 0.15.0)
+
+- **Bug 5 — `or` / `and` boolean short-circuit vs fallback semantics clarified** (`LANGUAGE.md`, `LANGUAGE_Spanish.md`):
+  Clarified in §6.2 that `and` and `or` are strictly boolean logical operators with short-circuiting (`bool and bool -> bool`), not value-coalescing or fallback operators. Unwrapping optionals or results with fallbacks must use `or else` (§12) or `or:` blocks (§12). Documented that eager bounds-checking on array/list indexing in debug mode must be guarded with explicit conditional logic or safe accessors.
+  Pinned by `tests/test_compiler_bugfixes_v0150.py::TestBug5_OrAndBoolean`.
+
 
 - **Bug 6 — `pengu test` bundles in-module tests of imported stdlib modules** (`pengu_codegen.py`):
   Executing `pengu test` on a compilation bundle collected every in-module `test` block from all imported modules in topological order, pulling in hundreds of unit tests across `std.oracle`, `std.scrolls`, `std.tally`, and `std.atlas`.

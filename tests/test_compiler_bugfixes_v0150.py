@@ -290,4 +290,67 @@ test "my unique user test":
             shutil.rmtree(d, ignore_errors=True)
 
 
+# ─── Bug 5 — or/and boolean semantics & short-circuiting ───────────────
+class TestBug5_OrAndBoolean:
+    def test_or_requires_bool_operands(self):
+        """Logical 'or' rejects non-boolean operands with E0005."""
+        from tests.conftest import check_error
+        code = """
+weave main into int:
+    let x is 1 or 2
+    return 0
+"""
+        check_error(code, contains="E0005")
+
+    def test_and_requires_bool_operands(self):
+        """Logical 'and' rejects non-boolean operands with E0005."""
+        from tests.conftest import check_error
+        code = """
+weave main into int:
+    let x is 1 and 2
+    return 0
+"""
+        check_error(code, contains="E0005")
+
+    @requires_runtime
+    def test_logical_short_circuit_runtime(self):
+        """Logical 'or' and 'and' short-circuit and do not evaluate RHS when LHS determines result."""
+        code = """
+import std.spark
+
+weave trigger into bool:
+    static var called as int is 0
+    set called is called + 1
+    calling spark.println with "TRIGGERED"
+    return true
+
+weave main into int:
+    let a is true or (calling trigger)
+    let b is false and (calling trigger)
+    calling spark.println with "SHORT_CIRCUIT_OK"
+    return 0
+"""
+        res = compile_run(code, tag="bug5_short_circuit")
+        assert "TRIGGERED" not in res.stdout
+        assert "SHORT_CIRCUIT_OK" in res.stdout
+
+    @requires_runtime
+    def test_or_else_fallback_for_maybe(self):
+        """Unwrapping with fallback semantics is properly achieved with 'or else'."""
+        code = """
+import std.spark
+
+weave main into int:
+    var m as maybe int is maybe none
+    let v is m or else 42
+    var s as maybe int is some 99
+    let w is s or else 42
+    calling spark.println with "{v} {w}"
+    return 0
+"""
+        res = compile_run(code, tag="bug5_or_else")
+        assert res.stdout.strip() == "42 99"
+
+
+
 

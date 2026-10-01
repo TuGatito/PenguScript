@@ -421,7 +421,9 @@ let flip as int is ~mask
 ```
 
 - **Cadenas (`+` es un error de compilación, `==` está bien):** `+` es **solo numérico**. La composición de cadenas tiene exactamente una forma: la interpolación `"{expr}"` dentro de un literal de cadena (§15.2). `"a" + b` produce `E0005`; no hay promoción implícita `to string` ni temporal oculto. La igualdad `a == b` emite `pengu_string_equal(a, b)` (igualdad de contenido por valor, sin reserva de memoria).
-- **Cortocircuito lógico (`and` / `or`):** Los operandos deben ser `bool` (`E0005` en caso contrario). `or` evalúa su operando derecho solo si el izquierdo es `false`; `and` evalúa su operando derecho solo si el izquierdo es `true`.
+- **Cortocircuito lógico (`and` / `or`):** Los operandos deben ser estrictamente `bool` (`E0005` en caso contrario). `or` evalúa su operando derecho solo si el izquierdo es `false`; `and` evalúa su operando derecho solo si el izquierdo es `true`.
+  > **Nota sobre cortocircuito vs semántica de fallback:** `or` y `and` son exclusivamente operadores lógicos booleanos (`bool and bool -> bool`), no operadores de coalescencia o fallback de valores. Para desempaquetar un opcional o resultado con un valor por defecto, usa `or else` (p. ej. `val or else default`, §12) o un bloque `or:` (§12). Las expresiones de indexación en arrays/listas (`at`) bajo modo debug realizan comprobaciones de límites estrictas que abortan si el índice está fuera de rango; no deben protegerse con operadores lógicos sin una comprobación explícita con `if` o métodos de acceso seguro.
+
 
 ### 6.3 Comparación, pertenencia y pruebas de palabra
 

@@ -421,7 +421,9 @@ let flip as int is ~mask
 ```
 
 - **Strings (`+` is a compile error, `==` is fine):** `+` is **numeric-only**. String composition has exactly one spelling: `"{expr}"` interpolation inside a string literal (§15.2). `"a" + b` raises `E0005`; there is no implicit `to string` promotion and no hidden temporary. Equality `a == b` emits `pengu_string_equal(a, b)` (passed by value, non-allocating content equality).
-- **Logical Short-Circuit (`and` / `or`):** Operands must be `bool` (`E0005` otherwise). `or` evaluates its right operand only if the left is `false`; `and` evaluates its right operand only if the left is `true`.
+- **Logical Short-Circuit (`and` / `or`):** Operands must be strictly `bool` (`E0005` otherwise). `or` evaluates its right operand only if the left is `false`; `and` evaluates its right operand only if the left is `true`.
+  > **Note on short-circuit vs fallback semantics:** `or` and `and` are exclusively boolean logical operators (`bool and bool -> bool`), not value-coalescing or fallback operators. To unwrap an optional or result with a fallback value, use `or else` (e.g. `val or else default`, §12) or an `or:` block (§12). Expressions such as array/list indexing (`at`) under debug mode perform eager bounds-checking that aborts if out of bounds; they should not be guarded using logical operators without an explicit `if` check or safe fallback method.
+
 
 ### 6.3 Comparison, membership & word tests
 
