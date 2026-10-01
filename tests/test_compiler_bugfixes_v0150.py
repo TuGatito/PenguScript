@@ -241,3 +241,53 @@ test "local is_empty is used":
             shutil.rmtree(d, ignore_errors=True)
 
 
+# ─── Bug 6 — pengu test bundles imported tests ────────────────────────
+class TestBug6_TestBundling:
+    def test_imported_std_tests_are_not_bundled(self):
+        """Bundling a project that imports std modules excludes their internal tests."""
+        import tempfile
+        import shutil
+        from pengu_project import PenguBuilder, ProjectConfig
+        from tests.conftest import BUILD_DIR
+        d = Path(tempfile.mkdtemp(prefix="bug6_user_", dir=BUILD_DIR))
+        try:
+            src = """
+import std.atlas
+
+test "my unique user test":
+    let m is map of string to int
+"""
+            (d / "main.pengu").write_text(src, encoding="utf-8")
+            cfg = ProjectConfig(entry=str(d / "main.pengu"), base_dir=str(d), profile="debug", output="c")
+            builder = PenguBuilder(cfg)
+            builder.is_test_mode = True
+            bundle_path, _ = builder.bundle(output_file=str(d / "bundle.c"))
+            content = Path(bundle_path).read_text(encoding="utf-8")
+            assert "my unique user test" in content
+            assert "len cuenta bytes" not in content
+            assert "pengu_test_names[1]" in content
+            check_c_syntax(content)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_own_std_tests_are_bundled_when_entry(self):
+        """Bundling a std module as entry retains all its own unit tests."""
+        import tempfile
+        import shutil
+        from pengu_project import PenguBuilder, ProjectConfig
+        from tests.conftest import BUILD_DIR
+        d = Path(tempfile.mkdtemp(prefix="bug6_std_", dir=BUILD_DIR))
+        try:
+            cfg = ProjectConfig(entry="std/scrolls.pengu", base_dir=".", profile="debug", output="c")
+            builder = PenguBuilder(cfg)
+            builder.is_test_mode = True
+            bundle_path, _ = builder.bundle(output_file=str(d / "bundle.c"))
+            content = Path(bundle_path).read_text(encoding="utf-8")
+            assert "len cuenta bytes" in content
+            assert "pengu_test_names[124]" in content
+            check_c_syntax(content)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
+

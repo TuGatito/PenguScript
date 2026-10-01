@@ -83,12 +83,13 @@ All notable changes to PenguScript will be documented in this file.
   - *Symptom:* Right-hand side expressions under `or`/`and` containing bounds-checked array/list indexing are evaluated before or without short-circuiting in certain runtime macro expansions (e.g. `p at len - 1 or default` can fault when `p` is empty).
   - *Workaround applied:* Use explicit `if` statements for guard conditions instead of relying on runtime short-circuiting.
 
-- **`pengu test` bundles in-module tests of imported modules:**
-  - *Location:* `pengu_project.py` (test runner).
-  - *Symptom:* Executing `pengu test` on a bundle including `std/atlas` also discovers and runs the internal tests of `std/scrolls`; legacy `atlas.is_empty(map)` shadows `scrolls.is_empty(string)` in the shared test harness, leading to type errors in embedded tests.
-  - *Observed effect:* Affects embedded test runs (`pengu test`) for targets importing `atlas`, while `pengu build`, the standard pytest suite (`test_stdlib.py`), and `pengu fmt --check` remain fully green and unaffected.
-
 ### Fixed — compiler bugs (post 0.15.0)
+
+- **Bug 6 — `pengu test` bundles in-module tests of imported stdlib modules** (`pengu_codegen.py`):
+  Executing `pengu test` on a compilation bundle collected every in-module `test` block from all imported modules in topological order, pulling in hundreds of unit tests across `std.oracle`, `std.scrolls`, `std.tally`, and `std.atlas`.
+  Now `collect_declarations` filters out tests from imported `std` modules unless the stdlib module itself is the entry file being tested directly.
+  Pinned by `tests/test_compiler_bugfixes_v0150.py::TestBug6_TestBundling`.
+
 
 - **Bug 4 — Unqualified symbol collisions in `test` blocks across bundled modules** (`pengu_checker.py`, `pengu_codegen.py`):
   In test blocks, unqualified symbol references resolved against symbols from other modules in the same compilation bundle when short names collided (e.g. `is_empty`).

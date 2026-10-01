@@ -1561,6 +1561,28 @@ class PenguCodegen:
         for tnode, tfile in top_stmts:
             inner = unwrap_top_level(tnode)
             if isinstance(inner, Tree) and inner.data == "test_decl":
+                # Exclude internal unit tests from imported stdlib modules unless
+                # the std module itself is the entry file being tested directly.
+                norm_tf = os.path.normcase(os.path.abspath(tfile)) if tfile else ""
+                entry_f = getattr(self, "entry_file", None)
+                if not entry_f and self.import_order:
+                    entry_f = self.import_order[-1]
+                is_entry = False
+                if entry_f and norm_tf:
+                    try:
+                        is_entry = (norm_tf == os.path.normcase(os.path.abspath(entry_f)))
+                    except Exception:
+                        is_entry = False
+
+                is_std = False
+                if norm_tf:
+                    parts = norm_tf.replace("/", "\\").split("\\")
+                    if "std" in parts and "tests" not in parts and "std_programs" not in parts:
+                        is_std = True
+
+                if is_std and not is_entry:
+                    continue
+
                 name_tok = inner.children[0]
                 raw_name = str(name_tok)
                 if raw_name.startswith('r"""') and raw_name.endswith('"""'):
