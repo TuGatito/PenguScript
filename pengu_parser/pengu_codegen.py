@@ -4439,7 +4439,7 @@ class PenguCodegen:
                 loop_header = f"for (int64_t {c_var_name} = {start_str}; {cond_c}; {step_c})"
         else:
             _step_tmp = self.get_temp_name("_step")
-            cond_c = f"({_step_tmp} >= 0 ? {c_var_name} < {end_str} : {c_var_name} > {end_str})"
+            cond_c = f"({_step_tmp} > 0 ? {c_var_name} < {end_str} : ({_step_tmp} < 0 ? {c_var_name} > {end_str} : false))"
             loop_header = f"for (int64_t {c_var_name} = {start_str}, {_step_tmp} = {step_str}; {cond_c}; {c_var_name} += {_step_tmp})"
 
         return f"{ind}{loop_header} {{\n{body_str}\n{ind}}}"

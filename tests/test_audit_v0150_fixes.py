@@ -461,3 +461,24 @@ class TestI8_EstimateSizeRealistic:
         assert estimate_size(MapType(STRING_TYPE, INT_TYPE)) == 64
         assert estimate_size(MaybeType(INT_TYPE)) == 16
 
+
+# ─── I10: Dynamic step zero terminates without infinite loop ──────────
+class TestI10_DynamicStepZero:
+    @requires_runtime
+    def test_dynamic_step_zero_terminates(self):
+        """Dynamic step of zero evaluates condition to false and does not loop infinitely."""
+        code = """
+weave main into int:
+    var s as int is 0
+    var count as int is 0
+    for i from 0 to 10 step s:
+        set count is count + 1
+    if count == 0:
+        return 0
+    return 1
+"""
+        c = gen_bundle(code)
+        check_c_syntax(c)
+        res = compile_run(code, tag="test_i10_run")
+        assert res.returncode == 0
+
