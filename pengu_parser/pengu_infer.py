@@ -2489,16 +2489,18 @@ class TypeInferrer:
                     fn_ast = self.symbols.generic_functions[fn_name][1]
                     self.symbols.monomorphized_functions[mangled_fn_name] = (fn_ast, subst_map)
 
-                if fn_name and "_" in fn_name:
-                    first_p, last_p = fn_name.split("_", 1)
-                    if (first_p, last_p) in self.symbols.generic_methods:
-                        entry = self.symbols.generic_methods[(first_p, last_p)]
-                        method_ast = entry[2] if len(entry) == 3 else entry[1]
-                        m_target_t = specialized_fn_type.return_type
-                        self.symbols.monomorphized_methods[mangled_fn_name] = (method_ast, subst_map, m_target_t)
-                        m_cand = f"{first_p}_{mangled_args}_{last_p}"
-                        self.symbols.monomorphized_methods[m_cand] = (method_ast, subst_map, m_target_t)
-                        self.symbols.functions[m_cand] = specialized_fn_type
+                elif fn_name and "_" in fn_name:
+                    fn_sym = self.symbols.lookup(fn_name)
+                    if not (fn_sym and getattr(fn_sym, "kind", "") in ("weave", "function", "declare")):
+                        first_p, last_p = fn_name.split("_", 1)
+                        if (first_p, last_p) in self.symbols.generic_methods:
+                            entry = self.symbols.generic_methods[(first_p, last_p)]
+                            method_ast = entry[2] if len(entry) == 3 else entry[1]
+                            m_target_t = specialized_fn_type.return_type
+                            self.symbols.monomorphized_methods[mangled_fn_name] = (method_ast, subst_map, m_target_t)
+                            m_cand = f"{first_p}_{mangled_args}_{last_p}"
+                            self.symbols.monomorphized_methods[m_cand] = (method_ast, subst_map, m_target_t)
+                            self.symbols.functions[m_cand] = specialized_fn_type
 
                 self.symbols.functions[mangled_fn_name] = specialized_fn_type
                 self.symbols.global_scope.define(Symbol(
