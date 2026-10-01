@@ -312,3 +312,40 @@ weave main into void:
         p = PenguParser()
         checker = PenguChecker()
         assert checker.check(p.parse(code)) == []
+
+
+# ─── C9: Support binary literals, underscores, and escapes ────────────
+class TestC9_LexerLiterals:
+    @requires_runtime
+    def test_binary_literals_and_visual_separators(self):
+        """Binary literals and visual underscores in ints/floats parse and execute."""
+        code = """
+weave main into int:
+    var mask is 0b1010
+    var million is 1_000_000
+    var hex_val is 0xFF_FF
+    var bin_sep is 0b1111_0000
+    var flt is 1_000.5
+    var ch_hex is '\\x41'
+    var ch_oct is '\\101'
+
+    if mask != 10:
+        return 1
+    if million != 1000000:
+        return 2
+    if hex_val != 65535:
+        return 3
+    if bin_sep != 240:
+        return 4
+    if flt < 1000.4 or flt > 1000.6:
+        return 5
+    if ch_hex != 'A':
+        return 6
+    if ch_oct != 'A':
+        return 7
+    return 0
+"""
+        c = gen_bundle(code)
+        check_c_syntax(c)
+        res = compile_run(code, tag="test_c9_literals")
+        assert res.returncode == 0

@@ -6068,9 +6068,14 @@ class PenguCodegen:
 
         # 1. Literals
         if rule == "int_lit":
-            return str(node.children[0])
+            raw_int = str(node.children[0]).replace("_", "")
+            if raw_int.lower().startswith("0b"):
+                return str(int(raw_int, 2))
+            if raw_int.lower().startswith("0o"):
+                return str(int(raw_int, 8))
+            return raw_int
         elif rule == "float_lit":
-            return str(node.children[0])
+            return str(node.children[0]).replace("_", "")
         elif rule == "char_lit":
             return str(node.children[0])
         elif rule == "string_lit":

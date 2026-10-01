@@ -487,8 +487,8 @@ RBRACE: "}"
 %declare _INDENT _DEDENT
 
 %import common.WS_INLINE
-INT: /0[xX][0-9a-fA-F]+|[0-9]+/
-FLOAT: /[0-9]+\.[0-9]+([eE][-+]?[0-9]+)?|[0-9]+[eE][-+]?[0-9]+/
+INT: /0[xX][0-9a-fA-F_]+|0[oO][0-7_]+|0[bB][01_]+|[0-9][0-9_]*/
+FLOAT: /[0-9][0-9_]*\.[0-9][0-9_]*([eE][-+]?[0-9][0-9_]*)?|[0-9][0-9_]*[eE][-+]?[0-9][0-9_]*/
 %ignore WS_INLINE
 
 _NEWLINE: /(\r?\n[\t ]*)+/
@@ -505,7 +505,7 @@ RAW_STRING.2: /r\"[^\"]*\"/
 # the surrounding literal.  Expressions containing unbalanced braces still
 # require building the string in a local first.
 STRING: /"([^"\\{]|\\.|\{[^{}\n]*\}|[{}])*"/
-CHAR_LIT: /'([^'\\]|\\.)'/
+CHAR_LIT: /'([^'\\]|\\x[0-9a-fA-F]{2}|\\[0-7]{1,3}|\\.)'/
 # Compound assignment operators. Declared after the single-char operators with
 # higher priority so '<<='/'>>=' win over '<<'/'>=' at lexing time.
 COMPOUND_OP.3: "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>="
