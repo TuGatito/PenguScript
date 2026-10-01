@@ -3841,7 +3841,14 @@ class PenguCodegen:
                             base_str = f"{base_target}{sep}{base_str}"
                             curr_t = self._lookup_field_type_on(base_type, base_str)
                         else:
-                            curr_t = sym.type if sym else self._lookup_var_type(base_str)
+                            if base_str in self.local_vars and self.local_vars[base_str] is not None:
+                                curr_t = self.local_vars[base_str]
+                            elif base_str.startswith("_") and base_str[1:] in self.local_vars and self.local_vars[base_str[1:]] is not None:
+                                curr_t = self.local_vars[base_str[1:]]
+                            elif sym is not None and sym.type:
+                                curr_t = sym.type
+                            else:
+                                curr_t = self._lookup_var_type(base_str)
                         for acc in base_parts[1:]:
                             base_str, curr_t = self._translate_access_op_step(base_str, acc, curr_t)
                         map_t = curr_t or self._lookup_var_type(base_str) or self._lookup_var_type(str(base_parts[0]))
@@ -4778,7 +4785,14 @@ class PenguCodegen:
                 current_t = self._lookup_field_type_on(base_type, base_name)
             else:
                 target_str = c_base_name
-                current_t = sym.type if sym else self._lookup_var_type(base_name)
+                if base_name in self.local_vars and self.local_vars[base_name] is not None:
+                    current_t = self.local_vars[base_name]
+                elif base_name.startswith("_") and base_name[1:] in self.local_vars and self.local_vars[base_name[1:]] is not None:
+                    current_t = self.local_vars[base_name[1:]]
+                elif sym is not None and sym.type:
+                    current_t = sym.type
+                else:
+                    current_t = self._lookup_var_type(base_name)
             for acc in node.children[1:]:
                 target_str, current_t = self._translate_access_op_step(target_str, acc, current_t)
             return target_str

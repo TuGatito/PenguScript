@@ -112,10 +112,12 @@ All notable changes to PenguScript will be documented in this file.
   - *Symptom:* Executing `pengu test` on a bundle including `std/atlas` also discovers and runs the internal tests of `std/scrolls`; legacy `atlas.is_empty(map)` shadows `scrolls.is_empty(string)` in the shared test harness, leading to type errors in embedded tests.
   - *Observed effect:* Affects embedded test runs (`pengu test`) for targets importing `atlas`, while `pengu build`, the standard pytest suite (`test_stdlib.py`), and `pengu fmt --check` remain fully green and unaffected.
 
-- **`pengu_codegen.py` (~line 4781) — Global symbol shadows local variable in `set` target:**
-  - *Location:* `pengu_parser/pengu_codegen.py` (~L4781 in `_translate_set_target`).
-  - *Symptom:* `current_t = sym.type if sym else self._lookup_var_type(base_name)` checks global `symbols.lookup(base_name)` before `self.local_vars`. If another imported module exports a variable of the same name (e.g. `idx: int` in `std.invoke`), a local variable (e.g. `idx: list of int` in `values_sorted_of`) is misidentified as `int`, causing `set idx at i is ...` to emit invalid array indexing `idx[i]` on a struct `PenguList`.
-  - *Workaround applied:* `self.local_vars` must take precedence over global symbol table lookups for target resolution.
+### Fixed — compiler bugs (post 0.15.0)
+
+- **Bug 7 — Global symbol shadows local variable in `set` target** (`pengu_codegen.py`):
+  Target resolution in `_translate_set_target` and `set_stmt` prioritized global `symbols.lookup` over `self.local_vars`, causing local container variables (e.g. `idx: list of int`) to be shadowed by globals from other imported modules (e.g. `idx: int` in `std.invoke`) and emitted as scalar array indexing `idx[i]`.
+  Now `self.local_vars` takes precedence over global symbols in all `set` target lookups.
+  Pinned by `tests/test_compiler_bugfixes_v0150.py::TestBug7_LocalShadowsGlobal`.
 
 ### Changed — ownership contract for `maybe` and rune lifetime (audit #5)
 
