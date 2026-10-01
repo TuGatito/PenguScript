@@ -497,3 +497,29 @@ weave foo into list of int:
         # Inside foo (2 spaces), comprehension temporary list declaration should be indented with 4 spaces
         assert "    PenguList _comp_list" in c
 
+
+# ─── M1: Clearer error message in _check_with_builder ─────────────────
+class TestM1_WithBuilderErrorMessage:
+    def test_with_builder_rejects_invalid_stmt_cleanly(self):
+        """Invalid statement inside 'with:' block formats inner node cleanly."""
+        from pengu_parser.pengu_parser import PenguParser
+        from pengu_parser.pengu_checker import PenguChecker
+        from pengu_parser.pengu_errors import InvalidBuilderStatementError
+
+        code = """
+rune Point:
+    x as int
+    y as int
+
+weave main into void:
+    var p as Point with:
+        var bad as int is 10
+"""
+        p = PenguParser()
+        checker = PenguChecker()
+        with pytest.raises(InvalidBuilderStatementError) as exc_info:
+            checker.check(p.parse(code))
+        msg = str(exc_info.value)
+        assert "'with:' block only allows 'set .field is ...' assignments" in msg
+        assert "not 'var_decl'" in msg
+

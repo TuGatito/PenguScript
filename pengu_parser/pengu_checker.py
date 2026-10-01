@@ -2763,10 +2763,15 @@ class PenguChecker:
                         if isinstance(tgt, Tree) and tgt.data in ("with_target", "normal_target"):
                             is_valid = True
                 if not is_valid:
+                    if inner.data == "expr_stmt" and inner.children:
+                        first_child = inner.children[0]
+                        inner_desc = first_child.data if isinstance(first_child, Tree) else (getattr(first_child, "type", None) or str(first_child))
+                    else:
+                        inner_desc = inner.data
                     err = self._make_error(
                         InvalidBuilderStatementError,
                         "'with:' block only allows 'set .field is ...' assignments and "
-                        f"'calling .method' statements, not '{inner.children[0].data if inner.data == 'expr_stmt' and inner.children and isinstance(inner.children[0], Tree) else inner.data}'",
+                        f"'calling .method' statements, not '{inner_desc}'",
                         inner,
                         code="E0014",
                         help="Use field assignments and method calls inside the builder block.",
