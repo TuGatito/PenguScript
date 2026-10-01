@@ -899,5 +899,24 @@ class Test_m8_ComptimeConditionalEvaluation:
         assert eval_comptime(env, binding_node) is None
 
 
+# ─── m9: ErrorReporter ANSI color escape code suppression ─────────────
+class Test_m9_ErrorReporterColorHandling:
+    def test_report_without_color_emits_no_ansi_escapes(self):
+        """ErrorReporter with use_color=False contains zero ANSI escape sequences."""
+        from pengu_parser.pengu_errors import ErrorReporter, SemanticError
+
+        err = SemanticError("Type mismatch", line=1, col=5, code="E0005", help="Check types", note="Int expected")
+        reporter = ErrorReporter(source="var x as int is 'test'", filename="test.pengu")
+
+        rendered_no_color = reporter.report(err, use_color=False)
+        assert "\033" not in rendered_no_color
+        assert "[E0005]" in rendered_no_color
+        assert "Type mismatch" in rendered_no_color
+
+        rendered_with_color = reporter.report(err, use_color=True)
+        assert "\033" in rendered_with_color
+
+
+
 
 
