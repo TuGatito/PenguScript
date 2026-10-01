@@ -25,3 +25,32 @@ class TestC1_IntInterpSpecDecorator:
         spec_u, cast_u = PenguCodegen._int_interp_spec(BaseType("u64"))
         assert spec_u == "%llu"
         assert cast_u == "unsigned long long"
+
+
+# ─── C2: field_access over maybe field emits payload cast ─────────────
+class TestC2_FieldAccessMaybeCast:
+    @requires_runtime
+    def test_nested_rune_maybe_field_value_cast(self):
+        """field_access on composite rune.maybe.value properly emits cast."""
+        code = """
+import std.spark
+
+rune Inner:
+    m as maybe int
+
+rune Outer:
+    inner as Inner
+
+weave main into int:
+    var inn as Inner with:
+        set .m is some 123
+    var o as Outer with:
+        set .inner is inn
+    if o.inner.m is present:
+        var v as int is o.inner.m.value
+        calling spark.println with "{v}"
+    return 0
+"""
+        res = compile_run(code, tag="test_c2_nested")
+        assert res.stdout.strip() == "123"
+

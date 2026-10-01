@@ -7074,6 +7074,8 @@ class PenguCodegen:
                 var_t = self.local_vars[base[1:]]
             else:
                 var_t = sym.type if sym else self._lookup_var_type(base)
+            if var_t is None:
+                var_t = self._infer_node_type(target_node)
             is_ref = isinstance(var_t, RefType)
             inner_t = var_t.target if is_ref else var_t
             # A non-identifier base ('(essence of self)', a cast, a call...) has
