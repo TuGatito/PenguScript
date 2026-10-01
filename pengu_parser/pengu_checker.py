@@ -3612,6 +3612,18 @@ class PenguChecker:
                 note="'main' can only appear as the condition of a compile-time 'when'."
             ))
             return
+        if v_name != "_":
+            existing = self.symbols.lookup_local(v_name) if self.symbols else None
+            if existing is not None:
+                self._record_error(self._make_error(
+                    SemanticError,
+                    f"Redefinition of '{v_name}' in the same scope",
+                    node,
+                    code="E0035",
+                    help=f"Use 'set {v_name} is ...' to reassign, or use a distinct name.",
+                    note=f"'{v_name}' was previously declared on line {existing.line}."
+                ))
+                return
         v_type = None
         type_node, v_expr = _decl_layout(node)
         if type_node is not None:
@@ -3905,6 +3917,7 @@ class PenguChecker:
         is_borrowed, name_idx = _has_borrowed_modifier(node)
         names_node = node.children[name_idx]
         names: List[str] = [str(c) for c in names_node.children] if isinstance(names_node, Tree) else [str(names_node)]
+        seen_in_decl = set()
         for nm in names:
             if nm == "main":
                 self._record_error(self._make_error(
@@ -3916,6 +3929,28 @@ class PenguChecker:
                     note="'main' can only appear as the condition of a compile-time 'when'."
                 ))
                 return
+            if nm != "_":
+                if nm in seen_in_decl:
+                    self._record_error(self._make_error(
+                        SemanticError,
+                        f"Duplicate binding name '{nm}' in destructuring",
+                        node,
+                        code="E0035",
+                        help="Use distinct variable names for each destructured element."
+                    ))
+                    return
+                seen_in_decl.add(nm)
+                existing = self.symbols.lookup_local(nm) if self.symbols else None
+                if existing is not None:
+                    self._record_error(self._make_error(
+                        SemanticError,
+                        f"Redefinition of '{nm}' in the same scope",
+                        node,
+                        code="E0035",
+                        help=f"Use a distinct name for this binding.",
+                        note=f"'{nm}' was previously declared on line {existing.line}."
+                    ))
+                    return
         l_type = None
         type_node, l_expr = _decl_layout(node)
         if type_node is not None:

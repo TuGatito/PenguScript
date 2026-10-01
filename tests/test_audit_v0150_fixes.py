@@ -235,3 +235,80 @@ weave main into int:
         check_c_syntax(c)
         res = compile_run(code, tag="test_c7_run")
         assert res.returncode == 0
+
+
+# ─── C8: Reject redeclaration in the same scope ───────────────────────
+class TestC8_RedeclarationError:
+    def test_redefinition_in_same_scope_rejected(self):
+        """Redefining a variable or let in the same scope produces E0035."""
+        from pengu_parser.pengu_errors import SemanticError
+        from pengu_parser.pengu_checker import PenguChecker
+        from pengu_parser.pengu_parser import PenguParser
+
+        p = PenguParser()
+        checker = PenguChecker()
+
+        code_var = """
+weave main into void:
+    var x is 1
+    var x is 2
+"""
+        with pytest.raises(SemanticError) as exc_info:
+            checker.check(p.parse(code_var))
+        assert exc_info.value.code == "E0035"
+
+        code_let = """
+weave main into void:
+    let y is 1
+    let y is 2
+"""
+        with pytest.raises(SemanticError) as exc_info:
+            checker.check(p.parse(code_let))
+        assert exc_info.value.code == "E0035"
+
+        code_var_let = """
+weave main into void:
+    var z is 1
+    let z is 2
+"""
+        with pytest.raises(SemanticError) as exc_info:
+            checker.check(p.parse(code_var_let))
+        assert exc_info.value.code == "E0035"
+
+        code_destruct_dup = """
+weave main into void:
+    let a, a is [1, 2]
+"""
+        with pytest.raises(SemanticError) as exc_info:
+            checker.check(p.parse(code_destruct_dup))
+        assert exc_info.value.code == "E0035"
+
+    def test_nested_scope_shadowing_allowed(self):
+        """Shadowing in a distinct inner block scope is permitted."""
+        from pengu_parser.pengu_checker import PenguChecker
+        from pengu_parser.pengu_parser import PenguParser
+
+        code = """
+weave main into void:
+    var x is 1
+    if true:
+        var x is 2
+"""
+        p = PenguParser()
+        checker = PenguChecker()
+        assert checker.check(p.parse(code)) == []
+
+    def test_discard_identifier_multiple_allowed(self):
+        """The discard identifier '_' can appear multiple times."""
+        from pengu_parser.pengu_checker import PenguChecker
+        from pengu_parser.pengu_parser import PenguParser
+
+        code = """
+weave main into void:
+    var _ is 1
+    var _ is 2
+    let _ is 3
+"""
+        p = PenguParser()
+        checker = PenguChecker()
+        assert checker.check(p.parse(code)) == []
