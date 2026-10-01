@@ -334,6 +334,16 @@ def skip_weave_modifiers(children, start: int = 0):
     return is_inline, is_ritual, idx
 
 
+def get_generic_ast_name(node: Any) -> Optional[str]:
+    """Extracts the declared function name from a weave_decl AST node."""
+    if not isinstance(node, Tree) or node.data != "weave_decl":
+        return None
+    _, _, idx = skip_weave_modifiers(node.children)
+    if idx < len(node.children):
+        return str(node.children[idx])
+    return None
+
+
 def unwrap_top_level(node):
     """Descends through top_stmt wrappers to the real declaration."""
     while node is not None and isinstance(node, Tree) and node.data == "top_stmt" and node.children:
@@ -6402,8 +6412,15 @@ class PenguCodegen:
                                 if cand in self.symbols.monomorphized_functions or cand in self.fn_info:
                                     prefixed = cand
                                     break
+                        elif prefixed in self.fn_info:
+                            prefixed = prefixed
+                        elif alias_prefixed in self.fn_info:
+                            prefixed = alias_prefixed
                         elif hasattr(self.symbols, "monomorphized_functions"):
-                            m_matches = [m for m in self.symbols.monomorphized_functions if m.startswith(f"{prefixed}_") or m.startswith(f"{alias_prefixed}_") or m.startswith(f"{m_name}_")]
+                            m_matches = [m for m in self.symbols.monomorphized_functions if m.startswith(f"{prefixed}_") or m.startswith(f"{alias_prefixed}_")]
+                            if not m_matches:
+                                m_matches = [m for m, entry in self.symbols.monomorphized_functions.items()
+                                             if m.startswith(f"{m_name}_") and get_generic_ast_name(entry[0]) == m_name]
                             if len(m_matches) == 1:
                                 prefixed = m_matches[0]
                         # Prefer the unambiguous module-scoped C name when the code
@@ -6882,11 +6899,13 @@ class PenguCodegen:
                         if mangled in self.symbols.monomorphized_functions:
                             target_str = mangled
                         else:
-                            matches = [m for m in self.symbols.monomorphized_functions if m.startswith(f"{target_str}_")]
+                            matches = [m for m, entry in self.symbols.monomorphized_functions.items()
+                                       if m.startswith(f"{target_str}_") and (get_generic_ast_name(entry[0]) == target_str or m.startswith(f"{target_str}__"))]
                             if matches:
                                 target_str = matches[0]
                     else:
-                        matches = [m for m in self.symbols.monomorphized_functions if m.startswith(f"{target_str}_")]
+                        matches = [m for m, entry in self.symbols.monomorphized_functions.items()
+                                   if m.startswith(f"{target_str}_") and (get_generic_ast_name(entry[0]) == target_str or m.startswith(f"{target_str}__"))]
                         if len(matches) == 1:
                             target_str = matches[0]
                         elif len(matches) > 1:

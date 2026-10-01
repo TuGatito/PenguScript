@@ -78,11 +78,38 @@ All notable changes to PenguScript will be documented in this file.
 
 ### Compiler bugs found (documented, not fixed)
 
+- **Weave-as-value inside `test` blocks loses module prefix:**
+  - *Location:* `pengu_parser/pengu_codegen.py` (test block codegen route).
+  - *Symptom:* Inside a `test "..."` block, a weave referenced as a first-class value (e.g. callback passed by name) is emitted without its module prefix, despite the global fix for general `var_ref`.
+  - *Observed effect:* Linker failure due to unresolved bare identifier for imported weaves passed as values in tests.
+  - *Workaround applied:* `std/loom` uses private module-internal cores to bypass bare references in tests.
+
+- **Unqualified symbol collisions in `test` blocks across bundled modules:**
+  - *Location:* `pengu_parser/pengu_checker.py` / `pengu_codegen.py`.
+  - *Symptom:* In test blocks, unqualified symbol references resolve against symbols from other modules in the same compilation bundle when names collide.
+  - *Workaround applied:* Use unique names or private cores in `std/loom` and related modules.
+
+- **`or` / `and` runtime evaluation lack of short-circuiting for bounds-checks:**
+  - *Location:* `pengu_parser/pengu_codegen.py` / `pengu_runtime.h`.
+  - *Symptom:* Right-hand side expressions under `or`/`and` containing bounds-checked array/list indexing are evaluated before or without short-circuiting in certain runtime macro expansions (e.g. `p at len - 1 or default` can fault when `p` is empty).
+  - *Workaround applied:* Use explicit `if` statements for guard conditions instead of relying on runtime short-circuiting.
+
+- **`pengu test` bundles in-module tests of imported modules:**
+  - *Location:* `pengu_project.py` (test runner).
+  - *Symptom:* Executing `pengu test` on a bundle including `std/atlas` also discovers and runs the internal tests of `std/scrolls`; legacy `atlas.is_empty(map)` shadows `scrolls.is_empty(string)` in the shared test harness, leading to type errors in embedded tests.
+  - *Observed effect:* Affects embedded test runs (`pengu test`) for targets importing `atlas`, while `pengu build`, the standard pytest suite (`test_stdlib.py`), and `pengu fmt --check` remain fully green and unaffected.
+
 ### Fixed — compiler bugs (post 0.15.0)
+
+- **Bug 2 — Prefix heuristic hazards `flatten`** (`pengu_codegen.py`):
+  When calling an imported function whose name matched the prefix of another module's monomorphization (e.g. `loom.flatten` matching `oracle`'s `flatten_maybe_string`), codegen rewrote the call to the unrelated monomorphization.
+  Now imported module calls check `fn_info` first, and filter candidate monomorphizations to ensure their AST declared name matches the callee function name exactly.
+  Pinned by `tests/test_compiler_bugfixes_v0150.py::TestBug2_PrefixHeuristicHazard`.
 
 - **Bug 1 — `_resolve_call_target` splits at `_` and generates bogus monomorphized methods** (`pengu_infer.py`):
   Calls to generic module weaves containing an underscore (such as `map_size`) fell through to a heuristic that split the name into `("map", "size")`, generating a bogus entry in `symbols.monomorphized_methods` with the return type as receiver.
   Now `_resolve_call_target` guards against names in `self.symbols.generic_functions` and resolved function symbols (`weave`/`function`/`declare`), preventing bogus method monomorphization.
+  Pinned by `tests/test_compiler_bugfixes_v0150.py::TestBug1_GenericModuleWeaveResolution`.
   Pinned by `tests/test_compiler_bugfixes_v0150.py::TestBug1_GenericModuleWeaveResolution`.
 
 - **Bug 7 — Global symbol shadows local variable in `set` target** (`pengu_codegen.py`):

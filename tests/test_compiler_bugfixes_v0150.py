@@ -92,3 +92,50 @@ weave test_fn with m as map of string to int into int:
         b = bundle_project(src, tag="bug1_unqual")
         check_c_syntax(b)
 
+
+# ─── Bug 2 — Prefix heuristic hazards flatten ─────────────────────────
+class TestBug2_PrefixHeuristicHazard:
+    @requires_runtime
+    def test_flatten_does_not_get_rewritten(self):
+        """loom.flatten(...) must not be rewritten to oracle.flatten_maybe_*."""
+        src = """
+import std.spark
+import std.loom
+import std.oracle
+
+weave main into int:
+    var nested as list of list of int is [[1, 2], [3, 4], [5]]
+    let flat is calling loom.flatten of int with nested
+    calling spark.println with "{(calling flat.len to string)}"
+    return 0
+"""
+        res = compile_run(src, tag="bug2_flatten_loom")
+        assert res.stdout.strip() == "5"
+
+    def test_imported_flatten_not_rewritten_to_oracle_monomorph(self):
+        """A module importing oracle and another module with flatten must not rewrite the call."""
+        import tempfile
+        import shutil
+        from pengu_project import PenguBuilder, ProjectConfig
+        from tests.conftest import BUILD_DIR
+        d = Path(tempfile.mkdtemp(prefix="bug2_test_", dir=BUILD_DIR))
+        try:
+            (d / "helper.pengu").write_text("weave flatten with x as int into int:\n    return x * 10\n", encoding="utf-8")
+            (d / "main.pengu").write_text("""
+import std.oracle
+import helper
+
+weave use_oracle with opt as maybe string into maybe string:
+    return calling oracle.flatten_maybe with opt
+
+weave main into int:
+    return calling helper.flatten with 5
+""", encoding="utf-8")
+            cfg = ProjectConfig(entry=str(d / "main.pengu"), base_dir=str(d), output="c")
+            bundle_path, _ = PenguBuilder(cfg).bundle(output_file=str(d / "bundle.c"))
+            content = Path(bundle_path).read_text(encoding="utf-8")
+            assert "flatten_maybe_string(5)" not in content
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
