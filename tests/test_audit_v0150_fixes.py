@@ -737,3 +737,19 @@ weave main into void:
         checker.check(p.parse(code))
         assert len(checker.errors) == 0
 
+
+# ─── m3: AliasType.can_cast_to consistency with is_compatible ─────────
+class Test_m3_AliasTypeCanCastTo:
+    def test_alias_can_cast_to_frozen_and_alias(self):
+        """AliasType.can_cast_to properly delegates to FrozenType and matching Alias."""
+        from pengu_parser.pengu_types import AliasType, FrozenType, INT_TYPE
+
+        a1 = AliasType("MyInt", INT_TYPE)
+        a2 = AliasType("MyInt", INT_TYPE)
+        frozen_int = FrozenType(INT_TYPE)
+
+        assert a1.can_cast_to(frozen_int) is True
+        assert a1.can_cast_to(a2) is True
+        assert a1.is_compatible(frozen_int) is True
+        assert a1.is_compatible(a2) is True
+

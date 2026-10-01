@@ -1507,10 +1507,12 @@ class AliasType(Type):
 
     def can_cast_to(self, other: Type) -> bool:
         """Checks cast conversion on underlying target type."""
+        if isinstance(other, FrozenType):
+            return self.can_cast_to(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, AliasType):
-            return self.target.can_cast_to(other.target)
+            return self.name == other.name or self.target.can_cast_to(other.target)
         return self.target.can_cast_to(other)
 
     def is_numeric(self) -> bool:
