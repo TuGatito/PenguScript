@@ -13,6 +13,7 @@ from tests.conftest import (
     compile_run,
     gen_bundle,
     requires_runtime,
+    requires_leakcheck,
 )
 
 requires_cc = pytest.mark.skipif(not HAVE_CC, reason="no C compiler")
@@ -309,6 +310,7 @@ def test_destructured_borrowed_list_is_not_released():
 
 @requires_cc
 @requires_runtime
+@requires_leakcheck
 def test_destructured_list_rvalue_has_no_leak(tmp_path):
     """#36: the released temporary means zero lost allocations."""
     from tests.test_string_composition_suite import _build_leakcheck, _compile_program

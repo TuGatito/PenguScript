@@ -173,12 +173,23 @@ def script_cache_key(
     return h.hexdigest()[:32]
 
 
+def script_binary_name() -> str:
+    """File name of a cached script binary for this platform.
+
+    Windows ``CreateProcess`` appends ``.exe`` when it is given an extension-less
+    image name, so a cached file called plain ``app`` is *not* executable there
+    (the OS looks for ``app.exe`` and fails with "file not found").  Keeping the
+    platform suffix makes the cached artefact runnable everywhere.
+    """
+    return "app.exe" if sys.platform == "win32" else "app"
+
+
 def cached_binary_path(key: str) -> Optional[str]:
     """Path where the binary of ``key`` lives (``None`` when caching is off)."""
     root = script_cache_root()
     if root is None:
         return None
-    return os.path.join(root, key, "app")
+    return os.path.join(root, key, script_binary_name())
 
 
 def lookup_cached_binary(key: str) -> Optional[str]:

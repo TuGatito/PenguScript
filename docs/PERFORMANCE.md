@@ -68,10 +68,12 @@ build flags (`-D`, links, cflags, profile, `--no-dce`) and stores the linked
 binary in
 
 ```
-<cache>/scripts/<key>/app
+<cache>/scripts/<key>/app            # 'app.exe' on Windows
 ```
 
-On a hit the compiler is not invoked at all. On a miss the program is built in a
+On a hit the compiler is not invoked at all.  The platform suffix matters:
+Windows ``CreateProcess`` appends ``.exe`` to an extension-less image name, so a
+file called plain ``app`` would never execute there. On a miss the program is built in a
 throw-away directory, the binary is copied into the cache, and the directory is
 removed (so the project's `build/` is never touched).
 
@@ -338,6 +340,22 @@ The regression tests for all of this live in `tests/test_run_cache.py`,
   could in principle be pruned. Runes, omens, constants, `declare`s and bindings
   are never pruned, and user modules are always fully emitted, which keeps the
   surface small.
+* **Leak checking is Linux/glibc only.** The bundled interposer
+  (`tests/leakcheck.c`) is an `LD_PRELOAD` shim that needs `<link.h>`,
+  `dl_iterate_phdr` and `__libc_malloc`; macOS and Windows have none of those.
+  `@requires_leakcheck` (see `tests/conftest.py`) skips those tests there — or
+  uses `valgrind` when it exists — instead of failing on a build error that says
+  nothing about the compiler. `PENGU_NO_LEAKCHECK=1` forces the skip path.
+* **Known codegen leak (xfail).** An owned string *temporary* passed as a call
+  argument is never released: `calling spark.println with (n to string)` lowers to
+  `spark_println((pengu_to_string(n)))` with no matching `pengu_banish_string`.
+  The same applies to `chr`, interpolations and call results used as arguments,
+  so fixing it means giving the codegen expression-temporary ownership (a
+  feature). Two leak programs are `xfail(strict=False)` (the interposer's
+  conservative marking hides the block on some runs, so a strict marker would
+  flake) and `test_call_argument_string_temporary_is_released` is a
+  `xfail(strict=True)` deterministic pin: when the compiler is fixed it XPASSes
+  and CI asks for the markers to be removed.
 * **Pre-existing leak-test flakiness.** Two leak tests fail on the reference
   machine *without* any of this work:
   `tests/test_generics_suite.py::test_generics_no_memory_leaks[test_map_of_string_to_list]`

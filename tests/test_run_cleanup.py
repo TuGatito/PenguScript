@@ -16,6 +16,7 @@ import tempfile
 
 import pytest
 
+from pengu_cache import script_binary_name
 from tests.conftest import REPO, requires_cc, requires_runtime
 
 pytestmark = [requires_cc, requires_runtime]
@@ -28,11 +29,13 @@ weave main into int:
 '''
 
 
-def _cli(args, cwd, cache_dir, timeout=300):
+def _cli(args, cwd, cache_dir, timeout=300, env_extra=None):
     env = dict(os.environ)
     env["PENGU_CACHE_DIR"] = str(cache_dir)
     env.pop("PENGU_CACHE", None)
     env.pop("PENGU_NO_DCE", None)
+    env.pop("PENGU_DEV_CC", None)
+    env.update(env_extra or {})
     return subprocess.run(
         [sys.executable, str(REPO / "pengu_project.py")] + args,
         cwd=str(cwd), capture_output=True, text=True, timeout=timeout, env=env,
@@ -104,9 +107,24 @@ def test_ephemeral_no_cache_no_build(sandbox, tmp_path):
     assert "cleanup hello" in res.stdout
     assert not (work / "build").exists()
     scripts = fresh_cache / "scripts"
-    assert not scripts.exists() or not list(scripts.glob("*/app")), \
+    assert not scripts.exists() or not list(scripts.glob(f"*/{script_binary_name()}")), \
         "--ephemeral must not populate the binary cache"
     assert _leftover_temp_dirs() == before
+
+
+def test_missing_dev_compiler_falls_back_to_the_configured_one(sandbox, cache_dir):
+    """A non-existent PENGU_DEV_CC must not crash the CLI.
+
+    Covers the Windows/macOS case where the 'broken compiler' cannot be a POSIX
+    shell stub: the retry path is reached because executing the compiler fails
+    with OSError (spawn error), not because it exits non-zero.
+    """
+    work, script = sandbox["work"], sandbox["script"]
+    res = _cli(["run", "--no-cache", str(script)], work, cache_dir,
+               env_extra={"PENGU_DEV_CC": "pengu-no-such-compiler-xyz"})
+    assert res.returncode == 0, res.stderr
+    assert "cleanup hello" in res.stdout
+    assert "retrying with" in res.stderr, res.stderr
 
 
 def test_verbose_run_reports_dce_metrics(sandbox, cache_dir):

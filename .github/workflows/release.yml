@@ -108,9 +108,29 @@ jobs:
           if ($exe) {
             Copy-Item $exe.FullName "$dest\tcc.exe" -Force
             Write-Host "staged $($exe.FullName)"
+            # TCC looks for its own headers next to the executable: without this
+            # the bundled 'tcc/tcc.exe' cannot compile anything (the toolchain
+            # would silently fall back to the system compiler).
+            $inc = Get-ChildItem -Path $exe.Directory -Recurse -Filter stdarg.h -ErrorAction SilentlyContinue |
+                   Where-Object { $_.Directory.Name -eq 'include' } | Select-Object -First 1
+            if (-not $inc) {
+              $inc = Get-ChildItem -Path $dest -Recurse -Filter stdarg.h -ErrorAction SilentlyContinue |
+                     Where-Object { $_.Directory.Name -eq 'include' } | Select-Object -First 1
+            }
+            if ($inc) {
+              if (Test-Path "$dest\include") { Remove-Item "$dest\include" -Recurse -Force }
+              Copy-Item $inc.Directory.FullName "$dest\include" -Recurse -Force
+              Write-Host "staged include tree from $($inc.Directory.FullName)"
+            } else {
+              Write-Host "::warning::TCC headers (stdarg.h) not found; the bundled tcc may not compile"
+            }
           } else {
             Write-Host "::warning::tcc.exe not found in the downloaded archive"
           }
+
+      - name: Toolchain smoke test (run + cache + doctor)
+        run: |
+          python scripts/smoke.py
 
       - name: Run Test Suite
         run: |

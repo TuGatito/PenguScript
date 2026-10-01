@@ -43,7 +43,7 @@ python pengu_project.py clean
 | Mecanismo | Qué hace | Cómo desactivarlo |
 | --------- | -------- | ----------------- |
 | Caché del parser | Serializa las tablas LALR de Lark en `~/.cache/pengu/parser/` (≈3 s → ≈0.26 s por arranque) | `PENGU_CACHE=0` |
-| Caché de binarios | Guarda el binario final por *hash de contenido* en `~/.cache/pengu/scripts/<clave>/app` | `--no-cache`, `--ephemeral` |
+| Caché de binarios | Guarda el binario final por *hash de contenido* en `~/.cache/pengu/scripts/<clave>/app` (`app.exe` en Windows) | `--no-cache`, `--ephemeral` |
 | Caché del grafo de imports | Reutiliza la lista de módulos validando el digest de cada uno | `PENGU_CACHE=0` |
 | TCC | Compilador preferido para `pengu run` si está disponible (empaquetado en los releases); ~19 ms por bundle frente a ~400 ms de gcc | `PENGU_NO_TCC=1`, `PENGU_DEV_CC=gcc` |
 | Flags de desarrollo | `-g0 -fno-plt -pipe -fno-ident -fno-asynchronous-unwind-tables` en el perfil `debug` de `pengu run` | `pengu build --profile release` |
@@ -127,6 +127,48 @@ muere por culpa de TCC. La línea de enlace de TCC **no** lleva
 `-Wl,--start-group` (su driver de enlazado lo rechaza): sin eso, todos los builds
 con TCC fallaban el enlace y caían a gcc, duplicando el tiempo de un cache miss.
 
+
+### 1.4 CI multiplataforma, smoke test y *xfails* conocidos
+
+Los tres workflows (`.github/workflows/ci.yml` y `release.yml`) ejecutan, en este
+orden: build del runtime → **`python scripts/smoke.py`** → pytest (subconjunto
+con `-x` y luego la suite completa con `--timeout=600`) → `make_release.py`.
+
+`scripts/smoke.py` es un chequeo end-to-end barato que corre igual en Windows,
+Linux y macOS y que la suite tarda en cubrir:
+
+* `pengu doctor --json` encuentra compilador C con versión y sin problemas
+  bloqueantes (TCC es opcional);
+* `pengu run script.pengu` compila, cachea y ejecuta; el binario cacheado se
+  llama `app` (`app.exe` en Windows) y **es ejecutable directamente** — un
+  fichero sin extensión no arranca en Windows porque `CreateProcess` añade
+  `.exe` al nombre de imagen;
+* la segunda ejecución es un *cache hit* y no se crea `build/` en el CWD;
+* `pengu expand` emite el marcador de DCE.
+
+Tests que **no** pueden correr en todas las plataformas (y por eso se *skippean*
+en lugar de fallar):
+
+| Test / helper | Motivo | Comportamiento |
+| ------------- | ------ | -------------- |
+| `tests/leakcheck.c` (interponedor `LD_PRELOAD`) | Usa `<link.h>`/`dl_iterate_phdr`, `__libc_malloc` y `LD_PRELOAD`: solo glibc/ELF | `@requires_leakcheck` (marcador en `tests/conftest.py`); se ejecuta en Linux o donde haya `valgrind`, se salta en macOS/Windows. `PENGU_NO_LEAKCHECK=1` fuerza el salto |
+| `tests/test_tcc_integration.py` | Necesita un TCC utilizable | `pytest.skip` a nivel de módulo si no hay TCC; el test "TCC compila el bundle" degrada a *skip* si el TCC empaquetado no compila en esa plataforma (el fallback a gcc ya está asertado) |
+| `tests/test_tcc_integration.py::test_fallback_*` | Usan un stub `#!/bin/sh` | `skipif(os.name == "nt")`; el caso "compilador inexistente" (`PENGU_DEV_CC=pengu-no-such-compiler-xyz`) sí corre en Windows porque `subprocess` lanza `OSError` y el fallback lo captura |
+
+**Fuga conocida del codegen (xfail).** Las suites de *leaks* destaparon un fallo
+real: una temporal de string con dueño pasada como argumento a una llamada nunca
+se libera (`calling spark.println with (n to string)` baja a
+`spark_println((pengu_to_string(n)))` sin `pengu_banish_string`). Arreglarlo
+requiere propiedad de temporales de expresión en el codegen (una funcionalidad,
+no un parche), así que:
+
+* `test_generics_no_memory_leaks[test_map_of_string_to_list]` y
+  `test_string_composition_no_memory_leaks[leak_binary_interp]` son
+  `xfail(strict=False)` (el marcado conservador del interponedor oculta el bloque
+  en algunas pasadas: un fallo *flaky* pondría CI en rojo sin motivo);
+* `test_call_argument_string_temporary_is_released` es un `xfail(strict=True)`
+  determinista sobre el C generado: el día que se arregle el compilador, XPASSea
+  y CI pedirá quitar los tres marcadores.
 
 ## 2. Configuration Files (`pengu.yaml` / `pengu.json` / `pengu.toml`)
 

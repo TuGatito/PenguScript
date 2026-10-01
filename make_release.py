@@ -262,6 +262,38 @@ def ensure_tcc_for_release() -> Optional[Path]:
     return None
 
 
+def find_tcc_include(tcc_bin: Path) -> Optional[Path]:
+    """Directory holding TCC's own headers (``stdarg.h``, ``stddef.h`` …).
+
+    Covers the layouts the release pipeline produces:
+
+    * ``<prefix>/bin/tcc`` + ``<prefix>/lib/tcc/include`` (``make install``),
+    * ``<dir>/tcc.exe`` + ``<dir>/include`` (Windows prebuilt archive),
+    * ``<dir>/tcc.exe`` with the archive unpacked to a *sibling* subtree
+      (``<dir>/tcc_20221020/include``) — what the CI staging step leaves behind
+      when it copies only the executable next to the archive root.
+
+    Without this search the Windows release shipped ``tcc.exe`` with no headers
+    and TCC could not compile anything (the bundle silently fell back to gcc).
+    """
+    direct = (tcc_bin.parent / "include",
+              tcc_bin.parent.parent / "lib" / "tcc" / "include")
+    for cand in direct:
+        if (cand / "stdarg.h").is_file() or (cand / "stddef.h").is_file():
+            return cand
+    base = tcc_bin.parent
+    for root, dirs, files in os.walk(base):
+        depth = len(Path(root).relative_to(base).parts)
+        if depth >= 4:
+            dirs[:] = []
+            continue
+        # Never descend into a TCC source checkout (huge, and not the headers).
+        dirs[:] = [d for d in dirs if "tinycc-src" not in d]
+        if Path(root).name == "include" and ("stdarg.h" in files or "stddef.h" in files):
+            return Path(root)
+    return None
+
+
 def tcc_add_binary_args(tcc_bin: Path, data_sep: str) -> List[str]:
     """PyInstaller ``--add-binary`` arguments that bundle a TCC installation.
 
@@ -271,15 +303,12 @@ def tcc_add_binary_args(tcc_bin: Path, data_sep: str) -> List[str]:
     never looks for, silently disabling TCC in Windows releases.
 
     The include tree (``stdarg.h``, ``stddef.h``, ``tccdefs.h`` …) travels with
-    it: ``<prefix>/lib/tcc/include`` for a ``make install`` layout and
-    ``<tcc_dir>/include`` for the prebuilt Windows archive.
+    it so the bundled compiler can actually build the generated bundle.
     """
     args = [f"{tcc_bin}{data_sep}tcc/{tcc_bin.name}"]
-    tcc_root = tcc_bin.parent
-    for inc in (tcc_root / "include", tcc_root.parent / "lib" / "tcc" / "include"):
-        if inc.is_dir():
-            args.append(f"{inc}{data_sep}tcc/include")
-            break
+    include = find_tcc_include(tcc_bin)
+    if include is not None:
+        args.append(f"{include}{data_sep}tcc/include")
     return args
 
 

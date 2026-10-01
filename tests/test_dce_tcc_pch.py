@@ -238,11 +238,15 @@ def test_tcc_link_line_has_no_gnu_start_group(tmp_path):
     assert "--start-group" not in tcc_line
     assert "--end-group" not in tcc_line
 
-    # ...while a GNU-ld host (gcc) still gets the group for robust archive order.
+    # ...while GNU-ld hosts (gcc on Linux/Windows-MinGW) still get the group for
+    # robust archive order.  Apple's ld64 rejects it, so macOS must not see it.
     cfg.cc = "gcc"
-    gcc_commands = PenguBuilder(cfg).build_compile_commands(
-        str(tmp_path / "bundle.c"), str(tmp_path / "p"))
-    assert "--start-group" in " ".join(gcc_commands[0])
+    gcc_line = " ".join(PenguBuilder(cfg).build_compile_commands(
+        str(tmp_path / "bundle.c"), str(tmp_path / "p"))[0])
+    if sys.platform == "darwin":
+        assert "--start-group" not in gcc_line
+    else:
+        assert "--start-group" in gcc_line
 
 
 def test_find_tcc_prefers_the_packaged_bundle(tmp_path, monkeypatch):
@@ -360,23 +364,38 @@ def test_tcc_add_binary_args_keep_the_executable_name(tmp_path):
     prefix = tmp_path / "tcc-dist"
     (prefix / "bin").mkdir(parents=True)
     (prefix / "lib" / "tcc" / "include").mkdir(parents=True)
+    (prefix / "lib" / "tcc" / "include" / "stdarg.h").write_text("", encoding="utf-8")
     unix_bin = prefix / "bin" / "tcc"
     unix_bin.write_text("", encoding="utf-8")
     args = tcc_add_binary_args(unix_bin, ":")
     assert args[0].endswith("tcc/tcc")
     assert not args[0].endswith("tcc.exe")
-    assert args[1].endswith(f"tcc/include")
+    assert args[1].endswith("tcc/include")
     assert str(prefix / "lib" / "tcc" / "include") in args[1]
 
     # Windows prebuilt layout: tcc.exe and include/ side by side.
     win_dir = tmp_path / "tcc_20221020"
     (win_dir / "include").mkdir(parents=True)
+    (win_dir / "include" / "stdarg.h").write_text("", encoding="utf-8")
     win_bin = win_dir / "tcc.exe"
     win_bin.write_text("", encoding="utf-8")
     win_args = tcc_add_binary_args(win_bin, ";")
     assert win_args[0].endswith("tcc/tcc.exe"), win_args
     assert win_args[1].endswith("tcc/include")
     assert str(win_dir / "include") in win_args[1]
+
+    # CI archive layout: the PowerShell step copies tcc.exe to the archive root
+    # while the headers stay inside the unpacked '<version>/include' subtree.
+    root = tmp_path / "staged"
+    (root / "tcc_20221020" / "include").mkdir(parents=True)
+    (root / "tcc_20221020" / "include" / "stdarg.h").write_text("", encoding="utf-8")
+    root_bin = root / "tcc.exe"
+    root_bin.write_text("", encoding="utf-8")
+    ci_args = tcc_add_binary_args(root_bin, ";")
+    assert ci_args[0].endswith("tcc/tcc.exe")
+    assert len(ci_args) == 2, f"include tree not found next to the staged tcc: {ci_args}"
+    assert ci_args[1].endswith("tcc/include")
+    assert "tcc_20221020" in ci_args[1]
 
 
 def test_find_tcc_discovers_the_make_release_staging_layout(tmp_path, monkeypatch):

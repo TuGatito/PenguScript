@@ -25,8 +25,10 @@ from tests.conftest import (
     BUILD_INCLUDE,
     BUILD_LIB,
     REPO,
+    build_leakcheck,
     compile_run,
     requires_cc,
+    requires_leakcheck,
     requires_runtime,
     runtime_link_flags,
     runtime_tail_flags,
@@ -49,6 +51,29 @@ def _test_id(path: Path) -> str:
 RUNNABLE = _discover("ok_*.pengu", "test_*.pengu", "leak_*.pengu")
 FAILING = _discover("err_*.pengu", "fail_*.pengu")
 LEAK_PROGRAMS = _discover("leak_*.pengu")
+
+#: Same known codegen leak as in test_generics_suite: a `(value to string)`
+#: temporary passed straight to a call is never released.  `leak_binary_interp`
+#: ends with `calling spark.println with (joined length to string)`, which
+#: lowers to `spark_println((pengu_to_string(joined.len)))` → 2 bytes lost.
+#: Non-strict: the leak is intermittently hidden by the interposer's
+#: conservative reachability marking, so a strict marker would flake to XPASS.
+#: The deterministic strict pin lives in
+#: `test_call_argument_string_temporary_is_released` below.
+_KNOWN_STRING_TEMP_LEAKS = {"leak_binary_interp"}
+_KNOWN_LEAK_REASON = (
+    "known codegen leak: a '(value to string)' temporary passed as a call "
+    "argument is never released"
+)
+LEAK_PARAMS = [
+    pytest.param(
+        program,
+        id=_test_id(program),
+        marks=[pytest.mark.xfail(strict=False, reason=_KNOWN_LEAK_REASON)]
+        if program.stem in _KNOWN_STRING_TEMP_LEAKS else [],
+    )
+    for program in LEAK_PROGRAMS
+]
 
 
 def _expected_code(path: Path) -> str:
@@ -76,12 +101,8 @@ def test_string_composition_program_reports_expected_error(program: Path):
 
 
 def _build_leakcheck(tmp_path: Path) -> Path:
-    so = tmp_path / "leakcheck.so"
-    src = REPO / "tests" / "leakcheck.c"
-    cmd = ["gcc", "-shared", "-fPIC", "-O1", "-o", str(so), str(src), "-ldl", "-lpthread"]
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    assert res.returncode == 0, f"leakcheck build failed: {res.stderr}"
-    return so
+    """Delegates to the shared helper (skips where the interposer cannot exist)."""
+    return build_leakcheck(tmp_path)
 
 
 def _compile_program(program: Path, out_dir: Path) -> Path:
@@ -105,9 +126,10 @@ def _compile_program(program: Path, out_dir: Path) -> Path:
     return exe
 
 
-@pytest.mark.parametrize("program", LEAK_PROGRAMS, ids=_test_id)
+@pytest.mark.parametrize("program", LEAK_PARAMS)
 @requires_cc
 @requires_runtime
+@requires_leakcheck
 def test_string_composition_no_memory_leaks(program: Path, tmp_path: Path):
     """Interpolated temporaries and owned slots release every allocation."""
     exe = _compile_program(program, tmp_path)
@@ -127,4 +149,39 @@ def test_string_composition_no_memory_leaks(program: Path, tmp_path: Path):
     assert res.returncode == 0, (
         f"leak detected in {program.name} (exit {res.returncode}):\n"
         f"{res.stderr}\n{res.stdout}"
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="known codegen leak: owned string temporaries passed as call "
+           "arguments are never released (see the leak_* suites)",
+)
+@requires_cc
+def test_call_argument_string_temporary_is_released():
+    """Deterministic pin for the leak the LD_PRELOAD suites report.
+
+    `calling spark.println with (n to string)` lowers to
+    `spark_println((pengu_to_string(n)))`; the temporary owns a fresh 2-byte
+    buffer that nothing ever frees.  The assertion is deliberately
+    mechanism-agnostic: any fix must emit *some* release in `pengu_main`.
+
+    Strict xfail: as soon as the compiler owns its expression temporaries this
+    test XPASSes and CI asks for the marker (and the two leak xfails) to be
+    removed.
+    """
+    from tests.conftest import gen_bundle
+
+    c = gen_bundle(
+        "import std.spark\n"
+        "\n"
+        "weave main into int:\n"
+        "    var n as int is 7\n"
+        "    calling spark.println with (n to string)\n"
+        "    return 0\n"
+    )
+    body = c.split("pengu_main(void) {", 1)[1]
+    assert "pengu_to_string" in body, "expected the to-string temporary in main"
+    assert "pengu_banish_string" in body, (
+        "the '(n to string)' temporary is never released: main frees nothing"
     )

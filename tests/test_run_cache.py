@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pytest
 
+from pengu_cache import script_binary_name
 from tests.conftest import REPO, requires_cc, requires_runtime
 
 pytestmark = [requires_cc, requires_runtime]
@@ -62,7 +63,8 @@ def test_first_run_populates_the_cache_and_second_is_a_hit(sandbox):
     res = _cli(["run", str(script)], work, cache)
     assert res.returncode == 0, res.stderr
     assert "cache hello" in res.stdout
-    entries = list((cache / "scripts").glob("*/app")) if (cache / "scripts").is_dir() else []
+    entries = (list((cache / "scripts").glob(f"*/{script_binary_name()}"))
+               if (cache / "scripts").is_dir() else [])
     assert entries, "the first run must populate <cache>/scripts/<key>/app"
     assert os.access(entries[0], os.X_OK)
 
@@ -121,18 +123,18 @@ def test_no_cache_flag_never_uses_the_cache(sandbox):
     res = _cli(["run", "--no-cache", str(script)], work, cache)
     assert res.returncode == 0, res.stderr
     scripts_dir = cache / "scripts"
-    assert not scripts_dir.exists() or not list(scripts_dir.glob("*/app"))
+    assert not scripts_dir.exists() or not list(scripts_dir.glob(f"*/{script_binary_name()}"))
 
 
 def test_clear_cache_empties_the_store(sandbox):
     work, cache, script = sandbox["work"], sandbox["cache"], sandbox["script"]
     assert _cli(["run", str(script)], work, cache).returncode == 0
-    assert list((cache / "scripts").glob("*/app"))
+    assert list((cache / "scripts").glob(f"*/{script_binary_name()}"))
     res = _cli(["run", "--clear-cache", str(script)], work, cache)
     assert res.returncode == 0, res.stderr
     assert "Cleared" in res.stdout
     # The run itself repopulates it.
-    assert list((cache / "scripts").glob("*/app"))
+    assert list((cache / "scripts").glob(f"*/{script_binary_name()}"))
 
 
 def test_pengu_cache_env_var_disables_caching(sandbox):
@@ -145,7 +147,7 @@ def test_pengu_cache_env_var_disables_caching(sandbox):
         cwd=str(work), capture_output=True, text=True, timeout=300, env=env,
     )
     assert res.returncode == 0, res.stderr
-    assert not (cache / "scripts").exists() or not list((cache / "scripts").glob("*/app"))
+    assert not (cache / "scripts").exists() or not list((cache / "scripts").glob(f"*/{script_binary_name()}"))
 
 
 def test_script_arguments_are_forwarded(sandbox):
@@ -185,7 +187,7 @@ def test_ephemeral_run_leaves_no_trace(sandbox):
     res = _cli(["run", "--ephemeral", str(script)], work, cache)
     assert res.returncode == 0, res.stderr
     assert not (work / "build").exists()
-    assert not (cache / "scripts").exists() or not list((cache / "scripts").glob("*/app"))
+    assert not (cache / "scripts").exists() or not list((cache / "scripts").glob(f"*/{script_binary_name()}"))
 
 
 def test_doctor_reports_the_essentials(sandbox):
@@ -209,7 +211,7 @@ def test_gc_removes_cached_scripts(sandbox):
     res = _cli(["gc", "--all"], work, cache)
     assert res.returncode == 0, res.stderr
     assert "Collected" in res.stdout
-    assert not list((cache / "scripts").glob("*/app"))
+    assert not list((cache / "scripts").glob(f"*/{script_binary_name()}"))
 
 
 def test_expand_prints_a_bundle_without_touching_build(sandbox):
@@ -233,3 +235,22 @@ def test_time_reports_phases(sandbox):
     assert res.returncode == 0, res.stderr
     assert "phase timings" in res.stdout
     assert "TOTAL" in res.stdout
+
+
+def test_cached_binary_name_is_platform_aware(monkeypatch):
+    """Windows cannot execute an extension-less image: the cache keeps '.exe'.
+
+    ``CreateProcess`` appends ``.exe`` when the image name has no extension, so a
+    cached file called plain ``app`` fails with "file not found" on Windows.
+    Pinned here (with the platform faked) because it is invisible on Linux.
+    """
+    import pengu_cache
+
+    monkeypatch.setattr(pengu_cache.sys, "platform", "win32")
+    assert pengu_cache.script_binary_name() == "app.exe"
+    monkeypatch.setenv("PENGU_CACHE_DIR", "/tmp/does-not-matter")
+    assert pengu_cache.cached_binary_path("k").endswith("k/app.exe")
+
+    monkeypatch.setattr(pengu_cache.sys, "platform", "linux")
+    assert pengu_cache.script_binary_name() == "app"
+    assert pengu_cache.cached_binary_path("k").endswith("k/app")

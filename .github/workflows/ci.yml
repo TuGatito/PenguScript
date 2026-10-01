@@ -75,6 +75,10 @@ jobs:
         run: |
           python build_runtime.py
 
+      - name: Toolchain smoke test (run + cache + doctor)
+        run: |
+          python scripts/smoke.py
+
       - name: Run test suite (fast fail on core reviews)
         run: |
           python -m pytest tests/test_p0_review_fixes.py tests/test_p1_review_fixes.py tests/test_p2_review_fixes.py -q -p no:cacheprovider --timeout=600 -x

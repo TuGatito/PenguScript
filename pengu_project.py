@@ -1537,8 +1537,14 @@ class PenguBuilder:
             for cmd in commands:
                 self._vlog(f"[pengu] running C compiler: {' '.join(cmd)}")
                 t_cmd = time.time()
-                res = subprocess.run(cmd, cwd=self.config.base_dir,
-                                     capture_output=True, text=True)
+                try:
+                    res = subprocess.run(cmd, cwd=self.config.base_dir,
+                                         capture_output=True, text=True)
+                except OSError as exc:
+                    # The compiler does not exist / is not executable.  Report it
+                    # like a failed command so the TCC → configured-compiler
+                    # fallback below can recover instead of crashing the CLI.
+                    return f"Command: {' '.join(cmd)}\nCould not execute: {exc}"
                 if self.verbose:
                     self._vlog(f"[pengu] command finished in {time.time() - t_cmd:.3f}s "
                                f"(rc={res.returncode})")

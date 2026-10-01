@@ -11,6 +11,7 @@ It is still hermetic — the user's real cache is never touched.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 
@@ -180,7 +181,10 @@ def test_dce_marks_the_bundle(tmp_path, cache_dir):
     rc, with_dce, err = _expand(script, work, cache_dir)
     assert rc == 0, err
     assert "Dead-code elimination: pruned" in with_dce
-    assert "35 -> 2" in with_dce
+    # The exact weave counts are platform independent for std.spark, but do not
+    # pin them: a `when`-guarded weave added anywhere would break the suite for
+    # reasons unrelated to DCE.
+    assert re.search(r"pruned \d+ of \d+ std/lib weave\(s\)", with_dce)
 
     rc, without_dce, err = _expand(script, work, cache_dir,
                                    extra_env={"PENGU_NO_DCE": "1"})

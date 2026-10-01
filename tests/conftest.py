@@ -52,11 +52,59 @@ def have_std_module(name: str) -> bool:
 
 HAVE_CC = have_tool("gcc") or have_tool("clang") or have_tool("cc")
 HAVE_RUNTIME = have_lib("pengu_runtime")
+HAVE_VALGRIND = have_tool("valgrind")
 
 requires_cc = pytest.mark.skipif(not HAVE_CC, reason="no C compiler available")
 requires_runtime = pytest.mark.skipif(
     not HAVE_RUNTIME, reason="libpengu_runtime.a not built (run build_runtime.py)"
 )
+
+
+def leakcheck_usable() -> bool:
+    """True when a leak checker can actually run on this platform.
+
+    ``tests/leakcheck.c`` is a *glibc/ELF* ``LD_PRELOAD`` shim: it needs
+    ``<link.h>``/``dl_iterate_phdr``, ``__libc_malloc`` and ``LD_PRELOAD``
+    itself.  macOS has none of those (and no supported valgrind), and Windows has
+    neither the shim nor ``-ldl``/``-lpthread``; there the leak tests must skip
+    instead of failing on a build error that says nothing about the compiler.
+
+    ``valgrind`` is accepted as an alternative wherever it exists.
+    ``PENGU_NO_LEAKCHECK=1`` forces the skip path (CI matrix, slow runners).
+    """
+    if os.environ.get("PENGU_NO_LEAKCHECK", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return False
+    if HAVE_VALGRIND:
+        return True
+    return HAVE_CC and sys.platform.startswith("linux")
+
+
+requires_leakcheck = pytest.mark.skipif(
+    not leakcheck_usable(),
+    reason="no leak checker available (tests/leakcheck.c is glibc/ELF-only; "
+           "install valgrind or run on Linux)",
+)
+
+
+def build_leakcheck(tmp_path: Path) -> Path:
+    """Builds the ``LD_PRELOAD`` leak interposer, or skips the caller.
+
+    Skipping (rather than asserting) keeps CI green on platforms where the
+    interposer cannot exist, while a genuine build failure on Linux still
+    surfaces as a skip with the compiler error attached.
+    """
+    if not leakcheck_usable():
+        pytest.skip("leak checker unavailable: tests/leakcheck.c is glibc/ELF-only")
+    if not HAVE_CC:
+        pytest.skip("no C compiler to build the leak checker")
+    cc = "gcc" if have_tool("gcc") else ("clang" if have_tool("clang") else "cc")
+    so = Path(tmp_path) / "leakcheck.so"
+    src = REPO / "tests" / "leakcheck.c"
+    cmd = [cc, "-shared", "-fPIC", "-O1", "-o", str(so), str(src), "-ldl", "-lpthread"]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        pytest.skip(f"leak checker does not build here: {res.stderr.strip()[:300]}")
+    return so
 
 
 def requires_lib(name: str):
