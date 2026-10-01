@@ -1386,7 +1386,12 @@ class PenguCodegen:
         return None
 
     def _rune_derives_explicitly(self, u: Type, concept: str) -> bool:
-        """True when a rune declares ``derive <concept>`` (not the implicit rule)."""
+        """True when a rune explicitly declares ``derive <concept>`` or binds the concept.
+
+        Checks both the monomorphized type's derived concepts and the base rune's
+        entry in the symbol table, as well as explicit concept bindings.
+        Does not return True for automatic/implicit Imago or Nexus derivations.
+        """
         try:
             derived = list(getattr(u, "derived_concepts", []) or [])
             base_n = u.get_base_name() if hasattr(u, "get_base_name") else getattr(u, "name", "")

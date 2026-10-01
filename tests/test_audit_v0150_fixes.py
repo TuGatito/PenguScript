@@ -686,3 +686,24 @@ weave main into int:
         res = compile_run(code, tag="test_m8_named_args")
         assert res.returncode == 0
 
+
+# ─── M9: _rune_derives_explicitly documentation and behavior ──────────
+class TestM9_RuneDerivesExplicitlyDocs:
+    def test_rune_derives_explicitly_recognition(self):
+        """_rune_derives_explicitly identifies explicit derive and bindings."""
+        from pengu_parser.pengu_codegen import PenguCodegen
+        from pengu_parser.pengu_types import RuneType
+        from pengu_parser.pengu_symbols import SymbolTable
+
+        codegen = PenguCodegen()
+        codegen.symbols = SymbolTable()
+
+        # Rune with explicit derive Nexus
+        r1 = RuneType("ExplicitRune", derived_concepts=["Nexus"])
+        assert codegen._rune_derives_explicitly(r1, "Nexus") is True
+        assert codegen._rune_derives_explicitly(r1, "Imago") is False
+
+        # Rune without explicit derive
+        r2 = RuneType("PlainRune", derived_concepts=[])
+        assert codegen._rune_derives_explicitly(r2, "Nexus") is False
+
