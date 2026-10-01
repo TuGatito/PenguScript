@@ -665,3 +665,24 @@ weave main into int:
         checker.check(p.parse(code))
         assert any("[W0005] Variable 'helper' shadows global function 'helper'" in w for w in checker.warnings)
 
+
+# ─── M8: Named argument reordering with defaults ──────────────────────
+class TestM8_NamedArgReordering:
+    @requires_runtime
+    def test_named_args_reordered_with_defaults(self):
+        """Named arguments reordered properly even when some have defaults."""
+        code = """
+weave format_coords with x as int, y as int is 10, z as int is 20 into int:
+    return x * 100 + y * 10 + z
+
+weave main into int:
+    var r1 as int is calling format_coords with z is 5, x is 1
+    if r1 == 205:
+        return 0
+    return 1
+"""
+        c = gen_bundle(code)
+        check_c_syntax(c)
+        res = compile_run(code, tag="test_m8_named_args")
+        assert res.returncode == 0
+

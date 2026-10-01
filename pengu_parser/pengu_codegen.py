@@ -1349,7 +1349,11 @@ class PenguCodegen:
             elif p_default is not None:
                 ordered.append(Tree("pos_arg", [p_default]))
             else:
-                return None
+                raise SemanticError(
+                    f"Missing required argument '{p_name}'",
+                    code="E0005",
+                    help=f"Provide a value for parameter '{p_name}'.",
+                )
         return ordered
 
     @staticmethod
