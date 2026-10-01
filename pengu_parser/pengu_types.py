@@ -2171,12 +2171,17 @@ def estimate_size(t: Optional[Type], custom_types: Optional[Dict[str, Type]] = N
             sz = 1
         return max(1, sz) * elem_sz
 
-    if isinstance(t, (SliceType, ManyType, ListType, MapType)):
-        return 24  # struct { void* ptr; size_t len; size_t cap; }
+    if isinstance(t, (SliceType, ManyType)):
+        return 24  # PenguSlice: void* data (8) + int len (4) + padding (4) + size_t elem_size (8) = 24 bytes
+
+    if isinstance(t, ListType):
+        return 40  # PenguList: data (8) + len (4) + cap (4) + elem_size (8) + cleanup (8) + clone (8) = 40 bytes
+
+    if isinstance(t, MapType):
+        return 64  # PenguMap: entries (8) + len (4) + cap (4) + key_sz (8) + val_sz (8) + 4 callbacks (32) = 64 bytes
 
     if isinstance(t, MaybeType):
-        elem_sz = estimate_size(t.element, custom_types, seen)
-        return elem_sz + 4  # value + is_present boolean aligned
+        return 16  # PenguMaybe: bool is_present (1) + padding (7) + void* value (8) = 16 bytes
 
     if isinstance(t, ResultType):
         ok_sz = estimate_size(t.ok_type, custom_types, seen)

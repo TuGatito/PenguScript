@@ -447,3 +447,17 @@ weave main into void:
         msg = str(exc_info.value)
         assert "Generic parameter 'x' of generic type 'T' cannot have a default value" in msg
 
+
+# ─── I8: Realistic 64-bit estimate_size for collections and maybe ─────
+class TestI8_EstimateSizeRealistic:
+    def test_estimate_size_values(self):
+        """estimate_size matches 64-bit C layout for list, map, slice, maybe."""
+        from pengu_parser.pengu_types import (
+            ListType, MapType, SliceType, MaybeType, INT_TYPE, STRING_TYPE,
+            estimate_size
+        )
+        assert estimate_size(SliceType(INT_TYPE)) == 24
+        assert estimate_size(ListType(INT_TYPE)) == 40
+        assert estimate_size(MapType(STRING_TYPE, INT_TYPE)) == 64
+        assert estimate_size(MaybeType(INT_TYPE)) == 16
+
