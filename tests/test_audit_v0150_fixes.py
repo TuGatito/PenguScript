@@ -214,3 +214,24 @@ weave main into int:
         check_c_syntax(c)
         res = compile_run(code, tag="test_c6_lit")
         assert res.returncode == 0
+
+
+# ─── C7: for from to loops use int64_t for counter ────────────────────
+class TestC7_ForRangeInt64:
+    @requires_runtime
+    def test_for_range_with_64bit_bounds(self):
+        """for from to loop counter uses int64_t and does not overflow on 64-bit bounds."""
+        code = """
+weave main into int:
+    var count as i64 is 0
+    for i from 0 to 5000000000 step 1000000000:
+        set count is count + 1
+    if count == 5:
+        return 0
+    return 1
+"""
+        c = gen_bundle(code)
+        assert "for (int64_t i = 0;" in c
+        check_c_syntax(c)
+        res = compile_run(code, tag="test_c7_run")
+        assert res.returncode == 0

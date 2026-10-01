@@ -4432,15 +4432,15 @@ class PenguCodegen:
             if step_val < 0:
                 cond_c = f"{c_var_name} > {end_str}"
                 step_c = f"{c_var_name}--" if step_val == -1 else f"{c_var_name} += {step_str}"
-                loop_header = f"for (int32_t {c_var_name} = {start_str}; {cond_c}; {step_c})"
+                loop_header = f"for (int64_t {c_var_name} = {start_str}; {cond_c}; {step_c})"
             else:
                 cond_c = f"{c_var_name} < {end_str}"
                 step_c = f"{c_var_name}++" if step_val == 1 else f"{c_var_name} += {step_str}"
-                loop_header = f"for (int32_t {c_var_name} = {start_str}; {cond_c}; {step_c})"
+                loop_header = f"for (int64_t {c_var_name} = {start_str}; {cond_c}; {step_c})"
         else:
             _step_tmp = self.get_temp_name("_step")
             cond_c = f"({_step_tmp} >= 0 ? {c_var_name} < {end_str} : {c_var_name} > {end_str})"
-            loop_header = f"for (int32_t {c_var_name} = {start_str}, {_step_tmp} = {step_str}; {cond_c}; {c_var_name} += {_step_tmp})"
+            loop_header = f"for (int64_t {c_var_name} = {start_str}, {_step_tmp} = {step_str}; {cond_c}; {c_var_name} += {_step_tmp})"
 
         return f"{ind}{loop_header} {{\n{body_str}\n{ind}}}"
 
