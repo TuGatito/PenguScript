@@ -423,3 +423,27 @@ weave main into void:
         c2 = PenguChecker()
         c2.check(p.parse(code_false))
         assert "[W0004] Unreachable code in else branch" in c2.warnings
+
+
+# ─── I4: Clarified generic parameter default error message ────────────
+class TestI4_GenericDefaultMessage:
+    def test_generic_default_error_message(self):
+        """Generic parameter default error clearly identifies generic type."""
+        from pengu_parser.pengu_parser import PenguParser
+        from pengu_parser.pengu_checker import PenguChecker
+        from pengu_parser.pengu_errors import SemanticError
+
+        code = """
+weave bad_fn shard T with x as T is 0 into T:
+    return x
+
+weave main into void:
+    return
+"""
+        p = PenguParser()
+        checker = PenguChecker()
+        with pytest.raises(SemanticError) as exc_info:
+            checker.check(p.parse(code))
+        msg = str(exc_info.value)
+        assert "Generic parameter 'x' of generic type 'T' cannot have a default value" in msg
+

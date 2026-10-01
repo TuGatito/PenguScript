@@ -5031,7 +5031,7 @@ class PenguChecker:
                                 if type_depends_on_tp(pt):
                                     err = self._make_error(
                                         SemanticError,
-                                        f"Generic parameter '{pn}' of type '{pt}' cannot have a default value depending on type parameters",
+                                        f"Generic parameter '{pn}' of generic type '{pt}' cannot have a default value depending on type parameters",
                                         p,
                                         code="E0005",
                                         help="Remove default value or ensure parameter type is a concrete non-generic type.",
