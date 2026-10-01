@@ -906,7 +906,7 @@ class TypeInferrer:
             sym = self.symbols.lookup(name)
             if sym is not None:
                 if sym.kind == "omen_variant" and isinstance(sym.type, OmenType) and sym.type.is_string_valued:
-                    return STRING_TYPE
+                    return FrozenType(STRING_TYPE)
                 return sym.type
             if name.isupper() and self.symbols.has_includes:
                 return INT_TYPE
@@ -976,14 +976,18 @@ class TypeInferrer:
                                 note="Private symbols starting with '_' are not exported."
                             )
                         if mod_sym and getattr(mod_sym, "type", None):
+                            if getattr(mod_sym, "kind", "") == "omen_variant" and isinstance(mod_sym.type, OmenType) and mod_sym.type.is_string_valued:
+                                return FrozenType(STRING_TYPE)
                             return mod_sym.type
                     c_sym = self.symbols.lookup(f"{var_name}_{field_name}") or self.symbols.lookup(field_name)
                     if c_sym and c_sym.type:
+                        if getattr(c_sym, "kind", "") == "omen_variant" and isinstance(c_sym.type, OmenType) and c_sym.type.is_string_valued:
+                            return FrozenType(STRING_TYPE)
                         return c_sym.type
                     return INT_TYPE
                 if sym and isinstance(sym.type, OmenType) and field_name in sym.type.variants:
                     if sym.type.is_string_valued:
-                        return STRING_TYPE
+                        return FrozenType(STRING_TYPE)
                     return sym.type
 
 

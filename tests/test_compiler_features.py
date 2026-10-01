@@ -915,7 +915,7 @@ class TestStringOmens:
   Green
 
 weave main into void:
-  var c as string is Color.Red
+  var c as frozen string is Color.Red
 """
         c = gen_bundle(code)
         assert '#define Color_Red pengu_string_from_cstr("Red")' in c
@@ -944,7 +944,7 @@ weave main into void:
   Red
 
 weave main into void:
-  var c as string is Color.Red
+  var c as frozen string is Color.Red
   if c == "Red":
     calling print with c
 """
@@ -978,7 +978,7 @@ weave main into void:
   Green
 
 weave main into void:
-  var c as string is Color.Red
+  var c as frozen string is Color.Red
   var msg as string is "FAIL"
   if c == "Red":
     set msg is "OMEN_OK"

@@ -121,4 +121,53 @@ weave main into int:
         assert res.stdout.strip() == "OK"
 
 
+# ─── C5: String-valued omen variants are typed as frozen string ───────
+class TestC5_StringOmenFrozen:
+    def test_banish_string_omen_variant_rejected(self):
+        """String-valued omen variants cannot be banished directly or via variable."""
+        from pengu_parser.pengu_errors import InvalidMemoryOpError, TypeMismatchError
+        from pengu_parser.pengu_checker import PenguChecker
+        from pengu_parser.pengu_parser import PenguParser
 
+        code_banish_direct = """
+omen Color with string:
+    Red
+
+weave main into void:
+    banish Color.Red
+"""
+        p = PenguParser()
+        checker = PenguChecker()
+        with pytest.raises(InvalidMemoryOpError):
+            checker.check(p.parse(code_banish_direct))
+
+        code_banish_var = """
+omen Color with string:
+    Red
+
+weave main into void:
+    var c is Color.Red
+    banish c
+"""
+        with pytest.raises(InvalidMemoryOpError):
+            checker.check(p.parse(code_banish_var))
+
+        code_assign_mutable = """
+omen Color with string:
+    Red
+
+weave main into void:
+    var s as string is Color.Red
+"""
+        with pytest.raises(TypeMismatchError):
+            checker.check(p.parse(code_assign_mutable))
+
+        code_valid_frozen = """
+omen Color with string:
+    Red
+
+weave main into void:
+    var s as frozen string is Color.Red
+    var inf is Color.Red
+"""
+        assert checker.check(p.parse(code_valid_frozen)) == []
