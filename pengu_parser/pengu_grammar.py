@@ -492,6 +492,8 @@ FLOAT: /[0-9][0-9_]*\.[0-9][0-9_]*([eE][-+]?[0-9][0-9_]*)?|[0-9][0-9_]*[eE][-+]?
 %ignore WS_INLINE
 
 _NEWLINE: /(\r?\n[\t ]*)+/
+# Single-line (#) and block (##...##) comments are blanked by PenguParser._strip_comments
+# to preserve line alignment; these %ignore directives provide defense-in-depth for direct Lark parses.
 %ignore /#[^#\r\n]*$/m
 %ignore /##[\s\S]*?##/
 

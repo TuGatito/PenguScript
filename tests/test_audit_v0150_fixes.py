@@ -753,3 +753,24 @@ class Test_m3_AliasTypeCanCastTo:
         assert a1.is_compatible(frozen_int) is True
         assert a1.is_compatible(a2) is True
 
+
+# ─── m4: Grammar comment ignore rules documentation and parsing ───────
+class Test_m4_GrammarCommentHandling:
+    def test_block_and_line_comments_handled(self):
+        """Block comments (##...##) and line comments (#...) are properly ignored."""
+        from pengu_parser.pengu_parser import PenguParser
+
+        code = """
+##
+Block comment
+spanning multiple lines
+##
+weave main into int:
+    # Single-line comment inside function
+    return 0  ## inline doc comment ##
+"""
+        p = PenguParser()
+        ast = p.parse(code)
+        assert ast is not None
+        assert ast.data == "start"
+
