@@ -602,3 +602,23 @@ class TestM4_TypeOwnsHeapConsolidation:
         syms_int.runes["Container"] = RuneType("Container", fields={"count": INT_TYPE})
         assert not type_owns_heap(r, symbols=syms_int)
 
+
+# ─── M5: Omen file paths tracking for implicit lifetimes ──────────────
+class TestM5_OmenFilePathTracking:
+    def test_omen_filepath_recorded(self):
+        """Omens record their definition file path in _rune_file_paths."""
+        from pengu_parser.pengu_parser import PenguParser
+        from pengu_parser.pengu_codegen import PenguCodegen
+
+        code = """
+omen Status:
+    Ok
+    Err with msg as string
+"""
+        p = PenguParser()
+        ast = p.parse(code)
+        codegen = PenguCodegen()
+        codegen.collect_declarations([("/app/status.pengu", ast)])
+        assert codegen._rune_file_paths.get("Status") == "/app/status.pengu"
+        assert codegen._implicit_lifetime_allowed(codegen._rune_file_paths.get("Status", "")) is True
+

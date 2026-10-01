@@ -1897,6 +1897,7 @@ class PenguCodegen:
                     f_type = ast_to_type(f.children[1], self._lookup_type_fn)
                     fields[f_name] = f_type
             self.echos[c_name] = fields
+            self._rune_file_paths[c_name] = filepath or ""
             if filepath and filepath.endswith(".d.pengu"):
                 self.declaration_types.add(c_name)
 
@@ -1917,6 +1918,7 @@ class PenguCodegen:
                             v_fields[f_name] = f_type
                     variants[v_name] = v_fields
             self.omens[c_name] = variants
+            self._rune_file_paths[c_name] = filepath or ""
             omen_t = (self.symbols.omens.get(name) or self.symbols.omens.get(c_name)) if self.symbols else None
             if omen_t and hasattr(omen_t, "variant_values") and omen_t.variant_values:
                 self.omen_values[c_name] = dict(omen_t.variant_values)
