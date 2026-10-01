@@ -523,3 +523,31 @@ weave main into void:
         assert "'with:' block only allows 'set .field is ...' assignments" in msg
         assert "not 'var_decl'" in msg
 
+
+# ─── M2: var_ref and or_block expression translation ──────────────────
+class TestM2_VarRefOrBlockFlow:
+    @requires_runtime
+    def test_var_ref_inside_and_after_or_block(self):
+        """Variable references inside and around 'or:' blocks resolve correctly."""
+        code = """
+weave fallback into int:
+    return 99
+
+weave test_or with m as maybe int into int:
+    var res as int is m or:
+        var fb as int is calling fallback
+        return fb
+    return res
+
+weave main into int:
+    var m as maybe int is some 42
+    var v as int is calling test_or with m
+    if v == 42:
+        return 0
+    return 1
+"""
+        c = gen_bundle(code)
+        check_c_syntax(c)
+        res = compile_run(code, tag="test_m2_run")
+        assert res.returncode == 0
+

@@ -6121,6 +6121,10 @@ class PenguCodegen:
             block_stmts = [c for c in node.children[1:] if isinstance(c, Tree)]
             return self._translate_or_block(left_op, block_stmts)
         elif rule == "var_ref":
+            # Variable reference resolution: handles constants, omen variants,
+            # 'with:' target fields, and local variables or decayed function pointers.
+            # (Note: 'or_block' constructs are handled explicitly above via
+            # _translate_or_block and never fall through to var_ref).
             name = str(node.children[0])
             sym = self.symbols.lookup(name) if self.symbols else None
             if sym and hasattr(sym, "const_val") and sym.const_val is not None and not getattr(sym, "is_mutable", False) and getattr(sym, "kind", "") in ("const", "let"):
