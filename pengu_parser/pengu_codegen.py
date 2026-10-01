@@ -1054,6 +1054,63 @@ class PenguCodegen:
                           for c in node.children if c is not None)
         return f"(({elem_c}[{size}]){{ {elems} }})"
 
+    def _slice_argument(self, node: Any, pt: Optional[Type]) -> Optional[str]:
+        """Wrap array expressions/literals into PenguSlice when expected type is SliceType."""
+        if pt is None:
+            return None
+        raw_pt = pt
+        while isinstance(raw_pt, (AliasType, FrozenType)):
+            raw_pt = getattr(raw_pt, "target", None)
+        if not isinstance(raw_pt, SliceType):
+            return None
+
+        # Check if argument is already a SliceType or ManyType
+        arg_t = self._infer_node_type(node)
+        raw_arg_t = arg_t
+        while isinstance(raw_arg_t, (AliasType, FrozenType)):
+            raw_arg_t = getattr(raw_arg_t, "target", None)
+        if isinstance(raw_arg_t, (SliceType, ManyType)):
+            return None
+
+        curr = node
+        while isinstance(curr, Tree) and curr.data in ("paren_expr", "value_expr") and len(curr.children) == 1:
+            curr = curr.children[0]
+
+        if raw_arg_t is None and isinstance(curr, Tree) and curr.data == "var_ref":
+            v_name = str(curr.children[0])
+            raw_arg_t = self._lookup_var_type(v_name)
+            while isinstance(raw_arg_t, (AliasType, FrozenType)):
+                raw_arg_t = getattr(raw_arg_t, "target", None)
+
+        elem_t = raw_pt.element
+        elem_c = CTypeMapper.to_c_type(elem_t)
+
+        if isinstance(curr, Tree) and curr.data == "array_lit":
+            arr_len = len([c for c in curr.children if c is not None])
+            elems = ", ".join(self._translate_expr(c, expected_type=elem_t) for c in curr.children if c is not None)
+            return f"((PenguSlice){{ .data = ({elem_c}[]){{ {elems} }}, .len = {arr_len}, .elem_size = sizeof({elem_c}) }})"
+
+        if isinstance(raw_arg_t, RefType) and isinstance(raw_arg_t.target, ArrayType):
+            arr_len = raw_arg_t.target.size if (raw_arg_t.target.size is not None and str(raw_arg_t.target.size).isdigit()) else (raw_arg_t.target.size if raw_arg_t.target.size is not None else 0)
+            arg_code = f"(*({self._translate_expr(node)}))"
+            return f"((PenguSlice){{ .data = (void*)({arg_code}), .len = {arr_len}, .elem_size = sizeof({elem_c}) }})"
+
+        if isinstance(raw_arg_t, ArrayType):
+            arr_len = raw_arg_t.size if (raw_arg_t.size is not None and str(raw_arg_t.size).isdigit()) else (raw_arg_t.size if raw_arg_t.size is not None else 0)
+            arg_code = self._translate_expr(node, expected_type=raw_arg_t)
+            return f"((PenguSlice){{ .data = (void*)({arg_code}), .len = {arr_len}, .elem_size = sizeof({elem_c}) }})"
+
+        return None
+
+    def _translate_call_arg(self, a: Any, pt: Optional[Type]) -> str:
+        slice_arg = self._slice_argument(a, pt)
+        if slice_arg is not None:
+            return slice_arg
+        compound = self._array_lit_argument(a, pt)
+        if compound is not None:
+            return compound
+        return self._translate_expr(a, expected_type=pt)
+
     def _build_call_args(self, fn_params: List[Any], raw_args: List[Any]) -> List[str]:
         """Formats and translates call arguments, filling defaults and constructing PenguSlice for ManyType."""
         if not fn_params:
@@ -1065,13 +1122,11 @@ class PenguCodegen:
             args = []
             for i, a in enumerate(raw_args):
                 pt = fn_params[i][1] if i < len(fn_params) else None
-                compound = self._array_lit_argument(a, pt)
-                args.append(compound if compound is not None
-                            else self._translate_expr(a, expected_type=pt))
+                args.append(self._translate_call_arg(a, pt))
             if len(args) < len(fn_params):
                 for p in fn_params[len(args):]:
                     if len(p) >= 3 and p[2] is not None:
-                        args.append(self._translate_expr(p[2], expected_type=p[1]))
+                        args.append(self._translate_call_arg(p[2], p[1]))
             return args
 
         if has_c_varargs:
@@ -1079,9 +1134,9 @@ class PenguCodegen:
             res_args = []
             for i, p in enumerate(fixed_params):
                 if i < len(raw_args):
-                    res_args.append(self._translate_expr(raw_args[i], expected_type=p[1]))
+                    res_args.append(self._translate_call_arg(raw_args[i], p[1]))
                 elif len(p) >= 3 and p[2] is not None:
-                    res_args.append(self._translate_expr(p[2], expected_type=p[1]))
+                    res_args.append(self._translate_call_arg(p[2], p[1]))
             for a in raw_args[len(fixed_params):]:
                 res_args.append(self._translate_expr(a))
             return res_args
@@ -1096,9 +1151,9 @@ class PenguCodegen:
 
         for i, p in enumerate(fixed_params):
             if i < len(raw_args):
-                res_args.append(self._translate_expr(raw_args[i], expected_type=p[1]))
+                res_args.append(self._translate_call_arg(raw_args[i], p[1]))
             elif len(p) >= 3 and p[2] is not None:
-                res_args.append(self._translate_expr(p[2], expected_type=p[1]))
+                res_args.append(self._translate_call_arg(p[2], p[1]))
 
         var_raw_args = raw_args[fixed_count:]
         if len(var_raw_args) == 1:

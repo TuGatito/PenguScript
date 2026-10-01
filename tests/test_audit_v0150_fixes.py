@@ -9,6 +9,7 @@ from tests.conftest import (
     check_error,
     compile_run,
     check_c_syntax,
+    gen_bundle,
     requires_runtime,
 )
 
@@ -171,3 +172,45 @@ weave main into void:
     var inf is Color.Red
 """
         assert checker.check(p.parse(code_valid_frozen)) == []
+
+
+# ─── C6: Array passed to slice parameter wraps in PenguSlice ──────────
+class TestC6_ArrayToSliceParam:
+    @requires_runtime
+    def test_array_variable_passed_to_slice_param(self):
+        """Passing an array variable to a slice of T parameter compiles and runs."""
+        code = """
+weave sum with s as slice of int into int:
+    let a, b, c is s
+    return a + b + c
+
+weave main into int:
+    var arr as array of int with size 3 is [10, 20, 30]
+    let total is calling sum with arr
+    if total == 60:
+        return 0
+    return 1
+"""
+        c = gen_bundle(code)
+        check_c_syntax(c)
+        res = compile_run(code, tag="test_c6_var")
+        assert res.returncode == 0
+
+    @requires_runtime
+    def test_array_literal_passed_to_slice_param(self):
+        """Passing an array literal to a slice of T parameter compiles and runs."""
+        code = """
+weave sum with s as slice of int into int:
+    let a, b, c is s
+    return a + b + c
+
+weave main into int:
+    let total is calling sum with [5, 15, 25]
+    if total == 45:
+        return 0
+    return 1
+"""
+        c = gen_bundle(code)
+        check_c_syntax(c)
+        res = compile_run(code, tag="test_c6_lit")
+        assert res.returncode == 0
