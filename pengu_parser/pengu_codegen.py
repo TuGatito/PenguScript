@@ -5513,7 +5513,7 @@ class PenguCodegen:
             return n.type in ("STRING", "TRIPLE_STRING", "RAW_STRING", "RAW_TRIPLE_STRING")
         if isinstance(n, Tree):
             rule = n.data
-            if rule in ("string_lit", "interpolated_string"):
+            if rule == "string_lit":
                 return True
             if rule == "var_ref":
                 vt = self._lookup_var_type(str(n.children[0]))

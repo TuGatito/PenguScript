@@ -362,3 +362,15 @@ class TestI2_EnglishErrorMessage:
         with pytest.raises(SemanticError) as exc_info:
             cg._translate_expr(node)
         assert "lambda not registered; run pre-scan before codegen" in str(exc_info.value)
+
+
+# ─── I6: string_lit recognized and dead code removed ──────────────────
+class TestI6_DeadCodeInterpolatedString:
+    def test_is_string_expr_handles_string_lit(self):
+        """_is_string_expr accurately detects string_lit and tokens."""
+        from lark import Tree, Token
+        cg = PenguCodegen(None, ["test.pengu"], ".")
+        node = Tree("string_lit", [Token("STRING", '"hello"')])
+        assert cg._is_string_expr(node) is True
+        token = Token("STRING", '"world"')
+        assert cg._is_string_expr(token) is True
