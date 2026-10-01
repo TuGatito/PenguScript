@@ -5156,7 +5156,7 @@ class PenguCodegen:
         return f"(__extension__(({{ {maybe_c} {tmp} = {expr_c}; {inner}; }})))"
 
     def _translate_string_lit(
-        self, s_val: str, as_c_literal: bool = False, context_hint: Optional[Dict[str, Any]] = None
+        self, s_val: str, as_c_literal: bool = False
     ) -> str:
         """Translates string literal, generating pengu_string_format call for interpolated expressions or C string literal.
         

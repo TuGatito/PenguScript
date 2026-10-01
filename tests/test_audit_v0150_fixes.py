@@ -707,3 +707,13 @@ class TestM9_RuneDerivesExplicitlyDocs:
         r2 = RuneType("PlainRune", derived_concepts=[])
         assert codegen._rune_derives_explicitly(r2, "Nexus") is False
 
+
+# ─── m1: _translate_string_lit signature cleanup ──────────────────────
+class Test_m1_TranslateStringLitSignature:
+    def test_signature_no_context_hint(self):
+        """_translate_string_lit has clean signature without dead context_hint parameter."""
+        import inspect
+        from pengu_parser.pengu_codegen import PenguCodegen
+        sig = inspect.signature(PenguCodegen._translate_string_lit)
+        assert "context_hint" not in sig.parameters
+
