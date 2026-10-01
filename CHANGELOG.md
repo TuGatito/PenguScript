@@ -78,11 +78,6 @@ All notable changes to PenguScript will be documented in this file.
 
 ### Compiler bugs found (documented, not fixed)
 
-- **Unqualified symbol collisions in `test` blocks across bundled modules:**
-  - *Location:* `pengu_parser/pengu_checker.py` / `pengu_codegen.py`.
-  - *Symptom:* In test blocks, unqualified symbol references resolve against symbols from other modules in the same compilation bundle when names collide.
-  - *Workaround applied:* Use unique names or private cores in `std/loom` and related modules.
-
 - **`or` / `and` runtime evaluation lack of short-circuiting for bounds-checks:**
   - *Location:* `pengu_parser/pengu_codegen.py` / `pengu_runtime.h`.
   - *Symptom:* Right-hand side expressions under `or`/`and` containing bounds-checked array/list indexing are evaluated before or without short-circuiting in certain runtime macro expansions (e.g. `p at len - 1 or default` can fault when `p` is empty).
@@ -94,6 +89,11 @@ All notable changes to PenguScript will be documented in this file.
   - *Observed effect:* Affects embedded test runs (`pengu test`) for targets importing `atlas`, while `pengu build`, the standard pytest suite (`test_stdlib.py`), and `pengu fmt --check` remain fully green and unaffected.
 
 ### Fixed — compiler bugs (post 0.15.0)
+
+- **Bug 4 — Unqualified symbol collisions in `test` blocks across bundled modules** (`pengu_checker.py`, `pengu_codegen.py`):
+  In test blocks, unqualified symbol references resolved against symbols from other modules in the same compilation bundle when short names collided (e.g. `is_empty`).
+  Now `_check_test_decl` defines the test file's own symbols into the test scope so unqualified symbols resolve locally, and `_translate_expr::calling_expr` prioritizes module weaves matching `current_source_file` before global lookups.
+  Pinned by `tests/test_compiler_bugfixes_v0150.py::TestBug4_UnqualifiedInTest`.
 
 - **Bug 3 — Weave-as-value inside `test` blocks loses module prefix** (`pengu_codegen.py`):
   Inside a `test` block, a weave referenced as a first-class value (e.g. callback passed by name) was emitted without its module or insignia prefix because `sym.c_name` was unpopulated or bare in `_translate_expr::var_ref` and `field_access`.

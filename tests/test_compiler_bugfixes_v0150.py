@@ -209,3 +209,35 @@ test "insignia callback in test":
             shutil.rmtree(d, ignore_errors=True)
 
 
+# ─── Bug 4 — Unqualified symbols collide in tests ─────────────────────
+class TestBug4_UnqualifiedInTest:
+    def test_local_is_empty_wins_in_test(self):
+        """Unqualified is_empty in test resolves to owning module without colliding with imported std.atlas."""
+        import tempfile
+        import shutil
+        from pengu_project import PenguBuilder, ProjectConfig
+        from tests.conftest import BUILD_DIR
+        d = Path(tempfile.mkdtemp(prefix="bug4_test_", dir=BUILD_DIR))
+        try:
+            src = """
+import std.spark
+import std.atlas
+
+weave is_empty with s as string into bool:
+    return (s.length == 0)
+
+test "local is_empty is used":
+    let s is ""
+    calling spark.println with "{(calling is_empty with s to string)}"
+"""
+            (d / "main.pengu").write_text(src, encoding="utf-8")
+            cfg = ProjectConfig(entry=str(d / "main.pengu"), base_dir=str(d), profile="debug", output="c")
+            builder = PenguBuilder(cfg)
+            builder.is_test_mode = True
+            bundle_path, _ = builder.bundle(output_file=str(d / "bundle.c"))
+            content = Path(bundle_path).read_text(encoding="utf-8")
+            check_c_syntax(content)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+

@@ -6249,6 +6249,13 @@ class PenguChecker:
 
         span_start, span_end = self._get_node_span(node)
         self.symbols.push_scope(kind="weave", return_type=VOID_TYPE, start_line=span_start, end_line=span_end)
+        test_file = self.filename
+        if test_file:
+            norm_test_file = os.path.abspath(test_file)
+            for name, sym in list(self.symbols.global_scope.symbols.items()):
+                fp = getattr(sym, "file_path", None)
+                if fp and os.path.abspath(fp) == norm_test_file:
+                    self.symbols.define(sym)
         self.block_stmts_stack.append(body_stmts)
         try:
             for stmt in body_stmts:

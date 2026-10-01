@@ -6950,7 +6950,16 @@ class PenguCodegen:
                                     resolved = mangled
                             target_str = resolved or matches[0]
 
-                fn_entry = self.fn_info.get(target_str)
+                fn_entry = None
+                if self.current_source_file:
+                    norm_cur = os.path.abspath(self.current_source_file)
+                    for w in self.weaves:
+                        if w.get("enchanted_type") is None and w.get("name") == target_str and w.get("filepath") and os.path.abspath(w["filepath"]) == norm_cur:
+                            w_cname = w.get("c_name")
+                            fn_entry = self.fn_info.get(w_cname) or {"c_name": w_cname, "params": w.get("params", [])}
+                            break
+                if not fn_entry:
+                    fn_entry = self.fn_info.get(target_str)
                 if fn_entry and fn_entry.get("params"):
                     args = self._build_call_args(fn_entry["params"], raw_arg_nodes)
                 elif fn_entry:
