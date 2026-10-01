@@ -5945,6 +5945,8 @@ class PenguChecker:
         block_node = node.children[1]
         else_node = node.children[2] if len(node.children) > 2 else None
 
+        folded_cond = self.const_folder.fold(cond_node)
+
         span_start, span_end = self._get_node_span(block_node)
         self.symbols.push_scope(kind="if", start_line=span_start, end_line=span_end)
         try:
@@ -5965,12 +5967,16 @@ class PenguChecker:
         b_stmts = [c for c in block_node.children if isinstance(c, Tree)] if (isinstance(block_node, Tree) and block_node.data == "block") else ([block_node] if isinstance(block_node, Tree) else [])
         self.block_stmts_stack.append(b_stmts)
         try:
+            if folded_cond is True:
+                self.warnings.append("[W0004] Unreachable code in then branch")
             self._check_node(block_node)
         finally:
             self.block_stmts_stack.pop()
         self.symbols.pop_scope(end_line=span_end)
 
         if else_node is not None:
+            if folded_cond is False:
+                self.warnings.append("[W0004] Unreachable code in else branch")
             e_start, e_end = self._get_node_span(else_node)
             self.symbols.push_scope(kind="if", start_line=e_start, end_line=e_end)
             e_stmts = [c for c in else_node.children if isinstance(c, Tree)] if (isinstance(else_node, Tree) and else_node.data in ("block", "else_block")) else ([else_node] if isinstance(else_node, Tree) else [])

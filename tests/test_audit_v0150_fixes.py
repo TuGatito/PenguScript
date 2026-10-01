@@ -394,3 +394,32 @@ weave main into void:
         p = PenguParser()
         checker = PenguChecker()
         assert checker.check(p.parse(code)) == []
+
+
+# ─── I3: unless statement emits W0004 for constant conditions ─────────
+class TestI3_UnlessUnreachableCodeWarning:
+    def test_unless_constant_condition_warnings(self):
+        """unless emits W0004 for unreachable then and else branches."""
+        from pengu_parser.pengu_parser import PenguParser
+        from pengu_parser.pengu_checker import PenguChecker
+
+        p = PenguParser()
+        code_true = """
+weave main into void:
+    unless true:
+        calling print with "unreachable"
+"""
+        c1 = PenguChecker()
+        c1.check(p.parse(code_true))
+        assert "[W0004] Unreachable code in then branch" in c1.warnings
+
+        code_false = """
+weave main into void:
+    unless false:
+        calling print with "reachable"
+    else:
+        calling print with "unreachable else"
+"""
+        c2 = PenguChecker()
+        c2.check(p.parse(code_false))
+        assert "[W0004] Unreachable code in else branch" in c2.warnings
