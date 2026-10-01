@@ -1371,12 +1371,17 @@ class PenguCodegen:
             return "pengu_list_cleanup"
         if isinstance(unwrapped, MapType):
             return "pengu_map_cleanup"
-        if isinstance(unwrapped, RuneType):
-            derived = list(getattr(unwrapped, "derived_concepts", []))
+        if isinstance(unwrapped, (RuneType, OmenType)):
+            is_omen = isinstance(unwrapped, OmenType)
+            if is_omen and not unwrapped.is_algebraic:
+                return "NULL"
+            derived = list(getattr(unwrapped, "derived_concepts", []) or [])
             base_n = unwrapped.get_base_name() if hasattr(unwrapped, "get_base_name") else unwrapped.name.split("_")[0]
-            if self.symbols and base_n in self.symbols.runes:
-                derived.extend(getattr(self.symbols.runes[base_n], "derived_concepts", []))
-            # Runes imported from another module carry no local derived_concepts;
+            if self.symbols:
+                store = getattr(self.symbols, "omens" if is_omen else "runes", {})
+                if base_n in store:
+                    derived.extend(getattr(store[base_n], "derived_concepts", []) or [])
+            # Runes/omens imported from another module carry no local derived_concepts;
             # fall back to the global concept bindings (bind X with Nexus / the
             # registrations emitted by 'derive').
             if self.symbols is not None and hasattr(self.symbols, "concept_bindings"):
@@ -1386,12 +1391,12 @@ class PenguCodegen:
                         break
             explicit = "Nexus" in derived or self._rune_derives_explicitly(unwrapped, "Nexus")
             if not explicit and self._type_owns_heap(unwrapped):
-                # The implicit destructor is only emitted for user runes; std and
+                # The implicit destructor is only emitted for user runes/omens; std and
                 # C bindings own their buffers through explicit free_* helpers.
                 c_key = self._derived_type_c_name(unwrapped)
                 explicit = self._implicit_lifetime_allowed(self._rune_file_paths.get(c_key, ""))
             if explicit:
-                # The helper is emitted per *C* name (self.runes key), which
+                # The helper is emitted per *C* name (self.runes/omens key), which
                 # carries the module 'insignia' prefix.
                 return f"((PenguElemCleanup){self._rune_cleanup_helper(unwrapped)})"
         return "NULL"
@@ -1409,12 +1414,17 @@ class PenguCodegen:
             return "pengu_list_clone"
         if isinstance(unwrapped, MapType):
             return "pengu_map_clone"
-        if isinstance(unwrapped, RuneType):
-            derived = list(getattr(unwrapped, "derived_concepts", []))
+        if isinstance(unwrapped, (RuneType, OmenType)):
+            is_omen = isinstance(unwrapped, OmenType)
+            if is_omen and not unwrapped.is_algebraic:
+                return "NULL"
+            derived = list(getattr(unwrapped, "derived_concepts", []) or [])
             base_n = unwrapped.get_base_name() if hasattr(unwrapped, "get_base_name") else unwrapped.name.split("_")[0]
-            if self.symbols and base_n in self.symbols.runes:
-                derived.extend(getattr(self.symbols.runes[base_n], "derived_concepts", []))
-            # Same fallback as _element_cleanup_fn: cross-module runes only
+            if self.symbols:
+                store = getattr(self.symbols, "omens" if is_omen else "runes", {})
+                if base_n in store:
+                    derived.extend(getattr(store[base_n], "derived_concepts", []) or [])
+            # Same fallback as _element_cleanup_fn: cross-module runes/omens only
             # surface through the symbol table's concept bindings.
             if self.symbols is not None and hasattr(self.symbols, "concept_bindings"):
                 for key in ((unwrapped.name, "Imago"), (base_n, "Imago")):
@@ -2627,6 +2637,28 @@ class PenguCodegen:
                         fields = dict(sym.fields)
                         break
             return any(self._type_owns_heap(f, _depth + 1) for f in fields.values())
+        if isinstance(u, OmenType):
+            derived = list(getattr(u, "derived_concepts", []) or [])
+            base_n = u.name.split("_")[0] if "_" in u.name else u.name
+            if "Imago" in derived or "Nexus" in derived:
+                return True
+            variants = dict(getattr(u, "variants", None) or {})
+            if not variants and self.symbols is not None:
+                for key in (u.name, base_n):
+                    o_sym = getattr(self.symbols, "omens", {}).get(key)
+                    if o_sym is not None and getattr(o_sym, "variants", None):
+                        variants = dict(o_sym.variants)
+                        break
+            if not variants and u.name in self.omens:
+                variants = self.omens[u.name]
+            for v_fields in variants.values():
+                if isinstance(v_fields, dict):
+                    if any(self._type_owns_heap(f, _depth + 1) for f in v_fields.values()):
+                        return True
+                elif v_fields is not None:
+                    if self._type_owns_heap(v_fields, _depth + 1):
+                        return True
+            return False
         return False
 
     def _derived_field_eq(self, a_expr: str, b_expr: str, f_type: Type) -> str:
@@ -2947,6 +2979,21 @@ class PenguCodegen:
                     if t_name in (omen_name, base_omen) and c_name2 in ("Par", "Ordo", "Vinculum", "Imago", "Nexus"):
                         if c_name2 not in derived:
                             derived.append(c_name2)
+            explicit_derived = list(derived)
+            if is_algebraic:
+                has_heap = False
+                for v_fields in (variants or {}).values():
+                    if isinstance(v_fields, dict):
+                        if any(self._type_owns_heap(f) for f in v_fields.values()):
+                            has_heap = True
+                            break
+                    elif v_fields is not None and self._type_owns_heap(v_fields):
+                        has_heap = True
+                        break
+                if has_heap:
+                    for implicit in ("Imago", "Nexus"):
+                        if implicit not in derived:
+                            derived.append(implicit)
             if not derived:
                 continue
 
@@ -3063,10 +3110,16 @@ class PenguCodegen:
 
             # 4. Imago
             if "Imago" in derived:
-                forward_decls.append(f"static inline void {c_o}_clone(void *dst, const void *src);")
-                forward_decls.append(f"static inline void _pengu_clone_{c_o}(void *dst, const void *src);")
+                explicit_imago = "Imago" in (explicit_derived or ())
+                if explicit_imago:
+                    body_fn = f"{c_o}_clone"
+                    forward_decls.append(f"static inline void {c_o}_clone(void *dst, const void *src);")
+                    forward_decls.append(f"static inline void _pengu_clone_{c_o}(void *dst, const void *src);")
+                else:
+                    body_fn = f"_pengu_auto_clone_{c_o}"
+                    forward_decls.append(f"static inline void {body_fn}(void *dst, const void *src);")
                 lines = [
-                    f"static inline void {c_o}_clone(void *dst, const void *src) {{",
+                    f"static inline void {body_fn}(void *dst, const void *src) {{",
                     "  if (!dst || !src) return;",
                     f"  *({c_o} *)dst = *(const {c_o} *)src;",
                 ]
@@ -3086,17 +3139,24 @@ class PenguCodegen:
                     lines.append("    default: break;")
                     lines.append("  }")
                 lines.append("}")
-                lines.append(f"static inline void _pengu_clone_{c_o}(void *dst, const void *src) {{")
-                lines.append(f"  {c_o}_clone(dst, src);")
-                lines.append("}")
+                if explicit_imago:
+                    lines.append(f"static inline void _pengu_clone_{c_o}(void *dst, const void *src) {{")
+                    lines.append(f"  {c_o}_clone(dst, src);")
+                    lines.append("}")
                 impl_blocks.append("\n".join(lines))
 
             # 5. Nexus
             if "Nexus" in derived:
-                forward_decls.append(f"static inline void {c_o}_nexus(void *p);")
-                forward_decls.append(f"static inline void _pengu_cleanup_{c_o}(void *elem);")
+                explicit_nexus = "Nexus" in (explicit_derived or ())
+                if explicit_nexus:
+                    body_fn = f"{c_o}_nexus"
+                    forward_decls.append(f"static inline void {c_o}_nexus(void *p);")
+                    forward_decls.append(f"static inline void _pengu_cleanup_{c_o}(void *elem);")
+                else:
+                    body_fn = f"_pengu_auto_cleanup_{c_o}"
+                    forward_decls.append(f"static inline void {body_fn}(void *elem);")
                 lines = [
-                    f"static inline void {c_o}_nexus(void *p) {{",
+                    f"static inline void {body_fn}(void *p) {{",
                     "  if (!p) return;",
                 ]
                 if is_algebraic:
@@ -3116,9 +3176,10 @@ class PenguCodegen:
                     lines.append("  }")
                 lines.append("  (void)p;")
                 lines.append("}")
-                lines.append(f"static inline void _pengu_cleanup_{c_o}(void *elem) {{")
-                lines.append(f"  {c_o}_nexus(elem);")
-                lines.append("}")
+                if explicit_nexus:
+                    lines.append(f"static inline void _pengu_cleanup_{c_o}(void *elem) {{")
+                    lines.append(f"  {c_o}_nexus(elem);")
+                    lines.append("}")
                 impl_blocks.append("\n".join(lines))
 
         if not forward_decls and not impl_blocks:

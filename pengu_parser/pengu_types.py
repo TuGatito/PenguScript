@@ -1627,6 +1627,19 @@ def type_owns_heap(t: Optional[Type], _depth: int = 0) -> bool:
             return True
         fields = getattr(u, "fields", None) or {}
         return any(type_owns_heap(f, _depth + 1) for f in fields.values())
+    if isinstance(u, OmenType):
+        derived = list(getattr(u, "derived_concepts", []) or [])
+        if "Imago" in derived or "Nexus" in derived:
+            return True
+        variants = getattr(u, "variants", None) or {}
+        for v_fields in variants.values():
+            if isinstance(v_fields, dict):
+                if any(type_owns_heap(f, _depth + 1) for f in v_fields.values()):
+                    return True
+            elif v_fields is not None:
+                if type_owns_heap(v_fields, _depth + 1):
+                    return True
+        return False
     return False
 
 

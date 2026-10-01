@@ -99,3 +99,26 @@ weave main into int:
         assert res.stdout.count("GEN CALLED") == 1
 
 
+# ─── C4: Algebraic omens without derive Nexus emit cleanup helpers ────
+class TestC4_AlgebraicOmenNexus:
+    @requires_runtime
+    def test_algebraic_omen_list_cleanup_and_clone(self):
+        """Algebraic omens with heap payloads automatically emit cleanup/clone for lists."""
+        code = """
+import std.spark
+
+omen Event:
+    Msg with text as string
+
+weave main into int:
+    var l as list of Event is list of Event
+    let ev as Event is with text is "hello"
+    calling l.push with ev
+    calling spark.println with "OK"
+    return 0
+"""
+        res = compile_run(code, tag="test_c4_run")
+        assert res.stdout.strip() == "OK"
+
+
+
