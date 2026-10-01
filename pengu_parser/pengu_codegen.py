@@ -973,7 +973,6 @@ class PenguCodegen:
         return False
 
     @staticmethod
-    @staticmethod
     def _int_interp_spec(t: Optional[Type]) -> tuple:
         """(format specifier, C cast) for interpolating an integer type.
 
