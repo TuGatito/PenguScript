@@ -850,3 +850,25 @@ weave main into int:
         assert res.returncode == 0
 
 
+# ─── m7: Node line extraction for Token and Tree ──────────────────────
+class Test_m7_NodeLineResolution:
+    def test_node_line_supports_tokens_and_meta(self):
+        """PenguCodegen._node_line properly extracts line numbers from Tokens and Trees."""
+        from lark import Token, Tree
+        from pengu_parser.pengu_codegen import PenguCodegen
+
+        tok = Token("NAME", "foo", line=42)
+        assert PenguCodegen._node_line(tok) == 42
+
+        # Tree with meta.line
+        class DummyMeta:
+            line = 84
+        tree_with_meta = Tree("stmt", [], meta=DummyMeta())
+        assert PenguCodegen._node_line(tree_with_meta) == 84
+
+        # Tree without meta, but with nested Token child
+        tree_nested = Tree("expr", [tok])
+        assert PenguCodegen._node_line(tree_nested) == 42
+
+
+

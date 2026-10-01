@@ -3450,9 +3450,17 @@ class PenguCodegen:
         """Returns the 1-based `.pengu` source line of an AST node, or None.
 
         Collected declarations are sometimes rebuilt by the collector and lose
-        their ``meta`` block; the first descendant token that still carries a
+        their ``meta`` block; the first descendant token or tree that still carries a
         line number is used as a fallback (tokens always keep theirs).
         """
+        if node is None:
+            return None
+        direct_line = getattr(node, "line", None)
+        if direct_line:
+            try:
+                return int(direct_line)
+            except (TypeError, ValueError):
+                pass
         meta = getattr(node, "meta", None)
         line = getattr(meta, "line", None) if meta is not None else None
         if line:
@@ -3470,6 +3478,12 @@ class PenguCodegen:
             if tok_line:
                 try:
                     return int(tok_line)
+                except (TypeError, ValueError):
+                    pass
+            c_meta = getattr(current, "meta", None)
+            if c_meta and getattr(c_meta, "line", None):
+                try:
+                    return int(c_meta.line)
                 except (TypeError, ValueError):
                     pass
             children = getattr(current, "children", None)
