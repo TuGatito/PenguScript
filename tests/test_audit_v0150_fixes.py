@@ -917,6 +917,29 @@ class Test_m9_ErrorReporterColorHandling:
         assert "\033" in rendered_with_color
 
 
+# ─── m10: DCE prunable module path root matching ──────────────────────
+class Test_m10_DCEPrunableModuleDetection:
+    def test_prunable_module_roots_and_extensions(self):
+        """is_prunable_module correctly identifies prunable std and lib modules."""
+        from pengu_parser.pengu_dce import is_prunable_module, _REPO_ROOT
+
+        # std module under repo root is prunable
+        assert is_prunable_module(f"{_REPO_ROOT}/std/spark.pengu") is True
+
+        # lib module directly under project base_dir is prunable
+        assert is_prunable_module("/project/lib/vendor.pengu", base_dir="/project") is True
+
+        # src module under project base_dir is NOT prunable
+        assert is_prunable_module("/project/src/main.pengu", base_dir="/project") is False
+
+        # Project that happens to live inside a folder named lib is NOT prunable
+        assert is_prunable_module("/home/me/lib/project/main.pengu", base_dir="/home/me/lib/project") is False
+
+        # .d.pengu files are never prunable
+        assert is_prunable_module("/project/lib/vendor.d.pengu", base_dir="/project") is False
+
+
+
 
 
 

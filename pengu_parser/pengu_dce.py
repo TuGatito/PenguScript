@@ -45,8 +45,8 @@ def _norm(path: str) -> str:
 def is_prunable_module(filepath: str, base_dir: Optional[str] = None) -> bool:
     """True for modules whose symbols may be dropped (``std/`` and ``lib/`` only).
 
-    A module is prunable when it lives **directly under** one of the known
-    roots (`std/` or `lib/` of the repository, or of the project's ``base_dir``):
+    A module is prunable when it lives in `std/` or `lib/` directly under one
+    of the known roots (the repository root or the project's ``base_dir``):
 
     * ``<repo>/std/spark.pengu``          -> prunable
     * ``<base_dir>/lib/vendor.pengu``     -> prunable
