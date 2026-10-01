@@ -7838,7 +7838,7 @@ class PenguCodegen:
             name = getattr(node, "_lambda_name", None)
             if name is None:
                 raise SemanticError(
-                    "lambda no registrada; ejecuta el pre-escaneo antes del codegen",
+                    "lambda not registered; run pre-scan before codegen",
                     code="E0000")
             return self._cast_fn_value(name, expected_type)
 

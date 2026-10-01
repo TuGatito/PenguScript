@@ -349,3 +349,16 @@ weave main into int:
         check_c_syntax(c)
         res = compile_run(code, tag="test_c9_literals")
         assert res.returncode == 0
+
+
+# ─── I2: English error message for unregistered lambda ────────────────
+class TestI2_EnglishErrorMessage:
+    def test_unregistered_lambda_error_in_english(self):
+        """Unregistered lambda raises English error message."""
+        from pengu_parser.pengu_errors import SemanticError
+        from lark import Tree
+        cg = PenguCodegen(None, ["test.pengu"], ".")
+        node = Tree("lambda_expr", [])
+        with pytest.raises(SemanticError) as exc_info:
+            cg._translate_expr(node)
+        assert "lambda not registered; run pre-scan before codegen" in str(exc_info.value)
