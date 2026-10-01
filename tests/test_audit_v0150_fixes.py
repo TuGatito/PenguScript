@@ -871,4 +871,33 @@ class Test_m7_NodeLineResolution:
         assert PenguCodegen._node_line(tree_nested) == 42
 
 
+# ─── m8: eval_comptime conditionals and safe fallback ─────────────────
+class Test_m8_ComptimeConditionalEvaluation:
+    def test_eval_comptime_handles_if_and_when_expr(self):
+        """eval_comptime correctly evaluates compile-time if/when expressions."""
+        from lark import Tree
+        from pengu_parser.pengu_comptime import CompileTimeEnv, eval_comptime
+
+        env = CompileTimeEnv(os_name="linux")
+
+        # if_expr: if true 10 else 20
+        if_node = Tree("if_expr", [Tree("true_lit", []), Tree("int_lit", ["10"]), Tree("int_lit", ["20"])])
+        assert eval_comptime(env, if_node) == 10
+
+        # when_expr: when false 10 else 20
+        when_node = Tree("when_expr", [Tree("false_lit", []), Tree("int_lit", ["10"]), Tree("int_lit", ["20"])])
+        assert eval_comptime(env, when_node) == 20
+
+    def test_eval_comptime_safely_returns_none_for_runtime_bindings(self):
+        """eval_comptime safely returns None for runtime binding nodes."""
+        from lark import Tree
+        from pengu_parser.pengu_comptime import CompileTimeEnv, eval_comptime
+
+        env = CompileTimeEnv()
+        # if_cond_binding represents a runtime maybe unwrapping condition
+        binding_node = Tree("if_cond_binding", ["val", Tree("type_int", []), Tree("var_ref", ["opt"])])
+        assert eval_comptime(env, binding_node) is None
+
+
+
 
