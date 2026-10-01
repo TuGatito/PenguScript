@@ -2196,10 +2196,10 @@ class PenguCodegen:
 
         auto_inline = False
         if not is_inline and self.symbols:
-            # The checker flags small weaves as inline candidates; without this
-            # the heuristic never reached the emitted C.  The automatic hint is
-            # plain 'static inline' (GCC still declines to inline a recursive
-            # weave, whereas '__attribute__((always_inline))' is a hard error).
+            # The checker flags small non-recursive weaves as inline candidates.
+            # Automatic heuristic inlining uses advisory 'static inline' (giving the C
+            # compiler discretion to decline), whereas explicit user 'inline weave'
+            # specifies '__attribute__((always_inline))'.
             try:
                 _inline_sym = self.symbols.lookup(name)
             except Exception:

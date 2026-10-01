@@ -551,3 +551,30 @@ weave main into int:
         res = compile_run(code, tag="test_m2_run")
         assert res.returncode == 0
 
+
+# ─── M3: Inline prefix distinction (explicit vs auto_inline) ──────────
+class TestM3_InlinePrefixDistinction:
+    def test_inline_prefix_behavior(self):
+        """_inline_prefix returns always_inline only for explicit inlining."""
+        assert PenguCodegen._inline_prefix({"is_inline": False}) == ""
+        assert PenguCodegen._inline_prefix({"is_inline": True, "auto_inline": True}) == "static inline "
+        assert PenguCodegen._inline_prefix({"is_inline": True, "auto_inline": False}) == "static inline __attribute__((always_inline)) "
+
+    def test_explicit_inline_weave_emission(self):
+        """Explicit inline weave emits always_inline attribute."""
+        code = """
+inline weave add with a as int, b as int into int:
+    return a + b
+
+weave main into int:
+    var r as int is calling add with 2, 3
+    if r == 5:
+        return 0
+    return 1
+"""
+        c = gen_bundle(code)
+        check_c_syntax(c)
+        assert "__attribute__((always_inline))" in c
+        res = compile_run(code, tag="test_m3_inline")
+        assert res.returncode == 0
+
