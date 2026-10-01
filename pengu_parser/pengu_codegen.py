@@ -3431,10 +3431,7 @@ class PenguCodegen:
                 if active_defers:
                     lines.append(f"{self.indent()}/* Deferred cleanup */")
                     for d in reversed(active_defers):
-                        if d.endswith("}"):
-                            lines.append(f"{self.indent()}{d}")
-                        else:
-                            lines.append(f"{self.indent()}{d};")
+                        lines.append(self._format_defer_cleanup(d, self.indent()))
 
                 auto_banish = self._flush_current_scope_banish()
                 if auto_banish:
@@ -3539,21 +3536,23 @@ class PenguCodegen:
                 lines.append(s_code)
         return "\n".join(lines)
 
+    def _format_defer_cleanup(self, d: str, ind: str) -> str:
+        """Formats a deferred cleanup statement or block with appropriate indentation."""
+        if d.startswith("{\n") and d.endswith("}"):
+            return "\n".join(f"{ind}{line}" if line else "" for line in d.splitlines())
+        if d.endswith("}"):
+            return f"{ind}{d}"
+        return f"{ind}{d};"
+
     def _get_return_cleanup_lines(self, is_err_ret: bool = False, ind: str = "") -> List[str]:
         cleanup_lines = []
         if is_err_ret and self.errdefer_stack:
             for d in reversed(self.errdefer_stack[-1]):
-                if d.endswith("}"):
-                    cleanup_lines.append(f"{ind}{d}")
-                else:
-                    cleanup_lines.append(f"{ind}{d};")
+                cleanup_lines.append(self._format_defer_cleanup(d, ind))
 
         if self.defer_stack:
             for d in reversed(self.defer_stack[-1]):
-                if d.endswith("}"):
-                    cleanup_lines.append(f"{ind}{d}")
-                else:
-                    cleanup_lines.append(f"{ind}{d};")
+                cleanup_lines.append(self._format_defer_cleanup(d, ind))
 
         for _, entries in reversed(self.auto_banish_stack):
             for name, t in reversed(entries):
@@ -4201,11 +4200,12 @@ class PenguCodegen:
         elif rule == "defer_stmt":
             child = node.children[0]
             if isinstance(child, Tree) and child.data == "block":
-                self.indent_level += 1
+                saved_level = self.indent_level
+                self.indent_level = 1
                 inner_stmts = [self._translate_stmt(s) for s in child.children]
-                self.indent_level -= 1
+                self.indent_level = saved_level
                 block_c = "\n".join(s for s in inner_stmts if s)
-                defer_str = f"{{\n{block_c}\n{ind}}}"
+                defer_str = f"{{\n{block_c}\n}}"
             elif isinstance(child, Tree) and (child.data.endswith("_stmt") or child.data == "stmt"):
                 stmt_c = self._translate_stmt(child).strip()
                 if stmt_c.endswith(";"):
@@ -4220,11 +4220,12 @@ class PenguCodegen:
         elif rule == "errdefer_stmt":
             child = node.children[0]
             if isinstance(child, Tree) and child.data == "block":
-                self.indent_level += 1
+                saved_level = self.indent_level
+                self.indent_level = 1
                 inner_stmts = [self._translate_stmt(s) for s in child.children]
-                self.indent_level -= 1
+                self.indent_level = saved_level
                 block_c = "\n".join(s for s in inner_stmts if s)
-                errdefer_str = f"{{\n{block_c}\n{ind}}}"
+                errdefer_str = f"{{\n{block_c}\n}}"
             elif isinstance(child, Tree) and (child.data.endswith("_stmt") or child.data == "stmt"):
                 stmt_c = self._translate_stmt(child).strip()
                 if stmt_c.endswith(";"):
@@ -8339,10 +8340,7 @@ class PenguCodegen:
                 if active_defers:
                     lines.append(f"{self.indent()}/* Deferred cleanup */")
                     for d in reversed(active_defers):
-                        if d.endswith("}"):
-                            lines.append(f"{self.indent()}{d}")
-                        else:
-                            lines.append(f"{self.indent()}{d};")
+                        lines.append(self._format_defer_cleanup(d, self.indent()))
                 auto_banish = self._flush_current_scope_banish()
                 if auto_banish:
                     lines.extend(auto_banish)

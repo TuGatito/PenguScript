@@ -813,3 +813,40 @@ weave main into void:
         assert exc_info.value.code == "E0008"
         assert "Cannot take 'sigil of' a literal or temporary expression" in err_str
 
+
+# ─── m6: Defer block statement indentation consistency ────────────────
+class Test_m6_DeferIndentation:
+    @requires_runtime
+    def test_block_defer_execution_and_c_indentation(self):
+        """Block defer statements compile with clean C indentation and execute properly."""
+        code = """
+rune Counter:
+    val as int
+
+weave run_test with cond as bool, c as ref to Counter into int:
+    defer:
+        set c->val += 10
+        set c->val += 5
+    if cond:
+        return c->val + 1
+    return c->val + 2
+
+weave main into int:
+    var ctr as Counter with:
+        set .val is 0
+    let r1 is calling run_test with true, sigil of ctr
+    if ctr.val != 15:
+        return 1
+    let r2 is calling run_test with false, sigil of ctr
+    if ctr.val != 30:
+        return 2
+    return 0
+"""
+        c = gen_bundle(code)
+        check_c_syntax(c)
+        # Verify indentation: opening brace and closing brace are aligned at the same indentation level
+        assert "    {\n      c->val += 10;\n      c->val += 5;\n    }" in c
+        res = compile_run(code, tag="test_m6_defer")
+        assert res.returncode == 0
+
+
