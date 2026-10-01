@@ -3584,27 +3584,20 @@ class TypeInferrer:
         Args:
             node: Node operand to 'sigil of'.
         """
-        line, col = self._get_loc(node)
-        if isinstance(node, Token):
-            if node.type in ("INT", "FLOAT", "STRING", "TRIPLE_STRING", "RAW_STRING", "RAW_TRIPLE_STRING"):
-                raise self._make_error(
-                    SemanticError,
-                    "Cannot take 'sigil of' a literal value",
-                    node,
-                    code="E0008",
-                    help="Take 'sigil of' an addressable variable (e.g. 'sigil of my_var').",
-                    note="Pointers can only reference addressable lvalues in memory."
-                )
+        is_literal = (
+            (isinstance(node, Token) and node.type in ("INT", "FLOAT", "STRING", "TRIPLE_STRING", "RAW_STRING", "RAW_TRIPLE_STRING"))
+            or (isinstance(node, Tree) and node.data in ("int_lit", "float_lit", "string_lit", "true_lit", "false_lit", "null_lit", "maybe_none"))
+        )
+        if is_literal:
+            raise self._make_error(
+                SemanticError,
+                "Cannot take 'sigil of' a literal or temporary expression",
+                node,
+                code="E0008",
+                help="Take 'sigil of' an addressable variable (e.g. 'sigil of my_var').",
+                note="Pointers can only reference addressable lvalues in memory."
+            )
         if isinstance(node, Tree):
-            if node.data in ("int_lit", "float_lit", "string_lit", "true_lit", "false_lit", "null_lit", "maybe_none"):
-                raise self._make_error(
-                    SemanticError,
-                    "Cannot take 'sigil of' a literal or temporary expression",
-                    node,
-                    code="E0008",
-                    help="Take 'sigil of' an addressable variable (e.g. 'sigil of my_var').",
-                    note="Pointers can only reference addressable lvalues in memory."
-                )
             if node.data == "var_ref":
                 name = str(node.children[0])
                 sym = self.symbols.lookup(name)

@@ -774,3 +774,42 @@ weave main into int:
         assert ast is not None
         assert ast.data == "start"
 
+
+# ─── m5: Unified sigil of literal or temporary error message ──────────
+class Test_m5_SigilOfLiteralUnification:
+    def test_sigil_of_int_literal_emits_unified_error(self):
+        """Taking sigil of integer literal raises E0008 with unified message."""
+        from pengu_parser.pengu_parser import PenguParser
+        from pengu_parser.pengu_checker import PenguChecker
+        from pengu_parser.pengu_errors import SemanticError
+
+        code = """
+weave main into void:
+    let p is sigil of 42
+"""
+        p = PenguParser()
+        checker = PenguChecker()
+        with pytest.raises(SemanticError) as exc_info:
+            checker.check(p.parse(code))
+        err_str = str(exc_info.value)
+        assert exc_info.value.code == "E0008"
+        assert "Cannot take 'sigil of' a literal or temporary expression" in err_str
+
+    def test_sigil_of_string_literal_emits_unified_error(self):
+        """Taking sigil of string literal raises E0008 with unified message."""
+        from pengu_parser.pengu_parser import PenguParser
+        from pengu_parser.pengu_checker import PenguChecker
+        from pengu_parser.pengu_errors import SemanticError
+
+        code = """
+weave main into void:
+    let p is sigil of "test"
+"""
+        p = PenguParser()
+        checker = PenguChecker()
+        with pytest.raises(SemanticError) as exc_info:
+            checker.check(p.parse(code))
+        err_str = str(exc_info.value)
+        assert exc_info.value.code == "E0008"
+        assert "Cannot take 'sigil of' a literal or temporary expression" in err_str
+
