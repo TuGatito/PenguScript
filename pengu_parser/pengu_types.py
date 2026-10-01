@@ -1600,7 +1600,7 @@ PRIMITIVE_IMPLS.update({
 })
 
 
-def type_owns_heap(t: Optional[Type], _depth: int = 0) -> bool:
+def type_owns_heap(t: Optional[Type], _depth: int = 0, symbols: Any = None) -> bool:
     """True when a value of this type owns memory that must be released.
 
     Used for the *implicit* Imago/Nexus of a rune whose fields need a deep copy
@@ -1620,24 +1620,41 @@ def type_owns_heap(t: Optional[Type], _depth: int = 0) -> bool:
     if isinstance(u, (ListType, MapType, MaybeType, ResultType)):
         return True
     if isinstance(u, ArrayType):
-        return type_owns_heap(getattr(u, "element", None), _depth + 1)
+        return type_owns_heap(getattr(u, "element", None), _depth + 1, symbols=symbols)
     if isinstance(u, RuneType):
         derived = list(getattr(u, "derived_concepts", []) or [])
         if "Imago" in derived or "Nexus" in derived:
             return True
-        fields = getattr(u, "fields", None) or {}
-        return any(type_owns_heap(f, _depth + 1) for f in fields.values())
+        fields = dict(getattr(u, "fields", None) or {})
+        if not fields and symbols is not None:
+            base_n = u.get_base_name() if hasattr(u, "get_base_name") else u.name.split("_")[0]
+            for key in (u.name, base_n):
+                try:
+                    sym = getattr(symbols, "runes", {}).get(key) or (symbols.lookup_type(key) if hasattr(symbols, "lookup_type") else None)
+                except Exception:
+                    sym = None
+                if sym is not None and getattr(sym, "fields", None):
+                    fields = dict(sym.fields)
+                    break
+        return any(type_owns_heap(f, _depth + 1, symbols=symbols) for f in fields.values())
     if isinstance(u, OmenType):
         derived = list(getattr(u, "derived_concepts", []) or [])
         if "Imago" in derived or "Nexus" in derived:
             return True
-        variants = getattr(u, "variants", None) or {}
+        variants = dict(getattr(u, "variants", None) or {})
+        if not variants and symbols is not None:
+            base_n = u.name.split("_")[0] if "_" in u.name else u.name
+            for key in (u.name, base_n):
+                o_sym = getattr(symbols, "omens", {}).get(key)
+                if o_sym is not None and getattr(o_sym, "variants", None):
+                    variants = dict(o_sym.variants)
+                    break
         for v_fields in variants.values():
             if isinstance(v_fields, dict):
-                if any(type_owns_heap(f, _depth + 1) for f in v_fields.values()):
+                if any(type_owns_heap(f, _depth + 1, symbols=symbols) for f in v_fields.values()):
                     return True
             elif v_fields is not None:
-                if type_owns_heap(v_fields, _depth + 1):
+                if type_owns_heap(v_fields, _depth + 1, symbols=symbols):
                     return True
         return False
     return False

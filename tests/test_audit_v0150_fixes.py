@@ -578,3 +578,27 @@ weave main into int:
         res = compile_run(code, tag="test_m3_inline")
         assert res.returncode == 0
 
+
+# ─── M4: type_owns_heap consolidation ─────────────────────────────────
+class TestM4_TypeOwnsHeapConsolidation:
+    def test_type_owns_heap_symbols_resolution(self):
+        """type_owns_heap resolves rune fields through symbols when passed."""
+        from pengu_parser.pengu_types import (
+            type_owns_heap, RuneType, STRING_TYPE, INT_TYPE
+        )
+        from pengu_parser.pengu_symbols import SymbolTable
+
+        # A rune with no fields on the type object itself
+        r = RuneType("Container", fields={})
+        assert not type_owns_heap(r)
+
+        # When symbols has Container with a string field, type_owns_heap detects it
+        syms = SymbolTable()
+        syms.runes["Container"] = RuneType("Container", fields={"name": STRING_TYPE})
+        assert type_owns_heap(r, symbols=syms)
+
+        # With only integer field, does not own heap
+        syms_int = SymbolTable()
+        syms_int.runes["Container"] = RuneType("Container", fields={"count": INT_TYPE})
+        assert not type_owns_heap(r, symbols=syms_int)
+

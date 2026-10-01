@@ -34,7 +34,7 @@ from pengu_parser.pengu_types import (
     ConceptType, SealType, RangeType,
     TypeParam, NullType, INT_TYPE, I32_TYPE, I64_TYPE, FLOAT_TYPE, F32_TYPE, F64_TYPE, BOOL_TYPE,
     STRING_TYPE, VOID_TYPE, ERROR_TYPE, OPAQUE_TYPE, CVarArgsType, ast_to_type, get_type_base_name,
-    type_has_derived_nexus,
+    type_has_derived_nexus, type_owns_heap,
 )
 from pengu_parser.pengu_symbols import SymbolTable, Symbol, decl_layout
 from pengu_parser.pengu_infer import ConstFolder, TypeInferrer, RangeConst
@@ -2658,62 +2658,20 @@ class PenguCodegen:
     def _type_owns_heap(self, t: Optional[Type], _depth: int = 0) -> bool:
         """True when a value of this type owns memory that must be released.
 
-        Mirrors ``pengu_types.type_owns_heap`` but resolves rune fields through
-        the symbol table so imported/monomorphized runes are covered too.
+        Delegates to ``pengu_types.type_owns_heap`` with symbol resolution,
+        and falls back to codegen's local ``self.omens`` definitions if needed.
         """
-        if t is None or _depth > 12:
-            return False
-        u = t
-        while isinstance(u, (AliasType, FrozenType, SealType)):
-            nxt = getattr(u, "target", None) or getattr(u, "underlying", None)
-            if nxt is None or nxt is u:
-                break
-            u = nxt
-        if isinstance(u, BaseType):
-            return u.name == "string"
-        if isinstance(u, (ListType, MapType, MaybeType, ResultType)):
+        if type_owns_heap(t, _depth=_depth, symbols=self.symbols):
             return True
-        if isinstance(u, ArrayType):
-            return self._type_owns_heap(getattr(u, "element", None), _depth + 1)
-        if isinstance(u, RuneType):
-            derived = list(getattr(u, "derived_concepts", []) or [])
-            base_n = u.get_base_name() if hasattr(u, "get_base_name") else u.name.split("_")[0]
-            if "Imago" in derived or "Nexus" in derived:
-                return True
-            fields = dict(getattr(u, "fields", None) or {})
-            if not fields and self.symbols is not None:
-                sym = None
-                for key in (u.name, base_n):
-                    try:
-                        sym = self.symbols.runes.get(key) or self.symbols.lookup_type(key)
-                    except Exception:
-                        sym = None
-                    if sym is not None and getattr(sym, "fields", None):
-                        fields = dict(sym.fields)
-                        break
-            return any(self._type_owns_heap(f, _depth + 1) for f in fields.values())
-        if isinstance(u, OmenType):
-            derived = list(getattr(u, "derived_concepts", []) or [])
-            base_n = u.name.split("_")[0] if "_" in u.name else u.name
-            if "Imago" in derived or "Nexus" in derived:
-                return True
-            variants = dict(getattr(u, "variants", None) or {})
-            if not variants and self.symbols is not None:
-                for key in (u.name, base_n):
-                    o_sym = getattr(self.symbols, "omens", {}).get(key)
-                    if o_sym is not None and getattr(o_sym, "variants", None):
-                        variants = dict(o_sym.variants)
-                        break
-            if not variants and u.name in self.omens:
-                variants = self.omens[u.name]
-            for v_fields in variants.values():
+        if isinstance(t, OmenType) and t.name in self.omens:
+            v_dict = self.omens[t.name]
+            for v_fields in v_dict.values():
                 if isinstance(v_fields, dict):
                     if any(self._type_owns_heap(f, _depth + 1) for f in v_fields.values()):
                         return True
                 elif v_fields is not None:
                     if self._type_owns_heap(v_fields, _depth + 1):
                         return True
-            return False
         return False
 
     def _derived_field_eq(self, a_expr: str, b_expr: str, f_type: Type) -> str:
