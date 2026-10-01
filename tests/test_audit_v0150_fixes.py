@@ -717,3 +717,23 @@ class Test_m1_TranslateStringLitSignature:
         sig = inspect.signature(PenguCodegen._translate_string_lit)
         assert "context_hint" not in sig.parameters
 
+
+# ─── m2: _check_var_decl allows non-lvalue expressions ────────────────
+class Test_m2_VarDeclInitializerLvalueAudit:
+    def test_var_decl_allows_rvalue_expressions(self):
+        """Variable declarations cleanly allow literals, arithmetic, and temporary expressions."""
+        from pengu_parser.pengu_parser import PenguParser
+        from pengu_parser.pengu_checker import PenguChecker
+
+        code = """
+weave main into void:
+    var a as int is 1 + 2
+    var b as int is 100 * 3
+    var c as string is "hello world"
+    return
+"""
+        p = PenguParser()
+        checker = PenguChecker()
+        checker.check(p.parse(code))
+        assert len(checker.errors) == 0
+
