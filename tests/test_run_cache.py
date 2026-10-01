@@ -249,8 +249,8 @@ def test_cached_binary_name_is_platform_aware(monkeypatch):
     monkeypatch.setattr(pengu_cache.sys, "platform", "win32")
     assert pengu_cache.script_binary_name() == "app.exe"
     monkeypatch.setenv("PENGU_CACHE_DIR", "/tmp/does-not-matter")
-    assert pengu_cache.cached_binary_path("k").endswith("k/app.exe")
+    assert pengu_cache.cached_binary_path("k").replace("\\", "/").endswith("k/app.exe")
 
     monkeypatch.setattr(pengu_cache.sys, "platform", "linux")
     assert pengu_cache.script_binary_name() == "app"
-    assert pengu_cache.cached_binary_path("k").endswith("k/app")
+    assert pengu_cache.cached_binary_path("k").replace("\\", "/").endswith("k/app")

@@ -481,10 +481,11 @@ weave home_dir into maybe string:
         if hd is present and hp is present:
             return some ("{hd.value}{hp.value}")
         return maybe none
-    var h as maybe string is calling getenv with "HOME"
-    if h is present:
-        return h
-    return maybe none
+    else:
+        var h as maybe string is calling getenv with "HOME"
+        if h is present:
+            return h
+        return maybe none
 
 ## Returns the system temporary directory path.
 ##
@@ -501,16 +502,17 @@ weave temp_dir into maybe string:
         if tmp is present:
             return tmp
         return some "C:\\Temp"
-    var td as maybe string is calling getenv with "TMPDIR"
-    if td is present:
-        return td
-    var t2 as maybe string is calling getenv with "TEMP"
-    if t2 is present:
-        return t2
-    var t3 as maybe string is calling getenv with "TMP"
-    if t3 is present:
-        return t3
-    return some "/tmp"
+    else:
+        var td as maybe string is calling getenv with "TMPDIR"
+        if td is present:
+            return td
+        var t2 as maybe string is calling getenv with "TEMP"
+        if t2 is present:
+            return t2
+        var t3 as maybe string is calling getenv with "TMP"
+        if t3 is present:
+            return t3
+        return some "/tmp"
 
 ## Returns the user configuration directory path.
 ##
@@ -524,13 +526,14 @@ weave config_dir into maybe string:
         if appdata is present:
             return appdata
         return maybe none
-    var xdg as maybe string is calling getenv with "XDG_CONFIG_HOME"
-    if xdg is present:
-        return xdg
-    var h as maybe string is calling home_dir
-    if h is present:
-        return some ("{h.value}/.config")
-    return maybe none
+    else:
+        var xdg as maybe string is calling getenv with "XDG_CONFIG_HOME"
+        if xdg is present:
+            return xdg
+        var h as maybe string is calling home_dir
+        if h is present:
+            return some ("{h.value}/.config")
+        return maybe none
 
 ## Returns the user cache directory path.
 ##
@@ -544,13 +547,14 @@ weave cache_dir into maybe string:
         if localappdata is present:
             return localappdata
         return maybe none
-    var xdg as maybe string is calling getenv with "XDG_CACHE_HOME"
-    if xdg is present:
-        return xdg
-    var h as maybe string is calling home_dir
-    if h is present:
-        return some ("{h.value}/.cache")
-    return maybe none
+    else:
+        var xdg as maybe string is calling getenv with "XDG_CACHE_HOME"
+        if xdg is present:
+            return xdg
+        var h as maybe string is calling home_dir
+        if h is present:
+            return some ("{h.value}/.cache")
+        return maybe none
 
 ## Returns the user local data directory path.
 ##
@@ -564,13 +568,14 @@ weave data_dir into maybe string:
         if appdata is present:
             return appdata
         return maybe none
-    var xdg as maybe string is calling getenv with "XDG_DATA_HOME"
-    if xdg is present:
-        return xdg
-    var h as maybe string is calling home_dir
-    if h is present:
-        return some ("{h.value}/.local/share")
-    return maybe none
+    else:
+        var xdg as maybe string is calling getenv with "XDG_DATA_HOME"
+        if xdg is present:
+            return xdg
+        var h as maybe string is calling home_dir
+        if h is present:
+            return some ("{h.value}/.local/share")
+        return maybe none
 
 # ----------------------------------------------------------------------------
 # Platform & Host Information (0.14.x baseline & 0.15.0)
@@ -619,7 +624,8 @@ weave os_family into string:
 weave is_windows into bool:
     when os == "windows":
         return true
-    return false
+    else:
+        return false
 
 ## Checks if the current target operating system is Unix-like (Linux, macOS, BSD).
 ##
@@ -628,7 +634,8 @@ weave is_windows into bool:
 weave is_unix into bool:
     when os == "windows":
         return false
-    return true
+    else:
+        return true
 
 ## Checks if the current target operating system is macOS (Darwin).
 ##
@@ -637,7 +644,8 @@ weave is_unix into bool:
 weave is_macos into bool:
     when os == "macos":
         return true
-    return false
+    else:
+        return false
 
 ## Checks if the current target operating system is Linux.
 ##
@@ -646,7 +654,8 @@ weave is_macos into bool:
 weave is_linux into bool:
     when os == "linux":
         return true
-    return false
+    else:
+        return false
 
 # ----------------------------------------------------------------------------
 # Executable Search (PATH resolution) (0.15.0)
@@ -699,7 +708,7 @@ weave which_all with cmd as string into list of string:
                 var full_c as string is "{candidate}{ext}"
                 if calling pengu_c_archivum_is_file with full_c:
                     calling res.push with full_c
-        when os != "windows":
+        else:
             var candidate as string is "{d}/{cmd}"
             if calling pengu_c_archivum_is_file with candidate:
                 calling res.push with candidate
@@ -778,7 +787,8 @@ weave shell_escape with s as string into string:
     if slen == 0:
         when os == "windows":
             return "\"\""
-        return "''"
+        else:
+            return "''"
     when os == "windows":
         var res as string is "\""
         var i as int is 0
@@ -791,17 +801,18 @@ weave shell_escape with s as string into string:
             set i is i + 1
         set res is "{res}\""
         return res
-    var res as string is "'"
-    var i as int is 0
-    while i < slen:
-        var c as string is s at i
-        if c == "'":
-            set res is "{res}'\\''"
-        else:
-            set res is "{res}{c}"
-        set i is i + 1
-    set res is "{res}'"
-    return res
+    else:
+        var res as string is "'"
+        var i as int is 0
+        while i < slen:
+            var c as string is s at i
+            if c == "'":
+                set res is "{res}'\\''"
+            else:
+                set res is "{res}{c}"
+            set i is i + 1
+        set res is "{res}'"
+        return res
 
 ## Returns the username of the current logged-in user.
 ##
@@ -812,7 +823,8 @@ weave shell_escape with s as string into string:
 weave current_user into maybe string:
     when os == "windows":
         return calling getenv with "USERNAME"
-    var u as maybe string is calling getenv with "USER"
-    if u is present:
-        return u
-    return calling getenv with "LOGNAME"
+    else:
+        var u as maybe string is calling getenv with "USER"
+        if u is present:
+            return u
+        return calling getenv with "LOGNAME"
