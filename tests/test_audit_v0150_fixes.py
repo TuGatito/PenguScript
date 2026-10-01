@@ -644,3 +644,24 @@ weave main into int:
         res = compile_run(code, tag="test_m6_list")
         assert res.returncode == 0
 
+
+# ─── M7: Shadowing global function warning W0005 ──────────────────────
+class TestM7_ShadowingGlobalFunctionWarning:
+    def test_var_shadowing_global_weave_emits_warning(self):
+        """Declaring a local var/let that shadows a global function emits W0005 warning."""
+        from pengu_parser.pengu_parser import PenguParser
+        from pengu_parser.pengu_checker import PenguChecker
+
+        code = """
+weave helper into int:
+    return 100
+
+weave main into int:
+    var helper as int is 42
+    return helper
+"""
+        p = PenguParser()
+        checker = PenguChecker()
+        checker.check(p.parse(code))
+        assert any("[W0005] Variable 'helper' shadows global function 'helper'" in w for w in checker.warnings)
+

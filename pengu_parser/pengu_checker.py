@@ -3629,6 +3629,9 @@ class PenguChecker:
                     note=f"'{v_name}' was previously declared on line {existing.line}."
                 ))
                 return
+            outer = self.symbols.lookup(v_name) if self.symbols else None
+            if outer is not None and getattr(outer, "kind", "") in ("weave", "declare", "function"):
+                self.warnings.append(f"[W0005] Variable '{v_name}' shadows global function '{v_name}' on line {line}")
         v_type = None
         type_node, v_expr = _decl_layout(node)
         if type_node is not None:
@@ -3956,6 +3959,9 @@ class PenguChecker:
                         note=f"'{nm}' was previously declared on line {existing.line}."
                     ))
                     return
+                outer = self.symbols.lookup(nm) if self.symbols else None
+                if outer is not None and getattr(outer, "kind", "") in ("weave", "declare", "function"):
+                    self.warnings.append(f"[W0005] Variable '{nm}' shadows global function '{nm}' on line {line}")
         l_type = None
         type_node, l_expr = _decl_layout(node)
         if type_node is not None:
