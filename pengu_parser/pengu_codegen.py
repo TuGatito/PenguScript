@@ -6012,7 +6012,17 @@ class PenguCodegen:
                 # module (std.* modules carry an insignia) the definition is
                 # emitted as '<prefix>_<name>', so decaying to a function
                 # pointer must reference that same C symbol.
-                fn_code = getattr(sym, "c_name", None) or code
+                resolved_c = getattr(node, "_pengu_resolved_c_name", None)
+                if not resolved_c and self.current_source_file:
+                    for w in self.weaves:
+                        if w.get("name") == name and w.get("filepath") == self.current_source_file:
+                            resolved_c = w.get("c_name")
+                            break
+                if not resolved_c and sym and getattr(sym, "c_name", None) and sym.c_name != name:
+                    resolved_c = sym.c_name
+                if not resolved_c and name in self.fn_info and self.fn_info[name].get("c_name"):
+                    resolved_c = self.fn_info[name]["c_name"]
+                fn_code = resolved_c or getattr(sym, "c_name", None) or code
                 return self._cast_fn_value(fn_code, expected_type)
             return code
 
@@ -6986,6 +6996,14 @@ class PenguCodegen:
                                     if hasattr(mod_field_sym, "get_c_name") and mod_field_sym.get_c_name():
                                         return mod_field_sym.get_c_name()
                                     return raw_field
+                            if getattr(mod_field_sym, "kind", "") in ("weave", "declare", "function"):
+                                mod_prefix = getattr(sym, "c_name", None) or var_name
+                                for cand in (f"{mod_prefix}_{raw_field}", f"{var_name}_{raw_field}"):
+                                    if cand in self.fn_info and self.fn_info[cand].get("c_name"):
+                                        return self.fn_info[cand]["c_name"]
+                                if hasattr(mod_field_sym, "get_c_name") and mod_field_sym.get_c_name() != raw_field:
+                                    return mod_field_sym.get_c_name()
+                                return f"{var_name}_{raw_field}"
                             if hasattr(mod_field_sym, "get_c_name"):
                                 return mod_field_sym.get_c_name()
                     mod_const_key = f"{var_name}_{raw_field}"
@@ -8135,6 +8153,32 @@ class PenguCodegen:
 
         return "\n".join(lines)
 
+    def _resolve_weave_refs_in_stmts(self, stmts: List[Tree]) -> None:
+        """Pre-pass: injects c_name into var_ref nodes when pointing to a weave."""
+        for stmt in stmts:
+            if not isinstance(stmt, Tree):
+                continue
+            for node in stmt.iter_subtrees():
+                if node.data == "var_ref":
+                    name = str(node.children[0])
+                    sym = self.symbols.lookup(name) if self.symbols else None
+                    if sym is not None and getattr(sym, "kind", "") in ("weave", "declare", "function"):
+                        c_name = getattr(sym, "c_name", None)
+                        if not c_name or c_name == name:
+                            if self.current_source_file:
+                                for w in self.weaves:
+                                    if w.get("name") == name and w.get("filepath") == self.current_source_file:
+                                        c_name = w.get("c_name")
+                                        break
+                            if not c_name and name in self.fn_info:
+                                c_name = self.fn_info[name].get("c_name")
+                        if c_name:
+                            node._pengu_resolved_c_name = c_name
+                    elif name in self.fn_info:
+                        c_name = self.fn_info[name].get("c_name")
+                        if c_name:
+                            node._pengu_resolved_c_name = c_name
+
     def generate_test_section(self) -> str:
         """Generates test functions and a pengu_run_tests() runner for --test mode."""
         if not self.tests:
@@ -8168,6 +8212,7 @@ class PenguCodegen:
             self.defer_stack.append([])
             self.errdefer_stack.append([])
             self._auto_banish_push("weave")
+            self._resolve_weave_refs_in_stmts(t["body_stmts"])
             body_code = self._translate_block(t["body_stmts"])
             lines.append(body_code)
             active_defers = self.defer_stack.pop() if self.defer_stack else []

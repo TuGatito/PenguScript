@@ -78,12 +78,6 @@ All notable changes to PenguScript will be documented in this file.
 
 ### Compiler bugs found (documented, not fixed)
 
-- **Weave-as-value inside `test` blocks loses module prefix:**
-  - *Location:* `pengu_parser/pengu_codegen.py` (test block codegen route).
-  - *Symptom:* Inside a `test "..."` block, a weave referenced as a first-class value (e.g. callback passed by name) is emitted without its module prefix, despite the global fix for general `var_ref`.
-  - *Observed effect:* Linker failure due to unresolved bare identifier for imported weaves passed as values in tests.
-  - *Workaround applied:* `std/loom` uses private module-internal cores to bypass bare references in tests.
-
 - **Unqualified symbol collisions in `test` blocks across bundled modules:**
   - *Location:* `pengu_parser/pengu_checker.py` / `pengu_codegen.py`.
   - *Symptom:* In test blocks, unqualified symbol references resolve against symbols from other modules in the same compilation bundle when names collide.
@@ -101,6 +95,11 @@ All notable changes to PenguScript will be documented in this file.
 
 ### Fixed — compiler bugs (post 0.15.0)
 
+- **Bug 3 — Weave-as-value inside `test` blocks loses module prefix** (`pengu_codegen.py`):
+  Inside a `test` block, a weave referenced as a first-class value (e.g. callback passed by name) was emitted without its module or insignia prefix because `sym.c_name` was unpopulated or bare in `_translate_expr::var_ref` and `field_access`.
+  Now a pre-pass `_resolve_weave_refs_in_stmts` annotates AST nodes with their resolved C names from the module, and `var_ref` / `field_access` fall back to `fn_info` and module prefixes.
+  Pinned by `tests/test_compiler_bugfixes_v0150.py::TestBug3_WeaveAsValueInTest`.
+
 - **Bug 2 — Prefix heuristic hazards `flatten`** (`pengu_codegen.py`):
   When calling an imported function whose name matched the prefix of another module's monomorphization (e.g. `loom.flatten` matching `oracle`'s `flatten_maybe_string`), codegen rewrote the call to the unrelated monomorphization.
   Now imported module calls check `fn_info` first, and filter candidate monomorphizations to ensure their AST declared name matches the callee function name exactly.
@@ -109,7 +108,6 @@ All notable changes to PenguScript will be documented in this file.
 - **Bug 1 — `_resolve_call_target` splits at `_` and generates bogus monomorphized methods** (`pengu_infer.py`):
   Calls to generic module weaves containing an underscore (such as `map_size`) fell through to a heuristic that split the name into `("map", "size")`, generating a bogus entry in `symbols.monomorphized_methods` with the return type as receiver.
   Now `_resolve_call_target` guards against names in `self.symbols.generic_functions` and resolved function symbols (`weave`/`function`/`declare`), preventing bogus method monomorphization.
-  Pinned by `tests/test_compiler_bugfixes_v0150.py::TestBug1_GenericModuleWeaveResolution`.
   Pinned by `tests/test_compiler_bugfixes_v0150.py::TestBug1_GenericModuleWeaveResolution`.
 
 - **Bug 7 — Global symbol shadows local variable in `set` target** (`pengu_codegen.py`):

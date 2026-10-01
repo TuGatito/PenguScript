@@ -139,3 +139,73 @@ weave main into int:
             shutil.rmtree(d, ignore_errors=True)
 
 
+# ─── Bug 3 — Weave-as-value in test loses prefix ──────────────────────
+class TestBug3_WeaveAsValueInTest:
+    def test_callback_in_test_block_uses_prefix(self):
+        """Weave-as-value inside test blocks must carry the module prefix."""
+        import tempfile
+        import shutil
+        from pengu_project import PenguBuilder, ProjectConfig
+        from tests.conftest import BUILD_DIR
+        d = Path(tempfile.mkdtemp(prefix="bug3_test_", dir=BUILD_DIR))
+        try:
+            std_d = d / "std"
+            std_d.mkdir(parents=True, exist_ok=True)
+            (std_d / "helper.pengu").write_text("""
+weave my_callback with x as int into int:
+    return x + 1
+
+test "callback in std mod":
+    var cb as ref to weave with x as int into int is my_callback
+    let r is calling cb with 41
+""", encoding="utf-8")
+            (d / "main.pengu").write_text("""
+import std.helper
+
+test "callback in main from std mod":
+    var cb as ref to weave with x as int into int is helper.my_callback
+    let r is calling cb with 41
+""", encoding="utf-8")
+            cfg = ProjectConfig(entry=str(d / "main.pengu"), base_dir=str(d), profile="debug", output="c")
+            builder = PenguBuilder(cfg)
+            builder.is_test_mode = True
+            bundle_path, _ = builder.bundle(output_file=str(d / "bundle.c"))
+            content = Path(bundle_path).read_text(encoding="utf-8")
+            # In generated code, all references to my_callback must carry the module prefix.
+            import re
+            matches = [m.group(0) for m in re.finditer(r"\b\w*my_callback\b", content)]
+            assert len(matches) > 0
+            assert all(m == "helper_my_callback" for m in matches)
+            check_c_syntax(content)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_insignia_callback_in_test_block_preserves_prefix(self):
+        """Insignia-prefixed weave as a value inside test block keeps prefix."""
+        import tempfile
+        import shutil
+        from pengu_project import PenguBuilder, ProjectConfig
+        from tests.conftest import BUILD_DIR
+        d = Path(tempfile.mkdtemp(prefix="bug3_insignia_", dir=BUILD_DIR))
+        try:
+            (d / "main.pengu").write_text("""
+insignia mylib_
+
+weave step_fn with x as int into int:
+    return x * 2
+
+test "insignia callback in test":
+    var cb as ref to weave with x as int into int is step_fn
+    let r is calling cb with 10
+""", encoding="utf-8")
+            cfg = ProjectConfig(entry=str(d / "main.pengu"), base_dir=str(d), profile="debug", output="c")
+            builder = PenguBuilder(cfg)
+            builder.is_test_mode = True
+            bundle_path, _ = builder.bundle(output_file=str(d / "bundle.c"))
+            content = Path(bundle_path).read_text(encoding="utf-8")
+            assert "mylib_step_fn" in content
+            check_c_syntax(content)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
