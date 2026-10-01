@@ -482,3 +482,18 @@ weave main into int:
         res = compile_run(code, tag="test_i10_run")
         assert res.returncode == 0
 
+
+# ─── I1: Dynamic indentation in for_comp, result, maybe constructors ──
+class TestI1_ComprehensionIndentation:
+    def test_for_comp_dynamic_indentation(self):
+        """List comprehension internal statements follow scope indentation."""
+        code = """
+weave foo into list of int:
+    var xs as list of int is for x in [1, 2, 3] then x * 2
+    return xs
+"""
+        c = gen_bundle(code)
+        check_c_syntax(c)
+        # Inside foo (2 spaces), comprehension temporary list declaration should be indented with 4 spaces
+        assert "    PenguList _comp_list" in c
+

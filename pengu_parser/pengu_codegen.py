@@ -5901,20 +5901,21 @@ class PenguCodegen:
         decl_tmp = CTypeMapper.to_c_decl(arg_t, tmp)
         res_tmp = self.get_temp_name("_result")
         clone_fn = self._element_clone_fn(arg_t)
+        ind = self.indent()
         if clone_fn != "NULL":
-            store = f"  else {{ {clone_fn}({res_tmp}.{side}, &({tmp})); }}"
+            store = f"{ind}  else {{ {clone_fn}({res_tmp}.{side}, &({tmp})); }}"
         else:
-            store = f"  else memcpy({res_tmp}.{side}, &({tmp}), sizeof({tmp}));"
+            store = f"{ind}  else memcpy({res_tmp}.{side}, &({tmp}), sizeof({tmp}));"
         return (
             f"(__extension__({{ {decl_tmp} = {arg_c};\n"
-            f"  PenguResult {res_tmp};\n"
-            f"  {res_tmp}.is_ok = {'true' if is_ok else 'false'};\n"
-            f"  {res_tmp}.ok_val = NULL;\n"
-            f"  {res_tmp}.err_val = NULL;\n"
-            f"  {res_tmp}.{side} = pengu_sigil_alloc(sizeof({tmp}));\n"
-            f"  if (!{res_tmp}.{side}) {res_tmp}.is_ok = {'false' if is_ok else 'true'};\n"
+            f"{ind}  PenguResult {res_tmp};\n"
+            f"{ind}  {res_tmp}.is_ok = {'true' if is_ok else 'false'};\n"
+            f"{ind}  {res_tmp}.ok_val = NULL;\n"
+            f"{ind}  {res_tmp}.err_val = NULL;\n"
+            f"{ind}  {res_tmp}.{side} = pengu_sigil_alloc(sizeof({tmp}));\n"
+            f"{ind}  if (!{res_tmp}.{side}) {res_tmp}.is_ok = {'false' if is_ok else 'true'};\n"
             f"{store}\n"
-            f"  {res_tmp}; }}))"
+            f"{ind}  {res_tmp}; }}))"
         )
 
     def _translate_expr(self, node: Any, expected_type: Optional[Type] = None) -> str:
@@ -6408,18 +6409,19 @@ class PenguCodegen:
             # deep-copied into it ('some s' used to share s's buffer, which the
             # scope banish then freed → dangling box).
             clone_fn = self._element_clone_fn(arg_t)
+            ind = self.indent()
             if clone_fn != "NULL":
-                store = (f"  else {{ {clone_fn}({maybe_tmp}.value, &({tmp})); }}")
+                store = (f"{ind}  else {{ {clone_fn}({maybe_tmp}.value, &({tmp})); }}")
             else:
-                store = f"  else memcpy({maybe_tmp}.value, &({tmp}), sizeof({tmp}));"
+                store = f"{ind}  else memcpy({maybe_tmp}.value, &({tmp}), sizeof({tmp}));"
             return (
                 f"(__extension__({{ {decl_tmp} = {arg_c};\n"
-                f"  PenguMaybe {maybe_tmp};\n"
-                f"  {maybe_tmp}.is_present = true;\n"
-                f"  {maybe_tmp}.value = pengu_sigil_alloc(sizeof({tmp}));\n"
-                f"  if (!{maybe_tmp}.value) {maybe_tmp}.is_present = false;\n"
+                f"{ind}  PenguMaybe {maybe_tmp};\n"
+                f"{ind}  {maybe_tmp}.is_present = true;\n"
+                f"{ind}  {maybe_tmp}.value = pengu_sigil_alloc(sizeof({tmp}));\n"
+                f"{ind}  if (!{maybe_tmp}.value) {maybe_tmp}.is_present = false;\n"
                 f"{store}\n"
-                f"  {maybe_tmp}; }}))"
+                f"{ind}  {maybe_tmp}; }}))"
             )
 
         # 3b-bis. 'ok expr' / 'err expr': native result construction.
@@ -6448,20 +6450,21 @@ class PenguCodegen:
             decl_tmp = CTypeMapper.to_c_decl(arg_t, tmp)
             res_tmp = self.get_temp_name("_result")
             clone_fn = self._element_clone_fn(arg_t)
+            ind = self.indent()
             if clone_fn != "NULL":
-                store = f"  else {{ {clone_fn}({res_tmp}.{side}, &({tmp})); }}"
+                store = f"{ind}  else {{ {clone_fn}({res_tmp}.{side}, &({tmp})); }}"
             else:
-                store = f"  else memcpy({res_tmp}.{side}, &({tmp}), sizeof({tmp}));"
+                store = f"{ind}  else memcpy({res_tmp}.{side}, &({tmp}), sizeof({tmp}));"
             return (
                 f"(__extension__({{ {decl_tmp} = {arg_c};\n"
-                f"  PenguResult {res_tmp};\n"
-                f"  {res_tmp}.is_ok = {'true' if is_ok else 'false'};\n"
-                f"  {res_tmp}.ok_val = NULL;\n"
-                f"  {res_tmp}.err_val = NULL;\n"
-                f"  {res_tmp}.{side} = pengu_sigil_alloc(sizeof({tmp}));\n"
-                f"  if (!{res_tmp}.{side}) {res_tmp}.is_ok = {'false' if is_ok else 'true'};\n"
+                f"{ind}  PenguResult {res_tmp};\n"
+                f"{ind}  {res_tmp}.is_ok = {'true' if is_ok else 'false'};\n"
+                f"{ind}  {res_tmp}.ok_val = NULL;\n"
+                f"{ind}  {res_tmp}.err_val = NULL;\n"
+                f"{ind}  {res_tmp}.{side} = pengu_sigil_alloc(sizeof({tmp}));\n"
+                f"{ind}  if (!{res_tmp}.{side}) {res_tmp}.is_ok = {'false' if is_ok else 'true'};\n"
                 f"{store}\n"
-                f"  {res_tmp}; }}))"
+                f"{ind}  {res_tmp}; }}))"
             )
 
         # 3c. 'ord expr': byte code of a single-character string.
@@ -7286,6 +7289,7 @@ class PenguCodegen:
                     return f"pengu_list_new_owned(sizeof({then_elem_c}), {sz}, {then_cln}, {then_clo})"
                 return f"pengu_list_new(sizeof({then_elem_c}), {sz})"
 
+            ind = self.indent()
             lit_decl = ""
             if isinstance(iter_t, BaseType) and iter_t.name == "string":
                 # Iterating a string yields each character as a fresh
@@ -7296,7 +7300,7 @@ class PenguCodegen:
                         "array_at_expr", "essence_of", "self_arrow", "self_ref",
                         "string_lit")):
                     iter_tmp = self.get_temp_name("_iter")
-                    lit_decl = f"  PenguString {iter_tmp} = {iter_c};\n"
+                    lit_decl = f"{ind}  PenguString {iter_tmp} = {iter_c};\n"
                     iter_c = iter_tmp
                 tmp_list = self.get_temp_name("_comp_list")
                 tmp_val = self.get_temp_name("_comp_val")
@@ -7306,18 +7310,18 @@ class PenguCodegen:
                 return (
                     f"(__extension__({{\n"
                     f"{lit_decl}"
-                    f"  PenguList {tmp_list} = {_comp_list_new(f'({iter_c}).len')};\n"
-                    f"  for (int32_t _i = 0; _i < ({iter_c}).len; _i++) {{\n"
-                    f"    PenguString {decl_char} = pengu_string_char_at({iter_c}, _i);\n"
-                    f"    {decl_var} = {decl_char};\n"
-                    f"    {cond_check}{{\n"
-                    f"      {decl_val} = {then_c};\n"
-                    f"      pengu_list_push(&{tmp_list}, &{tmp_val});\n"
-                    f"    }}\n"
-                    f"    pengu_banish_string(&{decl_char});\n"
-                    f"  }}\n"
-                    f"  {tmp_list};\n"
-                    f"}}))"
+                    f"{ind}  PenguList {tmp_list} = {_comp_list_new(f'({iter_c}).len')};\n"
+                    f"{ind}  for (int32_t _i = 0; _i < ({iter_c}).len; _i++) {{\n"
+                    f"{ind}    PenguString {decl_char} = pengu_string_char_at({iter_c}, _i);\n"
+                    f"{ind}    {decl_var} = {decl_char};\n"
+                    f"{ind}    {cond_check}{{\n"
+                    f"{ind}      {decl_val} = {then_c};\n"
+                    f"{ind}      pengu_list_push(&{tmp_list}, &{tmp_val});\n"
+                    f"{ind}    }}\n"
+                    f"{ind}    pengu_banish_string(&{decl_char});\n"
+                    f"{ind}  }}\n"
+                    f"{ind}  {tmp_list};\n"
+                    f"{ind}}}))"
                 )
             if isinstance(iter_t, ArrayType) and iter_t.size is not None:
                 count_c = str(iter_t.size)
@@ -7325,7 +7329,7 @@ class PenguCodegen:
                     lit_tmp = self.get_temp_name("_lit")
                     elems = ", ".join(self._translate_expr(c) for c in iter_node.children)
                     lit_type_decl = CTypeMapper.to_c_decl(iter_elem_t, f"{lit_tmp}[]")
-                    lit_decl = f"  {lit_type_decl} = {{ {elems} }};\n"
+                    lit_decl = f"{ind}  {lit_type_decl} = {{ {elems} }};\n"
                     elem_access = f"{lit_tmp}[_i]"
                 else:
                     elem_access = f"({iter_c})[_i]"
@@ -7338,7 +7342,7 @@ class PenguCodegen:
                         "array_at_expr", "essence_of", "self_arrow", "self_ref",
                         "array_lit", "list_lit")):
                     iter_tmp = self.get_temp_name("_iter")
-                    lit_decl = f"  {CTypeMapper.to_c_decl(iter_t, iter_tmp)} = {iter_c};\n"
+                    lit_decl = f"{ind}  {CTypeMapper.to_c_decl(iter_t, iter_tmp)} = {iter_c};\n"
                     iter_c = iter_tmp
                 count_c = f"({iter_c}).len"
                 iter_elem_cast = CTypeMapper.to_c_decl(iter_elem_t, "*")
@@ -7356,18 +7360,18 @@ class PenguCodegen:
                 decl_val = CTypeMapper.to_c_decl(then_t, tmp_val) if then_t else f"{then_elem_c} {tmp_val}"
                 return (
                     f"(__extension__({{\n"
-                    f"  PenguList {tmp_list} = {_comp_list_new(f'({iter_c}).len')};\n"
-                    f"  for (int32_t {slot_var} = 0, {idx_var} = 0; {idx_var} < ({iter_c}).len && {slot_var} < ({iter_c}).cap; {slot_var}++) {{\n"
-                    f"    if (!({iter_c}).entries || !({iter_c}).entries[{slot_var}].occupied) continue;\n"
-                    f"    {decl_var} = *(({iter_elem_cast})({iter_c}).entries[{slot_var}].key);\n"
-                    f"    {cond_check}{{\n"
-                    f"      {decl_val} = {then_c};\n"
-                    f"      pengu_list_push(&{tmp_list}, &{tmp_val});\n"
-                    f"    }}\n"
-                    f"    {idx_var}++;\n"
-                    f"  }}\n"
-                    f"  {tmp_list};\n"
-                    f"}}))"
+                    f"{ind}  PenguList {tmp_list} = {_comp_list_new(f'({iter_c}).len')};\n"
+                    f"{ind}  for (int32_t {slot_var} = 0, {idx_var} = 0; {idx_var} < ({iter_c}).len && {slot_var} < ({iter_c}).cap; {slot_var}++) {{\n"
+                    f"{ind}    if (!({iter_c}).entries || !({iter_c}).entries[{slot_var}].occupied) continue;\n"
+                    f"{ind}    {decl_var} = *(({iter_elem_cast})({iter_c}).entries[{slot_var}].key);\n"
+                    f"{ind}    {cond_check}{{\n"
+                    f"{ind}      {decl_val} = {then_c};\n"
+                    f"{ind}      pengu_list_push(&{tmp_list}, &{tmp_val});\n"
+                    f"{ind}    }}\n"
+                    f"{ind}    {idx_var}++;\n"
+                    f"{ind}  }}\n"
+                    f"{ind}  {tmp_list};\n"
+                    f"{ind}}}))"
                 )
             elif isinstance(iter_t, RangeType) or (
                 isinstance(iter_node, Tree) and iter_node.data in ("to_expr", "range_dotdot")
@@ -7380,7 +7384,7 @@ class PenguCodegen:
                     count_hint = f"(({end_s}) > ({start_s}) ? ({end_s}) - ({start_s}) : 0)"
                 else:
                     rng_tmp = self.get_temp_name("_rng")
-                    init_range = f"  PenguRange {rng_tmp} = {iter_c};\n"
+                    init_range = f"{ind}  PenguRange {rng_tmp} = {iter_c};\n"
                     loop_head = f"for (int64_t {c_var_name} = {rng_tmp}.start; {c_var_name} < {rng_tmp}.end; {c_var_name}++)"
                     count_hint = f"({rng_tmp}.end > {rng_tmp}.start ? {rng_tmp}.end - {rng_tmp}.start : 0)"
 
@@ -7392,27 +7396,27 @@ class PenguCodegen:
                     return (
                         f"(__extension__({{\n"
                         f"{init_range}"
-                        f"  PenguList {tmp_list} = {_comp_list_new(alloc_sz)};\n"
-                        f"  {loop_head} {{\n"
-                        f"    if ({cond_c}) {{\n"
-                        f"      {decl_val} = {then_c};\n"
-                        f"      pengu_list_push(&{tmp_list}, &{tmp_val});\n"
-                        f"    }}\n"
-                        f"  }}\n"
-                        f"  {tmp_list};\n"
-                        f"}}))"
+                        f"{ind}  PenguList {tmp_list} = {_comp_list_new(alloc_sz)};\n"
+                        f"{ind}  {loop_head} {{\n"
+                        f"{ind}    if ({cond_c}) {{\n"
+                        f"{ind}      {decl_val} = {then_c};\n"
+                        f"{ind}      pengu_list_push(&{tmp_list}, &{tmp_val});\n"
+                        f"{ind}    }}\n"
+                        f"{ind}  }}\n"
+                        f"{ind}  {tmp_list};\n"
+                        f"{ind}}}))"
                     )
                 else:
                     return (
                         f"(__extension__({{\n"
                         f"{init_range}"
-                        f"  PenguList {tmp_list} = {_comp_list_new(alloc_sz)};\n"
-                        f"  {loop_head} {{\n"
-                        f"    {decl_val} = {then_c};\n"
-                        f"    pengu_list_push(&{tmp_list}, &{tmp_val});\n"
-                        f"  }}\n"
-                        f"  {tmp_list};\n"
-                        f"}}))"
+                        f"{ind}  PenguList {tmp_list} = {_comp_list_new(alloc_sz)};\n"
+                        f"{ind}  {loop_head} {{\n"
+                        f"{ind}    {decl_val} = {then_c};\n"
+                        f"{ind}    pengu_list_push(&{tmp_list}, &{tmp_val});\n"
+                        f"{ind}  }}\n"
+                        f"{ind}  {tmp_list};\n"
+                        f"{ind}}}))"
                     )
             else:
                 raise SemanticError(
@@ -7427,30 +7431,30 @@ class PenguCodegen:
             if cond_c:
                 return (
                     f"(__extension__({{\n"
-                    f"  PenguList {tmp_list} = {_comp_list_new('8')};\n"
+                    f"{ind}  PenguList {tmp_list} = {_comp_list_new('8')};\n"
                     f"{lit_decl}"
-                    f"  for (int _i = 0; _i < {count_c}; _i++) {{\n"
-                    f"    {decl_var} = {elem_access};\n"
-                    f"    if ({cond_c}) {{\n"
-                    f"      {decl_val} = {then_c};\n"
-                    f"      pengu_list_push(&{tmp_list}, &{tmp_val});\n"
-                    f"    }}\n"
-                    f"  }}\n"
-                    f"  {tmp_list};\n"
-                    f"}}))"
+                    f"{ind}  for (int _i = 0; _i < {count_c}; _i++) {{\n"
+                    f"{ind}    {decl_var} = {elem_access};\n"
+                    f"{ind}    if ({cond_c}) {{\n"
+                    f"{ind}      {decl_val} = {then_c};\n"
+                    f"{ind}      pengu_list_push(&{tmp_list}, &{tmp_val});\n"
+                    f"{ind}    }}\n"
+                    f"{ind}  }}\n"
+                    f"{ind}  {tmp_list};\n"
+                    f"{ind}}}))"
                 )
             else:
                 return (
                     f"(__extension__({{\n"
                     f"{lit_decl}"
-                    f"  PenguList {tmp_list} = {_comp_list_new(count_c)};\n"
-                    f"  for (int _i = 0; _i < {count_c}; _i++) {{\n"
-                    f"    {decl_var} = {elem_access};\n"
-                    f"    {decl_val} = {then_c};\n"
-                    f"    pengu_list_push(&{tmp_list}, &{tmp_val});\n"
-                    f"  }}\n"
-                    f"  {tmp_list};\n"
-                    f"}}))"
+                    f"{ind}  PenguList {tmp_list} = {_comp_list_new(count_c)};\n"
+                    f"{ind}  for (int _i = 0; _i < {count_c}; _i++) {{\n"
+                    f"{ind}    {decl_var} = {elem_access};\n"
+                    f"{ind}    {decl_val} = {then_c};\n"
+                    f"{ind}    pengu_list_push(&{tmp_list}, &{tmp_val});\n"
+                    f"{ind}  }}\n"
+                    f"{ind}  {tmp_list};\n"
+                    f"{ind}}}))"
                 )
         elif rule == "at_expr":
             parts = flatten_at_chain(node)

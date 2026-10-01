@@ -3001,13 +3001,13 @@ class TestCodegenEmissionArraysSlices:
         assert "while ((x < 10)) {" in c
         assert "continue;" in c
         assert "break;" in c
-        assert "for (int32_t i = 0; i < 5; i++) {" in c
+        assert "for (int64_t i = 0; i < 5; i++) {" in c
         assert "arr[i] = ((arr[i]) * 2);" in c
-        assert "for (int32_t i = 0; i < part.len; i++) {" in c
+        assert "for (int64_t i = 0; i < part.len; i++) {" in c
         assert "(((int32_t *)(part).data)[i]) = (((((int32_t *)(part).data)[i])) + 10);" in c
         assert "for (int32_t _idx_1 = 0; _idx_1 < 5; _idx_1++) {" in c
         assert "int32_t num = (arr)[_idx_1];" in c
-        assert "for (int32_t i = 0; i < lst.len; i++) {" in c
+        assert "for (int64_t i = 0; i < lst.len; i++) {" in c
         assert "(*(int32_t *)pengu_list_at(&(lst), i)) = (((*(int32_t *)pengu_list_at(&(lst), i))) + 100);" in c
 
     def test_judge_switch_emission(self):
