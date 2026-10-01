@@ -5362,8 +5362,7 @@ class PenguChecker:
             if decl_or_field.data in ("var_decl", "let_decl"):
                 for child in decl_or_field.children:
                     if isinstance(child, Tree) and child.data in (
-                        "base_type", "custom_type", "ref_type", "alias_type", "rune_type",
-                        "echo_type", "omen_type", "generic_type",
+                        "base_type", "custom_type", "ref_type", "alias_type",
                     ):
                         try:
                             return ast_to_type(child, self.symbols.lookup_type)

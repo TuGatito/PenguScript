@@ -374,3 +374,23 @@ class TestI6_DeadCodeInterpolatedString:
         assert cg._is_string_expr(node) is True
         token = Token("STRING", '"world"')
         assert cg._is_string_expr(token) is True
+
+
+# ─── I7: Struct init escape analysis cleans dead type rules ───────────
+class TestI7_DeadCodeStructInitRules:
+    def test_struct_init_type_extracts_correct_type(self):
+        """Escape analysis correctly finds struct type on custom_type annotation."""
+        from pengu_parser.pengu_parser import PenguParser
+        from pengu_parser.pengu_checker import PenguChecker
+
+        code = """
+rune Point:
+    x as int
+    y as int
+
+weave main into void:
+    var p as Point is with x is 1, y is 2
+"""
+        p = PenguParser()
+        checker = PenguChecker()
+        assert checker.check(p.parse(code)) == []
