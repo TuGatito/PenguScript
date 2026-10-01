@@ -6543,30 +6543,9 @@ class PenguCodegen:
                     list_t = actual_obj_type.target if isinstance(actual_obj_type, RefType) else actual_obj_type
                     elem_c = CTypeMapper.to_c_type(list_t.element)
                     arg0 = args[0] if args else ""
-                    if elem_c == "PenguString":
-                        e_ptr = f"&(({elem_c}){{ ({arg0}).data, ({arg0}).len }})"
-                    elif elem_c == "PenguList":
-                        # Carry the ownership callbacks across: without them a
-                        # cloned inner list would forget how to free its own
-                        # elements (e.g. 'list of list of string').
-                        e_ptr = (f"&(({elem_c}){{ .data = ({arg0}).data, .len = ({arg0}).len, "
-                                 f".cap = ({arg0}).cap, .elem_size = ({arg0}).elem_size, "
-                                 f".elem_cleanup = ({arg0}).elem_cleanup, "
-                                 f".elem_clone = ({arg0}).elem_clone }})")
-                    elif elem_c == "PenguMap":
-                        e_ptr = (f"&(({elem_c}){{ .entries = ({arg0}).entries, .len = ({arg0}).len, "
-                                 f".cap = ({arg0}).cap, .key_size = ({arg0}).key_size, "
-                                 f".val_size = ({arg0}).val_size, "
-                                 f".key_cleanup = ({arg0}).key_cleanup, "
-                                 f".val_cleanup = ({arg0}).val_cleanup, "
-                                 f".key_clone = ({arg0}).key_clone, "
-                                 f".val_clone = ({arg0}).val_clone }})")
-                    elif elem_c in ("int32_t", "int64_t", "float", "double", "bool", "uint8_t", "int8_t", "uint16_t", "int16_t", "uint32_t", "uint64_t"):
-                        e_ptr = f"&(({elem_c}){{ {arg0} }})"
-                    else:
-                        e_ptr = f"&({arg0})"
+                    tmp_elem = self.get_temp_name("_elem")
                     if m_name in ("push", "append"):
-                        return f"pengu_list_push({self_ptr}, {e_ptr})"
+                        return f"(__extension__({{ {elem_c} {tmp_elem} = ({arg0}); pengu_list_push({self_ptr}, &{tmp_elem}); }}))"
                     elif m_name == "pop":
                         return f"(*({elem_c}*)pengu_list_pop_val({self_ptr}))"
                     elif m_name == "len":
@@ -6576,9 +6555,9 @@ class PenguCodegen:
                     elif m_name == "clear":
                         return f"pengu_list_clear({self_ptr})"
                     elif m_name == "contains":
-                        return f"pengu_list_contains({self_ptr}, {e_ptr})"
+                        return f"(__extension__({{ {elem_c} {tmp_elem} = ({arg0}); pengu_list_contains({self_ptr}, &{tmp_elem}); }}))"
                     elif m_name == "index_of":
-                        return f"pengu_list_index_of({self_ptr}, {e_ptr})"
+                        return f"(__extension__({{ {elem_c} {tmp_elem} = ({arg0}); pengu_list_index_of({self_ptr}, &{tmp_elem}); }}))"
                     elif m_name == "at":
                         return f"(*({elem_c}*)pengu_list_at({self_ptr}, {args[0]}))"
 
@@ -6726,31 +6705,9 @@ class PenguCodegen:
                     self_ptr = base_target if (isinstance(actual_with_type, RefType) or base_target == "self") else f"&{base_target}"
                     elem_c = CTypeMapper.to_c_type(list_t.element)
                     arg0 = args[0] if args else ""
-                    if elem_c == "PenguString":
-                        e_ptr = f"&(({elem_c}){{ ({arg0}).data, ({arg0}).len }})"
-                    elif elem_c == "PenguList":
-                        # Carry the ownership callbacks across: without them a
-                        # cloned inner list would forget how to free its own
-                        # elements (e.g. 'list of list of string').
-                        e_ptr = (f"&(({elem_c}){{ .data = ({arg0}).data, .len = ({arg0}).len, "
-                                 f".cap = ({arg0}).cap, .elem_size = ({arg0}).elem_size, "
-                                 f".elem_cleanup = ({arg0}).elem_cleanup, "
-                                 f".elem_clone = ({arg0}).elem_clone }})")
-                    elif elem_c == "PenguMap":
-                        e_ptr = (f"&(({elem_c}){{ .entries = ({arg0}).entries, .len = ({arg0}).len, "
-                                 f".cap = ({arg0}).cap, .key_size = ({arg0}).key_size, "
-                                 f".val_size = ({arg0}).val_size, "
-                                 f".key_cleanup = ({arg0}).key_cleanup, "
-                                 f".val_cleanup = ({arg0}).val_cleanup, "
-                                 f".key_clone = ({arg0}).key_clone, "
-                                 f".val_clone = ({arg0}).val_clone }})")
-                    elif elem_c in ("int32_t", "int64_t", "float", "double", "bool", "uint8_t", "int8_t", "uint16_t", "int16_t", "uint32_t", "uint64_t"):
-                        e_ptr = f"&(({elem_c}){{ {arg0} }})"
-                    else:
-                        e_ptr = f"&({arg0})"
-
+                    tmp_elem = self.get_temp_name("_elem")
                     if field_name in ("push", "append"):
-                        return f"pengu_list_push({self_ptr}, {e_ptr})"
+                        return f"(__extension__({{ {elem_c} {tmp_elem} = ({arg0}); pengu_list_push({self_ptr}, &{tmp_elem}); }}))"
                     elif field_name == "pop":
                         return f"(*({elem_c}*)pengu_list_pop_val({self_ptr}))"
                     elif field_name == "len":
@@ -6762,9 +6719,9 @@ class PenguCodegen:
                     elif field_name == "clear":
                         return f"pengu_list_clear({self_ptr})"
                     elif field_name == "contains":
-                        return f"pengu_list_contains({self_ptr}, {e_ptr})"
+                        return f"(__extension__({{ {elem_c} {tmp_elem} = ({arg0}); pengu_list_contains({self_ptr}, &{tmp_elem}); }}))"
                     elif field_name == "index_of":
-                        return f"pengu_list_index_of({self_ptr}, {e_ptr})"
+                        return f"(__extension__({{ {elem_c} {tmp_elem} = ({arg0}); pengu_list_index_of({self_ptr}, &{tmp_elem}); }}))"
                     elif field_name == "at":
                         return f"(*({elem_c}*)pengu_list_at({self_ptr}, {args[0]}))"
 

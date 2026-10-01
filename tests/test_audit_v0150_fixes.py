@@ -54,3 +54,48 @@ weave main into int:
         res = compile_run(code, tag="test_c2_nested")
         assert res.stdout.strip() == "123"
 
+
+# ─── C3: list.push/contains/index_of evaluates argument only once ─────
+class TestC3_ListArgSingleEvaluation:
+    @requires_runtime
+    def test_push_side_effects_once(self):
+        """Calling push with an expression evaluates the expression exactly once."""
+        code = """
+import std.spark
+
+weave gen into string:
+    static var gen_count as int is 0
+    set gen_count is gen_count + 1
+    calling spark.println with "GEN CALLED"
+    return "item"
+
+weave main into int:
+    var xs as list of string is list of string
+    calling xs.push with (calling gen)
+    return 0
+"""
+        res = compile_run(code, tag="test_c3_push")
+        assert res.stdout.count("GEN CALLED") == 1
+
+    @requires_runtime
+    def test_contains_side_effects_once(self):
+        """Calling contains with an expression evaluates the expression exactly once."""
+        code = """
+import std.spark
+
+weave gen into string:
+    static var gen_count as int is 0
+    set gen_count is gen_count + 1
+    calling spark.println with "GEN CALLED"
+    return "item"
+
+weave main into int:
+    var xs as list of string is list of string
+    calling xs.push with "item"
+    let has is calling xs.contains with (calling gen)
+    return 0
+"""
+        res = compile_run(code, tag="test_c3_contains")
+        assert res.stdout.count("GEN CALLED") == 1
+
+
