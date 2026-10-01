@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import argparse
 from pathlib import Path
+from typing import List, Optional
 
 ROOT_DIR = Path(__file__).resolve().parent
 BUILD_DIR = ROOT_DIR / "build"
@@ -261,6 +262,27 @@ def ensure_tcc_for_release() -> Optional[Path]:
     return None
 
 
+def tcc_add_binary_args(tcc_bin: Path, data_sep: str) -> List[str]:
+    """PyInstaller ``--add-binary`` arguments that bundle a TCC installation.
+
+    The destination **keeps the source file name**: on Windows the binary is
+    ``tcc.exe`` and ``pengu_tcc.find_tcc()`` probes ``<bundle>/tcc/tcc.exe``.
+    Hard-coding ``tcc/tcc`` shipped the file under a name the frozen toolchain
+    never looks for, silently disabling TCC in Windows releases.
+
+    The include tree (``stdarg.h``, ``stddef.h``, ``tccdefs.h`` …) travels with
+    it: ``<prefix>/lib/tcc/include`` for a ``make install`` layout and
+    ``<tcc_dir>/include`` for the prebuilt Windows archive.
+    """
+    args = [f"{tcc_bin}{data_sep}tcc/{tcc_bin.name}"]
+    tcc_root = tcc_bin.parent
+    for inc in (tcc_root / "include", tcc_root.parent / "lib" / "tcc" / "include"):
+        if inc.is_dir():
+            args.append(f"{inc}{data_sep}tcc/include")
+            break
+    return args
+
+
 def package_with_pyinstaller(py_exe: Path, dist_dir: Path, bin_subdir: str = ""):
     """Packages pengu_project.py into a standalone pengu / pengu.exe binary.
 
@@ -286,12 +308,7 @@ def package_with_pyinstaller(py_exe: Path, dist_dir: Path, bin_subdir: str = "")
     add_binary = []
     tcc_bin = ensure_tcc_for_release()
     if tcc_bin:
-        add_binary.append(f"{tcc_bin}{data_sep}tcc/tcc")
-        tcc_root = tcc_bin.parent
-        for inc in (tcc_root / "include", tcc_root.parent / "lib" / "tcc" / "include"):
-            if inc.is_dir():
-                add_binary.append(f"{str(inc)}{data_sep}tcc/include")
-                break
+        add_binary.extend(tcc_add_binary_args(tcc_bin, data_sep))
 
     # Hidden imports that PyInstaller may not auto-detect
     hidden_imports = [

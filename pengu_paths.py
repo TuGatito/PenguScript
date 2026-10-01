@@ -37,7 +37,9 @@ import os
 import shutil
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
+from typing import Tuple
 from typing import Iterable, List, Optional
 
 
@@ -336,19 +338,39 @@ def find_version_file() -> Optional[Path]:
 # ---------------------------------------------------------------------------
 
 
+@lru_cache(maxsize=128)
+def _pkg_config_cached(pkgconfig: str, args: Tuple[str, ...]) -> Tuple[str, ...]:
+    """Memoized ``pkg-config`` probe.
+
+    A single ``pengu build``/``pengu run`` asks for the same four packages from
+    several places (cflags, libs, the platform tail); spawning pkg-config every
+    time costs ~250 ms per cache miss, which is a third of a TCC build.  The
+    resolved path of pkg-config is part of the key, so a different toolchain (or
+    a test that changes ``PATH``) cannot read another one's results.
+    ``PKG_CONFIG_PATH`` changes within a process are not tracked: call
+    :func:`clear_pkg_config_cache` when mutating it in-process.
+    """
+    try:
+        res = subprocess.run([pkgconfig, *args], capture_output=True, text=True)
+    except OSError:
+        return ()
+    if res.returncode != 0:
+        return ()
+    return tuple(tok for tok in res.stdout.split() if tok)
+
+
+def clear_pkg_config_cache() -> None:
+    """Forgets every memoized pkg-config probe (tests, in-process env changes)."""
+    _pkg_config_cached.cache_clear()
+
+
 def _pkg_config(args: List[str]) -> List[str]:
     if sys.platform.startswith("win"):
         return []
     pkgconfig = shutil.which("pkg-config")
     if not pkgconfig:
         return []
-    try:
-        res = subprocess.run([pkgconfig] + args, capture_output=True, text=True)
-    except OSError:
-        return []
-    if res.returncode != 0:
-        return []
-    return [tok for tok in res.stdout.split() if tok]
+    return list(_pkg_config_cached(pkgconfig, tuple(args)))
 
 
 def pkg_config_cflags(package: str) -> List[str]:

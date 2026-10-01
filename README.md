@@ -225,23 +225,37 @@ Then open VS Code → **Extensions** (`Ctrl+Shift+X`) → **`…`** → **Instal
 
 ## Performance
 
-`pengu run script.pengu` caches the compiled binary by *content hash* and
-serializes the parser tables, so an unchanged script starts in milliseconds
-instead of rebuilding everything. Dead-code elimination removes the parts of
-`std/` you do not use, and releases bundle TinyCC for fast cache misses.
+`pengu run script.pengu` is meant to feel like running a script, not building a
+project. Five independent optimisations, each with a documented off-switch:
+
+| Optimisation | What it does | Disable with |
+| ------------ | ------------ | ------------ |
+| Parser-table cache | Serializes Lark's LALR tables (~3.9 s → ~0.25 s per process) | `PENGU_CACHE=0` |
+| Binary cache | Reuses the linked binary keyed by the *content* hash of the script and every import | `--no-cache`, `--ephemeral` |
+| Dead-code elimination | Emits only the `std/`/`lib/` weaves reachable from `main`/tests | `--no-dce`, `PENGU_NO_DCE=1` |
+| TinyCC | Bundled in the releases; ~19 ms to compile the bundle vs ~400 ms for gcc | `PENGU_NO_TCC=1`, `PENGU_DEV_CC=gcc` |
+| pkg-config memoization | One probe per package per process instead of ~12 spawns | — (always on) |
+
+Measured on the reference machine (Linux x86_64, Python 3.14.7, gcc 16.2.1,
+TCC 0.9.28rc, best of 5):
 
 | Scenario | Before | After |
 | -------- | -----: | ----: |
-| `pengu run hello.pengu` — first run (gcc) | 3.41 s | **0.52 s** |
-| `pengu run hello.pengu` — first run (TCC, when bundled) | — | **< 0.3 s** |
-| `pengu run hello.pengu` — second run (cache hit) | 3.00 s | **0.17 s** |
-| `bundle.c` of a script using only `std.spark.println` | 435 lines / 19.7 KB | **68 lines / 2.4 KB** |
-| LALR table construction per process | 2.99 s | **0.26 s** (cached) |
+| `pengu run hello.pengu` — first run, parser tables cached | 3.88 s | **0.85 s** (gcc) / **0.66 s** (TCC) |
+| `pengu run hello.pengu` — second run (cache hit) | 3.88 s | **0.19 s** |
+| `bundle.c` of a script using only `std.spark.println` | 432 lines / 19.4 KB | **65 lines / 2.3 KB** (-84%) |
+| LALR table construction per process | 3.9 s | **0.25 s** (cached) |
+| `compute.pengu` — 10M-iteration loop (run phase) | ~33 ms | 33 ms |
 
-Nothing is written to the project's `build/` directory by default. Run
-`pengu doctor` to see the compiler/cache/TCC status and `pengu time hello.pengu`
-for a per-phase breakdown; see [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for
-the full design and how to disable each optimisation.
+Nothing is written to the project's `build/` by default. Run `pengu doctor` to
+see the compiler/TCC/cache status, `pengu time hello.pengu` for a per-phase
+breakdown, and `scripts/bench.sh` to reproduce the table above. See
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md) for the full design, the
+flags/subcommands reference and the known limitations.
+
+If TCC (or any `PENGU_DEV_CC`) fails to compile a bundle, `pengu run` retries
+once with the project's configured compiler and warns on stderr instead of
+failing the build.
 
 ## Language Overview
 

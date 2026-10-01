@@ -1225,6 +1225,66 @@ def build_pengu_runtime(cc, ar, rebuild=False):
     print(f"[RUNTIME] Created {target_lib}")
     return target_lib
 
+
+def build_runtime_pch(cc, rebuild=False):
+    """Generates ``build/include/pengu_runtime.h.gch`` for later builds.
+
+    gcc/clang pick a ``.gch`` up automatically when it sits *next to* the header
+    and the compilation flags match (same ``-std``, same ``-D``/``-I`` set).  If
+    a project uses different ``-D`` values gcc silently ignores the file and
+    parses the header normally — a graceful degradation, never an error.
+
+    This is best effort: a missing header or a failed compile prints a warning
+    and returns ``None`` without failing the runtime build.
+    """
+    header = INCLUDE_DIR / "pengu_runtime.h"
+    if not header.is_file():
+        src = ROOT_DIR / "pengu_runtime.h"
+        if not src.is_file():
+            print("[PCH] pengu_runtime.h not found; skipping", file=sys.stderr)
+            return None
+        INCLUDE_DIR.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, header)
+
+    gch = header.parent / (header.name + ".gch")
+    if gch.is_file() and not rebuild:
+        try:
+            if gch.stat().st_mtime >= header.stat().st_mtime:
+                print(f"[PCH] {gch.name} is up to date.")
+                return gch
+        except OSError:
+            pass
+
+    # Minimal, stable flag set: the same defines build_pengu_runtime uses by
+    # default, so the PCH matches an ordinary project compile.
+    flags = [
+        "-x", "c-header",
+        "-std=c11",
+        "-O2",
+        "-I" + str(INCLUDE_DIR),
+        "-I" + str(ROOT_DIR),
+        "-DPCRE2_STATIC", "-DPCRE2_CODE_UNIT_WIDTH=8",
+        "-DLIBXML_STATIC", "-DCURL_STATICLIB",
+    ]
+    cmd = [cc] + flags + [str(header), "-o", str(gch)]
+    print(f"[PCH] compiling {gch.name}...")
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True)
+    except OSError as e:
+        print(f"[PCH] generation failed (best-effort, skipping): {e}", file=sys.stderr)
+        return None
+    if res.returncode != 0:
+        print(f"[PCH] generation failed (best-effort, skipping):\n{(res.stderr or '')[-500:]}",
+              file=sys.stderr)
+        try:
+            gch.unlink()
+        except OSError:
+            pass
+        return None
+    print(f"[PCH] created {gch}")
+    return gch
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build PenguScript static runtime and dependencies.")
     parser.add_argument("--rebuild", action="store_true", help="Force rebuild of all libraries.")
@@ -1277,6 +1337,15 @@ def main():
     _build("TOMLC17", build_tomlc17, cc, ar, rebuild=args.rebuild)
     _build("PENGU_STB", build_pengu_stb, cc, ar, rebuild=args.rebuild)
     _build("RUNTIME", build_pengu_runtime, cc, ar, rebuild=args.rebuild)
+    # A shared PCH of pengu_runtime.h: 'pengu build'/'pengu run' reuse it through
+    # -Ibuild/include instead of regenerating a throw-away one per build.  It is
+    # strictly best effort and never fails the runtime build.
+    try:
+        pch = build_runtime_pch(cc, rebuild=args.rebuild)
+        if pch is not None:
+            built.append("PCH")
+    except Exception as e:  # noqa: BLE001 - the PCH is an optional accelerator
+        print(f"[PCH] skipped ({e})", file=sys.stderr)
 
     print(f"=== Runtime build finished. Built: {', '.join(built) or '(none)'} ===")
 

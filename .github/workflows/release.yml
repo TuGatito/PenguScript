@@ -94,13 +94,16 @@ jobs:
         run: |
           $dest = "build/tcc-dist"
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          $url = $env:PENGU_TCC_URL
-          if (-not $url) {
-            Write-Host "::warning::PENGU_TCC_URL is not set; the Windows release will use the system compiler"
+          # TinyCC publishes no official Windows binary; this is the widely used
+          # prebuilt package. Override with PENGU_TCC_URL when a mirror is needed.
+          $url = if ($env:PENGU_TCC_URL) { $env:PENGU_TCC_URL } else { "https://github.com/FitzRoyX/tinycc/releases/download/tcc_20221020/tcc_20221020.zip" }
+          try {
+            Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\tcc.zip"
+            Expand-Archive -Path "$env:TEMP\tcc.zip" -DestinationPath $dest -Force
+          } catch {
+            Write-Host "::warning::TinyCC download failed ($url); the Windows release will use the system compiler"
             exit 0
           }
-          Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\tcc.zip"
-          Expand-Archive -Path "$env:TEMP\tcc.zip" -DestinationPath $dest -Force
           $exe = Get-ChildItem -Path $dest -Recurse -Filter tcc.exe | Select-Object -First 1
           if ($exe) {
             Copy-Item $exe.FullName "$dest\tcc.exe" -Force
@@ -116,6 +119,21 @@ jobs:
       - name: Run Automated Release Packager
         run: |
           python make_release.py
+
+      - name: Ad-hoc code sign (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # Gatekeeper refuses to execute unsigned Mach-O binaries. PyInstaller
+          # ad-hoc signs the files it embeds; sign the produced entry point (and
+          # any loose TCC binary) too so the archive runs out of the box.
+          find pengucc_build -type f \( -name pengu -o -name tcc \) -print0 2>/dev/null \
+            | while IFS= read -r -d '' t; do
+                echo "codesign --sign - --force $t"
+                codesign --sign - --force "$t" || true
+              done
+          { codesign --verify --verbose pengucc_build/bin/pengu \
+            || codesign --verify --verbose pengucc_build/pengu; } 2>/dev/null \
+            || echo "::warning::could not verify the signature (release still published)"
 
       - name: Archive Distribution (Windows)
         if: runner.os == 'Windows'

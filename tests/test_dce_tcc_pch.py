@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -35,41 +33,91 @@ def _bundle_of(source: str, tmp_path: Path) -> str:
     return Path(bundle).read_text(encoding="utf-8")
 
 
-def test_prune_weaves_keeps_non_std_and_reachable_std():
+def test_prune_weaves_keeps_non_std_and_reachable_std(tmp_path):
+    std = str(tmp_path / "std" / "m.pengu")
+    proj = str(tmp_path / "main.pengu")
+    util = str(tmp_path / "util.pengu")
     weaves = [
-        {"name": "main", "c_name": "pengu_main", "filepath": "/proj/main.pengu",
+        {"name": "main", "c_name": "pengu_main", "filepath": proj,
          "refs": {"helper"}},
-        {"name": "helper", "c_name": "helper", "filepath": "/proj/util.pengu",
+        {"name": "helper", "c_name": "helper", "filepath": util,
          "refs": {"used_std"}},
-        {"name": "used_std", "c_name": "used_std", "filepath": "/repo/std/m.pengu",
+        {"name": "used_std", "c_name": "used_std", "filepath": std,
          "refs": set()},
-        {"name": "unused_std", "c_name": "unused_std", "filepath": "/repo/std/m.pengu",
+        {"name": "unused_std", "c_name": "unused_std", "filepath": std,
          "refs": set()},
     ]
-    kept, dropped = pengu_dce.prune_weaves(weaves)
+    kept, dropped = pengu_dce.prune_weaves(weaves, base_dir=str(tmp_path))
     kept_names = {w["name"] for w in kept}
     assert kept_names == {"main", "helper", "used_std"}
     assert {w["name"] for w in dropped} == {"unused_std"}
 
 
-def test_prune_weaves_keeps_std_transitively():
+def test_prune_weaves_keeps_std_transitively(tmp_path):
+    std = str(tmp_path / "std" / "m.pengu")
+    proj = str(tmp_path / "main.pengu")
     weaves = [
-        {"name": "main", "c_name": "pengu_main", "filepath": "/proj/main.pengu",
+        {"name": "main", "c_name": "pengu_main", "filepath": proj,
          "refs": {"a"}},
-        {"name": "a", "c_name": "a", "filepath": "/repo/std/m.pengu", "refs": {"b"}},
-        {"name": "b", "c_name": "b", "filepath": "/repo/std/m.pengu", "refs": set()},
-        {"name": "c", "c_name": "c", "filepath": "/repo/std/m.pengu", "refs": set()},
+        {"name": "a", "c_name": "a", "filepath": std, "refs": {"b"}},
+        {"name": "b", "c_name": "b", "filepath": std, "refs": set()},
+        {"name": "c", "c_name": "c", "filepath": std, "refs": set()},
     ]
-    kept, dropped = pengu_dce.prune_weaves(weaves)
+    kept, dropped = pengu_dce.prune_weaves(weaves, base_dir=str(tmp_path))
     assert {w["name"] for w in kept} == {"main", "a", "b"}
     assert {w["name"] for w in dropped} == {"c"}
 
 
-def test_is_prunable_module_only_matches_std_and_lib():
-    assert pengu_dce.is_prunable_module("/x/std/spark.pengu")
-    assert pengu_dce.is_prunable_module("C:\\x\\lib\\foo.pengu")
-    assert not pengu_dce.is_prunable_module("/x/src/main.pengu")
-    assert not pengu_dce.is_prunable_module("/x/std/sqlite3.d.pengu")
+def test_prune_weaves_matches_short_names_inside_a_module(tmp_path):
+    """``spark_println`` must be kept when a call site writes ``println``."""
+    std = str(tmp_path / "std" / "spark.pengu")
+    proj = str(tmp_path / "main.pengu")
+    weaves = [
+        {"name": "main", "c_name": "pengu_main", "filepath": proj,
+         "refs": {"spark", "println"}},
+        {"name": "spark_println", "c_name": "spark_println", "filepath": std,
+         "refs": set()},
+        {"name": "spark_version", "c_name": "spark_version", "filepath": std,
+         "refs": set()},
+    ]
+    kept, dropped = pengu_dce.prune_weaves(weaves, base_dir=str(tmp_path))
+    assert {w["name"] for w in kept} == {"main", "spark_println"}
+    assert {w["name"] for w in dropped} == {"spark_version"}
+
+
+def test_prune_weaves_ignores_the_module_alias(tmp_path):
+    """A weave ending in the module name must not be kept by its own suffix.
+
+    Regression: ``unused_vendor`` used to be reduced to the spelling ``vendor``,
+    which every call site contains as the module alias, so nothing inside a
+    ``lib/`` binding was ever pruned.
+    """
+    vendor = str(tmp_path / "lib" / "vendor" / "pengu" / "vendor.pengu")
+    proj = str(tmp_path / "main.pengu")
+    weaves = [
+        {"name": "main", "c_name": "pengu_main", "filepath": proj,
+         "refs": {"vendor", "used_vendor"}},
+        {"name": "used_vendor", "c_name": "used_vendor", "filepath": vendor,
+         "refs": set()},
+        {"name": "unused_vendor", "c_name": "unused_vendor", "filepath": vendor,
+         "refs": set()},
+    ]
+    kept, dropped = pengu_dce.prune_weaves(weaves, base_dir=str(tmp_path))
+    assert {w["name"] for w in kept} == {"main", "used_vendor"}
+    assert {w["name"] for w in dropped} == {"unused_vendor"}
+
+
+def test_is_prunable_module_only_matches_std_and_lib(tmp_path):
+    # The repository's bundled std/ and a project's lib/ are prunable...
+    assert pengu_dce.is_prunable_module(str(REPO / "std" / "spark.pengu"))
+    assert pengu_dce.is_prunable_module("/proj/lib/vendor/pengu/v.pengu", "/proj")
+    # ...but user source is not, and neither is a project that merely *lives*
+    # under a directory called 'lib'.
+    assert not pengu_dce.is_prunable_module("/proj/src/main.pengu", "/proj")
+    assert not pengu_dce.is_prunable_module("/home/me/lib/proj/main.pengu",
+                                            "/home/me/lib/proj")
+    # Bindings are emitted as a unit (C declarations + enchanting glue).
+    assert not pengu_dce.is_prunable_module(str(REPO / "std" / "sqlite3.d.pengu"))
 
 
 @requires_cc
@@ -165,3 +213,188 @@ def test_pch_signature_tracks_include_and_define_flags(tmp_path):
     sig_b = PenguBuilder._pch_signature(["-Ifoo", "-DBAR=1", "-O0"])
     assert sig_a != sig_b
     assert "-O2" not in sig_a and "-Wall" not in sig_a
+
+
+def test_tcc_link_line_has_no_gnu_start_group(tmp_path):
+    """TCC's linker driver rejects ``-Wl,--start-group``.
+
+    Regression: every 'pengu run' with TCC used to fail the link and silently
+    fall back to gcc (doubling the cache-miss compile time), because the GNU-ld
+    archive group was added for every non-MSVC compiler.
+    """
+    sys.path.insert(0, str(REPO))
+    from pengu_project import OutputType, PenguBuilder, ProjectConfig
+
+    script = tmp_path / "p.pengu"
+    script.write_text("weave main into int:\n    return 0\n", encoding="utf-8")
+    cfg = ProjectConfig(entry=str(script), base_dir=str(tmp_path), output=OutputType.EXE,
+                        output_name="p", name="p", build_dir=str(tmp_path / "b"),
+                        links=["pengu_runtime"])
+    cfg.cc = "tcc"
+    commands = PenguBuilder(cfg).build_compile_commands(
+        str(tmp_path / "bundle.c"), str(tmp_path / "p"))
+    assert commands
+    tcc_line = " ".join(commands[0])
+    assert "--start-group" not in tcc_line
+    assert "--end-group" not in tcc_line
+
+    # ...while a GNU-ld host (gcc) still gets the group for robust archive order.
+    cfg.cc = "gcc"
+    gcc_commands = PenguBuilder(cfg).build_compile_commands(
+        str(tmp_path / "bundle.c"), str(tmp_path / "p"))
+    assert "--start-group" in " ".join(gcc_commands[0])
+
+
+def test_find_tcc_prefers_the_packaged_bundle(tmp_path, monkeypatch):
+    """Inside a PyInstaller release, TCC lives at ``<sys._MEIPASS>/tcc/tcc``."""
+    import pengu_tcc
+
+    bundled = tmp_path / "tcc" / pengu_tcc._exe("tcc")
+    bundled.parent.mkdir(parents=True, exist_ok=True)
+    bundled.write_text("#!/bin/sh\n", encoding="utf-8")
+    bundled.chmod(0o755)
+
+    monkeypatch.delenv("PENGU_NO_TCC", raising=False)
+    monkeypatch.delenv("PENGU_TCC", raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    assert pengu_tcc.find_tcc() == str(bundled)
+
+
+def test_find_tcc_ignores_a_non_executable_bundle_entry(tmp_path, monkeypatch):
+    import pengu_tcc
+
+    bundled = tmp_path / "tcc" / pengu_tcc._exe("tcc")
+    bundled.parent.mkdir(parents=True, exist_ok=True)
+    bundled.write_text("not executable\n", encoding="utf-8")
+    bundled.chmod(0o644)
+    monkeypatch.delenv("PENGU_NO_TCC", raising=False)
+    monkeypatch.delenv("PENGU_TCC", raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+
+    if os.name == "nt":
+        pytest.skip("executable bit is not meaningful on Windows")
+    found = pengu_tcc.find_tcc()
+    assert found != str(bundled)
+
+
+def test_find_tcc_probes_the_windows_suffix(tmp_path, monkeypatch):
+    """On Windows the bundled binary must be found as ``tcc/tcc.exe``.
+
+    ``make_release.py`` used to hard-code the PyInstaller destination as
+    ``tcc/tcc`` even on Windows, so the frozen toolchain never located its
+    compiler.  The destination now preserves the source file name; this pins the
+    ``_exe`` convention ``find_tcc`` relies on.
+    """
+    import pengu_tcc
+
+    monkeypatch.setattr(pengu_tcc.sys, "platform", "win32")
+    bundled = tmp_path / "tcc" / "tcc.exe"
+    bundled.parent.mkdir(parents=True, exist_ok=True)
+    bundled.write_text("MZ fake\n", encoding="utf-8")
+    bundled.chmod(0o755)
+    monkeypatch.delenv("PENGU_NO_TCC", raising=False)
+    monkeypatch.delenv("PENGU_TCC", raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    assert pengu_tcc.find_tcc() == str(bundled)
+
+
+def test_find_tcc_accepts_a_suffix_less_legacy_archive(tmp_path, monkeypatch):
+    """Releases built before the destination fix shipped 'tcc/tcc' on Windows."""
+    import pengu_tcc
+
+    monkeypatch.setattr(pengu_tcc.sys, "platform", "win32")
+    legacy = tmp_path / "tcc" / "tcc"
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    legacy.write_text("MZ fake\n", encoding="utf-8")
+    legacy.chmod(0o755)
+    monkeypatch.delenv("PENGU_NO_TCC", raising=False)
+    monkeypatch.delenv("PENGU_TCC", raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    assert pengu_tcc.find_tcc() == str(legacy)
+
+
+def test_run_project_forwards_pch_and_no_dce(monkeypatch):
+    """'pengu run --no-dce' (project mode, no script) must not be ignored."""
+    sys.path.insert(0, str(REPO))
+    from pengu_project import OutputType, ProjectConfig, run_project
+
+    captured = {}
+
+    class FakeConfig:
+        output = OutputType.C  # not an executable: run_project stops after build
+        base_dir = "."
+
+    monkeypatch.setattr(ProjectConfig, "load",
+                        classmethod(lambda cls, *a, **k: FakeConfig()))
+
+    def fake_build_project(config_path=None, **kwargs):
+        captured.update(kwargs)
+        captured["config_path"] = config_path
+        return "artifact"
+
+    monkeypatch.setattr("pengu_project.build_project", fake_build_project)
+    assert run_project(no_dce=True, pch=True) == 0
+    assert captured.get("no_dce") is True
+    assert captured.get("pch") is True
+
+    captured.clear()
+    assert run_project() == 0
+    assert captured.get("no_dce") is False
+    assert captured.get("pch") is False
+
+
+def test_tcc_add_binary_args_keep_the_executable_name(tmp_path):
+    """Release packaging must preserve 'tcc.exe' as the destination name.
+
+    Regression: ``make_release.py`` hard-coded ``tcc/tcc``; on Windows the frozen
+    toolchain probes ``tcc/tcc.exe`` and therefore never found its compiler.
+    """
+    sys.path.insert(0, str(REPO))
+    from make_release import tcc_add_binary_args
+
+    # Unix 'make install' layout: <prefix>/bin/tcc + <prefix>/lib/tcc/include.
+    prefix = tmp_path / "tcc-dist"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "lib" / "tcc" / "include").mkdir(parents=True)
+    unix_bin = prefix / "bin" / "tcc"
+    unix_bin.write_text("", encoding="utf-8")
+    args = tcc_add_binary_args(unix_bin, ":")
+    assert args[0].endswith("tcc/tcc")
+    assert not args[0].endswith("tcc.exe")
+    assert args[1].endswith(f"tcc/include")
+    assert str(prefix / "lib" / "tcc" / "include") in args[1]
+
+    # Windows prebuilt layout: tcc.exe and include/ side by side.
+    win_dir = tmp_path / "tcc_20221020"
+    (win_dir / "include").mkdir(parents=True)
+    win_bin = win_dir / "tcc.exe"
+    win_bin.write_text("", encoding="utf-8")
+    win_args = tcc_add_binary_args(win_bin, ";")
+    assert win_args[0].endswith("tcc/tcc.exe"), win_args
+    assert win_args[1].endswith("tcc/include")
+    assert str(win_dir / "include") in win_args[1]
+
+
+def test_find_tcc_discovers_the_make_release_staging_layout(tmp_path, monkeypatch):
+    """``ensure_tcc("build/tcc-dist")`` installs at ``.../tcc-dist/bin/tcc``.
+
+    A checkout that ran the release packager must see the staged compiler, which
+    is what ``pengu doctor`` reports before/after packaging.
+    """
+    import pengu_tcc
+
+    staged = (tmp_path / "build" / "tcc-dist" / "tcc-dist" / "bin"
+              / pengu_tcc._exe("tcc"))
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    staged.write_text("", encoding="utf-8")
+    staged.chmod(0o755)
+
+    monkeypatch.delenv("PENGU_NO_TCC", raising=False)
+    monkeypatch.delenv("PENGU_TCC", raising=False)
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    monkeypatch.setattr(pengu_tcc, "__file__", str(tmp_path / "pengu_tcc.py"))
+    assert pengu_tcc.find_tcc() == str(staged)

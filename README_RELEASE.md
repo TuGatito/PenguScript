@@ -8,6 +8,11 @@ This directory contains the standalone distribution of the **PenguScript Compile
 > that `pengu run` prefers for development builds; if it is missing the
 > toolchain transparently falls back to your system `gcc`/`clang`. Check with
 > `pengu doctor`.
+>
+> **A shared PCH ships too** (`runtime/include/pengu_runtime.h.gch`). It is
+> opt-in (`--pch`) and gcc only uses it when the build's `-D`/`-I` set matches
+> the one it was built with; otherwise gcc ignores it silently and parses the
+> header normally. See `docs/PERFORMANCE.md` §7.
 
 ## Directory Structure
 
@@ -62,7 +67,17 @@ pengu run
 ### 5. Available Commands
 - `pengu init <name>` : Initializes a new project template with `pengu.toml`.
 - `pengu build`        : Bundles and compiles to executable / static lib / DLL.
-- `pengu run`          : Builds and runs the binary immediately.
+- `pengu run`          : Builds and runs the binary immediately (or a standalone `.pengu` script).
 - `pengu assets`       : Inspects (`--list`) or regenerates (`--force`) embedded project assets.
 - `pengu clean`        : Cleans intermediate build artifacts.
 - `pengu lsp`          : Starts the Language Server Protocol (LSP) for VS Code / Neovim.
+- `pengu doctor`       : Reports compiler/TCC/runtime/cache health (`--json` for CI).
+- `pengu gc`           : Collects unused cached script binaries (`--all`, `--max-age N`).
+- `pengu expand`       : Prints the generated `bundle.c` of a script (`-o FILE`).
+- `pengu time`         : Per-phase timings for a script build+run.
+- `pengu eval "<expr>"`: Evaluates a one-line expression through the binary cache.
+- `pengu watch`        : Re-runs a script whenever it or one of its imports changes.
+
+Script runs accept `--keep`, `--no-cache`, `--clear-cache`, `--ephemeral`,
+`--pch`/`--no-pch`, `--no-dce`, `--quiet` and `--no-color` (or `NO_COLOR=1`);
+everything after `--` is forwarded to the script.

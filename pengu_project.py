@@ -500,6 +500,11 @@ class PenguBuilder:
         # normal build gcc's own startup plus the link dominates the front end,
         # so the PCH only pays off when the compile is header-bound).
         self.use_pch = False
+        # Development builds may use a different compiler than the project's
+        # configured one (TCC for 'pengu run').  When that compiler fails, the
+        # build is retried once with this one instead of dying: TCC is fast but
+        # is not a complete C11 implementation.
+        self.fallback_cc: Optional[str] = None
         # Phase timings collected for 'pengu time' / '--verbose'.
         self.timings: Dict[str, float] = {}
 
@@ -1057,6 +1062,23 @@ class PenguBuilder:
         except OSError:
             pass
 
+        # Dead-code elimination metrics (the pass runs inside generate_bundle,
+        # before a single section is emitted).  Without DCE this bundle is the
+        # "before" size, so report both the weave counts and the final C size.
+        dce_stats = getattr(codegen, "dce_stats", None) or {}
+        if dce_stats.get("dropped"):
+            self.timings["dce"] = dce_stats.get("seconds", 0.0)
+            self.timings["dce_dropped"] = dce_stats["dropped"]
+            self.timings["dce_before"] = dce_stats["before"]
+            self.timings["dce_after"] = dce_stats["after"]
+            if self.verbose:
+                self._vlog(f"[pengu] {dce_stats.get('message', 'DCE applied')} "
+                           f"in {self.timings['dce'] * 1000:.1f}ms")
+                if "bundle_lines" in self.timings:
+                    self._vlog(f"[pengu] DCE: bundle.c is now "
+                               f"{self.timings['bundle_lines']} lines "
+                               f"({self.timings.get('bundle_bytes', 0) / 1024:.1f} KB)")
+
         # 6. Save the compilation cache key: config hash + content fingerprint
         hash_file = os.path.join(os.path.dirname(bundle_path), ".bundle_hash")
         try:
@@ -1195,9 +1217,21 @@ class PenguBuilder:
         # with the same -I/-D/-std set the build uses, otherwise gcc silently
         # ignores it.
         if self.use_pch and not is_tcc and not is_msvc:
-            pch_dir = self._ensure_runtime_pch(build_dir, common_flags, cc)
-            if pch_dir:
-                common_flags.insert(0, f"-I{pch_dir}")
+            prebuilt = self._runtime_pch_exists()
+            if prebuilt:
+                # build_runtime.py (and the release archive) ship a shared
+                # pengu_runtime.h.gch next to the header: reuse it instead of
+                # paying ~115 ms to regenerate a throw-away one per build.  If
+                # our -D/-I differ gcc ignores it silently (documented
+                # limitation, not an error).
+                if f"-I{prebuilt}" not in common_flags:
+                    common_flags.insert(0, f"-I{prebuilt}")
+                if self.verbose:
+                    self._vlog(f"[pengu] reusing shared runtime PCH in {prebuilt}")
+            else:
+                pch_dir = self._ensure_runtime_pch(build_dir, common_flags, cc)
+                if pch_dir:
+                    common_flags.insert(0, f"-I{pch_dir}")
 
         # Ensure build_dir is included in include search path for pengu_runtime.h
         common_flags.append(f"-I{build_dir}")
@@ -1295,10 +1329,12 @@ class PenguBuilder:
         # GNU ld: wrap static archives in a group so inter-archive dependencies
         # resolve regardless of -l order (libzip needs zlib's crc32/zError, the
         # xlsxio/zip/yaml stack has several such edges). MSVC's link.exe has no
-        # --start-group, and Apple's ld64 (clang on macOS) rejects it outright,
-        # so the group is applied only on GNU-ld hosts (Windows/MinGW, Linux).
+        # --start-group, Apple's ld64 rejects it outright, and TCC's built-in
+        # linker driver answers "unsupported linker option '--start-group'", so
+        # the group is applied only where it is actually understood.
         use_gnu_group = (
-            not is_win or "cl" not in cc.lower() and "msvc" not in cc.lower()
+            (not is_win or "cl" not in cc.lower() and "msvc" not in cc.lower())
+            and not is_tcc
         )
         if sys.platform.startswith("darwin"):
             use_gnu_group = False
@@ -1370,6 +1406,25 @@ class PenguBuilder:
 
         return commands
 
+    def _runtime_pch_exists(self) -> Optional[str]:
+        """Directory containing a *packaged* ``pengu_runtime.h.gch``, if any.
+
+        ``build_runtime.py`` writes one into ``build/include/`` and the release
+        archives ship it, so ``pengu build``/``pengu run`` can reuse it without
+        regenerating a throw-away PCH for every temporary build directory.
+        """
+        try:
+            from pengu_paths import runtime_include_dirs
+            for directory in runtime_include_dirs():
+                try:
+                    if os.path.isfile(os.path.join(str(directory), "pengu_runtime.h.gch")):
+                        return str(directory)
+                except OSError:
+                    continue
+        except Exception:
+            pass
+        return None
+
     def _ensure_runtime_pch(self, build_dir: str, base_flags: List[str],
                             cc: str) -> Optional[str]:
         """Builds (or reuses) ``<build>/pch/pengu_runtime.h.gch``.
@@ -1392,21 +1447,24 @@ class PenguBuilder:
             return None
         header_copy = os.path.join(pch_dir, "pengu_runtime.h")
         gch = header_copy + ".gch"
+        # The .gch is tied to the flags used to create it, so reuse exactly the
+        # build's base flags (minus outputs/inputs).  The signature is checked on
+        # *every* call — not only when the header is newer — because a changed
+        # -D/-I means the existing .gch is unusable even if it is newer.
+        sig = self._pch_signature(base_flags)
+        sig_file = gch + ".sig"
         try:
-            needs_build = (not os.path.isfile(gch)
-                           or os.path.getmtime(str(runtime_src)) > os.path.getmtime(gch))
+            with open(sig_file, encoding="utf-8") as fh:
+                sig_matches = fh.read() == sig
         except OSError:
-            needs_build = True
-        if needs_build:
-            # The .gch is tied to the flags used to create it, so reuse exactly
-            # the build's base flags (minus outputs/inputs).
-            sig = self._pch_signature(base_flags)
-            sig_file = gch + ".sig"
+            sig_matches = False
+        needs_build = not os.path.isfile(gch) or not sig_matches
+        if not needs_build:
             try:
-                if os.path.isfile(sig_file) and open(sig_file, encoding="utf-8").read() == sig:
-                    return pch_dir
+                needs_build = os.path.getmtime(str(runtime_src)) > os.path.getmtime(gch)
             except OSError:
-                pass
+                needs_build = True
+        if needs_build:
             try:
                 shutil.copy2(str(runtime_src), header_copy)
             except OSError:
@@ -1474,25 +1532,51 @@ class PenguBuilder:
             if os.path.getmtime(out_path) >= os.path.getmtime(bundle_path):
                 return out_path, True
 
-        commands = self.build_compile_commands(bundle_path, out_path)
+        def _run_commands(commands: List[List[str]]) -> Optional[str]:
+            """Runs every command; returns None on success or the error detail."""
+            for cmd in commands:
+                self._vlog(f"[pengu] running C compiler: {' '.join(cmd)}")
+                t_cmd = time.time()
+                res = subprocess.run(cmd, cwd=self.config.base_dir,
+                                     capture_output=True, text=True)
+                if self.verbose:
+                    self._vlog(f"[pengu] command finished in {time.time() - t_cmd:.3f}s "
+                               f"(rc={res.returncode})")
+                if res.returncode != 0:
+                    detail = f"Command: {' '.join(cmd)}\nExit code: {res.returncode}"
+                    if res.stdout and res.stdout.strip():
+                        detail += f"\n\nCompiler stdout:\n{res.stdout}"
+                    if res.stderr and res.stderr.strip():
+                        detail += f"\n\nCompiler stderr:\n{res.stderr}"
+                    return detail
+            return None
 
+        # 'cc' measures the compiler invocations only: assembling the command
+        # line probes pkg-config several times, which has nothing to do with the
+        # C compile and would dominate the phase on a TCC build.
+        commands = self.build_compile_commands(bundle_path, out_path)
         t_cc_all = time.time()
-        for cmd in commands:
-            self._vlog(f"[pengu] running C compiler: {' '.join(cmd)}")
-            t_cmd = time.time()
-            res = subprocess.run(cmd, cwd=self.config.base_dir, capture_output=True, text=True)
-            if self.verbose:
-                self._vlog(f"[pengu] command finished in {time.time() - t_cmd:.3f}s (rc={res.returncode})")
-            if res.returncode != 0:
-                cmd_line = " ".join(cmd)
-                detail = f"Command: {cmd_line}\nExit code: {res.returncode}"
-                if res.stdout and res.stdout.strip():
-                    detail += f"\n\nCompiler stdout:\n{res.stdout}"
-                if res.stderr and res.stderr.strip():
-                    detail += f"\n\nCompiler stderr:\n{res.stderr}"
-                raise CompileFailedError(
-                    f"C compilation failed ({self.config.name})\n\n{detail}"
-                )
+        error = _run_commands(commands)
+
+        # TCC (and any PENGU_DEV_CC override) is a development optimisation, not
+        # a hard requirement: if it cannot compile the bundle, retry once with
+        # the project's configured compiler and normal flags before failing.
+        if error is not None and self.fallback_cc:
+            used = os.path.basename(commands[0][0]).lower() if commands else ""
+            fallback = self.fallback_cc
+            if used and used != os.path.basename(fallback).lower():
+                print(f"[pengu] development compiler failed; retrying with {fallback}",
+                      file=sys.stderr)
+                self.config.cc = fallback
+                self.fallback_cc = None
+                self.dev_fast_flags = False
+                commands = self.build_compile_commands(bundle_path, out_path)
+                error = _run_commands(commands)
+
+        if error is not None:
+            raise CompileFailedError(
+                f"C compilation failed ({self.config.name})\n\n{error}"
+            )
 
         self.timings["cc"] = time.time() - t_cc_all
         return out_path, False
@@ -1544,12 +1628,23 @@ def build_project(
     builder.is_test_mode = test
     builder.verbose = verbose
     builder.use_pch = bool(pch)
+    # PENGU_NO_DCE is read by PenguCodegen, so it must be set for the whole
+    # bundle/compile and restored afterwards (build_project is also a library
+    # entry point called from long-lived processes).
+    prev_no_dce = os.environ.get("PENGU_NO_DCE")
     if no_dce:
         os.environ["PENGU_NO_DCE"] = "1"
-    if output and (output.endswith(".c") or output == "bundle.c"):
-        artifact, is_cached = builder.bundle(output_file=output)
-    else:
-        artifact, is_cached = builder.compile()
+    try:
+        if output and (output.endswith(".c") or output == "bundle.c"):
+            artifact, is_cached = builder.bundle(output_file=output)
+        else:
+            artifact, is_cached = builder.compile()
+    finally:
+        if no_dce:
+            if prev_no_dce is None:
+                os.environ.pop("PENGU_NO_DCE", None)
+            else:
+                os.environ["PENGU_NO_DCE"] = prev_no_dce
     elapsed = time.time() - t0
 
     if is_cached:
@@ -2196,6 +2291,20 @@ pengu clean
     return proj_dir
 
 
+def _cc_version(cc: str) -> Optional[str]:
+    """First line of ``<cc> --version``, or None when the compiler is unusable."""
+    try:
+        res = subprocess.run([cc, "--version"], capture_output=True, text=True,
+                             timeout=5)
+        if res.returncode == 0:
+            first = (res.stdout or res.stderr or "").strip().splitlines()
+            if first:
+                return first[0].strip()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
 def doctor_report(as_json: bool = False) -> int:
     """Reports the health of the toolchain (used by ``pengu doctor``)."""
     import platform
@@ -2219,14 +2328,31 @@ def doctor_report(as_json: bool = False) -> int:
     except Exception:
         std_dir = None
     tcc_path = find_tcc()
+    # A shared PCH shipped next to the runtime header (build_runtime.py / release).
+    shared_pch = None
+    try:
+        for directory in runtime_include_dirs():
+            cand = os.path.join(str(directory), "pengu_runtime.h.gch")
+            if os.path.isfile(cand):
+                shared_pch = cand
+                break
+    except Exception:
+        shared_pch = None
+    # The system compiler behind TCC: what 'pengu build' uses when TCC is absent
+    # or rejects a source.  Prefer an explicit override, then gcc, then clang/cc.
+    cc_name = (os.environ.get("PENGU_DEV_CC")
+               or shutil.which("gcc") or shutil.which("clang") or shutil.which("cc")
+               or "gcc")
     info = {
         "pengu": PENGU_VERSION,
         "python": platform.python_version(),
         "platform": platform.platform(),
         "frozen": bool(getattr(sys, "frozen", False)),
-        "cc": os.environ.get("PENGU_DEV_CC") or "gcc",
+        "cc": cc_name,
+        "cc_version": _cc_version(cc_name),
         "tcc": tcc_path,
         "tcc_version": tcc_version(tcc_path) if tcc_path else None,
+        "pch": shared_pch,
         "runtime_header": str(runtime) if runtime else None,
         "std_dir": std_dir,
         "cache_root": cache_root(),
@@ -2235,6 +2361,8 @@ def doctor_report(as_json: bool = False) -> int:
         "runtime_libs": [str(p) for p in runtime_lib_dirs()],
     }
     problems = []
+    if not info["cc_version"]:
+        problems.append(f"C compiler '{cc_name}' not found or not executable")
     if not runtime:
         problems.append("pengu_runtime.h not found (run build_runtime.py)")
     if not std_dir:
@@ -2260,8 +2388,10 @@ def doctor_report(as_json: bool = False) -> int:
     row("version", info["pengu"])
     row("python", f"{info['python']} ({'frozen bundle' if info['frozen'] else 'source checkout'})")
     row("platform", info["platform"])
-    row("C compiler", info["cc"])
+    row("C compiler", f"{info['cc']} — {info['cc_version']}" if info["cc_version"]
+        else f"{info['cc']} — NOT FOUND")
     row("tcc", f"{tcc_path} ({info['tcc_version']})" if tcc_path else "not available (falls back to gcc/clang)")
+    row("pch (shared)", shared_pch or "absent (opt-in; build_runtime.py generates it)")
     row("runtime header", runtime or "MISSING")
     row("std/", std_dir or "MISSING")
     row("cache root", cache_root())
@@ -2317,7 +2447,7 @@ def expand_script(script: str, output: Optional[str] = None,
 
 def time_script(script: str, defines: Optional[List[str]] = None,
                 cc: Optional[str] = None, script_args: Optional[List[str]] = None,
-                use_cache: bool = True) -> int:
+                use_cache: bool = True, no_dce: bool = False) -> int:
     """Runs a script and reports the time spent in every phase."""
     import platform
     t_start = time.time()
@@ -2326,6 +2456,9 @@ def time_script(script: str, defines: Optional[List[str]] = None,
     out_name = os.path.splitext(os.path.basename(script_abs))[0]
     tmp = tempfile.mkdtemp(prefix=f"pengu_time_{out_name}_")
     phases: Dict[str, float] = {}
+    prev_no_dce = os.environ.get("PENGU_NO_DCE")
+    if no_dce:
+        os.environ["PENGU_NO_DCE"] = "1"
     try:
         cfg = ProjectConfig(
             entry=script_abs,
@@ -2338,7 +2471,8 @@ def time_script(script: str, defines: Optional[List[str]] = None,
         )
         if defines:
             cfg.defines = list(cfg.defines or []) + defines
-        cfg.cc = pick_dev_compiler(cfg.cc or cc)
+        configured_cc = cfg.cc or cc or "gcc"
+        cfg.cc = pick_dev_compiler(configured_cc)
         t_imports = time.time()
         try:
             from pengu_cache import resolve_module_list_cached
@@ -2352,10 +2486,13 @@ def time_script(script: str, defines: Optional[List[str]] = None,
 
         builder = PenguBuilder(cfg)
         builder.entry_as_main = True
+        if os.path.basename(cfg.cc).lower() != os.path.basename(configured_cc).lower():
+            builder.fallback_cc = configured_cc
         t_build = time.time()
         artifact, _ = builder.compile()
         phases["total build"] = time.time() - t_build
-        for key, label in (("check", "parse + check"), ("codegen", "codegen"), ("cc", "C compiler (incl. link)")):
+        for key, label in (("dce", "dead-code elim"), ("check", "parse + check"),
+                           ("codegen", "codegen"), ("cc", "C compiler (incl. link)")):
             if key in builder.timings:
                 phases[label] = builder.timings[key]
         if "bundle_lines" in builder.timings:
@@ -2373,20 +2510,32 @@ def time_script(script: str, defines: Optional[List[str]] = None,
             print(f"  {label:<24} {seconds * 1000:8.1f} ms")
         print(f"  {'modules':<24} {len(module_order)}")
         print(f"  {'compiler':<24} {cfg.cc} ({platform.system()})")
+        if builder.timings.get("dce_dropped"):
+            print(f"  {'DCE pruned':<24} {builder.timings['dce_dropped']} weave(s) "
+                  f"({builder.timings.get('dce_before', 0)} -> "
+                  f"{builder.timings.get('dce_after', 0)})")
         return rc
     finally:
+        if no_dce:
+            if prev_no_dce is None:
+                os.environ.pop("PENGU_NO_DCE", None)
+            else:
+                os.environ["PENGU_NO_DCE"] = prev_no_dce
         shutil.rmtree(tmp, ignore_errors=True)
 
 
 def eval_expression(expression: str, defines: Optional[List[str]] = None,
                     cc: Optional[str] = None, no_cache: bool = False) -> int:
     """Runs a one-liner expression through a generated temporary script."""
-    # Binding the expression first (instead of interpolating it) keeps nested
-    # string literals in the expression (`calling ord with "A"`) valid.
+    # Explicit concatenation, never an f-string: `expression` may legitimately
+    # contain '{' or '}' (`pengu eval '"{"'`, `pengu eval 'my_map{"k"}'`), and an
+    # f-string would either fail or mangle the braces.  Binding the expression
+    # first also keeps nested string literals valid.
     script = (
-        "import std.spark\n\n"
+        "import std.spark\n"
+        "\n"
         "weave main into int:\n"
-        f"    var __value is {expression}\n"
+        "    var __value is " + expression + "\n"
         '    calling spark.println with "{__value}"\n'
         "    return 0\n"
     )
@@ -2463,7 +2612,7 @@ def _consume_script_args(raw: Optional[List[str]]) -> List[str]:
 
 def run_project(config_path: Optional[str] = None, profile: str = "debug", test: bool = False,
                 defines: Optional[List[str]] = None, cc: Optional[str] = None,
-                verbose: bool = False) -> int:
+                verbose: bool = False, pch: bool = False, no_dce: bool = False) -> int:
     """Builds and runs binary if output target is executable.
 
     Args:
@@ -2473,6 +2622,8 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
         defines: Optional -D NAME / -D NAME=value compile-time defines.
         cc: Optional C compiler override.
         verbose: True to print module order, C commands and phase timings.
+        pch: True to precompile pengu_runtime.h for this build.
+        no_dce: True to keep every std/lib weave in bundle.c.
 
     Returns:
         Process exit code.
@@ -2480,7 +2631,8 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
     config = ProjectConfig.load(config_path, profile=profile)
     if cc:
         config.cc = cc
-    artifact = build_project(config_path, profile=profile, test=test, defines=defines, cc=cc, verbose=verbose)
+    artifact = build_project(config_path, profile=profile, test=test, defines=defines,
+                             cc=cc, verbose=verbose, pch=pch, no_dce=no_dce)
     if config.output == OutputType.EXE and os.path.isfile(artifact):
         print(f"\033[1;36m     Running\033[0m {artifact}\n")
         sys.stdout.flush()
@@ -2583,7 +2735,11 @@ def run_script(script: str, defines: Optional[List[str]] = None,
     if script_abs not in module_order:
         module_order.append(script_abs)
 
-    dev_cc = pick_dev_compiler(cfg.cc)
+    # A development build prefers TCC ('pengu run' is throw-away or cached, so
+    # compile speed matters more than codegen quality).  Keep the project's
+    # compiler around: it is the fallback when TCC rejects the bundle.
+    configured_cc = cfg.cc or "gcc"
+    dev_cc = pick_dev_compiler(configured_cc)
     cfg.cc = dev_cc
 
     use_cache = not no_cache and not ephemeral and not cache_disabled()
@@ -2606,6 +2762,9 @@ def run_script(script: str, defines: Optional[List[str]] = None,
             links=cfg.links,
             cflags=cfg.cflags,
             runtime_header=str(include) if include else None,
+            # DCE is a build option: '--no-dce' must not reuse (or pollute) the
+            # entry of a DCE build when A/B measuring.
+            extra_digests=["dce=off"] if no_dce else None,
         )
         cached = lookup_cached_binary(cache_key) if use_lookup else None
         if cached:
@@ -2631,39 +2790,51 @@ def run_script(script: str, defines: Optional[List[str]] = None,
 
     t0 = time.time()
     say(f"\033[1;36m   Scripting\033[0m {os.path.basename(script_abs)}")
-    builder = PenguBuilder(cfg)
-    pch_enabled = not no_pch
+    # DCE is decided when PenguCodegen is constructed (it reads PENGU_NO_DCE), so
+    # the flag must be in place before the builder runs and restored afterwards:
+    # the toolchain is also imported as a library from long-lived processes.
+    prev_no_dce = os.environ.get("PENGU_NO_DCE")
     if no_dce:
         os.environ["PENGU_NO_DCE"] = "1"
-    builder.is_test_mode = False
-    builder.entry_as_main = True
-    builder.verbose = verbose
-    builder.dev_fast_flags = True
-    builder.use_pch = not no_pch and pch_enabled
     try:
-        artifact, is_cached = builder.compile()
-        elapsed = time.time() - t0
-        if is_cached:
-            say(f"\033[1;32m    Finished\033[0m (cached) in {elapsed:.2f}s -> {artifact}")
-        else:
-            say(f"\033[1;32m    Finished\033[0m in {elapsed:.2f}s -> {artifact}")
+        builder = PenguBuilder(cfg)
+        builder.is_test_mode = False
+        builder.entry_as_main = True
+        builder.verbose = verbose
+        builder.dev_fast_flags = True
+        builder.use_pch = not no_pch
+        if os.path.basename(dev_cc).lower() != os.path.basename(configured_cc).lower():
+            builder.fallback_cc = configured_cc
+        try:
+            artifact, is_cached = builder.compile()
+            elapsed = time.time() - t0
+            if is_cached:
+                say(f"\033[1;32m    Finished\033[0m (cached) in {elapsed:.2f}s -> {artifact}")
+            else:
+                say(f"\033[1;32m    Finished\033[0m in {elapsed:.2f}s -> {artifact}")
 
-        if cache_key and not ephemeral:
-            stored = store_cached_binary(cache_key, artifact)
-            if stored and verbose:
-                print(f"[pengu] cached binary -> {stored}")
+            if cache_key and not ephemeral:
+                stored = store_cached_binary(cache_key, artifact)
+                if stored and verbose:
+                    print(f"[pengu] cached binary -> {stored}")
 
-        run_target = artifact
-        if cache_key and not ephemeral:
-            run_target = lookup_cached_binary(cache_key) or artifact
-        say(f"\033[1;36m     Running\033[0m {run_target}\n")
-        sys.stdout.flush()
-        sys.stderr.flush()
-        res = subprocess.run([run_target] + list(script_args or []), cwd=base_dir)
-        return res.returncode
+            run_target = artifact
+            if cache_key and not ephemeral:
+                run_target = lookup_cached_binary(cache_key) or artifact
+            say(f"\033[1;36m     Running\033[0m {run_target}\n")
+            sys.stdout.flush()
+            sys.stderr.flush()
+            res = subprocess.run([run_target] + list(script_args or []), cwd=base_dir)
+            return res.returncode
+        finally:
+            if build_root:
+                shutil.rmtree(build_root, ignore_errors=True)
     finally:
-        if build_root:
-            shutil.rmtree(build_root, ignore_errors=True)
+        if no_dce:
+            if prev_no_dce is None:
+                os.environ.pop("PENGU_NO_DCE", None)
+            else:
+                os.environ["PENGU_NO_DCE"] = prev_no_dce
 
 
 def _find_watch_files(base_dir: str) -> List[str]:
@@ -2919,6 +3090,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
     time_p = subparsers.add_parser("time", help="Run a script and report per-phase timings")
     time_p.add_argument("script", help="Path to the .pengu file")
     time_p.add_argument("--cc", default=None, help="C compiler override")
+    time_p.add_argument("--no-dce", "--no_dce", dest="no_dce", action="store_true",
+                        help="Disable dead-code elimination of unused std weaves")
     time_p.add_argument("-D", "--define", dest="defines", action="append", default=None,
                         help="Compile-time define (repeatable)")
     time_p.add_argument("script_args", nargs="*", default=None,
@@ -3126,6 +3299,9 @@ def main():
     elif args.command == "run":
         try:
             if getattr(args, "script", None):
+                # '--pch' opts in, '--no-pch' wins when both are given.
+                want_pch = getattr(args, "pch", False)
+                no_pch = getattr(args, "no_pch", False) or not want_pch
                 sys.exit(run_script(
                     script=args.script,
                     defines=getattr(args, "defines", None),
@@ -3137,7 +3313,7 @@ def main():
                     ephemeral=getattr(args, "ephemeral", False),
                     script_args=_consume_script_args(getattr(args, "script_args", None)),
                     quiet=getattr(args, "quiet", False),
-                    no_pch=not getattr(args, "pch", False) or getattr(args, "no_pch", False),
+                    no_pch=no_pch,
                     no_dce=getattr(args, "no_dce", False),
                 ))
             sys.exit(run_project(
@@ -3146,7 +3322,9 @@ def main():
                 test=getattr(args, "test", False),
                 defines=getattr(args, "defines", None),
                 cc=getattr(args, "cc", None),
-                verbose=getattr(args, "verbose", False)
+                verbose=getattr(args, "verbose", False),
+                pch=getattr(args, "pch", False) and not getattr(args, "no_pch", False),
+                no_dce=getattr(args, "no_dce", False),
             ))
         except CompileFailedError as e:
             _print_compile_error(e)
@@ -3236,7 +3414,8 @@ def main():
     elif args.command == "time":
         sys.exit(time_script(args.script, defines=getattr(args, "defines", None),
                              cc=getattr(args, "cc", None),
-                             script_args=_consume_script_args(getattr(args, "script_args", None))))
+                             script_args=_consume_script_args(getattr(args, "script_args", None)),
+                             no_dce=getattr(args, "no_dce", False)))
     elif args.command == "eval":
         sys.exit(eval_expression(args.expression, defines=getattr(args, "defines", None),
                                  cc=getattr(args, "cc", None),

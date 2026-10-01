@@ -25,7 +25,7 @@ behaves exactly as before, which makes A/B comparisons and bug reports easy.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 try:  # pragma: no cover - lark is always available in practice
     from lark import Token, Tree
@@ -33,15 +33,53 @@ except Exception:  # pragma: no cover
     Token = Tree = ()  # type: ignore
 
 
-def is_prunable_module(filepath: str) -> bool:
-    """True for modules whose symbols may be dropped (std/ and lib/ only)."""
+#: Repository root (``<repo>/pengu_parser/pengu_dce.py`` -> ``<repo>``); the
+#: bundled ``std/`` modules live directly under it.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _norm(path: str) -> str:
+    return os.path.normpath(os.path.abspath(path)).replace("\\", "/")
+
+
+def is_prunable_module(filepath: str, base_dir: Optional[str] = None) -> bool:
+    """True for modules whose symbols may be dropped (``std/`` and ``lib/`` only).
+
+    A module is prunable when it lives **directly under** one of the known
+    roots (`std/` or `lib/` of the repository, or of the project's ``base_dir``):
+
+    * ``<repo>/std/spark.pengu``          -> prunable
+    * ``<base_dir>/lib/vendor.pengu``     -> prunable
+    * ``<base_dir>/src/main.pengu``       -> NOT prunable
+    * ``/home/me/lib/project/main.pengu`` -> NOT prunable
+
+    The last case is why the check is anchored to a root instead of scanning for
+    a ``lib`` *component* anywhere in the path: a user project that happens to
+    live in a directory called ``lib`` must keep every one of its weaves.
+
+    ``.d.pengu`` binding files are never prunable: their C declarations and
+    ``enchanting`` glue are emitted as a unit.
+    """
     if not filepath:
         return False
-    path = filepath.replace("\\", "/")
+    path = _norm(filepath)
     if path.endswith(".d.pengu"):
         return False
-    parts = [p for p in path.split("/") if p]
-    return "std" in parts or "lib" in parts
+    roots = []
+    if base_dir:
+        roots.append(_norm(base_dir))
+    roots.append(_norm(_REPO_ROOT))
+    for root in roots:
+        try:
+            rel = os.path.relpath(path, root).replace("\\", "/")
+        except ValueError:  # different drive on Windows
+            continue
+        if rel.startswith(".."):
+            continue
+        first = rel.split("/", 1)[0]
+        if first in ("std", "lib"):
+            return True
+    return False
 
 
 _IDENT_RE = None
@@ -94,35 +132,57 @@ def collect_references(stmts: Iterable[Any]) -> Set[str]:
     return refs
 
 
+def _module_stem(filepath: str) -> str:
+    """Module name of a weave: ``std/spark.pengu`` -> ``spark``."""
+    stem = os.path.basename(filepath or "").replace("\\", "/")
+    for suffix in (".d.pengu", ".pengu"):
+        if stem.endswith(suffix):
+            return stem[: -len(suffix)]
+    return stem
+
+
 def _is_referenced(weave: Dict[str, Any], alive: Set[str]) -> bool:
     """True when any live name refers to this weave.
 
-    Inside a module a weave is called by its *short* name ('calling cb64_char')
-    while the collected weave carries the module-qualified one
-    ('cipher_cb64_char'), so the unqualified spellings are matched too.  Every
-    rule here only ever *keeps* a weave, so being generous is safe.
+    Inside a module a weave is called by its *short* name (``calling println``)
+    while the collected weave may carry the module-qualified one
+    (``spark_println``), so the module prefix is stripped as one extra spelling.
+
+    The matching is deliberately *not* "any suffix": a weave called
+    ``unused_vendor`` inside ``lib/vendor/pengu/vendor.pengu`` would otherwise be
+    kept by its own last segment (``vendor``), which appears in every call site
+    that merely mentions the module alias.  Only the module's own prefix is
+    stripped, plus multi-token suffixes (``cipher_cb64_char`` -> ``cb64_char``)
+    for modules whose insignia differs from their file name.
     """
     names = [n for n in (str(weave.get("name", "")), str(weave.get("c_name", ""))) if n]
     if any(name in alive for name in names):
         return True
+
+    module = _module_stem(str(weave.get("filepath", "")))
     spellings: Set[str] = set()
     for name in names:
+        if module and name.startswith(module + "_"):
+            spellings.add(name[len(module) + 1:])
         if "_" in name:
-            spellings.add(name.rsplit("_", 1)[-1])       # last segment
-            spellings.add(name.split("_", 1)[1])         # after the module prefix
             parts = name.split("_")
-            for i in range(1, len(parts)):               # any trailing combination
+            for i in range(1, len(parts) - 1):  # keep at least two tokens
                 spellings.add("_".join(parts[i:]))
     spellings.discard("")
     return bool(spellings & alive)
 
 
 def prune_weaves(weaves: Sequence[Dict[str, Any]],
-                 extra_refs: Iterable[str] = ()) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+                 extra_refs: Iterable[str] = (),
+                 base_dir: Optional[str] = None) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Splits the collected weaves into (kept, dropped).
 
     ``weaves`` items are the dictionaries built by the code generator; they must
     expose ``name``, ``c_name``, ``filepath`` and (optionally) ``refs``.
+
+    ``extra_refs`` are additional root names (the bodies of ``test`` blocks, a
+    plugin's entry points…).  ``base_dir`` is the project root, used to decide
+    whether a weave belongs to a prunable ``lib/`` directory of the project.
     """
     kept: List[Dict[str, Any]] = []
     std_weaves: List[Dict[str, Any]] = []
@@ -138,7 +198,7 @@ def prune_weaves(weaves: Sequence[Dict[str, Any]],
             alive.add(str(weave.get("c_name", "")))
             alive |= set(weave.get("refs") or ())
             continue
-        if is_prunable_module(weave.get("filepath", "")):
+        if is_prunable_module(weave.get("filepath", ""), base_dir):
             std_weaves.append(weave)
         else:
             kept.append(weave)
@@ -184,5 +244,6 @@ def summarize(dropped: Sequence[Dict[str, Any]], before: int, after: int) -> str
     """One-line report for ``--verbose``."""
     names = ", ".join(sorted({str(w.get("name", "?")) for w in dropped})[:6])
     more = "" if len(dropped) <= 6 else f" (+{len(dropped) - 6} more)"
+    pct = (1.0 - (after / before)) * 100.0 if before else 0.0
     return (f"DCE: dropped {len(dropped)} unused std weave(s) "
-            f"[{names}{more}] — {before} -> {after} weaves")
+            f"[{names}{more}] — {before} -> {after} weaves (-{pct:.0f}%)")

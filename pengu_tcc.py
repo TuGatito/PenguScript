@@ -44,9 +44,20 @@ def find_tcc() -> Optional[str]:
     base = _bundle_base()
     candidates: List[str] = [
         os.path.join(base, "tcc", _exe("tcc")),
+        # Older release archives shipped the Windows binary without the '.exe'
+        # suffix (the destination name used to be hard-coded); keep probing it so
+        # those bundles still find their compiler.
+        os.path.join(base, "tcc", "tcc"),
         os.path.join(base, _exe("tcc")),
         os.path.join(base, "tcc-dist", "bin", _exe("tcc")),
         os.path.join(base, "tcc-dist", _exe("tcc")),
+        # A checkout where 'make_release.py' (or the CI staging step) ran
+        # 'ensure_tcc("build/tcc-dist")': it installs under '<dest>/tcc-dist', so
+        # the result lives at 'build/tcc-dist/tcc-dist/bin/tcc'.
+        os.path.join(base, "build", "tcc-dist", "tcc-dist", "bin", _exe("tcc")),
+        os.path.join(base, "build", "tcc-dist", "tcc-dist", _exe("tcc")),
+        os.path.join(base, "build", "tcc-dist", "bin", _exe("tcc")),
+        os.path.join(base, "build", "tcc-dist", _exe("tcc")),
     ]
     env = os.environ.get("PENGU_TCC")
     if env:
@@ -104,50 +115,136 @@ def tcc_version(tcc_path: Optional[str] = None) -> Optional[str]:
         return None
 
 
+def _download_windows_tcc(dest_dir: str) -> Optional[str]:
+    """Downloads a prebuilt TCC for Windows into ``dest_dir`` (best effort).
+
+    TinyCC has no official Windows binary release, so the release pipeline uses
+    the widely packaged ``tcc_20221020`` build.  ``PENGU_TCC_URL`` overrides the
+    URL (mirrors, pinned internal builds).  Returns the ``tcc.exe`` path or None.
+    """
+    import urllib.request
+    import zipfile
+
+    url = os.environ.get(
+        "PENGU_TCC_URL",
+        "https://github.com/FitzRoyX/tinycc/releases/download/tcc_20221020/tcc_20221020.zip",
+    )
+    print(f"  [TCC] downloading prebuilt TCC from {url}")
+    archive = os.path.join(dest_dir, "tcc.zip")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "PenguScript-Release/1"})
+        with urllib.request.urlopen(req, timeout=180) as resp, open(archive, "wb") as out:
+            out.write(resp.read())
+        with zipfile.ZipFile(archive) as zf:
+            zf.extractall(dest_dir)
+    except Exception as e:  # noqa: BLE001 - TCC is optional
+        print(f"  [TCC] download failed: {e}", file=sys.stderr)
+        return None
+    finally:
+        try:
+            if os.path.isfile(archive):
+                os.unlink(archive)
+        except OSError:
+            pass
+
+    for root, _dirs, files in os.walk(dest_dir):
+        for name in files:
+            if name.lower() == "tcc.exe":
+                return os.path.abspath(os.path.join(root, name))
+    return None
+
+
 def ensure_tcc(dest_dir: str, verbose: bool = False) -> Optional[str]:
     """Builds or downloads TCC into ``dest_dir`` (used by ``make_release.py``).
 
     Linux/macOS: builds TinyCC from source with the system toolchain.
-    Windows: expects a prebuilt archive to be provided via ``PENGU_TCC_URL`` or
-    already unpacked in ``dest_dir`` (CI downloads it with PowerShell).
+    Windows: downloads a prebuilt archive (``PENGU_TCC_URL`` overrides the URL)
+    unless one is already unpacked.
 
     Returns the path of the produced ``tcc`` binary, or None when unavailable
     (the release then ships without TCC and falls back to gcc/clang).
     """
+    # Absolute: 'make install' runs with cwd=<src>, so a relative --prefix would
+    # silently land inside the source tree instead of dest_dir.
+    dest_dir = os.path.abspath(dest_dir)
     os.makedirs(dest_dir, exist_ok=True)
-    existing = find_tcc() if False else None  # never reuse the dev checkout here
-    del existing
-    for name in (_exe("tcc"), os.path.join("bin", _exe("tcc"))):
-        cand = os.path.join(dest_dir, name)
-        if os.path.isfile(cand):
-            return os.path.abspath(cand)
-    if not verbose:
-        pass
+
+    def _existing() -> Optional[str]:
+        """A previously staged TCC, preferring the installed layout.
+
+        ``ensure_tcc`` builds into ``<dest>/tcc-dist`` but the build also leaves
+        a ``tcc`` binary inside ``<dest>/tinycc-src``; the installed one is the
+        only one with a matching ``lib/tcc/include`` tree next to it, so it must
+        win (the release bundles that include directory).
+        """
+        candidates = [
+            os.path.join(dest_dir, "bin", _exe("tcc")),
+            os.path.join(dest_dir, _exe("tcc")),
+            os.path.join(dest_dir, "tcc", _exe("tcc")),
+            os.path.join(dest_dir, "tcc-dist", "bin", _exe("tcc")),
+            os.path.join(dest_dir, "tcc-dist", _exe("tcc")),
+        ]
+        for cand in candidates:
+            if os.path.isfile(cand) and (os.access(cand, os.X_OK) or sys.platform == "win32"):
+                return os.path.abspath(cand)
+        for root, dirs, files in os.walk(dest_dir):
+            dirs[:] = [d for d in dirs if "tinycc-src" not in d]
+            for name in files:
+                if name.lower() == _exe("tcc").lower():
+                    cand = os.path.join(root, name)
+                    if os.access(cand, os.X_OK) or sys.platform == "win32":
+                        return os.path.abspath(cand)
+        return None
+
+    if (found := _existing()):
+        if verbose:
+            print(f"  [TCC] reusing {found}")
+        return found
 
     if sys.platform == "win32":
-        marker = os.path.join(dest_dir, "tcc.exe")
-        return os.path.abspath(marker) if os.path.isfile(marker) else None
+        found = _download_windows_tcc(dest_dir)
+        if found and verbose:
+            print(f"  [TCC] ready at {found}")
+        return found
 
     src = os.path.join(dest_dir, "tinycc-src")
     if not os.path.isdir(src):
         if not shutil.which("git"):
+            print("  [TCC] git not found; skipping", file=sys.stderr)
             return None
-        res = subprocess.run(["git", "clone", "--depth", "1",
-                              "https://github.com/TinyCC/tinycc.git", src],
-                             capture_output=True, text=True)
+        try:
+            res = subprocess.run(["git", "clone", "--depth", "1",
+                                  "https://github.com/TinyCC/tinycc.git", src],
+                                 capture_output=True, text=True)
+        except OSError as e:
+            print(f"  [TCC] git clone failed: {e}", file=sys.stderr)
+            return None
         if res.returncode != 0:
+            print(f"  [TCC] git clone failed: {res.stderr[-300:]}", file=sys.stderr)
             return None
     prefix = os.path.join(dest_dir, "tcc-dist")
     configure = os.path.join(src, "configure")
     if not os.path.isfile(configure):
+        print(f"  [TCC] {configure} not found", file=sys.stderr)
         return None
     jobs = str(max(1, (os.cpu_count() or 2)))
     for cmd in (["./configure", f"--prefix={prefix}", "--extra-cflags=-O2"],
                 ["make", f"-j{jobs}"],
                 ["make", "install"]):
-        res = subprocess.run(cmd, cwd=src, capture_output=True, text=True)
-        if res.returncode != 0:
+        try:
+            res = subprocess.run(cmd, cwd=src, capture_output=True, text=True)
+        except OSError as e:
+            # 'make' missing, './configure' not executable, ...
+            print(f"  [TCC] cannot run {' '.join(cmd)}: {e}", file=sys.stderr)
             return None
+        if res.returncode != 0:
+            print(f"  [TCC] {' '.join(cmd)} failed: {(res.stderr or '')[-300:]}",
+                  file=sys.stderr)
+            return None
+    # The source tree is ~30 MB and only needed to produce the installed binary;
+    # drop it unless the caller wants to iterate on TCC itself.
+    if not os.environ.get("PENGU_KEEP_TCC_SRC"):
+        shutil.rmtree(src, ignore_errors=True)
     for name in (os.path.join("bin", _exe("tcc")), _exe("tcc")):
         cand = os.path.join(prefix, name)
         if os.path.isfile(cand):

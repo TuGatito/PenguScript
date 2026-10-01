@@ -45,10 +45,11 @@ python pengu_project.py clean
 | Caché del parser | Serializa las tablas LALR de Lark en `~/.cache/pengu/parser/` (≈3 s → ≈0.26 s por arranque) | `PENGU_CACHE=0` |
 | Caché de binarios | Guarda el binario final por *hash de contenido* en `~/.cache/pengu/scripts/<clave>/app` | `--no-cache`, `--ephemeral` |
 | Caché del grafo de imports | Reutiliza la lista de módulos validando el digest de cada uno | `PENGU_CACHE=0` |
-| TCC | Compilador preferido para `pengu run` si está disponible (empaquetado en los releases) | `PENGU_NO_TCC=1`, `PENGU_DEV_CC=gcc` |
+| TCC | Compilador preferido para `pengu run` si está disponible (empaquetado en los releases); ~19 ms por bundle frente a ~400 ms de gcc | `PENGU_NO_TCC=1`, `PENGU_DEV_CC=gcc` |
 | Flags de desarrollo | `-g0 -fno-plt -pipe -fno-ident -fno-asynchronous-unwind-tables` en el perfil `debug` de `pengu run` | `pengu build --profile release` |
-| DCE | Elimina las funciones de `std/`/`lib/` no alcanzables (435 → 68 líneas en `hello.pengu`) | `--no-dce`, `PENGU_NO_DCE=1` |
-| PCH | Precompila `pengu_runtime.h` (opt-in; sin ganancia medible en esta máquina) | `--pch` lo activa, `--no-pch` lo fuerza a off |
+| DCE | Elimina las funciones de `std/`/`lib/` no alcanzables (432 → 65 líneas en `hello.pengu`, -84%); `bundle.c` lleva `/* Dead-code elimination: pruned N of M … */` y `pengu time` imprime el nº podado | `--no-dce`, `PENGU_NO_DCE=1` |
+| PCH | Precompila `pengu_runtime.h`; `build_runtime.py` deja uno compartido en `build/include/pengu_runtime.h.gch` y los releases lo empaquetan (opt-in: `--pch`, sin ganancia medible: ver `docs/PERFORMANCE.md` §7) | `--pch` lo activa, `--no-pch` lo fuerza a off |
+| Memoización de `pkg-config` | Una sonda por paquete y proceso en vez de ~12 (~320 ms → 201 ms por build) | — (siempre activa) |
 
 Directorios de caché: `~/.cache/pengu` (Linux/XDG), `~/Library/Caches/pengu`
 (macOS), `%LOCALAPPDATA%\pengu` (Windows). `PENGU_CACHE_DIR` lo reubica y
@@ -56,6 +57,76 @@ Directorios de caché: `~/.cache/pengu` (Linux/XDG), `~/Library/Caches/pengu`
 
 Comandos nuevos: `pengu doctor`, `pengu gc`, `pengu expand`, `pengu time`,
 `pengu eval`, `pengu watch`.
+
+### 1.2 Referencia de flags nuevos
+
+Flags globales (todos los subcomandos):
+
+| Flag | Efecto |
+| ---- | ------ |
+| `--quiet` / `-q` | Silencia el banner de progreso (`Scripting…`, `Finished…`); los errores siguen en stderr |
+| `--no-color` | Desactiva el color ANSI (también `NO_COLOR=1` en el entorno) |
+| `--verbose` / `-v` | Orden de módulos, comandos C exactos, métricas DCE y tiempos de fase |
+
+`pengu run <script.pengu>` y `pengu build`:
+
+| Flag | Efecto |
+| ---- | ------ |
+| `--keep` | Compila en `build/<nombre>_run/` y conserva `bundle.c` + binario (fuerza rebuild) |
+| `--no-cache` | Ignora la caché de binarios de esta ejecución (ni lee ni escribe) |
+| `--clear-cache` | Vacía la caché de scripts antes de ejecutar (alias de `pengu gc --all`) |
+| `--ephemeral` | Construye en un temporal y **no** puebla la caché (ideal para CI) |
+| `--pch` | Activa el header precompilado de `pengu_runtime.h` (gcc/clang) |
+| `--no-pch` | Fuerza el PCH a off (ya es el valor por defecto en `run`) |
+| `--no-dce` | Emite todos los weaves de `std/`/`lib/` (desactiva DCE) |
+| `--` | Todo lo que sigue se pasa al script (`std.rites.get_args`) |
+
+`pengu run` acepta además `--cc` (sustituye al compilador de desarrollo; con
+`PENGU_DEV_CC` se puede forzar `gcc` puntualmente) y `pengu build` acepta
+`--pch`, `--no-dce` y `-D/--define`. `--pch`/`--no-pch`/`--no-dce` se aplican
+tanto a `pengu run script.pengu` como a `pengu run` sin script (modo proyecto):
+ambos acaban en el mismo `build_project`.
+
+### 1.3 Distribución de TinyCC en los releases
+
+`make_release.py` empaqueta TinyCC en los tres sistemas operativos como
+best-effort (si falla, el release se publica igual y el toolchain cae a
+gcc/clang):
+
+* Linux/macOS: `pengu_tcc.ensure_tcc()` clona y compila TinyCC desde fuente
+  (`./configure --prefix=… && make && make install`). El `dest_dir` se
+  absolutiza antes de configurar: `make install` corre con `cwd=<src>`, así que
+  un `--prefix` relativo (como el `build/tcc-dist` del workflow) acababa dentro
+  del árbol de fuentes.
+* Windows: descarga el binario precompilado de
+  `FitzRoyX/tinycc` (`PENGU_TCC_URL` permite usar un mirror) dentro de
+  `build/tcc-dist`, y `make_release.py` lo añade con `--add-binary` **conservando
+  el nombre original** (`tcc/tcc.exe` en Windows, `tcc/tcc` en Unix) para que
+  `find_tcc()` lo encuentre; antes el destino estaba fijo a `tcc/tcc` y el bundle
+  de Windows se quedaba sin compilador.
+* `.github/workflows/release.yml` hace el staging antes de `make_release.py`;
+  `ensure_tcc()` detecta el TCC ya presente y no lo recompila en CI. El árbol de
+  fuentes (`tinycc-src`, ~30 MB) se borra tras `make install` salvo que se defina
+  `PENGU_KEEP_TCC_SRC`. En macOS el workflow firma ad-hoc (`codesign --sign -
+  --force`) el binario `pengu` y cualquier `tcc` suelto antes de empaquetar
+  (Gatekeeper rechaza Mach-O sin firmar).
+
+En runtime `pengu_tcc.find_tcc()` busca en este orden:
+`<bundle>/tcc/tcc(.exe)` (PyInstaller `sys._MEIPASS`), el mismo sin sufijo (releases
+antiguos), `<checkout>/tcc*`, el staging `build/tcc-dist[/tcc-dist]/bin/tcc`,
+`$PENGU_TCC` y `PATH`.
+`PENGU_NO_TCC=1` desactiva TCC por completo. `pengu doctor`
+reporta la ruta y la versión de TCC, la del compilador C (`<cc> --version`) y la
+ruta del PCH compartido; `pengu doctor --json` expone `cc_version`, `tcc`,
+`tcc_version` y `pch`.
+
+Si TCC (o cualquier `PENGU_DEV_CC`) falla al compilar, `PenguBuilder.compile()`
+reintenta una vez con el compilador configurado del proyecto y lo avisa por
+stderr (`development compiler failed; retrying with gcc`); la compilación nunca
+muere por culpa de TCC. La línea de enlace de TCC **no** lleva
+`-Wl,--start-group` (su driver de enlazado lo rechaza): sin eso, todos los builds
+con TCC fallaban el enlace y caían a gcc, duplicando el tiempo de un cache miss.
+
 
 ## 2. Configuration Files (`pengu.yaml` / `pengu.json` / `pengu.toml`)
 
@@ -165,6 +236,7 @@ build/
 │   ├── mbedtls/          # Headers de mbedtls (MD5, SHA1, SHA256, SHA512)
 │   ├── curl/             # Headers de libcurl
 │   └── pengu_runtime.h
+│   └── pengu_runtime.h.gch  # PCH compartido (gcc/clang) para builds rápidos
 └── lib/                  # Bibliotecas estáticas generadas
     ├── libz.a            # zlib 1.3.2 (compresión zlib/gzip y CRC32)
     ├── libpcre2-8.a      # PCRE2 10.47 (8-bit regex para regulus)
