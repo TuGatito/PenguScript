@@ -622,3 +622,25 @@ omen Status:
         assert codegen._rune_file_paths.get("Status") == "/app/status.pengu"
         assert codegen._implicit_lifetime_allowed(codegen._rune_file_paths.get("Status", "")) is True
 
+
+# ─── M6: Builtin list/map method defensive guards for empty arguments ─
+class TestM6_BuiltinMethodsDefensiveGuards:
+    @requires_runtime
+    def test_calling_list_methods_normal_behavior(self):
+        """List built-in methods push, pop, len, contains, index_of work properly."""
+        code = """
+weave main into int:
+    var xs as list of int is list of int
+    calling xs.push with 42
+    if calling xs.contains with 42:
+        if (calling xs.index_of with 42) == 0:
+            var popped as int is calling xs.pop
+            if popped == 42:
+                return 0
+    return 1
+"""
+        c = gen_bundle(code)
+        check_c_syntax(c)
+        res = compile_run(code, tag="test_m6_list")
+        assert res.returncode == 0
+

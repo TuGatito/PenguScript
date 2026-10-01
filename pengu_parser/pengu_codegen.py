@@ -6633,6 +6633,8 @@ class PenguCodegen:
                     arg0 = args[0] if args else ""
                     tmp_elem = self.get_temp_name("_elem")
                     if m_name in ("push", "append"):
+                        if not args:
+                            return "0"
                         return f"(__extension__({{ {elem_c} {tmp_elem} = ({arg0}); pengu_list_push({self_ptr}, &{tmp_elem}); }}))"
                     elif m_name == "pop":
                         return f"(*({elem_c}*)pengu_list_pop_val({self_ptr}))"
@@ -6643,11 +6645,16 @@ class PenguCodegen:
                     elif m_name == "clear":
                         return f"pengu_list_clear({self_ptr})"
                     elif m_name == "contains":
+                        if not args:
+                            return "false"
                         return f"(__extension__({{ {elem_c} {tmp_elem} = ({arg0}); pengu_list_contains({self_ptr}, &{tmp_elem}); }}))"
                     elif m_name == "index_of":
+                        if not args:
+                            return "-1"
                         return f"(__extension__({{ {elem_c} {tmp_elem} = ({arg0}); pengu_list_index_of({self_ptr}, &{tmp_elem}); }}))"
                     elif m_name == "at":
-                        return f"(*({elem_c}*)pengu_list_at({self_ptr}, {args[0]}))"
+                        idx_arg = args[0] if args else "0"
+                        return f"(*({elem_c}*)pengu_list_at({self_ptr}, {idx_arg}))"
 
                 # Built-in MapType methods
                 if isinstance(actual_obj_type, MapType) or (isinstance(actual_obj_type, RefType) and isinstance(actual_obj_type.target, MapType)):
@@ -6660,14 +6667,22 @@ class PenguCodegen:
                     tmp_v = self.get_temp_name("_v")
                     tmp_p = self.get_temp_name("_p")
                     if m_name in ("put", "insert", "set"):
+                        if len(args) < 2:
+                            return "0"
                         return f"(__extension__({{ {key_c} {tmp_k} = {arg0}; {val_c} {tmp_v} = {arg1}; pengu_map_put({self_ptr}, &{tmp_k}, &{tmp_v}); }}))"
                     elif m_name == "get":
                         val_cast = CTypeMapper.to_c_decl(map_t.value, "*")
                         val_zero = "NULL" if isinstance(map_t.value, (FnType, RefType)) else f"({val_c}){{0}}"
+                        if not args:
+                            return val_zero
                         return f"(__extension__({{ {key_c} {tmp_k} = {arg0}; void* {tmp_p} = pengu_map_get({self_ptr}, &{tmp_k}); {tmp_p} ? (*(({val_cast}){tmp_p})) : {val_zero}; }}))"
                     elif m_name == "remove":
+                        if not args:
+                            return "0"
                         return f"(__extension__({{ {key_c} {tmp_k} = {arg0}; pengu_map_remove({self_ptr}, &{tmp_k}); }}))"
                     elif m_name in ("contains", "contains_key", "has"):
+                        if not args:
+                            return "false"
                         return f"(__extension__({{ {key_c} {tmp_k} = {arg0}; pengu_map_contains({self_ptr}, &{tmp_k}); }}))"
                     elif m_name == "len":
                         return f"({obj_expr_str}{self._member_sep(obj_type, obj_expr_str)}len)"
@@ -6795,6 +6810,8 @@ class PenguCodegen:
                     arg0 = args[0] if args else ""
                     tmp_elem = self.get_temp_name("_elem")
                     if field_name in ("push", "append"):
+                        if not args:
+                            return "0"
                         return f"(__extension__({{ {elem_c} {tmp_elem} = ({arg0}); pengu_list_push({self_ptr}, &{tmp_elem}); }}))"
                     elif field_name == "pop":
                         return f"(*({elem_c}*)pengu_list_pop_val({self_ptr}))"
@@ -6807,11 +6824,16 @@ class PenguCodegen:
                     elif field_name == "clear":
                         return f"pengu_list_clear({self_ptr})"
                     elif field_name == "contains":
+                        if not args:
+                            return "false"
                         return f"(__extension__({{ {elem_c} {tmp_elem} = ({arg0}); pengu_list_contains({self_ptr}, &{tmp_elem}); }}))"
                     elif field_name == "index_of":
+                        if not args:
+                            return "-1"
                         return f"(__extension__({{ {elem_c} {tmp_elem} = ({arg0}); pengu_list_index_of({self_ptr}, &{tmp_elem}); }}))"
                     elif field_name == "at":
-                        return f"(*({elem_c}*)pengu_list_at({self_ptr}, {args[0]}))"
+                        idx_arg = args[0] if args else "0"
+                        return f"(*({elem_c}*)pengu_list_at({self_ptr}, {idx_arg}))"
 
                 # Built-in MapType methods under with
                 if isinstance(actual_with_type, MapType) or (isinstance(actual_with_type, RefType) and isinstance(actual_with_type.target, MapType)):
@@ -6825,14 +6847,22 @@ class PenguCodegen:
                     tmp_v = self.get_temp_name("_v")
                     tmp_p = self.get_temp_name("_p")
                     if field_name in ("put", "insert", "set"):
+                        if len(args) < 2:
+                            return "0"
                         return f"(__extension__({{ {key_c} {tmp_k} = {arg0}; {val_c} {tmp_v} = {arg1}; pengu_map_put({self_ptr}, &{tmp_k}, &{tmp_v}); }}))"
                     elif field_name == "get":
                         val_cast = CTypeMapper.to_c_decl(map_t.value, "*")
                         val_zero = "NULL" if isinstance(map_t.value, (FnType, RefType)) else f"({val_c}){{0}}"
+                        if not args:
+                            return val_zero
                         return f"(__extension__({{ {key_c} {tmp_k} = {arg0}; void* {tmp_p} = pengu_map_get({self_ptr}, &{tmp_k}); {tmp_p} ? (*(({val_cast}){tmp_p})) : {val_zero}; }}))"
                     elif field_name == "remove":
+                        if not args:
+                            return "0"
                         return f"(__extension__({{ {key_c} {tmp_k} = {arg0}; pengu_map_remove({self_ptr}, &{tmp_k}); }}))"
                     elif field_name in ("contains", "contains_key", "has"):
+                        if not args:
+                            return "false"
                         return f"(__extension__({{ {key_c} {tmp_k} = {arg0}; pengu_map_contains({self_ptr}, &{tmp_k}); }}))"
                     elif field_name == "len":
                         deref_obj = f"(*{self_ptr})" if (isinstance(actual_with_type, RefType) or base_target == "self") else base_target
