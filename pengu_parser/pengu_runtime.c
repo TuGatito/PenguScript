@@ -712,7 +712,7 @@ PenguMaybe pengu_c_regulus_search(void* regex, PenguString text) {
     if (!m) { free(match_buf); return pengu_maybe_none(); }
     m->start = start;
     m->end = end;
-    m->matched = (PenguString){ match_buf, match_len };
+    m->matched = (PenguString){ match_buf, match_len, 1 };
     return pengu_maybe_some(m);
 }
 
@@ -755,7 +755,7 @@ PenguMaybe pengu_c_regulus_match(void* regex, PenguString text) {
     if (!m) { free(match_buf); return pengu_maybe_none(); }
     m->start = start;
     m->end = end;
-    m->matched = (PenguString){ match_buf, match_len };
+    m->matched = (PenguString){ match_buf, match_len, 1 };
     return pengu_maybe_some(m);
 }
 
@@ -794,7 +794,7 @@ PenguList pengu_c_regulus_find_all(void* regex, PenguString text) {
         PenguRegulusMatch m;
         m.start = start;
         m.end = end;
-        m.matched = (PenguString){ match_buf, match_len };
+        m.matched = (PenguString){ match_buf, match_len, 1 };
         pengu_list_push(&list, &m);
 
         start_offset = (ovector[1] > start_offset) ? ovector[1] : (start_offset + 1);
@@ -831,7 +831,7 @@ PenguString pengu_c_regulus_replace(void* regex, PenguString text, PenguString r
         return text;
     }
 
-    return (PenguString){ (char*)out_buf, (int)out_len };
+    return (PenguString){ (char*)out_buf, (int)out_len, 1 };
 }
 
 PenguList pengu_c_regulus_split(void* regex, PenguString text, int limit) {
@@ -872,7 +872,7 @@ PenguList pengu_c_regulus_split(void* regex, PenguString text, int limit) {
         if (part) {
             memcpy(part, text.data + last_end, (size_t)part_len);
             part[part_len] = '\0';
-            PenguString s = { part, part_len };
+            PenguString s = { part, part_len, 1 };
             pengu_list_push(&list, &s);
         }
 
@@ -888,7 +888,7 @@ PenguList pengu_c_regulus_split(void* regex, PenguString text, int limit) {
     if (remain) {
         memcpy(remain, text.data + last_end, (size_t)remain_len);
         remain[remain_len] = '\0';
-        PenguString s = { remain, remain_len };
+        PenguString s = { remain, remain_len, 1 };
         pengu_list_push(&list, &s);
     }
 
@@ -918,11 +918,12 @@ void pengu_c_regulus_regex_free(void* regex) {
 void pengu_c_regulus_match_free(void* m) {
     if (!m) return;
     PenguRegulusMatch* pm = (PenguRegulusMatch*)m;
-    if (pm->matched.data) {
+    if (pm->matched.data && pm->matched.is_owned) {
         free(pm->matched.data);
-        pm->matched.data = NULL;
-        pm->matched.len = 0;
     }
+    pm->matched.data = NULL;
+    pm->matched.len = 0;
+    pm->matched.is_owned = 0;
 }
 
 /* =========================================================================
@@ -1184,16 +1185,18 @@ void pengu_c_parchment_append_child(void* parent, void* child) {
 void pengu_c_parchment_node_free(void* node) {
     if (!node) return;
     PenguParchmentNode* pn = (PenguParchmentNode*)node;
-    if (pn->tag.data) {
+    if (pn->tag.data && pn->tag.is_owned) {
         free(pn->tag.data);
-        pn->tag.data = NULL;
-        pn->tag.len = 0;
     }
-    if (pn->text.data) {
+    pn->tag.data = NULL;
+    pn->tag.len = 0;
+    pn->tag.is_owned = 0;
+    if (pn->text.data && pn->text.is_owned) {
         free(pn->text.data);
-        pn->text.data = NULL;
-        pn->text.len = 0;
     }
+    pn->text.data = NULL;
+    pn->text.len = 0;
+    pn->text.is_owned = 0;
 }
 
 void pengu_c_parchment_document_free(void* doc) {
@@ -1204,26 +1207,30 @@ void pengu_c_parchment_document_free(void* doc) {
         xdoc = ((xmlNodePtr)(pdoc->root._ptr))->doc;
     }
     /* Root node is stored inline inside the document wrapper. */
-    if (pdoc->root.tag.data) {
+    if (pdoc->root.tag.data && pdoc->root.tag.is_owned) {
         free(pdoc->root.tag.data);
-        pdoc->root.tag.data = NULL;
-        pdoc->root.tag.len = 0;
     }
-    if (pdoc->root.text.data) {
+    pdoc->root.tag.data = NULL;
+    pdoc->root.tag.len = 0;
+    pdoc->root.tag.is_owned = 0;
+    if (pdoc->root.text.data && pdoc->root.text.is_owned) {
         free(pdoc->root.text.data);
-        pdoc->root.text.data = NULL;
-        pdoc->root.text.len = 0;
     }
-    if (pdoc->version.data) {
+    pdoc->root.text.data = NULL;
+    pdoc->root.text.len = 0;
+    pdoc->root.text.is_owned = 0;
+    if (pdoc->version.data && pdoc->version.is_owned) {
         free(pdoc->version.data);
-        pdoc->version.data = NULL;
-        pdoc->version.len = 0;
     }
-    if (pdoc->encoding.data) {
+    pdoc->version.data = NULL;
+    pdoc->version.len = 0;
+    pdoc->version.is_owned = 0;
+    if (pdoc->encoding.data && pdoc->encoding.is_owned) {
         free(pdoc->encoding.data);
-        pdoc->encoding.data = NULL;
-        pdoc->encoding.len = 0;
     }
+    pdoc->encoding.data = NULL;
+    pdoc->encoding.len = 0;
+    pdoc->encoding.is_owned = 0;
     pdoc->root._ptr = NULL;
     if (xdoc) xmlFreeDoc(xdoc);
 }
@@ -1295,6 +1302,7 @@ PenguMaybe pengu_c_seal_gzip(PenguString data) {
     PenguString* res = (PenguString*)malloc(sizeof(PenguString));
     res->data = (char*)out_buf;
     res->len = (int)out_len;
+    res->is_owned = 1;
     return pengu_maybe_some(res);
 }
 
@@ -1337,6 +1345,7 @@ PenguMaybe pengu_c_seal_unzip(PenguString data) {
     PenguString* res = (PenguString*)malloc(sizeof(PenguString));
     res->data = (char*)out_buf;
     res->len = (int)out_len;
+    res->is_owned = 1;
     return pengu_maybe_some(res);
 }
 
@@ -1352,6 +1361,7 @@ PenguMaybe pengu_c_seal_zlib_compress(PenguString data) {
     PenguString* res = (PenguString*)malloc(sizeof(PenguString));
     res->data = (char*)out_buf;
     res->len = (int)out_len;
+    res->is_owned = 1;
     return pengu_maybe_some(res);
 }
 
@@ -1376,6 +1386,7 @@ PenguMaybe pengu_c_seal_zlib_decompress(PenguString data) {
     PenguString* res = (PenguString*)malloc(sizeof(PenguString));
     res->data = (char*)out_buf;
     res->len = (int)out_len;
+    res->is_owned = 1;
     return pengu_maybe_some(res);
 }
 
@@ -1550,6 +1561,7 @@ static PenguMaybe pengu_curl_do_request(const char* method, PenguString url, Pen
     PenguString* body_str = (PenguString*)malloc(sizeof(PenguString));
     body_str->data = chunk.data;
     body_str->len = (int)chunk.size;
+    body_str->is_owned = 1;
     resp->body = pengu_maybe_some(body_str);
 
     if (header_list) curl_slist_free_all(header_list);
@@ -1597,10 +1609,12 @@ void pengu_precis_free_response(PenguPrecisClientResponse *resp) {
     /* A present body owns a heap PenguString that owns its buffer. */
     if (resp->body.is_present && resp->body.value) {
         PenguString *body_str = (PenguString *)resp->body.value;
-        if (body_str->data) {
+        if (body_str->data && body_str->is_owned) {
             free(body_str->data);
-            body_str->data = NULL;
         }
+        body_str->data = NULL;
+        body_str->len = 0;
+        body_str->is_owned = 0;
         free(body_str);
         resp->body.value = NULL;
         resp->body.is_present = false;
@@ -1753,6 +1767,7 @@ PenguMaybe pengu_c_precis_tcp_recv(void* sock, int size) {
     PenguString* res = (PenguString*)malloc(sizeof(PenguString));
     res->data = buf;
     res->len = recvd;
+    res->is_owned = 1;
     return pengu_maybe_some(res);
 }
 
@@ -1819,6 +1834,7 @@ PenguString pengu_c_precis_url_encode(PenguString s) {
     PenguString res;
     res.data = buf;
     res.len = (int)pos;
+    res.is_owned = 1;
     return res;
 }
 
@@ -1851,6 +1867,7 @@ PenguString pengu_c_precis_url_decode(PenguString s) {
     PenguString res;
     res.data = buf;
     res.len = (int)pos;
+    res.is_owned = 1;
     return res;
 }
 
@@ -1871,9 +1888,11 @@ PenguMap pengu_c_precis_parse_query(PenguString s) {
                     PenguString k_enc;
                     k_enc.data = s.data + cur_start;
                     k_enc.len = eq_pos - cur_start;
+                    k_enc.is_owned = 0;
                     PenguString v_enc;
                     v_enc.data = s.data + eq_pos + 1;
                     v_enc.len = i - (eq_pos + 1);
+                    v_enc.is_owned = 0;
                     PenguString k = pengu_c_precis_url_decode(k_enc);
                     PenguString v = pengu_c_precis_url_decode(v_enc);
                     pengu_map_put(&m, &k, &v);
@@ -1968,9 +1987,11 @@ PenguEntryArray pengu_map_to_entries(const PenguMap *map) {
                 }
                 dst->len = src->len;
                 if (!dst->data) { dst->len = 0; dst->data = (char *)PENGU_EMPTY_CSTR; }
+                dst->is_owned = (dst->data == (char *)PENGU_EMPTY_CSTR) ? 0 : 1;
             } else {
                 dst->data = (char *)PENGU_EMPTY_CSTR;
                 dst->len = 0;
+                dst->is_owned = 0;
             }
         } else {
             memcpy(kdst, map->entries[i].key, map->key_size);
@@ -1986,9 +2007,11 @@ PenguEntryArray pengu_map_to_entries(const PenguMap *map) {
                 }
                 dst->len = src->len;
                 if (!dst->data) { dst->len = 0; dst->data = (char *)PENGU_EMPTY_CSTR; }
+                dst->is_owned = (dst->data == (char *)PENGU_EMPTY_CSTR) ? 0 : 1;
             } else {
                 dst->data = (char *)PENGU_EMPTY_CSTR;
                 dst->len = 0;
+                dst->is_owned = 0;
             }
         } else {
             memcpy(vdst, map->entries[i].val, map->val_size);
@@ -2010,11 +2033,12 @@ void pengu_entry_array_free(PenguEntryArray *arr) {
         if (arr->key_size == sizeof(PenguString)) {
             for (int i = 0; i < arr->count; ++i) {
                 PenguString *s = (PenguString *)arr->keys + i;
-                if (s->data && s->data != PENGU_EMPTY_CSTR) {
+                if (s->data && s->is_owned) {
                     free(s->data);
-                    s->data = NULL;
-                    s->len = 0;
                 }
+                s->data = NULL;
+                s->len = 0;
+                s->is_owned = 0;
             }
         }
         free(arr->keys);
@@ -2024,11 +2048,12 @@ void pengu_entry_array_free(PenguEntryArray *arr) {
         if (arr->val_size == sizeof(PenguString)) {
             for (int i = 0; i < arr->count; ++i) {
                 PenguString *s = (PenguString *)arr->values + i;
-                if (s->data && s->data != PENGU_EMPTY_CSTR) {
+                if (s->data && s->is_owned) {
                     free(s->data);
-                    s->data = NULL;
-                    s->len = 0;
                 }
+                s->data = NULL;
+                s->len = 0;
+                s->is_owned = 0;
             }
         }
         free(arr->values);
@@ -2050,6 +2075,7 @@ PenguString pengu_string_copy(PenguString s) {
         PenguString empty;
         empty.len = 0;
         empty.data = (char *)PENGU_EMPTY_CSTR;
+        empty.is_owned = 0;
         return empty;
     }
     char *buf = (char *)malloc((size_t)s.len + 1);
@@ -2057,6 +2083,7 @@ PenguString pengu_string_copy(PenguString s) {
         PenguString empty;
         empty.len = 0;
         empty.data = (char *)PENGU_EMPTY_CSTR;
+        empty.is_owned = 0;
         return empty;
     }
     memcpy(buf, s.data, (size_t)s.len);
@@ -2064,6 +2091,7 @@ PenguString pengu_string_copy(PenguString s) {
     PenguString out;
     out.data = buf;
     out.len = s.len;
+    out.is_owned = 1;
     return out;
 }
 

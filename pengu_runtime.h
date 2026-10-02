@@ -502,6 +502,7 @@ extern "C"
   {
     char *data;
     int len;
+    int32_t is_owned;
   } PenguString;
 
   /**
@@ -527,6 +528,7 @@ extern "C"
     {
       s.len = 0;
       s.data = (char *)"";
+      s.is_owned = 0;
       return s;
     }
     size_t len = strlen(str);
@@ -534,6 +536,7 @@ extern "C"
     {
       s.len = 0;
       s.data = (char *)"";
+      s.is_owned = 0;
       return s;
     }
     s.len = (int)len;
@@ -542,8 +545,10 @@ extern "C"
     {
       s.len = 0;
       s.data = (char *)"";
+      s.is_owned = 0;
       return s;
     }
+    s.is_owned = 1;
     memcpy(s.data, str, (size_t)s.len + 1);
     return s;
   }
@@ -563,10 +568,12 @@ extern "C"
     {
       s.len = 0;
       s.data = (char *)"";
+      s.is_owned = 0;
       return s;
     }
     s.len = (int)strlen(str);
     s.data = (char *)str;
+    s.is_owned = 0;
     return s;
   }
 
@@ -741,7 +748,7 @@ extern "C"
       return pengu_string_from_cstr("");
     }
     buf[len] = '\0';
-    return (PenguString){buf, (int)len};
+    return (PenguString){buf, (int)len, 1};
   }
 
   /**
@@ -770,7 +777,7 @@ extern "C"
     va_start(args, fmt);
     vsnprintf(buf, (size_t)size + 1, fmt, args);
     va_end(args);
-    return (PenguString){buf, size};
+    return (PenguString){buf, size, 1};
   }
 
   /**
@@ -796,8 +803,10 @@ extern "C"
     {
       s.len = 0;
       s.data = (char *)"";
+      s.is_owned = 0;
       return s;
     }
+    s.is_owned = 1;
     if (a.data && a.len > 0)
     {
       memcpy(s.data, a.data, (size_t)a.len);
@@ -858,12 +867,15 @@ extern "C"
    */
   static inline void pengu_banish_string(PenguString *s)
   {
-    if (s && s->data && s->len > 0)
+    if (!s)
+      return;
+    if (s->data && s->is_owned)
     {
       free(s->data);
-      s->data = NULL;
-      s->len = 0;
     }
+    s->data = NULL;
+    s->len = 0;
+    s->is_owned = 0;
   }
 
   /**
@@ -943,7 +955,7 @@ extern "C"
       return pengu_string_from_cstr("");
     memcpy(buf, s.data + start, (size_t)len);
     buf[len] = '\0';
-    return (PenguString){buf, len};
+    return (PenguString){buf, len, 1};
   }
 
   /**
@@ -968,7 +980,7 @@ extern "C"
       return pengu_string_from_cstr("");
     memcpy(buf, s.data + start, (size_t)len);
     buf[len] = '\0';
-    return (PenguString){buf, len};
+    return (PenguString){buf, len, 1};
   }
 
   /**
@@ -993,7 +1005,7 @@ extern "C"
       return pengu_string_from_cstr("");
     memcpy(buf, s.data, (size_t)len);
     buf[len] = '\0';
-    return (PenguString){buf, len};
+    return (PenguString){buf, len, 1};
   }
 
   /**
@@ -1090,7 +1102,7 @@ extern "C"
       return pengu_string_from_cstr("");
     memcpy(buf, s.data + start, (size_t)len);
     buf[len] = '\0';
-    return (PenguString){buf, len};
+    return (PenguString){buf, len, 1};
   }
 
   /**
@@ -1155,7 +1167,7 @@ extern "C"
       dst += rem;
     }
     *dst = '\0';
-    return (PenguString){buf, (int)new_len};
+    return (PenguString){buf, (int)new_len, 1};
   }
 
   /**
@@ -1183,7 +1195,7 @@ extern "C"
       memcpy(buf + ((size_t)i * (size_t)s.len), s.data, (size_t)s.len);
     }
     buf[total_len] = '\0';
-    return (PenguString){buf, (int)total_len};
+    return (PenguString){buf, (int)total_len, 1};
   }
 
   /**
@@ -1203,7 +1215,7 @@ extern "C"
       buf[i] = s.data[s.len - 1 - i];
     }
     buf[s.len] = '\0';
-    return (PenguString){buf, s.len};
+    return (PenguString){buf, s.len, 1};
   }
 
   /**
@@ -1223,7 +1235,7 @@ extern "C"
       return pengu_string_from_cstr("");
     buf[0] = s.data[idx];
     buf[1] = '\0';
-    return (PenguString){buf, 1};
+    return (PenguString){buf, 1, 1};
   }
 
   /**
@@ -1264,7 +1276,7 @@ extern "C"
       return pengu_string_from_cstr("");
     buf[0] = c;
     buf[1] = '\0';
-    return (PenguString){buf, 1};
+    return (PenguString){buf, 1, 1};
   }
 
   /**
@@ -1813,7 +1825,7 @@ extern "C"
     {
       for (int i = 0; i < s.len; ++i)
       {
-        PenguString ch = {s.data + i, 1};
+        PenguString ch = {s.data + i, 1, 0};
         pengu_list_push(&list, &ch);
       }
       return list;
@@ -1823,12 +1835,12 @@ extern "C"
     while ((idx = pengu__find_sub(s, delim, cur)) != -1)
     {
       int seg_len = idx - cur;
-      PenguString part = (seg_len > 0) ? (PenguString){s.data + cur, seg_len} : pengu_string_from_cstr("");
+      PenguString part = (seg_len > 0) ? (PenguString){s.data + cur, seg_len, 0} : pengu_string_from_cstr("");
       pengu_list_push(&list, &part);
       cur = idx + delim.len;
     }
     int rem_len = s.len - cur;
-    PenguString rem_part = (rem_len > 0) ? (PenguString){s.data + cur, rem_len} : pengu_string_from_cstr("");
+    PenguString rem_part = (rem_len > 0) ? (PenguString){s.data + cur, rem_len, 0} : pengu_string_from_cstr("");
     pengu_list_push(&list, &rem_part);
     return list;
   }
@@ -3430,7 +3442,7 @@ extern "C"
         if (eq && eq != p)
         {
           int klen = (int)(eq - p);
-          PenguString kstr = {p, klen};
+          PenguString kstr = {p, klen, 0};
           pengu_list_push(&list, &kstr);
         }
         p += strlen(p) + 1;
@@ -3447,7 +3459,7 @@ extern "C"
         if (eq && eq != *env)
         {
           int klen = (int)(eq - *env);
-          PenguString kstr = {*env, klen};
+          PenguString kstr = {*env, klen, 0};
           pengu_list_push(&list, &kstr);
         }
       }
@@ -3521,6 +3533,7 @@ extern "C"
     if (read_bytes == 0)
       free(buf);
     res->len = (int)read_bytes;
+    res->is_owned = (read_bytes > 0) ? 1 : 0;
     return pengu_maybe_some(res);
   }
 
@@ -4044,6 +4057,7 @@ extern "C"
       PenguString full_s;
       full_s.data = target_full;
       full_s.len = needed;
+      full_s.is_owned = 0;
       if (pengu_c_archivum_is_dir(full_s))
       {
         pengu_c_archivum_glob_rec(target_full, pattern, res);
