@@ -3190,6 +3190,7 @@ class PenguChecker:
     def _check_judge_expr(self, node: Tree) -> None:
         """Checks judge expression constraints."""
         subj_node = node.children[0]
+        self._check_node(subj_node)
         try:
             subj_t = self.inferrer.infer(subj_node)
         except Exception:
@@ -3203,22 +3204,115 @@ class PenguChecker:
 
         for child in node.children[1:]:
             if isinstance(child, Tree) and child.data == "when_clause":
-                for sub in child.children:
-                    if isinstance(sub, Tree) and sub.data == "when_payload":
-                        self._record_error(self._make_error(
-                            SemanticError,
-                            "Payload bindings in 'when' clauses are not supported yet",
-                            sub,
-                            code="E0005",
-                            help="Pattern match omen variants without 'with' payload bindings.",
-                        ))
+                pat_node = child.children[0]
+                body_node = child.children[-1]
+                payload_node = None
+                guard_node = None
+                for sub in child.children[1:-1]:
+                    if isinstance(sub, Tree):
+                        if sub.data == "when_payload":
+                            payload_node = sub
+                        elif sub.data == "when_guard":
+                            guard_node = sub
+
                 if unwrapped_subj is not None and len(child.children) >= 1:
-                    pat_node = child.children[0]
                     self._check_when_pattern_type(pat_node, unwrapped_subj, subj_t)
 
-        for child in node.children:
-            if isinstance(child, Tree):
+                var_name = None
+                variant_fields: Dict[str, Type] = {}
+                if isinstance(unwrapped_subj, OmenType):
+                    var_name, variant_fields = self._resolve_omen_variant(pat_node, unwrapped_subj)
+
+                payload_fields = self._extract_payload_fields(payload_node) if payload_node else []
+                if payload_fields:
+                    if not isinstance(unwrapped_subj, OmenType):
+                        self._record_error(self._make_error(
+                            SemanticError,
+                            "Payload bindings are only supported on omen variants",
+                            payload_node,
+                            code="E0005"
+                        ))
+                    elif not variant_fields:
+                        self._record_error(self._make_error(
+                            SemanticError,
+                            f"Variant '{var_name}' has no payload fields",
+                            payload_node,
+                            code="E0005"
+                        ))
+                    else:
+                        for f_name, f_node in payload_fields:
+                            if f_name not in variant_fields:
+                                self._record_error(self._make_error(
+                                    SemanticError,
+                                    f"Variant '{var_name}' has no field '{f_name}'",
+                                    f_node,
+                                    code="E0005"
+                                ))
+
+                # Register payload variables in when_clause scope
+                self.symbols.push_scope(kind="when_clause")
+                try:
+                    for f_name, f_node in payload_fields:
+                        if f_name in variant_fields:
+                            sym = Symbol(
+                                name=f_name,
+                                type=variant_fields[f_name],
+                                kind="let",
+                                is_mutable=False,
+                                line=getattr(f_node, "line", 1),
+                                column=getattr(f_node, "column", 1)
+                            )
+                            self.symbols.define(sym)
+
+                    if guard_node is not None:
+                        guard_expr_node = guard_node.children[0]
+                        self._check_node(guard_expr_node)
+                        try:
+                            guard_t = self.inferrer.infer(guard_expr_node)
+                            if not (guard_t == BOOL_TYPE or guard_t.is_compatible(BOOL_TYPE)):
+                                self._record_error(self._make_error(
+                                    TypeMismatchError,
+                                    f"Judge guard must be boolean, got '{guard_t}'",
+                                    guard_node,
+                                    code="E0005"
+                                ))
+                        except Exception as e:
+                            self._record_error(e)
+
+                    self._check_node(body_node)
+                finally:
+                    self.symbols.pop_scope()
+
+            elif isinstance(child, Tree) and child.data == "else_clause":
                 self._check_node(child)
+
+    def _extract_payload_fields(self, payload_node: Tree) -> List[Tuple[str, Any]]:
+        fields = []
+        for c in payload_node.children:
+            if isinstance(c, Tree) and c.data == "when_field":
+                fields.append((str(c.children[0]), c))
+            elif isinstance(c, Token) and c.type == "NAME":
+                fields.append((str(c), c))
+        return fields
+
+    def _resolve_omen_variant(self, pat_node: Any, omen: OmenType) -> Tuple[Optional[str], Dict[str, Type]]:
+        if not isinstance(pat_node, Tree) or pat_node.data != "when_pattern":
+            return None, {}
+        children = [c for c in pat_node.children if (isinstance(c, Token) and c.type == "NAME") or (isinstance(c, str))]
+        if not children:
+            return None, {}
+        raw_name = str(children[-1])
+        var_name = raw_name
+        c_name = getattr(omen, "c_name", None) or omen.name
+        for prefix in (f"{omen.name}_", f"{c_name}_"):
+            if var_name.startswith(prefix):
+                var_name = var_name[len(prefix):]
+                break
+        if var_name in omen.variants:
+            return var_name, omen.variants[var_name]
+        if raw_name in omen.variants:
+            return raw_name, omen.variants[raw_name]
+        return var_name, {}
 
     def _check_when_pattern_type(self, pat_node: Any, unwrapped_subj: Type, subj_t: Type) -> None:
         if not isinstance(pat_node, Tree) or pat_node.data != "when_pattern":

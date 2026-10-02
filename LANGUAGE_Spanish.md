@@ -625,8 +625,21 @@ let state_desc is judge state:
 - **Reglas de exhaustividad (`E0044`):**
   - Para sujetos `omen` y `bool`, deben cubrirse todas las variantes/valores posibles a menos que se proporcione una cláusula `else ->` por defecto. Las ramas faltantes producen `E0044: NonExhaustiveJudgeError`.
   - Para `int`, `string` y `char`, no se exige exhaustividad. Si no hay `else ->` y ningún patrón coincide, la expresión se evalúa a su valor cero/vacío por defecto (`0`, `""`, `'\0'`).
-- **Cargas útiles de patrón (`E0005`):** Actualmente no se admite extraer cargas útiles directamente dentro de las ramas de patrón; extrae las cargas útiles usando acceso explícito a la variante o `is_ok`/`value`.
-- **Codegen:** Emite una sentencia `switch` de C cuando todos los casos de patrón son constantes enteras en tiempo de compilación; recurre a una cadena ternaria `if-else` para patrones de cadena o variables.
+- **Cargas útiles de patrón (`with <campos>`):** Extrae los campos de la variante directamente en variables locales dentro del cuerpo de la cláusula:
+  ```pengu
+  judge status:
+      when Status.Ok with value -> value + 1
+      when Status.Err with code -> code
+  ```
+- **Guardas (`if <cond>` / `when <cond>`):** Filtra ramas del patrón usando expresiones booleanas evaluadas con las variables extraídas en el alcance local:
+  ```pengu
+  judge number:
+      when Number.Val with n if n > 0 -> "positivo"
+      when Number.Val with n if n < 0 -> "negativo"
+      when Number.Val with n -> "cero"
+  ```
+  Los patrones con guarda no cuentan para la exhaustividad; se requiere un patrón sin guarda o una cláusula `else ->`.
+- **Codegen:** Emite una sentencia `switch` de C cuando todos los casos de patrón son constantes enteras en tiempo de compilación sin guardas ni cargas útiles; genera ramas `if` estructuradas con extracción de carga útil y evaluación de guardas cuando hay cargas útiles o guardas, o recurre a una cadena ternaria `if-else` para patrones de cadena o variables.
 
 ### 7.5 `break` / `continue` / `return`
 

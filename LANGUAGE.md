@@ -625,8 +625,21 @@ let state_desc is judge state:
 - **Exhaustiveness Rules (`E0044`):**
   - For `omen` and `bool` subjects, all possible variants/values must be handled unless a default `else ->` clause is provided. Missing branches raise `E0044: NonExhaustiveJudgeError`.
   - For `int`, `string`, and `char`, exhaustiveness is not enforced. If no `else ->` is present and no pattern matches, the expression evaluates to its default zero/empty value (`0`, `""`, `'\0'`).
-- **Pattern Payloads (`E0005`):** Extracting payloads directly within pattern branches is currently not supported; extract payloads using explicit variant access or `is_ok`/`value`.
-- **Codegen:** Emits a C `switch` statement when all pattern cases are compile-time integer constants; falls back to an `if-else` ternary chain for string or variable patterns.
+- **Pattern Payloads (`with <fields>`):** Extract variant fields directly into local bindings in the clause body:
+  ```pengu
+  judge status:
+      when Status.Ok with value -> value + 1
+      when Status.Err with code -> code
+  ```
+- **Guards (`if <cond>` / `when <cond>`):** Filter pattern branches using boolean expressions evaluated with bound payload variables in scope:
+  ```pengu
+  judge number:
+      when Number.Val with n if n > 0 -> "positive"
+      when Number.Val with n if n < 0 -> "negative"
+      when Number.Val with n -> "zero"
+  ```
+  Guarded patterns do not count toward exhaustiveness; an unguarded pattern or `else ->` is required.
+- **Codegen:** Emits a C `switch` statement when all pattern cases are compile-time integer constants without guards or payloads; generates structured `if` branches with payload extraction and guard checks when payloads or guards are present, or falls back to an `if-else` ternary chain for string or variable patterns.
 
 ### 7.5 `break` / `continue` / `return`
 

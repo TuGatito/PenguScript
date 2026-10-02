@@ -176,7 +176,48 @@ for_stmt: "for" NAME "from" expr_no_cast "to" expr_no_cast ["step" expr_no_cast]
 
 with_stmt: "with" expr ":" _NEWLINE _INDENT stmt+ _DEDENT
 
-when_clause: "when" when_pattern ["with" when_payload] "->" expr _NEWLINE
+when_clause: "when" when_pattern ["with" when_payload] [when_guard] "->" expr _NEWLINE
+when_guard: ("if" | "when") guard_expr
+
+?guard_expr: guard_bool_or
+?guard_bool_or: guard_bool_or _BOOL_OR guard_bool_and -> bool_or
+              | guard_bool_and
+?guard_bool_and: guard_bool_and _BOOL_AND guard_comparison -> bool_and
+               | guard_comparison
+?guard_comparison: guard_comparison "==" guard_logic_or -> eq
+                 | guard_comparison "!=" guard_logic_or -> ne
+                 | guard_comparison "<=" guard_logic_or -> le
+                 | guard_comparison ">=" guard_logic_or -> ge
+                 | guard_comparison "<" guard_logic_or -> lt
+                 | guard_comparison ">" guard_logic_or -> gt
+                 | guard_logic_or
+?guard_logic_or: guard_logic_or "|" guard_logic_and -> bitwise_or
+               | guard_logic_and
+?guard_logic_and: guard_logic_and "&" guard_bit_xor -> bitwise_and
+                | guard_bit_xor
+?guard_bit_xor: guard_bit_xor "^" guard_bit_shift -> bitwise_xor
+              | guard_bit_shift
+?guard_bit_shift: guard_bit_shift "<<" guard_bit_add -> shl
+                | guard_bit_shift ">>" guard_bit_add -> shr
+                | guard_bit_add
+?guard_bit_add: guard_bit_add "+" guard_bit_mul -> add
+              | guard_bit_add "-" guard_bit_mul -> sub
+              | guard_bit_mul
+?guard_bit_mul: guard_bit_mul "*" guard_unary -> mul
+              | guard_bit_mul "/" guard_unary -> div
+              | guard_bit_mul "%" guard_unary -> mod
+              | guard_unary
+?guard_unary: "~" guard_unary -> bit_not
+            | "not" guard_unary -> log_not
+            | "-" guard_unary -> neg
+            | "sigil" "of" guard_unary -> sigil_of
+            | "essence" "of" guard_unary -> essence_of
+            | guard_postfix
+?guard_postfix: primary
+              | guard_postfix "at" slice_range -> slice_at_expr
+              | guard_postfix "at" unary_no_cast -> at_expr
+              | guard_postfix "length" -> length_expr
+              | guard_postfix "." NAME -> field_access
 when_payload: when_field (("," | _AND_SEP) when_field)*
 when_field: NAME
 else_clause: "else" "->" expr _NEWLINE

@@ -542,6 +542,34 @@ class TypeInferrer:
                  "ambiguous."
         )
 
+    def _extract_payload_fields(self, payload_node: Tree) -> List[Tuple[str, Any]]:
+        fields = []
+        for c in payload_node.children:
+            if isinstance(c, Tree) and c.data == "when_field":
+                fields.append((str(c.children[0]), c))
+            elif isinstance(c, Token) and c.type == "NAME":
+                fields.append((str(c), c))
+        return fields
+
+    def _resolve_omen_variant(self, pat_node: Any, omen: OmenType) -> Tuple[Optional[str], Dict[str, Type]]:
+        if not isinstance(pat_node, Tree) or pat_node.data != "when_pattern":
+            return None, {}
+        children = [c for c in pat_node.children if (isinstance(c, Token) and c.type == "NAME") or (isinstance(c, str))]
+        if not children:
+            return None, {}
+        raw_name = str(children[-1])
+        var_name = raw_name
+        c_name = getattr(omen, "c_name", None) or omen.name
+        for prefix in (f"{omen.name}_", f"{c_name}_"):
+            if var_name.startswith(prefix):
+                var_name = var_name[len(prefix):]
+                break
+        if var_name in omen.variants:
+            return var_name, omen.variants[var_name]
+        if raw_name in omen.variants:
+            return raw_name, omen.variants[raw_name]
+        return var_name, {}
+
     def _reject_list_glued_operator(self, operand: Any, op: str, node: Any) -> None:
         """Rejects a bare boolean operator glued to a comma-separated list.
 
@@ -1721,22 +1749,65 @@ class TypeInferrer:
                             if p_name:
                                 if isinstance(unwrapped_matched, OmenType):
                                     if p_name.startswith(f"{unwrapped_matched.name}_"):
-                                        covered_variants.add(p_name[len(unwrapped_matched.name) + 1:])
+                                        p_variant = p_name[len(unwrapped_matched.name) + 1:]
                                     elif getattr(unwrapped_matched, "c_name", None) and p_name.startswith(f"{unwrapped_matched.c_name}_"):
-                                        covered_variants.add(p_name[len(unwrapped_matched.c_name) + 1:])
+                                        p_variant = p_name[len(unwrapped_matched.c_name) + 1:]
                                     elif p_name in unwrapped_matched.variants:
-                                        covered_variants.add(p_name)
+                                        p_variant = p_name
                                     elif "_" in p_name:
-                                        covered_variants.add(p_name.rsplit("_", 1)[-1])
+                                        p_variant = p_name.rsplit("_", 1)[-1]
                                     else:
-                                        covered_variants.add(p_name)
+                                        p_variant = p_name
                                 else:
-                                    covered_variants.add(p_name)
+                                    p_variant = p_name
                     else:
-                        covered_variants.add(str(pattern_node))
-                    body_expr = child.children[-1]
-                    body_type = self.infer(body_expr)
-                    branch_types.append(body_type)
+                        p_variant = str(pattern_node)
+
+                    payload_node = None
+                    guard_node = None
+                    for sub in child.children[1:-1]:
+                        if isinstance(sub, Tree):
+                            if sub.data == "when_payload":
+                                payload_node = sub
+                            elif sub.data == "when_guard":
+                                guard_node = sub
+
+                    if guard_node is None and p_variant:
+                        covered_variants.add(p_variant)
+
+                    var_name = None
+                    variant_fields = {}
+                    if isinstance(unwrapped_matched, OmenType):
+                        var_name, variant_fields = self._resolve_omen_variant(pattern_node, unwrapped_matched)
+
+                    payload_fields = self._extract_payload_fields(payload_node) if payload_node else []
+
+                    self.symbols.push_scope(kind="when_clause")
+                    try:
+                        for f_name, f_node in payload_fields:
+                            if f_name in variant_fields:
+                                sym = Symbol(
+                                    name=f_name,
+                                    type=variant_fields[f_name],
+                                    kind="let",
+                                    is_mutable=False
+                                )
+                                self.symbols.define(sym)
+                        if guard_node is not None:
+                            guard_expr_node = guard_node.children[0]
+                            guard_t = self.infer(guard_expr_node)
+                            if not (guard_t == BOOL_TYPE or guard_t.is_compatible(BOOL_TYPE)):
+                                raise self._make_error(
+                                    TypeMismatchError,
+                                    f"Judge guard must be boolean, got '{guard_t}'",
+                                    guard_node,
+                                    code="E0005"
+                                )
+                        body_expr = child.children[-1]
+                        body_type = self.infer(body_expr)
+                        branch_types.append(body_type)
+                    finally:
+                        self.symbols.pop_scope()
                 elif isinstance(child, Tree) and child.data == "else_clause":
                     has_else = True
                     body_expr = child.children[0]

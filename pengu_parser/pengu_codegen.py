@@ -8364,17 +8364,36 @@ class PenguCodegen:
             res_c_type = CTypeMapper.to_c_type(res_type) if (res_type and not isinstance(res_type, AnyType)) else "__auto_type"
 
             clauses = []
+            has_guards = False
+            has_payloads = False
             else_val = None
             for c in node.children[1:]:
                 if isinstance(c, Tree):
                     if c.data == "when_clause":
                         pat_node = c.children[0]
+                        payload_node = None
+                        guard_node = None
+                        for sub in c.children[1:-1]:
+                            if isinstance(sub, Tree):
+                                if sub.data == "when_payload":
+                                    payload_node = sub
+                                elif sub.data == "when_guard":
+                                    guard_node = sub
+
+                        if guard_node is not None:
+                            has_guards = True
+                        if payload_node is not None:
+                            has_payloads = True
+
                         pat = None
+                        simple_pat = None
                         if isinstance(pat_node, Tree) and pat_node.data == "when_pattern" and pat_node.children:
                             if len(pat_node.children) > 1:
                                 pat_parts = [str(p) for p in pat_node.children if str(p) != "."]
                                 pat = "_".join(pat_parts)
+                                simple_pat = pat_parts[-1]
                             else:
+                                simple_pat = str(pat_node.children[0])
                                 pat_node = pat_node.children[0]
                         if pat is None:
                             pat = self._translate_expr(pat_node)
@@ -8406,9 +8425,9 @@ class PenguCodegen:
                                     target_omen = o_key
                                     break
 
+                        variant_fields = {}
                         if target_omen:
                             variants = self.omens.get(target_omen, {})
-                            simple_pat = None
                             if pat in variants:
                                 simple_pat = pat
                             elif "_" in pat:
@@ -8417,10 +8436,42 @@ class PenguCodegen:
                                 if cand in variants and (prefix == target_omen or (matched_logical and prefix == matched_logical)):
                                     simple_pat = cand
                             if simple_pat is not None:
+                                variant_fields = variants.get(simple_pat, {})
                                 pat = self._get_omen_variant_c_name(target_omen, simple_pat)
 
-                        val = self._translate_expr(c.children[-1], expected_type=res_type)
-                        clauses.append((pat, val))
+                        payload_vars = []
+                        if payload_node:
+                            p_fields = []
+                            for fn in payload_node.children:
+                                if isinstance(fn, Tree) and fn.data == "when_field":
+                                    p_fields.append(str(fn.children[0]))
+                                elif isinstance(fn, Token):
+                                    p_fields.append(str(fn))
+                            for pf in p_fields:
+                                p_type = variant_fields.get(pf)
+                                if p_type is None and isinstance(matched_type, OmenType):
+                                    p_type = matched_type.variants.get(simple_pat, {}).get(pf)
+                                payload_vars.append((pf, p_type))
+
+                        old_locals = dict(self.local_vars)
+                        try:
+                            for pf, pt in payload_vars:
+                                self.local_vars[pf] = pt
+                            guard_expr_str = None
+                            if guard_node:
+                                guard_expr_str = self._translate_expr(guard_node.children[0])
+                            val = self._translate_expr(c.children[-1], expected_type=res_type)
+                        finally:
+                            self.local_vars = old_locals
+
+                        clauses.append({
+                            "pat": pat,
+                            "simple_pat": simple_pat,
+                            "target_omen": target_omen,
+                            "payload_vars": payload_vars,
+                            "guard": guard_expr_str,
+                            "val": val
+                        })
                     elif c.data == "else_clause":
                         else_val = self._translate_expr(c.children[0], expected_type=res_type)
 
@@ -8434,13 +8485,53 @@ class PenguCodegen:
                 elif res_type and not isinstance(res_type, AnyType):
                     else_val = f"({res_c_type}){{0}}"
                 elif clauses:
-                    else_val = f"({clauses[0][1]})"
+                    else_val = f"({clauses[0]['val']})"
                 else:
                     else_val = "0"
 
             is_string_omen = isinstance(matched_type, OmenType) and (matched_type.is_string() or matched_type.is_string_valued)
             is_algebraic_omen = isinstance(matched_type, OmenType) and matched_type.is_algebraic
             is_enum_or_int = not is_string_omen and (matched_type is None or matched_type.is_int() or (isinstance(matched_type, OmenType) and not matched_type.is_algebraic))
+
+            if has_guards or has_payloads:
+                t_val = self.get_temp_name("_val")
+                t_res = self.get_temp_name("_res")
+                lbl_end = self.get_temp_name("_judge_end")
+                decl_val = (CTypeMapper.to_c_decl(matched_type, t_val)
+                            if (matched_type and not isinstance(matched_type, AnyType))
+                            else f"__typeof__(({matched_expr})) {t_val}")
+                decl_res = CTypeMapper.to_c_decl(res_type, t_res) if (res_type and not isinstance(res_type, AnyType)) else f"__typeof__(({else_val})) {t_res}"
+                lines = [f"{decl_val} = ({matched_expr});", f"{decl_res};"]
+                for cl in clauses:
+                    pat = cl["pat"]
+                    simple_pat = cl["simple_pat"]
+                    payload_vars = cl["payload_vars"]
+                    guard = cl["guard"]
+                    val = cl["val"]
+                    if is_algebraic_omen:
+                        cond = f"{t_val}.tag == {pat}"
+                    elif matched_type and matched_type.is_string():
+                        cond = f"pengu_string_equal({t_val}, {pat})"
+                    else:
+                        cond = f"{t_val} == {pat}"
+
+                    clause_code = []
+                    if is_algebraic_omen and payload_vars and simple_pat:
+                        for pf, pt in payload_vars:
+                            c_t = CTypeMapper.to_c_type(pt) if (pt and not isinstance(pt, AnyType)) else "__auto_type"
+                            field_access = f"{t_val}.data.{self._c_ident(simple_pat)}.{self._c_ident(pf)}"
+                            clause_code.append(f"{c_t} {self._c_ident(pf)} = {field_access};")
+                    if guard:
+                        clause_code.append(f"if ({guard}) {{ {t_res} = ({val}); goto {lbl_end}; }}")
+                    else:
+                        clause_code.append(f"{t_res} = ({val}); goto {lbl_end};")
+                    body_str = " ".join(clause_code)
+                    lines.append(f"if ({cond}) {{ {body_str} }}")
+                lines.append(f"{t_res} = ({else_val});")
+                lines.append(f"{lbl_end}:;")
+                lines.append(f"{t_res};")
+                return f"(__extension__({{ {' '.join(lines)} }}))"
+
             def _is_c_switchable(p: str) -> bool:
                 if p.lstrip('-').isdigit():
                     return True
@@ -8448,18 +8539,16 @@ class PenguCodegen:
                     return True
                 return False
 
-            all_switchable = len(clauses) > 0 and (is_enum_or_int or is_algebraic_omen) and all(_is_c_switchable(pat) for pat, _ in clauses)
+            all_switchable = len(clauses) > 0 and (is_enum_or_int or is_algebraic_omen) and all(_is_c_switchable(cl["pat"]) for cl in clauses)
             if all_switchable and (is_enum_or_int or is_algebraic_omen):
                 t_val = self.get_temp_name("_val")
                 t_res = self.get_temp_name("_res")
-                # Never guess 'int32_t' here: an i64 subject would be truncated
-                # by the C switch.  '__typeof__' keeps the real type.
                 decl_val = (CTypeMapper.to_c_decl(matched_type, t_val)
                             if (matched_type and not isinstance(matched_type, AnyType))
                             else f"__typeof__(({matched_expr})) {t_val}")
                 decl_res = CTypeMapper.to_c_decl(res_type, t_res) if (res_type and not isinstance(res_type, AnyType)) else f"__typeof__(({else_val})) {t_res}"
                 switch_expr = f"{t_val}.tag" if is_algebraic_omen else t_val
-                cases_str = " ".join(f"case {pat}: {t_res} = ({val}); break;" for pat, val in clauses)
+                cases_str = " ".join(f"case {cl['pat']}: {t_res} = ({cl['val']}); break;" for cl in clauses)
                 return f"(__extension__({{ {decl_val} = ({matched_expr}); {decl_res}; switch ({switch_expr}) {{ {cases_str} default: {t_res} = ({else_val}); break; }} {t_res}; }}))"
 
             # Build ternary chain for non-integer matches
@@ -8467,7 +8556,9 @@ class PenguCodegen:
             needs_wrapper = not self._is_side_effect_free(matched_node)
             t_v = self.get_temp_name("_v")
             subj = t_v if needs_wrapper else matched_expr
-            for pat, val in reversed(clauses):
+            for cl in reversed(clauses):
+                pat = cl["pat"]
+                val = cl["val"]
                 if matched_type and matched_type.is_string():
                     curr = f"(pengu_string_equal({subj}, {pat}) ? ({val}) : ({curr}))"
                 elif is_algebraic_omen:
