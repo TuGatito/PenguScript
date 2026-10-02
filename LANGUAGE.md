@@ -137,7 +137,7 @@ The following keywords are reserved by PenguScript:
 
 ```text
 import include link insignia const var let set static weave declare enchanting
-rune echo omen alias seal concept bind shard where when test ritual inline if
+rune echo omen alias seal concept bind shard where when test if
 unless else while for in from to step judge calling with into as is many return
 break continue defer errdefer banish some ord chr bytes of essence of sigil of
 transmute size of try defined not and or lambda null true false maybe none error
@@ -147,6 +147,7 @@ derive cyclus donum
 **Soft Keywords:**
 - `frozen`: Active only in type expression positions (`frozen int`, `ref to frozen T`). Identifiers named `frozen` in variable, field, or function names are valid. See [§9.5](#95-frozen--read-only-qualification).
 - `borrowed`: Active only immediately after `var` or `let` (`var borrowed x is …`, `let borrowed x is …`). Everywhere else (struct fields, parameters, function names), `borrowed` is treated as a regular identifier. Note that `var borrowed is 5` is a syntax error because `borrowed` in that position is parsed as the modifier. See [§5.4](#54-the-borrowed-modifier) and [§13.4](#134-scope-owned-locals-auto-banish).
+- `inline`, `ritual`: Active only as weave modifiers (`weave inline f into void:`, `inline weave f into void:`, `weave ritual make into T:`). Everywhere else, they are treated as ordinary identifiers.
 
 **C Identifier Protection (`E0035`):**
 To guarantee that generated C compiles cleanly without name collisions against the C standard library or C runtime types, PenguScript reserves C standard library type names (`C_RESERVED_TYPE_NAMES`, e.g. `FILE`, `size_t`, `int8_t`, `uint32_t`, `bool`) and common C function names (`C_RESERVED_FN_NAMES`, e.g. `printf`, `malloc`, `free`, `exit`, `memcpy`). Declaring top-level functions or user types with these names raises `E0035`, unless:

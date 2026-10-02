@@ -81,9 +81,8 @@ field_decl: NAME "as" type _NEWLINE
 alias_decl: "alias" NAME [shard_params] "as" type _NEWLINE
 seal_decl: "seal" NAME "as" type _NEWLINE
 
-RITUAL.2: "ritual"
-INLINE.2: "inline"
-weave_modifier: INLINE | RITUAL
+# Weave modifiers are soft keywords matching only in modifier positions
+!weave_modifier: "inline" | "ritual"
 
 concept_decl: "concept" NAME [shard_params] ":" _NEWLINE _INDENT concept_method+ _DEDENT
 concept_method: weave_modifier* "weave" weave_modifier* NAME [shard_params] ["with" param_list] ["into" type] _NEWLINE

@@ -137,7 +137,7 @@ Las siguientes palabras clave están reservadas por PenguScript:
 
 ```text
 import include link insignia const var let set static weave declare enchanting
-rune echo omen alias seal concept bind shard where when test ritual inline if
+rune echo omen alias seal concept bind shard where when test if
 unless else while for in from to step judge calling with into as is many return
 break continue defer errdefer banish some ord chr bytes of essence of sigil of
 transmute size of try defined not and or lambda null true false maybe none error
@@ -147,6 +147,7 @@ derive cyclus donum
 **Palabras clave blandas:**
 - `frozen`: Activa solo en posiciones de expresión de tipo (`frozen int`, `ref to frozen T`). Los identificadores llamados `frozen` en nombres de variables, campos o funciones son válidos. Véase [§9.5](#95-frozen--read-only-qualification).
 - `borrowed`: Activa solo inmediatamente después de `var` o `let` (`var borrowed x is …`, `let borrowed x is …`). En cualquier otro lugar (campos de struct, parámetros, nombres de funciones), `borrowed` se trata como un identificador normal. Ten en cuenta que `var borrowed is 5` es un error de sintaxis porque `borrowed` en esa posición se parsea como el modificador. Véanse [§5.4](#54-the-borrowed-modifier) y [§13.4](#134-scope-owned-locals-auto-banish).
+- `inline`, `ritual`: Activas solo como modificadores de weave (`weave inline f into void:`, `inline weave f into void:`, `weave ritual make into T:`). En cualquier otro contexto, se tratan como identificadores ordinarios.
 
 **Protección de identificadores de C (`E0035`):**
 Para garantizar que el C generado compile limpiamente sin colisiones de nombres contra la biblioteca estándar de C o los tipos del runtime de C, PenguScript reserva nombres de tipos de la biblioteca estándar de C (`C_RESERVED_TYPE_NAMES`, p. ej. `FILE`, `size_t`, `int8_t`, `uint32_t`, `bool`) y nombres comunes de funciones de C (`C_RESERVED_FN_NAMES`, p. ej. `printf`, `malloc`, `free`, `exit`, `memcpy`). Declarar funciones de nivel superior o tipos de usuario con estos nombres produce `E0035`, a menos que:
