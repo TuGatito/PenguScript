@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+import os
 import re
 from typing import Optional, List, Dict, Tuple, Any
 from lark import Tree, Token
@@ -2445,10 +2446,27 @@ class TypeInferrer:
 
                 specialized_fn_type = fn_type.substitute(subst_map)
                 mangled_args = "_".join(subst_map[tp].get_mangled_name() for tp in type_params)
-                mangled_fn_name = f"{fn_name}_{mangled_args}"
 
-                if fn_name and fn_name in self.symbols.generic_functions:
-                    fn_ast = self.symbols.generic_functions[fn_name][1]
+                sym = self.symbols.lookup(fn_name) if self.symbols else None
+                module_prefix = ""
+                if sym and getattr(sym, "file_path", None):
+                    stem = os.path.splitext(os.path.basename(sym.file_path))[0]
+                    if stem.endswith(".d"):
+                        stem = stem[:-2]
+                    cur_fp = getattr(self, "filename", "") or ""
+                    cur_stem = os.path.splitext(os.path.basename(cur_fp))[0] if cur_fp else ""
+                    if cur_stem.endswith(".d"):
+                        cur_stem = cur_stem[:-2]
+                    if stem and stem != cur_stem and not fn_name.startswith(f"{stem}_"):
+                        module_prefix = stem
+                mangled_fn_name = f"{module_prefix}{'_' if module_prefix else ''}{fn_name}_{mangled_args}"
+
+                target_g_name = fn_name
+                if target_g_name not in self.symbols.generic_functions and module_prefix and f"{module_prefix}_{fn_name}" in self.symbols.generic_functions:
+                    target_g_name = f"{module_prefix}_{fn_name}"
+
+                if target_g_name and target_g_name in self.symbols.generic_functions:
+                    fn_ast = self.symbols.generic_functions[target_g_name][1]
                     self.symbols.monomorphized_functions[mangled_fn_name] = (fn_ast, subst_map)
 
                 elif fn_name and "_" in fn_name:
@@ -2465,6 +2483,8 @@ class TypeInferrer:
                             self.symbols.functions[m_cand] = specialized_fn_type
 
                 self.symbols.functions[mangled_fn_name] = specialized_fn_type
+                if f"{fn_name}_{mangled_args}" not in self.symbols.functions:
+                    self.symbols.functions[f"{fn_name}_{mangled_args}"] = specialized_fn_type
                 self.symbols.global_scope.define(Symbol(
                     name=mangled_fn_name,
                     type=specialized_fn_type,

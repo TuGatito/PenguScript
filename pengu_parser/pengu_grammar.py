@@ -32,8 +32,7 @@ top_stmt: import_stmt
         | test_decl
 
 import_stmt: "import" dotted_path ["as" NAME] _NEWLINE
-# Dotted path with left recursion avoids shift/reduce ambiguity on '.'
-dotted_path: dotted_path "." NAME | NAME
+dotted_path: NAME ("." NAME)*
 
 include_stmt: "include" STRING _NEWLINE
 link_stmt: "link" STRING _NEWLINE

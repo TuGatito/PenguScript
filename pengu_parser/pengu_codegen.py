@@ -2550,17 +2550,16 @@ class PenguCodegen:
             norm_fp = os.path.abspath(filepath)
             norm_order = [os.path.abspath(p) for p in self.import_order]
             if len(norm_order) > 1 and norm_fp != norm_order[-1]:
-                is_std = "std" in norm_fp.replace("/", "\\").split("\\")
-                if is_std:
-                    bname = os.path.basename(norm_fp)
-                    if bname.endswith(".d.pengu"):
-                        mod_name = bname[:-8]
-                    elif bname.endswith(".pengu"):
-                        mod_name = bname[:-6]
-                    else:
-                        mod_name = os.path.splitext(bname)[0]
-                    if mod_name and not name.startswith(f"{mod_name}_"):
-                        c_name = f"{mod_name}_{self._c_ident(name)}"
+                bname = os.path.basename(norm_fp)
+                if bname.endswith(".d.pengu"):
+                    mod_name = bname[:-8]
+                elif bname.endswith(".pengu"):
+                    mod_name = bname[:-6]
+                else:
+                    mod_name = os.path.splitext(bname)[0]
+                mod_ident = self._c_ident(mod_name)
+                if mod_ident and not name.startswith(f"{mod_ident}_"):
+                    c_name = f"{mod_ident}_{self._c_ident(name)}"
 
         if name == "main" and enchanted_type is None:
             self.has_main = True
@@ -7475,13 +7474,22 @@ class PenguCodegen:
                         if mangled in self.symbols.monomorphized_functions:
                             target_str = mangled
                         else:
-                            matches = [m for m, entry in self.symbols.monomorphized_functions.items()
-                                       if m.startswith(f"{target_str}_") and (get_generic_ast_name(entry[0]) == target_str or m.startswith(f"{target_str}__"))]
-                            if matches:
-                                target_str = matches[0]
+                            m_suf = "_".join(t.get_mangled_name() for t in explicit_type_args)
+                            cands = [m for m in self.symbols.monomorphized_functions if m == f"{target_str}_{m_suf}" or m.endswith(f"_{target_str}_{m_suf}")]
+                            if len(cands) == 1:
+                                target_str = cands[0]
+                            elif len(cands) > 1 and self.current_source_file:
+                                cur_stem = os.path.splitext(os.path.basename(self.current_source_file))[0]
+                                cur_matches = [m for m in cands if m.startswith(f"{cur_stem}_")]
+                                target_str = cur_matches[0] if len(cur_matches) == 1 else cands[0]
+                            else:
+                                matches = [m for m, entry in self.symbols.monomorphized_functions.items()
+                                           if m.startswith(f"{target_str}_") and (get_generic_ast_name(entry[0]) == target_str or m.startswith(f"{target_str}__"))]
+                                if len(matches) == 1:
+                                    target_str = matches[0]
                     else:
                         matches = [m for m, entry in self.symbols.monomorphized_functions.items()
-                                   if m.startswith(f"{target_str}_") and (get_generic_ast_name(entry[0]) == target_str or m.startswith(f"{target_str}__"))]
+                                   if (m.startswith(f"{target_str}_") or f"_{target_str}_" in m) and (get_generic_ast_name(entry[0]) == target_str or m.startswith(f"{target_str}__"))]
                         if len(matches) == 1:
                             target_str = matches[0]
                         elif len(matches) > 1:
@@ -7509,12 +7517,28 @@ class PenguCodegen:
                                         subst[tp].get_mangled_name() for tp in type_params)
                                     if cand in self.symbols.monomorphized_functions:
                                         resolved = cand
+                                    else:
+                                        c_matches = [m for m in self.symbols.monomorphized_functions if m.endswith(f"_{cand}")]
+                                        if len(c_matches) == 1:
+                                            resolved = c_matches[0]
                             if resolved is None:
                                 mangled = f"{target_str}_" + "_".join(
                                     t.get_mangled_name() for t in arg_types)
                                 if mangled in self.symbols.monomorphized_functions:
                                     resolved = mangled
-                            target_str = resolved or matches[0]
+                                else:
+                                    c_matches = [m for m in self.symbols.monomorphized_functions if m.endswith(f"_{mangled}")]
+                                    if len(c_matches) == 1:
+                                        resolved = c_matches[0]
+                            if resolved:
+                                target_str = resolved
+                            elif len(matches) == 1:
+                                target_str = matches[0]
+                            elif len(matches) > 1 and self.current_source_file:
+                                cur_stem = os.path.splitext(os.path.basename(self.current_source_file))[0]
+                                cur_matches = [m for m in matches if m.startswith(f"{cur_stem}_")]
+                                if len(cur_matches) == 1:
+                                    target_str = cur_matches[0]
 
                 fn_entry = None
                 if self.current_source_file:
@@ -8348,7 +8372,7 @@ class PenguCodegen:
                         pat = None
                         if isinstance(pat_node, Tree) and pat_node.data == "when_pattern" and pat_node.children:
                             if len(pat_node.children) > 1:
-                                pat_parts = [str(p) for p in pat_node.children]
+                                pat_parts = [str(p) for p in pat_node.children if str(p) != "."]
                                 pat = "_".join(pat_parts)
                             else:
                                 pat_node = pat_node.children[0]

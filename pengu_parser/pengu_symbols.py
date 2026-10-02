@@ -3,7 +3,7 @@ import os
 import sys
 from typing import Dict, List, Optional, Tuple, Any, Set
 from dataclasses import dataclass, field
-from lark import Tree
+from lark import Tree, Token
 
 from .pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ListType, MapType, MaybeType,
@@ -685,7 +685,16 @@ def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None
             if isinstance(node, Tree):
                 if node.data == "import_stmt":
                     path_tree = node.children[0]
-                    dot_path = ".".join(str(t) for t in path_tree.children)
+                    def _extract_names(t):
+                        if isinstance(t, Token):
+                            return [str(t)]
+                        if isinstance(t, Tree):
+                            res = []
+                            for ch in t.children:
+                                res.extend(_extract_names(ch))
+                            return res
+                        return [str(t)]
+                    dot_path = ".".join(_extract_names(path_tree))
                     mod_path = find_module_path(base_abs, dot_path,
                                                 from_dir=os.path.dirname(file_path),
                                                 lib_dir=lib_dir)

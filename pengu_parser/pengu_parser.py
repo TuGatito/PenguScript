@@ -40,7 +40,7 @@ class PenguIndenter(Indenter):
     INDENT_type = '_INDENT'
     DEDENT_type = '_DEDENT'
     tab_len = 2
-    STMT_STARTERS = frozenset({'VAR', 'LET', 'SET', 'CONST', 'STATIC', 'BANISH'})
+    STMT_STARTERS = frozenset({'VAR', 'LET', 'SET', 'CONST', 'STATIC'})
 
     def handle_NL(self, token: Token):
         try:
@@ -61,7 +61,7 @@ class PenguIndenter(Indenter):
             else:
                 if token.type in self.STMT_STARTERS and self.paren_level == 0:
                     if prev_token is not None and getattr(prev_token, 'line', None) == getattr(token, 'line', None):
-                        if prev_token.type not in ('COLON', 'SEMICOLON') and prev_token.value != ':':
+                        if prev_token.type not in ('COLON', 'SEMICOLON', 'DEFER', 'ERRDEFER', 'STATIC') and prev_token.value not in (':', 'defer', 'errdefer', 'static'):
                             from .pengu_errors import ParseError
                             line = getattr(token, 'line', 1)
                             col = getattr(token, 'column', 1)
