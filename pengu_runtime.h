@@ -18,6 +18,47 @@
 #define PENGU_RUNTIME_ORGANIZED_H
 
 /* =========================================================================
+ * ABI v1 — frozen at PenguScript 0.16.0
+ *
+ * PENGU_ABI_VERSION is bumped only by a breaking change to any layout below.
+ * The generated C (`bundle.c`) and every prebuilt `libpengu_*.a` must agree on
+ * this number; a mismatch is a link-time/UB hazard.
+ *
+ * The layouts below are the *real* ones shipped by the runtime.  Sizes are for
+ * 64-bit targets (LP64 and LLP64): pointers/size_t/function pointers are 8
+ * bytes and `int` is 4, so the numbers are identical on Linux/macOS x86_64 and
+ * on Windows x64.  32-bit targets differ and are not covered by ABI v1.
+ *
+ *   PenguString  { char *data; int len; int32_t is_owned; }        size 16, align 8
+ *                offsets: data=0 len=8 is_owned=12
+ *   PenguSlice   { void *data; int len; size_t elem_size; }        size 24, align 8
+ *                offsets: data=0 len=8 elem_size=16
+ *   PenguList    { void *data; int len; int cap; size_t elem_size;
+ *                  PenguElemCleanup elem_cleanup; PenguElemClone elem_clone; }
+ *                size 40, align 8
+ *                offsets: data=0 len=8 cap=12 elem_size=16
+ *                         elem_cleanup=24 elem_clone=32
+ *   PenguMap     { PenguMapEntry *entries; int len; int cap;
+ *                  size_t key_size; size_t val_size;
+ *                  PenguElemCleanup key_cleanup; PenguElemCleanup val_cleanup;
+ *                  PenguElemClone key_clone; PenguElemClone val_clone; }
+ *                size 64, align 8
+ *                offsets: entries=0 len=8 cap=12 key_size=16 val_size=24
+ *                         key_cleanup=32 val_cleanup=40 key_clone=48 val_clone=56
+ *   PenguMaybe   { bool is_present; void *value; }                 size 16, align 8
+ *                offsets: is_present=0 value=8
+ *   PenguResult  { bool is_ok; void *ok_val; void *err_val; }      size 24, align 8
+ *                offsets: is_ok=0 ok_val=8 err_val=16
+ *   PenguRange   { int64_t start; int64_t end; }                   size 16, align 8
+ *                offsets: start=0 end=8
+ *
+ * `tests/abi/test_abi_layout.c` asserts these values at runtime on every
+ * platform the suite runs on; keep it in sync if a layout ever changes.
+ * ========================================================================= */
+#define PENGU_ABI_VERSION 1
+
+
+/* =========================================================================
  * Feature-test macros
  *
  * glibc/musl hide POSIX declarations (clock_gettime, nanosleep, timespec,
