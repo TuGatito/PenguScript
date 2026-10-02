@@ -431,7 +431,7 @@ class PenguChecker:
         if filename is not None:
             self.filename = filename
         if source is not None:
-            self.source_code = source
+            self.source_code = source.replace("\r\n", "\n")
 
         self.errors = []
         self.warnings = []
@@ -2609,6 +2609,13 @@ class PenguChecker:
         # expression. Both are checked exactly like their indented spelling.
         elif rule in SIMPLE_STMT_ALIASES or rule == "simple_stmt":
             self._check_simple_stmt(node)
+            return
+
+        elif rule == "char_lit":
+            try:
+                self.inferrer._validate_char_lit(node)
+            except PenguError as err:
+                self._record_error(err)
             return
 
         # Generic traversal for other nodes

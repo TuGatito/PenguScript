@@ -184,6 +184,11 @@ class PenguParser:
             while j < n:
                 cj = line_str[j]
                 if cj == '\\' and j + 1 < n:
+                    if line_str.startswith('\\u{', j):
+                        close_b = line_str.find('}', j + 3)
+                        if close_b != -1:
+                            j = close_b + 1
+                            continue
                     j += 2
                     continue
                 if in_q:
@@ -395,6 +400,7 @@ class PenguParser:
                 'and' separator is the likely cause).
         """
         code = strip_bom(code)
+        code = code.replace("\r\n", "\n")
         self._check_indentation_consistency(code)
         clean_code = self._strip_comments(code).rstrip() + '\n'
         try:
@@ -655,6 +661,11 @@ def extract_string_parts(raw_token_val: Any) -> Tuple[bool, bool, List[Interpola
     while i < n:
         ch = content[i]
         if ch == '\\' and i + 1 < n:
+            if content.startswith('\\u{', i):
+                close_b = content.find('}', i + 3)
+                if close_b != -1:
+                    i = close_b + 1
+                    continue
             i += 2
             continue
         if ch == '{':
@@ -665,6 +676,11 @@ def extract_string_parts(raw_token_val: Any) -> Tuple[bool, bool, List[Interpola
             while j < n and depth > 0:
                 cj = content[j]
                 if cj == '\\' and j + 1 < n:
+                    if content.startswith('\\u{', j):
+                        close_b = content.find('}', j + 3)
+                        if close_b != -1:
+                            j = close_b + 1
+                            continue
                     j += 2
                     continue
                 if in_str:

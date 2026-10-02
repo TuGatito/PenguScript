@@ -5754,6 +5754,20 @@ class PenguCodegen:
                         res.append(ch)
                 return "".join(res)
             else:
+                import re
+                def replace_u_brace(m):
+                    try:
+                        return chr(int(m.group(1), 16))
+                    except (ValueError, OverflowError):
+                        return m.group(0)
+                def replace_u_four(m):
+                    try:
+                        return chr(int(m.group(1), 16))
+                    except (ValueError, OverflowError):
+                        return m.group(0)
+                text = re.sub(r'\\u\{([0-9a-fA-F]{1,6})\}', replace_u_brace, text)
+                text = re.sub(r'\\u([0-9a-fA-F]{4})', replace_u_four, text)
+
                 res = []
                 i = 0
                 n = len(text)
@@ -5770,6 +5784,8 @@ class PenguCodegen:
                         res.append('\\n')
                     elif ch == '\r':
                         res.append('\\r')
+                    elif ch == '\0':
+                        res.append('\\0')
                     else:
                         res.append(ch)
                     i += 1
@@ -6639,7 +6655,22 @@ class PenguCodegen:
         elif rule == "float_lit":
             return str(node.children[0]).replace("_", "")
         elif rule == "char_lit":
-            return str(node.children[0])
+            raw_c = str(node.children[0]) if node.children else "''"
+            if raw_c.startswith("'") and raw_c.endswith("'") and len(raw_c) >= 2:
+                inner = raw_c[1:-1]
+                if inner.startswith(r"\u{") and inner.endswith("}"):
+                    try:
+                        cp = int(inner[3:-1], 16)
+                        return f"'\\x{cp:02x}'"
+                    except ValueError:
+                        pass
+                elif inner.startswith(r"\u") and len(inner) == 6:
+                    try:
+                        cp = int(inner[2:], 16)
+                        return f"'\\x{cp:02x}'"
+                    except ValueError:
+                        pass
+            return raw_c
         elif rule == "string_lit":
             is_c_str = self._is_ref_char_type(expected_type)
             raw_s = str(node.children[0]) if node.children else ""

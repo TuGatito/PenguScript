@@ -554,8 +554,8 @@ RAW_STRING.2: /r\"[^\"]*\"/
 # string literal (e.g. "{calling getenv_or with name, ""}") without terminating
 # the surrounding literal.  Expressions containing unbalanced braces still
 # require building the string in a local first.
-STRING: /"([^"\\{]|\\.|\{[^{}\n]*\}|[{}])*"/
-CHAR_LIT: /'([^'\\]|\\x[0-9a-fA-F]{2}|\\[0-7]{1,3}|\\.)'/
+STRING: /"([^"\\{]|\\u\{[0-9a-fA-F]+\}|\\.|\{[^{}\n]*\}|[{}])*"/
+CHAR_LIT: /'([^'\\]|\\u\{[0-9a-fA-F]+\}|\\u[0-9a-fA-F]{4}|\\x[0-9a-fA-F]{2}|\\[0-7]{1,3}|\\.)'/
 # Compound assignment operators. Declared after the single-char operators with
 # higher priority so '<<='/'>>=' win over '<<'/'>=' at lexing time.
 COMPOUND_OP.3: "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>="

@@ -25,7 +25,8 @@ from .pengu_errors import (
     UnimplementedConceptMethodError, ConceptBoundNotSatisfiedError,
     InvalidRitualSelfAccessError, InvalidRitualCallError,
     ArraySizeMismatchError, InvalidRangeError, PrivateSymbolAccessError, NonExhaustiveJudgeError,
-    UnknownArrayDimensionError, AutoOwnedBanishError, BorrowedBanishError, suggest_similar_identifier
+    UnknownArrayDimensionError, AutoOwnedBanishError, BorrowedBanishError, suggest_similar_identifier,
+    InvalidCharLiteralError
 )
 
 from .pengu_parser import extract_string_parts
@@ -99,6 +100,24 @@ class RangeConst:
     end: int
 
 
+def _decode_unicode_escapes(s: str) -> str:
+    """Decodes \\u{HEX} and \\uNNNN in a string or char to Unicode characters."""
+    def replace_u_brace(m):
+        try:
+            return chr(int(m.group(1), 16))
+        except (ValueError, OverflowError):
+            return m.group(0)
+    def replace_u_four(m):
+        try:
+            return chr(int(m.group(1), 16))
+        except (ValueError, OverflowError):
+            return m.group(0)
+    import re
+    s = re.sub(r'\\u\{([0-9a-fA-F]{1,6})\}', replace_u_brace, s)
+    s = re.sub(r'\\u([0-9a-fA-F]{4})', replace_u_four, s)
+    return s
+
+
 class ConstFolder:
     """Evaluates and folds compile-time constant expressions in the AST.
 
@@ -134,9 +153,16 @@ class ConstFolder:
                 is_raw, is_triple, parts = extract_string_parts(raw)
                 if any(p.is_expr for p in parts):
                     return None
-                return "".join(p.text for p in parts)
+                joined = "".join(p.text for p in parts)
+                return joined if is_raw else _decode_unicode_escapes(joined)
             elif node.type == "CHAR_LIT":
-                return str(node)
+                raw = str(node)
+                if raw.startswith("'") and raw.endswith("'") and len(raw) >= 2:
+                    dec = _decode_unicode_escapes(raw[1:-1])
+                    if len(dec) == 1 and ord(dec) <= 0x7F:
+                        return f"'\\x{ord(dec):02x}'"
+                    return f"'{dec}'"
+                return raw
             elif node.type == "NAME":
                 sym = self.symbols.lookup(str(node))
                 if sym and sym.kind == "const" and hasattr(sym, "const_val"):
@@ -165,13 +191,20 @@ class ConstFolder:
         elif rule == "float_lit":
             return float(str(node.children[0]))
         elif rule == "char_lit":
-            return str(node.children[0])
+            raw = str(node.children[0]) if node.children else ""
+            if raw.startswith("'") and raw.endswith("'") and len(raw) >= 2:
+                dec = _decode_unicode_escapes(raw[1:-1])
+                if len(dec) == 1 and ord(dec) <= 0x7F:
+                    return f"'\\x{ord(dec):02x}'"
+                return f"'{dec}'"
+            return raw
         elif rule == "string_lit":
             raw = str(node.children[0]) if node.children else ""
             is_raw, is_triple, parts = extract_string_parts(raw)
             if any(p.is_expr for p in parts):
                 return None
-            return "".join(p.text for p in parts)
+            joined = "".join(p.text for p in parts)
+            return joined if is_raw else _decode_unicode_escapes(joined)
         elif rule == "true_lit":
             return True
         elif rule == "false_lit":
@@ -626,6 +659,69 @@ class TypeInferrer:
         if msg not in self.warnings:
             self.warnings.append(msg)
 
+    def _validate_char_lit(self, node: Any) -> None:
+        """Validates character literal codepoint: must not exceed 0x7F (ASCII)."""
+        if isinstance(node, Tree):
+            if not node.children:
+                return
+            token = node.children[0]
+        elif isinstance(node, Token):
+            token = node
+        else:
+            return
+        raw = str(token)
+        if raw.startswith("'") and raw.endswith("'") and len(raw) >= 2:
+            inner = raw[1:-1]
+        else:
+            inner = raw
+        codepoint = None
+        if inner.startswith(r"\u{") and inner.endswith("}"):
+            hex_part = inner[3:-1]
+            try:
+                codepoint = int(hex_part, 16)
+            except ValueError:
+                raise self._make_error(
+                    InvalidCharLiteralError,
+                    f"Invalid hexadecimal Unicode escape '{raw}' in character literal",
+                    node,
+                    code="E0057",
+                    help="Use valid hexadecimal digits inside '\\u{...}'.",
+                    note="Unicode escapes require hexadecimal digits."
+                )
+        elif inner.startswith(r"\u") and len(inner) == 6:
+            hex_part = inner[2:]
+            try:
+                codepoint = int(hex_part, 16)
+            except ValueError:
+                raise self._make_error(
+                    InvalidCharLiteralError,
+                    f"Invalid hexadecimal Unicode escape '{raw}' in character literal",
+                    node,
+                    code="E0057",
+                    help="Use valid hexadecimal digits: '\\uNNNN'.",
+                    note="Unicode escapes require 4 hexadecimal digits."
+                )
+        elif inner.startswith(r"\x") and len(inner) == 4:
+            hex_part = inner[2:]
+            try:
+                codepoint = int(hex_part, 16)
+            except ValueError:
+                pass
+        elif len(inner) == 1:
+            codepoint = ord(inner)
+        elif inner.startswith("\\") and len(inner) == 2:
+            codepoint = 0
+
+        if codepoint is not None and codepoint > 0x7F:
+            raise self._make_error(
+                InvalidCharLiteralError,
+                f"Character literal '{raw}' with codepoint U+{codepoint:04X} exceeds ASCII range (0..127); 'char' in PenguScript is 7-bit ASCII/1-byte. Use 'string' for multi-byte Unicode.",
+                node,
+                code="E0057",
+                help="Use 'string' for multi-byte Unicode characters, or a 7-bit ASCII character for 'char'.",
+                note="Char literals represent single 1-byte ASCII characters."
+            )
+
     def infer(self, node: Any, expected_type: Optional[Type] = None) -> Type:
         """Recursively infers the static type of an expression node.
 
@@ -646,6 +742,7 @@ class TypeInferrer:
             elif node.type == "FLOAT":
                 return FLOAT_TYPE
             elif node.type == "CHAR_LIT":
+                self._validate_char_lit(node)
                 return CHAR_TYPE
             elif node.type in ("STRING", "TRIPLE_STRING", "RAW_STRING", "RAW_TRIPLE_STRING"):
                 self._check_string_interpolation(str(node), line, col, node)
@@ -685,6 +782,7 @@ class TypeInferrer:
         elif rule == "float_lit":
             return FLOAT_TYPE
         elif rule == "char_lit":
+            self._validate_char_lit(node)
             return CHAR_TYPE
         elif rule == "string_lit":
             str_val = str(node.children[0]) if node.children else ""
