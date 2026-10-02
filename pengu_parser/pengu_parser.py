@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import re
+import warnings
 from dataclasses import dataclass
 from typing import Any, List, Optional, Tuple
 
 from lark import Lark, Tree, Token
-from lark.exceptions import UnexpectedInput as LarkUnexpectedInput
-from lark.indenter import Indenter
+from lark.exceptions import UnexpectedInput as LarkUnexpectedInput, LarkError as LarkBaseError
+from lark.indenter import Indenter, DedentError
 
 from .pengu_grammar import GRAMMAR
 
@@ -39,6 +40,14 @@ class PenguIndenter(Indenter):
     INDENT_type = '_INDENT'
     DEDENT_type = '_DEDENT'
     tab_len = 2
+
+    def handle_NL(self, token: Token):
+        try:
+            yield from super().handle_NL(token)
+        except DedentError as exc:
+            exc.line = getattr(token, "end_line", getattr(token, "line", None))
+            exc.column = getattr(token, "end_column", getattr(token, "column", None))
+            raise
 
 
 class PenguParser:
@@ -73,6 +82,30 @@ class PenguParser:
                 lark_kwargs.pop('cache', None)
                 PenguParser._shared_parser = Lark(GRAMMAR, **lark_kwargs)
         self.parser = PenguParser._shared_parser
+        self.warnings: List[str] = []
+
+    def _check_indentation_consistency(self, code: str) -> None:
+        """Emits [W0005] warning if inconsistent tab/space indentation is detected."""
+        self.warnings = []
+        tab_line = None
+        space_line = None
+        for lineno, line in enumerate(code.splitlines(), 1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            leading = line[:len(line) - len(line.lstrip())]
+            if not leading:
+                continue
+            if '\t' in leading and not tab_line:
+                tab_line = lineno
+            if ' ' in leading and not space_line:
+                space_line = lineno
+            if tab_line and space_line:
+                break
+        if tab_line and space_line:
+            msg = f"[W0005] Inconsistent indentation: line {tab_line} uses tabs, line {space_line} uses spaces"
+            self.warnings.append(msg)
+            warnings.warn(msg, stacklevel=2)
 
     @staticmethod
     def _strip_comments(code: str) -> str:
@@ -324,10 +357,13 @@ class PenguParser:
                 'and' separator is the likely cause).
         """
         code = strip_bom(code)
+        self._check_indentation_consistency(code)
         clean_code = self._strip_comments(code).rstrip() + '\n'
         try:
             return self.parser.parse(clean_code, start='start')
         except LarkUnexpectedInput as exc:
+            raise self._parse_error(code, exc) from None
+        except LarkBaseError as exc:
             raise self._parse_error(code, exc) from None
 
     def parse_expr(self, code: str) -> Tree:
@@ -344,6 +380,8 @@ class PenguParser:
         try:
             return self.parser.parse(clean_code, start='expr')
         except LarkUnexpectedInput as exc:
+            raise self._parse_error(code, exc) from None
+        except LarkBaseError as exc:
             raise self._parse_error(code, exc) from None
 
     @staticmethod
@@ -381,12 +419,28 @@ class PenguParser:
                 i += 1
         return None
 
-    def _parse_error(self, code: str, exc: "LarkUnexpectedInput") -> "ParseError":
+    def _parse_error(self, code: str, exc: Any) -> "ParseError":
         """Converts a Lark syntax exception into a friendly :class:`ParseError`."""
         from .pengu_errors import ParseError
 
         err_line = getattr(exc, "line", None)
         err_col = getattr(exc, "column", None)
+        if err_line is None and hasattr(exc, "pos_in_stream") and exc.pos_in_stream is not None:
+            pos = exc.pos_in_stream
+            prefix = code[:pos]
+            err_line = prefix.count('\n') + 1
+            last_nl = prefix.rfind('\n')
+            err_col = pos - last_nl if last_nl != -1 else pos + 1
+
+        lines = code.splitlines()
+        snippet = None
+        if err_line and 1 <= err_line <= len(lines):
+            snippet = lines[err_line - 1]
+
+        if isinstance(exc, DedentError) or type(exc).__name__ == "DedentError":
+            msg = str(exc)
+            where = f" at line {err_line}, column {err_col}" if err_line else ""
+            return ParseError(f"Indentation error: {msg}{where}", line=err_line, col=err_col, snippet=snippet)
 
         legacy = self._find_legacy_and(code)
         # The hint is only trustworthy when the parser choked *on* that 'and', or
@@ -411,11 +465,6 @@ class PenguParser:
         hint_used = legacy is not None and (
             err_line is None or ((on_and or after_and) and not other_and)
         )
-
-        lines = code.splitlines()
-        snippet = None
-        if err_line and 1 <= err_line <= len(lines):
-            snippet = lines[err_line - 1]
 
         if hint_used:
             and_line, and_col = legacy
@@ -493,7 +542,7 @@ class PenguParser:
         Returns:
             List of Lexer Token instances.
         """
-        clean_code = code.rstrip() + '\n'
+        clean_code = strip_bom(code).rstrip() + '\n'
         return list(self.parser.lex(clean_code))
 
 
