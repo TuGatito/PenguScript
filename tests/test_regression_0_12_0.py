@@ -163,8 +163,8 @@ weave run with msg as string into int:
     assert "cstr_from_string" in c or "pengu_ffi_string_cstr" in c
 
 
-def test_l2_judge_payload_rejected():
-    """L2: payload bindings in judge when clause are rejected with E0005."""
+def test_l2_judge_payload_supported():
+    """L2: payload bindings in judge when clause are supported as of 0.16.0 (FASE 1.5.1)."""
     src = """omen Color:
   Red
   Custom with r as int, g as int, b as int
@@ -175,8 +175,7 @@ weave describe with c as Color into string:
     when Custom with r, g, b -> "custom"
     else -> "other"
 """
-    err = check_error(src, contains="E0005")
-    assert "Payload bindings in 'when' clauses are not supported yet" in err
+    check(src)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

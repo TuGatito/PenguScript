@@ -342,9 +342,9 @@ weave ptr with name as string into ref to frozen void:
 weave bytes with name as string into slice of byte:
     let p as ref to frozen void is calling ptr with name
     if (transmute p to usize) == 0:
-        return calling ffi.slice_from_ptr of byte with (transmute 0 to ref to frozen byte), 0
+        return calling ffi.slice_from_ptr of byte with (transmute 0 to ref to void), 0
     let sz as usize is calling size with name
-    return calling ffi.slice_from_ptr of byte with (transmute p to ref to frozen byte), (sz to int)
+    return calling ffi.slice_from_ptr of byte with (transmute p to ref to void), (sz to int)
 
 ## Returns the asset content as an owned string, or "" if not found.
 weave string with name as string into string:

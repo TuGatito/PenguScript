@@ -102,20 +102,41 @@ class RangeConst:
 
 def _decode_unicode_escapes(s: str) -> str:
     """Decodes \\u{HEX} and \\uNNNN in a string or char to Unicode characters."""
-    def replace_u_brace(m):
-        try:
-            return chr(int(m.group(1), 16))
-        except (ValueError, OverflowError):
-            return m.group(0)
-    def replace_u_four(m):
-        try:
-            return chr(int(m.group(1), 16))
-        except (ValueError, OverflowError):
-            return m.group(0)
-    import re
-    s = re.sub(r'\\u\{([0-9a-fA-F]{1,6})\}', replace_u_brace, s)
-    s = re.sub(r'\\u([0-9a-fA-F]{4})', replace_u_four, s)
-    return s
+    res = []
+    i = 0
+    n = len(s)
+    while i < n:
+        if s[i] == '\\' and i + 1 < n:
+            if s.startswith('\\u{', i):
+                close_b = s.find('}', i + 3)
+                if close_b != -1:
+                    hex_str = s[i + 3:close_b]
+                    try:
+                        res.append(chr(int(hex_str, 16)))
+                        i = close_b + 1
+                        continue
+                    except (ValueError, OverflowError):
+                        pass
+            elif s.startswith('\\u', i) and i + 5 < n:
+                hex_str = s[i + 2:i + 6]
+                if all(c in '0123456789abcdefABCDEF' for c in hex_str):
+                    try:
+                        res.append(chr(int(hex_str, 16)))
+                        i += 6
+                        continue
+                    except (ValueError, OverflowError):
+                        pass
+            if s[i + 1] == '\\':
+                res.append('\\\\')
+                i += 2
+                continue
+            res.append(s[i])
+            res.append(s[i + 1])
+            i += 2
+            continue
+        res.append(s[i])
+        i += 1
+    return "".join(res)
 
 
 class ConstFolder:

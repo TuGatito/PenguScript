@@ -5754,26 +5754,57 @@ class PenguCodegen:
                         res.append(ch)
                 return "".join(res)
             else:
-                import re
-                def replace_u_brace(m):
-                    try:
-                        return chr(int(m.group(1), 16))
-                    except (ValueError, OverflowError):
-                        return m.group(0)
-                def replace_u_four(m):
-                    try:
-                        return chr(int(m.group(1), 16))
-                    except (ValueError, OverflowError):
-                        return m.group(0)
-                text = re.sub(r'\\u\{([0-9a-fA-F]{1,6})\}', replace_u_brace, text)
-                text = re.sub(r'\\u([0-9a-fA-F]{4})', replace_u_four, text)
-
                 res = []
                 i = 0
                 n = len(text)
                 while i < n:
                     ch = text[i]
                     if ch == '\\' and i + 1 < n:
+                        if text.startswith('\\u{', i):
+                            close_b = text.find('}', i + 3)
+                            if close_b != -1:
+                                hex_str = text[i + 3:close_b]
+                                try:
+                                    cp = int(hex_str, 16)
+                                    dec_ch = chr(cp)
+                                    if dec_ch == '"':
+                                        res.append('\\"')
+                                    elif dec_ch == '\n':
+                                        res.append('\\n')
+                                    elif dec_ch == '\r':
+                                        res.append('\\r')
+                                    elif dec_ch == '\0':
+                                        res.append('\\0')
+                                    else:
+                                        res.append(dec_ch)
+                                    i = close_b + 1
+                                    continue
+                                except (ValueError, OverflowError):
+                                    pass
+                        elif text.startswith('\\u', i) and i + 5 < n:
+                            hex_str = text[i + 2:i + 6]
+                            if all(c in '0123456789abcdefABCDEF' for c in hex_str):
+                                try:
+                                    cp = int(hex_str, 16)
+                                    dec_ch = chr(cp)
+                                    if dec_ch == '"':
+                                        res.append('\\"')
+                                    elif dec_ch == '\n':
+                                        res.append('\\n')
+                                    elif dec_ch == '\r':
+                                        res.append('\\r')
+                                    elif dec_ch == '\0':
+                                        res.append('\\0')
+                                    else:
+                                        res.append(dec_ch)
+                                    i += 6
+                                    continue
+                                except (ValueError, OverflowError):
+                                    pass
+                        if text[i + 1] == '\\':
+                            res.append('\\\\')
+                            i += 2
+                            continue
                         res.append(ch)
                         res.append(text[i + 1])
                         i += 2
