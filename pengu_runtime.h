@@ -337,6 +337,14 @@ extern "C"
 #define PENGU_FRAME_TRACE 1
 #endif
 
+/* Bounds checking is independent from the crash-handler frame trace: a release
+ * build can keep the frame trace but compile the per-index checks out (the
+ * code generator also stops emitting `pengu_assert_bounds` when not in debug
+ * mode, and passes -DPENGU_BOUNDS_CHECK=0). */
+#ifndef PENGU_BOUNDS_CHECK
+#define PENGU_BOUNDS_CHECK 1
+#endif
+
 #ifndef PENGU_MAX_FRAMES
 #define PENGU_MAX_FRAMES 64
 #endif
@@ -489,7 +497,7 @@ extern "C"
 
   static inline void pengu_assert_bounds(int64_t idx, int64_t len, const char *loc)
   {
-#if PENGU_FRAME_TRACE
+#if PENGU_BOUNDS_CHECK
     if (idx < 0 || idx >= len) {
       pengu_bounds_panic(idx, len, loc);
     }

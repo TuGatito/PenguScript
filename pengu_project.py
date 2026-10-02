@@ -1192,6 +1192,13 @@ class PenguBuilder:
 
         common_flags: List[str] = merged_cflags + merged_defines
 
+        # Bounds checking is a debug aid: release builds compile it out of the
+        # runtime (roadmap 2.2.g).  The code generator already stops emitting
+        # 'pengu_assert_bounds' outside debug mode; this removes the static
+        # helper body as well.
+        if self.config.profile != "debug" and "-DPENGU_BOUNDS_CHECK=0" not in common_flags:
+            common_flags.append("-DPENGU_BOUNDS_CHECK=0")
+
         cc_base = os.path.basename(cc).lower()
         is_tcc = "tcc" in cc_base
         is_msvc = cc_base in ("cl", "cl.exe") or "msvc" in cc_base
