@@ -32,16 +32,19 @@ top_stmt: import_stmt
         | test_decl
 
 import_stmt: "import" dotted_path ["as" NAME] _NEWLINE
-dotted_path: NAME ("." NAME)*
+# Dotted path with left recursion avoids shift/reduce ambiguity on '.'
+dotted_path: dotted_path "." NAME | NAME
 
 include_stmt: "include" STRING _NEWLINE
 link_stmt: "link" STRING _NEWLINE
 insignia_stmt: "insignia" NAME _NEWLINE
 
+# Statement-level declarations require a mandatory _NEWLINE delimiter (or _DEDENT from an indented block)
+# so multiple simple statements on a single line (e.g. 'var x is 1 var y is 2') are rejected as syntax errors.
 const_decl: "const" NAME ["as" type] "is" (expr _NEWLINE | indent_literal)
-var_decl: "var" [BORROWED] NAME ["as" type] ("is" (value_expr [_NEWLINE] | indent_literal) | with_init_expr)
-static_var_decl: "static" "var" NAME ["as" type] ("is" (value_expr [_NEWLINE] | indent_literal) | with_init_expr)
-let_decl: "let" [BORROWED] var_name_list ["as" type] ("is" (value_expr [_NEWLINE] | indent_literal) | with_init_expr)
+var_decl: "var" [BORROWED] NAME ["as" type] ("is" (value_expr _NEWLINE | indent_literal) | with_init_expr)
+static_var_decl: "static" "var" NAME ["as" type] ("is" (value_expr _NEWLINE | indent_literal) | with_init_expr)
+let_decl: "let" [BORROWED] var_name_list ["as" type] ("is" (value_expr _NEWLINE | indent_literal) | with_init_expr)
 var_name_list: NAME ("," NAME)*
 
 indent_literal: [":"] _NEWLINE _INDENT (indent_array | indent_entries) _DEDENT
@@ -92,7 +95,7 @@ omen_string_kind: "string"
 omen_variant: NAME ["is" expr] ["with" omen_field (("," | _AND_SEP) omen_field)*] _NEWLINE
 omen_field: NAME "as" type
 
-enchanting_decl: "enchanting" type [shard_params] [where_clause] ":" _NEWLINE _INDENT weave_decl+ _DEDENT
+enchanting_decl: "enchanting" type (shard_params | where_clause)? ":" _NEWLINE _INDENT weave_decl+ _DEDENT
 
 weave_decl: weave_modifier* "weave" weave_modifier* NAME [shard_params] ["with" param_list] ["into" type] ":" _NEWLINE _INDENT stmt+ _DEDENT
 
@@ -121,8 +124,8 @@ stmt: var_decl
     | continue_stmt
     | expr_stmt
 
-set_stmt: "set" set_target "is" value_expr [_NEWLINE]
-        | "set" set_target COMPOUND_OP expr [_NEWLINE]   -> compound_set_stmt
+set_stmt: "set" set_target "is" value_expr _NEWLINE
+        | "set" set_target COMPOUND_OP expr _NEWLINE   -> compound_set_stmt
 set_target: with_target
           | normal_target
           | essence_target
