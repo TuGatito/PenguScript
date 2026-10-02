@@ -1436,7 +1436,13 @@ extern "C"
 
 /**
  * @brief Generic macro converting any primitive type or PenguString to PenguString.
+ *
+ * Convenience for *host* C code only: the code generator never emits it (it
+ * knows the static type and calls the concrete ``pengu_string_from_*``
+ * producer, see roadmap 2.2.e).  It needs C11 ``_Generic``, so it is compiled
+ * out under strict C99; the generated bundle therefore stays C99-clean.
  */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 #define pengu_to_string(x) _Generic((x),       \
     char: pengu_string_from_char,              \
     signed char: pengu_string_from_char,       \
@@ -1455,6 +1461,7 @@ extern "C"
     char*: pengu_string_from_cstr,             \
     const char*: pengu_string_from_cstr,       \
     PenguString: pengu_string_identity)(x)
+#endif /* __STDC_VERSION__ >= 201112L */
 
   /* =========================================================================
    * 6. Slice Subsystem (PenguSlice)

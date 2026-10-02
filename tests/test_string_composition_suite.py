@@ -181,7 +181,9 @@ def test_call_argument_string_temporary_is_released():
         "    return 0\n"
     )
     body = c.split("pengu_main(void) {", 1)[1]
-    assert "pengu_to_string" in body, "expected the to-string temporary in main"
+    assert ("pengu_string_from_int" in body or "pengu_to_string" in body), (
+        "expected the to-string temporary in main"
+    )
     assert "pengu_banish_string" in body, (
         "the '(n to string)' temporary is never released: main frees nothing"
     )

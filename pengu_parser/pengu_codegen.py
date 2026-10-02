@@ -2897,6 +2897,35 @@ class PenguCodegen:
             u = nxt
         return isinstance(u, BaseType) and u.name == "string"
 
+    def _to_string_call(self, expr_code: str, t: Optional[Type]) -> str:
+        """Converts a value to ``PenguString`` without the C11 ``_Generic`` macro.
+
+        The code generator always knows the static type, so it can call the
+        concrete ``pengu_string_from_*`` producer directly.  This keeps the
+        emitted C free of ``_Generic`` (roadmap 2.2.e) and therefore compilable
+        as C99; the macro survives only as a host-C convenience, guarded on
+        ``__STDC_VERSION__ >= 201112L``.
+        """
+        u = self._unwrap_owned_type(t)
+        if isinstance(u, BaseType):
+            if u.name == "string":
+                return expr_code
+            if u.name == "bool":
+                return f"pengu_string_from_bool({expr_code})"
+            if u.name == "char":
+                return f"pengu_string_from_char({expr_code})"
+            if u.name in ("float", "f32", "f64", "double"):
+                return f"pengu_string_from_float({expr_code})"
+            return f"pengu_string_from_int((int64_t)({expr_code}))"
+        if isinstance(u, RefType):
+            pointee = self._unwrap_owned_type(getattr(u, "target", None))
+            if isinstance(pointee, BaseType) and pointee.name in ("char", "byte"):
+                return f"pengu_string_from_cstr((const char *)({expr_code}))"
+        # Concrete type the mapper does not specialise (rune, omen, …): the
+        # numeric producer is the only sensible fallback, and using it keeps
+        # the bundle free of _Generic.
+        return f"pengu_string_from_int((int64_t)({expr_code}))"
+
     def _string_slot_value(self, expr_node: Any, expr_code: str) -> str:
         """Value written into an *owned* string slot (struct field / element).
 
@@ -6825,8 +6854,8 @@ class PenguCodegen:
             left = self._translate_expr(left_node, expected_type=right_t)
             right = self._translate_expr(right_node, expected_type=left_t)
             if self._is_string_expr(left_node) or self._is_string_expr(right_node):
-                left_str = left if self._is_string_expr(left_node) else f"pengu_to_string({left})"
-                right_str = right if self._is_string_expr(right_node) else f"pengu_to_string({right})"
+                left_str = left if self._is_string_expr(left_node) else self._to_string_call(left, left_t)
+                right_str = right if self._is_string_expr(right_node) else self._to_string_call(right, right_t)
                 if rule == "eq":
                     return f"pengu_string_equal({left_str}, {right_str})"
                 else:
@@ -8243,7 +8272,7 @@ class PenguCodegen:
             base = self._translate_expr(node.children[0])
             t = ast_to_type(node.children[1], self._lookup_type_fn)
             if isinstance(t, BaseType) and t.name == "string":
-                return f"pengu_to_string({base})"
+                return self._to_string_call(base, self._infer_node_type(node.children[0]))
             t_str = CTypeMapper.to_c_type(t)
             return f"(({t_str})({base}))"
 
@@ -8279,7 +8308,7 @@ class PenguCodegen:
                         unwrapped_t = unwrapped_t.target
                     if isinstance(unwrapped_t, BaseType) and unwrapped_t.name == "string":
                         return base
-                    return f"pengu_to_string({base})"
+                    return self._to_string_call(base, inner_t)
                 t_str = CTypeMapper.to_c_type(cast_target)
                 return f"(({t_str})({base}))"
             else:
