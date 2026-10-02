@@ -83,6 +83,10 @@ jobs:
         run: |
           python pengu_project.py fmt --check std/
 
+      - name: Strict grammar & parser validation (FASE 1)
+        run: |
+          python -m pytest tests/test_grammar_strict.py tests/test_fase1_e2e.py -q -p no:cacheprovider --timeout=300 -x
+
       - name: Run test suite (fast fail on core reviews)
         run: |
           python -m pytest tests/test_p0_review_fixes.py tests/test_p1_review_fixes.py tests/test_p2_review_fixes.py -q -p no:cacheprovider --timeout=600 -x
