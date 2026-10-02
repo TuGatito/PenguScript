@@ -2,6 +2,50 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.16.0] - 2026-10-02
+
+### Added & Changed — FASE 1 & FASE 1.5 Language Core & Semantics
+
+#### FASE 1 — Núcleo del Lenguaje y Gramática
+- **1.1 Strict LALR(1) Parser + Delimitación Obligatoria de Sentencias:**
+  - Inicialización estricta del parser Lark (`strict=True`) garantizando 0 conflictos Shift/Reduce o Reduce/Reduce no resueltos.
+  - Exigencia estricta de delimitador de nueva línea (`_NEWLINE`) o punto y coma entre sentencias simples consecutivas, previniendo fusiones accidentales de declaraciones inline (`var x is 1 var y is 2` rechazado como `ParseError [E0000]`).
+- **1.2 Captura de `DedentError`, Normalización de BOM e Indentación:**
+  - `DedentError` capturado limpiamente en `PenguParser.parse()` y transformado en `ParseError(E0000)` con reporte exacto de línea y columna.
+  - Normalización de BOM UTF-8 (`\ufeff`) en `strip_bom()`, asegurando que `get_tokens()` y parsing operen de manera idéntica.
+  - Advertencia léxica ante mezcla de espacios y tabuladores en la indentación.
+- **1.3 Desambiguación de Soft Keywords:**
+  - Modificadores contextuales `inline`, `ritual`, y `borrowed` desambiguados para funcionar como palabras clave suaves o identificadores según la posición sintáctica.
+  - Restricción formal de constructores reservados `list`, `map`, `maybe` en contextos de nombres de variable.
+- **1.4 Enforcement de Concept Bounds en Runes Genéricas:**
+  - Preservación de `bounds` dentro de `RuneType` y la tabla de símbolos.
+  - Validación bidireccional estricta en tiempo de chequeo (`E0032`) al instanciar tipos genéricos como `Box of T` con respecto a las restricciones `where T: Concept`.
+  - Refuerzo de `typeparam_accepts_value` para comprobación estricta de parámetros de tipo.
+- **1.5 Mangling de Nombres C Calificado por Namespace:**
+  - Desacoplamiento de nombres C monomorfizados incorporando el prefijo de módulo calificado (`{module}_{fn}_{types}`).
+  - Eliminación de colisiones de símbolos y fallbacks ciegos en la generación de código entre módulos independientes.
+- **1.6 Propagación de `FrozenType` y Const-Correctness Inquebrantable:**
+  - Preservación del calificador `frozen` a través de accesos encadenados e indexación de colecciones (`arr at 0`).
+  - Prohibición estricta de conversión implícita de `ref to frozen T` a `ref to void` mutable (`E0005`), garantizando inmutabilidad a través de punteros genéricos.
+
+#### FASE 1.5 — Definición Semántica y Gaps del Lenguaje
+- **1.5.1 Pattern Matching Maduro en `judge`:**
+  - Soporte de *payload bindings* para capturar variables locales a partir de variantes de Omen (`when Status.Ok with value -> ...`).
+  - Guards condicionales en cláusulas `when` mediante sintaxis `if <cond>` (`when Variant with val if val > 0 -> ...`).
+  - Verificación formal de exhaustividad en omens algebraicos.
+- **1.5.2 Sintaxis y Semántica de Atributos:**
+  - Soporte para atributos `@inline`, `@cold`, `@deprecated("reason")`, `@packed` y `@align(N)` en `weave`, `rune` y `field`.
+  - Emisión de advertencias `[W0006]` ante el uso de símbolos marcados con `@deprecated`.
+  - Rechazo con error `E0056` ante atributos no reconocidos o inválidos para el objetivo.
+  - Codegen genera directivas de compilador C concretas (`__attribute__((packed))`, `__attribute__((aligned(N)))`, `always_inline`, `cold`).
+- **1.5.3 Constantes Locales Evaluables en Tiempo de Compilación:**
+  - Habilitación de declaraciones `const` dentro del cuerpo de funciones (`weave`) siempre que su valor sea computable en comptime.
+  - Emisión directa en C sin asignación de espacio dinámico en la pila.
+- **1.5.4 Soporte Completo de Unicode y Normalización CRLF:**
+  - Reconocimiento léxico de secuencias de escape hexadecimales de Unicode `\u{HEX}` y `\uNNNN` en strings sin conflicto con bloques de interpolación `{...}` ni daño a barras invertidas escapadas (`\\uNNNN`).
+  - Soporte de escapes Unicode en literales `char` restringido a valores de 7 bits ASCII (0..127) emitiendo `E0057` para codepoints superiores.
+  - Normalización transparente de retornos de carro CRLF (`\r\n`) de Windows a LF (`\n`), preservando posiciones y conteos idénticos entre plataformas.
+
 ## [0.15.0] - Unreleased
 
 ### Fixed — memory-subsystem audit (verified against the source, C1–H5)

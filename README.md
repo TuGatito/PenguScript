@@ -1,6 +1,6 @@
 # PenguScript
 
-![Version](https://img.shields.io/badge/version-0.15.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+![Version](https://img.shields.io/badge/version-0.16.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 
 **🌍 Languages / Idiomas:** [🇬🇧 English](#-english) · [🇪🇸 Español](#-español)
 
