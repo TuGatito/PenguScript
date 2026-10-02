@@ -41,10 +41,10 @@ insignia_stmt: "insignia" NAME _NEWLINE
 
 # Statement-level declarations require a mandatory _NEWLINE delimiter (or _DEDENT from an indented block)
 # so multiple simple statements on a single line (e.g. 'var x is 1 var y is 2') are rejected as syntax errors.
-const_decl: "const" NAME ["as" type] "is" (expr _NEWLINE | indent_literal)
-var_decl: "var" [BORROWED] NAME ["as" type] ("is" (value_expr _NEWLINE | indent_literal) | with_init_expr)
-static_var_decl: "static" "var" NAME ["as" type] ("is" (value_expr _NEWLINE | indent_literal) | with_init_expr)
-let_decl: "let" [BORROWED] var_name_list ["as" type] ("is" (value_expr _NEWLINE | indent_literal) | with_init_expr)
+const_decl: "const" NAME ["as" type] "is" (expr [_NEWLINE] | indent_literal)
+var_decl: "var" [BORROWED] NAME ["as" type] ("is" (value_expr [_NEWLINE] | indent_literal) | with_init_expr)
+static_var_decl: "static" "var" NAME ["as" type] ("is" (value_expr [_NEWLINE] | indent_literal) | with_init_expr)
+let_decl: "let" [BORROWED] var_name_list ["as" type] ("is" (value_expr [_NEWLINE] | indent_literal) | with_init_expr)
 var_name_list: NAME ("," NAME)*
 
 indent_literal: [":"] _NEWLINE _INDENT (indent_array | indent_entries) _DEDENT
@@ -123,8 +123,8 @@ stmt: var_decl
     | continue_stmt
     | expr_stmt
 
-set_stmt: "set" set_target "is" value_expr _NEWLINE
-        | "set" set_target COMPOUND_OP expr _NEWLINE   -> compound_set_stmt
+set_stmt: "set" set_target "is" value_expr [_NEWLINE]
+        | "set" set_target COMPOUND_OP expr [_NEWLINE]   -> compound_set_stmt
 set_target: with_target
           | normal_target
           | essence_target

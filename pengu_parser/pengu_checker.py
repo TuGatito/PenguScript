@@ -10,7 +10,7 @@ from .pengu_types import (
     U8_TYPE, I8_TYPE, U16_TYPE, I16_TYPE, USIZE_TYPE, ISIZE_TYPE, FLOAT_TYPE, F32_TYPE,
     F64_TYPE, DOUBLE_TYPE, BOOL_TYPE, STRING_TYPE, VOID_TYPE, ERROR_TYPE, ConceptType, SealType,
     CVarArgsType,
-    implements_concept,
+    implements_concept, check_generic_bounds,
     typeparam_accepts_value, resolve_concept_method, ast_to_type,
     get_type_base_name, extract_type_params_from_type, receiver_deep_copies_on_store,
     type_has_derived_nexus, type_owns_heap,
@@ -958,7 +958,7 @@ class PenguChecker:
                     self._record_error(err)
 
                 fields: Dict[str, Type] = {}
-                rune_t = RuneType(name=r_name, fields=fields, type_params=type_params, base_name=r_name, c_name=c_r_name, derived_concepts=list(derived_concepts))
+                rune_t = RuneType(name=r_name, fields=fields, type_params=type_params, base_name=r_name, c_name=c_r_name, derived_concepts=list(derived_concepts), bounds=bounds)
                 if type_params:
                     self.symbols.generic_runes[r_name] = (type_params, stmt)
                 self.symbols.runes[r_name] = rune_t
@@ -1126,7 +1126,7 @@ class PenguChecker:
 
                 if type_params:
                     self.symbols.generic_echos[e_name] = (type_params, stmt)
-                    echo_t = EchoType(name=e_name, fields=fields, type_params=type_params, c_name=c_e_name, derived_concepts=list(derived_concepts))
+                    echo_t = EchoType(name=e_name, fields=fields, type_params=type_params, c_name=c_e_name, derived_concepts=list(derived_concepts), bounds=bounds)
                 else:
                     echo_t = EchoType(name=e_name, fields=fields, c_name=c_e_name, derived_concepts=list(derived_concepts))
 
@@ -1357,7 +1357,7 @@ class PenguChecker:
 
                 if type_params:
                     self.symbols.generic_omens[o_name] = (type_params, stmt)
-                    omen_t = OmenType(name=o_name, variants=variants, variant_values=variant_values, type_params=type_params, c_name=c_o_name, derived_concepts=list(derived_concepts))
+                    omen_t = OmenType(name=o_name, variants=variants, variant_values=variant_values, type_params=type_params, c_name=c_o_name, derived_concepts=list(derived_concepts), bounds=bounds)
                 else:
                     omen_t = OmenType(name=o_name, variants=variants, variant_values=variant_values, c_name=c_o_name, derived_concepts=list(derived_concepts))
 
@@ -4956,15 +4956,18 @@ class PenguChecker:
                     )
                     self._record_error(err)
             else:
-                if (t_name in self.symbols.generic_runes or 
-                    t_name in self.symbols.generic_echos or 
-                    t_name in self.symbols.generic_omens or 
-                    t_name in self.symbols.generic_aliases):
+                lookup_t = self.symbols.lookup_type(t_name) if hasattr(self.symbols, "lookup_type") else None
+                is_generic = (t_name in self.symbols.generic_runes or 
+                              t_name in self.symbols.generic_echos or 
+                              t_name in self.symbols.generic_omens or 
+                              t_name in self.symbols.generic_aliases or
+                              (lookup_t is not None and getattr(lookup_t, "type_params", None)))
+                if is_generic:
                     gen_entry = (self.symbols.generic_runes.get(t_name) or 
                                  self.symbols.generic_echos.get(t_name) or 
                                  self.symbols.generic_omens.get(t_name) or 
                                  self.symbols.generic_aliases.get(t_name))
-                    params = gen_entry[0] if gen_entry else []
+                    params = gen_entry[0] if gen_entry else (getattr(lookup_t, "type_params", []) or [])
                     if len(rem_children) != len(params):
                         err = self._make_error(
                             SemanticError,
@@ -4975,6 +4978,27 @@ class PenguChecker:
                             note="Type parameter count must match generic declaration."
                         )
                         self._record_error(err)
+                    else:
+                        arg_types = []
+                        for c in rem_children:
+                            try:
+                                at = ast_to_type(c, self.symbols.lookup_type)
+                                arg_types.append(at)
+                            except Exception:
+                                pass
+                        if len(arg_types) == len(rem_children):
+                            err_info = check_generic_bounds(t_name, arg_types, self.symbols)
+                            if err_info:
+                                arg_t_name, bound, tp_name, base_name = err_info
+                                err = self._make_error(
+                                    ConceptBoundNotSatisfiedError,
+                                    f"Type '{arg_t_name}' does not implement concept '{bound}' required by generic parameter '{tp_name}' of '{base_name}'",
+                                    type_node,
+                                    code="E0032",
+                                    help=f"Bind '{bound}' to '{arg_t_name}' using 'bind {arg_t_name} with {bound}:'.",
+                                    note=f"Generic type '{base_name}' requires '{tp_name}: {bound}'."
+                                )
+                                self._record_error(err)
         for c in type_node.children:
             if isinstance(c, Tree):
                 self._validate_type_node(c)

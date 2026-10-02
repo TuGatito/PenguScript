@@ -1039,6 +1039,7 @@ class RuneType(Type):
     c_name: Optional[str] = None
     base_name: Optional[str] = None
     derived_concepts: List[str] = field(default_factory=list)
+    bounds: Dict[str, List[str]] = field(default_factory=dict)
 
     def get_base_name(self) -> str:
         if self.base_name:
@@ -1068,8 +1069,8 @@ class RuneType(Type):
         base = self.get_base_name()
         if new_args and not any(isinstance(a, TypeParam) for a in new_args):
             mangled = f"{base}_{'_'.join(a.get_mangled_name() for a in new_args)}"
-            return RuneType(name=mangled, fields=new_fields, methods=new_methods, type_params=[], type_args=new_args, base_name=base, derived_concepts=list(self.derived_concepts))
-        return RuneType(name=self.name, fields=new_fields, methods=new_methods, type_params=self.type_params, type_args=new_args, base_name=base, derived_concepts=list(self.derived_concepts))
+            return RuneType(name=mangled, fields=new_fields, methods=new_methods, type_params=[], type_args=new_args, base_name=base, derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds))
+        return RuneType(name=self.name, fields=new_fields, methods=new_methods, type_params=self.type_params, type_args=new_args, base_name=base, derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds))
 
     def is_compatible(self, other: Type) -> bool:
         """Checks rune compatibility by nominal type name."""
@@ -1107,6 +1108,7 @@ class EchoType(Type):
     c_name: Optional[str] = None
     base_name: Optional[str] = None
     derived_concepts: List[str] = field(default_factory=list)
+    bounds: Dict[str, List[str]] = field(default_factory=dict)
 
     def get_base_name(self) -> str:
         if self.base_name:
@@ -1135,8 +1137,8 @@ class EchoType(Type):
         base_name = self.get_base_name()
         if new_args and not any(isinstance(a, TypeParam) for a in new_args):
             mangled = f"{base_name}_{'_'.join(a.get_mangled_name() for a in new_args)}"
-            return EchoType(name=mangled, fields=new_fields, type_params=[], type_args=new_args, base_name=base_name, derived_concepts=list(self.derived_concepts))
-        return EchoType(name=self.name, fields=new_fields, type_params=self.type_params, type_args=new_args, base_name=base_name, derived_concepts=list(self.derived_concepts))
+            return EchoType(name=mangled, fields=new_fields, type_params=[], type_args=new_args, base_name=base_name, derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds))
+        return EchoType(name=self.name, fields=new_fields, type_params=self.type_params, type_args=new_args, base_name=base_name, derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds))
 
     def is_compatible(self, other: Type) -> bool:
         """Checks echo union compatibility by nominal type name."""
@@ -1170,6 +1172,7 @@ class OmenType(Type):
     c_name: Optional[str] = None
     base_name: Optional[str] = None
     derived_concepts: List[str] = field(default_factory=list)
+    bounds: Dict[str, List[str]] = field(default_factory=dict)
 
     def get_base_name(self) -> str:
         if self.base_name:
@@ -1227,10 +1230,10 @@ class OmenType(Type):
             # (Status_string), not the generic base (Status).
             return OmenType(name=mangled, variants=new_variants, variant_values=self.variant_values,
                             type_params=[], type_args=new_args, c_name=None, base_name=base_name,
-                            derived_concepts=list(self.derived_concepts))
+                            derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds))
         return OmenType(name=self.name, variants=new_variants, variant_values=self.variant_values,
                         type_params=self.type_params, type_args=new_args, c_name=self.c_name, base_name=base_name,
-                        derived_concepts=list(self.derived_concepts))
+                        derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds))
 
     def is_compatible(self, other: Type) -> bool:
         """Checks omen sum type compatibility by nominal type name."""
@@ -1878,6 +1881,70 @@ def resolve_concept_method(t: Type, concept_name: str, method_name: str, symbols
         for key in [(t_name, concept_name), (base_tname, concept_base), (t_name, concept_base), (base_tname, concept_name)]:
             if key in symbols.concept_bindings and method_name in symbols.concept_bindings[key]:
                 return symbols.concept_bindings[key][method_name]
+    return None
+
+
+def check_generic_bounds(
+    base_name: str,
+    type_args: List[Type],
+    symbols: Any
+) -> Optional[Tuple[str, str, str, str]]:
+    """Checks whether type arguments satisfy concept bounds declared on generic type base_name.
+
+    Returns (arg_t_display, bound, tp_name, base_name) on violation, or None if satisfied.
+    """
+    if symbols is None or not type_args:
+        return None
+
+    type_params: List[str] = []
+    bounds: Dict[str, List[str]] = {}
+
+    t_entry = symbols.lookup_type(base_name) if hasattr(symbols, "lookup_type") else None
+    if t_entry is None and hasattr(symbols, "runes"):
+        t_entry = symbols.runes.get(base_name)
+    if t_entry is not None:
+        type_params = getattr(t_entry, "type_params", []) or []
+        bounds = getattr(t_entry, "bounds", {}) or {}
+
+    if not bounds or not type_params:
+        gen_entry = None
+        for reg in ("generic_runes", "generic_echos", "generic_omens", "generic_aliases"):
+            if hasattr(symbols, reg):
+                d = getattr(symbols, reg)
+                if base_name in d:
+                    gen_entry = d[base_name]
+                    break
+        if gen_entry is not None:
+            if not type_params:
+                type_params = gen_entry[0]
+            stmt = gen_entry[1] if len(gen_entry) > 1 else None
+            if isinstance(stmt, Tree):
+                for ch in stmt.children:
+                    if isinstance(ch, Tree) and ch.data == "shard_params":
+                        for w in ch.children:
+                            if isinstance(w, Tree) and w.data == "where_clause":
+                                for wb in w.children:
+                                    if isinstance(wb, Tree) and wb.data == "where_bound":
+                                        tp_node = wb.children[0]
+                                        tp_name = str(tp_node.value if isinstance(tp_node, Token) else (tp_node.children[0] if isinstance(tp_node, Tree) else tp_node))
+                                        c_node = wb.children[1]
+                                        c_name = str(c_node.children[0] if (isinstance(c_node, Tree) and c_node.children) else c_node)
+                                        bounds.setdefault(tp_name, []).append(c_name)
+
+    if not type_params or not bounds:
+        return None
+
+    for idx, tp in enumerate(type_params):
+        if idx >= len(type_args):
+            break
+        arg_t = type_args[idx]
+        if isinstance(arg_t, TypeParam):
+            continue
+        for bound in bounds.get(tp, []):
+            if not implements_concept(arg_t, bound, symbols):
+                t_display = getattr(arg_t, "name", str(arg_t))
+                return (t_display, bound, tp, base_name)
+
     return None
 
 

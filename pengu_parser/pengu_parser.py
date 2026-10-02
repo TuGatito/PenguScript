@@ -40,6 +40,7 @@ class PenguIndenter(Indenter):
     INDENT_type = '_INDENT'
     DEDENT_type = '_DEDENT'
     tab_len = 2
+    STMT_STARTERS = frozenset({'VAR', 'LET', 'SET', 'CONST', 'STATIC', 'BANISH'})
 
     def handle_NL(self, token: Token):
         try:
@@ -48,6 +49,43 @@ class PenguIndenter(Indenter):
             exc.line = getattr(token, "end_line", getattr(token, "line", None))
             exc.column = getattr(token, "end_column", getattr(token, "column", None))
             raise
+
+    def _process(self, stream):
+        prev_token = None
+        token = None
+        for token in stream:
+            if token.type == self.NL_type:
+                yield from self.handle_NL(token)
+                prev_token = None
+                continue
+            else:
+                if token.type in self.STMT_STARTERS and self.paren_level == 0:
+                    if prev_token is not None and getattr(prev_token, 'line', None) == getattr(token, 'line', None):
+                        if prev_token.type not in ('COLON', 'SEMICOLON') and prev_token.value != ':':
+                            from .pengu_errors import ParseError
+                            line = getattr(token, 'line', 1)
+                            col = getattr(token, 'column', 1)
+                            raise ParseError(
+                                "Syntax error: multiple statements on a single line require a newline delimiter",
+                                code="E0000",
+                                line=line,
+                                column=col
+                            )
+                yield token
+
+            if token.type in self.OPEN_PAREN_types:
+                self.paren_level += 1
+            elif token.type in self.CLOSE_PAREN_types:
+                self.paren_level -= 1
+                assert self.paren_level >= 0
+
+            prev_token = token
+
+        while len(self.indent_level) > 1:
+            self.indent_level.pop()
+            yield Token.new_borrow_pos(self.DEDENT_type, '', token) if token else Token(self.DEDENT_type, '', 0, 0, 0, 0, 0, 0)
+
+        assert self.indent_level == [0], self.indent_level
 
 
 class PenguParser:
