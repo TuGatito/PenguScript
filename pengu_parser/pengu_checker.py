@@ -2208,17 +2208,6 @@ class PenguChecker:
             return
 
         elif rule == "const_decl":
-            if not self.symbols.is_top_level():
-                err = self._make_error(
-                    ConstInsideWeaveError,
-                    "'const' is only allowed at top-level (global).",
-                    node,
-                    code="E0001",
-                    help="Use 'let' (immutable) or 'var' (mutable) inside functions instead of 'const'.",
-                    note="Constants in PenguScript are top-level compile-time definitions."
-                )
-                self._record_error(err)
-                return
             self._check_const_decl(node)
             return
 
@@ -2705,11 +2694,25 @@ class PenguChecker:
                 note="Constants emitted as C macros or definitions cannot shadow C keywords or standard library identifiers."
             ))
             return
+        if not self.symbols.is_top_level():
+            existing = self.symbols.lookup_local(c_name) if self.symbols else None
+            if existing is not None:
+                self._record_error(self._make_error(
+                    SemanticError,
+                    f"Redefinition of '{c_name}' in the same scope",
+                    node,
+                    code="E0053",
+                    help="Use a distinct name for this constant.",
+                    note=f"'{c_name}' was previously declared on line {existing.line}."
+                ))
+                return
+
         c_type = None
         c_expr = None
 
         if len(node.children) == 3:
             if node.children[1] is not None:
+                self._validate_type_node(node.children[1])
                 c_type = ast_to_type(node.children[1], self.symbols.lookup_type)
             c_expr = node.children[2]
         else:
@@ -2775,7 +2778,18 @@ class PenguChecker:
                     )
 
                 folded_val = self.const_folder.fold(c_expr)
-                if not self.filename.endswith(".d.pengu") and not self._is_static_const_expr(c_expr):
+                is_static = self._is_static_const_expr(c_expr)
+                if not self.symbols.is_top_level():
+                    if folded_val is None and not is_static:
+                        raise self._make_error(
+                            ConstInsideWeaveError,
+                            "'const' inside a weave must be compile-time evaluable; use 'let' for runtime-immutable bindings",
+                            node,
+                            code="E0001",
+                            help="Use 'let' (immutable) or 'var' (mutable) inside functions instead of 'const'.",
+                            note="'const' inside a weave is only allowed for compile-time constant expressions."
+                        )
+                elif not self.filename.endswith(".d.pengu") and not is_static and folded_val is None:
                     raise self._make_error(
                         SemanticError,
                         f"Constant '{c_name}' initializer is not a compile-time constant expression",
@@ -2790,6 +2804,7 @@ class PenguChecker:
                 sym = Symbol(name=c_name, type=eff_type, kind="const", is_mutable=False, line=line, column=col, doc=doc, file_path=self.filename, c_name=c_c_name)
                 if folded_val is not None:
                     sym.const_val = folded_val
+                node._pengu_symbol = sym
                 self.symbols.define(sym)
         except SemanticError as e:
             self._record_error(e)

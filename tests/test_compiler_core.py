@@ -266,8 +266,8 @@ weave compute with a as int into int:
 
     def test_const_inside_weave_fails(self):
         expect_error(
-            "weave main into int:\n  const LOCAL_MAX as int is 100\n  return 0\n",
-            contains=["E0001", "'const' is only allowed at top-level"],
+            "weave main with a as int into int:\n  const LOCAL_MAX as int is a + 100\n  return 0\n",
+            contains=["E0001", "'const' inside a weave must be compile-time evaluable"],
         )
 
     def test_var_top_level_fails(self):
@@ -2546,7 +2546,7 @@ class TestTypeMangling:
 
 
 E_CODE_CASES = [
-    ("E0001", "weave main into void:\n  const X is 10"),
+    ("E0001", "weave main with a as int into void:\n  const X is a + 10"),
     ("E0002", "let v is 10"),
     (
         "E0003",

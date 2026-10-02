@@ -4430,6 +4430,57 @@ class PenguCodegen:
                         help="Destructuring is only supported on runes, fixed arrays, slices, and lists."
                     )
 
+        elif rule == "const_decl":
+            name = str(node.children[0])
+            c_name = self._c_ident(name)
+            type_node, expr_node = _decl_layout(node)
+
+            t = None
+            sym = getattr(node, "_pengu_symbol", None)
+            if sym is None and self.symbols:
+                sym = self.symbols.lookup(name)
+            if type_node is not None:
+                t = ast_to_type(type_node, self._lookup_type_fn)
+            elif sym and sym.type:
+                t = sym.type
+
+            val = self.const_folder.fold(expr_node)
+            if t is None:
+                if isinstance(val, bool):
+                    t = BOOL_TYPE
+                elif isinstance(val, int):
+                    t = INT_TYPE
+                elif isinstance(val, float):
+                    t = FLOAT_TYPE
+                elif isinstance(val, str):
+                    t = STRING_TYPE
+                elif sym and sym.type:
+                    t = sym.type
+
+            if t is not None:
+                self.local_vars[name] = t
+                self.local_vars[c_name] = t
+
+            if isinstance(val, bool):
+                int_v = 1 if val else 0
+                return f"{ind}enum {{ {c_name} = {int_v} }};"
+            elif isinstance(val, int) and -2147483648 <= val <= 2147483647:
+                return f"{ind}enum {{ {c_name} = {val} }};"
+            elif isinstance(val, int):
+                return f"{ind}static const int64_t {c_name} = {val}LL;"
+            elif isinstance(val, float):
+                return f"{ind}static const double {c_name} = {val};"
+            elif isinstance(val, str):
+                cstr = self._translate_string_lit(val, as_c_literal=True)
+                if self._is_ref_char_type(t):
+                    return f"{ind}static const char* const {c_name} = {cstr};"
+                else:
+                    return f"{ind}const PenguString {c_name} = pengu_string_from_cstr({cstr});"
+            else:
+                expr_code = self._translate_expr(expr_node, expected_type=t)
+                t_str = CTypeMapper.to_c_decl(t, c_name, const=True) if t else f"const int32_t {c_name}"
+                return f"{ind}static {t_str} = {expr_code};"
+
         elif rule == "set_stmt":
             target_node = node.children[0]
             expr_node = node.children[1]
