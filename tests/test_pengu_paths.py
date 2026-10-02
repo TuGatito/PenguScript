@@ -1,4 +1,4 @@
-"""Unit tests for pengu_paths and multi-layout asset discovery in PenguScript 0.14.0."""
+"""Unit tests for pengu_paths and multi-layout asset discovery in PenguScript 0.15.0."""
 
 import os
 from pathlib import Path
@@ -10,12 +10,15 @@ from pengu_project import PENGU_VERSION
 from pengu_parser.pengu_symbols import get_stdlib_dirs
 
 
-def test_version_sync_0_14_0():
-    """Verify toolchain version 0.14.0 is synchronized across all modules."""
-    assert pengu_version.__version__ == "0.14.0"
-    assert pengu_version.FALLBACK_VERSION == "0.14.0"
-    assert PENGU_VERSION == "0.14.0"
-    assert pengu_version.read_version_file() == "0.14.0"
+def test_version_sync():
+    """Verify the toolchain version is synchronized across all modules.
+
+    Checks the invariant (VERSION file == module == fallback == PENGU_VERSION)
+    instead of a hard-coded number so a version bump does not need a test edit.
+    """
+    assert pengu_version.__version__ == pengu_version.read_version_file()
+    assert pengu_version.FALLBACK_VERSION == pengu_version.__version__
+    assert PENGU_VERSION == pengu_version.__version__
 
 
 def test_source_checkout_discovery():

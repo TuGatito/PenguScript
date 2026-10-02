@@ -469,37 +469,6 @@ class TypeInferrer:
             label="not found in this scope"
         )
 
-    def _make_type_mismatch_error(
-        self,
-        expected_type: Any,
-        found_type: Any,
-        node: Any = None,
-        expr_str: Optional[str] = None,
-        custom_message: Optional[str] = None,
-        code: str = "E0005",
-        note: Optional[str] = None,
-    ) -> TypeMismatchError:
-        """Constructs a TypeMismatchError with expected/found format and conversion help."""
-        msg = custom_message or f"Mismatched types: expected '{expected_type}', found '{found_type}'"
-        expr_repr = expr_str or "value"
-        is_num_src = str(found_type) in ("int", "i32", "i64", "float", "f32", "f64", "u8", "i8", "u16", "i16", "u32", "u64", "usize", "isize")
-        is_num_tgt = str(expected_type) in ("int", "i32", "i64", "float", "f32", "f64", "u8", "i8", "u16", "i16", "u32", "u64", "usize", "isize")
-
-        if is_num_src and is_num_tgt:
-            help_msg = f"Consider converting the value explicitly using '{expr_repr} to {expected_type}'"
-        else:
-            help_msg = f"Ensure the value type matches the expected type '{expected_type}' or use explicit conversion 'to {expected_type}'."
-
-        return self._make_error(
-            TypeMismatchError,
-            msg,
-            node,
-            code=code,
-            help=help_msg,
-            note=note or "PenguScript requires type safety and explicit conversions.",
-            label=f"expected '{expected_type}'"
-        )
-
     def _arg_mismatch_help(self, ptype: Optional[Type], arg_t: Type) -> str:
         """Help text for a call-argument mismatch.
 
@@ -612,17 +581,6 @@ class TypeInferrer:
             help=hint,
             note="Since 0.10.0 'and'/'or' are boolean operators, not list separators."
         )
-
-    def _reject_glued_test(self, operand: Any, keyword: str, node: Any) -> None:
-        """Kept for reference: word tests in *operand* position are allowed.
-
-        A test whose operand is a call with arguments can only be written with
-        explicit parentheses around that call (``(calling f with x) is true``),
-        which already spells the intent out, so it is not rejected. The
-        ambiguous case — a bare test *inside* an argument list — is handled by
-        :meth:`_reject_test_argument`.
-        """
-        return
 
     def infer(self, node: Any, expected_type: Optional[Type] = None) -> Type:
         """Recursively infers the static type of an expression node.
@@ -1363,7 +1321,7 @@ class TypeInferrer:
                     SemanticError,
                     f"Ambiguous struct init with fields {fields_str}, matches: {matches_str}",
                     node,
-                    code="E0011",
+                    code="E0054",
                     help=f"Disambiguate by specifying the rune type explicitly with 'as RuneName'.",
                     note="PenguScript requires explicit type when multiple runes have identical field names."
                 )

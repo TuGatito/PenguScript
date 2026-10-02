@@ -4,6 +4,65 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [0.15.0] - Unreleased
 
+### Fixed — memory-subsystem audit (verified against the source, C1–H5)
+
+Each item below was reproduced against HEAD before the fix; the audit's
+roadmap 0.14 and 0.15 claims were checked and **refuted** (see below).
+
+- **C1 — `PenguString.is_owned`** (already landed): constructors mark heap
+  buffers as owned and `pengu_banish_string` only frees owned data, so
+  banishing a literal/`from_cstr`/`from_bool` view no longer `free()`s
+  `.rodata`.  Verified complete: every `.data =` assignment sets the flag.
+- **C2/C3 — `x to string` ownership** (`pengu_checker.py`): `string to string`
+  is the identity and `bool to string` returns the static `"true"`/`"false"`
+  view; neither is auto-banished any more (previously a double free for an
+  owned source and the C1 crash for a literal).  `int`/`float`/`char` casts
+  still allocate and are released.
+- **C4 — release-before-assign on `set`** (`pengu_checker.py`,
+  `pengu_codegen.py`): a local whose initializer *and* every reassignment move
+  in a fresh value is still auto-owned; the code generator stashes the old
+  value in a temporary and releases it after the assignment, turning the O(n)
+  loop leak into O(1).  `set s is s` and all borrowed rvalues keep auto-banish
+  off.  M1 (static) and M2 (struct-field) reassignment stay conservative: a
+  live view of the old cell cannot be ruled out statically, so no release is
+  emitted (the leak remains, a use-after-free does not).
+- **C5 — containers of `maybe`/`result`** (`pengu_codegen.py`,
+  `pengu_types.py`): `list of maybe T` / `list of result of T to E` now
+  register generated per-type cleanup and deep-clone callbacks (previously a
+  shallow `memcpy` of the payload box → leak/UAF).  `list of array` is left
+  shallow on purpose: the array element size is not representable in the
+  current `_owned` callback API.
+- **C6/C7 — payload release** (`pengu_codegen.py`): `_release_payload_stmts`
+  now handles algebraic `OmenType` and `ResultType`, and the `MaybeType` branch
+  materialises the box temporary *before* recursing (the old code emitted
+  invalid C such as `m.value_m->value` for `maybe maybe T`).
+- **H1 — local algebraic omens** (`pengu_checker.py`, `pengu_codegen.py`):
+  `var e as Event is with Msg is …` is auto-banished at scope exit; the
+  generated destructor releases the active variant payload.
+- **H4 — escape analysis** (`pengu_checker.py`): `sigil of x.field` and
+  `sigil of x at i` now count as escapes, so the backing buffer is not released
+  while a returned pointer into it is live.
+- **H5 — slices of stack arrays** (`pengu_checker.py`): returning
+  `arr at a to b` where `arr` is a local fixed array is rejected with `E0051`.
+- **Bonus regressions found while fixing:** omen variant payloads were
+  translated against the variant struct, so `with Items is [1, 2, 3]` emitted
+  an invalid raw `PenguList` initializer; `(some s) or:` did not free the box
+  because the parenthesised operand was not unwrapped; `some (with f is 1)`
+  failed with `E0005` because the expected element type was not propagated.
+
+#### Refuted audit items (no code change)
+
+- **Roadmap 0.14** (`_translate_string_lit` leak): the cleanup postambles are
+  emitted after the format call, so the premise is false.
+- **Roadmap 0.15** (`essence of sigil of local` escape): `essence_of` is in the
+  view-rule set and `_contains_var_ref` already detects the escape; the
+  analysis is conservative, not blind.
+- **Audit H3** (or_block must release the box payload): the payload is *moved*
+  into the result, so releasing it there would leave the result dangling.  The
+  real bug was the missing `paren_expr` unwrap (the whole box leaked).
+- **Audit H1 repro** (`with Msg is "hello"`): a literal is a non-owning
+  `.rodata` view and does not leak; the general fresh-payload case is fixed.
+
 ### Added — Pengunic rewrite of the five core standard-library modules
 
 - **`std.oracle`, `std.scrolls`, `std.tally`, `std.atlas`, `std.loom` rewritten
@@ -847,6 +906,76 @@ is documented rather than patched unsoundly.
 - Added `tests/test_checker_fields.py` verifying Bugs 2.1, 2.2, and Gap 4.2 semantic field validation.
 - Added `tests/test_checker_with_builtin_methods.py` verifying Bug 2.3 `ref to list/map` methods under `with`.
 - Added `check_c_syntax` helper in `tests/conftest.py` running `gcc -fsyntax-only` / `clang -fsyntax-only` on generated C code.
+
+### Fixed — Roadmap Phase 0 completion (0.1–0.21)
+
+- **Test-block scoping (0.12)** (`pengu_checker.py`): `_check_test_decl` no
+  longer copies same-file globals into the test scope.  Globals stay reachable
+  through the scope chain, and the copy made a legitimate local shadowing a
+  same-file global (`var last` vs the `last` weave) a false `E0035`
+  redefinition.  This was failing every std module that declares a local named
+  after one of its own weaves (`std/tally.pengu` and everything importing it).
+- **Range counters follow the bound type (0.11)** (`pengu_codegen.py`): the
+  previous fix forced `int64_t` on every `for i from a to b`, which contradicted
+  the item's spec and broke the 0.13.5 loop-shape regressions.  An `int` range
+  is `int32_t` again; only a 64-bit bound (`i64`/`u64`/`usize`) promotes the
+  counter (and the loop variable's inferred type) to `int64_t`, so
+  `for i from 0 to 5_000_000_000` still has no truncation.
+- **String-valued omen variants assign to their omen type** (`pengu_checker.py`):
+  `var m as HttpMethod is HttpMethod.Get` is accepted again for
+  `omen HttpMethod with string`.  The variant stays typed `frozen string` (so it
+  cannot be banished, per the C5 fix); the checker now recognises the explicit
+  omen annotation as compatible.
+- **GNU attribute blanking in `pengu bind` (0.16)** (`pengu_bind.py`): the
+  object-like `-D__attribute__=` overrode the function-like macro and left
+  `((packed))` behind, so `pycparser` rejected any header with
+  `__attribute__((packed))` or an attribute with several arguments.  The list
+  now uses a variadic `-D__attribute__(...)=` only; `__asm__` keeps its
+  object-like form for `__asm__ __volatile__`.
+- **Error codes are unique per class (0.6)** (`pengu_errors.py`,
+  `pengu_checker.py`, `pengu_infer.py`): `DuplicateConceptBindingError` gets
+  `E0052` (it shared `E0047` with `AutoOwnedBanishError`); redefinition in the
+  same scope and duplicate destructuring bindings get `E0053` (they shared
+  `E0035` with the reserved-C-keyword diagnostics); ambiguous struct
+  initialization gets `E0054` (it shared `E0011` with conflicting constants);
+  a static variable with an array type gets `E0055`.
+- **Custom `lib_dir` is honoured (0.20)** (`pengu_parser/pengu_symbols.py`,
+  `pengu_parser/pengu_checker.py`, `pengu_project.py`, `pengu_lsp/server.py`):
+  `find_module_path`/`resolve_imports` accept the manifest's `lib_dir`
+  (previously hard-coded to `lib`) and the builder threads it through.  The LSP
+  now resolves imports from the project root with that `lib_dir` instead of
+  looking only in `./lib`.
+- **Version bump** (`VERSION`, `pengu_version.py`, `pengu_parser/pengu_codegen.py`,
+  `README.md`): 0.14.0 → 0.15.0 so the badge, extension manifest, VERSION file,
+  fallback constant and generated banner all agree again (the P0.5 "one
+  version, everywhere" gate).
+- **Dead code (0.21)** (`pengu_parser/pengu_infer.py`): removed the unused
+  `_make_type_mismatch_error` and the no-op `_reject_glued_test`; the
+  hard-coded Spanish lambda diagnostic had already been translated.
+
+#### Verified already-complete in Phase 0
+
+- **0.17**: the implicit `error` binding of `or:` (including inside
+  `compound_set_stmt`) lives in its own scope and is reported with a dedicated
+  message when used outside the block; there is no custom error-variable name
+  to shadow.
+- **0.18**: `pengu fmt` is idempotent on inline comments (`fmt --check std/`
+  reports 0 files and a second pass is byte-identical).
+- **0.19**: a default on a concrete parameter of a generic weave
+  (`shard T with x as T, factor as int is 2`) compiles and folds at the call
+  site, while a default on a generic-typed parameter is rejected with a clear
+  message.
+
+### Tests
+
+- Added `tests/test_phase0_roadmap.py` (9 tests) pinning 0.11, 0.12, 0.16,
+  0.17 and 0.20, plus the string-valued omen assignment.
+- Added `tests/test_error_codes_uniqueness.py` asserting the class-level code
+  registry and the 0.6 disambiguations.
+- Updated `tests/test_audit_v0150_fixes.py`, `tests/test_compiler_core.py`,
+  `tests/test_generics.py`, `tests/test_p1_features.py` and
+  `tests/test_pengu_paths.py` for the new codes and the version-agnostic sync
+  check.
 
 ## [0.14.0] - 2026-09-24
 

@@ -431,7 +431,7 @@ class TestStructInitInference:
             (
                 VEC2
                 + "rune Point2D:\n  x as float\n  y as float\n\nweave main into void:\n  let v is with x is 1.0, y is 2.0\n",
-                ["E0011", "Ambiguous"],
+                ["E0054", "Ambiguous"],
             ),
         ],
     )
@@ -2560,7 +2560,7 @@ E_CODE_CASES = [
     ("E0009", "weave main into void:\n  set .x is 10"),
     ("E0010", "weave main into void:\n  let v is with x is 1, y is 2"),
     (
-        "E0011",
+        "E0054",
         "rune Vec2A:\n  x as int\n  y as int\n\nrune Vec2B:\n  x as int\n  y as int\n\nweave main into void:\n  let v is with x is 1, y is 2",
     ),
     (
@@ -3001,13 +3001,15 @@ class TestCodegenEmissionArraysSlices:
         assert "while ((x < 10)) {" in c
         assert "continue;" in c
         assert "break;" in c
-        assert "for (int64_t i = 0; i < 5; i++) {" in c
+        # Range counters follow the inferred bound type (roadmap 0.11): 'int'
+        # bounds keep int32_t, only a 64-bit bound promotes to int64_t.
+        assert "for (int32_t i = 0; i < 5; i++) {" in c
         assert "arr[i] = ((arr[i]) * 2);" in c
-        assert "for (int64_t i = 0; i < part.len; i++) {" in c
+        assert "for (int32_t i = 0; i < part.len; i++) {" in c
         assert "(((int32_t *)(part).data)[i]) = (((((int32_t *)(part).data)[i])) + 10);" in c
         assert "for (int32_t _idx_1 = 0; _idx_1 < 5; _idx_1++) {" in c
         assert "int32_t num = (arr)[_idx_1];" in c
-        assert "for (int64_t i = 0; i < lst.len; i++) {" in c
+        assert "for (int32_t i = 0; i < lst.len; i++) {" in c
         assert "(*(int32_t *)pengu_list_at(&(lst), i)) = (((*(int32_t *)pengu_list_at(&(lst), i))) + 100);" in c
 
     def test_judge_switch_emission(self):

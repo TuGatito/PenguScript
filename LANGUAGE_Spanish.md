@@ -1890,7 +1890,7 @@ Una variable local `x` se marca como de propiedad automática si y solo si se cu
    *(Los literales de cadena `"hello"` que referencian memoria estática, las colecciones
    vacías `[]` y las variables con alias NO activan el auto-banish. `+` es solo numérico,
    así que ya no puede producir una cadena fresca.)*
-4. **Sin reasignación:** la variable nunca se reasigna mediante `set x is ...` en el ámbito.
+4. **Solo reasignación fresca:** cada `set x is …` del ámbito introduce un valor *fresco* (literal interpolado, constructor o resultado de una llamada). El valor anterior se libera justo antes de la nueva asignación, de modo que un bucle de reasignación se mantiene O(1). Asignar un rvalue prestado (`set x is y`, con `y` otro enlace) desactiva el auto-banish, porque el local pasaría a aliasar el búfer de `y` en lugar de poseer el suyo.
 5. **Sin banish/defer explícitos:** no aparece en `banish x`, `defer banish x` ni
    `errdefer banish x`.
 6. **Sin escape de ámbito:** no escapa de su ámbito léxico según el análisis de escape.

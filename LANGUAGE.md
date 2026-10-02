@@ -1864,7 +1864,7 @@ A local variable `x` is marked auto-owned if and only if **all six** conditions 
    - Collection constructors: `list of T with capacity N` or literals with elements `[a, b]`
    - Map constructors: `map of K to V` or map literals with entries
    *(String literals `"hello"` referencing static memory, empty collections `[]`, and aliased variables do NOT trigger auto-banish. `+` is numeric-only, so it can no longer produce a fresh string.)*
-4. **No Reassignment:** The variable is never reassigned via `set x is ...` in the scope.
+4. **Fresh Reassignment Only:** Every `set x is …` in the scope moves in a *fresh* value (an interpolated literal, a constructor, or a call result). The previous value is released just before the new assignment, so a reassignment loop stays O(1). Assigning a borrowed rvalue (`set x is y`, where `y` is another binding) disables auto-banish, because the local would then alias `y`'s buffer instead of owning one.
 5. **No Explicit Banish / Defer:** It does not appear in `banish x`, `defer banish x`, or `errdefer banish x`.
 6. **No Scope Escape:** It does not escape its lexical scope according to escape analysis.
 

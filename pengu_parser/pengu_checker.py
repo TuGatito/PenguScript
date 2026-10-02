@@ -13,7 +13,7 @@ from .pengu_types import (
     implements_concept,
     typeparam_accepts_value, resolve_concept_method, ast_to_type,
     get_type_base_name, extract_type_params_from_type, receiver_deep_copies_on_store,
-    type_has_derived_nexus,
+    type_has_derived_nexus, type_owns_heap,
 )
 from .pengu_symbols import SymbolTable, Symbol, Scope, resolve_imports, find_module_path, decl_layout
 from .pengu_infer import TypeInferrer, ConstFolder
@@ -334,7 +334,8 @@ class PenguChecker:
         filename: str = "main.pengu",
         source_code: Optional[str] = None,
         base_dir: Optional[str] = None,
-        compile_env: Optional[CompileTimeEnv] = None
+        compile_env: Optional[CompileTimeEnv] = None,
+        lib_dir: str = "lib"
     ):
         """Initializes semantic checker instance with source code and directory context.
 
@@ -344,9 +345,11 @@ class PenguChecker:
             source_code: Optional explicit source code text override.
             base_dir: Base directory for module import resolution.
             compile_env: Optional compile-time environment for 'when' clauses.
+            lib_dir: External bindings directory name (pengu.yaml 'lib_dir').
         """
         self.source_code = source_code if source_code is not None else source
         self.filename = filename
+        self.lib_dir = lib_dir or "lib"
         if base_dir is not None:
             self.base_dir = os.path.abspath(base_dir)
         elif os.path.isabs(filename) or "/" in filename or "\\" in filename:
@@ -1549,7 +1552,7 @@ class PenguChecker:
                         DuplicateConceptBindingError,
                         f"Duplicate concept binding: '{target_name}' already bound to '{concept_name}'",
                         stmt,
-                        code="E0047",
+                        code="E0052",
                         help=f"Remove the duplicate 'bind {target_name} with {concept_name}:' declaration.",
                         note="A type can only bind a concept once."
                     )
@@ -1629,7 +1632,7 @@ class PenguChecker:
                                 DuplicateConceptBindingError,
                                 f"Method '{m_name}' of type '{base_tname}' is already provided by concept '{prev_owner}'",
                                 m_decl,
-                                code="E0047",
+                                code="E0052",
                                 help=f"Rename the method in one of the 'bind' blocks, or merge "
                                      f"'{prev_owner}' and '{concept_name}'.",
                                 note="A (type, method) pair can only be implemented once."
@@ -1989,7 +1992,9 @@ class PenguChecker:
                 self.symbols.import_order = import_order
             else:
                 try:
-                    order = resolve_imports(self.base_dir, target_file, parser=getattr(self, "parser", None))
+                    order = resolve_imports(self.base_dir, target_file,
+                                            parser=getattr(self, "parser", None),
+                                            lib_dir=getattr(self, "lib_dir", "lib"))
                     self.symbols.import_order = order
                     from .pengu_parser import PenguParser
                     mod_parser = getattr(self, "parser", None) or PenguParser()
@@ -3393,6 +3398,31 @@ class PenguChecker:
             return True
         return any(self._contains_var_ref(c, target_name) for c in node.children)
 
+    def _string_cast_is_borrowed(self, node: Any) -> bool:
+        """True when ``x to string`` reuses memory that ``x`` already owns.
+
+        'string to string' is the identity (the result aliases x's buffer) and
+        'bool to string' yields the static ``"true"``/``"false"`` rodata view;
+        neither allocates a fresh buffer, so the result must not be auto-banished.
+        Any other source (int, float, char, …) goes through
+        ``pengu_string_from_*`` and produces an owned heap buffer.
+        """
+        if not isinstance(node, Tree) or not node.children:
+            return False
+        operand = node.children[0]
+        op_t = getattr(operand, "_pengu_value_type", None)
+        if op_t is None:
+            try:
+                op_t = self.inferrer.infer(operand)
+            except Exception:
+                op_t = None
+        while isinstance(op_t, (AliasType, FrozenType, SealType)):
+            nxt = getattr(op_t, "target", None) or getattr(op_t, "underlying", None)
+            if nxt is None or nxt is op_t:
+                break
+            op_t = nxt
+        return isinstance(op_t, BaseType) and op_t.name in ("string", "bool")
+
     def _is_fresh_heap_expr(self, expr_node: Any, eff_type: Type) -> bool:
         if not isinstance(expr_node, Tree):
             return False
@@ -3402,10 +3432,21 @@ class PenguChecker:
         if not isinstance(curr, Tree):
             return False
 
-        if isinstance(eff_type, MaybeType) and curr.data in ("some_expr", "maybe_none", "calling_expr"):
-            # A 'maybe T' box is heap-allocated by 'some' (or handed over by a
-            # call), so the binding owns it even though the expression is not a
-            # fresh string/container.
+        if isinstance(eff_type, (MaybeType, ResultType)) and curr.data in ("some_expr", "maybe_none", "calling_expr"):
+            # A 'maybe T'/'result of T to E' box is heap-allocated by 'some'/
+            # 'ok_of'/'err_of' (or handed over by a call), so the binding owns it
+            # even though the expression is not a fresh string/container.
+            return True
+
+        if (isinstance(eff_type, OmenType) and eff_type.is_algebraic
+                and curr.data == "struct_init"):
+            # 'var e as Event is with Msg is ...' materialises the tagged struct
+            # on the stack; the binding owns the payload of the active variant.
+            # A fresh payload is moved in, an embedded owning local is disowned
+            # by escape analysis (the documented compound-literal rule), and a
+            # literal string stays a non-owning .rodata view that banish ignores.
+            if not type_owns_heap(eff_type, symbols=self.symbols):
+                return False
             return True
 
         if curr.data in ("var_ref", "field_access", "arrow_access", "at_expr", "array_at_expr", "null_lit", "none_lit", "try_expr", "or_else", "or_return", "or_block", "calling_expr"):
@@ -3417,7 +3458,16 @@ class PenguChecker:
         if eff_type == STRING_TYPE or (isinstance(eff_type, BaseType) and eff_type.name == "string"):
             if curr.data in ("add", "binary_op"):
                 return True
-            if curr.data in ("to_expr", "to_string_expr", "chr_expr"):
+            if curr.data == "chr_expr":
+                return True
+            if curr.data in ("to_expr", "to_string_expr"):
+                # 'x to string' is the identity when 'x' already is a string and
+                # 'bool to string' returns the static "true"/"false" view, so
+                # neither allocates.  Marking them fresh would auto-banish (and
+                # free) a buffer owned elsewhere: for an owned source that is a
+                # double free, for a literal it is the C1 free(.rodata) crash.
+                if self._string_cast_is_borrowed(curr):
+                    return False
                 return True
             if curr.data == "string_lit" and curr.children:
                 try:
@@ -3450,16 +3500,42 @@ class PenguChecker:
                                     return True
         return False
 
-    def _mentions_set_target(self, stmts: List[Tree], sym_name: str) -> bool:
+    def _mentions_set_target(self, stmts: List[Tree], sym_name: str,
+                             sym_type: Type = None) -> bool:
+        """True when a 'set' on ``sym_name`` stores a value the local does not own.
+
+        Only a *borrowed* rvalue disables auto-banish.  When every assignment
+        moves in a fresh value (literal, constructor, interpolation, or a call
+        whose result owns memory) the local still owns its current value, so it
+        may be released at scope exit; the code generator pairs that with a
+        release-before-assign on each 'set', turning the old O(n) loop leak into
+        O(1).  A 'set s is t' of an existing variable aliases t's buffer, so it
+        must keep the local out of the auto-banish set.
+        """
         for s in stmts:
             if not isinstance(s, Tree):
                 continue
             for st in s.iter_subtrees():
                 if st.data in ("set_stmt", "compound_set_stmt") and st.children:
                     target_node = st.children[0]
-                    if self._is_direct_var_ref(target_node, sym_name):
+                    if not self._is_direct_var_ref(target_node, sym_name):
+                        continue
+                    rhs = self._set_stmt_rvalue(st)
+                    # 'set s is s' is a no-op and keeps the current ownership.
+                    if rhs is not None and self._is_direct_var_ref(rhs, sym_name):
+                        continue
+                    if rhs is None or not self._is_fresh_heap_expr(rhs, sym_type):
                         return True
         return False
+
+    @staticmethod
+    def _set_stmt_rvalue(st: Tree) -> Any:
+        """Rvalue of a 'set'/'compound set' statement (None when unknown)."""
+        if st.data == "set_stmt" and len(st.children) >= 2:
+            return st.children[1]
+        if st.data == "compound_set_stmt" and len(st.children) >= 3:
+            return st.children[2]
+        return None
 
     # Container members that are plain scalars, not views into the buffer: a
     # 'return s.len' must not keep 's' alive (that leaked the buffer).
@@ -3509,7 +3585,12 @@ class PenguChecker:
 
         is_banishable_type = (
             actual == STRING_TYPE or (isinstance(actual, BaseType) and actual.name == "string")
-            or isinstance(actual, (ListType, MapType, MaybeType))
+            or isinstance(actual, (ListType, MapType, MaybeType, ResultType))
+            # An algebraic omen with a heap-owning variant payload has a
+            # generated destructor and must be released at scope exit, exactly
+            # like a list/map: without this every local 'omen Event' leaked.
+            or (isinstance(actual, OmenType) and actual.is_algebraic
+                and type_owns_heap(actual, symbols=self.symbols))
         )
         if not is_banishable_type:
             return False
@@ -3520,7 +3601,7 @@ class PenguChecker:
         scope_stmts = self.block_stmts_stack[-1] if self.block_stmts_stack else []
         if self._mentions_defer_banish(scope_stmts, sym_name):
             return False
-        if self._mentions_set_target(scope_stmts, sym_name):
+        if self._mentions_set_target(scope_stmts, sym_name, actual):
             return False
         prev_self_type = getattr(self, "_escape_self_type", None)
         self._escape_self_type = (sym_name, eff_type)
@@ -3624,7 +3705,7 @@ class PenguChecker:
                     SemanticError,
                     f"Redefinition of '{v_name}' in the same scope",
                     node,
-                    code="E0035",
+                    code="E0053",
                     help=f"Use 'set {v_name} is ...' to reassign, or use a distinct name.",
                     note=f"'{v_name}' was previously declared on line {existing.line}."
                 ))
@@ -3694,7 +3775,8 @@ class PenguChecker:
             if isinstance(eff_type, ArrayType) and isinstance(v_expr, Tree):
                 self._validate_array_literal_size(eff_type, v_expr)
 
-            if v_type is not None and not inferred.is_compatible(v_type):
+            if (v_type is not None and not inferred.is_compatible(v_type)
+                    and not self._accepts_string_omen_variant(inferred, v_type)):
                 err = self._make_type_mismatch_error(
                     expected_type=v_type,
                     found_type=inferred,
@@ -3725,6 +3807,29 @@ class PenguChecker:
             node._pengu_symbol = sym
         except SemanticError as e:
             self._record_error(e)
+
+    @staticmethod
+    def _accepts_string_omen_variant(inferred: Type, declared: Type) -> bool:
+        """True when a string-valued omen variant view initializes that omen type.
+
+        Variants of an 'omen X with string' are typed as 'frozen string' because
+        they are non-owning .rodata views that must not be banished (roadmap
+        0.3 / C5), but an explicitly omen-typed binding still accepts one:
+        'var m as HttpMethod is HttpMethod.Get' is a valid HttpMethod value.
+        """
+        def _unwrap(t: Any) -> Any:
+            u = t
+            while isinstance(u, (AliasType, FrozenType, SealType)):
+                nxt = getattr(u, "target", None) or getattr(u, "underlying", None)
+                if nxt is None or nxt is u:
+                    break
+                u = nxt
+            return u
+        d = _unwrap(declared)
+        if not (isinstance(d, OmenType) and getattr(d, "is_string_valued", False)):
+            return False
+        i = _unwrap(inferred)
+        return isinstance(i, BaseType) and i.name == "string"
 
     @staticmethod
     def _is_void_type_name(t: Any) -> bool:
@@ -3879,11 +3984,12 @@ class PenguChecker:
                     SemanticError,
                     f"Static variable '{v_name}' cannot have an array type ('{eff_type}')",
                     node,
-                    code="E0035",
+                    code="E0055",
                     help="Use a pointer, rune, list, or map type for function-static variables.",
                     note="C arrays cannot be assigned at runtime, so array statics are not supported."
                 )
-            if v_type is not None and not inferred.is_compatible(v_type):
+            if (v_type is not None and not inferred.is_compatible(v_type)
+                    and not self._accepts_string_omen_variant(inferred, v_type)):
                 err = self._make_type_mismatch_error(
                     expected_type=v_type,
                     found_type=inferred,
@@ -3943,7 +4049,7 @@ class PenguChecker:
                         SemanticError,
                         f"Duplicate binding name '{nm}' in destructuring",
                         node,
-                        code="E0035",
+                        code="E0053",
                         help="Use distinct variable names for each destructured element."
                     ))
                     return
@@ -3954,7 +4060,7 @@ class PenguChecker:
                         SemanticError,
                         f"Redefinition of '{nm}' in the same scope",
                         node,
-                        code="E0035",
+                        code="E0053",
                         help=f"Use a distinct name for this binding.",
                         note=f"'{nm}' was previously declared on line {existing.line}."
                     ))
@@ -4025,7 +4131,8 @@ class PenguChecker:
                 if isinstance(eff_type, ArrayType) and isinstance(l_expr, Tree):
                     self._validate_array_literal_size(eff_type, l_expr)
 
-                if l_type is not None and not inferred.is_compatible(l_type):
+                if (l_type is not None and not inferred.is_compatible(l_type)
+                        and not self._accepts_string_omen_variant(inferred, l_type)):
                     err = self._make_type_mismatch_error(
                         expected_type=l_type,
                         found_type=inferred,
@@ -4423,6 +4530,10 @@ class PenguChecker:
                                 note="'let' bindings are immutable in PenguScript."
                             )
                         curr_chk_t = sym.type
+                        # Remember the binding for codegen: release-before-assign
+                        # only fires for a local the checker proved auto-banished
+                        # (never aliased/escaped).
+                        node._pengu_set_var_symbol = sym
                     else:
                         first_acc = target_node.children[1]
                         if isinstance(first_acc, Tree) and first_acc.data in ("dot_access", "at_access"):
@@ -5359,9 +5470,11 @@ class PenguChecker:
                 return False
             if node.data == "sigil_of" and node.children:
                 target = node.children[0]
-                if isinstance(target, Tree) and target.data == "var_ref" and str(target.children[0]) == sym_name:
-                    return True
-                if isinstance(target, Token) and str(target) == sym_name:
+                # 'sigil of x' *and* addresses of a sub-object ('sigil of x.field',
+                # 'sigil of x at 0', 'sigil of x.f.g') all keep x's storage alive:
+                # every one of them is a pointer into x that would dangle once x
+                # is released.  _contains_var_ref understands access chains.
+                if self._contains_var_ref(target, sym_name):
                     return True
             return any(contains_sigil_of(c) for c in node.children if isinstance(c, Tree))
 
@@ -6300,13 +6413,10 @@ class PenguChecker:
 
         span_start, span_end = self._get_node_span(node)
         self.symbols.push_scope(kind="weave", return_type=VOID_TYPE, start_line=span_start, end_line=span_end)
-        test_file = self.filename
-        if test_file:
-            norm_test_file = os.path.abspath(test_file)
-            for name, sym in list(self.symbols.global_scope.symbols.items()):
-                fp = getattr(sym, "file_path", None)
-                if fp and os.path.abspath(fp) == norm_test_file:
-                    self.symbols.define(sym)
+        # NOTE: global symbols stay reachable through the scope chain (lookup
+        # walks parents), so they are deliberately *not* copied into the test
+        # scope: copying them made a legitimate local shadowing a same-file
+        # global ('var last' vs the 'last' weave) a false E0035 redefinition.
         self.block_stmts_stack.append(body_stmts)
         try:
             for stmt in body_stmts:
@@ -6407,6 +6517,53 @@ class PenguChecker:
             self.block_stmts_stack.pop()
         self.symbols.pop_scope(end_line=span_end)
 
+    @staticmethod
+    def _slice_base_var_name(node: Any) -> Optional[str]:
+        """Base variable of a 'slice_at_expr' (through grouping wrappers)."""
+        n = node
+        while (isinstance(n, Tree) and n.data in ("paren_expr", "value_expr", "expr")
+               and len(n.children) == 1):
+            n = n.children[0]
+        if not (isinstance(n, Tree) and n.data == "slice_at_expr" and n.children):
+            return None
+        target = n.children[0]
+        while (isinstance(target, Tree) and target.data in ("paren_expr", "value_expr", "expr")
+               and len(target.children) == 1):
+            target = target.children[0]
+        if isinstance(target, Tree) and target.data == "var_ref" and target.children:
+            return str(target.children[0])
+        return None
+
+    def _check_slice_stack_return(self, expr_node: Any) -> None:
+        """Rejects returning a slice ('arr at a to b') of a stack array.
+
+        A slice is a non-owning view: its ``.data`` points into the array's
+        storage, which is destroyed when the function returns, so the caller
+        would receive a dangling fat pointer.  Heap-backed slices ('list',
+        'slice' parameters, globals) are unaffected.
+        """
+        base = self._slice_base_var_name(expr_node)
+        if base is None:
+            return
+        sym = self.symbols.lookup(base)
+        if sym is None or not isinstance(sym.type, ArrayType):
+            return
+        if self.symbols.global_scope.symbols.get(base) is sym:
+            return  # module-level array: static storage outlives the call
+        if getattr(sym, "is_static", False):
+            return
+        self._record_error(self._make_error(
+            SemanticError,
+            f"Cannot return a slice ('{base} at ...') of the stack array "
+            f"'{base}'; the slice would dangle once the weave returns",
+            expr_node,
+            code="E0051",
+            help=f"Copy the array into a 'list of T' (heap) before slicing, or "
+                 f"return the array by value.",
+            note="A slice only borrows storage; a stack array's storage is "
+                 "destroyed when the weave returns.",
+        ))
+
     def _check_return_stmt(self, node: Tree) -> None:
         """Checks return statement value against enclosing function return type.
 
@@ -6430,6 +6587,7 @@ class PenguChecker:
             return
 
         expr_node = node.children[0]
+        self._check_slice_stack_return(expr_node)
         self._check_value_exprs(expr_node, curr_ret)
         try:
             val_type = self.inferrer.infer(expr_node, expected_type=curr_ret)

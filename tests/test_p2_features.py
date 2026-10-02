@@ -159,15 +159,18 @@ class TestBanishCollections:
     @requires_cc
     @requires_runtime
     def test_banish_list_and_map_codegen_and_run(self):
-        """banish on list and map emits pengu_banish_list and pengu_banish_map and runs cleanly."""
+        """banish on list and map emits pengu_banish_list and pengu_banish_map and runs cleanly.
+
+        Uses 'defer banish' instead of a reassignment to opt out of auto-banish:
+        since the release-before-assign work a 'set' with a fresh value keeps the
+        local auto-owned (a manual 'banish' on it is E0047 by design).
+        """
         src = (
             "weave main into int:\n"
             "    var l as list of string is list of string\n"
-            "    set l is list of string with capacity 4\n"
-            "    banish l\n"
+            "    defer banish l\n"
             "    var m as map of string to int is map of string to int\n"
-            "    set m is {\"key\": 42}\n"
-            "    banish m\n"
+            "    defer banish m\n"
             "    return 0\n"
         )
         c_code = gen_bundle(src)
@@ -673,11 +676,11 @@ class TestPenguBind:
             assert res.returncode == 0
 
     def test_bind_actionable_diagnostics(self, tmp_path):
-        """Unpreprocessed complex header failure raises HeaderParseError with line snippet and tips."""
-        header = REPO / "std_c/xxhash.h"
-        if not header.exists():
-            pytest.skip("std_c/xxhash.h not found")
-        out_file = tmp_path / "xxhash.d.pengu"
+        """A header that cannot be parsed raises HeaderParseError with a line
+        snippet and the actionable tips (--define/--system-includes/...)."""
+        header = tmp_path / "broken.h"
+        header.write_text("NoSuchType x;\n", encoding="utf-8")
+        out_file = tmp_path / "broken.d.pengu"
         with pytest.raises(HeaderParseError) as exc:
             generate_bind_file(str(header), output=str(out_file))
         msg = str(exc.value)
@@ -685,6 +688,16 @@ class TestPenguBind:
         assert "--define" in msg
         assert "--system-includes" in msg
         assert "--cpp-flags" in msg
+
+    def test_bind_complex_header_with_gnu_attributes(self, tmp_path):
+        """Roadmap 0.16: '__attribute__((packed))' and multi-argument attributes
+        no longer leave '((packed))' behind, so std_c/xxhash.h binds cleanly."""
+        header = REPO / "std_c" / "xxhash.h"
+        if not header.exists():
+            pytest.skip("std_c/xxhash.h not found")
+        out_file = tmp_path / "xxhash.d.pengu"
+        generate_bind_file(str(header), output=str(out_file))
+        assert out_file.exists() and out_file.stat().st_size > 0
 
     def test_bind_cli_flags(self):
         """pengu bind CLI flags are properly registered and parsed."""

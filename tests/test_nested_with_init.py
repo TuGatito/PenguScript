@@ -5,6 +5,8 @@ infer the target type from the enclosing with-chain, allocate distinct C
 temporaries (_with_N) without collisions, preserve semantic type safety, and
 correctly lower compound assignment inside nested scopes.
 """
+import re
+
 import pytest
 from lark import Token, Tree
 
@@ -40,8 +42,9 @@ weave main into int:
   return 0
 """
     bundle = gen_bundle(src, filename="test_creation.pengu")
-    assert "_with_1" in bundle
-    assert "_with_2" in bundle
+    # Distinct nested-builder temporaries, regardless of their exact numbers
+    # (release-before-assign also draws from the same temp counter).
+    assert len(set(re.findall(r"_with_\d+", bundle))) >= 2
 
     res = compile_run(src, tag="nested_create")
     assert "New York" in res.stdout
@@ -90,10 +93,10 @@ weave main into int:
     assert jane_idx < la_idx
 
     bundle = gen_bundle(src, filename="test_editing.pengu")
-    # In 'with a:', 'a' is the target; the nested builder creates a fresh _with_3 (or distinct temporary)
-    assert "_with_1" in bundle
-    assert "_with_2" in bundle
-    assert "_with_3" in bundle
+    # In 'with a:', 'a' is the target; the nested builder creates a fresh
+    # (distinct) temporary.  Numbering is not asserted: release-before-assign
+    # shares the counter.
+    assert len(set(re.findall(r"_with_\d+", bundle))) >= 3
 
 
 @requires_runtime
@@ -217,11 +220,11 @@ weave main into int:
   return 0
 """
     bundle = gen_bundle(src, filename="test_regress.pengu")
-    assert "_with_1" in bundle
-    assert "_with_2" in bundle
-    # Verify both temporaries are defined and used
-    assert "Person _with_1 = {0};" in bundle
-    assert "Address _with_2 = {0};" in bundle
+    person_temps = re.findall(r"Person (_with_\d+) = \{0\};", bundle)
+    address_temps = re.findall(r"Address (_with_\d+) = \{0\};", bundle)
+    # Both temporaries are defined, distinct and non-empty.
+    assert person_temps and address_temps
+    assert person_temps[0] != address_temps[0]
 
 
 def test_lookup_with_field_type_resolves_rune_field():

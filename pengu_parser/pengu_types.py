@@ -1741,6 +1741,11 @@ def type_needs_deep_clone(t: Optional[Type], symbols: Any = None) -> bool:
         return u.name == "string"
     if isinstance(u, (ListType, MapType)):
         return True
+    if isinstance(u, (MaybeType, ResultType)):
+        # The code generator emits a per-type clone helper for these: the
+        # payload box must be duplicated even when the payload is a plain
+        # scalar, otherwise push/put would alias the box and double-free it.
+        return True
     if isinstance(u, (RuneType, EchoType, OmenType)):
         derived = set(getattr(u, "derived_concepts", None) or [])
         base_n = u.get_base_name() if hasattr(u, "get_base_name") else getattr(u, "name", "")

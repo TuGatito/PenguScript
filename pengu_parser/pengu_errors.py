@@ -400,16 +400,14 @@ class InvalidBuilderStatementError(SemanticError):
 
 
 class DuplicateConceptBindingError(SemanticError):
-    """E0047: duplicate concept binding or duplicate (type, method) implementation.
+    """E0052: duplicate concept binding or duplicate (type, method) implementation.
 
-    E0047 is shared with :class:`AutoOwnedBanishError`; both are "the program
-    asked for the same thing twice" diagnostics and the message/help text
-    disambiguates.  This one covers two cases: binding the same
-    ``(type, concept)`` pair twice, and two distinct concepts providing the
-    same ``(type, method)`` pair (which a call site could not resolve).
+    Covers two cases: binding the same ``(type, concept)`` pair twice, and two
+    distinct concepts providing the same ``(type, method)`` pair (which a call
+    site could not resolve).
     """
     def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
-        kwargs.setdefault("code", "E0047")
+        kwargs.setdefault("code", "E0052")
         kwargs.setdefault("help", "A type can bind a concept once, and each (type, method) pair only once.")
         kwargs.setdefault("note", "Remove the duplicate 'bind' block or rename the conflicting method.")
         super().__init__(message, line=line, col=col, column=column, **kwargs)

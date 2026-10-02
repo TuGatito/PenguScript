@@ -26,7 +26,7 @@ from lark import Tree, Token
 try:  # The toolchain root (which holds VERSION) is the parent package directory.
     from pengu_version import __version__ as PENGU_VERSION
 except ImportError:  # pragma: no cover - vendored/frozen fallback, guarded by tests
-    PENGU_VERSION = "0.14.0"
+    PENGU_VERSION = "0.15.0"
 
 from pengu_parser.pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ManyType, ListType, MapType, MaybeType,
@@ -447,6 +447,12 @@ class PenguCodegen:
         self.with_stack: List[str] = []
         self.with_type_stack: List[Optional[Type]] = []
         self.auto_banish_stack: List[Tuple[str, List[Tuple[str, Type]]]] = []
+        # Static locals that currently hold an owned heap value ('set' on a
+        # static would otherwise leak the previous buffer on every call).
+        # Lazily-generated per-element cleanup/clone helpers for containers whose
+        # element type has no runtime callback (maybe/result/array).  Keyed by a
+        # structural type signature so 'maybe int' and 'maybe i32' stay distinct.
+        self._elem_helpers: Dict[str, Dict[str, Any]] = {}
         self.temp_counter = 0
 
     def _get_current_with_target_type(self) -> Optional[Type]:
@@ -497,6 +503,9 @@ class PenguCodegen:
                     f"{body}"
                     f"{ind}  free({ident}.value); {ident}.value = NULL; }}\n"
                     f"{ind}{ident}.is_present = false;")
+        if isinstance(actual, ResultType):
+            # Release the payload of the active side and the box itself.
+            return self._release_payload_stmts(actual, f"&{ident}", ind)
         if isinstance(actual, ArrayType) and actual.size is not None:
             idx = self.get_temp_name("_bi")
             inner = self._release_payload_stmts(
@@ -506,6 +515,13 @@ class PenguCodegen:
             return (f"{ind}for (size_t {idx} = 0; {idx} < {actual.size}; ++{idx}) {{\n"
                     f"{inner}\n{ind}}}")
         if isinstance(actual, RuneType):
+            cleanup = self._element_cleanup_fn(actual)
+            if cleanup != "NULL":
+                return f"{ind}{cleanup}((void *)&{ident});"
+        if isinstance(actual, OmenType) and actual.is_algebraic:
+            # Algebraic omens with heap payloads get an implicit destructor;
+            # releasing the *contents* of the active variant is exactly what the
+            # generated cleanup does (it does not free the stack value itself).
             cleanup = self._element_cleanup_fn(actual)
             if cleanup != "NULL":
                 return f"{ind}{cleanup}((void *)&{ident});"
@@ -580,13 +596,35 @@ class PenguCodegen:
             return (f"{ind}for (size_t {idx} = 0; {idx} < {u.size}; ++{idx}) {{\n"
                     f"{inner}\n{ind}}}")
         if isinstance(u, MaybeType):
-            inner = self._release_payload_stmts(u.element, f"{ptr_expr}_m->value", ind + "  ")
+            # The box expression must be materialised *before* recursing: the
+            # old code built the inner statements from '{ptr_expr}_m->value',
+            # which produced invalid C ('x.value_m->value') whenever ptr_expr
+            # was not a plain identifier (e.g. 'm.value' from _emit_auto_banish).
             box = self.get_temp_name("_mb")
+            inner = self._release_payload_stmts(u.element, f"{box}->value", ind + "  ")
+            body = f"{inner}\n" if inner.strip() else ""
             return (f"{ind}{{ PenguMaybe *{box} = (PenguMaybe *)({ptr_expr});\n"
                     f"{ind}  if ({box}->is_present && {box}->value) {{\n"
-                    f"{inner}\n"
+                    f"{body}"
                     f"{ind}    free({box}->value); {box}->value = NULL; }}\n"
                     f"{ind}  {box}->is_present = false; }}")
+        if isinstance(u, ResultType):
+            # Only the active side (ok_val xor err_val) owns a payload box.
+            box = self.get_temp_name("_rb")
+            ok_inner = self._release_payload_stmts(u.ok_type, f"{box}->ok_val", ind + "    ")
+            err_inner = self._release_payload_stmts(u.err_type, f"{box}->err_val", ind + "    ")
+            ok_body = f"{ok_inner}\n" if ok_inner.strip() else ""
+            err_body = f"{err_inner}\n" if err_inner.strip() else ""
+            return (f"{ind}{{ PenguResult *{box} = (PenguResult *)({ptr_expr});\n"
+                    f"{ind}  if ({box}->is_ok) {{\n"
+                    f"{ind}    if ({box}->ok_val) {{\n"
+                    f"{ok_body}"
+                    f"{ind}      free({box}->ok_val); {box}->ok_val = NULL; }} }}\n"
+                    f"{ind}  else {{\n"
+                    f"{ind}    if ({box}->err_val) {{\n"
+                    f"{err_body}"
+                    f"{ind}      free({box}->err_val); {box}->err_val = NULL; }} }}\n"
+                    f"{ind}  }}")
         if isinstance(u, RuneType):
             cleanup = self._element_cleanup_fn(u)
             if cleanup != "NULL":
@@ -594,6 +632,17 @@ class PenguCodegen:
             derived = list(getattr(u, "derived_concepts", []))
             if "Nexus" in derived:
                 return f"{ind}{self._rune_cleanup_helper(u)}((void *)({ptr_expr}));"
+            return ""
+        if isinstance(u, OmenType):
+            # Algebraic omens own the payload of their active variant; the
+            # generated destructor releases it (a simple omen is a bare enum
+            # with nothing to release).  Without this branch 'maybe Omen' and
+            # 'array of Omen' leaked every heap payload.
+            if not u.is_algebraic:
+                return ""
+            cleanup = self._element_cleanup_fn(u)
+            if cleanup != "NULL":
+                return f"{ind}{cleanup}((void *)({ptr_expr}));"
             return ""
         return ""
 
@@ -1463,6 +1512,15 @@ class PenguCodegen:
                 # The helper is emitted per *C* name (self.runes/omens key), which
                 # carries the module 'insignia' prefix.
                 return f"((PenguElemCleanup){self._rune_cleanup_helper(unwrapped)})"
+        if isinstance(unwrapped, (MaybeType, ResultType)):
+            # No runtime callback exists for these: generate a per-type helper
+            # so a 'list of maybe T' deep-copies on push and releases the payload
+            # boxes on banish (previously they were memcpy'd and leaked/freed
+            # twice).  A fixed-size array as a *direct* list element is not
+            # registered: 'CTypeMapper.to_c_type' decays it to a pointer, so the
+            # element size would be wrong (arrays nested inside a maybe/result
+            # are fine and use an explicit sizeof below).
+            return self._elem_cleanup_helper(unwrapped)
         return "NULL"
 
     def _element_clone_fn(self, t: Optional[Type]) -> str:
@@ -1501,7 +1559,222 @@ class PenguCodegen:
                 explicit = self._implicit_lifetime_allowed(self._rune_file_paths.get(c_key, ""))
             if explicit:
                 return f"{self._rune_clone_helper(unwrapped)}"
+        if isinstance(unwrapped, (MaybeType, ResultType)):
+            return self._elem_clone_helper(unwrapped)
         return "NULL"
+
+    def _elem_key(self, t: Optional[Type]) -> str:
+        """Stable C-identifier signature for a container element type."""
+        u = self._unwrap_owned_type(t)
+        if isinstance(u, BaseType):
+            return re.sub(r"[^0-9A-Za-z_]", "_", u.name)
+        if isinstance(u, MaybeType):
+            return "maybe_" + self._elem_key(u.element)
+        if isinstance(u, ResultType):
+            return "result_" + self._elem_key(u.ok_type) + "_" + self._elem_key(u.err_type)
+        if isinstance(u, ArrayType):
+            return f"array_{u.size}_{self._elem_key(u.element)}"
+        if isinstance(u, ListType):
+            return "list_" + self._elem_key(u.element)
+        if isinstance(u, MapType):
+            return "map_" + self._elem_key(u.key) + "_" + self._elem_key(u.value)
+        if isinstance(u, (RuneType, OmenType, EchoType)):
+            return re.sub(r"[^0-9A-Za-z_]", "_", getattr(u, "c_name", None) or u.name)
+        return re.sub(r"[^0-9A-Za-z_]", "_", str(u))
+
+    def _elem_cleanup_helper(self, t: Type) -> str:
+        """Registers (if needed) and names the cleanup helper for element ``t``."""
+        return self._register_elem_helpers(t)["cleanup"]
+
+    def _elem_clone_helper(self, t: Type) -> str:
+        """Registers (if needed) and names the clone helper for element ``t``."""
+        return self._register_elem_helpers(t)["clone"]
+
+    def _value_sizeof(self, t: Optional[Type]) -> str:
+        """C ``sizeof`` expression for one value of ``t`` (arrays included).
+
+        ``CTypeMapper.to_c_type`` decays a fixed array to a pointer, so
+        ``sizeof`` of it would under-allocate a payload box; multiply the
+        element size explicitly instead.
+        """
+        u = self._unwrap_owned_type(t)
+        if isinstance(u, ArrayType) and u.size is not None:
+            return f"(sizeof({CTypeMapper.to_c_type(u.element)}) * {u.size})"
+        return f"sizeof({CTypeMapper.to_c_type(t)})"
+
+    def _clone_owned_box_stmts(self, t: Type, dst_expr: str, src_expr: str) -> str:
+        """Inline statement deep-copying a maybe/result *lvalue* into another.
+
+        Used for rune/omen fields and as the body builder for the generated
+        element helpers, so no helper forward declaration is needed.
+        """
+        u = self._unwrap_owned_type(t)
+        dst_ref = f"&({dst_expr})"
+        src_ref = f"&({src_expr})"
+        # Unique names: a nested maybe/result payload clones inside this same
+        # block, so a fixed 'd'/'s' would shadow the outer pointer and read an
+        # uninitialized 'd->value' (heap-use-after-free/crash).
+        dv = self.get_temp_name("_d")
+        sv = self.get_temp_name("_s")
+        if isinstance(u, MaybeType):
+            inc = CTypeMapper.to_c_type(u.element)
+            inner = self._clone_value_stmts(
+                u.element, f"*({inc} *){dv}->value", f"*(const {inc} *){sv}->value")
+            return (f"{{ PenguMaybe *{dv} = (PenguMaybe *)({dst_ref}); "
+                    f"const PenguMaybe *{sv} = (const PenguMaybe *)({src_ref}); "
+                    f"{dv}->is_present = {sv}->is_present; {dv}->value = NULL; "
+                    f"if ({sv}->is_present && {sv}->value) {{ "
+                    f"{dv}->value = pengu_sigil_alloc({self._value_sizeof(u.element)}); "
+                    f"if (!{dv}->value) {dv}->is_present = false; "
+                    f"else {{ {inner} }} }} }}")
+        if isinstance(u, ResultType):
+            okc = CTypeMapper.to_c_type(u.ok_type)
+            errc = CTypeMapper.to_c_type(u.err_type)
+            ok_inner = self._clone_value_stmts(
+                u.ok_type, f"*({okc} *){dv}->ok_val", f"*(const {okc} *){sv}->ok_val")
+            err_inner = self._clone_value_stmts(
+                u.err_type, f"*({errc} *){dv}->err_val", f"*(const {errc} *){sv}->err_val")
+            return (f"{{ PenguResult *{dv} = (PenguResult *)({dst_ref}); "
+                    f"const PenguResult *{sv} = (const PenguResult *)({src_ref}); "
+                    f"{dv}->is_ok = {sv}->is_ok; {dv}->ok_val = NULL; {dv}->err_val = NULL; "
+                    f"if ({sv}->is_ok && {sv}->ok_val) {{ "
+                    f"{dv}->ok_val = pengu_sigil_alloc({self._value_sizeof(u.ok_type)}); "
+                    f"if (!{dv}->ok_val) {dv}->is_ok = false; else {{ {ok_inner} }} }} "
+                    f"else if (!{sv}->is_ok && {sv}->err_val) {{ "
+                    f"{dv}->err_val = pengu_sigil_alloc({self._value_sizeof(u.err_type)}); "
+                    f"if (!{dv}->err_val) {dv}->is_ok = false; else {{ {err_inner} }} }} }}")
+        return ""
+
+    def _clone_value_stmts(self, t: Optional[Type], dst_expr: str, src_expr: str) -> str:
+        """C statement deep-copying a value of ``t`` from ``src`` into ``dst``.
+
+        ``dst_expr``/``src_expr`` are *lvalues*: the string/list/map/… helpers
+        take them by reference and the POD fallback takes their address.
+        """
+        ct = CTypeMapper.to_c_type(t)
+        stmt = self._derived_field_clone(dst_expr, src_expr, t)
+        if stmt:
+            return stmt
+        return f"memcpy(&({dst_expr}), &({src_expr}), sizeof({ct}));"
+
+    def _register_elem_helpers(self, t: Type) -> Dict[str, Any]:
+        """Builds cleanup/clone helper bodies for a container element type.
+
+        Only maybe/result/array reach here: all other heap-owning element types
+        already have a runtime callback.  The body is generated recursively, so
+        'list of maybe (maybe int)' chains helpers, and the type signatures are
+        inserted before the body is built to keep recursive types from looping.
+        """
+        key = self._elem_key(t)
+        existing = self._elem_helpers.get(key)
+        if existing is not None:
+            return existing
+        entry: Dict[str, Any] = {
+            "cleanup": f"_pengu_elem_cleanup_{key}",
+            "clone": f"_pengu_elem_clone_{key}",
+            "cleanup_body": "  (void)elem;\n",
+            "clone_body": "  (void)dst; (void)src;\n",
+        }
+        self._elem_helpers[key] = entry
+        u = self._unwrap_owned_type(t)
+        if isinstance(u, MaybeType):
+            inc = CTypeMapper.to_c_type(u.element)
+            release = self._release_payload_stmts(u.element, "m->value", "    ")
+            entry["cleanup_body"] = (
+                "  if (!elem) return;\n"
+                "  PenguMaybe *m = (PenguMaybe *)elem;\n"
+                "  if (m->is_present && m->value) {\n"
+                f"{release}\n"
+                "    free(m->value); m->value = NULL;\n"
+                "  }\n"
+                "  m->is_present = false;\n"
+            )
+            entry["clone_body"] = (
+                "  if (!dst || !src) return;\n"
+                "  PenguMaybe *d = (PenguMaybe *)dst;\n"
+                "  const PenguMaybe *s = (const PenguMaybe *)src;\n"
+                "  d->is_present = s->is_present;\n"
+                "  d->value = NULL;\n"
+                "  if (!s->is_present || !s->value) return;\n"
+                f"  d->value = pengu_sigil_alloc({self._value_sizeof(u.element)});\n"
+                "  if (!d->value) { d->is_present = false; return; }\n"
+                f"  {self._clone_value_stmts(u.element, f'*({inc} *)d->value', f'*(const {inc} *)s->value')}\n"
+            )
+        elif isinstance(u, ResultType):
+            okc = CTypeMapper.to_c_type(u.ok_type)
+            errc = CTypeMapper.to_c_type(u.err_type)
+            ok_rel = self._release_payload_stmts(u.ok_type, "r->ok_val", "      ")
+            err_rel = self._release_payload_stmts(u.err_type, "r->err_val", "      ")
+            entry["cleanup_body"] = (
+                "  if (!elem) return;\n"
+                "  PenguResult *r = (PenguResult *)elem;\n"
+                "  if (r->is_ok) {\n"
+                "    if (r->ok_val) {\n"
+                f"{ok_rel}\n"
+                "      free(r->ok_val); r->ok_val = NULL;\n"
+                "    }\n"
+                "  } else {\n"
+                "    if (r->err_val) {\n"
+                f"{err_rel}\n"
+                "      free(r->err_val); r->err_val = NULL;\n"
+                "    }\n"
+                "  }\n"
+            )
+            entry["clone_body"] = (
+                "  if (!dst || !src) return;\n"
+                "  PenguResult *d = (PenguResult *)dst;\n"
+                "  const PenguResult *s = (const PenguResult *)src;\n"
+                "  d->is_ok = s->is_ok;\n"
+                "  d->ok_val = NULL; d->err_val = NULL;\n"
+                "  if (s->is_ok && s->ok_val) {\n"
+                f"    d->ok_val = pengu_sigil_alloc({self._value_sizeof(u.ok_type)});\n"
+                "    if (!d->ok_val) { d->is_ok = false; return; }\n"
+                f"    {self._clone_value_stmts(u.ok_type, f'*({okc} *)d->ok_val', f'*(const {okc} *)s->ok_val')}\n"
+                "  } else if (!s->is_ok && s->err_val) {\n"
+                f"    d->err_val = pengu_sigil_alloc({self._value_sizeof(u.err_type)});\n"
+                "    if (!d->err_val) { d->is_ok = false; return; }\n"
+                f"    {self._clone_value_stmts(u.err_type, f'*({errc} *)d->err_val', f'*(const {errc} *)s->err_val')}\n"
+                "  }\n"
+            )
+        elif isinstance(u, ArrayType) and u.size is not None:
+            # Defensive: a fixed array as a direct list element is not registered
+            # (CTypeMapper decays it to a pointer), but an array nested inside a
+            # maybe/result payload reaches the inline loop in
+            # _derived_field_clone instead, so this path is only a safety net.
+            inc = CTypeMapper.to_c_type(u.element)
+            release = self._release_payload_stmts(u.element, "(&a[i])", "    ")
+            entry["cleanup_body"] = (
+                "  if (!elem) return;\n"
+                f"  {inc} *a = ({inc} *)elem;\n"
+                f"  for (size_t i = 0; i < {u.size}; ++i) {{\n"
+                f"{release}\n"
+                "  }\n"
+            )
+            entry["clone_body"] = (
+                "  if (!dst || !src) return;\n"
+                f"  const {inc} *s = (const {inc} *)src;\n"
+                f"  {inc} *d = ({inc} *)dst;\n"
+                f"  for (size_t i = 0; i < {u.size}; ++i) {{\n"
+                f"    {self._clone_value_stmts(u.element, 'd[i]', 's[i]')}\n"
+                "  }\n"
+            )
+        return entry
+
+    def _render_element_helpers(self) -> Tuple[str, str]:
+        """Forward declarations and definitions of the generated element helpers."""
+        if not self._elem_helpers:
+            return "", ""
+        decls: List[str] = ["/* --- Generated container element helpers --- */"]
+        defs: List[str] = []
+        for entry in self._elem_helpers.values():
+            decls.append(f"static void {entry['cleanup']}(void *elem);")
+            decls.append(f"static void {entry['clone']}(void *dst, const void *src);")
+        for entry in self._elem_helpers.values():
+            defs.append(f"static void {entry['cleanup']}(void *elem) {{\n"
+                        f"{entry['cleanup_body']}}}")
+            defs.append(f"static void {entry['clone']}(void *dst, const void *src) {{\n"
+                        f"{entry['clone_body']}}}")
+        return "\n".join(decls), "\n".join(defs)
 
     def _format_const_val(self, val: Any, expected_type: Optional[Type] = None) -> str:
         """Formats evaluated constant Python value into C literal."""
@@ -2631,6 +2904,112 @@ class PenguCodegen:
             return len(target.children) > 1
         return target.data == "essence_target"
 
+    @staticmethod
+    def _unwrap_owned_type(t: Optional[Type]) -> Optional[Type]:
+        u = t
+        while isinstance(u, (AliasType, FrozenType, SealType)):
+            nxt = getattr(u, "target", None) or getattr(u, "underlying", None)
+            if nxt is None or nxt is u:
+                break
+            u = nxt
+        return u
+
+    def _release_value_stmts(self, t: Optional[Type], ptr_expr: str, ind: str) -> str:
+        """C statement(s) releasing the owned contents of ``*(ptr_expr)``.
+
+        ``ptr_expr`` is a pointer to a value of type ``t``; the value itself is
+        not freed (for a stack local that is the auto-banish's semantics).  A
+        maybe/result additionally frees its payload box.
+        """
+        u = self._unwrap_owned_type(t)
+        if isinstance(u, (MaybeType, ResultType)):
+            return self._release_payload_stmts(u, ptr_expr, ind)
+        if isinstance(u, BaseType) and u.name == "string":
+            return f"{ind}pengu_banish_string((PenguString *)({ptr_expr}));"
+        if isinstance(u, ListType):
+            return f"{ind}pengu_banish_list((PenguList *)({ptr_expr}));"
+        if isinstance(u, MapType):
+            return f"{ind}pengu_banish_map((PenguMap *)({ptr_expr}));"
+        return ""
+
+    def _target_local_name(self, target: Any) -> Optional[str]:
+        """Name of a plain local-variable `set` target, else None."""
+        if isinstance(target, Token):
+            return str(target) if getattr(target, "type", None) == "NAME" else None
+        if isinstance(target, Tree):
+            if target.data == "var_ref" and target.children:
+                return str(target.children[0])
+            if (target.data == "normal_target" and len(target.children) == 1
+                    and isinstance(target.children[0], Token)):
+                return str(target.children[0])
+        return None
+
+    @staticmethod
+    def _expr_is_plain_var_ref(expr_node: Any, name: str) -> bool:
+        """True when the rvalue is exactly the variable ``name`` (self-assign)."""
+        node = expr_node
+        while (isinstance(node, Tree) and node.data in ("paren_expr", "value_expr", "expr")
+               and len(node.children) == 1):
+            node = node.children[0]
+        if isinstance(node, Token):
+            return str(node) == name
+        return (isinstance(node, Tree) and node.data == "var_ref"
+                and node.children and str(node.children[0]) == name)
+
+    def _should_release_before_assign(self, inner_target: Any, target_type: Optional[Type],
+                                      expr_node: Any, set_node: Any = None) -> bool:
+        """Whether overwriting this `set` target must release its previous value.
+
+        Deliberately narrow: the previous value is released only for a local
+        that the checker marked *auto-banished*.  That flag proves the binding
+        never escapes or aliases (no 'var b is a', no shallow container store,
+        no return), so no other live binding can still reference the buffer
+        being released.  Releasing a struct field/element is *not* done: another
+        view ('var a is xs at i') can alias the old cell and would dangle.
+        """
+        u = self._unwrap_owned_type(target_type)
+        if not isinstance(u, (BaseType, ListType, MapType, MaybeType, ResultType)):
+            return False
+        if isinstance(u, BaseType) and u.name != "string":
+            return False
+        local_name = self._target_local_name(inner_target)
+        if local_name is None:
+            return False
+        sym = getattr(set_node, "_pengu_set_var_symbol", None)
+        if sym is None:
+            sym = getattr(inner_target, "_pengu_symbol", None)
+        if sym is None and self.symbols:
+            sym = self.symbols.lookup(local_name)
+        if not (sym and getattr(sym, "is_auto_banished", False)):
+            return False
+        # 'set s is s' aliases: releasing first would leave s pointing at freed
+        # memory.
+        return not self._expr_is_plain_var_ref(expr_node, local_name)
+
+    def _release_before_assign_stmts(self, inner_target: Any, target_type: Optional[Type],
+                                     expr_node: Any, target_str: str,
+                                     assign_stmt: str, ind: str,
+                                     set_node: Any = None) -> str:
+        """Wraps ``target = value`` so the previous owned value is released.
+
+        A temporary holds the old value and is released *after* the assignment:
+        an rvalue that reads the slot ('set s is s + "x"', 'set h.name is
+        h.name') is therefore evaluated against the still-live buffer.
+        """
+        if not self._should_release_before_assign(inner_target, target_type, expr_node,
+                                                  set_node):
+            return ""
+        tmp = self.get_temp_name("_old")
+        decl = CTypeMapper.to_c_decl(target_type, tmp) if target_type is not None else f"__auto_type {tmp}"
+        release = self._release_value_stmts(target_type, f"&{tmp}", ind + "  ")
+        if not release.strip():
+            return ""
+        return (f"{ind}{{\n"
+                f"{ind}  {decl} = {target_str};\n"
+                f"{ind}  {assign_stmt}\n"
+                f"{release}\n"
+                f"{ind}}}")
+
     def _derived_type_c_name(self, t: Type) -> str:
         """Best C name for a user type used as a derived-concept field."""
         c = getattr(t, "c_name", None)
@@ -2736,6 +3115,11 @@ class PenguCodegen:
             return f"{self._rune_clone_helper(u)}(&({dst_expr}), &({src_expr}));"
         if isinstance(u, OmenType) and u.is_algebraic:
             return f"{self._rune_clone_helper(u)}(&({dst_expr}), &({src_expr}));"
+        if isinstance(u, (MaybeType, ResultType)):
+            # Inline (no generated helper call): rune/omen deep-copy helpers are
+            # emitted before the element-helper forward declarations, so calling
+            # one from here would be an implicit declaration of a later 'static'.
+            return self._clone_owned_box_stmts(u, dst_expr, src_expr)
         if isinstance(u, ArrayType) and u.size is not None:
             idx = self.get_temp_name("_ai")
             elem_stmt = self._derived_field_clone(
@@ -2760,6 +3144,8 @@ class PenguCodegen:
             return f"{self._rune_cleanup_helper(u)}(&({acc_expr}));"
         if isinstance(u, OmenType) and u.is_algebraic:
             return f"{self._rune_cleanup_helper(u)}(&({acc_expr}));"
+        if isinstance(u, (MaybeType, ResultType)):
+            return self._release_payload_stmts(u, f"&({acc_expr})")
         if isinstance(u, ArrayType) and u.size is not None:
             idx = self.get_temp_name("_ai")
             elem_stmt = self._derived_field_nexus(f"{acc_expr}[{idx}]", u.element)
@@ -4048,6 +4434,11 @@ class PenguCodegen:
             if is_lvalue and rune_name and rune_name in self.runes and len(self.runes[rune_name]) >= 3:
                 return f"{ind}memcpy(&({target_str}), &({expr_str}), sizeof({rune_name}));"
 
+            assign_stmt = f"{target_str} = {expr_str};"
+            release = self._release_before_assign_stmts(
+                inner_target, target_type, expr_node, target_str, assign_stmt, ind, node)
+            if release:
+                return release
             return f"{ind}{target_str} = {expr_str};"
 
         elif rule == "compound_set_stmt":
@@ -4389,6 +4780,23 @@ class PenguCodegen:
             f"{ind}}}))"
         )
 
+    def _range_counter_ctype(self, node: Tree) -> str:
+        """C type of a 'for i from a to b [step s]' counter.
+
+        Roadmap 0.11: the counter follows the inferred type of the bounds.  An
+        'int' range keeps 'int32_t'; a 64-bit bound (i64/u64/usize) promotes the
+        counter to 'int64_t' so a large range is not truncated.
+        """
+        def _is_64bit(t: Optional[Type]) -> bool:
+            u = self._unwrap_owned_type(t)
+            return isinstance(u, BaseType) and u.name in (
+                "i64", "u64", "usize", "isize", "int64", "uint64", "int64_t", "uint64_t")
+        for idx in (1, 2, 3):
+            if idx < len(node.children) and node.children[idx] is not None:
+                if _is_64bit(self._infer_node_type(node.children[idx])):
+                    return "int64_t"
+        return "int32_t"
+
     def _translate_for_range(self, node: Tree, append_ctx=None) -> str:
         """Translates for i from start to end [step s] loop."""
         ind = self.indent()
@@ -4399,10 +4807,11 @@ class PenguCodegen:
         step_node = node.children[3] if len(node.children) == 5 and node.children[3] is not None else None
         step_str = self._translate_expr(step_node) if step_node is not None else "1"
         block_node = node.children[-1]
+        counter_t = self._range_counter_ctype(node)
 
         _MISSING = object()
         prev_var = self.local_vars.get(var_name, _MISSING)
-        self.local_vars[var_name] = INT_TYPE
+        self.local_vars[var_name] = I64_TYPE if counter_t == "int64_t" else INT_TYPE
         self.indent_level += 1
         body_str = self._translate_loop_body(block_node, append_ctx)
         self.indent_level -= 1
@@ -4416,15 +4825,15 @@ class PenguCodegen:
             if step_val < 0:
                 cond_c = f"{c_var_name} > {end_str}"
                 step_c = f"{c_var_name}--" if step_val == -1 else f"{c_var_name} += {step_str}"
-                loop_header = f"for (int64_t {c_var_name} = {start_str}; {cond_c}; {step_c})"
+                loop_header = f"for ({counter_t} {c_var_name} = {start_str}; {cond_c}; {step_c})"
             else:
                 cond_c = f"{c_var_name} < {end_str}"
                 step_c = f"{c_var_name}++" if step_val == 1 else f"{c_var_name} += {step_str}"
-                loop_header = f"for (int64_t {c_var_name} = {start_str}; {cond_c}; {step_c})"
+                loop_header = f"for ({counter_t} {c_var_name} = {start_str}; {cond_c}; {step_c})"
         else:
             _step_tmp = self.get_temp_name("_step")
             cond_c = f"({_step_tmp} > 0 ? {c_var_name} < {end_str} : ({_step_tmp} < 0 ? {c_var_name} > {end_str} : false))"
-            loop_header = f"for (int64_t {c_var_name} = {start_str}, {_step_tmp} = {step_str}; {cond_c}; {c_var_name} += {_step_tmp})"
+            loop_header = f"for ({counter_t} {c_var_name} = {start_str}, {_step_tmp} = {step_str}; {cond_c}; {c_var_name} += {_step_tmp})"
 
         return f"{ind}{loop_header} {{\n{body_str}\n{ind}}}"
 
@@ -5360,6 +5769,12 @@ class PenguCodegen:
                 return True
         elif isinstance(u, BaseType) and u.name == "string":
             return self._expr_allocates_string(node)
+        elif isinstance(u, (MaybeType, ResultType)):
+            # 'some x' / 'calling ok_of with x' box a fresh payload; a
+            # deep-copying consumer (list push, 'some' itself) leaves that
+            # temporary orphaned unless it is released afterwards.
+            if un.data in ("some_expr", "ok_expr", "err_expr"):
+                return True
         return False
 
     def _expr_allocates_string(self, node: Any) -> bool:
@@ -5658,11 +6073,23 @@ class PenguCodegen:
         # this expression: the payload is *moved* into the result and only the
         # box allocation is released here.  A direct reference to a local must
         # not be freed (the local still owns its box); a result box may belong to
-        # the C side, so it is left alone.
-        own_box = (is_maybe and isinstance(left_op, Tree)
-                   and left_op.data in ("some_expr", "maybe_none", "calling_expr",
-                                        "or_block", "or_else", "if_stmt", "do_expr"))
+        # the C side, so it is left alone.  Look through grouping parentheses:
+        # '(some s) or:' arrives as paren_expr(some_expr(...)) and used to keep
+        # the box (and its payload) allocated forever.
+        own_box_op = left_op
+        while (isinstance(own_box_op, Tree)
+               and own_box_op.data in ("paren_expr", "value_expr", "expr")
+               and len(own_box_op.children) == 1):
+            own_box_op = own_box_op.children[0]
+        own_box = (is_maybe and isinstance(own_box_op, Tree)
+                   and own_box_op.data in ("some_expr", "maybe_none", "calling_expr",
+                                           "or_block", "or_else", "if_stmt", "do_expr"))
         if own_box:
+            # The payload is *moved* into the result by the assignment above
+            # ('x = *(PenguString*)box.value' shares the buffer), so only the
+            # box allocation may be released here: releasing the payload would
+            # free memory the result now owns.  The result's own auto-banish is
+            # responsible for the moved value.
             ok_free = (f"  free({tmp_res}.value); {tmp_res}.value = NULL;\n"
                        f"  {tmp_res}.is_present = false;\n")
             fail_free = f"  pengu_banish_maybe(&{tmp_res});\n"
@@ -5888,6 +6315,10 @@ class PenguCodegen:
         ind = self.indent()
         if clone_fn != "NULL":
             store = f"{ind}  else {{ {clone_fn}({res_tmp}.{side}, &({tmp})); }}"
+            if self._expr_owns_value(arg_node, arg_t):
+                cleanup_fn = self._element_cleanup_fn(arg_t)
+                if cleanup_fn != "NULL":
+                    store += f"\n{ind}  {cleanup_fn}((void *)&({tmp}));"
         else:
             store = f"{ind}  else memcpy({res_tmp}.{side}, &({tmp}), sizeof({tmp}));"
         return (
@@ -6371,8 +6802,12 @@ class PenguCodegen:
         # 3b. 'some expr': heap-box a value into a present PenguMaybe.
         elif rule == "some_expr":
             arg_node = node.children[0]
-            arg_c = self._translate_expr(arg_node)
-            arg_t = self._infer_node_type(arg_node)
+            # The element type of the target 'maybe T' is authoritative when the
+            # payload has no inferable type of its own (e.g. a struct literal
+            # 'some (with f is 1)'), which used to fail with E0005.
+            arg_expected = expected_type.element if isinstance(expected_type, MaybeType) else None
+            arg_c = self._translate_expr(arg_node, expected_type=arg_expected)
+            arg_t = self._infer_node_type(arg_node) or arg_expected
             if arg_t is None:
                 if isinstance(arg_node, Tree) and arg_node.data in ("int_lit", "true_lit", "false_lit"):
                     arg_t = INT_TYPE
@@ -6400,6 +6835,13 @@ class PenguCodegen:
             ind = self.indent()
             if clone_fn != "NULL":
                 store = (f"{ind}  else {{ {clone_fn}({maybe_tmp}.value, &({tmp})); }}")
+                # The box owns a deep copy; a fresh temporary payload has no
+                # other owner and must be released (a nested 'some (some x)'
+                # leaked the inner box).
+                if self._expr_owns_value(arg_node, arg_t):
+                    cleanup_fn = self._element_cleanup_fn(arg_t)
+                    if cleanup_fn != "NULL":
+                        store += f"\n{ind}  {cleanup_fn}((void *)&({tmp}));"
             else:
                 store = f"{ind}  else memcpy({maybe_tmp}.value, &({tmp}), sizeof({tmp}));"
             return (
@@ -6441,6 +6883,10 @@ class PenguCodegen:
             ind = self.indent()
             if clone_fn != "NULL":
                 store = f"{ind}  else {{ {clone_fn}({res_tmp}.{side}, &({tmp})); }}"
+                if self._expr_owns_value(arg_node, arg_t):
+                    cleanup_fn = self._element_cleanup_fn(arg_t)
+                    if cleanup_fn != "NULL":
+                        store += f"\n{ind}  {cleanup_fn}((void *)&({tmp}));"
             else:
                 store = f"{ind}  else memcpy({res_tmp}.{side}, &({tmp}), sizeof({tmp}));"
             return (
@@ -7667,13 +8113,34 @@ class PenguCodegen:
                                 exp_child_type = self.echos[unwrapped_struct_t.name][f_name]
                         elif isinstance(unwrapped_struct_t, OmenType):
                             if f_raw in unwrapped_struct_t.variants:
-                                exp_child_type = RuneType(name=f_raw, fields=unwrapped_struct_t.variants[f_raw])
+                                v_fields = unwrapped_struct_t.variants[f_raw] or {}
+                                # 'with Msg is "x"' gives the payload directly:
+                                # the expected type is the variant's only field,
+                                # not the variant struct (passing the struct made
+                                # '[1, 2, 3]' lower to an invalid PenguList
+                                # initializer).  A nested 'with ... is with ...'
+                                # keeps the struct type so its fields resolve.
+                                value_node = f.children[1] if len(f.children) > 1 else None
+                                nested_init = (isinstance(value_node, Tree)
+                                               and value_node.data == "struct_init")
+                                if len(v_fields) == 1 and not nested_init:
+                                    exp_child_type = next(iter(v_fields.values()))
+                                else:
+                                    exp_child_type = RuneType(name=f_raw, fields=v_fields)
                             elif f_name in unwrapped_struct_t.variants:
-                                exp_child_type = RuneType(name=f_name, fields=unwrapped_struct_t.variants[f_name])
+                                v_fields = unwrapped_struct_t.variants[f_name] or {}
+                                value_node = f.children[1] if len(f.children) > 1 else None
+                                nested_init = (isinstance(value_node, Tree)
+                                               and value_node.data == "struct_init")
+                                if len(v_fields) == 1 and not nested_init:
+                                    exp_child_type = next(iter(v_fields.values()))
+                                else:
+                                    exp_child_type = RuneType(name=f_name, fields=v_fields)
 
                     f_val = self._translate_expr(f.children[1], expected_type=exp_child_type) if (len(f.children) > 1 and f.children[1] is not None) else None
                     # Struct fields own their strings: copy unless the value is
                     # a fresh temporary being moved in (see _string_slot_value).
+                    # This holds for rune, echo and algebraic-omen slots alike.
                     if f_val is not None and self._is_string_type(exp_child_type):
                         f_val = self._string_slot_value(f.children[1], f_val)
                     field_inits.append((f_name, f_val, f_raw))
@@ -8557,32 +9024,44 @@ class PenguCodegen:
         sections.append("")
 
 
-        sections.append(self.generate_forward_declarations())
-        sections.append(self.generate_type_definitions())
-        sections.append(self.generate_derived_implementations())
-        sections.append(self.generate_constants())
-        sections.append(self.generate_function_prototypes())
-        sections.append(self._generated_c_reset())
-        sections.append(self.generate_lambdas())
-        sections.append(self.generate_function_definitions())
-        sections.append(self._generated_c_reset())
-
-        if is_test:
-            test_section = self.generate_test_section()
-            if test_section:
-                sections.append(test_section)
-        else:
-            test_section = ""
-
+        # Generate every section before assembling so the lazily-registered
+        # element helpers (list of maybe/result/array) are all known: they are
+        # emitted as forward declarations before the function definitions and as
+        # definitions after them.  Relative generation order is unchanged, and
+        # the test section is generated here too because its bodies can also
+        # require element helpers.
+        forward_decls = self.generate_forward_declarations()
+        type_defs = self.generate_type_definitions()
+        derived_impls = self.generate_derived_implementations()
+        constants = self.generate_constants()
+        prototypes = self.generate_function_prototypes()
+        lambdas_code = self.generate_lambdas()
+        function_defs = self.generate_function_definitions()
+        test_section = self.generate_test_section() if is_test else ""
+        entry_code = ""
         if not is_library:
-            if is_test:
-                entry_code = self.generate_test_entry_point()
-                if entry_code:
-                    sections.append(entry_code)
-            else:
-                entry_code = self.generate_entry_point()
-                if entry_code:
-                    sections.append(entry_code)
+            entry_code = (self.generate_test_entry_point() if is_test
+                          else self.generate_entry_point())
+        elem_decls, elem_defs = self._render_element_helpers()
+
+        sections.append(forward_decls)
+        sections.append(type_defs)
+        sections.append(derived_impls)
+        if elem_decls:
+            sections.append(elem_decls)
+        sections.append(constants)
+        sections.append(prototypes)
+        sections.append(self._generated_c_reset())
+        sections.append(lambdas_code)
+        sections.append(function_defs)
+        if elem_defs:
+            sections.append(elem_defs)
+        sections.append(self._generated_c_reset())
+
+        if test_section:
+            sections.append(test_section)
+        if entry_code:
+            sections.append(entry_code)
 
         bundle_code = "\n".join(sections)
 

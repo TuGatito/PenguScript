@@ -162,7 +162,7 @@ rune CycleB:
 
 
 def test_duplicate_concept_binding_raises_e0047():
-    """Bug 10: Duplicate concept binding for the same type raises E0047."""
+    """Bug 10: Duplicate concept binding for the same type raises E0052."""
     check_error("""
 concept Showable:
     weave show with self as self into string
@@ -174,7 +174,7 @@ bind int with Showable:
 bind int with Showable:
     weave show with self as self into string:
         return "int again"
-""", contains="E0047")
+""", contains="E0052")
 
 
 @requires_cc

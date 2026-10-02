@@ -1,4 +1,4 @@
-# EXPECTED: E0047
+# EXPECTED: E0052
 # EXPECTED TO FAIL: E0047 — duplicate binding of the same concept.
 rune Foo:
     x as int

@@ -1,4 +1,4 @@
-# EXPECTED: E0047
+# EXPECTED: E0052
 # EXPECTED TO FAIL: E0047 — two concepts provide the same method on one type.
 rune Bar:
     x as int

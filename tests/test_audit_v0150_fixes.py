@@ -240,7 +240,7 @@ weave main into int:
 # ─── C8: Reject redeclaration in the same scope ───────────────────────
 class TestC8_RedeclarationError:
     def test_redefinition_in_same_scope_rejected(self):
-        """Redefining a variable or let in the same scope produces E0035."""
+        """Redefining a variable or let in the same scope produces E0053."""
         from pengu_parser.pengu_errors import SemanticError
         from pengu_parser.pengu_checker import PenguChecker
         from pengu_parser.pengu_parser import PenguParser
@@ -255,7 +255,7 @@ weave main into void:
 """
         with pytest.raises(SemanticError) as exc_info:
             checker.check(p.parse(code_var))
-        assert exc_info.value.code == "E0035"
+        assert exc_info.value.code == "E0053"
 
         code_let = """
 weave main into void:
@@ -264,7 +264,7 @@ weave main into void:
 """
         with pytest.raises(SemanticError) as exc_info:
             checker.check(p.parse(code_let))
-        assert exc_info.value.code == "E0035"
+        assert exc_info.value.code == "E0053"
 
         code_var_let = """
 weave main into void:
@@ -273,7 +273,7 @@ weave main into void:
 """
         with pytest.raises(SemanticError) as exc_info:
             checker.check(p.parse(code_var_let))
-        assert exc_info.value.code == "E0035"
+        assert exc_info.value.code == "E0053"
 
         code_destruct_dup = """
 weave main into void:
@@ -281,7 +281,7 @@ weave main into void:
 """
         with pytest.raises(SemanticError) as exc_info:
             checker.check(p.parse(code_destruct_dup))
-        assert exc_info.value.code == "E0035"
+        assert exc_info.value.code == "E0053"
 
     def test_nested_scope_shadowing_allowed(self):
         """Shadowing in a distinct inner block scope is permitted."""

@@ -488,7 +488,8 @@ class PenguBuilder:
                     self.compile_env.defines.pop(old_compiler, None)
                     self.compile_env.defines[compiler_name] = True
         from pengu_parser.pengu_checker import PenguChecker as _PenguChecker
-        self.checker = _PenguChecker(base_dir=config.base_dir, compile_env=self.compile_env)
+        self.checker = _PenguChecker(base_dir=config.base_dir, compile_env=self.compile_env,
+                                     lib_dir=getattr(config, "lib_dir", "lib"))
         # Verbose mode: print the resolved module order, the exact C commands
         # being executed and phase timings.
         self.verbose = False
@@ -989,7 +990,8 @@ class PenguBuilder:
         module_order: List[str] = []
         if os.path.isfile(entry_abs):
             from pengu_parser.pengu_symbols import resolve_imports as _resolve_imports
-            module_order = _resolve_imports(self.config.base_dir, entry_abs, self.parser)
+            module_order = _resolve_imports(self.config.base_dir, entry_abs, self.parser,
+                                            lib_dir=getattr(self.config, "lib_dir", "lib"))
         elif self.source_code is not None:
             module_order = [entry_abs]
         else:
@@ -1104,7 +1106,8 @@ class PenguBuilder:
         if os.path.isfile(entry_abs):
             try:
                 from pengu_parser.pengu_symbols import resolve_imports as _resolve_imports
-                module_order = _resolve_imports(self.config.base_dir, entry_abs, self.parser)
+                module_order = _resolve_imports(self.config.base_dir, entry_abs, self.parser,
+                                            lib_dir=getattr(self.config, "lib_dir", "lib"))
             except Exception as e:  # noqa: BLE001 - parse/import failure in the entry graph
                 err_line = getattr(e, "line", None) or 0
                 err_col = getattr(e, "column", None) or getattr(e, "col", None) or 0

@@ -875,16 +875,24 @@ def _default_stub_dir() -> str:
 
 
 GNU_EXTENSION_BLANKING_FLAGS: List[str] = [
-    "-D__attribute__(x)=",
-    "-D__attribute__=",
+    # A *function-like* variadic macro is the only way to erase a GNU attribute
+    # together with its (possibly multi-comma) argument list:
+    # '__attribute__((aligned(8), packed))' -> ''.  Defining the object-like
+    # '-D__attribute__=' as well would override this one and leave '((packed))'
+    # behind, which pycparser rejects ("Invalid struct/union declaration").
+    "-D__attribute__(...)=",
     "-D__extension__=",
     "-D__restrict=",
     "-D__restrict__=",
     "-D__inline__=inline",
     "-D__inline=inline",
-    "-D__asm__(x)=",
+    "-D__asm__(...)=",
+    # '__asm__ __volatile__(...)' has no parentheses right after the first
+    # token, so it needs the object-like form (defined last: it wins).  Unlike
+    # '__attribute__', the two never combine into an invalid fragment because
+    # no common header writes '__asm__((...))'.
     "-D__asm__=",
-    "-D__declspec(x)=",
+    "-D__declspec(...)=",
     "-D__volatile__=volatile",
 ]
 

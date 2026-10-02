@@ -408,7 +408,11 @@ def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
         base_dir = os.path.dirname(file_path)
 
     parser = PenguParser()
-    checker = PenguChecker(base_dir=base_dir)
+    # Mirror the builder: resolve imports from the *project root* and honour the
+    # manifest's 'lib_dir' (a project may keep bindings outside './lib').
+    project_root = _project_root_for_path(file_path) if file_path else base_dir
+    checker = PenguChecker(base_dir=project_root,
+                           lib_dir=_lib_dir_for_project(project_root))
 
     try:
         tree = parser.parse(source)
@@ -732,6 +736,22 @@ def _project_root_for_path(file_path: str) -> str:
             break
         cur = parent
     return start
+
+
+def _lib_dir_for_project(project_root: str) -> str:
+    """Reads ``lib_dir`` from the project's manifest (default ``'lib'``).
+
+    The LSP used to look for bindings exclusively in ``./lib``, so a project
+    with ``lib_dir: "external"`` reported every import from that directory as
+    unresolved (roadmap 0.20).  Falls back to ``'lib'`` when there is no
+    manifest or it cannot be read.
+    """
+    try:
+        from pengu_project import ProjectConfig
+        cfg = ProjectConfig.load(project_root)
+        return getattr(cfg, "lib_dir", "lib") or "lib"
+    except Exception:
+        return "lib"
 
 
 @server.feature(TEXT_DOCUMENT_IMPLEMENTATION)

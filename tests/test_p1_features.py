@@ -142,8 +142,8 @@ class TestStructArrays:
         res = compile_run(src, tag="p1_color_arr")
         assert "colors=2" in res.stdout
 
-    def test_real_ambiguity_e0011(self):
-        """Truly ambiguous struct initialization with multiple distinct runes triggers E0011 without duplicates."""
+    def test_real_ambiguity_e0054(self):
+        """Truly ambiguous struct initialization with multiple distinct runes triggers E0054 without duplicates."""
         src = (
             "rune PointA:\n"
             "    x as float\n"
