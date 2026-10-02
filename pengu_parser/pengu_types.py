@@ -500,17 +500,17 @@ class RefType(Type):
         if isinstance(other, AliasType):
             return self.is_compatible(other.target)
         if isinstance(other, RefType):
-            # C treats both 'void*' and 'const void*' as the catch-all object
-            # pointer: any 'T*' (mutable or frozen) converts to either of them.
-            if _is_void_pointer_target(self.target) or _is_void_pointer_target(other.target):
-                return True
-
             # Directional frozen check:
-            # For typed pointers (non-void), ref to frozen T can NEVER flow into ref to mutable T.
+            # ref to frozen T can NEVER flow into ref to mutable T (including mutable void*).
             self_frozen = _is_frozen_target(self.target)
             other_frozen = _is_frozen_target(other.target)
             if self_frozen and not other_frozen:
                 return False
+
+            # C treats 'void*' (or 'const void*' if frozen) as the catch-all object
+            # pointer: any 'T*' converts to either of them subject to const-correctness.
+            if _is_void_pointer_target(self.target) or _is_void_pointer_target(other.target):
+                return True
 
             # Strict pointee check: pointees must match strictly (or char <-> byte exception).
             return _same_pointee(self.target, other.target)

@@ -4423,8 +4423,20 @@ class PenguChecker:
                         elif isinstance(acc, Tree) and acc.data == "at_access":
                             if isinstance(target_type, RefType):
                                 unwrapped_tgt = target_type.target
+                                is_ptr_tgt_frozen = False
                                 while isinstance(unwrapped_tgt, (AliasType, FrozenType)):
+                                    if isinstance(unwrapped_tgt, FrozenType):
+                                        is_ptr_tgt_frozen = True
                                     unwrapped_tgt = unwrapped_tgt.target
+                                if is_ptr_tgt_frozen or isinstance(target_type, FrozenType):
+                                    raise self._make_error(
+                                        MutabilityError,
+                                        f"Cannot mutate element through pointer to frozen type '{target_type}'",
+                                        acc,
+                                        code="E0006",
+                                        help="Drop 'frozen' from the pointee type to allow mutation.",
+                                        note="'ref to frozen T' guarantees pointee immutability."
+                                    )
                                 if isinstance(unwrapped_tgt, (ArrayType, SliceType, ManyType, ListType)):
                                     target_type = unwrapped_tgt.element
                                 elif isinstance(unwrapped_tgt, MapType):
@@ -4433,8 +4445,20 @@ class PenguChecker:
                                     target_type = unwrapped_tgt
                             else:
                                 curr_t = target_type
+                                is_coll_frozen = False
                                 while isinstance(curr_t, (AliasType, FrozenType)):
+                                    if isinstance(curr_t, FrozenType):
+                                        is_coll_frozen = True
                                     curr_t = curr_t.target
+                                if is_coll_frozen:
+                                    raise self._make_error(
+                                        MutabilityError,
+                                        f"Cannot mutate element of frozen collection '{target_type}'",
+                                        acc,
+                                        code="E0006",
+                                        help="Frozen collections cannot be modified.",
+                                        note="'frozen' types guarantee const-correctness."
+                                    )
                                 if curr_t == STRING_TYPE or (isinstance(curr_t, BaseType) and curr_t.name == "string"):
                                     raise self._make_error(
                                         InvalidMemoryOpError,
@@ -4554,8 +4578,20 @@ class PenguChecker:
                         if isinstance(acc, Tree) and acc.data == "at_access":
                             if isinstance(curr_chk_t, RefType):
                                 unwrapped_tgt = curr_chk_t.target
+                                is_ptr_tgt_frozen = False
                                 while isinstance(unwrapped_tgt, (AliasType, FrozenType)):
+                                    if isinstance(unwrapped_tgt, FrozenType):
+                                        is_ptr_tgt_frozen = True
                                     unwrapped_tgt = unwrapped_tgt.target
+                                if is_ptr_tgt_frozen or isinstance(curr_chk_t, FrozenType):
+                                    raise self._make_error(
+                                        MutabilityError,
+                                        f"Cannot mutate element through pointer to frozen type '{curr_chk_t}'",
+                                        acc,
+                                        code="E0006",
+                                        help="Drop 'frozen' from the pointee type to allow mutation.",
+                                        note="'ref to frozen T' guarantees pointee immutability."
+                                    )
                                 if isinstance(unwrapped_tgt, (ArrayType, SliceType, ManyType, ListType)):
                                     curr_chk_t = unwrapped_tgt.element
                                 elif isinstance(unwrapped_tgt, MapType):
@@ -4563,9 +4599,21 @@ class PenguChecker:
                                 else:
                                     curr_chk_t = unwrapped_tgt
                             else:
+                                is_coll_frozen = False
                                 unwrapped_t = curr_chk_t
                                 while isinstance(unwrapped_t, (AliasType, FrozenType)):
+                                    if isinstance(unwrapped_t, FrozenType):
+                                        is_coll_frozen = True
                                     unwrapped_t = unwrapped_t.target
+                                if is_coll_frozen:
+                                    raise self._make_error(
+                                        MutabilityError,
+                                        f"Cannot mutate element of frozen collection '{curr_chk_t}'",
+                                        acc,
+                                        code="E0006",
+                                        help="Frozen collections cannot be modified.",
+                                        note="'frozen' types guarantee const-correctness."
+                                    )
                                 if unwrapped_t == STRING_TYPE or (isinstance(unwrapped_t, BaseType) and unwrapped_t.name == "string"):
                                     raise self._make_error(
                                         InvalidMemoryOpError,
@@ -4607,8 +4655,20 @@ class PenguChecker:
                                     code="E0003",
                                 )
                             unwrapped_t = curr_chk_t.target if isinstance(curr_chk_t, RefType) else curr_chk_t
+                            is_struct_frozen = isinstance(curr_chk_t, FrozenType)
                             while isinstance(unwrapped_t, (AliasType, FrozenType, SealType)):
+                                if isinstance(unwrapped_t, FrozenType):
+                                    is_struct_frozen = True
                                 unwrapped_t = getattr(unwrapped_t, "target", None) or getattr(unwrapped_t, "underlying", None)
+                            if is_struct_frozen:
+                                raise self._make_error(
+                                    MutabilityError,
+                                    f"Cannot mutate field of frozen value '{curr_chk_t}'",
+                                    acc,
+                                    code="E0006",
+                                    help="Drop 'frozen' from the declaration to allow field mutation.",
+                                    note="'frozen' types guarantee const-correctness."
+                                )
                             if isinstance(unwrapped_t, AnyType):
                                 curr_chk_t = AnyType()
                             elif isinstance(unwrapped_t, (RuneType, EchoType)):

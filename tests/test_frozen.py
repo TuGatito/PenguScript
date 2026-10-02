@@ -279,15 +279,15 @@ class TestFrozenVoidPointer:
             "    return 0\n"
         )
 
-    def test_void_accepts_a_frozen_pointee(self):
-        # C allows adding 'const' at any depth: 'const T*' -> 'const void*' and
-        # 'const T*' -> 'void*' are both valid implicit conversions.
-        check(
+    def test_void_rejects_a_frozen_pointee(self):
+        # Passing 'ref to frozen T' to mutable 'ref to void' must be rejected (Item 1.6).
+        exc = check_error(
             "declare take with p as ref to void into void\n\n"
             "weave main with a as ref to frozen int into int:\n"
             "    calling take with a\n"
             "    return 0\n"
         )
+        assert exc.code == "E0005"
 
     def test_frozen_void_accepts_arrays(self):
         check(

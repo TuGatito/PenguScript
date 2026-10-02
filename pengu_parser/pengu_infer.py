@@ -980,7 +980,10 @@ class TypeInferrer:
                     note="References (ref to T) require arrow operator '->' for field access."
                 )
 
+            is_frozen = False
             while isinstance(target_type, (AliasType, FrozenType, SealType)):
+                if isinstance(target_type, FrozenType):
+                    is_frozen = True
                 target_type = getattr(target_type, "target", None) or getattr(target_type, "underlying", None)
 
             if isinstance(target_type, RuneType):
@@ -1011,7 +1014,8 @@ class TypeInferrer:
                         help=f"Check field spelling or verify the definition of rune '{target_type.name}'.",
                         note=f"Rune '{target_type.name}' only exposes its declared fields."
                     )
-                return fields[field_name]
+                f_type = fields[field_name]
+                return FrozenType(f_type) if is_frozen else f_type
 
             elif isinstance(target_type, EchoType):
                 self.warnings.append(f"[W0002] Echo union '{target_type.name}' access is unsafe")
@@ -1024,7 +1028,8 @@ class TypeInferrer:
                         help=f"Check field spelling or verify the definition of echo '{target_type.name}'.",
                         note=f"Echo '{target_type.name}' only exposes its declared fields."
                     )
-                return target_type.fields[field_name]
+                f_type = target_type.fields[field_name]
+                return FrozenType(f_type) if is_frozen else f_type
 
             elif isinstance(target_type, OmenType):
                 if field_name in target_type.variants:
@@ -1069,7 +1074,7 @@ class TypeInferrer:
                 if field_name == "is_present":
                     return BOOL_TYPE
                 elif field_name == "value":
-                    return target_type.element
+                    return FrozenType(target_type.element) if is_frozen else target_type.element
                 raise self._make_error(
                     SemanticError,
                     f"Maybe has no field '{field_name}'",
@@ -1082,9 +1087,9 @@ class TypeInferrer:
                 if field_name == "is_ok":
                     return BOOL_TYPE
                 elif field_name == "value":
-                    return target_type.ok_type
+                    return FrozenType(target_type.ok_type) if is_frozen else target_type.ok_type
                 elif field_name in ("error", "err"):
-                    return target_type.err_type
+                    return FrozenType(target_type.err_type) if is_frozen else target_type.err_type
                 raise self._make_error(
                     SemanticError,
                     f"Result has no field '{field_name}'",
@@ -1120,7 +1125,10 @@ class TypeInferrer:
                 )
 
             inner = target_type.target
+            is_frozen = False
             while isinstance(inner, (AliasType, FrozenType, SealType)):
+                if isinstance(inner, FrozenType):
+                    is_frozen = True
                 inner = getattr(inner, "target", None) or getattr(inner, "underlying", None)
             if isinstance(inner, RuneType):
                 ench_type = self.symbols.current_enchanting_type() if self.symbols else None
@@ -1145,7 +1153,8 @@ class TypeInferrer:
                         help=f"Check field spelling or verify the definition of rune '{inner.name}'.",
                         note=f"Rune '{inner.name}' only exposes its declared fields."
                     )
-                return inner.fields[field_name]
+                f_type = inner.fields[field_name]
+                return FrozenType(f_type) if is_frozen else f_type
             elif isinstance(inner, EchoType):
                 self.warnings.append(f"[W0002] Echo union '{inner.name}' access is unsafe")
                 if field_name not in inner.fields:
@@ -1157,12 +1166,13 @@ class TypeInferrer:
                         help=f"Check field spelling or verify the definition of echo '{inner.name}'.",
                         note=f"Echo '{inner.name}' only exposes its declared fields."
                     )
-                return inner.fields[field_name]
+                f_type = inner.fields[field_name]
+                return FrozenType(f_type) if is_frozen else f_type
             elif isinstance(inner, MaybeType):
                 if field_name == "is_present":
                     return BOOL_TYPE
                 elif field_name == "value":
-                    return inner.element
+                    return FrozenType(inner.element) if is_frozen else inner.element
                 raise self._make_error(
                     SemanticError,
                     f"Maybe has no field '{field_name}'",
@@ -1175,9 +1185,9 @@ class TypeInferrer:
                 if field_name == "is_ok":
                     return BOOL_TYPE
                 elif field_name == "value":
-                    return inner.ok_type
+                    return FrozenType(inner.ok_type) if is_frozen else inner.ok_type
                 elif field_name in ("error", "err"):
-                    return inner.err_type
+                    return FrozenType(inner.err_type) if is_frozen else inner.err_type
                 raise self._make_error(
                     SemanticError,
                     f"Result has no field '{field_name}'",
@@ -1405,7 +1415,17 @@ class TypeInferrer:
             cur_type = self.infer(parts[0])
             for idx_node in parts[1:]:
                 idx_type = self.infer(idx_node)
-                if isinstance(cur_type, (ArrayType, SliceType, ManyType, ListType)):
+                is_coll_frozen = False
+                coll_t = cur_type
+                while isinstance(coll_t, (AliasType, FrozenType)):
+                    if isinstance(coll_t, FrozenType):
+                        is_coll_frozen = True
+                    if getattr(coll_t, "target", None):
+                        coll_t = coll_t.target
+                    else:
+                        break
+
+                if isinstance(coll_t, (ArrayType, SliceType, ManyType, ListType)):
                     if not idx_type.is_int():
                         raise self._make_error(
                             TypeMismatchError,
@@ -1415,11 +1435,11 @@ class TypeInferrer:
                             help="Ensure the index expression evaluates to an integer.",
                             note="Collection indexing requires integer offsets."
                         )
-                    cur_type = cur_type.element
-                elif isinstance(cur_type, (MapType, RefType)) and (
-                    isinstance(cur_type, MapType) or isinstance(getattr(cur_type, "target", None), MapType)
+                    cur_type = FrozenType(coll_t.element) if is_coll_frozen else coll_t.element
+                elif isinstance(coll_t, (MapType, RefType)) and (
+                    isinstance(coll_t, MapType) or isinstance(getattr(coll_t, "target", None), MapType)
                 ):
-                    actual_map = cur_type.target if isinstance(cur_type, RefType) else cur_type
+                    actual_map = coll_t.target if isinstance(coll_t, RefType) else coll_t
                     if not idx_type.is_compatible(actual_map.key):
                         raise self._make_error(
                             TypeMismatchError,
@@ -1429,8 +1449,8 @@ class TypeInferrer:
                             help=f"Provide a map key of type '{actual_map.key}'.",
                             note="Map indexing requires matching key types."
                         )
-                    cur_type = actual_map.value
-                elif isinstance(cur_type, RefType):
+                    cur_type = FrozenType(actual_map.value) if is_coll_frozen else actual_map.value
+                elif isinstance(coll_t, RefType):
                     if not idx_type.is_int():
                         raise self._make_error(
                             TypeMismatchError,
@@ -1440,9 +1460,9 @@ class TypeInferrer:
                             help="Ensure the index expression evaluates to an integer.",
                             note="Pointer indexing requires integer offsets."
                         )
-                    raw_target = cur_type.target
+                    raw_target = coll_t.target
                     unwrapped = raw_target
-                    is_frozen = False
+                    is_frozen = is_coll_frozen
                     while isinstance(unwrapped, (AliasType, FrozenType)):
                         if isinstance(unwrapped, FrozenType):
                             is_frozen = True
@@ -1460,10 +1480,11 @@ class TypeInferrer:
                             note="Pointers to void/opaque have unknown element size and cannot be indexed."
                         )
                     if isinstance(unwrapped, (ArrayType, SliceType, ManyType, ListType)):
-                        cur_type = unwrapped.element
+                        elem_t = unwrapped.element
+                        cur_type = FrozenType(elem_t) if is_frozen else elem_t
                     else:
                         cur_type = FrozenType(unwrapped) if is_frozen else unwrapped
-                elif cur_type == STRING_TYPE:
+                elif coll_t == STRING_TYPE:
                     if not idx_type.is_int():
                         raise self._make_error(
                             TypeMismatchError,
@@ -1474,7 +1495,7 @@ class TypeInferrer:
                             note="String indexing requires integer offsets."
                         )
                     cur_type = STRING_TYPE
-                elif isinstance(cur_type, AnyType):
+                elif isinstance(coll_t, AnyType):
                     cur_type = AnyType()
                 else:
                     raise self._make_error(
@@ -3225,23 +3246,43 @@ class TypeInferrer:
                 if acc.data == "dot_access":
                     field_name = str(acc.children[0])
                     unpacked = cur_type
-                    while isinstance(unpacked, (AliasType, FrozenType)) and getattr(unpacked, "target", None):
-                        unpacked = unpacked.target
+                    is_frozen = False
+                    while isinstance(unpacked, (AliasType, FrozenType)):
+                        if isinstance(unpacked, FrozenType):
+                            is_frozen = True
+                        if getattr(unpacked, "target", None):
+                            unpacked = unpacked.target
+                        else:
+                            break
                     if isinstance(unpacked, (RuneType, EchoType)) and field_name in unpacked.fields:
-                        cur_type = unpacked.fields[field_name]
+                        f_type = unpacked.fields[field_name]
+                        cur_type = FrozenType(f_type) if is_frozen else f_type
                     else:
                         cur_type = AnyType()
                 elif acc.data == "arrow_access":
                     field_name = str(acc.children[0])
                     unpacked = cur_type
-                    while isinstance(unpacked, (AliasType, FrozenType)) and getattr(unpacked, "target", None):
-                        unpacked = unpacked.target
+                    is_frozen = False
+                    while isinstance(unpacked, (AliasType, FrozenType)):
+                        if isinstance(unpacked, FrozenType):
+                            is_frozen = True
+                        if getattr(unpacked, "target", None):
+                            unpacked = unpacked.target
+                        else:
+                            break
                     if isinstance(unpacked, RefType):
                         tgt = unpacked.target
-                        while isinstance(tgt, (AliasType, FrozenType)) and getattr(tgt, "target", None):
-                            tgt = tgt.target
+                        tgt_frozen = False
+                        while isinstance(tgt, (AliasType, FrozenType)):
+                            if isinstance(tgt, FrozenType):
+                                tgt_frozen = True
+                            if getattr(tgt, "target", None):
+                                tgt = tgt.target
+                            else:
+                                break
                         if isinstance(tgt, (RuneType, EchoType)) and field_name in tgt.fields:
-                            cur_type = tgt.fields[field_name]
+                            f_type = tgt.fields[field_name]
+                            cur_type = FrozenType(f_type) if (is_frozen or tgt_frozen) else f_type
                         else:
                             cur_type = AnyType()
                     else:
@@ -3268,7 +3309,7 @@ class TypeInferrer:
                                 help="Ensure the index expression evaluates to an integer.",
                                 note="Collection indexing requires integer offsets."
                             )
-                        cur_type = unpacked.element
+                        cur_type = FrozenType(unpacked.element) if is_frozen else unpacked.element
                     elif isinstance(unpacked, (MapType, RefType)) and (
                         isinstance(unpacked, MapType) or isinstance(getattr(unpacked, "target", None), MapType)
                     ):
@@ -3282,7 +3323,7 @@ class TypeInferrer:
                                 help=f"Provide a map key of type '{actual_map.key}'.",
                                 note="Map indexing requires matching key types."
                             )
-                        cur_type = actual_map.value
+                        cur_type = FrozenType(actual_map.value) if is_frozen else actual_map.value
                     elif unpacked == STRING_TYPE:
                         cur_type = STRING_TYPE
                     elif isinstance(unpacked, RefType):
@@ -3314,7 +3355,8 @@ class TypeInferrer:
                                 note="Pointers to void/opaque have unknown element size and cannot be indexed."
                             )
                         if isinstance(tgt, (ArrayType, SliceType, ManyType, ListType)):
-                            cur_type = tgt.element
+                            elem_t = tgt.element
+                            cur_type = FrozenType(elem_t) if (is_frozen or tgt_frozen) else elem_t
                         else:
                             cur_type = FrozenType(tgt) if (is_frozen or tgt_frozen) else tgt
                     else:
