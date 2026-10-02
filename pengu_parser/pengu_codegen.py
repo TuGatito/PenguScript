@@ -302,6 +302,34 @@ def sync_array_sizes(target_t: Any, source_t: Any) -> None:
         sync_array_sizes(target_t.element, source_t.element)
 
 
+def _extract_attributes_from_node(children: List[Any], start_idx: int = 0) -> Tuple[Dict[str, List[Any]], int]:
+    attrs: Dict[str, List[Any]] = {}
+    idx = start_idx
+    if idx < len(children) and isinstance(children[idx], Tree) and children[idx].data == "attributes":
+        for attr_tree in children[idx].children:
+            if isinstance(attr_tree, Tree) and attr_tree.data == "attribute":
+                attr_name = str(attr_tree.children[0])
+                args: List[Any] = []
+                for sub in attr_tree.children[1:]:
+                    if isinstance(sub, Tree) and sub.data == "attribute_args":
+                        for a in sub.children:
+                            if isinstance(a, Token):
+                                if a.type == "INT":
+                                    args.append(int(str(a)))
+                                elif a.type in ("STRING", "TRIPLE_STRING", "RAW_STRING", "RAW_TRIPLE_STRING"):
+                                    s = str(a)
+                                    args.append(s[1:-1] if s.startswith(('"', "'")) else s)
+                                else:
+                                    s = str(a)
+                                    args.append(int(s) if s.isdigit() else s)
+                            elif isinstance(a, Tree):
+                                s = str(a.children[0]) if a.children else ""
+                                args.append(s[1:-1] if s.startswith(('"', "'")) else s)
+                attrs[attr_name] = args
+        idx += 1
+    return attrs, idx
+
+
 def skip_weave_modifiers(children, start: int = 0):
     """Parses leading ``inline``/``ritual`` weave modifiers from a weave/declare
     AST node. The grammar wraps each modifier in a ``weave_modifier`` Tree when
@@ -314,6 +342,8 @@ def skip_weave_modifiers(children, start: int = 0):
     is_inline = False
     is_ritual = False
     idx = start
+    while idx < len(children) and isinstance(children[idx], Tree) and children[idx].data == "attributes":
+        idx += 1
     while idx < len(children):
         child = children[idx]
         if isinstance(child, Tree) and child.data == "weave_modifier":
@@ -403,6 +433,8 @@ class PenguCodegen:
 
         # Declarations registry
         self.runes: Dict[str, Dict[str, Type]] = {}
+        self.rune_attributes: Dict[str, Dict[str, List[Any]]] = {}
+        self.rune_field_attributes: Dict[str, Dict[str, Dict[str, List[Any]]]] = {}
         # Source file of each rune: std/binding runes manage memory explicitly
         # (free_* helpers), so they do not get the implicit Imago/Nexus.
         self._rune_file_paths: Dict[str, str] = {}
@@ -1971,13 +2003,17 @@ class PenguCodegen:
             if has_shards:
                 continue
             if rule == "rune_decl":
-                name = str(stmt.children[0])
+                r_attrs, r_idx = _extract_attributes_from_node(stmt.children)
+                name = str(stmt.children[r_idx])
                 c_name = f"{cur_insignia}{name}" if cur_insignia else name
                 self.runes[c_name] = {}
+                self.rune_attributes[c_name] = r_attrs
             elif rule == "echo_decl":
-                name = str(stmt.children[0])
+                e_attrs, e_idx = _extract_attributes_from_node(stmt.children)
+                name = str(stmt.children[e_idx])
                 c_name = f"{cur_insignia}{name}" if cur_insignia else name
                 self.echos[c_name] = {}
+                self.rune_attributes[c_name] = e_attrs
             elif rule == "omen_decl":
                 name = str(stmt.children[0])
                 c_name = f"{cur_insignia}{name}" if cur_insignia else name
@@ -2154,15 +2190,21 @@ class PenguCodegen:
         if rule == "rune_decl":
             if has_shards:
                 return
-            name = str(stmt.children[0])
+            r_attrs, r_idx = _extract_attributes_from_node(stmt.children)
+            name = str(stmt.children[r_idx])
             c_name = f"{prefix}{name}" if prefix else name
+            self.rune_attributes[c_name] = r_attrs
             fields = {}
-            for f in stmt.children[1:]:
+            field_attrs = {}
+            for f in stmt.children[r_idx+1:]:
                 if isinstance(f, Tree) and f.data == "field_decl":
-                    f_name = str(f.children[0])
-                    f_type = ast_to_type(f.children[1], self._lookup_type_fn)
+                    f_attrs, f_idx = _extract_attributes_from_node(f.children)
+                    f_name = str(f.children[f_idx])
+                    f_type = ast_to_type(f.children[f_idx+1], self._lookup_type_fn)
                     fields[f_name] = f_type
+                    field_attrs[f_name] = f_attrs
             self.runes[c_name] = fields
+            self.rune_field_attributes[c_name] = field_attrs
             self._rune_file_paths[c_name] = filepath or ""
             if filepath and filepath.endswith(".d.pengu"):
                 self.declaration_types.add(c_name)
@@ -2170,15 +2212,21 @@ class PenguCodegen:
         elif rule == "echo_decl":
             if has_shards:
                 return
-            name = str(stmt.children[0])
+            e_attrs, e_idx = _extract_attributes_from_node(stmt.children)
+            name = str(stmt.children[e_idx])
             c_name = f"{prefix}{name}" if prefix else name
+            self.rune_attributes[c_name] = e_attrs
             fields = {}
-            for f in stmt.children[1:]:
+            field_attrs = {}
+            for f in stmt.children[e_idx+1:]:
                 if isinstance(f, Tree) and f.data == "field_decl":
-                    f_name = str(f.children[0])
-                    f_type = ast_to_type(f.children[1], self._lookup_type_fn)
+                    f_attrs, f_idx = _extract_attributes_from_node(f.children)
+                    f_name = str(f.children[f_idx])
+                    f_type = ast_to_type(f.children[f_idx+1], self._lookup_type_fn)
                     fields[f_name] = f_type
+                    field_attrs[f_name] = f_attrs
             self.echos[c_name] = fields
+            self.rune_field_attributes[c_name] = field_attrs
             self._rune_file_paths[c_name] = filepath or ""
             if filepath and filepath.endswith(".d.pengu"):
                 self.declaration_types.add(c_name)
@@ -2362,7 +2410,10 @@ class PenguCodegen:
 
     def _collect_monomorphized_weave(self, specialized_name: str, node: Tree, subst_map: Dict[str, Type], enchanted_type: Optional[Type], filepath: str = ".") -> None:
         """Collects specialized monomorphized function details."""
-        is_inline, is_ritual, idx = skip_weave_modifiers(node.children)
+        attrs, a_idx = _extract_attributes_from_node(node.children)
+        is_inline, is_ritual, idx = skip_weave_modifiers(node.children, start=a_idx)
+        if "inline" in attrs:
+            is_inline = True
 
         raw_name = str(node.children[idx])
         idx += 1
@@ -2430,6 +2481,7 @@ class PenguCodegen:
                 "return_type": ret_type,
                 "is_inline": is_inline,
                 "is_ritual": is_ritual,
+                "attributes": attrs,
                 "body_stmts": body_stmts,
                 "refs": _dce_collect_refs(body_stmts),
                 "subst_map": subst_map,
@@ -2471,7 +2523,10 @@ class PenguCodegen:
 
     def _collect_weave(self, node: Tree, filepath: str, enchanted_type: Optional[Type], prefix: Optional[str] = None) -> None:
         """Collects function declaration details."""
-        is_inline, is_ritual, idx = skip_weave_modifiers(node.children)
+        attrs, a_idx = _extract_attributes_from_node(node.children)
+        is_inline, is_ritual, idx = skip_weave_modifiers(node.children, start=a_idx)
+        if "inline" in attrs:
+            is_inline = True
         has_shard_params = any(isinstance(c, Tree) and c.data == "shard_params"
                                for c in node.children)
 
@@ -2479,7 +2534,7 @@ class PenguCodegen:
         idx += 1
 
         auto_inline = False
-        if not is_inline and self.symbols:
+        if not is_inline and "cold" not in attrs and self.symbols:
             # The checker flags small non-recursive weaves as inline candidates.
             # Automatic heuristic inlining uses advisory 'static inline' (giving the C
             # compiler discretion to decline), whereas explicit user 'inline weave'
@@ -2583,6 +2638,7 @@ class PenguCodegen:
             "is_inline": is_inline,
             "auto_inline": auto_inline,
             "is_ritual": is_ritual,
+            "attributes": attrs,
             "body_stmts": body_stmts,
             "refs": _dce_collect_refs(body_stmts),
             # Generic templates are never emitted on their own (their bodies
@@ -2683,14 +2739,27 @@ class PenguCodegen:
         for name, fields in self.runes.items():
             if name in self.declaration_types:
                 continue
-            rune_lines = [f"struct {name} {{"]
+            r_attrs = self.rune_attributes.get(name, {})
+            c_struct_attrs = []
+            if "packed" in r_attrs:
+                c_struct_attrs.append("packed")
+            if "align" in r_attrs and r_attrs["align"]:
+                c_struct_attrs.append(f"aligned({r_attrs['align'][0]})")
+            attr_str = f" __attribute__(({', '.join(c_struct_attrs)}))" if c_struct_attrs else ""
+            rune_lines = [f"struct{attr_str} {name} {{"]
+            f_attrs_map = self.rune_field_attributes.get(name, {})
             for f_name, f_type in fields.items():
+                fa = f_attrs_map.get(f_name, {})
+                fa_parts = []
+                if "align" in fa and fa["align"]:
+                    fa_parts.append(f"aligned({fa['align'][0]})")
+                fa_str = f" __attribute__(({', '.join(fa_parts)}))" if fa_parts else ""
                 if isinstance(f_type, ArrayType) and f_type.size is not None:
                     elem_str = CTypeMapper.to_c_type(f_type.element)
-                    rune_lines.append(f"  {elem_str} {self._c_ident(f_name)}[{f_type.size}];")
+                    rune_lines.append(f"  {elem_str} {self._c_ident(f_name)}[{f_type.size}]{fa_str};")
                 else:
                     f_str = CTypeMapper.to_c_type(f_type)
-                    rune_lines.append(f"  {f_str} {self._c_ident(f_name)};")
+                    rune_lines.append(f"  {f_str} {self._c_ident(f_name)}{fa_str};")
             rune_lines.append("};")
             blocks.append("\n".join(rune_lines))
 
@@ -3722,7 +3791,7 @@ class PenguCodegen:
                 param_strs.append(CTypeMapper.to_c_decl(p_type, self._c_ident(p_name)))
 
             params_formatted = ", ".join(param_strs) if param_strs else "void"
-            inline_pfx = self._inline_prefix(w)
+            inline_pfx = self._attributes_prefix(w)
             fn_actual_name = "pengu_main" if c_name == "main" else c_name
             decl = CTypeMapper.to_c_decl(w["return_type"], f"{fn_actual_name}({params_formatted})")
             lines.append(f"{inline_pfx}{decl};")
@@ -3731,13 +3800,40 @@ class PenguCodegen:
         return "\n".join(lines)
 
     @staticmethod
-    def _inline_prefix(w: dict) -> str:
-        """C prefix for a weave flagged inline (explicit vs automatic hint)."""
-        if not w.get("is_inline"):
+    def _attributes_prefix(w: dict) -> str:
+        """C prefix and __attribute__ modifiers for a weave."""
+        attrs = w.get("attributes", {})
+        is_inline = w.get("is_inline", False) or ("inline" in attrs)
+        auto_inline = w.get("auto_inline", False)
+
+        parts = []
+        c_attrs = []
+
+        if is_inline:
+            if auto_inline:
+                parts.append("static inline")
+            else:
+                parts.append("static inline")
+                c_attrs.append("always_inline")
+
+        if "cold" in attrs:
+            c_attrs.append("cold")
+        if "deprecated" in attrs:
+            reason = attrs["deprecated"][0] if attrs["deprecated"] else None
+            if reason:
+                clean_reason = str(reason).replace('"', '\\"')
+                c_attrs.append(f'deprecated("{clean_reason}")')
+            else:
+                c_attrs.append("deprecated")
+
+        if c_attrs:
+            parts.append(f"__attribute__(({', '.join(c_attrs)}))")
+
+        if not parts:
             return ""
-        if w.get("auto_inline"):
-            return "static inline "
-        return "static inline __attribute__((always_inline)) "
+        return " ".join(parts) + " "
+
+    _inline_prefix = _attributes_prefix
 
     def generate_function_definitions(self) -> str:
         """Generates function implementation bodies in topological module order."""
@@ -3764,7 +3860,7 @@ class PenguCodegen:
                 param_strs.append(CTypeMapper.to_c_decl(p_type, self._c_ident(p_name)))
 
             params_formatted = ", ".join(param_strs) if param_strs else "void"
-            inline_pfx = self._inline_prefix(w)
+            inline_pfx = self._attributes_prefix(w)
             fn_actual_name = "pengu_main" if c_name == "main" else c_name
             decl = CTypeMapper.to_c_decl(w["return_type"], f"{fn_actual_name}({params_formatted})")
 

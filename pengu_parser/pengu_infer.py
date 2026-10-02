@@ -611,6 +611,21 @@ class TypeInferrer:
             note="Since 0.10.0 'and'/'or' are boolean operators, not list separators."
         )
 
+    def _check_deprecated_symbol(self, sym: Any, name: Optional[str] = None) -> None:
+        if sym is None:
+            return
+        attrs = sym if isinstance(sym, dict) else getattr(sym, "attributes", None)
+        if not attrs or "deprecated" not in attrs:
+            return
+        s_name = name or getattr(sym, "name", str(sym))
+        reason = attrs["deprecated"][0] if attrs["deprecated"] else None
+        if reason:
+            msg = f"[W0006] Symbol '{s_name}' is deprecated: {reason}"
+        else:
+            msg = f"[W0006] Symbol '{s_name}' is deprecated"
+        if msg not in self.warnings:
+            self.warnings.append(msg)
+
     def infer(self, node: Any, expected_type: Optional[Type] = None) -> Type:
         """Recursively infers the static type of an expression node.
 
@@ -639,7 +654,11 @@ class TypeInferrer:
                 val = str(node)
                 sym = self.symbols.lookup(val)
                 if sym is not None:
+                    self._check_deprecated_symbol(sym, val)
                     return sym.type
+                t = self.symbols.lookup_type(val)
+                if t is not None:
+                    self._check_deprecated_symbol(t, val)
                 if val.isupper() and self.symbols.has_includes:
                     return INT_TYPE
                 if val.isupper() and not self.symbols.has_includes:
@@ -1042,6 +1061,14 @@ class TypeInferrer:
                         help=f"Check field spelling or verify the definition of rune '{target_type.name}'.",
                         note=f"Rune '{target_type.name}' only exposes its declared fields."
                     )
+                self._check_deprecated_symbol(target_type, getattr(target_type, "name", None))
+                field_attrs = getattr(target_type, "field_attributes", {})
+                if not field_attrs and self.symbols:
+                    sym_t = self.symbols.lookup_type(target_type.name)
+                    if isinstance(sym_t, RuneType):
+                        field_attrs = getattr(sym_t, "field_attributes", {})
+                if field_name in field_attrs:
+                    self._check_deprecated_symbol(field_attrs[field_name], field_name)
                 f_type = fields[field_name]
                 return FrozenType(f_type) if is_frozen else f_type
 
@@ -1056,6 +1083,14 @@ class TypeInferrer:
                         help=f"Check field spelling or verify the definition of echo '{target_type.name}'.",
                         note=f"Echo '{target_type.name}' only exposes its declared fields."
                     )
+                self._check_deprecated_symbol(target_type, getattr(target_type, "name", None))
+                field_attrs = getattr(target_type, "field_attributes", {})
+                if not field_attrs and self.symbols:
+                    sym_t = self.symbols.lookup_type(target_type.name)
+                    if isinstance(sym_t, EchoType):
+                        field_attrs = getattr(sym_t, "field_attributes", {})
+                if field_name in field_attrs:
+                    self._check_deprecated_symbol(field_attrs[field_name], field_name)
                 f_type = target_type.fields[field_name]
                 return FrozenType(f_type) if is_frozen else f_type
 
@@ -1181,6 +1216,14 @@ class TypeInferrer:
                         help=f"Check field spelling or verify the definition of rune '{inner.name}'.",
                         note=f"Rune '{inner.name}' only exposes its declared fields."
                     )
+                self._check_deprecated_symbol(inner, getattr(inner, "name", None))
+                field_attrs = getattr(inner, "field_attributes", {})
+                if not field_attrs and self.symbols:
+                    sym_t = self.symbols.lookup_type(inner.name)
+                    if isinstance(sym_t, RuneType):
+                        field_attrs = getattr(sym_t, "field_attributes", {})
+                if field_name in field_attrs:
+                    self._check_deprecated_symbol(field_attrs[field_name], field_name)
                 f_type = inner.fields[field_name]
                 return FrozenType(f_type) if is_frozen else f_type
             elif isinstance(inner, EchoType):
@@ -1194,6 +1237,14 @@ class TypeInferrer:
                         help=f"Check field spelling or verify the definition of echo '{inner.name}'.",
                         note=f"Echo '{inner.name}' only exposes its declared fields."
                     )
+                self._check_deprecated_symbol(inner, getattr(inner, "name", None))
+                field_attrs = getattr(inner, "field_attributes", {})
+                if not field_attrs and self.symbols:
+                    sym_t = self.symbols.lookup_type(inner.name)
+                    if isinstance(sym_t, EchoType):
+                        field_attrs = getattr(sym_t, "field_attributes", {})
+                if field_name in field_attrs:
+                    self._check_deprecated_symbol(field_attrs[field_name], field_name)
                 f_type = inner.fields[field_name]
                 return FrozenType(f_type) if is_frozen else f_type
             elif isinstance(inner, MaybeType):
@@ -3326,6 +3377,9 @@ class TypeInferrer:
                         else:
                             break
                     if isinstance(unpacked, (RuneType, EchoType)) and field_name in unpacked.fields:
+                        self._check_deprecated_symbol(unpacked, getattr(unpacked, "name", None))
+                        if hasattr(unpacked, "field_attributes") and field_name in unpacked.field_attributes:
+                            self._check_deprecated_symbol(unpacked.field_attributes[field_name], field_name)
                         f_type = unpacked.fields[field_name]
                         cur_type = FrozenType(f_type) if is_frozen else f_type
                     else:
@@ -3352,6 +3406,9 @@ class TypeInferrer:
                             else:
                                 break
                         if isinstance(tgt, (RuneType, EchoType)) and field_name in tgt.fields:
+                            self._check_deprecated_symbol(tgt, getattr(tgt, "name", None))
+                            if hasattr(tgt, "field_attributes") and field_name in tgt.field_attributes:
+                                self._check_deprecated_symbol(tgt.field_attributes[field_name], field_name)
                             f_type = tgt.fields[field_name]
                             cur_type = FrozenType(f_type) if (is_frozen or tgt_frozen) else f_type
                         else:
@@ -3806,6 +3863,7 @@ class TypeInferrer:
                     return FnType(params=[("msg", AnyType())], return_type=VOID_TYPE), None
                 sym = self.symbols.lookup(fn_name)
                 if sym is not None:
+                    self._check_deprecated_symbol(sym, fn_name)
                     sym_t = sym.type
                     while isinstance(sym_t, AliasType):
                         sym_t = sym_t.target
@@ -3820,7 +3878,9 @@ class TypeInferrer:
                             return sym.type, None
                         return FnType(params=[], return_type=sym.type), None
                 if fn_name in self.symbols.functions:
-                    return self.symbols.functions[fn_name], None
+                    fn_obj = self.symbols.functions[fn_name]
+                    self._check_deprecated_symbol(fn_obj, fn_name)
+                    return fn_obj, None
                 if fn_name in self.symbols.generic_functions:
                     return self.symbols.functions.get(fn_name), None
                 if self.symbols.has_includes:

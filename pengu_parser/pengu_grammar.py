@@ -73,9 +73,15 @@ where_bound: (NAME | type) ":" custom_type
 cyclus_kw: "cyclus"
 derive_clause: "derive" custom_type (("," | _AND_SEP) custom_type)*
 
-rune_decl: "rune" NAME [cyclus_kw] [shard_params] [derive_clause] ":" _NEWLINE _INDENT field_decl+ _DEDENT
+# Attributes (@inline, @deprecated, @packed, @align, @cold)
+attribute: "@" NAME ["(" attribute_args ")"] [_NEWLINE]
+attribute_args: attribute_arg ("," attribute_arg)*
+?attribute_arg: NAME | string_token | INT
+attributes: attribute*
+
+rune_decl: attributes "rune" NAME [cyclus_kw] [shard_params] [derive_clause] ":" _NEWLINE _INDENT field_decl+ _DEDENT
 echo_decl: "echo" NAME [cyclus_kw] [shard_params] [derive_clause] ":" _NEWLINE _INDENT field_decl+ _DEDENT
-field_decl: NAME "as" type _NEWLINE
+field_decl: attributes NAME "as" type _NEWLINE
 
 alias_decl: "alias" NAME [shard_params] "as" type _NEWLINE
 seal_decl: "seal" NAME "as" type _NEWLINE
@@ -95,12 +101,12 @@ omen_field: NAME "as" type
 
 enchanting_decl: "enchanting" type (shard_params | where_clause)? ":" _NEWLINE _INDENT weave_decl+ _DEDENT
 
-weave_decl: weave_modifier* "weave" weave_modifier* NAME [shard_params] ["with" param_list] ["into" type] ":" _NEWLINE _INDENT stmt+ _DEDENT
+weave_decl: attributes weave_modifier* "weave" weave_modifier* NAME [shard_params] ["with" param_list] ["into" type] ":" _NEWLINE _INDENT stmt+ _DEDENT
 
 param_list: param ("," param)*
 param: NAME "as" type ["is" list_expr]
 
-declare_stmt: weave_modifier* "declare" weave_modifier* NAME [shard_params] ["with" declare_params] ["into" type] _NEWLINE
+declare_stmt: attributes weave_modifier* "declare" weave_modifier* NAME [shard_params] ["with" declare_params] ["into" type] _NEWLINE
 declare_params: param ("," param)* ["," VARARGS] | VARARGS
 
 stmt: var_decl

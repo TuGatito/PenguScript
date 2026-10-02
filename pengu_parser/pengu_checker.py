@@ -30,7 +30,7 @@ from .pengu_errors import (
     InvalidRitualSelfAccessError, InvalidRitualCallError,
     ArraySizeMismatchError, InvalidRangeError, PrivateSymbolAccessError, NonExhaustiveJudgeError,
     UnknownArrayDimensionError, AutoOwnedBanishError, BorrowedBanishError, InvalidBuilderStatementError,
-    DuplicateConceptBindingError, InfiniteTypeSizeError,
+    DuplicateConceptBindingError, InfiniteTypeSizeError, UnknownAttributeError,
     suggest_similar_identifier
 )
 
@@ -191,11 +191,44 @@ def _node_to_name(node: Any) -> str:
     return str(node)
 
 
+def _extract_attributes(children: List[Any], start_idx: int = 0) -> Tuple[Dict[str, List[Any]], int]:
+    """Extracts attribute mappings from an attributes AST node.
+    Returns (attrs_dict, next_idx).
+    """
+    attrs: Dict[str, List[Any]] = {}
+    idx = start_idx
+    if idx < len(children) and isinstance(children[idx], Tree) and children[idx].data == "attributes":
+        for attr_tree in children[idx].children:
+            if isinstance(attr_tree, Tree) and attr_tree.data == "attribute":
+                attr_name = str(attr_tree.children[0])
+                args: List[Any] = []
+                for sub in attr_tree.children[1:]:
+                    if isinstance(sub, Tree) and sub.data == "attribute_args":
+                        for a in sub.children:
+                            if isinstance(a, Token):
+                                if a.type == "INT":
+                                    args.append(int(str(a)))
+                                elif a.type in ("STRING", "TRIPLE_STRING", "RAW_STRING", "RAW_TRIPLE_STRING"):
+                                    s = str(a)
+                                    args.append(s[1:-1] if s.startswith(('"', "'")) else s)
+                                else:
+                                    s = str(a)
+                                    args.append(int(s) if s.isdigit() else s)
+                            elif isinstance(a, Tree):
+                                s = str(a.children[0]) if a.children else ""
+                                args.append(s[1:-1] if s.startswith(('"', "'")) else s)
+                attrs[attr_name] = args
+        idx += 1
+    return attrs, idx
+
+
 def _extract_weave_modifiers(children: List[Any], start_idx: int = 0) -> Tuple[bool, bool, int]:
     """Extracts is_inline, is_ritual and returns (is_inline, is_ritual, next_idx)."""
     is_inline = False
     is_ritual = False
     idx = start_idx
+    while idx < len(children) and isinstance(children[idx], Tree) and children[idx].data == "attributes":
+        idx += 1
     while idx < len(children):
         ch = children[idx]
         if isinstance(ch, Tree) and ch.data == "weave_modifier":
@@ -464,6 +497,79 @@ class PenguChecker:
                     if cl is not None:
                         return cl, cc
         return None, None
+
+    def _validate_attributes(self, attrs: Dict[str, List[Any]], target: str, node: Any) -> None:
+        """Validates attributes against target declaration kind ('weave', 'declare', 'rune', 'field')."""
+        valid_attrs = {
+            "weave": {"inline", "cold", "deprecated"},
+            "declare": {"inline", "cold", "deprecated"},
+            "rune": {"packed", "align", "deprecated"},
+            "field": {"align", "deprecated"},
+        }
+        allowed = valid_attrs.get(target, set())
+        for name, args in attrs.items():
+            if name not in ("inline", "cold", "deprecated", "packed", "align"):
+                err = self._make_error(
+                    UnknownAttributeError,
+                    f"Unknown attribute '@{name}'",
+                    node,
+                    code="E0056",
+                    help="Supported attributes are @inline, @cold, @deprecated, @packed, and @align(N)."
+                )
+                self._record_error(err)
+                continue
+            if name not in allowed:
+                err = self._make_error(
+                    UnknownAttributeError,
+                    f"Attribute '@{name}' is not supported on {target} declarations",
+                    node,
+                    code="E0056",
+                    help=f"Allowed attributes on {target} are: {', '.join('@' + a for a in sorted(allowed))}."
+                )
+                self._record_error(err)
+                continue
+            if name in ("inline", "cold", "packed"):
+                if len(args) != 0:
+                    err = self._make_error(
+                        UnknownAttributeError,
+                        f"Attribute '@{name}' takes 0 arguments, got {len(args)}",
+                        node,
+                        code="E0056"
+                    )
+                    self._record_error(err)
+            elif name == "align":
+                if len(args) != 1 or not isinstance(args[0], int):
+                    err = self._make_error(
+                        UnknownAttributeError,
+                        f"Attribute '@align' requires 1 integer argument, got {args}",
+                        node,
+                        code="E0056"
+                    )
+                    self._record_error(err)
+            elif name == "deprecated":
+                if len(args) > 1 or (len(args) == 1 and not isinstance(args[0], str)):
+                    err = self._make_error(
+                        UnknownAttributeError,
+                        f"Attribute '@deprecated' takes at most 1 string argument, got {args}",
+                        node,
+                        code="E0056"
+                    )
+                    self._record_error(err)
+
+    def _check_deprecated_symbol(self, sym: Any, name: Optional[str] = None) -> None:
+        if sym is None:
+            return
+        attrs = getattr(sym, "attributes", None)
+        if not attrs or "deprecated" not in attrs:
+            return
+        s_name = name or getattr(sym, "name", str(sym))
+        reason = attrs["deprecated"][0] if attrs["deprecated"] else None
+        if reason:
+            msg = f"[W0006] Symbol '{s_name}' is deprecated: {reason}"
+        else:
+            msg = f"[W0006] Symbol '{s_name}' is deprecated"
+        if msg not in self.warnings:
+            self.warnings.append(msg)
 
     def _get_node_span(self, node: Any) -> Tuple[int, int]:
         """Extracts (start_line, end_line) from an AST node."""
@@ -919,7 +1025,9 @@ class PenguChecker:
                     self.symbols.insignia = saved_insignia
 
             elif rule == "rune_decl":
-                r_name = str(stmt.children[0])
+                r_attrs, r_idx = _extract_attributes(stmt.children)
+                self._validate_attributes(r_attrs, "rune", stmt)
+                r_name = str(stmt.children[r_idx])
                 if not is_d_pengu and r_name in C_RESERVED_TYPE_NAMES:
                     err = self._make_error(
                         SemanticError,
@@ -936,7 +1044,7 @@ class PenguChecker:
                 type_params = []
                 bounds = {}
                 derived_concepts: List[str] = []
-                rem_children = [c for c in stmt.children[1:] if c is not None]
+                rem_children = [c for c in stmt.children[r_idx+1:] if c is not None]
                 if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "cyclus_kw":
                     is_cyclus = True
                     rem_children = rem_children[1:]
@@ -958,7 +1066,8 @@ class PenguChecker:
                     self._record_error(err)
 
                 fields: Dict[str, Type] = {}
-                rune_t = RuneType(name=r_name, fields=fields, type_params=type_params, base_name=r_name, c_name=c_r_name, derived_concepts=list(derived_concepts), bounds=bounds)
+                field_attrs: Dict[str, Dict[str, List[Any]]] = {}
+                rune_t = RuneType(name=r_name, fields=fields, type_params=type_params, base_name=r_name, c_name=c_r_name, derived_concepts=list(derived_concepts), bounds=bounds, attributes=r_attrs, field_attributes=field_attrs)
                 if type_params:
                     self.symbols.generic_runes[r_name] = (type_params, stmt)
                 self.symbols.runes[r_name] = rune_t
@@ -975,7 +1084,9 @@ class PenguChecker:
                 seen_c_fields: Dict[str, str] = {}
                 for f_decl in rem_children:
                     if isinstance(f_decl, Tree) and f_decl.data == "field_decl":
-                        f_name = str(f_decl.children[0])
+                        f_at, f_idx = _extract_attributes(f_decl.children)
+                        self._validate_attributes(f_at, "field", f_decl)
+                        f_name = str(f_decl.children[f_idx])
                         c_fid = _c_ident(f_name)
                         if c_fid in seen_c_fields:
                             err = self._make_error(
@@ -988,8 +1099,9 @@ class PenguChecker:
                             )
                             self._record_error(err)
                         seen_c_fields[c_fid] = f_name
-                        f_type = ast_to_type(f_decl.children[1], lookup_tp)
+                        f_type = ast_to_type(f_decl.children[f_idx+1], lookup_tp)
                         fields[f_name] = f_type
+                        field_attrs[f_name] = f_at
 
                         # Bug 9: Detect infinite type size (recursive value struct)
                         if check_infinite_size(f_type, r_name):
@@ -1054,7 +1166,9 @@ class PenguChecker:
                 ))
 
             elif rule == "echo_decl":
-                e_name = str(stmt.children[0])
+                e_attrs, e_idx = _extract_attributes(stmt.children)
+                self._validate_attributes(e_attrs, "rune", stmt)
+                e_name = str(stmt.children[e_idx])
                 if not is_d_pengu and e_name in C_RESERVED_TYPE_NAMES:
                     err = self._make_error(
                         SemanticError,
@@ -1071,7 +1185,7 @@ class PenguChecker:
                 type_params = []
                 bounds = {}
                 derived_concepts: List[str] = []
-                rem_children = [c for c in stmt.children[1:] if c is not None]
+                rem_children = [c for c in stmt.children[e_idx+1:] if c is not None]
                 if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "cyclus_kw":
                     is_cyclus = True
                     rem_children = rem_children[1:]
@@ -1091,7 +1205,9 @@ class PenguChecker:
                 fields: Dict[str, Type] = {}
                 for f_decl in rem_children:
                     if isinstance(f_decl, Tree) and f_decl.data == "field_decl":
-                        f_name = str(f_decl.children[0])
+                        f_at, f_idx = _extract_attributes(f_decl.children)
+                        self._validate_attributes(f_at, "field", f_decl)
+                        f_name = str(f_decl.children[f_idx])
                         c_fid = _c_ident(f_name)
                         if c_fid in seen_c_fields:
                             err = self._make_error(
@@ -1104,7 +1220,7 @@ class PenguChecker:
                             )
                             self._record_error(err)
                         seen_c_fields[c_fid] = f_name
-                        f_type = ast_to_type(f_decl.children[1], lookup_tp)
+                        f_type = ast_to_type(f_decl.children[f_idx+1], lookup_tp)
                         fields[f_name] = f_type
 
                 # An 'echo' is an *untagged* C union: there is no discriminant,
@@ -1821,7 +1937,11 @@ class PenguChecker:
                             self.symbols.generic_methods[(base_tname, m_name)] = (type_params or [], m_tparams or [], m_decl)
 
             elif rule == "declare_stmt":
-                is_inline, is_ritual, idx = _extract_weave_modifiers(stmt.children)
+                d_attrs, d_idx = _extract_attributes(stmt.children)
+                self._validate_attributes(d_attrs, "declare", stmt)
+                is_inline, is_ritual, idx = _extract_weave_modifiers(stmt.children, start_idx=d_idx)
+                if "inline" in d_attrs:
+                    is_inline = True
                 fn_name = str(stmt.children[idx])
                 if fn_name in C_KEYWORDS:
                     err = self._make_error(
@@ -1874,13 +1994,13 @@ class PenguChecker:
                         ret_type = ast_to_type(child_n, lookup_tp)
                     elif isinstance(child_n, Token) and child_n.type == "NAME":
                         ret_type = ast_to_type(child_n, lookup_tp)
-                fn_t = FnType(params=params, return_type=ret_type, is_ritual=is_ritual, type_params=type_params)
+                fn_t = FnType(params=params, return_type=ret_type, is_ritual=is_ritual, type_params=type_params, attributes=d_attrs)
                 self.symbols.functions[fn_name] = fn_t
                 if c_fn_name != fn_name:
                     self.symbols.functions[c_fn_name] = fn_t
                 doc = self._extract_preceding_doc(line)
                 self.symbols.global_scope.define(Symbol(
-                    name=fn_name, type=fn_t, kind="declare", is_mutable=False, is_ritual=is_ritual, line=line, column=col, doc=doc, file_path=self.filename, c_name=c_fn_name
+                    name=fn_name, type=fn_t, kind="declare", is_mutable=False, is_ritual=is_ritual, line=line, column=col, doc=doc, file_path=self.filename, c_name=c_fn_name, attributes=d_attrs
                 ))
 
             elif rule == "weave_decl":
@@ -1894,7 +2014,11 @@ class PenguChecker:
                         note="Declaration files (.d.pengu) cannot contain function implementation bodies."
                     )
                     self._record_error(err)
-                is_inline, is_ritual, idx = _extract_weave_modifiers(stmt.children)
+                w_attrs, w_idx = _extract_attributes(stmt.children)
+                self._validate_attributes(w_attrs, "weave", stmt)
+                is_inline, is_ritual, idx = _extract_weave_modifiers(stmt.children, start_idx=w_idx)
+                if "inline" in w_attrs:
+                    is_inline = True
                 fn_name = str(stmt.children[idx])
                 if fn_name == "main":
                     if getattr(self, "_seen_main_file", None) is not None:
@@ -1966,16 +2090,16 @@ class PenguChecker:
                     self.symbols.generic_functions[fn_name] = (type_params, stmt)
                     if c_fn_name != fn_name:
                         self.symbols.generic_functions[c_fn_name] = (type_params, stmt)
-                    fn_t = FnType(params=params, return_type=ret_type, default_count=default_count, is_ritual=is_ritual, type_params=type_params)
+                    fn_t = FnType(params=params, return_type=ret_type, default_count=default_count, is_ritual=is_ritual, type_params=type_params, attributes=w_attrs)
                 else:
-                    fn_t = FnType(params=params, return_type=ret_type, default_count=default_count, is_ritual=is_ritual)
+                    fn_t = FnType(params=params, return_type=ret_type, default_count=default_count, is_ritual=is_ritual, attributes=w_attrs)
 
                 self.symbols.functions[fn_name] = fn_t
                 if c_fn_name != fn_name:
                     self.symbols.functions[c_fn_name] = fn_t
                 doc = self._extract_preceding_doc(line)
                 self.symbols.global_scope.define(Symbol(
-                    name=fn_name, type=fn_t, kind="weave", is_mutable=False, is_ritual=is_ritual, line=line, column=col, doc=doc, file_path=self.filename, c_name=c_fn_name
+                    name=fn_name, type=fn_t, kind="weave", is_mutable=False, is_inline=is_inline, is_ritual=is_ritual, line=line, column=col, doc=doc, file_path=self.filename, c_name=c_fn_name, attributes=w_attrs
                 ))
 
         if not hasattr(self, "_collected_files") or self._collected_files is None:
@@ -5014,11 +5138,11 @@ class PenguChecker:
             if node.data in decl_rules and not generic_ctx:
                 for sub in node.iter_subtrees():
                     if isinstance(sub, Tree) and sub.data in field_rules:
-                        # [name, type, (default)]
-                        tnode = sub.children[1] if len(sub.children) > 1 else None
-                        if has_includes and self._type_node_looks_like_c(tnode):
-                            continue
-                        self._validate_type_node(tnode)
+                        for child in sub.children:
+                            if isinstance(child, Tree) and child.data in self._TYPE_NODE_RULES:
+                                if has_includes and self._type_node_looks_like_c(child):
+                                    continue
+                                self._validate_type_node(child)
                 for child in node.children:
                     if isinstance(child, Tree) and child.data in self._TYPE_NODE_RULES:
                         if has_includes and self._type_node_looks_like_c(child):
@@ -5232,6 +5356,8 @@ class PenguChecker:
             return
 
         line, col = self._get_loc(node)
+        w_attrs, _ = _extract_attributes(node.children)
+        self._validate_attributes(w_attrs, "weave", node)
         is_inline, is_ritual, idx = _extract_weave_modifiers(node.children)
         fn_name = str(node.children[idx])
 
@@ -6040,6 +6166,8 @@ class PenguChecker:
             type_bounds: Optional dictionary mapping type parameter names to concept bounds.
         """
         line, col = self._get_loc(node)
+        w_attrs, _ = _extract_attributes(node.children)
+        self._validate_attributes(w_attrs, "weave", node)
         is_inline, is_ritual, idx = _extract_weave_modifiers(node.children)
         fn_name = str(node.children[idx])
         rem_children = [c for c in node.children[idx+1:] if c is not None]

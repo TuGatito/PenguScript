@@ -422,6 +422,25 @@ class InfiniteTypeSizeError(SemanticError):
         super().__init__(message, line=line, col=col, column=column, **kwargs)
 
 
+class UnknownAttributeError(SemanticError):
+    """E0056: unknown attribute or invalid attribute usage."""
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0056")
+        kwargs.setdefault("help", "Supported attributes are @inline, @cold, @deprecated, @packed, and @align(N).")
+        kwargs.setdefault("note", "Attributes configure compilation semantics, code generation, and diagnostics.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+class InvalidCharLiteralError(SemanticError):
+    """E0057: char literal cannot hold codepoint > 0x7F."""
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0057")
+        kwargs.setdefault("help", "Use a string literal or chr(...) for Unicode codepoints above 0x7F.")
+        kwargs.setdefault("note", "PenguScript 'char' is an 8-bit ASCII character.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+
 
 
 

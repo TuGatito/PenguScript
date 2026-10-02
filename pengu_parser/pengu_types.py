@@ -1040,6 +1040,8 @@ class RuneType(Type):
     base_name: Optional[str] = None
     derived_concepts: List[str] = field(default_factory=list)
     bounds: Dict[str, List[str]] = field(default_factory=dict)
+    attributes: Dict[str, List[Any]] = field(default_factory=dict)
+    field_attributes: Dict[str, Dict[str, List[Any]]] = field(default_factory=dict)
 
     def get_base_name(self) -> str:
         if self.base_name:
@@ -1267,6 +1269,7 @@ class FnType(Type):
     type_params: List[str] = field(default_factory=list)
     type_args: List[Type] = field(default_factory=list)
     is_ritual: bool = False
+    attributes: Dict[str, List[Any]] = field(default_factory=dict)
 
     @property
     def is_generic(self) -> bool:
