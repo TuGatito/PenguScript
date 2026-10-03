@@ -1730,6 +1730,32 @@ Tanto `Point of int` como `Point of string` obtienen `==`, `<`, … funcionales 
 que el argumento sustituido implemente el concepto (se comprueba en el punto de
 llamada).
 
+#### Qué conceptos son derivables
+
+Exactamente cinco, y cada uno produce algo distinto:
+
+| Concepto | ¿Derivable? | Qué produce |
+|---|---|---|
+| `Par` | ✅ | `==` / `!=` entre valores de la rune |
+| `Ordo` | ✅ | `<` `<=` `>` `>=` |
+| `Vinculum` | ✅ | un hash, así que la rune sirve como clave de `map` |
+| `Imago` | ✅ | `_pengu_clone_<T>`, el callback de copia profunda que usan los contenedores |
+| `Nexus` | ✅ | `_pengu_cleanup_<T>`, el destructor que usa el auto-banish |
+| `Forma` | ❌ | `E0005 Concept 'Forma' cannot be automatically derived` |
+| `Iterabilis` | ❌ | `E0005` |
+| `Donum` | ❌ | `E0005` |
+
+Dos detalles fáciles de confundir:
+
+* **`Imago` no añade un método `.clone()` a la rune.** Emite el callback de C;
+  escribir `a.clone` sobre una rune `derive Imago` es
+  `E0004 Type 'T' has no method 'clone'`. `Imago` **implica `Nexus`** (un tipo que
+  clona sus elementos también debe poder liberarlos), así que `derive Imago` solo
+  emite **ambos**: `_pengu_clone_T` y `_pengu_cleanup_T`.
+* Derivar un concepto de comparación sobre una rune **genérica** acota los
+  parámetros, así que la comprobación ocurre en el punto de sustitución, no en la
+  declaración.
+
 ### 11.7 Tipos asociados (no implementado — ⏸️ diferido a 1.1)
 
 Los conceptos al estilo de los iteradores, como el `Iterator` de Rust, necesitan un

@@ -1833,6 +1833,31 @@ rune Point shard T derive Par, Ordo:
 `Point of int` and `Point of string` both get working `==`, `<`, … as long as
 the substituted argument implements the concept (checked at the call site).
 
+#### Which concepts are derivable
+
+Exactly five, and each one produces something different:
+
+| Concept | Derivable | What it produces |
+|---|---|---|
+| `Par` | ✅ | `==` / `!=` between values of the rune |
+| `Ordo` | ✅ | `<` `<=` `>` `>=` |
+| `Vinculum` | ✅ | a hash, so the rune works as a `map` key |
+| `Imago` | ✅ | `_pengu_clone_<T>`, the C-level deep-copy callback containers call |
+| `Nexus` | ✅ | `_pengu_cleanup_<T>`, the destructor auto-banish calls |
+| `Forma` | ❌ | `E0005 Concept 'Forma' cannot be automatically derived` |
+| `Iterabilis` | ❌ | `E0005` |
+| `Donum` | ❌ | `E0005` |
+
+Two details that are easy to get wrong:
+
+* **`Imago` does not add a `.clone()` method to the rune.** It emits the C
+  callback; writing `a.clone` on a `derive Imago` rune is `E0004 Type 'T' has no
+  method 'clone'`. `Imago` **implies `Nexus`** (a type that clones its elements
+  must also be able to release them), so `derive Imago` alone emits *both*
+  `_pengu_clone_T` and `_pengu_cleanup_T`.
+* Deriving a comparison concept on a **generic** rune bounds the parameters, so
+  the check happens at the substitution site, not at the declaration.
+
 ### 11.7 Associated types (not implemented — ⏸️ deferred to 1.1)
 
 Iterator-style concepts such as Rust's `Iterator` need an *associated type* so
