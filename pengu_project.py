@@ -703,6 +703,14 @@ class PenguBuilder:
                           else os.path.join(self.config.base_dir, assets_dir_rel))
         if assets_dir and os.path.isdir(assets_dir):
             digest.update(b"\0assets_embed\0" + (b"1" if getattr(self.config, "assets_embed", True) else b"0"))
+            # The .incbin threshold changes the generated asset sources, so it
+            # must invalidate the artifact cache too (roadmap 6.0.f).
+            try:
+                from pengu_assets import _incbin_threshold as _threshold
+
+                digest.update(b"\0assets_incbin\0" + str(_threshold()).encode("ascii"))
+            except Exception:  # noqa: BLE001 - optional asset support
+                pass
             for root, _, files in os.walk(assets_dir):
                 for f in sorted(files):
                     fp = os.path.join(root, f)
@@ -1264,6 +1272,10 @@ class PenguBuilder:
         ``severity``, ``message``, ``help`` and ``note`` keys, suitable for
         ``pengu check --json``.
         """
+        cached = getattr(self, "_diagnostics_cache", None)
+        if cached is not None:
+            return cached[0], [dict(d) for d in cached[1]]
+
         self.generate_assets()
         entry_abs = self.config.resolve_entry()
 
@@ -1348,6 +1360,7 @@ class PenguBuilder:
                 sub_list = getattr(e, "all_errors", None) or [e]
                 for sub in sub_list:
                     diagnostics.append(_diag(sub, mod_path))
+        self._diagnostics_cache = (ok, [dict(d) for d in diagnostics])
         return ok, diagnostics
 
     def check_sources(self) -> Tuple[bool, List[str]]:
@@ -1908,10 +1921,11 @@ def _ensure_lockfile(config: "ProjectConfig", locked: bool = False,
         return None
 
     strict = locked or frozen
-    if frozen and existing is None:
+    if strict and existing is None:
+        flag = "--frozen" if frozen else "--locked"
         raise LockError(
-            "[E0061] --frozen requires a pengu.lock, but none was found.\n"
-            "  Run `pengu build` once without --frozen to generate it, then commit it."
+            f"[E0061] {flag} requires an existing pengu.lock, but none was found.\n"
+            f"  Run `pengu build` once without {flag} to generate it, then commit it."
         )
 
     graph = resolve_transitive_dependencies(
@@ -1936,6 +1950,37 @@ def _ensure_lockfile(config: "ProjectConfig", locked: bool = False,
     if strict:
         return lock_path
     return write_lock(config.base_dir, current)
+
+
+def _report_denied_deprecations(diags: List[Dict[str, Any]], json_output: bool = False) -> None:
+    """Prints the denied W0006 diagnostics and aborts (roadmap 5.4 / 6.0.c)."""
+    denied = [d for d in diags if d.get("severity") == "error" and d.get("code") == "W0006"]
+    if not denied:
+        return
+    if json_output:
+        for d in diags:
+            print(json.dumps({"type": "diagnostic", **d}, ensure_ascii=False))
+        print(json.dumps({"type": "summary", "ok": False, "errors": len(denied)},
+                         ensure_ascii=False))
+    else:
+        for d in denied:
+            print(f"\033[1;31m     Error\033[0m {d['file']}:{d['line']}:{d['col']} "
+                  f"[{d['code']}] {d['message']}", file=sys.stderr)
+        print("\033[1;31m     Error\033[0m deprecated symbol used with --deny-deprecated",
+              file=sys.stderr)
+    raise SystemExit(1)
+
+
+def enforce_deny_deprecated(builder: "PenguBuilder", json_output: bool = False) -> None:
+    """Runs the deprecation gate on an existing builder (single pass, memoised).
+
+    Used by build_project and run_script so the flag means the same thing for a
+    project and for a standalone script (roadmap 6.0.c / 6.0.d).
+    """
+    if not getattr(builder, "deny_deprecated", False):
+        return
+    _ok, diags = builder.check_sources_diagnostics()
+    _report_denied_deprecations(diags, json_output=json_output)
 
 
 def build_project(
@@ -1996,26 +2041,6 @@ def build_project(
     config.deny_deprecated = bool(deny_deprecated)
     _set_release_unsafe(config.release_unsafe)
 
-    if deny_deprecated:
-        # A denied deprecation must abort before any code is generated.
-        _deny_builder = PenguBuilder(config)
-        _deny_builder.deny_deprecated = True
-        _ok, _diags = _deny_builder.check_sources_diagnostics()
-        _denied = [d for d in _diags if d.get("severity") == "error" and d.get("code") == "W0006"]
-        if _denied:
-            if json_output:
-                for _d in _diags:
-                    print(json.dumps({"type": "diagnostic", **_d}, ensure_ascii=False))
-                print(json.dumps({"type": "summary", "ok": False,
-                                  "errors": len(_denied)}, ensure_ascii=False))
-            else:
-                for _d in _denied:
-                    print(f"\033[1;31m     Error\033[0m {_d['file']}:{_d['line']}:{_d['col']} "
-                          f"[{_d['code']}] {_d['message']}", file=sys.stderr)
-                print("\033[1;31m     Error\033[0m deprecated symbol used with --deny-deprecated",
-                      file=sys.stderr)
-            raise SystemExit(1)
-
     try:
         _ensure_lockfile(config, locked=locked, frozen=frozen,
                          verbose=verbose and not json_output)
@@ -2038,6 +2063,10 @@ def build_project(
     builder.is_test_mode = test
     builder.verbose = verbose and not json_output
     builder.use_pch = bool(pch)
+    builder.deny_deprecated = bool(deny_deprecated)
+    # The deprecation gate runs on this very builder (roadmap 6.0.c): one module
+    # resolution and one memoised check pass, instead of a throwaway second one.
+    enforce_deny_deprecated(builder, json_output=json_output)
     # PENGU_NO_DCE is read by PenguCodegen, so it must be set for the whole
     # bundle/compile and restored afterwards (build_project is also a library
     # entry point called from long-lived processes).
@@ -3274,6 +3303,18 @@ def resolve_transitive_dependencies(
     return graph
 
 
+def _same_source(a: str, b: str) -> bool:
+    """Compares two dependency sources tolerantly (trailing '/', '.git', case)."""
+
+    def _norm(x: str) -> str:
+        x = (x or "").strip().rstrip("/")
+        if x.endswith(".git"):
+            x = x[:-4]
+        return x.replace("\\", "/").lower()
+
+    return _norm(a) == _norm(b)
+
+
 def verify_project(config_path: Optional[str] = None, verbose: bool = False) -> int:
     """Verifies every installed dependency against ``pengu.lock`` (roadmap 5.3).
 
@@ -3300,6 +3341,13 @@ def verify_project(config_path: Optional[str] = None, verbose: bool = False) -> 
         if not os.path.isdir(dep_dir):
             problems.append(f"{pkg.name}: not installed at {dep_dir}")
             continue
+        if pkg.source and os.path.isdir(os.path.join(dep_dir, ".git")):
+            # A dependency replaced by a different repository of the same name
+            # would otherwise pass verification (roadmap 6.0.e).
+            origin = subprocess.run(["git", "-C", dep_dir, "remote", "get-url", "origin"],
+                                    capture_output=True, text=True).stdout.strip()
+            if origin and not _same_source(origin, pkg.source):
+                problems.append(f"{pkg.name}: origin '{origin}' != locked '{pkg.source}'")
         if pkg.commit and os.path.isdir(os.path.join(dep_dir, ".git")):
             head = subprocess.run(["git", "-C", dep_dir, "rev-parse", "HEAD"],
                                   capture_output=True, text=True).stdout.strip()
@@ -4145,6 +4193,7 @@ def run_script(script: str, defines: Optional[List[str]] = None,
             extra_digests=[
                 d for d in (
                     "dce=off" if no_dce else None,
+                    "release-unsafe" if getattr(cfg, "release_unsafe", False) else None,
                     "strict-c99" if getattr(cfg, "strict_c99", False) else None,
                     f"target={cfg.target_compiler}" if getattr(cfg, "target_compiler", "") else None,
                     f"triple={cfg.target}" if getattr(cfg, "target", "") else None,
@@ -4188,6 +4237,9 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         builder.verbose = verbose
         builder.dev_fast_flags = True
         builder.use_pch = not no_pch
+        # `pengu run --deny-deprecated script.pengu` must mean the same as for a
+        # project; without this the flag was silently ignored (roadmap 6.0.d).
+        enforce_deny_deprecated(builder, json_output=False)
         if os.path.basename(dev_cc).lower() != os.path.basename(configured_cc).lower():
             builder.fallback_cc = configured_cc
         try:
@@ -4327,6 +4379,8 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
     builder = PenguBuilder(config)
     builder.is_test_mode = True
     builder.verbose = verbose
+    builder.deny_deprecated = bool(deny_deprecated)
+    enforce_deny_deprecated(builder, json_output=json_output)
     artifact, is_cached = builder.compile()
     elapsed = time.time() - t0
     if not json_output:

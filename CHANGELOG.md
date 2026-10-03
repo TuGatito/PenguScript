@@ -3,6 +3,49 @@
 All notable changes to PenguScript will be documented in this file.
 
 
+## [Unreleased] — FASE 6: DX Verificable
+
+> La Fase 6 del roadmap se reescribió tras la auditoría de viabilidad: benchmarks
+> realistas, plantillas que cumplen su propio criterio, y el playground WASM
+> **fuera del scope de 1.0** con justificación técnica. Primero, los bugs
+> residuales de la Fase 5 (verificados contra el código; 1 refutado).
+
+### 🐛 Fixed — 6.0 Bugs residuales de Fase 5
+
+- **BUG-6.1** `--locked` **no fallaba** si `pengu.lock` no existía: sólo `--frozen`
+  lo comprobaba, así que un CI con `pengu build --locked` en un repo sin lock
+  pasaba en silencio (falso negativo). Ahora ambos exigen el lock y el mensaje
+  nombra el flag usado. Un proyecto **sin dependencias** sigue sin necesitar
+  lock (no hay nada que resolver) y se documenta con test.
+- **BUG-6.2** la clave de caché de scripts no incluía `release_unsafe`: un script
+  cacheado con los checks activos se reutilizaba al ejecutar `--release-unsafe`
+  (y viceversa), de modo que el usuario creía haber desactivado los checks y
+  ejecutaba el binario antiguo.
+- **BUG-6.3** `--deny-deprecated` construía un **segundo** builder para la puerta
+  de deprecación, duplicando la resolución de módulos. Ahora la comprobación se
+  hace sobre el mismo builder que compila y `check_sources_diagnostics` está
+  memoizado por builder (un solo pase).
+- **BUG-6.9** `pengu verify` no comparaba la **URL de origen**: una dependencia
+  sustituida por otro repositorio con el mismo nombre pasaba la verificación.
+  Ahora se compara `git remote get-url origin` contra `source` del lock, con
+  normalización tolerante (sufijo `.git`, barra final, mayúsculas).
+- **BUG-6.10** `pengu run --deny-deprecated script.pengu` **ignoraba el flag**
+  (sólo el `run` de proyecto lo respetaba). Ambos caminos comparten ahora
+  `enforce_deny_deprecated`, y `pengu test --deny-deprecated` también.
+- **BUG-6.12** el *threshold* de `.incbin` invalidaba el digest de assets (eso ya
+  estaba bien) pero **no** el fingerprint del builder, así que un cambio de
+  `PENGU_ASSETS_INCBIN_THRESHOLD` podía reutilizar el artefacto anterior. Añadido
+  al fingerprint.
+
+#### ❌ Refutación
+
+- **BUG-6.12 (parte de assets)** *"cambiar el threshold no invalida el digest"* →
+  **falso**: `pengu_assets.generate` ya incluye `incbin=<threshold>` en su digest
+  (con test y comentario en el código). El hueco real estaba en el fingerprint del
+  builder, que es lo que se corrigió.
+- **BUG-6.11** (`%` literal sin escapar) — la propia auditoría lo descartó;
+  `_translate_string_lit` ya hace `.replace("%", "%%")`. Sin cambios.
+
 ## [Unreleased] — FASE 5: Seguridad y Robustez (v1.0)
 
 > Política: el desbordamiento y los límites tienen comportamiento **definido**
