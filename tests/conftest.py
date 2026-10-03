@@ -369,6 +369,16 @@ def compile_run(source: str, tag: str = "t", extra_libs=None, cwd=None,
                 cmd.append("-ftrapv")   # trap signed overflow in debug
         if extra_cflags:
             cmd += list(extra_cflags)
+        # Honour PENGU_CFLAGS / PENGU_LDFLAGS so the whole suite can be run under
+        # sanitizers in CI (see .github/workflows/sanitizers.yml).
+        import shlex as _shlex
+
+        _env_cflags = os.environ.get("PENGU_CFLAGS", "").strip()
+        if _env_cflags:
+            cmd += _shlex.split(_env_cflags)
+        _env_ldflags = os.environ.get("PENGU_LDFLAGS", "").strip()
+        if _env_ldflags:
+            cmd += _shlex.split(_env_ldflags)
         # GCC 14 turns implicit declarations / int-conversion into errors by
         # default; generated C may trigger those warnings on newer toolchains,
         # so keep them as warnings across compilers.
@@ -386,7 +396,20 @@ def compile_run(source: str, tag: str = "t", extra_libs=None, cwd=None,
         assert res.returncode == 0, (
             f"Compilation failed ({res.returncode}):\n{res.stderr}\n{res.stdout}"
         )
-        run_res = subprocess.run([str(exe)], cwd=str(cwd or REPO),
+        # PENGU_TEST_VALGRIND=1 prefixes the run with valgrind, so the sanitizer
+        # workflow can leak-check the suite without a second harness.
+        run_cmd: list = [str(exe)]
+        if os.environ.get("PENGU_TEST_VALGRIND", "").strip().lower() in ("1", "true", "yes", "on"):
+            valgrind = shutil.which("valgrind")
+            if valgrind:
+                run_cmd = [
+                    valgrind, "--error-exitcode=99", "--leak-check=full",
+                    "--errors-for-leak-kinds=definite", "--quiet",
+                    str(exe),
+                ]
+            else:
+                raise AssertionError("PENGU_TEST_VALGRIND=1 requires valgrind on PATH")
+        run_res = subprocess.run(run_cmd, cwd=str(cwd or REPO),
                                  capture_output=True, text=True, timeout=timeout)
         if expect_exit is not None:
             assert run_res.returncode == expect_exit, (

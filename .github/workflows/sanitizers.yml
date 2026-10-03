@@ -1,0 +1,94 @@
+name: Sanitizers
+
+# Fase 7 / CI audit: memory-safety verification. The project emits C, so the
+# sanitizers are applied to the *generated* code and the runtime through
+# PENGU_CFLAGS / PENGU_LDFLAGS (pengu_project.py and tests/conftest.py both honour
+# them, and they are part of the cache key, so a sanitized binary can never be
+# confused with a plain one).
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    - cron: '0 4 * * *'   # nightly, before the bench job
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sanitizers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  asan-ubsan:
+    name: ASan + UBSan (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      PENGU_CFLAGS: '-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all'
+      PENGU_LDFLAGS: '-fsanitize=address,undefined'
+      ASAN_OPTIONS: 'detect_leaks=1:abort_on_error=1:halt_on_error=1:strict_string_checks=1:detect_stack_use_after_return=1'
+      UBSAN_OPTIONS: 'print_stacktrace=1:halt_on_error=1'
+    steps:
+      - uses: actions/checkout@v4
+
+      # runtime-cache-scope keeps sanitized runtime objects away from the plain
+      # ones; the runtime itself is not built with the sanitizers, but the scope
+      # also avoids sharing a cache entry with jobs that pass other flags.
+      - name: Set up build environment
+        uses: ./.github/actions/setup-pengu
+        with:
+          runtime-cache-scope: asan
+
+      # The whole suite runs under the sanitizers: every test that compiles a
+      # program inherits PENGU_CFLAGS through tests/conftest.py.
+      - name: Test suite under ASan + UBSan
+        run: |
+          python -m pytest tests -q -p no:cacheprovider --timeout=900
+
+      - name: ASan/UBSan on the std programs
+        run: |
+          python -m pytest tests/test_std_backward_compat.py tests/test_std_data_backward_compat.py \
+                           tests/test_std_util_backward_compat.py -q -p no:cacheprovider --timeout=900
+
+      - name: Upload sanitizer logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanitizer-logs-${{ github.run_id }}
+          path: |
+            build/**/*.log
+            **/asan*.txt
+          if-no-files-found: ignore
+          retention-days: 30
+
+  valgrind:
+    name: Valgrind leak check (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-pengu
+
+      - name: Install valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends valgrind
+
+      # A representative subset: the std suites exercise containers, strings and
+      # the auto-banish model, which is where leaks would show up.
+      - name: Valgrind on the container/serialization suites
+        run: |
+          PENGU_TEST_VALGRIND=1 python -m pytest \
+            tests/test_std_backward_compat.py \
+            tests/test_std_data_backward_compat.py \
+            -q -p no:cacheprovider --timeout=1800

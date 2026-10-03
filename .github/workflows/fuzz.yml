@@ -1,5 +1,14 @@
 name: fuzz
 
+# CI audit fixes:
+#  * `timeout-minutes` is larger than the requested budget, otherwise a 12 h
+#    budget would be killed by GitHub's 6 h default with a confusing error.
+#  * permissions are read-only and the job has a concurrency group.
+#  * the crash corpus is uploaded with `if: always()`: a finding must not be lost
+#    just because the harness exited 0.
+#  * `|| true` no longer hides a broken requirements install; atheris, which is
+#    Linux-only, is the single tolerated failure and it warns explicitly.
+
 on:
   pull_request:
     branches: [ main, master ]
@@ -11,12 +20,25 @@ on:
       seconds:
         description: 'Seconds per harness'
         required: false
-        default: '43200'   # 12h; release runs use 72h via the release branch job
+        default: '43200'   # 12 h; the job timeout below leaves margin
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   fuzz:
     name: fuzz (${{ matrix.harness }})
     runs-on: ubuntu-latest
+    # 13 h: covers the 12 h default budget with margin, and is explicit instead of
+    # relying on the platform's 6 h default (which used to kill long runs).
+    timeout-minutes: 780
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -30,45 +52,67 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.14'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
 
       - name: Install dependencies
+        shell: bash
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
-          pip install -r requirements.txt || true
-          pip install atheris || echo "atheris unavailable; smoke mode will be used"
+          pip install -r requirements.txt
+          # atheris is Linux x86_64 only; smoke mode is the documented fallback.
+          if ! pip install atheris; then
+            echo "::warning::atheris unavailable; the deterministic smoke pass will run"
+          fi
+
+      - name: Cache runtime build
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/lib
+            build/include
+          key: runtime-fuzz-${{ runner.os }}-${{ hashFiles('extern_manifest.py', 'build_runtime.py') }}
+          restore-keys: runtime-fuzz-${{ runner.os }}-
 
       - name: Build runtime headers (needed by fuzz_bind)
         run: python build_runtime.py --headers-only || true
 
       - name: Determine budget
         id: budget
+        shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "seconds=300" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "schedule" ]; then
-            echo "seconds=3600" >> "$GITHUB_OUTPUT"
-          else
-            echo "seconds=${{ github.event.inputs.seconds }}" >> "$GITHUB_OUTPUT"
-          fi
+          set -euo pipefail
+          case "${GITHUB_EVENT_NAME}" in
+            pull_request)      echo "seconds=300" >> "$GITHUB_OUTPUT" ;;
+            schedule)          echo "seconds=3600" >> "$GITHUB_OUTPUT" ;;
+            workflow_dispatch) echo "seconds=${{ github.event.inputs.seconds }}" >> "$GITHUB_OUTPUT" ;;
+            *)                 echo "seconds=300" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Run ${{ matrix.harness }} harness
+        shell: bash
         run: |
-          SECONDS_BUDGET=${{ steps.budget.outputs.seconds }}
+          set -euo pipefail
+          BUDGET="${{ steps.budget.outputs.seconds }}"
           if python -c "import atheris" 2>/dev/null; then
-            python scripts/fuzz/fuzz_${{ matrix.harness }}.py \
-              -max_total_time="$SECONDS_BUDGET" -rss_limit_mb=4096 -print_final_stats=1
+            python "scripts/fuzz/fuzz_${{ matrix.harness }}.py" \
+              -max_total_time="$BUDGET" -rss_limit_mb=4096 -print_final_stats=1
           else
             echo "::warning::atheris is not installed; running the deterministic smoke pass"
-            PENGU_FUZZ_SMOKE=1 python scripts/fuzz/fuzz_${{ matrix.harness }}.py
+            PENGU_FUZZ_SMOKE=1 python "scripts/fuzz/fuzz_${{ matrix.harness }}.py"
           fi
 
       - name: Upload crash corpus
-        if: failure()
+        # always(): findings are written to disk even when the harness exits 0.
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: fuzz-findings-${{ matrix.harness }}
+          name: fuzz-findings-${{ matrix.harness }}-${{ github.run_id }}
           path: build/fuzz_crashes/
           if-no-files-found: ignore
+          retention-days: 90

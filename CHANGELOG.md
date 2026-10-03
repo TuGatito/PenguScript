@@ -3,6 +3,117 @@
 All notable changes to PenguScript will be documented in this file.
 
 
+## [Unreleased] — CI/CD: auditoría de GitHub Actions (Fase 7)
+
+> Verificación previa contra los 4 workflows reales. **2 hallazgos de la
+> auditoría resultaron falsos** en su formulación (B y parte de E/`bench.sh`) y
+> se documentan abajo. Todo lo demás se confirmó y se corrigió.
+
+### 🔴 Fixed — Bloqueantes
+
+- **Race condition de doble release (bloqueante).** `ci.yml` creaba el tag **y**
+  publicaba la GitHub Release, mientras `release.yml` (disparado por el push del
+  tag) publicaba **la misma** release: dos workflows compitiendo por el mismo
+  tag. Ahora `ci.yml` **solo crea el tag** y `release.yml` es el **único** que
+  publica. Un test lo fija: exactamente un workflow contiene `gh release create`.
+- **Tag `vUnreleased` (bloqueante, bug real y activo).** El extractor de versión
+  usaba `re.search(r"^##\s*\[([^\]]+)\]")`, que toma la **primera** cabecera
+  `## [...]`. Desde que el CHANGELOG tiene cabeceras
+  `## [Unreleased] — FASE 5/6` **antes** de la versión real, el siguiente push a
+  `main` habría creado y empujado un tag **`vUnreleased`**. Se sustituye por
+  `scripts/release_version.py`, compartido por el tag y las notas, que salta
+  `[Unreleased]`, falla con mensaje claro si no hay versión publicada y detecta
+  prereleases. **Hallazgo adicional del propio script:** su primer regex no
+  reconocía el **guion largo (`—`)** de las cabeceras, así que ni siquiera veía
+  las secciones `[Unreleased]`; corregido y cubierto con test.
+- **`bench.yml` en Windows.** Se añade `shell: bash` a los steps con `date`,
+  `tee` y `[ -n ]`. **Refutación honesta:** el workflow **no incluía Windows** en
+  su matriz, así que no estaba roto hoy; el arreglo es endurecimiento para que
+  añadir Windows no lo rompa en silencio (y se documenta por qué Windows queda
+  fuera: los números los domina el antivirus).
+- **`cc` hardcodeado en el step de ABI layout (rompía Windows).** `cc` no existe
+  en los runners de Windows. Ahora el shell decide el compilador según
+  `$RUNNER_OS` (MinGW `gcc` en Windows, `${CC:-cc}` en el resto). Era un bug
+  introducido en la Fase 5.
+
+### 🟠 Fixed — Altos
+
+- **`timeout-minutes` en todos los jobs** (el defecto de GitHub son 6 h): CI 60,
+  release 90, bench 90, fuzz **780** (cubre el presupuesto de 12 h), sanitizers
+  120/90, tag 10, VSIX 20.
+- **`concurrency` en los 5 workflows**, con `cancel-in-progress: false` en
+  `release.yml` y `bench.yml` (una release o una serie de benchmarks a medias es
+  peor que una superseded).
+- **`permissions` con mínimo privilegio**: `contents: read` a nivel de workflow y
+  `contents: write` **solo** en el job de tag/release (antes era `write` para
+  todos los steps, incluidos setup e install).
+- **Caché del runtime** (`build/lib`, `build/include`, `build/tcc-dist`,
+  `extern/`) con clave por SO+arquitectura y hash de `extern_manifest.py` /
+  `build_runtime.py` / `requirements.txt`. Se cachean **solo esos directorios**,
+  nunca `build/` entero (que contiene `bundle.c` y binarios).
+- **Setup compartido** en `.github/actions/setup-pengu` (action compuesta): deps
+  nativas por SO, deps de Python, caché y `build_runtime.py`. Elimina ~60 líneas
+  duplicadas por workflow y **arregla que `bench.yml` no instalaba las
+  dependencias de Linux** (hacía el benchmark menos representativo que CI).
+- **Sin acción de terceros.** `softprops/action-gh-release@v2` (tag móvil, código
+  ajeno con `contents: write`) se sustituye por la **CLI `gh`** de primera parte
+  ya presente en los runners: no hay SHA que pinnear y se gana control sobre
+  notas, checksums y `prerelease`. Un test prohíbe acciones fuera de
+  `actions/`/`github/` y de `.github/actions/`.
+- **VSIX una sola vez**: era idéntico en los 3 SO de la matriz; ahora hay un job
+  dedicado y los artifacts se descargan como uno solo.
+- **Config muerta eliminada** (`artifact_cmd`) y **step redundante** eliminado
+  (el "fast fail on core reviews" ejecutaba los mismos ficheros que la suite
+  completa).
+
+### 🟡 Fixed — Integridad de releases
+
+- **`SHA256SUMS.txt`** generado y publicado con la release, y validación de que
+  hay al menos 3 assets antes de publicar (un glob vacío hacía fallar `gh` de
+  forma críptica).
+- **`prerelease` automático** para tags con `-rc`/`-beta`/`-alpha` (antes todo
+  salía como estable, rompiendo el flujo RC de la Fase 7).
+- **Notas desde el CHANGELOG** (`--notes-file`), no notas autogeneradas, y
+  verificación de que el tag coincide con la primera versión publicada del
+  CHANGELOG.
+- **Descarga de TinyCC verificada**: `PENGU_TCC_SHA256` debe coincidir o el step
+  falla en vez de empaquetar un binario de un mirror de terceros sin comprobar.
+- **`workflow_dispatch` con tag real**: el input `version` se ignoraba y se
+  publicaba contra `github.ref`; ahora se resuelve y se exige que el tag exista.
+
+### 🟢 Added — Workflows y automatización
+
+- **`sanitizers.yml`**: ASan+UBSan sobre **toda la suite** y sobre los programas
+  de `std/`, más un job de **valgrind**. Para que sea real se añadió soporte de
+  `PENGU_CFLAGS`/`PENGU_LDFLAGS` en `pengu_project.py` **y** en
+  `tests/conftest.py`, y ambos entran en la **clave de caché** (si no, una build
+  con sanitizers podría reutilizar un binario normal). Verificado localmente:
+  `-fsanitize=address,undefined` compila y el programa termina sin fugas ni UB.
+- **`PENGU_TEST_VALGRIND=1`** en `conftest`: prefija la ejecución con valgrind y
+  **falla** si valgrind no está, en vez de fingir que lo usa.
+- **`dependabot.yml`** (github-actions, pip, npm).
+- **Gate CI/CD (FASE 7)** en `ci.yml` que ejecuta `tests/test_ci_workflows.py`:
+  49 aserciones estáticas sobre los YAML (un solo publicador de releases,
+  timeouts, permisos, concurrencia, `shell: bash`, caché sin `build/` entero,
+  checksums, prerelease, VSIX único, sin acciones de terceros) más ejecuciones
+  reales del extractor de versión.
+
+### ❌ Refutaciones
+
+- **`bench.yml` "roto en Windows"** → **falso tal cual**: la matriz solo tenía
+  `ubuntu` y `macos`, y en macOS el shell por defecto ya es `bash`. Se endurece
+  igualmente.
+- **`scripts/bench.sh` "verificar si existe"** → **existe** y mide los tiempos del
+  toolchain; no se duplica.
+- **`|| true` en `ci.yml`/`release.yml`** → solo aparecía en `brew install` y en
+  los pasos de TinyCC/codesign, donde el fallback está documentado; se elimina del
+  `brew install` (el resto se conserva a propósito porque el fallback es
+  intencional).
+- **`ci.yml`/`release.yml` sin `permissions`** → sí las tenían, pero a nivel
+  `contents: write` para **todos** los steps; la corrección es de granularidad,
+  no de ausencia. También había ya caché de pip/npm, que la auditoría daba por
+  ausente.
+
 ## [Unreleased] — FASE 6: DX Verificable
 
 > La Fase 6 del roadmap se reescribió tras la auditoría de viabilidad: benchmarks

@@ -1,0 +1,100 @@
+name: Setup PenguScript build environment
+description: >
+  Single source of truth for the CI environment: Python/Node setup, per-OS native
+  dependencies, Python packages, the runtime build cache and build_runtime.py.
+  Used by ci.yml, release.yml, bench.yml, fuzz.yml and sanitizers.yml so a change
+  here reaches every workflow (roadmap Fase 7 / CI audit).
+
+inputs:
+  python-version:
+    description: Python version (pinned patch for reproducibility)
+    required: false
+    default: '3.14'
+  node-version:
+    description: Node.js version for the VS Code extension
+    required: false
+    default: '20'
+  build-runtime:
+    description: Run build_runtime.py after the cache step
+    required: false
+    default: 'true'
+  runtime-cache-scope:
+    description: Extra cache-key discriminator (e.g. 'asan') so sanitizer builds
+                 never reuse a plain runtime
+    required: false
+    default: 'default'
+  setup-node:
+    description: Install Node.js (only needed for the VSIX job)
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: 'pip'
+        cache-dependency-path: requirements.txt
+
+    - name: Set up Node.js
+      if: inputs.setup-node == 'true'
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: 'npm'
+        cache-dependency-path: vscode-extension/package-lock.json
+
+    # Linux needs the C libraries build_runtime.py links against.  Without these
+    # the runtime silently degrades (or fails), which made bench/fuzz less
+    # representative than ci.yml.
+    - name: Install Linux build dependencies
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          build-essential cmake ninja-build pkg-config gcc \
+          zlib1g-dev libpcre2-dev libxml2-dev libcurl4-openssl-dev \
+          libmbedtls-dev libmicrohttpd-dev libsqlite3-dev libssl-dev \
+          libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev \
+          libxi-dev libgl1-mesa-dev
+
+    # No '|| true' here on purpose: a silent Homebrew failure produced confusing
+    # downstream errors instead of a clear one.
+    - name: Install macOS build dependencies
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        brew install cmake ninja pkg-config curl pcre2 libmicrohttpd mbedtls libxml2
+        {
+          echo "PKG_CONFIG_PATH=$(brew --prefix)/lib/pkgconfig:$(brew --prefix curl)/lib/pkgconfig:$(brew --prefix pcre2)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix libmicrohttpd)/lib/pkgconfig:$(brew --prefix mbedtls)/lib/pkgconfig"
+          echo "LIBRARY_PATH=$(brew --prefix)/lib:$(brew --prefix libmicrohttpd)/lib:$(brew --prefix libxml2)/lib:$(brew --prefix curl)/lib:${LIBRARY_PATH:-}"
+          echo "CPATH=$(brew --prefix)/include:$(brew --prefix libmicrohttpd)/include:$(brew --prefix libxml2)/include:$(brew --prefix curl)/include:${CPATH:-}"
+        } >> "$GITHUB_ENV"
+
+    - name: Install Python dependencies
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    # Cache the compiled C dependencies, not all of build/ (that also holds
+    # bundle.c, objects and binaries, which must never be restored).
+    - name: Cache runtime build
+      uses: actions/cache@v4
+      with:
+        path: |
+          build/lib
+          build/include
+          build/tcc-dist
+          extern
+        key: runtime-${{ inputs.runtime-cache-scope }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('extern_manifest.py', 'build_runtime.py', 'requirements.txt') }}
+        restore-keys: |
+          runtime-${{ inputs.runtime-cache-scope }}-${{ runner.os }}-${{ runner.arch }}-
+
+    - name: Build C runtime and dependencies
+      if: inputs.build-runtime == 'true'
+      shell: bash
+      run: python build_runtime.py

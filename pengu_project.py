@@ -657,6 +657,10 @@ class PenguBuilder:
             "release_unsafe": bool(getattr(self.config, "release_unsafe", False)),
             "target": str(getattr(self.config, "target", "") or ""),
             "target_compiler": str(getattr(self.config, "target_compiler", "") or ""),
+            # Environment-injected flags change the emitted binary, so they must
+            # invalidate the cache (a sanitizer build must never reuse a plain one).
+            "env_cflags": os.environ.get("PENGU_CFLAGS", "").strip(),
+            "env_ldflags": os.environ.get("PENGU_LDFLAGS", "").strip(),
         }, sort_keys=True)
         return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
@@ -1427,6 +1431,13 @@ class PenguBuilder:
             if _flag not in common_flags:
                 common_flags.append(_flag)
 
+        # Extra flags from the environment (CFLAGS/LDFLAGS convention).  Used by
+        # CI for -fsanitize=... runs without touching the project manifest.
+        _env_cflags = _env_flag_list("PENGU_CFLAGS")
+        for _flag in _env_cflags:
+            if _flag not in common_flags:
+                common_flags.append(_flag)
+
         # Safety checks are decoupled from the profile (roadmap 5.2): they are ON
         # in every profile and only `--release-unsafe` removes them, both from the
         # generated code (set_release_unsafe) and from the runtime helpers.
@@ -1635,6 +1646,10 @@ class PenguBuilder:
 
         for ldflag in self.config.ldflags:
             link_flags.append(ldflag)
+
+        for _flag in _env_flag_list("PENGU_LDFLAGS"):
+            if _flag not in link_flags:
+                link_flags.append(_flag)
 
         if out_type == OutputType.C:
             return []
@@ -1873,6 +1888,27 @@ class PenguBuilder:
 
         self.timings["cc"] = time.time() - t_cc_all
         return out_path, False
+
+
+def _env_flag_list(name: str) -> List[str]:
+    """Reads a space-separated flag list from an environment variable.
+
+    Mirrors the CFLAGS/LDFLAGS convention so CI (and users) can inject extra
+    flags without editing the manifest.  Quotes are honoured.
+    """
+    import shlex
+
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return []
+    try:
+        return shlex.split(raw)
+    except ValueError:
+        return raw.split()
+
+
+def _env_flag_list_doc() -> str:  # pragma: no cover - documentation helper
+    return "PENGU_CFLAGS / PENGU_LDFLAGS"
 
 
 def _lock_target(config: "ProjectConfig") -> str:
@@ -4241,6 +4277,8 @@ def run_script(script: str, defines: Optional[List[str]] = None,
                 d for d in (
                     "dce=off" if no_dce else None,
                     "release-unsafe" if getattr(cfg, "release_unsafe", False) else None,
+                    (f"env-cflags={os.environ.get('PENGU_CFLAGS', '').strip()}"
+                     if os.environ.get("PENGU_CFLAGS", "").strip() else None),
                     "strict-c99" if getattr(cfg, "strict_c99", False) else None,
                     f"target={cfg.target_compiler}" if getattr(cfg, "target_compiler", "") else None,
                     f"triple={cfg.target}" if getattr(cfg, "target", "") else None,

@@ -1,5 +1,16 @@
 name: CI (Windows / Linux / macOS)
 
+# CI audit fixes:
+#  * permissions are read-only by default; only the tag job may write.
+#  * concurrency cancels superseded PR runs but never a push to main.
+#  * every job has a timeout (the GitHub default is 6 h).
+#  * the shared setup (deps + runtime cache) lives in .github/actions/setup-pengu.
+#  * the ABI layout check is portable (no hardcoded `cc`, which does not exist on
+#    Windows runners).
+#  * the VSIX is built once instead of three times.
+#  * auto-tag only creates the tag: release.yml owns the GitHub Release, so two
+#    workflows cannot race to publish the same tag.
+
 'on':
   push:
     branches: [ main, master ]
@@ -7,12 +18,23 @@ name: CI (Windows / Linux / macOS)
     branches: [ main, master ]
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHON_VERSION: '3.14'
+  NODE_VERSION: '20'
 
 jobs:
   build:
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -20,62 +42,24 @@ jobs:
           - os: windows-latest
             label: Windows x64
             artifact_name: pengu-windows-x64
-            artifact_cmd: powershell
           - os: ubuntu-latest
             label: Linux x64
             artifact_name: pengu-linux-x64
-            artifact_cmd: tar
           - os: macos-latest
             label: macOS (arm64)
             artifact_name: pengu-macos
-            artifact_cmd: tar
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.14
-        uses: actions/setup-python@v5
+      - name: Set up build environment
+        uses: ./.github/actions/setup-pengu
         with:
-          python-version: '3.14'
-          cache: 'pip'
-
-      - name: Set up Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-          cache-dependency-path: 'vscode-extension/package-lock.json'
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Install Linux build dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config gcc \
-            zlib1g-dev libpcre2-dev libxml2-dev libcurl4-openssl-dev \
-            libmbedtls-dev libmicrohttpd-dev libsqlite3-dev libssl-dev \
-            libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev \
-            libxi-dev libgl1-mesa-dev
-
-      - name: Install macOS build dependencies
-        if: runner.os == 'macOS'
-        run: |
-          brew install cmake ninja pkg-config curl pcre2 libmicrohttpd mbedtls libxml2 || true
-          echo "PKG_CONFIG_PATH=$(brew --prefix)/lib/pkgconfig:$(brew --prefix curl)/lib/pkgconfig:$(brew --prefix pcre2)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix libmicrohttpd)/lib/pkgconfig:$(brew --prefix mbedtls)/lib/pkgconfig" >> "$GITHUB_ENV"
-          echo "LIBRARY_PATH=$(brew --prefix)/lib:$(brew --prefix libmicrohttpd)/lib:$(brew --prefix libxml2)/lib:$(brew --prefix curl)/lib:$LIBRARY_PATH" >> "$GITHUB_ENV"
-          echo "CPATH=$(brew --prefix)/include:$(brew --prefix libmicrohttpd)/include:$(brew --prefix libxml2)/include:$(brew --prefix curl)/include:$CPATH" >> "$GITHUB_ENV"
-
-      - name: Build C runtime & dependencies
-        run: |
-          python build_runtime.py
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Toolchain smoke test (run + cache + doctor)
+        timeout-minutes: 10
         run: |
           python scripts/smoke.py
 
@@ -103,23 +87,41 @@ jobs:
         run: |
           python -m pytest tests/test_phase5_bugfixes.py tests/test_bounds_policy.py tests/test_overflow_policy.py tests/test_deprecation_policy.py tests/test_supply_chain.py tests/test_runtime_hardening.py tests/test_fuzz_harnesses.py -q -p no:cacheprovider --timeout=600 -x
 
+      # Portable ABI layout check: Windows runners have no `cc`, so decide the
+      # compiler from the environment (MinGW gcc on Windows, cc elsewhere).
       - name: ABI layout matrix (Phase 5 / 5.7.f)
+        shell: bash
         run: |
-          cc -std=c11 -Wall -Wextra -I. -Ibuild/include -o build/abi_layout_check tests/abi/test_abi_layout.c && ./build/abi_layout_check
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            CC_BIN="gcc"
+            OUT="build/abi_layout_check.exe"
+          else
+            CC_BIN="${CC:-cc}"
+            OUT="build/abi_layout_check"
+          fi
+          "$CC_BIN" -std=c11 -Wall -Wextra -I. -Ibuild/include \
+            -o "$OUT" tests/abi/test_abi_layout.c
+          "./$OUT"
 
       - name: DX gate (FASE 6)
         run: |
           python -m pytest tests/test_phase6_bugfixes.py tests/test_benchmarks.py tests/test_phase6_scope.py tests/test_init_templates.py -q -p no:cacheprovider --timeout=900 -x
 
-      - name: Run test suite (fast fail on core reviews)
+      # CI/CD invariants (no double release, timeouts, permissions, portable
+      # steps, release checksums).  Runs here so a broken workflow is caught by
+      # the same pipeline it configures.
+      - name: CI/CD gate (FASE 7)
         run: |
-          python -m pytest tests/test_p0_review_fixes.py tests/test_p1_review_fixes.py tests/test_p2_review_fixes.py -q -p no:cacheprovider --timeout=600 -x
+          python -m pytest tests/test_ci_workflows.py -q -p no:cacheprovider --timeout=120 -x
 
+      # Superset of the old "fast fail on core reviews" step: that one ran the
+      # same files as the full suite below, so it only ever duplicated work.
       - name: Run full test suite
         run: |
           python -m pytest tests -q -p no:cacheprovider --timeout=600
 
-      - name: Package standalone release + VS Code extension
+      - name: Package standalone release
         run: |
           python make_release.py
 
@@ -142,19 +144,49 @@ jobs:
             ${{ matrix.artifact_name }}.zip
             ${{ matrix.artifact_name }}.tar.gz
           if-no-files-found: error
+          retention-days: 30
 
-      - name: Upload VS Code extension VSIX
+  vscode-extension:
+    name: VS Code Extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The VSIX is platform independent: building it once avoids three identical
+      # artifacts and a per-OS npm install.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Build VSIX
+        working-directory: vscode-extension
+        run: |
+          npm ci
+          npx --yes @vscode/vsce package --no-dependencies
+
+      - name: Upload VSIX
         uses: actions/upload-artifact@v4
         with:
-          name: vscode-extension-${{ matrix.os }}
+          name: vscode-extension
           path: vscode-extension/*.vsix
-          if-no-files-found: error
+          if-no-files-found: warn
+          retention-days: 30
 
-  auto-tag-and-release:
-    name: Auto Tag and Create GitHub Release
-    needs: build
+  auto-tag:
+    name: Auto Tag
+    needs: [ build, vscode-extension ]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    permissions:
+      contents: write
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -166,35 +198,14 @@ jobs:
         with:
           python-version: '3.14'
 
-      - name: Extract Release Notes from CHANGELOG.md
+      # The previous regex took the FIRST "## [...]" heading, which after the
+      # phase headers is "## [Unreleased] — ..." and would have pushed a
+      # "vUnreleased" tag.  scripts/release_version.py skips [Unreleased] and is
+      # shared with release.yml so both agree on the version.
+      - name: Resolve version from CHANGELOG
         id: changelog
         run: |
-          python - << 'EOF'
-          import os
-          import re
-          from pathlib import Path
-
-          content = Path("CHANGELOG.md").read_text(encoding="utf-8")
-          match = re.search(r"^##\s*\[([^\]]+)\](?:\s*-\s*(.*))?", content, re.MULTILINE)
-          if not match:
-              raise SystemExit("Error: Could not find version heading in CHANGELOG.md (expected '## [version]')")
-
-          version = match.group(1).strip()
-          suffix = (match.group(2) or "").strip()
-          tag = f"v{version}"
-          title = f"PenguScript v{version}" + (f" - {suffix}" if suffix and suffix != "Unreleased" else "")
-
-          start = match.end()
-          next_match = re.search(r"^##\s*\[", content[start:], re.MULTILINE)
-          body = content[start:start + next_match.start()].strip() if next_match else content[start:].strip()
-
-          Path("release_notes.md").write_text(body + "\n", encoding="utf-8")
-
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as gh_out:
-              gh_out.write(f"version={version}\n")
-              gh_out.write(f"tag_name={tag}\n")
-              gh_out.write(f"title={title}\n")
-          EOF
+          python scripts/release_version.py --github-output "$GITHUB_OUTPUT"
 
       - name: Create Git Tag if Not Exists
         run: |
@@ -208,28 +219,7 @@ jobs:
             git tag -a "$TAG" -m "${{ steps.changelog.outputs.title }}"
             git push origin "$TAG"
           fi
-
-      - name: Download All Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release-assets
-
-      - name: Organize Release Assets
-        run: |
-          mkdir -p final-assets
-          find release-assets/ -type f -name "*.zip" -exec cp {} final-assets/ \;
-          find release-assets/ -type f -name "*.tar.gz" -exec cp {} final-assets/ \;
-          find release-assets/ -type f -name "*.vsix" -exec cp {} final-assets/ \;
-          ls -lah final-assets/
-
-      - name: Create or Update GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.changelog.outputs.tag_name }}
-          name: ${{ steps.changelog.outputs.title }}
-          body_path: release_notes.md
-          files: final-assets/*
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # NOTE: this job deliberately does NOT create a GitHub Release.
+      # Pushing the tag triggers release.yml, which owns the release (build +
+      # checksums + publish).  Creating it here too raced release.yml for the
+      # same tag and produced duplicated/partial releases.

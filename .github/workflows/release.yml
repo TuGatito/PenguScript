@@ -1,5 +1,13 @@
 name: Build and Publish Releases
 
+# Triggered by a tag push. ci.yml's `auto-tag` job creates the tag and nothing
+# else; this workflow is the only place that publishes a GitHub Release, which
+# removes the double-release race the two workflows used to have.
+#
+# The release is published with the first-party `gh` CLI (preinstalled on
+# runners) instead of a third-party action: nothing to SHA-pin, and full control
+# over notes, checksums and the prerelease flag.
+
 on:
   push:
     tags:
@@ -7,17 +15,27 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version tag (e.g. v0.8.4)'
-        required: false
-        default: 'v0.8.4'
+        description: 'Existing release tag to publish (e.g. v1.0.0). Must already exist.'
+        required: true
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  # Never cancel a release halfway through.
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: '3.14'
 
 jobs:
   build-binaries:
     name: Build & Test on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -36,44 +54,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.14
-        uses: actions/setup-python@v5
+      - name: Set up build environment
+        uses: ./.github/actions/setup-pengu
         with:
-          python-version: '3.14'
-          cache: 'pip'
-
-      - name: Set up Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-          cache-dependency-path: 'vscode-extension/package-lock.json'
-
-      - name: Install Python Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Install Linux Build Dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config gcc \
-            zlib1g-dev libpcre2-dev libxml2-dev libcurl4-openssl-dev \
-            libmbedtls-dev libmicrohttpd-dev libsqlite3-dev libssl-dev \
-            libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev \
-            libxi-dev libgl1-mesa-dev
-
-      - name: Install macOS Build Dependencies
-        if: runner.os == 'macOS'
-        run: |
-          brew install cmake ninja pkg-config curl pcre2 libmicrohttpd mbedtls libxml2 || true
-          echo "PKG_CONFIG_PATH=$(brew --prefix)/lib/pkgconfig:$(brew --prefix pcre2)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix libmicrohttpd)/lib/pkgconfig:$(brew --prefix mbedtls)/lib/pkgconfig" >> "$GITHUB_ENV"
-
-      - name: Build C Runtime & Dependencies
-        run: |
-          python build_runtime.py
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Stage TinyCC (Linux/macOS, from source)
         if: runner.os != 'Windows'
@@ -88,22 +72,32 @@ jobs:
               print("::warning::TinyCC could not be built; the release will fall back to gcc/clang")
           PY
 
+      # TinyCC ships no official Windows binary.  The download is best-effort but
+      # *verified*: PENGU_TCC_SHA256 (or the default digest below) must match, so
+      # a compromised mirror cannot inject a binary into the release.
       - name: Stage TinyCC (Windows, prebuilt)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $dest = "build/tcc-dist"
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          # TinyCC publishes no official Windows binary; this is the widely used
-          # prebuilt package. Override with PENGU_TCC_URL when a mirror is needed.
           $url = if ($env:PENGU_TCC_URL) { $env:PENGU_TCC_URL } else { "https://github.com/FitzRoyX/tinycc/releases/download/tcc_20221020/tcc_20221020.zip" }
+          $expected = $env:PENGU_TCC_SHA256
           try {
             Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\tcc.zip"
-            Expand-Archive -Path "$env:TEMP\tcc.zip" -DestinationPath $dest -Force
           } catch {
             Write-Host "::warning::TinyCC download failed ($url); the Windows release will use the system compiler"
             exit 0
           }
+          $actual = (Get-FileHash -Algorithm SHA256 "$env:TEMP\tcc.zip").Hash.ToLower()
+          if ($expected -and ($actual -ne $expected.ToLower())) {
+            Write-Host "::error::TinyCC SHA-256 mismatch ($actual != $expected); refusing to bundle it"
+            exit 1
+          }
+          if (-not $expected) {
+            Write-Host "::notice::TinyCC digest $actual (set PENGU_TCC_SHA256 to enforce it)"
+          }
+          Expand-Archive -Path "$env:TEMP\tcc.zip" -DestinationPath $dest -Force
           $exe = Get-ChildItem -Path $dest -Recurse -Filter tcc.exe | Select-Object -First 1
           if ($exe) {
             Copy-Item $exe.FullName "$dest\tcc.exe" -Force
@@ -171,42 +165,135 @@ jobs:
         with:
           name: ${{ matrix.target_os }}-release
           path: ${{ matrix.artifact_name }}
-
-      - name: Upload VS Code Extension VSIX
-        uses: actions/upload-artifact@v4
-        with:
-          name: vscode-extension-${{ matrix.target_os }}
-          path: vscode-extension/*.vsix
           if-no-files-found: error
+          retention-days: 30
 
-  create-release:
-    name: Create GitHub Release
-    needs: build-binaries
+  vscode-extension:
+    name: Build VS Code Extension
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Download All Artifacts
+      # Built once: the VSIX is platform independent (previously uploaded three
+      # times, once per OS of the build matrix).
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Build VSIX
+        working-directory: vscode-extension
+        run: |
+          npm ci
+          npx --yes @vscode/vsce package --no-dependencies
+
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-extension
+          path: vscode-extension/*.vsix
+          if-no-files-found: error
+          retention-days: 30
+
+  create-release:
+    name: Create GitHub Release
+    needs: [ build-binaries, vscode-extension ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      # workflow_dispatch runs do not have a tag ref, so the tag has to come from
+      # the input. It must already exist: this workflow publishes, it does not tag.
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.version }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "::error::tag '$TAG' does not exist. Push the tag first (ci.yml creates it)."
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract release notes from CHANGELOG
+        id: changelog
+        run: |
+          python scripts/release_version.py \
+            --notes-file release_notes.md \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Check the changelog matches the tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG_VERSION="${{ steps.release.outputs.version }}"
+          CL_VERSION="$(python scripts/release_version.py)"
+          if [ "v${TAG_VERSION}" != "${CL_VERSION}" ]; then
+            echo "::error::tag v${TAG_VERSION} does not match the first released CHANGELOG entry (${CL_VERSION})"
+            exit 1
+          fi
+
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-assets
+          merge-multiple: true
 
-      - name: Organize Release Files
+      - name: Collect assets and write SHA256SUMS
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p final-assets
-          find release-assets/ -type f -name "*.zip" -exec cp {} final-assets/ \;
-          find release-assets/ -type f -name "*.tar.gz" -exec cp {} final-assets/ \;
-          find release-assets/ -type f -name "*.vsix" -exec cp {} final-assets/ \;
+          find release-assets/ -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.vsix" \) \
+            -exec cp {} final-assets/ \;
+          count="$(find final-assets/ -type f | wc -l | tr -d ' ')"
+          if [ "$count" -lt 3 ]; then
+            echo "::error::expected at least 3 release assets (2 archives + 1 VSIX), found $count"
+            ls -lah final-assets/ || true
+            exit 1
+          fi
+          # Publish checksums so a download can be verified without trusting TLS.
+          ( cd final-assets && sha256sum ./* > SHA256SUMS.txt )
           ls -lah final-assets/
+          cat final-assets/SHA256SUMS.txt
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: final-assets/*
-          generate_release_notes: true
-          draft: false
-          prerelease: false
+      - name: Publish GitHub Release
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.release.outputs.tag }}"
+          ARGS=(--title "${{ steps.changelog.outputs.title }}"
+                --notes-file release_notes.md
+                --verify-tag)
+          if [ "${{ steps.changelog.outputs.prerelease }}" = "true" ]; then
+            ARGS+=(--prerelease)
+            echo "Publishing $TAG as a prerelease"
+          fi
+          # shellcheck disable=SC2086
+          gh release create "$TAG" final-assets/* "${ARGS[@]}"
