@@ -25,7 +25,7 @@ import re
 import pytest
 
 # Shared helpers from the new conftest.
-from tests.conftest import check_ok, compile_run, gen_bundle, requires_runtime
+from tests.conftest import strip_bounds_checks, check_ok, compile_run, gen_bundle, requires_runtime
 
 # Compiler internals used for symbol-table introspection and for multi-module
 # generic-monomorphization deduplication (which conftest cannot express).
@@ -2938,26 +2938,6 @@ weave main into int:
         assert "Tree(" not in c
         assert "Token(" not in c
 
-
-
-# Roadmap 5.2 made bounds checks unconditional, so every `at` access is emitted
-# wrapped in a GNU statement expression that calls pengu_assert_bounds.  These
-# emission-shape assertions care about the *access* shape, so strip the wrapper
-# and the extra parentheses it introduces.
-_BOUNDS_WRAPPER_RE = re.compile(
-    r"\(__extension__\(\{\s*__auto_type\s+\w+\s*=\s*\((.*?)\);\s*"
-    r"pengu_assert_bounds\(.*?\);\s*\w+;\s*\}\)\)",
-    re.DOTALL,
-)
-
-
-def strip_bounds_checks(c: str) -> str:
-    """Removes emitted bounds-check wrappers from generated C."""
-    prev = None
-    while prev != c:
-        prev = c
-        c = _BOUNDS_WRAPPER_RE.sub(r"\1", c)
-    return re.sub(r"\[\(([^()]*)\)\]", r"[\1]", c)
 
 
 class TestCodegenEmissionArraysSlices:

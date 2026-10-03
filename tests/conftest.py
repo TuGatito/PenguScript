@@ -14,6 +14,7 @@ library use :func:`have_lib` / the ``requires_*`` skip markers so the suite
 stays green on a fresh checkout that has not run ``build_runtime.py`` yet.
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -395,3 +396,28 @@ def compile_run(source: str, tag: str = "t", extra_libs=None, cwd=None,
         return run_res
     finally:
         shutil.rmtree(d, ignore_errors=True)
+
+# --------------------------------------------------------------------------- #
+# Generated-C helpers
+# --------------------------------------------------------------------------- #
+
+_BOUNDS_WRAPPER_RE = re.compile(
+    r"\(__extension__\(\{\s*__auto_type\s+\w+\s*=\s*\((.*?)\);\s*"
+    r"pengu_assert_bounds\(.*?\);\s*\w+;\s*\}\)\)",
+    re.DOTALL,
+)
+
+
+def strip_bounds_checks(c_code: str) -> str:
+    """Removes the always-on bounds-check wrappers from generated C.
+
+    Since roadmap 5.2 every `at` access is emitted inside a GNU statement
+    expression that calls ``pengu_assert_bounds``.  Emission-shape assertions
+    care about the *access* shape, not the check, so normalise it away (and the
+    extra parentheses it introduces).
+    """
+    prev = None
+    while prev != c_code:
+        prev = c_code
+        c_code = _BOUNDS_WRAPPER_RE.sub(r"\1", c_code)
+    return re.sub(r"\[\(([^()]*)\)\]", r"[\1]", c_code)

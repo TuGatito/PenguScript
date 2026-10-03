@@ -216,6 +216,7 @@ weave main into int:
 """
     check_ok(code)
     c = gen_bundle(code)
-    assert "->data)[0]" in c
+    from tests.conftest import strip_bounds_checks
+    assert "->data)[0]" in strip_bounds_checks(c)
     res = compile_run(code, tag="test_m7_ref_slice")
     assert res.returncode == 0

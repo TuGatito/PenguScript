@@ -4283,7 +4283,8 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
                  verbose: bool = False, json_output: bool = False,
                  strict_c99: bool = False, target_compiler: str = "",
                  target: str = "", locked: bool = False, frozen: bool = False,
-                 release_unsafe: bool = False) -> int:
+                 release_unsafe: bool = False,
+                 deny_deprecated: bool = False) -> int:
     """Compiles the project in --test mode and executes the integrated unit tests.
 
     The project entry is built as an executable whose main runs every 'test'
@@ -4315,6 +4316,7 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
     if target:
         config.target = target
     config.release_unsafe = bool(release_unsafe)
+    config.deny_deprecated = bool(deny_deprecated)
     _set_release_unsafe(config.release_unsafe)
     _ensure_lockfile(config, locked=locked, frozen=frozen)
     config.output = OutputType.EXE

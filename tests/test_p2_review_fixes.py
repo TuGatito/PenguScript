@@ -38,7 +38,8 @@ def test_chained_set_index_through_ref_to_array():
     src = """weave test_fn with r as ref to array of array of int with size 2 with size 2 into void:
     set r at 0 at 1 is 42
 """
-    c = gen_bundle(src)
+    from tests.conftest import strip_bounds_checks
+    c = strip_bounds_checks(gen_bundle(src))
     assert "r[0][1] = 42;" in c or "(*r)[0][1] = 42;" in c
 
 
