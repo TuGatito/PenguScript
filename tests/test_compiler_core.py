@@ -2798,7 +2798,10 @@ weave enum_test into string:
   return res
 """
         )
-        assert "typedef enum Level Level;" in c
+        # C has no enum forward declaration: a plain enum is emitted complete
+        # (`typedef enum Level Level;` is a GNU extension, and defining it after
+        # that forward typedef is invalid ISO C).
+        assert "typedef enum Level Level;" not in c
         assert "struct Level;" not in c
         assert "typedef enum Level {" in c
         assert "Level_ONE = 0," in c

@@ -176,11 +176,14 @@ def check_error(source: str, filename: str = "t.pengu", contains=None,
 # --------------------------------------------------------------------------
 
 
-def gen_bundle(source: str, filename: str = "t.pengu", extra_files=None) -> str:
+def gen_bundle(source: str, filename: str = "t.pengu", extra_files=None,
+               strict_c99: bool = False, target_compiler: str = "") -> str:
     """Runs parse+check+codegen for one (or several) files and returns C text.
 
     ``extra_files`` is a list of ``(name, source)`` tuples for imports. The
     checker resolves std modules against the repository root.
+    ``strict_c99`` forces portable C99 output (no GNU statement expressions);
+    ``target_compiler`` selects the attribute/restrict dialect.
     """
     from pengu_parser.pengu_checker import PenguChecker
     from pengu_parser.pengu_codegen import PenguCodegen
@@ -195,7 +198,9 @@ def gen_bundle(source: str, filename: str = "t.pengu", extra_files=None) -> str:
         checker.check(tree, source=code, filename=fname)
         trees[fname] = tree
     cg = PenguCodegen(checker.symbols, [fname for fname, _ in files],
-                      str(REPO), compile_env=checker.compile_env)
+                      str(REPO), compile_env=checker.compile_env,
+                      use_gnu_extensions=not strict_c99,
+                      target_compiler=target_compiler)
     for fname, _ in files:
         cg.collect_declarations([(fname, trees[fname])])
     return cg.generate_bundle()

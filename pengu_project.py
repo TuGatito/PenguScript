@@ -233,6 +233,12 @@ class ProjectConfig:
     assets_module: str = "arca"
     assets_embed: bool = True
     assets_exclude: List[str] = field(default_factory=list)
+    # Roadmap Phase 2: portable C output.
+    # ``strict_c99`` forbids GNU statement expressions / __auto_type in the
+    # emitted C; ``target_compiler`` selects the attribute/restrict dialect
+    # ("gcc" | "clang" | "msvc" | "tcc"; empty = infer from ``cc``).
+    strict_c99: bool = False
+    target_compiler: str = ""
 
     def resolve_entry(self) -> str:
         """Resolves main entry file path checking configured paths, src/ directory, and root.
@@ -415,6 +421,9 @@ class ProjectConfig:
         assets_embed = bool(assets_sec.get("embed", True))
         assets_exclude = list(assets_sec.get("exclude", []))
 
+        strict_c99 = bool(build_sec.get("strict_c99", proj_sec.get("strict_c99", False)))
+        target_compiler = str(build_sec.get("target_compiler", proj_sec.get("target_compiler", "")))
+
         return cls(
             name=name,
             version=version,
@@ -441,6 +450,8 @@ class ProjectConfig:
             assets_module=assets_module,
             assets_embed=assets_embed,
             assets_exclude=assets_exclude,
+            strict_c99=strict_c99,
+            target_compiler=target_compiler,
         )
 
 
@@ -1041,7 +1052,10 @@ class PenguBuilder:
 
         # 5. Generate bundle.c via PenguCodegen
         from pengu_parser.pengu_codegen import PenguCodegen
-        codegen = PenguCodegen(self.checker.symbols, module_order, self.config.base_dir, compile_env=self.compile_env)
+        codegen = PenguCodegen(self.checker.symbols, module_order, self.config.base_dir,
+                               compile_env=self.compile_env,
+                               use_gnu_extensions=not getattr(self.config, "strict_c99", False),
+                               target_compiler=getattr(self.config, "target_compiler", ""))
         codegen.entry_main_mode = bool(getattr(self, "entry_as_main", False))
         codegen.entry_file = os.path.abspath(self.config.resolve_entry())
         codegen.collect_declarations(parsed_trees)
@@ -1202,6 +1216,33 @@ class PenguBuilder:
         cc_base = os.path.basename(cc).lower()
         is_tcc = "tcc" in cc_base
         is_msvc = cc_base in ("cl", "cl.exe") or "msvc" in cc_base
+
+        if is_msvc:
+            # MSVC (cl.exe) does not understand the GNU flags of the default
+            # profiles; map them and force a C dialect with designated
+            # initializers / compound literals (roadmap 2.2.f).
+            remap = {
+                "-O0": "/Od", "-O1": "/O1", "-O2": "/O2", "-O3": "/O2",
+                "-g": "/Zi", "-Wall": "/W3", "-Wextra": "/W4",
+                "-std=c11": "/std:c11", "-std=c99": "/std:c11",
+            }
+            new_flags: List[str] = []
+            for f in common_flags:
+                if f in remap:
+                    new_flags.append(remap[f])
+                elif f.startswith("-D"):
+                    new_flags.append("/D" + f[2:])
+                elif f.startswith("-I"):
+                    new_flags.append("/I" + f[2:])
+                elif f.startswith("-flto") or f in (
+                        "-fno-plt", "-pipe", "-fno-ident", "-g0", "-O0",
+                        "-fno-asynchronous-unwind-tables"):
+                    continue
+                else:
+                    new_flags.append(f)
+            if "/std:c11" not in new_flags:
+                new_flags.append("/std:c11")
+            common_flags = new_flags
 
         # Development runs do not need debug info or PLT/unwind metadata: the
         # binary is cached or discarded, never debugged.  TCC rejects unknown
@@ -1609,6 +1650,8 @@ def build_project(
     verbose: bool = False,
     pch: bool = False,
     no_dce: bool = False,
+    strict_c99: bool = False,
+    target_compiler: str = "",
 ) -> str:
     """Builds project from configuration file with status printing.
 
@@ -1621,6 +1664,8 @@ def build_project(
         defines: Optional -D NAME / -D NAME=value compile-time defines.
         cc: Optional C compiler override (e.g. 'clang'), wins over config.
         verbose: True to print module order, C commands and phase timings.
+        strict_c99: True to forbid GNU extensions in the emitted C.
+        target_compiler: Attribute/restrict dialect ("gcc"|"clang"|"msvc"|"tcc").
 
     Returns:
         Path to generated build artifact.
@@ -1636,6 +1681,10 @@ def build_project(
         config.defines = list(config.defines or []) + defines
     if cc:
         config.cc = cc
+    if strict_c99:
+        config.strict_c99 = True
+    if target_compiler:
+        config.target_compiler = target_compiler
 
     print(f"\033[1;36m   Compiling\033[0m {config.name} v{config.version} ({config.output.value}) [{config.profile}]"
           + (" [test]" if test else ""))
@@ -2628,7 +2677,8 @@ def _consume_script_args(raw: Optional[List[str]]) -> List[str]:
 
 def run_project(config_path: Optional[str] = None, profile: str = "debug", test: bool = False,
                 defines: Optional[List[str]] = None, cc: Optional[str] = None,
-                verbose: bool = False, pch: bool = False, no_dce: bool = False) -> int:
+                verbose: bool = False, pch: bool = False, no_dce: bool = False,
+                strict_c99: bool = False, target_compiler: str = "") -> int:
     """Builds and runs binary if output target is executable.
 
     Args:
@@ -2648,7 +2698,8 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
     if cc:
         config.cc = cc
     artifact = build_project(config_path, profile=profile, test=test, defines=defines,
-                             cc=cc, verbose=verbose, pch=pch, no_dce=no_dce)
+                             cc=cc, verbose=verbose, pch=pch, no_dce=no_dce,
+                             strict_c99=strict_c99, target_compiler=target_compiler)
     if config.output == OutputType.EXE and os.path.isfile(artifact):
         print(f"\033[1;36m     Running\033[0m {artifact}\n")
         sys.stdout.flush()
@@ -3079,6 +3130,13 @@ def create_cli_parser() -> argparse.ArgumentParser:
                        help="Force the precompiled header off (already the default)")
     run_p.add_argument("--no-dce", "--no_dce", dest="no_dce", action="store_true",
                        help="Disable dead-code elimination of unused std weaves")
+    # Roadmap Phase 2: portable C output (build/run share the same knobs).
+    for _p in (build_p, run_p):
+        _p.add_argument("--strict-c99", "--strict_c99", dest="strict_c99", action="store_true",
+                        help="Emit portable C99: no GNU statement expressions nor __auto_type")
+        _p.add_argument("--target-compiler", "--target_compiler", dest="target_compiler", default=None,
+                        choices=["gcc", "clang", "msvc", "tcc"],
+                        help="C compiler dialect used for attributes/restrict (default: infer from --cc)")
     # Script arguments are collected with parse_known_args: 'pengu run x.pengu -- a b'
     # and 'pengu run x.pengu a b' both forward 'a b'.
 
@@ -3309,6 +3367,8 @@ def main():
                 verbose=getattr(args, "verbose", False),
                 pch=getattr(args, "pch", False) and not getattr(args, "no_pch", False),
                 no_dce=getattr(args, "no_dce", False),
+                strict_c99=getattr(args, "strict_c99", False),
+                target_compiler=getattr(args, "target_compiler", "") or "",
             )
         except CompileFailedError as e:
             _print_compile_error(e)
@@ -3341,6 +3401,8 @@ def main():
                 verbose=getattr(args, "verbose", False),
                 pch=getattr(args, "pch", False) and not getattr(args, "no_pch", False),
                 no_dce=getattr(args, "no_dce", False),
+                strict_c99=getattr(args, "strict_c99", False),
+                target_compiler=getattr(args, "target_compiler", "") or "",
             ))
         except CompileFailedError as e:
             _print_compile_error(e)
