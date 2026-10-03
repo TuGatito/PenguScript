@@ -4,6 +4,24 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### ✨ Added — 3.2 / 3.9 LSP: semantic tokens, inlay hints y code lens
+
+- **3.2.b `textDocument/semanticTokens/full`**: clasifica los tokens del lexer
+  real con la `SymbolTable` (`function`, `struct`, `enum`, `type`, `namespace`,
+  `parameter`, `variable`, `macro`, `keyword`, `string`, `number`, `decorator`)
+  y añade modificadores `declaration`, `readonly` (`let`/`const`), `deprecated`
+  y `defaultLibrary` (símbolos de `std/`). La leyenda se registra en las
+  capacidades del servidor.
+- **3.2.d `textDocument/inlayHint`**: hint de tipo inferido tras declaraciones
+  `var`/`let` sin anotación (`var a is 42` → `: int`) y hint de nombre de
+  parámetro en llamadas (`calling add with 1, 2` → `a: 1, b: 2`). No anota
+  bindings/parámetros ya tipados.
+- **3.9 `textDocument/codeLens`**: un lens "▶ Run test: <nombre>" por cada bloque
+  `test "…":`, con el comando `pengu.runTest` y argumentos `[uri, nombre]`.
+- Tests: `tests/test_lsp_semantic_tokens.py` (clasificación, codificación
+  relativa ordenada, modificadores, hints de tipo/parámetro, code lens y
+  registro de capacidades).
+
 ### 🐛 Fixed — 3.1 LSP: rename, highlights y references semánticos
 
 - **`textDocument/rename`** ya no hace un `\\bpalabra\\b` sobre el texto crudo.

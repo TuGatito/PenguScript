@@ -74,6 +74,19 @@ from lsprotocol.types import (
     Location,
     TEXT_DOCUMENT_CODE_ACTION,
     CodeActionParams,
+    TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
+    SemanticTokens,
+    SemanticTokensLegend,
+    SemanticTokensOptions,
+    SemanticTokensParams,
+    TEXT_DOCUMENT_INLAY_HINT,
+    InlayHint,
+    InlayHintKind,
+    InlayHintParams,
+    TEXT_DOCUMENT_CODE_LENS,
+    CodeLens,
+    CodeLensParams,
+    Command,
 )
 
 from pengu_parser.pengu_parser import PenguParser
@@ -1467,3 +1480,272 @@ def folding_ranges(params: FoldingRangeParams) -> Optional[List[FoldingRange]]:
 
     return ranges
 
+
+
+# ---------------------------------------------------------------------------
+# Semantic tokens, inlay hints and code lenses (roadmap 3.2 / 3.9)
+# ---------------------------------------------------------------------------
+
+_SEMANTIC_TOKEN_TYPES = [
+    "namespace", "type", "class", "enum", "interface", "struct", "typeParameter",
+    "parameter", "variable", "property", "enumMember", "event", "function",
+    "method", "macro", "keyword", "modifier", "comment", "string", "number",
+    "regexp", "operator", "decorator",
+]
+_SEMANTIC_TOKEN_MODIFIERS = [
+    "declaration", "definition", "readonly", "static", "deprecated",
+    "abstract", "async", "modification", "documentation", "defaultLibrary",
+]
+_TOKEN_TYPE_INDEX = {name: i for i, name in enumerate(_SEMANTIC_TOKEN_TYPES)}
+_TOKEN_MOD_INDEX = {name: i for i, name in enumerate(_SEMANTIC_TOKEN_MODIFIERS)}
+
+# Lexer terminal -> semantic token type.
+_KEYWORD_TERMINALS = {
+    "WEAVE", "DECLARE", "VAR", "LET", "CONST", "IF", "UNLESS", "ELSE", "WHILE",
+    "FOR", "IN", "FROM", "TO", "RETURN", "JUDGE", "WHEN", "BREAK", "CONTINUE",
+    "IMPORT", "INCLUDE", "LINK", "RUNE", "ECHO", "OMEN", "ALIAS", "SEAL",
+    "CONCEPT", "BIND", "ENCHANTING", "RITUAL", "BORROWED", "SET", "BANISH",
+    "DEFER", "WITH", "AS", "IS", "INTO", "TRY", "TEST", "SHARD", "WHERE",
+    "DERIVE", "TRUE", "FALSE", "NULL", "AND", "OR", "NOT", "INSIGNIA",
+}
+
+# Symbol.kind -> semantic token type.
+_SYMBOL_KIND_TOKEN = {
+    "weave": "function", "declare": "function", "function": "function",
+    "rune": "struct", "echo": "struct", "omen": "enum", "alias": "type",
+    "seal": "type", "concept": "interface", "import": "namespace",
+    "var": "variable", "let": "variable", "const": "variable",
+    "param": "parameter", "c_define": "macro",
+}
+
+_STRING_TERMINALS = {"STRING", "RAW_STRING", "TRIPLE_STRING", "RAW_TRIPLE_STRING", "CHAR_LIT"}
+
+
+def _semantic_token_entry(tok, symbols) -> Optional[Tuple[int, int, int, int, int]]:
+    """0-based ``(line, col, length, type_index, modifiers_bitset)`` or None."""
+    ttype = getattr(tok, "type", "")
+    val = str(getattr(tok, "value", ""))
+    line = getattr(tok, "line", None)
+    col = getattr(tok, "column", None)
+    if line is None or col is None:
+        return None
+    t_idx = None
+    mods = 0
+    if ttype in _KEYWORD_TERMINALS:
+        t_idx = _TOKEN_TYPE_INDEX["keyword"]
+    elif ttype in _STRING_TERMINALS:
+        t_idx = _TOKEN_TYPE_INDEX["string"]
+    elif ttype in ("INT", "FLOAT"):
+        t_idx = _TOKEN_TYPE_INDEX["number"]
+    elif ttype == "AT":
+        t_idx = _TOKEN_TYPE_INDEX["decorator"]
+    elif ttype == "NAME":
+        t_idx = _TOKEN_TYPE_INDEX["variable"]
+        sym = None
+        if symbols is not None:
+            try:
+                sym = symbols.lookup_at(val, line)
+            except Exception:
+                sym = None
+        if sym is not None:
+            kind = getattr(sym, "kind", "") or ""
+            t_idx = _TOKEN_TYPE_INDEX.get(_SYMBOL_KIND_TOKEN.get(kind, "variable"), t_idx)
+            if getattr(sym, "line", None) == line:
+                mods |= 1 << _TOKEN_MOD_INDEX["declaration"]
+            if kind in ("let", "const") or not getattr(sym, "is_mutable", True):
+                mods |= 1 << _TOKEN_MOD_INDEX["readonly"]
+            attrs = getattr(sym, "attributes", None) or {}
+            if "deprecated" in attrs:
+                mods |= 1 << _TOKEN_MOD_INDEX["deprecated"]
+            fpath = str(getattr(sym, "file_path", "") or "")
+            if os.sep + "std" + os.sep in fpath:
+                mods |= 1 << _TOKEN_MOD_INDEX["defaultLibrary"]
+    if t_idx is None:
+        return None
+    return (line - 1, col - 1, max(1, len(val)), t_idx, mods)
+
+
+@server.feature(TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
+    SemanticTokensOptions(
+        legend=SemanticTokensLegend(
+            token_types=_SEMANTIC_TOKEN_TYPES,
+            token_modifiers=_SEMANTIC_TOKEN_MODIFIERS,
+        ),
+        full=True,
+    )
+)
+def semantic_tokens_full(params: SemanticTokensParams) -> Optional[SemanticTokens]:
+    """Handles textDocument/semanticTokens/full.
+
+    Tokens come from the real lexer and are classified with the symbol table
+    (functions, types, namespaces, readonly/deprecated/defaultLibrary modifiers),
+    so the editor gets semantic highlighting on top of the TextMate grammar.
+    """
+    uri = params.text_document.uri
+    doc_text = server.get_document_source(uri)
+    if not doc_text:
+        return None
+    symbols = server._symbols.get(uri)
+    parser = _lsp_lexer()
+    try:
+        tokens = parser.get_tokens(parser._strip_comments(doc_text))
+    except Exception:
+        return None
+
+    raw: List[Tuple[int, int, int, int, int]] = []
+    for tok in tokens:
+        entry = _semantic_token_entry(tok, symbols)
+        if entry is not None:
+            raw.append(entry)
+
+    raw.sort(key=lambda e: (e[0], e[1], e[2]))
+    data: List[int] = []
+    prev_line = 0
+    prev_col = 0
+    seen = set()
+    for line, col, length, t_idx, mods in raw:
+        key = (line, col, length)
+        if key in seen:
+            continue
+        seen.add(key)
+        delta_line = line - prev_line
+        delta_col = col - prev_col if delta_line == 0 else col
+        data.extend([delta_line, delta_col, length, t_idx, mods])
+        prev_line, prev_col = line, col
+    return SemanticTokens(data=data)
+
+
+def _split_top_level(text: str) -> List[str]:
+    """Splits ``text`` on top-level commas (ignoring nesting and quotes)."""
+    parts: List[str] = []
+    depth = 0
+    quote = None
+    start = 0
+    for i, ch in enumerate(text):
+        if quote:
+            if ch == "\\":
+                continue
+            if ch == quote:
+                quote = None
+            continue
+        if ch in ('"', "'"):
+            quote = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth = max(0, depth - 1)
+        elif ch == "," and depth == 0:
+            parts.append(text[start:i])
+            start = i + 1
+    parts.append(text[start:])
+    return parts
+
+
+@server.feature(TEXT_DOCUMENT_INLAY_HINT)
+def inlay_hints(params: InlayHintParams) -> Optional[List[InlayHint]]:
+    """Handles textDocument/inlayHint.
+
+    Adds the inferred type after untyped ``var``/``let`` declarations and the
+    parameter name before each call argument (``calling f with 1, 2`` →
+    ``x: 1, y: 2``).  Explicitly typed bindings or parameters are not annotated.
+    """
+    import re
+    uri = params.text_document.uri
+    doc_text = server.get_document_source(uri)
+    if not doc_text:
+        return None
+    symbols = server._symbols.get(uri)
+    if symbols is None:
+        return None
+
+    hints: List[InlayHint] = []
+    lines = doc_text.splitlines()
+
+    untyped_re = re.compile(r"^(\s*)(?:var|let)\s+([A-Za-z_][A-Za-z0-9_]*)\s+is\b")
+    for i, line_text in enumerate(lines):
+        m = untyped_re.match(line_text)
+        if not m:
+            continue
+        name = m.group(2)
+        try:
+            sym = symbols.lookup_at(name, i + 1)
+        except Exception:
+            sym = None
+        if sym is None or getattr(sym, "type", None) is None:
+            continue
+        type_name = getattr(sym.type, "name", None) or str(sym.type)
+        hints.append(InlayHint(
+            position=Position(line=i, character=m.end(2)),
+            label=f": {type_name}",
+            kind=InlayHintKind.Type,
+            padding_right=True,
+        ))
+
+    call_re = re.compile(
+        r"\bcalling\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s+with\s+(.*)$"
+    )
+    for i, line_text in enumerate(lines):
+        cm = call_re.search(line_text)
+        if not cm:
+            continue
+        fname = cm.group(1).split(".")[-1]
+        try:
+            sym = symbols.lookup_at(fname, i + 1)
+        except Exception:
+            sym = None
+        fn_type = getattr(sym, "type", None) if sym is not None else None
+        params_list = getattr(fn_type, "params", None)
+        if not params_list:
+            continue
+        args_text = cm.group(2)
+        base_col = cm.start(2)
+        args = _split_top_level(args_text)
+        search = 0
+        for idx, arg in enumerate(args):
+            if idx >= len(params_list):
+                break
+            arg_str = arg.strip()
+            if not arg_str:
+                continue
+            pos = args_text.find(arg_str, search)
+            if pos < 0:
+                continue
+            search = pos + len(arg_str)
+            p = params_list[idx]
+            p_name = p[0] if isinstance(p, (tuple, list)) else getattr(p, "name", "arg")
+            hints.append(InlayHint(
+                position=Position(line=i, character=base_col + pos),
+                label=f"{p_name}:",
+                kind=InlayHintKind.Parameter,
+                padding_right=True,
+            ))
+    return hints
+
+
+@server.feature(TEXT_DOCUMENT_CODE_LENS)
+def code_lenses(params: CodeLensParams) -> Optional[List[CodeLens]]:
+    """Handles textDocument/codeLens: a "Run test" lens per ``test`` block."""
+    import re
+    uri = params.text_document.uri
+    doc_text = server.get_document_source(uri)
+    if not doc_text:
+        return None
+    lenses: List[CodeLens] = []
+    test_re = re.compile(r'^(\s*)test\s+"([^"]+)"')
+    for i, line_text in enumerate(doc_text.splitlines()):
+        m = test_re.match(line_text)
+        if not m:
+            continue
+        name = m.group(2)
+        lenses.append(CodeLens(
+            range=Range(
+                start=Position(line=i, character=len(m.group(1))),
+                end=Position(line=i, character=len(line_text)),
+            ),
+            command=Command(
+                title=f"▶ Run test: {name}",
+                command="pengu.runTest",
+                arguments=[uri, name],
+            ),
+        ))
+    return lenses
