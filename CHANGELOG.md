@@ -4,6 +4,21 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### ✨ Added — 3.11 `pengu doc`: Doxygen, deprecación, índice y búsqueda
+
+- **Tags Doxygen**: `sym.doc` se divide en resumen + lista estructurada de tags
+  (`@param`, `@return`, `@see`, `@deprecated`, `@note`, …) en vez de volcarse
+  como prosa.
+- **Badge de deprecación**: los símbolos con `@deprecated` (atributo o tag)
+  muestran `> ⚠️ **Deprecated** — motivo` en su página.
+- **Índice por categorías** en `index.md`: Concepts, Runes, Echoes, Omens,
+  Seals, Aliases, Constants, Functions y declaraciones C, con firma y marca
+  `[deprecated]`.
+- **Búsqueda cliente** `index.html`: página autocontenida con el índice JSON
+  embebido y un cuadro de búsqueda en JS que filtra por nombre, tipo, módulo,
+  firma y resumen.
+- Tests: `tests/test_doc_phase3.py`.
+
 ### ✨ Added — 3.10 / 3.12 Formatter: --diff, --stdin, config y on-type
 
 - **3.10 `pengu fmt --diff`**: imprime un diff unificado por cada fichero que
