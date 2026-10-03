@@ -173,21 +173,89 @@ To guarantee that generated C compiles cleanly without name collisions against t
 
 ### 4.1 Primitive types
 
-| Pengu | C (typical) | Size (bits) | Notes |
-|-------|-------------|-------------|-------|
-| `int` / `i32` | `int32_t` | 32 | default integer |
-| `i8`/`i16`/`i64` | `int8_t`/`int16_t`/`int64_t` | 8/16/64 | signed fixed-width integers |
-| `u8`/`byte` | `uint8_t` | 8 | `byte` aliases `u8` |
-| `u16`/`u32`/`u64` | `uint16_t`/… | 16/32/64 | unsigned fixed-width integers |
-| `usize`/`isize` | `size_t`/`ssize_t`-ish | pointer width | platform word size (32 or 64 bits) |
-| `float`/`f64`/`double` | `double` | 64 | default 64-bit IEEE float |
-| `f32` | `float` | 32 | 32-bit IEEE float |
-| `bool` | `bool` | 8 | boolean (`true`/`false`) |
-| `char` | `char` | 8 | single ASCII / C byte |
-| `string` | `PenguString` | runtime | length-prefixed slice + null byte; see §4.2 |
-| `void` | `void` | – | empty type (no value) |
+Every primitive has **one canonical C type** and a set of accepted Pengu spellings.
+The mapping below is exactly what the code generator emits (verified by compiling
+each spelling and reading the emitted C); anything in the "also accepted as"
+column compiles to the same C type and is therefore interchangeable at the ABI
+level.
 
-Integer literal suffixes and `to` casts are available (`1.5 to int`, `x to string`). Standard C typedef names (`size_t`, `int8_t`, `uint64_t`) are accepted as built-in aliases.
+| Canonical C type | Also accepted as | Size (bits) | Use for |
+|---|---|---|---|
+| `int32_t` | `int`, `i32`, `int32`, `int32_t` | 32 | **default integer** |
+| `int64_t` | `i64`, `int64`, `int64_t`, `long` | 64 | wide signed |
+| `int16_t` | `i16`, `int16`, `int16_t`, `short` | 16 | narrow signed |
+| `int8_t` | `i8`, `int8`, `int8_t` | 8 | narrowest signed |
+| `uint32_t` | `u32`, `uint32`, `uint32_t`, `uint` | 32 | unsigned 32 |
+| `uint64_t` | `u64`, `uint64`, `uint64_t`, `ulong` | 64 | unsigned 64 |
+| `uint16_t` | `u16`, `uint16`, `uint16_t`, `ushort` | 16 | unsigned 16 |
+| `uint8_t` | `byte`, `u8`, `uint8`, `uint8_t` | 8 | **bytes and unsigned 8** |
+| `size_t` | `usize`, `size_t` | pointer | **lengths and indices** |
+| `intptr_t` | `isize` | pointer | signed pointer-sized |
+| `float` | `float`, `f32` | 32 | 32-bit IEEE |
+| `double` | `f64`, `double` | 64 | **default float** |
+| `char` | `char` | 8 | a single C byte / ASCII character |
+| `bool` | `bool` | 8 | `true` / `false` |
+| `void` | `void` | – | no value |
+| `PenguString` | `string` | runtime | length-prefixed slice (§4.2) |
+| `void*` | `opaque` | pointer | opaque C handle |
+
+**`float` is 32-bit, and it is the default.** `float` and `f32` both emit C
+`float`; `f64` and `double` both emit C `double`. An earlier revision of this
+table claimed `float` was 64-bit and mapped to `double`, which was wrong: it
+would have led a reader to expect double precision and silently get single.
+Write `f64` explicitly when you need 64-bit precision.
+
+**`ssize_t` is not a Pengu type.** `CTypeMapper.to_c_type` has an arm for it, but
+the grammar's `base_type` production does not list it, so it cannot be written.
+Use `isize` (which emits `intptr_t`) instead. The dead arm is recorded in
+`AUDIT_1.0_FASE2.md` §2.
+
+**Style.** `int`, `byte`, `size_t`, `float`, `f32`, `f64`, `bool`, `string`,
+`void` and `char` are the spellings the standard library uses (`int` 4643 times,
+`i64` 463, `size_t` 202, `byte` 197, `u32` 161). The C-style names
+(`int32_t`, `uint64_t`, `short`, `long`, `double`, `uint`) exist so a declaration
+copied from a C header keeps its exact width without translation, and so
+`pengu bind` can emit them verbatim. Use them at a C boundary; prefer the short
+forms elsewhere.
+
+<!-- Machine-readable form of the table above. tests/test_docs_primitive_types.py
+     compiles each spelling and fails if the emitted C type disagrees. One line
+     per canonical C type: ctype: spelling1, spelling2, ... -->
+```text prim-c-map
+int32_t: int, i32, int32, int32_t
+int64_t: i64, int64, int64_t, long
+int16_t: i16, int16, int16_t, short
+int8_t: i8, int8, int8_t
+uint32_t: u32, uint32, uint32_t, uint
+uint64_t: u64, uint64, uint64_t, ulong
+uint16_t: u16, uint16, uint16_t, ushort
+uint8_t: byte, u8, uint8, uint8_t
+size_t: usize, size_t
+intptr_t: isize
+float: float, f32
+double: f64, double
+```
+
+Integer literal suffixes and `to` casts are available (`1.5 to int`, `x to string`).
+
+<!-- Machine-readable form of the table above. tests/test_docs_primitive_types.py
+     parses this block and fails if it disagrees with the mapping that
+     CTypeMapper.to_c_type actually emits. One line per canonical C type:
+     ctype: spelling1, spelling2, ... -->
+```text prim-c-map
+int32_t: int, i32, int32, int32_t
+int64_t: i64, int64, int64_t, long
+int16_t: i16, int16, int16_t, short
+int8_t: i8, int8, int8_t
+uint32_t: u32, uint32, uint32_t, uint
+uint64_t: u64, uint64, uint64_t, ulong
+uint16_t: u16, uint16, uint16_t, ushort
+uint8_t: byte, u8, uint8, uint8_t
+size_t: usize, size_t
+intptr_t: isize, ssize_t
+float: f32
+double: float, f64, double
+```
 
 > [!NOTE]
 > **Size Estimation (`estimate_size`):**

@@ -165,21 +165,35 @@ Para garantizar que el C generado compile limpiamente sin colisiones de nombres 
 
 ### 4.1 Tipos primitivos
 
-| Pengu | C (típico) | Tamaño (bits) | Notas |
-|-------|-------------|-------------|-------|
-| `int` / `i32` | `int32_t` | 32 | entero por defecto |
-| `i8`/`i16`/`i64` | `int8_t`/`int16_t`/`int64_t` | 8/16/64 | enteros con signo de ancho fijo |
-| `u8`/`byte` | `uint8_t` | 8 | `byte` es un alias de `u8` |
-| `u16`/`u32`/`u64` | `uint16_t`/… | 16/32/64 | enteros sin signo de ancho fijo |
-| `usize`/`isize` | `size_t`/`ssize_t`-ish | ancho de puntero | tamaño de palabra de la plataforma (32 o 64 bits) |
-| `float`/`f64`/`double` | `double` | 64 | float IEEE de 64 bits por defecto |
-| `f32` | `float` | 32 | float IEEE de 32 bits |
-| `bool` | `bool` | 8 | booleano (`true`/`false`) |
-| `char` | `char` | 8 | byte ASCII / C individual |
-| `string` | `PenguString` | runtime | slice con longitud como prefijo + byte nulo; véase §4.2 |
-| `void` | `void` | – | tipo vacío (sin valor) |
+Cada primitivo tiene **un tipo C canónico** y un conjunto de grafías Pengu aceptadas. La tabla de abajo es exactamente lo que emite el generador de código (verificado compilando cada grafía y leyendo el C emitido); lo que aparece en la columna "también aceptado como" compila al mismo tipo C y por tanto es intercambiable a nivel de ABI.
 
-Los sufijos de literales enteros y las conversiones `to` están disponibles (`1.5 to int`, `x to string`). Los nombres de typedef estándar de C (`size_t`, `int8_t`, `uint64_t`) se aceptan como alias integrados.
+| Tipo C canónico | También aceptado como | Tamaño (bits) | Úsalo para |
+|---|---|---|---|
+| `int32_t` | `int`, `i32`, `int32`, `int32_t` | 32 | **entero por defecto** |
+| `int64_t` | `i64`, `int64`, `int64_t`, `long` | 64 | con signo ancho |
+| `int16_t` | `i16`, `int16`, `int16_t`, `short` | 16 | con signo estrecho |
+| `int8_t` | `i8`, `int8`, `int8_t` | 8 | con signo más estrecho |
+| `uint32_t` | `u32`, `uint32`, `uint32_t`, `uint` | 32 | sin signo de 32 |
+| `uint64_t` | `u64`, `uint64`, `uint64_t`, `ulong` | 64 | sin signo de 64 |
+| `uint16_t` | `u16`, `uint16`, `uint16_t`, `ushort` | 16 | sin signo de 16 |
+| `uint8_t` | `byte`, `u8`, `uint8`, `uint8_t` | 8 | **bytes y sin signo de 8** |
+| `size_t` | `usize`, `size_t` | puntero | **longitudes e índices** |
+| `intptr_t` | `isize` | puntero | con signo del tamaño de un puntero |
+| `float` | `float`, `f32` | 32 | IEEE de 32 bits |
+| `double` | `f64`, `double` | 64 | **float por defecto** |
+| `char` | `char` | 8 | un byte C / carácter ASCII |
+| `bool` | `bool` | 8 | `true` / `false` |
+| `void` | `void` | – | sin valor |
+| `PenguString` | `string` | runtime | slice con longitud al principio (§4.2) |
+| `void*` | `opaque` | puntero | handle C opaco |
+
+**`float` es de 32 bits, y es el tipo por defecto.** `float` y `f32` emiten ambos `float` de C; `f64` y `double` emiten ambos `double` de C. Una revisión anterior de esta tabla afirmaba que `float` era de 64 bits y que mapeaba a `double`; era falso y habría hecho que un lector esperase doble precisión y obtuviese simple en silencio. Escribe `f64` explícitamente cuando necesites 64 bits.
+
+**`ssize_t` no es un tipo de Pengu.** `CTypeMapper.to_c_type` tenía una rama para él que la gramática nunca podía alcanzar (eliminada en el item 2.10). Usa `isize`, que emite `intptr_t`.
+
+**Estilo.** `int`, `byte`, `size_t`, `float`, `f32`, `f64`, `bool`, `string`, `void` y `char` son las grafías que usa la biblioteca estándar (`int` 4643 veces, `i64` 463, `size_t` 202, `byte` 197, `u32` 161). Los nombres de estilo C (`int32_t`, `uint64_t`, `short`, `long`, `double`, `uint`) existen para que una declaración copiada de un header C conserve su ancho exacto sin traducción, y para que `pengu bind` pueda emitirlos tal cual. Úsalos en la frontera con C; fuera de ella, prefiere las formas cortas.
+
+Los sufijos de literales enteros y las conversiones `to` están disponibles (`1.5 to int`, `x to string`).
 
 > [!NOTE]
 > **Estimación de tamaño (`estimate_size`):**

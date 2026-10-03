@@ -160,7 +160,10 @@ class CTypeMapper:
                 return f"{prefix}char"
             elif name in ("usize", "size_t"):
                 return f"{prefix}size_t"
-            elif name in ("isize", "ssize_t"):
+            elif name == "isize":
+                # `ssize_t` was listed here but the grammar's `base_type` does not
+                # produce it, so the arm was unreachable (Phase 2 item 2.10). Use
+                # `isize`, which is the supported pointer-sized signed type.
                 return f"{prefix}intptr_t"
             elif name in ("float", "f32"):
                 return f"{prefix}float"
