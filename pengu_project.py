@@ -1105,35 +1105,44 @@ class PenguBuilder:
 
         return bundle_path, False
 
-    def check_sources(self) -> Tuple[bool, List[str]]:
-        """Parses and semantically checks every module without generating code.
+    def check_sources_diagnostics(self) -> Tuple[bool, List[Dict[str, Any]]]:
+        """Like :meth:`check_sources` but returns structured diagnostics.
 
-        Entry-as-main semantics are respected (the entry module compiles with
-        the compile-time 'main' variable true when entry_as_main is enabled).
-
-        Returns:
-            Tuple of (ok, messages) where each message is a human readable
-            problem line ("file:line:col [CODE] message").
+        Each diagnostic is a dict with ``file``, ``line``, ``col``, ``code``,
+        ``severity``, ``message``, ``help`` and ``note`` keys, suitable for
+        ``pengu check --json``.
         """
         self.generate_assets()
         entry_abs = self.config.resolve_entry()
+
+        def _diag(exc: Any, fpath: str) -> Dict[str, Any]:
+            line = getattr(exc, "line", None) or 0
+            col = getattr(exc, "column", None)
+            if col is None:
+                col = getattr(exc, "col", None) or 0
+            return {
+                "file": fpath,
+                "line": int(line),
+                "col": int(col),
+                "code": getattr(exc, "code", None) or "",
+                "severity": "error",
+                "message": getattr(exc, "message", None) or str(exc),
+                "help": getattr(exc, "help", None),
+                "note": getattr(exc, "note", None),
+            }
+
         if os.path.isfile(entry_abs):
             try:
                 from pengu_parser.pengu_symbols import resolve_imports as _resolve_imports
                 module_order = _resolve_imports(self.config.base_dir, entry_abs, self.parser,
                                             lib_dir=getattr(self.config, "lib_dir", "lib"))
             except Exception as e:  # noqa: BLE001 - parse/import failure in the entry graph
-                err_line = getattr(e, "line", None) or 0
-                err_col = getattr(e, "column", None) or getattr(e, "col", None) or 0
-                err_code = getattr(e, "code", None) or ""
-                err_msg = getattr(e, "message", None) or str(e)
-                code_str = f"[{err_code}] " if err_code else ""
-                return False, [f"{entry_abs}:{err_line}:{err_col} {code_str}{err_msg}"]
+                return False, [_diag(e, entry_abs)]
         else:
             module_order = [entry_abs]
 
         ok = True
-        messages: List[str] = []
+        diagnostics: List[Dict[str, Any]] = []
         for i, mod_path in enumerate(module_order):
             self.compile_env.is_main = self._is_main_file(mod_path)
             try:
@@ -1154,14 +1163,24 @@ class PenguBuilder:
                 ok = False
                 sub_list = getattr(e, "all_errors", None) or [e]
                 for sub in sub_list:
-                    err_line = getattr(sub, "line", None) or 0
-                    err_col = getattr(sub, "column", None)
-                    if err_col is None:
-                        err_col = getattr(sub, "col", None) or 0
-                    err_code = getattr(sub, "code", None) or ""
-                    err_msg = getattr(sub, "message", None) or str(e)
-                    code_str = f"[{err_code}] " if err_code else ""
-                    messages.append(f"{mod_path}:{err_line}:{err_col} {code_str}{err_msg}")
+                    diagnostics.append(_diag(sub, mod_path))
+        return ok, diagnostics
+
+    def check_sources(self) -> Tuple[bool, List[str]]:
+        """Parses and semantically checks every module without generating code.
+
+        Entry-as-main semantics are respected (the entry module compiles with
+        the compile-time 'main' variable true when entry_as_main is enabled).
+
+        Returns:
+            Tuple of (ok, messages) where each message is a human readable
+            problem line ("file:line:col [CODE] message").
+        """
+        ok, diagnostics = self.check_sources_diagnostics()
+        messages: List[str] = []
+        for d in diagnostics:
+            code_str = f"[{d['code']}] " if d.get("code") else ""
+            messages.append(f"{d['file']}:{d['line']}:{d['col']} {code_str}{d['message']}")
         return ok, messages
 
     def build_compile_commands(self, bundle_path: str, output_path: str) -> List[List[str]]:
@@ -1652,6 +1671,7 @@ def build_project(
     no_dce: bool = False,
     strict_c99: bool = False,
     target_compiler: str = "",
+    json_output: bool = False,
 ) -> str:
     """Builds project from configuration file with status printing.
 
@@ -1686,12 +1706,13 @@ def build_project(
     if target_compiler:
         config.target_compiler = target_compiler
 
-    print(f"\033[1;36m   Compiling\033[0m {config.name} v{config.version} ({config.output.value}) [{config.profile}]"
-          + (" [test]" if test else ""))
+    if not json_output:
+        print(f"\033[1;36m   Compiling\033[0m {config.name} v{config.version} ({config.output.value}) [{config.profile}]"
+              + (" [test]" if test else ""))
 
     builder = PenguBuilder(config)
     builder.is_test_mode = test
-    builder.verbose = verbose
+    builder.verbose = verbose and not json_output
     builder.use_pch = bool(pch)
     # PENGU_NO_DCE is read by PenguCodegen, so it must be set for the whole
     # bundle/compile and restored afterwards (build_project is also a library
@@ -1704,6 +1725,26 @@ def build_project(
             artifact, is_cached = builder.bundle(output_file=output)
         else:
             artifact, is_cached = builder.compile()
+    except Exception as exc:  # noqa: BLE001 - report any build failure as JSON
+        if json_output:
+            line = getattr(exc, "line", None) or 0
+            col = getattr(exc, "column", None) or getattr(exc, "col", None) or 0
+            print(json.dumps({
+                "type": "diagnostic",
+                "file": getattr(exc, "filename", None) or config.resolve_entry(),
+                "line": int(line),
+                "col": int(col),
+                "code": getattr(exc, "code", None) or "",
+                "severity": "error",
+                "message": getattr(exc, "message", None) or str(exc),
+                "help": getattr(exc, "help", None),
+                "note": getattr(exc, "note", None),
+            }, ensure_ascii=False))
+            print(json.dumps({"type": "summary", "ok": False, "errors": 1,
+                              "duration_ms": round((time.time() - t0) * 1000, 2)},
+                             ensure_ascii=False))
+            raise SystemExit(1)
+        raise
     finally:
         if no_dce:
             if prev_no_dce is None:
@@ -1712,7 +1753,16 @@ def build_project(
                 os.environ["PENGU_NO_DCE"] = prev_no_dce
     elapsed = time.time() - t0
 
-    if is_cached:
+    if json_output:
+        print(json.dumps({
+            "type": "summary",
+            "ok": True,
+            "artifact": artifact,
+            "cached": bool(is_cached),
+            "profile": config.profile,
+            "duration_ms": round(elapsed * 1000, 2),
+        }, ensure_ascii=False))
+    elif is_cached:
         print(f"\033[1;32m    Finished\033[0m (cached) [{config.profile}] target(s) in {elapsed:.2f}s -> {artifact}")
     else:
         print(f"\033[1;32m    Finished\033[0m [{config.profile}] target(s) in {elapsed:.2f}s -> {artifact}")
@@ -1726,6 +1776,7 @@ def check_project(
     defines: Optional[List[str]] = None,
     cc: Optional[str] = None,
     verbose: bool = False,
+    json_output: bool = False,
 ) -> bool:
     """Parses and type-checks every module without generating code (CI friendly).
 
@@ -1736,6 +1787,7 @@ def check_project(
         defines: Optional -D NAME / -D NAME=value compile-time defines.
         cc: Optional C compiler override (informational for 'when').
         verbose: True to print per-file progress.
+        json_output: Emit machine-readable JSON Lines (for CI) instead of text.
 
     Returns:
         True when every module passes parse + semantic checking.
@@ -1749,19 +1801,32 @@ def check_project(
     if cc:
         config.cc = cc
 
-    print(f"\033[1;36m   Checking\033[0m {config.name} v{config.version} [{config.profile}]")
+    if not json_output:
+        print(f"\033[1;36m   Checking\033[0m {config.name} v{config.version} [{config.profile}]")
 
     builder = PenguBuilder(config)
-    builder.verbose = verbose
-    ok, messages = builder.check_sources()
+    builder.verbose = verbose and not json_output
+    ok, diagnostics = builder.check_sources_diagnostics()
     elapsed = time.time() - t0
+
+    if json_output:
+        for d in diagnostics:
+            print(json.dumps({"type": "diagnostic", **d}, ensure_ascii=False))
+        print(json.dumps({
+            "type": "summary",
+            "ok": ok,
+            "errors": len(diagnostics),
+            "duration_ms": round(elapsed * 1000, 2),
+        }, ensure_ascii=False))
+        return ok
 
     if ok:
         print(f"\033[1;32m     Clean\033[0m no errors found in {elapsed:.2f}s")
     else:
         print(f"\033[1;31m   Errors\033[0m found in {elapsed:.2f}s")
-        for msg in messages:
-            print(f"  {msg}", file=sys.stderr)
+        for d in diagnostics:
+            code_str = f"[{d['code']}] " if d.get("code") else ""
+            print(f"  {d['file']}:{d['line']}:{d['col']} {code_str}{d['message']}", file=sys.stderr)
     return ok
 
 
@@ -3119,6 +3184,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
                          help="Force the precompiled header off (it is already the default)")
     build_p.add_argument("--no-dce", "--no_dce", dest="no_dce", action="store_true",
                          help="Keep every std/lib weave in bundle.c (disable dead-code elimination)")
+    build_p.add_argument("--json", action="store_true",
+                         help="Emit machine-readable JSON Lines (for CI)")
 
     # run
     run_p = subparsers.add_parser("run", help="Build and execute the project target, or run a standalone .pengu script")
@@ -3230,6 +3297,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
     check_p.add_argument("--entry", "-e", default=None, help="Override entry file path")
     check_p.add_argument("--cc", default=None, help="C compiler override (informational for 'when compiler')")
     check_p.add_argument("--verbose", action="store_true", help="Print per-file progress")
+    check_p.add_argument("--json", action="store_true",
+                         help="Emit machine-readable JSON Lines (for CI)")
     check_p.add_argument("-D", "--define", dest="defines", action="append", default=None,
                          help="Compile-time define: -D NAME or -D os=linux / arch=x64 / compiler=clang / main (repeatable)")
 
@@ -3390,6 +3459,7 @@ def main():
                 no_dce=getattr(args, "no_dce", False),
                 strict_c99=getattr(args, "strict_c99", False),
                 target_compiler=getattr(args, "target_compiler", "") or "",
+                json_output=getattr(args, "json", False),
             )
         except CompileFailedError as e:
             _print_compile_error(e)
@@ -3461,7 +3531,8 @@ def main():
             entry=getattr(args, "entry", None),
             defines=getattr(args, "defines", None),
             cc=getattr(args, "cc", None),
-            verbose=getattr(args, "verbose", False)
+            verbose=getattr(args, "verbose", False),
+            json_output=getattr(args, "json", False),
         )
         sys.exit(0 if ok else 1)
     elif args.command == "fmt":

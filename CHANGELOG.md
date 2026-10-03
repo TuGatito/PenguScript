@@ -4,6 +4,20 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### ✨ Added — 3.6 Diagnósticos JSON para CI
+
+- **`pengu check --json`**: emite JSON Lines con un objeto por diagnóstico
+  (`type`, `file`, `line`, `col`, `code`, `severity`, `message`, `help`, `note`)
+  y una línea final de resumen (`ok`, `errors`, `duration_ms`). Nada de texto
+  humano contamina stdout, así que `jq`/CI pueden consumirlo directamente.
+- **`pengu build --json`**: resumen `{ok, artifact, cached, profile, duration_ms}`
+  en éxito y diagnóstico + resumen con salida 1 en fallo (semántico o de
+  compilación), sin banners.
+- `PenguBuilder.check_sources_diagnostics()` devuelve los diagnósticos
+  estructurados; `check_sources()` sigue formateando el texto humano sobre ellos.
+- Tests: `tests/test_json_diagnostics.py` (parseo, pureza de stdout, fallo con
+  exit code 1 y presencia del flag).
+
 ### 🐛 Fixed — 3.3 Correcciones de `pengu bind`
 
 - **3.3.1 — Enums anónimos.** Un `enum { A = 1, B = 2 };` sin nombre ya no se
