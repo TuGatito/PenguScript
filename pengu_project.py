@@ -2104,8 +2104,52 @@ def clean_project(config_path: Optional[str] = None) -> None:
         print(f"\033[1;33m     Cleaned\033[0m nothing to clean.")
 
 
+def _toml_scalar(value: Any) -> str:
+    """Serializes a scalar/list value as TOML (JSON strings are valid TOML)."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    if value is None:
+        return '""'
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_toml_scalar(v) for v in value) + "]"
+    raise TypeError(f"cannot serialize {type(value).__name__} to TOML")
+
+
+def _dump_toml(data: Dict[str, Any], prefix: str = "") -> List[str]:
+    """Minimal TOML writer for the shapes a ``pengu.toml`` uses.
+
+    Scalars of a table are emitted before its sub-tables, which is what TOML
+    requires.  Only dict/list/scalar values are supported; lists of tables are
+    not needed by the manifest.
+    """
+    lines: List[str] = []
+    scalars = {k: v for k, v in data.items() if not isinstance(v, dict)}
+    tables = {k: v for k, v in data.items() if isinstance(v, dict)}
+    for key, value in scalars.items():
+        lines.append(f"{key} = {_toml_scalar(value)}")
+    for key, value in tables.items():
+        header = f"{prefix}{key}"
+        lines.append("")
+        lines.append(f"[{header}]")
+        lines.extend(_dump_toml(value, prefix=f"{header}."))
+    return lines
+
+
+def _write_toml_file(path: str, data: Dict[str, Any]) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(_dump_toml(data)) + "\n")
+
+
 def _update_config_dependency(base_dir: str, dep_name: str, source: str, branch: Optional[str] = None) -> None:
-    """Updates project configuration file (pengu.yaml, pengu.json, or pengu.toml) with a new dependency.
+    """Updates the project manifest with a new dependency.
+
+    TOML is the canonical format (roadmap 4.11): an existing ``pengu.toml`` is
+    preferred, and when no manifest exists a ``pengu.toml`` is created.  YAML and
+    JSON manifests are still updated in place for backwards compatibility.
 
     Args:
         base_dir: Root directory of project.
@@ -2113,7 +2157,7 @@ def _update_config_dependency(base_dir: str, dep_name: str, source: str, branch:
         source: URL or local path.
         branch: Optional branch name.
     """
-    candidates = ["pengu.yaml", "pengu.yml", "pengu.toml", "pengu.json", "Pengu.toml"]
+    candidates = ["pengu.toml", "Pengu.toml", "pengu.yaml", "pengu.yml", "pengu.json"]
     cfg_file = None
     for c in candidates:
         p = os.path.join(base_dir, c)
@@ -2122,12 +2166,26 @@ def _update_config_dependency(base_dir: str, dep_name: str, source: str, branch:
             break
 
     if cfg_file is None:
-        cfg_file = os.path.join(base_dir, "pengu.yaml")
+        cfg_file = os.path.join(base_dir, "pengu.toml")
 
     ext = os.path.splitext(cfg_file)[1].lower()
     dep_info: Dict[str, Any] = {"url": source}
     if branch:
         dep_info["branch"] = branch
+
+    if ext == ".toml":
+        data: Dict[str, Any] = {}
+        if os.path.isfile(cfg_file):
+            try:
+                with open(cfg_file, "rb") as f:
+                    data = tomllib.load(f)
+            except Exception:
+                data = {}
+        if not isinstance(data.get("dependencies"), dict):
+            data["dependencies"] = {}
+        data["dependencies"][dep_name] = dep_info
+        _write_toml_file(cfg_file, data)
+        return
 
     if ext in (".yaml", ".yml"):
         content = ""
@@ -2421,7 +2479,9 @@ def init_project(
     links: Optional[List[str]] = None,
     cc: str = "gcc",
     output_name: Optional[str] = None,
-    target_dir: Optional[str] = None
+    target_dir: Optional[str] = None,
+    manifest_format: str = "toml",
+    template: str = "exe",
 ) -> str:
     """Initializes a new PenguScript project directory with Cargo-style structure (src/, lib/, include/, c/).
 
@@ -2432,6 +2492,8 @@ def init_project(
         cc: C compiler to configure.
         output_name: Optional custom output artifact name.
         target_dir: Optional destination base directory.
+        manifest_format: ``"toml"`` (canonical, roadmap 4.11) or ``"yaml"``.
+        template: Template flavour (``"exe"``, ``"cli"``, ``"lib"``, ``"game"``).
 
     Returns:
         Path to initialized project directory.
@@ -2492,6 +2554,48 @@ profiles:
   release:
     cflags: ["-O3", "-DNDEBUG"]
     defines: ["NDEBUG"]
+"""
+
+    # TOML is the canonical manifest (roadmap 4.11); YAML stays available with
+    # `--format yaml` for backwards compatibility, and `ProjectConfig.load` reads
+    # both (preferring pengu.toml when both exist).
+    toml_links = ", ".join(json.dumps(str(l)) for l in links_list)
+    toml_content = f"""[project]
+name = {json.dumps(name)}
+version = "0.1.0"
+entry = "src/main.pengu"
+output = {json.dumps(out_t.value)}
+output_name = {json.dumps(out_name)}
+
+[build]
+src_dir = "src"
+lib_dir = "lib"
+include_dir = "include"
+c_dir = "c"
+build_dir = "build"
+includes = []
+links = [{toml_links}]
+lib_dirs = []
+include_dirs = []
+cflags = ["-Wall", "-std=c11"]
+ldflags = []
+defines = []
+cc = {json.dumps(cc)}
+
+[assets]
+dir = "assets"
+module = "arca"
+embed = true
+
+[dependencies]
+
+[profiles.debug]
+cflags = ["-g", "-O0", "-Wall"]
+defines = ["DEBUG"]
+
+[profiles.release]
+cflags = ["-O3", "-DNDEBUG"]
+defines = ["NDEBUG"]
 """
 
     if out_t == OutputType.EXE:
@@ -2555,6 +2659,7 @@ The generator produces `src/arca.pengu` — import it from your code:
 Run `pengu assets --list` to see the current embedded assets.
 """
 
+    manifest_name = "pengu.toml" if manifest_format == "toml" else "pengu.yaml"
     readme_content = f"""# {name}
 
 A PenguScript v{PENGU_VERSION} project targeting `{out_t.value}` output.
@@ -2563,7 +2668,7 @@ A PenguScript v{PENGU_VERSION} project targeting `{out_t.value}` output.
 
 ```
 {name}/
-├── pengu.yaml          # Project & build configuration
+├── {manifest_name:<17s} # Project & build configuration
 ├── src/                # PenguScript source files
 │   └── main.pengu      # Main entry point
 ├── assets/             # Project assets (embedded via arca)
@@ -2593,8 +2698,9 @@ pengu clean
 ```
 """
 
-    with open(os.path.join(proj_dir, "pengu.yaml"), "w", encoding="utf-8") as f:
-        f.write(yaml_content)
+    with open(os.path.join(proj_dir, "pengu.toml" if manifest_format == "toml" else "pengu.yaml"),
+              "w", encoding="utf-8") as f:
+        f.write(toml_content if manifest_format == "toml" else yaml_content)
     with open(os.path.join(src_dir, "main.pengu"), "w", encoding="utf-8") as f:
         f.write(main_content)
     with open(os.path.join(assets_dir, "README.md"), "w", encoding="utf-8") as f:
@@ -3353,6 +3459,10 @@ def create_cli_parser() -> argparse.ArgumentParser:
     init_p.add_argument("--links", "-l", help="Comma-separated library names to link (e.g. raylib,m)")
     init_p.add_argument("--output-name", help="Custom output artifact base name")
     init_p.add_argument("--cc", default="gcc", help="C compiler command (default: gcc)")
+    init_p.add_argument("--format", dest="manifest_format", choices=["toml", "yaml"], default="toml",
+                        help="Project manifest format (default: toml, the canonical one)")
+    init_p.add_argument("--template", choices=["exe", "cli", "lib", "game"], default=None,
+                        help="Project template flavour (default: derived from --type)")
 
     # add
     add_p = subparsers.add_parser("add", help="Add an external dependency or binding to the project")
@@ -3637,7 +3747,9 @@ def main():
             output_type=args.type,
             links=links_list,
             cc=args.cc,
-            output_name=args.output_name
+            output_name=args.output_name,
+            manifest_format=getattr(args, "manifest_format", "toml"),
+            template=getattr(args, "template", None) or "exe",
         )
     elif args.command == "add":
         add_dependency(

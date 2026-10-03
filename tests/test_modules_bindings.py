@@ -746,7 +746,7 @@ class TestProjectBindings:
             assert os.path.isdir(os.path.join(proj_dir, "include"))
             assert os.path.isdir(os.path.join(proj_dir, "c"))
             assert os.path.isfile(os.path.join(proj_dir, "src", "main.pengu"))
-            assert os.path.isfile(os.path.join(proj_dir, "pengu.yaml"))
+            assert os.path.isfile(os.path.join(proj_dir, "pengu.toml"))
             assert os.path.isfile(os.path.join(proj_dir, ".gitignore"))
             assert os.path.isfile(os.path.join(proj_dir, "README.md"))
 
@@ -898,8 +898,8 @@ class TestProjectBindings:
             assert os.path.isfile(os.path.join(added_dir, "pengu", "webui.pengu"))
             assert os.path.isfile(os.path.join(added_dir, "include", "webui.h"))
 
-            # 4. pengu.yaml records the dependency
-            with open(os.path.join(proj_dir, "pengu.yaml"), "r", encoding="utf-8") as f:
+            # 4. pengu.toml (canonical) records the dependency
+            with open(os.path.join(proj_dir, "pengu.toml"), "r", encoding="utf-8") as f:
                 yaml_txt = f.read()
             assert "webui" in yaml_txt
 

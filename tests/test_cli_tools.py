@@ -158,15 +158,15 @@ class TestInit:
         res = cli_from(proj_dir, ["init", "my_game", "--type", "exe"])
         assert res.returncode == 0, res.stderr
         base = os.path.join(proj_dir, "my_game")
-        for rel in ("pengu.yaml", "src/main.pengu", ".gitignore", "README.md"):
+        for rel in ("pengu.toml", "src/main.pengu", ".gitignore", "README.md"):
             assert os.path.isfile(os.path.join(base, rel)), rel
         for rel in ("src", "lib", "include", "c"):
             assert os.path.isdir(os.path.join(base, rel)), rel
         main = open(os.path.join(base, "src", "main.pengu"), encoding="utf-8").read()
         assert "weave main into void:" in main
         assert "Hello from my_game!" in main
-        yaml_txt = open(os.path.join(base, "pengu.yaml"), encoding="utf-8").read()
-        assert '"exe"' in yaml_txt
+        manifest_txt = open(os.path.join(base, "pengu.toml"), encoding="utf-8").read()
+        assert '"exe"' in manifest_txt
 
     def test_init_exe_structure_and_config_roundtrip(self, proj_dir):
         from pengu_project import ProjectConfig, init_project
@@ -176,7 +176,7 @@ class TestInit:
         proj = init_project("my_rpg", output_type="exe", target_dir=base_dir)
         for rel in ("src", "lib", "include", "c"):
             assert os.path.isdir(os.path.join(proj, rel))
-        for rel in ("src/main.pengu", "pengu.yaml", ".gitignore", "README.md"):
+        for rel in ("src/main.pengu", "pengu.toml", ".gitignore", "README.md"):
             assert os.path.isfile(os.path.join(proj, rel))
         cfg = ProjectConfig.load(proj)
         assert cfg.name == "my_rpg"
@@ -835,8 +835,8 @@ class TestProjectStructure:
         assert os.path.isdir(added_dir)
         assert os.path.isfile(os.path.join(added_dir, "pengu", "webui.pengu"))
         assert os.path.isfile(os.path.join(added_dir, "include", "webui.h"))
-        yaml_txt = open(os.path.join(proj, "pengu.yaml"), encoding="utf-8").read()
-        assert "webui" in yaml_txt
+        manifest_txt = open(os.path.join(proj, "pengu.toml"), encoding="utf-8").read()
+        assert "webui" in manifest_txt
 
     def test_legacy_flat_project_compatibility(self, proj_dir):
         from pengu_project import PenguBuilder, ProjectConfig

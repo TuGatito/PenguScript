@@ -4,6 +4,17 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### 📦 Added — 4.11 TOML como manifiesto canónico
+
+- La **lectura** ya prefería `pengu.toml`; ahora la **escritura** también:
+  `pengu init` genera `pengu.toml` por defecto (`--format yaml` mantiene el
+  manifiesto YAML para compatibilidad) y `pengu add` prefiere el `pengu.toml`
+  existente y lo crea si no hay ninguno.
+- Nuevo serializador TOML mínimo (`_dump_toml` / `_toml_scalar`, sin dependencias)
+  que preserva el resto del manifiesto al añadir dependencias.
+- YAML y JSON siguen siendo legibles; si ambos coexisten, gana `pengu.toml`.
+- Tests: `tests/test_manifest_toml.py`.
+
 ### 📚 Fixed/Added — 4.3 Auditoría y enforcement de documentación en `std/`
 
 > **Corrigendum.** El roadmap pedía "convertir `#` → `##` en los `.d.pengu`".
