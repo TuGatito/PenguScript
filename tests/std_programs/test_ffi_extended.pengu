@@ -5,7 +5,7 @@ weave main into int:
     calling spark.println with "=== Test FFI Extended ==="
 
     # 1. Version and size constants
-    calling spark.assert with (ffi.FFI_VERSION == "0.15.0")
+    calling spark.assert with (ffi.FFI_VERSION == "0.16.0")
     calling spark.assert with (ffi.SIZEOF_INT == 4)
     calling spark.assert with (ffi.SIZEOF_FLOAT == 8)
     calling spark.assert with (ffi.SIZEOF_BYTE == 1)

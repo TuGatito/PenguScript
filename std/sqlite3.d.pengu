@@ -38,7 +38,7 @@ include "sqlite3.h"
 # See also: [sqlite3_libversion()],
 # [sqlite3_libversion_number()], [sqlite3_sourceid()],
 # [sqlite_version()] and [sqlite_source_id()].
-const SQLITE_VERSION as string is "0.16.0"
+const SQLITE_VERSION as string is "3.53.4"
 const SQLITE_VERSION_NUMBER as i64 is 3053004
 const SQLITE_SOURCE_ID as string is "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc"
 const SQLITE_SCM_BRANCH as string is "branch-3.53"

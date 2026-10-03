@@ -5,7 +5,7 @@ weave main into int:
     calling spark.println with "=== Test Cipher Extended ==="
 
     # 1. Version constant
-    calling spark.assert with (cipher.CIPHER_VERSION == "0.15.0")
+    calling spark.assert with (cipher.CIPHER_VERSION == "0.16.0")
     calling spark.println with "constants: OK"
 
     # 2. Base64 Standard & Length

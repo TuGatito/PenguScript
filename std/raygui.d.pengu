@@ -11,7 +11,7 @@ import std.raylib
 
 const RAYGUI_VERSION_MINOR as i64 is 0
 const RAYGUI_VERSION_PATCH as i64 is 0
-const RAYGUI_VERSION as string is "0.16.0"
+const RAYGUI_VERSION as string is "5.0"
 const GUI_BUTTON_DOWN as i64 is 0
 const GUI_BUTTON_DOWN_ALT as i64 is 0
 const GUI_BUTTON_PRESSED as i64 is 0

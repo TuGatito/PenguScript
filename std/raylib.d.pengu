@@ -27,7 +27,7 @@ else:
 const RAYLIB_VERSION_MAJOR as i64 is 6
 const RAYLIB_VERSION_MINOR as i64 is 0
 const RAYLIB_VERSION_PATCH as i64 is 0
-const RAYLIB_VERSION as string is "0.16.0"
+const RAYLIB_VERSION as string is "6.0"
 
 # Some Basic Colors
 # NOTE: Custom raylib color palette for amazing visuals on WHITE background
