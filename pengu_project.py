@@ -170,6 +170,67 @@ def extract_lib_name(filename: str) -> Optional[str]:
     return name if name else None
 
 
+@dataclass(frozen=True)
+class TargetTriple:
+    """Parsed cross-compilation target triple (roadmap 3.5)."""
+    raw: str
+    arch: str
+    os: str
+    env: str
+
+    @property
+    def is_windows(self) -> bool:
+        return self.os == "windows"
+
+    @property
+    def is_macos(self) -> bool:
+        return self.os == "darwin"
+
+    @property
+    def is_linux(self) -> bool:
+        return self.os == "linux"
+
+
+def host_os() -> str:
+    """Host OS in triple vocabulary ('windows' | 'darwin' | 'linux')."""
+    if sys.platform == "win32":
+        return "windows"
+    if sys.platform == "darwin":
+        return "darwin"
+    return "linux"
+
+
+def parse_target_triple(text: str) -> TargetTriple:
+    """Parses a target triple like ``x86_64-w64-mingw32`` or ``aarch64-apple-darwin``.
+
+    Only the OS/environment are interpreted (Linux ⇄ Windows is the supported
+    cross pair); the architecture is kept for diagnostics and compiler lookup.
+    """
+    raw = (text or "").strip()
+    low = raw.lower()
+    if not raw:
+        return TargetTriple(raw="", arch="", os="", env="")
+    if "mingw" in low or "windows" in low or "win32" in low or "msvc" in low:
+        os_name = "windows"
+    elif "darwin" in low or "apple" in low or "macos" in low:
+        os_name = "darwin"
+    elif "linux" in low or "musl" in low or "gnu" in low:
+        os_name = "linux"
+    else:
+        os_name = ""
+    env = ""
+    if "musl" in low:
+        env = "musl"
+    elif "msvc" in low:
+        env = "msvc"
+    elif "mingw" in low:
+        env = "mingw"
+    elif "gnu" in low:
+        env = "gnu"
+    arch = raw.split("-")[0].lower()
+    return TargetTriple(raw=raw, arch=arch, os=os_name, env=env)
+
+
 @dataclass
 class ProjectConfig:
     """Project configuration specifying build rules, directories, libraries, profiles, and output target.
@@ -239,6 +300,10 @@ class ProjectConfig:
     # ("gcc" | "clang" | "msvc" | "tcc"; empty = infer from ``cc``).
     strict_c99: bool = False
     target_compiler: str = ""
+    # Roadmap 3.5: cross-compilation target triple (empty = host).  Only
+    # Linux ⇄ Windows is supported; the target runtime must be provided
+    # separately via PENGU_RUNTIME_CROSS (see docs).
+    target: str = ""
 
     def resolve_entry(self) -> str:
         """Resolves main entry file path checking configured paths, src/ directory, and root.
@@ -423,6 +488,7 @@ class ProjectConfig:
 
         strict_c99 = bool(build_sec.get("strict_c99", proj_sec.get("strict_c99", False)))
         target_compiler = str(build_sec.get("target_compiler", proj_sec.get("target_compiler", "")))
+        target = str(build_sec.get("target", proj_sec.get("target", "")))
 
         return cls(
             name=name,
@@ -452,6 +518,7 @@ class ProjectConfig:
             assets_exclude=assets_exclude,
             strict_c99=strict_c99,
             target_compiler=target_compiler,
+            target=target,
         )
 
 
@@ -472,6 +539,7 @@ class PenguBuilder:
         self.config = config
         self.source_code = source_code
         self.is_test_mode = False
+        self._target_triple: Optional[TargetTriple] = None
         from pengu_parser.pengu_parser import PenguParser as _PenguParser
         from pengu_parser.pengu_comptime import main_flag_requested as _main_flag_requested
         from pengu_parser.pengu_comptime import parse_cli_defines as _parse_cli_defines
@@ -629,6 +697,71 @@ class PenguBuilder:
 
         return digest.hexdigest()
 
+    # ------------------------------------------------------------ cross-compile
+    @property
+    def target_triple(self) -> Optional[TargetTriple]:
+        """Parsed ``--target`` triple, or None when building for the host."""
+        if self._target_triple is None:
+            raw = str(getattr(self.config, "target", "") or "")
+            self._target_triple = parse_target_triple(raw) if raw else TargetTriple("", "", "", "")
+        return self._target_triple if self._target_triple.os else None
+
+    @property
+    def target_os(self) -> str:
+        """Target OS in triple vocabulary (windows/darwin/linux)."""
+        triple = self.target_triple
+        return triple.os if triple and triple.os else host_os()
+
+    @property
+    def is_cross(self) -> bool:
+        return self.target_os != host_os()
+
+    def resolve_compiler(self) -> str:
+        """Compiler to use, auto-detecting a cross compiler when needed.
+
+        ``--cc`` always wins.  Otherwise, for a Linux ⇄ Windows build the
+        conventional ``<triple>-gcc`` / ``x86_64-w64-mingw32-gcc`` names are
+        probed, and a clear error is raised when none is installed (instead of
+        failing later with a confusing host-compiler link error).
+        """
+        cc = str(getattr(self.config, "cc", "") or "")
+        if not self.is_cross:
+            return cc
+        triple = self.target_triple
+        if triple and triple.raw and cc not in ("", "gcc"):
+            return cc
+        candidates: List[str] = []
+        if triple and triple.raw:
+            candidates.append(f"{triple.raw}-gcc")
+        if self.target_os == "windows":
+            if triple and triple.arch in ("i686", "i386", "x86"):
+                candidates.append("i686-w64-mingw32-gcc")
+            candidates.append("x86_64-w64-mingw32-gcc")
+            candidates.append("mingw32-gcc")
+        for cand in candidates:
+            if shutil.which(cand):
+                return cand
+        raise CompileFailedError(
+            f"no cross compiler found for target '{getattr(self.config, 'target', '')}'.\n"
+            f"Install one (e.g. 'apt install mingw-w64') or pass --cc <compiler>.\n"
+            f"Cross-compilation also needs a runtime built for the target; point "
+            f"PENGU_RUNTIME_CROSS at its directory."
+        )
+
+    def cross_runtime_flags(self) -> List[str]:
+        """``-L``/``-I`` flags for a cross-compiled runtime (PENGU_RUNTIME_CROSS)."""
+        root = os.environ.get("PENGU_RUNTIME_CROSS", "").strip()
+        if not root or not self.is_cross:
+            return []
+        flags: List[str] = []
+        if os.path.isdir(os.path.join(root, "lib")):
+            flags.append(f"-L{os.path.join(root, 'lib')}")
+        else:
+            flags.append(f"-L{root}")
+        if os.path.isdir(os.path.join(root, "include")):
+            flags.append(f"-I{os.path.join(root, 'include')}")
+        return flags
+
     def get_output_artifact_name(self) -> str:
         """Determines target output filename according to platform and OutputType.
 
@@ -637,8 +770,9 @@ class PenguBuilder:
         """
         out_name = self.config.output_name
         out_type = self.config.output
-        is_win = sys.platform == "win32"
-        is_mac = sys.platform == "darwin"
+        target_os = self.target_os
+        is_win = target_os == "windows"
+        is_mac = target_os == "darwin"
 
         if out_type == OutputType.C:
             return "bundle.c"
@@ -1197,10 +1331,10 @@ class PenguBuilder:
         Returns:
             List of command argument lists to execute sequentially.
         """
-        cc = self.config.cc
+        cc = self.resolve_compiler()
         out_type = self.config.output
-        is_win = sys.platform == "win32"
-        is_mac = sys.platform == "darwin"
+        is_win = self.target_os == "windows"
+        is_mac = self.target_os == "darwin"
         commands: List[List[str]] = []
 
         # Merge base flags with profile flags
@@ -1224,6 +1358,11 @@ class PenguBuilder:
                 merged_defines.append(flag)
 
         common_flags: List[str] = merged_cflags + merged_defines
+
+        # Cross-compilation: the target runtime lives outside the host prefix.
+        for _flag in self.cross_runtime_flags():
+            if _flag not in common_flags:
+                common_flags.append(_flag)
 
         # Bounds checking is a debug aid: release builds compile it out of the
         # runtime (roadmap 2.2.g).  The code generator already stops emitting
@@ -1671,6 +1810,7 @@ def build_project(
     no_dce: bool = False,
     strict_c99: bool = False,
     target_compiler: str = "",
+    target: str = "",
     json_output: bool = False,
 ) -> str:
     """Builds project from configuration file with status printing.
@@ -1705,6 +1845,8 @@ def build_project(
         config.strict_c99 = True
     if target_compiler:
         config.target_compiler = target_compiler
+    if target:
+        config.target = target
 
     if not json_output:
         print(f"\033[1;36m   Compiling\033[0m {config.name} v{config.version} ({config.output.value}) [{config.profile}]"
@@ -2788,7 +2930,8 @@ def _consume_script_args(raw: Optional[List[str]]) -> List[str]:
 def run_project(config_path: Optional[str] = None, profile: str = "debug", test: bool = False,
                 defines: Optional[List[str]] = None, cc: Optional[str] = None,
                 verbose: bool = False, pch: bool = False, no_dce: bool = False,
-                strict_c99: bool = False, target_compiler: str = "") -> int:
+                strict_c99: bool = False, target_compiler: str = "",
+                target: str = "") -> int:
     """Builds and runs binary if output target is executable.
 
     Args:
@@ -2809,7 +2952,8 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
         config.cc = cc
     artifact = build_project(config_path, profile=profile, test=test, defines=defines,
                              cc=cc, verbose=verbose, pch=pch, no_dce=no_dce,
-                             strict_c99=strict_c99, target_compiler=target_compiler)
+                             strict_c99=strict_c99, target_compiler=target_compiler,
+                             target=target)
     if config.output == OutputType.EXE and os.path.isfile(artifact):
         print(f"\033[1;36m     Running\033[0m {artifact}\n")
         sys.stdout.flush()
@@ -2826,7 +2970,7 @@ def run_script(script: str, defines: Optional[List[str]] = None,
                script_args: Optional[List[str]] = None,
                quiet: bool = False, no_pch: bool = True,
                no_dce: bool = False, strict_c99: bool = False,
-               target_compiler: str = "") -> int:
+               target_compiler: str = "", target: str = "") -> int:
     """Compiles and runs a standalone .pengu file directly (script mode).
 
     The script itself is compiled as the entry point with the compile-time
@@ -2896,6 +3040,8 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         cfg.strict_c99 = True
     if target_compiler:
         cfg.target_compiler = target_compiler
+    if target:
+        cfg.target = target
 
     # --- cache lookup -----------------------------------------------------
     # Resolving the import graph only parses the modules (no semantic checks),
@@ -2951,6 +3097,7 @@ def run_script(script: str, defines: Optional[List[str]] = None,
                     "dce=off" if no_dce else None,
                     "strict-c99" if getattr(cfg, "strict_c99", False) else None,
                     f"target={cfg.target_compiler}" if getattr(cfg, "target_compiler", "") else None,
+                    f"triple={cfg.target}" if getattr(cfg, "target", "") else None,
                 ) if d
             ] or None,
         )
@@ -3084,7 +3231,8 @@ def _watch_and_test(config_path: Optional[str] = None, profile: str = "debug", e
 def test_project(config_path: Optional[str] = None, profile: str = "debug", entry: Optional[str] = None,
                  defines: Optional[List[str]] = None, cc: Optional[str] = None,
                  verbose: bool = False, json_output: bool = False,
-                 strict_c99: bool = False, target_compiler: str = "") -> int:
+                 strict_c99: bool = False, target_compiler: str = "",
+                 target: str = "") -> int:
     """Compiles the project in --test mode and executes the integrated unit tests.
 
     The project entry is built as an executable whose main runs every 'test'
@@ -3113,6 +3261,8 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
         config.strict_c99 = True
     if target_compiler:
         config.target_compiler = target_compiler
+    if target:
+        config.target = target
     config.output = OutputType.EXE
 
     t0 = time.time()
@@ -3265,6 +3415,9 @@ def create_cli_parser() -> argparse.ArgumentParser:
         _p.add_argument("--target-compiler", "--target_compiler", dest="target_compiler", default=None,
                         choices=["gcc", "clang", "msvc", "tcc"],
                         help="C compiler dialect used for attributes/restrict (default: infer from --cc)")
+        _p.add_argument("--target", dest="target", default=None,
+                        help="Cross-compilation target triple (e.g. x86_64-w64-mingw32); "
+                             "Linux <-> Windows only, needs a cross compiler and PENGU_RUNTIME_CROSS")
     # Script arguments are collected with parse_known_args: 'pengu run x.pengu -- a b'
     # and 'pengu run x.pengu a b' both forward 'a b'.
 
@@ -3334,6 +3487,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
     test_p.add_argument("--target-compiler", "--target_compiler", dest="target_compiler", default=None,
                         choices=["gcc", "clang", "msvc", "tcc"],
                         help="C compiler dialect used for attributes/restrict (default: infer from --cc)")
+    test_p.add_argument("--target", dest="target", default=None,
+                        help="Cross-compilation target triple (e.g. x86_64-w64-mingw32)")
 
     # check
     check_p = subparsers.add_parser("check", help="Parse and type-check every module without generating code (CI)")
@@ -3507,6 +3662,7 @@ def main():
                 no_dce=getattr(args, "no_dce", False),
                 strict_c99=getattr(args, "strict_c99", False),
                 target_compiler=getattr(args, "target_compiler", "") or "",
+                target=getattr(args, "target", "") or "",
                 json_output=getattr(args, "json", False),
             )
         except CompileFailedError as e:
@@ -3532,6 +3688,7 @@ def main():
                     no_dce=getattr(args, "no_dce", False),
                     strict_c99=getattr(args, "strict_c99", False),
                     target_compiler=getattr(args, "target_compiler", "") or "",
+                    target=getattr(args, "target", "") or "",
                 ))
             sys.exit(run_project(
                 config_path=args.config,
@@ -3544,6 +3701,7 @@ def main():
                 no_dce=getattr(args, "no_dce", False),
                 strict_c99=getattr(args, "strict_c99", False),
                 target_compiler=getattr(args, "target_compiler", "") or "",
+                target=getattr(args, "target", "") or "",
             ))
         except CompileFailedError as e:
             _print_compile_error(e)
@@ -3569,6 +3727,7 @@ def main():
                 json_output=getattr(args, "json", False),
                 strict_c99=getattr(args, "strict_c99", False),
                 target_compiler=getattr(args, "target_compiler", "") or "",
+                target=getattr(args, "target", "") or "",
             ))
         except CompileFailedError as e:
             _print_compile_error(e)

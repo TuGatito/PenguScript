@@ -4,6 +4,27 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### ✨ Added — 3.5 Cross-compilation (Linux ⇄ Windows)
+
+- **`--target <triple>`** en `build`/`run`/`test` (y `build: target:` en
+  `pengu.yaml`): `parse_target_triple` interpreta triples estilo
+  `x86_64-w64-mingw32`, `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`.
+- El nombre del artefacto sigue al **target**, no al host: `.exe`, `.dll`,
+  `.dylib`, `.so` según el triple.
+- **Auto-detección de cross-compiler**: con un target Windows en host no-Windows
+  se prueban `<triple>-gcc` / `x86_64-w64-mingw32-gcc` / `i686-w64-mingw32-gcc`;
+  `--cc` siempre gana. Si no hay ninguno, el error es accionable (instala
+  mingw-w64 o pasa `--cc`) en vez de fallar con un link confuso.
+- **`PENGU_RUNTIME_CROSS`**: directorio del runtime compilado para el target
+  (añade `-L`/`-I`). El runtime prebuilt es del host, así que el link cruzado
+  requiere este runtime; la generación del bundle C funciona para cualquier
+  target sin toolchain cruzada.
+- Los flags de link se eligen por target (`-lws2_32`… para Windows, frameworks
+  para Darwin).
+- Tests: `tests/test_cross_compile.py` (parseo, nombres de artefacto,
+  detección/errores de compilador, `PENGU_RUNTIME_CROSS`, bundle Windows sin
+  cross-cc; compilación real con MinGW marcada como skip si falta).
+
 ### ✨ Added — 3.11 `pengu doc`: Doxygen, deprecación, índice y búsqueda
 
 - **Tags Doxygen**: `sym.doc` se divide en resumen + lista estructurada de tags
