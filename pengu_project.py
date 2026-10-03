@@ -1807,8 +1807,24 @@ class PenguBuilder:
 
 
 def _lock_target(config: "ProjectConfig") -> str:
-    """Target triple recorded in the lockfile (roadmap 4.1 + 3.5)."""
-    return str(getattr(config, "target", "") or "").strip() or host_os()
+    """Canonicalized target recorded in the lockfile (roadmap 4.1 + 3.5).
+
+    Triples that describe the same platform (``x86_64-w64-mingw32`` and
+    ``x86_64-pc-windows-gnu``) must produce the same lock entry, otherwise
+    ``--frozen`` fails spuriously across machines/CI images.  The canonical form
+    is ``<arch>-<os>-<env>`` with the Windows GNU environments folded together.
+    """
+    raw = str(getattr(config, "target", "") or "").strip()
+    if not raw:
+        return host_os()
+    triple = parse_target_triple(raw)
+    if not triple.os:
+        return raw
+    env = triple.env
+    if triple.os == "windows" and env in ("mingw", "gnu", ""):
+        env = "gnu"
+    parts = [p for p in (triple.arch, triple.os, env) if p]
+    return "-".join(parts)
 
 
 def _ensure_lockfile(config: "ProjectConfig", locked: bool = False,
@@ -2198,7 +2214,8 @@ def _toml_scalar(value: Any) -> str:
     if isinstance(value, str):
         return json.dumps(value, ensure_ascii=False)
     if value is None:
-        return '""'
+        # A None here is a caller bug; writing "" would corrupt the manifest.
+        raise TypeError("cannot serialize None to TOML")
     if isinstance(value, (list, tuple)):
         return "[" + ", ".join(_toml_scalar(v) for v in value) + "]"
     raise TypeError(f"cannot serialize {type(value).__name__} to TOML")
@@ -2353,12 +2370,36 @@ def _update_config_dependency(base_dir: str, dep_name: str, source: str, branch:
 
 
 
-def _run_dependency_build(target_dir: str, dep_name: str) -> bool:
+def _dependency_build_allowed(dep_name: str, trusted: bool = False) -> bool:
+    """Decides whether a dependency's build script may run (roadmap 5.3).
+
+    A build script (``build.py``/``build.sh``/``Makefile``) is arbitrary code
+    from a third party.  It only runs when explicitly trusted: ``--trust``,
+    ``PENGU_TRUST_ALL=1``, or an interactive "yes".  In a non-interactive shell
+    without trust it is skipped with a warning instead of silently executing.
+    """
+    if trusted:
+        return True
+    if os.environ.get("PENGU_TRUST_ALL", "").strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    if not sys.stdin.isatty():
+        print(f"\033[1;33m     Skipped\033[0m '{dep_name}' has a build script but was not "
+              f"trusted; pass --trust to run it.", file=sys.stderr)
+        return False
+    try:
+        answer = input(f"\033[1;33m    Trust\033[0m run the build script of '{dep_name}'? [y/N] ")
+    except (EOFError, KeyboardInterrupt):
+        return False
+    return answer.strip().lower() in ("y", "yes")
+
+
+def _run_dependency_build(target_dir: str, dep_name: str, trusted: bool = False) -> bool:
     """Runs the dependency's build script (build.py / build.bat / build.sh / Makefile).
 
     Args:
         target_dir: Installed dependency directory.
         dep_name: Dependency display name.
+        trusted: True when the caller already trusted this dependency (--trust).
 
     Returns:
         True when a build script was found and executed.
@@ -2379,6 +2420,8 @@ def _run_dependency_build(target_dir: str, dep_name: str) -> bool:
         build_cmd = ["make"]
 
     if build_cmd:
+        if not _dependency_build_allowed(dep_name, trusted=trusted):
+            return False
         print(f"\033[1;36m    Building\033[0m dependency '{dep_name}' with {' '.join(build_cmd)}")
         res = subprocess.run(build_cmd, cwd=target_dir, capture_output=True, text=True)
         if res.returncode != 0:
@@ -2387,7 +2430,8 @@ def _run_dependency_build(target_dir: str, dep_name: str) -> bool:
     return False
 
 
-def update_project(config_path: Optional[str] = None, verbose: bool = False) -> int:
+def update_project(config_path: Optional[str] = None, verbose: bool = False,
+                   trusted: bool = False) -> int:
     """Updates every configured dependency: git pull + re-run build scripts.
 
     Args:
@@ -2441,7 +2485,7 @@ def update_project(config_path: Optional[str] = None, verbose: bool = False) -> 
         else:
             print("   (local copy — nothing to pull)")
 
-        _run_dependency_build(target_dir, dep_name)
+        _run_dependency_build(target_dir, dep_name, trusted=trusted)
         updated += 1
 
     # Refresh pengu.lock so the new commits/tags are recorded (roadmap 4.1.g).
@@ -2568,6 +2612,7 @@ def add_dependency(
     name: Optional[str] = None,
     config_path: Optional[str] = None,
     run_build: bool = True,
+    trusted: bool = False,
     _resolve_transitive: bool = True,
     _record_in_manifest: bool = True,
 ) -> str:
@@ -2663,7 +2708,7 @@ def add_dependency(
 
     # 4. Run build script if present
     if run_build:
-        _run_dependency_build(target_dir, dep_name)
+        _run_dependency_build(target_dir, dep_name, trusted=trusted)
 
     # 5. Update configuration file (skipped for transitive installs: those
     #    belong to their parent's manifest, not to the project's).
@@ -4224,6 +4269,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
     add_p.add_argument("--name", "-n", default=None, help="Custom binding name override")
     add_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
     add_p.add_argument("--no-build", action="store_true", help="Skip executing dependency build script")
+    add_p.add_argument("--trust", action="store_true",
+                       help="Trust and run the dependency build scripts (build.py/build.sh/Makefile)")
 
     # remove
     remove_p = subparsers.add_parser("remove", help="Remove an installed dependency (lib/<name> + manifest)")
@@ -4405,6 +4452,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
     update_p = subparsers.add_parser("update", help="Update dependencies: git pull + re-run build scripts")
     update_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
     update_p.add_argument("--verbose", action="store_true", help="Print the git commands being executed")
+    update_p.add_argument("--trust", action="store_true",
+                          help="Trust and re-run dependency build scripts")
 
     # bind
     bind_p = subparsers.add_parser("bind", help="Generate a .d.pengu binding from a C header")
@@ -4547,7 +4596,8 @@ def main():
                 branch=args.branch,
                 name=args.name,
                 config_path=args.config,
-                run_build=not args.no_build
+                run_build=not args.no_build,
+                trusted=getattr(args, "trust", False),
             )
         except (DependencyConflictError, RuntimeError, FileNotFoundError) as e:
             print(f"\033[1;31m     Error\033[0m {e}", file=sys.stderr)
@@ -4715,7 +4765,8 @@ def main():
         )
         sys.exit(1 if (args.check and changed > 0) else 0)
     elif args.command == "update":
-        update_project(config_path=args.config, verbose=getattr(args, "verbose", False))
+        update_project(config_path=args.config, verbose=getattr(args, "verbose", False),
+                       trusted=getattr(args, "trust", False))
     elif args.command == "bind":
         from pengu_bind import HeaderParseError, generate_bind_file
         try:

@@ -1095,6 +1095,38 @@ GNU_EXTENSION_BLANKING_FLAGS: List[str] = [
 ]
 
 
+# Headers above this size are almost certainly not a C declaration file and
+# would exhaust memory inside pycparser.  Override with PENGU_BIND_MAX_BYTES.
+DEFAULT_BIND_MAX_BYTES = 16 * 1024 * 1024
+
+
+def _bind_max_bytes() -> int:
+    raw = os.environ.get("PENGU_BIND_MAX_BYTES", "").strip()
+    if not raw:
+        return DEFAULT_BIND_MAX_BYTES
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return DEFAULT_BIND_MAX_BYTES
+
+
+def _check_header_size(path: str) -> None:
+    """Rejects oversized headers with an actionable error (roadmap 5.3)."""
+    limit = _bind_max_bytes()
+    if limit <= 0:
+        return
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return
+    if size > limit:
+        raise HeaderParseError(
+            f"header is too large to bind: {size} bytes > {limit} bytes limit "
+            f"({os.path.basename(path)}).\n"
+            f"  Raise the limit with PENGU_BIND_MAX_BYTES=<bytes> if this is intentional."
+        )
+
+
 def preprocess_and_parse(
     header_path: str,
     include_paths: Optional[List[str]] = None,
@@ -1115,6 +1147,7 @@ def preprocess_and_parse(
     header_abs = os.path.abspath(header_path)
     if not os.path.isfile(header_abs):
         raise FileNotFoundError(f"Header not found: {header_path}")
+    _check_header_size(header_abs)
     with open(header_abs, "r", encoding="utf-8", errors="replace") as f:
         original = f.read()
 

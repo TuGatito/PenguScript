@@ -3389,13 +3389,17 @@ error[E0006]: cannot assign to immutable variable 'count'
 | `E0049` | `SemanticError` (`code="E0049"`) | Operation used on a generic type parameter (or struct-like type) that does not carry the required concept bound: arithmetic without `Num`, `%`/bitwise without `Integrum`, `==` without `Par`, ordering without `Ordo`, `donum T` without a defaultable bound, `==`/`<` on a rune or algebraic omen without `derive Par`/`Ordo`. | Add the reported `where T: Concept` clause or `derive Concept` to the declaration. |
 | `E0050` | `InfiniteTypeSizeError` | A rune (or algebraic omen) contains itself **by value**, directly or through another by-value type, so its C size cannot be computed. | Break the cycle with pointer indirection: `ref to T`, `maybe ref to T`, `list of T`, `map of K to V`. |
 
-### 22.3 Compiler Warning Catalog (`W0001`–`W0004`)
+### 22.3 Compiler Warning Catalog (`W0001`–`W0007`)
 
 | Code | Warning Name | Trigger Condition | Recommended Practice |
 |---|---|---|---|
 | `W0001` | `UnsafeTransmuteWarning` | `transmute` between types of differing byte sizes or non-pointer types. | Use safe `to <Type>` casting where possible, or verify memory layout sizes match. |
 | `W0002` | `UnsafeEchoAccessWarning` | Accessing fields of an untagged union (`echo`). | Untagged union reads are inherently unsafe; prefer algebraic `omen` variants with payloads. |
+| `W0003` | *(reserved)* | Not currently emitted; the number is reserved so existing codes stay stable. | — |
 | `W0004` | `UnreachableCodeWarning` | Unreachable statements detected after early `return`, `panic`, or in `if`/`when` branch. | Remove dead code following unconditional returns or compile-time false branches. |
+| `W0005` | `ShadowedGlobalWarning` | A local `var`/`let` shadows a module-level weave. | Rename the local, or qualify the call so the intent is explicit. |
+| `W0006` | `DeprecatedSymbolWarning` | A symbol marked `@deprecated("reason")` is used (call, type reference, field access, or signature). | Migrate to the replacement named in the reason. CI can turn this into an error with `--deny-deprecated`. |
+| `W0007` | `UnsafeBlockWarning` | An `unsafe:` block disables bounds/overflow checks for its statements. | Keep `unsafe:` blocks as small as possible and document why they are sound. |
 
 ### 22.4 Illustrative Diagnostic Scenarios
 

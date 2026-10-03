@@ -4,6 +4,50 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### 🐛 Fixed — FASE 5 §5.0: auditoría pre-vuelo (bugs confirmados)
+
+Verificado contra el código antes de actuar; **4 hallazgos de la auditoría
+resultaron falsos** y se documentan como refutaciones en los tests.
+
+- **BUG-5.7** `_dump_toml` convertía `None` en `""` (corrupción silenciosa del
+  manifiesto) → ahora lanza `TypeError`.
+- **BUG-5.8** `_lock_target` no canonizaba triples: `x86_64-w64-mingw32` y
+  `x86_64-pc-windows-gnu` generaban locks distintos → mismo target, misma
+  entrada (`x86_64-windows-gnu`). Evita falsos positivos de `--frozen` en CI.
+- **BUG-5.9** El bundle emitido no validaba el ABI: se añade
+  `_Static_assert(PENGU_ABI_VERSION == 1, ...)` (guardado para C99 estricto).
+  **Encontró inmediatamente un `pengu_runtime.h` obsoleto** en `build/include/`.
+- **BUG-5.10** `or:` sobre un valor `any` reventaba en codegen con un mensaje
+  interno → ahora es un `E0005` accionable en el checker.
+- **BUG-5.14** `pengu bind` no limitaba el tamaño del header (un `.h` gigante
+  agotaba la RAM de pycparser) → límite de 16 MB, configurable con
+  `PENGU_BIND_MAX_BYTES`.
+- **BUG-5.15** `pengu add`/`pengu update` ejecutaban `build.py`/`build.sh`/
+  `Makefile` de terceros sin más: ahora exigen confianza explícita (`--trust`,
+  `PENGU_TRUST_ALL=1` o confirmación interactiva); en shells no interactivos se
+  omiten con aviso.
+- **BUG-5.17** `error` fuera de un bloque `or:` compartía el código `E0015` con
+  `UnknownArrayDimensionError` → código propio **`E0058`** (los `E0015`
+  restantes son todos la misma condición: dimensión de array desconocida).
+- **BUG-5.3** `W0005` (shadowing de weave global) y `W0006` (`@deprecated`) no
+  aparecían en el catálogo → documentados en `LANGUAGE.md` §22.3 y `README.md`,
+  junto con `W0007` (bloques `unsafe:`) y la nota de que `W0003` está reservado.
+
+#### ❌ Refutaciones (la auditoría se equivocaba; se añaden tests que lo fijan)
+
+- **BUG-5.1** *"`_check_deprecated_symbol` es código muerto"* → **falso**: la
+  copia del checker no se usa, pero `pengu_infer.py` la llama en 17+ sitios y
+  `W0006` **sí se emite** (verificado con weave y rune).
+- **BUG-5.2** *"`@deprecated` no se propaga a `rune`"* → **falso**: el atributo
+  llega al chequeo vía `RuneType.attributes`.
+- **BUG-5.4** *"`pengu_string_format_ex` lee fuera de límites"* → **falso**: la
+  cadena `p[1]=='l' && p[2]=='l'` cortocircuita, así que `p[3]` nunca se lee más
+  allá del terminador NUL.
+- **BUG-5.17 (E0047)** *"`E0047` se comparte con `DuplicateConceptBindingError`"*
+  → **falso**: ambos sitios lanzan `AutoOwnedBanishError`.
+
+- Tests: `tests/test_phase5_bugfixes.py` (17 casos, incluidos los de refutación).
+
 ### ⚠️ Added (scoped) — 4.4 API `Result` aditiva en `std.archivum`
 
 > **Alcance.** La migración completa de la stdlib a `Result` es un cambio de

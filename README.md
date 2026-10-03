@@ -79,7 +79,7 @@
 - **Language Server (LSP)** — diagnostics with `help:`/`note:`/caret spans, documentation from `#` and `##` doc comments, type & memory-size hovers, module-scoped autocompletion, go-to-definition, formatting, and code actions ([§20.10](LANGUAGE.md#2010-language-server-protocol-pengu-lsp)).
 - **Unified project manager** — the `pengu` CLI creates (`init`), builds (`build`), runs (`run`), tests (`test`), checks (`check`), formats (`fmt`), cleans (`clean`), and documents (`doc`) projects ([§20](LANGUAGE.md#20-tooling--project-layout)).
 - **Compile-time features** — `when` conditionals with `else when` / `else`, `defined(...)`, `-D name=value` defines, function `static var` state, and `when main:` guards for dual module/script files ([§16](LANGUAGE.md#16-conditional-compilation-when)).
-- **Robust diagnostics** — comprehensive Rust-style error catalog with codes `E0000`–`E0048` and warnings `W0001`–`W0004` ([§22](LANGUAGE.md#22-appendix-compiler-diagnostic-catalog)).
+- **Robust diagnostics** — comprehensive Rust-style error catalog with codes `E0000`–`E0058` and warnings `W0001`–`W0007` ([§22](LANGUAGE.md#22-appendix-compiler-diagnostic-catalog)).
 
 ---
 
@@ -587,7 +587,7 @@ PenguScript is released under the **[MIT License](LICENSE)** — © 2026 TuGatit
 - **Servidor de lenguaje (LSP)** — diagnósticos con `help:`/`note:`/intervalos con cursor, documentación a partir de comentarios `#` y `##`, información emergente de tipos y tamaño en memoria, autocompletado con ámbito de módulo, ir a la definición, formateo y acciones de código ([§20.10](LANGUAGE.md#2010-language-server-protocol-pengu-lsp)).
 - **Gestor de proyectos unificado** — la CLI `pengu` crea (`init`), compila (`build`), ejecuta (`run`), prueba (`test`), verifica (`check`), formatea (`fmt`), limpia (`clean`) y documenta (`doc`) proyectos ([§20](LANGUAGE.md#20-tooling--project-layout)).
 - **Funciones en tiempo de compilación** — condicionales `when` con `else when` / `else`, `defined(...)`, definiciones `-D name=value`, estado `static var` de función y guardas `when main:` para archivos que sirven como módulo y como script ([§16](LANGUAGE.md#16-conditional-compilation-when)).
-- **Diagnósticos robustos** — catálogo completo de errores al estilo de Rust con códigos `E0000`–`E0048` y advertencias `W0001`–`W0004` ([§22](LANGUAGE.md#22-appendix-compiler-diagnostic-catalog)).
+- **Diagnósticos robustos** — catálogo completo de errores al estilo de Rust con códigos `E0000`–`E0058` y advertencias `W0001`–`W0007` ([§22](LANGUAGE.md#22-appendix-compiler-diagnostic-catalog)).
 
 ---
 

@@ -1016,7 +1016,7 @@ class TypeInferrer:
                     SemanticError,
                     "'error' is only available inside 'or:' error-handling blocks",
                     node,
-                    code="E0015",
+                    code="E0058",
                     help="Use 'error' only within an 'or:' block attached to a failing expression.",
                     note="'error' accesses the Result/Maybe error value in an 'or:' block."
                 )

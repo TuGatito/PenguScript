@@ -7126,7 +7126,20 @@ class PenguChecker:
             except SemanticError as e:
                 self._record_error(e)
                 left_t = AnyType()
-            if not isinstance(left_t, (MaybeType, ResultType, AnyType)):
+            if isinstance(left_t, AnyType):
+                # AnyType used to slip through and fail later, in codegen, with a
+                # confusing "reached codegen with 'any' operand type".  Reject it
+                # here with an actionable message instead.
+                self._record_error(self._make_error(
+                    SemanticError,
+                    "'or:' cannot be applied to a value of unknown type 'any'",
+                    node,
+                    code="E0005",
+                    help="Annotate the operand first (e.g. 'var m as maybe int is ...') "
+                         "so the failure path has a known type.",
+                    note="'or:' needs a concrete 'maybe T' / 'result of T to E' operand type.",
+                ))
+            elif not isinstance(left_t, (MaybeType, ResultType)):
                 self._record_error(self._make_error(
                     TypeMismatchError,
                     f"'or:' requires a 'maybe T' or 'result of T to E' operand, got '{left_t}'",

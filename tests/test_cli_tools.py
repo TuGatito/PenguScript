@@ -664,10 +664,16 @@ url = "."
                    'import pathlib\n'
                    'pathlib.Path("marker.txt").write_text("built", '
                    'encoding="utf-8")\n')
+        # Build scripts are third-party code: they only run when trusted
+        # (roadmap 5.3).  Without trust the dependency is still updated.
         updated = update_project(config_path=proj_dir, verbose=True)
         assert updated == 1
         marker = os.path.join(proj_dir, "lib", "dep_local", "marker.txt")
-        assert os.path.isfile(marker), "build.py should have run"
+        assert not os.path.isfile(marker), "untrusted build.py must not run"
+
+        updated = update_project(config_path=proj_dir, verbose=True, trusted=True)
+        assert updated == 1
+        assert os.path.isfile(marker), "build.py should have run when trusted"
         assert open(marker, encoding="utf-8").read() == "built"
 
     def test_update_no_dependencies(self, proj_dir):
