@@ -126,6 +126,10 @@ $ pengu lsp                      # launch the language server (pygls)
 
 Los identificadores cumplen `[A-Za-z_][A-Za-z0-9_]*`. Las convenciones de estilo siguen `snake_case` para valores, variables y weaves, y `PascalCase` para los tipos de usuario (`rune`, `echo`, `omen`, `concept`).
 
+**Los identificadores son solo ASCII.** No hay soporte de identificadores Unicode: `日本語`, `café` u `Ω` como nombre es un error de sintaxis (`E0000`), en cualquier posición de declaración. La restricción es léxica, así que se aplica igual a nombres de `const`, de `weave`, campos, parámetros y nombres de tipo.
+
+Esto es deliberadamente más estrecho que el resto del toolchain, que sí es limpio en Unicode: los fuentes pueden llevar BOM UTF-8, se aceptan finales de línea CRLF y **los literales de string son Unicode completo** (`"日本語 café Ω"` es un valor válido, y `"\u{1F427}"` es un escape válido). Si necesitas *texto* no ASCII, ponlo en un string; si lo necesitas en un identificador, translitera (`const 日本語 as int` → `const nihongo as int`).
+
 - **Privacidad de módulos y runes (prefijo `_`):** Cualquier símbolo de nivel superior (función, tipo, constante) que comience con `_` es estrictamente privado de su módulo. Cualquier campo de rune que comience con `_` (p. ej. `_internal_ptr`) es estrictamente privado de su definición de rune. Acceder a un símbolo privado desde fuera de su módulo o rune produce `E0043: PrivateSymbolAccessError`.
 - **Internals del compilador (`_pengu_*`):** Todos los símbolos, temporales y helpers de runtime generados por el compilador usan el prefijo `_pengu_` o `pengu_`. Los usuarios deberían evitar declarar identificadores con este prefijo para prevenir colisiones de símbolos.
 - **Binding de descarte (`_`):** Un guion bajo aislado `_` actúa como binding de descarte comodín (`for _, v in col`). Descarta el valor sin vincular un identificador en la tabla de símbolos.
@@ -763,6 +767,37 @@ Un `...` final en una lista de parámetros de `declare` representa argumentos va
 - **Argumentos variádicos:** Los argumentos extra se pasan **tal cual** a C. No se produce empaquetado en `PenguSlice` ni boxing de runtime; se aplican directamente las promociones de argumentos por defecto de C.
 - **Distinción respecto de `many T`:** `many T` es el mecanismo variádico seguro de PenguScript, respaldado por slices, para funciones `weave`. `...` está reservado exclusivamente para firmas `declare` de C externas.
 - **Modificadores:** `declare` también puede combinarse con los modificadores `inline` o `ritual`.
+
+
+##### `many T` — variádicos respaldados por slice en `weave`
+
+`with xs as many T` hace variádico un `weave`. En la llamada se listan los argumentos
+con normalidad; el compilador los empaqueta en un array fijo temporal y lo pasa como
+`PenguSlice`, así que dentro del cuerpo `xs` es una secuencia indexable normal
+(`xs at i`, `xs length`):
+
+```pengu
+weave count_args with xs as many int into int:
+  return (xs length to int)
+
+weave main into int:
+  var n as int is calling count_args with 7, 8, 9   # n == 3
+  return 0
+```
+
+Verificado de extremo a extremo (compila, enlaza y ejecuta). Hay dos restricciones que
+conviene conocer, porque cada una se aplica en una fase distinta:
+
+| Forma | ¿Aceptada? | Diagnóstico |
+|---|---|---|
+| `many T` en una firma `weave` | ✅ | — |
+| `many T` en una firma `declare` | ❌ | `E0005 'many' parameters are not allowed in 'declare' statements` |
+| `...` en una firma `declare` | ✅ | varargs crudos de C |
+| `...` en una firma `weave` | ❌ | error de sintaxis |
+
+**La expansión en el sitio de llamada (`f(...xs)`) no está implementada.** Listar los
+argumentos es la única forma; no hay manera de expandir un contenedor de runtime en N
+argumentos. Está ⏸️ diferido (véase `ROADMAP_2.0.md`).
 
 ### 8.3 Punteros a función y callbacks
 

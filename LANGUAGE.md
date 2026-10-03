@@ -126,6 +126,18 @@ $ pengu lsp                      # launch the language server (pygls)
 
 Identifiers match `[A-Za-z_][A-Za-z0-9_]*`. Style conventions follow `snake_case` for values, variables, and weaves, and `PascalCase` for user types (`rune`, `echo`, `omen`, `concept`).
 
+**Identifiers are ASCII-only.** There is no Unicode identifier support: `日本語`,
+`café` or `Ω` as a name is a syntax error (`E0000`), in every declaration position.
+The restriction is lexical, so it applies to `const` names, `weave` names, fields,
+parameters and type names alike.
+
+This is deliberately narrower than the rest of the toolchain, which is
+Unicode-clean elsewhere: source files may carry a UTF-8 BOM, CRLF line endings are
+accepted, and **string literals are full Unicode** (`"日本語 café Ω"` is a valid
+value, and `"\u{1F427}"` is a valid escape). If you need non-ASCII *text*, put it
+in a string; if you need it in an identifier, transliterate
+(`const 日本語 as int` → `const nihongo as int`).
+
 - **Module & Rune Privacy (`_` prefix):** Any top-level symbol (function, type, constant) starting with `_` is strictly private to its module. Any rune field starting with `_` (e.g. `_internal_ptr`) is strictly private to its rune definition. Accessing a private symbol from outside its module or rune raises `E0043: PrivateSymbolAccessError`.
 - **Compiler Internals (`_pengu_*`):** All compiler-generated symbols, temporaries, and runtime helpers use the `_pengu_` or `pengu_` prefix. Users should avoid declaring identifiers with this prefix to prevent symbol collisions.
 - **Discard Binding (`_`):** A standalone underscore `_` acts as a wildcard discard binding (`for _, v in col`). It discards the value without binding an identifier in the symbol table.
@@ -813,6 +825,36 @@ A trailing `...` in a `declare` parameter list represents raw C variadic argumen
 - **Variadic Arguments:** Extra arguments are passed through **verbatim** to C. No `PenguSlice` packing or runtime boxing occurs; C default argument promotions apply directly.
 - **Distinction from `many T`:** `many T` is PenguScript's safe, slice-backed variadic mechanism for `weave` functions. `...` is reserved exclusively for external C `declare` signatures.
 - **Modifiers:** `declare` can also be combined with `inline` or `ritual` modifiers.
+
+##### `many T` — slice-backed variadics on `weave`
+
+`with xs as many T` makes a `weave` variadic. At the call site you list the
+arguments normally; the compiler packs them into a temporary fixed array and
+passes it as a `PenguSlice`, so inside the body `xs` is an ordinary indexable
+sequence (`xs at i`, `xs length`):
+
+```pengu
+weave count_args with xs as many int into int:
+  return (xs length to int)
+
+weave main into int:
+  var n as int is calling count_args with 7, 8, 9   # n == 3
+  return 0
+```
+
+Verified end to end (it compiles, links and runs). Two restrictions are worth
+knowing, because each is enforced at a different stage:
+
+| Form | Accepted? | Diagnostic |
+|---|---|---|
+| `many T` in a `weave` signature | ✅ | — |
+| `many T` in a `declare` signature | ❌ | `E0005 'many' parameters are not allowed in 'declare' statements` |
+| `...` in a `declare` signature | ✅ | raw C varargs |
+| `...` in a `weave` signature | ❌ | syntax error |
+
+**Call-site spread (`f(...xs)`) is not implemented.** Listing the arguments is the
+only form; there is no way to expand a runtime container into N arguments. Spread
+is ⏸️ deferred (see `ROADMAP_2.0.md`).
 
 ### 8.3 Function pointers & callbacks
 
