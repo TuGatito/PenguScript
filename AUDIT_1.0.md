@@ -3358,8 +3358,33 @@ Verificación explícita de los pares sospechosos por el encargo:
 | `pengu_parser` ↔ `pengu_lsp` | ✅ **No** | El LSP importa el parser; el parser no conoce el LSP |
 | `pengu_types` ↔ cualquier otro | ✅ **No** | `pengu_types` no importa módulos hermanos del compilador |
 
-**Conclusión: 0 ciclos de importación.** El diseño de dependencias es correcto y no requiere
-`CLEANUP_PLAN` §5 más allá de confirmarlo.
+**Conclusión: 0 ciclos de importación a nivel de módulo.** El diseño de dependencias es correcto y no
+requiere `CLEANUP_PLAN` §5 más allá de confirmarlo.
+
+> **Precisión añadida en la Fase 1 (item 1.11).** La afirmación "0 ciclos" es correcta para imports
+> **a nivel de módulo** —verificado con `ast` sobre los **40 módulos** del repositorio— pero la
+> formulación original era imprecisa: existe **un par de módulos que se importan mutuamente**, y lo
+> hacen de forma **perezosa, dentro de funciones**:
+>
+> | Par | Dirección | Ubicación | Naturaleza |
+> |-----|-----------|-----------|------------|
+> | `pengu_doc` → `pengu_project` | `from pengu_project import ProjectConfig` en `pengu_doc.py:315-317` | Dentro de `doc_project()`, en un `try`/`except` | **Perezoso** |
+> | `pengu_project` → `pengu_doc` | `from pengu_doc import doc_project` en `pengu_project.py:5419` | Dentro del despacho del subcomando `doc` (11 `if` anidados) | **Perezoso** |
+>
+> La cadena de padres del AST confirma que ninguno de los dos es hijo directo del módulo
+> (`ImportFrom < Try < FunctionDef < Module` y `ImportFrom < If ×23 < FunctionDef < Module`). **Ese es
+> exactamente el patrón que mantiene el grafo acíclico en tiempo de importación**: si cualquiera de
+> los dos se subiera a nivel de módulo, `import pengu_doc` fallaría con un ciclo real. Se fija con
+> `tests/test_audit_regressions.py::test_the_two_mutually_referencing_modules_stay_lazy`, que
+> además comprueba que el import perezoso sigue existiendo (si desapareciera, la feature estaría
+> muerta).
+>
+> Registro de método: la comprobación de §19.5 se hizo par por par sobre los 5 pares sospechosos y
+> **no cubrió este par**. El barrido exhaustivo posterior pasó por tres implementaciones propias
+> defectuosas (una no visitaba módulos sin aristas salientes, otra no veía imports anidados en un
+> `try`, la tercera sobre-recolectaba al recorrer el módulo entero) antes de acertar. Es el mismo
+> patrón de error que `CLEANUP_PLAN.md` §7.5 documenta: **una comprobación por nombre/par no
+> sustituye a un barrido estructural**.
 
 ### §19.6 Hallazgo DT4 — 🟠 Código muerto confirmado
 
