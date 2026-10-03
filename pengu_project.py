@@ -77,6 +77,15 @@ def __getattr__(name: str):
 
 
 from pengu_version import __version__ as PENGU_VERSION
+from pengu_semver import (
+    DependencyConflictError,
+    Requirement,
+    ResolutionConflict,
+    Version,
+    parse_constraint,
+    satisfies,
+    select_version,
+)
 from pengu_paths import (
     find_runtime_header,
     runtime_include_dirs,
@@ -2368,7 +2377,9 @@ def add_dependency(
     branch: Optional[str] = None,
     name: Optional[str] = None,
     config_path: Optional[str] = None,
-    run_build: bool = True
+    run_build: bool = True,
+    _resolve_transitive: bool = True,
+    _record_in_manifest: bool = True,
 ) -> str:
     """Adds an external dependency / binding to the project in lib/<name>/.
 
@@ -2466,10 +2477,24 @@ def add_dependency(
     if run_build:
         _run_dependency_build(target_dir, dep_name)
 
-    # 5. Update configuration file
-    _update_config_dependency(config.base_dir, dep_name, dep_source, branch)
+    # 5. Update configuration file (skipped for transitive installs: those
+    #    belong to their parent's manifest, not to the project's).
+    if _record_in_manifest:
+        _update_config_dependency(config.base_dir, dep_name, dep_source, branch)
 
     print(f"\033[1;32m       Added\033[0m dependency '{dep_name}' to {target_dir}")
+
+    # 6. Pull the dependency's own dependencies (roadmap 4.2).  On a version
+    #    conflict the whole add is rolled back, so the project never keeps a
+    #    dependency whose graph cannot be resolved.
+    if _resolve_transitive:
+        try:
+            resolve_transitive_dependencies(config, install_missing=True, verbose=False)
+        except DependencyConflictError:
+            if _record_in_manifest:
+                _remove_config_dependency(config.base_dir, dep_name)
+            shutil.rmtree(target_dir, ignore_errors=True)
+            raise
     return target_dir
 
 
@@ -2694,6 +2719,274 @@ def _set_config_dependency(base_dir: str, dep_name: str, entry: Dict[str, Any]) 
     data["dependencies"][dep_name] = entry
     with open(manifest, "w", encoding="utf-8") as f:
         yaml.dump(data, f, sort_keys=False)
+
+
+def _manifest_dependencies(base_dir: str) -> Dict[str, Any]:
+    """Reads the ``dependencies`` table from a project manifest."""
+    manifest = _find_manifest(base_dir)
+    if not os.path.isfile(manifest):
+        return {}
+    ext = os.path.splitext(manifest)[1].lower()
+    try:
+        if ext == ".json":
+            with open(manifest, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        elif ext == ".toml":
+            if tomllib is None:
+                return {}
+            with open(manifest, "rb") as f:
+                data = tomllib.load(f)
+        else:
+            yaml = _load_yaml_module()
+            if yaml is None:
+                return {}
+            with open(manifest, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+    deps = (data or {}).get("dependencies")
+    return deps if isinstance(deps, dict) else {}
+
+
+def _git_tags(url: str) -> List[str]:
+    """Remote tag names of a git dependency (empty when not a git remote)."""
+    if not url:
+        return []
+    try:
+        res = subprocess.run(["git", "ls-remote", "--tags", "--refs", url],
+                             capture_output=True, text=True, timeout=60)
+    except Exception:
+        return []
+    if res.returncode != 0:
+        return []
+    tags = []
+    for line in res.stdout.splitlines():
+        parts = line.split("refs/tags/")
+        if len(parts) == 2:
+            tags.append(parts[1].strip())
+    return tags
+
+
+def _installed_version(path: str) -> Optional[Version]:
+    """Version of an installed dependency: nearest git tag, else manifest value."""
+    if os.path.isdir(os.path.join(path, ".git")):
+        res = subprocess.run(["git", "-C", path, "describe", "--tags", "--abbrev=0"],
+                             capture_output=True, text=True)
+        if res.returncode == 0:
+            v = Version.try_parse(res.stdout.strip())
+            if v is not None:
+                return v
+    entry = _read_config_dependency(os.path.dirname(os.path.dirname(path)),
+                                    os.path.basename(path)) or {}
+    declared = entry.get("version")
+    if isinstance(declared, str):
+        try:
+            constraints = parse_constraint(declared)
+        except Exception:
+            return None
+        # A constraint is not a concrete version; only an exact/pinned one is.
+        for c in constraints:
+            if c.op == "=" and c.version is not None:
+                return c.version
+    return None
+
+
+def _checkout_matching_tag(path: str, constraint: str, verbose: bool = False) -> Optional[Version]:
+    """Checks out the highest installed tag satisfying ``constraint``."""
+    res = subprocess.run(["git", "-C", path, "tag", "--list"], capture_output=True, text=True)
+    if res.returncode != 0:
+        return None
+    best = select_version(res.stdout.split(), constraint)
+    if best is None:
+        subprocess.run(["git", "-C", path, "fetch", "--tags", "--prune"],
+                       capture_output=True, text=True)
+        res = subprocess.run(["git", "-C", path, "tag", "--list"], capture_output=True, text=True)
+        best = select_version(res.stdout.split(), constraint)
+    if best is None:
+        return None
+    tag, ver = best
+    co = subprocess.run(["git", "-C", path, "checkout", "--quiet", tag],
+                        capture_output=True, text=True)
+    if co.returncode == 0:
+        if verbose:
+            print(f"[pengu] {os.path.basename(path)} -> {tag}")
+        return ver
+    return None
+
+
+@dataclass
+class DependencyNode:
+    """One node of the resolved dependency graph."""
+    name: str
+    source: str
+    constraint: str
+    required_by: List[str] = field(default_factory=list)
+    resolved_version: Optional[str] = None
+    commit: Optional[str] = None
+    path: str = ""
+    children: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "source": self.source,
+            "constraint": self.constraint,
+            "required_by": sorted(self.required_by),
+            "version": self.resolved_version,
+            "commit": self.commit,
+            "children": sorted(set(self.children)),
+        }
+
+
+def resolve_transitive_dependencies(
+    config: "ProjectConfig",
+    install_missing: bool = True,
+    max_depth: int = 5,
+    verbose: bool = False,
+) -> Dict[str, DependencyNode]:
+    """Walks the dependency graph, installing/honouring transitive dependencies.
+
+    Forward-only (no backtracking): for each dependency it selects the highest
+    installed/remote tag satisfying every collected constraint.  Cycles are
+    detected and reported, and incompatible requirements raise
+    :class:`DependencyConflictError` (roadmap 4.2, error E0062).
+
+    Returns:
+        ``name -> DependencyNode`` for every dependency in the graph.
+    """
+    lib_root = os.path.abspath(os.path.join(config.base_dir, config.lib_dir))
+    graph: Dict[str, DependencyNode] = {}
+    resolved: Dict[str, Optional[Version]] = {}
+    requirements: Dict[str, List[Requirement]] = {}
+
+    root_deps = _manifest_dependencies(config.base_dir)
+    queue: List[Tuple[str, Dict[str, Any], str, int]] = [
+        (name, entry, "<root>", 0)
+        for name, entry in root_deps.items()
+        if isinstance(entry, dict)
+    ]
+    visiting: List[str] = []
+
+    while queue:
+        name, entry, parent, depth = queue.pop(0)
+        source = str(entry.get("url") or entry.get("source") or "")
+        constraint = str(entry.get("version") or "*")
+        branch = entry.get("branch")
+
+        requirements.setdefault(name, []).append(Requirement(
+            name=name, constraint=constraint, source=source,
+            branch=str(branch) if branch else None, required_by=parent,
+        ))
+
+        target = os.path.join(lib_root, name)
+        node = graph.get(name)
+        if node is None:
+            node = DependencyNode(name=name, source=source, constraint=constraint, path=target)
+            graph[name] = node
+        else:
+            if source and not node.source:
+                node.source = source
+        if parent not in node.required_by:
+            node.required_by.append(parent)
+
+        if name in resolved:
+            # Already installed: verify the new constraint is compatible.
+            ver = resolved[name]
+            if ver is not None:
+                try:
+                    cons = parse_constraint(constraint)
+                except Exception:
+                    cons = []
+                if cons and not satisfies(ver, cons):
+                    raise DependencyConflictError(ResolutionConflict(
+                        name=name, requirements=requirements[name]))
+            if parent not in ("<root>",) and parent in graph:
+                graph[parent].children.append(name)
+            continue
+
+        if not os.path.isdir(target) and install_missing and source:
+            try:
+                add_dependency(source=source, branch=str(branch) if branch else None,
+                               name=name, config_path=config.base_dir, run_build=False,
+                               _resolve_transitive=False, _record_in_manifest=False)
+            except Exception as exc:  # noqa: BLE001 - surface as a clear warning
+                print(f"\033[1;33m     Warning\033[0m could not install '{name}': {exc}",
+                      file=sys.stderr)
+                resolved[name] = None
+                continue
+
+        ver: Optional[Version] = None
+        if os.path.isdir(target):
+            if constraint and constraint != "*" and os.path.isdir(os.path.join(target, ".git")):
+                ver = _checkout_matching_tag(target, constraint, verbose=verbose)
+            if ver is None:
+                ver = _installed_version(target)
+        resolved[name] = ver
+        node.resolved_version = str(ver) if ver is not None else None
+        if os.path.isdir(os.path.join(target, ".git")):
+            commit = subprocess.run(["git", "-C", target, "rev-parse", "--short", "HEAD"],
+                                    capture_output=True, text=True).stdout.strip()
+            node.commit = commit or None
+
+        if parent != "<root>" and parent in graph:
+            graph[parent].children.append(name)
+
+        if depth >= max_depth:
+            continue
+        for child_name, child_entry in _manifest_dependencies(target).items():
+            if not isinstance(child_entry, dict):
+                continue
+            if child_name in visiting or child_name in resolved:
+                continue
+            if child_name == name:
+                print(f"\033[1;33m     Warning\033[0m dependency cycle ignored: "
+                      f"{name} -> {child_name}", file=sys.stderr)
+                continue
+            queue.append((child_name, child_entry, name, depth + 1))
+
+    return graph
+
+
+def print_dependency_tree(config: "ProjectConfig", as_json: bool = False) -> int:
+    """Prints the resolved dependency graph (`pengu tree` / `metadata --json`)."""
+    graph = resolve_transitive_dependencies(config, install_missing=False, verbose=False)
+    if as_json:
+        print(json.dumps({
+            "project": config.name,
+            "version": config.version,
+            "dependencies": [n.to_dict() for n in sorted(graph.values(), key=lambda n: n.name)],
+        }, indent=2, ensure_ascii=False))
+        return 0
+
+    roots = [
+        name for name, node in graph.items()
+        if node.required_by == ["<root>"] or "<root>" in node.required_by
+    ]
+    if not roots:
+        print(f"\033[1;36m   {config.name}\033[0m — no dependencies")
+        return 0
+
+    print(f"\033[1;36m{config.name} v{config.version}\033[0m")
+
+    def render(name: str, prefix: str, is_last: bool, seen: set) -> None:
+        node = graph.get(name)
+        if node is None:
+            return
+        connector = "└── " if is_last else "├── "
+        version = node.resolved_version or node.constraint or "?"
+        print(f"{prefix}{connector}{name} {version}"
+              + (f" ({node.commit})" if node.commit else ""))
+        if name in seen:
+            print(f"{prefix}    (cycle)")
+            return
+        seen = seen | {name}
+        children = sorted(set(node.children))
+        for i, child in enumerate(children):
+            render(child, prefix + ("    " if is_last else "│   "), i == len(children) - 1, seen)
+
+    for i, root in enumerate(sorted(roots)):
+        render(root, "", i == len(roots) - 1, set())
+    return 0
 
 
 def init_project(
@@ -3710,6 +4003,14 @@ def create_cli_parser() -> argparse.ArgumentParser:
     upgrade_p.add_argument("--branch", "-b", default=None, help="Branch override recorded in the manifest")
     upgrade_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
 
+    # tree / metadata
+    tree_p = subparsers.add_parser("tree", help="Show the resolved dependency graph")
+    tree_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
+    tree_p.add_argument("--json", action="store_true", help="Emit the graph as JSON (alias of metadata)")
+
+    metadata_p = subparsers.add_parser("metadata", help="Machine-readable project metadata (JSON)")
+    metadata_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
+
     # build
     build_p = subparsers.add_parser("build", help="Compile the project according to configuration")
     build_p.add_argument("--profile", "-p", default="debug", help="Build profile (e.g. debug, release)")
@@ -3990,13 +4291,17 @@ def main():
             template=getattr(args, "template", None) or "exe",
         )
     elif args.command == "add":
-        add_dependency(
-            source=args.source,
-            branch=args.branch,
-            name=args.name,
-            config_path=args.config,
-            run_build=not args.no_build
-        )
+        try:
+            add_dependency(
+                source=args.source,
+                branch=args.branch,
+                name=args.name,
+                config_path=args.config,
+                run_build=not args.no_build
+            )
+        except (DependencyConflictError, RuntimeError, FileNotFoundError) as e:
+            print(f"\033[1;31m     Error\033[0m {e}", file=sys.stderr)
+            sys.exit(1)
     elif args.command == "remove":
         try:
             remove_dependency(
@@ -4016,6 +4321,15 @@ def main():
                 config_path=args.config,
             )
         except (FileNotFoundError, ValueError, RuntimeError) as e:
+            print(f"\033[1;31m     Error\033[0m {e}", file=sys.stderr)
+            sys.exit(1)
+    elif args.command in ("tree", "metadata"):
+        try:
+            sys.exit(print_dependency_tree(
+                ProjectConfig.load(args.config),
+                as_json=(args.command == "metadata") or getattr(args, "json", False),
+            ))
+        except DependencyConflictError as e:
             print(f"\033[1;31m     Error\033[0m {e}", file=sys.stderr)
             sys.exit(1)
     elif args.command == "build":

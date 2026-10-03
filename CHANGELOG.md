@@ -4,6 +4,33 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### 🔵 Added — 4.2 SemVer y dependencias transitivas (MVP) + 4.8 tree/metadata
+
+- **`pengu_semver.py`**: parser de versiones (`1.2.3`, `v1.2.3`, prerelease) y de
+  constraints (`^X.Y.Z`, `~X.Y.Z`, `>=X, <Y`, `=X`, `X.Y.Z`, `*`) con semántica
+  Cargo (caret se estrecha en `0.x`), más `select_version` que elige el tag más
+  alto que satisface el constraint. Los prereleases solo se eligen si el
+  constraint menciona uno.
+- **Constraints en el manifiesto**: `[dependencies.X] version = "^1.2.0"` se lee
+  y se aplica (checkout del tag que satisface el constraint).
+- **Resolución transitiva** (`resolve_transitive_dependencies`): al hacer
+  `pengu add`, se leen los manifiestos de las dependencias instaladas y se
+  instalan sus propias dependencias (hasta 5 niveles). Los ciclos se detectan y
+  se cortan; los requisitos incompatibles lanzan `DependencyConflictError`
+  (equivale a `E0062`) con las dos versiones pedidas y salen con código 1.
+- **Rollback**: si un `add` provoca un conflicto, se deshacen el directorio
+  instalado y la entrada del manifiesto (nunca queda un proyecto inconsistente).
+- **Las dependencias transitivas no se registran** en el manifiesto raíz: viven
+  en el de su padre (se corrigió un bug detectado en pruebas E2E).
+- Resolución **forward-only** (sin backtracking) por diseño, como recomienda la
+  auditoría; el backtracking completo queda para 4.2.j.
+- **4.8 `pengu tree`** imprime el grafo jerárquico con versión y commit;
+  **`pengu metadata`** (y `tree --json`) emite el grafo en JSON con `source`,
+  `constraint`, `required_by`, `version`, `commit` y `children`.
+- Tests: `tests/test_semver.py`, `tests/test_transitive_deps.py` (install
+  transitivo, grafo, conflicto con rollback, ciclos y tree/metadata con repos
+  git reales).
+
 ### 🔧 Added — 4.5 `pengu remove` y `pengu upgrade`
 
 - **`pengu remove <name>`**: elimina `lib/<name>/` y su entrada del manifiesto
