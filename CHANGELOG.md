@@ -37,6 +37,37 @@ All notable changes to PenguScript will be documented in this file.
   `PENGU_ASSETS_INCBIN_THRESHOLD` podía reutilizar el artefacto anterior. Añadido
   al fingerprint.
 
+### 📊 Added — 6.1 Benchmarks honestos y medidos
+
+- **`benches/`** con 4 programas PenguScript (`hello_world`, `fib_40`,
+  `string_ops`, `list_ops`) y sus equivalentes en **C `-O3`**, **Rust `-O`** y
+  **Zig `-OReleaseFast`** (los baselines se omiten si falta el toolchain, y se
+  informa como *skipped*, nunca como victoria).
+- **`benches/run_bench.py`** (+ wrapper `benches/run_bench.sh`): mide tiempo de
+  **build**, de **ejecución** (mejor de N tras un calentamiento) y **tamaño del
+  artefacto ya con `strip`**, y exporta CSV. Portable (funciona en Windows sin
+  bash).
+- **`BENCHMARKS.md`** con las cifras **reales** medidas en este entorno
+  (x86_64, gcc 16.2.1): binario de hello world **98.4 KiB** (no los 65 KB
+  aspiracionales del roadmap, ni los 200-500 KB que estimaba la auditoría);
+  `fib_40` 32 ms vs 6 ms de C.
+- **Hallazgo accionable y publicado:** en `fib_40` el **frame tracing** (la pila
+  de trazas que usa el reportero de crash de la Fase 5) cuesta **5.5×**
+  (60 ms → 11 ms con `-DPENGU_FRAME_TRACE=0`), lo que deja PenguScript en
+  **1.8× C** en vez de 5.5×. Se documenta el knob y **no** se cambia el valor por
+  defecto: perder la traza en un pánico de límites sería peor para un lenguaje
+  memory-safe. Queda anotado como optimización futura.
+- **Targets revisados y publicados** en `BENCHMARKS.md`, con los que **no** se
+  cumplen marcados explícitamente (`< 0.08 s` de cache-hit, `< 65 KB`, ±5% vs C).
+- **CI** (`.github/workflows/bench.yml`): nightly y bajo demanda, con CSV como
+  artefacto; **nunca** bloquea PRs (los runners compartidos son ruidosos).
+- Nota: `scripts/bench.sh` **ya existía** y mide los tiempos del *toolchain*
+  (cache-hit, frío con gcc/TCC, `bundle.c`, PCH); la auditoría pedía verificarlo.
+  No se duplica: `BENCHMARKS.md` remite a él.
+- Tests: `tests/test_benchmarks.py` (10 casos: programas presentes, bundle de
+  cada uno, ejecución real del harness de un caso con CSV, y que el workflow no
+  tenga `pull_request`).
+
 ### 🎁 Fixed — 6.2 Plantillas que cumplen su propio criterio
 
 - **BUG-6.4 + BUG-6.5 — `--template game`**: ya no imprime tres líneas; abre una

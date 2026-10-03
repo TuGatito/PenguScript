@@ -1,0 +1,10 @@
+# Allocation + string interpolation + slicing.
+weave main into int:
+  var acc as int is 0
+  var i as int is 0
+  while i < 50000:
+    var s as string is "item-{i}"
+    set acc is acc + (s length)
+    set i is i + 1
+  calling print with acc
+  return 0

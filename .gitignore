@@ -94,4 +94,4 @@ CToPenguTest/
 
 # PyInstaller release staging
 pyinstaller_work/
-scratch/
+scratch/benches/results/*.csv

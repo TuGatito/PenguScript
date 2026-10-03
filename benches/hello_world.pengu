@@ -1,0 +1,5 @@
+# Baseline: string literal + formatted output.
+weave main into int:
+  var msg as string is "Hello, world!"
+  calling print with msg
+  return 0
