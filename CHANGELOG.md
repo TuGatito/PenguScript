@@ -37,6 +37,25 @@ All notable changes to PenguScript will be documented in this file.
   `PENGU_ASSETS_INCBIN_THRESHOLD` podía reutilizar el artefacto anterior. Añadido
   al fingerprint.
 
+### 📚 Added — 6.3 Alcance y checklist de release
+
+- **El playground WASM sale del scope de 1.0** y pasa a
+  `ROADMAP_1.0.0.md` §"Fuera de scope para 1.0" con **justificación técnica**:
+  el compilador es Python puro (Pyodide ≈30 MB, arranque 5-10 s), el codegen
+  produce C (haría falta un toolchain C→WASM en el navegador, ~100 MB), el
+  runtime no está compilado a WASM, reimplementarlo son meses y su mantenimiento
+  es por release. Se documenta la alternativa realista para 1.1 (~2-3 días: un
+  servidor `POST /check` que **no ejecuta código**, sobre `std.precis` +
+  `libmicrohttpd`).
+- **`RELEASE_CHECKLIST.md`**: separa lo **automatizable** (las 5 gates de CI,
+  fmt/smoke, fuzzing 72 h, benchmarks, ASan/UBSan, `pengu verify`) de lo que es
+  tarea **manual del autor** (Discord, Discussions, tag firmado, anuncios), y
+  cierra con una lista explícita de **limitaciones conocidas** a declarar en el
+  release (playground, rendimiento vs C, tamaño de binario, cache-hit, migración
+  `Result` parcial, resolución sin backtracking, docs de stdlib).
+- `README.md` enlaza `BENCHMARKS.md`, `RELEASE_CHECKLIST.md` y `SECURITY.md`.
+- `ROADMAP_1.0.0.md`: estado de la Fase 6 reescrita, ítem por ítem.
+
 ### 📊 Added — 6.1 Benchmarks honestos y medidos
 
 - **`benches/`** con 4 programas PenguScript (`hello_world`, `fib_40`,

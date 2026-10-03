@@ -659,6 +659,40 @@ flowchart TD
 
 ### 🎁 FASE 6 — DX Cuantitativo, Adopción y Comunidad
 
+> **Estado: FASE 6 completada como "DX Verificable"** (ver `CHANGELOG.md`
+> §`[Unreleased] — FASE 6`). La fase se reescribió tras una auditoría de
+> viabilidad: los targets originales eran aspiracionales y el playground WASM es
+> un proyecto entero, no un ítem.
+>
+> - 6.0 ✅ **Bugs residuales de Fase 5 cerrados** (verificados contra el código;
+>   1 refutado). `--locked` ahora falla si falta el lock (E0061) —antes pasaba en
+>   silencio—, la caché de scripts incluye `--release-unsafe`,
+>   `--deny-deprecated` hace **un solo pase** y funciona en scripts,
+>   `pengu verify` compara la URL de origen, y el threshold de `.incbin`
+>   invalida el fingerprint. **Refutado:** el digest de `pengu_assets` ya
+>   incluía el threshold; el hueco real estaba en el fingerprint del builder.
+> - 6.1 ✅ **Benchmarks honestos y medidos**: `benches/` con baselines C/Rust/Zig,
+>   `run_bench.py` (build/run/tamaño con `strip`, CSV), `BENCHMARKS.md` con
+>   cifras reales y **targets revisados**, y CI nightly que no bloquea PRs.
+>   **Objetivos originales NO cumplidos y publicados como tales**: binario
+>   98.4 KiB vs `< 65 KB`; `fib_40` 5.5× C vs `±5%`; cache-hit (`< 0.08 s`)
+>   inalcanzable sin reescribir el arranque. **Hallazgo:** el frame tracing
+>   cuesta 5.5× en código con muchas llamadas (60 ms → 11 ms con
+>   `-DPENGU_FRAME_TRACE=0`), lo que deja PenguScript en 1.8× C. El valor por
+>   defecto se mantiene (la traza es lo que hace útil el pánico de límites de la
+>   Fase 5) y se documenta como optimización futura.
+> - 6.2 ✅ **Plantillas que cumplen su criterio**: `game` abre una **ventana
+>   raylib** real y el manifiesto enlaza `raylib`; `cli` parsea argumentos con
+>   `std.invoke` (+ `--help`); `lib` incluye tests de humo que pasan.
+>   ⚠️ La ventana no puede verificarse en este entorno (`libraylib.a` no está
+>   construido); el test hace el bundle y lo documenta.
+> - 6.3a 🚫 **Playground WASM: movido a "Fuera de scope para 1.0"** con
+>   justificación técnica (ver la sección correspondiente).
+> - 6.3b ✅/manual: la parte de comunidad (Discord, Discussions, difusión) no es
+>   tarea de código; queda como checklist del autor en `RELEASE_CHECKLIST.md`.
+> - Nota: `scripts/bench.sh` **ya existía** midiendo los tiempos del toolchain;
+>   la auditoría pedía verificarlo y no se duplica.
+
 #### 6.1 📊 Cuantificación de DX y Benchmarks Reales vs Zig / Rust / C
 - 📄 **Archivos:** `benches/`, `BENCHMARKS.md`
 - 💡 **Métricas objetivo auditadas en hardware estándar (8 cores, SSD):**
@@ -742,6 +776,24 @@ flowchart TD
 ---
 
 ## 🚫 Fuera de scope para 1.0 (Diferido formalmente a 1.1+)
+- **Playground Web en WASM (era 6.3a):** diferido a 1.1+. Razones técnicas:
+  1. El compilador es **Python puro**; la única ruta viable hoy es **Pyodide**
+     (~30 MB con Lark/pycparser/PyYAML, arranque en frío de 5–10 s), lo que da
+     una UX muy pobre frente a playgrounds modernos (<200 ms).
+  2. El **codegen produce C**, no WASM. *Ejecutar* programas en el navegador
+     exigiría además un toolchain C→WASM dentro del navegador (`clang-wasm` en
+     WASM, ~100 MB), que no está disponible.
+  3. El runtime (`pengu_runtime.h`) **no está compilado a WASM**; sin él no se
+     puede ejecutar código Pengu en el navegador.
+  4. Reimplementar el compilador en Rust/C para el navegador son **meses**, no
+     una tarea de fase.
+  5. Es un proyecto separado con coste de mantenimiento **por release**.
+
+  **Alternativa realista para 1.1 (~2-3 días, no meses):** un `playground/` con
+  servidor HTTP mínimo sobre `libmicrohttpd` + `std.precis`, endpoint
+  `POST /check` que ejecuta `pengu check --json` en sandbox y devuelve
+  diagnósticos, y un frontend estático. **No ejecuta código** (evita RCE), sólo
+  valida sintaxis y tipos.
 - **Async/Await nativo:** La concurrencia actual con hilos del sistema operativo (`std.filum`) y corrutinas C (`minicoro`) es suficiente para juegos, herramientas y CLI; un runtime asíncrono con event loop completo retrasaría la release de 1.0 indefinidamente.
 - **Closures con captura de variables locales:** Se mantiene la semántica estricta actual de punteros a función limpios sin estado de captura en el heap.
 - **Macros de AST en tiempo de compilación:** Conditional compilation (`when`), constantes globales e introspección de constantes cubren las necesidades inmediatas.

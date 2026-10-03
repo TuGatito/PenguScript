@@ -107,6 +107,10 @@ jobs:
         run: |
           cc -std=c11 -Wall -Wextra -I. -Ibuild/include -o build/abi_layout_check tests/abi/test_abi_layout.c && ./build/abi_layout_check
 
+      - name: DX gate (FASE 6)
+        run: |
+          python -m pytest tests/test_phase6_bugfixes.py tests/test_benchmarks.py tests/test_phase6_scope.py tests/test_init_templates.py -q -p no:cacheprovider --timeout=900 -x
+
       - name: Run test suite (fast fail on core reviews)
         run: |
           python -m pytest tests/test_p0_review_fixes.py tests/test_p1_review_fixes.py tests/test_p2_review_fixes.py -q -p no:cacheprovider --timeout=600 -x

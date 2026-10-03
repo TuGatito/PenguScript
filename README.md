@@ -41,6 +41,8 @@
 >   **struct literals in array literals**, **pointer indexing** (`p at i`), generic
 >   slice bridging (`ffi.slice_from_ptr shard T`), and **embedded project assets** (`arca`).
 >
+> Published measurements: [`BENCHMARKS.md`](BENCHMARKS.md). Operational release steps: [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md). Security policy: [`SECURITY.md`](SECURITY.md).
+>
 > **What is not there yet (do not plan a production project around these)**
 >
 > - **Pointer arithmetic** (`p + 1`): use indexing `p at i` or create a slice with `std.ffi.slice_from_ptr`.
@@ -255,7 +257,8 @@ TCC 0.9.28rc, best of 5):
 
 Nothing is written to the project's `build/` by default. Run `pengu doctor` to
 see the compiler/TCC/cache status, `pengu time hello.pengu` for a per-phase
-breakdown, and `scripts/bench.sh` to reproduce the table above. See
+breakdown, `python benches/run_bench.py` for the language/runtime benchmarks, and
+`scripts/bench.sh` to reproduce the table above. See
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for the full design, the
 flags/subcommands reference and the known limitations.
 
