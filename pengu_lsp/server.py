@@ -1603,8 +1603,8 @@ def _semantic_token_entry(tok, symbols) -> Optional[Tuple[int, int, int, int, in
             attrs = getattr(sym, "attributes", None) or {}
             if "deprecated" in attrs:
                 mods |= 1 << _TOKEN_MOD_INDEX["deprecated"]
-            fpath = str(getattr(sym, "file_path", "") or "")
-            if os.sep + "std" + os.sep in fpath:
+            fpath = str(getattr(sym, "file_path", "") or "").replace("\\", "/")
+            if fpath.startswith("std/") or "/std/" in fpath:
                 mods |= 1 << _TOKEN_MOD_INDEX["defaultLibrary"]
     if t_idx is None:
         return None
