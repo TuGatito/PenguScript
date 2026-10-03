@@ -2049,7 +2049,7 @@ def fmt_files(paths: List[str], check_only: bool = False, write: bool = True,
                 print(dline)
         elif verbose or check_only:
             print(f"\033[1;33m would format\033[0m {display}")
-        if write and not check_only:
+        if write and not check_only and not diff:
             with open(fp, "w", encoding="utf-8") as f:
                 f.write(formatted)
             if not diff:

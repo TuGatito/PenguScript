@@ -42,13 +42,16 @@ def test_fmt_stdin_check_only(tmp_path):
     assert res2.returncode == 1
 
 
-def test_fmt_diff_prints_unified_diff(tmp_path):
+def test_fmt_diff_prints_unified_diff_without_writing(tmp_path):
     p = tmp_path / "d.pengu"
-    p.write_text("weave f into int:\n   return 1\n", encoding="utf-8")
+    original = "weave f into int:\n   return 1\n"
+    p.write_text(original, encoding="utf-8")
     res = _run_fmt([str(p), "--diff"])
     assert res.returncode == 0, res.stderr
     assert "---" in res.stdout and "+++ " in res.stdout
     assert "@@" in res.stdout
+    # `--diff` is a dry run: the file must not be modified.
+    assert p.read_text(encoding="utf-8") == original
 
 
 def test_pengufmt_toml_is_honoured(tmp_path):
