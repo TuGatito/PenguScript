@@ -428,6 +428,35 @@ flowchart TD
 
 ### 🧰 FASE 3 — Tooling de Producción (LSP Semántico, Build, Bind, Fmt, Doc)
 
+> **Estado: FASE 3 completada** (ver `CHANGELOG.md` §`[Unreleased]`).
+> Verificado contra el código antes de actuar:
+> - 3.1 ✅ rename/documentHighlight/references ahora son semánticos (lexer +
+>   `SymbolTable`). El texto original afirmaba que `references` "ignora
+>   `.d.pengu`": era parcialmente inexacto (ya excluía `.d.pengu`), pero seguía
+>   siendo textual; ahora es por tokens.
+> - 3.2 ✅ semantic tokens + inlay hints implementados.
+> - 3.3 ✅ enums anónimos, floats/exprs/chars, docstrings Doxygen y
+>   `@packed`/`@align`. **Corrigendum:** "structs packed fallan" era inexacto
+>   (el blanking se arregló en 0.16); el gap real era que la semántica
+>   `__attribute__((packed))` se perdía, y eso es lo que se corrigió.
+> - 3.4 ✅ `.incbin` para assets grandes, `arca.string()` sin truncar en NUL,
+>   rutas largas. **Corrigendum:** el fix de `arca.string()` no es "usar el
+>   tamaño conocido" por `string_from_cstr`, sino construir un `PenguString`
+>   propietario con longitud exacta (`memcpy`).
+> - 3.5 ✅ `--target <triple>` Linux ⇄ Windows (bundle C sin toolchain cruzada;
+>   link cruzado requiere `PENGU_RUNTIME_CROSS`).
+> - 3.6 ✅ `pengu check/build --json`.
+> - 3.7 ✅ y 3.8 ✅ **ya estaban implementados** (signature help, document
+>   symbols, folding ranges); esta fase añadió su cobertura de tests.
+> - 3.9 ✅ code lens "Run test" por bloque `test`.
+> - 3.10 ✅ `fmt --diff`, `fmt --stdin`, `.pengufmt.toml` y `blank_lines_max`
+>   (`line_width` se parsea, el wrapping queda para 1.1).
+> - 3.11 ✅ `pengu doc`: tags Doxygen, badge de deprecación, índice por
+>   categorías y búsqueda HTML cliente.
+> - 3.12 ✅ `textDocument/onTypeFormatting` para `:` y salto de línea.
+> - ⏸ Sin verificar en toolchain real: `cl.exe` (MSVC) y TCC para el C emitido
+>   (Fase 2) y la compilación cruzada MinGW real (no instalada localmente).
+
 #### 3.1 🔴 Refactorización Semántica Total del LSP (Rename, Highlights, References)
 - 📄 **Archivos:** `pengu_lsp/server.py:822, 989-1049`, `pengu_lsp/code_actions.py:577-580`
 - 🐛 **Problema:** `rename_symbol` y `documentHighlight` operan mediante Regex planos sobre el texto, corrompiendo variables homónimas de otras funciones y comentarios. `references` ignora `.d.pengu`.

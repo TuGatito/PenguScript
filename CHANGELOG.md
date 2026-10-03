@@ -4,6 +4,15 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### ✅ Verified — 3.7 / 3.8 ya implementados
+
+- La auditoría asumía que `textDocument/signatureHelp`, `documentSymbol` y
+  `foldingRange` no existían; los tres **ya estaban implementados** en
+  `pengu_lsp/server.py`. Esta fase añade su cobertura de tests
+  (`tests/test_lsp_navigation_extra.py`): parámetros y `active_parameter` en
+  signature help, símbolos top-level en document symbols y rangos de plegado
+  bien formados para bloques y comentarios.
+
 ### ✨ Added — 3.5 Cross-compilation (Linux ⇄ Windows)
 
 - **`--target <triple>`** en `build`/`run`/`test` (y `build: target:` en
