@@ -95,6 +95,10 @@ jobs:
         run: |
           python -m pytest tests/test_bind_phase3.py tests/test_assets.py tests/test_json_diagnostics.py tests/test_lsp_semantic_rename.py tests/test_lsp_semantic_tokens.py tests/test_lsp_navigation_extra.py tests/test_fmt_phase3.py tests/test_doc_phase3.py tests/test_cross_compile.py -q -p no:cacheprovider --timeout=600 -x
 
+      - name: Ecosystem gate (FASE 4)
+        run: |
+          python -m pytest tests/test_semver.py tests/test_lockfile.py tests/test_transitive_deps.py tests/test_deps_commands.py tests/test_vendor_cache.py tests/test_manifest_toml.py tests/test_init_templates.py tests/test_std_versioning.py tests/test_std_docs_completeness.py -q -p no:cacheprovider --timeout=600 -x
+
       - name: Run test suite (fast fail on core reviews)
         run: |
           python -m pytest tests/test_p0_review_fixes.py tests/test_p1_review_fixes.py tests/test_p2_review_fixes.py -q -p no:cacheprovider --timeout=600 -x

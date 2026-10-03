@@ -506,6 +506,30 @@ flowchart TD
 
 ### 📦 FASE 4 — Ecosistema, Dependencias y Biblioteca Estándar
 
+> **Estado: FASE 4 completada** (ver `CHANGELOG.md` §`[Unreleased]`).
+> Verificado contra el código antes de actuar:
+> - 4.1 ✅ `pengu.lock` con commit exacto + SHA-256 del árbol + `targets`, y
+>   `--locked`/`--frozen` (E0061). `pengu update` lo refresca.
+> - 4.2 ✅ SemVer (`^ ~ >= < = *`) + resolución transitiva forward-only, ciclos
+>   y conflictos (E0062) con rollback. **Pendiente 4.2.j**: backtracking completo.
+> - 4.3 ✅ auditoría de documentación + ratchet + convención `#` en `.d.pengu`.
+>   **Corrigendum:** el roadmap pedía convertir `#` → `##`; la migración real de
+>   0.15.0 fue la contraria y el LSP lee ambos.
+> - 4.4 ⚠️ **parcial y aditivo**: `IoError` + `read/write/delete_file_result` en
+>   `std.archivum` y documentación de D5. La migración de `precis`/`cipher` y el
+>   resto de la stdlib queda pendiente (es rompiente; la auditoría la sitúa al
+>   final).
+> - 4.5 ✅ `pengu remove` / `pengu upgrade`.
+> - 4.6 ✅ `pengu vendor` + restauración offline; 4.7 ✅ caché global de deps.
+> - 4.8 ✅ `pengu tree` / `pengu metadata --json`.
+> - 4.9 ✅ política de versionado de la stdlib (D6) + `<MODULE>_VERSION` en los
+>   27 módulos escritos a mano.
+> - 4.10 ✅ `pengu init --template {exe,cli,lib,game}`.
+> - 4.11 ✅ TOML canónico en lectura y escritura (YAML compatibilidad).
+> - ⏸ Sin verificar: nada específico de esta fase requiere toolchain externa,
+>   salvo la compilación real de un proyecto con deps (cubierta con repos git
+>   locales en los tests).
+
 #### 4.1 🔵 Implementación de Lockfile (`pengu.lock`) y Checksums Criptográficos
 - 📄 **Archivos:** `pengu_project.py`, nuevo `pengu_lock.py`
 - 💡 **Mejora:** Diseñar el formato `pengu.lock` (en TOML) que registre para cada dependencia: URL, commit hash exacto resuelto, árbol de contenido SHA-256 y fecha. Si existe `pengu.lock`, el build system debe exigir concordancia exacta, habilitando compilaciones offline (`--frozen`).
