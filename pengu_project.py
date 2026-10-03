@@ -1849,7 +1849,8 @@ def _collect_pengu_files(paths: List[str]) -> List[str]:
 
 
 def fmt_files(paths: List[str], check_only: bool = False, write: bool = True,
-              indent: int = 2, tabs: bool = False, verbose: bool = False) -> int:
+              indent: int = 2, tabs: bool = False, verbose: bool = False,
+              diff: bool = False, use_config: bool = True) -> int:
     """Formats .pengu files/directories with the standard style.
 
     Reuses the same formatting logic as the LSP's textDocument/formatting.
@@ -1861,11 +1862,14 @@ def fmt_files(paths: List[str], check_only: bool = False, write: bool = True,
         indent: Spaces per indentation level.
         tabs: True to indent with tabs.
         verbose: True to print every file considered.
+        diff: True to print a unified diff for every file that would change.
+        use_config: True to honour a nearby ``.pengufmt.toml`` / ``pengu.yaml``.
 
     Returns:
         Number of files that changed (or would change with --check).
     """
-    from pengu_lsp.formatting import format_pengu_source
+    import difflib
+    from pengu_lsp.formatting import format_pengu_source, load_format_config
 
     files = _collect_pengu_files(paths)
     changed: List[str] = []
@@ -1881,24 +1885,65 @@ def fmt_files(paths: List[str], check_only: bool = False, write: bool = True,
             if verbose:
                 print(f"   skip (generated) {display}")
             continue
-        formatted = format_pengu_source(original, tab_size=indent, insert_spaces=not tabs)
+        cfg = load_format_config(fp) if use_config else None
+        eff_indent = cfg.get("tab_size", indent) if cfg and "tab_size" in cfg else indent
+        eff_spaces = (cfg.get("insert_spaces", not tabs) if cfg and "insert_spaces" in cfg
+                      else not tabs)
+        blank_max = cfg.get("blank_lines_max") if cfg else None
+        formatted = format_pengu_source(
+            original, tab_size=int(eff_indent), insert_spaces=bool(eff_spaces),
+            blank_lines_max=blank_max if isinstance(blank_max, int) else None,
+        )
         if verbose:
             print(f"   fmt {display}")
         if formatted == original:
             continue
         changed.append(fp)
-        if verbose or check_only:
+        if diff:
+            for dline in difflib.unified_diff(
+                original.splitlines(), formatted.splitlines(),
+                fromfile=display, tofile=display + " (formatted)", lineterm="",
+            ):
+                print(dline)
+        elif verbose or check_only:
             print(f"\033[1;33m would format\033[0m {display}")
         if write and not check_only:
             with open(fp, "w", encoding="utf-8") as f:
                 f.write(formatted)
-            print(f"\033[1;32m  formatted\033[0m {display}")
+            if not diff:
+                print(f"\033[1;32m  formatted\033[0m {display}")
 
-    if check_only:
-        print(f"\n{len(changed)} file(s) would be reformatted.")
-    elif write:
-        print(f"\n{len(changed)} file(s) formatted.")
+    if not diff:
+        if check_only:
+            print(f"\n{len(changed)} file(s) would be reformatted.")
+        elif write:
+            print(f"\n{len(changed)} file(s) formatted.")
     return len(changed)
+
+
+def fmt_stdin(indent: int = 2, tabs: bool = False,
+              config_path: Optional[str] = None, check_only: bool = False) -> int:
+    """Formats stdin to stdout (editor / pipeline integration).
+
+    Returns 0 when the input was already formatted (or was written), 1 with
+    ``--check`` when it would change (nothing is written in check mode).
+    """
+    from pengu_lsp.formatting import format_pengu_source, load_format_config
+
+    text = sys.stdin.read()
+    cfg = load_format_config(config_path or os.getcwd())
+    eff_indent = cfg.get("tab_size", indent) if cfg and "tab_size" in cfg else indent
+    eff_spaces = (cfg.get("insert_spaces", not tabs) if cfg and "insert_spaces" in cfg
+                  else not tabs)
+    blank_max = cfg.get("blank_lines_max") if cfg else None
+    formatted = format_pengu_source(
+        text, tab_size=int(eff_indent), insert_spaces=bool(eff_spaces),
+        blank_lines_max=blank_max if isinstance(blank_max, int) else None,
+    )
+    if check_only:
+        return 1 if formatted != text else 0
+    sys.stdout.write(formatted)
+    return 0
 
 
 def clean_project(config_path: Optional[str] = None) -> None:
@@ -3335,8 +3380,11 @@ def create_cli_parser() -> argparse.ArgumentParser:
 
     # fmt
     fmt_p = subparsers.add_parser("fmt", help="Format .pengu files or directories (standard style)")
-    fmt_p.add_argument("paths", nargs="+", help="Files and/or directories to format (directories are searched recursively)")
+    fmt_p.add_argument("paths", nargs="*", help="Files and/or directories to format (directories are searched recursively)")
     fmt_p.add_argument("--check", action="store_true", help="Do not write; exit non-zero when a file would change")
+    fmt_p.add_argument("--diff", action="store_true", help="Print a unified diff for every file that would change")
+    fmt_p.add_argument("--stdin", action="store_true", help="Read from stdin and write the formatted result to stdout")
+    fmt_p.add_argument("--config", "-c", default=None, help="Project root for .pengufmt.toml / pengu.yaml formatting config")
     fmt_p.add_argument("--write", action="store_true", default=True, help="Write formatted output back to disk (default)")
     fmt_p.add_argument("--indent", type=int, default=2, help="Spaces per indentation level (default: 2)")
     fmt_p.add_argument("--tabs", action="store_true", help="Indent with tabs instead of spaces")
@@ -3536,13 +3584,25 @@ def main():
         )
         sys.exit(0 if ok else 1)
     elif args.command == "fmt":
+        if getattr(args, "stdin", False):
+            sys.exit(fmt_stdin(
+                indent=args.indent, tabs=args.tabs,
+                config_path=getattr(args, "config", None),
+                check_only=args.check,
+            ))
+        if not args.paths:
+            fmt_p_error = "fmt requires at least one path (or --stdin)"
+            print(fmt_p_error, file=sys.stderr)
+            sys.exit(2)
         changed = fmt_files(
             paths=args.paths,
             check_only=args.check,
             write=args.write,
             indent=args.indent,
             tabs=args.tabs,
-            verbose=args.verbose
+            verbose=args.verbose,
+            diff=getattr(args, "diff", False),
+            use_config=getattr(args, "config", None) is None,
         )
         sys.exit(1 if (args.check and changed > 0) else 0)
     elif args.command == "update":

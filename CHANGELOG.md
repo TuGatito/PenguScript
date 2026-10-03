@@ -4,6 +4,28 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### ✨ Added — 3.10 / 3.12 Formatter: --diff, --stdin, config y on-type
+
+- **3.10 `pengu fmt --diff`**: imprime un diff unificado por cada fichero que
+  cambiaría, en vez de solo "would format".
+- **3.10 `pengu fmt --stdin`**: lee el fuente de stdin y escribe el resultado
+  formateado en stdout (integración con editores/CI); `--check` con `--stdin`
+  devuelve 1 si el input cambiaría.
+- **3.10 `.pengufmt.toml`**: `load_format_config` busca primero
+  `.pengufmt.toml` y luego `pengu.yaml`/`pengu.toml`, acepta sintaxis TOML
+  (`clave = valor`) y YAML (`clave: valor`) bajo `[formatting]`/`formatting:`, y
+  soporta `tab_size`/`indent`/`indent_size`, `insert_spaces`/`use_tabs`/`tabs`,
+  `blank_lines_max` y `line_width` (registrado para futuros wrappers).
+- **3.10 `blank_lines_max`**: `format_pengu_source` colapsa las líneas en blanco
+  consecutivas (nunca dentro de un literal multilínea); el LSP
+  `textDocument/formatting` también lo aplica.
+- **3.12 `textDocument/onTypeFormatting`**: al teclear `:` al final de un
+  apertura de bloque se indenta la línea siguiente un nivel; al teclear salto de
+  línea tras una apertura, la línea nueva recibe la indentación correcta. Solo
+  se edita el espacio inicial de la línea afectada (nunca se refluye el
+  documento).
+- Tests: `tests/test_fmt_phase3.py`.
+
 ### ✨ Added — 3.2 / 3.9 LSP: semantic tokens, inlay hints y code lens
 
 - **3.2.b `textDocument/semanticTokens/full`**: clasifica los tokens del lexer

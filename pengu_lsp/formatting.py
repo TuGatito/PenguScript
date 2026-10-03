@@ -15,27 +15,31 @@ from typing import Dict, List, Optional, Tuple
 
 
 def load_format_config(start_path: str) -> Optional[Dict[str, object]]:
-    """Reads formatting settings from a nearby ``pengu.yaml``.
+    """Reads formatting settings from a nearby ``.pengufmt.toml`` or ``pengu.yaml``.
 
-    Looks upward from ``start_path`` (bounded walk) for a project config file
-    and extracts the supported keys: ``tab_size`` (or ``indent_size`` /
-    ``indent``) and ``insert_spaces`` (or ``use_tabs``). Keys may live at the
-    root or under a ``formatting:`` section.
+    Looks upward from ``start_path`` (bounded walk) for ``.pengufmt.toml`` first
+    and then ``pengu.yaml``/``pengu.toml``.  Supported keys: ``tab_size`` (or
+    ``indent_size`` / ``indent`` / ``indent_width``), ``insert_spaces`` (or
+    ``use_tabs`` / ``tabs``) and ``blank_lines_max``.  Keys may live at the root
+    or under a ``[formatting]`` / ``formatting:`` section.  Both ``key = value``
+    (TOML) and ``key: value`` (YAML) spellings are accepted.
 
     Args:
         start_path: File or directory to start searching from.
 
     Returns:
-        A dict with ``tab_size`` (int) and ``insert_spaces`` (bool) entries for
-        every key found, or None when no config file exists.
+        A dict with the recognized settings, or None when no config file exists.
     """
     cur = start_path if os.path.isdir(start_path) else os.path.dirname(start_path)
     cur = os.path.abspath(cur)
     cfg_file = None
     for _ in range(8):
-        candidate = os.path.join(cur, "pengu.yaml")
-        if os.path.isfile(candidate):
-            cfg_file = candidate
+        for candidate_name in (".pengufmt.toml", "pengu.yaml", "pengu.toml"):
+            candidate = os.path.join(cur, candidate_name)
+            if os.path.isfile(candidate):
+                cfg_file = candidate
+                break
+        if cfg_file:
             break
         parent = os.path.dirname(cur)
         if parent == cur:
@@ -55,21 +59,33 @@ def load_format_config(start_path: str) -> Optional[Dict[str, object]]:
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
+        if stripped.startswith("[") and stripped.endswith("]"):
+            continue  # TOML section header
         if stripped.endswith(":") and " " not in stripped and "\t" not in stripped:
-            continue  # section header, not a key/value pair
-        m = re.match(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.+?)\s*$", stripped)
+            continue  # YAML section header
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*[:=]\s*(.+?)\s*$", stripped)
         if not m:
             continue
-        key, value = m.group(1), m.group(2)
+        key, value = m.group(1), m.group(2).strip().strip('"').strip("'")
         if key in ("tab_size", "indent_size", "indent", "indent_width"):
             try:
                 result["tab_size"] = int(value)
             except ValueError:
                 pass
         elif key in ("insert_spaces",):
-            result["insert_spaces"] = value.strip().lower() in ("true", "yes", "1")
-        elif key in ("use_tabs",):
-            result["insert_spaces"] = value.strip().lower() not in ("true", "yes", "1")
+            result["insert_spaces"] = value.lower() in ("true", "yes", "1")
+        elif key in ("use_tabs", "tabs"):
+            result["insert_spaces"] = value.lower() not in ("true", "yes", "1")
+        elif key in ("blank_lines_max", "max_blank_lines"):
+            try:
+                result["blank_lines_max"] = max(0, int(value))
+            except ValueError:
+                pass
+        elif key in ("line_width", "max_line_width"):
+            try:
+                result["line_width"] = max(0, int(value))
+            except ValueError:
+                pass
     return result if result else None
 
 
@@ -158,7 +174,8 @@ def _normalize_code_spacing(code: str) -> str:
     return code
 
 
-def format_pengu_source(text: str, tab_size: int = 2, insert_spaces: bool = True) -> str:
+def format_pengu_source(text: str, tab_size: int = 2, insert_spaces: bool = True,
+                        blank_lines_max: Optional[int] = None) -> str:
     """Formats PenguScript source text according to the standard style.
 
     Normalizes leading indentation (tabs or ``tab_size`` spaces), strips
@@ -173,6 +190,9 @@ def format_pengu_source(text: str, tab_size: int = 2, insert_spaces: bool = True
         text: Raw document source.
         tab_size: Number of spaces per indentation level (2 by default).
         insert_spaces: True to indent with spaces, False to use tabs.
+        blank_lines_max: Optional cap on consecutive blank lines (None keeps
+            them all).  Blank lines inside a multi-line literal are never
+            touched.
 
     Returns:
         The formatted document text.
@@ -185,6 +205,7 @@ def format_pengu_source(text: str, tab_size: int = 2, insert_spaces: bool = True
     formatted_lines: List[str] = []
     indent_unit = " " * tab_size if insert_spaces else "\t"
     in_triple: Optional[str] = None
+    blank_run = 0
 
     for line in lines:
         # Inside a multi-line literal every byte is string data: emit verbatim.
@@ -196,8 +217,12 @@ def format_pengu_source(text: str, tab_size: int = 2, insert_spaces: bool = True
 
         stripped_right = line.rstrip()
         if not stripped_right:
+            blank_run += 1
+            if blank_lines_max is not None and blank_run > blank_lines_max:
+                continue
             formatted_lines.append("")
             continue
+        blank_run = 0
 
         leading_spaces = len(stripped_right) - len(stripped_right.lstrip(" "))
         leading_tabs = len(stripped_right) - len(stripped_right.lstrip("\t"))

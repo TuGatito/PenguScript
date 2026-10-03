@@ -87,6 +87,9 @@ from lsprotocol.types import (
     CodeLens,
     CodeLensParams,
     Command,
+    TEXT_DOCUMENT_ON_TYPE_FORMATTING,
+    DocumentOnTypeFormattingParams,
+    DocumentOnTypeFormattingOptions,
 )
 
 from pengu_parser.pengu_parser import PenguParser
@@ -95,6 +98,7 @@ from pengu_parser.pengu_errors import PenguError
 from pengu_parser.pengu_symbols import SymbolTable
 from pengu_parser.pengu_types import FnType
 
+from .formatting import format_pengu_source, load_format_config
 from .completions import get_completions
 from .hover import get_hover, get_word_at_position
 from .code_actions import (
@@ -937,12 +941,50 @@ def _resolve_symbol_at(symbols: Optional[SymbolTable], position, name: str):
         return None
 
 
-def _iter_project_sources(root: str):
-    """Yields project ``.pengu`` sources, skipping generated ``.d.pengu``."""
-    for dirpath, _dirs, files in os.walk(root):
+_SKIP_SCAN_DIRS = {
+    ".git", ".hg", ".svn", ".venv", "venv", "env", "node_modules", "build",
+    "__pycache__", ".mypy_cache", ".pytest_cache", "dist", "target",
+}
+
+
+def _iter_project_sources(root: str, limit: int = 500):
+    """Yields project ``.pengu`` sources, skipping generated ``.d.pengu``.
+
+    The walk prunes VCS/vendor/build directories and stops after ``limit``
+    files, so a loose document can never turn a references/rename request into a
+    multi-second filesystem sweep.
+    """
+    count = 0
+    for dirpath, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in _SKIP_SCAN_DIRS and not d.startswith(".")]
         for fname in sorted(files):
             if fname.endswith(".pengu") and not fname.endswith(".d.pengu"):
+                count += 1
+                if count > limit:
+                    return
                 yield os.path.join(dirpath, fname)
+
+
+def _project_scan_root(file_path: str) -> Optional[str]:
+    """Directory to scan for cross-file references, or None.
+
+    ``_project_root_for_path`` falls back to the document's own directory, which
+    for a loose file can be ``/`` or the user's home directory; walking those
+    would be a filesystem sweep.  Everything else is scanned with the pruning /
+    file cap of :func:`_iter_project_sources`.
+    """
+    root = _project_root_for_path(file_path)
+    if not root:
+        return None
+    root_abs = os.path.abspath(root)
+    if root_abs == os.path.abspath(os.sep):
+        return None
+    try:
+        if root_abs == os.path.abspath(os.path.expanduser("~")):
+            return None
+    except Exception:
+        pass
+    return root_abs
 
 
 @server.feature(TEXT_DOCUMENT_REFERENCES)
@@ -967,7 +1009,7 @@ def references(params: ReferenceParams):
     sym = _resolve_symbol_at(symbols, params.position, word)
     is_local = sym is not None and getattr(sym, "kind", "") in ("var", "let", "param")
 
-    root = _project_root_for_path(uri_to_path(uri))
+    root = _project_scan_root(uri_to_path(uri))
     current_abs = os.path.abspath(uri_to_path(uri))
 
     # Semantic occurrences in the active document (comments / string literals are
@@ -975,7 +1017,7 @@ def references(params: ReferenceParams):
     hits: List[Tuple[str, int, int]] = [
         (current_abs, ln, col) for ln, col in _identifier_occurrences(doc_text, word, symbols, sym)
     ]
-    if not is_local:
+    if not is_local and root:
         # Global symbol: scan the other project sources token-wise too, so a
         # homonym inside a string literal or a comment is never reported.
         for fpath in _iter_project_sources(root):
@@ -1229,14 +1271,14 @@ def rename_symbol(params: RenameParams) -> Optional[WorkspaceEdit]:
             changes[uri] = edits
         return WorkspaceEdit(changes=changes) if changes else None
 
-    root = _project_root_for_path(uri_to_path(uri))
+    root = _project_scan_root(uri_to_path(uri))
     current_abs = os.path.abspath(uri_to_path(uri))
     try:
-        name_decls = declaration_locations(extra_roots=[root]).get(clean_old) or []
+        name_decls = declaration_locations(extra_roots=[root] if root else []).get(clean_old) or []
     except Exception:
         name_decls = []
 
-    if len(name_decls) <= 1:
+    if root and len(name_decls) <= 1:
         # Unambiguous global: rename every real occurrence across the project.
         for fpath in _iter_project_sources(root):
             f_abs = os.path.abspath(fpath)
@@ -1285,7 +1327,11 @@ def document_formatting(params: DocumentFormattingParams) -> Optional[List[TextE
     elif cfg is not None and cfg.get("insert_spaces") is not None:
         insert_spaces = bool(cfg["insert_spaces"])
 
-    new_full_text = format_pengu_source(doc_text, tab_size=tab_size, insert_spaces=insert_spaces)
+    blank_max = cfg.get("blank_lines_max") if cfg is not None else None
+    new_full_text = format_pengu_source(
+        doc_text, tab_size=tab_size, insert_spaces=insert_spaces,
+        blank_lines_max=blank_max if isinstance(blank_max, int) else None,
+    )
     lines = doc_text.splitlines()
     last_line = max(0, len(lines) - 1)
     last_char = len(lines[last_line]) if lines else 0
@@ -1566,12 +1612,9 @@ def _semantic_token_entry(tok, symbols) -> Optional[Tuple[int, int, int, int, in
 
 
 @server.feature(TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
-    SemanticTokensOptions(
-        legend=SemanticTokensLegend(
-            token_types=_SEMANTIC_TOKEN_TYPES,
-            token_modifiers=_SEMANTIC_TOKEN_MODIFIERS,
-        ),
-        full=True,
+    SemanticTokensLegend(
+        token_types=_SEMANTIC_TOKEN_TYPES,
+        token_modifiers=_SEMANTIC_TOKEN_MODIFIERS,
     )
 )
 def semantic_tokens_full(params: SemanticTokensParams) -> Optional[SemanticTokens]:
@@ -1749,3 +1792,73 @@ def code_lenses(params: CodeLensParams) -> Optional[List[CodeLens]]:
             ),
         ))
     return lenses
+
+
+def _leading_ws(line: str) -> str:
+    return line[: len(line) - len(line.lstrip(" \t"))]
+
+
+@server.feature(TEXT_DOCUMENT_ON_TYPE_FORMATTING,
+    DocumentOnTypeFormattingOptions(first_trigger_character=":", more_trigger_character=["\n"]),
+)
+def on_type_formatting(params: DocumentOnTypeFormattingParams) -> Optional[List[TextEdit]]:
+    """Handles textDocument/onTypeFormatting.
+
+    Typing ``:`` at the end of a block opener indents the following line one
+    level deeper; typing a newline right after such an opener fixes the new
+    line's indentation.  Only the affected line's leading whitespace is edited,
+    so a keystroke never reflows the whole document.
+    """
+    uri = params.text_document.uri
+    doc_text = server.get_document_source(uri)
+    if not doc_text:
+        return None
+    ch = params.ch
+    lines = doc_text.splitlines()
+    line_no = params.position.line
+    if not (0 <= line_no < len(lines)):
+        return None
+    cfg = load_format_config(uri_to_path(uri))
+    tab_size = 2
+    insert_spaces = True
+    if cfg is not None:
+        if cfg.get("tab_size") is not None:
+            tab_size = int(cfg["tab_size"])
+        if cfg.get("insert_spaces") is not None:
+            insert_spaces = bool(cfg["insert_spaces"])
+    unit = " " * tab_size if insert_spaces else "\t"
+
+    edits: List[TextEdit] = []
+
+    def _reindent(idx: int, target_ws: str) -> None:
+        if not (0 <= idx < len(lines)):
+            return
+        current_ws = _leading_ws(lines[idx])
+        if current_ws == target_ws:
+            return
+        edits.append(TextEdit(
+            range=Range(
+                start=Position(line=idx, character=0),
+                end=Position(line=idx, character=len(current_ws)),
+            ),
+            new_text=target_ws,
+        ))
+
+    if ch == ":":
+        # The opener line just got its ':' — indent the next non-empty line.
+        base_ws = _leading_ws(lines[line_no])
+        nxt = line_no + 1
+        while nxt < len(lines) and not lines[nxt].strip():
+            nxt += 1
+        if nxt < len(lines):
+            _reindent(nxt, base_ws + unit)
+    elif ch == "\n":
+        # The cursor sits on a fresh line; align it with the previous statement,
+        # one level deeper when that statement opened a block.
+        prev_idx = line_no - 1
+        if prev_idx >= 0:
+            prev = lines[prev_idx]
+            prev_ws = _leading_ws(prev)
+            target = prev_ws + unit if prev.rstrip().endswith(":") else prev_ws
+            _reindent(line_no, target)
+    return edits or None
