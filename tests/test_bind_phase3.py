@@ -95,10 +95,13 @@ def test_doxygen_tags_produce_structured_docstring(tmp_path):
         " */\n"
         "int add(int a, int b);\n"
     ))
-    assert "## Adds two numbers." in text
-    assert "## @param a first operand" in text
-    assert "## @return the sum" in text
-    assert "## @deprecated use add2 instead" in text
+    # Generated bindings use `#` (the 0.15.0 convention for .d.pengu), one
+    # line per Doxygen tag so the text stays structured.
+    assert "# Adds two numbers." in text
+    assert "# @param a first operand" in text
+    assert "# @return the sum" in text
+    assert "# @deprecated use add2 instead" in text
+    assert "## @param" not in text
     _check_ok(text)
 
 

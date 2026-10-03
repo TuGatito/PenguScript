@@ -101,3 +101,25 @@ def test_doc_project_renders_tags_in_module_page(tmp_path):
     page = (proj / "docs" / "src_main.md").read_text(encoding="utf-8")
     assert "- `@param a first operand`" in page
     assert "⚠️ **Deprecated**" in page
+
+
+def test_doc_renders_hash_and_double_hash_equally(tmp_path):
+    """`#` and `##` are both doc text (the .d.pengu convention is `#`)."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.pengu").write_text(
+        "# Single-hash documented function.\n"
+        "weave single into int:\n"
+        "    return 1\n"
+        "\n"
+        "## Double-hash documented function.\n"
+        "weave double into int:\n"
+        "    return 2\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pengu.yaml").write_text(
+        "project:\n  name: hashes\n  entry: src/main.pengu\n", encoding="utf-8"
+    )
+    doc_project(config_path=str(tmp_path))
+    page = (tmp_path / "docs" / "src_main.md").read_text(encoding="utf-8")
+    assert "Single-hash documented function." in page
+    assert "Double-hash documented function." in page

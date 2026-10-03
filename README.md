@@ -185,7 +185,7 @@ pengu run hello.pengu
 | `fmt`      | Format `.pengu` files or directories (`--check` only reports; `--tabs`/`--indent`).               |
 | `clean`    | Remove the build directory and generated artifacts.                                               |
 | `lsp`      | Launch the Language Server (stdio by default; `--tcp --host … --port …`).                        |
-| `doc`      | Generate a Markdown API reference from `##` doc comments (`-o` sets the output directory).         |
+| `doc`      | Generate a Markdown API reference + HTML search from `#`/`##` doc comments (`-o` sets the output directory). |
 | `assets`   | Generate or inspect embedded asset modules (`--list`, `--force`).                                 |
 
 ```bash
@@ -389,7 +389,7 @@ With the completion of **Batch 6 (FINAL)** (`regulus`, `precis`, `parchment`, `s
 5. **Testing, CLI & Utilities:** `lot`, `ward`, `invoke`
 6. **Advanced Integration & Math Tier:** `regulus` (PCRE2 regex), `precis` (HTTP client/server), `parchment` (libxml2 XML/HTML DOM), `seal` (HMAC, SHA/MD5 hashing & compression), `ffi` (null-safe generic C bridge), `arithmancy` (game-ready linear algebra: Vec2/3/4, Mat4, Quat)
 
-All 52 modules feature comprehensive documentation (`##` docstrings), full test coverage across `debug` and `release` compilation profiles, 100% backward compatibility with PenguScript 0.14.x, and zero C compiler warnings.
+All 52 modules ship comprehensive documentation (`#`/`##` doc comments, audited by `tests/test_std_docs_completeness.py`), full test coverage across `debug` and `release` compilation profiles, 100% backward compatibility with PenguScript 0.14.x, and zero C compiler warnings.
 
 ---
 

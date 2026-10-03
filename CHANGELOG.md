@@ -4,6 +4,29 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### 📚 Fixed/Added — 4.3 Auditoría y enforcement de documentación en `std/`
+
+> **Corrigendum.** El roadmap pedía "convertir `#` → `##` en los `.d.pengu`".
+> Esa premisa está refutada: en 0.15.0 los bindings se migraron en dirección
+> opuesta (`##` → `#`) para igualar la salida de `pengu_bind`, y tanto el
+> checker como el hover del LSP leen **ambos** como doc text. Convertirlos a
+> `##` rompería la convención acordada.
+
+- **4.3.a — Auditoría automática** (`tests/test_std_docs_completeness.py`):
+  verifica que los 77 módulos de `std/` tengan bloque de cabecera documentado
+  (100%), fija un **ratchet** por tipo de declaración para que la cobertura
+  documentada nunca retroceda, y comprueba que los `.d.pengu` mantengan el
+  spelling `#` en las declaraciones (`##` solo en banner/cabecera).
+- **4.3.b — `pengu_bind`**: los bloques con tags Doxygen se emiten como `#`
+  estructurado (una línea por tag), conservando la convención de `.d.pengu` y
+  sin perder información (hover y `pengu doc` siguen leyéndolos).
+- **4.3.c — `pengu doc`** renderiza `#` y `##` por igual (test explícito).
+- **4.3.e — `README.md`**: la promesa de documentación se ajusta a la realidad
+  (`#`/`##`, auditada por test) en vez de afirmar "`##` docstrings" al 100%.
+- Estado medido: `weave` 1129/1311 (86%), `rune` 91/111 (81%), `declare`
+  630/1862, `const` 118/588. Los huecos restantes están concentrados en bindings
+  generados (dependen de los comentarios del header C) y en `atlas`/`scrolls`.
+
 ### ✅ Verified — 3.7 / 3.8 ya implementados
 
 - La auditoría asumía que `textDocument/signatureHelp`, `documentSymbol` y

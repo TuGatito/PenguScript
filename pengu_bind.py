@@ -172,12 +172,6 @@ def _scan_struct_attributes(text: str) -> Dict[str, Dict[str, object]]:
 class BindGenerator:
     """Converts a parsed pycparser AST into .d.pengu declaration text."""
 
-    # Doxygen-style tags that turn a comment block into a structured docstring.
-    _DOXYGEN_TAG_RE = re.compile(
-        r"@(param|arg|return|returns|retval|see|sa|deprecated|note|warning|brief|details|throws|exception)\b",
-        re.IGNORECASE,
-    )
-
     def __init__(
         self,
         header_path: str,
@@ -252,17 +246,14 @@ class BindGenerator:
     def _emit_doc(self, comment: Optional[str]) -> None:
         """Emits a comment block above a declaration.
 
-        Plain descriptions stay as ``#`` comments (backwards compatible).  A
-        block carrying Doxygen tags (``@param``, ``@return``, ``@see``,
-        ``@deprecated``, …) is emitted as a structured ``##`` docstring so
-        `pengu doc` and LSP hover can consume it.
+        Generated ``.d.pengu`` bindings use ``#`` comments (the convention
+        agreed in 0.15.0: hand-written bindings were migrated ``##`` → ``#`` and
+        the generator emits ``#``), one line per Doxygen tag so the text stays
+        structured and machine-readable.  Both ``#`` and ``##`` are read as doc
+        text by the checker and by LSP hover / ``pengu doc``.
         """
-        is_doxygen = bool(comment) and self._DOXYGEN_TAG_RE.search(comment or "")
         for line in self._doc_lines(comment):
-            if not line:
-                self.lines.append("##" if is_doxygen else "#")
-            else:
-                self.lines.append(f"## {line}" if is_doxygen else f"# {line}")
+            self.lines.append(f"# {line}" if line else "#")
 
     def _record_type(self, name: str) -> None:
         self.known_type_names.add(name)
