@@ -2932,6 +2932,78 @@ documented next to the macro and asserted by `tests/abi/test_abi_layout.c`. A
 mismatch means a prebuilt `libpengu_runtime.a` was compiled against a different
 ABI than the generated bundle.
 
+### 20.2.2 Machine-readable diagnostics (`--json`)
+
+`pengu check --json` and `pengu build --json` emit JSON Lines (nothing else on
+stdout), so CI can parse them directly:
+
+```bash
+pengu check --json | jq -c 'select(.type=="diagnostic") | {file,line,col,code}'
+```
+
+- one `{"type":"diagnostic","file","line","col","code","severity","message",
+  "help","note"}` object per problem;
+- a final `{"type":"summary","ok":<bool>,"errors":<n>,"duration_ms":<ms>}`
+  (`build` adds `artifact`, `cached` and `profile`). `check` and `build` exit 1
+  when `ok` is false.
+
+### 20.2.3 Cross-compilation (`--target`)
+
+```bash
+pengu build --target x86_64-w64-mingw32 --cc x86_64-w64-mingw32-gcc
+```
+
+- `--target <triple>` (`build`, `run`, `test`; or `build: target:` in
+  `pengu.yaml`) selects the target OS from a triple such as
+  `x86_64-w64-mingw32`, `i686-w64-mingw32`, `aarch64-apple-darwin` or
+  `x86_64-unknown-linux-gnu`. Only **Linux ⇄ Windows** is supported in 1.0.
+- Artifact extensions follow the target (`.exe`, `.dll`, `.dylib`, `.so`) and so
+  do the link libraries.
+- With a Windows target from a non-Windows host the compiler is auto-detected
+  (`<triple>-gcc`, `x86_64-w64-mingw32-gcc`, `i686-w64-mingw32-gcc`); `--cc`
+  always wins. If none is installed the build fails with an actionable message.
+- The shipped runtime archive is host-built. Generating the C bundle for another
+  target needs nothing else, but *linking* a cross executable requires a runtime
+  built for the target: point `PENGU_RUNTIME_CROSS` at its prefix and the build
+  adds `-L<prefix>/lib -I<prefix>/include`.
+
+### 20.2.4 Formatting (`pengu fmt`)
+
+```bash
+pengu fmt src/ --check        # exit 1 when a file would change (CI gate)
+pengu fmt src/ --diff         # print a unified diff per changed file
+pengu fmt --stdin < in.pengu  # format stdin to stdout
+```
+
+Formatting settings are read from the nearest `.pengufmt.toml`, `pengu.yaml` or
+`pengu.toml` (walking up from each file), either at the root or under
+`[formatting]`/`formatting:`. Both `key = value` (TOML) and `key: value` (YAML)
+spellings work:
+
+```toml
+[formatting]
+tab_size = 2          # or indent / indent_size
+insert_spaces = true  # or use_tabs / tabs
+blank_lines_max = 1   # collapse consecutive blank lines (never inside literals)
+```
+
+The language server also formats on type: typing `:` at the end of a block
+opener indents the next line one level, and a newline after an opener indents
+the fresh line.
+
+### 20.2.5 Documentation (`pengu doc`)
+
+`pengu doc` renders a Markdown reference plus a self-contained search page:
+
+- Doxygen tags in `##` comments (`@param`, `@return`, `@see`, `@deprecated`, …)
+  become a structured bullet list;
+- symbols marked `@deprecated` show a deprecation badge and a `[deprecated]`
+  marker in the index;
+- `docs/index.md` groups every symbol by kind (concepts, runes, echoes, omens,
+  seals, aliases, constants, functions, C declarations);
+- `docs/index.html` embeds the symbol index as JSON and offers a client-side
+  search box (name / kind / module / signature / summary).
+
 
 ### 20.3 Execution & Script Mode (`pengu run`)
 
