@@ -341,3 +341,144 @@ def test_empty_assets_dir_does_not_walk_project_root(tmp_path):
 
 
 
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 / 3.4 — large assets (.incbin), NUL-safe arca.string(), long paths
+# ---------------------------------------------------------------------------
+
+from pengu_assets import _emit_embedded_c, _emit_disk_c, _incbin_threshold
+
+
+def test_incbin_threshold_used_for_large_assets(tmp_path):
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    blob = assets / "big.bin"
+    blob.write_bytes(b"\x00" * 2048)
+
+    c_large = _emit_embedded_c(
+        "arca", [("big.bin", blob)], project_root=tmp_path, incbin_threshold=1024
+    )
+    assert ".incbin" in c_large
+    assert "big.bin" in c_large
+    assert "(size_t)2048" in c_large
+
+    c_small = _emit_embedded_c(
+        "arca", [("big.bin", blob)], project_root=tmp_path, incbin_threshold=0
+    )
+    assert ".incbin" not in c_small
+    assert "static const unsigned char" in c_small
+    assert "(size_t)2048" in c_small
+
+    # Below the threshold keeps the portable byte array.
+    c_below = _emit_embedded_c(
+        "arca", [("big.bin", blob)], project_root=tmp_path, incbin_threshold=4096
+    )
+    assert ".incbin" not in c_below
+
+
+def test_incbin_disabled_by_env(monkeypatch):
+    monkeypatch.setenv("PENGU_ASSETS_INCBIN_THRESHOLD", "0")
+    assert _incbin_threshold() == 0
+    monkeypatch.setenv("PENGU_ASSETS_INCBIN_THRESHOLD", "2048")
+    assert _incbin_threshold() == 2048
+    monkeypatch.delenv("PENGU_ASSETS_INCBIN_THRESHOLD", raising=False)
+
+
+def test_generated_string_helper_is_length_exact(tmp_path):
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "b.bin").write_bytes(b"\x01\x02")
+    for c_text in (
+        _emit_embedded_c("arca", [("b.bin", assets / "b.bin")]),
+        _emit_disk_c("arca", [("b.bin", assets / "b.bin")]),
+    ):
+        assert "PenguString _arca_string(const char* name)" in c_text
+        assert "pengu_sigil_alloc" in c_text
+        assert "s.len = (int)n;" in c_text
+
+
+def test_disk_reader_has_no_fixed_path_buffer(tmp_path):
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "d.bin").write_bytes(b"x")
+    c_text = _emit_disk_c("arca", [("d.bin", assets / "d.bin")])
+    assert "char path[1024]" not in c_text
+    assert "malloc(need)" in c_text
+
+
+@requires_cc
+@requires_runtime
+def test_end_to_end_embedded_nul_bytes_preserved(tmp_path):
+    """`arca.string()` must not truncate at embedded NUL bytes."""
+    assets_dir = tmp_path / "assets"
+    assets_dir.mkdir()
+    payload = bytes([0x41, 0x00, 0x42, 0x00, 0x01, 0x02, 0xFF])  # 7 bytes, two NULs
+    (assets_dir / "bin.dat").write_bytes(payload)
+
+    source = """import arca
+
+weave main into int:
+    var s as string is calling arca.string with "bin.dat"
+    if s length != 7:
+        return 30
+    var b as slice of byte is calling arca.bytes with "bin.dat"
+    if b length != 7:
+        return 31
+    if (b at 0) != 65:
+        return 32
+    if (b at 1) != 0:
+        return 33
+    if (b at 2) != 66:
+        return 34
+    if (b at 3) != 0:
+        return 35
+    if (b at 6) != 255:
+        return 36
+    return 0
+"""
+    cfg = _make_project(tmp_path, source, embed=True)
+    artifact, _ = PenguBuilder(cfg).compile()
+    res = subprocess.run([artifact], cwd=tmp_path, capture_output=True, text=True)
+    assert res.returncode == 0, f"rc={res.returncode}: {res.stderr}\n{res.stdout}"
+
+
+@requires_cc
+@requires_runtime
+def test_end_to_end_large_asset_incbin(tmp_path, monkeypatch):
+    """>threshold asset is embedded via .incbin and round-trips exactly."""
+    monkeypatch.setenv("PENGU_ASSETS_INCBIN_THRESHOLD", "4096")
+    assets_dir = tmp_path / "assets"
+    assets_dir.mkdir()
+    import hashlib
+    payload = (bytes(range(256)) * 8192)  # 2 MB with every byte value incl. NUL
+    assert len(payload) == 2 * 1024 * 1024
+    (assets_dir / "big.bin").write_bytes(payload)
+
+    source = """import arca
+
+weave main into int:
+    var b as slice of byte is calling arca.bytes with "big.bin"
+    if b length != 2097152:
+        return 40
+    if (b at 0) != 0:
+        return 41
+    if (b at 1) != 1:
+        return 42
+    if (b at 255) != 255:
+        return 43
+    if (b at 256) != 0:
+        return 44
+    var s as string is calling arca.string with "big.bin"
+    if s length != 2097152:
+        return 45
+    return 0
+"""
+    cfg = _make_project(tmp_path, source, embed=True)
+    asset_c = Path(PenguBuilder(cfg).get_build_directory()) / "arca_assets.c"
+    builder = PenguBuilder(cfg)
+    builder.generate_assets(force=True)
+    assert ".incbin" in asset_c.read_text(encoding="utf-8")
+    artifact, _ = builder.compile()
+    res = subprocess.run([artifact], cwd=tmp_path, capture_output=True, text=True)
+    assert res.returncode == 0, f"rc={res.returncode}: {res.stderr}\n{res.stdout}"

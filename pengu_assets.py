@@ -14,6 +14,35 @@ from typing import List, Optional, Tuple, Union
 DEFAULT_MODULE = "arca"
 DEFAULT_ASSETS_DIR = "assets"
 
+# Assets at or above this size are embedded with the assembler's `.incbin`
+# (GCC/Clang/MinGW) instead of a byte array: a 50 MB asset would otherwise
+# expand to ~250 MB of C text and make GCC OOM.  <= this size keeps the portable
+# byte-array form.  Set PENGU_ASSETS_INCBIN_THRESHOLD=0 to force byte arrays.
+INCBIN_THRESHOLD_DEFAULT = 1_000_000  # 1 MB
+
+
+def _incbin_threshold() -> int:
+    """Effective .incbin threshold (env override, 0 disables .incbin)."""
+    raw = os.environ.get("PENGU_ASSETS_INCBIN_THRESHOLD")
+    if raw is None or raw.strip() == "":
+        return INCBIN_THRESHOLD_DEFAULT
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return INCBIN_THRESHOLD_DEFAULT
+
+
+def _incbin_relpath(path: Path, project_root: Optional[Path]) -> str:
+    """Path written into `.incbin`, relative to the compiler's cwd when possible."""
+    rel = str(path)
+    if project_root is not None:
+        try:
+            rel = os.path.relpath(str(path), str(project_root))
+        except ValueError:
+            rel = str(path)
+    return rel.replace(os.sep, "/").replace('"', '\\"')
+
+
 
 def _sanitize_module(module: str) -> str:
     """Sanitizes module name to be a valid C and PenguScript identifier."""
@@ -32,9 +61,12 @@ class AssetConfig:
     module: str = DEFAULT_MODULE
     embed: bool = True
     exclude: List[str] = field(default_factory=list)
+    incbin_threshold: Optional[int] = None
 
     def __post_init__(self):
         self.module = _sanitize_module(self.module or DEFAULT_MODULE)
+        if self.incbin_threshold is None:
+            self.incbin_threshold = _incbin_threshold()
 
 
 def _c_escape(s: str) -> str:
@@ -94,6 +126,7 @@ def _emit_header(module: str) -> str:
 #define {module.upper()}_ASSETS_H
 
 #include <stddef.h>
+#include "pengu_runtime.h"
 
 #ifdef __cplusplus
 extern "C" {{
@@ -103,6 +136,7 @@ int _{module}_count(void);
 char* _{module}_name(int index);
 const void* _{module}_data(const char* name);
 size_t _{module}_size(const char* name);
+PenguString _{module}_string(const char* name);
 
 #ifdef __cplusplus
 }}
@@ -112,12 +146,107 @@ size_t _{module}_size(const char* name);
 """
 
 
-def _emit_embedded_c(module: str, assets: List[Tuple[str, Path]]) -> str:
+def _emit_byte_array(ident: str, data: bytes, indent: str = "") -> List[str]:
+    """Portable C byte-array initializer (with a trailing NUL sentinel)."""
+    out: List[str] = []
+    if data:
+        for i in range(0, len(data), 16):
+            chunk = data[i : i + 16]
+            row = ", ".join(f"0x{b:02X}" for b in chunk)
+            out.append(f"{indent}  {row},")
+    out.append(f"{indent}  0x00,")
+    return out
+
+
+def _emit_asset_blob(
+    ident: str,
+    data: bytes,
+    path: Path,
+    project_root: Optional[Path],
+    incbin_threshold: int,
+) -> Tuple[List[str], str]:
+    """Emits one asset definition; returns (C lines, size expression).
+
+    Large assets use the assembler `.incbin` directive on GCC/Clang/MinGW so the
+    bytes never travel through the C parser; everything else (and MSVC/TCC) uses
+    a portable byte array.  Both branches define ``<ident>_SIZE``.
+    """
+    n = len(data)
+    if incbin_threshold > 0 and n >= incbin_threshold and project_root is not None:
+        rel = _incbin_relpath(path, project_root)
+        lines = [
+            "#if defined(__GNUC__) && !defined(_MSC_VER) && !defined(__TINYC__)",
+            "#  if defined(__APPLE__)",
+            "__asm__(",
+            '  ".section __TEXT,__const\\n"',
+            '  ".p2align 4\\n"',
+            f'  ".globl {ident}\\n"',
+            f'  "{ident}:\\n"',
+            f'  ".incbin \\"{rel}\\"\\n"',
+            '  ".text\\n"',
+            ");",
+            "#  else",
+            "__asm__(",
+            '  ".section .rodata\\n"',
+            '  ".balign 16\\n"',
+            f'  ".globl {ident}\\n"',
+            f'  "{ident}:\\n"',
+            f'  ".incbin \\"{rel}\\"\\n"',
+            '  ".previous\\n"',
+            ");",
+            "#  endif",
+            f"extern const unsigned char {ident}[];",
+            "#else",
+            f"static const unsigned char {ident}[] = {{",
+            *_emit_byte_array(ident, data),
+            "};",
+            "#endif",
+        ]
+        return lines, f"(size_t){n}"
+    lines = [
+        f"static const unsigned char {ident}[] = {{",
+        *_emit_byte_array(ident, data),
+        "};",
+    ]
+    return lines, f"(size_t){n}"
+
+
+def _emit_string_helper(module: str) -> str:
+    """C helper returning an owned, length-exact PenguString for an asset.
+
+    ``string_from_cstr`` stops at the first embedded NUL, which truncates binary
+    assets (PNG/zip/digests).  This copies ``_{module}_size`` bytes into a fresh
+    PenguString, so the length is preserved.
+    """
+    return f"""
+PenguString _{module}_string(const char* name) {{
+    const void* raw = _{module}_data(name);
+    if (!raw) return pengu_string_from_cstr("");
+    size_t n = _{module}_size(name);
+    PenguString s;
+    s.data = (char*)pengu_sigil_alloc((int64_t)n + 1);
+    if (!s.data) {{ s.len = 0; s.is_owned = 1; return s; }}
+    if (n) memcpy(s.data, raw, n);
+    s.data[n] = '\\0';
+    s.len = (int)n;
+    s.is_owned = 1;
+    return s;
+}}
+"""
+
+
+def _emit_embedded_c(
+    module: str,
+    assets: List[Tuple[str, Path]],
+    project_root: Optional[Path] = None,
+    incbin_threshold: int = 0,
+) -> str:
     """Generates C source with static const hex byte arrays for embed=True mode."""
     lines = [
         "/* Auto-generated by 'pengu assets' — DO NOT EDIT. */",
         "/* Mode: embedded (assets compiled into .rodata). */",
         f'#include "{module}_assets.h"',
+        '#include "pengu_runtime.h"',
         "#include <stddef.h>",
         "#include <string.h>",
         "#include <stdbool.h>",
@@ -128,24 +257,20 @@ def _emit_embedded_c(module: str, assets: List[Tuple[str, Path]]) -> str:
         data = path.read_bytes()
         ident = _c_ident(name)
         lines.append(f"/* {name} ({len(data)} bytes) */")
-        lines.append(f"static const unsigned char {ident}[] = {{")
-        if data:
-            for i in range(0, len(data), 16):
-                chunk = data[i : i + 16]
-                row = ", ".join(f"0x{b:02X}" for b in chunk)
-                lines.append(f"  {row},")
-        lines.append("  0x00,")
-        lines.append("};")
+        blob_lines, size_expr = _emit_asset_blob(
+            ident, data, path, project_root, incbin_threshold
+        )
+        lines.extend(blob_lines)
         lines.append("")
-        entries.append((name, ident, len(data)))
+        entries.append((name, ident, size_expr))
 
     lines.append(f"typedef struct {{ const char* name; const void* data; size_t size; }} _{module.capitalize()}AssetEntry;")
     lines.append(f"static const _{module.capitalize()}AssetEntry _{module}_assets[] = {{")
     if not entries:
         lines.append("  { NULL, NULL, 0 },")
     else:
-        for name, ident, size in entries:
-            lines.append(f'  {{ "{_c_escape(name)}", {ident}, (size_t){size} }},')
+        for name, ident, size_expr in entries:
+            lines.append(f'  {{ "{_c_escape(name)}", {ident}, {size_expr} }},')
     lines.append("};")
     lines.append("")
 
@@ -178,7 +303,7 @@ size_t _{module}_size(const char* name) {{
     }}
     return 0;
 }}
-""")
+{_emit_string_helper(module)}""")
     return "\n".join(lines)
 
 
@@ -192,6 +317,7 @@ def _emit_disk_c(module: str, assets: List[Tuple[str, Path]], assets_dir_name: s
     return f"""/* Auto-generated by 'pengu assets' — DO NOT EDIT. */
 /* Mode: disk (assets read at runtime from the `{assets_dir_name}/` directory). */
 #include "{module}_assets.h"
+#include "pengu_runtime.h"
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -241,9 +367,13 @@ static void _{module}_load(const char* name) {{
     if (!e) e = _{module}_insert(name);
     if (!e || e->attempted) return;
     e->attempted = 1;
-    char path[1024];
-    snprintf(path, sizeof(path), "%s/%s", _{module}_dir(), name);
+    const char* dir = _{module}_dir();
+    size_t need = strlen(dir) + 1 + strlen(name) + 1;
+    char* path = (char*)malloc(need);
+    if (!path) return;
+    snprintf(path, need, "%s/%s", dir, name);
     FILE* f = fopen(path, "rb");
+    free(path);
     if (!f) return;
     if (fseek(f, 0, SEEK_END) != 0) {{ fclose(f); return; }}
     long sz = ftell(f);
@@ -278,7 +408,7 @@ size_t _{module}_size(const char* name) {{
     _{module.capitalize()}CacheEntry* e = _{module}_find(name);
     return e ? e->size : 0;
 }}
-"""
+{_emit_string_helper(module)}"""
 
 
 def _emit_interface(module: str, names: List[str], assets_dir_name: str = DEFAULT_ASSETS_DIR) -> str:
@@ -302,6 +432,7 @@ declare _{module}_count into int
 declare _{module}_name with index as int into ref to char
 declare _{module}_data with name as ref to frozen char into ref to frozen void
 declare _{module}_size with name as ref to frozen char into usize
+declare _{module}_string with name as ref to frozen char into string
 
 ## Returns the number of embedded assets.
 weave count into int:
@@ -346,12 +477,12 @@ weave bytes with name as string into slice of byte:
     let sz as usize is calling size with name
     return calling ffi.slice_from_ptr of byte with (transmute p to ref to void), (sz to int)
 
-## Returns the asset content as an owned string, or "" if not found.
+## Returns the asset content as an owned string, or "" if not found. Embedded
+## NUL bytes are preserved (the length is the exact byte count, not strlen).
 weave string with name as string into string:
-    let p as ref to frozen void is calling ptr with name
-    if (transmute p to usize) == 0:
-        return ""
-    return calling ffi.string_from_cstr with (transmute p to ref to char)
+    let c as ref to char is calling ffi.cstr_from_string with name
+    defer calling ffi.cstr_free with c
+    return calling _{module}_string with (transmute c to ref to frozen char)
 '''
 
 
@@ -377,10 +508,21 @@ def generate(cfg: AssetConfig, force: bool = False) -> Optional[dict]:
     assets_dir_name = cfg.assets_dir.name or DEFAULT_ASSETS_DIR
     interface_text = _emit_interface(cfg.module, names, assets_dir_name)
     header_text = _emit_header(cfg.module)
-    c_text = _emit_embedded_c(cfg.module, assets) if cfg.embed else _emit_disk_c(cfg.module, assets, assets_dir_name)
+    if cfg.embed:
+        c_text = _emit_embedded_c(
+            cfg.module, assets,
+            project_root=cfg.project_root,
+            incbin_threshold=getattr(cfg, "incbin_threshold", 0) or 0,
+        )
+    else:
+        c_text = _emit_disk_c(cfg.module, assets, assets_dir_name)
 
     h = hashlib.sha256()
     h.update(f"embed={cfg.embed}\0module={cfg.module}\0".encode("utf-8"))
+    if cfg.embed:
+        # The .incbin threshold changes the emitted C, so it must invalidate the
+        # cached generated sources.
+        h.update(f"incbin={getattr(cfg, 'incbin_threshold', 0) or 0}\0".encode("utf-8"))
     for name, path in assets:
         h.update(name.encode("utf-8"))
         h.update(b"\0")

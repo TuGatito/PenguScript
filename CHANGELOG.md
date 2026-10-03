@@ -2,6 +2,29 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [Unreleased] — FASE 3: Tooling de Producción
+
+### 🐛 Fixed — 3.4 Assets grandes en `arca`
+
+- **3.4.a/b/c — Emisión `.incbin` para assets grandes.** Los assets cuyo tamaño
+  alcanza `PENGU_ASSETS_INCBIN_THRESHOLD` (1 MB por defecto; `0` desactiva;
+  también vía `PENGU_ASSETS_INCBIN_THRESHOLD`) se incrustan con la directiva
+  `.incbin` del ensamblador en GCC/Clang/MinGW, evitando la expansión ~5× a
+  texto C que hacía OOM a GCC con assets de decenas de MB. MSVC y TCC siguen
+  usando el array de bytes portable (`#if defined(__GNUC__) && ...`).
+- **3.4.d — `arca.string()` preserva bytes NUL embebidos.** Nuevo helper C
+  `_{module}_string` que construye un `PenguString` propietario con longitud
+  exacta (`memcpy` del tamaño conocido) en lugar de pasar por
+  `ffi.string_from_cstr` (que truncaba en el primer `\0`). `arca.bytes()`
+  ya era correcto; ahora `arca.string()` también.
+- **3.4.e — Rutas largas en modo disco.** `_{module}_load` ya no trunca en un
+  buffer fijo de 1024 bytes: reserva la ruta con `malloc` + `snprintf`.
+- El digest de `pengu assets` incluye el threshold de `.incbin`, de modo que
+  cambiarlo regenera `build/<module>_assets.c` en vez de reutilizar el cache.
+- Tests: umbral on/off y override por entorno, helper de longitud exacta,
+  ausencia de buffer fijo, round-trip E2E de NULs embebidos y de un asset de
+  2 MB con `.incbin` y todo el rango de bytes.
+
 ## [0.16.0] - 2026-10-02
 
 ### Added & Changed — FASE 1 & FASE 1.5 Language Core & Semantics
