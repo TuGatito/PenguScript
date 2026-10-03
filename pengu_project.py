@@ -4879,15 +4879,20 @@ def main():
     """Main execution entry point."""
     parser = create_cli_parser()
     # parse_known_args (instead of parse_args) lets 'pengu run script.pengu'
-    # forward *unknown* arguments to the script while still honouring the
-    # documented flags that follow the script path -- something a REMAINDER
-    # positional would swallow.
+    # forward *unknown* arguments to the script -- the `run` subparser declares
+    # no REMAINDER positional, so everything after the script path arrives here.
+    #
+    # Everywhere else an unrecognised argument is a user error (a typo such as
+    # '--strictc99' for '--strict-c99' silently disabling a guarantee is the
+    # exact failure this guards against), so it is rejected with rc=2.
     args, unknown = parser.parse_known_args()
     if getattr(args, "no_color", False) or os.environ.get("NO_COLOR"):
         os.environ["NO_COLOR"] = "1"
     if getattr(args, "command", None) == "run" and getattr(args, "script", None):
         forwarded = list(getattr(args, "script_args", None) or []) + list(unknown)
         setattr(args, "script_args", forwarded)
+    elif unknown:
+        parser.error(f"unrecognized arguments: {' '.join(unknown)}")
 
     if args.command == "init":
         links_list = [i.strip() for i in args.links.split(",") if i.strip()] if args.links else []
