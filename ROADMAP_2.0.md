@@ -74,6 +74,46 @@ tocar una sola línea de lógica** y sin romper ningún import, test ni workflow
 | 0.9 | Añadir `docs/` con un índice que apunte a los documentos vivos | `docs/README.md` | S | El índice lista cada documento de la raíz con una frase de propósito y su estado (vivo/histórico) |
 | 0.10 | Etiquetar los 105 bloques `pengu` de `LANGUAGE.md` como `pengu` (completo) o `pengu-fragment` (fragmento) | `LANGUAGE.md`, `LANGUAGE_Spanish.md`, `CHEATSHEET.md` | M | Un script cuenta: `pengu` completos ≥ 40; los que hoy fallan por ser fragmentos quedan fuera del gate de CI de §13.1 |
 
+### Estado de ejecución — Fase 0 COMPLETADA
+
+Ejecutada contra `0.16.0` (commits `f74fc23`, `5791872` y el commit de Fase 0/C+D). Resultados
+verificados:
+
+| Item | Resultado | Evidencia |
+|------|-----------|-----------|
+| 0.1 `pengu_runtime.c` raíz (0 bytes) | ✅ **eliminado** | `git rm`; `build_runtime.py:1174` sigue usando `pengu_parser/pengu_runtime.c` |
+| 0.2 7 documentos de proceso → `docs/archive/` | ✅ **movidos** con `git mv` + `docs/archive/README.md` | `ls *.md` en la raíz: 23 → 14 |
+| 0.3 `__pycache__` / `.pytest_cache` | ✅ **eliminados** (5 `__pycache__` propios + `.pytest_cache`) | `find . -name __pycache__ -not -path './extern/*'` → 0 |
+| 0.4 `PENGU_BUILD.md` → `docs/` | ✅ **movido**; 8 referencias de `README.md` actualizadas, 2 tablas y 2 árboles realineados | 132 enlaces relativos verificados, 0 rotos |
+| 0.4b `README_RELEASE.md` | ⚠️ **hallazgo no previsto**: es **generado** por `make_release.py:746` en la raíz en cada release. Movido a `docs/` **y el generador redirigido**; `.gitignore` ancla `/README_RELEASE.md` para que un checkout viejo no ensucie el árbol | `make_release.py:746-753` |
+| 0.5 `c_bind_stubs/` | ❌ **REFUTADA mi propia recomendación**: está **en uso activo** y **ya tiene** `README.md`. Se conserva sin cambios | `pengu_bind.py:197,1061-1073`, `make_release.py:332`, `CHEATSHEET.md:64,2339,2575`, `tests/test_modules_bindings.py:987` |
+| 0.6 `pengu_dce.py` shim | ✅ conservado; era un shim deliberado, no código muerto | `tests/test_dce_tcc_pch.py:12` |
+| 0.7 `scratch/`, `tests_std/`, `pengu_runtime_original.h` | ✅ confirmado que **no existen** | — |
+| 0.8 `.gitignore` | ✅ ampliado (+30 líneas justificadas), verificado que **nada rastreado queda ignorado** | `git ls-files -i -c --exclude-from=.gitignore` → vacío |
+| 0.9 `docs/README.md` (índice) | ✅ creado, más `docs/archive/README.md` | 132 enlaces relativos resuelven |
+| 0.10 etiquetar 274 bloques `pengu` | ⏸️ **DIFERIDO a la Fase 7** — ver nota abajo | — |
+
+**Items de código muerto (Bloque C) — alcance revisado:**
+
+| Item | Resultado |
+|------|-----------|
+| `pengu_bind.py:main()` | ⚠️ **REFUTADA mi etiqueta de "código muerto"**: es un entry point **funcional** (`python pengu_bind.py header.h`, con `if __name__ == "__main__"`). No se toca. Su duplicación de argparse se reasigna a la Fase 1 (item 1.12) |
+| `undefined name` ×3 (`Set`, `Tree`, `ParseError`) | ✅ resueltos con `TYPE_CHECKING` / imports reales |
+| `f-string is missing placeholders` ×6 | ✅ resueltos (prefijo `f` eliminado; contenido idéntico) |
+| 13 locales sin usar | ⚠️ **NO se tocaron**: un intento de limpieza mecánica borró 7 usos **vivos** de `base_target` y rompió `pengu_bind.py`. Revertido. Reasignado a la Fase 1 (item 1.13) con un método seguro (AST por ámbito) |
+
+**Corrección de cifras propias:** la cuenta de bloques de `LANGUAGE.md` era 105 por una regex que no
+reconocía un bloque **indentado**; con un parser de fences por líneas son **104**, y los que fallan
+**71**, no 72. `AUDIT_1.0.md` §13.1 queda corregido.
+
+**Hallazgo nuevo (no estaba en la auditoría): un test es flaky.**
+`tests/test_string_composition_suite.py::test_string_composition_no_memory_leaks[leak_binary_interp]`
+está marcado `xfail(strict=False)` y **alterna xpass/xfail en ejecuciones aisladas** (medido 3/6
+xpass). La suite completa reportó `2 xfailed, 1 xpassed` una vez y `3 xfailed` otra. No rompe CI
+(`strict=False`) pero hace que el resumen de la suite **no sea reproducible**. Incorporado como item
+**1.14** de la Fase 1. Mi afirmación en `AUDIT_1.0.md` §11.4 ("no se observó ningún test flaky") se
+basaba en dos ejecuciones y **era una verificación insuficiente**.
+
 ### Criterio de "done" de la fase
 
 - [ ] `pytest tests/ -q` → mismas cifras exactas que antes de la fase (2074 passed, 12 skipped,
@@ -121,6 +161,10 @@ errores silenciosos o falsos verdes: B1, B2, B3, B6, B7.
 | 1.9 | Falso positivo: `while true: return 1` no debe dar `E0020` | `pengu_checker.py:5366` (`_check_weave_decl`) | S | `weave f into int: while true: return 1` compila; se sigue avisando de un `while` que puede no ejecutarse |
 | 1.10 | Mensaje útil para `E0013` cuando `fields` está vacío (el `note` dice `fields are: .`) | `pengu_infer.py:1469-1478` | S | Si `fields` está vacío, el mensaje dice "the type's definition could not be resolved from module X" en vez de mostrar una lista vacía |
 | 1.11 | Registro de las suposiciones falsas del encargo como tests anti-regresión | `tests/test_audit_regressions.py` (nuevo) | S | Los 14 ❌ REFUTADO de AUDIT §18.2 tienen un test que documenta el comportamiento real |
+| 1.12 | Eliminar la duplicación de CLI en `pengu_bind.py`: hacer que su `main()` construya el parser desde `pengu_project.create_cli_parser()` en vez de redefinir 13 flags | `pengu_bind.py:1567-1617`, `pengu_project.py:4509` | M | `python pengu_bind.py <header>` sigue funcionando con los mismos flags; un solo `--help` para el subcomando `bind`; test de contrato comparando ambos parsers |
+| 1.13 | Retirar los 13 locales sin usar **con un método seguro** (análisis AST por ámbito, o `ruff --select F841 --fix`) | `pengu_checker.py`, `pengu_codegen.py`, `pengu_lsp/server.py`, `pengu_bind.py` | M | `pyflakes \| grep -c "assigned to but never used"` → 0 **y** la suite completa verde. Un intento mecánico previo borró 7 usos vivos de `base_target`; no repetirlo |
+| 1.14 | Hacer **determinista** el test flaky de leak (alterna xpass/xfail en aislamiento) | `tests/test_string_composition_suite.py:72`, `tests/conftest.py` (`leakcheck_usable`) | M | Dos ejecuciones consecutivas de la suite completa reportan **la misma** tupla `(passed, skipped, xfailed, xpassed)`. Nótese que el item **8.17** solo exige `0 xpassed`; este item exige además **reproducibilidad** |
+
 
 ### Criterio de "done" de la fase
 
@@ -513,7 +557,7 @@ Cerrar el agujero de cobertura que permitió que 11 bloqueantes convivieran con 
 | 8.14 | `codeql.yml` | `.github/workflows/codeql.yml` (nuevo) | S | CodeQL analiza Python y C; 0 alertas de severidad alta |
 | 8.15 | Fijar las actions a SHA de commit | todos los `.github/workflows/*.yml` | S | `grep -n "uses:.*@v[0-9]" .github/` → 0 |
 | 8.16 | `nightly.yml` con presupuesto realista | `.github/workflows/nightly.yml` (nuevo) | S | Fuzz en shards de ≤6 h por harness (respetando el límite de GitHub) |
-| 8.17 | Arreglar el `xpassed` | `tests/` | S | El test pasa a `xfail(strict=True)` o se desmarca; `pytest -q` reporta 0 xpassed |
+| 8.17 | Arreglar el `xpassed` | `tests/` | S | El test pasa a `xfail(strict=True)` o se desmarca; `pytest -q` reporta 0 xpassed. Complementa al item **1.14**, que además exige que el resultado sea reproducible |
 | 8.18 | `conftest.py`: añadir fixtures de compilación C reutilizables | `tests/conftest.py` | M | Los tests de portabilidad y MSVC usan las mismas fixtures que `:227` |
 
 ### Criterio de "done" de la fase

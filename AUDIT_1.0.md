@@ -78,7 +78,7 @@
 | Clases de error citadas en `LANGUAGE.md` §22.2 que **no existen** | **5** de 59 (`DanglingSliceError`, `DuplicateConstantError`, `AmbiguousStructInitError`, `StaticArrayError`, `ErrorLiteralContextError`) | `grep -rn "<Clase>" --include="*.py"` → **0 referencias** cada una |
 | Entradas del catálogo §22.2 con atribución de clase incorrecta | **5** (`E0014`, `E0018`, `E0020`, `E0045` → `TypeMismatchError` que declara `E0005`; `E0047` → `DuplicateConceptBindingError` que declara `E0052`) | Cruce regex doc vs `setdefault` en `pengu_errors.py` |
 | Códigos emitidos como string crudo sin clase dedicada | **24** de 58 | Comparación de emisiones `code="Exxxx"` vs clases |
-| Ejemplos `pengu` de `LANGUAGE.md` que no pasan `pengu check` | **72** de 105 (69 %) | Bucle real con `pengu check -c <proyecto>` |
+| Ejemplos `pengu` de `LANGUAGE.md` que no pasan `pengu check` | **71** de **104** (68 %) | Bucle real con `pengu check -c <proyecto>`, con un parser de fences por líneas |
 | Afirmaciones documentales refutadas explícitamente en esta auditoría | **23** | Ver §18.1 |
 | Afirmaciones que la documentación **subestima** | **12** | Ver §18.3 |
 | Afirmaciones de **esta propia auditoría** corregidas tras re-verificación | **2** | §9.10 (sintaxis `prototype`) y §1.1 (número de conflictos LALR: 1 → 188) |
@@ -2181,7 +2181,7 @@ API (`tally`, `loom`) y el resto con incidencias menores.
 | Cobertura global | 🟡 No medida (falta `pytest-cov`) | `import pytest_cov` → `ModuleNotFoundError`. No está en `requirements.txt` | 🟡 |
 | Resultado de la suite | ✅ **2074 passed, 12 skipped, 2 xfailed, 1 xpassed** en 910.67 s | `pytest tests/ -q -p no:cacheprovider --timeout=900` | ✅ |
 | Tests que fallan | ✅ **Cero** | — | ✅ |
-| Tests flaky | ✅ **Ninguno observado** | Ver §11.4 | ✅ |
+| Tests flaky | ❌ **Al menos 1** | `test_string_composition_no_memory_leaks[leak_binary_interp]` alterna xpass/xfail (3 de 6 ejecuciones); ver §11.4 | 🟡 |
 | Duplicados | 🟡 Sí, en el patrón | 155 archivos `test_*.py`, varios con solapamiento temático (`test_audit_fixes.py`, `test_audit_v0150_fixes.py`, `test_compiler_bugfixes_v0150.py`, `test_p0_review_fixes.py`, `test_phase5_bugfixes.py`, `test_phase6_bugfixes.py`) | 🟡 |
 | Dependencia de rutas absolutas | ✅ Limpio en tests reales | Los hits de `/home/`/`/tmp/` son literales de **datos esperados** (`test_audit_v0150_fixes.py:936`, `test_result_io_api.py`) o `patch()`, no rutas de ejecución | ✅ |
 | `xfail` sin justificación | ✅ **Todos con `reason`** | 7 `xfail`; `test_string_composition_suite.py:169` documenta explícitamente que el xfail estricto XPASSeará cuando el compilador posea sus temporales | ✅ |
@@ -2290,8 +2290,33 @@ eliminar la dependencia de ese archivo en el tercer paso.
 
 ### §11.4 Tests flaky, falsos positivos y tests mal escritos
 
-**No se observó ningún test flaky** en la ejecución completa de 910 s: 2074 passed de forma
-determinista. Tampoco hay `pytest.mark.skip` sin razón (48 usos, todos con `reason`).
+**❌ CORRECCIÓN: hay al menos un test flaky.** La versión original de esta sección afirmaba que "no
+se observó ningún test flaky" a partir de dos ejecuciones completas. **Esa verificación fue
+insuficiente.** Con 6 ejecuciones aisladas se comprueba que
+
+`tests/test_string_composition_suite.py::test_string_composition_no_memory_leaks[leak_binary_interp]`
+
+**alterna `xpass` y `xfail`**:
+
+```bash
+$ for i in 1 2 3 4 5 6; do
+    pytest "tests/test_string_composition_suite.py::test_string_composition_no_memory_leaks[leak_binary_interp]" -q
+  done
+1 xpassed / 1 xfailed / 1 xfailed / 1 xpassed / 1 xfailed / 1 xpassed
+```
+
+Causa: el marcador es `xfail(strict=False)` (`tests/test_string_composition_suite.py:72`) sobre una
+medición de fugas **no determinista** (con `valgrind` ausente se usa el interposer
+`tests/leakcheck.c`). No rompe CI, porque `strict=False` tolera ambos resultados, pero **el resumen
+de la suite no es reproducible**: la misma revisión puede reportar `2 xfailed, 1 xpassed` o
+`3 xfailed`. Es la razón por la que la línea base de esta auditoría decía `2 xfailed, 1 xpassed` y
+la verificación posterior de la Fase 0 dijo `3 xfailed`.
+
+**Lección de método:** "no observé X en dos ejecuciones" no es evidencia de que X no exista. Los
+hallazgos negativos sobre flakiness requieren **N ejecuciones**, no 2. Se registra como item 1.14
+de `ROADMAP_2.0.md`.
+
+Sí se confirma, en cambio, que no hay `pytest.mark.skip` sin razón (48 usos, todos con `reason`).
 
 **Tests con falso positivo (pasan sin probar lo que dicen):**
 
@@ -2518,19 +2543,28 @@ documentos** viven en la raíz, incluyendo los 4 más grandes del proyecto:
 El procedimiento correcto (que **no** es el del enunciado, ver §6.2) es extraer los bloques
 ` ```pengu ` y comprobarlos por proyecto:
 
+> **Nota de método:** la cuenta de bloques debe hacerse con un **parser de fences por
+> líneas**, no con una regex ```` ```pengu\n(.*?)``` ```` sobre todo el texto. `LANGUAGE.md`
+> contiene al menos un bloque **indentado** (````  ```pengu ````, p. ej. en la línea 679), que la
+> regex simple no reconoce como apertura y que desalinea el conteo. La medición original de esta
+> auditoría dio 105 bloques; con el parser correcto son **104**, y el número de fallos 71, no 72.
+
+
 ```python
 doc = pathlib.Path("LANGUAGE.md").read_text()
 blocks = re.findall(r"```pengu\n(.*?)```", doc, re.S)   # 105 bloques
 # por cada bloque: escribir en <proyecto>/src/main.pengu y ejecutar 'pengu check -c <proyecto>'
 ```
 
-**Resultado:**
+**Resultado (medido con un parser de fences por líneas, que es el correcto):**
 
 ```
-RESULTS: {'ok': 33, 'syntax': 29, 'sem': 43}
+LANGUAGE.md pengu-fenced blocks (correct count): 104
+RESULTS: {'ok': 33, 'syntax': 28, 'sem': 43}
+pass rate: 33/104 = 32%
 ```
 
-**33 de 105 (31 %) pasan**. Los 72 restantes se clasifican así:
+**33 de 104 (32 %) pasan**. Los 71 restantes se clasifican así:
 
 | Clase | Nº | ¿Es un defecto documental? | Ejemplos |
 |-------|----|---------------------------|----------|

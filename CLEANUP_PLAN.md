@@ -758,6 +758,122 @@ Explícitamente fuera de alcance, aunque aparezca en este documento:
 
 ---
 
+## §7.4 Registro de ejecución de la Fase 0
+
+Ejecutada sobre `0.16.0`. **Todo lo de abajo está verificado**, incluido lo que salió mal.
+
+### Bloques ejecutados
+
+| Bloque | Resultado | Commit |
+|--------|-----------|--------|
+| A — Higiene sin riesgo | ✅ `pengu_runtime.c` raíz (0 bytes) eliminado; `CHEATSHEET.md:64` corregido; 5 `__pycache__` + `.pytest_cache` borrados | `f74fc23` |
+| B — Documentación | ✅ 9 documentos movidos con `git mv`; `docs/README.md` + `docs/archive/README.md` creados; `README.md` con 8 referencias, 2 tablas y 2 árboles realineados | `5791872` |
+| C — Código muerto | 🟡 **alcance reducido** (ver §7.5); resueltos 3 `undefined name` y 6 f-strings | este commit |
+| D — `.gitignore` | ✅ +30 líneas justificadas; verificado con `git ls-files -i -c` que **nada rastreado queda ignorado** | este commit |
+| E — Decisiones | ✅ 3 decisiones tomadas, 2 de ellas **refutando recomendaciones de este mismo plan** (ver §7.5) | este commit |
+| F — Cierre | ✅ suite completa: **2074 passed, 12 skipped, 3 xfailed** | este commit |
+
+### Cifras antes / después
+
+| Métrica | Antes | Después |
+|---------|-------|---------|
+| Archivos en la raíz (`*.py *.md *.h *.c *.toml *.yaml *.txt VERSION`) | 43 | **40** |
+| Documentos `.md` en la raíz | 23 | **14** |
+| Archivos rastreados por git | 509 | 513 |
+| `__pycache__` propios (fuera de `extern/`) | 5 | **0** |
+| `.pytest_cache` | 1 | **0** |
+| Hallazgos de pyflakes | 132 | **119** |
+| `undefined name` de pyflakes | 4 (1 real) | **1** (solo el real, diferido a Fase 1) |
+| Enlaces relativos rotos en la documentación | 1 | **0** (de 132 verificados) |
+| Suite de tests | 2074 passed, 12 skipped, 2 xfailed, 1 xpassed | **2074 passed, 12 skipped, 3 xfailed** |
+| `git ls-files -i -c --exclude-from=.gitignore` | vacío | **vacío** (nada rastreado ignorado) |
+
+### §7.5 Dos recomendaciones de este plan que resultaron **equivocadas**
+
+Debe quedar registrado, porque el plan se presentó como verificado y en dos puntos no lo estaba.
+
+**(a) `c_bind_stubs/` — §1.5 recomendaba borrarlo si el `grep` daba 0 referencias. Es falso: está en
+uso activo y ya estaba documentado.**
+
+```bash
+$ grep -rn "c_bind_stubs" --include="*.py" --include="*.yml" --include="*.md" . | grep -v extern | wc -l
+17
+```
+
+Referencias reales: `pengu_bind.py:197` (directorio de stubs por defecto), `pengu_bind.py:1061-1073`
+(localización en checkout y en PyInstaller), `make_release.py:332` (lo empaqueta con `--add-data`),
+`CHEATSHEET.md:64,2339,2575`, `tests/test_modules_bindings.py:987`, y **`c_bind_stubs/README.md`
+ya existía** con el propósito y las instrucciones de extensión. La "Opción B (recomendada)" del
+plan ya estaba satisfecha de antemano. **Decisión: no se toca nada.** El fallo fue de método: la
+§1.5 se escribió con "Referencias: **A verificar**" y aun así se propuso una acción condicional que,
+ejecutada sin verificar, habría borrado un directorio necesario para `pengu bind` y para el release.
+
+**(b) `pengu_bind.py:main()` — §1.4 y §6.2 lo llamaban "código muerto" y proponían eliminarlo. Es un
+entry point funcional.**
+
+Tiene 13 flags, manejo de errores y un `if __name__ == "__main__"` en `:1615`. `python pengu_bind.py
+<header>` funciona. No es código muerto: es una **segunda superficie CLI** para el mismo subcomando,
+que es un problema de duplicación, no de muerte. **Decisión: no se elimina**; la desduplicación se
+reasigna a la Fase 1 del roadmap (item 1.12) por la vía segura —que `main()` construya su parser
+desde `pengu_project.create_cli_parser()`—, que preserva el entry point y elimina la deriva.
+
+**(c) Los 13 locales sin usar — el plan los daba por triviales (`S`). No lo son.**
+
+Un primer intento mecánico (`str.replace` de cada línea) borró **7 usos vivos** de `base_target` en
+`pengu_codegen.py`, **4** de `elem_c`, **3** de `is_cyclus` y **3** de `is_local`, y dejó un `if` con
+el cuerpo vacío en `pengu_bind.py` (`IndentationError`). Se detectó y se revirtió con
+`git checkout --` antes de commitear. **Decisión: no se tocan en la Fase 0**; se reasignan a la Fase
+1 (item 1.13) con un método seguro (análisis AST por ámbito, o `ruff --select F841 --fix`), porque
+cada uno de esos nombres tiene múltiples asignaciones y hay que borrar **una** concreta.
+
+**Lección de método, aplicable al resto del roadmap:** un hallazgo con "0 referencias" o "variable
+sin usar" **no** está verificado hasta que se comprueba la **ocurrencia concreta**, no el nombre.
+Las tres equivocaciones de arriba salieron del mismo atajo.
+
+### §7.6 Hallazgo nuevo, no previsto por el plan
+
+`tests/test_string_composition_suite.py::test_string_composition_no_memory_leaks[leak_binary_interp]`
+(cubierto por `xfail(strict=False)`, `:72`) **alterna xpass y xfail entre ejecuciones aisladas**:
+
+```bash
+$ for i in 1 2 3 4 5 6; do pytest "...::test_string_composition_no_memory_leaks[leak_binary_interp]" -q; done
+1 xpassed / 1 xfailed / 1 xfailed / 1 xpassed / 1 xfailed / 1 xpassed
+```
+
+y la suite completa reportó `2 xfailed, 1 xpassed` en una ejecución y `3 xfailed` en otra. No rompe
+CI (el marcador es `strict=False`), pero hace que **el resumen de la suite no sea reproducible**. El
+plan de limpieza no lo detectó porque no era su alcance; la **auditoría** tampoco, y ahí sí era su
+alcance (`AUDIT_1.0.md` §11.4 afirmaba "no se observó ningún test flaky" a partir de dos
+ejecuciones). Incorporado como item **1.14** de la Fase 1.
+
+### §7.7 Por qué el item 0.10 se difiere a la Fase 7
+
+El item 0.10 pedía etiquetar los bloques de código de `LANGUAGE.md` como `pengu` (completo) o
+`pengu-fragment` (fragmento). Medición real:
+
+| Documento | Bloques con fence `pengu*` |
+|-----------|---------------------------|
+| `LANGUAGE.md` | 99 (más 5 indentados) → **104** con un parser por líneas |
+| `LANGUAGE_Spanish.md` | **99** |
+| `CHEATSHEET.md` | **81** |
+| **Total** | **274** |
+
+No es limpieza de repositorio, es trabajo editorial con tres efectos secundarios:
+1. **Pérdida de resaltado.** El language id de la extensión de VS Code es `pengus`
+   (`vscode-extension/package.json:68-70`), y `pengus.tmLanguage.json:6-7` registra los alias
+   `pengu` **y** `pengus`. Un fence `pengu-fragment` no coincidiría con ningún alias: perdería el
+   resaltado salvo que se edite también la gramática de la extensión.
+2. **Verificación previa obligatoria.** Hay que clasificar 274 bloques (fragmento / completo /
+   marcado "Invalid" / dependiente de un módulo de ejemplo) antes de etiquetar, o se etiquetarán
+   mal. Es exactamente el item **7.4** de la Fase 7 ("re-ejecutar y reparar los 105 bloques").
+3. **Riesgo de reescritura masiva de documentos vivos** en una fase cuyo contrato es "no tocar
+   contenido".
+
+**Decisión:** diferido a la Fase 7, donde ya existe como item 7.4 con la verificación por CI
+asociada. La Fase 0 cierra 0.1–0.9.
+
+---
+
 ## §8. Resumen ejecutivo del plan de limpieza
 
 | Bloque | Duración | Archivos afectados | Riesgo |
