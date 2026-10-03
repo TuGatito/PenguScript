@@ -7,3 +7,8 @@ pyinstaller>=6.0.0
 pytest>=7.0.0
 pytest-timeout>=2.2.0
 tomli>=2.0.0; python_version < '3.11'
+
+# Static analysis for the F821/E9 gate (undefined names are errors).
+# An undefined name can be a compiler crash, not a style issue: blocker B6 was
+# exactly that (`pengu_infer.py` referenced `node` instead of `target_node`).
+ruff>=0.6

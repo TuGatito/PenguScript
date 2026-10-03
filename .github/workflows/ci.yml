@@ -67,9 +67,22 @@ jobs:
         run: |
           python pengu_project.py fmt --check std/
 
+      # Undefined names are compiler crashes, not style. F821 as an ERROR would
+      # have caught blocker B6 (`node` instead of `target_node` in
+      # pengu_infer.py) automatically. E9 covers syntax-level breakage.
+      - name: Lint gate (F821 undefined names are errors)
+        run: |
+          python -m ruff check --select F821,E9 --exclude extern,build,vscode-extension .
+
+      # FASE 1 (compiler correctness). The new suites are the regression tests for
+      # blockers B1/B2/B3/B6/B7 plus the front-end crash sweep; each one was
+      # verified to fail when its fix is reverted.
       - name: Strict grammar & parser validation (FASE 1)
         run: |
-          python -m pytest tests/test_grammar_strict.py tests/test_fase1_e2e.py -q -p no:cacheprovider --timeout=300 -x
+          python -m pytest tests/test_grammar_strict.py tests/test_fase1_e2e.py \
+            tests/test_cli_contract.py tests/test_module_qualified_types.py \
+            tests/test_return_analysis.py tests/test_audit_regressions.py \
+            -q -p no:cacheprovider --timeout=600 -x
 
       - name: C99 portability & ABI gate (FASE 2)
         run: |
