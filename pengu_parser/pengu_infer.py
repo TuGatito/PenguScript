@@ -4052,7 +4052,7 @@ class TypeInferrer:
                                             raise self._make_error(
                                                 PrivateSymbolAccessError,
                                                 f"Symbol '{m_name}' is private to module '{obj_name}'",
-                                                node,
+                                                target_node,
                                                 code="E0043",
                                                 help=f"Rename '{m_name}' without the leading underscore to make it public, or access it from inside module '{obj_name}'.",
                                                 note="Private symbols starting with '_' are not exported."

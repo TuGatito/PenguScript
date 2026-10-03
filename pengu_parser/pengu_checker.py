@@ -957,30 +957,75 @@ class PenguChecker:
                         sub_checker.filename = mod_file
                         sub_checker._collect_top_level(sub_tree, import_order=[])
                         mod_abs_file = os.path.abspath(mod_file)
-                        for sname, sym in sub_checker.symbols.global_scope.symbols.items():
-                            if sym.kind != "import":
-                                sym_fp = getattr(sym, "file_path", None)
-                                if sym_fp and os.path.abspath(sym_fp) != mod_abs_file:
+                        exports = list(sub_checker.symbols.global_scope.symbols.items())
+                        # `_collect_top_level` records declared *types* in the
+                        # type registries (runes/echos/omens/aliases/seals/
+                        # concepts) but only declares non-type symbols in the
+                        # global scope. Building the export list from the scope
+                        # alone therefore dropped every type this module
+                        # declares, and -- because a rune may be inherited from
+                        # its own imports -- every type it re-exports, leaving
+                        # `dep.Vec` with no fields (blocker B7). Types are
+                        # exported explicitly here and the symbol is synthesised
+                        # when the registry has no matching scope entry.
+                        _scope_names = {n for n, _ in exports}
+                        for _reg_name, _reg in (
+                            ("rune", sub_checker.symbols.runes),
+                            ("echo", sub_checker.symbols.echos),
+                            ("omen", sub_checker.symbols.omens),
+                            ("concept", sub_checker.symbols.concepts),
+                        ):
+                            for _tname, _ttype in _reg.items():
+                                if _tname in _scope_names or _tname.startswith("_"):
                                     continue
-                                mod_scope.define(sym)
-                                eff_c_name = sym.get_c_name()
-                                if sym.kind in ("weave", "function", "declare") and isinstance(sym.type, FnType):
-                                    self.symbols.functions[f"{bind_name}_{sname}"] = sym.type
-                                    self.symbols.functions[eff_c_name] = sym.type
-                                if sym.kind == "rune" and isinstance(sym.type, RuneType):
-                                    self.symbols.runes[f"{bind_name}_{sname}"] = sym.type
-                                    self.symbols.runes[eff_c_name] = sym.type
-                                if sym.kind == "const":
-                                    cval = getattr(sym, "const_val", None)
-                                    src_path = getattr(sym, "file_path", None) or mod_file
-                                    self.symbols.consts[f"{bind_name}_{sname}"] = (sym.type, cval)
-                                    self.symbols.consts[eff_c_name] = (sym.type, cval)
-                                    self.const_definitions.setdefault(sname, []).append((cval, src_path))
-                                if sym.kind == "alias" and isinstance(sym.type, AliasType):
-                                    self.symbols.aliases[f"{bind_name}_{sname}"] = sym.type.target
-                                    self.symbols.aliases[eff_c_name] = sym.type.target
-                                    self.symbols.aliases[sname] = sym.type.target
-                                    self.symbols.global_scope.define(sym)
+                                exports.append((_tname, Symbol(
+                                    name=_tname, type=_ttype, kind=_reg_name, is_public=True,
+                                    file_path=mod_file, c_name=getattr(_ttype, "c_name", None) or _tname,
+                                )))
+                        for _aname, _atype in sub_checker.symbols.aliases.items():
+                            if _aname in _scope_names or _aname.startswith("_"):
+                                continue
+                            exports.append((_aname, Symbol(
+                                name=_aname, type=AliasType(_aname, _atype), kind="alias", is_public=True,
+                                file_path=mod_file, c_name=_aname,
+                            )))
+                        for sname, sym in exports:
+                            if sym.kind == "import":
+                                continue
+                            # The module scope is the *complete* set of names the
+                            # module declares, private ones included: `E0043`
+                            # (private symbol access) can only be raised by the
+                            # consumer if the symbol is actually present here.
+                            # Filtering visibility at export time silently turned
+                            # `lib._secret` into an undefined identifier instead
+                            # of the documented diagnostic (B6).
+                            #
+                            # Re-export is intentional: a module that imports a
+                            # type makes it reachable as `<module>.<Type>`. The
+                            # old filter dropped any symbol whose file_path was
+                            # not this module's own file, which removed every
+                            # re-exported type (B7). The qualified lookup only
+                            # consults modules the caller actually imported, so
+                            # `lib.Vec` stays unreachable without `import lib`.
+                            mod_scope.define(sym)
+                            eff_c_name = sym.get_c_name()
+                            if sym.kind in ("weave", "function", "declare") and isinstance(sym.type, FnType):
+                                self.symbols.functions[f"{bind_name}_{sname}"] = sym.type
+                                self.symbols.functions[eff_c_name] = sym.type
+                            if sym.kind == "rune" and isinstance(sym.type, RuneType):
+                                self.symbols.runes[f"{bind_name}_{sname}"] = sym.type
+                                self.symbols.runes[eff_c_name] = sym.type
+                            if sym.kind == "const":
+                                cval = getattr(sym, "const_val", None)
+                                src_path = getattr(sym, "file_path", None) or mod_file
+                                self.symbols.consts[f"{bind_name}_{sname}"] = (sym.type, cval)
+                                self.symbols.consts[eff_c_name] = (sym.type, cval)
+                                self.const_definitions.setdefault(sname, []).append((cval, src_path))
+                            if sym.kind == "alias" and isinstance(sym.type, AliasType):
+                                self.symbols.aliases[f"{bind_name}_{sname}"] = sym.type.target
+                                self.symbols.aliases[eff_c_name] = sym.type.target
+                                self.symbols.aliases[sname] = sym.type.target
+                                self.symbols.global_scope.define(sym)
                         for gname, ginfo in sub_checker.symbols.generic_functions.items():
                             self.symbols.generic_functions[gname] = ginfo
                             self.symbols.generic_functions[f"{bind_name}_{gname}"] = ginfo
