@@ -2799,14 +2799,20 @@ Linux/macOS el TCC se compila desde fuentes (sin descarga), pero la ruta prebuil
 
 **Fix propuesto:** fijar un digest por defecto como constante y fallar duro si no coincide.
 
-### §14.3 Hallazgo BLD3 — 🟡 Sin análisis estático de seguridad en el build
+### §14.3 Hallazgo BLD3 — 🟡 Sin análisis estático de **seguridad** en el build
 
 ```bash
 $ grep -rn "codeql\|scorecard\|semgrep\|trivy\|snyk" .github/
 (vacío)
 ```
 
-5 workflows, **0 pasos de SAST/SCA**. Además todas las actions están fijadas a tags mutables
+**Precisión (Fase 1):** lo que falta es SAST/SCA de **seguridad** (CodeQL, semgrep, trivy, Snyk).
+Afirmar "0 análisis estático" era impreciso: `ci.yml` tiene 10 gates que ejecutan tests estáticos y
+en la Fase 1 se añadió `ruff check --select F821,E9`, que **sí** es análisis estático (y encontró dos
+violaciones reales en `tests/conftest.py`). El hueco concreto es el de seguridad y cadena de
+suministro.
+
+Además todas las actions están fijadas a tags mutables
 (`actions/checkout@v4`, `cache@v4`, `upload-artifact@v4`, `download-artifact@v4`, `setup-node@v4`,
 `setup-python@v5`), no a SHAs — lo que es en sí mismo un vector de cadena de suministro.
 
@@ -2861,15 +2867,44 @@ que exista el literal `v*` en los triggers, así que **no puede detectar este pr
 
 ## §15. CI/CD (`.github/workflows/`, `.github/actions/`, `.github/dependabot.yml`)
 
-> **Veredicto:** 🟠 **con problemas graves** — los 5 workflows están genuinamente mejorados
-> (permissions granulares, caché de runtime, matriz de 3 SO, sanitizers, fuzz) y hay una auditoría
-> previa honesta. Pero **tres gates pasan en verde sobre código roto** (§0.5), no existe MSVC, no
-> existe análisis estático, y el traspaso tag→release no funciona como el comentario afirma.
+> **Veredicto:** 🟠 **con problemas graves** — corregido en la Fase 1: el CI está **mucho más
+> completo de lo que esta sección describía originalmente**. `ci.yml` tiene **gates nombrados por
+> fase** (FASE 1…FASE 7), una matriz de ABI que **compila y ejecuta** C, y un gate que testea los
+> propios workflows. El problema real no es la falta de gates sino la **calidad** de algunos de
+> ellos: varios aprueban una propiedad inspeccionando texto (§0.5) y el gate llamado "Strict
+> grammar" era vacuo por construcción.
+
+> **❌ CORRECCIÓN (Fase 1).** La versión original de esta sección afirmaba *"no existe análisis
+> estático"* y describía un CI de 5 workflows sin gates por fase. **Ambas cosas eran imprecisas.**
+> `ci.yml` contiene, entre otros:
+>
+> | Gate | Qué ejecuta | ¿Real? |
+> |------|-------------|--------|
+> | Toolchain smoke test | `python scripts/smoke.py` | ✅ |
+> | Standard library formatting gate | `python pengu_project.py fmt --check std/` | ✅ (verificado: rc=0) |
+> | Strict grammar & parser validation (FASE 1) | `test_grammar_strict.py`, `test_fase1_e2e.py` | 🟡 **era vacuo** — ver B11 |
+> | C99 portability & ABI gate (FASE 2) | `test_c99_portability.py`, `test_attributes_msvc.py`, `test_abi_layout.py`, `test_bounds_flag_independence.py` | 🟡 parcial (solo texto/`_PROG`) |
+> | Tooling gate (FASE 3) | 9 archivos de test (bind, assets, JSON, LSP, fmt, doc, cross-compile) | ✅ |
+> | Ecosystem gate (FASE 4) | 9 archivos (semver, lockfile, deps, vendor, manifest, templates) | ✅ |
+> | Safety & supply-chain gate (FASE 5) | 7 archivos (bounds, overflow, deprecation, supply-chain, hardening, fuzz) | ✅ |
+> | **ABI layout matrix** (Phase 5 / 5.7.f) | **compila** `tests/abi/test_abi_layout.c` con `-Wall -Wextra` y lo **ejecuta** | ✅ **compila y ejecuta** |
+> | DX gate (FASE 6) | `test_phase6_bugfixes.py`, `test_benchmarks.py`, `test_phase6_scope.py` | ✅ |
+> | CI/CD gate (FASE 7) | `test_ci_workflows.py` (49 invariantes) | ✅ |
+> | Run full test suite | `pytest tests` | ✅ |
+>
+> Es decir: **sí existe** infraestructura de gates, y una de ellas ya cumple la regla C1 (la matriz
+> de ABI compila y ejecuta). Lo que faltaba era un gate para nombres no definidos —que es un crash,
+> no un estilo— y un gate de gramática que realmente midiera algo. Ambos se añadieron en la Fase 1.
 
 | Aspecto | Estado | Evidencia | Severidad |
 |---------|--------|-----------|-----------|
 | Los 5 workflows "mejorados" funcionan | 🟡 4 sí, `sanitizers` rojo | §11.3; los otros 4 corren | 🟠 |
 | `permissions` declarados | ✅ Mejorados y granulares | Aplicado en el commit `8967d6f` | ✅ |
+| Gates nombrados por fase en `ci.yml` | ✅ **Existen** (FASE 1–7 + matriz ABI) | ❌ REFUTADO que faltaran | ✅ |
+| Gate que **compila y ejecuta** C | ✅ **Matriz de ABI** (`tests/abi/test_abi_layout.c`) | `ci.yml` paso "ABI layout matrix" | ✅ |
+| Gate real de estrictez del grammar | 🟡 **Era vacuo**; corregido en Fase 1 | `assert len(recorded) == 0`; medido: 0 warnings con 188 conflictos | 🟠 |
+| Gate de análisis estático (nombres no definidos) | ❌ Ausente; **añadido en Fase 1** | `ruff check --select F821,E9`; encontró 2 violaciones reales en `tests/conftest.py` | ✅ (Fase 1) |
+| Gate que testea los propios workflows | ✅ `tests/test_ci_workflows.py` (49 invariantes) | — | ✅ |
 | `msvc.yml` | ❌ **Ausente** | 0 usos de `cl.exe`; `ci.yml:96-97` hardcodea `CC_BIN="gcc"` en Windows | 🟠 |
 | `tcc.yml` | ❌ Ausente | Cubierto solo por `test_c99_portability.py` sobre `_PROG` sin imports | 🟠 |
 | `compliance.yml` | ❌ Ausente | No hay corpus canónico del que hablar (§11.2) | 🟠 |
