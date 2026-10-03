@@ -3477,6 +3477,79 @@ set acc is "{acc}b"
 
 ---
 
+---
+
+## 23. Deprecation & Stability Policy
+
+PenguScript follows strict [Semantic Versioning](https://semver.org): a version
+is `MAJOR.MINOR.PATCH`, where `MAJOR` may break source compatibility, `MINOR`
+adds backwards-compatible functionality (and may deprecate), and `PATCH` only
+fixes bugs. From 1.0.0 onwards the rules below are binding.
+
+### 23.1 What may change in a minor release
+
+- **Additions** are always allowed: new weaves, new runes, new modules, new
+  optional parameters with defaults, new warning codes.
+- **Behaviour changes** in the standard library are allowed only when they fix
+  a bug, and are called out in `CHANGELOG.md` under the affected module.
+- **Removals and signature changes** are *never* allowed in a minor release.
+
+### 23.2 Deprecating a symbol
+
+Mark the symbol with the `@deprecated("reason")` attribute:
+
+```pengu
+## Reads a file. Prefer read_file_result for the failure cause.
+## @deprecated use read_file_result to distinguish the failure cause
+@deprecated("use read_file_result to distinguish the failure cause")
+weave read_file_legacy with path as string into maybe string:
+    return calling read_file with path
+```
+
+Using a deprecated symbol anywhere (call, type reference, field access, or
+signature) emits the warning `[W0006]`:
+
+```
+main.pengu:4:0 [W0006] Symbol 'read_file_legacy' is deprecated: use read_file_result ...
+```
+
+`@deprecated` is supported on `weave`, `declare`, `rune` and their fields.
+
+### 23.3 The two-release rule
+
+A deprecated symbol must remain **fully functional for at least two minor releases**
+before it can be removed. The recommended sequence is:
+
+| Release | Action |
+|---|---|
+| `1.4.0` | Add the replacement; mark the old symbol `@deprecated("use <new> instead")`. |
+| `1.5.0` | Keep both; the changelog repeats the migration note. |
+| `1.6.0` | May remove the symbol — this is the first release where removal is legal. |
+
+Removal before the two-release window is a breaking change and requires a
+`MAJOR` bump.
+
+### 23.4 Enforcing deprecation in CI
+
+`--deny-deprecated` promotes every `[W0006]` to an error and exits non-zero, so a
+project can adopt a stricter policy than the compiler default:
+
+```bash
+pengu check --deny-deprecated        # warnings become errors
+pengu build --deny-deprecated        # build fails on deprecated use
+```
+
+Warnings are always reported: `pengu check` prints them (and counts them in the
+summary), and `pengu check --json` emits them as diagnostics with
+`"severity": "warning"`. Only warnings that a project explicitly denies become
+errors.
+
+### 23.5 Stability of the standard library
+
+The standard library is versioned **together with the compiler** in the 1.x
+series (see §19.0). A `MAJOR` bump is therefore the only place where a module can
+be restructured; module renames are handled with the deprecation rules above.
+
 *End of reference. Corrections welcome — this document mirrors compiler
 behavior at version 0.14.x; run `pengu check` on any snippet to confirm
 semantics on your toolchain.*

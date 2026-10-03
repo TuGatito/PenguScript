@@ -915,7 +915,7 @@ weave main into int:
     def test_error_outside_or_block_fails(self):
         expect_error(
             "weave main into void:\n  let err is error\n",
-            contains=["E0015", "'error' is only available inside 'or:'"],
+            contains=["E0058", "'error' is only available inside 'or:'"],
         )
 
     def test_or_else_type_mismatch_fails(self):
@@ -2572,7 +2572,7 @@ E_CODE_CASES = [
         "rune Point:\n  x as int\n\nweave main into void:\n  let p as Point is with x is 10\n  let z is p.z",
     ),
     ("E0014", "weave main into void:\n  let x is maybe none"),
-    ("E0015", "weave main into void:\n  let e is error"),
+    ("E0058", "weave main into void:\n  let e is error"),
     ("E0016", "weave main into void:\n  let key is KEY_W"),
     (
         "E0017",
@@ -2939,6 +2939,27 @@ weave main into int:
         assert "Token(" not in c
 
 
+
+# Roadmap 5.2 made bounds checks unconditional, so every `at` access is emitted
+# wrapped in a GNU statement expression that calls pengu_assert_bounds.  These
+# emission-shape assertions care about the *access* shape, so strip the wrapper
+# and the extra parentheses it introduces.
+_BOUNDS_WRAPPER_RE = re.compile(
+    r"\(__extension__\(\{\s*__auto_type\s+\w+\s*=\s*\((.*?)\);\s*"
+    r"pengu_assert_bounds\(.*?\);\s*\w+;\s*\}\)\)",
+    re.DOTALL,
+)
+
+
+def strip_bounds_checks(c: str) -> str:
+    """Removes emitted bounds-check wrappers from generated C."""
+    prev = None
+    while prev != c:
+        prev = c
+        c = _BOUNDS_WRAPPER_RE.sub(r"\1", c)
+    return re.sub(r"\[\(([^()]*)\)\]", r"[\1]", c)
+
+
 class TestCodegenEmissionArraysSlices:
     def test_collection_emission_shapes(self):
         c = gen_bundle(
@@ -2956,7 +2977,7 @@ class TestCodegenEmissionArraysSlices:
 """
         )
         assert "int32_t arr[10] = {0};" in c
-        assert "arr[0] = 99;" in c
+        assert "arr[0] = 99;" in strip_bounds_checks(c)
         assert "PenguSlice part = pengu_slice_new" in c
         assert "const int32_t n = part.len;" in c
         assert "PenguList evens = " in c
@@ -3007,13 +3028,16 @@ class TestCodegenEmissionArraysSlices:
         # Range counters follow the inferred bound type (roadmap 0.11): 'int'
         # bounds keep int32_t, only a 64-bit bound promotes to int64_t.
         assert "for (int32_t i = 0; i < 5; i++) {" in c
-        assert "arr[i] = ((arr[i]) * 2);" in c
+        assert "arr[i] = ((arr[i]) * 2);" in strip_bounds_checks(c)
         assert "for (int32_t i = 0; i < part.len; i++) {" in c
-        assert "(((int32_t *)(part).data)[i]) = (((((int32_t *)(part).data)[i])) + 10);" in c
-        assert "for (int32_t _idx_1 = 0; _idx_1 < 5; _idx_1++) {" in c
-        assert "int32_t num = (arr)[_idx_1];" in c
+        assert "(((int32_t *)(part).data)[i]) = (((((int32_t *)(part).data)[i])) + 10);" in strip_bounds_checks(c)
+        # The temp-name counter is shared, so the exact _idx_N suffix is an
+        # implementation detail; assert the loop shape and the element access.
+        _norm = strip_bounds_checks(c)
+        assert re.search(r"for \(int32_t _idx_\d+ = 0; _idx_\d+ < 5; _idx_\d+\+\+\) \{", _norm)
+        assert re.search(r"int32_t num = \(arr\)\[_idx_\d+\];", _norm)
         assert "for (int32_t i = 0; i < lst.len; i++) {" in c
-        assert "(*(int32_t *)pengu_list_at(&(lst), i)) = (((*(int32_t *)pengu_list_at(&(lst), i))) + 100);" in c
+        assert "(*(int32_t *)pengu_list_at(&(lst), i)) = (((*(int32_t *)pengu_list_at(&(lst), i))) + 100);" in strip_bounds_checks(c)
 
     def test_judge_switch_emission(self):
         c = gen_bundle(
@@ -3593,8 +3617,9 @@ def test_nested_array_chained_at_emits_c():
   var w as int is g at 1 at 2
   return 0
 """)
-    assert "g[0][0]" in c
-    assert "g[1][2]" in c
+    normalised = strip_bounds_checks(c)
+    assert "g[0][0]" in normalised
+    assert "g[1][2]" in normalised
 
 
 def test_invalid_range_message_english():

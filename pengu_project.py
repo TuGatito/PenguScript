@@ -310,6 +310,7 @@ class ProjectConfig:
     # ("gcc" | "clang" | "msvc" | "tcc"; empty = infer from ``cc``).
     strict_c99: bool = False
     release_unsafe: bool = False
+    deny_deprecated: bool = False
     target_compiler: str = ""
     # Roadmap 3.5: cross-compilation target triple (empty = host).  Only
     # Linux ⇄ Windows is supported; the target runtime must be provided
@@ -551,6 +552,7 @@ class PenguBuilder:
         self.source_code = source_code
         self.is_test_mode = False
         self.release_unsafe: bool = bool(getattr(config, "release_unsafe", False))
+        self.deny_deprecated: bool = bool(getattr(config, "deny_deprecated", False))
         self._target_triple: Optional[TargetTriple] = None
         from pengu_parser.pengu_parser import PenguParser as _PenguParser
         from pengu_parser.pengu_comptime import main_flag_requested as _main_flag_requested
@@ -1291,6 +1293,29 @@ class PenguBuilder:
         else:
             module_order = [entry_abs]
 
+        def _warning_diag(text: str, fpath: str) -> Dict[str, Any]:
+            """Turns a checker warning string into a structured diagnostic."""
+            import re as _re
+            m = _re.match(r"\[(W\d{4})\]\s*(.*?)(?:\s+on line\s+(\d+))?$", text)
+            code = m.group(1) if m else "W0000"
+            message = m.group(2) if m else text
+            line = int(m.group(3)) if (m and m.group(3)) else 0
+            severity = "warning"
+            note = None
+            if self.deny_deprecated and code == "W0006":
+                severity = "error"
+                note = "promoted to an error by --deny-deprecated"
+            return {
+                "file": fpath,
+                "line": line,
+                "col": 0,
+                "code": code,
+                "severity": severity,
+                "message": message,
+                "help": None,
+                "note": note,
+            }
+
         ok = True
         diagnostics: List[Dict[str, Any]] = []
         for i, mod_path in enumerate(module_order):
@@ -1306,7 +1331,16 @@ class PenguBuilder:
                 if not code:
                     continue
                 tree = self.parser.parse(code)
+                _warn_before = len(getattr(self.checker, "warnings", []) or [])
                 self.checker.check(tree, source=code, filename=mod_path, reset_symbols=(i == 0), import_order=module_order)
+                # Warnings were computed but never surfaced (roadmap 5.4): turn
+                # them into diagnostics so `pengu check` reports them and
+                # --deny-deprecated can fail a build on W0006.
+                for _w in (getattr(self.checker, "warnings", []) or [])[_warn_before:]:
+                    diag = _warning_diag(str(_w), mod_path)
+                    diagnostics.append(diag)
+                    if diag["severity"] == "error":
+                        ok = False
                 if self.verbose:
                     self._vlog(f"[pengu] ok: {mod_path}")
             except Exception as e:  # noqa: BLE001 - any parse/semantic failure
@@ -1921,6 +1955,7 @@ def build_project(
     locked: bool = False,
     frozen: bool = False,
     release_unsafe: bool = False,
+    deny_deprecated: bool = False,
     json_output: bool = False,
 ) -> str:
     """Builds project from configuration file with status printing.
@@ -1958,7 +1993,28 @@ def build_project(
     if target:
         config.target = target
     config.release_unsafe = bool(release_unsafe)
+    config.deny_deprecated = bool(deny_deprecated)
     _set_release_unsafe(config.release_unsafe)
+
+    if deny_deprecated:
+        # A denied deprecation must abort before any code is generated.
+        _deny_builder = PenguBuilder(config)
+        _deny_builder.deny_deprecated = True
+        _ok, _diags = _deny_builder.check_sources_diagnostics()
+        _denied = [d for d in _diags if d.get("severity") == "error" and d.get("code") == "W0006"]
+        if _denied:
+            if json_output:
+                for _d in _diags:
+                    print(json.dumps({"type": "diagnostic", **_d}, ensure_ascii=False))
+                print(json.dumps({"type": "summary", "ok": False,
+                                  "errors": len(_denied)}, ensure_ascii=False))
+            else:
+                for _d in _denied:
+                    print(f"\033[1;31m     Error\033[0m {_d['file']}:{_d['line']}:{_d['col']} "
+                          f"[{_d['code']}] {_d['message']}", file=sys.stderr)
+                print("\033[1;31m     Error\033[0m deprecated symbol used with --deny-deprecated",
+                      file=sys.stderr)
+            raise SystemExit(1)
 
     try:
         _ensure_lockfile(config, locked=locked, frozen=frozen,
@@ -2045,6 +2101,7 @@ def check_project(
     cc: Optional[str] = None,
     verbose: bool = False,
     json_output: bool = False,
+    deny_deprecated: bool = False,
 ) -> bool:
     """Parses and type-checks every module without generating code (CI friendly).
 
@@ -2074,6 +2131,7 @@ def check_project(
 
     builder = PenguBuilder(config)
     builder.verbose = verbose and not json_output
+    builder.deny_deprecated = bool(deny_deprecated)
     ok, diagnostics = builder.check_sources_diagnostics()
     elapsed = time.time() - t0
 
@@ -2083,18 +2141,27 @@ def check_project(
         print(json.dumps({
             "type": "summary",
             "ok": ok,
-            "errors": len(diagnostics),
+            "errors": sum(1 for d in diagnostics if d.get("severity") == "error"),
+            "warnings": sum(1 for d in diagnostics if d.get("severity") == "warning"),
             "duration_ms": round(elapsed * 1000, 2),
         }, ensure_ascii=False))
         return ok
 
+    def _fmt(d: Dict[str, Any]) -> str:
+        code_str = f"[{d['code']}] " if d.get("code") else ""
+        return f"  {d['file']}:{d['line']}:{d['col']} {code_str}{d['message']}"
+
+    warnings = [d for d in diagnostics if d.get("severity") == "warning"]
+    errors = [d for d in diagnostics if d.get("severity") != "warning"]
+    for d in warnings:
+        print(f"\033[1;33m   Warning\033[0m{_fmt(d)[1:]}", file=sys.stderr)
     if ok:
-        print(f"\033[1;32m     Clean\033[0m no errors found in {elapsed:.2f}s")
+        suffix = f" ({len(warnings)} warning(s))" if warnings else ""
+        print(f"\033[1;32m     Clean\033[0m no errors found in {elapsed:.2f}s{suffix}")
     else:
         print(f"\033[1;31m   Errors\033[0m found in {elapsed:.2f}s")
-        for d in diagnostics:
-            code_str = f"[{d['code']}] " if d.get("code") else ""
-            print(f"  {d['file']}:{d['line']}:{d['col']} {code_str}{d['message']}", file=sys.stderr)
+        for d in errors:
+            print(_fmt(d), file=sys.stderr)
     return ok
 
 
@@ -3855,7 +3922,8 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
                 verbose: bool = False, pch: bool = False, no_dce: bool = False,
                 strict_c99: bool = False, target_compiler: str = "",
                 target: str = "", locked: bool = False, frozen: bool = False,
-                release_unsafe: bool = False) -> int:
+                release_unsafe: bool = False,
+                deny_deprecated: bool = False) -> int:
     """Builds and runs binary if output target is executable.
 
     Args:
@@ -3897,7 +3965,8 @@ def run_script(script: str, defines: Optional[List[str]] = None,
                no_dce: bool = False, strict_c99: bool = False,
                target_compiler: str = "", target: str = "",
                locked: bool = False, frozen: bool = False,
-               release_unsafe: bool = False) -> int:
+               release_unsafe: bool = False,
+               deny_deprecated: bool = False) -> int:
     """Compiles and runs a standalone .pengu file directly (script mode).
 
     The script itself is compiled as the entry point with the compile-time
@@ -3970,6 +4039,7 @@ def run_script(script: str, defines: Optional[List[str]] = None,
     if target:
         cfg.target = target
     cfg.release_unsafe = bool(release_unsafe)
+    cfg.deny_deprecated = bool(deny_deprecated)
     _set_release_unsafe(cfg.release_unsafe)
     # A standalone script rarely has dependencies, but honour the lock flags when it does.
     if locked or frozen:
@@ -4395,6 +4465,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
                         help="Like --locked but also requires pengu.lock to exist (offline/CI builds)")
         _p.add_argument("--release-unsafe", dest="release_unsafe", action="store_true",
                         help="Disable bounds and integer-overflow checks (unsafe; default is checks ON in every profile)")
+        _p.add_argument("--deny-deprecated", dest="deny_deprecated", action="store_true",
+                        help="Fail the build when a @deprecated symbol (W0006) is used")
     # Script arguments are collected with parse_known_args: 'pengu run x.pengu -- a b'
     # and 'pengu run x.pengu a b' both forward 'a b'.
 
@@ -4472,6 +4544,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
                         help="Like --locked but also requires pengu.lock to exist")
     test_p.add_argument("--release-unsafe", dest="release_unsafe", action="store_true",
                         help="Disable bounds and integer-overflow checks (unsafe)")
+    test_p.add_argument("--deny-deprecated", dest="deny_deprecated", action="store_true",
+                        help="Fail when a @deprecated symbol (W0006) is used")
 
     # check
     check_p = subparsers.add_parser("check", help="Parse and type-check every module without generating code (CI)")
@@ -4482,6 +4556,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
     check_p.add_argument("--verbose", action="store_true", help="Print per-file progress")
     check_p.add_argument("--json", action="store_true",
                          help="Emit machine-readable JSON Lines (for CI)")
+    check_p.add_argument("--deny-deprecated", dest="deny_deprecated", action="store_true",
+                         help="Treat the use of @deprecated symbols (W0006) as an error")
     check_p.add_argument("-D", "--define", dest="defines", action="append", default=None,
                          help="Compile-time define: -D NAME or -D os=linux / arch=x64 / compiler=clang / main (repeatable)")
 
@@ -4695,6 +4771,7 @@ def main():
                 locked=getattr(args, "locked", False),
                 frozen=getattr(args, "frozen", False),
                 release_unsafe=getattr(args, "release_unsafe", False),
+                deny_deprecated=getattr(args, "deny_deprecated", False),
                 json_output=getattr(args, "json", False),
             )
         except CompileFailedError as e:
@@ -4724,6 +4801,7 @@ def main():
                     locked=getattr(args, "locked", False),
                     frozen=getattr(args, "frozen", False),
                     release_unsafe=getattr(args, "release_unsafe", False),
+                    deny_deprecated=getattr(args, "deny_deprecated", False),
                 ))
             sys.exit(run_project(
                 config_path=args.config,
@@ -4740,6 +4818,7 @@ def main():
                 locked=getattr(args, "locked", False),
                 frozen=getattr(args, "frozen", False),
                 release_unsafe=getattr(args, "release_unsafe", False),
+                deny_deprecated=getattr(args, "deny_deprecated", False),
             ))
         except CompileFailedError as e:
             _print_compile_error(e)
@@ -4769,6 +4848,7 @@ def main():
                 locked=getattr(args, "locked", False),
                 frozen=getattr(args, "frozen", False),
                 release_unsafe=getattr(args, "release_unsafe", False),
+                deny_deprecated=getattr(args, "deny_deprecated", False),
             ))
         except CompileFailedError as e:
             _print_compile_error(e)
@@ -4781,6 +4861,7 @@ def main():
             cc=getattr(args, "cc", None),
             verbose=getattr(args, "verbose", False),
             json_output=getattr(args, "json", False),
+            deny_deprecated=getattr(args, "deny_deprecated", False),
         )
         sys.exit(0 if ok else 1)
     elif args.command == "fmt":

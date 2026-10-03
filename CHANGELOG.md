@@ -4,6 +4,26 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### 📜 Added — 5.4 Política de deprecación + `--deny-deprecated`
+
+- **Hallazgo real (el auténtico problema detrás de BUG-5.1):** los warnings del
+  checker (`W0001`–`W0007`) se calculaban y **se descartaban**; `pengu check`
+  decía "Clean" sin mostrarlos. Ahora se convierten en diagnósticos con
+  `severity: "warning"`, se imprimen en `pengu check` (con recuento en el
+  resumen) y aparecen en `pengu check --json` con `ok`/`errors`/`warnings`.
+- **Nuevo flag `--deny-deprecated`** en `check`, `build`, `run` y `test`:
+  promueve cada `[W0006]` a error y falla con código 1 (los demás warnings siguen
+  siendo warnings). `build --deny-deprecated` aborta **antes** de generar código.
+- **`LANGUAGE.md` §23 — Deprecation & Stability Policy**: SemVer estricto, la
+  **regla de las dos releases** (un símbolo `@deprecated` debe seguir funcionando
+  ≥2 minors antes de poder eliminarse), soporte de `@deprecated` en `weave`/
+  `declare`/`rune` y sus campos, y el uso de `--deny-deprecated` en CI.
+- Documentados `W0005`/`W0006`/`W0007` también en `README.md`.
+- Se actualizan tests que fijaban la numeración/emisión antigua:
+  `test_compiler_core.py` (E0015 → E0058 para `error` fuera de `or:`, y
+  normalización del wrapper de bounds en las aserciones de forma del codegen).
+- Tests: `tests/test_deprecation_policy.py` (10 casos).
+
 ### 🔢 Added — 5.1 Política de desbordamiento de enteros
 
 - **El desbordamiento firmado ya no es UB por defecto** (era el riesgo real: C lo
