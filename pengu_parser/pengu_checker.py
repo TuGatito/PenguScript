@@ -395,6 +395,11 @@ class PenguChecker:
         self.warnings: List[str] = []
         self.symbols = SymbolTable()
         self.block_stmts_stack: List[List[Tree]] = []
+        # Nesting depth of 'test' blocks. A local whose name matches a
+        # global weave is deliberate and idiomatic inside a test body
+        # ('var last' next to the 'last' helper), so W0005 is suppressed
+        # there: it is noise in the 21 loom tests and adds no signal.
+        self._test_block_depth: int = 0
         self.const_definitions: Dict[str, List[Tuple[Any, Optional[str]]]] = {}
         self.inferrer = TypeInferrer(self.symbols, source_code=self.source_code, filename=self.filename,
                                      compile_env=self.compile_env)
@@ -4000,7 +4005,8 @@ class PenguChecker:
                 ))
                 return
             outer = self.symbols.lookup(v_name) if self.symbols else None
-            if outer is not None and getattr(outer, "kind", "") in ("weave", "declare", "function"):
+            if (outer is not None and getattr(outer, "kind", "") in ("weave", "declare", "function")
+                    and not self._test_block_depth):
                 self.warnings.append(f"[W0005] Variable '{v_name}' shadows global function '{v_name}' on line {line}")
         v_type = None
         type_node, v_expr = _decl_layout(node)
@@ -4355,7 +4361,8 @@ class PenguChecker:
                     ))
                     return
                 outer = self.symbols.lookup(nm) if self.symbols else None
-                if outer is not None and getattr(outer, "kind", "") in ("weave", "declare", "function"):
+                if (outer is not None and getattr(outer, "kind", "") in ("weave", "declare", "function")
+                        and not self._test_block_depth):
                     self.warnings.append(f"[W0005] Variable '{nm}' shadows global function '{nm}' on line {line}")
         l_type = None
         type_node, l_expr = _decl_layout(node)
@@ -6805,10 +6812,12 @@ class PenguChecker:
         # scope: copying them made a legitimate local shadowing a same-file
         # global ('var last' vs the 'last' weave) a false E0035 redefinition.
         self.block_stmts_stack.append(body_stmts)
+        self._test_block_depth += 1
         try:
             for stmt in body_stmts:
                 self._check_node(stmt)
         finally:
+            self._test_block_depth -= 1
             self.block_stmts_stack.pop()
         self.symbols.pop_scope(end_line=span_end)
 
