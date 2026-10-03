@@ -4,6 +4,26 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### 📦 Added — 4.1 `pengu.lock`: pinning reproducible y builds offline
+
+- **Nuevo `pengu_lock.py`**: `pengu.lock` en TOML con, por paquete, `source`,
+  `constraint`, `version`, `commit` exacto, **SHA-256 del árbol de contenido**,
+  `required_by` y `children`; más `targets` con el triple de compilación.
+- **`compute_tree_hash`**: hash determinista por fichero (ruta + contenido) que
+  ignora `.git`, `build/`, caches y directorios ocultos, así que el mismo
+  checkout en otra máquina hashea idéntico.
+- **`pengu build`** escribe/refresca `pengu.lock` automáticamente;
+  **`--locked`** verifica y falla con **`E0061`** si el lock falta o no coincide
+  (nunca escribe); **`--frozen`** exige además que el lock exista y no resuelve
+  nada nuevo (builds offline/CI). Flags en `build`, `run` y `test`.
+- **Detección de desviaciones**: commit distinto, versión distinta, paquete
+  añadido/eliminado, contenido cambiado (sha256) y target distinto, cada una con
+  mensaje accionable.
+- **`pengu update`** refresca el lock tras el `git pull` (4.1.g).
+- Tests: `tests/test_lockfile.py` (hash determinista, round-trip TOML, las cinco
+  clases de diff, y E2E: escritura del lock, `--locked`/`--frozen`, lock
+  manipulado, lock ausente y cambio de contenido con refresco).
+
 ### 🔵 Added — 4.2 SemVer y dependencias transitivas (MVP) + 4.8 tree/metadata
 
 - **`pengu_semver.py`**: parser de versiones (`1.2.3`, `v1.2.3`, prerelease) y de

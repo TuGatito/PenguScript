@@ -1806,6 +1806,66 @@ class PenguBuilder:
         return out_path, False
 
 
+def _lock_target(config: "ProjectConfig") -> str:
+    """Target triple recorded in the lockfile (roadmap 4.1 + 3.5)."""
+    return str(getattr(config, "target", "") or "").strip() or host_os()
+
+
+def _ensure_lockfile(config: "ProjectConfig", locked: bool = False,
+                     frozen: bool = False, verbose: bool = False) -> Optional[str]:
+    """Resolves the dependency graph and enforces / updates ``pengu.lock``.
+
+    - default: writes (or refreshes) ``pengu.lock``;
+    - ``--locked``: verifies it and fails on any mismatch, never writes;
+    - ``--frozen``: like ``--locked`` and additionally requires it to exist, so
+      nothing new can be resolved (offline/CI builds).
+
+    Returns the lock path (or None when the project has no dependencies).
+    """
+    from pengu_lock import (
+        LockError,
+        build_lock_from_graph,
+        diff_locks,
+        read_lock,
+        write_lock,
+    )
+
+    has_deps = bool(_manifest_dependencies(config.base_dir))
+    existing = read_lock(config.base_dir)
+    if not has_deps and existing is None:
+        return None
+
+    strict = locked or frozen
+    if frozen and existing is None:
+        raise LockError(
+            "[E0061] --frozen requires a pengu.lock, but none was found.\n"
+            "  Run `pengu build` once without --frozen to generate it, then commit it."
+        )
+
+    graph = resolve_transitive_dependencies(
+        config,
+        install_missing=not strict,
+        verbose=verbose,
+    )
+    current = build_lock_from_graph(graph, target=_lock_target(config))
+    lock_path = os.path.join(config.base_dir, "pengu.lock")
+
+    if existing is not None and strict:
+        problems = diff_locks(existing, current, target=_lock_target(config))
+        if problems:
+            raise LockError(
+                "[E0061] pengu.lock is out of date or the dependencies changed:\n  - "
+                + "\n  - ".join(problems)
+                + "\n  Run `pengu update` (or `pengu build` without --locked/--frozen) "
+                  "and commit the updated pengu.lock."
+            )
+        return lock_path
+
+    if strict:
+        return lock_path
+    return write_lock(config.base_dir, current)
+
+
 def build_project(
     config_path: Optional[str] = None,
     profile: str = "debug",
@@ -1820,6 +1880,8 @@ def build_project(
     strict_c99: bool = False,
     target_compiler: str = "",
     target: str = "",
+    locked: bool = False,
+    frozen: bool = False,
     json_output: bool = False,
 ) -> str:
     """Builds project from configuration file with status printing.
@@ -1856,6 +1918,20 @@ def build_project(
         config.target_compiler = target_compiler
     if target:
         config.target = target
+
+    try:
+        _ensure_lockfile(config, locked=locked, frozen=frozen,
+                         verbose=verbose and not json_output)
+    except Exception as exc:  # noqa: BLE001 - lock errors abort the build
+        if json_output:
+            print(json.dumps({"type": "diagnostic", "file": os.path.join(config.base_dir, "pengu.lock"),
+                              "line": 0, "col": 0, "code": "E0061", "severity": "error",
+                              "message": str(exc), "help": "Run `pengu build` without --locked/--frozen.",
+                              "note": None}, ensure_ascii=False))
+            print(json.dumps({"type": "summary", "ok": False, "errors": 1}, ensure_ascii=False))
+            raise SystemExit(1)
+        print(f"\033[1;31m     Error\033[0m {exc}", file=sys.stderr)
+        raise SystemExit(1)
 
     if not json_output:
         print(f"\033[1;36m   Compiling\033[0m {config.name} v{config.version} ({config.output.value}) [{config.profile}]"
@@ -2367,6 +2443,12 @@ def update_project(config_path: Optional[str] = None, verbose: bool = False) -> 
 
         _run_dependency_build(target_dir, dep_name)
         updated += 1
+
+    # Refresh pengu.lock so the new commits/tags are recorded (roadmap 4.1.g).
+    try:
+        _ensure_lockfile(config, verbose=verbose)
+    except Exception as exc:  # noqa: BLE001 - a lock failure must not hide the update
+        print(f"\033[1;33m     Warning\033[0m could not refresh pengu.lock: {exc}", file=sys.stderr)
 
     print(f"\033[1;32m       Updated\033[0m {updated} dependency(ies).")
     return updated
@@ -3553,7 +3635,7 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
                 defines: Optional[List[str]] = None, cc: Optional[str] = None,
                 verbose: bool = False, pch: bool = False, no_dce: bool = False,
                 strict_c99: bool = False, target_compiler: str = "",
-                target: str = "") -> int:
+                target: str = "", locked: bool = False, frozen: bool = False) -> int:
     """Builds and runs binary if output target is executable.
 
     Args:
@@ -3575,7 +3657,7 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
     artifact = build_project(config_path, profile=profile, test=test, defines=defines,
                              cc=cc, verbose=verbose, pch=pch, no_dce=no_dce,
                              strict_c99=strict_c99, target_compiler=target_compiler,
-                             target=target)
+                             target=target, locked=locked, frozen=frozen)
     if config.output == OutputType.EXE and os.path.isfile(artifact):
         print(f"\033[1;36m     Running\033[0m {artifact}\n")
         sys.stdout.flush()
@@ -3592,7 +3674,8 @@ def run_script(script: str, defines: Optional[List[str]] = None,
                script_args: Optional[List[str]] = None,
                quiet: bool = False, no_pch: bool = True,
                no_dce: bool = False, strict_c99: bool = False,
-               target_compiler: str = "", target: str = "") -> int:
+               target_compiler: str = "", target: str = "",
+               locked: bool = False, frozen: bool = False) -> int:
     """Compiles and runs a standalone .pengu file directly (script mode).
 
     The script itself is compiled as the entry point with the compile-time
@@ -3664,6 +3747,9 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         cfg.target_compiler = target_compiler
     if target:
         cfg.target = target
+    # A standalone script rarely has dependencies, but honour the lock flags when it does.
+    if locked or frozen:
+        _ensure_lockfile(cfg, locked=locked, frozen=frozen)
 
     # --- cache lookup -----------------------------------------------------
     # Resolving the import graph only parses the modules (no semantic checks),
@@ -3854,7 +3940,7 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
                  defines: Optional[List[str]] = None, cc: Optional[str] = None,
                  verbose: bool = False, json_output: bool = False,
                  strict_c99: bool = False, target_compiler: str = "",
-                 target: str = "") -> int:
+                 target: str = "", locked: bool = False, frozen: bool = False) -> int:
     """Compiles the project in --test mode and executes the integrated unit tests.
 
     The project entry is built as an executable whose main runs every 'test'
@@ -3885,6 +3971,7 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
         config.target_compiler = target_compiler
     if target:
         config.target = target
+    _ensure_lockfile(config, locked=locked, frozen=frozen)
     config.output = OutputType.EXE
 
     t0 = time.time()
@@ -4067,6 +4154,10 @@ def create_cli_parser() -> argparse.ArgumentParser:
         _p.add_argument("--target", dest="target", default=None,
                         help="Cross-compilation target triple (e.g. x86_64-w64-mingw32); "
                              "Linux <-> Windows only, needs a cross compiler and PENGU_RUNTIME_CROSS")
+        _p.add_argument("--locked", action="store_true",
+                        help="Fail if pengu.lock is missing or out of date (never writes it)")
+        _p.add_argument("--frozen", action="store_true",
+                        help="Like --locked but also requires pengu.lock to exist (offline/CI builds)")
     # Script arguments are collected with parse_known_args: 'pengu run x.pengu -- a b'
     # and 'pengu run x.pengu a b' both forward 'a b'.
 
@@ -4138,6 +4229,10 @@ def create_cli_parser() -> argparse.ArgumentParser:
                         help="C compiler dialect used for attributes/restrict (default: infer from --cc)")
     test_p.add_argument("--target", dest="target", default=None,
                         help="Cross-compilation target triple (e.g. x86_64-w64-mingw32)")
+    test_p.add_argument("--locked", action="store_true",
+                        help="Fail if pengu.lock is missing or out of date")
+    test_p.add_argument("--frozen", action="store_true",
+                        help="Like --locked but also requires pengu.lock to exist")
 
     # check
     check_p = subparsers.add_parser("check", help="Parse and type-check every module without generating code (CI)")
@@ -4348,6 +4443,8 @@ def main():
                 strict_c99=getattr(args, "strict_c99", False),
                 target_compiler=getattr(args, "target_compiler", "") or "",
                 target=getattr(args, "target", "") or "",
+                locked=getattr(args, "locked", False),
+                frozen=getattr(args, "frozen", False),
                 json_output=getattr(args, "json", False),
             )
         except CompileFailedError as e:
@@ -4374,6 +4471,8 @@ def main():
                     strict_c99=getattr(args, "strict_c99", False),
                     target_compiler=getattr(args, "target_compiler", "") or "",
                     target=getattr(args, "target", "") or "",
+                    locked=getattr(args, "locked", False),
+                    frozen=getattr(args, "frozen", False),
                 ))
             sys.exit(run_project(
                 config_path=args.config,
@@ -4387,6 +4486,8 @@ def main():
                 strict_c99=getattr(args, "strict_c99", False),
                 target_compiler=getattr(args, "target_compiler", "") or "",
                 target=getattr(args, "target", "") or "",
+                locked=getattr(args, "locked", False),
+                frozen=getattr(args, "frozen", False),
             ))
         except CompileFailedError as e:
             _print_compile_error(e)
@@ -4413,6 +4514,8 @@ def main():
                 strict_c99=getattr(args, "strict_c99", False),
                 target_compiler=getattr(args, "target_compiler", "") or "",
                 target=getattr(args, "target", "") or "",
+                locked=getattr(args, "locked", False),
+                frozen=getattr(args, "frozen", False),
             ))
         except CompileFailedError as e:
             _print_compile_error(e)
