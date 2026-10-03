@@ -37,6 +37,25 @@ All notable changes to PenguScript will be documented in this file.
   `PENGU_ASSETS_INCBIN_THRESHOLD` podía reutilizar el artefacto anterior. Añadido
   al fingerprint.
 
+### 🎁 Fixed — 6.2 Plantillas que cumplen su propio criterio
+
+- **BUG-6.4 + BUG-6.5 — `--template game`**: ya no imprime tres líneas; abre una
+  **ventana raylib** real (`InitWindow`/`BeginDrawing`/`ClearBackground`/
+  `DrawText`/`EndDrawing`/`CloseWindow` con bucle hasta `WindowShouldClose`) y el
+  manifiesto generado incluye **`links = ["raylib"]`**, sin el cual cualquier
+  import de raylib fallaba con `undefined reference`. `pengu init` avisa de que
+  hay que construir raylib si `pengu run` reporta símbolos ausentes.
+- **BUG-6.6 — `--template cli`**: parsea argumentos de verdad con
+  **`std.invoke`** + **`std.rites`**: flag `-v/--verbose`, opción `-o/--output`,
+  posicional `input` y `--help` generado. Verificado E2E: el binario construido
+  responde a `--verbose --output=out.txt in.csv` y a `--help`.
+- **BUG-6.7 — `--template lib`**: incluye dos bloques `test` de humo con
+  `std.ward`; `pengu test` pasa ("All 2 test(s) passed").
+- Tests: `tests/test_init_templates.py` ampliado a 17 casos, incluidos los E2E
+  que compilan y ejecutan las plantillas `cli` y `lib` (y el bundle de `game`).
+  El arranque real de la ventana raylib no se puede verificar en este entorno
+  porque `libraylib.a` no está construido; se documenta en el test.
+
 #### ❌ Refutación
 
 - **BUG-6.12 (parte de assets)** *"cambiar el threshold no invalida el digest"* →

@@ -6,6 +6,7 @@ so `pengu init --type static` produced code that did not parse.
 """
 
 import os
+import subprocess
 
 import pytest
 
@@ -35,9 +36,9 @@ def test_default_template_is_exe(tmp_path):
 def test_cli_template(tmp_path):
     proj = _init(tmp_path, "cliapp", template="cli")
     main = open(os.path.join(proj, "src", "main.pengu"), encoding="utf-8").read()
-    assert "import std.spark" in main
-    assert "usage" in main
-    assert "weave main into void:" in main
+    assert "import std.invoke" in main
+    # Help/usage is produced by std.invoke, not by a hand-written weave.
+    assert "add_flag" in main and "add_option" in main
     assert "pengu_main" in _bundles(tmp_path, "cliapp")
 
 
@@ -80,3 +81,112 @@ def test_templates_are_buildable_end_to_end(tmp_path):
         name = f"tpl{i}_{template}"
         _init(tmp_path, name, template=template)
         _bundles(tmp_path, name)
+
+# --------------------------------------------------------------------------- #
+# Roadmap 6.2 — the templates must do what their name promises
+# --------------------------------------------------------------------------- #
+
+
+def _manifest(proj: str) -> dict:
+    import tomllib
+
+    with open(os.path.join(proj, "pengu.toml"), "rb") as f:
+        return tomllib.load(f)
+
+
+def test_game_template_links_raylib(tmp_path):
+    """BUG-6.5: without this every raylib import fails at link time."""
+    proj = _init(tmp_path, "game_links", template="game")
+    data = _manifest(proj)
+    assert "raylib" in data["build"]["links"]
+
+
+def test_game_template_opens_a_window(tmp_path):
+    """BUG-6.4: the roadmap criterion is a real window, not a print loop."""
+    proj = _init(tmp_path, "game_win", template="game")
+    main = open(os.path.join(proj, "src", "main.pengu"), encoding="utf-8").read()
+    assert "import std.raylib" in main
+    for call in ("InitWindow", "BeginDrawing", "EndDrawing", "CloseWindow",
+                 "WindowShouldClose"):
+        assert call in main, call
+    assert "spark.println" not in main
+
+
+def test_game_template_bundles(tmp_path):
+    """The generated game code must at least parse, check and emit C."""
+    _init(tmp_path, "game_bundle", template="game")
+    _bundles(tmp_path, "game_bundle")
+
+
+def test_cli_template_uses_std_invoke(tmp_path):
+    """BUG-6.6: a CLI template must actually parse arguments."""
+    proj = _init(tmp_path, "cli_invoke", template="cli")
+    main = open(os.path.join(proj, "src", "main.pengu"), encoding="utf-8").read()
+    assert "import std.invoke" in main
+    assert "import std.rites" in main
+    assert "add_flag" in main and "add_option" in main
+    assert "get_args" in main
+    assert "calling res.get_or" in main or "get_bool_or" in main
+    _bundles(tmp_path, "cli_invoke")
+
+
+def test_cli_template_parses_and_help_work(tmp_path):
+    """E2E: build the CLI and check that flags and --help are handled."""
+    from tests.conftest import BUILD_INCLUDE, BUILD_LIB, HAVE_CC, HAVE_RUNTIME
+
+    if not (HAVE_CC and HAVE_RUNTIME):
+        pytest.skip("no C compiler or runtime archive")
+    proj = _init(tmp_path, "cli_e2e", template="cli")
+    manifest = os.path.join(proj, "pengu.toml")
+    text = open(manifest, encoding="utf-8").read()
+    text = text.replace('lib_dirs = []', f'lib_dirs = ["{BUILD_LIB}"]')
+    text = text.replace('include_dirs = []',
+                        f'include_dirs = ["{BUILD_INCLUDE}", "{BUILD_LIB.parent}"]')
+    text = text.replace('links = []', 'links = ["pengu_runtime"]')
+    with open(manifest, "w", encoding="utf-8") as f:
+        f.write(text)
+
+    build_project(config_path=proj)
+    exe = os.path.join(proj, "build", "cli_e2e")
+    if os.name == "nt":
+        exe += ".exe"
+    assert os.path.isfile(exe), exe
+
+    res = subprocess.run([exe, "--verbose", "--output=out.txt", "in.csv"],
+                         capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    assert "verbose: on" in res.stdout
+    assert "output -> out.txt" in res.stdout
+    assert "input  -> in.csv" in res.stdout
+
+    helptext = subprocess.run([exe, "--help"], capture_output=True, text=True, timeout=60)
+    assert "Usage:" in (helptext.stdout + helptext.stderr)
+    assert "--verbose" in (helptext.stdout + helptext.stderr)
+
+
+def test_lib_template_includes_a_test_block(tmp_path):
+    """BUG-6.7: a library template must ship a smoke test."""
+    proj = _init(tmp_path, "lib_test", template="lib")
+    main = open(os.path.join(proj, "src", "main.pengu"), encoding="utf-8").read()
+    assert 'test "' in main
+    assert "std.ward" in main
+
+
+def test_lib_template_tests_pass(tmp_path):
+    from tests.conftest import BUILD_INCLUDE, BUILD_LIB, HAVE_CC, HAVE_RUNTIME
+
+    if not (HAVE_CC and HAVE_RUNTIME):
+        pytest.skip("no C compiler or runtime archive")
+    proj = _init(tmp_path, "lib_run", template="lib")
+    manifest = os.path.join(proj, "pengu.toml")
+    text = open(manifest, encoding="utf-8").read()
+    text = text.replace('lib_dirs = []', f'lib_dirs = ["{BUILD_LIB}"]')
+    text = text.replace('include_dirs = []',
+                        f'include_dirs = ["{BUILD_INCLUDE}", "{BUILD_LIB.parent}"]')
+    text = text.replace('links = []', 'links = ["pengu_runtime"]')
+    with open(manifest, "w", encoding="utf-8") as f:
+        f.write(text)
+
+    from pengu_project import test_project
+
+    assert test_project(config_path=proj) == 0

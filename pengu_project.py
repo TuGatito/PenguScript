@@ -3458,7 +3458,11 @@ def init_project(
     os.makedirs(c_dir, exist_ok=True)
     os.makedirs(assets_dir, exist_ok=True)
 
-    links_list = links or []
+    links_list = [str(l) for l in (links or [])]
+    # The game template needs raylib on the link line; without it every raylib
+    # import fails with "undefined reference" (roadmap 6.2 / BUG-6.5).
+    if (template or "exe").strip().lower() == "game" and "raylib" not in links_list:
+        links_list.append("raylib")
     links_formatted = json.dumps(links_list)
 
     yaml_content = f"""project:
@@ -3578,36 +3582,75 @@ weave add with a as int, b as int into int:
     # type when the caller did not choose one explicitly).
     template_name = (template or "exe").strip().lower()
     if template_name == "lib":
-        main_content = f"""# Static library {name}
+        # A library template ships a smoke test so `pengu test` proves the
+        # exports work (roadmap 6.2 / BUG-6.7).
+        main_content = f"""import std.ward
+
+## Adds two integers.
 weave add with a as int, b as int into int:
   return a + b
 
+## Subtracts `b` from `a`.
 weave sub with a as int, b as int into int:
   return a - b
+
+test "add works":
+  calling ward.assert_eq_int with (calling add with 2, 3), 5
+
+test "sub works":
+  calling ward.assert_eq_int with (calling sub with 5, 3), 2
 """
     elif template_name == "cli":
-        main_content = f"""import std.spark
+        # A real CLI skeleton: typed options parsed with std.invoke from the
+        # process arguments (roadmap 6.2 / BUG-6.6).
+        main_content = f"""import std.invoke
+import std.rites
+import std.spark
 
-## Prints the command-line usage of {name}.
-weave usage into void:
-  calling spark.println with "usage: {name} [--help] <command>"
+## Builds the argument parser for {name}.
+weave build_parser into invoke.Parser:
+  var p as invoke.Parser is calling invoke.new_parser with "{name}", "TODO: describe {name}"
+  calling p.add_flag with "verbose", "v", "Enable verbose output", false
+  calling p.add_option with "output", "o", "Write the result to FILE", false, ""
+  calling p.add_positional with "input", "Input file to process", false, ""
+  return p
 
-## Entry point of the {name} CLI.
-weave main into void:
-  calling usage
+## Entry point: parses the command line and reports what it understood.
+weave main into int:
+  var parser as invoke.Parser is calling build_parser
+  var argv as list of string is calling rites.get_args
+  var res as invoke.ParseResult is calling parser.parse with argv
+  if calling res.get_bool_or with "verbose", false:
+    calling spark.println with "verbose: on"
+  var out as string is calling res.get_or with "output", ""
+  if out != "":
+    calling spark.println with "output -> {{out}}"
+  var source as string is calling res.get_or with "input", ""
+  if source != "":
+    calling spark.println with "input  -> {{source}}"
+  return 0
 """
     elif template_name == "game":
-        main_content = f"""import std.spark
+        # A real window loop: the roadmap's acceptance criterion is that
+        # `pengu run` opens a window (roadmap 6.2 / BUG-6.4, BUG-6.5).  raylib is
+        # linked through the generated manifest.
+        main_content = f"""import std.ffi
+import std.raylib
 
-## Frames simulated before exiting (a real game would loop until quit).
-const FRAMES as int is 3
+## Entry point: opens a window and runs the frame loop until it is closed.
+weave main into int:
+  var title as ref to char is calling ffi.cstr_from_string with "Hello from {name}!"
+  calling raylib.InitWindow with 800, 450, title
+  calling raylib.SetTargetFPS with 60
 
-## Minimal game loop skeleton for {name}.
-weave main into void:
-  var frame as int is 0
-  while frame < FRAMES:
-    calling spark.println with "frame {{frame}}"
-    set frame is frame + 1
+  while not calling raylib.WindowShouldClose:
+    calling raylib.BeginDrawing
+    calling raylib.ClearBackground with raylib.RAYWHITE
+    calling raylib.DrawText with title, 190, 200, 20, raylib.LIGHTGRAY
+    calling raylib.EndDrawing
+
+  calling raylib.CloseWindow
+  return 0
 """
 
     gitignore_content = """build/
@@ -3691,6 +3734,10 @@ pengu clean
         f.write(readme_content)
 
     print(f"\033[1;32m     Created\033[0m {out_t.value} project '{name}' at {proj_dir}")
+    if (template or "exe").strip().lower() == "game":
+        print("\033[1;33m       Note\033[0m the 'game' template links raylib; "
+              "build it with `python build_runtime.py` if `pengu run` reports "
+              "missing raylib symbols.", file=sys.stderr)
     return proj_dir
 
 
