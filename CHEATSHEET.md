@@ -61,7 +61,7 @@ bundle.c  (+ project c/*.c, lib/*/c/*.c glue)
 native executable / static lib / shared lib / object / plain C
 ```
 
-The compiler ships as Python modules in `pengu_parser/` (`pengu_grammar.py`, `pengu_types.py`, `pengu_checker.py`, `pengu_infer.py`, `pengu_codegen.py`, `pengu_symbols.py`, `pengu_comptime.py`, `pengu_errors.py`). The runtime that generated code links against lives in `pengu_runtime.h` / `pengu_runtime.c`; the standard library is written in PenguScript under `std/`; vendored single-header C libraries live under `std_c/`; minimal C standard-library stubs for header binding live in `c_bind_stubs/`. `pengu_project.py` implements the `pengu` CLI, `pengu_lsp/` the language server, `pengu_bind.py` the C-header → declaration-file generator, and `pengu_doc.py` the documentation generator.
+The compiler ships as Python modules in `pengu_parser/` (`pengu_grammar.py`, `pengu_types.py`, `pengu_checker.py`, `pengu_infer.py`, `pengu_codegen.py`, `pengu_symbols.py`, `pengu_comptime.py`, `pengu_errors.py`). The runtime that generated code links against lives in `pengu_runtime.h` (repository root) and `pengu_parser/pengu_runtime.c` (the translation unit compiled into `libpengu_runtime.a`); the standard library is written in PenguScript under `std/`; vendored single-header C libraries live under `std_c/`; minimal C standard-library stubs for header binding live in `c_bind_stubs/`. `pengu_project.py` implements the `pengu` CLI, `pengu_lsp/` the language server, `pengu_bind.py` the C-header → declaration-file generator, and `pengu_doc.py` the documentation generator.
 
 ### 1.3 How to read this reference
 
