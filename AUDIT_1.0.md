@@ -78,8 +78,8 @@
 | Clases de error citadas en `LANGUAGE.md` §22.2 que **no existen** | **5** de 59 (`DanglingSliceError`, `DuplicateConstantError`, `AmbiguousStructInitError`, `StaticArrayError`, `ErrorLiteralContextError`) | `grep -rn "<Clase>" --include="*.py"` → **0 referencias** cada una |
 | Entradas del catálogo §22.2 con atribución de clase incorrecta | **5** (`E0014`, `E0018`, `E0020`, `E0045` → `TypeMismatchError` que declara `E0005`; `E0047` → `DuplicateConceptBindingError` que declara `E0052`) | Cruce regex doc vs `setdefault` en `pengu_errors.py` |
 | Códigos emitidos como string crudo sin clase dedicada | **24** de 58 | Comparación de emisiones `code="Exxxx"` vs clases |
-| Ejemplos `pengu` de `LANGUAGE.md` que no pasan `pengu check` | **71** de **104** (68 %) | Bucle real con `pengu check -c <proyecto>`, con un parser de fences por líneas |
-| Afirmaciones documentales refutadas explícitamente en esta auditoría | **23** | Ver §18.1 |
+| Ejemplos `pengu` de `LANGUAGE.md` que no pasan `pengu check` | **70** de **104** (67 %) | Bucle real, con un parser de fences por líneas. Actualizado en la Fase 2: eran 71, y el bloque 59 se retiró (§13.1) |
+| Afirmaciones documentales refutadas explícitamente en esta auditoría | **24** | Ver §18.1 |
 | Afirmaciones que la documentación **subestima** | **12** | Ver §18.3 |
 | Afirmaciones de **esta propia auditoría** corregidas tras re-verificación | **2** | §9.10 (sintaxis `prototype`) y §1.1 (número de conflictos LALR: 1 → 188) |
 
@@ -2564,7 +2564,7 @@ RESULTS: {'ok': 33, 'syntax': 28, 'sem': 43}
 pass rate: 33/104 = 32%
 ```
 
-**33 de 104 (32 %) pasan**. Los 71 restantes se clasifican así:
+**34 de 104 (33 %) pasan** (tras la Fase 2). Los 70 restantes se clasifican así:
 
 | Clase | Nº | ¿Es un defecto documental? | Ejemplos |
 |-------|----|---------------------------|----------|
@@ -2574,19 +2574,23 @@ pass rate: 33/104 = 32%
 | **Ejemplo marcado "# Invalid"** | 5 | ❌ No — el fallo es **el objetivo** del ejemplo | Bloques 99–103 |
 | **Depende de un módulo de ejemplo inexistente** (`components.player`, `arca`) | 3 | ❌ No — módulos ilustrativos | Bloques 66, 96, 97 |
 | **Usa `std` sin importarlo** o una función no importada | ~7 | 🟡 Menor — el ejemplo omite el `import` | `spark` sin `import std.spark`; `expect_eq_int`, `read_file`, `usleep` |
-| **Contradice al lenguaje real** | **4** | ✅ **Sí, defecto documental** | Ver abajo |
+| **Contradice al lenguaje real** | **5** | ✅ **Sí, defecto documental** | Ver abajo |
 
-**Los 4 defectos documentales reales:**
+**Los 5 defectos documentales reales** (el quinto se confirmó en la Fase 2):
 
-| Bloque | Código documentado | Error real | Defecto |
-|--------|-------------------|-----------|---------|
-| **15** | `weave describe with user as maybe User into string:` | `E0022 Type parameter 'User' can only be used within a generic declaration (shard)` | El ejemplo usa `User` como **rune concreta** pero el lenguaje la interpreta como parámetro de tipo. El ejemplo no compila tal como está escrito |
-| **59** | `concept Iterabilis shard Self:` + `alias Item` | `E0000 unexpected 'alias'` | **Associated types documentados como existentes y no existen** (§1.2) |
-| **28** | `enchanting Vec2:` + `weave ritual zero into Vec2:` | `E0022 Type parameter 'Vec2'` | Mismo problema que el 15: `Vec2` se resuelve como parámetro de tipo |
-| **94** | `var position as raymath.Vector2 is with x is 400.0, y is 225.0` | `E0013 Field 'x' does not exist on Rune 'raymath.Vector2'` + `E0004 Undefined identifier 'position'` | Ejemplo del **patrón de binding C re-exportado** roto por §3.2 |
+| Bloque | Código documentado | Error real | Defecto | Estado Fase 2 |
+|--------|-------------------|-----------|---------|---------------|
+| **15** | `weave describe with user as maybe User into string:` | `E0022 Type parameter 'User'` | `User` se usa como rune concreta pero el lenguaje la interpreta como parámetro de tipo | ✅ **compila** (Fase 1, B7) |
+| **28** | `enchanting Vec2:` + `weave ritual zero into Vec2:` | `E0022 Type parameter 'Vec2'` | Mismo problema que el 15 | ✅ **compila** (Fase 1, B7) |
+| **59** | `concept Iterabilis shard Self:` + `alias Item` | `E0000 unexpected 'alias'` | **Associated types documentados como existentes y no existen** (§1.2) | ✅ **retirado** (Fase 2, item 2.3) |
+| **94** | `var position as raymath.Vector2 is with x is 400.0, y is 225.0` | `E0013` + `E0004` | Ejemplo del patrón de binding C re-exportado roto por §3.2 | ✅ **compila** (Fase 1, B7) |
 
-Dos de estos cuatro (28 y 94) son el mismo bug de resolución de tipos cualificados desde dos ángulos,
-lo que refuerza que §3.2 es un bloqueante real y no un artefacto.
+> **❌ REFUTADO adicional (Fase 2).** `LANGUAGE.md` §11.7 afirmaba que la sintaxis
+> `alias Item` *"is accepted for forward compatibility"*. **Es falso**: el parser la rechaza con
+> `E0000 Syntax error: unexpected 'alias'`, porque `concept_method` en `pengu_grammar.py` acepta
+> únicamente firmas `weave`. La sección se reescribió para declarar la feature como **⏸️ diferida a
+> 1.1** y el comportamiento actual se fija con
+> `tests/test_audit_regressions.py::test_alias_in_concept_is_not_implemented`.
 
 **Fix propuesto:** marcar los fragmentos como tales con un lenguaje de bloque distinto
 (` ```pengu-fragment `), hacer que CI extraiga y compile **solo** los bloques completos, y arreglar
@@ -3191,6 +3195,7 @@ estilo ni al checklist de release**.
 | 21 | `--target-compiler` selecciona el compilador | `pengu build --help` | Solo cambia el dialecto de C | ❌ **REFUTADO** |
 | 22 | `compress`/`decompress` en `seal` | `CHEATSHEET.md:2388` | Reales: `zlib_compress`/`zlib_decompress` | ❌ **REFUTADO** |
 | 23 | loom `product`/`max`/`min` | `CHEATSHEET.md:2391` | Reales: `product_num`/`max_int`/`min_int` | ❌ **REFUTADO** |
+| 24 | *"`alias Item` is accepted for forward compatibility"* | `LANGUAGE.md` §11.7 | El parser lo rechaza con `E0000`; `concept_method` solo acepta `weave` | ❌ **REFUTADO** (Fase 2) |
 
 ### §18.2 Reivindicaciones del **enunciado de la auditoría** que resultaron falsas
 

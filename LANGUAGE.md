@@ -1791,22 +1791,40 @@ rune Point shard T derive Par, Ordo:
 `Point of int` and `Point of string` both get working `==`, `<`, … as long as
 the substituted argument implements the concept (checked at the call site).
 
-### 11.7 Associated types (future work)
+### 11.7 Associated types (not implemented — ⏸️ deferred to 1.1)
 
 Iterator-style concepts such as Rust's `Iterator` need an *associated type* so
-generic code can name the element:
+generic code can name the element. The intended shape is:
 
-```pengu
+```
 concept Iterabilis shard Self:
     alias Item
     weave next with it as ref to Self into maybe Self.Item
 ```
 
-The syntax for declaring the associated type (`alias Item`) is accepted for
-forward compatibility, but resolving `Self.Item` to a concrete C type during
-monomorphization is **not implemented yet**. Until it lands, generic iteration
-uses `list of T`/`slice of T` (§11.5), and `for x in xs` over a bare `T: Iterabilis`
-is a compile error.
+**`alias Item` inside a `concept` is NOT accepted by the parser.** An earlier
+revision of this section claimed the syntax "is accepted for forward
+compatibility"; that was false. Writing it produces:
+
+```
+error[E0000]: Syntax error: unexpected 'alias'
+```
+
+because the `concept_method` production in `pengu_grammar.py` accepts only
+`weave` signatures. Declaring an associated type, and resolving `Self.Item` to a
+concrete C type during monomorphization, are both **deferred to 1.1** (see the
+`⏸️ DIFERIDO` table in `ROADMAP_2.0.md`). Until then:
+
+* use `list of T` / `slice of T` for generic iteration (§11.5);
+* `for x in xs` over a bare `T: Iterabilis` is a compile error;
+* there is no linked `Item` form, so such a concept must be written with a second
+  type parameter (`shard Self and Item`) instead.
+
+The sketch above is deliberately **not** marked as a ```pengu block: it is
+documentation of the intended shape, not code that compiles.
+
+`tests/test_audit_regressions.py::test_alias_in_concept_is_not_implemented` pins
+the current behaviour so the feature cannot be reintroduced silently.
 
 ### 11.8 Related sections
 

@@ -285,3 +285,66 @@ def test_pengu_bind_never_imports_pengu_project():
 #     and covered by the C-level suite.
 #   * "PenguChecker may have duplicate methods" -- a duplicate `def` is
 #     unrepresentable in the parsed AST the checker uses.
+
+
+# ---------------------------------------------------------------------------
+# Item 2.3 — `alias` in `concept` is documented as deferred, not implemented
+# ---------------------------------------------------------------------------
+
+def test_alias_in_concept_is_not_implemented(tmp_path):
+    """`alias Item` inside a `concept` must stay a syntax error (E0000).
+
+    Refutes `LANGUAGE.md` §11.7's former claim that the syntax "is accepted for
+    forward compatibility". It never was: `concept_method` in ``pengu_grammar.py``
+    accepts only ``weave`` signatures.
+
+    This is an intentional tripwire. Implementing associated types is a 1.1
+    feature (see the ⏸️ table in ROADMAP_2.0.md). If someone adds the grammar
+    production, this test starts failing, which is the signal to also implement
+    `Self.Item` resolution in monomorphization, update the docs, and add the
+    positive test -- rather than shipping half of the feature.
+    """
+    source = (
+        "concept Iterabilis shard Self:\n"
+        "    alias Item\n"
+        "    weave next with it as ref to Self into maybe Self.Item\n"
+    )
+    path = tmp_path / "assoc.pengu"
+    path.write_text(source, encoding="utf-8")
+    r = cli(["check", str(path)], cwd=tmp_path)
+    out = r.stdout + r.stderr
+    assert r.returncode != 0, (
+        "`alias` in a concept now parses. Associated types are a 1.1 feature: "
+        "implement `Self.Item` resolution and update LANGUAGE.md §11.7 before "
+        "flipping this test.\n" + out
+    )
+    assert "E0000" in out, out
+    assert "alias" in out, out
+
+
+def test_assoc_type_worked_around_with_a_second_type_parameter(tmp_path):
+    """The documented workaround must actually work.
+
+    §11.7 tells readers to use `shard Self and Item` instead of an associated
+    type. That advice is only useful if it compiles, so it is verified here
+    rather than asserted in prose.
+    """
+    source = (
+        "concept Drain shard Self and Item:\n"
+        "    weave next with it as ref to Self into maybe Item\n"
+        "rune Counter:\n"
+        "    n as int\n"
+        "bind Counter with Drain of int:\n"
+        "    weave next with it as ref to Counter into maybe int:\n"
+        "        if self->n == 0:\n"
+        "            return maybe none\n"
+        "        set self->n is self->n - 1\n"
+        "        return some self->n\n"
+        "weave main into int:\n"
+        "    var c as Counter is with n is 2\n"
+        "    return 0\n"
+    )
+    path = tmp_path / "workaround.pengu"
+    path.write_text(source, encoding="utf-8")
+    r = cli(["check", str(path)], cwd=tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr

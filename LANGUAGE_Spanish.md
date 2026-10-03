@@ -1695,22 +1695,41 @@ Tanto `Point of int` como `Point of string` obtienen `==`, `<`, … funcionales 
 que el argumento sustituido implemente el concepto (se comprueba en el punto de
 llamada).
 
-### 11.7 Tipos asociados (trabajo futuro)
+### 11.7 Tipos asociados (no implementado — ⏸️ diferido a 1.1)
 
 Los conceptos al estilo de los iteradores, como el `Iterator` de Rust, necesitan un
-*tipo asociado* para que el código genérico pueda nombrar el elemento:
+*tipo asociado* para que el código genérico pueda nombrar el elemento. La forma
+prevista es:
 
-```pengu
+```
 concept Iterabilis shard Self:
     alias Item
     weave next with it as ref to Self into maybe Self.Item
 ```
 
-La sintaxis para declarar el tipo asociado (`alias Item`) se acepta por compatibilidad
-futura, pero resolver `Self.Item` a un tipo C concreto durante la monomorfización
-**aún no está implementado**. Hasta que llegue, la iteración genérica usa
-`list of T`/`slice of T` (§11.5), y `for x in xs` sobre un `T: Iterabilis` desnudo es
-un error de compilación.
+**`alias Item` dentro de un `concept` NO lo acepta el parser.** Una revisión anterior
+de esta sección afirmaba que la sintaxis "se acepta por compatibilidad futura"; eso era
+falso. Escribirla produce:
+
+```
+error[E0000]: Syntax error: unexpected 'alias'
+```
+
+porque la producción `concept_method` de `pengu_grammar.py` solo acepta firmas `weave`.
+Tanto declarar el tipo asociado como resolver `Self.Item` a un tipo C concreto durante
+la monomorfización están **diferidos a 1.1** (véase la tabla `⏸️ DIFERIDO` de
+`ROADMAP_2.0.md`). Hasta entonces:
+
+* usa `list of T` / `slice of T` para la iteración genérica (§11.5);
+* `for x in xs` sobre un `T: Iterabilis` desnudo es un error de compilación;
+* no hay forma de ligar `Item`, así que un concepto como el anterior debe escribirse con
+  un segundo parámetro de tipo (`shard Self and Item`).
+
+El esquema de arriba **no** está marcado como bloque ```pengu a propósito: es
+documentación de la forma prevista, no código que compile.
+
+`tests/test_audit_regressions.py::test_alias_in_concept_is_not_implemented` fija el
+comportamiento actual para que la feature no se reintroduzca en silencio.
 
 ### 11.8 Secciones relacionadas
 
