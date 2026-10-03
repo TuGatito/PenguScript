@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 import re
-from typing import Optional, List, Dict, Tuple, Any
+from typing import Optional, List, Dict, Tuple, Any, Set
 from lark import Tree, Token
 
 from .pengu_types import (
@@ -1531,7 +1531,7 @@ class TypeInferrer:
                     f"Ambiguous struct init with fields {fields_str}, matches: {matches_str}",
                     node,
                     code="E0054",
-                    help=f"Disambiguate by specifying the rune type explicitly with 'as RuneName'.",
+                    help="Disambiguate by specifying the rune type explicitly with 'as RuneName'.",
                     note="PenguScript requires explicit type when multiple runes have identical field names."
                 )
             else:
@@ -2443,7 +2443,7 @@ class TypeInferrer:
             if isinstance(target, Tree) and target.data in ("to_expr", "transmute", "calling_expr", "slice_at_expr", "int_lit", "float_lit", "string_lit", "char_lit", "true_lit", "false_lit", "array_lit", "list_lit", "struct_init"):
                 raise self._make_error(
                     InvalidMemoryOpError,
-                    f"Cannot banish temporary expression: 'banish' requires an assignable variable or memory location",
+                    "Cannot banish temporary expression: 'banish' requires an assignable variable or memory location",
                     target,
                     code="E0008",
                     help="Assign the expression to a local variable before banishing it: 'var tmp is ...; banish tmp'.",
@@ -3362,7 +3362,7 @@ class TypeInferrer:
                         f"Comparison '{rule}' on incompatible types: '{left_t}' vs '{right_t}'",
                         node,
                         code="E0005",
-                        help=f"Compare values of compatible types, or cast explicitly.",
+                        help="Compare values of compatible types, or cast explicitly.",
                         note="Comparisons require compatible operand types."
                     )
             return BOOL_TYPE

@@ -3,7 +3,10 @@ from __future__ import annotations
 import re
 import warnings
 from dataclasses import dataclass
-from typing import Any, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple
+
+if TYPE_CHECKING:  # pragma: no cover - import cycle guard, annotations only
+    from .pengu_errors import ParseError
 
 from lark import Lark, Tree, Token
 from lark.exceptions import UnexpectedInput as LarkUnexpectedInput, LarkError as LarkBaseError
@@ -463,7 +466,7 @@ class PenguParser:
                 i += 1
         return None
 
-    def _parse_error(self, code: str, exc: Any) -> "ParseError":
+    def _parse_error(self, code: str, exc: Any) -> ParseError:
         """Converts a Lark syntax exception into a friendly :class:`ParseError`."""
         from .pengu_errors import ParseError
 

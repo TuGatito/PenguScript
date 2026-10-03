@@ -20,7 +20,11 @@ import tempfile
 import re
 from enum import Enum
 from pathlib import Path
-from typing import List, Dict, Optional, Any, Tuple, Set
+from typing import List, Dict, Optional, Any, Tuple, Set, TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover - annotations only (see from __future__ above)
+    from lark import Tree
+
 from dataclasses import dataclass, field
 
 try:
@@ -2359,7 +2363,7 @@ def clean_project(config_path: Optional[str] = None) -> None:
         shutil.rmtree(build_dir, ignore_errors=True)
         print(f"\033[1;32m     Cleaned\033[0m build directory '{build_dir}'")
     else:
-        print(f"\033[1;33m     Cleaned\033[0m nothing to clean.")
+        print("\033[1;33m     Cleaned\033[0m nothing to clean.")
 
 
 def _toml_scalar(value: Any) -> str:
@@ -3620,7 +3624,7 @@ weave add with a as int, b as int into int:
     if template_name == "lib":
         # A library template ships a smoke test so `pengu test` proves the
         # exports work (roadmap 6.2 / BUG-6.7).
-        main_content = f"""import std.ward
+        main_content = """import std.ward
 
 ## Adds two integers.
 weave add with a as int, b as int into int:
@@ -3870,7 +3874,7 @@ def doctor_report(as_json: bool = False) -> int:
     def row(label: str, value: object) -> None:
         print(f"  {label:<18} {value}")
 
-    print(f"\033[1;36mPenguScript doctor\033[0m")
+    print("\033[1;36mPenguScript doctor\033[0m")
     row("version", info["pengu"])
     row("python", f"{info['python']} ({'frozen bundle' if info['frozen'] else 'source checkout'})")
     row("platform", info["platform"])
@@ -4289,7 +4293,7 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         if cached:
             if verbose:
                 print(f"[pengu] cache hit {cache_key} -> {cached}")
-            say(f"\033[1;32m    Finished\033[0m (cached)")
+            say("\033[1;32m    Finished\033[0m (cached)")
             say(f"\033[1;36m     Running\033[0m {cached}\n")
             sys.stdout.flush()
             sys.stderr.flush()
@@ -4474,7 +4478,7 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
         else:
             print(f"\033[1;32m    Finished\033[0m in {elapsed:.2f}s -> {artifact}")
 
-        print(f"\033[1;36m     Running\033[0m tests\n")
+        print("\033[1;36m     Running\033[0m tests\n")
         sys.stdout.flush()
         sys.stderr.flush()
         res = subprocess.run([artifact], cwd=config.base_dir)
