@@ -25,7 +25,7 @@ from typing import List, Dict, Optional, Any, Tuple, Set, TYPE_CHECKING
 if TYPE_CHECKING:  # pragma: no cover - annotations only (see from __future__ above)
     from lark import Tree
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 try:
     import tomllib
@@ -540,6 +540,22 @@ class ProjectConfig:
 
 class CompileFailedError(RuntimeError):
     """Raised when the C compiler (gcc/clang/...) rejects the generated bundle."""
+
+
+class EntryPointNotFoundError(RuntimeError):
+    """Raised (as a diagnostic) when the project entry file does not exist.
+
+    Carries the same ``message``/``help`` attribute shape as a compiler
+    ``PenguError`` so it can flow through the shared diagnostic builders.
+    """
+
+    def __init__(self, message: str, help: Optional[str] = None, code: str = "E0000"):
+        super().__init__(message)
+        self.message = message
+        self.help = help
+        self.code = code
+        self.line = 0
+        self.col = 0
 
 
 class PenguBuilder:
@@ -1311,7 +1327,15 @@ class PenguBuilder:
             except Exception as e:  # noqa: BLE001 - parse/import failure in the entry graph
                 return False, [_diag(e, entry_abs)]
         else:
-            module_order = [entry_abs]
+            # A missing entry point is an error, not an empty module list.
+            # Returning ok=True here is what made `pengu check` print "Clean"
+            # in any directory without src/main.pengu (blocker B2).
+            exc = EntryPointNotFoundError(
+                f"entry point not found: {entry_abs}",
+                help=f"Create '{os.path.relpath(entry_abs, self.config.base_dir)}', "
+                     "or pass --entry <path> to point at a different file.",
+            )
+            return False, [_diag(exc, entry_abs)]
 
         def _warning_diag(text: str, fpath: str) -> Dict[str, Any]:
             """Turns a checker warning string into a structured diagnostic."""
@@ -2095,6 +2119,20 @@ def build_project(
         print(f"\033[1;31m     Error\033[0m {exc}", file=sys.stderr)
         raise SystemExit(1)
 
+    try:
+        _require_entry_file(config)
+    except EntryPointNotFoundError as e:
+        if json_output:
+            print(json.dumps({"type": "diagnostic", **_diagnostic_message(e, config.resolve_entry())},
+                             ensure_ascii=False))
+            print(json.dumps({"type": "summary", "ok": False, "errors": 1, "warnings": 0,
+                              "duration_ms": 0.0}, ensure_ascii=False))
+            raise SystemExit(1)
+        print(f"\033[1;31m     Error\033[0m {e.message}", file=sys.stderr)
+        if e.help:
+            print(f"      help: {e.help}", file=sys.stderr)
+        raise SystemExit(1)
+
     if not json_output:
         print(f"\033[1;36m   Compiling\033[0m {config.name} v{config.version} ({config.output.value}) [{config.profile}]"
               + (" [test]" if test else ""))
@@ -2232,6 +2270,179 @@ def check_project(
         for d in errors:
             print(_fmt(d), file=sys.stderr)
     return ok
+
+
+def _diagnostic_message(exc: Any, fpath: str) -> Dict[str, Any]:
+    """Builds a structured diagnostic dict from a compiler exception.
+
+    Kept in one place so the project path and the positional-file path of
+    ``pengu check`` report identically shaped diagnostics.
+    """
+    line = getattr(exc, "line", None) or 0
+    col = getattr(exc, "column", None)
+    if col is None:
+        col = getattr(exc, "col", None) or 0
+    return {
+        "file": fpath,
+        "line": int(line),
+        "col": int(col),
+        "code": getattr(exc, "code", None) or "",
+        "severity": "error",
+        "message": getattr(exc, "message", None) or str(exc),
+        "help": getattr(exc, "help", None),
+        "note": getattr(exc, "note", None),
+    }
+
+
+def _report_check_results(ok: bool, diagnostics: List[Dict[str, Any]], elapsed: float,
+                          json_output: bool) -> bool:
+    """Prints a check result in text or JSON Lines form and returns ``ok``."""
+    if json_output:
+        for d in diagnostics:
+            print(json.dumps({"type": "diagnostic", **d}, ensure_ascii=False))
+        print(json.dumps({
+            "type": "summary",
+            "ok": ok,
+            "errors": sum(1 for d in diagnostics if d.get("severity") == "error"),
+            "warnings": sum(1 for d in diagnostics if d.get("severity") == "warning"),
+            "duration_ms": round(elapsed * 1000, 2),
+        }, ensure_ascii=False))
+        return ok
+
+    def _fmt(d: Dict[str, Any]) -> str:
+        code_str = f"[{d['code']}] " if d.get("code") else ""
+        return f"  {d['file']}:{d['line']}:{d['col']} {code_str}{d['message']}"
+
+    warnings = [d for d in diagnostics if d.get("severity") == "warning"]
+    errors = [d for d in diagnostics if d.get("severity") != "warning"]
+    for d in warnings:
+        print(f"\033[1;33m   Warning\033[0m{_fmt(d)[1:]}", file=sys.stderr)
+    if ok:
+        suffix = f" ({len(warnings)} warning(s))" if warnings else ""
+        print(f"\033[1;32m     Clean\033[0m no errors found in {elapsed:.2f}s{suffix}")
+    else:
+        print(f"\033[1;31m   Errors\033[0m found in {elapsed:.2f}s")
+        for d in errors:
+            print(_fmt(d), file=sys.stderr)
+    return ok
+
+
+def _require_entry_file(config: ProjectConfig) -> None:
+    """Fails fast when the project entry point does not exist.
+
+    Without this, a missing entry surfaces either as an opaque C link error
+    ("referencia a `main' sin definir", as before Phase 1) or -- worse, for
+    ``pengu test`` -- as a green "No tests to run." because the generated test
+    harness always produces a valid C program (blocker B2).
+
+    Args:
+        config: Resolved project configuration.
+
+    Raises:
+        EntryPointNotFoundError: When the entry file is absent.
+    """
+    entry_abs = config.resolve_entry()
+    if os.path.isfile(entry_abs):
+        return
+    rel = os.path.relpath(entry_abs, config.base_dir)
+    raise EntryPointNotFoundError(
+        f"entry point not found: {entry_abs}",
+        help=f"Create '{rel}', or pass --entry <path> to point at a different file.",
+    )
+
+
+def check_files(
+    files: List[str],
+    config_path: Optional[str] = None,
+    profile: str = "debug",
+    defines: Optional[List[str]] = None,
+    cc: Optional[str] = None,
+    verbose: bool = False,
+    json_output: bool = False,
+    deny_deprecated: bool = False,
+) -> bool:
+    """Parses and type-checks an explicit list of ``.pengu`` files.
+
+    Each file is checked in place: it is treated as the entry point and its own
+    directory becomes the base directory, so a sibling ``import`` resolves. The
+    project configuration is still loaded (when one can be found) so that
+    ``lib_dir``, ``include_dirs``, ``defines`` and ``links`` from ``pengu.toml``
+    apply -- ``import std.spark`` must resolve exactly as it does in a build.
+
+    Args:
+        files: ``.pengu`` paths to check. A path that does not exist is an error.
+        config_path: Optional path to config file or project root.
+        profile: Selected build profile ('debug' or 'release').
+        defines: Optional -D NAME / -D NAME=value compile-time defines.
+        cc: Optional C compiler override (informational for 'when').
+        verbose: True to print per-file progress.
+        json_output: Emit machine-readable JSON Lines (for CI) instead of text.
+        deny_deprecated: Treat the use of a @deprecated symbol (W0006) as an error.
+
+    Returns:
+        True when every given file passes parse + semantic checking.
+    """
+    t0 = time.time()
+    config = ProjectConfig.load(config_path, profile=profile)
+    if defines:
+        config.defines = list(config.defines or []) + defines
+    if cc:
+        config.cc = cc
+
+    if not json_output:
+        label = f"{len(files)} file{'s' if len(files) != 1 else ''}"
+        print(f"\033[1;36m   Checking\033[0m {label} [{profile}]")
+
+    ok = True
+    diagnostics: List[Dict[str, Any]] = []
+    for raw in files:
+        path = os.path.abspath(raw)
+        if not os.path.isfile(path):
+            ok = False
+            diagnostics.append({
+                "file": path,
+                "line": 0,
+                "col": 0,
+                "code": "",
+                "severity": "error",
+                "message": f"entry point not found: {path}",
+                "help": "Pass an existing .pengu file (or omit the argument to check the project entry).",
+                "note": None,
+            })
+            continue
+        if not path.endswith(".pengu"):
+            ok = False
+            diagnostics.append({
+                "file": path,
+                "line": 0,
+                "col": 0,
+                "code": "",
+                "severity": "error",
+                "message": f"not a PenguScript file: {path}",
+                "help": "Only '.pengu' sources can be checked.",
+                "note": None,
+            })
+            continue
+
+        # Check the file in place: its own directory is the base_dir so that
+        # sibling imports resolve, and it is the entry point of its own graph.
+        file_cfg = replace(
+            config,
+            base_dir=os.path.dirname(path),
+            entry=os.path.basename(path),
+            name=os.path.splitext(os.path.basename(path))[0],
+        )
+        builder = PenguBuilder(file_cfg)
+        builder.verbose = verbose and not json_output
+        builder.deny_deprecated = bool(deny_deprecated)
+        try:
+            file_ok, file_diags = builder.check_sources_diagnostics()
+        except Exception as exc:  # noqa: BLE001 - never let one file abort the sweep
+            file_ok, file_diags = False, [_diagnostic_message(exc, path)]
+        ok = ok and file_ok
+        diagnostics.extend(file_diags)
+
+    return _report_check_results(ok, diagnostics, time.time() - t0, json_output)
 
 
 def _collect_pengu_files(paths: List[str]) -> List[str]:
@@ -4462,6 +4673,20 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
     _ensure_lockfile(config, locked=locked, frozen=frozen)
     config.output = OutputType.EXE
 
+    try:
+        _require_entry_file(config)
+    except EntryPointNotFoundError as e:
+        if json_output:
+            print(json.dumps({"type": "diagnostic", **_diagnostic_message(e, config.resolve_entry())},
+                             ensure_ascii=False))
+            print(json.dumps({"type": "summary", "ok": False, "errors": 1, "warnings": 0,
+                              "duration_ms": 0.0}, ensure_ascii=False))
+        else:
+            print(f"\033[1;31m     Error\033[0m {e.message}")
+            if e.help:
+                print(f"      help: {e.help}", file=sys.stderr)
+        return 1
+
     t0 = time.time()
     if not json_output:
         print(f"\033[1;36m   Testing\033[0m {config.name} v{config.version} [--test, {config.profile}]")
@@ -4747,6 +4972,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
 
     # check
     check_p = subparsers.add_parser("check", help="Parse and type-check every module without generating code (CI)")
+    check_p.add_argument("files", nargs="*", default=None,
+                         help="Specific .pengu files to check (default: the project entry and its imports)")
     check_p.add_argument("--profile", "-p", default="debug", help="Build profile (e.g. debug, release)")
     check_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
     check_p.add_argument("--entry", "-e", default=None, help="Override entry file path")
@@ -5059,16 +5286,31 @@ def main():
         except CompileFailedError as e:
             _print_compile_error(e)
     elif args.command == "check":
-        ok = check_project(
-            config_path=args.config,
-            profile=args.profile,
-            entry=getattr(args, "entry", None),
-            defines=getattr(args, "defines", None),
-            cc=getattr(args, "cc", None),
-            verbose=getattr(args, "verbose", False),
-            json_output=getattr(args, "json", False),
-            deny_deprecated=getattr(args, "deny_deprecated", False),
-        )
+        # Positional files win over the project entry: 'pengu check a.pengu'
+        # checks exactly that file, not whatever pengu.toml happens to point at.
+        check_files_arg = getattr(args, "files", None)
+        if check_files_arg:
+            ok = check_files(
+                files=check_files_arg,
+                config_path=args.config,
+                profile=args.profile,
+                defines=getattr(args, "defines", None),
+                cc=getattr(args, "cc", None),
+                verbose=getattr(args, "verbose", False),
+                json_output=getattr(args, "json", False),
+                deny_deprecated=getattr(args, "deny_deprecated", False),
+            )
+        else:
+            ok = check_project(
+                config_path=args.config,
+                profile=args.profile,
+                entry=getattr(args, "entry", None),
+                defines=getattr(args, "defines", None),
+                cc=getattr(args, "cc", None),
+                verbose=getattr(args, "verbose", False),
+                json_output=getattr(args, "json", False),
+                deny_deprecated=getattr(args, "deny_deprecated", False),
+            )
         sys.exit(0 if ok else 1)
     elif args.command == "fmt":
         if getattr(args, "stdin", False):
