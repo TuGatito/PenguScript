@@ -325,7 +325,8 @@ def runtime_link_flags():
 def compile_run(source: str, tag: str = "t", extra_libs=None, cwd=None,
                 timeout: int = 180, profile: str = "debug",
                 expect_exit: Optional[int] = 0,
-                release_unsafe: bool = False) -> subprocess.CompletedProcess:
+                release_unsafe: bool = False,
+                extra_cflags: Optional[list] = None) -> subprocess.CompletedProcess:
     """Writes ``source`` to a temp project, bundles, compiles and runs it.
 
     Returns the CompletedProcess of the executed binary. Decorating tests with
@@ -359,8 +360,14 @@ def compile_run(source: str, tag: str = "t", extra_libs=None, cwd=None,
                f"-L{BUILD_LIB}"]
         if profile == "release":
             cmd.append("-O3")
+            if not release_unsafe:
+                cmd.append("-fwrapv")   # defined wrapping (roadmap 5.1)
         else:
             cmd.append("-g")
+            if not release_unsafe:
+                cmd.append("-ftrapv")   # trap signed overflow in debug
+        if extra_cflags:
+            cmd += list(extra_cflags)
         # GCC 14 turns implicit declarations / int-conversion into errors by
         # default; generated C may trigger those warnings on newer toolchains,
         # so keep them as warnings across compilers.

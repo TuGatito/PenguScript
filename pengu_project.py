@@ -1388,6 +1388,19 @@ class PenguBuilder:
             for flag in ("-DPENGU_BOUNDS_CHECK=0", "-DPENGU_OVERFLOW_CHECK=0"):
                 if flag not in common_flags:
                     common_flags.append(flag)
+        else:
+            # Integer overflow policy (roadmap 5.1).  C leaves signed overflow as
+            # undefined behaviour, which lets -O2 rewrite arithmetic in ways that
+            # break the wrapping users expect.  Debug traps, release wraps:
+            #   debug    -> -ftrapv  (SIGABRT on signed overflow)
+            #   release  -> -fwrapv  (two's-complement wrapping, no UB)
+            # TCC and MSVC have no -ftrapv; MSVC's signed arithmetic wraps in
+            # practice, so release needs no flag there either.
+            _cc_l = os.path.basename(cc).lower()
+            if "tcc" not in _cc_l and _cc_l not in ("cl", "cl.exe"):
+                _ovf = "-ftrapv" if self.config.profile == "debug" else "-fwrapv"
+                if _ovf not in common_flags and _ovf not in merged_cflags:
+                    common_flags.append(_ovf)
 
         cc_base = os.path.basename(cc).lower()
         is_tcc = "tcc" in cc_base

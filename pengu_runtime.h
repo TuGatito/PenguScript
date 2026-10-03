@@ -341,6 +341,11 @@ extern "C"
  * build can keep the frame trace but compile the per-index checks out (the
  * code generator also stops emitting `pengu_assert_bounds` when not in debug
  * mode, and passes -DPENGU_BOUNDS_CHECK=0). */
+/* Integer-overflow checks are opt-out via --release-unsafe (roadmap 5.1). */
+#ifndef PENGU_OVERFLOW_CHECK
+#define PENGU_OVERFLOW_CHECK 1
+#endif
+
 #ifndef PENGU_BOUNDS_CHECK
 #define PENGU_BOUNDS_CHECK 1
 #endif

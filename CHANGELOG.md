@@ -4,6 +4,28 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### 🔢 Added — 5.1 Política de desbordamiento de enteros
+
+- **El desbordamiento firmado ya no es UB por defecto** (era el riesgo real: C lo
+  deja indefinido y `-O2` puede reescribir la aritmética). Política aplicada con
+  flags por perfil:
+  - **debug** → `-ftrapv`: aborta con SIGABRT ante desbordamiento firmado.
+  - **release** → `-fwrapv`: wrapping en complemento a dos **definido**.
+  - **`--release-unsafe`** → sin flag: se recupera el UB de C, de forma explícita.
+- Sólo para GCC/Clang; TCC y MSVC no soportan `-ftrapv` (la aritmética de MSVC ya
+  envuelve en la práctica) y se omiten.
+- El header del runtime define `PENGU_OVERFLOW_CHECK` (por defecto 1), simétrico
+  a `PENGU_BOUNDS_CHECK`, para que `--release-unsafe` pueda desactivarlo.
+- **Nota de implementación honesta:** la auditoría proponía insertar llamadas
+  `pengu_assert_*_overflow_*(...)` desde el codegen. Se optó por los flags
+  equivalentes porque (a) dan la misma garantía para GCC/Clang sin instrumentar
+  cada operación, y (b) `libpengu_runtime.a` no puede reconstruirse en este
+  entorno (faltan cabeceras de libxml2), así que añadir símbolos nuevos al
+  runtime dejaría el enlace roto.
+- Tests: `tests/test_overflow_policy.py`, incluida la **verificación de
+  aceptación con `-fsanitize=signed-integer-overflow`** (release: 0 informes).
+  `tests/conftest.py::compile_run` aplica la misma política por perfil.
+
 ### 🛡️ Added — 5.2 / 5.6 Comprobación de límites siempre activa + bloques `unsafe:`
 
 - **Cambio de política (rompe la suposición de Fase 1):** las comprobaciones de
