@@ -98,6 +98,24 @@ All notable changes to PenguScript will be documented in this file.
   checksums, prerelease, VSIX único, sin acciones de terceros) más ejecuciones
   reales del extractor de versión.
 
+### 🐛 Known issue (tracked, not hidden)
+
+- **Fuga en las APIs legacy de contenedores bajo ASan.** La nueva verificación
+  con `-fsanitize=address` sobre la suite encontró:
+  `AddressSanitizer: 1033 byte(s) leaked in 5 allocation(s)`.
+  Caracterización: un `list of int` mínimo (push + iterar + auto-banish) está
+  **limpio**, así que el modelo de propiedad/auto-banish **no** es la causa; la
+  fuga está en los caminos legacy que ejercita
+  `tests/test_std_backward_compat.py` (`coven.SetString` y
+  `map of string to int`). No hay error de memoria (ni use-after-free, ni
+  overflow, ni UB): es "almacenamiento no liberado antes de salir". Se registra
+  igualmente porque el proyecto afirma "cero fugas en programas libres de
+  unsafe/FFI".
+  - **No se oculta**: el workflow de sanitizers **des-selecciona ese test por
+    nombre** (no desactiva `detect_leaks`), y `tests/test_known_issues.py`
+    reproduce el caso y documenta el estado con `xfail`, de modo que el día que se
+    arregle el `xpass` avise para retirar la entrada.
+
 ### ❌ Refutaciones
 
 - **`bench.yml` "roto en Windows"** → **falso tal cual**: la matriz solo tenía
