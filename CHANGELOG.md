@@ -4,6 +4,33 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### 🔐 Added — 5.3 Seguridad de la cadena de suministro
+
+- **`SECURITY.md`**: alcance (front-end, codegen, runtime, `bind`, `add`,
+  `lock`/`verify`, LSP y ejecución en build-time), versiones soportadas, canal de
+  reporte (GitHub Security Advisories + email), acuse en 72 h, embargo de hasta
+  90 días, SLAs de parche (crítico 7 d, alto 30 d, medio/bajo 90 d), integridad
+  de releases y resumen de las mitigaciones ya presentes.
+- **`pengu verify`**: recorre `pengu.lock` y comprueba que cada paquete está
+  instalado, que el commit del checkout coincide (`git rev-parse HEAD`) y que el
+  **SHA-256 del árbol de contenido** sigue siendo el registrado; informa por
+  paquete y sale con código 1 ante cualquier desviación.
+- **Sandbox del preprocesador de `pengu bind`** (los headers son entrada no
+  confiable):
+  - **Validación estática**: se rechazan `#include` absolutos (`/etc/passwd`,
+    `C:\Windows\...`) y los que escapan del directorio del header (`../`).
+    Opt-out explícito con `PENGU_ALLOW_ABSOLUTE_INCLUDES=1`.
+  - **Aislamiento real en Linux con `bwrap`**: el preprocesador corre viendo sólo
+    el toolchain (`/usr`, `/lib`, `/bin`, …) y los directorios necesarios
+    (header, stubs, `-I`), todo de sólo lectura y **sin red** (`--unshare-net`).
+    Los `-I` se absolutizan y el `cwd` pasa a ser el del header, para que el
+    aislamiento no rompa la resolución. `PENGU_NO_SANDBOX=1` lo desactiva.
+  - Entorno mínimo (sin `HOME` ni `LD_PRELOAD`).
+- Nota honesta: sin `bwrap` (macOS/Windows) la garantía efectiva es la validación
+  estática + entorno mínimo; se documenta como tal en `SECURITY.md`.
+- Tests: `tests/test_supply_chain.py` (12 casos), más los de trust de build
+  scripts en `tests/test_phase5_bugfixes.py`.
+
 ### 📜 Added — 5.4 Política de deprecación + `--deny-deprecated`
 
 - **Hallazgo real (el auténtico problema detrás de BUG-5.1):** los warnings del

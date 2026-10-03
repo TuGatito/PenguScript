@@ -33,6 +33,7 @@ import os
 import re
 import subprocess
 import sys
+import shutil
 import tempfile
 from typing import Dict, List, Optional, Set, Tuple, Union
 
@@ -1110,6 +1111,80 @@ def _bind_max_bytes() -> int:
         return DEFAULT_BIND_MAX_BYTES
 
 
+def _sandbox_environment() -> Optional[dict]:
+    """Restricted environment for the C preprocessor (roadmap 5.3).
+
+    A header is untrusted input: it may try ``#include "/etc/passwd"`` or depend
+    on ambient state.  We run the preprocessor with a minimal environment (no
+    ``HOME``, no ``LD_PRELOAD``, a PATH limited to the compiler's directory) and
+    from a scratch directory.  Set ``PENGU_NO_SANDBOX=1`` to opt out.
+    """
+    if os.environ.get("PENGU_NO_SANDBOX", "").strip().lower() in ("1", "true", "yes", "on"):
+        return None
+    cc = shutil.which("gcc") or "gcc"
+    env = {
+        "PATH": os.path.dirname(os.path.abspath(cc)) or "/usr/bin",
+        "LC_ALL": "C",
+        "LANG": "C",
+    }
+    return env
+
+
+_INCLUDE_RE = re.compile(r'^\s*#\s*include\s*([<"])([^>"]+)[>"]', re.MULTILINE)
+
+
+def _reject_unsafe_includes(header_path: str, text: str) -> None:
+    """Rejects absolute or parent-escaping #include paths (roadmap 5.3).
+
+    The preprocessor is not a security boundary: given ``#include "/etc/passwd"``
+    gcc will happily read the file.  Headers are untrusted input, so refuse the
+    obvious escapes up front with an actionable error.  Opt out with
+    ``PENGU_ALLOW_ABSOLUTE_INCLUDES=1`` for legitimate absolute includes.
+    """
+    if os.environ.get("PENGU_ALLOW_ABSOLUTE_INCLUDES", "").strip().lower() in ("1", "true", "yes", "on"):
+        return
+    base = os.path.dirname(os.path.abspath(header_path))
+    for _quote, inc in _INCLUDE_RE.findall(text):
+        if inc.startswith("/") or re.match(r"^[A-Za-z]:[\\/]", inc):
+            raise HeaderParseError(
+                f"refusing absolute #include \"{inc}\" in {os.path.basename(header_path)}.\n"
+                f"  Headers are untrusted input; set PENGU_ALLOW_ABSOLUTE_INCLUDES=1 to allow it."
+            )
+        if ".." in inc.replace("\\", "/").split("/"):
+            resolved = os.path.normpath(os.path.join(base, inc))
+            if not resolved.startswith(base + os.sep) and resolved != base:
+                raise HeaderParseError(
+                    f"refusing #include \"{inc}\" that escapes the header directory in "
+                    f"{os.path.basename(header_path)}.\n"
+                    f"  Set PENGU_ALLOW_ABSOLUTE_INCLUDES=1 to allow it."
+                )
+
+
+def _sandbox_prefix(read_dirs: Optional[list] = None) -> list:
+    """OS-level preprocessor sandbox prefix, when available (roadmap 5.3).
+
+    Uses ``bwrap`` on Linux: only the toolchain directories plus the caller's
+    ``read_dirs`` (header dir, stub dir, ``-I`` dirs) are visible, read-only, with
+    no network.  On macOS/Windows, or when bwrap is missing, the static include
+    validation plus the minimal environment remain the guard.
+    """
+    if os.environ.get("PENGU_NO_SANDBOX", "").strip().lower() in ("1", "true", "yes", "on"):
+        return []
+    bwrap = shutil.which("bwrap")
+    if not bwrap:
+        return []
+    prefix = [bwrap]
+    for tool_dir in ("/usr", "/lib", "/lib64", "/bin", "/sbin", "/etc"):
+        if os.path.isdir(tool_dir):
+            prefix += ["--ro-bind", tool_dir, tool_dir]
+    prefix += ["--proc", "/proc", "--dev", "/dev", "--unshare-net", "--die-with-parent"]
+    for d in read_dirs or []:
+        if d and os.path.isdir(d) and not d.startswith(("/usr", "/lib", "/bin", "/sbin", "/etc", "/proc", "/dev")):
+            prefix += ["--ro-bind", d, d]
+    prefix += ["--"]
+    return prefix
+
+
 def _check_header_size(path: str) -> None:
     """Rejects oversized headers with an actionable error (roadmap 5.3)."""
     limit = _bind_max_bytes()
@@ -1150,6 +1225,7 @@ def preprocess_and_parse(
     _check_header_size(header_abs)
     with open(header_abs, "r", encoding="utf-8", errors="replace") as f:
         original = f.read()
+    _reject_unsafe_includes(header_abs, original)
 
     if preprocessed:
         prep_abs = os.path.abspath(preprocessed)
@@ -1158,7 +1234,7 @@ def preprocess_and_parse(
         with open(prep_abs, "r", encoding="utf-8", errors="replace") as f:
             text = f.read()
     else:
-        stub_dir = stub_dir or _default_stub_dir()
+        stub_dir = os.path.abspath(stub_dir or _default_stub_dir())
         flags = ["-E"]
         if not system_includes:
             flags.extend(["-U_WIN32", "-U_MSC_VER", "-U__TINYC__", "-nostdinc", f"-I{stub_dir}"])
@@ -1177,10 +1253,20 @@ def preprocess_and_parse(
             else:
                 flags.extend(cpp_flags)
 
+        _env = _sandbox_environment()
+        _cwd = None
         try:
+            if _env is not None:
+                # Untrusted header: run the preprocessor with a minimal
+                # environment (roadmap 5.3).  All -I paths are absolutized above,
+                # so the cwd has no bearing on header resolution.
+                _cwd = os.path.dirname(os.path.abspath(header_abs))
+            _read_dirs = [os.path.dirname(os.path.abspath(header_abs)), stub_dir]
+            _read_dirs += [os.path.abspath(i) for i in (include_paths or []) if i]
             res = subprocess.run(
-                ["gcc"] + flags + [header_abs],
+                _sandbox_prefix(_read_dirs) + ["gcc"] + flags + [header_abs],
                 capture_output=True, text=True, timeout=240,
+                env=_env, cwd=_cwd,
             )
         except Exception as e:  # noqa: BLE001
             raise HeaderParseError(f"failed to run the C preprocessor: {e}") from e

@@ -3274,6 +3274,54 @@ def resolve_transitive_dependencies(
     return graph
 
 
+def verify_project(config_path: Optional[str] = None, verbose: bool = False) -> int:
+    """Verifies every installed dependency against ``pengu.lock`` (roadmap 5.3).
+
+    Checks that each locked package is present, that its checked-out commit
+    matches the one recorded, and that its content tree still hashes to the
+    locked SHA-256.  Returns 0 when everything matches, 1 otherwise.
+
+    Args:
+        config_path: Optional path to the config file or project root.
+        verbose: Print the per-package detail even when everything matches.
+    """
+    from pengu_lock import compute_tree_hash, read_lock
+
+    config = ProjectConfig.load(config_path)
+    lock = read_lock(config.base_dir)
+    if lock is None:
+        print("\033[1;31m     Error\033[0m no pengu.lock found; run `pengu build` first.",
+              file=sys.stderr)
+        return 1
+
+    problems: List[str] = []
+    for pkg in lock.packages:
+        dep_dir = os.path.join(config.base_dir, config.lib_dir, pkg.name)
+        if not os.path.isdir(dep_dir):
+            problems.append(f"{pkg.name}: not installed at {dep_dir}")
+            continue
+        if pkg.commit and os.path.isdir(os.path.join(dep_dir, ".git")):
+            head = subprocess.run(["git", "-C", dep_dir, "rev-parse", "HEAD"],
+                                  capture_output=True, text=True).stdout.strip()
+            if head and not head.startswith(pkg.commit[:7]) and not pkg.commit.startswith(head[:7]):
+                problems.append(f"{pkg.name}: commit {head[:12]} != locked {pkg.commit[:12]}")
+        if pkg.sha256:
+            actual = compute_tree_hash(dep_dir)
+            if actual != pkg.sha256:
+                problems.append(f"{pkg.name}: content sha256 {actual[:12]}… != locked {pkg.sha256[:12]}…")
+        if verbose and not problems:
+            print(f"  \033[1;32mok\033[0m {pkg.name} {pkg.version} {pkg.commit[:12] if pkg.commit else ''}")
+
+    if problems:
+        print(f"\033[1;31m     Failed\033[0m pengu.lock verification ({len(problems)} problem(s)):",
+              file=sys.stderr)
+        for prob in problems:
+            print(f"  - {prob}", file=sys.stderr)
+        return 1
+    print(f"\033[1;32m   Verified\033[0m {len(lock.packages)} package(s) match pengu.lock")
+    return 0
+
+
 def print_dependency_tree(config: "ProjectConfig", as_json: bool = False) -> int:
     """Prints the resolved dependency graph (`pengu tree` / `metadata --json`)."""
     graph = resolve_transitive_dependencies(config, install_missing=False, verbose=False)
@@ -4398,6 +4446,11 @@ def create_cli_parser() -> argparse.ArgumentParser:
     metadata_p = subparsers.add_parser("metadata", help="Machine-readable project metadata (JSON)")
     metadata_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
 
+    # verify
+    verify_p = subparsers.add_parser("verify", help="Verify installed dependencies against pengu.lock")
+    verify_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
+    verify_p.add_argument("--verbose", action="store_true", help="Print every verified package")
+
     # vendor
     vendor_p = subparsers.add_parser("vendor", help="Snapshot dependencies into vendor/ for offline builds")
     vendor_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
@@ -4736,6 +4789,9 @@ def main():
         except (FileNotFoundError, ValueError, RuntimeError) as e:
             print(f"\033[1;31m     Error\033[0m {e}", file=sys.stderr)
             sys.exit(1)
+    elif args.command == "verify":
+        sys.exit(verify_project(config_path=args.config,
+                                verbose=getattr(args, "verbose", False)))
     elif args.command == "vendor":
         try:
             vendor_dependencies(ProjectConfig.load(args.config),
