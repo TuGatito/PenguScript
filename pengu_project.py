@@ -2473,6 +2473,229 @@ def add_dependency(
     return target_dir
 
 
+def _find_manifest(base_dir: str) -> Optional[str]:
+    """Returns the canonical manifest path (existing, or the default to create)."""
+    for cand in ("pengu.toml", "Pengu.toml", "pengu.yaml", "pengu.yml", "pengu.json"):
+        p = os.path.join(base_dir, cand)
+        if os.path.isfile(p):
+            return p
+    return os.path.join(base_dir, "pengu.toml")
+
+
+def _read_config_dependency(base_dir: str, dep_name: str) -> Optional[Dict[str, Any]]:
+    """Returns the manifest entry of a dependency, or None."""
+    manifest = _find_manifest(base_dir)
+    if not os.path.isfile(manifest):
+        return None
+    ext = os.path.splitext(manifest)[1].lower()
+    try:
+        if ext == ".json":
+            with open(manifest, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        elif ext == ".toml" and tomllib is not None:
+            with open(manifest, "rb") as f:
+                data = tomllib.load(f)
+        else:
+            data = _load_yaml_module()
+            with open(manifest, "r", encoding="utf-8") as f:
+                data = data.safe_load(f) if data is not None else {}
+    except Exception:
+        return None
+    deps = (data or {}).get("dependencies")
+    if isinstance(deps, dict):
+        entry = deps.get(dep_name)
+        if isinstance(entry, dict):
+            return entry
+    return None
+
+
+def _remove_config_dependency(base_dir: str, dep_name: str) -> bool:
+    """Removes a dependency entry from the manifest. Returns True if it existed."""
+    manifest = _find_manifest(base_dir)
+    if not os.path.isfile(manifest):
+        return False
+    ext = os.path.splitext(manifest)[1].lower()
+    if ext == ".json":
+        with open(manifest, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        existed = isinstance(data.get("dependencies"), dict) and dep_name in data["dependencies"]
+        if existed:
+            del data["dependencies"][dep_name]
+            with open(manifest, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+                f.write("\n")
+        return existed
+    if ext == ".toml":
+        if tomllib is None:
+            return False
+        with open(manifest, "rb") as f:
+            data = tomllib.load(f)
+        deps = data.get("dependencies")
+        existed = isinstance(deps, dict) and dep_name in deps
+        if existed:
+            del deps[dep_name]
+            _write_toml_file(manifest, data)
+        return existed
+    yaml = _load_yaml_module()
+    if yaml is None:
+        return False
+    with open(manifest, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    deps = data.get("dependencies")
+    existed = isinstance(deps, dict) and dep_name in deps
+    if existed:
+        del deps[dep_name]
+        with open(manifest, "w", encoding="utf-8") as f:
+            yaml.dump(data, f, sort_keys=False)
+    return existed
+
+
+def remove_dependency(name: str, config_path: Optional[str] = None,
+                      keep_files: bool = False) -> str:
+    """Removes a dependency from lib/<name>/ and from the project manifest.
+
+    Args:
+        name: Dependency/binding name (the ``lib/<name>`` directory).
+        config_path: Optional path to the project config file or root.
+        keep_files: True to only drop the manifest entry, leaving lib/<name>/.
+
+    Returns:
+        Path of the removed dependency directory.
+    """
+    config = ProjectConfig.load(config_path)
+    dep_name = (name or "").strip()
+    if not dep_name:
+        raise ValueError("dependency name is required")
+    target_dir = os.path.abspath(os.path.join(config.base_dir, config.lib_dir, dep_name))
+    lib_root = os.path.abspath(os.path.join(config.base_dir, config.lib_dir))
+    if os.path.commonpath([target_dir, lib_root]) != lib_root:
+        raise ValueError(f"refusing to remove '{dep_name}': outside {lib_root}")
+
+    existed_entry = _remove_config_dependency(config.base_dir, dep_name)
+    removed_dir = os.path.isdir(target_dir)
+    if removed_dir and not keep_files:
+        shutil.rmtree(target_dir)
+    if not existed_entry and not removed_dir:
+        raise FileNotFoundError(
+            f"dependency '{dep_name}' is not installed (no {target_dir} and no manifest entry)"
+        )
+    if keep_files:
+        print(f"\033[1;32m     Removed\033[0m dependency '{dep_name}' from the manifest")
+    else:
+        print(f"\033[1;32m     Removed\033[0m dependency '{dep_name}' ({target_dir})")
+    return target_dir
+
+
+def upgrade_dependency(name: str, version: Optional[str] = None,
+                       branch: Optional[str] = None,
+                       config_path: Optional[str] = None) -> str:
+    """Updates one dependency (git pull or checkout of a tag) and its manifest.
+
+    Args:
+        name: Dependency/binding name.
+        version: Optional git tag / SemVer constraint to record and check out.
+        branch: Optional branch override recorded in the manifest.
+        config_path: Optional path to the project config file or root.
+
+    Returns:
+        Path of the upgraded dependency directory.
+    """
+    config = ProjectConfig.load(config_path)
+    dep_name = (name or "").strip()
+    if not dep_name:
+        raise ValueError("dependency name is required")
+    target_dir = os.path.abspath(os.path.join(config.base_dir, config.lib_dir, dep_name))
+    if not os.path.isdir(target_dir):
+        raise FileNotFoundError(f"dependency '{dep_name}' is not installed at {target_dir}")
+
+    entry = _read_config_dependency(config.base_dir, dep_name) or {}
+    source = str(entry.get("url") or entry.get("source") or "")
+    if not source:
+        raise ValueError(
+            f"dependency '{dep_name}' has no 'url' in the manifest; cannot upgrade"
+        )
+    is_git = os.path.isdir(os.path.join(target_dir, ".git"))
+    if not is_git:
+        print(f"\033[1;33m    Skipping\033[0m '{dep_name}' (local copy, not a git checkout)")
+        return target_dir
+
+    fetch = subprocess.run(["git", "-C", target_dir, "fetch", "--tags", "--prune"],
+                           capture_output=True, text=True)
+    if fetch.returncode != 0:
+        raise RuntimeError(f"git fetch failed for '{dep_name}':\n{fetch.stderr}")
+
+    ref = version or branch or entry.get("branch")
+    if ref:
+        checkout = subprocess.run(["git", "-C", target_dir, "checkout", str(ref)],
+                                  capture_output=True, text=True)
+        if checkout.returncode != 0:
+            raise RuntimeError(
+                f"git checkout '{ref}' failed for '{dep_name}':\n{checkout.stderr}"
+            )
+    else:
+        pull = subprocess.run(["git", "-C", target_dir, "pull", "--ff-only"],
+                              capture_output=True, text=True)
+        if pull.returncode != 0:
+            raise RuntimeError(f"git pull failed for '{dep_name}':\n{pull.stderr}")
+
+    new_entry: Dict[str, Any] = {"url": source}
+    if branch:
+        new_entry["branch"] = branch
+    elif entry.get("branch"):
+        new_entry["branch"] = entry["branch"]
+    if version:
+        new_entry["version"] = version
+    _set_config_dependency(config.base_dir, dep_name, new_entry)
+    head = subprocess.run(["git", "-C", target_dir, "rev-parse", "--short", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    print(f"\033[1;32m   Upgraded\033[0m dependency '{dep_name}'"
+          + (f" to {version}" if version else (f" to {ref}" if ref else ""))
+          + (f" ({head})" if head else ""))
+    return target_dir
+
+
+def _set_config_dependency(base_dir: str, dep_name: str, entry: Dict[str, Any]) -> None:
+    """Writes a full dependency entry into the manifest (TOML/YAML/JSON)."""
+    manifest = _find_manifest(base_dir)
+    ext = os.path.splitext(manifest)[1].lower()
+    if ext == ".toml":
+        if tomllib is None:
+            raise RuntimeError("TOML manifests require tomllib/tomli")
+        data: Dict[str, Any] = {}
+        if os.path.isfile(manifest):
+            with open(manifest, "rb") as f:
+                data = tomllib.load(f)
+        if not isinstance(data.get("dependencies"), dict):
+            data["dependencies"] = {}
+        data["dependencies"][dep_name] = entry
+        _write_toml_file(manifest, data)
+        return
+    if ext == ".json":
+        data = {}
+        if os.path.isfile(manifest):
+            with open(manifest, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        if not isinstance(data.get("dependencies"), dict):
+            data["dependencies"] = {}
+        data["dependencies"][dep_name] = entry
+        with open(manifest, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.write("\n")
+        return
+    yaml = _load_yaml_module()
+    if yaml is None:
+        raise RuntimeError("YAML manifests require PyYAML")
+    data = {}
+    if os.path.isfile(manifest):
+        with open(manifest, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    if not isinstance(data.get("dependencies"), dict):
+        data["dependencies"] = {}
+    data["dependencies"][dep_name] = entry
+    with open(manifest, "w", encoding="utf-8") as f:
+        yaml.dump(data, f, sort_keys=False)
+
+
 def init_project(
     name: str = "my_game",
     output_type: str = "exe",
@@ -3472,6 +3695,21 @@ def create_cli_parser() -> argparse.ArgumentParser:
     add_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
     add_p.add_argument("--no-build", action="store_true", help="Skip executing dependency build script")
 
+    # remove
+    remove_p = subparsers.add_parser("remove", help="Remove an installed dependency (lib/<name> + manifest)")
+    remove_p.add_argument("name", help="Dependency / binding name (the lib/<name> directory)")
+    remove_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
+    remove_p.add_argument("--keep-files", action="store_true",
+                          help="Only drop the manifest entry; leave lib/<name>/ on disk")
+
+    # upgrade
+    upgrade_p = subparsers.add_parser("upgrade", help="Upgrade one dependency (git pull / checkout a tag)")
+    upgrade_p.add_argument("name", help="Dependency / binding name")
+    upgrade_p.add_argument("--version", "-v", default=None,
+                           help="Git tag or SemVer constraint to record and check out (e.g. ^1.2.0)")
+    upgrade_p.add_argument("--branch", "-b", default=None, help="Branch override recorded in the manifest")
+    upgrade_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
+
     # build
     build_p = subparsers.add_parser("build", help="Compile the project according to configuration")
     build_p.add_argument("--profile", "-p", default="debug", help="Build profile (e.g. debug, release)")
@@ -3759,6 +3997,27 @@ def main():
             config_path=args.config,
             run_build=not args.no_build
         )
+    elif args.command == "remove":
+        try:
+            remove_dependency(
+                name=args.name,
+                config_path=args.config,
+                keep_files=getattr(args, "keep_files", False),
+            )
+        except (FileNotFoundError, ValueError) as e:
+            print(f"\033[1;31m     Error\033[0m {e}", file=sys.stderr)
+            sys.exit(1)
+    elif args.command == "upgrade":
+        try:
+            upgrade_dependency(
+                name=args.name,
+                version=getattr(args, "version", None),
+                branch=getattr(args, "branch", None),
+                config_path=args.config,
+            )
+        except (FileNotFoundError, ValueError, RuntimeError) as e:
+            print(f"\033[1;31m     Error\033[0m {e}", file=sys.stderr)
+            sys.exit(1)
     elif args.command == "build":
         try:
             build_project(

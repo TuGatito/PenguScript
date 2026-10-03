@@ -4,6 +4,20 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### 🔧 Added — 4.5 `pengu remove` y `pengu upgrade`
+
+- **`pengu remove <name>`**: elimina `lib/<name>/` y su entrada del manifiesto
+  (TOML/YAML/JSON), con guarda de ruta (nunca borra fuera de `lib/`) y error
+  accionable si la dependencia no existe. `--keep-files` deja los ficheros.
+- **`pengu upgrade <name> [--version <tag>] [--branch <b>]`**: `git fetch
+  --tags`, checkout del tag (o `git pull --ff-only` si no hay versión) y
+  reescritura de la entrada del manifiesto con `version`/`branch` y el commit
+  resultante. Las copias locales sin `.git` se saltan con aviso.
+- Helpers `_find_manifest`, `_read_config_dependency`, `_set_config_dependency`
+  y `_remove_config_dependency` manejan los tres formatos de manifiesto.
+- Tests: `tests/test_deps_commands.py` (E2E con repo git real: add → upgrade a
+  tag → manifest válido → remove).
+
 ### 📦 Added — 4.11 TOML como manifiesto canónico
 
 - La **lectura** ya prefería `pengu.toml`; ahora la **escritura** también:
