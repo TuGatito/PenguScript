@@ -89,6 +89,66 @@ weave write_file with path as string, content as string into bool:
 weave write_bytes with path as string, data as string into bool:
     return calling pengu_c_archivum_write_file with path, data
 
+# ----------------------------------------------------------------------------
+# Result-based I/O (roadmap 4.4 / decision D5)
+#
+# The `maybe`/`bool` APIs above are kept unchanged for backwards compatibility:
+# `maybe` answers "is it there?" and stays the right tool for that question.
+# These variants answer "it failed, and *why*", which `maybe`/`bool` cannot.
+# ----------------------------------------------------------------------------
+
+## Cause of an I/O failure, used as the error type of the `*_result` weaves.
+omen IoError:
+    NotFound
+    IsADirectory
+    NotAFile
+    Permission
+    Unknown
+
+## Reads the whole file at `path` as UTF-8, reporting the failure cause.
+weave read_file_result with path as string into result of string to IoError:
+    # Check the directory case first: opening a directory for reading succeeds
+    # on POSIX but yields no bytes, which would otherwise be reported as an
+    # empty (successful) file.
+    if calling is_dir with path:
+        return calling err_of with IoError.IsADirectory
+    var content as maybe string is calling pengu_c_archivum_read_file with path
+    if content.is_present:
+        return calling ok_of with (content or else "")
+    if not calling exists with path:
+        return calling err_of with IoError.NotFound
+    return calling err_of with IoError.Unknown
+
+## Writes `content` to `path`, reporting the failure cause. `result of int to
+## IoError` succeeds with 0 (bytes written is not exposed by the runtime).
+weave write_file_result with path as string, content as string into result of int to IoError:
+    if calling is_dir with path:
+        return calling err_of with IoError.IsADirectory
+    var written as bool is calling pengu_c_archivum_write_file with path, content
+    if written:
+        return calling ok_of with 0
+    return calling err_of with IoError.Unknown
+
+## Deletes the entry at `path`, reporting the failure cause.
+weave delete_file_result with path as string into result of int to IoError:
+    if not calling exists with path:
+        return calling err_of with IoError.NotFound
+    if calling is_dir with path:
+        return calling err_of with IoError.IsADirectory
+    var deleted as bool is calling pengu_c_archivum_delete_file with path
+    if deleted:
+        return calling ok_of with 0
+    return calling err_of with IoError.Unknown
+
+## Returns the human-readable message of an `IoError`.
+weave describe_error with e as IoError into string:
+    judge e:
+        when IoError.NotFound -> "no such file or directory"
+        when IoError.IsADirectory -> "is a directory"
+        when IoError.NotAFile -> "not a regular file"
+        when IoError.Permission -> "permission denied"
+        else -> "unknown I/O error"
+
 ## Appends `content` to the end of `path`, creating it when missing. Returns true on success.
 weave append_file with path as string, content as string into bool:
     return calling pengu_c_archivum_append_file with path, content

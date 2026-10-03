@@ -1755,6 +1755,40 @@ weave main into void:
     let f2 is try calling risky with 10           # propagate to caller
 ```
 
+### Choosing between `maybe` and `result` (decision D5)
+
+Both containers exist and neither replaces the other:
+
+- **`maybe T`** answers *"is there a value?"*. Use it when the absence of a
+  value is the whole story: lookups, optional fields, "find the first match".
+- **`result of T to E`** answers *"what went wrong?"*. Use it when an operation
+  can fail for several reasons and the caller may want to react differently:
+  I/O, network, parsing, decoding.
+
+Migration is additive, never breaking: `std.archivum` keeps `read_file` →
+`maybe string` (and `write_file` → `bool`) exactly as before, and adds
+`read_file_result`, `write_file_result` and `delete_file_result` returning
+`result of T to IoError`, where `IoError` is an omen (`NotFound`,
+`IsADirectory`, `NotAFile`, `Permission`, `Unknown`):
+
+```pengu
+import std.archivum
+
+weave load with path as string into string:
+    var r is calling archivum.read_file_result with path
+    if r.is_ok:
+        return r.value
+    if r.error == archivum.IoError.NotFound:
+        return "missing"                       # distinguishable from...
+    if r.error == archivum.IoError.Permission:
+        return "denied"                        # ...this, without FFI
+    return calling archivum.describe_error with r.error
+```
+
+The rest of the standard library keeps `maybe`/`bool` until each module gets the
+same additive treatment; the full migration is tracked as roadmap 4.4 and is
+deliberately last because it touches public APIs.
+
 ### Semantics & Codegen Lowering:
 
 - **Value Containers:** `maybe T` and `result of T to E` are represented in C as `PenguMaybe` and `PenguResult` structs. Present values are heap-allocated copies allocated via `pengu_sigil_alloc(sizeof(T))`.

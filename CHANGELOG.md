@@ -4,6 +4,45 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### ⚠️ Added (scoped) — 4.4 API `Result` aditiva en `std.archivum`
+
+> **Alcance.** La migración completa de la stdlib a `Result` es un cambio de
+> API pública; la auditoría la marca como el ítem más peligroso y la sitúa al
+> final. Aquí se implementa la **base no rompiente**: APIs nuevas junto a las
+> históricas, que permanecen intactas (100% backward compat 0.14.x).
+
+- **Decisión D5 documentada** en `LANGUAGE.md` §12: `maybe T` responde "¿hay
+  valor?"; `result of T to E` responde "¿qué falló?". Cada uno tiene su lugar.
+- **`std.archivum`**: nuevo omen `IoError` (`NotFound`, `IsADirectory`,
+  `NotAFile`, `Permission`, `Unknown`) y weaves `read_file_result`,
+  `write_file_result`, `delete_file_result` (→ `result of T to IoError`) más
+  `describe_error` para mensajes legibles. Ahora se puede distinguir "no
+  existe" de "es un directorio" sin FFI.
+- Las APIs `maybe`/`bool` (`read_file`, `write_file`, `delete_file`, …) **no
+  cambian**; los tests de backward compat siguen verdes.
+- Caso sutil cubierto: en POSIX abrir un directorio para lectura "tiene éxito"
+  sin bytes, así que `read_file_result` comprueba `is_dir` **antes** de leer y
+  reporta `IsADirectory`.
+- Pendiente (4.4 completo, fuera de esta entrega): migrar `precis` (HTTP),
+  `cipher` (decoding) y el resto de módulos con el mismo patrón aditivo, con
+  aliases `@deprecated` para los nombres viejos.
+- Tests: `tests/test_result_io_api.py`.
+
+### 📦 Added — 4.6 / 4.7 Vendor y caché global de dependencias
+
+- **4.7 Caché global**: las dependencias git se guardan en
+  `~/.cache/pengu/deps/<sha256(url+branch)[:16]>/` (o `PENGU_DEP_CACHE`, o
+  `$XDG_CACHE_HOME/pengu/deps`). Un `pengu add` posterior restaura desde la
+  caché sin clonar. `PENGU_NO_DEP_CACHE=1` lo desactiva.
+- **4.6 `pengu vendor`**: copia cada dependencia instalada a `vendor/<name>/`
+  (sin `build/`, conservando `.git` para que `upgrade` siga funcionando), junto
+  con `vendor/pengu.lock` y un README. Si `lib/<name>/` falta, `pengu build`
+  (y `--frozen`) la restaura desde `vendor/` sin red, y el lock verifica commits
+  y hashes de contenido.
+- Tests: `tests/test_vendor_cache.py` (clave de caché, overrides de entorno,
+  restauración desde caché, vendor + build `--frozen` offline y conservación de
+  `.git`).
+
 ### 🎮 Added — 4.10 `pengu init --template`
 
 - Plantillas `exe` (por defecto), `cli`, `lib` y `game`. `--template lib`
