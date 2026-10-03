@@ -6,6 +6,7 @@ statement and returns a concrete temporary, so the generated C compiles as
 `-std=c99 -pedantic-errors`.
 """
 
+import os
 import subprocess
 
 import pytest
@@ -80,7 +81,8 @@ def test_strict_mode_compiles_as_pedantic_c99(tmp_path):
     src.write_text(c, encoding="utf-8")
     exe = tmp_path / "prog"
     cmd = [
-        cc, "-std=c99", "-pedantic-errors", str(src), "-o", str(exe),
+        cc, "-std=c99", *(["-pedantic-errors"] if os.name != "nt" else ["-pedantic"]),
+        str(src), "-o", str(exe),
         f"-I{REPO}", f"-I{BUILD_DIR}", f"-I{BUILD_INCLUDE}", f"-L{BUILD_LIB}",
         *runtime_link_flags(), *runtime_tail_flags(),
     ]
@@ -88,6 +90,25 @@ def test_strict_mode_compiles_as_pedantic_c99(tmp_path):
     assert compiled.returncode == 0, f"strict C99 compile failed:\n{compiled.stderr}"
     run = subprocess.run([str(exe)], capture_output=True, text=True, timeout=60)
     assert run.returncode == 0, f"program failed: rc={run.returncode}\n{run.stderr}"
+
+
+def test_strict_mode_compiles_with_tcc(tmp_path):
+    """TCC is bundled with the releases; it must accept the strict bundle."""
+    try:
+        from pengu_tcc import find_tcc
+    except Exception:
+        pytest.skip("pengu_tcc not importable")
+    tcc = find_tcc()
+    if not tcc:
+        pytest.skip("TCC not available")
+    c = gen_bundle(_PROG, strict_c99=True)
+    src = tmp_path / "bundle.c"
+    src.write_text(c, encoding="utf-8")
+    obj = tmp_path / "bundle.o"
+    cmd = [tcc, "-std=c11", "-c", str(src), "-o", str(obj),
+           f"-I{REPO}", f"-I{BUILD_DIR}", f"-I{BUILD_INCLUDE}"]
+    res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    assert res.returncode == 0, f"TCC rejected the strict bundle:\n{res.stderr}"
 
 
 def test_restrict_keyword_is_portable():
