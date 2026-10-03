@@ -657,7 +657,7 @@ echo "PenguScript removed from $DEST"
 
 
 def generate_release_readme(dist_dir: Path, layout: str = "portable"):
-    """Creates README_RELEASE.md explaining how to use the distribution."""
+    """Writes the distribution guide to ``docs/README_RELEASE.md`` and ``<dist>/README.md``."""
     version = get_version()
     vsix_name = f"pengus-{version}.vsix"
 
@@ -743,9 +743,14 @@ pengu run
 - `pengu clean`        : Cleans intermediate build artifacts.
 - `pengu lsp`          : Starts the Language Server Protocol (LSP) for VS Code / Neovim.
 """
-    (ROOT_DIR / "README_RELEASE.md").write_text(readme_content, encoding="utf-8")
+    # The generated release guide lives under docs/ (a tracked, regenerated copy)
+    # and is also written into the distribution as its own README.md. It is no
+    # longer written to the repository root (Phase 0 of ROADMAP_2.0.md).
+    docs_readme = ROOT_DIR / "docs" / "README_RELEASE.md"
+    docs_readme.parent.mkdir(parents=True, exist_ok=True)
+    docs_readme.write_text(readme_content, encoding="utf-8")
     (dist_dir / "README.md").write_text(readme_content, encoding="utf-8")
-    print(f"  [DOCS] Generated README_RELEASE.md and {dist_dir / 'README.md'}")
+    print(f"  [DOCS] Generated docs/README_RELEASE.md and {dist_dir / 'README.md'}")
 
 
 def main():

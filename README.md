@@ -14,8 +14,11 @@
 > programs and to drive C libraries, and the compiler has a green test suite, but
 > several language and tooling gaps are still open. The full assessment — with the
 > evidence behind every claim, the prioritised roadmap, and the porting
-> conventions that work today — is in
-> [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md).
+> conventions that work today — is in [`AUDIT_1.0.md`](AUDIT_1.0.md) (verified
+> findings, with the evidence and the refutations) and
+> [`ROADMAP_2.0.md`](ROADMAP_2.0.md) (the prioritised path to 1.0). The older
+> readiness snapshot, which describes an earlier release, is kept as a historical
+> document in [`docs/archive/`](docs/archive/).
 >
 > **What you can do today (all verified against the real toolchain)**
 >
@@ -213,7 +216,7 @@ pengu lsp                   # stdio language server
 pengu doc -o docs/          # generate module reference
 ```
 
-Projects are configured with `pengu.toml` or `pengu.yaml` (mutually exclusive; if both exist, `pengu.toml` wins; examples in `LANGUAGE.md` §14.4 use YAML for brevity) — entry point, output type/name, includes, links, per-profile `cflags`/`defines`, and compiler selection. Under the `debug` profile (default), automatic bounds checking (`pengu_assert_bounds`) and stack trace frames are active for index access; in `release`, bounds checking carries zero runtime overhead. See [PENGU_BUILD.md](PENGU_BUILD.md) for the full guide.
+Projects are configured with `pengu.toml` or `pengu.yaml` (mutually exclusive; if both exist, `pengu.toml` wins; examples in `LANGUAGE.md` §14.4 use YAML for brevity) — entry point, output type/name, includes, links, per-profile `cflags`/`defines`, and compiler selection. Under the `debug` profile (default), automatic bounds checking (`pengu_assert_bounds`) and stack trace frames are active for index access; in `release`, bounds checking carries zero runtime overhead. See [docs/PENGU_BUILD.md](docs/PENGU_BUILD.md) for the full guide.
 
 #### VS Code extension
 
@@ -434,8 +437,10 @@ PenguScript/
 ├── vscode-extension/       # VS Code extension (grammar, LSP client, project commands)
 ├── CHANGELOG.md            # Version history & feature log
 ├── CHEATSHEET.md           # Full language syntax & C-translation reference
-├── PENGU_BUILD.md          # Build system & project configuration guide
-└── README_RELEASE.md       # Standalone release package (pengucc_build/) documentation
+└── docs/                   # Build guide, performance/fuzzing notes & archived docs
+    ├── PENGU_BUILD.md      # Build system & project configuration guide
+    ├── README_RELEASE.md   # Generated: standalone release package documentation
+    └── archive/            # Historical, non-normative process documents
 ```
 
 ---
@@ -470,7 +475,7 @@ pengucc_build/
 └── runtime/              # C runtime headers + static libraries (build/lib)
 ```
 
-See [README_RELEASE.md](README_RELEASE.md) for the distribution's own documentation.
+See [docs/README_RELEASE.md](docs/README_RELEASE.md) for the distribution's own documentation.
 
 ---
 
@@ -488,14 +493,14 @@ A single entry point to every document in the repository:
 
 Additional references:
 
-| Document                                              | What it covers                                                |
-| ----------------------------------------------------- | ------------------------------------------------------------- |
-| [LANGUAGE.md](LANGUAGE.md)                            | Comprehensive language specification, stdlib, and diagnostics |
-| [CHEATSHEET.md](CHEATSHEET.md)                        | Full language syntax, keywords, and C-translation reference   |
-| [PENGU_BUILD.md](PENGU_BUILD.md)                      | `pengu` CLI, project config, and the build system             |
-| [CHANGELOG.md](CHANGELOG.md)                          | Version history and per-release feature log                   |
-| [README_RELEASE.md](README_RELEASE.md)                | The standalone `pengucc_build/` release package               |
-| [vscode-extension/README.md](vscode-extension/README.md) | VS Code extension: features, settings, installation        |
+| Document                                                 | What it covers                                                |
+| -------------------------------------------------------- | ------------------------------------------------------------- |
+| [LANGUAGE.md](LANGUAGE.md)                               | Comprehensive language specification, stdlib, and diagnostics |
+| [CHEATSHEET.md](CHEATSHEET.md)                           | Full language syntax, keywords, and C-translation reference   |
+| [docs/PENGU_BUILD.md](docs/PENGU_BUILD.md)               | `pengu` CLI, project config, and the build system             |
+| [CHANGELOG.md](CHANGELOG.md)                             | Version history and per-release feature log                   |
+| [docs/README_RELEASE.md](docs/README_RELEASE.md)         | The standalone `pengucc_build/` release package               |
+| [vscode-extension/README.md](vscode-extension/README.md) | VS Code extension: features, settings, installation           |
 
 ---
 
@@ -722,7 +727,7 @@ pengu lsp                   # stdio language server
 pengu doc -o docs/          # generate module reference
 ```
 
-Los proyectos se configuran con `pengu.toml` o `pengu.yaml` (mutuamente excluyentes; si existen ambos, gana `pengu.toml`; los ejemplos de la §14.4 de `LANGUAGE.md` usan YAML por brevedad) — punto de entrada, tipo y nombre de salida, includes, links, `cflags`/`defines` por perfil y selección de compilador. Con el perfil `debug` (el predeterminado), la verificación automática de límites (`pengu_assert_bounds`) y los marcos de traza de pila están activos para el acceso por índice; en `release`, la verificación de límites no tiene coste en tiempo de ejecución. Consulta [PENGU_BUILD.md](PENGU_BUILD.md) para la guía completa.
+Los proyectos se configuran con `pengu.toml` o `pengu.yaml` (mutuamente excluyentes; si existen ambos, gana `pengu.toml`; los ejemplos de la §14.4 de `LANGUAGE.md` usan YAML por brevedad) — punto de entrada, tipo y nombre de salida, includes, links, `cflags`/`defines` por perfil y selección de compilador. Con el perfil `debug` (el predeterminado), la verificación automática de límites (`pengu_assert_bounds`) y los marcos de traza de pila están activos para el acceso por índice; en `release`, la verificación de límites no tiene coste en tiempo de ejecución. Consulta [docs/PENGU_BUILD.md](docs/PENGU_BUILD.md) para la guía completa.
 
 #### Extensión de VS Code
 
@@ -946,8 +951,10 @@ PenguScript/
 ├── vscode-extension/       # VS Code extension (grammar, LSP client, project commands)
 ├── CHANGELOG.md            # Version history & feature log
 ├── CHEATSHEET.md           # Full language syntax & C-translation reference
-├── PENGU_BUILD.md          # Build system & project configuration guide
-└── README_RELEASE.md       # Standalone release package (pengucc_build/) documentation
+└── docs/                   # Build guide, performance/fuzzing notes & archived docs
+    ├── PENGU_BUILD.md      # Build system & project configuration guide
+    ├── README_RELEASE.md   # Generated: standalone release package documentation
+    └── archive/            # Historical, non-normative process documents
 ```
 
 ---
@@ -982,7 +989,7 @@ pengucc_build/
 └── runtime/              # C runtime headers + static libraries (build/lib)
 ```
 
-Consulta [README_RELEASE.md](README_RELEASE.md) para la documentación propia de la distribución.
+Consulta [docs/README_RELEASE.md](docs/README_RELEASE.md) para la documentación propia de la distribución.
 
 ---
 
@@ -1000,14 +1007,14 @@ Un único punto de entrada a todos los documentos del repositorio:
 
 Referencias adicionales:
 
-| Documento                                             | Qué cubre                                                     |
-| ----------------------------------------------------- | ------------------------------------------------------------- |
-| [LANGUAGE.md](LANGUAGE.md)                            | Especificación completa del lenguaje, biblioteca estándar y diagnósticos |
-| [CHEATSHEET.md](CHEATSHEET.md)                        | Sintaxis completa del lenguaje, palabras clave y referencia de traducción a C |
-| [PENGU_BUILD.md](PENGU_BUILD.md)                      | CLI `pengu`, configuración de proyecto y sistema de compilación |
-| [CHANGELOG.md](CHANGELOG.md)                          | Historial de versiones y registro de características por publicación |
-| [README_RELEASE.md](README_RELEASE.md)                | El paquete de publicación independiente `pengucc_build/`      |
-| [vscode-extension/README.md](vscode-extension/README.md) | Extensión de VS Code: características, configuración, instalación |
+| Documento                                                | Qué cubre                                                                     |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| [LANGUAGE.md](LANGUAGE.md)                               | Especificación completa del lenguaje, biblioteca estándar y diagnósticos      |
+| [CHEATSHEET.md](CHEATSHEET.md)                           | Sintaxis completa del lenguaje, palabras clave y referencia de traducción a C |
+| [docs/PENGU_BUILD.md](docs/PENGU_BUILD.md)               | CLI `pengu`, configuración de proyecto y sistema de compilación               |
+| [CHANGELOG.md](CHANGELOG.md)                             | Historial de versiones y registro de características por publicación          |
+| [docs/README_RELEASE.md](docs/README_RELEASE.md)         | El paquete de publicación independiente `pengucc_build/`                      |
+| [vscode-extension/README.md](vscode-extension/README.md) | Extensión de VS Code: características, configuración, instalación             |
 
 ---
 
