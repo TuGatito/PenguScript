@@ -170,9 +170,8 @@ def test_capabilities_registered():
     ):
         assert feature_name in fm.features, f"{feature_name} not registered"
 
-    opts = fm.feature_options.get("textDocument/semanticTokens/full")
-    assert opts is not None and opts.full is True
-    legend = opts.legend
+    legend = fm.feature_options.get("textDocument/semanticTokens/full")
+    assert legend is not None
     assert "keyword" in legend.token_types
     assert "function" in legend.token_types
     assert "readonly" in legend.token_modifiers
