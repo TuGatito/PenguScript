@@ -233,6 +233,56 @@ PenguScript defines clean, C-compatible container structs in `pengu_runtime.h`:
 
 ## 5. Variables, constants & scope
 
+### 5.0 Safety guarantees and their opt-outs
+
+Three failure modes have a *defined* behaviour by default; each has exactly one
+explicit way to opt out.
+
+| Failure | Default behaviour | Opt-out |
+|---|---|---|
+| Out-of-bounds `at` access | `[PENGU] Index out of bounds` panic with a frame stack (in every profile) | an `unsafe:` block, or `pengu build --release-unsafe` |
+| Signed integer overflow | debug: trap (SIGABRT); release: two's-complement wrapping | `--release-unsafe` (restores C's undefined behaviour) |
+| Out of memory | `[PENGU] out of memory` + `abort()` | `-DPENGU_OOM_ABORT=0` when embedding the runtime |
+
+**Bounds checks are not a debug extra.** They are emitted in every profile, so
+`--profile release` cannot be used to trade memory safety for speed. Use
+`unsafe:` where a hot loop has already proven the index in range:
+
+```pengu
+weave sum with xs as array of int, n as int into int:
+    var acc as int is 0
+    unsafe:                     # emits [W0007]; disables checks for this block
+        for i from 0 to n:
+            set acc is acc + (xs at i)
+    return acc
+```
+
+`unsafe:` is a statement (it can wrap several statements and nest), it is only
+allowed inside a function body, and it always warns `[W0007]` so the opt-out is
+visible in code review.
+
+**Integer overflow.** C leaves signed overflow undefined, which lets optimizers
+rewrite arithmetic. PenguScript pins the behaviour: debug builds compile with
+`-ftrapv` (abort on overflow), release builds with `-fwrapv` (wrapping modulo
+2^N). Only `--release-unsafe` drops both, and that is a deliberate request to
+accept undefined behaviour.
+
+**Division by zero.** `x / 0` and `x % 0` are a runtime fault: on POSIX the
+process receives `SIGFPE` and terminates; PenguScript does not silently produce a
+value. The compiler does not insert a divisor check (it would cost a branch on
+every division), so guard divisors when they can legitimately be zero:
+
+```pengu
+if d == 0:
+    return 0
+return n / d
+```
+
+**Out of memory.** An allocation failure prints a diagnostic and aborts rather
+than returning NULL, because continuing with a NULL allocation corrupts memory
+and crashes far from the cause. Embedders that install their own allocator can
+set `-DPENGU_OOM_ABORT=0` to receive NULL instead.
+
 ### 5.1 Declarations
 
 PenguScript supports eight declaration layouts for variables, constants, and destructured bindings:
@@ -3333,7 +3383,7 @@ error[E0006]: cannot assign to immutable variable 'count'
    = help: Declare the variable with 'var' instead of 'let' to allow mutation.
 ```
 
-### 22.2 Compiler Error Catalog (`E0000`–`E0050`)
+### 22.2 Compiler Error Catalog (`E0000`–`E0058`)
 
 | Code | Exception Class | Semantic Condition & Explanation | Default Help / Note |
 |---|---|---|---|
@@ -3388,6 +3438,14 @@ error[E0006]: cannot assign to immutable variable 'count'
 | `E0048` | `BorrowedBanishError` | Attempted manual `banish` on a borrowed reference (`borrowed` or view). | Only the owner of an allocation may banish it; remove `banish`. |
 | `E0049` | `SemanticError` (`code="E0049"`) | Operation used on a generic type parameter (or struct-like type) that does not carry the required concept bound: arithmetic without `Num`, `%`/bitwise without `Integrum`, `==` without `Par`, ordering without `Ordo`, `donum T` without a defaultable bound, `==`/`<` on a rune or algebraic omen without `derive Par`/`Ordo`. | Add the reported `where T: Concept` clause or `derive Concept` to the declaration. |
 | `E0050` | `InfiniteTypeSizeError` | A rune (or algebraic omen) contains itself **by value**, directly or through another by-value type, so its C size cannot be computed. | Break the cycle with pointer indirection: `ref to T`, `maybe ref to T`, `list of T`, `map of K to V`. |
+| `E0051` | `DanglingSliceError` | Returning a slice of a stack array would leave a dangling pointer once the weave returns. | Copy the data into a `list of T`, or return the array by value. |
+| `E0052` | `DuplicateConceptBindingError` | The same `bind X with Concept:` declaration appears twice. | Remove the duplicate binding. |
+| `E0053` | `DuplicateConstantError` | A constant name is redefined in the same scope. | Use a distinct name. |
+| `E0054` | `AmbiguousStructInitError` | A struct literal's fields match more than one rune type. | Disambiguate with an explicit `as RuneName` annotation. |
+| `E0055` | `StaticArrayError` | A function-static variable cannot have an array type. | Use a pointer, rune, list or map for static storage. |
+| `E0056` | `UnknownAttributeError` | An unknown `@attribute` was applied to a declaration. | Supported attributes: `@inline`, `@cold`, `@deprecated`, `@packed`, `@align(N)`. |
+| `E0057` | `InvalidCharLiteralError` | A character literal or `\u{...}` escape is malformed or out of range. | Use valid hexadecimal digits; `char` holds one byte (`string` for non-ASCII text). |
+| `E0058` | `ErrorLiteralContextError` | `error` is used outside an `or:` error-handling block. | Use `error` only inside `or:` attached to a failing expression. |
 
 ### 22.3 Compiler Warning Catalog (`W0001`–`W0007`)
 

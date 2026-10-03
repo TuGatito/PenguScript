@@ -99,6 +99,14 @@ jobs:
         run: |
           python -m pytest tests/test_semver.py tests/test_lockfile.py tests/test_transitive_deps.py tests/test_deps_commands.py tests/test_vendor_cache.py tests/test_manifest_toml.py tests/test_init_templates.py tests/test_std_versioning.py tests/test_std_docs_completeness.py -q -p no:cacheprovider --timeout=600 -x
 
+      - name: Safety & supply-chain gate (FASE 5)
+        run: |
+          python -m pytest tests/test_phase5_bugfixes.py tests/test_bounds_policy.py tests/test_overflow_policy.py tests/test_deprecation_policy.py tests/test_supply_chain.py tests/test_runtime_hardening.py tests/test_fuzz_harnesses.py -q -p no:cacheprovider --timeout=600 -x
+
+      - name: ABI layout matrix (Phase 5 / 5.7.f)
+        run: |
+          cc -std=c11 -Wall -Wextra -I. -Ibuild/include -o build/abi_layout_check tests/abi/test_abi_layout.c && ./build/abi_layout_check
+
       - name: Run test suite (fast fail on core reviews)
         run: |
           python -m pytest tests/test_p0_review_fixes.py tests/test_p1_review_fixes.py tests/test_p2_review_fixes.py -q -p no:cacheprovider --timeout=600 -x

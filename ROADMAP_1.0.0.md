@@ -568,6 +568,45 @@ flowchart TD
 
 ### 🔐 FASE 5 — Políticas de Seguridad, Compatibilidad y Estabilidad
 
+> **Estado: FASE 5 completada** (ver `CHANGELOG.md` §`[Unreleased] — FASE 5`).
+> **Verificación previa: 4 hallazgos de la auditoría eran falsos** y se fijaron
+> con tests de refutación en `tests/test_phase5_bugfixes.py`.
+>
+> - 5.1 ✅ Política de overflow definida: **debug `-ftrapv`** (aborta),
+>   **release `-fwrapv`** (wrapping definido), `--release-unsafe` restaura el UB.
+>   Verificado con `-fsanitize=signed-integer-overflow` (0 informes).
+>   **Desviación deliberada:** la auditoría proponía helpers
+>   `pengu_assert_*_overflow_*` insertados por codegen; se usan flags
+>   equivalentes porque `libpengu_runtime.a` no puede reconstruirse aquí.
+> - 5.2 ✅ **Bounds checking siempre activo** (ya no depende del perfil);
+>   `-DPENGU_BOUNDS_CHECK` desacoplado del perfil; `--release-unsafe` como único
+>   opt-out global. `test_phase1_bounds.py` se actualizó: su aserción de "release
+>   sin checks" queda obsoleta por diseño.
+> - 5.3 ✅ `SECURITY.md` (alcance, canales, embargo 90 d, SLAs, integridad),
+>   `pengu verify` (commit + SHA-256 por paquete), sandbox del preprocesador
+>   (validación estática de `#include` absolutos/escapados + `bwrap` en Linux con
+>   sólo toolchain y directorios necesarios, sin red) y gate de confianza para
+>   `build.py`/`build.sh`/`Makefile` (`--trust`/`PENGU_TRUST_ALL`).
+> - 5.4 ✅ `--deny-deprecated` en `check`/`build`/`run`/`test` + política §23.
+>   **Hallazgo real:** los warnings se calculaban y **se descartaban**; ahora se
+>   muestran (texto y `--json`).
+> - 5.5 ✅ 5 harnesses (`parser`, `bind`, `semver`, `lock`, `lsp`), modo smoke
+>   determinista sin `atheris`, `docs/FUZZING.md` y CI (PR 5 min, nightly 1 h,
+>   release configurable).
+> - 5.6 ✅ Bloque `unsafe:` (sentencia, anidable, prohibido en top-level) con
+>   aviso `W0007`.
+> - 5.7 ✅ `_Static_assert(PENGU_ABI_VERSION)`, `PENGU_OOM_ABORT`,
+>   `PENGU_OVERFLOW_CHECK`, política de div-por-cero/OOM documentada en
+>   `LANGUAGE.md` §5.0 y ABI layout en la matriz de CI.
+> - 5.8 ✅ `E0058` propio para `error` fuera de `or:`; `E0047` confirmado único
+>   (sólo `AutoOwnedBanishError`); `E0051`–`E0058` documentados; tests de
+>   unicidad y de cobertura de documentación.
+> - 5.9 ✅ `W0005`/`W0006`/`W0007` en `LANGUAGE.md` §22.3 y `README.md`; sección
+>   "not there yet" actualizada; esta cabecera y la entrada de CHANGELOG.
+> - ❌ **Refutados** (no se tocan): BUG-5.1 (`W0006` sí se emite), BUG-5.2
+>   (`@deprecated` sí llega a `rune`), BUG-5.4 (el lookahead de formato está
+>   dentro de límites) y la parte de BUG-5.17 sobre `E0047`.
+
 #### 5.1 🔐 Definición de Política de Integer Overflow
 - 📄 **Archivos:** `pengu_parser/pengu_checker.py`, `pengu_runtime.h`, `LANGUAGE.md`
 - 💡 **Definición formal:**

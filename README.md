@@ -52,11 +52,17 @@
 >   (`miniaudio`, `xxhash`, `tomlc17`, `yaml`) still need flags or are hand-maintained,
 >   and the CLI has no `-I`/`-L`/`-l` flags — use `pengu.yaml`.
 >
-> P0 (operational hygiene), P1 (the C shapes the raylib corpus needed) and P2
+> P0 (operational hygiene), P1 (the C shapes the raylib corpus needed), P2
 > (breadth and safety: 2-D arrays, `rlgl`, explicit memory release, strict
-> pointer typing, real-header bindings) are complete; what remains is P3
-> ergonomics. Treat PenguScript as a capable beta — good for internal tools,
-> prototypes and C-library work — until P3 lands.
+> pointer typing, real-header bindings) and Phase 5 (defined overflow and
+> always-on bounds checking, `unsafe:` opt-out, lockfile verification with
+> `pengu verify`, a binding sandbox, a trust gate for dependency build scripts,
+> deprecation policy with `--deny-deprecated`, and continuous fuzzing) are
+> complete. What remains is P3 ergonomics.
+>
+> **Now guaranteed:** out-of-bounds access and signed overflow have defined
+> behaviour in *every* profile; the only opt-out is an explicit `unsafe:` block
+> or `--release-unsafe`. See [LANGUAGE.md §5.0](LANGUAGE.md#50-safety-guarantees-and-their-opt-outs).
 
 ---
 
@@ -79,7 +85,7 @@
 - **Language Server (LSP)** — diagnostics with `help:`/`note:`/caret spans, documentation from `#` and `##` doc comments, type & memory-size hovers, module-scoped autocompletion, go-to-definition, formatting, and code actions ([§20.10](LANGUAGE.md#2010-language-server-protocol-pengu-lsp)).
 - **Unified project manager** — the `pengu` CLI creates (`init`), builds (`build`), runs (`run`), tests (`test`), checks (`check`), formats (`fmt`), cleans (`clean`), and documents (`doc`) projects ([§20](LANGUAGE.md#20-tooling--project-layout)).
 - **Compile-time features** — `when` conditionals with `else when` / `else`, `defined(...)`, `-D name=value` defines, function `static var` state, and `when main:` guards for dual module/script files ([§16](LANGUAGE.md#16-conditional-compilation-when)).
-- **Robust diagnostics** — comprehensive Rust-style error catalog with codes `E0000`–`E0058` and warnings `W0001` (transmute), `W0002` (echo access), `W0004` (unreachable), `W0005` (shadowing), `W0006` (`@deprecated` use), `W0007` (`unsafe:` block) ([§22](LANGUAGE.md#22-appendix-compiler-diagnostic-catalog)).
+- **Robust diagnostics** — comprehensive Rust-style error catalog with codes `E0000`–`E0058` (documented in LANGUAGE.md §22.2) and warnings `W0001` (transmute), `W0002` (echo access), `W0004` (unreachable), `W0005` (shadowing), `W0006` (`@deprecated` use), `W0007` (`unsafe:` block) ([§22](LANGUAGE.md#22-appendix-compiler-diagnostic-catalog)).
 
 ---
 

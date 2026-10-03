@@ -2,7 +2,15 @@
  
 All notable changes to PenguScript will be documented in this file.
 
-## [Unreleased] — FASE 3: Tooling de Producción
+
+## [Unreleased] — FASE 5: Seguridad y Robustez (v1.0)
+
+> Política: el desbordamiento y los límites tienen comportamiento **definido**
+> por defecto, la cadena de suministro está acotada, la deprecación es una
+> política explícita y la robustez se valida con fuzzing continuo.
+> Verificación previa: 4 de los 17 bugs de la auditoría resultaron **falsos**
+> (BUG-5.1, 5.2, 5.4 y la parte de E0047) y se documentan como refutaciones con
+> tests que fijan el comportamiento correcto.
 
 ### 🧪 Added — 5.5 Fuzzing continuo
 
@@ -205,6 +213,43 @@ resultaron falsos** y se documentan como refutaciones en los tests.
   restauración desde caché, vendor + build `--frozen` offline y conservación de
   `.git`).
 
+
+### 🧱 Added — 5.7 / 5.8 / 5.9 Endurecimiento del runtime, códigos de error y docs
+
+- **5.7 Endurecimiento del runtime**
+  - `_Static_assert(PENGU_ABI_VERSION == N)` en el bundle emitido (5.0), que ya
+    detectó un `pengu_runtime.h` obsoleto en `build/include/`.
+  - Nueva política de OOM `PENGU_OOM_ABORT` (por defecto **1**): una asignación
+    fallida imprime `[PENGU] out of memory` y `abort()` en lugar de devolver
+    `NULL` y corromper memoria lejos del origen. Los embedders pueden compilar
+    con `-DPENGU_OOM_ABORT=0` para recibir `NULL`.
+  - `PENGU_OVERFLOW_CHECK` (por defecto 1), simétrico a `PENGU_BOUNDS_CHECK`.
+  - `LANGUAGE.md` **§5.0 Safety guarantees and their opt-outs**: tabla única de
+    los tres modos de fallo (límites, overflow, OOM), su comportamiento por
+    defecto y su único opt-out; además de la política formal de **división por
+    cero** (`SIGFPE` en POSIX, sin valor silencioso; el compilador no inserta la
+    comprobación) y un ejemplo de `unsafe:`.
+  - El ABI layout (`tests/abi/test_abi_layout.c`) pasa a ejecutarse en la matriz
+    de CI (5.7.f).
+- **5.8 Higiene de códigos de error**
+  - Confirmado con evidencia: `E0047` **sólo** lo lanza `AutoOwnedBanishError`
+    (la auditoría se equivocaba); los `E0015` restantes son todos la misma
+    condición (dimensión de array desconocida).
+  - Documentados `E0051`–`E0058` en `LANGUAGE.md` §22.2 (la tabla se quedaba en
+    `E0050`) y el rango del título actualizado.
+  - Tests que verifican que **todo** código `E` usado por el compilador está
+    documentado y que los códigos de warning `W0001`–`W0007` aparecen en
+    `LANGUAGE.md`/`README.md`.
+- **5.9 Sincronización de documentación**
+  - `README.md`: catálogo con `E0000`–`E0058` y la lista de warnings; sección
+    "not there yet" reescrita (la Fase 5 cierra overflow, bounds, lockfile,
+    sandbox, trust y deprecación).
+  - `CHANGELOG.md`: cabecera `[Unreleased] — FASE 5: Seguridad y Robustez (v1.0)`.
+  - `ROADMAP_1.0.0.md`: estado de Fase 5 ítem por ítem, incluidas las
+    desviaciones deliberadas y los 4 hallazgos refutados.
+- Tests: `tests/test_runtime_hardening.py` (11 casos).
+
+## [Unreleased] — FASE 3 & 4: Tooling y Ecosistema
 ### 🎮 Added — 4.10 `pengu init --template`
 
 - Plantillas `exe` (por defecto), `cli`, `lib` y `game`. `--template lib`

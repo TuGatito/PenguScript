@@ -149,6 +149,15 @@ extern "C"
   static inline void *pengu_sigil_alloc(size_t size)
   {
     void *ptr = malloc(size);
+    if (!ptr && size > 0)
+    {
+#if PENGU_OOM_ABORT
+      fprintf(stderr, "\n[PENGU] out of memory: failed to allocate %zu byte(s)\n", size);
+      fflush(stderr);
+      abort();
+#endif
+      return NULL;
+    }
     if (ptr)
     {
       memset(ptr, 0, size);
@@ -341,6 +350,21 @@ extern "C"
  * build can keep the frame trace but compile the per-index checks out (the
  * code generator also stops emitting `pengu_assert_bounds` when not in debug
  * mode, and passes -DPENGU_BOUNDS_CHECK=0). */
+/* Out-of-memory policy (roadmap 5.7).
+ *
+ * "abort"  : print a diagnostic and abort() — the default, because continuing
+ *            with a NULL allocation corrupts memory or crashes far from the
+ *            cause.
+ * "silent" : return NULL and let the caller decide (historical behaviour).
+ * "none"   : skip the diagnostic but still return NULL (alias of silent without
+ *            the message); useful when embedding.
+ *
+ * Override at compile time with -DPENGU_OOM_POLICY_ABORT=0 (and friends).
+ */
+#ifndef PENGU_OOM_ABORT
+#define PENGU_OOM_ABORT 1
+#endif
+
 /* Integer-overflow checks are opt-out via --release-unsafe (roadmap 5.1). */
 #ifndef PENGU_OVERFLOW_CHECK
 #define PENGU_OVERFLOW_CHECK 1
