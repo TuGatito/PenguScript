@@ -4,6 +4,31 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### 🧪 Added — 5.5 Fuzzing continuo
+
+- **5 harnesses** en `scripts/fuzz/`: `parser` (lexer + LALR), `bind` (header C →
+  binding, con headers generados aleatoriamente además de los reales de
+  `std_c/`/`build/include/`/`extern/`), `semver` (versiones y constraints),
+  `lock` (round-trip TOML de `pengu.lock`) y `lsp` (documentos malformados y
+  posiciones fuera de rango).
+- **Contrato claro de fallo**: el objetivo puede fallar con un error *declarado*
+  (`PenguError`, `SemVerError`, `LockError`, `HeaderParseError`, `ValueError`,
+  `TypeError`); cualquier otra excepción (`IndexError`, `KeyError`,
+  `AttributeError`, …) es un crash y falla el harness.
+- **Dos modos**: con `atheris` instalado hace fuzzing guiado por cobertura; sin
+  él (o con `PENGU_FUZZ_SMOKE=1`) ejecuta una pasada determinista sobre el corpus
+  semilla + mutaciones con semilla fija. Esto permite que CI valide robustez sin
+  la dependencia pesada, y que cualquier hallazgo se reproduzca.
+- **Los crashes se guardan** en `build/fuzz_crashes/<harness>_<n>.bin` para
+  replay directo.
+- **CI** (`.github/workflows/fuzz.yml`): 5 min por harness en PR, 1 h en nightly y
+  presupuesto configurable (72 h para release); sube el corpus de crashes como
+  artefacto.
+- **`docs/FUZZING.md`**: harnesses, modos, reproducción de hallazgos,
+  minimización, calendario de CI y política de divulgación.
+- Tests: `tests/test_fuzz_harnesses.py` (los 5 harnesses en modo smoke + corpus
+  de regresión en `tests/fuzz_corpus/`).
+
 ### 🔐 Added — 5.3 Seguridad de la cadena de suministro
 
 - **`SECURITY.md`**: alcance (front-end, codegen, runtime, `bind`, `add`,

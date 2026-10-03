@@ -1,0 +1,74 @@
+name: fuzz
+
+on:
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    # Nightly: one hour per harness.
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: 'Seconds per harness'
+        required: false
+        default: '43200'   # 12h; release runs use 72h via the release branch job
+
+jobs:
+  fuzz:
+    name: fuzz (${{ matrix.harness }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - harness: parser
+          - harness: bind
+          - harness: semver
+          - harness: lock
+          - harness: lsp
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt || true
+          pip install atheris || echo "atheris unavailable; smoke mode will be used"
+
+      - name: Build runtime headers (needed by fuzz_bind)
+        run: python build_runtime.py --headers-only || true
+
+      - name: Determine budget
+        id: budget
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "seconds=300" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "seconds=3600" >> "$GITHUB_OUTPUT"
+          else
+            echo "seconds=${{ github.event.inputs.seconds }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run ${{ matrix.harness }} harness
+        run: |
+          SECONDS_BUDGET=${{ steps.budget.outputs.seconds }}
+          if python -c "import atheris" 2>/dev/null; then
+            python scripts/fuzz/fuzz_${{ matrix.harness }}.py \
+              -max_total_time="$SECONDS_BUDGET" -rss_limit_mb=4096 -print_final_stats=1
+          else
+            echo "::warning::atheris is not installed; running the deterministic smoke pass"
+            PENGU_FUZZ_SMOKE=1 python scripts/fuzz/fuzz_${{ matrix.harness }}.py
+          fi
+
+      - name: Upload crash corpus
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-findings-${{ matrix.harness }}
+          path: build/fuzz_crashes/
+          if-no-files-found: ignore
