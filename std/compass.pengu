@@ -25,7 +25,7 @@ import std.scrolls
 # ----------------------------------------------------------------------------
 
 ## Module version identifier for std.compass.
-const COMPASS_VERSION as string is "0.15.0"
+const COMPASS_VERSION as string is "0.16.0"
 
 # ----------------------------------------------------------------------------
 # External C Runtime Declarations

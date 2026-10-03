@@ -3073,7 +3073,7 @@ def print_dependency_tree(config: "ProjectConfig", as_json: bool = False) -> int
 
 def init_project(
     name: str = "my_game",
-    output_type: str = "exe",
+    output_type: Optional[str] = None,
     links: Optional[List[str]] = None,
     cc: str = "gcc",
     output_name: Optional[str] = None,
@@ -3096,7 +3096,11 @@ def init_project(
     Returns:
         Path to initialized project directory.
     """
-    out_t = OutputType.from_string(output_type)
+    # `--template lib` produces a static library unless the caller explicitly
+    # chose an output type (roadmap 4.10).
+    out_t = OutputType.from_string(output_type or "exe")
+    if (template or 'exe').strip().lower() == 'lib' and output_type is None:
+        out_t = OutputType.STATIC
     out_name = output_name or name
     base_root = target_dir or os.getcwd()
     proj_dir = os.path.abspath(os.path.join(base_root, name)) if target_dir else os.path.abspath(name)
@@ -3210,7 +3214,7 @@ defines = ["NDEBUG"]
   return a + b
 """
     elif out_t == OutputType.STATIC:
-        main_content = f"""// Static library {name}
+        main_content = f"""# Static library {name}
 weave add with a as int, b as int into int:
   return a + b
 
@@ -3218,7 +3222,7 @@ weave sub with a as int, b as int into int:
   return a - b
 """
     elif out_t == OutputType.SHARED:
-        main_content = f"""// Shared library {name} - exported
+        main_content = f"""# Shared library {name} - exported
 weave add with a as int, b as int into int:
   return a + b
 """
@@ -3226,6 +3230,43 @@ weave add with a as int, b as int into int:
         main_content = f"""weave main into void:
   var msg as string is "Hello from {name}!"
   calling print with msg
+"""
+
+    # Template flavours (roadmap 4.10).  `exe` is the historical default; the
+    # others only change the generated entry point (and, for `lib`, the output
+    # type when the caller did not choose one explicitly).
+    template_name = (template or "exe").strip().lower()
+    if template_name == "lib":
+        main_content = f"""# Static library {name}
+weave add with a as int, b as int into int:
+  return a + b
+
+weave sub with a as int, b as int into int:
+  return a - b
+"""
+    elif template_name == "cli":
+        main_content = f"""import std.spark
+
+## Prints the command-line usage of {name}.
+weave usage into void:
+  calling spark.println with "usage: {name} [--help] <command>"
+
+## Entry point of the {name} CLI.
+weave main into void:
+  calling usage
+"""
+    elif template_name == "game":
+        main_content = f"""import std.spark
+
+## Frames simulated before exiting (a real game would loop until quit).
+const FRAMES as int is 3
+
+## Minimal game loop skeleton for {name}.
+weave main into void:
+  var frame as int is 0
+  while frame < FRAMES:
+    calling spark.println with "frame {{frame}}"
+    set frame is frame + 1
 """
 
     gitignore_content = """build/
@@ -4058,7 +4099,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
     # init
     init_p = subparsers.add_parser("init", help="Create a new PenguScript project template")
     init_p.add_argument("name", help="Name of project directory to create")
-    init_p.add_argument("--type", "-t", choices=["exe", "c", "obj", "static", "shared"], default="exe", help="Target output type")
+    init_p.add_argument("--type", "-t", choices=["exe", "c", "obj", "static", "shared"], default=None,
+                        help="Target output type (default: exe, or static for --template lib)")
     init_p.add_argument("--links", "-l", help="Comma-separated library names to link (e.g. raylib,m)")
     init_p.add_argument("--output-name", help="Custom output artifact base name")
     init_p.add_argument("--cc", default="gcc", help="C compiler command (default: gcc)")

@@ -4,6 +4,29 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### 🎮 Added — 4.10 `pengu init --template`
+
+- Plantillas `exe` (por defecto), `cli`, `lib` y `game`. `--template lib`
+  produce un proyecto `static` salvo que se pase `--type` explícito.
+- **Bug preexistente corregido**: las plantillas `static`/`shared` empezaban con
+  `//`, que **no es un comentario en PenguScript**; `pengu init --type static`
+  generaba código que no parseaba. Ahora usan `#`.
+- `--type` pasa a `default=None` para poder distinguir "no especificado" de
+  "exe explícito".
+- Tests: `tests/test_init_templates.py` (contenido de cada plantilla + parseo y
+  bundle E2E de todas, incluidos `static`/`shared`/`obj`/`c`).
+
+### 📚 Added — 4.9 Política de versionado de la stdlib
+
+- Documentada en `LANGUAGE.md` §19.0: la stdlib va **acoplada al compilador** en
+  1.x (decisión D6) y cada módulo exporta `<MODULE>_VERSION` con la versión del
+  toolchain; el desacople queda para 2.0.
+- **Realizada la política**: los 27 módulos escritos a mano exportan su constante
+  `*_VERSION` (se añadieron las 5 que faltaban: `celeris`, `oracle`, `scrolls`,
+  `trial`, `xlsx`) y todas se sincronizaron a la versión actual del toolchain.
+- Tests: `tests/test_std_versioning.py` (presencia, sincronía con `VERSION` y
+  validez SemVer).
+
 ### 📦 Added — 4.1 `pengu.lock`: pinning reproducible y builds offline
 
 - **Nuevo `pengu_lock.py`**: `pengu.lock` en TOML con, por paquete, `source`,

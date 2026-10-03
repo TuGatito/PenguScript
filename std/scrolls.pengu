@@ -64,6 +64,8 @@
 ## `is_blank`, `is_numeric`, `parse_int`, `parse_float`, `repeat_join`.
 
 # --- Directivas de módulo ------------------------------------------------
+const SCROLLS_VERSION as string is "0.16.0"
+
 insignia pengu_
 
 # --- Imports ------------------------------------------------------------

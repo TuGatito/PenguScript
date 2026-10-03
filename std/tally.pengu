@@ -70,7 +70,7 @@ import std.spark
 # --- Constantes públicas ------------------------------------------------
 
 ## Versión del módulo tally.
-const TALLY_VERSION as string is "0.15.0"
+const TALLY_VERSION as string is "0.16.0"
 
 # --- Enchantings --------------------------------------------------------
 

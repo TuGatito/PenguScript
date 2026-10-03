@@ -31,7 +31,7 @@ import std.archivum
 # ----------------------------------------------------------------------------
 
 ## Module version identifier for std.seal (0.15.0 expansion).
-const SEAL_VERSION as string is "0.15.0"
+const SEAL_VERSION as string is "0.16.0"
 
 ## Standard IEEE 802.3 CRC-32 polynomial (0xEDB88320 represented as unsigned int).
 const CRC32_POLYNOMIAL as int is 3988292384

@@ -57,7 +57,7 @@ import std.spark
 # --- Constantes públicas ----------------------------------------------------
 
 ## Versión del módulo `std.atlas`.
-const ATLAS_VERSION as string is "0.15.0"
+const ATLAS_VERSION as string is "0.16.0"
 
 # --- Enchanting genérico: K: Par, V: Par ------------------------------------
 

@@ -27,10 +27,10 @@
 # ----------------------------------------------------------------------------
 
 # Version of the spark core runtime module (0.7.0-spark).
-const SPARK_VERSION as string is "0.7.0-spark"
+const SPARK_VERSION as string is "0.16.0"
 
 # Version of the standard library this module ships with (0.14.1).
-const STD_VERSION as string is "0.14.1"
+const STD_VERSION as string is "0.16.0"
 
 # ----------------------------------------------------------------------------
 # External C Runtime Declarations (console I/O, parsing, panic)

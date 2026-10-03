@@ -31,6 +31,8 @@
 # function. The XXH3_128 family returns the XXH128_hash_t rune
 # (low64/high64) declared in std/xxhash.
 
+const CELERIS_VERSION as string is "0.16.0"
+
 import std.xxhash
 
 # ---------------------------------------------------------------------------

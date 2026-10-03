@@ -67,7 +67,7 @@ import std.spark
 # --- Constantes públicas ------------------------------------------------
 
 ## Versión del módulo loom.
-const LOOM_VERSION as string is "0.15.0"
+const LOOM_VERSION as string is "0.16.0"
 
 # --- Generación de secuencias -------------------------------------------
 

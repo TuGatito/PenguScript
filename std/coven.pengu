@@ -27,7 +27,7 @@ import std.scrolls
 # ----------------------------------------------------------------------------
 
 ## Coven module version constant.
-const COVEN_VERSION as string is "0.15.0"
+const COVEN_VERSION as string is "0.16.0"
 
 # ----------------------------------------------------------------------------
 # Value types

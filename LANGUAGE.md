@@ -2518,6 +2518,28 @@ PenguScript ships with a comprehensive standard library consisting of **52 modul
 ### Builtin `print`
 `print` is a compiler builtin that lowers directly to `printf` according to the argument type (`print "hello"`, `print 42`, etc.). For structured or formatted printing with broader options, use `std.spark.println` or `std.spark.print`.
 
+### 19.0 Standard-library versioning policy
+
+The standard library ships **coupled to the compiler** in the 1.x series (decision
+D6): a program compiled with PenguScript 1.4 uses the `std/` that shipped with
+1.4, and there is no separate stdlib version to resolve. Each pure module exports
+a `<MODULE>_VERSION` constant (e.g. `std.ffi` → `FFI_VERSION`, `std.archivum` →
+`ARCHIVUM_VERSION`) holding the toolchain version it belongs to, so code can
+assert the library it was built against:
+
+```pengu
+import std.archivum
+
+test "stdlib version":
+    if archivum.ARCHIVUM_VERSION == "":
+        assert false
+```
+
+`tests/test_std_versioning.py` enforces that every hand-written `std/` module
+exports that constant with the current toolchain version. Namespacing already
+keeps each module self-contained (`std.<module>.<symbol>`), so decoupling the
+stdlib into independently versioned packages is reserved for 2.0.
+
 ### 19.1 Pure PenguScript Modules (27 modules)
 
 All pure modules are located in the `std/` directory and imported as `import std.<module>`.
