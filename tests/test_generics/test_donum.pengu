@@ -1,5 +1,7 @@
 # 'donum T' yields the zero value of a defaultable type parameter.
-weave count_positive shard T where T: Num with xs as list of T into T:
+# The body both adds (`+`, needs Num) and compares (`>`, needs Ordo), so it
+# declares both -- the monotone-chain rule from LANGUAGE.md §10.9 (Phase 2).
+weave count_positive shard T where T: Num and T: Ordo with xs as list of T into T:
     var acc as T is donum T
     var i as int is 0
     while i < calling xs.len:
