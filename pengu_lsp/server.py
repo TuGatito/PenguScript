@@ -805,6 +805,133 @@ def _is_declaration_occurrence(line: str, col: int, word: str) -> bool:
     return bool(m and m.start(1) == col and m.group(1) == word)
 
 
+# ---------------------------------------------------------------------------
+# Semantic occurrence machinery (roadmap 3.1)
+#
+# rename/highlight/references used to run a plain ``\bword\b`` regex over the
+# raw text, so they rewrote homonyms in other scopes, field names after a dot,
+# comments and string literals.  These helpers tokenize with the real lexer:
+# only NAME tokens match (comments and string *literals* are invisible) and
+# string *interpolations* are handled explicitly because ``"{x}"`` is a real
+# reference that must follow a rename.
+# ---------------------------------------------------------------------------
+
+_LSP_LEXER = None
+
+
+def _lsp_lexer():
+    """Shared parser/lexer instance for token-level occurrence scanning."""
+    global _LSP_LEXER
+    if _LSP_LEXER is None:
+        _LSP_LEXER = PenguParser()
+    return _LSP_LEXER
+
+
+def _interpolation_positions(raw: str, name: str, line: int, col: int) -> List[Tuple[int, int]]:
+    """0-based positions of ``name`` inside the ``{...}`` parts of a string token."""
+    import re
+    try:
+        from pengu_parser.pengu_parser import extract_string_parts
+        _is_raw, _is_triple, parts = extract_string_parts(raw)
+    except Exception:
+        return []
+    out: List[Tuple[int, int]] = []
+    search = 0
+    for part in parts:
+        if not getattr(part, "is_expr", False):
+            continue
+        idx = raw.find(part.text, search)
+        if idx < 0:
+            continue
+        search = idx + len(part.text)
+        prefix = raw[:idx]
+        if "\n" in prefix:
+            base_line = line + prefix.count("\n")
+            base_col = len(prefix.rsplit("\n", 1)[1]) + 1
+        else:
+            base_line, base_col = line, col + idx
+        for m in re.finditer(rf"\b{re.escape(name)}\b", part.text):
+            before = part.text[:m.start()].rstrip()
+            if before.endswith(".") or before.endswith("->"):
+                continue
+            inner = part.text[:m.start()]
+            if "\n" in inner:
+                mm_line = base_line + inner.count("\n")
+                mm_col = len(inner.rsplit("\n", 1)[1]) + 1
+            else:
+                mm_line, mm_col = base_line, base_col + m.start()
+            out.append((mm_line - 1, mm_col - 1))
+    return out
+
+
+def _identifier_occurrences(
+    doc_text: str, name: str, symbols: Optional[SymbolTable] = None, sym=None,
+) -> List[Tuple[int, int]]:
+    """0-based ``(line, col)`` of every identifier occurrence of ``name``.
+
+    When ``symbols``/``sym`` are given, an occurrence only counts when looking
+    it up at its own line resolves back to the *same* symbol object.  That is
+    exact for lexical scoping: a homonym in a sibling/child scope (shadowing) is
+    rejected without needing a hand-tuned line range.  Comments and string
+    literals never match; string interpolations do.
+    """
+    if not doc_text or not name:
+        return []
+
+    def _belongs(line1: int) -> bool:
+        if symbols is None or sym is None:
+            return True
+        try:
+            return symbols.lookup_at(name, line1) is sym
+        except Exception:
+            return False
+
+    try:
+        parser = _lsp_lexer()
+        tokens = parser.get_tokens(parser._strip_comments(doc_text))
+    except Exception:
+        return []
+    out: List[Tuple[int, int]] = []
+    for i, tok in enumerate(tokens):
+        ttype = getattr(tok, "type", "")
+        val = str(getattr(tok, "value", ""))
+        line = getattr(tok, "line", None)
+        col = getattr(tok, "column", None)
+        if line is None or col is None:
+            continue
+        if ttype == "NAME" and val == name:
+            prev = tokens[i - 1] if i > 0 else None
+            if prev is not None and str(getattr(prev, "value", "")) in (".", "->"):
+                continue  # member access `obj.name` / `obj->name`
+            if _belongs(line):
+                out.append((line - 1, col - 1))
+        elif ttype in ("STRING", "RAW_STRING", "TRIPLE_STRING", "RAW_TRIPLE_STRING"):
+            for ln, cl in _interpolation_positions(val, name, line, col):
+                if _belongs(ln + 1):
+                    out.append((ln, cl))
+    return out
+
+
+def _resolve_symbol_at(symbols: Optional[SymbolTable], position, name: str):
+    """Symbol the identifier at ``position`` resolves to, or None."""
+    if symbols is None or not name:
+        return None
+    try:
+        if hasattr(symbols, "lookup_at"):
+            return symbols.lookup_at(name, position.line + 1)
+        return symbols.lookup(name)
+    except Exception:
+        return None
+
+
+def _iter_project_sources(root: str):
+    """Yields project ``.pengu`` sources, skipping generated ``.d.pengu``."""
+    for dirpath, _dirs, files in os.walk(root):
+        for fname in sorted(files):
+            if fname.endswith(".pengu") and not fname.endswith(".d.pengu"):
+                yield os.path.join(dirpath, fname)
+
+
 @server.feature(TEXT_DOCUMENT_REFERENCES)
 def references(params: ReferenceParams):
     """Handles textDocument/references requests.
@@ -824,37 +951,40 @@ def references(params: ReferenceParams):
     include_decl = bool(params.context.include_declaration) if params.context else True
 
     symbols = server._symbols.get(uri)
-    is_local = False
-    if symbols is not None:
-        try:
-            sym = (
-                symbols.lookup_at(word, params.position.line + 1)
-                if hasattr(symbols, "lookup_at")
-                else symbols.lookup(word)
-            )
-        except Exception:
-            sym = None
-        if sym is not None and getattr(sym, "kind", "") in ("var", "let", "param"):
-            is_local = True
+    sym = _resolve_symbol_at(symbols, params.position, word)
+    is_local = sym is not None and getattr(sym, "kind", "") in ("var", "let", "param")
 
     root = _project_root_for_path(uri_to_path(uri))
     current_abs = os.path.abspath(uri_to_path(uri))
-    hits = word_occurrences_in_roots(word, extra_roots=[root])
+
+    # Semantic occurrences in the active document (comments / string literals are
+    # skipped; interpolations are kept).
+    hits: List[Tuple[str, int, int]] = [
+        (current_abs, ln, col) for ln, col in _identifier_occurrences(doc_text, word, symbols, sym)
+    ]
+    if not is_local:
+        # Global symbol: scan the other project sources token-wise too, so a
+        # homonym inside a string literal or a comment is never reported.
+        for fpath in _iter_project_sources(root):
+            f_abs = os.path.abspath(fpath)
+            if f_abs == current_abs:
+                continue
+            try:
+                with open(f_abs, "r", encoding="utf-8") as fh:
+                    other = fh.read()
+            except OSError:
+                continue
+            hits.extend((f_abs, ln, col) for ln, col in _identifier_occurrences(other, word))
 
     out: List[Location] = []
     seen = set()
     for fpath, line, col in hits:
         f_abs = os.path.abspath(fpath)
-        if is_local and f_abs != current_abs:
-            continue
         key = (f_abs, line, col)
         if key in seen:
             continue
         seen.add(key)
         if not include_decl and f_abs == current_abs:
-            # Only drop declaration occurrences in the active document; other
-            # files' declarations are reported regardless (their text is not
-            # cheaply attributable without parsing).
             src_line = doc_text.splitlines()[line] if line < len(doc_text.splitlines()) else ""
             if _is_declaration_occurrence(src_line, col, word):
                 continue
@@ -987,7 +1117,13 @@ def signature_help(params: SignatureHelpParams) -> Optional[SignatureHelp]:
 
 @server.feature(TEXT_DOCUMENT_DOCUMENT_HIGHLIGHT)
 def document_highlight(params: DocumentHighlightParams) -> Optional[List[DocumentHighlight]]:
-    """Handles textDocument/documentHighlight requests."""
+    """Handles textDocument/documentHighlight requests.
+
+    Highlights every real reference of the symbol under the cursor: local
+    variables/parameters are restricted to their lexical scope, and occurrences
+    inside comments, string literals or member access (``obj.name``) are never
+    highlighted.
+    """
     import re
     uri = params.text_document.uri
     doc_text = server.get_document_source(uri)
@@ -998,42 +1134,48 @@ def document_highlight(params: DocumentHighlightParams) -> Optional[List[Documen
     if not word:
         return None
 
-    # Limpiar posibles prefijos como `self->`
     clean_word = word.replace("self->", "").replace(".", "").strip()
     if not clean_word:
         return None
 
-    highlights: List[DocumentHighlight] = []
+    symbols = server._symbols.get(uri)
+    sym = _resolve_symbol_at(symbols, params.position, clean_word)
+    is_local = sym is not None and getattr(sym, "kind", "") in ("var", "let", "param")
+    positions = _identifier_occurrences(doc_text, clean_word, symbols, sym)
+    if not positions:
+        return None
+
     lines = doc_text.splitlines()
-
-    pattern = re.compile(rf"\b{re.escape(clean_word)}\b")
-    for line_idx, line in enumerate(lines):
-        for match in pattern.finditer(line):
-            start_col = match.start()
-            end_col = match.end()
-            
-            # Detectar si es una escritura (declaración o set)
-            prefix = line[:start_col].strip()
-            kind = DocumentHighlightKind.Read
-            if prefix.startswith(("var ", "let ", "const ", "set ")) or " is " in line:
-                kind = DocumentHighlightKind.Write
-
-            highlights.append(
-                DocumentHighlight(
-                    range=Range(
-                        start=Position(line=line_idx, character=start_col),
-                        end=Position(line=line_idx, character=end_col)
-                    ),
-                    kind=kind
-                )
+    highlights: List[DocumentHighlight] = []
+    for line_idx, start_col in positions:
+        end_col = start_col + len(clean_word)
+        src = lines[line_idx] if 0 <= line_idx < len(lines) else ""
+        before = src[:start_col]
+        kind = DocumentHighlightKind.Read
+        if re.search(r"\b(var|let|const|set)\s+$", before):
+            kind = DocumentHighlightKind.Write
+        highlights.append(
+            DocumentHighlight(
+                range=Range(
+                    start=Position(line=line_idx, character=start_col),
+                    end=Position(line=line_idx, character=end_col),
+                ),
+                kind=kind,
             )
-
+        )
     return highlights
 
 
 @server.feature(TEXT_DOCUMENT_RENAME)
 def rename_symbol(params: RenameParams) -> Optional[WorkspaceEdit]:
-    """Handles textDocument/rename requests."""
+    """Handles textDocument/rename requests.
+
+    Local symbols are renamed only inside their lexical scope; global symbols
+    are renamed across the project when their declaration is unambiguous (a
+    single top-level declaration), and only in the active document otherwise.
+    Comments, string literals and member accesses are never rewritten; string
+    interpolations (``"{x}"``) are, because they are real references.
+    """
     import re
     uri = params.text_document.uri
     doc_text = server.get_document_source(uri)
@@ -1048,24 +1190,56 @@ def rename_symbol(params: RenameParams) -> Optional[WorkspaceEdit]:
     new_name = params.new_name.strip()
     if not clean_old or not new_name or clean_old == new_name:
         return None
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", new_name):
+        return None
 
-    lines = doc_text.splitlines()
-    edits: List[TextEdit] = []
-    pattern = re.compile(rf"\b{re.escape(clean_old)}\b")
-
-    for line_idx, line in enumerate(lines):
-        for match in pattern.finditer(line):
-            edits.append(
-                TextEdit(
-                    range=Range(
-                        start=Position(line=line_idx, character=match.start()),
-                        end=Position(line=line_idx, character=match.end())
-                    ),
-                    new_text=new_name
-                )
+    def _edits(positions) -> List[TextEdit]:
+        return [
+            TextEdit(
+                range=Range(
+                    start=Position(line=ln, character=col),
+                    end=Position(line=ln, character=col + len(clean_old)),
+                ),
+                new_text=new_name,
             )
+            for ln, col in positions
+        ]
 
-    return WorkspaceEdit(changes={uri: edits})
+    symbols = server._symbols.get(uri)
+    sym = _resolve_symbol_at(symbols, params.position, clean_old)
+    is_local = sym is not None and getattr(sym, "kind", "") in ("var", "let", "param")
+
+    changes: Dict[str, List[TextEdit]] = {}
+    if is_local:
+        edits = _edits(_identifier_occurrences(doc_text, clean_old, symbols, sym))
+        if edits:
+            changes[uri] = edits
+        return WorkspaceEdit(changes=changes) if changes else None
+
+    root = _project_root_for_path(uri_to_path(uri))
+    current_abs = os.path.abspath(uri_to_path(uri))
+    try:
+        name_decls = declaration_locations(extra_roots=[root]).get(clean_old) or []
+    except Exception:
+        name_decls = []
+
+    if len(name_decls) <= 1:
+        # Unambiguous global: rename every real occurrence across the project.
+        for fpath in _iter_project_sources(root):
+            f_abs = os.path.abspath(fpath)
+            try:
+                with open(f_abs, "r", encoding="utf-8") as fh:
+                    text = fh.read()
+            except OSError:
+                continue
+            edits = _edits(_identifier_occurrences(text, clean_old))
+            if edits:
+                changes[path_to_uri(f_abs)] = edits
+    else:
+        edits = _edits(_identifier_occurrences(doc_text, clean_old, symbols, sym))
+        if edits:
+            changes[uri] = edits
+    return WorkspaceEdit(changes=changes) if changes else None
 
 
 @server.feature(TEXT_DOCUMENT_FORMATTING)

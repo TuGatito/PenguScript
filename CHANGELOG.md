@@ -4,6 +4,33 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### 🐛 Fixed — 3.1 LSP: rename, highlights y references semánticos
+
+- **`textDocument/rename`** ya no hace un `\\bpalabra\\b` sobre el texto crudo.
+  Resuelve el símbolo bajo el cursor con la `SymbolTable` y reescribe solo las
+  ocurrencias reales:
+  - símbolos locales (`var`/`let`/`param`) → solo dentro de su ámbito léxico
+    (un `x` en `weave f` no toca el `x` de `weave g`);
+  - símbolos globales → en todo el proyecto cuando su declaración es
+    inequívoca (una sola declaración top-level); si hay homónimos globales, se
+    limita al documento activo;
+  - nunca toca comentarios, literales de string ni accesos a miembro
+    (`obj.campo`), pero **sí** actualiza las interpolaciones `"{x}"` (son
+    referencias reales);
+  - rechaza nombres nuevos que no sean identificadores válidos.
+- **`textDocument/documentHighlight`** usa el mismo motor: resuelve el símbolo,
+  filtra homónimos por resolución de ámbito y elimina la heurística anterior
+  (marcaba como escritura cualquier palabra de una línea con ` is `).
+- **`textDocument/references`** mantiene la distinción local/global pero ahora
+  localiza ocurrencias con el lexer real en vez de un escaneo textual, así que
+  ya no reporta homónimos dentro de comentarios o strings; los ficheros del
+  proyecto se escanean por tokens (excluyendo `.d.pengu`).
+- Base del motor: `_identifier_occurrences` (tokens `NAME` del lexer, con
+  verificación `lookup_at(...) is sym` por ocurrencia), `_interpolation_positions`
+  y `_iter_project_sources`.
+- Tests: `tests/test_lsp_semantic_rename.py` (ámbitos, strings/comentarios,
+  interpolaciones, member access, nombre inválido, highlights y references).
+
 ### ✨ Added — 3.6 Diagnósticos JSON para CI
 
 - **`pengu check --json`**: emite JSON Lines con un objeto por diagnóstico
