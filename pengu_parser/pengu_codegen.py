@@ -85,6 +85,22 @@ def set_restrict_keyword(target_compiler: str) -> None:
     _RESTRICT_KW = "__restrict" if (target_compiler or "").strip().lower() == "msvc" else "restrict"
 
 
+# Safety checks are ON in every profile; `--release-unsafe` turns the emitted
+# bounds/overflow checks off globally (an `unsafe:` block does it locally).
+_RELEASE_UNSAFE = False
+
+
+def set_release_unsafe(enabled: bool) -> None:
+    """Global opt-out of bounds/overflow checks (roadmap 5.2). Callers must also
+    pass -DPENGU_BOUNDS_CHECK=0 / -DPENGU_OVERFLOW_CHECK=0 to the C compiler."""
+    global _RELEASE_UNSAFE
+    _RELEASE_UNSAFE = bool(enabled)
+
+
+def is_release_unsafe() -> bool:
+    return _RELEASE_UNSAFE
+
+
 class CTypeMapper:
     """Maps PenguScript semantic types to C99 type representations."""
 
@@ -441,6 +457,11 @@ class PenguCodegen:
         # _Static_assert so a stale libpengu_runtime.a fails at build time.
         self.expected_abi_version: int = PENGU_EXPECTED_ABI_VERSION
         self.debug_mode: bool = bool(getattr(self.compile_env, "is_debug", False))
+        # Bounds/overflow checking is on by default in every profile; an
+        # `unsafe:` block (or --release-unsafe) is the only way out.
+        self.bounds_check_enabled: bool = not _RELEASE_UNSAFE
+        self.overflow_check_enabled: bool = not _RELEASE_UNSAFE
+        self._unsafe_depth: int = 0
         # Entry-as-main mode: only the *entry* module compiles with the
         # compile-time 'main' flag true (see _apply_main_flag). Defaults keep
         # every module compiled with 'main' false.
@@ -1021,9 +1042,15 @@ class PenguCodegen:
         return f"{shown}:{line}"
 
     def _emit_bounds_check(self, idx_code: str, base_code: str, base_t: Optional[Type], node: Any) -> str:
-        """Wraps idx_code in a statement-expression with a bounds check when
-        debug_mode is on. Returns the (possibly wrapped) index expression."""
-        if not self.debug_mode:
+        """Wraps idx_code in a statement-expression with a bounds check.
+
+        Checks are emitted in every profile unless bounds checking was disabled
+        (``--release-unsafe``) or the access sits inside an ``unsafe:`` block
+        (roadmap 5.2).  Returns the (possibly wrapped) index expression.
+        """
+        if not getattr(self, "bounds_check_enabled", True):
+            return idx_code
+        if getattr(self, "_unsafe_depth", 0) > 0:
             return idx_code
         loc = self._expr_location(node)
         loc_escaped = loc.replace("\\", "\\\\").replace('"', '\\"')
@@ -1977,6 +2004,8 @@ class PenguCodegen:
         """
         if self.compile_env is not None:
             self.debug_mode = bool(getattr(self.compile_env, "is_debug", False))
+            if not hasattr(self, "_unsafe_depth"):
+                self._unsafe_depth = 0
         top_stmts: List[Tuple[Tree, str]] = []
         for filepath, tree in trees:
             for node in tree.children:
@@ -4905,6 +4934,29 @@ class PenguCodegen:
             elif isinstance(first_child, Tree) and first_child.data == "for_in_stmt":
                 return self._translate_for_in(first_child)
             return ""
+
+        elif rule == "unsafe_stmt":
+            body = node.children[0] if node.children else None
+            stmts = body.children if isinstance(body, Tree) and body.data == "block" else list(node.children[1:])
+            saved_locals = dict(self.local_vars)
+            self._unsafe_depth += 1
+            try:
+                body_lines = []
+                for s_stmt in stmts:
+                    code = self._translate_stmt(s_stmt)
+                    if code:
+                        body_lines.append(code)
+                if not self._stmts_end_with_jump(stmts):
+                    banish = self._flush_current_scope_banish()
+                    if banish:
+                        body_lines.extend(banish)
+            finally:
+                self._unsafe_depth -= 1
+                self.local_vars = saved_locals
+            if not body_lines:
+                return ""
+            ind = "  " * self.indent_level
+            return f"{ind}{{\n" + "\n".join(body_lines) + f"\n{ind}}}"
 
         elif rule == "with_stmt":
             target_expr = node.children[0]
@@ -9786,6 +9838,8 @@ class PenguCodegen:
         # short and portable; everything else keeps its absolute path.
         if self.compile_env is not None:
             self.debug_mode = bool(getattr(self.compile_env, "is_debug", False))
+            if not hasattr(self, "_unsafe_depth"):
+                self._unsafe_depth = 0
         self.line_base_dir = os.path.dirname(os.path.abspath(output_path)) if output_path else None
         self.bundle_display_path = os.path.basename(output_path) if output_path else None
 

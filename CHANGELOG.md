@@ -4,6 +4,30 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### 🛡️ Added — 5.2 / 5.6 Comprobación de límites siempre activa + bloques `unsafe:`
+
+- **Cambio de política (rompe la suposición de Fase 1):** las comprobaciones de
+  límites **ya no son un extra de depuración**. Se emiten en *todos* los
+  perfiles; un `pengu build --profile release` con `xs at 999999` aborta con
+  `[PENGU] Index out of bounds` (código 134) en lugar de leer memoria arbitraria.
+- **`-DPENGU_BOUNDS_CHECK` se desacopla del perfil**: ya no se inyecta
+  `-DPENGU_BOUNDS_CHECK=0` por ser release; sólo `--release-unsafe` lo hace (y
+  añade `-DPENGU_OVERFLOW_CHECK=0`).
+- **Nuevo bloque `unsafe:`** (5.6): opt-out *local* y aditivo para las
+  sentencias que envuelve. Es una sentencia (`unsafe_stmt`), admite anidamiento
+  y el parser lo rechaza en el nivel superior (sólo dentro de cuerpos de
+  función). Emite el aviso **`[W0007]`** para auditoría.
+- **Nuevo flag `--release-unsafe`** en `build`, `run` y `test`: opt-out global.
+  Se propaga al codegen (`set_release_unsafe`) y al runtime, y entra en la clave
+  de caché de configuración para no reutilizar bundles con la política contraria.
+- `tests/conftest.py::compile_run` acepta `expect_exit` (para programas que
+  deben abortar) y `release_unsafe`.
+- Tests: `tests/test_bounds_policy.py` (12 casos: política de codegen, bloque
+  `unsafe:` aislado y anidado, `--release-unsafe`, desacople del perfil, W0007,
+  rechazo en top-level y E2E de aborto en release). Se actualiza
+  `tests/test_phase1_bounds.py`, cuya aserción de "release sin checks" queda
+  obsoleta por diseño.
+
 ### 🐛 Fixed — FASE 5 §5.0: auditoría pre-vuelo (bugs confirmados)
 
 Verificado contra el código antes de actuar; **4 hallazgos de la auditoría

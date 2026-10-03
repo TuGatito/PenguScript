@@ -2339,6 +2339,10 @@ class PenguChecker:
             self._check_for_in_stmt(node)
             return
 
+        elif rule == "unsafe_stmt":
+            self._check_unsafe_block(node)
+            return
+
         elif rule == "with_stmt":
             self._check_with_stmt(node)
             return
@@ -6786,6 +6790,33 @@ class PenguChecker:
                 for c in else_node.children:
                     if isinstance(c, Tree):
                         self._check_node(c)
+
+    def _check_unsafe_block(self, node: Tree) -> None:
+        """Checks an `unsafe:` block (roadmap 5.2/5.6).
+
+        Unsafe blocks opt out of bounds and integer-overflow checks, so they are
+        only allowed inside a function body and always warn `[W0007]`.
+        """
+        if self.symbols.current_return_type() is None:
+            self._record_error(self._make_error(
+                InvalidMemoryOpError,
+                "'unsafe:' is only allowed inside function bodies (weave).",
+                node,
+                code="E0008",
+                help="Move the 'unsafe:' block into a weave/enchanting/test body.",
+                note="Unsafe blocks disable bounds and overflow checks for their statements.",
+            ))
+        line = getattr(node, "line", 0)
+        self.warnings.append(
+            f"[W0007] 'unsafe:' block disables bounds/overflow checks on line {line}"
+        )
+        body = node.children[0] if node.children else None
+        if isinstance(body, Tree) and body.data == "block":
+            for stmt in body.children:
+                self._check_node(stmt)
+        else:
+            for stmt in node.children[1:]:
+                self._check_node(stmt)
 
     def _check_with_stmt(self, node: Tree) -> None:
         """Checks with-statement binding and sets desugar annotations.

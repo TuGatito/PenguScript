@@ -77,6 +77,7 @@ def __getattr__(name: str):
 
 
 from pengu_version import __version__ as PENGU_VERSION
+from pengu_parser.pengu_codegen import set_release_unsafe as _set_release_unsafe
 from pengu_semver import (
     DependencyConflictError,
     Requirement,
@@ -308,6 +309,7 @@ class ProjectConfig:
     # emitted C; ``target_compiler`` selects the attribute/restrict dialect
     # ("gcc" | "clang" | "msvc" | "tcc"; empty = infer from ``cc``).
     strict_c99: bool = False
+    release_unsafe: bool = False
     target_compiler: str = ""
     # Roadmap 3.5: cross-compilation target triple (empty = host).  Only
     # Linux ⇄ Windows is supported; the target runtime must be provided
@@ -548,6 +550,7 @@ class PenguBuilder:
         self.config = config
         self.source_code = source_code
         self.is_test_mode = False
+        self.release_unsafe: bool = bool(getattr(config, "release_unsafe", False))
         self._target_triple: Optional[TargetTriple] = None
         from pengu_parser.pengu_parser import PenguParser as _PenguParser
         from pengu_parser.pengu_comptime import main_flag_requested as _main_flag_requested
@@ -648,6 +651,10 @@ class PenguBuilder:
             "src_dir": str(getattr(self.config, "src_dir", "") or ""),
             "c_dir": str(getattr(self.config, "c_dir", "") or ""),
             "output_name": str(getattr(self.config, "output_name", "") or ""),
+            "strict_c99": bool(getattr(self.config, "strict_c99", False)),
+            "release_unsafe": bool(getattr(self.config, "release_unsafe", False)),
+            "target": str(getattr(self.config, "target", "") or ""),
+            "target_compiler": str(getattr(self.config, "target_compiler", "") or ""),
         }, sort_keys=True)
         return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
@@ -1194,7 +1201,7 @@ class PenguBuilder:
         self.locate_and_copy_runtime(build_dir)
 
         # 5. Generate bundle.c via PenguCodegen
-        from pengu_parser.pengu_codegen import PenguCodegen
+        from pengu_parser.pengu_codegen import PenguCodegen, set_release_unsafe
         codegen = PenguCodegen(self.checker.symbols, module_order, self.config.base_dir,
                                compile_env=self.compile_env,
                                use_gnu_extensions=not getattr(self.config, "strict_c99", False),
@@ -1373,12 +1380,14 @@ class PenguBuilder:
             if _flag not in common_flags:
                 common_flags.append(_flag)
 
-        # Bounds checking is a debug aid: release builds compile it out of the
-        # runtime (roadmap 2.2.g).  The code generator already stops emitting
-        # 'pengu_assert_bounds' outside debug mode; this removes the static
-        # helper body as well.
-        if self.config.profile != "debug" and "-DPENGU_BOUNDS_CHECK=0" not in common_flags:
-            common_flags.append("-DPENGU_BOUNDS_CHECK=0")
+        # Safety checks are decoupled from the profile (roadmap 5.2): they are ON
+        # in every profile and only `--release-unsafe` removes them, both from the
+        # generated code (set_release_unsafe) and from the runtime helpers.
+        _set_release_unsafe(self.release_unsafe)
+        if self.release_unsafe:
+            for flag in ("-DPENGU_BOUNDS_CHECK=0", "-DPENGU_OVERFLOW_CHECK=0"):
+                if flag not in common_flags:
+                    common_flags.append(flag)
 
         cc_base = os.path.basename(cc).lower()
         is_tcc = "tcc" in cc_base
@@ -1898,6 +1907,7 @@ def build_project(
     target: str = "",
     locked: bool = False,
     frozen: bool = False,
+    release_unsafe: bool = False,
     json_output: bool = False,
 ) -> str:
     """Builds project from configuration file with status printing.
@@ -1934,6 +1944,8 @@ def build_project(
         config.target_compiler = target_compiler
     if target:
         config.target = target
+    config.release_unsafe = bool(release_unsafe)
+    _set_release_unsafe(config.release_unsafe)
 
     try:
         _ensure_lockfile(config, locked=locked, frozen=frozen,
@@ -3829,7 +3841,8 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
                 defines: Optional[List[str]] = None, cc: Optional[str] = None,
                 verbose: bool = False, pch: bool = False, no_dce: bool = False,
                 strict_c99: bool = False, target_compiler: str = "",
-                target: str = "", locked: bool = False, frozen: bool = False) -> int:
+                target: str = "", locked: bool = False, frozen: bool = False,
+                release_unsafe: bool = False) -> int:
     """Builds and runs binary if output target is executable.
 
     Args:
@@ -3851,7 +3864,8 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
     artifact = build_project(config_path, profile=profile, test=test, defines=defines,
                              cc=cc, verbose=verbose, pch=pch, no_dce=no_dce,
                              strict_c99=strict_c99, target_compiler=target_compiler,
-                             target=target, locked=locked, frozen=frozen)
+                             target=target, locked=locked, frozen=frozen,
+                             release_unsafe=release_unsafe)
     if config.output == OutputType.EXE and os.path.isfile(artifact):
         print(f"\033[1;36m     Running\033[0m {artifact}\n")
         sys.stdout.flush()
@@ -3869,7 +3883,8 @@ def run_script(script: str, defines: Optional[List[str]] = None,
                quiet: bool = False, no_pch: bool = True,
                no_dce: bool = False, strict_c99: bool = False,
                target_compiler: str = "", target: str = "",
-               locked: bool = False, frozen: bool = False) -> int:
+               locked: bool = False, frozen: bool = False,
+               release_unsafe: bool = False) -> int:
     """Compiles and runs a standalone .pengu file directly (script mode).
 
     The script itself is compiled as the entry point with the compile-time
@@ -3941,6 +3956,8 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         cfg.target_compiler = target_compiler
     if target:
         cfg.target = target
+    cfg.release_unsafe = bool(release_unsafe)
+    _set_release_unsafe(cfg.release_unsafe)
     # A standalone script rarely has dependencies, but honour the lock flags when it does.
     if locked or frozen:
         _ensure_lockfile(cfg, locked=locked, frozen=frozen)
@@ -4134,7 +4151,8 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
                  defines: Optional[List[str]] = None, cc: Optional[str] = None,
                  verbose: bool = False, json_output: bool = False,
                  strict_c99: bool = False, target_compiler: str = "",
-                 target: str = "", locked: bool = False, frozen: bool = False) -> int:
+                 target: str = "", locked: bool = False, frozen: bool = False,
+                 release_unsafe: bool = False) -> int:
     """Compiles the project in --test mode and executes the integrated unit tests.
 
     The project entry is built as an executable whose main runs every 'test'
@@ -4165,6 +4183,8 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
         config.target_compiler = target_compiler
     if target:
         config.target = target
+    config.release_unsafe = bool(release_unsafe)
+    _set_release_unsafe(config.release_unsafe)
     _ensure_lockfile(config, locked=locked, frozen=frozen)
     config.output = OutputType.EXE
 
@@ -4360,6 +4380,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
                         help="Fail if pengu.lock is missing or out of date (never writes it)")
         _p.add_argument("--frozen", action="store_true",
                         help="Like --locked but also requires pengu.lock to exist (offline/CI builds)")
+        _p.add_argument("--release-unsafe", dest="release_unsafe", action="store_true",
+                        help="Disable bounds and integer-overflow checks (unsafe; default is checks ON in every profile)")
     # Script arguments are collected with parse_known_args: 'pengu run x.pengu -- a b'
     # and 'pengu run x.pengu a b' both forward 'a b'.
 
@@ -4435,6 +4457,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
                         help="Fail if pengu.lock is missing or out of date")
     test_p.add_argument("--frozen", action="store_true",
                         help="Like --locked but also requires pengu.lock to exist")
+    test_p.add_argument("--release-unsafe", dest="release_unsafe", action="store_true",
+                        help="Disable bounds and integer-overflow checks (unsafe)")
 
     # check
     check_p = subparsers.add_parser("check", help="Parse and type-check every module without generating code (CI)")
@@ -4657,6 +4681,7 @@ def main():
                 target=getattr(args, "target", "") or "",
                 locked=getattr(args, "locked", False),
                 frozen=getattr(args, "frozen", False),
+                release_unsafe=getattr(args, "release_unsafe", False),
                 json_output=getattr(args, "json", False),
             )
         except CompileFailedError as e:
@@ -4685,6 +4710,7 @@ def main():
                     target=getattr(args, "target", "") or "",
                     locked=getattr(args, "locked", False),
                     frozen=getattr(args, "frozen", False),
+                    release_unsafe=getattr(args, "release_unsafe", False),
                 ))
             sys.exit(run_project(
                 config_path=args.config,
@@ -4700,6 +4726,7 @@ def main():
                 target=getattr(args, "target", "") or "",
                 locked=getattr(args, "locked", False),
                 frozen=getattr(args, "frozen", False),
+                release_unsafe=getattr(args, "release_unsafe", False),
             ))
         except CompileFailedError as e:
             _print_compile_error(e)
@@ -4728,6 +4755,7 @@ def main():
                 target=getattr(args, "target", "") or "",
                 locked=getattr(args, "locked", False),
                 frozen=getattr(args, "frozen", False),
+                release_unsafe=getattr(args, "release_unsafe", False),
             ))
         except CompileFailedError as e:
             _print_compile_error(e)

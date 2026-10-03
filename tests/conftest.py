@@ -244,6 +244,7 @@ def bundle_project(source: str, tag: str = "proj") -> str:
     ``import std.…`` need the project builder. Returns the generated C text.
     """
     from pengu_project import PenguBuilder, ProjectConfig
+    from pengu_parser.pengu_codegen import set_release_unsafe as _set_ru
 
     d = Path(tempfile.mkdtemp(prefix=f"pengu_{tag}_", dir=BUILD_DIR))
     try:
@@ -322,23 +323,33 @@ def runtime_link_flags():
 
 
 def compile_run(source: str, tag: str = "t", extra_libs=None, cwd=None,
-                timeout: int = 180, profile: str = "debug") -> subprocess.CompletedProcess:
+                timeout: int = 180, profile: str = "debug",
+                expect_exit: Optional[int] = 0,
+                release_unsafe: bool = False) -> subprocess.CompletedProcess:
     """Writes ``source`` to a temp project, bundles, compiles and runs it.
 
     Returns the CompletedProcess of the executed binary. Decorating tests with
     ``@requires_runtime`` gives a nicer skip message than the internal asserts.
+
+    Args:
+        expect_exit: expected process exit code; pass ``None`` to accept any
+            (useful for programs that are meant to abort, e.g. a bounds panic).
+        release_unsafe: build with bounds/overflow checks disabled.
     """
     assert HAVE_CC, "no C compiler (gcc/clang/cc) found on PATH"
     assert HAVE_RUNTIME, "libpengu_runtime.a not built (run build_runtime.py)"
 
     from pengu_project import PenguBuilder, ProjectConfig
+    from pengu_parser.pengu_codegen import set_release_unsafe as _set_ru
 
     d = Path(tempfile.mkdtemp(prefix=f"pengu_{tag}_", dir=BUILD_DIR))
     try:
         entry = d / f"{tag}.pengu"
         entry.write_text(source, encoding="utf-8")
         cfg = ProjectConfig(entry=str(entry), base_dir=str(REPO), profile=profile, output="c")
+        _set_ru(bool(release_unsafe))
         builder = PenguBuilder(cfg)
+        builder.release_unsafe = bool(release_unsafe)
         bundle_path, _ = builder.bundle(output_file=str(d / "bundle.c"))
 
         cc = "gcc" if have_tool("gcc") else ("clang" if have_tool("clang") else "cc")
@@ -369,10 +380,11 @@ def compile_run(source: str, tag: str = "t", extra_libs=None, cwd=None,
         )
         run_res = subprocess.run([str(exe)], cwd=str(cwd or REPO),
                                  capture_output=True, text=True, timeout=timeout)
-        assert run_res.returncode == 0, (
-            f"Execution failed ({run_res.returncode}):\n"
-            f"{run_res.stderr}\n{run_res.stdout}"
-        )
+        if expect_exit is not None:
+            assert run_res.returncode == expect_exit, (
+                f"Execution failed ({run_res.returncode}, expected {expect_exit}):\n"
+                f"{run_res.stderr}\n{run_res.stdout}"
+            )
         return run_res
     finally:
         shutil.rmtree(d, ignore_errors=True)

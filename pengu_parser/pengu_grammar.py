@@ -120,6 +120,7 @@ stmt: var_decl
     | for_stmt
     | when_stmt
     | with_stmt
+    | unsafe_stmt
     | defer_stmt
     | errdefer_stmt
     | banish_stmt
@@ -181,6 +182,11 @@ for_stmt: "for" NAME "from" expr_no_cast "to" expr_no_cast ["step" expr_no_cast]
         | "for" NAME ("," NAME)? "in" expr block                                   -> for_in_stmt
 
 with_stmt: "with" expr ":" _NEWLINE _INDENT stmt+ _DEDENT
+
+# `unsafe:` disables bounds and integer-overflow checks for its statements
+# (roadmap 5.2/5.6).  It is a statement, not a modifier, so it can wrap any
+# number of statements and can be nested.
+unsafe_stmt: "unsafe" block
 
 when_clause: "when" when_pattern ["with" when_payload] [when_guard] "->" expr _NEWLINE
 when_guard: ("if" | "when") guard_expr

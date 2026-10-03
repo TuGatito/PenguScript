@@ -43,14 +43,16 @@ weave main into int:
         shutil.rmtree(d, ignore_errors=True)
 
 
-def test_no_bounds_check_in_release():
-    """Release profile must NOT emit pengu_assert_bounds."""
+def test_bounds_check_is_always_on_in_release():
+    """Phase 5/5.2: release keeps bounds checks; only --release-unsafe drops them."""
     source = """
 weave main into int:
     var xs as array of int with size 3 is [1, 2, 3]
     var y as int is xs at 0
     return y
 """
+    from pengu_parser.pengu_codegen import set_release_unsafe
+
     d = Path(tempfile.mkdtemp(prefix="pengu_bounds_rel_", dir=BUILD_DIR))
     try:
         entry = d / "main.pengu"
@@ -58,7 +60,16 @@ weave main into int:
         cfg = ProjectConfig(entry=str(entry), base_dir=str(REPO), profile="release", output="c")
         bundle_path, _ = PenguBuilder(cfg).bundle(output_file=str(d / "bundle.c"))
         c_code = Path(bundle_path).read_text(encoding="utf-8")
-        assert "pengu_assert_bounds(" not in c_code
+        assert "pengu_assert_bounds(" in c_code
+
+        # --release-unsafe is the only opt-out.
+        set_release_unsafe(True)
+        try:
+            cfg2 = ProjectConfig(entry=str(entry), base_dir=str(REPO), profile="release", output="c")
+            b2, _ = PenguBuilder(cfg2).bundle(output_file=str(d / "bundle_unsafe.c"))
+            assert "pengu_assert_bounds(" not in Path(b2).read_text(encoding="utf-8")
+        finally:
+            set_release_unsafe(False)
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
