@@ -1546,6 +1546,43 @@ ones marked *derivable* may also appear in a `derive` clause.
 `Num` (so `where T: Integrum` allows `+`), but not the other way round — this is
 what makes `%` reject `float`.
 
+**The bound set is a monotone chain.** A bound only ever *adds* capabilities, so
+adding one can never break code that already compiled:
+
+```
+(no bound)  grants nothing  -- an unconstrained `shard T` may be instantiated
+                               with a rune or a `string`, where `a + b` has no
+                               C translation. It is still usable for any
+                               concept-free plumbing, e.g.
+                               `weave ident shard T with x as T into T`.
+Num         + - * / and unary -
+Integrum    Num plus % & | ^ << >> ~
+Par         == !=
+Ordo        < <= > >=
+Any         everything (an explicit escape hatch)
+```
+
+In particular `T: Num` does **not** grant `==` or `<`: equality needs `Par` and
+ordering needs `Ordo`. A generic that both adds and compares says so:
+
+```pengu
+weave clamped shard T where T: Num and T: Ordo with lo as T, hi as T, v as T into T:
+  if v < lo then return lo
+  if v > hi then return hi
+  return v
+```
+
+<!-- Machine-readable form of the chain above. tests/test_docs_bounds_sync.py
+     parses this block and fails if it disagrees with CONCEPT_OPERATORS in
+     pengu_parser/pengu_types.py. One concept per line, concept-table operator
+     names, comma separated. -->
+```text bounds-ops
+Num: add, sub, mul, div, neg
+Integrum: add, sub, mul, div, neg, mod, band, bor, bxor, shl, shr, bnot
+Par: eq, ne
+Ordo: lt, le, gt, ge
+```
+
 Which primitive and container types satisfy which concept is fixed by the
 compiler's concept table:
 

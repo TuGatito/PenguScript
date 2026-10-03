@@ -1449,6 +1449,41 @@ PenguScript incluye un conjunto cerrado de conceptos que el compilador, el chequ
 
 `Integrum` es un refinamiento estricto de `Num`: un bound `Integrum` también satisface `Num` (así que `where T: Integrum` permite `+`), pero no al revés — esto es lo que hace que `%` rechace `float`.
 
+**El conjunto de bounds es una cadena monótona.** Un bound solo *añade* capacidades, así que añadir uno nunca puede romper código que ya compilaba:
+
+```
+(sin bound)  no concede nada  -- un `shard T` sin restringir puede instanciarse
+                                 con una rune o un `string`, donde `a + b` no
+                                 tiene traducción a C. Sigue siendo utilizable
+                                 para cualquier plomería sin conceptos, p. ej.
+                                 `weave ident shard T with x as T into T`.
+Num          + - * / y el menos unario
+Integrum     Num más % & | ^ << >> ~
+Par          == !=
+Ordo         < <= > >=
+Any          todo (válvula de escape explícita)
+```
+
+En particular `T: Num` **no** concede `==` ni `<`: la igualdad necesita `Par` y el orden necesita `Ordo`. Un genérico que suma y compara lo declara:
+
+```pengu
+weave clamped shard T where T: Num and T: Ordo with lo as T, hi as T, v as T into T:
+  if v < lo then return lo
+  if v > hi then return hi
+  return v
+```
+
+<!-- Forma legible por máquina de la cadena anterior. tests/test_docs_bounds_sync.py
+     parsea este bloque y falla si discrepa de CONCEPT_OPERATORS en
+     pengu_parser/pengu_types.py. Un concepto por línea, nombres de operador de
+     la tabla de conceptos, separados por comas. -->
+```text bounds-ops
+Num: add, sub, mul, div, neg
+Integrum: add, sub, mul, div, neg, mod, band, bor, bxor, shl, shr, bnot
+Par: eq, ne
+Ordo: lt, le, gt, ge
+```
+
 Qué tipos primitivos y de contenedor satisfacen cada concepto lo fija la tabla de conceptos del compilador:
 
 | Tipo | Conceptos |
