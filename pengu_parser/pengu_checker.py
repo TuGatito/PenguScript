@@ -5364,6 +5364,16 @@ class PenguChecker:
         rule = SIMPLE_STMT_ALIASES.get(inner.data, inner.data)
         if rule == "return_stmt":
             return True
+        if rule == "while_stmt":
+            # `while true:` (or any condition that folds to a constant true) can
+            # only be left by `return`/`break`, so a function ending in one does
+            # return a value. Reporting E0020 here forced authors to append
+            # unreachable `return 0` after an infinite loop to satisfy the
+            # checker. A non-constant condition is NOT terminating: control may
+            # simply skip the loop.
+            if not inner.children:
+                return False
+            return self.const_folder.fold(inner.children[0]) is True
         if rule in ("if_stmt", "unless_stmt"):
             block_node = inner.children[1]
             else_node = inner.children[2] if len(inner.children) > 2 else None
