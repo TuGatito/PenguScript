@@ -46,6 +46,72 @@ All notable changes to PenguScript will be documented in this file.
   - Soporte de escapes Unicode en literales `char` restringido a valores de 7 bits ASCII (0..127) emitiendo `E0057` para codepoints superiores.
   - Normalización transparente de retornos de carro CRLF (`\r\n`) de Windows a LF (`\n`), preservando posiciones y conteos idénticos entre plataformas.
 
+### Added & Changed — FASE 2: ABI Freeze y Portabilidad C99 / MSVC / TCC
+
+#### 🧊 ABI congelado (2.2)
+- **`PENGU_ABI_VERSION 1`** en `pengu_runtime.h`, con el layout exacto (tamaños y
+  offsets de 64 bits) de `PenguString`, `PenguSlice`, `PenguList`, `PenguMap`,
+  `PenguMaybe`, `PenguResult` y `PenguRange` documentado junto a la macro.
+- **`tests/abi/test_abi_layout.c`** + `tests/test_abi_layout.py`: verifican
+  `sizeof`/`offsetof` de cada struct del runtime y `PENGU_ABI_VERSION == 1` con el
+  compilador disponible. El ABI congelado refleja el runtime **real**; el layout
+  aspiracional del roadmap (`size_t cap`, `flags`, `val_or_err`) era incorrecto y
+  no se aplicó.
+
+#### 🚫 Sin extensiones GNU en el C emitido (2.1)
+- **Infraestructura de preludes (statement hoisting)** en `pengu_codegen.py`
+  (`expr_prelude`, `_hoist`, `_block_expr`, `_emit_block_expr`): las expresiones
+  que antes se envolvían en `__extension__(({ ... }))` ahora pueden descomponerse
+  en sentencias previas + una expresión simple, conservando el nombre del
+  temporal en ámbito.
+- **Nuevo flag `--strict-c99`** (y `PENGU_STRICT_C99=1`, y `build: strict_c99: true`
+  en `pengu.yaml`): emite C99 portable sin `({...})` ni `__auto_type`. El modo GNU
+  sigue siendo el **predeterminado**, por lo que el C generado no cambia salvo que
+  se pida explícitamente.
+- Convertidos a la ruta de preludes en modo estricto: bounds checks, `some`/`ok`/`err`,
+  `_translate_result_ctor`, `if`/`unless` en posición de valor, `do:`/`with:` en
+  posición de valor, `or else`/`or return`/`try`, `judge` (guardas, payloads y
+  switch), comprehensiones `for … then …`, literales de lista y de mapa,
+  `slice at`, comprobaciones de pertenencia (`in`/`not in` sobre range/array/list/map/slice),
+  literales de string con interpolación, y los métodos integrados de `list`/`map`
+  (`push`, `contains`, `index_of`, `put`, `get`, `remove`, …).
+- **Sin `_Generic`** en el C emitido (2.2.e): el codegen llama al productor
+  concreto `pengu_string_from_int/float/bool/char/cstr` según el tipo inferido.
+  La macro `pengu_to_string` se conserva solo para C anfitrión y se compila fuera
+  bajo C99 puro (`__STDC_VERSION__ >= 201112L`).
+
+#### 🪟 Portabilidad de backend (2.2)
+- **`--target-compiler=<gcc|clang|msvc|tcc>`** (`PENGU_TARGET_COMPILER`,
+  `build: target_compiler:`): selecciona el dialecto de atributos y `restrict`.
+- **Mapeo de atributos a MSVC**: `@inline` → `__forceinline`, `@deprecated` →
+  `__declspec(deprecated(...))`, `@align(N)` → `__declspec(align(N))`, `@packed`
+  → `#pragma pack(push, 1)` / `#pragma pack(pop)`, `@cold` se omite (sin
+  equivalente directo). `restrict` se emite como `__restrict` en MSVC.
+- **Flags de compilación para MSVC** en `pengu_project.py`: traducción de los
+  flags GNU del perfil (`-O0/-O2/-g/-Wall/-D/-I`) a `/Od`, `/O2`, `/Zi`, `/W3`,
+  `/D`, `/I` y `/std:c11`.
+- **`PENGU_BOUNDS_CHECK` separado de `PENGU_FRAME_TRACE`** (2.2.g): las
+  comprobaciones de límites ya no dependen del crash handler; las builds de
+  release pasan `-DPENGU_BOUNDS_CHECK=0`.
+- **Enums planos emitidos completos**: se eliminó el reenvío inválido
+  `typedef enum X X;` (extensión GNU, y redefinición inválida en ISO C), de modo
+  que el runtime y el código generado compilan con `-std=c99 -pedantic-errors`.
+
+#### 🧪 Tests de Fase 2
+- `tests/test_c99_portability.py` (sin `({...})`/`__auto_type` en modo estricto +
+  compilación real con `gcc -std=c99 -pedantic-errors` y ejecución),
+  `tests/test_attributes_msvc.py`, `tests/test_cli_strict_c99.py`,
+  `tests/test_no_generic.py`, `tests/test_abi_layout.py`,
+  `tests/test_bounds_flag_independence.py`.
+
+#### 🚨 Limitaciones conocidas de la Fase 2
+- `restrict` sigue siendo opt-in: el codegen no lo emite para código de usuario;
+  la infraestructura queda lista para el target.
+- El corpus de `tests/` es 100% estricto tras la conversión, pero `--strict-c99`
+  no cubre todavía constructs exóticos de terceros que usen statement expressions
+  generadas por plantillas de C enlazado (los bindings de C se copian tal cual).
+- ABI v1 cubre solo targets de 64 bits (LP64/LLP64).
+
 ## [0.15.0] - Unreleased
 
 ### Fixed — memory-subsystem audit (verified against the source, C1–H5)

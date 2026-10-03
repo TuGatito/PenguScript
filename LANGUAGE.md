@@ -2889,6 +2889,7 @@ Compiles the PenguScript project into the designated target:
 
 ```bash
 pengu build [--profile PROFILE] [--config CONFIG] [--entry ENTRY] [--output OUTPUT] [--test] [--cc CC] [--verbose] [-D DEFINES]
+            [--strict-c99] [--target-compiler {gcc,clang,msvc,tcc}]
 ```
 
 - `--profile, -p`: Selects optimization and diagnostic profiles:
@@ -2900,6 +2901,37 @@ pengu build [--profile PROFILE] [--config CONFIG] [--entry ENTRY] [--output OUTP
 - `--config, -c`: Path to custom `pengu.yaml` or project root.
 - `--entry, -e`: Overrides root entrypoint file (default: `src/main.pengu`).
 - `--output, -o`: Custom target output path (e.g. `build/bundle.c` or `build/game.exe`).
+- `--strict-c99`: Emits portable C99 instead of GNU statement expressions. By
+  default the generated C uses `__extension__(({ ... }))` (a GCC/Clang
+  extension); with this flag every expression-level temporary is *hoisted* into
+  the enclosing statement, so the bundle contains neither `({ ... })` nor
+  `__auto_type` and compiles with `-std=c99 -pedantic-errors`. Can also be set
+  with `PENGU_STRICT_C99=1` or `build: strict_c99: true` in `pengu.yaml`. The GNU
+  path remains the default, so existing builds are unaffected.
+- `--target-compiler`: Selects the C dialect used for attributes and `restrict`
+  (`gcc`, `clang`, `msvc`, `tcc`; default: inferred from `--cc`). Also
+  `PENGU_TARGET_COMPILER` or `build: target_compiler:` in `pengu.yaml`.
+
+Attribute mapping per target:
+
+| Pengu attribute | GCC / Clang / TCC | MSVC (`cl.exe`) |
+| --- | --- | --- |
+| `@inline` | `static inline __attribute__((always_inline))` | `static __forceinline` |
+| `@cold` | `__attribute__((cold))` | omitted (no direct equivalent) |
+| `@deprecated("m")` | `__attribute__((deprecated("m")))` | `__declspec(deprecated("m"))` |
+| `@packed` | `__attribute__((packed))` | `#pragma pack(push, 1)` … `#pragma pack(pop)` |
+| `@align(N)` | `__attribute__((aligned(N)))` | `__declspec(align(N))` |
+| `restrict` (opt-in) | `restrict` | `__restrict` |
+
+### 20.2.1 Runtime ABI version
+
+`pengu_runtime.h` defines `PENGU_ABI_VERSION 1`, the frozen layout of the runtime
+containers (`PenguString`, `PenguSlice`, `PenguList`, `PenguMap`, `PenguMaybe`,
+`PenguResult`, `PenguRange`). The exact sizes/offsets for 64-bit targets are
+documented next to the macro and asserted by `tests/abi/test_abi_layout.c`. A
+mismatch means a prebuilt `libpengu_runtime.a` was compiled against a different
+ABI than the generated bundle.
+
 
 ### 20.3 Execution & Script Mode (`pengu run`)
 

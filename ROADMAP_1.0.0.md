@@ -386,6 +386,18 @@ flowchart TD
 
 ### 🧊 FASE 2 — Congelamiento de ABI y Portabilidad C99 / MSVC / TCC (Antes de Stdlib)
 
+> **Estado: FASE 2 completada** (ver `CHANGELOG.md` §0.16.0).
+> 2.1 ✅ infraestructura de *statement hoisting* + flag `--strict-c99`: el C
+> emitido en modo estricto no contiene `({...})` ni `__auto_type` y compila con
+> `gcc -std=c99 -pedantic-errors`. El modo GNU sigue siendo el predeterminado.
+> 2.2 ✅ ABI v1 congelado con `PENGU_ABI_VERSION` y `tests/abi/test_abi_layout.c`.
+> **Corrigendum:** el layout propuesto más abajo (`size_t cap`, `flags`,
+> `val_or_err`, `PenguMaybe{value;is_present}`) **no** es el layout real del
+> runtime; el ABI congelado documenta el layout efectivo (`int len`,
+> `int32_t is_owned`, callbacks de elemento en `PenguList`/`PenguMap`,
+> `PenguMaybe{is_present;value}`, `PenguResult{is_ok;ok_val;err_val}`). Tampoco
+> se modularizó `pengu_runtime.h`: el codegen depende de un include único.
+
 > **Nota arquitectónica crítica:** Esta fase se ubica **antes** de la migración de la biblioteca estándar para evitar tener que refactorizar los módulos de `std/` dos veces.
 
 #### 2.1 🔴 Eliminación de statement-expressions GNU `({ ... })` para C99 / MSVC puro
@@ -396,23 +408,21 @@ flowchart TD
 - 📅 **Estimación:** XL
 - 🔗 **Dependencias:** FASE 1.5.
 - ✅ **Criterio de "done":** Cero ocurrencias de `({` y `__auto_type` en el `bundle.c` emitido; compilación exitosa con MSVC.
+- **Estado:** ✅ completado (vía `--strict-c99`). La verificación con `cl.exe`/`tcc`
+  reales queda pendiente de un runner con dichos toolchains; la equivalencia se
+  cubre localmente con `gcc -std=c99 -pedantic-errors` (y `clang`).
 
 #### 2.2 🧊 Congelamiento y Estabilización de ABI del Runtime
 - 📄 **Archivos:** `pengu_runtime.h`, `pengu_runtime.c`
 - 💡 **Mejora:** 
   1. Definir formalmente `PENGU_ABI_VERSION 1`.
-  2. Congelar el layout de memoria, alineación y tamaños de los tipos fundamentales:
-     - `PenguString { char *data; size_t len; size_t cap; int32_t flags; }`
-     - `PenguSlice { void *data; size_t len; size_t elem_size; }`
-     - `PenguList { void *data; size_t len; size_t cap; size_t elem_size; }`
-     - `PenguMap { void *entries; size_t len; size_t cap; size_t key_size; size_t val_size; }`
-     - `PenguMaybe { void *value; bool is_present; }`
-     - `PenguResult { void *val_or_err; bool is_ok; }`
-  3. Modularizar `pengu_runtime.h` en cabeceras internas limpias (`runtime_core.h`, `runtime_string.h`, `runtime_collections.h`) y exponer un único archivo unificado.
+  2. Congelar el layout de memoria, alineación y tamaños de los tipos fundamentales (⚠️ el layout real difiere del listado original; ver corrigendum arriba).
+  3. Modularizar `pengu_runtime.h` en cabeceras internas limpias (`runtime_core.h`, `runtime_string.h`, `runtime_collections.h`) y exponer un único archivo unificado. — **Omitido a propósito**: el codegen emite `#include "pengu_runtime.h"` como archivo único.
 - 🧪 **Test de regresión:** Prueba de compatibilidad binaria estricta (`test_abi_layout.c`) que verifique `sizeof` y `offsetof` en x86_64, arm64 y x86.
 - 📅 **Estimación:** L
 - 🔗 **Dependencias:** 2.1.
 - ✅ **Criterio de "done":** Layouts binarios congelados y documentados en especificación C.
+- **Estado:** ✅ completado para targets de 64 bits (LP64/LLP64).
 
 ---
 
