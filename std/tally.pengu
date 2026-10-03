@@ -537,7 +537,7 @@ enchanting list of shard T where T: Par:
         -1
 
 ## Métodos que requieren aritmética entera (`%`).
-enchanting list of shard T where T: Integrum:
+enchanting list of shard T where T: Integrum and T: Par:
     ## Copia con los elementos pares.
     weave filter_even into list of T:
         for x in essence of self when (x % 2) == 0 then x

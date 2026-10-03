@@ -266,7 +266,7 @@ enchanting map of shard K to shard V where K: Par, V: Par:
 
 # --- Enchanting numérico/ordenado: K: Par, V: Num ---------------------------
 
-enchanting map of shard K to shard V where K: Par, V: Num:
+enchanting map of shard K to shard V where K: Par, V: Num and V: Ordo:
 
     ## Suma de todos los valores; `donum V` (cero) si está vacío.
     weave sum_values into V:

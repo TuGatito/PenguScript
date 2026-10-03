@@ -6,6 +6,9 @@ from typing import Optional, List, Dict, Tuple, Any, Set
 from lark import Tree, Token
 
 from .pengu_types import (
+    CONCEPT_OPERATORS,
+    concept_grants,
+
     Type, BaseType, RefType, ArrayType, SliceType, ManyType, ListType, MapType, MaybeType,
     RuneType, EchoType, OmenType, ResultType, FnType, OPAQUE_TYPE, AliasType, AnyType, FrozenType, RangeType,
     TypeParam, NullType, NULL_TYPE, INT_TYPE, I32_TYPE, I64_TYPE, U32_TYPE, U64_TYPE, CHAR_TYPE, BYTE_TYPE,
@@ -371,6 +374,42 @@ def _flatten_at_chain(node: Any) -> List[Any]:
     return [left, right]
 
 
+
+# ---------------------------------------------------------------------------
+# Operator -> concept-table mappings (Phase 2 item 2.1).
+#
+# `CONCEPT_OPERATORS` in pengu_types is keyed by *concept-table* operator names.
+# The parser/codegen use their own node names, so the two are mapped here in one
+# place.  Adding an operator to the language means adding it here and to the
+# table; `tests/test_concept_bounds_matrix.py` fails if they drift apart.
+# ---------------------------------------------------------------------------
+
+#: Parser node name -> concept-table operator name.
+_OPERATOR_TO_TABLE_NAME = {
+    "bitwise_or": "bor",
+    "bitwise_and": "band",
+    "bitwise_xor": "bxor",
+    "shl": "shl",
+    "shr": "shr",
+    "bnot": "bnot",
+    "mod": "mod",
+    "add": "add", "sub": "sub", "mul": "mul", "div": "div", "neg": "neg",
+    "eq": "eq", "ne": "ne",
+    "lt": "lt", "le": "le", "gt": "gt", "ge": "ge",
+}
+
+#: Parser node name -> the concept a bound must provide (used for the message).
+_OPERATOR_TO_CONCEPT_OPS = {
+    "add": ("Num",), "sub": ("Num",), "mul": ("Num",), "div": ("Num",), "neg": ("Num",),
+    "mod": ("Integrum",),
+    "bitwise_or": ("Integrum",), "bitwise_and": ("Integrum",),
+    "bitwise_xor": ("Integrum",), "shl": ("Integrum",), "shr": ("Integrum",),
+    "bnot": ("Integrum",),
+    "eq": ("Par",), "ne": ("Par",),
+    "lt": ("Ordo",), "le": ("Ordo",), "gt": ("Ordo",), "ge": ("Ordo",),
+}
+
+
 class TypeInferrer:
     """Performs bottom-up static type inference and semantic rule validation on AST nodes."""
 
@@ -436,7 +475,8 @@ class TypeInferrer:
         if isinstance(t, AnyType):
             return
         if isinstance(t, TypeParam):
-            if not t.is_int():
+            _op_name = _OPERATOR_TO_TABLE_NAME.get(op, op)
+            if not t.grants(_op_name):
                 raise self._make_error(
                     SemanticError,
                     f"Cannot use operator '{op}' on type parameter '{t.name}' without 'Integrum' bound",
@@ -3116,15 +3156,18 @@ class TypeInferrer:
                                  "'{expr}' inside a string literal. There is no '+' concatenation."
                         )
 
-            if isinstance(left_t, TypeParam):
-                if not left_t.is_numeric() and not isinstance(left_t, AnyType):
+            _req_ops = _OPERATOR_TO_CONCEPT_OPS.get(rule, ("Num",))
+            if isinstance(left_t, TypeParam) and not isinstance(left_t, AnyType):
+                _missing = [c for c in _req_ops if not any(concept_grants(b, rule) for b in left_t.bounds)]
+                if _missing and not left_t.bounds_are_open():
                     raise self._make_error(
                         SemanticError,
-                        f"Cannot use arithmetic operator '{rule}' on type parameter '{left_t.name}' without 'Num' bound",
+                        f"Cannot use operator '{rule}' on type parameter '{left_t.name}' "
+                        f"without '{_missing[0]}' bound",
                         node,
                         code="E0049",
-                        help=f"Add 'where {left_t.name}: Num' to the generic declaration.",
-                        note="Arithmetic operators require the 'Num' concept bound."
+                        help=f"Add 'where {left_t.name}: {_missing[0]}' to the generic declaration.",
+                        note=f"'{rule}' requires the '{_missing[0]}' concept bound on '{left_t.name}'."
                     )
             elif not left_t.is_numeric() and not isinstance(left_t, AnyType):
                 raise self._make_error(
@@ -3136,15 +3179,17 @@ class TypeInferrer:
                     note="Arithmetic operators only operate on numeric values."
                 )
 
-            if isinstance(right_t, TypeParam):
-                if not right_t.is_numeric() and not isinstance(right_t, AnyType):
+            if isinstance(right_t, TypeParam) and not isinstance(right_t, AnyType):
+                _missing = [c for c in _req_ops if not any(concept_grants(b, rule) for b in right_t.bounds)]
+                if _missing and not right_t.bounds_are_open():
                     raise self._make_error(
                         SemanticError,
-                        f"Cannot use arithmetic operator '{rule}' on type parameter '{right_t.name}' without 'Num' bound",
+                        f"Cannot use operator '{rule}' on type parameter '{right_t.name}' "
+                        f"without '{_missing[0]}' bound",
                         node,
                         code="E0049",
-                        help=f"Add 'where {right_t.name}: Num' to the generic declaration.",
-                        note="Arithmetic operators require the 'Num' concept bound."
+                        help=f"Add 'where {right_t.name}: {_missing[0]}' to the generic declaration.",
+                        note=f"'{rule}' requires the '{_missing[0]}' concept bound on '{right_t.name}'."
                     )
             elif not right_t.is_numeric() and not isinstance(right_t, AnyType):
                 raise self._make_error(
@@ -3286,7 +3331,7 @@ class TypeInferrer:
                 else:
                     if isinstance(left_t, TypeParam) or isinstance(right_t, TypeParam):
                         tp = left_t if isinstance(left_t, TypeParam) else right_t
-                        if not tp.is_numeric() and "Par" not in tp.bounds and "Num" not in tp.bounds and "Any" not in tp.bounds and not isinstance(tp, AnyType):
+                        if not tp.grants(rule):
                             raise self._make_error(
                                 SemanticError,
                                 f"Cannot use equality comparison '{rule}' on type parameter '{tp.name}' without 'Par' bound",
@@ -3298,14 +3343,14 @@ class TypeInferrer:
             elif rule in ("lt", "le", "gt", "ge"):
                 if isinstance(left_t, TypeParam) or isinstance(right_t, TypeParam):
                     tp = left_t if isinstance(left_t, TypeParam) else right_t
-                    if not tp.is_numeric() and "Ordo" not in tp.bounds and "Num" not in tp.bounds and "Any" not in tp.bounds and not isinstance(tp, AnyType):
+                    if not tp.grants(rule):
                         raise self._make_error(
                             SemanticError,
-                            f"Cannot use ordering comparison '{rule}' on type parameter '{tp.name}' without 'Ordo' or 'Num' bound",
+                            f"Cannot use ordering comparison '{rule}' on type parameter '{tp.name}' without 'Ordo' bound",
                             node,
                             code="E0049",
                             help=f"Add 'where {tp.name}: Ordo' to the generic declaration.",
-                            note="Ordering comparisons require the 'Ordo' or 'Num' concept bound."
+                            note="Ordering comparisons require the 'Ordo' concept bound."
                         )
                 if (left_t is not None and left_t.is_string()) or (right_t is not None and right_t.is_string()):
                     raise self._make_error(

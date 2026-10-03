@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Dict, List, Optional, Tuple, Any, Set
+from typing import Dict, FrozenSet, List, Optional, Tuple, Any, Set
 from dataclasses import dataclass, field
 from lark import Tree, Token
 
@@ -209,6 +209,29 @@ class TypeParam(Type):
 
     def can_cast_to(self, other: Type) -> bool:
         return True
+
+    def bounds_are_open(self) -> bool:
+        """True when the parameter is explicitly typed as `any`.
+
+        Only `where T: Any` is open. An *unbounded* `shard T` is not: it is
+        instantiable with a rune or a `string`, so `a + b` on it has no defined
+        C translation and must be rejected with E0049. That is the established
+        behaviour of the generic test corpus
+        (`tests/test_generics/fail_bounds_missing.pengu` expects exactly this),
+        and it is why `Any` exists as a separate, deliberate escape hatch.
+        """
+        return "Any" in self.bounds
+
+    def grants(self, operator: str) -> bool:
+        """True when the declared bounds enable `operator` (concept-table name).
+
+        Replaces the old per-site `is_numeric()` shortcut, which let `Num` and
+        `Integrum` satisfy the `Par`/`Ordo` checks and made those two bounds
+        inert (Phase 2 item 2.1).
+        """
+        if self.bounds_are_open():
+            return True
+        return any(concept_grants(b, operator) for b in self.bounds)
 
     def is_numeric(self) -> bool:
         # 'Integrum' refines 'Num': integers are numeric.
@@ -1572,6 +1595,84 @@ BUILTIN_CONCEPTS: Dict[str, ConceptType] = {
     "Iterabilis": ConceptType(name="Iterabilis", methods={}),
     "Donum": ConceptType(name="Donum", methods={}),
 }
+
+# ---------------------------------------------------------------------------
+# Single source of truth: which concept grants which operators on a type
+# parameter.  Phase 2 item 2.1 (AUDIT_1.0.md §3.1 / AUDIT_1.0_FASE2.md §1.1).
+#
+# Before this table the checks in pengu_infer consulted `TypeParam.is_numeric()`
+# *in addition to* the correct bound.  Because `Num` and `Integrum` both satisfy
+# `is_numeric()`, the `==` and `<`/`>` checks were short-circuited, so `Par` and
+# `Ordo` granted nothing on their own and -- worse -- *adding* a bound could
+# remove a capability (`T: Num` accepted `a < b`; `T: Par` rejected it).  The
+# bound set was therefore not a monotone chain.
+#
+# The table below is the chain `Num` -> `Integrum` (integers add the integer-only
+# operators) with `Par` and `Ordo` as the two orthogonal comparison concepts.
+# This is exactly what LANGUAGE.md documents, and it makes the bound set
+# monotone: adding a bound can only add capabilities.
+#
+# Every enforcement site must consult this table rather than a per-site ad-hoc
+# check, so a future operator cannot silently reintroduce the inconsistency.
+# ---------------------------------------------------------------------------
+
+#: Operators each concept grants on a bare type parameter.
+CONCEPT_OPERATORS: Dict[str, FrozenSet[str]] = {
+    # Arithmetic.  Not `%`, `&`, `|`, `^`, `<<`, `>>`, `~`: C has no float
+    # modulo/bitwise, so those need `Integrum`.
+    "Num": frozenset({"add", "sub", "mul", "div", "neg"}),
+    # `Integrum` refines `Num`: an integer bound also satisfies numeric needs.
+    "Integrum": frozenset({
+        "add", "sub", "mul", "div", "neg",
+        "mod", "band", "bor", "bxor", "shl", "shr", "bnot",
+    }),
+    # Equality only.
+    "Par": frozenset({"eq", "ne"}),
+    # Ordering only.
+    "Ordo": frozenset({"lt", "le", "gt", "ge"}),
+}
+
+#: Concepts that refine another: the refining concept also grants everything the
+#: refined one does.  Kept explicit so the chain is readable and testable.
+CONCEPT_REFINES: Dict[str, str] = {
+    "Integrum": "Num",
+}
+
+
+def concept_grants(concept: str, operator: str) -> bool:
+    """True when `concept` grants `operator` on a type parameter.
+
+    Args:
+        concept: Concept name as written in a `where T: Concept` bound.
+        operator: Internal operator name (`add`, `mod`, `eq`, `lt`, ...).
+
+    Returns:
+        True when the bound enables the operator, following `CONCEPT_REFINES`.
+    """
+    grants = CONCEPT_OPERATORS.get(concept, frozenset())
+    if operator in grants:
+        return True
+    refined = CONCEPT_REFINES.get(concept)
+    if refined is not None:
+        return concept_grants(refined, operator)
+    return False
+
+
+def _validate_concept_tables() -> None:
+    """Fails loudly at import time if the two tables disagree."""
+    for refining, refined in CONCEPT_REFINES.items():
+        if refined not in CONCEPT_OPERATORS:
+            raise AssertionError(
+                f"CONCEPT_REFINES[{refining!r}] = {refined!r} is not in CONCEPT_OPERATORS"
+            )
+        missing = CONCEPT_OPERATORS[refined] - CONCEPT_OPERATORS[refining]
+        if missing:
+            raise AssertionError(
+                f"{refining!r} refines {refined!r} but does not grant {sorted(missing)}"
+            )
+
+
+_validate_concept_tables()
 
 # Concept sets shared by the primitive tables below.  ``Integrum`` is a strict
 # refinement of ``Num``: integer types satisfy both, floating-point types only
