@@ -3917,10 +3917,13 @@ class PenguCodegen:
         GNU/Clang/TCC use ``__attribute__``; MSVC uses ``__declspec`` (and
         ``__forceinline``), since it does not understand GNU attributes.
         """
+        return self._format_attributes(w, self.target_compiler == "msvc")
+
+    @staticmethod
+    def _format_attributes(w: dict, is_msvc: bool = False) -> str:
         attrs = w.get("attributes", {})
         is_inline = w.get("is_inline", False) or ("inline" in attrs)
         auto_inline = w.get("auto_inline", False)
-        is_msvc = self.target_compiler == "msvc"
 
         parts = []
         c_attrs = []
@@ -3955,7 +3958,11 @@ class PenguCodegen:
             return ""
         return " ".join(parts) + " "
 
-    _inline_prefix = _attributes_prefix
+    @staticmethod
+    def _inline_prefix(w: dict) -> str:
+        """GNU attribute prefix for a weave (kept for backwards compatibility)."""
+        return PenguCodegen._format_attributes(w, is_msvc=False)
+
 
     def generate_function_definitions(self) -> str:
         """Generates function implementation bodies in topological module order."""

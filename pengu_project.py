@@ -2715,7 +2715,8 @@ def run_script(script: str, defines: Optional[List[str]] = None,
                clear_cache: bool = False, ephemeral: bool = False,
                script_args: Optional[List[str]] = None,
                quiet: bool = False, no_pch: bool = True,
-               no_dce: bool = False) -> int:
+               no_dce: bool = False, strict_c99: bool = False,
+               target_compiler: str = "") -> int:
     """Compiles and runs a standalone .pengu file directly (script mode).
 
     The script itself is compiled as the entry point with the compile-time
@@ -2781,6 +2782,10 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         cfg.defines = list(cfg.defines or []) + defines
     if cc:
         cfg.cc = cc
+    if strict_c99:
+        cfg.strict_c99 = True
+    if target_compiler:
+        cfg.target_compiler = target_compiler
 
     # --- cache lookup -----------------------------------------------------
     # Resolving the import graph only parses the modules (no semantic checks),
@@ -2829,9 +2834,15 @@ def run_script(script: str, defines: Optional[List[str]] = None,
             links=cfg.links,
             cflags=cfg.cflags,
             runtime_header=str(include) if include else None,
-            # DCE is a build option: '--no-dce' must not reuse (or pollute) the
-            # entry of a DCE build when A/B measuring.
-            extra_digests=["dce=off"] if no_dce else None,
+            # DCE and the Phase 2 portability knobs are build options: they must
+            # not reuse (or pollute) the entry of a build made with other flags.
+            extra_digests=[
+                d for d in (
+                    "dce=off" if no_dce else None,
+                    "strict-c99" if getattr(cfg, "strict_c99", False) else None,
+                    f"target={cfg.target_compiler}" if getattr(cfg, "target_compiler", "") else None,
+                ) if d
+            ] or None,
         )
         cached = lookup_cached_binary(cache_key) if use_lookup else None
         if cached:
@@ -2962,7 +2973,8 @@ def _watch_and_test(config_path: Optional[str] = None, profile: str = "debug", e
 
 def test_project(config_path: Optional[str] = None, profile: str = "debug", entry: Optional[str] = None,
                  defines: Optional[List[str]] = None, cc: Optional[str] = None,
-                 verbose: bool = False, json_output: bool = False) -> int:
+                 verbose: bool = False, json_output: bool = False,
+                 strict_c99: bool = False, target_compiler: str = "") -> int:
     """Compiles the project in --test mode and executes the integrated unit tests.
 
     The project entry is built as an executable whose main runs every 'test'
@@ -2987,6 +2999,10 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
         config.defines = list(config.defines or []) + defines
     if cc:
         config.cc = cc
+    if strict_c99:
+        config.strict_c99 = True
+    if target_compiler:
+        config.target_compiler = target_compiler
     config.output = OutputType.EXE
 
     t0 = time.time()
@@ -3201,6 +3217,11 @@ def create_cli_parser() -> argparse.ArgumentParser:
                         help="Emit machine-readable JSON Lines to stdout (for CI)")
     test_p.add_argument("--watch", action="store_true",
                         help="Watch source files and re-run tests on modification")
+    test_p.add_argument("--strict-c99", "--strict_c99", dest="strict_c99", action="store_true",
+                        help="Emit portable C99: no GNU statement expressions nor __auto_type")
+    test_p.add_argument("--target-compiler", "--target_compiler", dest="target_compiler", default=None,
+                        choices=["gcc", "clang", "msvc", "tcc"],
+                        help="C compiler dialect used for attributes/restrict (default: infer from --cc)")
 
     # check
     check_p = subparsers.add_parser("check", help="Parse and type-check every module without generating code (CI)")
@@ -3391,6 +3412,8 @@ def main():
                     quiet=getattr(args, "quiet", False),
                     no_pch=no_pch,
                     no_dce=getattr(args, "no_dce", False),
+                    strict_c99=getattr(args, "strict_c99", False),
+                    target_compiler=getattr(args, "target_compiler", "") or "",
                 ))
             sys.exit(run_project(
                 config_path=args.config,
@@ -3426,6 +3449,8 @@ def main():
                 cc=getattr(args, "cc", None),
                 verbose=getattr(args, "verbose", False),
                 json_output=getattr(args, "json", False),
+                strict_c99=getattr(args, "strict_c99", False),
+                target_compiler=getattr(args, "target_compiler", "") or "",
             ))
         except CompileFailedError as e:
             _print_compile_error(e)
