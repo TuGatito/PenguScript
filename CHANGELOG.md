@@ -4,6 +4,32 @@ All notable changes to PenguScript will be documented in this file.
 
 ## [Unreleased] — FASE 3: Tooling de Producción
 
+### 🐛 Fixed — 3.3 Correcciones de `pengu bind`
+
+- **3.3.1 — Enums anónimos.** Un `enum { A = 1, B = 2 };` sin nombre ya no se
+  descarta en silencio: cada variante se emite como `const NAME as i64 is V`,
+  de modo que los headers que dependen de esas constantes funcionan.
+- **3.3.2 — Macros de floats, chars y expresiones.** `emit_consts` reconoce
+  ahora literales `float`/`double` (`3.14`, `1.5f` → `const X as f64 is …`),
+  literales de carácter (`'A'` → `const X as char is 'A'`) y expresiones
+  constantes enteras que pliega (`(1 << 4)` → `16`, `(2 * 1024)` → `2048`),
+  incluidas referencias a otros macros simples. Antes solo se aceptaban enteros
+  y strings; todo lo demás se perdía.
+- **3.3.3 — `@packed` / `@align(N)`.** El blanking de `__attribute__` (necesario
+  para que pycparser lea el header) perdía la semántica. Ahora se recupera del
+  texto original emparejando llaves por cada `struct` y se re-emite como
+  `@packed` / `@align(N)` en el `rune`, enganchando con los atributos de 1.5.2.
+- **3.3.4 — Docstrings Doxygen.** Los bloques con `@param`, `@return`, `@see`,
+  `@deprecated`, `@note`, `@warning`, etc. se emiten como docstring `##`
+  estructurado (consumible por `pengu doc` y hover); los comentarios planos
+  siguen siendo `#` para no romper la salida histórica.
+- **3.3.7 — Macros reservadas.** `_is_reserved_name` filtra identificadores
+  reservados a la implementación (`__…`, `_[A-Z]…`, `_WIN32`, `_MSC_VER`, …)
+  además de los patrones explícitos de `--ignore`.
+- `_const_eval` amplía el plegado con `~`, `%`, `^`, unario `+` y casts.
+- Tests: `tests/test_bind_phase3.py` cubre 3.3.1–3.3.7 y 3.3.8 (bind + check
+  limpio de `zlib.h`, `sqlite3.h`, `xxhash.h` y `nanosvg.h` reales).
+
 ### 🐛 Fixed — 3.4 Assets grandes en `arca`
 
 - **3.4.a/b/c — Emisión `.incbin` para assets grandes.** Los assets cuyo tamaño

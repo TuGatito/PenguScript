@@ -107,8 +107,76 @@ class HeaderParseError(RuntimeError):
     """Raised when the C header cannot be preprocessed or parsed."""
 
 
+_STRUCT_ATTR_RE = re.compile(r"__attribute__\s*\(\(([^;{}]*)\)\)", re.S)
+_STRUCT_ALIGN_RE = re.compile(r"\baligned\s*\(\s*(\d+)\s*\)")
+
+
+def _scan_struct_attributes(text: str) -> Dict[str, Dict[str, object]]:
+    """Maps struct/typedef names to their GNU ``packed``/``aligned(N)`` attributes.
+
+    ``preprocess_and_parse`` blanks ``__attribute__`` so pycparser can read the
+    header, which loses the semantics.  This recovers them from the original
+    header text: for every ``struct`` definition it brace-matches the body and
+    inspects the text before ``{`` and after ``}`` (where GCC allows the
+    attribute to appear).
+    """
+    out: Dict[str, Dict[str, object]] = {}
+    n = len(text)
+    for m in re.finditer(r"\bstruct\b", text):
+        start = m.end()
+        brace = text.find("{", start)
+        if brace == -1:
+            continue
+        semi = text.find(";", start)
+        if semi != -1 and semi < brace:
+            continue  # forward declaration
+        depth = 0
+        k = brace
+        while k < n:
+            ch = text[k]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            k += 1
+        if k >= n:
+            continue
+        tail_end = text.find(";", k)
+        header = text[start:brace]
+        tail = text[k + 1: tail_end if tail_end != -1 else n]
+        attrs: Dict[str, object] = {}
+        for am in _STRUCT_ATTR_RE.finditer(header + " " + tail):
+            body = am.group(1)
+            if re.search(r"\bpacked\b", body):
+                attrs["packed"] = True
+            al = _STRUCT_ALIGN_RE.search(body)
+            if al:
+                attrs["align"] = int(al.group(1))
+        if not attrs:
+            continue
+        header_clean = _STRUCT_ATTR_RE.sub(" ", header)
+        nm = re.match(r"\s*([A-Za-z_]\w*)", header_clean)
+        if nm:
+            name = nm.group(1)
+        else:
+            tail_clean = _STRUCT_ATTR_RE.sub(" ", tail)
+            words = re.findall(r"[A-Za-z_]\w*", tail_clean)
+            name = words[-1] if words else None
+        if name:
+            out[name] = attrs
+    return out
+
+
 class BindGenerator:
     """Converts a parsed pycparser AST into .d.pengu declaration text."""
+
+    # Doxygen-style tags that turn a comment block into a structured docstring.
+    _DOXYGEN_TAG_RE = re.compile(
+        r"@(param|arg|return|returns|retval|see|sa|deprecated|note|warning|brief|details|throws|exception)\b",
+        re.IGNORECASE,
+    )
 
     def __init__(
         self,
@@ -121,6 +189,7 @@ class BindGenerator:
         header_include: Optional[str] = None,
         no_comments: bool = False,
         stub_dir: Optional[str] = None,
+        struct_attributes: Optional[Dict[str, Dict[str, object]]] = None,
     ):
         self.header_path = os.path.abspath(header_path)
         self.prefix = prefix
@@ -131,6 +200,7 @@ class BindGenerator:
         self.header_include = header_include or os.path.basename(self.header_path)
         self.no_comments = no_comments
         self.stub_dir = stub_dir or os.path.join(os.path.dirname(os.path.abspath(__file__)), "c_bind_stubs")
+        self.struct_attributes = struct_attributes or {}
         self.lines: List[str] = []
         self.warnings: List[str] = []
         self.known_type_names: Set[str] = set(_PRIMITIVES)
@@ -180,8 +250,19 @@ class BindGenerator:
         return out
 
     def _emit_doc(self, comment: Optional[str]) -> None:
+        """Emits a comment block above a declaration.
+
+        Plain descriptions stay as ``#`` comments (backwards compatible).  A
+        block carrying Doxygen tags (``@param``, ``@return``, ``@see``,
+        ``@deprecated``, …) is emitted as a structured ``##`` docstring so
+        `pengu doc` and LSP hover can consume it.
+        """
+        is_doxygen = bool(comment) and self._DOXYGEN_TAG_RE.search(comment or "")
         for line in self._doc_lines(comment):
-            self.lines.append(f"# {line}" if line else "#")
+            if not line:
+                self.lines.append("##" if is_doxygen else "#")
+            else:
+                self.lines.append(f"## {line}" if is_doxygen else f"# {line}")
 
     def _record_type(self, name: str) -> None:
         self.known_type_names.add(name)
@@ -508,48 +589,110 @@ class BindGenerator:
             self.lines.append("")
 
     def emit_consts(self, raw_text: str) -> None:
-        """Emits object-like numeric/string #define macros from the original text."""
-        consts: List[Tuple[str, str]] = []
+        """Emits object-like numeric/string #define macros from the original text.
+
+        Handles integer literals, floats (``3.14``, ``1.5f``), characters
+        (``'A'``), integer constant expressions (``(1 << 4)``) and macros that
+        reference other simple macros.  Function-like macros and macros whose
+        value cannot be folded are skipped.  Names reserved to the
+        implementation (``__…``, ``_WIN32``, ``_MSC_VER``, …) are ignored.
+        """
+        consts: List[Tuple[str, str, str]] = []  # (name, value, kind)
         for m in re.finditer(
             r"^\s*#\s*define\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.*?)\s*(?://.*)?$",
             raw_text, re.MULTILINE,
         ):
             name = m.group(1)
             value = m.group(2).strip().rstrip("\\")
-            if not value or value.startswith(("(", "/*")):
+            if not value or value.startswith("/*"):
                 continue
-            if "\\" in value or "(" in value and value.rstrip().endswith(")"):
-                if value.startswith("(") and value.endswith(")") and self._is_int(value[1:-1].strip()):
-                    value = value[1:-1].strip()
-                elif re.match(r"^[A-Za-z_][A-Za-z0-9_]*\(", value):
-                    continue  # function-like macro
-                else:
-                    continue
-            if self._is_ignored(name):
+            if "\\" in value:
+                continue  # multi-line macro: only its first line was captured
+            if re.match(r"^[A-Za-z_][A-Za-z0-9_]*\(", value):
+                continue  # function-like macro
+            if self._is_ignored(name) or self._is_reserved_name(name):
                 continue
-            if self._is_int(value):
-                consts.append((name, value))
-            elif self._is_string(value):
-                consts.append((name, value))
+            entry = self._classify_macro(value)
+            if entry is not None:
+                consts.append((name, entry[1], entry[0]))
         if consts:
             self.lines.append("# -- Constants (#define) ------------------------------")
             self.lines.append("")
             seen_consts = set()
-            for name, value in consts:
+            for name, value, kind in consts:
                 if name in seen_consts:
                     self._warn(f"skipping duplicate #define '{name}' (macro depends on #ifdef context)")
                     continue
                 seen_consts.add(name)
-                if self._is_string(value):
-                    # value already includes quotes; keep inner only
+                if kind == "string":
                     inner = value[1:-1]
                     self.lines.append(f'const {name} as string is "{inner}"')
+                elif kind == "float":
+                    self.lines.append(f"const {name} as f64 is {value}")
+                elif kind == "char":
+                    self.lines.append(f"const {name} as char is {value}")
                 else:
                     # C integer suffixes (u/l/ll) are not valid Pengu literals.
                     clean = re.sub(r"[uUlL]+$", "", value.strip())
                     self.lines.append(f"const {name} as i64 is {clean}")
                 self.emitted_names.add(name)
             self.lines.append("")
+
+    def _classify_macro(self, value: str) -> Optional[Tuple[str, str]]:
+        """Returns ``(kind, normalized_value)`` for a macro value, or None."""
+        v = value.strip()
+        # Strip one enclosing paren pair only when it wraps the whole value.
+        if v.startswith("(") and v.endswith(")") and self._balanced_parens(v):
+            inner = v[1:-1].strip()
+            if self._is_int(inner):
+                v = inner
+        if self._is_int(v):
+            return ("int", v)
+        if self._is_char(v):
+            return ("char", v)
+        if self._is_string(v):
+            return ("string", v)
+        if self._is_float(v):
+            return ("float", self._normalize_float(v))
+        # Integer constant expression: fold it so no C macro leaks into the .d.
+        folded = self._eval_int_expr(v)
+        if folded is not None:
+            return ("int", str(folded))
+        return None
+
+    @staticmethod
+    def _balanced_parens(v: str) -> bool:
+        depth = 0
+        for ch in v:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0 and ch != v[-1]:
+                    return False
+        return depth == 0
+
+    @staticmethod
+    def _normalize_float(v: str) -> str:
+        return re.sub(r"[fFlL]$", "", v.strip())
+
+    def _eval_int_expr(self, value: str) -> Optional[int]:
+        """Folds a C integer constant expression (``(1 << 4)``, ``A | B``)."""
+        text = value.strip()
+        if not text or not re.fullmatch(r"[0-9a-fA-FxXoObB+\-*/%|&^~()<>\s]+", text):
+            return None
+        try:
+            expr_ast = c_parser.CParser().parse(
+                f"int _pengu_const = ({text});", "<macro>"
+            )
+        except Exception:
+            return None
+        try:
+            init = expr_ast.ext[0].init
+            val = self._const_eval(init)
+        except Exception:
+            return None
+        return val if isinstance(val, int) else None
 
     @staticmethod
     def _is_int(value: str) -> bool:
@@ -560,6 +703,31 @@ class BindGenerator:
         if re.fullmatch(r"(0[xX][0-9a-fA-F]+|0[0-7]*|[0-9]+)[uUlL]*", v):
             return True
         return False
+
+    @staticmethod
+    def _is_float(value: str) -> bool:
+        v = value.strip()
+        if v[:1] in "+-":
+            v = v[1:].strip()
+        return bool(re.fullmatch(
+            r"((\d+\.\d*|\.\d+)([eE][+-]?\d+)?|\d+[eE][+-]?\d+)[fFlL]?", v
+        ))
+
+    @staticmethod
+    def _is_char(value: str) -> bool:
+        return bool(re.fullmatch(r"'(\\.|[^\\'])'|u8'(\\.|[^\\'])'|L'(\\.|[^\\'])'", value.strip()))
+
+    @staticmethod
+    def _is_reserved_name(name: str) -> bool:
+        """True for identifiers reserved to the C implementation."""
+        if name.startswith("__"):
+            return True
+        if len(name) >= 2 and name[0] == "_" and name[1].isupper():
+            return True
+        return name in {
+            "_WIN32", "_WIN64", "_MSC_VER", "_M_X64", "_M_IX86", "_M_ARM64",
+            "__linux__", "__APPLE__", "__gnu_linux__", "__unix__",
+        }
 
     @staticmethod
     def _is_string(value: str) -> bool:
@@ -585,7 +753,29 @@ class BindGenerator:
 
     def _emit_enum(self, enum: c_ast.Enum, decl, comments, raw_lines, force_name: Optional[str] = None) -> None:
         name = force_name or enum.name
-        if not name or self._is_ignored(name) or name in self.emitted_names:
+        if name and (self._is_ignored(name) or name in self.emitted_names):
+            return
+        if not name:
+            # Anonymous enum (`enum { A = 1, B };`): there is no omen to declare,
+            # but the variants are constants other headers rely on.  Emit them as
+            # `const NAME as i64 is V` instead of dropping the whole enum.
+            comment = comments.get(decl.coord.line) if getattr(decl, "coord", None) else None
+            self._emit_doc(comment)
+            next_value = 0
+            for item in enum.values or []:
+                vname = item.name
+                if not vname or self._is_ignored(vname) or vname in self.emitted_names:
+                    continue
+                if item.value is not None:
+                    try:
+                        val = self._const_eval(item.value)
+                    except Exception:
+                        val = next_value
+                else:
+                    val = next_value
+                next_value = val + 1
+                self.emitted_names.add(vname)
+                self.lines.append(f"const {vname} as i64 is {val}")
             return
         self.emitted_names.add(name)
         comment = comments.get(decl.coord.line) if decl.coord else None
@@ -644,6 +834,13 @@ class BindGenerator:
             fields.append((f_name, f_t, f_comment))
         self._flush_aliases()
         self._emit_doc(comment)
+        if kind == "rune":
+            attrs = self.struct_attributes.get(name, {})
+            if attrs.get("packed"):
+                self.lines.append("@packed")
+            align = attrs.get("align")
+            if align:
+                self.lines.append(f"@align({align})")
         self.lines.append(f"{kind} {name}:")
         for f_name, f_t, f_comment in fields:
             if f_comment and not self.no_comments:
@@ -738,8 +935,14 @@ class BindGenerator:
             text = node.value
             text = re.sub(r"[uUlL]+$", "", text)
             return int(text, 0)
+        if isinstance(node, c_ast.Cast):
+            return self._const_eval(node.expr)
         if isinstance(node, c_ast.UnaryOp) and node.op == "-":
             return -self._const_eval(node.expr)
+        if isinstance(node, c_ast.UnaryOp) and node.op == "+":
+            return self._const_eval(node.expr)
+        if isinstance(node, c_ast.UnaryOp) and node.op == "~":
+            return ~self._const_eval(node.expr)
         if isinstance(node, c_ast.BinaryOp):
             lhs = self._const_eval(node.left)
             rhs = self._const_eval(node.right)
@@ -751,10 +954,14 @@ class BindGenerator:
                 return lhs * rhs
             if node.op == "/":
                 return int(lhs / rhs)
+            if node.op == "%":
+                return lhs % rhs
             if node.op == "|":
                 return lhs | rhs
             if node.op == "&":
                 return lhs & rhs
+            if node.op == "^":
+                return lhs ^ rhs
             if node.op == "<<":
                 return lhs << rhs
             if node.op == ">>":
@@ -1120,6 +1327,7 @@ def generate_bind_file(
         header_include=header_include,
         no_comments=no_comments,
         stub_dir=stub_dir,
+        struct_attributes=_scan_struct_attributes(original or ""),
     )
 
     target_file = os.path.basename(os.path.abspath(header))
