@@ -15,7 +15,7 @@
 |---|------|--------|-----------|
 | 3.1 | 🔴 **B8** — el `.c` del runtime compila sin `-Wno-implicit-function-declaration` | ✅ **cerrado** | `tests/test_runtime_c99.py` (9 tests); 24 errores → 0 |
 | 3.12 | 🟢 Guardar los `#define` con `#ifndef` | ✅ **cerrado** | 3 warnings `-Wmacro-redefined` → 0 |
-| 3.2 | 🔴 **B5** — `--strict-c99` compila C portable con `std` | ⏳ pendiente | — |
+| 3.2 | 🔴 **B5** — `--strict-c99` compila C portable con `std` | 🔬 **diagnosticado, no arreglado** | §6: 34/61 fallan; causa raíz localizada |
 | 3.3 | 🔴 Eliminar los statement-expressions `({...})` en modo estricto | ⏳ pendiente | — |
 | 3.4 | 🟠 `__typeof__` en vez de `__auto_type` para TCC | ⏳ pendiente | — |
 | 3.5 | 🟠 **A15** — `PENGU_ABI_VERSION` verificable contra el `.a` | ⏳ pendiente | — |
@@ -170,3 +170,82 @@ alcance de la Fase 3). No empeora: mismo comportamiento que en Fase 2.
 Además, verificación funcional del runtime reconstruido: `seal.md5("abc")` sigue dando
 `900150983cd24fb0d6963f7d28e17f72`, idéntico a `md5sum`, ahora **sin** el flag que ocultaba los 24
 errores de declaración implícita. El hash ya no funciona "por accidente ABI": la unidad es C11 legal.
+
+
+---
+
+## §6. Item 3.2 (B5) — reproducido y diagnosticado; el fix NO está hecho
+
+> **Estado real: 🔬 reproducido, causa raíz localizada, sin arreglar.** Se documenta así porque
+> maquillarlo sería exactamente lo que la regla final de la fase prohíbe.
+
+### Medición (C3)
+
+| Comprobación | Resultado |
+|---|---|
+| `tests/std_programs/*.pengu` | **61** programas (la fase decía 56) |
+| `pengu build --strict-c99` sobre ellos | todos construyen el bundle |
+| `gcc -std=c99 -pedantic-errors -c` sobre el bundle | **34 / 61 fallan** |
+| Statement-expressions `({...})` en el bundle de `atlas.pengu` | **104** (coincide con la fase) |
+
+Muestra representativa:
+
+| Programa | stmt-exprs | ¿pedantic? |
+|---|---|---|
+| `atlas.pengu` | 104 | ❌ falla |
+| `test_all.pengu` | 85 | ❌ falla |
+| **`tally.pengu`** | **0** | ❌ **falla igual** |
+| 3 de la muestra | 0 | ✅ pasan |
+
+**El dato clave: `tally.pengu` falla con CERO statement-expressions.** Eso demuestra que B5 tiene
+**al menos dos causas independientes**, y confirma la advertencia de la fase de no mezclar 3.2 con
+3.3: eliminar los `({...})` (3.3) **no arregla** B5 por sí solo.
+
+### Causa raíz localizada: el hoisting saca el índice fuera del ámbito del bucle
+
+`gcc` señala `'k' undeclared`, `'i' undeclared`, `'r' undeclared` — siempre variables de bucle. En
+`std/tally.pengu:851` (`zip_with shard T and U and V`), el bundle estricto genera:
+
+```c
+int64_t _p_idx_215 = (int64_t)(k);                       /* <-- k todavía no existe */
+pengu_assert_bounds(_p_idx_215, (int64_t)((xs).len), "...:862");
+int64_t _p_idx_216 = (int64_t)(k);
+pengu_assert_bounds(_p_idx_216, (int64_t)((ys).len), "...:862");
+PenguList _comp_list_217 = pengu_list_new(sizeof(int32_t), (idxs).len);
+for (int _i = 0; _i < (idxs).len; _i++) {
+  int32_t k = (*(int32_t *)pengu_list_at(&(idxs), _i));   /* <-- k se declara AQUÍ */
+    int32_t _comp_val_218 = (f(((*(int32_t *)pengu_list_at(&(xs), _p_idx_215))), ...));
+```
+
+El mecanismo está en `pengu_codegen.py`:
+
+```python
+def _block_expr(self, stmts, value_expr):
+    if self.use_gnu_extensions:
+        return f"(__extension__(({{\n{body}\n}})))"   # el ámbito del ({...}) cubre k
+    for s in stmts:
+        self._hoist(s)                                  # <-- pero en estricto sube al prelude
+    return value_expr
+```
+
+En modo GNU el `({...})` **crea un ámbito donde el índice del bucle es visible**, así que el
+`assert_bounds` ve `k`. En modo estricto `_hoist` sube esas sentencias al prelude de la sentencia
+**exterior al bucle**, y `k` deja de estar en ámbito. El `#line` lo sitúa en la línea 862, que es
+exactamente el `for k in idxs then ...`.
+
+Es decir: **el hoisting es correcto para expresiones cuyo ámbito es el prelude; es incorrecto para
+las que dependen de un índice de bucle de comprehensión.** El fix tiene que emitir las expresiones
+por-iteración **dentro** del cuerpo del `for`, no en el prelude, y eso toca el codegen de
+comprehensiones — infraestructura (regla C4: un cambio por familia, con la suite completa como red).
+
+### Por qué no se arregla en esta ronda
+
+- El diagnóstico requiere tocar el emisor de comprehensiones, no una línea del `_hoist`.
+- 34/61 programas afectados: un cambio así necesita iteración medida contra la suite completa
+  (~20 min por corrida) y la verificación de que los bundles **ejecutan** con la salida correcta, no
+  solo que compilan.
+- Arrancar ese cambio con el presupuesto de contexto restante arriesgaría dejar el árbol en un estado
+  intermedio peor que el actual, contra `C4` y contra la regla final de la fase.
+
+**Queda como el trabajo principal pendiente de la Fase 3**, con la causa raíz ya localizada (que es
+la parte cara del item) y el punto exacto del código señalado.
