@@ -828,3 +828,100 @@ cara.
 
 Y lo que deja **honestamente abierto**: 2.4 (con la medición que lo desbloquea), 2.11 `W0008` y
 `W0012`, y los 12 `W0001`, cada uno con la razón medida de por qué no cabe aquí.
+
+---
+
+## §7. Item 2.4: la causa raíz encontrada, medida, y por qué no se aplica aún
+
+Después de §3.2 y §3.6 quedaba una hipótesis sin probar: que el `_NEWLINE` **final opcional** de las
+sentencias fuera la causa, y que bastara volverlo obligatorio. Se probó, y el resultado es el
+hallazgo más útil de todo el item.
+
+### §7.1 El lexer sí emite `_NEWLINE` antes de `_DEDENT`
+
+`PenguIndenter` se apoya en `lark.Indenter.handle_NL`, que hace:
+
+```python
+yield token                      # el _NEWLINE, SIEMPRE primero
+indent = ...
+if indent > self.indent_level[-1]:
+    yield Token.new_borrow_pos(self.INDENT_type, ...)
+else:
+    while indent < self.indent_level[-1]:
+        self.indent_level.pop()
+        yield Token.new_borrow_pos(self.DEDENT_type, ...)
+```
+
+El `_NEWLINE` se emite **antes** de cualquier `_DEDENT`. Eso hacía plausible que el `[...]` fuera
+innecesario en todas las sentencias. **Es cierto para la mayoría, pero no para todas.**
+
+### §7.2 Medición regla por regla
+
+Cada cambio aplicado **en aislamiento**, contando conflictos y comprobando las formas de riesgo:
+
+| Regla | `[_NEWLINE]` → `_NEWLINE` | Conflictos | ¿Rompe la stdlib? |
+|---|---|---|---|
+| `return_stmt` | −45 | **188 → 143** | ⚠️ **Sí** (24 de 52 módulos) |
+| `expr_stmt` | ±0 | 188 | — |
+| `set_stmt` | ±0 | 188 | — |
+| `var_decl` / `let_decl` / `const_decl` | ±0 | 188 | — |
+
+**`return_stmt` es el único que aporta, y aporta mucho**: −45 conflictos, exactamente los 45 que §3.6
+le había atribuido. Los demás no aportan nada, lo cual desmiente la idea de que "el `_NEWLINE`
+opcional de la familia de sentencias" fuera un bloque homogéneo.
+
+### §7.3 El caso que lo bloquea: `return` con una expresión multilínea
+
+Con `return_stmt: "return" [value_expr] _NEWLINE`, esto deja de parsear:
+
+```pengu
+weave bool_to_string with b as bool into string:
+    return judge b:
+        when true -> "true"
+        when false -> "false"
+```
+
+```
+std/spark.pengu:74:30 [E0000] Syntax error at line 74, column 30
+```
+
+**24 de los 52 módulos** fallan, todos por la misma razón. La causa es precisa: `judge_expr` es una
+expresión **terminada en bloque**:
+
+```
+judge_expr: "judge" expr ":" _NEWLINE _INDENT when_clause+ [else_clause] _DEDENT
+```
+
+Termina en `_DEDENT`, y **no consume un `_NEWLINE` después** (el `_DEDENT` ya lo precede). Así que
+`return <expresión-terminada-en-bloque>` no tiene `_NEWLINE` final que consumir, y volverlo
+obligatorio lo rompe.
+
+> **Por qué el corpus de tests no lo detectó al principio.** Las pruebas de precedencia y el primer
+> barrido de `std/` con el cambio aplicado **sí** lo detectaron (24 módulos), pero el test aislado que
+> hice antes de aplicarlo usó `return judge b:` y **falló igual** — es decir, la comprobación funcionó.
+> Lo que falló fue mi lectura inicial de §7.2 como "seguro": el −45 es real, pero el cambio **no es
+> aplicable tal cual**.
+
+### §7.4 El arreglo correcto, para 1.1
+
+La solución no es aflojar el `_NEWLINE`, sino **separar las dos formas de `return`**, porque tienen
+finales distintos:
+
+```
+return_stmt: "return" [value_expr] _NEWLINE      # expresión simple: termina en _NEWLINE
+           | "return" block_expr                 # expresión terminada en bloque: termina en _DEDENT
+```
+
+donde `block_expr` es `judge_expr` (y cualquier futura expresión terminada en `_DEDENT`). Con eso el
+parser sabe **antes** de consumir el separador cuál de las dos formas está leyendo, y los 45
+conflictos desaparecen sin tocar la semántica.
+
+**Lo que falta para hacerlo:** identificar el conjunto exacto de expresiones terminadas en bloque
+(hoy `judge_expr`; hay que verificar `do_expr`, `when_expr` y las lambdas multilínea), y medir el
+efecto en `simple_stmt`, que tiene la forma gemela. Es un cambio de la forma del grafo de sentencias
+con presupuesto propio, no el ajuste de una línea que parecía.
+
+**Estado:** ⏸️ para 1.1, con la causa raíz identificada y el arreglo especificado. El contador sigue
+en **188**, y el criterio 2 de la fase sigue sin cumplirse. Se deja medido y no aplicado: entregar un
+grammar que rompe 24 de 52 módulos para presumir de un número menor sería exactamente lo contrario de
+lo que pide esta fase.
