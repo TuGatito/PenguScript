@@ -556,10 +556,13 @@ int main(void) {
               "format_ex keeps embedded NUL (bytes)");
         pengu_banish_string(&out);
 
-        /* snprintf returns the whole length for a huge float: the formatter
-         * must not read past its scratch buffer. */
+        /* Phase 3 item 3.9: the float branch renders with `%g`, so a huge float
+         * is compact ("1e+300") instead of the ~310 characters `%f` produced.
+         * Passing the extreme value still exercises the formatter's scratch
+         * buffer, which must not be overrun. */
         PenguString big = pengu_string_format_ex("%f", 1.0e300);
-        CHECK(big.len > 300, "format_ex big float length");
+        CHECK(big.len == 6 && strncmp(big.data, "1e+300", 6) == 0,
+              "format_ex big float uses %g");
         pengu_banish_string(&big);
 
         PenguString scalars = pengu_string_format_ex("%d|%c|%s|%%", -7, 'Z', "ok");
