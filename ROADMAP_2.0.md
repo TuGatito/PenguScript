@@ -212,8 +212,8 @@ retirar o implementar el azúcar que hoy es ficción.
 | 2.1 | 🟠 **A1** — decidir y hacer cumplir la jerarquía de bounds en **un solo sitio** | `pengu_types.py` (tabla de concepts), `pengu_checker.py`/`pengu_infer.py` (consultas) | M | Matriz operador × bound es coherente: si `Num` concede `==`/`<`, entonces `Par`/`Ordo` conceden `Num`; o al revés. Test paramétrico que fija la matriz completa (los 30 pares de AUDIT §3.1) |
 | 2.2 | Re-documentar los bounds como "conjuntos de operadores habilitados" (o como cadena monótona, según 2.1) | `LANGUAGE.md:1535-1560`, `LANGUAGE_Spanish.md` | S | La tabla documental coincide con la matriz medida; el test de 2.1 lee de la misma fuente |
 | 2.3 | 🔴 **A18/§1.2** — Implementar `alias NAME` en `concept` **o** retirar el ejemplo | `pengu_grammar.py:92-93`, `pengu_checker.py`, `LANGUAGE.md` bloque 59 | M (implementar) / S (retirar) | **Decisión Requerida.** Si se retira: el bloque 59 desaparece y §9.1 lo marca ⏸️ con justificación. Si se implementa: `concept Iterabilis shard Self:` + `alias Item` compila y `Self.Item` se resuelve en bounds |
-| 2.4 | Reducir los **188 conflictos shift/reduce** a un puñado: tabla de precedencia explícita + colapsar las 29 reglas duplicadas | `pengu_grammar.py:112-430` (`guard_*`, `*_no_cast`, `simple_stmt`), jerarquía de expresiones | **L** | `Lark(GRAMMAR, parser='lalr', strict=True)` construye sin excepción (hoy falla: 188 conflictos / 79 terminales); añadido a CI; el *dangling else* sigue asociándose al `if` más interno; las 9 expresiones de AUDIT §1.1 mantienen su árbol |
-| 2.4b | Test que fija la precedencia y asociatividad explícitamente | `tests/test_precedence.py` (nuevo) | S | Las 9 expresiones de AUDIT §1.1 dan el valor numérico y el nodo raíz esperados; falla si la heurística de Lark cambia |
+| 2.4 | ⏸️ **DIFERIDO a 1.1.** Reducir los 188 conflictos shift/reduce: **no es reducible sin un cambio de sintaxis** — 9 vías medidas, todas fallidas (ver `AUDIT_1.0_FASE2.md` §7, §10, §12, §14, §18, §21) | `pengu_grammar.py`, jerarquía de expresiones | **XL** (era L) | **Reformulado.** No es "reducir 188": `return` necesita aceptar expresiones terminadas en bloque (6 archivos) y `expr` necesita contenerlas (`judge` es también sentencia, usada en `archivum`); LALR(1) no puede distinguir ambos caminos en el token `JUDGE` y **ningún reordenamiento de producciones lo arregla porque ambas rutas son necesarias**. La salida es introducir sintaxis delimitada para una de las dos formas (p. ej. `return do:`), lo que es **decisión de lenguaje**, no implementación. Criterio `strict=True` **no cumplido**: 188 |
+| 2.4b | ✅ **CERRADO.** Test que fija la precedencia y asociatividad explícitamente | `tests/test_precedence.py` | S | ✅ 99 tests: las 9 expresiones de AUDIT §1.1 dan el valor numérico y el nodo raíz esperados, y falla si la heurística de Lark cambia. El *dangling else* queda fijado por 3 tests conductuales en `tests/test_grammar_strict.py` |
 | 2.5 | Unificar la doble sintaxis de rango `to` / `..` | `pengu_grammar.py:341-342`, `LANGUAGE.md` | S | Una sola forma canónica; la otra emite warning `W0013 RangeSyntaxDeprecated` durante 1.x |
 | 2.6 | Documentar (o rechazar) `frozen ref to T` vs `ref to frozen T` | `pengu_grammar.py:265-272`, `LANGUAGE.md` | S | Una forma documentada; la otra emite error de sintaxis o warning |
 | 2.7 | Verificar y documentar la expansión de variádicos en el call site | `pengu_grammar.py:390-394`, `LANGUAGE.md` | S | Test: `weave f with xs as many int` + llamada con N args funciona; si no hay expansión, documentarlo como ⏸️ |
@@ -225,13 +225,13 @@ retirar o implementar el azúcar que hoy es ficción.
 
 ### Criterio de "done" de la fase
 
-- [ ] Matriz de bounds medida y coherente con la documentación (test paramétrico de 30 pares).
-- [ ] `Lark(..., strict=True)` no lanza en CI.
-- [ ] Los 4 ejemplos documentales que no compilaban (bloques 15, 28, 59, 94) compilan **o** han sido
-      retirados de `LANGUAGE.md` con marca ⏸️.
-- [ ] Una sola sintaxis de rango canónica, con deprecación de la otra.
-- [ ] Matriz de `derive` documentada y probada por concept.
-- [ ] `stderr` de `pengu check --entry std/<mod>.pengu` para los 52 módulos → **0 warnings propios**.
+- [x] Matriz de bounds medida y coherente con la documentación (test paramétrico de 30 pares). — **5 de 6 criterios cumplidos (Fase 2, 36 commits).** Ver `AUDIT_1.0_FASE2.md` §20.
+- [ ] `Lark(..., strict=True)` no lanza en CI. — **⏸️ DIFERIDO a 1.1.** Sigue en 188 conflictos. Nueve vías medidas y descartadas; la causa raíz está identificada (§21) y es una **decisión de sintaxis**, no una tarea de implementación. Herramienta de diagnóstico entregada: `tools/grammar_conflicts.py`.
+- [x] Los 4 ejemplos documentales que no compilaban (bloques 15, 28, 59, 94) compilan **o** han sido
+      retirados de `LANGUAGE.md` con marca ⏸️. — 15/28/94 compilan (Fase 1, B7); el 59 se retiró y §11.7 lo marca ⏸️.
+- [x] Una sola sintaxis de rango canónica, con deprecación de la otra. — `to` canónica; `..` emite `W0013` y además ahora **hace slice** (antes solo funcionaba en `for … in`).
+- [x] Matriz de `derive` documentada y probada por concept. — `tests/test_derive_matrix.py`, 14 tests.
+- [x] `stderr` de `pengu check --entry std/<mod>.pengu` para los 52 módulos → **0 warnings propios**. — **71 → 0** (W0005 50→0, W0001 21→0).
 
 ### Riesgos
 
