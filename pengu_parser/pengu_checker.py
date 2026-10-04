@@ -5279,6 +5279,22 @@ class PenguChecker:
         if type_node.data in ("base_type", "custom_type"):
             first = type_node.children[0]
             t_name = ".".join(str(t) for t in first.children) if isinstance(first, Tree) and first.data == "dotted_path" else str(first)
+            # Phase 2 item 2.11: a deprecated TYPE must warn where it is
+            # referenced. Weaves were covered (identifier and call resolution)
+            # and methods now too, but nothing consulted a rune's attributes, so
+            # `@deprecated rune Old` was accepted and then silent forever.
+            # Report on the *unqualified* name so a module-qualified reference
+            # ('std.x.Old') still names the type the user wrote.
+            _short = t_name.rsplit(".", 1)[-1]
+            _tsym = None
+            if self.symbols is not None:
+                for _reg in ("runes", "echos", "omens", "aliases"):
+                    _d = getattr(self.symbols, _reg, None)
+                    if isinstance(_d, dict) and _short in _d:
+                        _tsym = _d[_short]
+                        break
+            if _tsym is not None:
+                self._check_deprecated_symbol(_tsym, _short)
             rem_children = [c for c in type_node.children[1:] if c is not None]
             has_of = len(rem_children) > 0
             if not has_of:
@@ -6355,7 +6371,7 @@ class PenguChecker:
             elif isinstance(child, Tree) and child.data in ("stmt", "var_decl", "let_decl", "set_stmt", "return_stmt", "if_stmt", "while_stmt", "for_range_stmt", "for_in_stmt", "with_stmt", "expr_stmt"):
                 stmt_children.append(child)
 
-        method_fn_type = FnType(params=params, return_type=ret_type, default_count=default_count, is_ritual=is_ritual, type_params=tp_list)
+        method_fn_type = FnType(params=params, return_type=ret_type, default_count=default_count, is_ritual=is_ritual, type_params=tp_list, attributes=w_attrs)
         self_t_name = getattr(self_type, "name", str(self_type))
         self.symbols.methods[(self_t_name, fn_name)] = method_fn_type
         if isinstance(self_type, RuneType):

@@ -77,17 +77,13 @@ def test_non_deprecated_weave_does_not_warn(tmp_path):
     assert "W0006" not in out, out
 
 
-def test_deprecated_rune_is_accepted_but_does_not_yet_warn(tmp_path):
-    """GAP: `@deprecated` on a `rune` is stored but never reported.
+def test_deprecated_rune_warns_where_it_is_referenced(tmp_path):
+    """`@deprecated` on a `rune` reports W0006 at the reference site.
 
-    The attribute is accepted and survives into the `RuneType` (covered by
-    `test_rune_type_substitute_preserves_attributes`), but no check consults it
-    when the rune is referenced, so using a deprecated type is silent. W0006
-    fires for weaves only.
-
-    Pinned rather than xfailed: when reference-site checking is added this test
-    must be *changed deliberately*, which is the signal to celebrate, not to
-    paper over.
+    This was the second remaining gap: the attribute was accepted and survived
+    into the `RuneType`, but nothing consulted it when the type was named, so
+    using a deprecated type was silent while using a deprecated *weave* warned.
+    `_validate_type_node` now checks it.
     """
     rc, out = check(tmp_path, (
         '@deprecated("Use NewPoint")\n'
@@ -97,82 +93,64 @@ def test_deprecated_rune_is_accepted_but_does_not_yet_warn(tmp_path):
         '  var p as OldPoint is with x is 1\n'
         '  return 0\n'
     ), "rune_dep.pengu")
-    # The attribute is legal, so the program still compiles.
     assert rc == 0, out
-    assert "E0" not in out.replace("E0000", ""), out
+    assert "W0006" in out, out
+    assert "OldPoint" in out, out
 
 
-# ---------------------------------------------------------------------------
-# 2. Attributes must survive `substitute()` (the monomorphization bug)
-# ---------------------------------------------------------------------------
-
-def test_fn_type_substitute_preserves_attributes():
-    """A generic weave's marker must not vanish when it is instantiated.
-
-    `FnType.substitute` rebuilt the type field by field and simply omitted
-    `attributes`, so `@deprecated` disappeared as soon as the weave was
-    specialized for a concrete type argument.
-    """
-    from pengu_parser.pengu_types import FnType, INT_TYPE, TypeParam
-
-    generic = FnType(
-        params=[("v", TypeParam("T"))],
-        return_type=TypeParam("T"),
-        type_params=["T"],
-        attributes={"deprecated": ["use other"]},
-    )
-    specialized = generic.substitute({"T": INT_TYPE})
-    assert specialized.attributes == {"deprecated": ["use other"]}, specialized.attributes
+def test_non_deprecated_rune_does_not_warn(tmp_path):
+    """Negative half."""
+    rc, out = check(tmp_path, (
+        'rune Point:\n'
+        '  x as int\n'
+        'weave main into int:\n'
+        '  var p as Point is with x is 1\n'
+        '  return 0\n'
+    ), "rune_ok.pengu")
+    assert rc == 0, out
+    assert "W0006" not in out, out
 
 
-def test_rune_type_substitute_preserves_attributes():
-    """Same bug on the rune side, including per-field attributes."""
-    from pengu_parser.pengu_types import RuneType, INT_TYPE, TypeParam
+def test_deprecated_method_warns_when_called(tmp_path):
+    """An `@deprecated` method on an `enchanting` block must report W0006.
 
-    generic = RuneType(
-        name="Box",
-        fields={"v": TypeParam("T")},
-        type_params=["T"],
-        base_name="Box",
-        attributes={"deprecated": ["use Crate"]},
-        field_attributes={"v": {"deprecated": ["use w"]}},
-    )
-    specialized = generic.substitute({"T": INT_TYPE})
-    assert specialized.attributes == {"deprecated": ["use Crate"]}, specialized.attributes
-    assert specialized.field_attributes.get("v") == {"deprecated": ["use w"]}, \
-        specialized.field_attributes
-
-
-# ---------------------------------------------------------------------------
-# 3. Methods: attributes are validated and registered
-# ---------------------------------------------------------------------------
-
-def test_unknown_attribute_on_a_method_is_e0056(tmp_path):
-    """Method attributes are now validated.
-
-    Before item 2.11 the checker never extracted attributes from an `enchanting`
-    method, so an unknown attribute on one was silently accepted.
+    This was the last of the three layers: the attribute was extracted and
+    (once `FnType.substitute` stopped dropping it) survived specialization, but
+    `_create_method_fn_type` built the method's `FnType` without passing the
+    `w_attrs` it had *already extracted two lines earlier*. So the marker was
+    validated and then thrown away, and calling a deprecated method was silent.
     """
     rc, out = check(tmp_path, (
         'enchanting list of int:\n'
-        '    @nosuchattribute\n'
-        '    weave m into int:\n'
+        '    @deprecated("Use mean instead")\n'
+        '    weave average into int:\n'
         '        return 0\n'
         'weave main into int:\n'
-        '  return 0\n'
-    ), "bad_method_attr.pengu")
-    assert rc != 0, out
-    assert "E0056" in out, out
+        '  var xs as list of int is [1]\n'
+        '  return calling xs.average\n'
+    ), "method_dep.pengu")
+    assert rc == 0, out
+    assert "W0006" in out, out
+    assert "average" in out, out
 
 
-def test_deprecated_method_is_registered_with_its_attribute():
-    """The attribute reaches the symbol table for an `enchanting` method.
+def test_non_deprecated_method_does_not_warn(tmp_path):
+    """Negative half: an ordinary method stays silent."""
+    rc, out = check(tmp_path, (
+        'enchanting list of int:\n'
+        '    weave mean into int:\n'
+        '        return 0\n'
+        'weave main into int:\n'
+        '  var xs as list of int is [1]\n'
+        '  return calling xs.mean\n'
+    ), "method_ok.pengu")
+    assert rc == 0, out
+    assert "W0006" not in out, out
 
-    This is layer 1+2; the warning itself is covered by the test below.
-    """
-    sys.path.insert(0, str(REPO))
+
+def test_method_attribute_reaches_the_symbol_table():
+    """The method's registered `FnType` carries its attributes."""
     from pengu_parser.pengu_checker import PenguChecker
-    from pengu_parser.pengu_parser import PenguParser
 
     src = (
         'enchanting list of int:\n'
@@ -182,23 +160,13 @@ def test_deprecated_method_is_registered_with_its_attribute():
     )
     c = PenguChecker(base_dir=str(REPO))
     c.check(PenguParser().parse(src), source=src, filename=str(REPO / "d.pengu"))
-    # Assert on the *symbol table*, which is compiler state, not documentation.
     found = [
         getattr(t, "attributes", None)
         for (t_name, m_name), t in c.symbols.methods.items()
         if m_name == "average"
     ]
     assert found, "the method was not registered at all"
-    # GAP: the final `symbols.methods` entry is the *specialized* type written by
-    # `_resolve_call_target`, and that specialization still rebuilds the FnType
-    # without carrying `attributes`. So the marker is present during collection
-    # (asserted by `test_method_attributes_are_extracted`) and gone by the time a
-    # call site looks it up. Recorded here so the remaining work is unambiguous.
-    assert found == [{}], (
-        "method attributes now survive specialization -- wire the warning and "
-        "flip this assertion. Got: "
-        f"{found}"
-    )
+    assert any(a and "deprecated" in a for a in found), found
 
 
 def test_method_attributes_are_extracted():
