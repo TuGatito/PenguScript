@@ -1490,3 +1490,73 @@ lenguaje delinea bloques con un token que el lexer no emite donde las produccion
 y verificada contra el volcado real del lexer. El contador sigue en **188** y el criterio 2 sin
 cumplirse, pero ya no es un misterio: es un cambio de infraestructura de lexing, acotado y
 entendido.
+
+---
+
+## §16. La causa raíz, precisada: el `_NEWLINE` **sí** está, y está de más
+
+El §15 concluyó que "`_DEDENT _DEDENT` aparece sin `_NEWLINE` en medio" y que había que cambiar el
+indenter. Comparar tres programas lado a lado (en vez de mirar solo el caso anidado) **corrige esa
+conclusión**:
+
+| Programa | Secuencia estructural |
+|----------|----------------------|
+| `weave f: return 1` | `_NEWLINE _INDENT _NEWLINE _DEDENT` |
+| `weave f: if true: return 1` / `return 2` | `_NEWLINE _INDENT _NEWLINE _INDENT _NEWLINE _DEDENT _NEWLINE _DEDENT` |
+| `weave f: return judge b: …` | `_NEWLINE _INDENT **_NEWLINE _NEWLINE** _DEDENT _DEDENT` |
+
+Leyendo las tres:
+
+* En los dos casos normales hay **exactamente un `_NEWLINE` por cada `_DEDENT`**. La regla se cumple.
+* En el caso del `judge` hay **dos `_NEWLINE` seguidos** y luego los dos `_DEDENT`. Es decir: **el
+  `_NEWLINE` que "faltaba" no falta — sobra.** El token extra aparece *antes* de los dedents, no
+  después.
+
+### Esto invalida también el §15
+
+El §15 decía que el indenter no emite `_NEWLINE` junto a cada `_DEDENT` y que había que cambiarlo.
+**Es falso:** sí lo emite. Lo que ocurre es lo contrario, un `_NEWLINE` **de más** justo antes de los
+`_DEDENT` en las expresiones terminadas en bloque.
+
+Y explica con precisión por qué la vía 6 (`judge_expr: … _DEDENT _NEWLINE`) falló: intentaba consumir
+un `_NEWLINE` **después** del `_DEDENT`, cuando el token disponible está **antes**. La producción
+buscaba el token en el lado equivocado.
+
+### Corrección acumulada a mis propias conclusiones
+
+Tres teorías sobre la causa raíz, escritas en tres rondas, y **las tres refutadas por medición**:
+
+| Ronda | Teoría | Cómo se refutó |
+|-------|--------|----------------|
+| §7 | "hay que exigir el `_NEWLINE` de `return_stmt`" | 188 → 143 pero rompe 24/52 módulos |
+| §12 | "hay que normalizar las expresiones de bloque para que consuman `_NEWLINE`" | 188 → 188 y rompe 24/52 |
+| §15 | "el indenter no emite `_NEWLINE` junto a cada `_DEDENT`" | El volcado comparado muestra que sí lo emite; sobra un `_NEWLINE` |
+
+### Lo que ahora se sabe con certeza
+
+1. El lexer emite `_NEWLINE` antes de cada `_DEDENT` — la regla se cumple en los casos normales.
+2. Las expresiones terminadas en bloque (`judge_expr`, y presumiblemente `do_expr` /
+   `with_init_expr`) dejan un `_NEWLINE` **extra** antes de los dedents.
+3. Ese extra es la causa de que `return_stmt: "return" [value_expr] [_NEWLINE]` sea ambiguo: tras la
+   expresión de bloque quedan **dos** `_NEWLINE` donde la producción espera **uno o ninguno**.
+4. **Ninguna de las siete variantes de grammar lo abordaba**, porque todas asumían que faltaba un
+   token, no que sobraba.
+
+### Qué haría falta para cerrar 2.4
+
+La corrección apunta ahora a un sitio concreto y pequeño: **hacer que la producción de la expresión
+de bloque consuma el `_NEWLINE` extra que ella misma genera** — es decir, la variante 6 pero con el
+token **antes** del `_DEDENT`, no después:
+
+```
+judge_expr: "judge" expr ":" _NEWLINE _INDENT when_clause+ [else_clause] _DEDENT
+```
+→ el `_NEWLINE` extra está entre `[else_clause]` y el `_DEDENT`, así que habría que absorberlo dentro
+de la última `when_clause`/`else_clause`, no añadirlo al final.
+
+**No se intenta en esta ronda.** Ya van tres teorías refutadas escribiendo variantes del grammar sin
+instrumentar; el patrón es claro y la lección es la que el §15 ya enunciaba: **medir el token stream
+antes de tocar la producción**. Aquí queda medido y con la posición exacta del token identificada,
+que es lo que le faltaba a las siete variantes anteriores.
+
+**Estado:** item 2.4 sigue ⏸️, contador en **188**, criterio 2 sin cumplir.
