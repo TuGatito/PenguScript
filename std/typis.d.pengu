@@ -24,39 +24,39 @@ const STBTT_FIXSHIFT as i64 is 10
 # ------------------------------------------------------------------
 
 rune stbtt__buf:
-  data as ref to byte
-  cursor as int
-  size as int
+    data as ref to byte
+    cursor as int
+    size as int
 
 rune stbtt_bakedchar:
-  x0 as u16
-  y0 as u16
-  x1 as u16
-  y1 as u16
-  xoff as f32
-  yoff as f32
-  xadvance as f32
+    x0 as u16
+    y0 as u16
+    x1 as u16
+    y1 as u16
+    xoff as f32
+    yoff as f32
+    xadvance as f32
 
 rune stbtt_aligned_quad:
-  x0 as f32
-  y0 as f32
-  s0 as f32
-  t0 as f32
-  x1 as f32
-  y1 as f32
-  s1 as f32
-  t1 as f32
+    x0 as f32
+    y0 as f32
+    s0 as f32
+    t0 as f32
+    x1 as f32
+    y1 as f32
+    s1 as f32
+    t1 as f32
 
 rune stbtt_packedchar:
-  x0 as u16
-  y0 as u16
-  x1 as u16
-  y1 as u16
-  xoff as f32
-  yoff as f32
-  xadvance as f32
-  xoff2 as f32
-  yoff2 as f32
+    x0 as u16
+    y0 as u16
+    x1 as u16
+    y1 as u16
+    xoff as f32
+    yoff as f32
+    xadvance as f32
+    xoff2 as f32
+    yoff2 as f32
 
 alias stbtt_pack_context as opaque
 
@@ -65,34 +65,34 @@ alias stbtt_fontinfo as opaque
 alias stbrp_rect as opaque
 
 rune stbtt_pack_range:
-  font_size as f32
-  first_unicode_codepoint_in_range as int
-  array_of_unicode_codepoints as ref to int
-  num_chars as int
-  chardata_for_range as ref to stbtt_packedchar
-  h_oversample as byte
-  v_oversample as byte
+    font_size as f32
+    first_unicode_codepoint_in_range as int
+    array_of_unicode_codepoints as ref to int
+    num_chars as int
+    chardata_for_range as ref to stbtt_packedchar
+    h_oversample as byte
+    v_oversample as byte
 
 rune stbtt_kerningentry:
-  glyph1 as int
-  glyph2 as int
-  advance as int
+    glyph1 as int
+    glyph2 as int
+    advance as int
 
 rune stbtt_vertex:
-  x as i16
-  y as i16
-  cx as i16
-  cy as i16
-  cx1 as i16
-  cy1 as i16
-  type as byte
-  padding as byte
+    x as i16
+    y as i16
+    cx as i16
+    cy as i16
+    cx1 as i16
+    cy1 as i16
+    type as byte
+    padding as byte
 
 rune stbtt__bitmap:
-  w as int
-  h as int
-  stride as int
-  pixels as ref to byte
+    w as int
+    h as int
+    stride as int
+    pixels as ref to byte
 
 # ------------------------------------------------------------------
 # Functions (every name receives the insignia prefix)

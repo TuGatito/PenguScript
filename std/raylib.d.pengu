@@ -9,16 +9,16 @@
 include "raylib.h"
 
 when os == "windows":
-    link "raylib"
-    link "opengl32"
-    link "gdi32"
-    # No se necesitan -ldl, -lrt, -lX11
+        link "raylib"
+        link "opengl32"
+        link "gdi32"
+        # No se necesitan -ldl, -lrt, -lX11
 else:
-    link "raylib"
-    link "GL"
-    link "dl"
-    link "rt"
-    link "X11"
+        link "raylib"
+        link "GL"
+        link "dl"
+        link "rt"
+        link "X11"
 
 
 
@@ -85,91 +85,91 @@ rune Vector2:
 # Types and Structures Definition
 # Boolean type
 # Vector x component
-  x as f32
+    x as f32
 # Vector y component
-  y as f32
+    y as f32
 
 # Vector3, 3 components
 rune Vector3:
-  x as f32
-  y as f32
+    x as f32
+    y as f32
 # Vector z component
-  z as f32
+    z as f32
 
 # Vector4, 4 components
 rune Vector4:
-  x as f32
-  y as f32
-  z as f32
+    x as f32
+    y as f32
+    z as f32
 # Vector w component
-  w as f32
+    w as f32
 
 # Quaternion, 4 components (Vector4 alias)
 alias Quaternion as Vector4
 
 # Matrix, 4x4 components, column major, OpenGL style, right-handed
 rune Matrix:
-  m0 as f32
-  m4 as f32
-  m8 as f32
-  m12 as f32
-  m1 as f32
-  m5 as f32
-  m9 as f32
-  m13 as f32
-  m2 as f32
-  m6 as f32
-  m10 as f32
-  m14 as f32
-  m3 as f32
-  m7 as f32
-  m11 as f32
-  m15 as f32
+    m0 as f32
+    m4 as f32
+    m8 as f32
+    m12 as f32
+    m1 as f32
+    m5 as f32
+    m9 as f32
+    m13 as f32
+    m2 as f32
+    m6 as f32
+    m10 as f32
+    m14 as f32
+    m3 as f32
+    m7 as f32
+    m11 as f32
+    m15 as f32
 
 # Color, 4 components, R8G8B8A8 (32bit)
 rune Color:
 # Color red value
-  r as byte
+    r as byte
 # Color green value
-  g as byte
+    g as byte
 # Color blue value
-  b as byte
+    b as byte
 # Color alpha value
-  a as byte
+    a as byte
 
 # Rectangle, 4 components
 rune Rectangle:
 # Rectangle top-left corner position x
-  x as f32
+    x as f32
 # Rectangle top-left corner position y
-  y as f32
+    y as f32
 # Rectangle width
-  width as f32
+    width as f32
 # Rectangle height
-  height as f32
+    height as f32
 
 # Image, pixel data stored in CPU memory (RAM)
 rune Image:
-  data as ref to void
+    data as ref to void
 # Image base width
-  width as int
+    width as int
 # Image base height
-  height as int
+    height as int
 # Mipmap levels, 1 by default
-  mipmaps as int
+    mipmaps as int
 # Data format (PixelFormat type)
-  format as int
+    format as int
 
 # Texture, tex data stored in GPU memory (VRAM)
 rune Texture:
 # OpenGL texture id
-  id as u32
+    id as u32
 # Texture base width
-  width as int
+    width as int
 # Texture base height
-  height as int
-  mipmaps as int
-  format as int
+    height as int
+    mipmaps as int
+    format as int
 
 # Texture2D, same as Texture
 alias Texture2D as Texture
@@ -180,11 +180,11 @@ alias TextureCubemap as Texture
 # RenderTexture, fbo for texture rendering
 rune RenderTexture:
 # OpenGL framebuffer object id
-  id as u32
+    id as u32
 # Color buffer attachment texture
-  texture as Texture
+    texture as Texture
 # Depth buffer attachment texture
-  depth as Texture
+    depth as Texture
 
 # RenderTexture2D, same as RenderTexture
 alias RenderTexture2D as RenderTexture
@@ -192,97 +192,97 @@ alias RenderTexture2D as RenderTexture
 # NPatchInfo, n-patch layout info
 rune NPatchInfo:
 # Texture source rectangle
-  source as Rectangle
+    source as Rectangle
 # Left border offset
-  left as int
+    left as int
 # Top border offset
-  top as int
+    top as int
 # Right border offset
-  right as int
+    right as int
 # Bottom border offset
-  bottom as int
+    bottom as int
 # Layout of the n-patch: 3x3, 1x3 or 3x1
-  layout as int
+    layout as int
 
 # GlyphInfo, font characters glyphs info
 rune GlyphInfo:
 # Character value (Unicode)
-  value as int
+    value as int
 # Character offset X when drawing
-  offsetX as int
+    offsetX as int
 # Character offset Y when drawing
-  offsetY as int
+    offsetY as int
 # Character advance position X
-  advanceX as int
+    advanceX as int
 # Character image data
-  image as Image
+    image as Image
 
 # Font, font texture and GlyphInfo array data
 rune Font:
 # Base size (default chars height)
-  baseSize as int
+    baseSize as int
 # Number of glyph characters
-  glyphCount as int
+    glyphCount as int
 # Padding around the glyph characters
-  glyphPadding as int
+    glyphPadding as int
 # Texture atlas containing the glyphs
-  texture as Texture2D
-  recs as ref to Rectangle
-  glyphs as ref to GlyphInfo
+    texture as Texture2D
+    recs as ref to Rectangle
+    glyphs as ref to GlyphInfo
 
 # Camera, defines position/orientation in 3d space
 rune Camera3D:
 # Camera position
-  position as Vector3
+    position as Vector3
 # Camera target it looks-at
-  target as Vector3
+    target as Vector3
 # Camera up vector (rotation over its axis)
-  up as Vector3
+    up as Vector3
 # Camera field-of-view aperture in Y (degrees) in perspective, used as near plane height in world units in orthographic
-  fovy as f32
+    fovy as f32
 # Camera projection: CAMERA_PERSPECTIVE or CAMERA_ORTHOGRAPHIC
-  projection as int
+    projection as int
 
 alias Camera as Camera3D
 
 # Camera2D, defines position/orientation in 2d space
 rune Camera2D:
 # Camera offset (screen space offset from window origin)
-  offset as Vector2
+    offset as Vector2
 # Camera target (world space target point that is mapped to screen space offset)
-  target as Vector2
+    target as Vector2
 # Camera rotation in degrees (pivots around target)
-  rotation as f32
+    rotation as f32
 # Camera zoom (scaling around target), must not be set to 0, set to 1.0f for no scale
-  zoom as f32
+    zoom as f32
 
 # Mesh, vertex data and vao/vbo
 rune Mesh:
 # Number of vertices stored in arrays
-  vertexCount as int
+    vertexCount as int
 # Number of triangles stored (indexed or not)
-  triangleCount as int
-  vertices as ref to f32
-  texcoords as ref to f32
-  texcoords2 as ref to f32
-  normals as ref to f32
-  tangents as ref to f32
-  colors as ref to byte
-  indices as ref to u16
+    triangleCount as int
+    vertices as ref to f32
+    texcoords as ref to f32
+    texcoords2 as ref to f32
+    normals as ref to f32
+    tangents as ref to f32
+    colors as ref to byte
+    indices as ref to u16
 # Vertex attributes data
 # Skin data for animation
 # Number of bones (MAX: 256 bones)
-  boneCount as int
-  boneIndices as ref to byte
-  boneWeights as ref to f32
-  animVertices as ref to f32
-  animNormals as ref to f32
+    boneCount as int
+    boneIndices as ref to byte
+    boneWeights as ref to f32
+    animVertices as ref to f32
+    animNormals as ref to f32
 # Runtime animation vertex data (CPU skinning)
 # NOTE: In case of GPU skinning, not used, pointers are NULL
 # OpenGL identifiers
 # OpenGL Vertex Array Object id
-  vaoId as u32
-  vboId as ref to u32
+    vaoId as u32
+    vboId as ref to u32
 
 # Vertex attributes data
 # Skin data for animation
@@ -292,34 +292,34 @@ rune Mesh:
 # Shader
 rune Shader:
 # Shader program id
-  id as u32
-  locs as ref to int
+    id as u32
+    locs as ref to int
 
 # MaterialMap
 rune MaterialMap:
 # Material map texture
-  texture as Texture2D
+    texture as Texture2D
 # Material map color
-  color as Color
+    color as Color
 # Material map value
-  value as f32
+    value as f32
 
 # Material, includes shader and maps
 rune Material:
 # Material shader
-  shader as Shader
-  maps as ref to MaterialMap
+    shader as Shader
+    maps as ref to MaterialMap
 # Material generic parameters (if required)
-  params as f32
+    params as f32
 
 # Transform, vertex transformation data
 rune Transform:
 # Translation
-  translation as Vector3
+    translation as Vector3
 # Rotation
-  rotation as Quaternion
+    rotation as Quaternion
 # Scale
-  scale as Vector3
+    scale as Vector3
 
 # Anim pose, an array of Transform[]
 alias ModelAnimPose as ref to Transform
@@ -328,85 +328,85 @@ alias ModelAnimPose as ref to Transform
 # Bone, skeletal animation bone
 rune BoneInfo:
 # Bone name
-  name as char
+    name as char
 # Bone parent
-  parent as int
+    parent as int
 
 # Skeleton, animation bones hierarchy
 rune ModelSkeleton:
 # Number of bones
-  boneCount as int
-  bones as ref to BoneInfo
+    boneCount as int
+    bones as ref to BoneInfo
 # Bones base transformation (Transform[])
-  bindPose as ModelAnimPose
+    bindPose as ModelAnimPose
 
 # Model, meshes, materials and animation data
 rune Model:
 # Local transform matrix
-  transform as Matrix
+    transform as Matrix
 # Number of meshes
-  meshCount as int
+    meshCount as int
 # Number of materials
-  materialCount as int
-  meshes as ref to Mesh
-  materials as ref to Material
-  meshMaterial as ref to int
+    materialCount as int
+    meshes as ref to Mesh
+    materials as ref to Material
+    meshMaterial as ref to int
 # Animation data
 # Skeleton for animation
-  skeleton as ModelSkeleton
+    skeleton as ModelSkeleton
 # Runtime animation data (CPU/GPU skinning)
 # Current animation pose (Transform[])
-  currentPose as ModelAnimPose
-  boneMatrices as ref to Matrix
+    currentPose as ModelAnimPose
+    boneMatrices as ref to Matrix
 
 # Animation data
 # Runtime animation data (CPU/GPU skinning)
 # ModelAnimation, contains a full animation sequence
 rune ModelAnimation:
 # Animation name
-  name as char
+    name as char
 # Number of bones (per pose)
-  boneCount as int
+    boneCount as int
 # Number of animation key frames
-  keyframeCount as int
-  keyframePoses as ref to ModelAnimPose
+    keyframeCount as int
+    keyframePoses as ref to ModelAnimPose
 
 # Ray, ray for raycasting
 rune Ray:
 # Ray position (origin)
-  position as Vector3
+    position as Vector3
 # Ray direction (normalized)
-  direction as Vector3
+    direction as Vector3
 
 # RayCollision, ray hit information
 rune RayCollision:
 # Did the ray hit something?
-  hit as bool
+    hit as bool
 # Distance to the nearest hit
-  distance as f32
+    distance as f32
 # Point of the nearest hit
-  point as Vector3
+    point as Vector3
 # Surface normal of hit
-  normal as Vector3
+    normal as Vector3
 
 # BoundingBox
 rune BoundingBox:
 # Minimum vertex box-corner
-  min as Vector3
+    min as Vector3
 # Maximum vertex box-corner
-  max as Vector3
+    max as Vector3
 
 # Wave, audio wave data
 rune Wave:
 # Total number of frames (considering channels)
-  frameCount as u32
+    frameCount as u32
 # Frequency (samples per second)
-  sampleRate as u32
+    sampleRate as u32
 # Bit depth (bits per sample): 8, 16, 32 (24 not supported)
-  sampleSize as u32
+    sampleSize as u32
 # Number of channels (1-mono, 2-stereo, ...)
-  channels as u32
-  data as ref to void
+    channels as u32
+    data as ref to void
 
 # Opaque structs declaration
 # NOTE: Actual structs are defined internally in raudio module
@@ -416,437 +416,437 @@ alias rAudioProcessor as opaque
 
 # AudioStream, custom audio stream
 rune AudioStream:
-  buffer as ref to rAudioBuffer
-  processor as ref to rAudioProcessor
-  sampleRate as u32
-  sampleSize as u32
-  channels as u32
+    buffer as ref to rAudioBuffer
+    processor as ref to rAudioProcessor
+    sampleRate as u32
+    sampleSize as u32
+    channels as u32
 
 # Sound
 rune Sound:
 # Audio stream
-  stream as AudioStream
-  frameCount as u32
+    stream as AudioStream
+    frameCount as u32
 
 # Music, audio stream, anything longer than ~10 seconds should be streamed
 rune Music:
-  stream as AudioStream
-  frameCount as u32
+    stream as AudioStream
+    frameCount as u32
 # Music looping enable
-  looping as bool
+    looping as bool
 # Type of music context (audio filetype)
-  ctxType as int
-  ctxData as ref to void
+    ctxType as int
+    ctxData as ref to void
 
 # VrDeviceInfo, Head-Mounted-Display device parameters
 rune VrDeviceInfo:
 # Horizontal resolution in pixels
-  hResolution as int
+    hResolution as int
 # Vertical resolution in pixels
-  vResolution as int
+    vResolution as int
 # Horizontal size in meters
-  hScreenSize as f32
+    hScreenSize as f32
 # Vertical size in meters
-  vScreenSize as f32
+    vScreenSize as f32
 # Distance between eye and display in meters
-  eyeToScreenDistance as f32
+    eyeToScreenDistance as f32
 # Lens separation distance in meters
-  lensSeparationDistance as f32
+    lensSeparationDistance as f32
 # IPD (distance between pupils) in meters
-  interpupillaryDistance as f32
+    interpupillaryDistance as f32
 # Lens distortion constant parameters
-  lensDistortionValues as f32
+    lensDistortionValues as f32
 # Chromatic aberration correction parameters
-  chromaAbCorrection as f32
+    chromaAbCorrection as f32
 
 # VrStereoConfig, VR stereo rendering configuration for simulator
 rune VrStereoConfig:
 # VR projection matrices (per eye)
-  projection as Matrix
+    projection as Matrix
 # VR view offset matrices (per eye)
-  viewOffset as Matrix
+    viewOffset as Matrix
 # VR left lens center
-  leftLensCenter as f32
+    leftLensCenter as f32
 # VR right lens center
-  rightLensCenter as f32
+    rightLensCenter as f32
 # VR left screen center
-  leftScreenCenter as f32
+    leftScreenCenter as f32
 # VR right screen center
-  rightScreenCenter as f32
+    rightScreenCenter as f32
 # VR distortion scale
-  scale as f32
+    scale as f32
 # VR distortion scale in
-  scaleIn as f32
+    scaleIn as f32
 
 # File path list
 rune FilePathList:
 # Filepaths entries count
-  count as u32
-  paths as ref to ref to char
+    count as u32
+    paths as ref to ref to char
 
 # Automation event
 rune AutomationEvent:
 # Event frame
-  frame as u32
+    frame as u32
 # Event type (AutomationEventType)
-  type as u32
+    type as u32
 # Event parameters (if required)
-  params as int
+    params as int
 
 # Automation event list
 rune AutomationEventList:
 # Events max entries (MAX_AUTOMATION_EVENTS)
-  capacity as u32
+    capacity as u32
 # Events entries count
-  count as u32
-  events as ref to AutomationEvent
+    count as u32
+    events as ref to AutomationEvent
 
 omen ConfigFlags:
-  FLAG_VSYNC_HINT is 64
-  FLAG_FULLSCREEN_MODE is 2
-  FLAG_WINDOW_RESIZABLE is 4
-  FLAG_WINDOW_UNDECORATED is 8
-  FLAG_WINDOW_HIDDEN is 128
-  FLAG_WINDOW_MINIMIZED is 512
-  FLAG_WINDOW_MAXIMIZED is 1024
-  FLAG_WINDOW_UNFOCUSED is 2048
-  FLAG_WINDOW_TOPMOST is 4096
-  FLAG_WINDOW_ALWAYS_RUN is 256
-  FLAG_WINDOW_TRANSPARENT is 16
-  FLAG_WINDOW_HIGHDPI is 8192
-  FLAG_WINDOW_MOUSE_PASSTHROUGH is 16384
-  FLAG_BORDERLESS_WINDOWED_MODE is 32768
-  FLAG_MSAA_4X_HINT is 32
-  FLAG_INTERLACED_HINT is 65536
+    FLAG_VSYNC_HINT is 64
+    FLAG_FULLSCREEN_MODE is 2
+    FLAG_WINDOW_RESIZABLE is 4
+    FLAG_WINDOW_UNDECORATED is 8
+    FLAG_WINDOW_HIDDEN is 128
+    FLAG_WINDOW_MINIMIZED is 512
+    FLAG_WINDOW_MAXIMIZED is 1024
+    FLAG_WINDOW_UNFOCUSED is 2048
+    FLAG_WINDOW_TOPMOST is 4096
+    FLAG_WINDOW_ALWAYS_RUN is 256
+    FLAG_WINDOW_TRANSPARENT is 16
+    FLAG_WINDOW_HIGHDPI is 8192
+    FLAG_WINDOW_MOUSE_PASSTHROUGH is 16384
+    FLAG_BORDERLESS_WINDOWED_MODE is 32768
+    FLAG_MSAA_4X_HINT is 32
+    FLAG_INTERLACED_HINT is 65536
 
 omen TraceLogLevel:
-  LOG_ALL is 0
-  LOG_TRACE is 1
-  LOG_DEBUG is 2
-  LOG_INFO is 3
-  LOG_WARNING is 4
-  LOG_ERROR is 5
-  LOG_FATAL is 6
-  LOG_NONE is 7
+    LOG_ALL is 0
+    LOG_TRACE is 1
+    LOG_DEBUG is 2
+    LOG_INFO is 3
+    LOG_WARNING is 4
+    LOG_ERROR is 5
+    LOG_FATAL is 6
+    LOG_NONE is 7
 
 omen KeyboardKey:
-  KEY_NULL is 0
-  KEY_APOSTROPHE is 39
-  KEY_COMMA is 44
-  KEY_MINUS is 45
-  KEY_PERIOD is 46
-  KEY_SLASH is 47
-  KEY_ZERO is 48
-  KEY_ONE is 49
-  KEY_TWO is 50
-  KEY_THREE is 51
-  KEY_FOUR is 52
-  KEY_FIVE is 53
-  KEY_SIX is 54
-  KEY_SEVEN is 55
-  KEY_EIGHT is 56
-  KEY_NINE is 57
-  KEY_SEMICOLON is 59
-  KEY_EQUAL is 61
-  KEY_A is 65
-  KEY_B is 66
-  KEY_C is 67
-  KEY_D is 68
-  KEY_E is 69
-  KEY_F is 70
-  KEY_G is 71
-  KEY_H is 72
-  KEY_I is 73
-  KEY_J is 74
-  KEY_K is 75
-  KEY_L is 76
-  KEY_M is 77
-  KEY_N is 78
-  KEY_O is 79
-  KEY_P is 80
-  KEY_Q is 81
-  KEY_R is 82
-  KEY_S is 83
-  KEY_T is 84
-  KEY_U is 85
-  KEY_V is 86
-  KEY_W is 87
-  KEY_X is 88
-  KEY_Y is 89
-  KEY_Z is 90
-  KEY_LEFT_BRACKET is 91
-  KEY_BACKSLASH is 92
-  KEY_RIGHT_BRACKET is 93
-  KEY_GRAVE is 96
-  KEY_SPACE is 32
-  KEY_ESCAPE is 256
-  KEY_ENTER is 257
-  KEY_TAB is 258
-  KEY_BACKSPACE is 259
-  KEY_INSERT is 260
-  KEY_DELETE is 261
-  KEY_RIGHT is 262
-  KEY_LEFT is 263
-  KEY_DOWN is 264
-  KEY_UP is 265
-  KEY_PAGE_UP is 266
-  KEY_PAGE_DOWN is 267
-  KEY_HOME is 268
-  KEY_END is 269
-  KEY_CAPS_LOCK is 280
-  KEY_SCROLL_LOCK is 281
-  KEY_NUM_LOCK is 282
-  KEY_PRINT_SCREEN is 283
-  KEY_PAUSE is 284
-  KEY_F1 is 290
-  KEY_F2 is 291
-  KEY_F3 is 292
-  KEY_F4 is 293
-  KEY_F5 is 294
-  KEY_F6 is 295
-  KEY_F7 is 296
-  KEY_F8 is 297
-  KEY_F9 is 298
-  KEY_F10 is 299
-  KEY_F11 is 300
-  KEY_F12 is 301
-  KEY_LEFT_SHIFT is 340
-  KEY_LEFT_CONTROL is 341
-  KEY_LEFT_ALT is 342
-  KEY_LEFT_SUPER is 343
-  KEY_RIGHT_SHIFT is 344
-  KEY_RIGHT_CONTROL is 345
-  KEY_RIGHT_ALT is 346
-  KEY_RIGHT_SUPER is 347
-  KEY_KB_MENU is 348
-  KEY_KP_0 is 320
-  KEY_KP_1 is 321
-  KEY_KP_2 is 322
-  KEY_KP_3 is 323
-  KEY_KP_4 is 324
-  KEY_KP_5 is 325
-  KEY_KP_6 is 326
-  KEY_KP_7 is 327
-  KEY_KP_8 is 328
-  KEY_KP_9 is 329
-  KEY_KP_DECIMAL is 330
-  KEY_KP_DIVIDE is 331
-  KEY_KP_MULTIPLY is 332
-  KEY_KP_SUBTRACT is 333
-  KEY_KP_ADD is 334
-  KEY_KP_ENTER is 335
-  KEY_KP_EQUAL is 336
-  KEY_BACK is 4
-  KEY_MENU is 5
-  KEY_VOLUME_UP is 24
-  KEY_VOLUME_DOWN is 25
+    KEY_NULL is 0
+    KEY_APOSTROPHE is 39
+    KEY_COMMA is 44
+    KEY_MINUS is 45
+    KEY_PERIOD is 46
+    KEY_SLASH is 47
+    KEY_ZERO is 48
+    KEY_ONE is 49
+    KEY_TWO is 50
+    KEY_THREE is 51
+    KEY_FOUR is 52
+    KEY_FIVE is 53
+    KEY_SIX is 54
+    KEY_SEVEN is 55
+    KEY_EIGHT is 56
+    KEY_NINE is 57
+    KEY_SEMICOLON is 59
+    KEY_EQUAL is 61
+    KEY_A is 65
+    KEY_B is 66
+    KEY_C is 67
+    KEY_D is 68
+    KEY_E is 69
+    KEY_F is 70
+    KEY_G is 71
+    KEY_H is 72
+    KEY_I is 73
+    KEY_J is 74
+    KEY_K is 75
+    KEY_L is 76
+    KEY_M is 77
+    KEY_N is 78
+    KEY_O is 79
+    KEY_P is 80
+    KEY_Q is 81
+    KEY_R is 82
+    KEY_S is 83
+    KEY_T is 84
+    KEY_U is 85
+    KEY_V is 86
+    KEY_W is 87
+    KEY_X is 88
+    KEY_Y is 89
+    KEY_Z is 90
+    KEY_LEFT_BRACKET is 91
+    KEY_BACKSLASH is 92
+    KEY_RIGHT_BRACKET is 93
+    KEY_GRAVE is 96
+    KEY_SPACE is 32
+    KEY_ESCAPE is 256
+    KEY_ENTER is 257
+    KEY_TAB is 258
+    KEY_BACKSPACE is 259
+    KEY_INSERT is 260
+    KEY_DELETE is 261
+    KEY_RIGHT is 262
+    KEY_LEFT is 263
+    KEY_DOWN is 264
+    KEY_UP is 265
+    KEY_PAGE_UP is 266
+    KEY_PAGE_DOWN is 267
+    KEY_HOME is 268
+    KEY_END is 269
+    KEY_CAPS_LOCK is 280
+    KEY_SCROLL_LOCK is 281
+    KEY_NUM_LOCK is 282
+    KEY_PRINT_SCREEN is 283
+    KEY_PAUSE is 284
+    KEY_F1 is 290
+    KEY_F2 is 291
+    KEY_F3 is 292
+    KEY_F4 is 293
+    KEY_F5 is 294
+    KEY_F6 is 295
+    KEY_F7 is 296
+    KEY_F8 is 297
+    KEY_F9 is 298
+    KEY_F10 is 299
+    KEY_F11 is 300
+    KEY_F12 is 301
+    KEY_LEFT_SHIFT is 340
+    KEY_LEFT_CONTROL is 341
+    KEY_LEFT_ALT is 342
+    KEY_LEFT_SUPER is 343
+    KEY_RIGHT_SHIFT is 344
+    KEY_RIGHT_CONTROL is 345
+    KEY_RIGHT_ALT is 346
+    KEY_RIGHT_SUPER is 347
+    KEY_KB_MENU is 348
+    KEY_KP_0 is 320
+    KEY_KP_1 is 321
+    KEY_KP_2 is 322
+    KEY_KP_3 is 323
+    KEY_KP_4 is 324
+    KEY_KP_5 is 325
+    KEY_KP_6 is 326
+    KEY_KP_7 is 327
+    KEY_KP_8 is 328
+    KEY_KP_9 is 329
+    KEY_KP_DECIMAL is 330
+    KEY_KP_DIVIDE is 331
+    KEY_KP_MULTIPLY is 332
+    KEY_KP_SUBTRACT is 333
+    KEY_KP_ADD is 334
+    KEY_KP_ENTER is 335
+    KEY_KP_EQUAL is 336
+    KEY_BACK is 4
+    KEY_MENU is 5
+    KEY_VOLUME_UP is 24
+    KEY_VOLUME_DOWN is 25
 
 omen MouseButton:
-  MOUSE_BUTTON_LEFT is 0
-  MOUSE_BUTTON_RIGHT is 1
-  MOUSE_BUTTON_MIDDLE is 2
-  MOUSE_BUTTON_SIDE is 3
-  MOUSE_BUTTON_EXTRA is 4
-  MOUSE_BUTTON_FORWARD is 5
-  MOUSE_BUTTON_BACK is 6
+    MOUSE_BUTTON_LEFT is 0
+    MOUSE_BUTTON_RIGHT is 1
+    MOUSE_BUTTON_MIDDLE is 2
+    MOUSE_BUTTON_SIDE is 3
+    MOUSE_BUTTON_EXTRA is 4
+    MOUSE_BUTTON_FORWARD is 5
+    MOUSE_BUTTON_BACK is 6
 
 omen MouseCursor:
-  MOUSE_CURSOR_DEFAULT is 0
-  MOUSE_CURSOR_ARROW is 1
-  MOUSE_CURSOR_IBEAM is 2
-  MOUSE_CURSOR_CROSSHAIR is 3
-  MOUSE_CURSOR_POINTING_HAND is 4
-  MOUSE_CURSOR_RESIZE_EW is 5
-  MOUSE_CURSOR_RESIZE_NS is 6
-  MOUSE_CURSOR_RESIZE_NWSE is 7
-  MOUSE_CURSOR_RESIZE_NESW is 8
-  MOUSE_CURSOR_RESIZE_ALL is 9
-  MOUSE_CURSOR_NOT_ALLOWED is 10
+    MOUSE_CURSOR_DEFAULT is 0
+    MOUSE_CURSOR_ARROW is 1
+    MOUSE_CURSOR_IBEAM is 2
+    MOUSE_CURSOR_CROSSHAIR is 3
+    MOUSE_CURSOR_POINTING_HAND is 4
+    MOUSE_CURSOR_RESIZE_EW is 5
+    MOUSE_CURSOR_RESIZE_NS is 6
+    MOUSE_CURSOR_RESIZE_NWSE is 7
+    MOUSE_CURSOR_RESIZE_NESW is 8
+    MOUSE_CURSOR_RESIZE_ALL is 9
+    MOUSE_CURSOR_NOT_ALLOWED is 10
 
 omen GamepadButton:
-  GAMEPAD_BUTTON_UNKNOWN is 0
-  GAMEPAD_BUTTON_LEFT_FACE_UP is 1
-  GAMEPAD_BUTTON_LEFT_FACE_RIGHT is 2
-  GAMEPAD_BUTTON_LEFT_FACE_DOWN is 3
-  GAMEPAD_BUTTON_LEFT_FACE_LEFT is 4
-  GAMEPAD_BUTTON_RIGHT_FACE_UP is 5
-  GAMEPAD_BUTTON_RIGHT_FACE_RIGHT is 6
-  GAMEPAD_BUTTON_RIGHT_FACE_DOWN is 7
-  GAMEPAD_BUTTON_RIGHT_FACE_LEFT is 8
-  GAMEPAD_BUTTON_LEFT_TRIGGER_1 is 9
-  GAMEPAD_BUTTON_LEFT_TRIGGER_2 is 10
-  GAMEPAD_BUTTON_RIGHT_TRIGGER_1 is 11
-  GAMEPAD_BUTTON_RIGHT_TRIGGER_2 is 12
-  GAMEPAD_BUTTON_MIDDLE_LEFT is 13
-  GAMEPAD_BUTTON_MIDDLE is 14
-  GAMEPAD_BUTTON_MIDDLE_RIGHT is 15
-  GAMEPAD_BUTTON_LEFT_THUMB is 16
-  GAMEPAD_BUTTON_RIGHT_THUMB is 17
+    GAMEPAD_BUTTON_UNKNOWN is 0
+    GAMEPAD_BUTTON_LEFT_FACE_UP is 1
+    GAMEPAD_BUTTON_LEFT_FACE_RIGHT is 2
+    GAMEPAD_BUTTON_LEFT_FACE_DOWN is 3
+    GAMEPAD_BUTTON_LEFT_FACE_LEFT is 4
+    GAMEPAD_BUTTON_RIGHT_FACE_UP is 5
+    GAMEPAD_BUTTON_RIGHT_FACE_RIGHT is 6
+    GAMEPAD_BUTTON_RIGHT_FACE_DOWN is 7
+    GAMEPAD_BUTTON_RIGHT_FACE_LEFT is 8
+    GAMEPAD_BUTTON_LEFT_TRIGGER_1 is 9
+    GAMEPAD_BUTTON_LEFT_TRIGGER_2 is 10
+    GAMEPAD_BUTTON_RIGHT_TRIGGER_1 is 11
+    GAMEPAD_BUTTON_RIGHT_TRIGGER_2 is 12
+    GAMEPAD_BUTTON_MIDDLE_LEFT is 13
+    GAMEPAD_BUTTON_MIDDLE is 14
+    GAMEPAD_BUTTON_MIDDLE_RIGHT is 15
+    GAMEPAD_BUTTON_LEFT_THUMB is 16
+    GAMEPAD_BUTTON_RIGHT_THUMB is 17
 
 omen GamepadAxis:
-  GAMEPAD_AXIS_LEFT_X is 0
-  GAMEPAD_AXIS_LEFT_Y is 1
-  GAMEPAD_AXIS_RIGHT_X is 2
-  GAMEPAD_AXIS_RIGHT_Y is 3
-  GAMEPAD_AXIS_LEFT_TRIGGER is 4
-  GAMEPAD_AXIS_RIGHT_TRIGGER is 5
+    GAMEPAD_AXIS_LEFT_X is 0
+    GAMEPAD_AXIS_LEFT_Y is 1
+    GAMEPAD_AXIS_RIGHT_X is 2
+    GAMEPAD_AXIS_RIGHT_Y is 3
+    GAMEPAD_AXIS_LEFT_TRIGGER is 4
+    GAMEPAD_AXIS_RIGHT_TRIGGER is 5
 
 omen MaterialMapIndex:
-  MATERIAL_MAP_ALBEDO is 0
-  MATERIAL_MAP_METALNESS is 1
-  MATERIAL_MAP_NORMAL is 2
-  MATERIAL_MAP_ROUGHNESS is 3
-  MATERIAL_MAP_OCCLUSION is 4
-  MATERIAL_MAP_EMISSION is 5
-  MATERIAL_MAP_HEIGHT is 6
-  MATERIAL_MAP_CUBEMAP is 7
-  MATERIAL_MAP_IRRADIANCE is 8
-  MATERIAL_MAP_PREFILTER is 9
-  MATERIAL_MAP_BRDF is 10
+    MATERIAL_MAP_ALBEDO is 0
+    MATERIAL_MAP_METALNESS is 1
+    MATERIAL_MAP_NORMAL is 2
+    MATERIAL_MAP_ROUGHNESS is 3
+    MATERIAL_MAP_OCCLUSION is 4
+    MATERIAL_MAP_EMISSION is 5
+    MATERIAL_MAP_HEIGHT is 6
+    MATERIAL_MAP_CUBEMAP is 7
+    MATERIAL_MAP_IRRADIANCE is 8
+    MATERIAL_MAP_PREFILTER is 9
+    MATERIAL_MAP_BRDF is 10
 
 omen ShaderLocationIndex:
-  SHADER_LOC_VERTEX_POSITION is 0
-  SHADER_LOC_VERTEX_TEXCOORD01 is 1
-  SHADER_LOC_VERTEX_TEXCOORD02 is 2
-  SHADER_LOC_VERTEX_NORMAL is 3
-  SHADER_LOC_VERTEX_TANGENT is 4
-  SHADER_LOC_VERTEX_COLOR is 5
-  SHADER_LOC_MATRIX_MVP is 6
-  SHADER_LOC_MATRIX_VIEW is 7
-  SHADER_LOC_MATRIX_PROJECTION is 8
-  SHADER_LOC_MATRIX_MODEL is 9
-  SHADER_LOC_MATRIX_NORMAL is 10
-  SHADER_LOC_VECTOR_VIEW is 11
-  SHADER_LOC_COLOR_DIFFUSE is 12
-  SHADER_LOC_COLOR_SPECULAR is 13
-  SHADER_LOC_COLOR_AMBIENT is 14
-  SHADER_LOC_MAP_ALBEDO is 15
-  SHADER_LOC_MAP_METALNESS is 16
-  SHADER_LOC_MAP_NORMAL is 17
-  SHADER_LOC_MAP_ROUGHNESS is 18
-  SHADER_LOC_MAP_OCCLUSION is 19
-  SHADER_LOC_MAP_EMISSION is 20
-  SHADER_LOC_MAP_HEIGHT is 21
-  SHADER_LOC_MAP_CUBEMAP is 22
-  SHADER_LOC_MAP_IRRADIANCE is 23
-  SHADER_LOC_MAP_PREFILTER is 24
-  SHADER_LOC_MAP_BRDF is 25
-  SHADER_LOC_VERTEX_BONEIDS is 26
-  SHADER_LOC_VERTEX_BONEWEIGHTS is 27
-  SHADER_LOC_MATRIX_BONETRANSFORMS is 28
-  SHADER_LOC_VERTEX_INSTANCETRANSFORM is 29
+    SHADER_LOC_VERTEX_POSITION is 0
+    SHADER_LOC_VERTEX_TEXCOORD01 is 1
+    SHADER_LOC_VERTEX_TEXCOORD02 is 2
+    SHADER_LOC_VERTEX_NORMAL is 3
+    SHADER_LOC_VERTEX_TANGENT is 4
+    SHADER_LOC_VERTEX_COLOR is 5
+    SHADER_LOC_MATRIX_MVP is 6
+    SHADER_LOC_MATRIX_VIEW is 7
+    SHADER_LOC_MATRIX_PROJECTION is 8
+    SHADER_LOC_MATRIX_MODEL is 9
+    SHADER_LOC_MATRIX_NORMAL is 10
+    SHADER_LOC_VECTOR_VIEW is 11
+    SHADER_LOC_COLOR_DIFFUSE is 12
+    SHADER_LOC_COLOR_SPECULAR is 13
+    SHADER_LOC_COLOR_AMBIENT is 14
+    SHADER_LOC_MAP_ALBEDO is 15
+    SHADER_LOC_MAP_METALNESS is 16
+    SHADER_LOC_MAP_NORMAL is 17
+    SHADER_LOC_MAP_ROUGHNESS is 18
+    SHADER_LOC_MAP_OCCLUSION is 19
+    SHADER_LOC_MAP_EMISSION is 20
+    SHADER_LOC_MAP_HEIGHT is 21
+    SHADER_LOC_MAP_CUBEMAP is 22
+    SHADER_LOC_MAP_IRRADIANCE is 23
+    SHADER_LOC_MAP_PREFILTER is 24
+    SHADER_LOC_MAP_BRDF is 25
+    SHADER_LOC_VERTEX_BONEIDS is 26
+    SHADER_LOC_VERTEX_BONEWEIGHTS is 27
+    SHADER_LOC_MATRIX_BONETRANSFORMS is 28
+    SHADER_LOC_VERTEX_INSTANCETRANSFORM is 29
 
 omen ShaderUniformDataType:
-  SHADER_UNIFORM_FLOAT is 0
-  SHADER_UNIFORM_VEC2 is 1
-  SHADER_UNIFORM_VEC3 is 2
-  SHADER_UNIFORM_VEC4 is 3
-  SHADER_UNIFORM_INT is 4
-  SHADER_UNIFORM_IVEC2 is 5
-  SHADER_UNIFORM_IVEC3 is 6
-  SHADER_UNIFORM_IVEC4 is 7
-  SHADER_UNIFORM_UINT is 8
-  SHADER_UNIFORM_UIVEC2 is 9
-  SHADER_UNIFORM_UIVEC3 is 10
-  SHADER_UNIFORM_UIVEC4 is 11
-  SHADER_UNIFORM_SAMPLER2D is 12
+    SHADER_UNIFORM_FLOAT is 0
+    SHADER_UNIFORM_VEC2 is 1
+    SHADER_UNIFORM_VEC3 is 2
+    SHADER_UNIFORM_VEC4 is 3
+    SHADER_UNIFORM_INT is 4
+    SHADER_UNIFORM_IVEC2 is 5
+    SHADER_UNIFORM_IVEC3 is 6
+    SHADER_UNIFORM_IVEC4 is 7
+    SHADER_UNIFORM_UINT is 8
+    SHADER_UNIFORM_UIVEC2 is 9
+    SHADER_UNIFORM_UIVEC3 is 10
+    SHADER_UNIFORM_UIVEC4 is 11
+    SHADER_UNIFORM_SAMPLER2D is 12
 
 omen ShaderAttributeDataType:
-  SHADER_ATTRIB_FLOAT is 0
-  SHADER_ATTRIB_VEC2 is 1
-  SHADER_ATTRIB_VEC3 is 2
-  SHADER_ATTRIB_VEC4 is 3
+    SHADER_ATTRIB_FLOAT is 0
+    SHADER_ATTRIB_VEC2 is 1
+    SHADER_ATTRIB_VEC3 is 2
+    SHADER_ATTRIB_VEC4 is 3
 
 omen PixelFormat:
-  PIXELFORMAT_UNCOMPRESSED_GRAYSCALE is 1
-  PIXELFORMAT_UNCOMPRESSED_GRAY_ALPHA is 2
-  PIXELFORMAT_UNCOMPRESSED_R5G6B5 is 3
-  PIXELFORMAT_UNCOMPRESSED_R8G8B8 is 4
-  PIXELFORMAT_UNCOMPRESSED_R5G5B5A1 is 5
-  PIXELFORMAT_UNCOMPRESSED_R4G4B4A4 is 6
-  PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 is 7
-  PIXELFORMAT_UNCOMPRESSED_R32 is 8
-  PIXELFORMAT_UNCOMPRESSED_R32G32B32 is 9
-  PIXELFORMAT_UNCOMPRESSED_R32G32B32A32 is 10
-  PIXELFORMAT_UNCOMPRESSED_R16 is 11
-  PIXELFORMAT_UNCOMPRESSED_R16G16B16 is 12
-  PIXELFORMAT_UNCOMPRESSED_R16G16B16A16 is 13
-  PIXELFORMAT_COMPRESSED_DXT1_RGB is 14
-  PIXELFORMAT_COMPRESSED_DXT1_RGBA is 15
-  PIXELFORMAT_COMPRESSED_DXT3_RGBA is 16
-  PIXELFORMAT_COMPRESSED_DXT5_RGBA is 17
-  PIXELFORMAT_COMPRESSED_ETC1_RGB is 18
-  PIXELFORMAT_COMPRESSED_ETC2_RGB is 19
-  PIXELFORMAT_COMPRESSED_ETC2_EAC_RGBA is 20
-  PIXELFORMAT_COMPRESSED_PVRT_RGB is 21
-  PIXELFORMAT_COMPRESSED_PVRT_RGBA is 22
-  PIXELFORMAT_COMPRESSED_ASTC_4x4_RGBA is 23
-  PIXELFORMAT_COMPRESSED_ASTC_8x8_RGBA is 24
+    PIXELFORMAT_UNCOMPRESSED_GRAYSCALE is 1
+    PIXELFORMAT_UNCOMPRESSED_GRAY_ALPHA is 2
+    PIXELFORMAT_UNCOMPRESSED_R5G6B5 is 3
+    PIXELFORMAT_UNCOMPRESSED_R8G8B8 is 4
+    PIXELFORMAT_UNCOMPRESSED_R5G5B5A1 is 5
+    PIXELFORMAT_UNCOMPRESSED_R4G4B4A4 is 6
+    PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 is 7
+    PIXELFORMAT_UNCOMPRESSED_R32 is 8
+    PIXELFORMAT_UNCOMPRESSED_R32G32B32 is 9
+    PIXELFORMAT_UNCOMPRESSED_R32G32B32A32 is 10
+    PIXELFORMAT_UNCOMPRESSED_R16 is 11
+    PIXELFORMAT_UNCOMPRESSED_R16G16B16 is 12
+    PIXELFORMAT_UNCOMPRESSED_R16G16B16A16 is 13
+    PIXELFORMAT_COMPRESSED_DXT1_RGB is 14
+    PIXELFORMAT_COMPRESSED_DXT1_RGBA is 15
+    PIXELFORMAT_COMPRESSED_DXT3_RGBA is 16
+    PIXELFORMAT_COMPRESSED_DXT5_RGBA is 17
+    PIXELFORMAT_COMPRESSED_ETC1_RGB is 18
+    PIXELFORMAT_COMPRESSED_ETC2_RGB is 19
+    PIXELFORMAT_COMPRESSED_ETC2_EAC_RGBA is 20
+    PIXELFORMAT_COMPRESSED_PVRT_RGB is 21
+    PIXELFORMAT_COMPRESSED_PVRT_RGBA is 22
+    PIXELFORMAT_COMPRESSED_ASTC_4x4_RGBA is 23
+    PIXELFORMAT_COMPRESSED_ASTC_8x8_RGBA is 24
 
 omen TextureFilter:
-  TEXTURE_FILTER_POINT is 0
-  TEXTURE_FILTER_BILINEAR is 1
-  TEXTURE_FILTER_TRILINEAR is 2
-  TEXTURE_FILTER_ANISOTROPIC_4X is 3
-  TEXTURE_FILTER_ANISOTROPIC_8X is 4
-  TEXTURE_FILTER_ANISOTROPIC_16X is 5
+    TEXTURE_FILTER_POINT is 0
+    TEXTURE_FILTER_BILINEAR is 1
+    TEXTURE_FILTER_TRILINEAR is 2
+    TEXTURE_FILTER_ANISOTROPIC_4X is 3
+    TEXTURE_FILTER_ANISOTROPIC_8X is 4
+    TEXTURE_FILTER_ANISOTROPIC_16X is 5
 
 omen TextureWrap:
-  TEXTURE_WRAP_REPEAT is 0
-  TEXTURE_WRAP_CLAMP is 1
-  TEXTURE_WRAP_MIRROR_REPEAT is 2
-  TEXTURE_WRAP_MIRROR_CLAMP is 3
+    TEXTURE_WRAP_REPEAT is 0
+    TEXTURE_WRAP_CLAMP is 1
+    TEXTURE_WRAP_MIRROR_REPEAT is 2
+    TEXTURE_WRAP_MIRROR_CLAMP is 3
 
 omen CubemapLayout:
-  CUBEMAP_LAYOUT_AUTO_DETECT is 0
-  CUBEMAP_LAYOUT_LINE_VERTICAL is 1
-  CUBEMAP_LAYOUT_LINE_HORIZONTAL is 2
-  CUBEMAP_LAYOUT_CROSS_THREE_BY_FOUR is 3
-  CUBEMAP_LAYOUT_CROSS_FOUR_BY_THREE is 4
+    CUBEMAP_LAYOUT_AUTO_DETECT is 0
+    CUBEMAP_LAYOUT_LINE_VERTICAL is 1
+    CUBEMAP_LAYOUT_LINE_HORIZONTAL is 2
+    CUBEMAP_LAYOUT_CROSS_THREE_BY_FOUR is 3
+    CUBEMAP_LAYOUT_CROSS_FOUR_BY_THREE is 4
 
 omen FontType:
-  FONT_DEFAULT is 0
-  FONT_BITMAP is 1
-  FONT_SDF is 2
+    FONT_DEFAULT is 0
+    FONT_BITMAP is 1
+    FONT_SDF is 2
 
 omen BlendMode:
-  BLEND_ALPHA is 0
-  BLEND_ADDITIVE is 1
-  BLEND_MULTIPLIED is 2
-  BLEND_ADD_COLORS is 3
-  BLEND_SUBTRACT_COLORS is 4
-  BLEND_ALPHA_PREMULTIPLY is 5
-  BLEND_CUSTOM is 6
-  BLEND_CUSTOM_SEPARATE is 7
+    BLEND_ALPHA is 0
+    BLEND_ADDITIVE is 1
+    BLEND_MULTIPLIED is 2
+    BLEND_ADD_COLORS is 3
+    BLEND_SUBTRACT_COLORS is 4
+    BLEND_ALPHA_PREMULTIPLY is 5
+    BLEND_CUSTOM is 6
+    BLEND_CUSTOM_SEPARATE is 7
 
 omen Gesture:
-  GESTURE_NONE is 0
-  GESTURE_TAP is 1
-  GESTURE_DOUBLETAP is 2
-  GESTURE_HOLD is 4
-  GESTURE_DRAG is 8
-  GESTURE_SWIPE_RIGHT is 16
-  GESTURE_SWIPE_LEFT is 32
-  GESTURE_SWIPE_UP is 64
-  GESTURE_SWIPE_DOWN is 128
-  GESTURE_PINCH_IN is 256
-  GESTURE_PINCH_OUT is 512
+    GESTURE_NONE is 0
+    GESTURE_TAP is 1
+    GESTURE_DOUBLETAP is 2
+    GESTURE_HOLD is 4
+    GESTURE_DRAG is 8
+    GESTURE_SWIPE_RIGHT is 16
+    GESTURE_SWIPE_LEFT is 32
+    GESTURE_SWIPE_UP is 64
+    GESTURE_SWIPE_DOWN is 128
+    GESTURE_PINCH_IN is 256
+    GESTURE_PINCH_OUT is 512
 
 omen CameraMode:
-  CAMERA_CUSTOM is 0
-  CAMERA_FREE is 1
-  CAMERA_ORBITAL is 2
-  CAMERA_FIRST_PERSON is 3
-  CAMERA_THIRD_PERSON is 4
+    CAMERA_CUSTOM is 0
+    CAMERA_FREE is 1
+    CAMERA_ORBITAL is 2
+    CAMERA_FIRST_PERSON is 3
+    CAMERA_THIRD_PERSON is 4
 
 omen CameraProjection:
-  CAMERA_PERSPECTIVE is 0
-  CAMERA_ORTHOGRAPHIC is 1
+    CAMERA_PERSPECTIVE is 0
+    CAMERA_ORTHOGRAPHIC is 1
 
 omen NPatchLayout:
-  NPATCH_NINE_PATCH is 0
-  NPATCH_THREE_PATCH_VERTICAL is 1
-  NPATCH_THREE_PATCH_HORIZONTAL is 2
+    NPATCH_NINE_PATCH is 0
+    NPATCH_THREE_PATCH_VERTICAL is 1
+    NPATCH_THREE_PATCH_HORIZONTAL is 2
 
 # Callbacks to hook some internal functions
 # WARNING: These callbacks are intended for advanced users

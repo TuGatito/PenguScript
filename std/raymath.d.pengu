@@ -16,10 +16,10 @@ link "m"
 # ------------------------------------------------------------------
 
 rune float3:
-  v as array of f32 with size 3
+    v as array of f32 with size 3
 
 rune float16:
-  v as array of f32 with size 16
+    v as array of f32 with size 16
 
 # ------------------------------------------------------------------
 # Functions (every name receives the insignia prefix)

@@ -53,8 +53,22 @@ sigue permitiendo el override.
 bindings `.d.pengu` que genera el propio tool no pasaban su
 `pengu fmt --check`: 13 de los 25 `.d.pengu` de `std/` seguían marcándose tras
 cambiar el default. El generador emite ahora 4 espacios y los 13 bindings
-afectados se reindentaron (sólo whitespace: `git diff -w` → 0 líneas), de modo
-que `pengu fmt --check std/` es **idempotente sobre todo `std/`** (0 archivos).
+afectados se reindentaron (sólo whitespace: `git diff -w` → 0 líneas; 1189
+líneas cambiadas, 1189/1189 de ellas de indentación), de modo que
+`pengu fmt --check std/` es **idempotente sobre todo `std/`** (0 archivos).
+`tests/test_fmt_bind_indent.py` (5 casos: el binding generado pasa
+`pengu fmt --check`, sus `rune`/`omen` van a 4, es PenguScript válido, y `std/`
+entero queda limpio).
+
+Nota medida: `regen_std_bindings.py --write` **no** se usó para esta
+reindentación. Medido con `--check`: de los 13 archivos regenerables, 7 ganarían
+declaraciones nuevas (`typis` +51, `imago` +7, `raygui` +6, `raymath` +5,
+`stb_image_resize2` +5, `datastructura` +4, `pactum` +3), es decir la
+regeneración mezclaría un cambio de contenido con la reindentación. Ésta se hizo
+con `pengu fmt --indent 4` (la herramienta prevista para ello) y se verificó con
+`git diff -w` por archivo (0 líneas no-whitespace) y
+`pengu check --entry std/<mod>.d.pengu` (13/13 ok). Alinear esos 7 archivos con
+su cabecera actual es trabajo aparte, con su propia medición.
 
 
 ## [Unreleased] — FASE 3: Runtime y ABI

@@ -32,9 +32,9 @@ alias Callback2 as ref to weave with user as ref to void, n as int into void
 alias Callback3 as ref to weave with user as ref to void into int
 
 rune stbi_io_callbacks:
-  read as Callback1
-  skip as Callback2
-  eof as Callback3
+    read as Callback1
+    skip as Callback2
+    eof as Callback3
 
 # ------------------------------------------------------------------
 # Functions (every name receives the insignia prefix)

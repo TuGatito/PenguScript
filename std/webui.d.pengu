@@ -83,22 +83,22 @@ link "uuid"
 #     if e->event_type == WEBUI_EVENT_CALLBACK:
 #       var text as ref to char is calling webui.get_string with e
 rune webui_event_t:
-  # The window object number.
-  window as size_t
-  # Event type (see `enum webui_event`, e.g. WEBUI_EVENT_CALLBACK).
-  event_type as size_t
-  # HTML element ID that triggered the event ("" means all events).
-  element as ref to char
-  # Internal WebUI event number (used by the interface API).
-  event_number as size_t
-  # Unique bind ID returned by `webui.bind`.
-  bind_id as size_t
-  # Client's unique ID.
-  client_id as size_t
-  # Client's connection ID.
-  connection_id as size_t
-  # Client's full cookies (read-only).
-  cookies as ref to char
+    # The window object number.
+    window as size_t
+    # Event type (see `enum webui_event`, e.g. WEBUI_EVENT_CALLBACK).
+    event_type as size_t
+    # HTML element ID that triggered the event ("" means all events).
+    element as ref to char
+    # Internal WebUI event number (used by the interface API).
+    event_number as size_t
+    # Unique bind ID returned by `webui.bind`.
+    bind_id as size_t
+    # Client's unique ID.
+    client_id as size_t
+    # Client's connection ID.
+    connection_id as size_t
+    # Client's full cookies (read-only).
+    cookies as ref to char
 
 # Callback type for `bind`: `void handler(webui_event_t* e)`.
 # An empty element name binds all events.

@@ -43,47 +43,47 @@ alias stbir_uint32 as u32
 alias stbir_uint64 as u64
 
 omen stbir_pixel_layout:
-  STBIR_1CHANNEL is 1
-  STBIR_2CHANNEL is 2
-  STBIR_RGB is 3
-  STBIR_BGR is 0
-  STBIR_4CHANNEL is 5
-  STBIR_RGBA is 4
-  STBIR_BGRA is 6
-  STBIR_ARGB is 7
-  STBIR_ABGR is 8
-  STBIR_RA is 9
-  STBIR_AR is 10
-  STBIR_RGBA_PM is 11
-  STBIR_BGRA_PM is 12
-  STBIR_ARGB_PM is 13
-  STBIR_ABGR_PM is 14
-  STBIR_RA_PM is 15
-  STBIR_AR_PM is 16
+    STBIR_1CHANNEL is 1
+    STBIR_2CHANNEL is 2
+    STBIR_RGB is 3
+    STBIR_BGR is 0
+    STBIR_4CHANNEL is 5
+    STBIR_RGBA is 4
+    STBIR_BGRA is 6
+    STBIR_ARGB is 7
+    STBIR_ABGR is 8
+    STBIR_RA is 9
+    STBIR_AR is 10
+    STBIR_RGBA_PM is 11
+    STBIR_BGRA_PM is 12
+    STBIR_ARGB_PM is 13
+    STBIR_ABGR_PM is 14
+    STBIR_RA_PM is 15
+    STBIR_AR_PM is 16
 
 omen stbir_edge:
-  STBIR_EDGE_CLAMP is 0
-  STBIR_EDGE_REFLECT is 1
-  STBIR_EDGE_WRAP is 2
-  STBIR_EDGE_ZERO is 3
+    STBIR_EDGE_CLAMP is 0
+    STBIR_EDGE_REFLECT is 1
+    STBIR_EDGE_WRAP is 2
+    STBIR_EDGE_ZERO is 3
 
 omen stbir_filter:
-  STBIR_FILTER_DEFAULT is 0
-  STBIR_FILTER_BOX is 1
-  STBIR_FILTER_TRIANGLE is 2
-  STBIR_FILTER_CUBICBSPLINE is 3
-  STBIR_FILTER_CATMULLROM is 4
-  STBIR_FILTER_MITCHELL is 5
-  STBIR_FILTER_POINT_SAMPLE is 6
-  STBIR_FILTER_OTHER is 7
+    STBIR_FILTER_DEFAULT is 0
+    STBIR_FILTER_BOX is 1
+    STBIR_FILTER_TRIANGLE is 2
+    STBIR_FILTER_CUBICBSPLINE is 3
+    STBIR_FILTER_CATMULLROM is 4
+    STBIR_FILTER_MITCHELL is 5
+    STBIR_FILTER_POINT_SAMPLE is 6
+    STBIR_FILTER_OTHER is 7
 
 omen stbir_datatype:
-  STBIR_TYPE_UINT8 is 0
-  STBIR_TYPE_UINT8_SRGB is 1
-  STBIR_TYPE_UINT8_SRGB_ALPHA is 2
-  STBIR_TYPE_UINT16 is 3
-  STBIR_TYPE_FLOAT is 4
-  STBIR_TYPE_HALF_FLOAT is 5
+    STBIR_TYPE_UINT8 is 0
+    STBIR_TYPE_UINT8_SRGB is 1
+    STBIR_TYPE_UINT8_SRGB_ALPHA is 2
+    STBIR_TYPE_UINT16 is 3
+    STBIR_TYPE_FLOAT is 4
+    STBIR_TYPE_HALF_FLOAT is 5
 
 # INPUT CALLBACK: this callback is used for input scanlines
 alias stbir_input_callback as ref to weave with optional_output as ref to void, input_ptr as ref to frozen void, num_pixels as int, x as int, y as int, context as ref to void into ref to frozen void
@@ -99,42 +99,42 @@ alias stbir__support_callback as ref to weave with scale as f32, user_data as re
 alias stbir__info as opaque
 
 rune STBIR_RESIZE:
-  user_data as ref to void
-  input_pixels as ref to frozen void
-  input_w as int
-  input_h as int
-  input_s0 as f64
-  input_t0 as f64
-  input_s1 as f64
-  input_t1 as f64
-  input_cb as ref to stbir_input_callback
-  output_pixels as ref to void
-  output_w as int
-  output_h as int
-  output_subx as int
-  output_suby as int
-  output_subw as int
-  output_subh as int
-  output_cb as ref to stbir_output_callback
-  input_stride_in_bytes as int
-  output_stride_in_bytes as int
-  splits as int
-  fast_alpha as int
-  needs_rebuild as int
-  called_alloc as int
-  input_pixel_layout_public as stbir_pixel_layout
-  output_pixel_layout_public as stbir_pixel_layout
-  input_data_type as stbir_datatype
-  output_data_type as stbir_datatype
-  horizontal_filter as stbir_filter
-  vertical_filter as stbir_filter
-  horizontal_edge as stbir_edge
-  vertical_edge as stbir_edge
-  horizontal_filter_kernel as ref to stbir__kernel_callback
-  horizontal_filter_support as ref to stbir__support_callback
-  vertical_filter_kernel as ref to stbir__kernel_callback
-  vertical_filter_support as ref to stbir__support_callback
-  samplers as ref to stbir__info
+    user_data as ref to void
+    input_pixels as ref to frozen void
+    input_w as int
+    input_h as int
+    input_s0 as f64
+    input_t0 as f64
+    input_s1 as f64
+    input_t1 as f64
+    input_cb as ref to stbir_input_callback
+    output_pixels as ref to void
+    output_w as int
+    output_h as int
+    output_subx as int
+    output_suby as int
+    output_subw as int
+    output_subh as int
+    output_cb as ref to stbir_output_callback
+    input_stride_in_bytes as int
+    output_stride_in_bytes as int
+    splits as int
+    fast_alpha as int
+    needs_rebuild as int
+    called_alloc as int
+    input_pixel_layout_public as stbir_pixel_layout
+    output_pixel_layout_public as stbir_pixel_layout
+    input_data_type as stbir_datatype
+    output_data_type as stbir_datatype
+    horizontal_filter as stbir_filter
+    vertical_filter as stbir_filter
+    horizontal_edge as stbir_edge
+    vertical_edge as stbir_edge
+    horizontal_filter_kernel as ref to stbir__kernel_callback
+    horizontal_filter_support as ref to stbir__support_callback
+    vertical_filter_kernel as ref to stbir__kernel_callback
+    vertical_filter_support as ref to stbir__support_callback
+    samplers as ref to stbir__info
 
 # ------------------------------------------------------------------
 # Functions (every name receives the insignia prefix)

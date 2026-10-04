@@ -792,7 +792,7 @@ class BindGenerator:
                            f"of an earlier variant and was skipped")
                 continue
             seen_values.add(val)
-            self.lines.append(f"  {vname} is {val}")
+            self.lines.append(f"    {vname} is {val}")
         self.lines.append("")
         self._record_type(name)
 
@@ -837,8 +837,8 @@ class BindGenerator:
         for f_name, f_t, f_comment in fields:
             if f_comment and not self.no_comments:
                 for dline in self._doc_lines(f_comment):
-                    self.lines.append(f"  # {dline}" if dline else "  #")
-            self.lines.append(f"  {f_name} as {f_t}")
+                    self.lines.append(f"    # {dline}" if dline else "    #")
+            self.lines.append(f"    {f_name} as {f_t}")
         self.lines.append("")
         self._record_type(name)
 

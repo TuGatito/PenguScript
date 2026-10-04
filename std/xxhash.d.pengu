@@ -57,8 +57,8 @@ alias XXH3_state_t as opaque
 
 # 128-bit hash result (returned by value by the XXH3_128bits family).
 rune XXH128_hash_t:
-  low64 as u64
-  high64 as u64
+    low64 as u64
+    high64 as u64
 
 # ------------------------------------------------------------------
 # Functions (real C symbol names are used verbatim - no insignia)

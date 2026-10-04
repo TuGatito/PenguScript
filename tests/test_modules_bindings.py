@@ -1175,8 +1175,9 @@ class TestPenguBindCurrentLanguage:
         aliases = [i for i, l in enumerate(lines) if l.startswith("alias Callback")]
         assert aliases, "no callback alias emitted"
         assert max(aliases) < rune_at, "aliases must precede the rune"
-        assert lines[rune_at + 1].startswith("  read as Callback")
-        assert lines[rune_at + 2].startswith("  skip as Callback")
+        # Members are indented with the project unit (4 spaces, item 4.2).
+        assert lines[rune_at + 1].startswith("    read as Callback")
+        assert lines[rune_at + 2].startswith("    skip as Callback")
         self._check(text)
 
     def test_duplicate_enum_values_are_dropped(self):

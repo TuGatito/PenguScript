@@ -21,24 +21,24 @@ const STB_HBWANG_MAX_Y as i64 is 100
 alias stbhw_tileset as opaque
 
 rune stbhw_tile:
-  a as char
-  b as char
-  c as char
-  d as char
-  e as char
-  f as char
-  pixels as byte
+    a as char
+    b as char
+    c as char
+    d as char
+    e as char
+    f as char
+    pixels as byte
 
 # if corner_type_color_template[s][t] is non-zero, then any
 # corner of type s generated as color t will get a little
 # corner sample markup in the template image data
 rune stbhw_config:
-  is_corner as int
-  short_side_len as int
-  num_color as int
-  num_vary_x as int
-  num_vary_y as int
-  corner_type_color_template as int
+    is_corner as int
+    short_side_len as int
+    num_color as int
+    num_vary_x as int
+    num_vary_y as int
+    corner_type_color_template as int
 
 # ------------------------------------------------------------------
 # Functions (every name receives the insignia prefix)

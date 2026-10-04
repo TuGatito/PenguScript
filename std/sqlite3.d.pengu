@@ -2522,7 +2522,7 @@ alias sqlite3_backup as opaque
 # transaction that sees that historical version of the database rather than
 # the most recent version.
 rune sqlite3_snapshot:
-  hidden as byte
+    hidden as byte
 
 #
 # /******** Begin file sqlite3rtree.h *********/

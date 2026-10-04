@@ -30,14 +30,14 @@ const STBDS_STRING_ARENA_BLOCKSIZE_MIN as i64 is 512
 alias stbds_string_arena as opaque
 
 rune stbds_array_header:
-  length as size_t
-  capacity as size_t
-  hash_table as ref to void
-  temp as isize
+    length as size_t
+    capacity as size_t
+    hash_table as ref to void
+    temp as isize
 
 rune stbds_string_block:
-  next as ref to stbds_string_block
-  storage as char
+    next as ref to stbds_string_block
+    storage as char
 
 # ------------------------------------------------------------------
 # Functions (every name receives the insignia prefix)
