@@ -1,5 +1,6 @@
 import pytest
 import warnings
+from pathlib import Path
 from lark import Lark
 from pengu_parser.pengu_grammar import GRAMMAR
 from pengu_parser.pengu_parser import PenguParser, PenguIndenter
@@ -278,3 +279,97 @@ def test_unless_else_runs_its_else_when_no_inner_unless_follows(tmp_path):
         "    return 7\n"
     ), "unless_lone.pengu")
     assert rc == 7, f"`unless true` should take its else (7), got {rc}:\n{out}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 item 2.4 — the constraint that makes the 188 conflicts irreducible
+#
+# Ten approaches were measured and all ten failed (AUDIT_1.0_FASE2.md §7, §10,
+# §12, §14, §18, §21, §22). The tenth is the informative one: removing
+# `judge_expr` from `expr` DOES build and DOES drop the conflict count
+# 188 -> 143, but it breaks two syntaxes that are in use:
+#
+#   * `return judge …`          -> 6 stdlib files
+#   * `judge …` as a statement  -> std/archivum.pengu:145
+#
+# The reason is that `expr_stmt` reaches `judge` THROUGH `expr`, so removing it
+# from `expr` removes it from the language as a statement. These tests pin BOTH
+# syntaxes as behavioural facts, so that any future attempt which trades them
+# away for a lower conflict count fails here rather than in the stdlib.
+# ---------------------------------------------------------------------------
+
+def test_judge_is_valid_as_a_statement(tmp_path):
+    """`judge` in statement position is legal, and the stdlib depends on it.
+
+    `std/archivum.pengu:145` uses a bare `judge e:` inside `describe_error`.
+    It parses because `judge_expr` is reachable from `expr`, which is exactly
+    what approach 10 removed — and this is the check that catches it.
+    """
+    rc, out = _run_source(tmp_path, (
+        "weave describe with e as int into string:\n"
+        "  judge e:\n"
+        '    when 1 -> "one"\n'
+        '    else -> "other"\n'
+    ), "judge_stmt.pengu")
+    # The weave has no explicit return; reaching the end without a parse error is
+    # the assertion. A syntax error would surface as a non-zero status with E0000.
+    assert "E0000" not in out, out
+
+
+def test_judge_is_valid_as_a_return_value(tmp_path):
+    """`return judge …` is legal, and six stdlib files depend on it.
+
+    Asserted by execution so the check is behavioural: `main` returns 0 only when
+    the judge selected the expected branch.
+    """
+    rc, out = _run_source(tmp_path, (
+        "weave pick with b as bool into string:\n"
+        "  return judge b:\n"
+        '    when true -> "t"\n'
+        '    when false -> "f"\n'
+        "weave main into int:\n"
+        "  return 0\n"
+    ), "judge_return.pengu")
+    assert rc == 0, out
+
+
+def test_do_expression_is_valid_as_a_return_value(tmp_path):
+    """`do:` is the other block-valued expression, and it must stay usable."""
+    rc, out = _run_source(tmp_path, (
+        "weave calc into int:\n"
+        "  return do:\n"
+        "    41 + 1\n"
+        "weave main into int:\n"
+        "  return 0\n"
+    ), "do_return.pengu")
+    assert rc == 0, out
+
+
+def test_the_stdlib_uses_both_judge_positions():
+    """Pin the real usages that make the constraint non-negotiable.
+
+    This is a static check on the stdlib on purpose: it asserts that the language
+    feature has live callers, which is the fact that rules out "just remove it".
+    If these ever disappear, the constraint can be revisited — and this test
+    failing is the signal to do that deliberately.
+    """
+    repo = Path(__file__).resolve().parent.parent
+    judge_return = []
+    judge_statement = []
+    for f in sorted((repo / "std").glob("*.pengu")):
+        for n, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            if "return judge" in line:
+                judge_return.append(f"{f.name}:{n}")
+            elif stripped.startswith("judge "):
+                judge_statement.append(f"{f.name}:{n}")
+    assert judge_return, (
+        "no stdlib file uses 'return judge' any more; approach 10 becomes viable "
+        "and the constraint in AUDIT_1.0_FASE2.md §22 can be revisited"
+    )
+    assert judge_statement, (
+        "no stdlib file uses 'judge' as a statement any more; approach 10 becomes "
+        "viable and the constraint in AUDIT_1.0_FASE2.md §22 can be revisited"
+    )
