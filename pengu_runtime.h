@@ -408,6 +408,83 @@ extern "C"
     int         line;   /* .pengu source line of the function declaration */
   } PenguFrame;
 
+/* =========================================================================
+ * Async-signal-safe formatting primitives (Phase 3 item 3.7)
+ *
+ * The crash handler runs in signal context, where almost nothing is legal:
+ * POSIX lists only a few dozen async-signal-safe functions, and `snprintf` is
+ * not among them (it can take a locale/stdio lock, and some libcs allocate
+ * internally). The handler used to build its dump with `snprintf` while
+ * LANGUAGE.md and CHANGELOG.md claimed the handler was async-signal-safe --
+ * the code and the docs disagreed.
+ *
+ * These helpers do nothing but pointer arithmetic and integer division, so the
+ * whole crash path depends on `write(2)`/`_write` and `_exit()` alone. They live
+ * outside the PENGU_FRAME_TRACE guard because pengu_bounds_panic (always
+ * defined) uses them too.
+ * ========================================================================= */
+
+  typedef struct
+  {
+    char  *buf;   /* caller-provided storage, never allocated here */
+    size_t cap;   /* its capacity in bytes (including the NUL) */
+    size_t len;   /* bytes written so far, excluding the NUL */
+  } PenguSigBuffer;
+
+  static inline void pengu_sig_init(PenguSigBuffer *b, char *buf, size_t cap)
+  {
+    b->buf = buf;
+    b->cap = cap;
+    b->len = 0;
+    if (cap > 0) buf[0] = '\0';
+  }
+
+  /* Every append is a no-op once the buffer is full, so a very long function or
+   * path name truncates instead of running past the end. */
+  static inline void pengu_sig_putc(PenguSigBuffer *b, char c)
+  {
+    if (b->len + 1 < b->cap) {
+      b->buf[b->len++] = c;
+      b->buf[b->len] = '\0';
+    }
+  }
+
+  static inline void pengu_sig_puts(PenguSigBuffer *b, const char *s)
+  {
+    if (!s) return;
+    while (*s) pengu_sig_putc(b, *s++);
+  }
+
+  /* Signed decimal without <stdio.h>. `-(v + 1) + 1` negates in unsigned space
+   * so LLONG_MIN does not overflow (its negation is not representable). */
+  static inline void pengu_sig_putint(PenguSigBuffer *b, long long v)
+  {
+    char tmp[24]; /* enough for 20 digits + sign + slack */
+    int n = 0;
+    unsigned long long u;
+    if (v < 0) {
+      pengu_sig_putc(b, '-');
+      u = (unsigned long long)(-(v + 1)) + 1ULL;
+    } else {
+      u = (unsigned long long)v;
+    }
+    do {
+      tmp[n++] = (char)('0' + (int)(u % 10ULL));
+      u /= 10ULL;
+    } while (u != 0ULL && n < (int)sizeof(tmp));
+    while (n > 0) pengu_sig_putc(b, tmp[--n]);
+  }
+
+  static inline void pengu_sig_flush(const PenguSigBuffer *b)
+  {
+    if (b->len == 0) return;
+#if PENGU_WINDOWS
+    (void)_write(2, b->buf, (unsigned int)b->len);
+#else
+    (void)write(2, b->buf, b->len);
+#endif
+  }
+
 #if PENGU_FRAME_TRACE
 #if defined(_MSC_VER)
 #define PENGU_THREAD_LOCAL __declspec(thread)
@@ -437,41 +514,38 @@ extern "C"
 #endif
 
   /*
-   * El output se escribe con write(2) / _write. El buffer intermedio se arma con
-   * snprintf, que no está listado por POSIX como async-signal-safe pero funciona
-   * en glibc/musl/msvcrt para los formatos usados (%s, %d, %u).
+   * Async-signal-safe crash dump (Phase 3 items 3.6 / 3.7).
+   *
+   * Only pengu_sig_* (pointer arithmetic + integer division) and write(2) /
+   * _write are used here: no snprintf, no malloc, no stdio, no locks. One
+   * write() per line keeps a 4 KB frame stack from being silently truncated at
+   * a fixed buffer size; a single over-long line degrades to a truncated line.
    */
   static void pengu_dump_frame_stack(const char *reason, int signo)
   {
-    char buf[4096];
-    int offset = 0;
-    int n = snprintf(buf + offset, sizeof(buf) - (size_t)offset,
-                     "\n[PENGU CRASH] %s (signal/code %d)\nStack trace (most recent call first):\n",
-                     reason ? reason : "fatal error", signo);
-    if (n > 0) {
-      offset += (offset + n < (int)sizeof(buf)) ? n : (int)(sizeof(buf) - (size_t)offset - 1);
-    }
+    char buf[1024];
+    PenguSigBuffer b;
+
+    pengu_sig_init(&b, buf, sizeof(buf));
+    pengu_sig_puts(&b, "\n[PENGU CRASH] ");
+    pengu_sig_puts(&b, reason ? reason : "fatal error");
+    pengu_sig_puts(&b, " (signal/code ");
+    pengu_sig_putint(&b, (long long)signo);
+    pengu_sig_puts(&b, ")\nStack trace (most recent call first):\n");
+    pengu_sig_flush(&b);
+
     for (int i = g_pengu_frame_top - 1; i >= 0; i--) {
       PenguFrame *f = &g_pengu_frames[i];
-      n = snprintf(buf + offset, sizeof(buf) - (size_t)offset,
-                   "  at %s (%s:%d)\n",
-                   (f->func && f->func[0]) ? f->func : "<?anon>",
-                   (f->file && f->file[0]) ? f->file : "<unknown>",
-                   f->line);
-      if (n > 0) {
-        offset += (offset + n < (int)sizeof(buf)) ? n : (int)(sizeof(buf) - (size_t)offset - 1);
-      }
-      if ((size_t)offset >= sizeof(buf) - 1) break;
+      pengu_sig_init(&b, buf, sizeof(buf));
+      pengu_sig_puts(&b, "  at ");
+      pengu_sig_puts(&b, (f->func && f->func[0]) ? f->func : "<?anon>");
+      pengu_sig_puts(&b, " (");
+      pengu_sig_puts(&b, (f->file && f->file[0]) ? f->file : "<unknown>");
+      pengu_sig_putc(&b, ':');
+      pengu_sig_putint(&b, (long long)f->line);
+      pengu_sig_puts(&b, ")\n");
+      pengu_sig_flush(&b);
     }
-#if PENGU_WINDOWS
-    if (offset > 0) {
-      (void)_write(2, buf, (unsigned int)offset);
-    }
-#else
-    if (offset > 0) {
-      (void)write(2, buf, (size_t)offset);
-    }
-#endif
   }
 
 #if PENGU_WINDOWS
@@ -578,17 +652,19 @@ extern "C"
    */
   static inline void pengu_bounds_panic(int64_t idx, int64_t len, const char *loc)
   {
-    char buf[256];
-    int n = snprintf(buf, sizeof(buf),
-                     "\n[PENGU] Index out of bounds: %lld (length %lld) at %s\n",
-                     (long long)idx, (long long)len, loc ? loc : "?");
-    if (n > 0) {
-#if PENGU_WINDOWS
-      (void)_write(2, buf, (unsigned int)n);
-#else
-      (void)write(2, buf, (size_t)n);
-#endif
-    }
+    char buf[512];
+    PenguSigBuffer b;
+    /* Phase 3 item 3.7: manual formatting, so the whole crash-reporting path is
+     * snprintf-free and safe to reach from signal context. */
+    pengu_sig_init(&b, buf, sizeof(buf));
+    pengu_sig_puts(&b, "\n[PENGU] Index out of bounds: ");
+    pengu_sig_putint(&b, (long long)idx);
+    pengu_sig_puts(&b, " (length ");
+    pengu_sig_putint(&b, (long long)len);
+    pengu_sig_puts(&b, ") at ");
+    pengu_sig_puts(&b, loc ? loc : "?");
+    pengu_sig_putc(&b, '\n');
+    pengu_sig_flush(&b);
     pengu_dump_frame_stack("bounds check failed", 0);
     _exit(134);
   }
