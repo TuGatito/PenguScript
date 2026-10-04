@@ -566,14 +566,60 @@ extern "C"
     _exit(128 + sig);
   }
 
+  /*
+   * Phase 3 item 3.6: `sigaction` instead of `signal`, and the faulting signals
+   * an arithmetic/memory error in generated code can actually raise.
+   *
+   * Why not `signal()`: its semantics differ per platform (SysV resets the
+   * disposition on entry, BSD does not), so a second fault could kill the
+   * process before the dump. `sigaction` pins that behaviour, and SA_RESETHAND
+   * makes the reset explicit rather than accidental -- if the handler itself
+   * faults, the next signal terminates the process instead of recursing.
+   *
+   * This runs at process start (from the generated `main`), not in signal
+   * context, so it may use ordinary libc calls.
+   */
+  static void pengu_install_one_signal(int signo)
+  {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = pengu_unix_signal_handler;
+    sigemptyset(&sa.sa_mask);
+#ifdef SA_RESETHAND
+    sa.sa_flags = SA_RESETHAND;
+#endif
+    /* SA_NODEFER is deliberately NOT set: the signal stays blocked while the
+     * handler runs, so a fault inside the dump cannot re-enter it. */
+    (void)sigaction(signo, &sa, NULL);
+  }
+
   /* Runs exactly once, whichever thread wins the once-guard. */
   static void pengu_install_crash_handler_body(void)
   {
 #if PENGU_WINDOWS
     SetUnhandledExceptionFilter(pengu_win_exception_handler);
+#else
+    /* Memory faults. */
+    pengu_install_one_signal(SIGSEGV);
+    pengu_install_one_signal(SIGABRT);
+    /*
+     * Arithmetic and bus faults (item 3.6). An integer division by zero raises
+     * SIGFPE (signal 8; a shell reports 136 = 128+8), and before this the
+     * process died with no trace at all -- `pengu eval "1/0"` surfaced exit 248
+     * because the CLI turned the negative subprocess return code (-8) into
+     * sys.exit(-8). `-ftrapv`, which debug builds pass, turns signed overflow
+     * into a trap as well. SIGBUS covers misaligned or truncated mappings.
+     */
+#ifdef SIGFPE
+    pengu_install_one_signal(SIGFPE);
 #endif
-    signal(SIGSEGV, pengu_unix_signal_handler);
-    signal(SIGABRT, pengu_unix_signal_handler);
+#ifdef SIGILL
+    pengu_install_one_signal(SIGILL);
+#endif
+#ifdef SIGBUS
+    pengu_install_one_signal(SIGBUS);
+#endif
+#endif /* PENGU_WINDOWS */
   }
 
 #if PENGU_WINDOWS
