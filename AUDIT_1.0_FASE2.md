@@ -1293,3 +1293,91 @@ convertiría el guard en un no-op. Fija que sí encuentra un rango real e ignora
 `1..12`, un string con `a..b` y un vararg `many int`.
 
 C2 verificado: inyectar un rango `..` real en `std/spark.pengu` hace fallar el escáner.
+
+---
+
+## §14. Item 2.4: sexta vía descartada — la ruta que el §12 recomendaba **tampoco funciona**
+
+El §12 concluyó que la única salida era normalizar las expresiones terminadas en `_DEDENT` para que
+consumieran un `_NEWLINE` final, y que con eso la vía de exigir el `_NEWLINE` de `return_stmt` se
+volvería aplicable. **Se probó, y es falso.** Es el hallazgo más importante de esta ronda, porque
+invalida la recomendación que yo mismo había escrito.
+
+### Lo que se probó
+
+```diff
+-judge_expr: "judge" expr ":" _NEWLINE _INDENT when_clause+ [else_clause] _DEDENT
++judge_expr: "judge" expr ":" _NEWLINE _INDENT when_clause+ [else_clause] _DEDENT _NEWLINE
+-with_init_expr: "with" ":" _NEWLINE _INDENT stmt+ _DEDENT
++with_init_expr: "with" ":" _NEWLINE _INDENT stmt+ _DEDENT _NEWLINE
+-do_expr: "do" ":" _NEWLINE _INDENT stmt+ _DEDENT
++do_expr: "do" ":" _NEWLINE _INDENT stmt+ _DEDENT _NEWLINE
+-return_stmt: "return" [value_expr] [_NEWLINE]
++return_stmt: "return" [value_expr] _NEWLINE
+```
+
+### Resultado
+
+| Medición | Resultado |
+|---|---|
+| Conflictos con las expresiones de bloque consumiendo `_NEWLINE` | **188 → 188** (no aporta nada) |
+| Conflictos añadiendo además el `_NEWLINE` obligatorio de `return` | 188 → **143** (= los 45 de `return_stmt`) |
+| **Módulos de la stdlib que fallan** | **24 / 52** — exactamente los mismos que en el §7 |
+
+### Por qué falla
+
+El `_DEDENT` y el `_NEWLINE` están **entrelazados** por el indenter, y el número de `_NEWLINE`
+disponibles antes de un `_DEDENT` **no es el que el modelo sugiere**. `lark.Indenter.handle_NL`
+emite
+
+```python
+yield token                       # el _NEWLINE
+if indent > level: yield INDENT
+else:
+    while indent < level: yield DEDENT
+```
+
+así que sí hay un `_NEWLINE` **antes** de cada `_DEDENT`. Pero las producciones que **ya** consumen
+un `_DEDENT` — y en particular `block: ":" _NEWLINE _INDENT stmt+ _DEDENT`, que es la forma de todo
+cuerpo de `weave`, `if`, `while`, `for` — **no consumen el `_NEWLINE` que lo sigue**. Ese `_NEWLINE`
+queda para la producción envolvente.
+
+Por eso `judge_expr: ... _DEDENT _NEWLINE` falla en los 24 módulos: el `_NEWLINE` que intenta
+consumir ya está reservado por el `block` exterior, y el parser no encuentra el token donde la nueva
+producción lo espera. El diagnóstico es idéntico al del §7 (`spark.pengu:74`, `archivum.pengu:150`),
+lo que confirma que la causa es la misma y que mi recomendación del §12 no la abordaba.
+
+**Corrección al §12.** Decía que normalizar las expresiones de bloque era "lo que queda por hacer" y
+que era "un cambio de forma del grafo de expresiones". Es un cambio de forma del **grafo de bloques
+de todo el lenguaje**: tocar `_DEDENT` en las cuatro expresiones obliga a revisar cómo cada
+producción que consume un `_DEDENT` (`block`, `else_block`, `with_stmt`, `do_expr`, `with_init_expr`,
+`judge_expr`, y las declaraciones) reparte los `_NEWLINE`, porque el token es un recurso compartido.
+
+### Balance de las seis vías
+
+| # | Vía | Resultado |
+|---|-----|-----------|
+| 1 | Colapsar las reglas `_no_cast` duplicadas | 188 → **188** |
+| 2 | Exigir el `_NEWLINE` de `return_stmt` | 188 → **143**, rompe **24/52** |
+| 3 | `"return" block_expr` como alternativa | **Reduce/Reduce**, no construye |
+| 4 | Excluir las formas de bloque de `value_expr` | **Reduce/Reduce**, no construye |
+| 5 | Declaraciones de precedencia explícitas | Requiere nombrar ~18 terminales en todo el grammar |
+| 6 | Expresiones de bloque consumen `_NEWLINE` | 188 → **188**, y con el `_NEWLINE` obligatorio rompe **24/52** |
+
+**Ninguna de las seis funciona.** El contador sigue en **188** y el criterio 2 sigue sin cumplirse
+por sexta medición consecutiva.
+
+### Lo que esto significa para el roadmap
+
+El item 2.4 está marcado **L** (grande) y su criterio de "done" es que `strict=True` construya. Las
+seis mediciones convergen en que **la causa es el reparto de `_NEWLINE` entre producciones que
+consumen `_DEDENT`**, y que arreglarlo no es reducir conflictos: es rediseñar cómo el lenguaje
+delimita bloques. Eso es un item **XL** de la Fase 11 (congelación) o de una fase propia, no algo
+que se cierre ajustando producciones.
+
+**Recomendación honesta para quien retome 2.4:** el número 188 no es el problema a atacar. El
+problema es que **`_DEDENT` no consume el `_NEWLINE` que lo acompaña**, de modo que el token queda
+"colgando" para la producción exterior y hace ambiguo cualquier `[value_expr] [_NEWLINE]`. Un
+`block` que terminara en `_DEDENT _NEWLINE` (consumiendo ambos) probablemente reduciría los conflictos
+de forma masiva y de raíz — pero es un cambio que toca **todas** las producciones de bloque del
+grammar y hay que medirlo con la suite completa como red, no en una servilleta.
