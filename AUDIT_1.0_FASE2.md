@@ -1375,9 +1375,39 @@ consumen `_DEDENT`**, y que arreglarlo no es reducir conflictos: es rediseñar c
 delimita bloques. Eso es un item **XL** de la Fase 11 (congelación) o de una fase propia, no algo
 que se cierre ajustando producciones.
 
-**Recomendación honesta para quien retome 2.4:** el número 188 no es el problema a atacar. El
-problema es que **`_DEDENT` no consume el `_NEWLINE` que lo acompaña**, de modo que el token queda
-"colgando" para la producción exterior y hace ambiguo cualquier `[value_expr] [_NEWLINE]`. Un
-`block` que terminara en `_DEDENT _NEWLINE` (consumiendo ambos) probablemente reduciría los conflictos
-de forma masiva y de raíz — pero es un cambio que toca **todas** las producciones de bloque del
-grammar y hay que medirlo con la suite completa como red, no en una servilleta.
+#### Séptima medición: la hipótesis de la causa raíz **también falla**
+
+El párrafo anterior (escrito en esta misma ronda) proponía que un `block` que consumiera
+`_DEDENT _NEWLINE` reduciría los conflictos "de forma masiva y de raíz". **Se probó y es falso:**
+
+```diff
+-block: ":" _NEWLINE _INDENT stmt+ _DEDENT
++block: ":" _NEWLINE _INDENT stmt+ _DEDENT _NEWLINE
+```
+
+| Medición | Resultado |
+|---|---|
+| Conflictos | **188 → 188** |
+| Módulos de la stdlib que fallan | **26 / 52** (peor que 24) |
+
+Los diagnósticos cambian de sitio (`archivum.pengu:115`, `arithmancy.pengu:99`) pero siguen siendo
+errores de sintaxis en el primer token de la línea siguiente, que es exactamente la firma de que el
+`_NEWLINE` **no está donde la producción lo busca**. Es decir: el indenter no emite
+`_DEDENT _NEWLINE` como secuencia adyacente en los casos que importan, y mi modelo mental del reparto
+de tokens era incorrecto.
+
+**Esto invalida las dos recomendaciones que había escrito** (§12 y el párrafo anterior de este §14).
+No queda ninguna hipótesis pendiente que probar sin instrumentar el lexer.
+
+### Recomendación honesta para quien retome 2.4
+
+**Siete mediciones, ninguna funciona, y las dos teorías sobre la causa raíz quedaron refutadas.** Lo
+que recomiendo ahora no es otra variante del grammar, sino **instrumentar primero**: volcar la
+secuencia real de tokens (`_NEWLINE`/`_INDENT`/`_DEDENT`) que `PenguIndenter` produce para unos pocos
+programas representativos, y *entonces* razonar sobre el reparto. Las seis primeras vías se eligieron
+sobre un modelo del token stream que resultó ser incorrecto, y esa es la razón de fondo por la que
+ninguna funcionó.
+
+El número 188 no es el problema a atacar directamente: es el síntoma de que el lenguaje delinea
+bloques de una forma que LALR(1) no puede decidir sin ambigüedad, y eso es un rediseño, no un
+ajuste.
