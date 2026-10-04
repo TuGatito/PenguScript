@@ -15,7 +15,7 @@
 |---|------|--------|-----------|
 | 3.1 | 🔴 **B8** — el `.c` del runtime compila sin `-Wno-implicit-function-declaration` | ✅ **cerrado** | `tests/test_runtime_c99.py` (9 tests); 24 errores → 0 |
 | 3.12 | 🟢 Guardar los `#define` con `#ifndef` | ✅ **cerrado** | 3 warnings `-Wmacro-redefined` → 0 |
-| 3.2 | 🔴 **B5** — `--strict-c99` compila C portable con `std` | 🔬 **diagnosticado, no arreglado** | §6: 34/61 fallan; causa raíz localizada |
+| 3.2 | 🔴 **B5** — `--strict-c99` compila C portable con `std` | ⏸️ **DIFERIDO a 1.1** | §6–§7: 34/61 fallan; causa raíz localizada y fix intentado sin converger |
 | 3.3 | 🔴 Eliminar los statement-expressions `({...})` en modo estricto | ⏳ pendiente | — |
 | 3.4 | 🟠 `__typeof__` en vez de `__auto_type` para TCC | ⏳ pendiente | — |
 | 3.5 | 🟠 **A15** — `PENGU_ABI_VERSION` verificable contra el `.a` | ⏳ pendiente | — |
@@ -249,3 +249,123 @@ comprehensiones — infraestructura (regla C4: un cambio por familia, con la sui
 
 **Queda como el trabajo principal pendiente de la Fase 3**, con la causa raíz ya localizada (que es
 la parte cara del item) y el punto exacto del código señalado.
+
+
+---
+
+## §7. Item 3.2 (B5) — intento de fix y decisión de aplazamiento
+
+### El mapa real (C3), sobre los 61 programas
+
+`tests/std_programs/*.pengu` = **61** programas (la fase decía 56), todos con `import std.`.
+
+| Causa | Programas | Firma del compilador |
+|-------|-----------|----------------------|
+| Índice hoisteado fuera del bucle que declara su operando | **16** | `'k' undeclared (first use in this function)` |
+| Statement-expressions `({...})` en el bundle estricto | **15** | `ISO C forbids braced-groups within expressions` |
+| Cualificadores / casts | **3** | `return discards 'const' qualifier`, `ISO C forbids casting nonscalar` |
+| **Total que falla** | **34 / 61** | |
+
+Programas que **pasan** hoy: **27 / 61**.
+
+**Confirma el desacoplamiento que pide la fase:** son dos bugs, no uno. Quitar los `({...})`
+(item 3.3) no arregla los 16 de `undeclared`, y arreglar el hoisting no quita los 15 de
+`braced-groups`. `atlas.pengu` (104 statement-expressions) y `tally.pengu` (0 statement-expressions,
+13 `undeclared`) son los dos extremos del mismo mapa.
+
+### Reproducción mínima — 4 líneas
+
+```pengu
+weave main into int:
+  var xs as list of int is [1, 2, 3]
+  var ys as list of int is [4, 5, 6]
+  var zs as list of int is for k in xs then ((xs at k) + (ys at k))
+  return 0
+```
+
+```
+$ pengu build --strict-c99 --entry min_b5.pengu -o /tmp/min.c
+$ gcc -std=c99 -pedantic-errors -c /tmp/min.c -Ibuild/include
+min_b5.pengu:4:30: error: 'k' undeclared (first use in this function)
+```
+
+C generado (estricto):
+
+```c
+int64_t _p_idx_9 = (int64_t)(k);                    /* k no existe todavía */
+pengu_assert_bounds(_p_idx_9, (int64_t)((xs).len), "min_b5.pengu:4");
+int64_t _p_idx_10 = (int64_t)(k);
+pengu_assert_bounds(_p_idx_10, (int64_t)((ys).len), "min_b5.pengu:4");
+PenguList _comp_list_11 = pengu_list_new(sizeof(int32_t), (xs).len);
+for (int _i = 0; _i < (xs).len; _i++) {
+  int32_t k = (*(int32_t *)pengu_list_at(&(xs), _i));   /* k se declara AQUÍ */
+  int32_t _comp_val_12 = (...((xs at _p_idx_9)) + ((ys at _p_idx_10)));
+  ...
+```
+
+En modo GNU el mismo programa es correcto, porque `__extension__(({...}))` **crea un ámbito que
+engloba el bucle**:
+
+```c
+PenguList zs = (__extension__({
+  PenguList _comp_list_11 = ...;
+  for (int _i = 0; ...) {
+    int32_t k = ...;
+    int32_t _comp_val_12 = (... (__extension__({ __auto_type _p_idx_9 = (k); ...; _p_idx_9; })) ...);
+```
+
+**Causa raíz exacta:** `_block_expr` (strict) hace `self._hoist(s)` de cada sentencia, y `_hoist`
+empuja a `self.expr_prelude`, que se vuelca **antes de la sentencia envolvente**, no dentro del bucle
+de la comprehensión. El cuerpo de la comprehensión se genera *antes* de que exista el `for`, así que
+los temporales de índice acaban fuera del ámbito de `k`.
+
+### El fix que se intentó, y por qué no convergió
+
+Se probó la corrección conceptual del `AUDIT §4.1`: **mover las sentencias hoisteaddas al cuerpo del
+bucle** en las ramas estrictas del emisor de comprehensiones. Se añadió un helper
+`_split_loop_prelude` que separa la *declaración* del temporal (que puede quedar antes del bucle,
+porque no necesita `k`) del `pengu_assert_bounds` (que sí lo necesita y debe ir dentro).
+
+**No convergió.** El problema es de orden de emisión, no de forma:
+
+`then_c` ya viene con el nombre `_p_idx_9` incrustado, así que dondequiera que se emita
+`pengu_assert_bounds(_p_idx_9, ...)` la declaración `int64_t _p_idx_9 = (int64_t)(k);` tiene que
+estar **antes** y el binding de `k` tiene que existir **en ese punto**. Mover sólo la sentencia deja
+la declaración fuera; mover ambas deja la declaración dentro del bucle con el `assert` fuera; y
+volver a generar `then_c` dentro del bucle exigiría reordenar la construcción del cuerpo, que es lo
+que el emisor hace ahora al revés.
+
+Se verificó además que el cambio **no arreglaba el caso mínimo** antes de revertir (el intento
+mantenía `_p_idx_9 undeclared` y añadía ruido), así que se revirtió `pengu_codegen.py` a `HEAD` y se
+comprobó que el árbol queda limpio y la reproducción mínima vuelve a su línea base de exactamente
+1 error.
+
+**Presupuesto:** el fix correcto exige reordenar la emisión del cuerpo de la comprehensión en las seis
+ramas estrictas del emisor, con la suite completa (~20 min) y la verificación de que los bundles
+**ejecutan** con la misma salida que el modo GNU como red. Es un item **L**, no el **S** que sugería
+"AUDIT §4.1 Fix propuesto".
+
+### Decisión: ⏸️ DIFERIDO a 1.1
+
+Aplicando la regla final de la fase: **no se maquilla**. Se marca 3.2 como ⏸️ diferido con la
+medición completa (arriba) y se corrigen los tres documentos que afirmaban que `--strict-c99` era un
+gate de portabilidad:
+
+| Documento | Antes | Después |
+|-----------|-------|---------|
+| `RELEASE_CHECKLIST.md:17` | "C99 portability gate (`--strict-c99`) and ABI layout matrix" | "❌ **NO USAR** `--strict-c99` como gate … no es funcional para programas que importan `std` en 0.16.0", con la medición |
+| `LANGUAGE.md` (`--strict-c99`) | "compiles with `-std=c99 -pedantic-errors`" | `[!WARNING]` con la tabla de causas y la reproducción mínima. La afirmación era falsa |
+| `AUDIT_1.0.md` §20.1 fila B5 | "→ 0 errores" | "⏸️ **NO CERRADO — DIFERIDO a 1.1**" con la medición |
+| `AUDIT_1.0.md` §5.1 | (B8, sin marcar) | ✅ cerrado en Fase 3 item 3.1, commit `c3c6aed` |
+
+**Nota sobre la etiqueta B5:** `AUDIT_1.0.md` la usa **dos veces** con significados distintos: en §1
+para "tipos cualificados pierden campos" (cerrado en Fase 1 como B6/B7) y en §20.1 para
+"`--strict-c99`". Sólo la segunda es este item. Se anotan por separado para que no se confundan.
+
+### Consecuencia para la Fase 3 y para B10
+
+- **3.2 queda ⏸️**, y con él el criterio #2 de "done" de la fase (`-pedantic-errors` → 0 errores).
+- **B10 (Fase 8) sigue bloqueado**: su gate `tests/test_cli_strict_c99.py` no puede pasar mientras
+  `--strict-c99` no compile. Reescribirlo "para que compile de verdad" lo pondría en rojo.
+- **3.3 (los 104 statement-expressions) sigue siendo un item separado** y no se toca aquí, como pide
+  el desacoplamiento.
