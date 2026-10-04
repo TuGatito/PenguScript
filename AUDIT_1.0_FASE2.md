@@ -2056,3 +2056,22 @@ reducir**. Para `return_stmt` son los 45 conflictos, todos poseídos por `return
 | `test_deprecation.py` (11) | Las tres capas del mecanismo de deprecación y los dos puntos de consulta |
 | `test_opaque_upcast.py` (9) | Que `ref to T` → `opaque` siga siendo implícito y **unidireccional** |
 | `test_docs_*` (43) | Que la documentación no se separe del código |
+
+---
+
+## §24. Verificación final
+
+| Comprobación | Resultado |
+|---|---|
+| Suite completa | **2484 passed, 18 skipped, 2 xfailed**, 0 failed |
+| xpassed | 1 — el test del leak inestable ya documentado en §3.5 |
+| Stdlib (52 módulos) | **0 errores, 0 warnings** |
+| Conflictos del grammar | 188 (criterio 2, diferido — §22) |
+| Commits de la Fase 2 | 41 |
+| Árbol de trabajo | limpio |
+| Rutas prohibidas | `pengu_lsp/`, `pengu_project.py`, `pengu_runtime.*`, `.github/` intactas |
+| `pengu_parser/pengu_grammar.py` | **sin cambios** — las 10 vías de 2.4 se probaron en memoria y se revirtieron |
+
+**Entrega:** `AUDIT_1.0_FASE2.md` (este documento). Los items 2.1–2.3 y 2.5–2.12 están cerrados; el
+2.4 queda diferido a 1.1 con la causa raíz probada por negación (§22) y las dos salidas costeadas
+(§23). Se entregan además `tools/grammar_conflicts.py` y 13 suites de test nuevas.
