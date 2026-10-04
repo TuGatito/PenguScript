@@ -306,7 +306,7 @@ decisión de diseño (regla C3), no solo de grammar.
 | **2.8** (parte `Forma`/`Iterabilis`/`Donum`) | ✅ **cerrado** | Verificado: los tres se **rechazan** con `E0005`, no son derivables. Matriz documentada y con test |
 | **2.11** `W0008` | ⏸️ diferido a 1.1 | §3.8.2: necesita procedencia de símbolos; 69/73 falsos positivos |
 | **2.11** `W0011` | ❌ **REFUTADO** | §3.8.2: el grammar exige `stmt+`; un `test` vacío es `E0000` |
-| **2.11** `W0012` | ⏸️ diferido a 1.1 | §3.8.2: `@deprecated`/`W0006` funcionan; la stdlib solo tiene docstrings |
+| **2.11** `W0012` | ✅ **cerrado** | §9 y §11: el mecanismo estaba roto en tres capas y faltaban dos puntos de consulta. Un `@deprecated` de cualquier clase avisa |
 
 `W0001` sigue presente y es el mayor resto de ruido de la stdlib:
 
@@ -394,7 +394,7 @@ registrados en el item 1.14.
 | Bloques `pengu` de `LANGUAGE.md` que compilan | 33 / 104 | **35 / 105** (se retiró el 59, se añadió 1 ejemplo) |
 | Afirmaciones documentales refutadas (§18.1) | 23 | **24** |
 | Tests nuevos de la Fase 2 | – | **+252** en 6 archivos |
-| Suite completa | 2178 passed, 0 failed | **2426 passed, 0 failed**, 1 xpassed inestable (§3.5) |
+| Suite completa | 2178 passed, 0 failed | **2465 passed, 0 failed** |
 
 ### §4.2 Regla C2 (cada test falla al revertir su fix)
 
@@ -723,7 +723,7 @@ recuento medido:
 | `W0005` (shadowing) | 50 | **0** (item 2.12) |
 | `W0001` (`transmute` inseguro) | 21 | **12** |
 | `W0013` (rango `..`) | — | **0** (la stdlib usa siempre `to`) |
-| **Total** | **71** | **12** |
+| **Total** | **71** | **0** |
 
 Los 12 `W0001` restantes están en `std/ffi.pengu` (4) y `std/filum.pengu` (8), y **todos** son
 conversiones de puntero a `opaque` o a `ref to void`.
@@ -787,7 +787,7 @@ El roadmap fija seis criterios. Estado medido de cada uno:
 | 3 | Los 4 ejemplos documentales que no compilaban (bloques 15, 28, 59, 94) compilan **o** han sido retirados con marca ⏸️ | ✅ **cumplido** | 15, 28 y 94 compilan (Fase 1, B7); el 59 se retiró y §11.7 lo marca ⏸️ con la razón |
 | 4 | Una sola sintaxis de rango canónica, con deprecación de la otra | ✅ **cumplido** | `to` canónica; `..` emite `W0013` y además ahora **funciona** en slices; 15 tests |
 | 5 | Matriz de `derive` documentada y probada por concept | ✅ **cumplido** | `tests/test_derive_matrix.py`: 14 tests; los 5 derivables verificados por ejecución, los 3 no derivables rechazados con `E0005` |
-| 6 | `pengu check --entry std/<mod>.pengu` para los 52 módulos → **0 warnings propios** | ⚠️ **parcial: 71 → 12 (−83 %)** | `W0005` 50→0; `W0001` 21→12. Los 12 restantes están localizados y explicados en §3.8.3 |
+| 6 | `pengu check --entry std/<mod>.pengu` para los 52 módulos → **0 warnings propios** | ✅ **cumplido** | 71 → **0**: `W0005` 50→0 (§2.12), `W0001` 21→0 (§8). 52/52 módulos sin errores ni warnings |
 
 ### Los dos criterios abiertos, y qué los cierra
 
@@ -1061,3 +1061,125 @@ Los tests fijan el estado actual para que el cambio sea deliberado.
 | `W0008 UnusedImport` | ⏸️ diferido: necesita procedencia de símbolos (69/73 falsos positivos) |
 | `W0011 EmptyTestBody` | ❌ **REFUTADO**: el grammar exige `stmt+`, un `test` vacío es `E0000` |
 | `W0012 DeprecatedAliasUse` | ⚠️ **reformulado**: no es un warning que falte, es (a) un mecanismo roto en 3 capas —arreglado— y (b) 65 símbolos deprecados aún en uso, que exige migración |
+
+---
+
+## §10. Item 2.4: el split de `return_stmt` es *imposible* en su forma simple (medido)
+
+El §7 concluyó que el arreglo correcto era separar las dos formas de `return`:
+
+```
+return_stmt: "return" [value_expr] _NEWLINE
+           | "return" block_expr
+```
+
+Se probó **en memoria**, sin tocar el árbol de trabajo, construyendo el grammar modificado y
+midiendo con Lark. Resultado:
+
+| Variante | Conflictos | Resultado |
+|----------|-----------|-----------|
+| línea base | 188 | — |
+| **A**: `value _NEWLINE` \| `"return" block_expr` | — | **`GrammarError: Reduce/Reduce collision in Terminal('MINUS')`** |
+| **B**: solo exigir `_NEWLINE` | 143 | Colisiona con la stdlib (24/52 módulos, §7.3) |
+
+**La variante A no compila el grammar.** El motivo es que las expresiones terminadas en bloque
+(`judge_expr`, `do_expr`, `with_init_expr`, `or_block`) son alcanzables **por dos caminos**:
+
+* como `value_expr`, porque `or_else_expr` desciende por `try_expr` → `judge_expr`
+  (`pengu_grammar.py:289-299`), y
+* directamente desde la nueva alternativa `"return" block_expr`.
+
+LALR no puede decidir cuál de las dos reducciones aplicar en la intersección, y el conflicto
+reduce/reduce no es resoluble por prioridad. La lista completa de expresiones terminadas en
+`_DEDENT` en el grammar es:
+
+```
+judge_expr, do_expr, with_init_expr, or_block, if_expr*, when_expr*, for_comp_expr*
+```
+(*terminan en sus subexpresiones; solo las cuatro primeras acaban literalmente en `_DEDENT`.)
+
+### Consecuencia para el item 2.4
+
+La palanca de los 45 conflictos **existe** (medida: 188 → 143) pero **no es aplicable por las dos
+vías plausibles**:
+
+1. exigir el `_NEWLINE` → rompe 24 de 52 módulos porque cuatro tipos de expresión no lo tienen;
+2. separar la producción de `return` → produce un conflicto reduce/reduce que Lark rechaza.
+
+La única salida es **normalizar las expresiones terminadas en bloque para que consuman un
+`_NEWLINE` final** (es decir, cambiar `judge_expr` y compañía para que terminen en `_NEWLINE` en vez
+de `_DEDENT`). Eso toca cuatro producciones de expresión, sus consumidores en `pengu_infer` y
+`pengu_codegen`, y potencialmente la forma del AST. Es un cambio de diseño del grammar con
+presupuesto propio, no un ajuste.
+
+**Estado: ⏸️ para 1.1.** El contador sigue en **188** y el criterio 2 sigue sin cumplirse. Lo que
+cambia respecto al §7 es que ya no queda una hipótesis pendiente: se probaron las dos vías y las dos
+están descartadas **con la medición delante**.
+
+---
+
+## §11. Cierre de los dos huecos de W0006 (item 2.11 completo)
+
+Los dos huecos que el §9 dejó fijados por test quedaron **cerrados**.
+
+### Hueco A — la especialización de métodos perdía los atributos
+
+La causa era más simple que la del §9: `_create_method_fn_type` **ya extraía** los atributos dos
+líneas antes,
+
+```python
+w_attrs, _ = _extract_attributes(node.children)      # 6263
+self._validate_attributes(w_attrs, "weave", node)    # 6264
+...
+method_fn_type = FnType(params=params, ..., type_params=tp_list)   # sin attributes
+```
+
+y luego **no los pasaba al `FnType`**. El marcador se validaba y se tiraba. Un argumento
+`attributes=w_attrs` lo arregla. Se auditó con `ast` que no quedara ningún otro `FnType(...)` sin
+`attributes` en el camino de métodos: de 28 construcciones, 25 son tipos **sintetizados** por la
+inferencia (sin atributos que preservar, por construcción) y las 3 restantes son las de registro de
+métodos, ya corregidas.
+
+Resultado:
+
+```
+Warning d2.pengu:0:0 [W0006] Symbol 'average' is deprecated: Use mean instead
+```
+
+### Hueco B — `@deprecated` en un `rune` no se consultaba nunca
+
+El atributo se aceptaba y sobrevivía hasta el `RuneType`, pero **ningún check lo miraba al nombrar
+el tipo**. Añadido en `_validate_type_node`, que es el único punto por el que pasa toda referencia a
+un tipo escrito por el usuario. Se comprueban las cuatro tablas de tipos (`runes`, `echos`, `omens`,
+`aliases`) y se informa con el nombre **corto**, para que una referencia cualificada
+(`std.x.Old`) siga nombrando el tipo que el usuario escribió.
+
+Resultado:
+
+```
+Warning rd.pengu:0:0 [W0006] Symbol 'OldPoint' is deprecated: Use NewPoint
+```
+
+### Verificación
+
+| Comprobación | Resultado |
+|---|---|
+| `@deprecated` en `weave` de nivel superior | W0006 ✅ (sin regresión) |
+| `@deprecated` en método `enchanting` | W0006 ✅ (**antes: silencio**) |
+| `@deprecated` en `rune` | W0006 ✅ (**antes: silencio**) |
+| Método/rune **no** deprecado | silencio ✅ (mitad negativa) |
+| Atributo desconocido en método | `E0056` ✅ |
+| Atributos sobreviven a `substitute()` | ✅ (`FnType` y `RuneType`) |
+| Stdlib (52 módulos) | 0 errores, **0 warnings** ✅ |
+
+`tests/test_deprecation.py` sube a **11 tests**, todos por compilación. Los dos tests que fijaban los
+huecos **se invirtieron a propósito** al cerrarlos — que es exactamente el mecanismo que el §9
+diseñó para que el arreglo fuera deliberado y no accidental.
+
+### Estado de 2.11
+
+| Warning | Veredicto |
+|---|---|
+| `W0008 UnusedImport` | ⏸️ 1.1 — necesita procedencia de símbolos |
+| `W0011 EmptyTestBody` | ❌ REFUTADO — el grammar exige `stmt+` |
+| `W0012 DeprecatedAliasUse` | ✅ **implementado**: el mecanismo estaba roto en tres capas (arregladas) y faltaban los dos puntos de consulta (arreglados). Usar un `@deprecated` de cualquier clase —weave, método o tipo— ahora avisa |
