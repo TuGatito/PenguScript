@@ -3492,13 +3492,18 @@ error[E0006]: cannot assign to immutable variable 'count'
 | `E0049` | `SemanticError` (`code="E0049"`) | Operación usada sobre un parámetro de tipo genérico (o tipo similar a struct) que no lleva el bound de concept requerido: aritmética sin `Num`, `%`/bit a bit sin `Integrum`, `==` sin `Par`, ordenación sin `Ordo`, `donum T` sin un bound que permita valor por defecto, `==`/`<` sobre un rune u omen algebraico sin `derive Par`/`Ordo`. | Añade la cláusula `where T: Concept` indicada o `derive Concept` a la declaración. |
 | `E0050` | `InfiniteTypeSizeError` | Un rune (u omen algebraico) se contiene a sí mismo **por valor**, de forma directa o a través de otro tipo por valor, por lo que su tamaño en C no se puede calcular. | Rompe el ciclo con indirección por puntero: `ref to T`, `maybe ref to T`, `list of T`, `map of K to V`. |
 
-### 22.3 Catálogo de advertencias del compilador (`W0001`–`W0004`)
+### 22.3 Catálogo de advertencias del compilador (`W0001`–`W0013`)
 
 | Código | Nombre de la advertencia | Condición que la activa | Práctica recomendada |
 |---|---|---|---|
 | `W0001` | `UnsafeTransmuteWarning` | `transmute` entre tipos de tamaños en bytes diferentes o tipos que no son punteros. | Usa la conversión segura `to <Type>` cuando sea posible, o verifica que los tamaños del layout de memoria coincidan. |
 | `W0002` | `UnsafeEchoAccessWarning` | Acceso a campos de una union sin etiqueta (`echo`). | Las lecturas de unions sin etiqueta son intrínsecamente inseguras; prefiere variantes de `omen` algebraicas con payload. |
+| `W0003` | *(reservado)* | No se emite actualmente; el número está reservado para que los códigos existentes no se muevan. | — |
 | `W0004` | `UnreachableCodeWarning` | Sentencias inalcanzables detectadas después de un `return` temprano, un `panic`, o en una rama de `if`/`when`. | Elimina el código muerto que sigue a returns incondicionales o a ramas falsas en tiempo de compilación. |
+| `W0005` | `ShadowedGlobalWarning` | Un `var`/`let` local oculta un weave de nivel de módulo. | Renombra el local, o cualifica la llamada para que la intención sea explícita. Los bloques `test` están exentos. |
+| `W0006` | `DeprecatedSymbolWarning` | Se usa un símbolo marcado `@deprecated("reason")` (llamada, referencia de tipo, acceso a campo o firma). | Migra al reemplazo indicado en la razón. CI puede convertirlo en error con `--deny-deprecated`. |
+| `W0007` | `UnsafeBlockWarning` | Un bloque `unsafe:` desactiva las comprobaciones de límites/desbordamiento de sus sentencias. | Mantén los bloques `unsafe:` lo más pequeños posible y documenta por qué son sólidos. |
+| `W0013` | `RangeSyntaxDeprecated` | Un rango se escribe con `..` en lugar de `to` (`for i in 1..5`, `xs at 0..2`). | Escribe `a to b`. La forma `..` sigue funcionando durante 1.x y se elimina en 2.0. |
 
 ### 22.4 Escenarios ilustrativos de diagnósticos
 

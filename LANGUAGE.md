@@ -2537,7 +2537,7 @@ var p as Player is:
 
 ```pengu
 1 to 10         # PenguRange [1, 10), end-exclusive
-1..10           # alternate range syntax
+1 to 10         # canonical range syntax
 for i in 1 to 5: ...
 if x in 0 to 100: ...
 ```
@@ -3637,7 +3637,7 @@ error[E0006]: cannot assign to immutable variable 'count'
 | `E0057` | `InvalidCharLiteralError` | A character literal or `\u{...}` escape is malformed or out of range. | Use valid hexadecimal digits; `char` holds one byte (`string` for non-ASCII text). |
 | `E0058` | `ErrorLiteralContextError` | `error` is used outside an `or:` error-handling block. | Use `error` only inside `or:` attached to a failing expression. |
 
-### 22.3 Compiler Warning Catalog (`W0001`–`W0007`)
+### 22.3 Compiler Warning Catalog (`W0001`–`W0013`)
 
 | Code | Warning Name | Trigger Condition | Recommended Practice |
 |---|---|---|---|
@@ -3648,6 +3648,7 @@ error[E0006]: cannot assign to immutable variable 'count'
 | `W0005` | `ShadowedGlobalWarning` | A local `var`/`let` shadows a module-level weave. | Rename the local, or qualify the call so the intent is explicit. |
 | `W0006` | `DeprecatedSymbolWarning` | A symbol marked `@deprecated("reason")` is used (call, type reference, field access, or signature). | Migrate to the replacement named in the reason. CI can turn this into an error with `--deny-deprecated`. |
 | `W0007` | `UnsafeBlockWarning` | An `unsafe:` block disables bounds/overflow checks for its statements. | Keep `unsafe:` blocks as small as possible and document why they are sound. |
+| `W0013` | `RangeSyntaxDeprecated` | A range is written with `..` instead of `to` (`for i in 1..5`, `xs at 0..2`). | Write `a to b`. The `..` form keeps working through 1.x and is removed in 2.0. |
 
 ### 22.4 Illustrative Diagnostic Scenarios
 

@@ -6952,6 +6952,55 @@ class PenguCodegen:
             return f"(memcmp(&({left_expr}), &({right_expr}), sizeof({c_type})) == 0)"
         return f"({left_expr} == {right_expr})"
 
+    def _dotdot_as_slice_shape(self, node):
+        """Re-shapes a `range_dotdot` that is really a slice into `slice_at_expr`.
+
+        Returns None for a genuine range. Mirrors `TypeInferrer._range_as_slice`
+        so the checker and the generator agree on which `..` nodes are slices.
+        """
+        children = [c for c in node.children if isinstance(c, Tree)]
+        if len(children) != 2:
+            return None
+        left, right = children[0], children[-1]
+        if not (isinstance(left, Tree) and left.data == "at_expr"):
+            return None
+        chain = flatten_at_chain(left)
+        if len(chain) != 2:
+            return None
+        # slice_at_expr expects (base, slice_range(start, end)).
+        slice_range = Tree("slice_range", [chain[1], right])
+        return Tree("slice_at_expr", [chain[0], slice_range])
+
+    def _emit_slice_at(self, node):
+        """Emits the slice for a node shaped like `slice_at_expr`."""
+        base_node = node.children[0]
+        slice_range = node.children[1]
+        start_c = self._translate_expr(slice_range.children[0])
+        end_c = self._translate_expr(slice_range.children[1])
+        base_c = self._translate_expr(base_node)
+        base_t = self._infer_node_type(base_node)
+        unwrapped_t = base_t.target if isinstance(base_t, RefType) else base_t
+        while isinstance(unwrapped_t, (AliasType, FrozenType)) and getattr(unwrapped_t, "target", None):
+            unwrapped_t = unwrapped_t.target
+
+        if self._expr_is_string(base_node) or (base_t is not None and base_t.is_string()):
+            return f"pengu_string_substring({base_c}, {start_c}, {end_c})"
+        if isinstance(unwrapped_t, (SliceType, ManyType)):
+            if not self.use_gnu_extensions:
+                sl = self.get_temp_name("_sl")
+                return self._block_expr(
+                    [f"PenguSlice {sl} = ({base_c});"],
+                    f"pengu_slice_new((char*){sl}.data + ((size_t)({start_c}) * {sl}.elem_size), {sl}.elem_size, (({end_c}) - ({start_c})))")
+            return f"(__extension__({{ PenguSlice _sl = ({base_c}); pengu_slice_new((char*)_sl.data + ((size_t)({start_c}) * _sl.elem_size), _sl.elem_size, (({end_c}) - ({start_c}))); }}))"
+        if isinstance(unwrapped_t, ListType):
+            if not self.use_gnu_extensions:
+                li = self.get_temp_name("_l")
+                return self._block_expr(
+                    [f"PenguList {li} = ({base_c});"],
+                    f"pengu_slice_new((char*){li}.data + ((size_t)({start_c}) * {li}.elem_size), {li}.elem_size, (({end_c}) - ({start_c})))")
+            return f"(__extension__({{ PenguList _l = ({base_c}); pengu_slice_new((char*)_l.data + ((size_t)({start_c}) * _l.elem_size), _l.elem_size, (({end_c}) - ({start_c}))); }}))"
+        return f"pengu_slice_new(&(({base_c})[{start_c}]), sizeof(({base_c})[0]), (({end_c}) - ({start_c})))"
+
     def _translate_expr_impl(self, node: Any, expected_type: Optional[Type] = None) -> str:
         """Translates expression node into C99 expression string."""
         if node is None:
@@ -8326,33 +8375,7 @@ class PenguCodegen:
                 return f"(*({elem_cast}){base}->err_val)"
             return f"{base}->{field_name}"
         elif rule == "slice_at_expr":
-            base_node = node.children[0]
-            slice_range = node.children[1]
-            start_c = self._translate_expr(slice_range.children[0])
-            end_c = self._translate_expr(slice_range.children[1])
-            base_c = self._translate_expr(base_node)
-            base_t = self._infer_node_type(base_node)
-            unwrapped_t = base_t.target if isinstance(base_t, RefType) else base_t
-            while isinstance(unwrapped_t, (AliasType, FrozenType)) and getattr(unwrapped_t, "target", None):
-                unwrapped_t = unwrapped_t.target
-
-            if self._expr_is_string(base_node) or (base_t is not None and base_t.is_string()):
-                return f"pengu_string_substring({base_c}, {start_c}, {end_c})"
-            if isinstance(unwrapped_t, (SliceType, ManyType)):
-                if not self.use_gnu_extensions:
-                    sl = self.get_temp_name("_sl")
-                    return self._block_expr(
-                        [f"PenguSlice {sl} = ({base_c});"],
-                        f"pengu_slice_new((char*){sl}.data + ((size_t)({start_c}) * {sl}.elem_size), {sl}.elem_size, (({end_c}) - ({start_c})))")
-                return f"(__extension__({{ PenguSlice _sl = ({base_c}); pengu_slice_new((char*)_sl.data + ((size_t)({start_c}) * _sl.elem_size), _sl.elem_size, (({end_c}) - ({start_c}))); }}))"
-            if isinstance(unwrapped_t, ListType):
-                if not self.use_gnu_extensions:
-                    li = self.get_temp_name("_l")
-                    return self._block_expr(
-                        [f"PenguList {li} = ({base_c});"],
-                        f"pengu_slice_new((char*){li}.data + ((size_t)({start_c}) * {li}.elem_size), {li}.elem_size, (({end_c}) - ({start_c})))")
-                return f"(__extension__({{ PenguList _l = ({base_c}); pengu_slice_new((char*)_l.data + ((size_t)({start_c}) * _l.elem_size), _l.elem_size, (({end_c}) - ({start_c}))); }}))"
-            return f"pengu_slice_new(&(({base_c})[{start_c}]), sizeof(({base_c})[0]), (({end_c}) - ({start_c})))"
+            return self._emit_slice_at(node)
         elif rule == "for_comp":
             var_name = str(node.children[0])
             iter_node = node.children[1]
@@ -8786,6 +8809,14 @@ class PenguCodegen:
                 return f"((PenguRange){{ .start = (int64_t)({start_c}), .end = (int64_t)({end_c}) }})"
 
         elif rule == "range_dotdot":
+            # Item 2.5: `a at b..c` is a slice, exactly like `a at b to c`. The
+            # grammar binds 'at' tighter than '..', so the node arrives as
+            # `range_dotdot(at_expr(a, b), .., c)`. Re-shape it as the
+            # `slice_at_expr` the canonical spelling produces and reuse that
+            # emitter, so the two spellings cannot drift apart.
+            _slice = self._dotdot_as_slice_shape(node)
+            if _slice is not None:
+                return self._emit_slice_at(_slice)
             start_c = self._translate_expr(node.children[0])
             end_c = self._translate_expr(node.children[-1])
             return f"((PenguRange){{ .start = (int64_t)({start_c}), .end = (int64_t)({end_c}) }})"

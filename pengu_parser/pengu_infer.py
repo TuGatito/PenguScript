@@ -783,6 +783,52 @@ class TypeInferrer:
                 note="Char literals represent single 1-byte ASCII characters."
             )
 
+    def _range_as_slice(self, node: Tree) -> Optional[Type]:
+        """Reinterprets a `range_dotdot` that is really a slice as a SliceType.
+
+        Returns None when the node is a genuine range, so the caller can fall
+        through to normal range inference. Exists because the grammar accepts
+        both `a at b .. c` (parsed as `((a at b) .. c)`) and `a at b to c`
+        (parsed as the dedicated `slice_at_expr`), and both must slice.
+        """
+        children = [c for c in node.children if isinstance(c, Tree)]
+        if len(children) != 2:
+            return None
+        left, right = children[0], children[-1]
+
+        if not (isinstance(left, Tree) and left.data == "at_expr"):
+            # Not `((a at b) .. c)`. A genuine range, or the mirrored
+            # `a at (b .. c)` shape, which the dedicated `slice_at_expr` rule
+            # already handles.
+            return None
+        # `((a at b) .. c)` flattens to [a, b, c]: the collection, the slice
+        # START, and the slice END. All of b and c are bounds and must be
+        # integers -- checking only `right` would let `a at 1.5 .. 2` through.
+        chain = _flatten_at_chain(left)
+        target = chain[0]
+        bounds = chain[1:] + [right]
+        coll = self.infer(target)
+        while isinstance(coll, (AliasType, FrozenType)):
+            coll = getattr(coll, "target", None) or coll
+        types = [self.infer(b) for b in bounds]
+        for t in types:
+            if not t.is_int():
+                # The left side IS an 'at' target, so the user meant a slice;
+                # report the same diagnostic the canonical `to` spelling gives
+                # rather than silently falling through to a range.
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"Slice range bounds must be integers, got '{types[0]}'",
+                    node, code="E0005",
+                    help="Ensure both start and end bounds evaluate to integers.",
+                    note="Slice ranges require integer bounds."
+                )
+        if isinstance(coll, (ArrayType, SliceType, ManyType, ListType)):
+            return SliceType(element=coll.element)
+        if coll == STRING_TYPE:
+            return STRING_TYPE
+        return None
+
     def infer(self, node: Any, expected_type: Optional[Type] = None) -> Type:
         """Recursively infers the static type of an expression node.
 
@@ -1652,6 +1698,42 @@ class TypeInferrer:
             parts = _flatten_at_chain(node)
             cur_type = self.infer(parts[0])
             for idx_node in parts[1:]:
+                # Phase 2 item 2.5: 'a at b..c' must slice exactly like
+                # 'a at b to c'. The 'to' spelling reaches the dedicated
+                # `slice_at_expr` rule, while '..' arrives here as a plain
+                # `range_dotdot` index because `..` is also a range operator.
+                # Rather than duplicate the slice_range production (which added
+                # shift/reduce conflicts, measured), route both to the same
+                # slice semantics here.
+                if isinstance(idx_node, Tree) and idx_node.data == "range_dotdot":
+                    start_t = self.infer(idx_node.children[0])
+                    end_t = self.infer(idx_node.children[2])
+                    if not start_t.is_int() or not end_t.is_int():
+                        raise self._make_error(
+                            TypeMismatchError,
+                            f"Slice range bounds must be integers, got '{start_t}' to '{end_t}'",
+                            node,
+                            code="E0005",
+                            help="Ensure both start and end bounds evaluate to integers.",
+                            note="Slice ranges require integer bounds."
+                        )
+                    coll = cur_type
+                    while isinstance(coll, (AliasType, FrozenType)):
+                        coll = getattr(coll, "target", None) or coll
+                    if isinstance(coll, (ArrayType, SliceType, ManyType, ListType)):
+                        cur_type = SliceType(element=coll.element)
+                        continue
+                    if coll == STRING_TYPE:
+                        cur_type = STRING_TYPE
+                        continue
+                    raise self._make_error(
+                        TypeMismatchError,
+                        f"Cannot slice type '{cur_type}'",
+                        node,
+                        code="E0005",
+                        help="Only arrays, slices, lists and strings support range slicing.",
+                        note="Slice ranges are not defined for this type."
+                    )
                 idx_type = self.infer(idx_node)
                 is_coll_frozen = False
                 coll_t = cur_type
@@ -2178,6 +2260,28 @@ class TypeInferrer:
                 return RangeType(element=start_t, start_val=start_val, end_val=end_val)
 
         elif rule == "range_dotdot":
+            # Phase 2 item 2.5: '..' is the deprecated alternate range syntax.
+            # This rule is reached from every range position ('in', 'at', and a
+            # bare expression), so warning here covers all of them without a
+            # duplicated diagnostic at each call site. The node is still
+            # type-checked normally below.
+            _ln, _ = self._get_loc(node)
+            _msg = ("[W0013] '..' range syntax is deprecated; write 'a to b' "
+                    f"instead on line {_ln}")
+            if _msg not in self.warnings:
+                self.warnings.append(_msg)
+
+            # `a at b..c` slices exactly like `a at b to c` (item 2.5). The
+            # grammar binds 'at' tighter than '..' and cannot tell whether the
+            # operands of a range are a slice target or a real range, so both
+            # shapes have to be recognised here:
+            #     ((a at b) .. c)   -- 'at' won the shift
+            #     (a at (b .. c))   -- the range won
+            # They mean the same thing; anything else stays a range.
+            _slice = self._range_as_slice(node)
+            if _slice is not None:
+                return _slice
+
             left_node = node.children[0]
             right_node = node.children[-1]
             start_val = self.const_folder.fold(left_node)
