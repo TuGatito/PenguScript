@@ -2863,7 +2863,10 @@ weave main into void:
         assert "float Vec2_length(Vec2* self);" in c
         assert "void Vec2_move(Vec2* self, float dx, float dy);" in c
         assert "Vec2 Vec2_add(Vec2* self, Vec2 other) {" in c
-        assert "return (Vec2){.x = (self->x + other.x), .y = (self->y + other.y)};" in c
+        # The returned expression is evaluated into a temporary and that
+        # temporary is returned, so the frame is popped only afterwards (3.7).
+        assert "Vec2 _ret_" in c and "= (Vec2){.x = (self->x + other.x), .y = (self->y + other.y)};" in c
+        assert "return _ret_" in c
         assert "void Vec2_move(Vec2* self, float dx, float dy) {" in c
         assert "const Vec2 c = Vec2_add(&a, b);" in c
         assert "Vec2_move(&a, 10.0f, 0.0f);" in c
@@ -3436,7 +3439,10 @@ weave test into void:
     calling process_ptr with null
 """
         )
-        assert "return NULL;" in c
+        # A null return is assigned to the return temporary, which is then
+        # returned (the frame is popped in between; item 3.7).
+        assert "= NULL;" in c
+        assert "return _ret_" in c
         assert "process_ptr(NULL);" in c
 
 

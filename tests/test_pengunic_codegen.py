@@ -18,12 +18,18 @@ Each test pins one of them; they are cheap (`gen_bundle` inspects the generated 
 except the last, which has to execute the binary to catch the invalid free.
 """
 
+import re
+
 from tests.conftest import compile_run, gen_bundle, requires_cc, requires_runtime
 
 
 def test_implicit_return_in_plain_weave():
     c = gen_bundle("weave double with x as int into int:\n    x * 2\n")
-    assert "return (x * 2);" in c
+    # The tail expression is evaluated into a temporary and that temporary is
+    # returned: the frame must only be popped after the returned expression has
+    # been computed, or a fault inside it is blamed on the caller (item 3.7).
+    assert re.search(r"int32_t _ret_\d+ = \(x \* 2\);", c), c
+    assert re.search(r"return _ret_\d+;", c), c
     # ...and no dangling bare expression remains.
     assert "\n  (x * 2);\n" not in c
 
@@ -37,7 +43,8 @@ def test_implicit_return_in_concrete_enchanting_method():
         "            set acc is acc + x\n"
         "        acc\n"
     )
-    assert "return acc;" in c
+    assert re.search(r"int32_t _ret_\d+ = acc;", c), c
+    assert re.search(r"return _ret_\d+;", c), c
 
 
 def test_implicit_return_in_monomorphized_generic_method():
@@ -56,7 +63,8 @@ def test_implicit_return_in_monomorphized_generic_method():
         "    return 0\n"
     )
     assert "list_int_total" in c
-    assert "return acc;" in c
+    assert re.search(r"= acc;", c), c
+    assert re.search(r"return _ret_\d+;", c), c
 
 
 def test_no_implicit_return_for_void_weaves():

@@ -31,7 +31,10 @@ class TestArrayLength:
             "    return calling f with a\n"
         )
         c_code = gen_bundle(src)
-        assert ("return (3);" in c_code) or ("return 3;" in c_code)
+        # The literal length is the returned expression; the codegen evaluates it
+        # into a return temporary before popping the frame (item 3.7).
+        assert "= (3);" in c_code, c_code
+        assert "return _ret_" in c_code, c_code
 
     @requires_cc
     @requires_runtime

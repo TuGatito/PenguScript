@@ -5053,11 +5053,17 @@ class PenguCodegen:
             cleanup_str = "\n".join(cleanup_lines) + ("\n" if cleanup_lines else "")
             pop_stmt = f"{ind}pengu_frame_pop();"
             if ret_expr is not None:
-                if cleanup_lines:
-                    tmp = self.get_temp_name("_ret")
-                    ret_decl = CTypeMapper.to_c_decl(self.current_return_type, tmp)
-                    return f"{ind}{ret_decl} = {ret_val_str};\n{cleanup_str}{pop_stmt}\n{ind}return {tmp};"
-                return f"{pop_stmt}\n{ind}return {ret_val_str};"
+                # Phase 3 item 3.7: always evaluate the return expression into a
+                # temporary *before* popping the frame. This used to be done only
+                # when there was deferred cleanup, so the common
+                #     return calling f
+                # emitted `pengu_frame_pop(); return f();` -- the caller's frame
+                # was already off the stack when `f` pushed its own, and the crash
+                # dump (which walks that stack) reported only the innermost
+                # function instead of the real call chain.
+                tmp = self.get_temp_name("_ret")
+                ret_decl = CTypeMapper.to_c_decl(self.current_return_type, tmp)
+                return f"{ind}{ret_decl} = {ret_val_str};\n{cleanup_str}{pop_stmt}\n{ind}return {tmp};"
             return f"{cleanup_str}{pop_stmt}\n{ind}return;"
 
         elif rule == "break_stmt":

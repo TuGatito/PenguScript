@@ -171,7 +171,11 @@ weave main into int:
 """
     check_ok(code)
     c = gen_bundle(code)
-    assert "return 42;" in c
+    # `check_ok` is the real assertion (the single-line jump must not violate the
+    # block-jump invariant). The literal still has to reach the return path; it
+    # now flows through the return temporary introduced for item 3.7.
+    assert "= 42;" in c, c
+    assert "return _ret_" in c, c
 
 
 def test_p3_3_ord_empty_string_safe():
