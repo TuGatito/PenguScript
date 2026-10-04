@@ -2464,7 +2464,7 @@ def _collect_pengu_files(paths: List[str]) -> List[str]:
 
 
 def fmt_files(paths: List[str], check_only: bool = False, write: bool = True,
-              indent: int = 2, tabs: bool = False, verbose: bool = False,
+              indent: int = 4, tabs: bool = False, verbose: bool = False,
               diff: bool = False, use_config: bool = True) -> int:
     """Formats .pengu files/directories with the standard style.
 
@@ -2536,7 +2536,7 @@ def fmt_files(paths: List[str], check_only: bool = False, write: bool = True,
     return len(changed)
 
 
-def fmt_stdin(indent: int = 2, tabs: bool = False,
+def fmt_stdin(indent: int = 4, tabs: bool = False,
               config_path: Optional[str] = None, check_only: bool = False) -> int:
     """Formats stdin to stdout (editor / pipeline integration).
 
@@ -5027,7 +5027,7 @@ def create_cli_parser() -> argparse.ArgumentParser:
     fmt_p.add_argument("--stdin", action="store_true", help="Read from stdin and write the formatted result to stdout")
     fmt_p.add_argument("--config", "-c", default=None, help="Project root for .pengufmt.toml / pengu.yaml formatting config")
     fmt_p.add_argument("--write", action="store_true", default=True, help="Write formatted output back to disk (default)")
-    fmt_p.add_argument("--indent", type=int, default=2, help="Spaces per indentation level (default: 2)")
+    fmt_p.add_argument("--indent", type=int, default=4, help="Spaces per indentation level (default: 4)")
     fmt_p.add_argument("--tabs", action="store_true", help="Indent with tabs instead of spaces")
     fmt_p.add_argument("--verbose", action="store_true", help="Print every file considered")
 

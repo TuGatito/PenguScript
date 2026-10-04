@@ -40,6 +40,22 @@ Nota: el formateo *on-type* del editor (`on_type_formatting`,
 `format_pengu_source`; no queda cubierto por este fix y mantiene su
 comportamiento anterior.
 
+### 🟠 Fixed — A7 (item 4.2): `pengu fmt` defaulteaba a 2 espacios, no 4
+
+El default de `--indent` era **2**, mientras que la guía de estilo y toda la
+stdlib usan **4**. Consecuencia medida antes del cambio: `pengu fmt --check std/`
+reportaba **27 archivos** que cambiarían, todos por reindentación sin cambio
+semántico (4 → 2). Ahora el default es **4** (el CLI lo anuncia:
+`--indent INDENT Spaces per indentation level (default: 4)`), y `--indent N`
+sigue permitiendo el override.
+
+`pengu bind` emitía además **2 espacios fijos** en su plantilla, así que los
+bindings `.d.pengu` que genera el propio tool no pasaban su
+`pengu fmt --check`: 13 de los 25 `.d.pengu` de `std/` seguían marcándose tras
+cambiar el default. El generador emite ahora 4 espacios y los 13 bindings
+afectados se reindentaron (sólo whitespace: `git diff -w` → 0 líneas), de modo
+que `pengu fmt --check std/` es **idempotente sobre todo `std/`** (0 archivos).
+
 
 ## [Unreleased] — FASE 3: Runtime y ABI
 

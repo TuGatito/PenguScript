@@ -34,7 +34,9 @@ def test_fmt_stdin_formats_to_stdout():
 
 
 def test_fmt_stdin_check_only(tmp_path):
-    good = "weave f into int:\n  return 1\n"
+    # The default unit is 4 (item 4.2); a source already in the default unit is
+    # clean, a source in another unit is rescaled and therefore reported.
+    good = "weave f into int:\n    return 1\n"
     res = _run_fmt(["--stdin", "--check"], stdin=good)
     assert res.returncode == 0
     bad = "weave f into int:\n   return 1\n"
