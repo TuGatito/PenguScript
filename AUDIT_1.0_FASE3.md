@@ -557,13 +557,21 @@ El cambio `__auto_type X = (EXPR)` → `__typeof__(EXPR) X = (EXPR)` **eliminaba
 Al correr la suite completa tras 3.4 + 3.8 aparecieron **9 fallos**. Aislados uno a uno contra el
 commit base `403fa45` (con un `git worktree` limpio):
 
-| Test | En `403fa45` | Con 3.4 | Veredicto |
+> **❌ CORRECCIÓN (ver §13).** La primera versión de esta tabla clasificaba cuatro de estos tests
+> como "preexistentes". **Era falso**: los cuatro **pasan** en cuanto 3.4 se revierte por completo.
+> El error de diagnóstico está corregido en §13; la tabla se conserva tachada abajo sólo para dejar
+> constancia de cómo se llegó a la conclusión equivocada.
+
+| Test | Con 3.4 aplicado | Tras revertir 3.4 | Veredicto |
 |---|---|---|---|
-| `test_p2_review_fixes.py::test_chained_set_index_through_ref_to_array` | **pasa** | falla | **REGRESIÓN de 3.4** |
-| `test_regression_0_13_11.py::test_c2_destructure_array` | falla | falla | preexistente |
-| `test_regression_0_13_11.py::test_m7_ref_to_slice_indexing` | falla | falla | preexistente |
-| `test_regression_0_13_13.py::test_h4_in_array_of_string_and_struct` | falla | falla | preexistente |
-| `test_regression_0_13_14.py::test_9_fntype_destructuring_valid_c` | falla | falla | preexistente |
+| `test_p2_review_fixes.py::test_chained_set_index_through_ref_to_array` | falla | **pasa** | REGRESIÓN de 3.4 |
+| `test_regression_0_13_11.py::test_c2_destructure_array` | falla | **pasa** | REGRESIÓN de 3.4 |
+| `test_regression_0_13_11.py::test_m7_ref_to_slice_indexing` | falla | **pasa** | REGRESIÓN de 3.4 |
+| `test_regression_0_13_13.py::test_h4_in_array_of_string_and_struct` | falla | **pasa** | REGRESIÓN de 3.4 |
+| `test_regression_0_13_14.py::test_9_fntype_destructuring_valid_c` | falla | **pasa** | REGRESIÓN de 3.4 |
+
+**Los cinco eran regresiones de 3.4**, no una. El diagnóstico inicial infravaloró el daño del
+cambio, y la causa está explicada en §13.
 
 La causa es que **`__typeof__` no es un simple cambio de nombre**: a diferencia de `__auto_type`,
 `__typeof__(EXPR)` **conserva el tipo exacto de la expresión, incluidos los cualificadores de nivel
@@ -646,3 +654,49 @@ Un test que sólo comprueba "esto compila" **no detecta** "esto genera otra cosa
 comprobaba compilación y el cambio rompía la **forma del objetivo de asignación**. Lo detectó la
 suite completa, no mi test. Para cambios en codegen, la red tiene que incluir los tests de
 regresión que inspeccionan el C generado, no sólo los que lo compilan.
+
+
+---
+
+## §13. Corrección: los fallos NO eran preexistentes; los cinco eran regresiones de 3.4
+
+### Qué dije y por qué estaba mal
+
+En §11 afirmé que, de los tests que fallaban con 3.4 aplicado, **uno era regresión y cuatro eran
+preexistentes**. Esa clasificación se apoyaba en haber corrido los tests en un `git worktree` sobre
+`403fa45` y verlos fallar allí también.
+
+**Era un error de método.** Los tests importan el paquete desde **el árbol de trabajo principal**, y
+`pengu_runtime.h` seguía roto por 3.4 en ese árbol. Así que el "base" que creí medir no era el base:
+el worktree aportaba los tests viejos pero el código compilado venía del árbol con 3.4 aplicado. Los
+cuatro "preexistentes" eran, en realidad, **el mismo daño de 3.4 visto desde otro fichero de tests**.
+
+### La medición correcta
+
+Tras revertir 3.4 **por completo** (`17ca127`), en el árbol limpio:
+
+| Comprobación | Resultado |
+|---|---|
+| Los 5 tests del grupo que fallaba | **5 passed** |
+| `tests/test_compiler_core.py::TestCodegenEmissionArraysSlices` | **9 passed** |
+| Los 4 de `test_regression_0_13_1*` | **4 passed** |
+| **Suite completa** | **2499 passed, 18 skipped, 3 xfailed, 0 failed** |
+
+Los **14** fallos que el barrido capturó con 3.4 aplicado (5 de `test_regression_0_13_1*`, 4 de
+`test_compiler_core`/`test_p0_review_fixes`, 5 de `test_tcc_portability`) **desaparecen todos** al
+revertir. No había ni un fallo preexistente.
+
+### Por qué importa registrarlo
+
+Una tabla que llama "preexistente" a un daño propio es exactamente el patrón "verde sobre roto" que
+esta fase existe para eliminar: traslada al proyecto un fallo que introdujo el cambio. La conclusión
+práctica **no cambia** —3.4 se revierte igual, y por la razón correcta (rompía tests)— pero el
+registro sí: el daño de 3.4 era **cinco veces mayor** de lo que dije, y eso refuerza la decisión de
+revertir en vez de matizarla.
+
+### Lección de método (tercera de la fase)
+
+**Un `git worktree` no aísla el entorno de compilación.** Para comparar dos versiones de código que
+genera C, hay que aislar *también* el `pengu_runtime.h` y el `.a` que se usan al compilar, o la
+comparación mide una mezcla. Los tres hallazgos de método de esta fase comparten la misma raíz:
+**verificar que el experimento mide lo que uno cree que mide** antes de sacar conclusiones de él.

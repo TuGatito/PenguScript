@@ -43,9 +43,10 @@ All notable changes to PenguScript will be documented in this file.
   **`__typeof__` no es un renombrado**: conserva el tipo exacto de la expresión
   incluidos los cualificadores de nivel superior, mientras que `__auto_type` aplica
   la conversión de lvalue. Eso cambió el **objetivo de asignación** generado en
-  `set r at 0 at 1 is 42` y rompió
-  `test_p2_review_fixes.py::test_chained_set_index_through_ref_to_array`, que pasa
-  en el commit base. **Revertido**; ver `AUDIT_1.0_FASE3.md` §11. Diferido a 1.1.
+  `set r at 0 at 1 is 42` y rompió **cinco** tests que pasan en el commit base
+  (`test_p2_review_fixes::test_chained_set_index_through_ref_to_array` y los cuatro
+  de `test_regression_0_13_1*`). **Revertido**; ver `AUDIT_1.0_FASE3.md` §11 y §13.
+  Diferido a 1.1. Tras la reversión: **2499 passed, 0 failed**.
 
 ### ⏸️ Diferido — `--strict-c99` NO es un gate de portabilidad en 0.16.0
 
