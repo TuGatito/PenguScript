@@ -1987,3 +1987,72 @@ producciones sino la sintaxis.
 
 La herramienta `tools/grammar_conflicts.py` (§19) queda para quien retome el item: mide el token
 stream real, la propiedad de cada conflicto y la regla que Lark se niega a reducir.
+
+---
+
+## §23. Handoff: el único item abierto y qué hacer con él
+
+Fase 2 cierra con **41 commits** y **5 de 6 criterios**. Este apartado existe para que nadie tenga
+que releer 2000 líneas para saber qué queda y por qué.
+
+### Estado por item
+
+| Item | Estado | Evidencia |
+|------|--------|-----------|
+| 2.1 bounds coherentes | ✅ cerrado | `tests/test_concept_bounds_matrix.py` (84) |
+| 2.2 docs de bounds sincronizadas | ✅ cerrado | `tests/test_docs_bounds_sync.py` (7) |
+| 2.3 `alias` en `concept` | ✅ cerrado (retirado, ⏸️ 1.1) | §1.2 + tripwire |
+| **2.4 conflictos del grammar** | ⏸️ **DIFERIDO a 1.1** | §22, 10 vías medidas |
+| 2.4b precedencia fijada | ✅ cerrado | `tests/test_precedence.py` (99) |
+| 2.5 rango `to`/`..` | ✅ cerrado | `tests/test_range_syntax.py` (16) |
+| 2.6 `frozen ref` | ✅ cerrado (ya estaba) | `tests/test_frozen.py` |
+| 2.7 variádicos | ✅ cerrado | `tests/test_variadics_and_identifiers.py` |
+| 2.8 matriz de `derive` | ✅ cerrado | `tests/test_derive_matrix.py` (14) |
+| 2.9 identificadores ASCII | ✅ cerrado | idem 2.7 |
+| 2.10 alias de tipo base | ✅ cerrado (3 defectos corregidos) | `tests/test_docs_primitive_types.py` (36) |
+| 2.11 W0008/W0011/W0012 | W0008 ⏸️ · W0011 ❌ refutado · **W0012 ✅** | §9, §11 |
+| 2.12 W0005 | ✅ cerrado (50 → 0) | §8 |
+
+### Lo único abierto, en una frase
+
+> **`Lark(GRAMMAR, parser='lalr', strict=True)` no construye: 188 conflictos.** No es reducible sin
+> cambiar la sintaxis del lenguaje, porque `judge` es una sentencia (y las sentencias se analizan por
+> `expr`), mientras que `return judge …` exige que `return` alcance el mismo no-terminal por otro
+> camino. LALR(1) no puede distinguir ambos en el token `JUDGE`.
+
+**Probado por negación** (§22): sacar `judge_expr` de `expr` **sí construye** y baja a 143, pero rompe
+`judge` como sentencia (24/52 módulos).
+
+### Las dos salidas, con su coste
+
+| Salida | Coste | Riesgo |
+|--------|-------|--------|
+| **A. Introducir sintaxis delimitada** (`return do:` para el valor de bloque) | M | Rompe `return judge …` en 6 archivos de la stdlib → requiere migrarlos. El `judge` como sentencia sigue funcionando, que es lo que la salida 1 del §18 no conseguía |
+| **B. Aceptar los 188 y reforzar el gate** | S | El presupuesto (`_KNOWN_SHIFT_REDUCE_CONFLICTS = 188`) ya existe y ya falla si el número sube; falta añadirlo a CI (prohibido en esta fase: `.github/` está fuera de alcance) |
+
+**A** es la correcta si se quiere `strict=True`. **B** es aceptable para 1.x y es lo que se hace hoy.
+Ninguna es una tarea de implementación sin decisión previa.
+
+### Herramientas entregadas para quien retome el item
+
+```bash
+python tools/grammar_conflicts.py --tokens 'weave f into int:\n  return 1\n'   # token stream real
+python tools/grammar_conflicts.py --conflicts --top 10                        # 188 por regla
+python tools/grammar_conflicts.py --actions --rule return_stmt --top 3        # quién posee cada conflicto
+```
+
+`--actions` es la medición que ninguno de los diez intentos hizo: dice **qué regla se niega Lark a
+reducir**. Para `return_stmt` son los 45 conflictos, todos poseídos por `return_stmt : RETURN`.
+
+### Tests que protegen el trabajo (no borrar sin leer el motivo)
+
+| Test | Protege |
+|------|---------|
+| `test_precedence.py` (99) | Que un cambio de grammar no altere la precedencia |
+| `test_grammar_strict.py::test_dangling_else_*` (3) | Que el `else` siga ligando al `if` más interno |
+| `test_grammar_strict.py::test_judge_is_valid_*` + `test_do_expression_*` (4) | Que ninguna variante futura cambie las dos posiciones de `judge` por un contador menor |
+| `test_grammar_strict.py::test_the_stdlib_uses_both_judge_positions` | Tripwire: si la stdlib deja de usar `judge`, la restricción del §22 puede revisarse |
+| `test_grammar_strict.py::test_grammar_strict_mode_conflict_budget` | Que el contador no suba en silencio |
+| `test_deprecation.py` (11) | Las tres capas del mecanismo de deprecación y los dos puntos de consulta |
+| `test_opaque_upcast.py` (9) | Que `ref to T` → `opaque` siga siendo implícito y **unidireccional** |
+| `test_docs_*` (43) | Que la documentación no se separe del código |
