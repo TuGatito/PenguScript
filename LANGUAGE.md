@@ -2477,9 +2477,11 @@ let e as string is r"""raw triple"""             # raw + multiline
 - **Byte-exact composition:** an interpolated `string` argument is copied using its
   length, not `printf`'s NUL-terminated `%s` rule. `"a{nul}b"` therefore keeps the
   embedded `\0` and is 3 characters long — binary payloads (hash digests,
-  Base64/hex decoders) survive composition. Note that `%f` and `to string` format
-  floats differently (`0.500000` vs `0.5`); use the explicit conversion when the
-  textual form matters.
+  Base64/hex decoders) survive composition. **Floats format identically on every
+  path** — interpolation, `to string` and the `print` builtin all use `%g`, so
+  `"{0.5}"`, `(0.5 to string)` and `print 0.5` all produce `"0.5"`. Formatting is
+  compact rather than fixed-precision: `1.0/3.0` gives `0.333333`, not
+  `0.3333333333333333`. Use an explicit conversion when the textual form matters.
 - **Quotes inside `{expr}`:** the interpolated expression may contain a
   double-quoted literal (`"v={(calling getenv_or with k, "")}"`). Expressions with
   unbalanced braces are not supported inside a literal; build them in a local.

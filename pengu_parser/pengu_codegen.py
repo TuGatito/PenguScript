@@ -8105,7 +8105,10 @@ class PenguCodegen:
                             elif arg_t.name in ("int", "i32", "i16", "int16", "i8", "int8", "isize"):
                                 return f'printf("%d\\n", (int32_t)({args[0]}))'
                             elif arg_t.name in ("float", "f32", "f64", "double"):
-                                return f'printf("%f\\n", (double)({args[0]}))'
+                                # Phase 3 item 3.9: `%g` so `print x`, `"{x}"` and
+                                # `x to string` all agree. This used to be `%f`
+                                # ("3.140000") while `to string` gave "3.14".
+                                return f'printf("%g\\n", (double)({args[0]}))'
                             elif arg_t.name in ("bool",):
                                 return f'printf("%s\\n", ({args[0]}) ? "true" : "false")'
                             elif arg_t.name in ("string",):

@@ -2449,9 +2449,11 @@ let e as string is r"""raw triple"""             # raw + multiline
 - **Composición exacta a nivel de byte:** un argumento `string` interpolado se copia
   usando su longitud, no la regla `%s` terminada en NUL de `printf`. Por eso `"a{nul}b"`
   conserva el `\0` incrustado y tiene 3 caracteres — las cargas binarias (digests hash,
-  decodificadores Base64/hex) sobreviven a la composición. Ten en cuenta que `%f` y
-  `to string` formatean los floats de manera distinta (`0.500000` vs `0.5`); usa la
-  conversión explícita cuando la forma textual importe.
+  decodificadores Base64/hex) sobreviven a la composición. **Los floats se formatean
+  igual en todas las vías** — interpolación, `to string` y el builtin `print` usan `%g`,
+  así que `"{0.5}"`, `(0.5 to string)` y `print 0.5` producen todos `"0.5"`. El formato
+  es compacto, no de precisión fija: `1.0/3.0` da `0.333333`, no
+  `0.3333333333333333`. Usa una conversión explícita cuando la forma textual importe.
 - **Comillas dentro de `{expr}`:** la expresión interpolada puede contener un literal
   entre comillas dobles (`"v={(calling getenv_or with k, "")}"`). Las expresiones con
   llaves desequilibradas no están soportadas dentro de un literal; constrúyelas en una

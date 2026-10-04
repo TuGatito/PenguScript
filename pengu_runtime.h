@@ -764,7 +764,9 @@ extern "C"
    *
    * Supported specifiers (the only ones the code generator emits): `%%`, `%d`,
    * `%u`, `%lld`, `%llu`, `%f`, `%c`, `%s` (C string) and `%.*s` (PenguString
-   * length + data).
+   * length + data).  `%f` selects the *float* branch but renders with `%g`
+   * (Phase 3 item 3.9), so interpolation, `to string` and `print` all produce
+   * the same text for a given value.
    *
    * @param fmt Format specification string built by the compiler.
    * @param ... Formatting arguments (int, double, int, const char*, int, const char*).
@@ -794,9 +796,12 @@ extern "C"
     } while (0)
 
     /* snprintf returns the length the whole formatted value *would* have, which
-     * can exceed the small stack buffer (e.g. "%f" of 1e300 returns ~310 while
-     * writing 63).  Appending the return value blindly would read out of
-     * bounds, so retry into a heap buffer when the value does not fit. */
+     * can exceed the small stack buffer (e.g. a 64-bit "%lld" of LLONG_MIN
+     * returns 20 and fits, but "%f" of 1e300 returned ~310 while writing 63).
+     * Appending the return value blindly would read out of bounds, so retry into
+     * a heap buffer when the value does not fit. Phase 3 item 3.9 made floats
+     * use "%g", which is always compact, but the fallback stays as the general
+     * safety net for any specifier whose output can outgrow the buffer. */
 #define PENGU_FMT_APPEND_FORMATTED(FMT, VAL)                                  \
     do {                                                                      \
       char _small[64];                                                        \
@@ -859,7 +864,11 @@ extern "C"
       }
       if (p[1] == 'f') {
         double v = va_arg(ap, double);
-        PENGU_FMT_APPEND_FORMATTED("%f", v);
+        /* Phase 3 item 3.9: `%g`, matching pengu_string_from_float (`to string`)
+         * and the `print` builtin. `%f` used to print 3.14 as "3.140000" here
+         * while `to string` printed "3.14" -- two textual forms for the same
+         * value, chosen by accident of which path formatted it. */
+        PENGU_FMT_APPEND_FORMATTED("%g", v);
         p += 2;
         continue;
       }
