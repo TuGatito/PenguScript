@@ -2445,12 +2445,29 @@ def check_files(
     return _report_check_results(ok, diagnostics, time.time() - t0, json_output)
 
 
+#: Directory names never walked by :func:`_collect_pengu_files`. These are
+#: build artifacts, VCS/venv state and caches: they are gitignored, may hold
+#: stale generated sources, and are not part of the repository's source tree, so
+#: reporting them to `pengu fmt --check` would make the gate unusable.
+_FMT_SKIP_DIRS = frozenset({
+    ".git", ".hg", ".svn", ".venv", "venv", "env", "node_modules",
+    "__pycache__", "build", "dist", "target", ".mypy_cache", ".pytest_cache",
+    ".ruff_cache", ".tox", ".eggs",
+})
+
+
 def _collect_pengu_files(paths: List[str]) -> List[str]:
-    """Expands file/directory CLI arguments into a sorted .pengu file list."""
+    """Expands file/directory CLI arguments into a sorted .pengu file list.
+
+    Directories named in :data:`_FMT_SKIP_DIRS` (build output, caches, VCS and
+    virtualenv state) are not descended into. An explicit file argument is
+    always honoured, even inside such a directory.
+    """
     files: List[str] = []
     for p in paths:
         if os.path.isdir(p):
-            for root, _, names in os.walk(p):
+            for root, dirs, names in os.walk(p):
+                dirs[:] = sorted(d for d in dirs if d not in _FMT_SKIP_DIRS)
                 for name in sorted(names):
                     if name.endswith(".pengu"):
                         files.append(os.path.join(root, name))
@@ -2463,8 +2480,51 @@ def _collect_pengu_files(paths: List[str]) -> List[str]:
     return sorted(set(files))
 
 
+def _resolve_indent(cfg: Optional[Dict[str, object]], indent: Optional[int]) -> int:
+    """Resolves the indentation unit with  ``CLI flag > config > default``.
+
+    ``indent`` is the value of ``--indent``: ``None`` when the flag was not
+    given, which is what makes an explicit flag beat ``.pengufmt.toml`` instead
+    of being silently overridden by it.
+
+    Args:
+        cfg: Parsed formatting config, or None when none was found.
+        indent: Explicit ``--indent`` value, or None when not provided.
+
+    Returns:
+        Spaces per indentation level (default 4).
+    """
+    if indent is not None:
+        return int(indent)
+    if cfg and cfg.get("tab_size") is not None:
+        return int(cfg["tab_size"])
+    return 4
+
+
+def _resolve_insert_spaces(cfg: Optional[Dict[str, object]], tabs: Optional[bool]) -> bool:
+    """Resolves spaces-vs-tabs with ``CLI flag > config > default``.
+
+    Mirrors :func:`_resolve_indent`: ``tabs`` is ``None`` when ``--tabs`` was not
+    given, so an explicit flag wins over ``insert_spaces``/``use_tabs`` in
+    ``.pengufmt.toml`` instead of being silently overridden by it.
+
+    Args:
+        cfg: Parsed formatting config, or None when none was found.
+        tabs: True when ``--tabs`` was given, None when it was omitted.
+
+    Returns:
+        True to indent with spaces, False to indent with tabs.
+    """
+    if tabs is not None:
+        return not tabs
+    if cfg and cfg.get("insert_spaces") is not None:
+        return bool(cfg["insert_spaces"])
+    return True
+
+
 def fmt_files(paths: List[str], check_only: bool = False, write: bool = True,
-              indent: int = 4, tabs: bool = False, verbose: bool = False,
+              indent: Optional[int] = None, tabs: Optional[bool] = None,
+              verbose: bool = False,
               diff: bool = False, use_config: bool = True) -> int:
     """Formats .pengu files/directories with the standard style.
 
@@ -2474,8 +2534,10 @@ def fmt_files(paths: List[str], check_only: bool = False, write: bool = True,
         paths: Files and/or directories to format (directories are recursive).
         check_only: True to only report files that would change (never writes).
         write: True to overwrite files with formatted content.
-        indent: Spaces per indentation level.
-        tabs: True to indent with tabs.
+        indent: Spaces per indentation level, or None to take the nearest
+            ``.pengufmt.toml`` and fall back to 4. An explicit value always wins
+            over the config file.
+        tabs: True to indent with tabs, None to take the nearest config.
         verbose: True to print every file considered.
         diff: True to print a unified diff for every file that would change.
         use_config: True to honour a nearby ``.pengufmt.toml`` / ``pengu.yaml``.
@@ -2501,9 +2563,8 @@ def fmt_files(paths: List[str], check_only: bool = False, write: bool = True,
                 print(f"   skip (generated) {display}")
             continue
         cfg = load_format_config(fp) if use_config else None
-        eff_indent = cfg.get("tab_size", indent) if cfg and "tab_size" in cfg else indent
-        eff_spaces = (cfg.get("insert_spaces", not tabs) if cfg and "insert_spaces" in cfg
-                      else not tabs)
+        eff_indent = _resolve_indent(cfg, indent)
+        eff_spaces = _resolve_insert_spaces(cfg, tabs)
         blank_max = cfg.get("blank_lines_max") if cfg else None
         formatted = format_pengu_source(
             original, tab_size=int(eff_indent), insert_spaces=bool(eff_spaces),
@@ -2536,7 +2597,7 @@ def fmt_files(paths: List[str], check_only: bool = False, write: bool = True,
     return len(changed)
 
 
-def fmt_stdin(indent: int = 4, tabs: bool = False,
+def fmt_stdin(indent: Optional[int] = None, tabs: Optional[bool] = None,
               config_path: Optional[str] = None, check_only: bool = False) -> int:
     """Formats stdin to stdout (editor / pipeline integration).
 
@@ -2547,9 +2608,8 @@ def fmt_stdin(indent: int = 4, tabs: bool = False,
 
     text = sys.stdin.read()
     cfg = load_format_config(config_path or os.getcwd())
-    eff_indent = cfg.get("tab_size", indent) if cfg and "tab_size" in cfg else indent
-    eff_spaces = (cfg.get("insert_spaces", not tabs) if cfg and "insert_spaces" in cfg
-                  else not tabs)
+    eff_indent = _resolve_indent(cfg, indent)
+    eff_spaces = _resolve_insert_spaces(cfg, tabs)
     blank_max = cfg.get("blank_lines_max") if cfg else None
     formatted = format_pengu_source(
         text, tab_size=int(eff_indent), insert_spaces=bool(eff_spaces),
@@ -5027,8 +5087,10 @@ def create_cli_parser() -> argparse.ArgumentParser:
     fmt_p.add_argument("--stdin", action="store_true", help="Read from stdin and write the formatted result to stdout")
     fmt_p.add_argument("--config", "-c", default=None, help="Project root for .pengufmt.toml / pengu.yaml formatting config")
     fmt_p.add_argument("--write", action="store_true", default=True, help="Write formatted output back to disk (default)")
-    fmt_p.add_argument("--indent", type=int, default=4, help="Spaces per indentation level (default: 4)")
-    fmt_p.add_argument("--tabs", action="store_true", help="Indent with tabs instead of spaces")
+    fmt_p.add_argument("--indent", type=int, default=None,
+                       help="Spaces per indentation level; wins over .pengufmt.toml (default: 4)")
+    fmt_p.add_argument("--tabs", action="store_true", default=None,
+                       help="Indent with tabs; wins over .pengufmt.toml (default: spaces)")
     fmt_p.add_argument("--verbose", action="store_true", help="Print every file considered")
 
 

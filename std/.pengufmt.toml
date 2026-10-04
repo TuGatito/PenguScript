@@ -1,0 +1,12 @@
+# The standard library is authored with 4-space indentation.
+#
+# This file pins that unit for every module under `std/`, so that
+# `pengu fmt --check std/` is idempotent even when invoked from a context whose
+# default differs, and so generators/editor integrations that read the nearest
+# config agree with the shipped sources.
+#
+# See LANGUAGE.md §20.2.4 and ROADMAP_2.0.md §4.3.
+
+[formatting]
+tab_size = 4
+insert_spaces = true

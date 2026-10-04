@@ -1,10 +1,10 @@
 # CPU-bound: naive recursive Fibonacci (same shape as the C/Rust baselines).
 weave fib with n as int into int:
-  if n < 2:
-    return n
-  return (calling fib with n - 1) + (calling fib with n - 2)
+    if n < 2:
+        return n
+    return (calling fib with n - 1) + (calling fib with n - 2)
 
 weave main into int:
-  var r as int is calling fib with 32
-  calling print with r
-  return 0
+    var r as int is calling fib with 32
+    calling print with r
+    return 0

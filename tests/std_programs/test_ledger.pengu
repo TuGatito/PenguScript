@@ -48,7 +48,7 @@ weave main into void:
     var ok_write as bool is calling ledger.write_csv with test_file, rows, ","
     if ok_write:
         calling spark.println with "write_csv: true"
-    
+
     var read_file_res as maybe list of list of string is calling ledger.read_csv with test_file, true, ","
     if read_file_res.is_present:
         calling spark.println with "read_csv: ok"

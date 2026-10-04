@@ -55,7 +55,7 @@ weave main into int:
     if r_num.is_present:
         var re2 as regulus.Regex is r_num.value
         var text as string is "abc 123 def 456 ghi 789"
-        
+
         var cnt as int is calling regulus.match_count with sigil of re2, text
         calling spark.assert with (cnt == 3)
 

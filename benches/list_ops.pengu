@@ -1,12 +1,12 @@
 # Container growth + iteration + owned-string cleanup.
 weave main into int:
-  var xs as list of int is list of int
-  var i as int is 0
-  while i < 200000:
-    calling xs.push with i
-    set i is i + 1
-  var total as int is 0
-  for v in xs:
-    set total is total + v
-  calling print with total
-  return 0
+    var xs as list of int is list of int
+    var i as int is 0
+    while i < 200000:
+        calling xs.push with i
+        set i is i + 1
+    var total as int is 0
+    for v in xs:
+        set total is total + v
+    calling print with total
+    return 0

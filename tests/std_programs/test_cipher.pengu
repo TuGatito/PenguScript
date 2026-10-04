@@ -30,7 +30,7 @@ weave main into void:
         var parsed_map as maybe map of string to string is calling cipher.parse_json with str_json.value
         if parsed_map.is_present:
             calling spark.println with "parse_json: ok"
-    
+
     var pretty as maybe string is calling cipher.pretty_json with m, 2
     if pretty.is_present:
         calling spark.println with "pretty_json: ok"

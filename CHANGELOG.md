@@ -70,6 +70,45 @@ con `pengu fmt --indent 4` (la herramienta prevista para ello) y se verificó co
 `pengu check --entry std/<mod>.d.pengu` (13/13 ok). Alinear esos 7 archivos con
 su cabecera actual es trabajo aparte, con su propia medición.
 
+### 🟡 Añadido — item 4.3: `.pengufmt.toml` en la raíz y en `std/`
+
+`.pengufmt.toml` (raíz) y `std/.pengufmt.toml` declaran `tab_size = 4`
+(`insert_spaces = true`), que es la convención que ya usaban la stdlib, los
+bindings y la guía de estilo. Hasta ahora esa convención sólo existía como
+default del CLI.
+
+Al introducir el archivo apareció una regresión: `fmt_files` resolvía
+`cfg["tab_size"]` **antes** que el valor de `--indent`, y como argparse daba a
+`--indent` un default no-`None`, no podía distinguir "el usuario no pasó el
+flag" de "el usuario pidió 4". El mismo defecto afectaba a `--tabs`, que el
+`insert_spaces = true` del config anulaba. Resultado: con un `.pengufmt.toml`
+presente, `pengu fmt --indent 2` y `pengu fmt --tabs` eran **no-ops
+silenciosos** (regresión del patrón B3). La precedencia es ahora, para ambos:
+
+```
+--indent N / --tabs (explícitos)  >  .pengufmt.toml  >  default (4, espacios)
+```
+
+(`--indent` y `--tabs` con `default=None`, resueltos por `_resolve_indent` y
+`_resolve_insert_spaces`), la convención estándar y la única no sorprendente.
+
+El walker de `pengu fmt` tampoco debe descender a artefactos:
+`_collect_pengu_files` salta ahora `build/`, `dist/`, `target/`, `__pycache__`,
+`.venv`, `node_modules` y cachés de herramientas (todos gitignored). Medido:
+`pengu fmt --check .` listaba `build/phase5_diag/src/main.pengu`, un artefacto
+efímero que crea `tests/test_phase5_bugfixes.py:99`. Un archivo pasado
+**explícitamente** sí se respeta aunque esté dentro de un directorio saltado.
+
+Se reindentaron a 4 los 21 archivos que quedaban en 2
+(`tests/std_programs/*.pengu` ×17, `benches/*.pengu` ×4) — sólo whitespace:
+`git diff -w` → 0 líneas (384/384)—, de modo que `pengu fmt --check .` es
+**idempotente sobre todo el repositorio** (0 archivos).
+
+`tests/test_fmt_config_precedence.py` (10 casos: el flag explícito gana al
+config, el config gana al default, el default 4 sin config, el mismo contrato
+por `--stdin`, `--tabs` gana al config, el config `use_tabs` se respeta sin flag, el walker salta los directorios efímeros y respeta un archivo
+explícito, y el repo entero limpio).
+
 
 ## [Unreleased] — FASE 3: Runtime y ABI
 

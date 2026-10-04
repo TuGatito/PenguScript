@@ -22,7 +22,7 @@ weave main into void:
     var is_ok as bool is calling res.is_ok
     if is_ok:
         calling spark.println with "parse status: OK"
-    
+
     var cfg_val as string is calling res.get with "config"
     var tgt_val as string is calling res.get with "target"
     var v_set as bool is calling res.is_set with "verbose"

@@ -1,0 +1,12 @@
+# Formatting convention for the PenguScript repository.
+#
+# The stdlib (`std/*.pengu`), the generated bindings and the style guide all
+# use 4 spaces per indentation level, which is also the `pengu fmt` default.
+# This file makes that convention explicit and independent of the CLI default:
+# the formatter walks up from each file and honours the nearest config.
+#
+# See LANGUAGE.md §20.2.4 and ROADMAP_2.0.md §4.3.
+
+[formatting]
+tab_size = 4
+insert_spaces = true

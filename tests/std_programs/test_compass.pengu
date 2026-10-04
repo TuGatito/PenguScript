@@ -5,7 +5,7 @@ import std.oracle
 
 weave main into void:
     calling spark.println with "=== Test Compass ==="
-    
+
     var sep as string is calling compass.separator
     var is_win as bool is calling compass.is_windows
     var is_unx as bool is calling compass.is_unix
