@@ -966,6 +966,10 @@ Prueba diferencial con el juego de flags exacto del build:
 [D] ... (flag eliminado) + -DMBEDTLS_ALLOW_PRIVATE_ACCESS                    -> rc=0, err=0 (solo los 3 macro-redef)
 ```
 
+> **✅ CERRADO en Fase 3, item 3.1 (commit `c3c6aed`).** `build_pengu_runtime` pasa
+> `-DMBEDTLS_ALLOW_PRIVATE_ACCESS` y ningún `-Wno-*`; la unidad compila con
+> `gcc -std=c11 -Wall -Wextra` con **0 errores y 0 warnings**. C2 verificado.
+>
 Los 24 diagnósticos están **suprimidos por completo**, no degradados: nunca aparecen en el log de
 build. `-Wno-incompatible-pointer-types` hoy es innecesario (0 errores sin él).
 
@@ -3475,7 +3479,7 @@ complejidad ciclotómica de tres dígitos, muy por encima de cualquier umbral ra
 | **B2** | `check_sources_diagnostics` debe fallar si el entry no existe | `pengu_project.py:1272` | `pengu check` en directorio sin `src/main.pengu` → rc≠0 con mensaje claro |
 | **B3** | `parse_known_args` debe rechazar flags desconocidos | `pengu_project.py:4881` | `pengu check --bogus` → rc=2; test paramétrico por subcomando |
 | **B4** | `fmt --indent N` no debe corromper la indentación | `pengu_lsp/formatting.py:234,251` | `fmt(fmt(x)) == fmt(x)` y `check(fmt(x)) == check(x)` sobre los 27 módulos puros |
-| **B5** | `--strict-c99` debe emitir C que compile en programas con `std` | `pengu_codegen.py:4232-4256` | `pengu build --strict-c99` + `gcc -std=c99 -pedantic-errors` sobre `tests/std_programs/*.pengu` → 0 errores |
+| **B5** | `--strict-c99` debe emitir C que compile en programas con `std` | `pengu_codegen.py:4232-4256` | ⏸️ **NO CERRADO — DIFERIDO a 1.1** (Fase 3, item 3.2). Medido: **34 de 61** programas de `tests/std_programs/` fallan `gcc -std=c99 -pedantic-errors` (16 hoisting de índices, 15 statement-expressions, 3 casts/cualificadores). Reproducción mínima de 4 líneas y causa raíz localizada en `AUDIT_1.0_FASE3.md` §6–§7 |
 | **B6** | `pengu_infer.py:4055` `node` → `target_node` | `pengu_infer.py:4055` | Test que acceda a un símbolo privado de otro módulo y espere `E0043` (no `NameError`) |
 | **B7** | Tipos cualificados a través de un módulo re-exportador deben conservar los campos | `pengu_infer.py:1463-1478` | `var v as dep.Vec is with x is 1.0` compila; `raymath.Vector2` funciona |
 | **B8** | `pengu_parser/pengu_runtime.c` debe compilar sin flags de supresión | `build_runtime.py:1195-1204` | `-DMBEDTLS_ALLOW_PRIVATE_ACCESS`, eliminar los dos `-Wno-*`; `gcc -Wall -Wextra -c` → 0 errores |

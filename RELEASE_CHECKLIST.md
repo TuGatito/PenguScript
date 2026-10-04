@@ -14,7 +14,13 @@ the gates locally before tagging.
 - [ ] `python -m pytest tests -q` — 0 failures.
 - [ ] Strict grammar gate: Lark parses the corpus with `strict=True`, no LALR
       conflicts.
-- [ ] C99 portability gate (`--strict-c99`) and ABI layout matrix.
+- [ ] ABI layout matrix.
+- [ ] ❌ **NO USAR** `--strict-c99` como gate de portabilidad: **no es
+      funcional para programas que importan `std` en 0.16.0**. Medido: 34 de 61
+      programas de `tests/std_programs/` fallan `gcc -std=c99 -pedantic-errors`
+      (16 por hoisting de índices fuera de ámbito, 15 por statement-expressions
+      `({...})`, 3 por cualificadores/casts). ⏸️ **Diferido a 1.1** (item 3.2/B5).
+      Ver `AUDIT_1.0_FASE3.md` §6–§7.
 - [ ] FASE 2 gate: `_Static_assert(PENGU_ABI_VERSION)` present in `bundle.c`.
 - [ ] FASE 3 tooling gate (bind, assets, JSON diagnostics, LSP semantics, fmt,
       docs, cross-compilation).

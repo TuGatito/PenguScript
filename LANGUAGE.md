@@ -3197,13 +3197,40 @@ pengu build [--profile PROFILE] [--config CONFIG] [--entry ENTRY] [--output OUTP
 - `--config, -c`: Path to custom `pengu.yaml` or project root.
 - `--entry, -e`: Overrides root entrypoint file (default: `src/main.pengu`).
 - `--output, -o`: Custom target output path (e.g. `build/bundle.c` or `build/game.exe`).
-- `--strict-c99`: Emits portable C99 instead of GNU statement expressions. By
-  default the generated C uses `__extension__(({ ... }))` (a GCC/Clang
-  extension); with this flag every expression-level temporary is *hoisted* into
-  the enclosing statement, so the bundle contains neither `({ ... })` nor
-  `__auto_type` and compiles with `-std=c99 -pedantic-errors`. Can also be set
+- `--strict-c99`: Emits C99-oriented output instead of GNU statement expressions.
+  By default the generated C uses `__extension__(({ ... }))` (a GCC/Clang
+  extension); with this flag expression-level temporaries are *hoisted* into the
+  enclosing statement, which removes `__auto_type` from the bundle. Can also be set
   with `PENGU_STRICT_C99=1` or `build: strict_c99: true` in `pengu.yaml`. The GNU
   path remains the default, so existing builds are unaffected.
+
+  > [!WARNING]
+  > **⏸️ `--strict-c99` is not functional for programs that import `std` in
+  > 0.16.0. Deferred to 1.1. Do not use it as a CI or release portability gate.**
+  >
+  > Measured: **34 of the 61** programs in `tests/std_programs/` fail
+  > `gcc -std=c99 -pedantic-errors`. Three independent causes:
+  >
+  > | Cause | Programs | Signature |
+  > |---|---|---|
+  > | Index hoisted out of the loop that declares its operand | 16 | `'k' undeclared` |
+  > | Statement-expressions `({...})` remaining in strict bundles | 15 | `ISO C forbids braced-groups within expressions` |
+  > | Qualifier/cast diagnostics | 3 | `discards 'const' qualifier`, `casting nonscalar` |
+  >
+  > A minimal reproduction is 4 lines:
+  >
+  > ```pengu
+  > weave main into int:
+  >   var xs as list of int is [1, 2, 3]
+  >   var ys as list of int is [4, 5, 6]
+  >   var zs as list of int is for k in xs then ((xs at k) + (ys at k))
+  >   return 0
+  > ```
+  >
+  > It emits `int64_t _p_idx_9 = (int64_t)(k);` **before** the `for` loop that
+  > declares `k`. `_block_expr` hoists to the enclosing statement's prelude, which
+  > in GNU mode is harmless because `({ ... })` creates a scope enclosing the loop
+  > variable, and in strict mode is out of scope. See `AUDIT_1.0_FASE3.md` §6–§7.
 - `--target-compiler`: Selects the C dialect used for attributes and `restrict`
   (`gcc`, `clang`, `msvc`, `tcc`; default: inferred from `--cc`). Also
   `PENGU_TARGET_COMPILER` or `build: target_compiler:` in `pengu.yaml`.
