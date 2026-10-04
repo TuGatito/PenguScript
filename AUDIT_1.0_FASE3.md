@@ -17,7 +17,7 @@
 | 3.12 | 🟢 Guardar los `#define` con `#ifndef` | ✅ **cerrado** | 3 warnings `-Wmacro-redefined` → 0 |
 | 3.2 | 🔴 **B5** — `--strict-c99` compila C portable con `std` | ⏸️ **DIFERIDO a 1.1** | §6–§7: 34/61 fallan; causa raíz localizada y fix intentado sin converger |
 | 3.3 | 🔴 Eliminar los statement-expressions `({...})` en modo estricto | ⏳ pendiente | — |
-| 3.4 | 🟠 `__typeof__` en vez de `__auto_type` para TCC | ⏸️ **REVERTIDO / DIFERIDO a 1.1** | §9, §11: el fix funcionaba para tcc (61/61) pero **rompió 1 test de regresión**; revertido |
+| 3.4 | 🟠 `__typeof__` en vez de `__auto_type` para TCC | ⏸️ **REVERTIDO / DIFERIDO a 1.1** | §9, §11: el fix lograba tcc 61/61 pero **rompió un test de regresión**; revertido en `b22f075` |
 | 3.5 | 🟠 **A15** — `PENGU_ABI_VERSION` verificable contra el `.a` | ⏳ pendiente | — |
 | 3.6 | 🟠 `SIGFPE`/`SIGILL`/`SIGBUS` + `sigaction` | ⏳ pendiente | — |
 | 3.7 | 🟠 Volcado sin `snprintf` **o** retirar la afirmación async-signal-safe | ⏳ pendiente | — |
@@ -597,3 +597,52 @@ comprobaba una propiedad distinta de la que rompí: tcc compila, pero el *objeti
 cambió de forma. Un test que sólo mira "compila" no detecta "genera otra cosa". La suite completa sí
 lo detectó, y es la lección: **el criterio "compila" es necesario pero no suficiente**, exactamente
 como advertía el enunciado de la fase para este tipo de cambio.
+
+
+---
+
+## §12. Verificación tras la reversión de 3.4
+
+```
+2499 passed, 18 skipped, 3 xfailed, 0 failed
+```
+
+**0 fallos.** Los 4 tests de `test_regression_0_13_1*` que fallaban con 3.4 aplicado vuelven a
+fallar igual que en el commit base —es decir, son **preexistentes**— y la regresión que 3.4
+introdujo (`test_p2_review_fixes.py::test_chained_set_index_through_ref_to_array`) queda resuelta.
+
+Estado del árbol: limpio. `pengu_codegen.py` = base `403fa45` + el `startup-install` de 3.8
+(`__auto_type` 16, `pengu_install_crash_handler()` 1).
+
+### Estado real de los 12 items de la Fase 3 tras esta sesión
+
+| Grupo | Items | Estado |
+|---|---|---|
+| A | 3.1 (B8), 3.12 | ✅ cerrados (sesión anterior) |
+| A | 3.4 | ⏸️ revertido y diferido, con la medición y la causa del conflicto |
+| A | 3.8 | ✅ cerrado en esta sesión (`9b686c1`) |
+| A | 3.9 | ⏳ pendiente |
+| B | 3.5, 3.11 | ⏳ pendientes |
+| C | 3.6, 3.7 | ⏳ pendientes |
+| D | 3.10 | ⏳ pendiente |
+| E | 3.3 | ⏳ pendiente |
+| — | 3.2 (B5) | ⏸️ diferido (sesión anterior) |
+
+**Cerrados: 3/12. Diferidos con medición: 2/12 (3.2, 3.4). Pendientes: 7/12.**
+
+### Hallazgo transversal que afecta a 3.6 y 3.7
+
+`pengu_frame_push` **no tiene ningún uso** en los bundles generados (0 usos en el bundle de prueba,
+frente a cientos de llamadas en el código fuente del runtime). Si eso se confirma, el volcado de
+frames **nunca se puebla** y el mensaje de crash sale con la traza vacía — que es la mitad del valor
+de 3.6 (imprimir frames con `.pengu` file+line) y el sujeto entero de 3.7 (formatear ese volcado).
+**Conviene medirlo antes de invertir en 3.6/3.7**, porque si la traza está vacía, el trabajo rinde
+mucho menos de lo que sugiere el criterio de "done".
+
+### Lección de método (segunda de la fase, ver §11)
+
+Un test que sólo comprueba "esto compila" **no detecta** "esto genera otra cosa". El
+`test_tcc_portability.py` que escribí para 3.4 pasaba con el fix aplicado **y** revertido, porque
+comprobaba compilación y el cambio rompía la **forma del objetivo de asignación**. Lo detectó la
+suite completa, no mi test. Para cambios en codegen, la red tiene que incluir los tests de
+regresión que inspeccionan el C generado, no sólo los que lo compilan.
