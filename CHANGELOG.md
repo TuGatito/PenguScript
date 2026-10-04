@@ -3,6 +3,33 @@
 All notable changes to PenguScript will be documented in this file.
 
 
+## [Unreleased] — FASE 3: Runtime y ABI
+
+> Cierra el runtime y la ABI: C99 legal **sin flags de supresión**, portabilidad
+> declarada verificable, ABI comprobable end-to-end, y cada afirmación documental
+> respaldada por un gate que **compila o ejecuta** (regla C1).
+
+### 🔴 Fixed — Bloqueantes
+
+- **B8 — el `.c` del runtime no era C válido.** `pengu_parser/pengu_runtime.c`
+  incluye `<mbedtls/private/*.h>`, cuyas declaraciones mbedtls protege tras
+  `MBEDTLS_ALLOW_PRIVATE_ACCESS`. `build_runtime.py` lo compensaba con
+  `-Wno-incompatible-pointer-types -Wno-implicit-function-declaration`, que
+  **suprimían los 24 errores de declaración implícita** de
+  `mbedtls_md5`/`sha1`/`sha256`/`sha512`: nunca aparecían en el log de build, y
+  `cl.exe` rechaza ambos flags, lo que hacía **imposible cualquier build MSVC**.
+  Ahora `build_pengu_runtime` pasa `-DMBEDTLS_ALLOW_PRIVATE_ACCESS` y **ningún
+  `-Wno-*`**. `gcc -std=c11 -Wall -Wextra` sobre la unidad → **0 errores, 0
+  warnings**. (Los otros cinco sitios con `-Wno-*` en `build_runtime.py`
+  compilan librerías de terceros y quedan fuera de alcance.)
+
+- **`-Wmacro-redefined` en el runtime.** Los `#define` de `PCRE2_STATIC`,
+  `LIBXML_STATIC` y `CURL_STATICLIB` en `pengu_runtime.c` se redefinían porque
+  el build los pasa también por línea de órdenes, produciendo 3 warnings.
+  Ahora están guardados con `#ifndef` y la unidad compila limpia **con y sin**
+  los defines en la línea de órdenes.
+
+
 ## [Unreleased] — CI/CD: auditoría de GitHub Actions (Fase 7)
 
 > Verificación previa contra los 4 workflows reales. **2 hallazgos de la

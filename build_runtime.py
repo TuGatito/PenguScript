@@ -1199,8 +1199,13 @@ def build_pengu_runtime(cc, ar, rebuild=False):
         "-DPCRE2_CODE_UNIT_WIDTH=8",
         "-DLIBXML_STATIC",
         "-DCURL_STATICLIB",
-        "-Wno-incompatible-pointer-types",
-        "-Wno-implicit-function-declaration"
+        # Phase 3 item 3.1 (B8). The runtime includes <mbedtls/private/*.h>, whose
+        # declarations mbedtls gates behind MBEDTLS_ALLOW_PRIVATE_ACCESS. Without
+        # it the unit is ill-formed C99: 24 implicit-function-declaration errors
+        # for mbedtls_md5/sha1/sha256/sha512. The two -Wno-* flags that used to
+        # sit here suppressed all 24 completely -- they never reached the log --
+        # and cl.exe rejects them, which made any MSVC build impossible.
+        "-DMBEDTLS_ALLOW_PRIVATE_ACCESS",
     ]
     # POSIX hosts use the system libxml2/libcurl/libmicrohttpd (build_runtime
     # skips their Windows-tuned static builds there), so their headers come

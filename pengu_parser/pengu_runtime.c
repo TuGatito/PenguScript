@@ -10,10 +10,18 @@
 #include "pengu_runtime.h"
 
 #define PCRE2_CODE_UNIT_WIDTH 8
+/* Guarded: the build passes these on the command line too, and redefining a macro
+ * that is already defined is a -Wmacro-redefined warning. Guarding keeps the
+ * translation unit warning-free whether the flag is present or not, which is what
+ * Phase 3 item 3.12 requires. */
+#ifndef PCRE2_STATIC
 #define PCRE2_STATIC
+#endif
 #include <pcre2.h>
 
+#ifndef LIBXML_STATIC
 #define LIBXML_STATIC
+#endif
 #include <libxml/parser.h>
 #include <libxml/HTMLparser.h>
 #include <libxml/tree.h>
@@ -27,7 +35,9 @@
 #include <mbedtls/private/sha256.h>
 #include <mbedtls/private/sha512.h>
 
+#ifndef CURL_STATICLIB
 #define CURL_STATICLIB
+#endif
 #include <curl/curl.h>
 
 #include <microhttpd.h>
