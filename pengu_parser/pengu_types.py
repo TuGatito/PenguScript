@@ -522,6 +522,14 @@ class RefType(Type):
             return True
         if isinstance(other, AliasType):
             return self.is_compatible(other.target)
+        if isinstance(other, BaseType) and other.name == "opaque":
+            # Widening upcast to the opaque pointer type. This loses no
+            # information and cannot truncate -- it is the same conversion C
+            # performs implicitly for any object pointer assigned to void*, and
+            # the size is a pointer either way. Requiring `transmute` here meant
+            # the stdlib had to write an *unsafe* cast to express a safe
+            # conversion, which is what made W0001 noisy (Phase 2 §3.8.3).
+            return True
         if isinstance(other, RefType):
             # Directional frozen check:
             # ref to frozen T can NEVER flow into ref to mutable T (including mutable void*).

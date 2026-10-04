@@ -541,14 +541,14 @@ enchanting ChanInt:
     ## Returns true when sent, or false when the channel is closed.
     weave send with v as int into bool:
         var tmp as int is v
-        var ptr as opaque is transmute (sigil of tmp) to opaque
+        var ptr as opaque is sigil of tmp
         return calling pengu_c_filum_chan_send with self->_ptr , ptr
 
     ## Receives an `int` from the channel. Blocks until a value is available or channel is closed.
     ## Returns `some val` when received, or `maybe none` when closed and drained.
     weave recv into maybe int:
         var out_val as int is 0
-        var ptr as opaque is transmute (sigil of out_val) to opaque
+        var ptr as opaque is sigil of out_val
         var ok as bool is calling pengu_c_filum_chan_recv with self->_ptr , ptr
         if ok:
             return some out_val
@@ -606,7 +606,7 @@ enchanting ChanString:
     ## Returns true when accepted, false when closed.
     weave send with v as string into bool:
         var owned as string is calling pengu_string_copy with v
-        var ptr as opaque is transmute (sigil of owned) to opaque
+        var ptr as opaque is sigil of owned
         var ok as bool is calling pengu_c_filum_chan_send with self->_ptr , ptr
         if not ok:
             banish owned
@@ -619,7 +619,7 @@ enchanting ChanString:
     ## Returns `some val` on receipt, or `maybe none` when closed and drained.
     weave recv into maybe string:
         var out_val as string is ""
-        var ptr as opaque is transmute (sigil of out_val) to opaque
+        var ptr as opaque is sigil of out_val
         var ok as bool is calling pengu_c_filum_chan_recv with self->_ptr , ptr
         if ok:
             return some out_val
@@ -674,14 +674,14 @@ enchanting ChanFloat:
     ## Returns true when accepted, false when closed.
     weave send with v as float into bool:
         var tmp as float is v
-        var ptr as opaque is transmute (sigil of tmp) to opaque
+        var ptr as opaque is sigil of tmp
         return calling pengu_c_filum_chan_send with self->_ptr , ptr
 
     ## Receives a float from the channel.
     ## Returns `some val` on receipt, or `maybe none` when closed and drained.
     weave recv into maybe float:
         var out_val as float is 0.0
-        var ptr as opaque is transmute (sigil of out_val) to opaque
+        var ptr as opaque is sigil of out_val
         var ok as bool is calling pengu_c_filum_chan_recv with self->_ptr , ptr
         if ok:
             return some out_val
@@ -734,14 +734,14 @@ enchanting ChanBool:
     ## Returns true when accepted, false when closed.
     weave send with v as bool into bool:
         var tmp as bool is v
-        var ptr as opaque is transmute (sigil of tmp) to opaque
+        var ptr as opaque is sigil of tmp
         return calling pengu_c_filum_chan_send with self->_ptr , ptr
 
     ## Receives a boolean from the channel.
     ## Returns `some val` on receipt, or `maybe none` when closed and drained.
     weave recv into maybe bool:
         var out_val as bool is false
-        var ptr as opaque is transmute (sigil of out_val) to opaque
+        var ptr as opaque is sigil of out_val
         var ok as bool is calling pengu_c_filum_chan_recv with self->_ptr , ptr
         if ok:
             return some out_val

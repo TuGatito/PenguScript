@@ -154,8 +154,8 @@ weave ptr_is_valid with p as ref to void into bool:
 
 ## Returns true if two pointers reference the same memory address.
 weave ptr_eq with a as ref to void , b as ref to void into bool:
-    var oa as opaque is transmute a to opaque
-    var ob as opaque is transmute b to opaque
+    var oa as opaque is a
+    var ob as opaque is b
     return oa == ob
 
 # ----------------------------------------------------------------------------
@@ -223,7 +223,7 @@ weave bytes_from_string with s as string into ref to byte:
 weave string_from_cstr_n with cstr as ref to char , max_len as int into string:
     if cstr == null or max_len <= 0:
         return ""
-    var sl as slice of byte is calling slice_from_ptr of byte with (transmute cstr to ref to void) , max_len
+    var sl as slice of byte is calling slice_from_ptr of byte with cstr , max_len
     var n as int is 0
     while n < max_len:
         if (sl at n) == 0:
@@ -241,7 +241,7 @@ weave string_from_cstr_n with cstr as ref to char , max_len as int into string:
 weave string_from_bytes with data as ref to byte , count as int into string:
     if data == null or count <= 0:
         return ""
-    var sl as slice of byte is calling slice_from_ptr of byte with (transmute data to ref to void) , count
+    var sl as slice of byte is calling slice_from_ptr of byte with data , count
     var out as string is ""
     var i as int is 0
     while i < count:
