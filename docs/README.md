@@ -16,6 +16,7 @@ documents from earlier phases.
 | [`README_RELEASE.md`](README_RELEASE.md) | The standalone `pengucc_build/` distribution: layout, install, uninstall, bundled TinyCC and PCH | **Yes** — written by `make_release.py` (`generate_release_readme`) |
 | [`PERFORMANCE.md`](PERFORMANCE.md) | Performance methodology, measured numbers, cached-build behaviour, and the honestly-documented known leaks | No — authored |
 | [`FUZZING.md`](FUZZING.md) | Fuzzing harnesses, corpora and run budgets | No — authored |
+| [`ABI.md`](ABI.md) | The runtime ABI policy: what `PENGU_ABI_VERSION` covers, what bumps it, and how a stale `libpengu_runtime.a` is caught at link time | No — authored |
 
 ## Normative documents (repository root)
 
