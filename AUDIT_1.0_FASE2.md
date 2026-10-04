@@ -1183,3 +1183,113 @@ diseñó para que el arreglo fuera deliberado y no accidental.
 | `W0008 UnusedImport` | ⏸️ 1.1 — necesita procedencia de símbolos |
 | `W0011 EmptyTestBody` | ❌ REFUTADO — el grammar exige `stmt+` |
 | `W0012 DeprecatedAliasUse` | ✅ **implementado**: el mecanismo estaba roto en tres capas (arregladas) y faltaban los dos puntos de consulta (arreglados). Usar un `@deprecated` de cualquier clase —weave, método o tipo— ahora avisa |
+
+---
+
+## §12. Item 2.4: tercera y cuarta vía descartadas; el mapa completo de los 188
+
+El §10 descartó dos vías. Esta ronda probó dos más, también en memoria y sin tocar el árbol.
+
+### Tercera vía — sacar las expresiones-terminadas-en-bloque de la rama simple
+
+Se intentó definir una `value_expr` **sin** las formas terminadas en bloque:
+
+```
+return_stmt: "return" [value_val_expr] _NEWLINE
+           | "return" value_block_expr
+?value_val_expr: unless_stmt | if_stmt | while_stmt | for_stmt | expr
+value_block_expr: judge_expr | do_expr | with_init_expr
+```
+
+**Falla igual:** `GrammarError: Reduce/Reduce collision in Terminal('NOT')`. El motivo es que
+`judge_expr` **no solo** es alcanzable como `value_expr`: `or_else_expr` desciende por `try_expr`
+hasta él (`pengu_grammar.py:289-299`), así que sigue habiendo dos caminos de reducción. Excluirlo
+obligaría a duplicar toda la cascada de expresiones sin esas formas, que es exactamente el tipo de
+duplicación que el §3.6 demostró que **no reduce conflictos**.
+
+### Cuarta vía — declaraciones de precedencia explícitas
+
+La propuesta del roadmap ("tabla de precedencia explícita"). Lark las aplica solo a **terminales
+con nombre**, y la cascada aritmética está escrita con literales anónimos:
+
+```
+?bit_add: bit_add "+" bit_mul -> add
+```
+
+Convertirla exige nombrar ~18 terminales (`PLUS`, `MINUS`, `STAR`, `SLASH`, `PERCENT`, `EQ`, `NE`,
+`LT`, `LE`, `GT`, `GE`, `VBAR`, `CIRCUMFLEX`, `AMPERSAND`, `SHL`, `SHR`, …) y sustituirlos en
+**todas** sus apariciones. El intento produjo `GrammarError: Rule 'EQ' used but not defined`: los
+literales aparecen en más sitios de los que un reemplazo mecánico alcanza (incluida la cascada
+`_no_cast` y `slice_range`), y un reemplazo incompleto rompe el grammar.
+
+Además hay una razón de fondo para no hacerlo: **Lark ya resuelve estos conflictos por *shift*, que
+es lo correcto para una cascada escrita así.** Los 9 conflictos de `bit_add` (uno por cada uno de
+`PERCENT`/`STAR`/`SLASH` en cada producción) no son un bug latente: son el mecanismo por el que la
+precedencia funciona, y `tests/test_precedence.py` la fija. Convertirlos en declaraciones
+explícitas cambiaría la forma en que el parser llega al mismo resultado, con riesgo de alterar la
+asociatividad, a cambio de un número.
+
+### Mapa completo de los 188 (por regla)
+
+| Regla | Conflictos | Terminales | Naturaleza |
+|-------|-----------|-----------|------------|
+| `return_stmt` | **45** | 45 distintos | `[value_expr] [_NEWLINE]` ambos opcionales. **Las 4 vías probadas fallan** (§7, §10, §12) |
+| `bool_and_expr` | 18 | 9 (×2) | `comparison` es alcanzable desde `bool_and_expr` y desde `logic_or` |
+| `normal_target` | 12 | `DOT`/`ARROW`/`__ANON_1` (×4) | `(NAME\|self) (access_op)*` vs `dotted_path: NAME ("." NAME)*` vs `with_target` |
+| `bit_add` | 9 | `PERCENT`/`STAR`/`SLASH` (×3) | Cascada; **resuelto por shift = correcto** |
+| `list_try_expr` | 9 | 9 distintos | `comparison` alcanzable por dos caminos |
+| `with_target` | 6 | `DOT`/`ARROW`/`__ANON_1` (×2) | Igual que `normal_target` |
+| `bit_shift` | 6 | `PLUS`/`MINUS` (×3) | Cascada; resuelto por shift |
+| `calling_expr` | 6 | `WITH`/`OF` (×3) | `generic_args`/`arg_list` opcionales |
+| `comparison` | 6 | `VBAR` (×6) | `comparison OP logic_or`: el lado derecho debería ser de precedencia mayor |
+| `range_expr` | 5 | `VBAR`/`TO`/`DOTDOT` | `range_expr: logic_or OP logic_or` con `logic_or` recursivo |
+| `dotted_path` | 5 | `AS`/`DOT`/`COLON`/`OF` | camino duplicado de `custom_type` |
+| `custom_type` | 5 | `OF`/`COMMA`/`_AND_SEP` | camino duplicado de `dotted_path` |
+| `let_decl` / `var_decl` / `const_decl` | 10 | `_NEWLINE` | mismo `[_NEWLINE]` opcional |
+| otras 25 reglas | 45 | — | mayoría `_NEWLINE` opcional y prefijos compartidos |
+
+**45 de 188 (24 %) son `return_stmt`.** El resto son tres familias estructurales —cascada de
+expresiones (correcta por shift), `logic_or` en el lado derecho de las comparaciones, y los tres
+caminos solapados de nombre-cualificado— más el `_NEWLINE` opcional.
+
+### Veredicto sobre el criterio 2
+
+`Lark(GRAMMAR, parser='lalr', strict=True)` **sigue sin construirse**. Se han probado y descartado
+**cuatro** vías con la medición delante:
+
+| Vía | Resultado |
+|-----|-----------|
+| 1. Colapsar las reglas `_no_cast` duplicadas (§3.6) | 188 → **188** (no aporta) |
+| 2. Exigir el `_NEWLINE` de `return_stmt` (§7) | 188 → **143**, pero rompe **24/52** módulos |
+| 3. Separar `"return" block_expr` (§10) | **Reduce/Reduce**, el grammar no construye |
+| 4. Excluir las formas de bloque de `value_expr` (§12) | **Reduce/Reduce** otra vez |
+| 5. Declaraciones de precedencia explícitas (§12) | Requiere nombrar ~18 terminales en todo el grammar; intento incompleto no construye |
+
+**Lo que queda por hacer está identificado y acotado:** normalizar las cuatro expresiones
+terminadas en `_DEDENT` (`judge_expr`, `do_expr`, `with_init_expr`, `or_block`) para que consuman un
+`_NEWLINE` final. Con eso la vía 2 se vuelve aplicable y `return_stmt` deja de aportar sus 45
+conflictos. Toca cuatro producciones de expresión y sus consumidores en `pengu_infer` y
+`pengu_codegen`.
+
+**No se hace en esta fase**: es un cambio de forma del grafo de expresiones, con presupuesto propio
+y con la suite completa como red — exactamente el tipo de cambio que C4 manda no meter al final de
+una fase.
+
+---
+
+## §13. Rendimiento de la suite: un test costaba 87 s
+
+El test que añadí en el §3.7 para blindar la sintaxis de rango hacía un barrido de
+`pengu check --entry` sobre los 52 módulos **dentro de un solo test**: **87 s** para una aserción
+(≈7 % de la suite), duplicando trabajo que `tests/test_stdlib.py` ya hace en cada ejecución.
+
+Lo que afirma es una propiedad del **texto fuente** (que nadie reintroduzca la grafía deprecada), así
+que leer el texto es el instrumento correcto: se descartan comentarios, literales de string y `...`,
+y se informa de cualquier `..` restante. **87 s → 7,4 s** para el archivo completo (16 tests).
+
+Se añadió `test_the_dotdot_scan_actually_detects_a_range` porque el descarte de comentarios y strings
+puede fallar de una forma que haga que el escáner no encuentre nada en ningún archivo — lo que
+convertiría el guard en un no-op. Fija que sí encuentra un rango real e ignora un comentario con
+`1..12`, un string con `a..b` y un vararg `many int`.
+
+C2 verificado: inyectar un rango `..` real en `std/spark.pengu` hace fallar el escáner.
