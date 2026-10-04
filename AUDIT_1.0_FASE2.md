@@ -1560,3 +1560,67 @@ antes de tocar la producción**. Aquí queda medido y con la posición exacta de
 que es lo que le faltaba a las siete variantes anteriores.
 
 **Estado:** item 2.4 sigue ⏸️, contador en **188**, criterio 2 sin cumplir.
+
+---
+
+## §17. Cuarta corrección: no hay ningún token "de más" tampoco
+
+El §16 concluyó que había un `_NEWLINE` **extra** antes de los `_DEDENT`. Trazando qué producción
+consume cada token, **también es falso**, y la cuenta cuadra sin sobrantes:
+
+```
+when_clause: "when" … "->" expr _NEWLINE      # consume 1 _NEWLINE por cláusula
+judge_expr:  "judge" expr ":" _NEWLINE _INDENT when_clause+ [else_clause] _DEDENT
+```
+
+Para el programa de prueba, la secuencia es
+
+```
+COLON _NEWLINE _INDENT  RETURN JUDGE NAME COLON _NEWLINE _INDENT
+  WHEN … STRING _NEWLINE      <- terminador del primer when_clause
+  WHEN … STRING _NEWLINE      <- terminador del segundo when_clause
+_DEDENT _DEDENT
+```
+
+Hay **exactamente dos `_NEWLINE` y dos `when_clause`**. El `_NEWLINE _NEWLINE` aparente es
+simplemente **el terminador del segundo `when_clause`**, que es un token legítimo y necesario. No
+sobra nada, y `judge_expr` no genera ningún token extra. La cuenta es correcta.
+
+### Cuatro teorías, cuatro refutaciones
+
+| # | Teoría | Refutación |
+|---|--------|-----------|
+| 1 (§7) | Hay que exigir el `_NEWLINE` de `return_stmt` | Rompe 24/52 módulos |
+| 2 (§12) | Hay que normalizar las expresiones de bloque | 188 → 188, rompe 24/52 |
+| 3 (§15) | El indenter no emite `_NEWLINE` junto a cada `_DEDENT` | El volcado normal sí lo emite |
+| 4 (§16) | Hay un `_NEWLINE` de más antes de los `_DEDENT` | Es el terminador del último `when_clause`; no sobra |
+
+**El token stream es correcto.** Ni falta ni sobra nada. Las cuatro teorías nacieron de leer el
+volcado a ojo en vez de **contar qué producción consume cada token**, que es lo que finalmente
+resolvió el §17.
+
+### Consecuencia honesta para el item 2.4
+
+Si el token stream es correcto, entonces los 45 conflictos de `return_stmt` **no son un artefacto del
+lexer** y no se arreglan en el lexer. Son una ambigüedad real de la gramática LALR(1):
+
+```
+return_stmt: "return" [value_expr] [_NEWLINE]
+```
+
+`value_expr` incluye `judge_expr`, que termina en `_DEDENT`. Con `[_NEWLINE]` opcional, tras leer
+`return` el parser puede reducir la sentencia (valor ausente) o desplazar hacia una expresión, y
+**ambas son viables para los 45 terminales que pueden iniciar una expresión**. Eso es una ambigüedad
+genuina de la gramática, no un problema de lexing.
+
+Las vías 3, 4 y 6 fallaron porque intentaban quitar la ambigüedad **moviendo el token**, y el token
+está bien. La vía que ataca la ambigüedad de verdad es separar las dos formas de `return`, y esa
+choca con que `judge_expr` es alcanzable por dos caminos (§10). Para romper eso hay que **sacar
+`judge_expr` (y compañía) de `expr`** — no de `value_expr` — porque `or_else_expr` → `try_expr` →
+`judge_expr` es el segundo camino. Eso sí es un cambio de forma del grafo de expresiones, con
+consumidores en tres módulos.
+
+**Estado final del item 2.4 en esta fase: ⏸️ diferido a 1.1**, contador **188**, criterio 2 **sin
+cumplir**, y —por primera vez— con la formulación correcta del problema: es una ambigüedad LALR real
+de `return_stmt`, no un defecto del lexer ni un token perdido. Cuatro teorías refutadas dejan ese
+enunciado como el único que sobrevive a la medición.
