@@ -1624,3 +1624,72 @@ consumidores en tres módulos.
 cumplir**, y —por primera vez— con la formulación correcta del problema: es una ambigüedad LALR real
 de `return_stmt`, no un defecto del lexer ni un token perdido. Cuatro teorías refutadas dejan ese
 enunciado como el único que sobrevive a la medición.
+
+---
+
+## §18. Vías 8 y 9 descartadas, y el enunciado mínimo del problema
+
+Se probaron dos mecanismos más, elegidos **después** de tener el diagnóstico correcto del §17 (no
+antes, como las siete anteriores).
+
+| # | Vía | Resultado |
+|---|-----|-----------|
+| 8 | `return_stmt.2: … _NEWLINE` / `return_stmt.1: … block_value_expr` (prioridades de regla) | `Rule 'return_stmt' defined more than once` — Lark exige un solo nombre con alternativas |
+| 9 | Un solo `return_stmt` con dos alternativas y `block_value_expr` como no-terminal propio | **`Reduce/Reduce collision in Terminal('NOT')`** |
+
+### Por qué la vía 9 no puede funcionar
+
+El conflicto reduce/reduce aparece porque **`judge_expr` es alcanzable por dos caminos**:
+
+```
+camino 1:  block_value_expr -> judge_expr
+camino 2:  value_expr -> expr -> or_else_expr -> try_expr -> judge_expr
+```
+
+Cuando el parser ha reconocido un `judge_expr` completo, no sabe si reducirlo como
+`block_value_expr` (alternativa 1) o dejarlo dentro de `value_expr` (alternativa 2). Las dos
+reducciones son válidas, y un conflicto reduce/reduce **no se resuelve con prioridades** — Lark lo
+rechaza en la construcción.
+
+**Cerrar la vía 9 exige eliminar el camino 2**, es decir sacar `judge_expr` de `try_expr`. Eso es
+seguro y directo, pero **no basta**:
+
+> Con `judge_expr` fuera de `try_expr`, las dos alternativas de `return_stmt` siguen existiendo, y
+> ahora el parser debe decidir *antes* de reducir, al ver el token `JUDGE`: ¿desplaza para la
+> alternativa 2 (`return_block`) o para construir `value_expr`? Si la alternativa 2 no existe (vía 2
+> del §7), hay un solo camino y funcionaría — pero esa es exactamente la vía que rompe 24/52 módulos,
+> porque `judge_expr` **no consume `_NEWLINE`** y la alternativa 1 lo exige.
+
+Es un círculo cerrado, y es la formulación mínima del problema:
+
+**`return_stmt` necesita `[_NEWLINE]` opcional porque `value_expr` puede terminar en `_DEDENT`; y
+necesita `_NEWLINE` obligatorio para no ser ambiguo. Las dos necesidades son incompatibles mientras
+`value_expr` contenga expresiones terminadas en bloque.**
+
+### Las tres salidas reales
+
+Ninguna es un ajuste de producción:
+
+1. **Sacar las expresiones terminadas en bloque de `value_expr` y `expr`** (no solo de `try_expr`),
+   de modo que `_NEWLINE` sea siempre obligatorio. Es un cambio del grafo de expresiones con
+   consumidores en `pengu_infer`, `pengu_codegen` y `pengu_checker`, y **rompe compatibilidad**:
+   `var x as T is judge …:` dejaría de compilar.
+2. **Hacer que las expresiones de bloque consuman su propio `_NEWLINE`** — requiere que el lexer
+   emita uno **después** del `_DEDENT`, que hoy no ocurre (§17), y por tanto un cambio en
+   `PenguIndenter` que altera el contrato con `lark.Indenter`.
+3. **Aceptar la ambigüedad y documentarla**, manteniendo `strict=True` fuera de CI. Es lo que se hace
+   hoy, con el coste de que el *budget* de conflictos (188) puede crecer sin que nada lo detecte más
+   que el test que lo fija.
+
+**Recomendación:** la salida 1 es la correcta a largo plazo (elimina la ambigüedad de raíz y hace el
+lenguaje más regular), pero es incompatible con código existente y necesita una fase propia con
+migración. La 3 es aceptable para 1.x **si** se refuerza el guard: el test del presupuesto ya existe
+(`test_grammar_strict_mode_conflict_budget`), y debería ser un gate de CI para que el número no suba
+en silencio.
+
+### Cierre del item 2.4 en la Fase 2
+
+**⏸️ Diferido a 1.1.** Nueve vías medidas, ninguna funciona; el problema está enunciado en su forma
+mínima (§18) y las tres salidas están identificadas con su coste. El contador queda en **188** y el
+criterio 2 **sin cumplir** — declararlo cumplido sería falso, y seguir probando variantes después de
+nueve refutaciones no aportaría nada nuevo.
