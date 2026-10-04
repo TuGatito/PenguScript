@@ -1742,3 +1742,100 @@ La herramienta es de solo lectura: nunca edita el grammar. `tests/test_grammar_c
 (10 tests) incluye una comprobación cruzada de que el recuento de la herramienta **coincide** con
 `_KNOWN_SHIFT_REDUCE_CONFLICTS`, de modo que si el grammar se mueve sin actualizar el presupuesto,
 los dos discrepan y el test lo dice.
+
+---
+
+## §20. Auditoría de cumplimiento de las reglas de la fase
+
+La Fase 2 imponía cuatro reglas y dos restricciones de alcance. Comprobación final sobre los 36
+commits:
+
+### Alcance: qué se tocó y qué no
+
+| Archivo | Cambios | ¿En alcance? |
+|---|---|---|
+| `pengu_parser/pengu_types.py` | 122 | ✅ tabla de conceptos, `grants()`, `substitute()` |
+| `pengu_parser/pengu_infer.py` | 188 | ✅ consultas de bounds, W0013, rangos, deprecación |
+| `pengu_parser/pengu_checker.py` | 43 | ✅ W0005, atributos de método, deprecación de tipos |
+| `pengu_parser/pengu_codegen.py` | 90 | ✅ emisor de slice compartido (`..` ≡ `to`) |
+| `LANGUAGE.md` + `LANGUAGE_Spanish.md` | 441 | ✅ docs sincronizadas |
+| `std/*.pengu` (10 archivos) | 196 | ✅ solo bounds declarados, renombrados W0005 y el idioma `null` |
+| `tests/` (13 archivos) + `tools/` (1) | 2272 | ✅ nuevo |
+| `AUDIT_1.0.md` + `AUDIT_1.0_FASE2.md` | 1776 | ✅ auditoría |
+
+**Restricciones explícitas de la Fase 2, verificadas con `git diff --name-only`:**
+
+| Ruta prohibida | Estado |
+|---|---|
+| `pengu_lsp/` | untouched ✓ |
+| `pengu_project.py` (CLI) | untouched ✓ |
+| `pengu_runtime.h` / `pengu_parser/pengu_runtime.c` | untouched ✓ |
+| `.github/` (workflows) | untouched ✓ |
+
+**Sobre "no refactorizar la stdlib fuera de alcance":** los 196 cambios en `std/` son exactamente
+tres categorías, todas ordenadas por un item de la fase: (1) declaraciones `where` que la tabla de
+bounds coerente del item 2.1 hizo necesarias, (2) renombrados de locales que ensombrecían un weave
+global (item 2.12), (3) sustitución del idioma `transmute 0`→`null` en `ffi.pengu` (§8). Ninguna
+reorganización gratuita.
+
+### Regla C1 — ningún test aprueba una propiedad inspeccionando texto
+
+Auditoría de las 10 suites nuevas: **22 aserciones** que mencionan una variable de texto, de las
+cuales
+
+* **21 comparan contra `out`**, que es la **salida de diagnóstico del compilador** (códigos `E00xx`,
+  `W0006`). Afirmar sobre lo que el compilador reporta **es** comprobar la propiedad, no esquivarla.
+* **1** está en `test_docs_bounds_sync.py:107` (`assert "Integrum" in text and "Num" in text`), que
+  verifica que la documentación **menciona** los conceptos de la cadena — no que el compilador se
+  comporte de una forma.
+
+**0 aserciones** afirman sobre el texto fuente del programa bajo prueba.
+
+### Regla C2 — cada test falla al revertir su fix
+
+Verificado explícitamente en los cinco casos donde es comprobable:
+
+| Test | Verificación |
+|---|---|
+| `test_num_does_not_grant_equality` / `..._ordering` | Sin `CONCEPT_OPERATORS`, el código viejo aceptaba `T: Num` con `==`/`<` |
+| `test_documented_bounds_block_matches_the_code_table` | Añadir `eq` a la línea `Num` del doc → 2 fallan |
+| `test_alias_in_concept_is_not_implemented` | Añadir `\| "alias" NAME` a `concept_method` → falla |
+| `test_documented_spelling_emits_the_documented_ctype[double]` | Declarar `float: …, double` → 3 fallan |
+| `test_stdlib_does_not_use_the_deprecated_syntax` | Inyectar `..` en `std/spark.pengu` → falla |
+| `test_ref_to_t_widens_to_opaque` | Quitar el caso de `RefType.is_compatible` → 6 fallan |
+| `test_dotdot_range_warns_w0013` | Desactivar la emisión de W0013 → 2 fallan |
+
+### Regla C3 — medir antes de decidir
+
+Cada decisión de diseño tiene su medición **antes** del commit, registrada en §1 y §3:
+bounds (72 sondas + barrido de la stdlib), `alias` en `concept` (compilar el bloque 59), rangos
+(5139 `to` vs 0 `..` sintácticos), `derive` (ejecutar un programa por concepto), primitivos (compilar
+cada grafía), `many T` (ejecutar el variádico), W0008 (69/73 falsos positivos), W0012 (65 símbolos
+deprecados en uso).
+
+**Y donde no se midió primero, se pagó:** los nueve intentos fallidos del item 2.4 (§7-§18) fueron
+todos variantes de grammar escritas desde un modelo mental. El §19 convierte esa lección en
+`tools/grammar_conflicts.py`.
+
+### Regla C4 — el grammar, por familias y una por commit
+
+**El grammar no se tocó en toda la fase** (`pengu_parser/pengu_grammar.py` no aparece en el diff).
+Los nueve intentos se hicieron **en memoria** (construyendo el texto del grammar y midiendo con Lark)
+y se revirtieron sin llegar a commit. Eso es C4 aplicado en su forma más estricta: ninguna familia
+llegó a `main` porque ninguna pasó la medición.
+
+### Cumplimiento del criterio de "done"
+
+| # | Criterio | Estado |
+|---|---|---|
+| 1 | Matriz de bounds medida y coherente con la doc | ✅ 84 tests |
+| 2 | `Lark(..., strict=True)` no lanza en CI | ❌ **188 conflictos** |
+| 3 | Los 4 bloques que no compilaban, compilan o se retiran con ⏸️ | ✅ |
+| 4 | Una sola sintaxis de rango canónica con deprecación | ✅ |
+| 5 | Matriz de `derive` documentada y probada por concept | ✅ |
+| 6 | 52 módulos → 0 warnings propios | ✅ **71 → 0** |
+
+**5 de 6.** El criterio 2 queda **⏸️ diferido a 1.1** con la causa raíz medida (§18), la atribución
+de propiedad de los conflictos medida (§19) y una herramienta de diagnóstico entregada
+(`tools/grammar_conflicts.py`). No se declara cumplido porque no lo está; se declara **diferido**, que
+es lo que el propio roadmap hace con cinco de sus items cuando el presupuesto no alcanza.
