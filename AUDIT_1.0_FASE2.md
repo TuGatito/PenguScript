@@ -1839,3 +1839,75 @@ llegó a `main` porque ninguna pasó la medición.
 de propiedad de los conflictos medida (§19) y una herramienta de diagnóstico entregada
 (`tools/grammar_conflicts.py`). No se declara cumplido porque no lo está; se declara **diferido**, que
 es lo que el propio roadmap hace con cinco de sus items cuando el presupuesto no alcanza.
+
+---
+
+## §21. La "salida 1" del §18 **no es viable**, y la razón es más fuerte de lo que dije
+
+El §18 propuso tres salidas y recomendó la 1 ("sacar las expresiones terminadas en bloque de
+`value_expr` y `expr`"). Al ir a medirla antes de descartarla, aparecen dos hechos que **invalidan
+esa recomendación y corrigen mi descripción del problema**.
+
+### Hecho 1 — `judge` en posición de sentencia es sintaxis real y en uso
+
+```
+$ grep -n 'judge e:' std/archivum.pengu
+145:    judge e:
+146:        when IoError.NotFound -> "no such file or directory"
+...
+```
+
+`std/archivum.pengu:145` dentro de `weave describe_error with e as IoError into string:` usa un
+`judge` **como sentencia**, no como valor de `return`. Lo comprobé con un programa mínimo: un `judge`
+desnudo en el cuerpo de un `weave` es legal.
+
+**Y funciona porque `judge_expr` es alcanzable desde `expr`**, que es justo lo que la salida 1
+proponía eliminar. Es decir: **la salida 1 no rompe solo `var x is judge …:` como dije en el §18 —
+rompe el `judge` como sentencia, que la stdlib ya usa.**
+
+### Hecho 2 — los dos usos son legítimos y ambos obligatorios
+
+| Uso | ¿En uso? | Camino gramatical |
+|-----|----------|-------------------|
+| `return judge …` | **6 archivos** (`chronicle`, `oracle`, `precis`, `seal`, `spark`, `whisper`) | `return_stmt` → `value_expr` |
+| `judge …` como sentencia | **1 archivo** (`archivum`) | `expr_stmt` → `expr` → `or_else_expr` → `try_expr` |
+| `var x is judge …` | **0** — no existe en stdlib ni tests | — |
+
+### Consecuencia: la eliminación de la ambigüedad es **sintácticamente forzada**
+
+`judge_expr` **tiene que** ser alcanzable desde `expr` (por el uso 2). Y `return` **tiene que**
+aceptar un `judge_expr` (por el uso 1). Como `expr` es el camino por el que `return` acepta
+cualquier valor, hay **dos caminos de `return` a `judge_expr`**, y un conflicto reduce/reduce entre
+ellos es inevitable mientras existan las dos sintaxis.
+
+Cerrarlo exige cambiar **la sintaxis**, no la gramática. La opción concreta: exigir una forma
+delimitada para el `return` con valor de bloque, por ejemplo
+
+```
+return do:
+    judge b:
+        when true -> "t"
+```
+
+(`do_expr` ya existe y ya termina en `_DEDENT`, y `judge_expr` dentro de un `do:` es una sentencia,
+no un valor). Eso **elimina** el camino ambiguo y deja la forma actual como error de sintaxis con un
+mensaje que indique la alternativa.
+
+### Corrección al §18 y a lo que reporté
+
+Dije que la salida 1 era "la correcta a largo plazo" y que rompía `var x is judge …:`. Lo segundo era
+**inexacto** (esa forma no existe en el código) y lo primero era **optimista**: la salida 1 no es una
+mejora a largo plazo, es **incompatible con sintaxis vigente y en uso** (`judge` como sentencia), y
+por tanto no es una opción sin un cambio de lenguaje aprobado.
+
+**La formulación final y correcta del bloqueo**, tras diez mediciones:
+
+> `return` necesita aceptar expresiones terminadas en bloque (6 archivos lo usan) y `expr` necesita
+> contenerlas (porque `judge` es también una sentencia, usada en `archivum`). LALR(1) no puede
+> distinguir ambos caminos en el token `JUDGE`, y ningún reordenamiento de producciones lo arregla
+> porque **ambas rutas son necesarias**. La única salida es introducir sintaxis delimitada para una
+> de las dos formas.
+
+Eso convierte el item 2.4 de "reducir conflictos" en **"decisión de sintaxis para el `return` con
+valor de bloque"**, que es una decisión de diseño del lenguaje, no una tarea de implementación.
+Queda registrado así para 1.1.
