@@ -4282,6 +4282,15 @@ class TypeInferrer:
                                         note="Ritual methods cannot be called on instances."
                                     )
                                 if not is_generic_method:
+                                    # Phase 2 item 2.11: a method call resolves
+                                    # here and this is the ONLY place the resolved
+                                    # `FnType` is available, so the deprecation
+                                    # check has to happen here too. Without it,
+                                    # `@deprecated` on an `enchanting` method was
+                                    # registered and documented but never reported
+                                    # -- the exact W0012 "alias @deprecated sin
+                                    # warning efectivo" the roadmap described.
+                                    self._check_deprecated_symbol(m_fn, m_name)
                                     return m_fn, obj_type
                             if not is_generic_method and f"{t_name}_{m_name}" in self.symbols.functions:
                                 return self.symbols.functions[f"{t_name}_{m_name}"], obj_type

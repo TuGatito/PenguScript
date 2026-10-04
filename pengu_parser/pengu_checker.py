@@ -1644,6 +1644,8 @@ class PenguChecker:
                 ritual_methods: Set[str] = set()
                 for m_node in rem_children:
                     if isinstance(m_node, Tree) and m_node.data == "concept_method":
+                        m_attrs, _m_attr_idx = _extract_attributes(m_node.children)
+                        self._validate_attributes(m_attrs, "weave", m_node)
                         m_is_inline, m_is_ritual, m_idx = _extract_weave_modifiers(m_node.children)
                         m_name = str(m_node.children[m_idx])
                         m_rem = [c for c in m_node.children[m_idx+1:] if c is not None]
@@ -1671,7 +1673,7 @@ class PenguChecker:
                             elif isinstance(cn, Token) and cn.type == "NAME":
                                 m_ret = ast_to_type(cn, lookup_m_tp)
 
-                        m_fn_t = FnType(params=m_params, return_type=m_ret, is_ritual=m_is_ritual, type_params=m_tparams)
+                        m_fn_t = FnType(params=m_params, return_type=m_ret, is_ritual=m_is_ritual, type_params=m_tparams, attributes=m_attrs)
                         methods[m_name] = m_fn_t
                         if m_is_ritual:
                             ritual_methods.add(m_name)
@@ -1755,6 +1757,8 @@ class PenguChecker:
                 implemented_methods: Dict[str, FnType] = {}
                 for m_decl in rem_children:
                     if isinstance(m_decl, Tree) and m_decl.data == "weave_decl":
+                        m_attrs, _m_attr_idx = _extract_attributes(m_decl.children)
+                        self._validate_attributes(m_attrs, "weave", m_decl)
                         m_is_inline, m_is_ritual, m_idx = _extract_weave_modifiers(m_decl.children)
                         m_name = str(m_decl.children[m_idx])
                         m_rem = [c for c in m_decl.children[m_idx+1:] if c is not None]
@@ -1785,7 +1789,7 @@ class PenguChecker:
                             elif isinstance(cn, Token) and cn.type == "NAME":
                                 m_ret = ast_to_type(cn, lookup_m_tp)
 
-                        impl_fn_t = FnType(params=m_params, return_type=m_ret, default_count=default_count, is_ritual=m_is_ritual, type_params=m_tparams)
+                        impl_fn_t = FnType(params=m_params, return_type=m_ret, default_count=default_count, is_ritual=m_is_ritual, type_params=m_tparams, attributes=m_attrs)
                         implemented_methods[m_name] = impl_fn_t
 
                         # Coherence (Phase 3): a type may bind several concepts,
@@ -1944,6 +1948,8 @@ class PenguChecker:
 
                 for m_decl in stmt.children[1:]:
                     if isinstance(m_decl, Tree) and m_decl.data == "weave_decl":
+                        m_attrs, _m_attr_idx = _extract_attributes(m_decl.children)
+                        self._validate_attributes(m_attrs, "weave", m_decl)
                         m_inline, m_ritual, m_idx = _extract_weave_modifiers(m_decl.children)
                         m_name = str(m_decl.children[m_idx])
                         m_rem = [c for c in m_decl.children[m_idx+1:] if c is not None]
@@ -1980,7 +1986,7 @@ class PenguChecker:
                             elif isinstance(cn, Token) and cn.type == "NAME":
                                 m_ret = ast_to_type(cn, lookup_m_tp)
 
-                        impl_fn_t = FnType(params=m_params, return_type=m_ret, default_count=default_count, is_ritual=m_ritual, type_params=m_tparams)
+                        impl_fn_t = FnType(params=m_params, return_type=m_ret, default_count=default_count, is_ritual=m_ritual, type_params=m_tparams, attributes=m_attrs)
                         self.symbols.methods[(target_name, m_name)] = impl_fn_t
                         if type_params or m_tparams:
                             self.symbols.methods[(base_tname, m_name)] = impl_fn_t

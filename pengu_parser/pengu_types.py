@@ -1102,8 +1102,8 @@ class RuneType(Type):
         base = self.get_base_name()
         if new_args and not any(isinstance(a, TypeParam) for a in new_args):
             mangled = f"{base}_{'_'.join(a.get_mangled_name() for a in new_args)}"
-            return RuneType(name=mangled, fields=new_fields, methods=new_methods, type_params=[], type_args=new_args, base_name=base, derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds))
-        return RuneType(name=self.name, fields=new_fields, methods=new_methods, type_params=self.type_params, type_args=new_args, base_name=base, derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds))
+            return RuneType(name=mangled, fields=new_fields, methods=new_methods, type_params=[], type_args=new_args, base_name=base, derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds), attributes=dict(self.attributes), field_attributes=dict(self.field_attributes))
+        return RuneType(name=self.name, fields=new_fields, methods=new_methods, type_params=self.type_params, type_args=new_args, base_name=base, derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds), attributes=dict(self.attributes), field_attributes=dict(self.field_attributes))
 
     def is_compatible(self, other: Type) -> bool:
         """Checks rune compatibility by nominal type name."""
@@ -1320,7 +1320,12 @@ class FnType(Type):
             default_count=self.default_count,
             type_params=self.type_params,
             type_args=new_args,
-            is_ritual=self.is_ritual
+            is_ritual=self.is_ritual,
+            # Attributes must survive substitution. Dropping them silently lost
+            # `@deprecated` (and any other marker) the moment a generic weave or
+            # method was monomorphized, so calling a deprecated generic produced
+            # no W0006 at all (Phase 2 item 2.11).
+            attributes=dict(self.attributes),
         )
 
     @property
