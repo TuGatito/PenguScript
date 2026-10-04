@@ -233,6 +233,8 @@ literales de string Unicode completo funcionan. No estaba escrito en ninguna par
 | **2.2** | Documentar la cadena + bloque legible por máquina, sincronizado por test | `a5b691c` | 7 tests; C2 verificado |
 | **2.3** | Retirar la afirmación falsa de `alias` en `concept`; tripwire | `2058220` | 2 tests; tripwire verificado |
 | **2.4b** | Test de precedencia/asociatividad como contrato previo al grammar | `b9807e4` | 99 tests |
+| **2.5** | `to` canónica; `..` deprecada con W0013 y ahora hace slice | `d13ec35` | 15 tests; C2 verificado |
+| **2.6** | Ya satisfecho: `frozen ref to T` → azúcar de `ref to frozen T`, documentado y con test de identidad estructural | (preexistente) | `test_frozen.py` |
 | **2.7** | Semántica real de `many T` y del spread (no implementado) | `87192b5` | 12 tests |
 | **2.8** | Matriz de `derive` medida | `588afb4` | 14 tests |
 | **2.9** | Identificadores ASCII documentados | `87192b5` | (mismo commit que 2.7) |
@@ -295,15 +297,16 @@ función con paréntesis obligatorios (`weave with (a as T, b as U) into V`), qu
 ambigüedad de raíz y además mejora la legibilidad. Ambas son cambios de sintaxis y necesitan
 decisión de diseño (regla C3), no solo de grammar.
 
-### §3.3 Items no iniciados
+### §3.3 Items no completados y veredicto medido
 
-| Item | Estado | Por qué |
-|------|--------|---------|
-| **2.4** (reducción) | ⏸️ intentado y revertido | §3.2 |
-| **2.4** (reglas duplicadas `guard_*`/`*_no_cast`) | ⏸️ pendiente | Requiere 2.4 resuelto primero |
-| **2.5** (unificar sintaxis de rangos + W nuevo) | ⏸️ pendiente | Requiere decidir la sintaxis canónica (C3) antes de implementar |
-| **2.6** (`frozen` en `ref to`) | ⏸️ pendiente | Cambio semántico que necesita medición propia |
-| **2.11** (W0001 de `transmute`) | ⏸️ pendiente | W0001 sigue emitiendo 4 avisos en la stdlib; el análisis no se inició |
+| Item | Estado | Razón medida |
+|------|--------|--------------|
+| **2.4** (reducción) | ⏸️ intentado y revertido | §3.2 y §3.6: `return_stmt` posee 45 de los 188 conflictos; quitarlos exige quitar el `_NEWLINE` opcional de toda la familia de sentencias |
+| **2.4** (reglas duplicadas) | ❌ **medido: no aporta** | §3.6: colapsar los 5 niveles `_no_cast` duplicados dio **188 → 188** |
+| **2.8** (parte `Forma`/`Iterabilis`/`Donum`) | ✅ **cerrado** | Verificado: los tres se **rechazan** con `E0005`, no son derivables. Matriz documentada y con test |
+| **2.11** `W0008` | ⏸️ diferido a 1.1 | §3.8.2: necesita procedencia de símbolos; 69/73 falsos positivos |
+| **2.11** `W0011` | ❌ **REFUTADO** | §3.8.2: el grammar exige `stmt+`; un `test` vacío es `E0000` |
+| **2.11** `W0012` | ⏸️ diferido a 1.1 | §3.8.2: `@deprecated`/`W0006` funcionan; la stdlib solo tiene docstrings |
 
 `W0001` sigue presente y es el mayor resto de ruido de la stdlib:
 
@@ -454,3 +457,374 @@ W0005               : 0
 5. **El roadmap puede quedarse corto describiendo el defecto.** En 2.3 el roadmap decía "ejemplo
    obsoleto"; la realidad era "afirmación falsa de que compila". Vale la pena compilar siempre la
    afirmación antes de decidir el arreglo.
+### §3.6 Item 2.4: dos mediciones más, y por qué sigue en 188
+
+Tras el revert de §3.2 se midió **qué regla posee cada conflicto**, que es la vista accionable (antes
+solo se había medido por terminal):
+
+| Regla | Conflictos |
+|-------|-----------|
+| `return_stmt` | **45** |
+| `bool_and_expr` | 18 |
+| `normal_target` | 12 |
+| `bit_add` | 9 |
+| `list_try_expr` | 9 |
+| `with_target` | 6 |
+| `bit_shift` | 6 |
+| `calling_expr` | 6 |
+| `comparison` | 6 |
+| `range_expr` | 5 |
+| `dotted_path` | 5 |
+| `custom_type` | 5 |
+| (otras 26 reglas) | 60 |
+
+**Total: 188 conflictos repartidos en 38 reglas.** La familia dominante no es la cascada de
+expresiones, es **`return_stmt`**:
+
+```
+return_stmt: "return" [value_expr] [_NEWLINE]
+```
+
+Los 45 conflictos son con los terminales que pueden **iniciar** una expresión (`INT`, `LPAR`,
+`CALLING`, `TRY`, `IF`, `NOT`, `-`, …) más `_NEWLINE`. La causa es estructural: con el `[_NEWLINE]`
+final opcional, tras leer `return` el parser puede
+
+* **reducir** `return_stmt` ya (tratando `[value_expr]` y `[_NEWLINE]` como ausentes), o
+* **desplazar** para empezar una `value_expr`.
+
+Ambas opciones son viables para todo terminal que pueda comenzar una expresión, y el `_NEWLINE`
+opcional añade el mismo problema en el otro extremo. `simple_stmt` tiene la forma gemela
+(`"return" [expr] -> return_simple`), así que cualquier arreglo tiene que tocar las dos.
+
+**Qué haría falta.** El `_NEWLINE` final opcional es la raíz, en toda su familia (`return_stmt`,
+`expr_stmt`, `var_decl`, `let_decl`, `const_decl` — 11 conflictos de `_NEWLINE` en total). Quitarlo
+obliga a que el bloque consuma el separador, lo que es un cambio de forma del grammar con efecto en
+todas las sentencias: es exactamente el tipo de cambio que C4 manda hacer por familias y con la
+suite verificada por commit, y no cabe en el presupuesto de esta fase junto con 2.1–2.12.
+
+**Segunda medición: la cascada `_no_cast` duplicada.** El bloque
+`logic_or_no_cast`/`logic_and_no_cast`/`bit_xor_no_cast`/`bit_shift_no_cast`/`bit_add_no_cast`
+duplica cinco niveles de la cascada canónica. Se sustituyó por una versión que reutiliza los niveles
+canónicos (`bit_add` hacia abajo) y conserva `unary_no_cast`/`bit_mul_no_cast`, que sí hacen falta
+porque `transmute X to T` no puede dejar que `X` se coma el cast:
+
+```diff
+-?expr_no_cast: logic_or_no_cast (("=="|"!="|"<="|">="|"<"|">") logic_or_no_cast)*
+-?logic_or_no_cast: ... ?logic_and_no_cast ... ?bit_xor_no_cast ... ?bit_shift_no_cast ... ?bit_add_no_cast ...
++?expr_no_cast: bit_and_no_cast (("=="|"!="|"<="|">="|"<"|">") bit_and_no_cast)*
++?bit_and_no_cast: bit_and_no_cast "&" bit_mul_no_cast -> bitwise_and | bit_mul_no_cast
+```
+
+**Resultado: 188 → 188.** Los 5 niveles duplicados **no contribuían ni un conflicto**, y los 13 AST
+de referencia quedaron idénticos. El cambio se revirtió por no aportar nada: reducir reglas sin
+reducir conflictos es refactorización sin beneficio, y el coste de mantener la divergencia es real.
+Esto desmiente la hipótesis del roadmap de que "colapsar las 29 reglas duplicadas" bajaría el
+contador: **el contador lo dominan `return_stmt` y `bool_and_expr`, no las reglas duplicadas.**
+
+> **Corrección al roadmap.** El item 2.4 dice "tabla de precedencia explícita + colapsar las 29
+> reglas duplicadas", y presenta ambas como la vía para que `strict=True` construya. La medición
+> dice que la tabla de precedencia no es la palanca principal (el parser ya resuelve por *shift* de
+> forma consistente, y el test de precedencia de `b9807e4` lo fija) y que las reglas duplicadas no
+> aportan conflictos. La palanca real es **el `_NEWLINE` opcional de las sentencias**, empezando por
+> `return_stmt` (45 conflictos, 24 % del total).
+
+---
+
+## §3.7 Item 2.5: decisión de la sintaxis de rango (C3)
+
+### Medición
+
+| Comprobación | Resultado |
+|---|---|
+| `to` en `std/` | **5139** usos |
+| `..` **sintáctico** en `std/` | **0** (las 191 apariciones textuales son comentarios tipo `1..12`, strings, o `...`) |
+| `..` en `LANGUAGE.md` | 1, etiquetado *"alternate range syntax"* |
+| `for i in 1..5` | ✅ compila |
+| `xs at 0..2` | ❌ **`E0005`**: infiere `range of int`, no un slice |
+| `xs at 0 to 2` | ✅ compila |
+
+### Diagnóstico
+
+El defecto real no era "hay dos sintaxis". Era que **la sintaxis alterna solo era alterna en algunas
+posiciones**: `..` funcionaba en `for ... in` pero no en un slice, donde producía un `range of int`
+en lugar de un slice. Un usuario que leyera "alternate range syntax" y escribiera `xs at 0..2`
+obtenía un error de tipos.
+
+### Decisión
+
+**`to` es canónica**; `..` sigue funcionando durante 1.x y emite **`W0013 RangeSyntaxDeprecated`**,
+que es lo que permite eliminarla en 2.0 sin romper en silencio.
+
+| Alternativa | Coste | Por qué se descartó |
+|---|---|---|
+| **A — Retirar `..` ya** | S | Rompe la promesa de compatibilidad de 1.x sin aviso previo |
+| **B — Deprecar con W0013 (elegida)** | S | Coste cero para la stdlib (0 usos), aviso explícito, ruta de salida en 2.0 |
+| **C — Canonizar `..`** | M | Obligaría a reescribir 5139 usos de `to` en la stdlib, sin beneficio |
+
+### Implementación
+
+- **`W0013` se emite en `pengu_infer`, en `range_dotdot`.** Esa regla se alcanza desde *todas* las
+  posiciones de rango (`in`, `at`, y expresión desnuda), así que un solo punto de emisión cubre
+  todas sin duplicar el diagnóstico. Un primer intento lo puso en el checker y en el inferrer a la
+  vez; el checker se retiró para no emitirlo dos veces.
+- **`..` ahora sí hace slice.** El grammar liga `at` más fuerte que `..`, así que `xs at 0..2` se
+  parsea como `range_dotdot(at_expr(xs, 0), .., 2)`. Tanto `pengu_infer` como `pengu_codegen`
+  reconocen esa forma y la tratan como el mismo slice que produce `to`. El codegen comparte **un solo
+  emisor** (`_emit_slice_at`) entre las dos sintaxis, así que no pueden divergir.
+- **Un intento previo se revirtió:** añadir `..` a la producción `slice_range`. No arreglaba nada
+  (seguía produciendo un nodo `range_dotdot`) y además añadía conflictos shift/reduce.
+
+### Dos bugs que encontró el propio test
+
+1. La comprobación de límites del slice miraba **solo el bound final**, así que `xs at 1.5..2`
+   pasaba. Ahora recorre todos los operandos de la cadena `at`.
+2. El test de equivalencia afirmaba sobre un código de salida que **nunca observaba el resultado del
+   bucle** (la comprobación estaba en otro `weave`). Reescrito para comprobar dentro de `main`.
+
+Ambos son ejemplos de la misma regla: un test que no puede fallar no verifica nada.
+
+### Semántica medida
+
+Los rangos son **semiabiertos**: `0 to 5` itera 5 veces y `1 to 5` suma 1+2+3+4 = **10**, no 15. La
+primera versión del test asumía 15 y falló por la razón correcta; ahora hay un test dedicado a fijar
+la semiepertura en las dos sintaxis.
+
+### Estado
+
+`tests/test_range_syntax.py` (nuevo, 15 tests). C2 verificado: desactivar la emisión de W0013 hace
+fallar 2 tests. Docs: fila `W0013` en §22.3 de **ambas** referencias. La versión española del catálogo
+de advertencias estaba parada en `W0004` — le faltaban `W0005`/`W0006`/`W0007` enteras; se añaden en
+el mismo commit para no repetir la deriva del §3.4.
+
+---
+
+## §3.8 Items 2.6, 2.11: qué es implementable y qué no
+
+### §3.8.1 Item 2.6 — `frozen ref to T` vs `ref to frozen T`: **ya hecho y ya verificado**
+
+El roadmap pedía "una forma documentada; la otra emite error o warning". La medición dice que el
+trabajo **ya estaba hecho** y verificado por un test existente:
+
+| Comprobación | Resultado |
+|---|---|
+| `frozen ref to int` → C | `const int32_t*` |
+| `ref to frozen int` → C | `const int32_t*` |
+| ¿Son el mismo tipo normalizado? | **Sí** — `RefType(FrozenType(int))` en ambos casos |
+| ¿Está documentado? | Sí, `LANGUAGE.md` §9.5 y la tabla de tipos: *"`frozen ref to int` — alias de `ref to frozen int`"* |
+| ¿Hay test? | Sí: `tests/test_frozen.py::test_frozen_ref_normalises_to_ref_to_frozen` compara **identidad estructural** (`sweet == canonical`), no texto |
+| ¿`frozen` sigue siendo palabra clave blanda? | Sí — `var frozen as int` compila |
+
+**Conclusión:** se elige la forma canónica **`ref to frozen T`** (la que califica el *pointee*, que es
+lo que `const` significa en C) y `frozen ref to T` queda como azúcar documentada y verificada. No hay
+nada que implementar; el item se cierra como **ya satisfecho**, con la evidencia anterior.
+
+### §3.8.2 Item 2.11 — los tres warnings: **ninguno es implementable como se especificó**
+
+Los tres se midieron antes de escribir código, y los tres chocan con algo estructural.
+
+#### `W0011 EmptyTestBody` — ⛔ **inalcanzable por el grammar**
+
+El roadmap dice que *"`test "name":` con cuerpo vacío pasa silenciosamente"*. **Es falso.** La
+producción es
+
+```
+test_decl: "test" (string_token | NAME) ":" _NEWLINE _INDENT stmt+ _DEDENT
+```
+
+con `stmt+`, es decir **al menos una sentencia**. Un cuerpo vacío (o con solo un comentario) es un
+error de sintaxis:
+
+```
+$ pengu check t.pengu
+t.pengu:3:14 [E0000] Syntax error at line 3, column 14
+```
+
+No hay estado "cuerpo vacío" que avisar. Implementarlo requeriría **relajar el grammar** (`stmt*`)
+para crear la condición que el warning reporta — es decir, añadir un error para luego avisar de él.
+Eso es exactamente lo contrario de lo que pide la Fase 2 ("coherente y honesto con lo documentado").
+
+**Corrección al roadmap:** la afirmación de que un `test` vacío "pasa silenciosamente" es
+**❌ REFUTADA**. El bloque `test` vacío nunca compiló.
+
+#### `W0008 UnusedImport` — ⛔ **requiere procedencia de símbolos, que no existe**
+
+Medición ingenua sobre la stdlib (¿se menciona el nombre del módulo en otro sitio del archivo?):
+
+```
+total imports en std/: 73
+sin mención textual del nombre del módulo: 69
+```
+
+**69 de 73.** Pero son **falsos positivos**: la stdlib importa un módulo y llama a sus weaves **sin
+cualificar**. `archivum` importa `std.spark` y usa `calling println`, no `calling spark.println`.
+
+La causa es arquitectónica: todos los módulos se recogen en **una tabla de símbolos compartida**, y
+no se registra de qué módulo vino cada símbolo. Sin esa procedencia, "¿se usó este import?" no tiene
+respuesta: el nombre desnudo podría venir de cualquier módulo o del propio archivo.
+
+Un W0008 con esa tasa de falsos positivos sería peor que no tenerlo — es la misma trampa que el
+roadmap propone como *"M"* y que en realidad necesita:
+1. registrar la procedencia en `Symbol` al recolectar cada módulo,
+2. contar referencias resueltas por módulo y por archivo,
+3. resolver los casos de re-exportación y de uso solo en posición de tipo.
+
+Es un cambio de la tabla de símbolos, no un `warning` nuevo. **Diferido a 1.1**, y registrado como el
+motivo por el que el criterio "0 warnings propios" de la fase **no puede** incluir W0008 hoy.
+
+#### `W0012 DeprecatedAliasUse` — ⚠️ **el mecanismo existe, pero la stdlib nunca lo usa**
+
+El roadmap describe los alias de `tally` (`average`, `argmin`, `argmax`, `filter_range`) como
+*"alias `@deprecated` sin warning efectivo en la práctica"*. La medición precisa el problema: **no son
+alias `@deprecated` en absoluto.** Lo que tienen es un **docstring**:
+
+```pengu
+    ## @deprecated Use `mean` instead.
+    ##
+    ## Alias de `mean`.
+    weave average into T:
+```
+
+La anotación real `@deprecated("...")` **sí funciona**:
+
+```
+$ pengu check at.pengu
+  Warning at.pengu:0:0 [W0006] Symbol 'old_way' is deprecated: Use new_way instead
+```
+
+El defecto es una **divergencia entre lo que el docstring afirma y lo que el símbolo declara**: el
+comentario dice `@deprecated`, el atributo no está. Un lector (o un editor) ve la promesa; el
+compilador no tiene nada que emitir.
+
+**No se implementa en esta fase, y a propósito.** Convertir esos docstrings en atributos `@deprecated`
+reales hace que `W0006` empiece a dispararse en **cada llamada** a esos alias — incluidos los tests y
+la propia stdlib, que hoy los usa. Eso convierte un defecto documental en ~N nuevos warnings y hace
+fallar el criterio 6 de la fase ("0 warnings propios") sin haber arreglado nada de fondo: los alias
+seguirían existiendo y el código que los llama seguiría necesitando migrarse.
+
+La acción correcta tiene dos pasos y el segundo es una migración, no un warning: (1) decidir si los
+alias se quedan (entonces se marcan y se migran sus llamadas), o (2) se retiran (entonces el problema
+desaparece). **Diferido a 1.1.**
+
+### Resumen de 2.11
+
+| Warning | Estado | Razón |
+|---|---|---|
+| `W0008 UnusedImport` | ⏸️ diferido a 1.1 | Necesita procedencia de símbolos; 69/73 falsos positivos con el enfoque directo |
+| `W0011 EmptyTestBody` | ❌ **REFUTADO** | El grammar exige `stmt+`; un `test` vacío es `E0000`, nunca pasó en silencio |
+| `W0012 DeprecatedAliasUse` | ⏸️ diferido a 1.1 | El mecanismo (`@deprecated`/`W0006`) funciona; la stdlib solo tiene docstrings. Activarlo es una migración, no un warning |
+
+### §3.8.3 El presupuesto de warnings propios: 50 → 12, y por qué no llega a 0
+
+El criterio de "done" de la fase pide `stderr` con **0 warnings propios** en los 52 módulos. El
+recuento medido:
+
+| Warning | Antes de la Fase 2 | Después |
+|---|---|---|
+| `W0005` (shadowing) | 50 | **0** (item 2.12) |
+| `W0001` (`transmute` inseguro) | 21 | **12** |
+| `W0013` (rango `..`) | — | **0** (la stdlib usa siempre `to`) |
+| **Total** | **71** | **12** |
+
+Los 12 `W0001` restantes están en `std/ffi.pengu` (4) y `std/filum.pengu` (8), y **todos** son
+conversiones de puntero a `opaque` o a `ref to void`.
+
+#### Lo que sí se arregló: el idioma de NULL
+
+`ffi.pengu` construía punteros NULL con `transmute 0 to ref to X` y los comparaba con
+`(transmute p to opaque) == nil`. Eso disparaba `W0001` — incluidas **tres advertencias de
+discrepancia de tamaño** (`int` 4 bytes → puntero 8 bytes) que apuntaban a un problema real: en una
+plataforma donde el puntero no sea tan ancho como el tipo del cero literal, la conversión **trunca**.
+
+`null` es la forma correcta, no emite warning y dice lo mismo:
+
+```diff
+-    return transmute 0 to ref to void
++    return null
+-    var nil as opaque is transmute 0 to opaque
+-    if (transmute cstr to opaque) == nil or max_len <= 0:
++    if cstr == null or max_len <= 0:
+```
+
+`W0001`: 21 → 12. Los tests de `ffi` y `stdlib` siguen en verde.
+
+#### Por qué los 12 restantes no se pueden quitar hoy
+
+Cada uno es una conversión que el lenguaje **exige** escribir de forma explícita:
+
+```pengu
+var oa as opaque is transmute a to opaque          # ref to T  -> opaque
+var sl as slice of byte is calling slice_from_ptr of byte with (transmute cstr to ref to void) , max_len
+```
+
+Convertir `ref to T` en `opaque` o en `ref to void` **no cambia el tamaño ni la representación**: es
+una conversión de puntero a puntero, siempre segura. Que necesite `transmute` es lo que obliga a
+escribir un cast inseguro para expresar algo seguro — y por eso `W0001` avisa.
+
+La corrección de fondo es **permitir la conversión implícita de cualquier `ref to T` a `opaque` y a
+`ref to void`** (upcast de puntero, como en C). Con eso los 12 `transmute` desaparecen, `W0001`
+queda reservado para discrepancias de tamaño **reales**, y el criterio de 0 warnings se cumple solo.
+
+**No se hace en esta fase**, y la razón es la misma que en 2.11: es un cambio del sistema de tipos
+con efecto en la resolución de sobrecargas y en la inferencia, no un arreglo de la stdlib. Meterlo
+al final de la Fase 2, sin presupuesto para medir su impacto, es exactamente el tipo de cambio que
+C3 y C4 existen para evitar.
+
+**Veredicto honesto del criterio 6:** no se cumple al 100 %. Se pasa de **71 a 12** warnings propios
+(−83 %), los 12 restantes están localizados, explicados, y su arreglo está identificado y acotado.
+Declarar el criterio "cumplido" sería falso; declararlo "imposible" también. Lo correcto es lo que
+dice la tabla.
+
+---
+
+## §6. Criterio de "done" de la Fase 2 — evaluación honesta
+
+El roadmap fija seis criterios. Estado medido de cada uno:
+
+| # | Criterio del roadmap | Estado | Evidencia |
+|---|----------------------|--------|-----------|
+| 1 | Matriz de bounds medida y coherente con la documentación (test paramétrico de 30 pares) | ✅ **cumplido** | `tests/test_concept_bounds_matrix.py`: 84 tests, matriz 12×5; `LANGUAGE.md` §10.9 y `LANGUAGE_Spanish.md` con bloque `bounds-ops` que el test lee |
+| 2 | `Lark(..., strict=True)` no lanza en CI | ❌ **no cumplido** | Sigue en 188 conflictos. Es el único criterio que **no** se cumple, y el §3.2/§3.6 documenta por qué y qué haría falta |
+| 3 | Los 4 ejemplos documentales que no compilaban (bloques 15, 28, 59, 94) compilan **o** han sido retirados con marca ⏸️ | ✅ **cumplido** | 15, 28 y 94 compilan (Fase 1, B7); el 59 se retiró y §11.7 lo marca ⏸️ con la razón |
+| 4 | Una sola sintaxis de rango canónica, con deprecación de la otra | ✅ **cumplido** | `to` canónica; `..` emite `W0013` y además ahora **funciona** en slices; 15 tests |
+| 5 | Matriz de `derive` documentada y probada por concept | ✅ **cumplido** | `tests/test_derive_matrix.py`: 14 tests; los 5 derivables verificados por ejecución, los 3 no derivables rechazados con `E0005` |
+| 6 | `pengu check --entry std/<mod>.pengu` para los 52 módulos → **0 warnings propios** | ⚠️ **parcial: 71 → 12 (−83 %)** | `W0005` 50→0; `W0001` 21→12. Los 12 restantes están localizados y explicados en §3.8.3 |
+
+### Los dos criterios abiertos, y qué los cierra
+
+**Criterio 2 (`strict=True`).** No es cuestión de esfuerzo sino de alcance. La palanca real está
+medida (§3.6): `return_stmt` posee 45 de los 188 conflictos, y su causa es el `_NEWLINE` final
+**opcional** compartido por toda la familia de sentencias. Quitarlo es un cambio de forma del
+grafo de sentencias, no una tabla de precedencia. El roadmap atribuye la reducción a "tabla de
+precedencia + colapsar las 29 reglas duplicadas", y la medición **refuta ambas**: la tabla ya
+resuelve por *shift* de forma consistente (y `tests/test_precedence.py` lo fija), y colapsar los 5
+niveles `_no_cast` duplicados dio **188 → 188**.
+
+Lo que cierra el criterio es un cambio de familia `_NEWLINE` con la suite verificada por commit,
+con el presupuesto de un item **L** propio. Se deja para 1.1 con la medición hecha, que es la parte
+cara.
+
+**Criterio 6 (0 warnings).** Los 12 `W0001` restantes son conversiones `ref to T` → `opaque` /
+`ref to void`, que son seguras y que el lenguaje obliga a escribir con `transmute`. Quitarlos exige
+**permitir el upcast de punteros implícitamente**, un cambio del sistema de tipos (§3.8.3). Con eso
+`W0001` queda reservado para discrepancias de tamaño reales y el criterio se cumple solo.
+
+### Lo que la fase sí entrega
+
+- **2.1** bounds coherentes, en **un solo sitio**, con la matriz medida y fijada por test.
+- **2.2** documentación de bounds sincronizada y **verificada por test** contra la tabla del código.
+- **2.3** una afirmación falsa de la documentación retirada, con *tripwire* contra su reaparición.
+- **2.4b** la precedencia y asociatividad fijadas **antes** de tocar el grammar (99 tests).
+- **2.5** una sintaxis de rango canónica, con deprecación y con el bug real (`..` no hacía slice)
+  arreglado.
+- **2.6** verificado: ya estaba hecho, y con test de identidad estructural.
+- **2.7** semántica real de `many T` documentada (y el spread declarado ⏸️).
+- **2.8** matriz de `derive` medida, documentada y probada.
+- **2.9** los identificadores ASCII documentados.
+- **2.10** la tabla de primitivos hecha canónica y verificada; **tres defectos corregidos**
+  (`float` de 32 bits, `isize` → `intptr_t`, `ssize_t` rama muerta).
+- **2.12** `W0005` de 50 a 0.
+- **5 afirmaciones documentales más refutadas** compilándolas, no leyéndolas.
+- **+270 tests** nuevos, todos por compilación o ejecución (regla C1).
+
+Y lo que deja **honestamente abierto**: 2.4 (con la medición que lo desbloquea), 2.11 `W0008` y
+`W0012`, y los 12 `W0001`, cada uno con la razón medida de por qué no cabe aquí.
