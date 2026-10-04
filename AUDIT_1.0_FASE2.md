@@ -1911,3 +1911,79 @@ por tanto no es una opción sin un cambio de lenguaje aprobado.
 Eso convierte el item 2.4 de "reducir conflictos" en **"decisión de sintaxis para el `return` con
 valor de bloque"**, que es una decisión de diseño del lenguaje, no una tarea de implementación.
 Queda registrado así para 1.1.
+
+---
+
+## §22. Décima vía: la prueba de que `judge_expr` **tiene** que estar en `expr`
+
+El §21 concluyó que `judge_expr` debe ser alcanzable desde `expr` porque `judge` es también una
+sentencia (`archivum.pengu:145`), y que por eso la ambigüedad es forzada. Para no dejar eso como
+razonamiento, se probó la negación: **sacar `judge_expr` de `expr` y darle producciones dedicadas**
+en las dos posiciones donde se usa.
+
+### La variante
+
+```diff
+ ?value_expr: unless_stmt | if_stmt | while_stmt | for_stmt
++           | judge_expr                       # 'return judge …'
+            | expr
+ ?try_expr:  "try" … | if_expr | when_expr
+-           | judge_expr                       # fuera de la cascada
+            | for_comp_expr | bool_or_expr
+-return_stmt: "return" [value_expr] [_NEWLINE]
++return_stmt: "return" [value_expr] _NEWLINE
+```
+
+### Resultado, y es concluyente
+
+| Medición | Resultado |
+|---|---|
+| ¿Construye el grammar? | **Sí** — el reduce/reduce desaparece |
+| Conflictos | 188 → **143** (los 45 de `return_stmt`, como predecía §7) |
+| **Módulos de la stdlib que fallan** | **24 / 52** |
+| `judge` como **sentencia** (`archivum:145`) | ❌ **`E0000: unexpected ':'`** |
+| `return judge …` (6 archivos) | ❌ roto |
+
+### El argumento, ahora con la negación probada
+
+Al sacar `judge_expr` de `expr` **se rompen las dos posiciones a la vez**:
+
+* `return judge …` falla porque el camino `return` → `value_expr` → `judge_expr` y el camino
+  `return` → `value_expr` → `expr` colisionan de nuevo en cuanto se intenta recuperar la forma de
+  valor;
+* `judge` como sentencia falla porque `expr_stmt` llega a `judge` **a través de `expr`**, y `expr`
+  ya no lo contiene. El `E0000: unexpected ':'` en `archivum.pengu:145` es exactamente eso.
+
+Es decir: **`judge` es una sentencia en este lenguaje, y las sentencias se analizan por `expr`.**
+Sacarlo de `expr` lo elimina del lenguaje como sentencia. No hay una tercera posición donde ponerlo.
+
+Esto cierra la décima vía y, con ella, la búsqueda. Lo que queda no es una variante de gramática sin
+probar: es que **la sintaxis del lenguaje hace inevitable la ambigüedad**, y resolverla exige:
+
+1. introducir una forma delimitada (`return do: …`), o
+2. aceptar los 188 conflictos y reforzar el presupuesto como gate de CI.
+
+Ambas son decisiones de diseño del lenguaje. **El item 2.4 no es implementable dentro de la Fase 2
+tal como está especificado**, y eso es ahora un resultado medido, no una opinión.
+
+### Balance final del item 2.4
+
+| # | Vía | Resultado |
+|---|-----|-----------|
+| 1 | Colapsar reglas `_no_cast` duplicadas | 188 → 188 |
+| 2 | Exigir `_NEWLINE` de `return_stmt` | 188 → 143, rompe 24/52 |
+| 3 | `"return" block_expr` como alternativa | Reduce/Reduce |
+| 4 | Excluir bloques de `value_expr` | Reduce/Reduce |
+| 5 | Precedencia explícita | ~18 terminales anónimos por nombrar |
+| 6 | Bloques consumen `_NEWLINE` final | 188 → 188, rompe 24/52 |
+| 7 | `block` consume `_DEDENT _NEWLINE` | 188 → 188, rompe 26/52 |
+| 8 | Prioridades de regla | `defined more than once` |
+| 9 | Un `return_stmt`, dos alternativas | Reduce/Reduce |
+| 10 | `judge_expr` fuera de `expr`, producciones dedicadas | **Construye, 188 → 143, rompe 24/52** |
+
+**Diez vías. Ninguna funciona.** La 10 es la más informativa porque **construye** (elimina el
+reduce/reduce) y aun así rompe el lenguaje, lo que demuestra que el problema no es la forma de las
+producciones sino la sintaxis.
+
+La herramienta `tools/grammar_conflicts.py` (§19) queda para quien retome el item: mide el token
+stream real, la propiedad de cada conflicto y la regla que Lark se niega a reducir.
