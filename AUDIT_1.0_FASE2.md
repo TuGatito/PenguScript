@@ -1411,3 +1411,82 @@ ninguna funcionó.
 El número 188 no es el problema a atacar directamente: es el síntoma de que el lenguaje delinea
 bloques de una forma que LALR(1) no puede decidir sin ambigüedad, y eso es un rediseño, no un
 ajuste.
+
+---
+
+## §15. La causa raíz real, obtenida instrumentando el lexer
+
+El §14 terminó recomendando instrumentar el lexer antes de proponer otra variante del grammar, porque
+las siete vías anteriores se habían elegido sobre un modelo mental del *token stream* que resultó
+falso dos veces. Hecho eso, la causa aparece en una sola línea.
+
+### El volcado
+
+Programa representativo:
+
+```pengu
+weave f with b as bool into string:
+  return judge b:
+    when true -> "t"
+    when false -> "f"
+```
+
+Secuencia real de tokens estructurales que produce `PenguIndenter`:
+
+```
+... COLON _NEWLINE _INDENT
+    RETURN ... JUDGE ... COLON _NEWLINE _INDENT
+        WHEN ... STRING _NEWLINE
+        WHEN ... STRING _NEWLINE
+    _DEDENT _DEDENT
+```
+
+### La causa
+
+**`_DEDENT _DEDENT` aparece seguido, sin ningún `_NEWLINE` en medio.**
+
+El motivo está en `lark.Indenter.handle_NL`:
+
+```python
+yield token                      # el _NEWLINE de ESTA línea
+if indent > level:
+    yield INDENT
+else:
+    while indent < level:
+        yield DEDENT             # uno por cada nivel, sin _NEWLINE
+```
+
+El `_NEWLINE` se emite **una sola vez, al principio**, en la línea que provoca el dedent. Los
+`_DEDENT` adicionales (cuando el dedent salta **más de un nivel**, como aquí: de `when` a `weave`)
+salen del bucle **sin `_NEWLINE` entre ellos**.
+
+Además, `judge_expr` y `block` **consumen** ese único `_NEWLINE` que sí existe. Así que todo lo que
+venga detrás ve `_DEDENT` y nada más.
+
+### Por qué las siete vías fallaron
+
+Todas ellas —incluidas mis dos "causas raíz"— partían de que había un `_NEWLINE` disponible junto a
+cada `_DEDENT`. **No lo hay cuando el dedent cruza más de un nivel de indentación**, que es
+exactamente el caso de todo constructo anidado:
+
+* `return judge b:` → el `judge` está un nivel más adentro que el `return`;
+* cualquier `if` dentro de un `if`, cualquier bucle dentro de un `weave`, etc.
+
+Por eso el diagnóstico era siempre el mismo (`spark.pengu:74`, `archivum.pengu:150`): el primer token
+de la línea siguiente, allí donde el parser esperaba un `_NEWLINE` que el lexer nunca emitió.
+
+### La corrección de fondo
+
+Arreglarlo no es tocar el grammar, es **cambiar el indenter** para que emita un `_NEWLINE` por cada
+`_DEDENT`, o relajar las producciones para que acepten un `_DEDENT` sin `_NEWLINE` precedente. Las
+dos son cambios de infraestructura con efecto en **todo** el lenguaje, y la primera altera el
+contrato con `lark.Indenter`, que es una clase de la dependencia.
+
+Esto reencuadra el item 2.4 por completo: **no es "reducir 188 conflictos", es "arreglar el reparto
+de `_NEWLINE` en los dedents multi-nivel"**. Los 188 conflictos son el síntoma; la causa es que el
+lenguaje delinea bloques con un token que el lexer no emite donde las producciones lo buscan.
+
+**Veredicto:** el item 2.4 queda **⏸️ diferido a 1.1** con la causa raíz identificada por primera vez
+y verificada contra el volcado real del lexer. El contador sigue en **188** y el criterio 2 sin
+cumplirse, pero ya no es un misterio: es un cambio de infraestructura de lexing, acotado y
+entendido.
