@@ -29,6 +29,25 @@ All notable changes to PenguScript will be documented in this file.
   Ahora están guardados con `#ifndef` y la unidad compila limpia **con y sin**
   los defines en la línea de órdenes.
 
+### ⏸️ Diferido — `--strict-c99` NO es un gate de portabilidad en 0.16.0
+
+- **B5 (item 3.2) — `--strict-c99` no compila en programas que importan `std`.**
+  Medido: **34 de 61** programas de `tests/std_programs/` fallan
+  `gcc -std=c99 -pedantic-errors`, por tres causas independientes: **16** por el
+  hoisting del índice fuera del bucle que declara su operando (`'k' undeclared`),
+  **15** por statement-expressions `({...})` que quedan en el bundle estricto, y
+  **3** por cualificadores/casts. Reproducción mínima de 4 líneas en
+  `AUDIT_1.0_FASE3.md` §7.
+
+  **Se retira la etiqueta de "gate de portabilidad"**: `RELEASE_CHECKLIST.md`
+  deja de listarlo como gate y `LANGUAGE.md` pierde la afirmación —falsa— de que
+  el bundle "compiles with `-std=c99 -pedantic-errors`". Ambas se sustituyen por
+  la medición.
+
+  Diferido a **1.1**. Consecuencias: el criterio #2 de "done" de la Fase 3 queda
+  sin cumplir, y **B10 (Fase 8) sigue bloqueado**, porque su gate
+  `tests/test_cli_strict_c99.py` no puede pasar mientras esto no se arregle.
+
 
 ## [Unreleased] — CI/CD: auditoría de GitHub Actions (Fase 7)
 
