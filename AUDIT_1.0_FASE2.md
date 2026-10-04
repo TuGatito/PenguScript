@@ -341,6 +341,42 @@ archivo, no una propiedad. El test de §2.10 tenía `Path(...) / "LANGUAGE.md"` 
 bloque que faltaba en español pasó desapercibido hasta una comprobación manual posterior. Ahora
 parametriza sobre las dos referencias.
 
+### §3.5 Hallazgo nuevo: el test del leak conocido es **inestable**
+
+La suite completa de la Fase 2 terminó en **2426 passed, 0 failed** pero con **1 xpassed**, donde la
+línea base no tenía ninguno. Perseguirlo dio un resultado más interesante que un test roto:
+
+```
+tests/test_string_composition_suite.py::test_string_composition_no_memory_leaks[leak_binary_interp]
+
+run 1: 1 xpassed      run 4: 1 xpassed
+run 2: 1 xfailed      run 5: 1 xpassed
+run 3: 1 xfailed
+```
+
+El mismo test, sin cambios de por medio, **pasa 3 de 5 veces y falla 2 de 5**. Está marcado
+`xfail(strict=False)`, así que no rompe la build — pero el marcador existe para documentar un leak
+**conocido y estable**: `"a '(value to string)' temporary passed as a call argument is never
+released"`. Que el detector lo vea solo a veces significa que **el leak depende del timing o de la
+ruta de ejecución**, no de que el compilador gestione o no el temporal.
+
+**Por qué importa más que un fallo normal.** El propio archivo dice qué hacer cuando el test XPASSa:
+
+> *"Strict xfail: as soon as the compiler owns its expression temporaries this test XPASSes and CI
+> asks for the marker (and the two leak xfails) to be removed."*
+
+Es decir, el XPASS es **la señal de "el leak se arregló"**. Con un detector inestable esa señal es un
+falso positivo el 60 % de las veces, así que el marcador no se puede quitar con confianza ni
+mantener como está sin saber qué se está midiendo.
+
+**No se toca en la Fase 2.** Ponerlo `strict=True` lo volvería un fallo intermitente en CI (peor que
+el estado actual), y quitarlo afirmaría que el leak está arreglado, que no está demostrado. La acción
+correcta es determinar si la causa es el detector (`tests/leakcheck.c`) o la ruta de código, y eso
+pertenece a la Fase 6 (determinismo de la suite), junto con los otros tests inestables ya
+registrados en el item 1.14.
+
+**Conteo de tests inestables conocidos: 3** (los dos del item 1.14 más este).
+
 ---
 
 ## §4. Verificación
@@ -355,6 +391,7 @@ parametriza sobre las dos referencias.
 | Bloques `pengu` de `LANGUAGE.md` que compilan | 33 / 104 | **35 / 105** (se retiró el 59, se añadió 1 ejemplo) |
 | Afirmaciones documentales refutadas (§18.1) | 23 | **24** |
 | Tests nuevos de la Fase 2 | – | **+252** en 6 archivos |
+| Suite completa | 2178 passed, 0 failed | **2426 passed, 0 failed**, 1 xpassed inestable (§3.5) |
 
 ### §4.2 Regla C2 (cada test falla al revertir su fix)
 
