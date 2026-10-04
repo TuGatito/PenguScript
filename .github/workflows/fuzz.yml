@@ -50,10 +50,10 @@ jobs:
           - harness: lsp
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.14'
           cache: 'pip'
@@ -71,7 +71,7 @@ jobs:
           fi
 
       - name: Cache runtime build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             build/lib
@@ -110,7 +110,7 @@ jobs:
       - name: Upload crash corpus
         # always(): findings are written to disk even when the harness exits 0.
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-findings-${{ matrix.harness }}-${{ github.run_id }}
           path: build/fuzz_crashes/

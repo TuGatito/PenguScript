@@ -35,7 +35,7 @@ jobs:
       ASAN_OPTIONS: 'detect_leaks=1:abort_on_error=1:halt_on_error=1:strict_string_checks=1:detect_stack_use_after_return=1'
       UBSAN_OPTIONS: 'print_stacktrace=1:halt_on_error=1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # runtime-cache-scope keeps sanitized runtime objects away from the plain
       # ones; the runtime itself is not built with the sanitizers, but the scope
@@ -71,7 +71,7 @@ jobs:
 
       - name: Upload sanitizer logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sanitizer-logs-${{ github.run_id }}
           path: |
@@ -87,7 +87,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up build environment
         uses: ./.github/actions/setup-pengu
