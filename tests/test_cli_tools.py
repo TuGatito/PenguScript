@@ -245,8 +245,14 @@ class TestFmt:
     def test_format_preserves_clean_indentation(self):
         from pengu_lsp.formatting import format_pengu_source
 
-        src = "weave main into void:\n    calling f with x\n"
+        # When the source already uses the requested unit, formatting is a
+        # no-op (idempotent).  A source using a *different* unit is rescaled,
+        # not preserved: see tests/test_fmt_indent.py (item 4.1).
+        src = "weave main into void:\n  calling f with x\n"
         assert format_pengu_source(src, tab_size=2) == src
+        four = "weave main into void:\n    calling f with x\n"
+        assert format_pengu_source(four, tab_size=4) == four
+        assert format_pengu_source(four, tab_size=2) == src
 
     def test_format_tabs_kept_when_insert_spaces_false(self):
         from pengu_lsp.formatting import format_pengu_source
@@ -988,8 +994,10 @@ class TestFormatPreservesLiterals:
     def test_code_spacing_is_still_normalized(self):
         from pengu_lsp.formatting import format_pengu_source
 
-        src = "weave f into void:\n    let  x   as  int  is  1\n"
-        assert format_pengu_source(src) == "weave f into void:\n    let  x as int is 1\n"
+        # Indentation is covered by tests/test_fmt_indent.py; this test pins the
+        # intra-line spacing rules, so the source uses the default unit (2).
+        src = "weave f into void:\n  let  x   as  int  is  1\n"
+        assert format_pengu_source(src) == "weave f into void:\n  let  x as int is 1\n"
 
     def test_formatting_is_ast_preserving(self):
         """The formatter must not change program semantics."""

@@ -3,6 +3,44 @@
 All notable changes to PenguScript will be documented in this file.
 
 
+## [Unreleased] — FASE 4: Completar CLI
+
+> Hace que el CLI **haga lo que su ayuda dice**: sin flags que no hacen nada,
+> sin pérdida de datos, con errores formateados de forma consistente y con el
+> contrato `--json` completo.
+
+### 🔴 Fixed — B4 (item 4.1): `pengu fmt --indent N` corrompía la indentación
+
+`format_pengu_source` (`pengu_lsp/formatting.py`) usaba el `tab_size` de
+**destino** para *decodificar* la indentación del **fuente**
+(`indent_level = leading_spaces // tab_size`). Cuando la unidad del fuente no
+coincidía con la pedida, cada nivel se calculaba mal: un fuente de 2 espacios
+con `--indent 4` colapsaba a columna 0 (`2 // 4 == 0`), y uno de 4 espacios con
+`--indent 2` duplicaba la profundidad (`4 // 2 == 2`). El archivo resultante ya
+no parseaba —`pengu check` → `Syntax error: unexpected 'var'`— y `pengu fmt`
+salía con **exit 0**: corrupción destructiva y silenciosa.
+
+La unidad del fuente es una propiedad del archivo, no de la invocación, así que
+ahora se detecta del propio texto (el menor tramo no nulo de espacios iniciales;
+un tab cuenta como un nivel) y `tab_size` se usa **solo** para re-codificar la
+salida. Esto arregla a la vez el CLI y el formateo del LSP
+(`textDocument/formatting`), que comparten el mismo módulo.
+
+Medido antes del fix: `--indent 4` sobre 2 espacios colapsaba `var`/`if` a
+columna 0. Después: la estructura se conserva en ambos sentidos (2↔4), tabs y
+fuentes no idiomáticos se normalizan sin colapsar, `fmt(fmt(x)) == fmt(x)` y la
+salida **sigue siendo PenguScript válido** (`pengu check` → 0) en los casos
+medidos. `tests/test_fmt_indent.py` (24 casos, incluido el gate de compilación
+del resultado). El test `TestFmt::test_format_preserves_clean_indentation`
+fijaba por accidente la conducta antigua (`4 espacios con tab_size=2` no
+cambiaba) y se ha reescrito para fijar la idempotencia real.
+
+Nota: el formateo *on-type* del editor (`on_type_formatting`,
+`pengu_lsp/server.py:1804`) usa una ruta propia (`_reindent`) y **no** pasa por
+`format_pengu_source`; no queda cubierto por este fix y mantiene su
+comportamiento anterior.
+
+
 ## [Unreleased] — FASE 3: Runtime y ABI
 
 > Cierra el runtime y la ABI: C99 legal **sin flags de supresión**, portabilidad

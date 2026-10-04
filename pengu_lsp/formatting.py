@@ -174,6 +174,36 @@ def _normalize_code_spacing(code: str) -> str:
     return code
 
 
+def _detect_source_unit(lines: List[str], fallback: int) -> int:
+    """Detect the indentation unit already used by ``lines``.
+
+    ``tab_size`` describes the *output* format; decoding the input with it is
+    what corrupted sources whose unit differed from the requested one.  The
+    unit of the input is a property of the file, not of the invocation.
+
+    The smallest non-zero run of leading spaces is the unit: any deeper line is
+    a multiple of it in idiomatic PenguScript.  A tab counts as one level.
+
+    Args:
+        lines: Source lines (blank lines are ignored).
+        fallback: Unit to use when no indented line exists.
+
+    Returns:
+        The detected number of spaces per indentation level, or 1 for tabs.
+    """
+    candidates = []
+    for line in lines:
+        if not line.strip():
+            continue
+        leading = line[:len(line) - len(line.lstrip())]
+        if not leading:
+            continue
+        if leading[0] == "\t":
+            return 1
+        candidates.append(len(leading))
+    return min(candidates) if candidates else fallback
+
+
 def format_pengu_source(text: str, tab_size: int = 2, insert_spaces: bool = True,
                         blank_lines_max: Optional[int] = None) -> str:
     """Formats PenguScript source text according to the standard style.
@@ -188,7 +218,9 @@ def format_pengu_source(text: str, tab_size: int = 2, insert_spaces: bool = True
 
     Args:
         text: Raw document source.
-        tab_size: Number of spaces per indentation level (2 by default).
+        tab_size: Number of spaces per indentation level in the output (2 by
+            default).  The unit used to *decode* the input is detected from the
+            source itself, so ``tab_size`` never rescales or collapses it.
         insert_spaces: True to indent with spaces, False to use tabs.
         blank_lines_max: Optional cap on consecutive blank lines (None keeps
             them all).  Blank lines inside a multi-line literal are never
@@ -204,6 +236,7 @@ def format_pengu_source(text: str, tab_size: int = 2, insert_spaces: bool = True
     lines = text.splitlines()
     formatted_lines: List[str] = []
     indent_unit = " " * tab_size if insert_spaces else "\t"
+    source_unit = _detect_source_unit(lines, tab_size)
     in_triple: Optional[str] = None
     blank_run = 0
 
@@ -231,7 +264,7 @@ def format_pengu_source(text: str, tab_size: int = 2, insert_spaces: bool = True
         if leading_tabs > 0:
             indent_level = leading_tabs
         elif leading_spaces > 0:
-            indent_level = leading_spaces // tab_size
+            indent_level = leading_spaces // source_unit
 
         # A line that opens a multi-line literal keeps its trailing whitespace:
         # those bytes are string data.  Every other line is right-stripped.
