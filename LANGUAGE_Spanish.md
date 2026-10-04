@@ -3321,7 +3321,7 @@ pengu --version
 #### Backtraces mínimos del runtime
 El runtime mantiene un búfer circular de frames ligero y thread-local:
 - `pengu_frame_push(fn_name, file, line)` y `pengu_frame_pop()` registran los frames activos de la pila de llamadas hasta `PENGU_MAX_FRAMES` (64 por defecto).
-- Los manejadores de fallos async-signal-safe para `SIGSEGV` y `SIGABRT` (y `SetUnhandledExceptionFilter` en Windows) interceptan errores fatales y escriben la pila de llamadas exacta con los nombres de archivo fuente `.pengu` y los números de línea directamente en `stderr`.
+- Los manejadores de fallos para `SIGSEGV`, `SIGABRT`, `SIGFPE` (división entera por cero), `SIGILL` y `SIGBUS` (y `SetUnhandledExceptionFilter` en Windows) interceptan errores fatales y escriben la pila de llamadas —con los nombres de archivo fuente `.pengu` y los números de línea— directamente en `stderr`. El manejador es **async-signal-safe**: formatea con primitivas propias y solo llama a `write(2)`/`_exit()`, nunca a `snprintf`, `malloc` ni stdio. La expresión devuelta por un `weave` se evalúa *antes* de retirar su frame, de modo que un fallo dentro de ella (p. ej. `return a / b`) se atribuye a ese `weave` y no a su llamador.
 
 #### Comprobación de límites opcional
 - Con el perfil de build `debug`, las operaciones de indexación (`xs at i` y `set xs at i`) emiten aserciones de límites (`pengu_assert_bounds`), que se detienen con un trazado de la pila de llamadas ante un acceso fuera de límites.

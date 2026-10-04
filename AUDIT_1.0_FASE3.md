@@ -16,15 +16,16 @@
 | 3.1 | 🔴 **B8** — el `.c` del runtime compila sin `-Wno-implicit-function-declaration` | ✅ **cerrado** | `tests/test_runtime_c99.py` (9 tests); 24 errores → 0 |
 | 3.12 | 🟢 Guardar los `#define` con `#ifndef` | ✅ **cerrado** | 3 warnings `-Wmacro-redefined` → 0 |
 | 3.2 | 🔴 **B5** — `--strict-c99` compila C portable con `std` | ⏸️ **DIFERIDO a 1.1** | §6–§7: 34/61 fallan; causa raíz localizada y fix intentado sin converger |
-| 3.3 | 🔴 Eliminar los statement-expressions `({...})` en modo estricto | ⏳ pendiente | — |
+| 3.3 | 🔴 Eliminar los statement-expressions `({...})` en modo estricto | ⏸️ **DIFERIDO a 1.1, con medición** | §14: acoplado a 3.2 (sin el hoisting no compila) y único item XL; 34/61 fallan |
 | 3.4 | 🟠 `__typeof__` en vez de `__auto_type` para TCC | ⏸️ **REVERTIDO / DIFERIDO a 1.1** | §9, §11: el fix lograba tcc 61/61 pero **rompió un test de regresión**; revertido en `b22f075` |
-| 3.5 | 🟠 **A15** — `PENGU_ABI_VERSION` verificable contra el `.a` | ⏳ pendiente | — |
-| 3.6 | 🟠 `SIGFPE`/`SIGILL`/`SIGBUS` + `sigaction` | ⏳ pendiente | — |
-| 3.7 | 🟠 Volcado sin `snprintf` **o** retirar la afirmación async-signal-safe | ⏳ pendiente | — |
+| 3.5 | 🟠 **A15** — `PENGU_ABI_VERSION` verificable contra el `.a` | ✅ **cerrado, con matiz** | §14: `nm … \| grep pengu_abi_version` → `T pengu_abi_version`; `tests/test_abi_version.py` (5). La referencia **no** es obligatoria desde cada bundle (rompía `pengu build` en proyectos nuevos); ver §14 |
+| 3.6 | 🟠 `SIGFPE`/`SIGILL`/`SIGBUS` + `sigaction` | ✅ **cerrado** | §14: `pengu eval "1/0"` → `[PENGU CRASH] … (signal/code 8)` + traza, exit **136** (antes 248 sin mensaje); `tests/test_crash_signals.py` (6) |
+| 3.7 | 🟠 Volcado sin `snprintf` **o** retirar la afirmación async-signal-safe | ✅ **cerrado (implementado, no retirado)** | §14: el handler y `pengu_bounds_panic` formatean a mano y solo usan `write(2)`/`_exit()`; medido sobre el artefacto compilado; `tests/test_crash_dump_async_safe.py` (4) |
 | 3.8 | 🟡 Instalación atómica del crash handler | ✅ **cerrado** | §10: `pthread_once`/`InitOnceExecuteOnce`; `frame_push` ya no instala; `tests/test_crash_handler_atomic.py` (6) |
-| 3.9 | 🟡 **R3** — unificar el formateo de floats (`%g` vs `%f`) | ⏳ pendiente | — |
-| 3.10 | 🟡 Documentar los 55 símbolos sin Doxygen | ⏳ pendiente | — |
-| 3.11 | 🟡 `docs/ABI.md` | ⏳ pendiente | — |
+| 3.9 | 🟡 **R3** — unificar el formateo de floats (`%g` vs `%f`) | ✅ **cerrado** | §14: `print`, `to string` e interpolación coinciden; `tests/test_floats_consistency.py` (10) |
+| 3.10 | 🟡 Documentar los 55 símbolos sin Doxygen | ⏸️ **DIFERIDO a 1.1, con medición** | §14: cosmético, ninguna afirmación de comportamiento depende de ello; encaja en Fase 7 |
+| 3.11 | 🟡 `docs/ABI.md` | ✅ **cerrado** | §14: `docs/ABI.md` (política de bumps + verificación) |
+| 3.13 | 🟢 (**nuevo en esta fase**) Evaluar la expresión de retorno antes de retirar el frame | ✅ **cerrado** | §14: el fallo dentro de un `return` se atribuía **al llamador**; corregido |
 
 ---
 
@@ -638,14 +639,17 @@ Estado del árbol: limpio. `pengu_codegen.py` = base `403fa45` + el `startup-ins
 
 **Cerrados: 3/12. Diferidos con medición: 2/12 (3.2, 3.4). Pendientes: 7/12.**
 
-### Hallazgo transversal que afecta a 3.6 y 3.7
+### Hallazgo transversal que afectaba a 3.6 y 3.7 — **medido y refutado**
 
-`pengu_frame_push` **no tiene ningún uso** en los bundles generados (0 usos en el bundle de prueba,
-frente a cientos de llamadas en el código fuente del runtime). Si eso se confirma, el volcado de
-frames **nunca se puebla** y el mensaje de crash sale con la traza vacía — que es la mitad del valor
-de 3.6 (imprimir frames con `.pengu` file+line) y el sujeto entero de 3.7 (formatear ese volcado).
-**Conviene medirlo antes de invertir en 3.6/3.7**, porque si la traza está vacía, el trabajo rinde
-mucho menos de lo que sugiere el criterio de "done".
+Anoté aquí que `pengu_frame_push` parecía **no tener ningún uso** en los bundles generados, y que si
+eso se confirmaba la traza nunca se poblaría y 3.6/3.7 valdrían mucho menos de lo que sugiere su
+criterio de "done".
+
+**La medición (§14) refuta la hipótesis.** El codegen emite un `pengu_frame_push` por cada `weave` —
+tres en un programa de tres funciones, cuatro en uno de cuatro — y el volcado se puebla con
+`file:line` reales (`at inner_fn (nest.pengu:1)`). La suposición venía de contar sólo las menciones
+en `pengu_runtime.h`/`pengu_runtime.c`; los puntos de emisión están en `pengu_codegen.py:2254`,
+`:4041` y `:9690`. Con la traza poblada, 3.6 y 3.7 se hicieron **completos**, no la versión barata.
 
 ### Lección de método (segunda de la fase, ver §11)
 
@@ -700,3 +704,156 @@ revertir en vez de matizarla.
 genera C, hay que aislar *también* el `pengu_runtime.h` y el `.a` que se usan al compilar, o la
 comparación mide una mezcla. Los tres hallazgos de método de esta fase comparten la misma raíz:
 **verificar que el experimento mide lo que uno cree que mide** antes de sacar conclusiones de él.
+
+
+---
+
+## §14. Cierre real de la Fase 3: medición, triaje y resultado
+
+Esta sección cierra la fase con **una medición previa (C3)** que decide dos items, el triaje
+explícito de los siete pendientes, y la verificación final.
+
+### §14.1 Medición previa (C3): ¿se puebla la traza de frames?
+
+La duda de §12 era si `pengu_frame_push` se emite en los bundles. Comandos y salida cruda
+(evidencia completa en `/tmp/frame_push_evidence.txt`, no versionada):
+
+```bash
+$ pengu build --entry /tmp/crash.pengu -o /tmp/crash.c      # 1 weave
+$ grep -c 'pengu_frame_push'  /tmp/crash.c   # 2  (definición en el header + 1 uso)
+$ grep -c 'pengu_frame_push(' /tmp/crash.c   # 1
+  34:  pengu_frame_push("pengu_main", "crash.pengu", 1);
+
+$ pengu run /tmp/crash.pengu
+[PENGU CRASH] fatal signal (signal/code 11)
+Stack trace (most recent call first):
+  at pengu_main (../crash.pengu:1)
+
+$ # programa de 4 weaves (/tmp/deep.pengu)
+push sites: 4
+  at inner_fn (../deep.pengu:1)          # ← 1 frame con `return calling f`
+```
+
+| Resultado | Conclusión | Acción tomada |
+|---|---|---|
+| `pengu_frame_push` se emite **una vez por `weave`** (3 en un programa de 3, 4 en uno de 4) y el volcado muestra `file:line` reales | **La traza SÍ se puebla** | **3.6 → implementar (M)**; **3.7 → implementar completo (M)** |
+
+La hipótesis de §12 (traza vacía) queda **refutada**. El punto de emisión está en
+`pengu_codegen.py:2254`, `:4041` y `:9690`, no en `pengu_runtime.*`, que es donde yo había mirado.
+
+### §14.2 Hallazgo nuevo (3.13): la traza atribuía el fallo al llamador
+
+La medición anterior destapó un defecto más grave que un truncado: el codegen emitía
+`pengu_frame_pop(); return <expr>;`, es decir retiraba el frame **antes** de evaluar la expresión de
+retorno.
+
+```c
+/* antes */                          /* después (3.13) */
+pengu_frame_pop();                   int32_t _ret_1 = (a / b);
+return (a / b);                      pengu_frame_pop();
+                                     return _ret_1;
+```
+
+```bash
+# `weave divide` con `return a / b` y b == 0, ANTES:
+$ pengu run div3.pengu
+[PENGU CRASH] fatal signal (signal/code 8)
+  at pengu_main (../div3.pengu:6)     # ← el LLAMADOR, no `divide`
+
+# DESPUÉS:
+  at divide    (div3.pengu:1)         # ← el weave donde está el fallo
+  at pengu_main (div3.pengu:6)
+```
+
+Además, una cadena `return calling f` producía **un solo frame**; ahora produce la pila completa.
+Esto es lo que hace verdadera la afirmación "escribe la pila de llamadas exacta" de `LANGUAGE.md`.
+C2: revertir el `return_stmt` de `pengu_codegen.py` hace fallar
+`test_the_call_chain_is_reported_when_the_call_is_a_statement`.
+
+**Coste real, y por qué se documenta aquí:** el cambio rompió 7 tests que fijaban la *forma textual*
+del `return` (`assert 'return X;' in bundle`), no su comportamiento. Se actualizaron preservando su
+intención (el valor devuelto se sigue comprobando, ahora a través del temporal). Es exactamente el
+patrón que la regla C1 desaconseja, y quedó registrado al hacerlo.
+
+### §14.3 El matiz de 3.5: por qué NO se emite una referencia obligatoria
+
+Implementé 3.5 como pedía el plan (referencia `extern` en cada bundle) y **rompió `pengu build` en
+todo proyecto nuevo**:
+
+```
+$ pengu init ok && cd ok && pengu build
+/usr/bin/ld: build/bundle.c:6:(.data.rel.ro+0x0): referencia a `pengu_abi_version' sin definir
+```
+
+Causa medida: el CLI sólo añade `-lpengu_runtime` cuando `pengu.toml` lo pide
+(`pengu_project.py:380-388`). Un proyecto recién creado no lo pide y compila **header-only**, sin
+archivo `.a` alguno. Hacer la referencia obligatoria exige que el CLI enlace siempre el runtime:
+**Fase 4** (`pengu_project.py`, prohibido en esta fase por §8 del encargo).
+
+Decisión: se mantiene el símbolo exportado y verificable (`nm` → `T pengu_abi_version`, que es el
+criterio de "done" de 3.5), se conserva el `_Static_assert` codegen-vs-header, y `SECURITY.md` +
+`docs/ABI.md` dicen **exactamente** qué se garantiza y qué no. `test_bundle_links_without_the_runtime_archive`
+fija la restricción para que el error no vuelva en silencio (C2 de la reversión).
+
+### §14.4 Triaje final
+
+| Grupo | Items | Estado |
+|---|---|---|
+| ✅ **Cerrados** | 3.1, 3.5, 3.6, 3.7, 3.8, 3.9, 3.11, 3.12, **3.13** (9) | con test que falla al revertir (C2) |
+| ⏸️ **Diferidos con medición** | 3.2, 3.3, 3.4, 3.10 (4) | §6–§7 (3.2, 3.3), §9/§11 (3.4), §14.5 (3.10) |
+
+Los cuatro diferidos tienen número, no excusa:
+
+- **3.2 / 3.3** — 34 de 61 programas de `tests/std_programs/` fallan
+  `gcc -std=c99 -pedantic-errors` por tres causas independientes (§7). 3.3 está acoplado: quitar
+  `({...})` sin arreglar antes el hoisting **no compila**. Único item **XL**.
+- **3.4** — el fix lograba tcc 61/61 pero rompía 5 tests; revertido (§9, §11) y confirmado en §13.
+- **3.10** — 55 símbolos sin Doxygen: cosmético, sin ningún gate de comportamiento colgando de él.
+
+### §14.5 Verificación de la suite
+
+```
+$ pytest tests/ -q -p no:randomly
+2524 passed, 18 skipped, 2 xfailed, 1 xpassed in 1322.17s (0:22:02)
+```
+
+Comparación con el cierre de la Fase 2 (`2499 passed, 18 skipped, 3 xfailed, 0 failed`):
+
+| Métrica | Fase 2 | Ahora | Δ | Explicación |
+|---|---|---|---|---|
+| **passed** | 2499 | **2524** | **+25** | los tests de regresión nuevos: `test_abi_version.py` (5), `test_floats_consistency.py` (10), `test_crash_dump_async_safe.py` (4), `test_crash_signals.py` (6) = 25 |
+| skipped | 18 | 18 | 0 | — |
+| **failed** | 0 | **0** | 0 | — |
+| xfailed | 3 | 2 | −1 | **no es una mejora**: ver abajo |
+| xpassed | 0 | 1 | +1 | **no es una mejora**: ver abajo |
+
+El `+25` cuadra exactamente con los 25 tests añadidos, así que no se ha perdido ni
+desactivado ningún test existente para llegar al verde.
+
+#### El `xpassed` es un *flake* preexistente, **no** un fix — no se reclama
+
+`tests/test_string_composition_suite.py::test_string_composition_no_memory_leaks[leak_binary_interp]`
+(detección de fugas vía `LD_PRELOAD`, `tests/leakcheck.c`) **no es determinista**. Medición,
+6 corridas del mismo test en el mismo árbol:
+
+```
+con los cambios de esta sesión:  xpass, xfail, xpass, xfail, xfail, xpass   (3/6 xpass)
+con el código de HEAD (git stash): xfail, xpass, xfail, xfail, xfail, xfail (1/6 xpass)
+```
+
+El `1 xpassed` de la corrida completa es, por tanto, **ruido de un test flaky que ya
+existía** antes de esta sesión — aparece también con el código de HEAD, sin ninguno de mis
+cambios. **No se reclama como consecuencia de 3.6/3.7/3.9/3.13.** Merece su propio item (la
+detección de fugas tiene una carrera); no se ha tocado aquí.
+
+### §14.6 Los 6 criterios de "Fase 3 suficientemente cerrada"
+
+| # | Criterio | Estado |
+|---|---|---|
+| 1 | `nm build/lib/libpengu_runtime.a \| grep pengu_abi_version` → 1 símbolo | ✅ `T pengu_abi_version` |
+| 2 | `docs/ABI.md` define la política de bumps | ✅ existe, con la sección "What is *not* enforced (yet)" |
+| 3 | `(3.14 to string) == "{3.14}"`, también con `1e300`, `-0.0` | ✅ 10 casos (`float` y `f64`), incluido `1e300` |
+| 4 | `pengu eval "1/0"` imprime mensaje y sale 136, **o** los docs ya no dicen "async-signal-safe" | ✅ ambas: imprime `[PENGU CRASH] … (signal/code 8)` y sale **136**; y los docs lo dicen ahora **con razón** |
+| 5 | `pengu run crash.pengu` da traza con `file.pengu:line`, **o** `pengu_frame_push` documentado como no-op con medición | ✅ traza real con `file:line`; `pengu_frame_push` **no** es no-op (§14.1) |
+| 6 | Suite completa en verde, 0 fallos | ✅ `2524 passed, 18 skipped, 2 xfailed, 1 xpassed, **0 failed**`. El `+25` son los tests nuevos; el `1 xpassed` es un flake preexistente que **no** se reclama (§14.5) |
+

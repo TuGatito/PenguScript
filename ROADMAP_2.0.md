@@ -265,28 +265,34 @@ Hacer que el runtime sea **C99 legal sin flags de supresión**, que la portabili
 |---|------|----------|------------|------|
 | 3.1 | 🔴 **B8** — el runtime debe compilar sin `-Wno-implicit-function-declaration` | `pengu_parser/pengu_runtime.c:25-28`, `build_runtime.py:1195-1204` (y `:272,436,521,999,1152`) | M | Añadir `-DMBEDTLS_ALLOW_PRIVATE_ACCESS`, eliminar los dos `-Wno-*`; `gcc -std=c11 -Wall -Wextra -c` → **0 errores**; verificado que el fix funciona (AUDIT §5.1) |
 | 3.2 | 🟠 **B5** — `--strict-c99` debe emitir C portable en programas con `std` | `pengu_codegen.py:4232-4256` (`_hoist`/`_block_expr`), `:5853-5855`, `:8707-8709`, `:1339-1358` | **L** | El bundle estricto de los 56 `tests/std_programs/*.pengu` compila con `gcc -std=c99 -pedantic-errors` → 0 errores, y **ejecuta** con salida correcta |
-| 3.3 | Reemplazar statement-expressions `({...})` por C99 puro en modo estricto | `pengu_codegen.py` (los 104 sitios restantes) | **XL** | `grep -c '({' <bundle_estricto>` → **0** en los 56 programas de std |
+| 3.3 | ⏸️ **DIFERIDO a 1.1** — Reemplazar statement-expressions `({...})` por C99 puro en modo estricto | `pengu_codegen.py` (los 104 sitios restantes) | **XL** | Diferido **con medición**, no por presupuesto: acoplado a 3.2 (eliminar `({...})` sin arreglar antes el *hoisting* del índice **no compila**) y único item XL del roadmap. Medición: 34/61 programas de `tests/std_programs/` fallan `-std=c99 -pedantic-errors` (AUDIT_1.0_FASE3.md §6–§7) |
 | 3.4 | Emitir `__typeof__` en lugar de `__auto_type` para que TCC acepte bundles con `std` | `pengu_codegen.py`, `build_runtime.py` | S | `tcc -c` sobre el bundle de `atlas.pengu` → 0 errores; `pengu run` deja de imprimir "development compiler failed; retrying with gcc" |
-| 3.5 | 🟠 **A15** — `PENGU_ABI_VERSION` verificable contra `libpengu_runtime.a` | `pengu_parser/pengu_runtime.c`, `pengu_codegen.py:32,458,9854` | M | `nm libpengu_runtime.a \| grep abi` → símbolo presente; un `.a` con ABI antigua **falla en link**, no en silencio |
-| 3.6 | Añadir `SIGFPE`/`SIGILL`/`SIGBUS` y usar `sigaction` | `pengu_runtime.h:464-465` | M | Un programa que divide por cero volca los frames de PenguScript; test con `-ftrapv` |
-| 3.7 | Formatear el volcado sin `snprintf` (o retirar la afirmación de async-signal-safety) | `pengu_runtime.h:401-412`, `LANGUAGE.md:3269`, `CHANGELOG.md:2780` | M | Si se mantiene la afirmación: el handler usa solo `write`/`_exit` y formateo manual. Si no: ambos documentos dejan de decir "async-signal-safe" |
+| 3.5 | ✅ **A15** — `PENGU_ABI_VERSION` verificable contra `libpengu_runtime.a` | `pengu_parser/pengu_runtime.c`, `docs/ABI.md` | M | **Hecho.** `nm libpengu_runtime.a \| grep pengu_abi_version` → **1 símbolo `T`**; un consumidor que enlace el `.a` y referencie el símbolo falla en **link** si el archivo es anterior, en vez de reinterpretar campos. La referencia **no** es obligatoria desde cada bundle: forzarla rompía `pengu build` en todo proyecto nuevo (`pengu init` no enlaza el runtime, el bundle es header-only), y hacerla obligatoria es Fase 4. `SECURITY.md`/`docs/ABI.md` dicen qué se garantiza y qué no. Ver `AUDIT_1.0_FASE3.md` §14 |
+| 3.6 | ✅ Añadir `SIGFPE`/`SIGILL`/`SIGBUS` y usar `sigaction` | `pengu_runtime.h` | M | **Hecho.** `pengu eval "1/0"` → `[PENGU CRASH] fatal signal (signal/code 8)` con traza `.pengu` y exit **136** (antes: sin mensaje, exit 248). `sigaction` con `SA_RESETHAND`; `tests/test_crash_signals.py` (6 tests) |
+| 3.7 | ✅ Formatear el volcado sin `snprintf` (se **mantiene** la afirmación) | `pengu_runtime.h` | M | **Hecho.** El handler y `pengu_bounds_panic` formatean a mano (aritmética + división entera) y solo usan `write(2)`/`_exit()`. Medido sobre el artefacto compilado: el cierre de enlace del camino de crash no referencia `snprintf`, `malloc` ni stdio. `tests/test_crash_dump_async_safe.py` (4 tests) |
 | 3.8 | Hacer atómica la instalación del crash handler | `pengu_runtime.h:399,459-460,471` | S | `call_once`/atómico; `pengu_frame_push` no escribe un global en cada frame |
-| 3.9 | 🟡 **R3** — unificar el formateo de floats (`%g` vs `%f`) | `pengu_runtime.h:1339`, `:796-798`, `pengu_codegen.py` | S | `(x to string)` y `"{x}"` producen el mismo texto; test con `3.14`, `1e300`, `-0.0` |
-| 3.10 | Documentar los 55 símbolos del runtime sin Doxygen (o docstring en los públicos) | `pengu_runtime.h` | M | 208/208 definiciones `pengu_*` con al menos una etiqueta; o 55 justificados como internos con un prefijo `_` |
-| 3.11 | Exportar `pengu_abi_version()` y documentar qué rompe la ABI | `pengu_parser/pengu_runtime.c`, `docs/ABI.md` (nuevo) | M | `docs/ABI.md` define la política: qué cambios bumpan `PENGU_ABI_VERSION` |
+| 3.9 | ✅ **R3** — unificar el formateo de floats (`%g` vs `%f`) | `pengu_runtime.h`, `pengu_codegen.py` | S | **Hecho.** `print x`, `(x to string)` y `"{x}"` coinciden byte a byte; cubre `3.14`, `0.0`, `-0.0`, `1.0/3.0`, `1e300` y `1e-300`, con `float`/`f32` (32-bit) y `f64`/`double` (64-bit). `tests/test_floats_consistency.py` (10 tests) |
+| 3.10 | ⏸️ **DIFERIDO a 1.1** — Documentar los 55 símbolos del runtime sin Doxygen | `pengu_runtime.h` | M | Diferido con medición: cosmético, ninguna afirmación de comportamiento depende de ello, y encaja en la Fase 7 (docs), donde el catálogo se genera de una vez |
+| 3.11 | ✅ Exportar `pengu_abi_version()` y documentar qué rompe la ABI | `pengu_parser/pengu_runtime.c`, `docs/ABI.md` (nuevo) | M | **Hecho.** `docs/ABI.md` define la política: qué cambia la versión (layout de structs —incluido añadir al final— y firmas), qué no (añadir funciones), y cómo se verifica |
 | 3.12 | Guardar los `#define` de `pengu_runtime.c:12-15,29` con `#ifndef` | `pengu_parser/pengu_runtime.c` | S | 0 warnings de `-Wmacro-redefined` |
+| 3.13 | ✅ (**nuevo**) Evaluar la expresión de retorno **antes** de retirar el frame | `pengu_codegen.py` (`return_stmt`) | S | **Hecho.** El codegen emitía `pengu_frame_pop(); return <expr>;`, así que un fallo dentro del `return` se atribuía **al llamador** (`return a / b` con división por cero → `at pengu_main`) y `return calling f` producía un solo frame. Ahora se evalúa en un temporal antes del `pop`. Es lo que hace verdadera la afirmación "pila de llamadas exacta" |
 
 ### Criterio de "done" de la fase
 
-- [ ] `gcc -std=c11 -Wall -Wextra -c` sobre `pengu_runtime.c` con los flags **reales** de build →
-      **0 errores, 0 warnings de supresión**.
+- [x] `gcc -std=c11 -Wall -Wextra -c` sobre `pengu_runtime.c` con los flags **reales** de build →
+      **0 errores, 0 warnings de supresión**. (`tests/test_runtime_c99.py`, 9 tests)
 - [ ] `gcc -std=c99 -pedantic-errors` sobre el bundle `--strict-c99` de los 56 programas de `std` →
       0 errores, y cada uno produce la salida esperada al ejecutarse.
+      **NO CUMPLIDO — diferido a 1.1** (items 3.2 y 3.3). Medición: 34/61 fallan.
 - [ ] `grep -c '({'` en cada bundle estricto → 0.
+      **NO CUMPLIDO — diferido a 1.1** (item 3.3, ver su fila).
 - [ ] `tcc -c` sobre el bundle de `atlas.pengu` → 0 errores.
-- [ ] `pengu_runtime.h` sigue con 0 warnings bajo `-Wall -Wextra -Werror` (no debe regresar).
-- [ ] `nm libpengu_runtime.a | grep -i abi` → 1 símbolo.
-- [ ] Una división por cero volca los frames y `pengu eval "1/0"` imprime un mensaje, no exit 248.
+      **NO CUMPLIDO — diferido a 1.1** (item 3.4, fix revertido; ver AUDIT_1.0_FASE3.md §11).
+- [x] `pengu_runtime.h` sigue con 0 warnings bajo `-Wall -Wextra -Werror` (no debe regresar).
+      Verificado además en 4 combinaciones de `PENGU_FRAME_TRACE`/`PENGU_BOUNDS_CHECK` × `-std=c99/c11`.
+- [x] `nm libpengu_runtime.a | grep -i abi` → 1 símbolo. → `T pengu_abi_version`
+- [x] Una división por cero volca los frames y `pengu eval "1/0"` imprime un mensaje, no exit 248.
+      → imprime `[PENGU CRASH] fatal signal (signal/code 8)` con traza y sale con **136**.
 
 ### Riesgos
 

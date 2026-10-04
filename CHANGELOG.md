@@ -48,6 +48,61 @@ All notable changes to PenguScript will be documented in this file.
   de `test_regression_0_13_1*`). **Revertido**; ver `AUDIT_1.0_FASE3.md` §11 y §13.
   Diferido a 1.1. Tras la reversión: **2499 passed, 0 failed**.
 
+### 🔴 Fixed — Cierre de la Fase 3 (items 3.5, 3.6, 3.7, 3.9, 3.11 y 3.13)
+
+- **3.5 — la ABI es verificable, y `SECURITY.md` deja de sobreafirmar.**
+  `pengu_abi_version()` se exporta como símbolo real desde
+  `pengu_parser/pengu_runtime.c` (nunca inline en el header):
+  `nm build/lib/libpengu_runtime.a | grep pengu_abi_version` → **1 símbolo (T)**.
+  Cualquier consumidor que enlace el archivo y referencie el símbolo falla en
+  **link** si el `.a` es anterior, en lugar de reinterpretar campos en silencio.
+  El `_Static_assert` del bundle sigue cubriendo codegen-vs-header; ambos checks
+  son complementarios. **No** se emite una referencia obligatoria desde cada
+  bundle: se intentó primero y rompía `pengu build` en todo proyecto recién
+  creado (`pengu init` no enlaza `libpengu_runtime.a`, el bundle es header-only),
+  así que hacerla obligatoria es trabajo de Fase 4. `SECURITY.md` y `docs/ABI.md`
+  dicen ahora exactamente qué se garantiza y qué no. Ver `AUDIT_1.0_FASE3.md` §14.
+
+- **3.6 — `SIGFPE`/`SIGILL`/`SIGBUS` vuelcan la traza.** El handler instalaba solo
+  `SIGSEGV`/`SIGABRT` con `signal()`. Una división entera por cero mataba el
+  proceso sin mensaje ni frame, y `pengu eval "1/0"` salía con **248** (el CLI
+  convertía el código de retorno negativo `-8` en `sys.exit(-8)`). Ahora usa
+  `sigaction` —con `SA_RESETHAND`, para no recursar si el propio handler falla— e
+  instala también `SIGFPE`, `SIGILL` y `SIGBUS`. `pengu eval "1/0"` imprime
+  `[PENGU CRASH] fatal signal (signal/code 8)` con la traza y sale con **136**.
+
+- **3.7 — el volcado de crash es async-signal-safe de verdad.**
+  `pengu_dump_frame_stack` se construía con `snprintf`, que POSIX no lista como
+  async-signal-safe, mientras `LANGUAGE.md` y este CHANGELOG afirmaban lo
+  contrario (el propio header lo admitía en un comentario). Ahora formatea con
+  primitivas propias —aritmética de punteros y división entera— y solo usa
+  `write(2)`/`_exit()`; `pengu_bounds_panic` también. Medido sobre el artefacto
+  compilado, el cierre de enlace del camino de crash referencia únicamente
+  `_exit`, `write`, `signal`, `pthread_once` y el guardián de pila del compilador:
+  ningún `snprintf`, `malloc` ni función de stdio. La afirmación es ahora
+  verdadera en lugar de retirada.
+
+- **3.9 — un solo formato de float en todas las vías.** `print x` daba
+  `3.140000` (builtin del codegen), `(x to string)` daba `3.14`
+  (`pengu_string_from_float`) y `"{x}"` daba `3.140000`
+  (`pengu_string_format_ex`): tres funciones, dos formatos, según qué camino
+  formateara el valor. Los tres usan ya `%g`. La nota de `LANGUAGE.md` que
+  documentaba la divergencia como intencionada describía un accidente de
+  implementación y se ha corregido (también en `LANGUAGE_Spanish.md`).
+
+- **3.11 — `docs/ABI.md`.** Documento nuevo: qué cubre `PENGU_ABI_VERSION`, qué
+  cambios la bumpean (cualquier cambio de layout —incluido añadir un campo al
+  final, porque cambia `sizeof`— y cualquier cambio de firma de una función
+  `pengu_*` exportada), qué no (añadir funciones nuevas), y cómo se verifica.
+
+- **3.13 (hallazgo nuevo de esta sesión) — la traza atribuía el fallo al
+  llamador.** El codegen emitía `pengu_frame_pop(); return <expr>;`, es decir
+  retiraba el frame **antes** de evaluar la expresión de retorno. Un `return a / b`
+  con división por cero se reportaba como `at pengu_main` —el llamador— en vez de
+  `at divide`, y una cadena `return calling f` producía un solo frame. Ahora la
+  expresión se evalúa en un temporal antes del `pop`. Esto es lo que hace
+  verdadera la afirmación "escribe la pila de llamadas exacta" de `LANGUAGE.md`.
+
 ### ⏸️ Diferido — `--strict-c99` NO es un gate de portabilidad en 0.16.0
 
 - **B5 (item 3.2) — `--strict-c99` no compila en programas que importan `std`.**
@@ -66,6 +121,21 @@ All notable changes to PenguScript will be documented in this file.
   Diferido a **1.1**. Consecuencias: el criterio #2 de "done" de la Fase 3 queda
   sin cumplir, y **B10 (Fase 8) sigue bloqueado**, porque su gate
   `tests/test_cli_strict_c99.py` no puede pasar mientras esto no se arregle.
+
+### ⏸️ Diferido a 1.1 — con medición
+
+- **3.3 — los 104 statement-expressions `({...})` en modo estricto.** Sigue sin
+  hacerse, y **con medición, no por falta de tiempo**: está acoplado a 3.2 (B5)
+  —eliminar `({...})` sin arreglar antes el *hoisting* que saca el índice del
+  bucle que declara su operando **no compila**— y es el único item **XL** del
+  roadmap. Medición en `AUDIT_1.0_FASE3.md` §6–§7 (34/61 programas de
+  `tests/std_programs/` fallan `-std=c99 -pedantic-errors`) y registro en
+  `ROADMAP_2.0.md` Fase 3 item 3.3.
+
+- **3.10 — 55 símbolos del runtime sin Doxygen.** Cosmético y no bloqueante:
+  ninguna afirmación de comportamiento depende de ello, y encaja mejor en la
+  Fase 7 (documentación), donde el catálogo de símbolos se genera de una vez.
+  Registrado en `ROADMAP_2.0.md` Fase 3 item 3.10.
 
 
 ## [Unreleased] — CI/CD: auditoría de GitHub Actions (Fase 7)
@@ -2842,7 +2912,7 @@ assignment inside a nested scope are covered by new tests.
 
 ### P1 — Confianza operativa (Fase 1)
 
-- **Backtrace mínimo**: frame stack circular thread-local (`pengu_frame_push`, `pengu_frame_pop`) configurable mediante `PENGU_FRAME_TRACE` y `PENGU_MAX_FRAMES` (64 por defecto). Crash handler para `SIGSEGV` y `SIGABRT` (y `SetUnhandledExceptionFilter` en Windows) que vuelca la cadena de llamadas `.pengu` directamente a stderr de forma async-signal-safe (utilizando exclusivamente llamadas directas a `write(2)` / `_write`).
+- **Backtrace mínimo**: frame stack circular thread-local (`pengu_frame_push`, `pengu_frame_pop`) configurable mediante `PENGU_FRAME_TRACE` y `PENGU_MAX_FRAMES` (64 por defecto). Crash handler para `SIGSEGV` y `SIGABRT` (y `SetUnhandledExceptionFilter` en Windows) que vuelca la cadena de llamadas `.pengu` directamente a stderr de forma async-signal-safe (utilizando exclusivamente llamadas directas a `write(2)` / `_write`). *(Corrección — Fase 3, item 3.7: en 0.10.0 esta afirmación era **falsa**. El volcado se construía con `snprintf`, que no es async-signal-safe, y el propio header lo admitía en un comentario. El handler solo pasó a usar exclusivamente `write(2)`/`_exit()` con formateo manual en 0.16.0; ver `AUDIT_1.0.md` §5.2 y `AUDIT_1.0_FASE3.md` §14.)*
 - **Bounds checking opt-in**: bajo el perfil `debug`, operaciones de indexación (`xs at i` y `set xs at i`) emiten verificaciones seguras con statement-expressions de GCC (`pengu_assert_bounds`), arrojando un panic descriptivo ante desbordamientos y volcando la traza de frames. En perfil `release`, tiene cero coste de runtime (no se emite la aserción).
 - **Variable de compilación `debug`**: expuesta para directivas condicionales `when debug:`, evaluándose como verdadera únicamente cuando el perfil activo de compilación es `debug` (o vía `-D debug` / `-D debug=1`).
 - **Salida estructurada `pengu test --json`**: emite eventos máquina JSON Lines (JSONL: `start`, `test_start`, `test_pass`, `end`) a stdout filtrando diagnósticos del compilador a stderr, idóneo para integración continua (CI).

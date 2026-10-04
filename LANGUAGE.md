@@ -3485,7 +3485,7 @@ pengu --version
 #### Minimal Runtime Backtraces
 The runtime maintains a lightweight, thread-local circular frame ring buffer:
 - `pengu_frame_push(fn_name, file, line)` and `pengu_frame_pop()` record active callstack frames up to `PENGU_MAX_FRAMES` (64 by default).
-- Async-signal-safe crash handlers for `SIGSEGV` and `SIGABRT` (and `SetUnhandledExceptionFilter` on Windows) intercept fatal errors and write the exact callstack with `.pengu` source filenames and line numbers directly to `stderr`.
+- Crash handlers for `SIGSEGV`, `SIGABRT`, `SIGFPE` (integer division by zero), `SIGILL` and `SIGBUS` (and `SetUnhandledExceptionFilter` on Windows) intercept fatal errors and write the callstack — with `.pengu` source filenames and line numbers — directly to `stderr`. The handler is **async-signal-safe**: it formats with hand-written primitives and calls only `write(2)`/`_exit()`, never `snprintf`, `malloc` or stdio. A weave's returned expression is evaluated *before* its frame is popped, so a fault inside it (e.g. `return a / b`) is attributed to that weave rather than to its caller.
 
 #### Opt-in Bounds Checking
 - Under the `debug` build profile, indexing operations (`xs at i` and `set xs at i`) emit bounds assertions (`pengu_assert_bounds`), halting with a callstack trace on out-of-bounds access.
