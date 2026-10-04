@@ -3957,6 +3957,17 @@ class PenguCodegen:
         """
         return self._format_attributes(w, self.target_compiler == "msvc")
 
+    def _abi_pin_attribute(self) -> str:
+        """Attribute prefix for the ABI-pin variable (Phase 3 item 3.5).
+
+        The pin exists only to force a link-time reference, so on GNU-compatible
+        compilers it is deliberately unreferenced and needs
+        ``__attribute__((unused))`` to stay silent under the default ``-Wall``
+        build. MSVC has no equivalent warning for unused file-scope statics and
+        no GNU attribute syntax, so it gets the bare form.
+        """
+        return "" if self.target_compiler == "msvc" else "__attribute__((unused)) "
+
     @staticmethod
     def _format_attributes(w: dict, is_msvc: bool = False) -> str:
         attrs = w.get("attributes", {})
@@ -9892,6 +9903,20 @@ class PenguCodegen:
             f'_Static_assert(PENGU_ABI_VERSION == {self.expected_abi_version}, '
             f'"pengu_runtime.h ABI mismatch: bundle expects v{self.expected_abi_version}");',
             "#endif",
+            # Phase 3 item 3.5 -- link-time ABI pin. `pengu_abi_version` is
+            # defined only in pengu_runtime.c (never inline in the header), so
+            # taking its address forces the linker to resolve it out of
+            # libpengu_runtime.a. A stale archive therefore fails to LINK
+            # instead of reinterpreting struct fields at the wrong offsets.
+            # The _Static_assert above only covers codegen-vs-header; this
+            # covers bundle-vs-archive. See docs/ABI.md.
+            #
+            # `static` keeps internal linkage (bundles linked together, e.g. a
+            # --lib artifact plus the app, would otherwise define the same
+            # global twice); `__attribute__((unused))` keeps `-Wall` quiet --
+            # MSVC does not warn for unused file-scope statics, so it gets the
+            # bare form.
+            f'{self._abi_pin_attribute()}static int (*const _pengu_abi_pin)(void) = pengu_abi_version;',
         ]
 
         # Self-describing marker so a bundle.c found in the wild says whether DCE

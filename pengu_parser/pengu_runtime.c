@@ -60,6 +60,17 @@
 #endif
 
 /* =========================================================================
+ * 0. Runtime ABI version (Phase 3 item 3.5)
+ *
+ * The single object-file symbol behind the link-time ABI pin. It must live here
+ * and not in the header: generated bundles reference it externally precisely so
+ * that a stale `libpengu_runtime.a` cannot be linked against a newer bundle.
+ * ========================================================================= */
+int pengu_abi_version(void) {
+    return PENGU_ABI_VERSION;
+}
+
+/* =========================================================================
  * 1. Filum (Concurrency Real Implementation)
  * ========================================================================= */
 
