@@ -1071,7 +1071,7 @@ class PenguCodegen:
         tmp = self.get_temp_name("_p_idx")
         if self.use_gnu_extensions:
             return (
-                f"(__extension__({{ __auto_type {tmp} = ({idx_code}); "
+                f"(__extension__({{ __typeof__({idx_code}) {tmp} = ({idx_code}); "
                 f"pengu_assert_bounds((int64_t){tmp}, (int64_t)({len_expr}), \"{loc_escaped}\"); {tmp}; }}))"
             )
         # Strict C99: hoist the declaration and the check, index through the
@@ -4573,7 +4573,7 @@ class PenguCodegen:
                         dims_str = "".join(f"[{d}]" for d in dims)
                         lines = [f"{ind}const {base_c} {tmp}{dims_str} = {expr_code};"]
                     else:
-                        lines = [f"{ind}const __auto_type {tmp} = {expr_code};"]
+                        lines = [f"{ind}const __typeof__({expr_code}) {tmp} = {expr_code};"]
                     for i, name in enumerate(names):
                         c_name = self._c_ident(name)
                         sym = self.symbols.lookup(name) if self.symbols else None
@@ -7266,9 +7266,9 @@ class PenguCodegen:
                     return self._block_expr(
                         [f"{vd} = ({elem_c});", f"PenguRange {r_t} = ({col_c});"], cond)
                 if is_not:
-                    return f"(__extension__({{ __auto_type _v = ({elem_c}); PenguRange _r = ({col_c}); (_v < _r.start || _v >= _r.end); }}))"
+                    return f"(__extension__({{ __typeof__({elem_c}) _v = ({elem_c}); PenguRange _r = ({col_c}); (_v < _r.start || _v >= _r.end); }}))"
                 else:
-                    return f"(__extension__({{ __auto_type _v = ({elem_c}); PenguRange _r = ({col_c}); (_v >= _r.start && _v < _r.end); }}))"
+                    return f"(__extension__({{ __typeof__({elem_c}) _v = ({elem_c}); PenguRange _r = ({col_c}); (_v >= _r.start && _v < _r.end); }}))"
 
             # Check if String
             if (col_t is not None and col_t.is_string()) or (isinstance(col_t, BaseType) and col_t.name == "string") or self._expr_is_string(col_node):
@@ -7330,7 +7330,7 @@ class PenguCodegen:
                     f"}} "
                     f"{'!_f' if is_not else '_f'};"
                 )
-                return f"(__extension__({{ __auto_type _val = ({elem_c}); __auto_type _arr = ({col_c}); {check_code} }}))"
+                return f"(__extension__({{ __typeof__({elem_c}) _val = ({elem_c}); __typeof__({col_c}) _arr = ({col_c}); {check_code} }}))"
 
             # Check if List
             if isinstance(col_t, ListType):
@@ -7352,7 +7352,7 @@ class PenguCodegen:
                     ], cond)
                 cmp = self._make_elem_eq(col_t.element, f"*({elem_c_t}*)pengu_list_at(&_lc, _i)", "_val")
                 return (
-                    f"(__extension__({{ __auto_type _val = ({elem_c}); "
+                    f"(__extension__({{ __typeof__({elem_c}) _val = ({elem_c}); "
                     f"PenguList _lc = ({col_c}); bool _f = false; "
                     f"for (int32_t _i = 0; _i < _lc.len; ++_i) {{ "
                     f"if ({cmp}) {{ _f = true; break; }} }} "
@@ -7379,7 +7379,7 @@ class PenguCodegen:
                     ], cond)
                 cmp = self._make_elem_eq(col_t.element, f"((({elem_c_t}*)(_sl).data)[_i])", "_val")
                 return (
-                    f"(__extension__({{ __auto_type _val = ({elem_c}); "
+                    f"(__extension__({{ __typeof__({elem_c}) _val = ({elem_c}); "
                     f"PenguSlice _sl = ({col_c}); bool _f = false; "
                     f"for (int32_t _i = 0; _i < _sl.len; ++_i) {{ "
                     f"if ({cmp}) {{ _f = true; break; }} }} "
@@ -9340,7 +9340,7 @@ class PenguCodegen:
             if not self.use_gnu_extensions:
                 self._hoist(f"PenguMaybe {tmp} = ({expr_str});")
                 return f"pengu_maybe_is_present(&{tmp})"
-            return f"(__extension__({{ __auto_type {tmp} = ({expr_str}); pengu_maybe_is_present(&{tmp}); }}))"
+            return f"(__extension__({{ __typeof__({expr_str}) {tmp} = ({expr_str}); pengu_maybe_is_present(&{tmp}); }}))"
         elif rule == "is_not_present":
             child = node.children[0]
             expr_str = self._translate_expr(child)
@@ -9350,7 +9350,7 @@ class PenguCodegen:
             if not self.use_gnu_extensions:
                 self._hoist(f"PenguMaybe {tmp} = ({expr_str});")
                 return f"(!pengu_maybe_is_present(&{tmp}))"
-            return f"(__extension__({{ __auto_type {tmp} = ({expr_str}); !pengu_maybe_is_present(&{tmp}); }}))"
+            return f"(__extension__({{ __typeof__({expr_str}) {tmp} = ({expr_str}); !pengu_maybe_is_present(&{tmp}); }}))"
         elif rule == "is_true":
             expr_str = self._translate_expr(node.children[0])
             return f"(({expr_str}) == true)"

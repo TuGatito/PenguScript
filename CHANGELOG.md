@@ -29,6 +29,14 @@ All notable changes to PenguScript will be documented in this file.
   Ahora están guardados con `#ifndef` y la unidad compila limpia **con y sin**
   los defines en la línea de órdenes.
 
+- **TCC acepta los bundles: `__auto_type` → `__typeof__`.** `__auto_type` es una
+  extensión de GCC/Clang que **tcc no implementa**, así que **46 de los 61**
+  programas de `tests/std_programs/` producían un bundle que tcc rechazaba
+  (`error: '__auto_type' undeclared`) y `pengu run` replegaba a gcc imprimiendo
+  `development compiler failed; retrying with gcc`. Ahora se emite
+  `__typeof__(EXPR)`, que ambos compiladores soportan: **61/61 compilan con tcc**
+  y el repliegue desaparece. `gcc -Wall -Wextra` sigue con 0 diagnósticos.
+
 ### ⏸️ Diferido — `--strict-c99` NO es un gate de portabilidad en 0.16.0
 
 - **B5 (item 3.2) — `--strict-c99` no compila en programas que importan `std`.**

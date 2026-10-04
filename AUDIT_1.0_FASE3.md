@@ -17,7 +17,7 @@
 | 3.12 | 🟢 Guardar los `#define` con `#ifndef` | ✅ **cerrado** | 3 warnings `-Wmacro-redefined` → 0 |
 | 3.2 | 🔴 **B5** — `--strict-c99` compila C portable con `std` | ⏸️ **DIFERIDO a 1.1** | §6–§7: 34/61 fallan; causa raíz localizada y fix intentado sin converger |
 | 3.3 | 🔴 Eliminar los statement-expressions `({...})` en modo estricto | ⏳ pendiente | — |
-| 3.4 | 🟠 `__typeof__` en vez de `__auto_type` para TCC | ⏳ pendiente | — |
+| 3.4 | 🟠 `__typeof__` en vez de `__auto_type` para TCC | ✅ **cerrado** | §9: 46/61 fallaban con tcc → **0/61**; `tests/test_tcc_portability.py` (8 tests) |
 | 3.5 | 🟠 **A15** — `PENGU_ABI_VERSION` verificable contra el `.a` | ⏳ pendiente | — |
 | 3.6 | 🟠 `SIGFPE`/`SIGILL`/`SIGBUS` + `sigaction` | ⏳ pendiente | — |
 | 3.7 | 🟠 Volcado sin `snprintf` **o** retirar la afirmación async-signal-safe | ⏳ pendiente | — |
@@ -402,3 +402,70 @@ sin cambios de por medio); no es una regresión de esta fase. No apareció el ot
 `pengu_codegen.py` está **en `HEAD`**, verificado con `git diff --quiet`: el intento de fix del
 hoisting se revirtió por completo y no dejó residuo. El único cambio de código de la fase es el de
 3.1/3.12 (`pengu_parser/pengu_runtime.c`, `build_runtime.py`), más los tests y la documentación.
+
+
+---
+
+## §9. Item 3.4 — `__auto_type` impedía a tcc compilar (cerrado)
+
+### Medición previa (C3)
+
+| Comprobación | Resultado |
+|---|---|
+| `tcc` en el PATH | no; el que usa el proyecto es el **empaquetado** en `build/tcc-dist/tcc-dist/bin/tcc` (v0.9.28rc) |
+| `tcc -c <bundle de test_atlas.pengu>` | ❌ `error: '__auto_type' undeclared` |
+| Programas de `tests/std_programs/` cuyo bundle **contiene** `__auto_type` | **46 / 61** |
+| Programas cuyo bundle **tcc rechaza** | **46 / 61** (exactamente los mismos) |
+
+`__auto_type` es una extensión de GCC/Clang que tcc no implementa. Como el proyecto usa tcc como
+compilador de desarrollo, cada bundle afectado disparaba el camino de repliegue y `pengu run`
+imprimía `development compiler failed; retrying with gcc`.
+
+### Fix
+
+`__auto_type X = (EXPR);` → `__typeof__(EXPR) X = (EXPR);`. En las 10 construcciones dentro de
+*statement expressions* el inicializador está disponible, así que `__typeof__` —que **tanto gcc como
+tcc** soportan— da el mismo tipo.
+
+Sitios convertidos: `_emit_bounds_check` (`:1074`), el hoist `const` (`:4576`), los dos de
+`maybe is present` (`:9343`, `:9353`), los cinco de comprobaciones de rango/colección
+(`:7269`, `:7271`, `:7333`, `:7355`, `:7382`) y `:813`.
+
+**Quedan 6 sitios** (`:813`, `:3221`, `:6886`, `:9112`, `:9269`, `:9326`) donde `__auto_type` es el
+*fallback* para un tipo que la inferencia no pudo determinar (`AnyType`). **Medido: no se disparan en
+ninguno de los 61 programas** — el bundle de `test_atlas` contiene **0** `__auto_type` tras el fix y
+los 61 compilan. Se dejan como están: convertirlos requeriría elegir un tipo concreto para un caso
+que el corpus no ejercita, y esa decisión no tiene medición que la respalde.
+
+### Verificación
+
+| Comprobación | Antes | Después |
+|---|---|---|
+| `tcc -c` sobre los 61 bundles | 15 ok / **46 fail** | **61 ok / 0 fail** |
+| `__auto_type` en el bundle de `test_atlas` | 42 | **0** |
+| `pengu run` con `import std.spark` | imprime el repliegue a gcc | **sin mensaje de repliegue** |
+| `gcc -std=c11 -Wall -Wextra -fsyntax-only` sobre el bundle de atlas | 0 | **0** (sin regresión) |
+
+El corpus completo bajo tcc es el test duro: cualquier regresión en codegen que reintroduzca
+`__auto_type` lo hace fallar.
+
+### C2 — verificado
+
+Revierte `pengu_codegen.py` a `HEAD` (`git checkout --`):
+
+```
+FAILED tests/test_tcc_portability.py::test_tcc_compiles_the_bundle[test_cipher.pengu]
+FAILED tests/test_tcc_portability.py::test_tcc_compiles_the_bundle[test_archivum.pengu]
+FAILED tests/test_tcc_portability.py::test_tcc_compiles_the_bundle[test_tally.pengu]
+FAILED tests/test_tcc_portability.py::test_tcc_compiles_the_bundle[test_atlas.pengu]
+FAILED tests/test_tcc_portability.py::test_no_bundle_in_the_corpus_contains_gcc_only_auto_type
+3 failed, 4 passed     (en la primera parametrización; con la definitiva, 5 failed)
+```
+
+### Hallazgo de método: un parámetro de test vacuo
+
+La primera versión parametrizaba con `test_spark.pengu`. **Con el fix revertido, ese caso pasaba**:
+su bundle no contiene ni un solo `__auto_type`. Era un parámetro que no podía fallar. Se midió la
+emisión real por programa con el fix revertido (`cipher` 96, `archivum` 63, `tally` 59, `atlas` 42,
+**`spark` 0**) y se sustituyó. Queda anotado en el propio test para que nadie lo revierta a
+`spark` creyendo que da igual.
