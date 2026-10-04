@@ -474,12 +474,12 @@ enchanting list of shard T where T: Par:
         var best as T is self at 0
         var best_count as int is 0
         for x in essence of self:
-            var count as int is 0
+            var count_n as int is 0
             for y in essence of self:
                 if y == x:
-                    set count is count + 1
-            if count > best_count:
-                set best_count is count
+                    set count_n is count_n + 1
+            if count_n > best_count:
+                set best_count is count_n
                 set best is x
         best
 
@@ -521,11 +521,11 @@ enchanting list of shard T where T: Par:
 
     ## Número de apariciones de `item`.
     weave count_of with item as T into int:
-        var count as int is 0
+        var count_n as int is 0
         for x in essence of self:
             if x == item:
-                set count is count + 1
-        count
+                set count_n is count_n + 1
+        count_n
 
     ## Índice de la última aparición de `item`, o -1 si no está.
     weave last_index_of with item as T into int:

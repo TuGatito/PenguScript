@@ -872,12 +872,12 @@ weave stringify_json with data as map of string to string into maybe string:
     var out as string is "{"
     var keys as list of string is calling pengu_map_keys_string with sigil of data
     var i as int is 0
-    var first as bool is true
+    var is_first as bool is true
     while i < keys.len:
         var key as string is keys at i
         var val as string is calling data.get with key
-        if first:
-            set first is false
+        if is_first:
+            set is_first is false
         else:
             set out is "{out},"
         set out is "{out}\"{(calling json_escape with key)}\""
@@ -896,12 +896,12 @@ weave pretty_json with data as map of string to string , indent as int is 2 into
     var out as string is "{\n"
     var keys as list of string is calling pengu_map_keys_string with sigil of data
     var i as int is 0
-    var first as bool is true
+    var is_first as bool is true
     while i < keys.len:
         var key as string is keys at i
         var val as string is calling data.get with key
-        if first:
-            set first is false
+        if is_first:
+            set is_first is false
         else:
             set out is "{out},\n"
         var sp as int is 0

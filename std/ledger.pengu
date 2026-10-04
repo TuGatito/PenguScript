@@ -220,10 +220,10 @@ weave parse_csv with data as string , delimiter as string is "," , has_header as
     while i <= dl:
         if i == dl:
             if i > start:
-                var last as string is data at start to i
-                var mlast as maybe list of string is calling parse_line with last , delimiter
-                if mlast.is_present:
-                    calling rows.push with mlast.value
+                var last_line as string is data at start to i
+                var mlast_line as maybe list of string is calling parse_line with last_line , delimiter
+                if mlast_line.is_present:
+                    calling rows.push with mlast_line.value
             break
         var code as int is ord (data at i)
         if code == 10:

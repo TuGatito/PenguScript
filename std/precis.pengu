@@ -231,13 +231,13 @@ weave post_json with url as string , json_body as string , headers as map of str
 ## Convenience helper: sends an HTTP POST of form parameters encoded as application/x-www-form-urlencoded.
 weave post_form with url as string , params as map of string to string into maybe ClientResponse:
     var body as string is ""
-    var first as bool is true
+    var is_first as bool is true
     for k in params:
         var v as string is calling params.get with k
-        if not first:
+        if not is_first:
             set body is "{body}&"
         set body is "{body}{(calling url_encode with k)}={(calling url_encode with v)}"
-        set first is false
+        set is_first is false
     var hdrs as map of string to string is map of string to string
     calling hdrs.set with "Content-Type" , "application/x-www-form-urlencoded"
     return calling post with url , hdrs , body
@@ -424,9 +424,9 @@ weave tcp_recv with sock as ref to TCPSocket , max_bytes as int into maybe strin
 weave tcp_recv_line with sock as ref to TCPSocket , max_bytes as int is 4096 into maybe string:
     var buf as string is ""
     while buf.len < max_bytes:
-        var chunk as maybe string is calling tcp_recv with sock , 1
-        if chunk is present:
-            var ch as string is chunk.value
+        var chunk_v as maybe string is calling tcp_recv with sock , 1
+        if chunk_v is present:
+            var ch as string is chunk_v.value
             if ch.len == 0:
                 break
             set buf is "{buf}{ch}"
@@ -442,11 +442,11 @@ weave tcp_recv_line with sock as ref to TCPSocket , max_bytes as int is 4096 int
 weave tcp_recv_until with sock as ref to TCPSocket , terminator as string , max_bytes as int is 65536 into maybe string:
     var buf as string is ""
     while buf.len < max_bytes:
-        var chunk as maybe string is calling tcp_recv with sock , 128
-        if chunk is present:
-            if chunk.value.len == 0:
+        var chunk_v as maybe string is calling tcp_recv with sock , 128
+        if chunk_v is present:
+            if chunk_v.value.len == 0:
                 break
-            set buf is "{buf}{chunk.value}"
+            set buf is "{buf}{chunk_v.value}"
             if calling buf.contains with terminator:
                 return some buf
         else:
@@ -459,11 +459,11 @@ weave tcp_recv_until with sock as ref to TCPSocket , terminator as string , max_
 weave tcp_recv_all with sock as ref to TCPSocket , max_bytes as int is 65536 into maybe string:
     var buf as string is ""
     while buf.len < max_bytes:
-        var chunk as maybe string is calling tcp_recv with sock , 1024
-        if chunk is present:
-            if chunk.value.len == 0:
+        var chunk_v as maybe string is calling tcp_recv with sock , 1024
+        if chunk_v is present:
+            if chunk_v.value.len == 0:
                 break
-            set buf is "{buf}{chunk.value}"
+            set buf is "{buf}{chunk_v.value}"
         else:
             break
     if buf.len > 0:
@@ -534,7 +534,7 @@ weave parse_url with url as string into maybe ParsedUrl:
     var userinfo as string is ""
     var host as string is ""
     var port as int is 0
-    var path as string is ""
+    var path_raw as string is ""
     var has_auth as bool is false
 
     # 3. Scheme (scheme://)
@@ -554,9 +554,9 @@ weave parse_url with url as string into maybe ParsedUrl:
         var authority as string is auth_and_path
         if slash_pos >= 0:
             set authority is auth_and_path at 0 to slash_pos
-            set path is auth_and_path at slash_pos to auth_and_path.len
+            set path_raw is auth_and_path at slash_pos to auth_and_path.len
         else:
-            set path is ""
+            set path_raw is ""
 
         # userinfo@
         var at_pos as int is calling authority.find with "@"
@@ -576,9 +576,9 @@ weave parse_url with url as string into maybe ParsedUrl:
         else:
             set host is host_port
     else:
-        set path is rem
+        set path_raw is rem
 
-    var res as ParsedUrl is with scheme is scheme , userinfo is userinfo , host is host , port is port , path is path , query is query , fragment is fragment , has_authority is has_auth
+    var res as ParsedUrl is with scheme is scheme , userinfo is userinfo , host is host , port is port , path is path_raw , query is query , fragment is fragment , has_authority is has_auth
     return some res
 
 ## Rebuilds an RFC 3986 URL string from its structured components.
@@ -605,15 +605,15 @@ weave url_with_query with url as string , params as map of string to string into
     if params.len == 0:
         return url
     var q as string is ""
-    var first as bool is true
+    var first_v as bool is true
     for k in params:
         var v as string is calling params.get with k
         var enc_k as string is calling url_encode with k
         var enc_v as string is calling url_encode with v
-        if not first:
+        if not first_v:
             set q is "{q}&"
         set q is "{q}{enc_k}={enc_v}"
-        set first is false
+        set first_v is false
     if calling url.contains with "?":
         return "{url}&{q}"
     return "{url}?{q}"

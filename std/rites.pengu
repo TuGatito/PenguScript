@@ -226,8 +226,8 @@ weave getenv_bool with name as string into maybe bool:
 ## Cross-platform: Works across all platforms.
 weave get_env_map into map of string to string:
     var res as map of string to string is map of string to string
-    var keys as list of string is calling get_env_keys
-    for k in keys:
+    var keys_snapshot as list of string is calling get_env_keys
+    for k in keys_snapshot:
         var v_opt as maybe string is calling getenv with k
         if v_opt is present:
             calling res.put with k , v_opt.value
@@ -240,13 +240,13 @@ weave get_env_map into map of string to string:
 ## Edge cases: Returns the count of variables successfully set.
 ## Cross-platform: Works across all platforms.
 weave set_env_map with m as map of string to string into int:
-    var count as int is 0
+    var count_v as int is 0
     for k in m:
         var v as string is m at k
         var ok as bool is calling setenv with k , v , true
         if ok:
-            set count is count + 1
-    return count
+            set count_v is count_v + 1
+    return count_v
 
 ## Clears all environment variables in the current process.
 ##
@@ -256,13 +256,13 @@ weave set_env_map with m as map of string to string into int:
 ## Cross-platform: On all platforms, variables are removed via platform unsetenv / SetEnvironmentVariableA.
 ## WARNING: Only removes variables from the current process environment, does not affect the OS or parent processes.
 weave clear_env into int:
-    var keys as list of string is calling get_env_keys
-    var count as int is 0
-    for k in keys:
+    var keys_snapshot as list of string is calling get_env_keys
+    var count_n as int is 0
+    for k in keys_snapshot:
         var ok as bool is calling unsetenv with k
         if ok:
-            set count is count + 1
-    return count
+            set count_n is count_n + 1
+    return count_n
 
 ## Expands environment variable placeholders in string `s`.
 ## Supports `$VAR`, `${VAR}`, `%VAR%` syntax, and `$$` / `%%` escape -> `$` / `%`.
@@ -720,9 +720,9 @@ weave which_all with cmd as string into list of string:
 ## Ownership: Returns an owned maybe string.
 ## Edge cases: Returns maybe none if `cmd` is not found on PATH.
 weave which with cmd as string into maybe string:
-    var matches as list of string is calling which_all with cmd
-    if (calling matches.len) > 0:
-        return some (matches at 0)
+    var matches_list as list of string is calling which_all with cmd
+    if (calling matches_list.len) > 0:
+        return some (matches_list at 0)
     return maybe none
 
 # ----------------------------------------------------------------------------

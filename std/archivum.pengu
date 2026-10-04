@@ -228,22 +228,22 @@ weave read_lines with path as string into maybe list of string:
 
 ## Reads at most `n` lines from `path`.
 weave read_first_n_lines with path as string, n as int into maybe list of string:
-    var lines as maybe list of string is calling read_lines with path
-    if lines.is_present:
-        var all_l as list of string is lines.value
+    var lines_opt as maybe list of string is calling read_lines with path
+    if lines_opt.is_present:
+        var all_l as list of string is lines_opt.value
         var out as list of string is list of string
-        var count as int is 0
-        while (count < n) and (count < all_l.len):
-            calling out.push with (all_l at count)
-            set count is count + 1
+        var count_v as int is 0
+        while (count_v < n) and (count_v < all_l.len):
+            calling out.push with (all_l at count_v)
+            set count_v is count_v + 1
         return some out
     return maybe none
 
 ## Returns the total number of lines in file `path`.
 weave count_lines with path as string into maybe int:
-    var lines as maybe list of string is calling read_lines with path
-    if lines.is_present:
-        var ll as list of string is lines.value
+    var lines_opt as maybe list of string is calling read_lines with path
+    if lines_opt.is_present:
+        var ll as list of string is lines_opt.value
         return some (ll.len)
     return maybe none
 
@@ -530,16 +530,16 @@ weave copy_tree with src as string, dst as string into bool:
     var seed as FsCopyTask is with s is src, d is dst
     calling stack.push with seed
     while stack.len > 0:
-        var last as FsCopyTask is stack at (stack.len - 1)
+        var last_task as FsCopyTask is stack at (stack.len - 1)
         calling stack.pop
-        var entries as maybe list of string is calling read_dir with last.s
+        var entries as maybe list of string is calling read_dir with last_task.s
         if entries.is_present:
             var list_e as list of string is entries.value
             var i as int is 0
             while i < list_e.len:
                 var name as string is list_e at i
-                var sp as string is "{last.s}/{name}"
-                var dp as string is "{last.d}/{name}"
+                var sp as string is "{last_task.s}/{name}"
+                var dp as string is "{last_task.d}/{name}"
                 if calling is_dir with sp:
                     var made_sub as bool is calling create_dir with dp, true
                     if made_sub == false:

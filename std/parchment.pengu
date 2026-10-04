@@ -243,8 +243,8 @@ weave is_valid_tag_name with tag as string into bool:
     if tag.len == 0:
         return false
     var first as int is ord (tag at 0)
-    var is_alpha as bool is (first >= 65 and first <= 90) or (first >= 97 and first <= 122) or first == 95
-    if not is_alpha:
+    var is_alpha_ch as bool is (first >= 65 and first <= 90) or (first >= 97 and first <= 122) or first == 95
+    if not is_alpha_ch:
         return false
     var i as int is 1
     while i < tag.len:

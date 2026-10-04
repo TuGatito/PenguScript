@@ -302,12 +302,12 @@ weave remap with v as float , in_min as float , in_max as float , out_min as flo
 
 ## Wraps `val` into the range [lo, hi).
 weave wrap_val with val as float , lo as float , hi as float into float:
-    var range as float is hi - lo
-    if range == 0.0:
+    var span_val as float is hi - lo
+    if span_val == 0.0:
         return lo
-    var rem as float is calling fmod with (val - lo) , range
+    var rem as float is calling fmod with (val - lo) , span_val
     if rem < 0.0:
-        set rem is rem + range
+        set rem is rem + span_val
     return lo + rem
 
 ## Normalizes an angle into [0, 2*PI).
