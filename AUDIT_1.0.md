@@ -79,7 +79,7 @@
 | Entradas del catálogo §22.2 con atribución de clase incorrecta | **5** (`E0014`, `E0018`, `E0020`, `E0045` → `TypeMismatchError` que declara `E0005`; `E0047` → `DuplicateConceptBindingError` que declara `E0052`) | Cruce regex doc vs `setdefault` en `pengu_errors.py` |
 | Códigos emitidos como string crudo sin clase dedicada | **24** de 58 | Comparación de emisiones `code="Exxxx"` vs clases |
 | Ejemplos `pengu` de `LANGUAGE.md` que no pasan `pengu check` | **70** de **104** (67 %) | Bucle real, con un parser de fences por líneas. Actualizado en la Fase 2: eran 71, y el bloque 59 se retiró (§13.1) |
-| Afirmaciones documentales refutadas explícitamente en esta auditoría | **24** | Ver §18.1 |
+| Afirmaciones documentales refutadas explícitamente en esta auditoría | **25** | Ver §18.1 |
 | Afirmaciones que la documentación **subestima** | **12** | Ver §18.3 |
 | Afirmaciones de **esta propia auditoría** corregidas tras re-verificación | **2** | §9.10 (sintaxis `prototype`) y §1.1 (número de conflictos LALR: 1 → 188) |
 
@@ -3196,6 +3196,7 @@ estilo ni al checklist de release**.
 | 22 | `compress`/`decompress` en `seal` | `CHEATSHEET.md:2388` | Reales: `zlib_compress`/`zlib_decompress` | ❌ **REFUTADO** |
 | 23 | loom `product`/`max`/`min` | `CHEATSHEET.md:2391` | Reales: `product_num`/`max_int`/`min_int` | ❌ **REFUTADO** |
 | 24 | *"`alias Item` is accepted for forward compatibility"* | `LANGUAGE.md` §11.7 | El parser lo rechaza con `E0000`; `concept_method` solo acepta `weave` | ❌ **REFUTADO** (Fase 2) |
+| 25 | *"`test "name":` con cuerpo vacío pasa silenciosamente"* | `ROADMAP_2.0.md` item 2.11 | `test_decl` exige `stmt+`; un cuerpo vacío es `E0000`, nunca pasó | ❌ **REFUTADO** (Fase 2) |
 
 ### §18.2 Reivindicaciones del **enunciado de la auditoría** que resultaron falsas
 
