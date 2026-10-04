@@ -130,21 +130,19 @@ weave alignment_of shard T into int:
 
 ## Returns a NULL pointer of type ref to void.
 weave null_void into ref to void:
-    return transmute 0 to ref to void
+    return null
 
 ## Returns a NULL pointer of type ref to char.
 weave null_char into ref to char:
-    return transmute 0 to ref to char
+    return null
 
 ## Returns a NULL pointer of type ref to byte.
 weave null_byte into ref to byte:
-    return transmute 0 to ref to byte
+    return null
 
 ## Returns true if the given raw pointer is NULL (0).
 weave is_null with p as ref to void into bool:
-    var o as opaque is transmute p to opaque
-    var nil as opaque is transmute 0 to opaque
-    return o == nil
+    return p == null
 
 ## Returns true if the given raw pointer is non-NULL.
 weave is_valid with p as ref to void into bool:
@@ -223,8 +221,7 @@ weave bytes_from_string with s as string into ref to byte:
 ## Copies up to `max_len` bytes from `cstr` into a new owned string, stopping early
 ## if a NUL ('\0') character is encountered.
 weave string_from_cstr_n with cstr as ref to char , max_len as int into string:
-    var nil as opaque is transmute 0 to opaque
-    if (transmute cstr to opaque) == nil or max_len <= 0:
+    if cstr == null or max_len <= 0:
         return ""
     var sl as slice of byte is calling slice_from_ptr of byte with (transmute cstr to ref to void) , max_len
     var n as int is 0
@@ -242,8 +239,7 @@ weave string_from_cstr_n with cstr as ref to char , max_len as int into string:
 
 ## Copies exactly `count` bytes from `data` into a new owned PenguScript string.
 weave string_from_bytes with data as ref to byte , count as int into string:
-    var nil as opaque is transmute 0 to opaque
-    if (transmute data to opaque) == nil or count <= 0:
+    if data == null or count <= 0:
         return ""
     var sl as slice of byte is calling slice_from_ptr of byte with (transmute data to ref to void) , count
     var out as string is ""
