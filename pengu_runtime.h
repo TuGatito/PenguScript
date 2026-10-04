@@ -111,6 +111,10 @@
 #include <sys/time.h>
 #include <dirent.h>
 #include <utime.h>
+/* Phase 3 item 3.8: the crash-handler install must happen exactly once across
+ * threads. `pthread_once` is the portable POSIX primitive for that and the POSIX
+ * runtime already links pthreads (see `pengu_parser/pengu_runtime.c`). */
+#include <pthread.h>
 #endif
 
 #ifdef __cplusplus
@@ -396,7 +400,22 @@ extern "C"
 
   static PENGU_THREAD_LOCAL PenguFrame g_pengu_frames[PENGU_MAX_FRAMES];
   static PENGU_THREAD_LOCAL int         g_pengu_frame_top = 0;
-  static volatile int g_pengu_handler_installed = 0;
+  /*
+   * Phase 3 item 3.8. This used to be `static volatile int` guarding a
+   * check-then-set in `pengu_install_crash_handler()`, which is a data race: two
+   * threads can both observe 0 and both run the install. `volatile` orders
+   * nothing between threads. A platform once-primitive performs the check and the
+   * state transition atomically, so the handler is installed exactly once even
+   * when the first frames are pushed concurrently.
+   *
+   * The header is included by generated code, which is compiled as C11; on POSIX
+   * we use `pthread_once`, and on Windows `InitOnceExecuteOnce`.
+   */
+#if PENGU_WINDOWS
+  static INIT_ONCE g_pengu_handler_once = INIT_ONCE_STATIC_INIT;
+#else
+  static pthread_once_t g_pengu_handler_once = PTHREAD_ONCE_INIT;
+#endif
 
   /*
    * El output se escribe con write(2) / _write. El buffer intermedio se arma con
@@ -454,21 +473,52 @@ extern "C"
     _exit(128 + sig);
   }
 
+  /* Runs exactly once, whichever thread wins the once-guard. */
+  static void pengu_install_crash_handler_body(void)
+  {
+#if PENGU_WINDOWS
+    SetUnhandledExceptionFilter(pengu_win_exception_handler);
+#endif
+    signal(SIGSEGV, pengu_unix_signal_handler);
+    signal(SIGABRT, pengu_unix_signal_handler);
+  }
+
+#if PENGU_WINDOWS
+  static BOOL CALLBACK pengu_install_crash_handler_once_cb(PINIT_ONCE once,
+                                                          PVOID param,
+                                                          PVOID *ctx)
+  {
+    (void)once; (void)param; (void)ctx;
+    pengu_install_crash_handler_body();
+    return TRUE;
+  }
+#endif
+
+  /*
+   * Idempotent and thread-safe: the once-primitive guarantees the body runs a
+   * single time, and subsequent callers observe the completed state. Calling this
+   * per frame is still cheap -- that is only an atomic load -- but
+   * `pengu_frame_push` no longer needs to call it at all (see below).
+   */
   static inline void pengu_install_crash_handler(void)
   {
-    if (!g_pengu_handler_installed) {
-      g_pengu_handler_installed = 1;
 #if PENGU_WINDOWS
-      SetUnhandledExceptionFilter(pengu_win_exception_handler);
+    InitOnceExecuteOnce(&g_pengu_handler_once,
+                        pengu_install_crash_handler_once_cb, NULL, NULL);
+#else
+    pthread_once(&g_pengu_handler_once, pengu_install_crash_handler_body);
 #endif
-      signal(SIGSEGV, pengu_unix_signal_handler);
-      signal(SIGABRT, pengu_unix_signal_handler);
-    }
   }
 
   static inline void pengu_frame_push(const char *func, const char *file, int line)
   {
-    pengu_install_crash_handler();
+    /*
+     * Phase 3 item 3.8: no install call here. The generated `main` installs the
+     * handler once at process start (see pengu_codegen's entry-point wrapper), so
+     * this hot path -- one call per PenguScript frame -- no longer performs a
+     * check on every push. The install is still idempotent and thread-safe for any
+     * caller that reaches it directly.
+     */
     if (g_pengu_frame_top < PENGU_MAX_FRAMES) {
       g_pengu_frames[g_pengu_frame_top].func = func;
       g_pengu_frames[g_pengu_frame_top].file = file;

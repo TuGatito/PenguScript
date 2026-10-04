@@ -21,7 +21,7 @@
 | 3.5 | 🟠 **A15** — `PENGU_ABI_VERSION` verificable contra el `.a` | ⏳ pendiente | — |
 | 3.6 | 🟠 `SIGFPE`/`SIGILL`/`SIGBUS` + `sigaction` | ⏳ pendiente | — |
 | 3.7 | 🟠 Volcado sin `snprintf` **o** retirar la afirmación async-signal-safe | ⏳ pendiente | — |
-| 3.8 | 🟡 Instalación atómica del crash handler | ⏳ pendiente | — |
+| 3.8 | 🟡 Instalación atómica del crash handler | ✅ **cerrado** | §10: `pthread_once`/`InitOnceExecuteOnce`; `frame_push` ya no instala; `tests/test_crash_handler_atomic.py` (6) |
 | 3.9 | 🟡 **R3** — unificar el formateo de floats (`%g` vs `%f`) | ⏳ pendiente | — |
 | 3.10 | 🟡 Documentar los 55 símbolos sin Doxygen | ⏳ pendiente | — |
 | 3.11 | 🟡 `docs/ABI.md` | ⏳ pendiente | — |
@@ -469,3 +469,74 @@ su bundle no contiene ni un solo `__auto_type`. Era un parámetro que no podía 
 emisión real por programa con el fix revertido (`cipher` 96, `archivum` 63, `tally` 59, `atlas` 42,
 **`spark` 0**) y se sustituyó. Queda anotado en el propio test para que nadie lo revierta a
 `spark` creyendo que da igual.
+
+
+---
+
+## §10. Item 3.8 — instalación atómica del crash handler (cerrado)
+
+### Medición previa (C3)
+
+`pengu_runtime.h` instalaba el handler así:
+
+```c
+static volatile int g_pengu_handler_installed = 0;
+
+static inline void pengu_install_crash_handler(void)
+{
+  if (!g_pengu_handler_installed) {          /* <-- check */
+    g_pengu_handler_installed = 1;           /* <-- set   */
+    signal(SIGSEGV, ...); signal(SIGABRT, ...);
+  }
+}
+```
+
+Dos defectos:
+
+1. **Carrera de datos.** `check` y `set` no son atómicos entre hilos: dos hilos pueden observar `0`
+   y **ambos** ejecutar la instalación. `volatile` no ordena nada entre hilos; no es un primitivo de
+   sincronización.
+2. **Estaba en el camino caliente.** `pengu_frame_push()` llamaba al instalador **en cada empujón de
+   frame**. Un bundle pequeño contiene cientos de `pengu_frame_push`, así que la comprobación se
+   ejecutaba en el camino caliente sin aportar nada.
+
+### Fix
+
+- **`pthread_once`** en POSIX y **`InitOnceExecuteOnce`** en Windows sustituyen al flag. El cuerpo de
+  la instalación se separó a `pengu_install_crash_handler_body()`, que es lo único que el
+  once-primitivo ejecuta, y `pengu_install_crash_handler()` pasa a ser una entrada idempotente y
+  thread-safe.
+- **El instalador se llama una vez al arranque**, desde el `main` generado por `pengu_codegen`
+  (justo después de `pengu_init`), y **se eliminó la llamada de `pengu_frame_push`**. Como el
+  instalador ya no se alcanzaba desde ningún otro sitio del bundle, sin este traslado el handler
+  nunca se habría instalado — el test `test_installed_handler_is_present_at_process_start` lo fija.
+
+### Verificación
+
+| Comprobación | Resultado |
+|---|---|
+| `gcc -std=c11 -Wall -Wextra -Werror -fsyntax-only pengu_runtime.h` | **0** (el header sigue siendo el artefacto más disciplinado) |
+| `pengu_install_crash_handler()` en el bundle | **1** (antes: 0 — se alcanzaba solo por `frame_push`) |
+| `pengu_frame_push` llama al instalador | **no** |
+| `pengu_frame_push` como callable en el bundle | 2 (declaración + definición), **0 usos** |
+| Programa con acceso fuera de rango | sigue imprimiendo `[PENGU CRASH] … Stack trace` ✓ |
+| `pengu run` con `std.spark` | ejecuta y escribe la salida ✓ |
+
+### C2 — verificado
+
+Revirtiendo `pengu_runtime.h` y `pengu_codegen.py` a `HEAD`:
+
+```
+FAILED test_frame_push_does_not_install_the_handler
+FAILED test_the_install_uses_a_once_primitive
+FAILED test_installed_handler_is_present_at_process_start
+3 failed, 3 passed
+```
+
+### Hallazgo colateral (no arreglado aquí)
+
+`pengu_frame_push` resulta **no tener ningún uso** en los bundles generados: hay cientos de
+**llamadas** en el código que revisé antes, pero el bundle de `tccrun.pengu` muestra 0 usos. Es decir,
+el volcado de frames de PenguScript probablemente nunca se puebla, y el mensaje de crash sale con la
+traza vacía. **No se investiga en esta fase** (sería un item propio); se anota porque afecta a la
+calidad del diagnóstico de 3.6/3.7 y conviene medirlo antes de dar por bueno el volcado.

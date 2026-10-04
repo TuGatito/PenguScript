@@ -37,6 +37,15 @@ All notable changes to PenguScript will be documented in this file.
   `__typeof__(EXPR)`, que ambos compiladores soportan: **61/61 compilan con tcc**
   y el repliegue desaparece. `gcc -Wall -Wextra` sigue con 0 diagnósticos.
 
+- **Instalación atómica del crash handler.** El handler se instalaba con un
+  `static volatile int` y un *check-then-set*, que es una carrera de datos (dos
+  hilos pueden observar `0` y ejecutar la instalación ambos; `volatile` no ordena
+  nada entre hilos). Además `pengu_frame_push()` lo llamaba **en cada empujón de
+  frame**, en el camino caliente. Ahora usa `pthread_once` (POSIX) /
+  `InitOnceExecuteOnce` (Windows), y la instalación se hace **una sola vez al
+  arranque** desde el `main` generado. El header sigue compilando con
+  `-Wall -Wextra -Werror`.
+
 ### ⏸️ Diferido — `--strict-c99` NO es un gate de portabilidad en 0.16.0
 
 - **B5 (item 3.2) — `--strict-c99` no compila en programas que importan `std`.**

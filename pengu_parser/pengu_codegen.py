@@ -9622,6 +9622,10 @@ class PenguCodegen:
             "int main(int argc, char** argv) {",
             "  /* Expose the program arguments to 'rites.get_args()' etc. */",
             "  pengu_init(argc, argv);",
+            "  /* Phase 3 item 3.8: install the crash handler exactly once, at process",
+            "     start. It used to be installed lazily from pengu_frame_push, which",
+            "     meant a racy check on every single frame push in the program. */",
+            "  pengu_install_crash_handler();",
         ]
         lines += call_lines
         lines += [
