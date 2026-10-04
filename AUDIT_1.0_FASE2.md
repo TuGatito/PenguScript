@@ -2075,3 +2075,50 @@ reducir**. Para `return_stmt` son los 45 conflictos, todos poseídos por `return
 **Entrega:** `AUDIT_1.0_FASE2.md` (este documento). Los items 2.1–2.3 y 2.5–2.12 están cerrados; el
 2.4 queda diferido a 1.1 con la causa raíz probada por negación (§22) y las dos salidas costeadas
 (§23). Se entregan además `tools/grammar_conflicts.py` y 13 suites de test nuevas.
+
+---
+
+## §25. Decisión de cierre: el item 2.4 se difiere a 1.1 (Fase 2 cerrada)
+
+**Decisión tomada por el responsable del proyecto**: diferir el item 2.4 a 1.1 y **cerrar la Fase 2**
+con 5 de 6 criterios cumplidos.
+
+### Por qué es la decisión correcta, con la medición delante
+
+El item 2.4 **no es un item pendiente de implementación**: es una **decisión de lenguaje** que sus
+propios criterios de aceptación no pueden resolver. Las diez vías medidas (§22) convergen en:
+
+> `judge` es una sentencia en PenguScript, y las sentencias se analizan por `expr`. `return judge …`
+> exige que `return` alcance el mismo no-terminal. LALR(1) no puede distinguir ambos caminos en el
+> token `JUDGE`, y **ningún reordenamiento de producciones lo arregla porque ambas rutas son
+> necesarias**.
+
+La décima vía lo demuestra por negación: quitar `judge_expr` de `expr` **sí construye** el grammar y
+baja de 188 a 143 conflictos, pero rompe `judge` como sentencia en 24 de 52 módulos.
+
+### Consecuencias registradas
+
+| Qué | Estado |
+|-----|--------|
+| Criterio 2 (`Lark(strict=True)`) | ❌ **no cumplido** — 188 conflictos |
+| Item 2.4 en `ROADMAP_2.0.md` | ⏸️ **DIFERIDO a 1.1**, re-estimado **L → XL**, criterio de "done" reescrito |
+| Item 2.4b | ✅ cerrado |
+| Resto de la fase (2.1–2.3, 2.5–2.12) | ✅ cerrado |
+| Salidas documentadas para 1.1 | Exit A (`return do:`, cambio de sintaxis) · Exit B (aceptar 188 + gate de CI) |
+
+### Lo que 1.1 hereda, para no repetir el trabajo
+
+1. **La causa raíz probada** (§22), no una hipótesis.
+2. **La propiedad de cada conflicto medida** (§19): los 45 de `return_stmt` los posee
+   `return_stmt : RETURN`.
+3. **`tools/grammar_conflicts.py`**: mide el token stream real y la atribución de conflictos. Los
+   diez intentos fallidos se eligieron sin esta medición; es la lección de método de la fase (§20).
+4. **Los tests que impiden la regresión**: 4 que fijan las dos posiciones de `judge` y 1 *tripwire*
+   que dice explícitamente cuándo la restricción del §22 puede revisarse (si la stdlib deja de usar
+   `judge`).
+
+### Cierre
+
+La Fase 2 se cierra **por decisión**, no por agotamiento. Los 43 commits, las 13 suites de test
+nuevas, la herramienta de diagnóstico y este documento son la entrega; el criterio 2 queda
+explícitamente **no cumplido y diferido**, que es distinto de cumplido y distinto de olvidado.
