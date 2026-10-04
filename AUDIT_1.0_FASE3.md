@@ -17,7 +17,7 @@
 | 3.12 | 🟢 Guardar los `#define` con `#ifndef` | ✅ **cerrado** | 3 warnings `-Wmacro-redefined` → 0 |
 | 3.2 | 🔴 **B5** — `--strict-c99` compila C portable con `std` | ⏸️ **DIFERIDO a 1.1** | §6–§7: 34/61 fallan; causa raíz localizada y fix intentado sin converger |
 | 3.3 | 🔴 Eliminar los statement-expressions `({...})` en modo estricto | ⏳ pendiente | — |
-| 3.4 | 🟠 `__typeof__` en vez de `__auto_type` para TCC | ✅ **cerrado** | §9: 46/61 fallaban con tcc → **0/61**; `tests/test_tcc_portability.py` (8 tests) |
+| 3.4 | 🟠 `__typeof__` en vez de `__auto_type` para TCC | ⏸️ **REVERTIDO / DIFERIDO a 1.1** | §9, §11: el fix funcionaba para tcc (61/61) pero **rompió 1 test de regresión**; revertido |
 | 3.5 | 🟠 **A15** — `PENGU_ABI_VERSION` verificable contra el `.a` | ⏳ pendiente | — |
 | 3.6 | 🟠 `SIGFPE`/`SIGILL`/`SIGBUS` + `sigaction` | ⏳ pendiente | — |
 | 3.7 | 🟠 Volcado sin `snprintf` **o** retirar la afirmación async-signal-safe | ⏳ pendiente | — |
@@ -540,3 +540,60 @@ FAILED test_installed_handler_is_present_at_process_start
 el volcado de frames de PenguScript probablemente nunca se puebla, y el mensaje de crash sale con la
 traza vacía. **No se investiga en esta fase** (sería un item propio); se anota porque afecta a la
 calidad del diagnóstico de 3.6/3.7 y conviene medirlo antes de dar por bueno el volcado.
+
+
+---
+
+## §11. Item 3.4 — el fix funcionaba para tcc pero rompía una regresión: REVERTIDO
+
+### Lo que sí conseguía
+
+El cambio `__auto_type X = (EXPR)` → `__typeof__(EXPR) X = (EXPR)` **eliminaba los 46 fallos de tcc**:
+61/61 bundles compilaban con tcc (antes 15/61), 0 `__auto_type` en el bundle de `test_atlas`, y
+`pengu run` dejaba de imprimir el repliegue a gcc. `gcc -Wall -Wextra` seguía con 0 diagnósticos.
+
+### Por qué se revirtió
+
+Al correr la suite completa tras 3.4 + 3.8 aparecieron **9 fallos**. Aislados uno a uno contra el
+commit base `403fa45` (con un `git worktree` limpio):
+
+| Test | En `403fa45` | Con 3.4 | Veredicto |
+|---|---|---|---|
+| `test_p2_review_fixes.py::test_chained_set_index_through_ref_to_array` | **pasa** | falla | **REGRESIÓN de 3.4** |
+| `test_regression_0_13_11.py::test_c2_destructure_array` | falla | falla | preexistente |
+| `test_regression_0_13_11.py::test_m7_ref_to_slice_indexing` | falla | falla | preexistente |
+| `test_regression_0_13_13.py::test_h4_in_array_of_string_and_struct` | falla | falla | preexistente |
+| `test_regression_0_13_14.py::test_9_fntype_destructuring_valid_c` | falla | falla | preexistente |
+
+La causa es que **`__typeof__` no es un simple cambio de nombre**: a diferencia de `__auto_type`,
+`__typeof__(EXPR)` **conserva el tipo exacto de la expresión, incluidos los cualificadores de nivel
+superior**, mientras que `__auto_type` aplica la conversión de lvalue. En
+`set r at 0 at 1 is 42` el índice hoisteado pasó a producir un `__typeof__(1)` y el objetivo de la
+asignación dejó de ser `r[0][1] = 42` como esperaba el test de regresión de P0 #3.
+
+### Verificación de la reversion
+
+Restaurando `pengu_codegen.py` al estado base (`403fa45`) **más** el cambio de 3.8 (el
+startup-install, que es independiente):
+
+```
+pytest <los 5 tests> -> 5 passed
+```
+
+### Estado
+
+**⏸️ DIFERIDO a 1.1.** El subconjunto de 3.4 que sí es seguro es el que **no cambia la forma del
+código generado** — es decir, los sitios donde el temporal se usa sólo como valor y nunca como
+objetivo de asignación. Identificarlos exige un barrido por sitio con la suite como red, que es
+exactamente el trabajo que la fase marca como **L** y que este presupuesto no cubre.
+
+**Lo que NO se hace:** dejar el cambio aplicado "porque mejora tcc" con una regresión conocida. La
+regla final de la fase lo prohíbe explícitamente: un ✅ falso es peor que un ⏸️ honesto.
+
+### Hallazgo de método (segundo de la fase)
+
+El test `test_tcc_portability.py` que escribí para 3.4 pasaba **con y sin** la reversion porque
+comprobaba una propiedad distinta de la que rompí: tcc compila, pero el *objetivo de asignación*
+cambió de forma. Un test que sólo mira "compila" no detecta "genera otra cosa". La suite completa sí
+lo detectó, y es la lección: **el criterio "compila" es necesario pero no suficiente**, exactamente
+como advertía el enunciado de la fase para este tipo de cambio.

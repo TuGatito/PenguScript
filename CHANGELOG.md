@@ -29,14 +29,6 @@ All notable changes to PenguScript will be documented in this file.
   Ahora están guardados con `#ifndef` y la unidad compila limpia **con y sin**
   los defines en la línea de órdenes.
 
-- **TCC acepta los bundles: `__auto_type` → `__typeof__`.** `__auto_type` es una
-  extensión de GCC/Clang que **tcc no implementa**, así que **46 de los 61**
-  programas de `tests/std_programs/` producían un bundle que tcc rechazaba
-  (`error: '__auto_type' undeclared`) y `pengu run` replegaba a gcc imprimiendo
-  `development compiler failed; retrying with gcc`. Ahora se emite
-  `__typeof__(EXPR)`, que ambos compiladores soportan: **61/61 compilan con tcc**
-  y el repliegue desaparece. `gcc -Wall -Wextra` sigue con 0 diagnósticos.
-
 - **Instalación atómica del crash handler.** El handler se instalaba con un
   `static volatile int` y un *check-then-set*, que es una carrera de datos (dos
   hilos pueden observar `0` y ejecutar la instalación ambos; `volatile` no ordena
@@ -45,6 +37,15 @@ All notable changes to PenguScript will be documented in this file.
   `InitOnceExecuteOnce` (Windows), y la instalación se hace **una sola vez al
   arranque** desde el `main` generado. El header sigue compilando con
   `-Wall -Wextra -Werror`.
+
+- **⏸️ TCC y `__auto_type` — fix revertido.** El cambio `__auto_type` →
+  `__typeof__` eliminaba los 46 fallos de tcc (61/61 bundles compilaban), pero
+  **`__typeof__` no es un renombrado**: conserva el tipo exacto de la expresión
+  incluidos los cualificadores de nivel superior, mientras que `__auto_type` aplica
+  la conversión de lvalue. Eso cambió el **objetivo de asignación** generado en
+  `set r at 0 at 1 is 42` y rompió
+  `test_p2_review_fixes.py::test_chained_set_index_through_ref_to_array`, que pasa
+  en el commit base. **Revertido**; ver `AUDIT_1.0_FASE3.md` §11. Diferido a 1.1.
 
 ### ⏸️ Diferido — `--strict-c99` NO es un gate de portabilidad en 0.16.0
 
