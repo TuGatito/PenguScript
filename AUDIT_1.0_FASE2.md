@@ -314,6 +314,33 @@ decisión de diseño (regla C3), no solo de grammar.
 [W0001] transmute is unsafe, use 'to' for safe conversions
 ```
 
+### §3.4 Hallazgo nuevo: las dos referencias del lenguaje están desincronizadas
+
+Al arreglar el bloque `prim-c-map` que faltaba en la versión española (item 2.10) se midió la
+simetría estructural de las dos referencias comparando sus encabezados numerados:
+
+| | `LANGUAGE.md` | `LANGUAGE_Spanish.md` |
+|---|---|---|
+| Encabezados totales | 201 | **185** |
+| Secciones numeradas | 131 | **117** |
+
+**La versión española va 14 secciones por detrás.** Faltan, entre otras:
+
+```
+§2        §5.0      §19.0     §20.2.1  §20.2.2  §20.2.3  §20.2.4  §20.2.5
+§23.1     §23.2    §23.3     §23.4    §23.5
+```
+
+Esto es **preexistente**, no lo introdujo la Fase 2. Pero explica por qué el defecto del §2.1 pudo
+pasar: la regla de bilingualidad se aplica a lo que se escribe, no detecta lo que nunca se tradujo.
+Cerrar la brecha es una tarea de traducción, no de código, y corresponde a la Fase 7 (documentación);
+se registra aquí porque el primer paso es saber cuánto falta y exactamente qué.
+
+**Lección de método:** un test de sincronización con el nombre del archivo escrito a mano verifica un
+archivo, no una propiedad. El test de §2.10 tenía `Path(...) / "LANGUAGE.md"` en duro y por eso el
+bloque que faltaba en español pasó desapercibido hasta una comprobación manual posterior. Ahora
+parametriza sobre las dos referencias.
+
 ---
 
 ## §4. Verificación
