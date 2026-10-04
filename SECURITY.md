@@ -74,8 +74,14 @@ prioritised:
 - **Integer overflow is defined**: `-ftrapv` in debug, `-fwrapv` in release;
   only `--release-unsafe` restores C's undefined behaviour.
 - **Runtime ABI pinning**: the generated bundle `_Static_assert`s
-  `PENGU_ABI_VERSION`, so a stale `libpengu_runtime.a` fails at compile time
-  instead of corrupting memory.
+  `PENGU_ABI_VERSION` against the `pengu_runtime.h` it was generated next to, so
+  a bundle and header that disagree fail at compile time instead of corrupting
+  memory. The runtime additionally exports `pengu_abi_version()`, so a build that
+  links `libpengu_runtime.a` can verify the archive's version and fails at link
+  time if the archive predates the symbol. A bundle that links no archive at all
+  (a project whose `pengu.toml` requests no runtime library) mixes no layouts and
+  is unaffected. Making the archive reference mandatory for every bundle is
+  tracked as Phase 4 work; see [`docs/ABI.md`](docs/ABI.md).
 - **Lockfile integrity**: `pengu.lock` records the exact commit and a SHA-256 of
   every dependency's content tree; `--locked`/`--frozen` verify it and
   `pengu verify` re-checks an existing checkout.

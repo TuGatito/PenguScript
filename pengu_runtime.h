@@ -58,16 +58,21 @@
 #define PENGU_ABI_VERSION 1
 
 /*
- * Phase 3 item 3.5. Defined in `pengu_runtime.c` -- i.e. it exists ONLY as an
+ * Phase 3 item 3.5. Defined in `pengu_runtime.c` -- i.e. it exists as an
  * object-file symbol inside `libpengu_runtime.a`, never as an inline function in
- * this header. Every generated bundle takes its address, so a stale archive
- * fails to LINK ("undefined reference to pengu_abi_version") instead of silently
- * reinterpreting struct fields at the wrong offsets.
+ * this header. A consumer that calls it therefore fails to LINK when the archive
+ * it is given predates this symbol, instead of silently reinterpreting struct
+ * fields at the wrong offsets.
  *
  * This complements the `_Static_assert(PENGU_ABI_VERSION == N)` the codegen also
  * emits: that one compares the codegen's expectation against this header, while
- * this symbol compares the bundle against the *archive*. Neither is sufficient
- * alone. See docs/ABI.md.
+ * this symbol compares a bundle against the *archive*. Neither is sufficient
+ * alone.
+ *
+ * Note the generated bundle does *not* reference this symbol unconditionally:
+ * the CLI only adds `-lpengu_runtime` when the project asks for it, so a fresh
+ * project builds header-only and a mandatory reference would break it. Making
+ * the reference mandatory is Phase 4 work (see docs/ABI.md).
  */
 int pengu_abi_version(void);
 
