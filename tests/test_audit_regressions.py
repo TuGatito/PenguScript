@@ -348,3 +348,53 @@ def test_assoc_type_worked_around_with_a_second_type_parameter(tmp_path):
     path.write_text(source, encoding="utf-8")
     r = cli(["check", str(path)], cwd=tmp_path)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 §3.8.3 — the stdlib's remaining safe-transmute warning budget
+# ---------------------------------------------------------------------------
+
+def test_ffi_does_not_transmute_integer_zero_to_a_pointer(tmp_path):
+    """`ffi` must build NULL pointers with `null`, not `transmute 0`.
+
+    The transmute form raises W0001 (and, for `ref to void` on a 64-bit target,
+    a *size mismatch* warning: int is 4 bytes, a pointer is 8). `null` says the
+    same thing safely. This pins the fix so the unsafe spelling cannot come back
+    unnoticed.
+    """
+    src = (
+        "import std.ffi\n"
+        "weave main into int:\n"
+        "  var p as ref to void is calling ffi.null_void\n"
+        "  if calling ffi.is_null with p:\n"
+        "    return 0\n"
+        "  return 1\n"
+    )
+    path = tmp_path / "ffi_null.pengu"
+    path.write_text(src, encoding="utf-8")
+    r = cli(["check", "--entry", str(path)], cwd=tmp_path)
+    out = r.stdout + r.stderr
+    assert r.returncode == 0, out
+    # No W0001 from the null helpers. Other modules may still warn; this asserts
+    # specifically that building a NULL pointer is warning-free.
+    assert "transmute from 'int'" not in out, out
+
+
+def test_ffi_null_helpers_behave_like_null(tmp_path):
+    """End-to-end: `null_void` is NULL and `is_null` agrees."""
+    src = (
+        "import std.ffi\n"
+        "weave main into int:\n"
+        "  var p as ref to void is calling ffi.null_void\n"
+        "  var c as ref to char is calling ffi.null_char\n"
+        "  var b as ref to byte is calling ffi.null_byte\n"
+        "  if calling ffi.is_null with p:\n"
+        "    if not calling ffi.is_valid with p:\n"
+        "      if c == null and b == null:\n"
+        "        return 0\n"
+        "  return 1\n"
+    )
+    path = tmp_path / "ffi_null_run.pengu"
+    path.write_text(src, encoding="utf-8")
+    r = cli(["run", str(path)], cwd=tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr
