@@ -925,3 +925,139 @@ con presupuesto propio, no el ajuste de una línea que parecía.
 en **188**, y el criterio 2 de la fase sigue sin cumplirse. Se deja medido y no aplicado: entregar un
 grammar que rompe 24 de 52 módulos para presumir de un número menor sería exactamente lo contrario de
 lo que pide esta fase.
+
+---
+
+## §8. Los 12 `W0001` restantes: arreglados, y el criterio 6 cumplido
+
+El §3.8.3 decía que cerrar los 12 `W0001` exigía permitir el upcast de punteros. Se hizo, y era más
+pequeño de lo que parecía.
+
+### La causa
+
+`RefType.is_compatible` tenía casos para `RefType` (incluido el comodín `void*`) pero **ninguno para
+`opaque`**, que es un `BaseType`. La comprobación caía al `return False` final. La conversión no
+estaba mal configurada: **faltaba**.
+
+### El arreglo
+
+Un caso en `RefType.is_compatible`: `opaque` acepta cualquier `ref to T`. La conversión es
+**unidireccional** — `opaque` → `ref to T` sigue siendo `E0005`, porque `opaque` no lleva
+información de pointee y dejar que decaiga permitiría alias sin ningún diagnóstico.
+
+### Por qué era la corrección correcta y no un atajo
+
+Los 12 sitios hacían, todos, una conversión que C realiza implícitamente y que **no puede perder
+información**: el tamaño es un puntero en ambos lados. Obligar a escribir un cast **inseguro** para
+expresar una conversión **segura** es lo que hacía ruidoso `W0001`, y una advertencia que salta en
+código seguro deja de leerse. En `ffi.pengu` era peor: el idioma `transmute 0 to ref to void` emitía
+una advertencia de **discrepancia de tamaño** (`int` 4 bytes → puntero 8) que en una plataforma
+estrecha **trunca de verdad**.
+
+### Resultado medido
+
+```diff
+-    var oa as opaque is transmute a to opaque
++    var oa as opaque is a
+-    var sl as slice of byte is calling slice_from_ptr of byte with (transmute cstr to ref to void), max_len
++    var sl as slice of byte is calling slice_from_ptr of byte with cstr, max_len
+```
+
+| Métrica | Antes | Después |
+|---|---|---|
+| W0001 en la stdlib | 12 | **0** |
+| Advertencias propias totales (52 módulos) | 12 | **0** |
+| `transmute` en `ffi.pengu` + `filum.pengu` | 12 | 0 |
+| Suite completa | 2444 passed | **2447 passed, 0 failed** |
+
+**El criterio 6 de la fase queda cumplido.** `Lark(strict=True)` sigue siendo el único criterio
+abierto.
+
+### Comprobaciones de que no es demasiado permisivo
+
+| Caso | Resultado |
+|---|---|
+| `var o as opaque is 5` | `E0005` (sigue rechazando no-punteros) |
+| `var p as ref to int is o` (opaque → ref) | `E0005` (unidireccional) |
+| `list of opaque` con un `ref to int` | acepta (coerción de elemento) |
+| `map of string to opaque` con un `ref to int` | acepta |
+| `ident shard T` con un `ref to int` | acepta |
+| El upcast llega al codegen | el C emitido **compila y ejecuta** |
+
+---
+
+## §9. W0006 / `@deprecated`: tres bugs reales encontrados y dos huecos que quedan
+
+Perseguir el item 2.11 encontró que el mecanismo de deprecación estaba **roto en tres capas**, no
+solo sin usar.
+
+### Bug 1 — los atributos de método nunca se extraían
+
+`_extract_attributes` se llamaba para `weave_decl` de nivel superior, `declare`, `rune`, `echo` y
+campos, pero **no para los métodos dentro de `enchanting`**. Consecuencia: un atributo desconocido
+en un método se aceptaba en silencio (no había `E0056`), y `@deprecated` no se guardaba.
+
+Arreglado en las tres rutas de registro de métodos (`concept_method` y las dos de `weave_decl`).
+
+### Bug 2 — `substitute()` perdía los atributos
+
+```python
+# FnType.substitute  (y RuneType.substitute)
+return FnType(params=new_params, ..., is_ritual=self.is_ritual)   # sin attributes
+```
+
+Al reconstruir el tipo campo a campo, `attributes` **se omitía**. Cualquier marca desaparecía en
+cuanto un tipo genérico se monomorfizaba: un `weave` genérico `@deprecated` dejaba de avisar en
+cuanto se instanciaba con un tipo concreto. `RuneType` tenía el mismo bug, y además perdía
+`field_attributes`.
+
+Auditado con `ast`: de los dos dataclasses con campo `attributes` (`FnType`, `RuneType`), **los dos**
+tenían el bug.
+
+### Bug 3 — el camino de resolución de métodos nunca comprobaba la deprecación
+
+`_check_deprecated_symbol` se llamaba en ~15 sitios (referencias a variables, campos, acceso por
+flecha, llamadas a función) pero **en ninguno del camino de resolución de métodos**. Añadido en el
+punto donde el `FnType` resuelto está disponible.
+
+### Los dos huecos que quedan
+
+| Hueco | Detalle |
+|---|---|
+| **Atributos perdidos en la especialización de métodos** | `_resolve_call_target` escribe en `symbols.methods` un tipo **especializado**, y ese objeto se construye sin arrastrar `attributes`. El marcador existe durante la recolección y desaparece antes de que el sitio de llamada lo consulte. Es el mismo bug que el Bug 2 pero en otra ruta. |
+| **`@deprecated` en un `rune` no avisa** | El atributo se acepta y sobrevive hasta el `RuneType`, pero **ningún check lo consulta al referenciar el tipo**. Usar un tipo deprecado es silencioso. W0006 solo se dispara para `weave`. |
+
+Ambos están fijados por test (`tests/test_deprecation.py`, 9 tests) de forma que, cuando se
+arreglen, los tests **fallen y obliguen a cambiarlos a propósito** — en lugar de quedar como un
+xfail que se ignora.
+
+### Por qué no se convierten los 74 docstrings en atributos reales
+
+El roadmap proponía marcar los alias de `tally` (`average`, `argmin`, `argmax`, `filter_range`) como
+`@deprecated` reales para que W0012 empiece a avisar. La medición dice que eso sería un error **en
+este momento**:
+
+| Medición | Resultado |
+|---|---|
+| Símbolos marcados `@deprecated` **solo en docstring** | **65** (no 4) |
+| De esos, con al menos una mención real en `std/` o `tests/` | **65** |
+| Menciones de `MaybeString` | 42 |
+| Menciones de `MaybeInt` | 39 |
+| Menciones de `ResultString` | 42 |
+
+Convertir 74 docstrings en atributos reales haría que `W0006` saltara en **cada llamada** a esos
+símbolos — incluidos los cientos de usos dentro de la propia stdlib — y volvería a romper el criterio
+6 que se acaba de cumplir. El defecto real no es "faltan warnings": es que la stdlib está llena de
+símbolos deprecados **que se siguen usando**. Eso es una migración, y el roadmap no la incluye.
+
+**Decisión:** se arreglan las tres capas rotas (que es infraestructura, y ya está), se dejan los
+docstrings como están, y se registra que **la migración es el prerrequisito** de marcar los alias.
+Los tests fijan el estado actual para que el cambio sea deliberado.
+
+### Corrección al roadmap para 2.11 en conjunto
+
+| Warning | Veredicto |
+|---|---|
+| `W0008 UnusedImport` | ⏸️ diferido: necesita procedencia de símbolos (69/73 falsos positivos) |
+| `W0011 EmptyTestBody` | ❌ **REFUTADO**: el grammar exige `stmt+`, un `test` vacío es `E0000` |
+| `W0012 DeprecatedAliasUse` | ⚠️ **reformulado**: no es un warning que falte, es (a) un mecanismo roto en 3 capas —arreglado— y (b) 65 símbolos deprecados aún en uso, que exige migración |
