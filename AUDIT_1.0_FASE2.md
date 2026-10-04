@@ -1693,3 +1693,52 @@ en silencio.
 mínima (§18) y las tres salidas están identificadas con su coste. El contador queda en **188** y el
 criterio 2 **sin cumplir** — declararlo cumplido sería falso, y seguir probando variantes después de
 nueve refutaciones no aportaría nada nuevo.
+
+---
+
+## §19. Instrumentación añadida: `tools/grammar_conflicts.py`
+
+Nueve intentos fallidos de reducir los conflictos compartieron una sola causa de método: se leyó un
+volcado de tokens **a ojo** y se editó una producción. El §17 dejó esa lección escrita; esta ronda la
+convierte en herramienta para que quien retome 2.4 no repita el patrón.
+
+```
+python tools/grammar_conflicts.py --tokens 'weave f into int:\n  return 1\n'
+python tools/grammar_conflicts.py --conflicts --top 10
+python tools/grammar_conflicts.py --actions --rule return_stmt --top 3
+```
+
+| Modo | Qué mide |
+|------|----------|
+| `--tokens` | El flujo estructural real (`_NEWLINE`/`_INDENT`/`_DEDENT`) con recuentos, y avisa cuando los recuentos de newline y dedent difieren |
+| `--conflicts` | Los 188 agrupados por **regla** y por **terminal**, con porcentajes |
+| `--actions` | Para cada conflicto, **la regla que Lark se niega a reducir**, marcada como tal |
+
+### El dato que faltaba, ahora observable
+
+`--actions` produce, para los conflictos de `return_stmt`:
+
+```
+Shift/Reduce conflict for terminal NOT: (resolving as shift)
+ * <return_stmt : RETURN>   <- reduced (the action being skipped)
+```
+
+**Los 45 conflictos están poseídos por `return_stmt : RETURN`.** Es decir: Lark **reduce con el
+`return` pelado** (tratando `[value_expr]` como ausente) y descarta la reducción alternativa. Eso es
+el mecanismo de la ambigüedad del §18, ahora **directamente observable** en vez de inferido — y es la
+medición que ninguno de los nueve intentos hizo.
+
+### Dos errores encontrados al escribir los tests, y ambos valen la pena
+
+1. Una versión anterior de `--actions` buscaba el nombre de la regla **en cualquier parte del
+   bloque**, y cada bloque lista varias reglas. Reportaba el propietario equivocado. **Un diagnóstico
+   que miente es peor que no tenerlo**, y por eso `tests/test_grammar_conflicts_tool.py` incluye la
+   mitad negativa (una regla que no posee nada se reporta como tal).
+2. Un test afirmaba un caso "balanceado" con recuentos de `_NEWLINE` y `_DEDENT` iguales. **Es
+   imposible**: `_NEWLINE` termina *cada* línea del fuente mientras que `_DEDENT` solo cierra un
+   bloque, así que `_NEWLINE` siempre es mayor. El test se corrigió para fijar el invariante real.
+
+La herramienta es de solo lectura: nunca edita el grammar. `tests/test_grammar_conflicts_tool.py`
+(10 tests) incluye una comprobación cruzada de que el recuento de la herramienta **coincide** con
+`_KNOWN_SHIFT_REDUCE_CONFLICTS`, de modo que si el grammar se mueve sin actualizar el presupuesto,
+los dos discrepan y el test lo dice.
