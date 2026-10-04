@@ -369,3 +369,36 @@ para "tipos cualificados pierden campos" (cerrado en Fase 1 como B6/B7) y en §2
   `--strict-c99` no compile. Reescribirlo "para que compile de verdad" lo pondría en rojo.
 - **3.3 (los 104 statement-expressions) sigue siendo un item separado** y no se toca aquí, como pide
   el desacoplamiento.
+
+---
+
+## §8. Verificación de las afirmaciones documentadas
+
+Toda cifra publicada en `LANGUAGE.md`, `RELEASE_CHECKLIST.md`, `CHANGELOG.md` y este documento se
+reprodujo **después** de escribirla, con el árbol en `HEAD` y `pengu_codegen.py` sin tocar:
+
+| Afirmación | Comando de verificación | Resultado |
+|---|---|---|
+| 61 programas en `tests/std_programs/` | `ls tests/std_programs/*.pengu \| wc -l` | **61** ✓ |
+| 27 pasan `-pedantic-errors` | barrido completo | **27** ✓ |
+| 34 fallan | barrido completo | **34** ✓ |
+| La reproducción de 4 líneas falla con `'k' undeclared` | `pengu build --strict-c99` + `gcc -std=c99 -pedantic-errors` | `min_b5.pengu:4:30: error: 'k' undeclared` ✓ |
+| `RELEASE_CHECKLIST.md` ya no lo llama gate | `grep -c "NO USAR"` | **1** ✓ |
+| `LANGUAGE.md` ya no afirma que compila | `grep -c "not functional"` | **1** ✓ |
+| El runtime compila como C11 legal sin supresiones | `tests/test_runtime_c99.py` (9 tests) | **9 passed** ✓ |
+
+### Estado de la suite
+
+```
+2493 passed, 18 skipped, 2 xfailed, 1 xpassed, 0 failed
+```
+
+El `xpassed` es el test del leak inestable ya documentado en `AUDIT_1.0_FASE2.md` §3.5 (pasa y falla
+sin cambios de por medio); no es una regresión de esta fase. No apareció el otro flaky conocido
+(`test_deps_commands`) en esta ejecución.
+
+### Estado del árbol
+
+`pengu_codegen.py` está **en `HEAD`**, verificado con `git diff --quiet`: el intento de fix del
+hoisting se revirtió por completo y no dejó residuo. El único cambio de código de la fase es el de
+3.1/3.12 (`pengu_parser/pengu_runtime.c`, `build_runtime.py`), más los tests y la documentación.
