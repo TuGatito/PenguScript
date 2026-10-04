@@ -195,6 +195,24 @@ Cada primitivo tiene **un tipo C canónico** y un conjunto de grafías Pengu ace
 
 Los sufijos de literales enteros y las conversiones `to` están disponibles (`1.5 to int`, `x to string`).
 
+<!-- Forma legible por máquina de la tabla anterior. tests/test_docs_primitive_types.py
+     compila cada grafía y falla si el tipo C emitido discrepa. Una línea por
+     tipo C canónico: ctype: grafía1, grafía2, ... -->
+```text prim-c-map
+int32_t: int, i32, int32, int32_t
+int64_t: i64, int64, int64_t, long
+int16_t: i16, int16, int16_t, short
+int8_t: i8, int8, int8_t
+uint32_t: u32, uint32, uint32_t, uint
+uint64_t: u64, uint64, uint64_t, ulong
+uint16_t: u16, uint16, uint16_t, ushort
+uint8_t: byte, u8, uint8, uint8_t
+size_t: usize, size_t
+intptr_t: isize
+float: float, f32
+double: f64, double
+```
+
 > [!NOTE]
 > **Estimación de tamaño (`estimate_size`):**
 > El compilador calcula aproximaciones del tamaño en bytes usando `estimate_size` (`pengu_types.py`). Para los structs `rune`, `estimate_size` suma directamente los tamaños estimados de sus campos constituyentes sin calcular el padding de alineación nativo de C. El diseño exacto de memoria y el padding de structs los gestiona de forma nativa el compilador de C posterior durante la generación de código. Esta estimación se muestra en los tooltips de hover del LSP y se usa para heurísticas de diseño de contenedores.

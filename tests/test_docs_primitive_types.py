@@ -31,13 +31,18 @@ CODEGEN = REPO / "pengu_parser" / "pengu_codegen.py"
 _BLOCK_RE = re.compile(r"```text prim-c-map\n(?P<body>.*?)```", re.DOTALL)
 
 
-def _documented_mapping() -> dict:
-    """{canonical C type: [spelling, ...]} from LANGUAGE.md's `prim-c-map` block."""
-    text = (REPO / "LANGUAGE.md").read_text(encoding="utf-8")
+#: Both language references carry the block; they must agree with the codegen
+#: AND with each other (Phase 2 bilingualism rule).
+DOCS = ["LANGUAGE.md", "LANGUAGE_Spanish.md"]
+
+
+def _documented_mapping(doc: str = "LANGUAGE.md") -> dict:
+    """{canonical C type: [spelling, ...]} from `doc`'s `prim-c-map` block."""
+    text = (REPO / doc).read_text(encoding="utf-8")
     match = _BLOCK_RE.search(text)
     assert match, (
-        "LANGUAGE.md has no ```text prim-c-map block; item 2.10 requires the "
-        "primitive table to be machine-readable"
+        f"{doc} has no ```text prim-c-map block; item 2.10 requires the "
+        "primitive table to be machine-readable in both language references"
     )
     documented = {}
     for line in match.group("body").strip().splitlines():
@@ -140,9 +145,10 @@ def _emitted_c_type(tmp_path, spelling):
 # Documented = emitted
 # ---------------------------------------------------------------------------
 
-def test_documented_primitive_map_is_complete(tmp_path):
+@pytest.mark.parametrize("doc", DOCS)
+def test_documented_primitive_map_is_complete(tmp_path, doc):
     """Every spelling the codegen knows about appears in the documented table."""
-    documented = _documented_mapping()
+    documented = _documented_mapping(doc)
     doc_map = {s: c for c, spells in documented.items() for s in spells}
     arms = _arms_from_codegen()
     # `void`, `bool`, `char`, `string` and `opaque` are single-spelling
@@ -162,15 +168,28 @@ def test_documented_primitive_map_is_complete(tmp_path):
         )
 
 
-def test_documented_map_has_no_entries_the_codegen_lacks(tmp_path):
+@pytest.mark.parametrize("doc", DOCS)
+def test_documented_map_has_no_entries_the_codegen_lacks(tmp_path, doc):
     """The docs must not invent a spelling the codegen does not handle."""
-    documented = _documented_mapping()
+    documented = _documented_mapping(doc)
     arms = _arms_from_codegen()
     for spelling in (s for spells in documented.values() for s in spells):
         assert spelling in arms, (
             f"LANGUAGE.md documents {spelling!r} but CTypeMapper.to_c_type has "
             "no arm for it"
         )
+
+
+@pytest.mark.parametrize("doc", DOCS)
+def test_both_language_references_document_the_same_mapping(doc):
+    """The English and Spanish tables must list the same ctype -> spellings map.
+
+    This is the check that was missing when the Spanish §4.1 table was rewritten
+    separately and silently lost the machine-readable block.
+    """
+    assert _documented_mapping(doc) == _documented_mapping("LANGUAGE.md"), (
+        f"{doc} documents a different primitive mapping than LANGUAGE.md"
+    )
 
 
 @pytest.mark.parametrize("spelling", [
