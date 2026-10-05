@@ -1616,6 +1616,13 @@ class PenguBuilder:
         for link in auto_links:
             if link not in all_links:
                 all_links.append(link)
+        # Item 4.17: every build links the runtime archive. `pengu_string_copy`
+        # and friends live in libpengu_runtime.a, not in the header, and each
+        # bundle carries a reference to `pengu_abi_version` so a stale archive
+        # fails at link time. This is a build policy, not a parsing rule, so it
+        # is applied here and not in ProjectConfig.load().
+        if "pengu_runtime" not in all_links:
+            all_links.append("pengu_runtime")
 
         link_flags: List[str] = []
         for link in all_links:
@@ -1891,6 +1898,14 @@ class PenguBuilder:
         # line probes pkg-config several times, which has nothing to do with the
         # C compile and would dominate the phase on a TCC build.
         commands = self.build_compile_commands(bundle_path, out_path)
+        # Pre-flight (item 4.17): the bundle references `pengu_abi_version`, so a
+        # missing archive would surface as an obscure `undefined reference`.
+        # Report it before invoking the compiler instead. Linking steps only:
+        # `c` output is just the emitted bundle and object outputs are archives
+        # whose undefined symbols are resolved by their consumer.
+        if self.config.output not in (OutputType.C, OutputType.OBJ, OutputType.STATIC):
+            if _find_runtime_archive() is None:
+                raise CompileFailedError(_missing_runtime_archive_message())
         t_cc_all = time.time()
         error = _run_commands(commands)
 
@@ -2520,6 +2535,38 @@ def _resolve_insert_spaces(cfg: Optional[Dict[str, object]], tabs: Optional[bool
     if cfg and cfg.get("insert_spaces") is not None:
         return bool(cfg["insert_spaces"])
     return True
+
+
+def _find_runtime_archive() -> Optional[str]:
+    """Returns the path of ``libpengu_runtime.a``, or None when it is missing.
+
+    The archive is a hard build requirement (item 4.17): every bundle carries a
+    reference to ``pengu_abi_version``, so without it the linker would fail with
+    an inscrutable ``undefined reference``. Locating it up front lets the CLI
+    report an actionable error instead.
+    """
+    try:
+        for d in runtime_lib_dirs():
+            candidate = os.path.join(str(d), "libpengu_runtime.a")
+            if os.path.isfile(candidate):
+                return candidate
+    except Exception:
+        pass
+    return None
+
+
+def _missing_runtime_archive_message() -> str:
+    """Actionable error text for a build with no ``libpengu_runtime.a``."""
+    searched = [str(d) for d in runtime_lib_dirs()]
+    paths = "\n".join(f"    {os.path.join(d, 'libpengu_runtime.a')}" for d in searched) \
+        or "    (no runtime library directory found)"
+    return (
+        "libpengu_runtime.a not found.\n"
+        "  Every PenguScript build links the runtime, so the archive is required.\n"
+        "  Run `python build_runtime.py` to build it, set PENGU_LIB_DIR to the\n"
+        "  directory that holds it, or install a release that ships it.\n"
+        f"  Searched:\n{paths}"
+    )
 
 
 def fmt_files(paths: List[str], check_only: bool = False, write: bool = True,

@@ -9,6 +9,47 @@ All notable changes to PenguScript will be documented in this file.
 > sin pérdida de datos, con errores formateados de forma consistente y con el
 > contrato `--json` completo.
 
+### 🔴 Fixed — item 4.17a: `pengu build` enlaza siempre `libpengu_runtime.a`
+
+El camino **sin** `pengu.toml` ya añadía el runtime a los enlaces, pero el
+camino **con** config no: `ProjectConfig.load` devolvía exactamente `links = []`
+para un proyecto recién creado por `pengu init`, así que el bundle se compilaba
+**header-only** y `libpengu_runtime.a` ni se mencionaba en la línea de enlace.
+
+El runtime se añade ahora en `PenguBuilder.build_compile_commands`, donde se
+fusionan `config.links` + los del checker + los automáticos. Es una **política de
+build**, no una regla de parseo: por eso no se inyecta en `ProjectConfig.load`
+(hay tests que fijan que `load` devuelve el archivo tal cual) sino en el punto
+donde se construye la línea de órdenes, y está garantizado una sola vez
+(`-lpengu_runtime` no se duplica).
+
+Medido: `pengu init ok && cd ok && pengu build --verbose` → la línea del
+compilador contiene `-lpengu_runtime` (antes no lo contenía), rc=0, y el binario
+resultante ejecuta. `pengu run <script>` y `pengu test` siguen en rc=0; los 52
+módulos de `std/` siguen pasando `pengu check --entry`.
+
+Además, el `.a` pasa a ser un requisito duro con **error accionable**: si falta,
+`pengu build` falla **antes** de invocar al compilador con
+
+```
+libpengu_runtime.a not found.
+  Every PenguScript build links the runtime, so the archive is required.
+  Run `python build_runtime.py` to build it, set PENGU_LIB_DIR to the
+  directory that holds it, or install a release that ships it.
+  Searched:
+    /path/to/checkout/build/lib/libpengu_runtime.a
+```
+
+en lugar de un `undefined reference` críptico del linker (rc≠0, sin traceback).
+El chequeo se salta para `output = c`/`obj`/`static`, donde el bundle o el
+archivo objeto no se enlazan.
+
+`tests/test_build_runtime_link.py` (5 casos). Un test existente
+(`TestBuildCommands::test_no_hardcoded_raylib_with_empty_links`) fijaba "un
+proyecto sin `links` no produce ningún `-l`": es exactamente la conducta que este
+item cambia, y se actualiza conservando su intención (que no haya una librería
+de UI hardcodeada).
+
 ### 🔴 Fixed — B4 (item 4.1): `pengu fmt --indent N` corrompía la indentación
 
 `format_pengu_source` (`pengu_lsp/formatting.py`) usaba el `tab_size` de

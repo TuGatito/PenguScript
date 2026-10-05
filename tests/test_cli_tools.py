@@ -501,12 +501,18 @@ class TestBuildCommands:
         cmd_str = " ".join(cmds[0])
         assert "-lraylib" not in cmd_str
 
-        # Check that no *token* starts with "-l" (linker library flag).
-        # A naive `"-l" not in cmd_str` false-positives on path components
-        # like "-I/usr/lib/x86_64-linux-gnu".
+        # Since item 4.17 the runtime archive is always linked (see
+        # tests/test_build_runtime_link.py); it is the *only* library added
+        # implicitly. The runtime's own dependency group comes with it, but a
+        # UI/game library must never be hardcoded for a project that asked for
+        # none.
         tokens = cmd_str.split()
         library_flags = [t for t in tokens if t.startswith("-l")]
-        assert not library_flags, f"unexpected library flags: {library_flags}\n{cmd_str}"
+        assert library_flags, "the runtime must always be linked"
+        assert library_flags.count("-lpengu_runtime") == 1
+        forbidden = [f for f in library_flags
+                     if any(k in f for k in ("raylib", "raygui", "glfw", "SDL", "opengl"))]
+        assert not forbidden, f"unexpected hardcoded library: {forbidden}\n{cmd_str}"
 
     def test_profiles_apply_flags(self, proj_dir):
         from pengu_project import PenguBuilder, OutputType, ProjectConfig
