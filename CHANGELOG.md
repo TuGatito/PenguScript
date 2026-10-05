@@ -9,6 +9,38 @@ All notable changes to PenguScript will be documented in this file.
 > sin pérdida de datos, con errores formateados de forma consistente y con el
 > contrato `--json` completo.
 
+### 🟠 Fixed — item 4.18: el bundle de test instala el crash handler
+
+El mapa de 4.9 (`-8 → 136`) arreglaba el **código** de salida del camino de
+test, pero no el **mensaje**: el `main` generado en modo `--test` no llamaba a
+`pengu_install_crash_handler()`, así que un fallo dentro de un `test` mataba el
+proceso por señal y el volcado `[PENGU CRASH]` (con el frame del test que
+falla) nunca se imprimía.
+
+Medido: `grep -c pengu_install_crash_handler build/bundle.c` → **0** en un
+proyecto de test y **1** en uno normal. La causa es que 3.8 (Fase 3) movió la
+instalación al `main` generado, pero el `main` del modo test es otra emisión y
+se quedó sin ella.
+
+Ahora el `main` de test la instala, igual que el normal. Medido con un `test`
+que divide por cero:
+
+```
+$ pengu test
+[PENGU CRASH] fatal signal (signal/code 8)
+Stack trace (most recent call first):
+  at pengu_test_0 (../src/main.pengu:4)      # el frame del test, no el arranque
+$ echo $?
+136
+```
+
+`pengu test --json` conserva su contrato: **3/3 líneas JSON válidas** en stdout
+(`exit_code: 136`) y el volcado en stderr, sin romper el stream que ya
+consumían los tests.
+
+`tests/test_cli_signal_exit.py` (+2 casos: el volcado y el contrato JSON con el
+handler instalado). Cierra el hueco que 4.9 dejó documentado.
+
 ### 🟠 Fixed — item 4.9: un hijo muerto por señal se reporta como `128 + señal`
 
 `subprocess` reporta un hijo muerto por señal con un código **negativo**

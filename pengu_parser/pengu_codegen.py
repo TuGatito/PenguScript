@@ -9804,6 +9804,12 @@ class PenguCodegen:
             " * ------------------------------------------------------------------------- */",
             "int main(int argc, char** argv) {",
             "  pengu_init(argc, argv);",
+            "  /* Item 4.18: the --test entry point installs the crash handler too.",
+            "     Phase 3 item 3.8 moved the install here for the normal main; the",
+            "     test main was missed, so a fault in a test killed the process by",
+            "     signal (Python rc=-8 -> shell 248) and the [PENGU CRASH] dump with",
+            "     the failing frame never appeared. */",
+            "  pengu_install_crash_handler();",
             "  int pengu_failed = 0;",
         ]
         if self.tests:
