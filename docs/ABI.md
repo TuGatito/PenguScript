@@ -111,21 +111,46 @@ harness that compares the symbol's value against `PENGU_ABI_VERSION`, and checks
 that a consumer referencing the symbol cannot link against a simulated pre-3.5
 archive.
 
-### What is *not* enforced (yet)
+### The reference is forced by codegen
 
-The generated bundle does **not** reference `pengu_abi_version()` on its own. It
-did in an earlier revision of this item, which made the reference mandatory for
-every bundle — but the CLI only adds `-lpengu_runtime` when the project asks for
-it (`pengu.toml` `links`), and a fresh `pengu init` project builds header-only
-with no archive at all. The unconditional reference therefore broke `pengu build`
-on every fresh project with `undefined reference to pengu_abi_version`.
+Every generated bundle carries a pin, so the archive cannot be dropped by the
+linker and a stale `libpengu_runtime.a` fails at link time:
 
-So today the link-time check fires for any consumer that *does* link the archive
-and references the symbol — including the test harness and any program using
-runtime facilities — but it is not automatically forced by codegen. Making the
-reference mandatory requires the CLI to link `libpengu_runtime.a` unconditionally,
-which is Phase 4 work in `pengu_project.py`. Until then, treat `pengu_abi_version()`
-as the *available* verification hook rather than an automatic gate.
+```c
+/* emitted once per bundle by pengu_parser/pengu_codegen.py */
+extern int pengu_abi_version(void);
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((used))
+#endif
+static int (*const _pengu_abi_pin)(void) = pengu_abi_version;
+```
+
+`pengu build` also links `libpengu_runtime.a` unconditionally (item 4.17),
+whether or not `pengu.toml` lists it. Measured end to end:
+
+```bash
+$ pengu init ok && cd ok && pengu build
+$ nm build/ok | grep pengu_abi_version
+0000000000000a10 T pengu_abi_version          # debug and release (survives -O2/-O3)
+
+# an archive built without the symbol makes the link fail, naming it
+$ pengu build
+/usr/bin/ld: build/bundle.c:10:(.data.rel.ro+0x0): referencia a `pengu_abi_version' sin definir
+```
+
+Without the pin, adding `-lpengu_runtime` is a no-op: the archive has no
+referenced symbols, so the linker drops it. Measured before the pin landed:
+`nm build/ok | grep -c ' T pengu_'` → `0` with the flag on the command line.
+
+#### Compiler scope of the guarantee
+
+The "a stale `.a` fails at link" property is verified under **gcc** and
+**clang**, which are the release compilers. It is **not verifiable under tcc**:
+tcc writes a **stripped** executable, so `nm` reports no runtime symbols at all
+— not even for a program whose `main` calls runtime functions (measured with tcc
+0.9.28rc). tcc is the fast development compiler, not a release compiler. If a
+future tcc stops stripping, `tests/test_build_runtime_link.py::test_tcc_output_is_stripped_so_nm_cannot_verify_the_pin`
+fails and this section has to be revisited.
 
 ## See also
 

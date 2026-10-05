@@ -76,12 +76,15 @@ prioritised:
 - **Runtime ABI pinning**: the generated bundle `_Static_assert`s
   `PENGU_ABI_VERSION` against the `pengu_runtime.h` it was generated next to, so
   a bundle and header that disagree fail at compile time instead of corrupting
-  memory. The runtime additionally exports `pengu_abi_version()`, so a build that
-  links `libpengu_runtime.a` can verify the archive's version and fails at link
-  time if the archive predates the symbol. A bundle that links no archive at all
-  (a project whose `pengu.toml` requests no runtime library) mixes no layouts and
-  is unaffected. Making the archive reference mandatory for every bundle is
-  tracked as Phase 4 work; see [`docs/ABI.md`](docs/ABI.md).
+  memory. The runtime additionally exports `pengu_abi_version()`, and every
+  bundle references it: `pengu build` links `libpengu_runtime.a` unconditionally
+  and `pengu_abi_version` is pinned with `__attribute__((used))`, so an archive
+  built against a different ABI fails at link with
+  `undefined reference to pengu_abi_version` instead of silently reinterpreting
+  struct fields. The property is verified under **gcc** and **clang**; **tcc**
+  writes stripped executables, so the symbol cannot be inspected there and no
+  hard link failure is guaranteed — tcc is the development compiler, not a
+  release one. See [`docs/ABI.md`](docs/ABI.md) for the exact scope.
 - **Lockfile integrity**: `pengu.lock` records the exact commit and a SHA-256 of
   every dependency's content tree; `--locked`/`--frozen` verify it and
   `pengu verify` re-checks an existing checkout.

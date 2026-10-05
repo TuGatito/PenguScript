@@ -3257,6 +3257,15 @@ documented next to the macro and asserted by `tests/abi/test_abi_layout.c`. A
 mismatch means a prebuilt `libpengu_runtime.a` was compiled against a different
 ABI than the generated bundle.
 
+**`libpengu_runtime.a` is a build requirement.** `pengu build` always links it
+(regardless of `links` in `pengu.toml`) and every bundle references
+`pengu_abi_version()`, so an archive built against a different ABI fails at link
+instead of reinterpreting struct fields. If the archive is missing the build
+stops before invoking the C compiler with an actionable message
+(`python build_runtime.py`), rather than an `undefined reference`. The link-time
+guarantee is verified under **gcc** and **clang**; **tcc** strips its output, so
+the symbol cannot be inspected there — see [`docs/ABI.md`](docs/ABI.md).
+
 ### 20.2.2 Machine-readable diagnostics (`--json`)
 
 `pengu check --json` and `pengu build --json` emit JSON Lines (nothing else on

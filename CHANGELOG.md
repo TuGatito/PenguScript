@@ -9,6 +9,44 @@ All notable changes to PenguScript will be documented in this file.
 > sin pérdida de datos, con errores formateados de forma consistente y con el
 > contrato `--json` completo.
 
+### 🔴 Fixed — item 4.17b: el bundle referencia `pengu_abi_version` (cierra el caveat de 3.5)
+
+Enlazar el runtime (4.17a) no bastaba: `libpengu_runtime.a` contiene un único
+objeto (`pengu_runtime.o`) y el bundle generado no referenciaba **ninguno** de
+sus símbolos, así que el linker descartaba el archivo. Medido con
+`-lpengu_runtime` en la línea de órdenes: `nm build/ok | grep -c ' T pengu_'`
+→ **0**. "Enlazar siempre" era un no-op.
+
+`pengu_parser/pengu_codegen.py` emite ahora, una vez por bundle, un pin
+`__attribute__((used))` sobre `pengu_abi_version()`. Con él el archivo entra y
+un `libpengu_runtime.a` obsoleto falla en link:
+
+```
+$ pengu build
+/usr/bin/ld: build/bundle.c:10:(.data.rel.ro+0x0): referencia a `pengu_abi_version' sin definir
+```
+
+Medido en `debug` y `release` (el pin sobrevive a `-O2`), con **gcc** y
+**clang**: `nm <binario>` → `T pengu_abi_version`, y el binario ejecuta.
+Con esto queda cerrado el caveat que 3.5 dejó abierto (`AUDIT_1.0_FASE3.md`
+§14.3); el test que fijaba la restricción antigua
+(`test_bundle_links_without_the_runtime_archive`) se sustituye por
+`test_bundle_references_the_runtime_abi`, su versión en release y
+`test_stale_archive_fails_to_link` (un `.a` simulado sin el símbolo falla en
+link nombrándolo).
+
+**Frontera explícita, medida: la garantía es de gcc y clang.** Bajo **tcc** no
+es verificable: tcc escribe ejecutables *stripped*, así que `nm` no reporta
+ningún símbolo del runtime —ni siquiera en un programa cuyo `main` llama
+funciones del runtime— y no hay garantía de fallo duro inspeccionable. tcc es
+el compilador de desarrollo, no de release. El comportamiento queda congelado
+por `test_tcc_output_is_stripped_so_nm_cannot_verify_the_pin`: si un tcc futuro
+deja de strippear, el test falla y hay que revisar `docs/ABI.md`.
+
+Actualizados: `docs/ABI.md` (el contrato y su alcance por compilador),
+`SECURITY.md` (Runtime ABI pinning), `LANGUAGE.md` §20.2.1 (el `.a` es
+requisito de build).
+
 ### 🔴 Fixed — item 4.17a: `pengu build` enlaza siempre `libpengu_runtime.a`
 
 El camino **sin** `pengu.toml` ya añadía el runtime a los enlaces, pero el

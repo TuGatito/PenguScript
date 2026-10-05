@@ -9901,15 +9901,18 @@ class PenguCodegen:
             f'_Static_assert(PENGU_ABI_VERSION == {self.expected_abi_version}, '
             f'"pengu_runtime.h ABI mismatch: bundle expects v{self.expected_abi_version}");',
             "#endif",
-            # Phase 3 item 3.5 deliberately does NOT emit a reference to
-            # pengu_abi_version() here. Doing so forces every bundle to link
-            # libpengu_runtime.a, but the CLI only adds -lpengu_runtime when the
-            # project asks for it (a fresh `pengu init` project links no archive
-            # and builds header-only), so the unconditional reference broke
-            # `pengu build` on every fresh project. Making the reference
-            # mandatory would require the CLI to always link the runtime, which
-            # is Phase 4 work (pengu_project.py). The symbol is exported and
-            # verifiable instead; see docs/ABI.md.
+            # Item 4.17: reference `pengu_abi_version` from every bundle so the
+            # runtime archive cannot be dropped by the linker and a stale
+            # `libpengu_runtime.a` fails at link time. Without a reference the
+            # archive is never pulled in, so "always linking it" would be a
+            # no-op. `__attribute__((used))` keeps the pin alive under -O2/-O3;
+            # tcc strips its output, so `nm` cannot verify the pin there (see
+            # docs/ABI.md).
+            "extern int pengu_abi_version(void);",
+            "#if defined(__GNUC__) || defined(__clang__)",
+            "__attribute__((used))",
+            "#endif",
+            "static int (*const _pengu_abi_pin)(void) = pengu_abi_version;",
         ]
 
         # Self-describing marker so a bundle.c found in the wild says whether DCE

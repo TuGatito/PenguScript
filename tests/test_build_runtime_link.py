@@ -112,3 +112,40 @@ def test_preflight_helper_finds_the_archive():
     assert found is not None, "libpengu_runtime.a should be discoverable"
     assert found.endswith("libpengu_runtime.a")
     assert os.path.isfile(found)
+
+
+# ---------------------------------------------------------------------------
+# Documented boundary: tcc strips its output, so `nm` cannot verify the pin
+#
+# Measured 2026-10: tcc 0.9.28rc links `_pengu_abi_pin` (the object *does*
+# reference `U pengu_abi_version`) but writes a stripped executable, so
+# `nm <binary>` reports no runtime symbols at all — even for a program whose
+# `main` calls runtime functions. The ABI-pin guarantee is therefore verified
+# under gcc and clang (the release compilers) and *not* verifiable under tcc.
+# This test freezes that behaviour: if a future tcc stops stripping, it fails
+# and docs/ABI.md must be revisited.
+# ---------------------------------------------------------------------------
+
+
+def test_tcc_output_is_stripped_so_nm_cannot_verify_the_pin(tmp_path):
+    from pengu_tcc import find_tcc
+
+    tcc = find_tcc()
+    if not tcc:
+        pytest.skip("no tcc available (set PENGU_TCC or ship it under build/tcc-dist)")
+
+    src = tmp_path / "min.c"
+    src.write_text("int main(void) { return 0; }\n", encoding="utf-8")
+    exe = tmp_path / "min_tcc"
+    res = subprocess.run([tcc, str(src), "-o", str(exe)],
+                         capture_output=True, text=True, timeout=300)
+    if res.returncode != 0:
+        pytest.skip(f"bundled tcc cannot link a minimal program: {res.stderr.strip()}")
+
+    file_out = subprocess.run(["file", str(exe)], capture_output=True, text=True, timeout=60)
+    assert "stripped" in file_out.stdout, (
+        "tcc no longer strips its output; the ABI pin can now be verified under "
+        f"tcc and docs/ABI.md should say so: {file_out.stdout}"
+    )
+    nm = subprocess.run(["nm", str(exe)], capture_output=True, text=True, timeout=60)
+    assert "pengu_abi_version" not in nm.stdout

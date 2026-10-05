@@ -17,13 +17,19 @@ What this item delivers: `pengu_abi_version()` is now a real, exported
 object-file symbol that reports the archive's ABI version, and `SECURITY.md` /
 `docs/ABI.md` state precisely what is and is not enforced.
 
-What it deliberately does **not** do: make every generated bundle reference the
-symbol. That was tried first and made the reference mandatory for every bundle,
-but the CLI only adds `-lpengu_runtime` when `pengu.toml` asks for it — a fresh
-`pengu init` project builds header-only — so it broke `pengu build` on every
-fresh project with `undefined reference to pengu_abi_version`. Forcing the link
-belongs to Phase 4 (`pengu_project.py`). The last test below pins that
-constraint so the mistake cannot come back silently.
+What 3.5 deliberately did **not** do: make every generated bundle reference the
+symbol. That was tried first and broke `pengu build` on every fresh project,
+because the CLI only added `-lpengu_runtime` when `pengu.toml` asked for it and
+a fresh `pengu init` project builds header-only. **Item 4.17 closed that**: the
+CLI now links the runtime unconditionally (`pengu_project.py`) and the codegen
+emits a `__attribute__((used))` pin, so an archive with no referenced symbol is
+no longer dropped and a stale `.a` fails at link time. The tests below measure
+that, and `test_stale_archive_fails_to_link` replaces the 3.5-era
+`test_bundle_links_without_the_runtime_archive` constraint.
+
+Scope of the guarantee (measured): it holds under **gcc** and **clang**, the
+release compilers. Under **tcc** the output is stripped, so `nm` cannot verify
+the pin; see `docs/ABI.md`.
 
 Rule C1: every test **measures** (`nm`), **compiles+links+runs**, or both.
 """
@@ -151,38 +157,98 @@ def test_minimal_pengu_program_links_and_runs():
     assert res.returncode == 0
 
 
-def test_bundle_links_without_the_runtime_archive(tmp_path):
-    """A bundle must not *require* `libpengu_runtime.a`.
+def test_bundle_references_the_runtime_abi(tmp_path):
+    """Every bundle references `pengu_abi_version`, so the archive is linked.
 
-    This is the constraint the first implementation of 3.5 violated: it emitted
-    an unconditional reference to `pengu_abi_version`, so every bundle needed the
-    archive. The CLI only adds `-lpengu_runtime` when `pengu.toml` asks for it,
-    and a fresh `pengu init` project asks for nothing, so `pengu build` failed
-    with `undefined reference to pengu_abi_version`.
+    Item 4.17 completes what 3.5 left open. The CLI now always adds
+    `-lpengu_runtime` *and* `pengu_codegen.py` emits a `__attribute__((used))`
+    pin, without which a static archive with no referenced symbols is simply
+    dropped by the linker (measured: `nm` showed 0 runtime symbols even with
+    `-lpengu_runtime` on the command line).
 
-    The bundle is linked here with **no** runtime archive on the command line.
-
-    C2: re-emit the `_pengu_abi_pin` reference in `pengu_codegen.py` and this
-    link fails, exactly as the fresh-project build did.
+    C2: remove the `_pengu_abi_pin` emission and this measurement drops to 0
+    symbols.
     """
     bundle_c = tmp_path / "bundle.c"
     bundle_c.write_text(
-        gen_bundle("weave main into int:\n    return 0\n", filename="hdronly.pengu"),
+        gen_bundle("weave main into int:\n    return 0\n", filename="pinned.pengu"),
         encoding="utf-8",
     )
-    exe = tmp_path / ("hdronly.exe" if sys.platform == "win32" else "hdronly")
+    exe = tmp_path / ("pinned.exe" if sys.platform == "win32" else "pinned")
     cmd = [
         _cc(), str(bundle_c),
         f"-I{REPO}", f"-I{BUILD_DIR}", f"-I{BUILD_INCLUDE}",
+        f"-L{BUILD_LIB}",
+        *runtime_link_flags(), *runtime_tail_flags(),
         "-o", str(exe),
     ]
     build = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-    assert build.returncode == 0, (
-        "the bundle no longer links as a header-only program; a fresh PenguScript "
-        f"project (no `links` in pengu.toml) would fail to build:\n{build.stderr}"
+    assert build.returncode == 0, build.stderr
+    nm = shutil.which("nm")
+    assert nm, "nm is required for this measurement"
+    symbols = subprocess.run([nm, str(exe)], capture_output=True, text=True, timeout=120)
+    assert re.search(rf"\b{ABI_SYMBOL}\b", symbols.stdout), (
+        "the linked binary does not reference the runtime ABI symbol:\n"
+        + symbols.stdout
     )
     run = subprocess.run([str(exe)], capture_output=True, text=True, timeout=60)
     assert run.returncode == 0
+
+
+def test_bundle_references_the_runtime_abi_release_profile(tmp_path):
+    """The pin must survive -O2: `__attribute__((used))` is what keeps it."""
+    bundle_c = tmp_path / "bundle.c"
+    bundle_c.write_text(
+        gen_bundle("weave main into int:\n    return 0\n", filename="pinned_o2.pengu"),
+        encoding="utf-8",
+    )
+    exe = tmp_path / ("pinned_o2.exe" if sys.platform == "win32" else "pinned_o2")
+    cmd = [
+        _cc(), "-O2", str(bundle_c),
+        f"-I{REPO}", f"-I{BUILD_DIR}", f"-I{BUILD_INCLUDE}",
+        f"-L{BUILD_LIB}",
+        *runtime_link_flags(), *runtime_tail_flags(),
+        "-o", str(exe),
+    ]
+    build = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    assert build.returncode == 0, build.stderr
+    nm = shutil.which("nm")
+    symbols = subprocess.run([nm, str(exe)], capture_output=True, text=True, timeout=120)
+    assert re.search(rf"\b{ABI_SYMBOL}\b", symbols.stdout), symbols.stdout
+
+
+def test_stale_archive_fails_to_link(tmp_path):
+    """An archive without the symbol must fail the link, naming it.
+
+    This is the property `SECURITY.md` claims: a `libpengu_runtime.a` built
+    against a different ABI cannot silently link.
+    """
+    bundle_c = tmp_path / "bundle.c"
+    bundle_c.write_text(
+        gen_bundle("weave main into int:\n    return 0\n", filename="stale.pengu"),
+        encoding="utf-8",
+    )
+    stale_dir = tmp_path / "stale"
+    stale_dir.mkdir()
+    stub_c = stale_dir / "stub.c"
+    stub_c.write_text("int pengu_stub_only(void) { return 0; }\n", encoding="utf-8")
+    stub_o = stale_dir / "stub.o"
+    subprocess.run([_cc(), "-c", str(stub_c), "-o", str(stub_o)], check=True, timeout=300)
+    stale_a = stale_dir / "libpengu_runtime.a"
+    subprocess.run(["ar", "rcs", str(stale_a), str(stub_o)], check=True, timeout=300)
+
+    exe = tmp_path / ("stale.exe" if sys.platform == "win32" else "stale_bin")
+    cmd = [
+        _cc(), str(bundle_c),
+        f"-I{REPO}", f"-I{BUILD_DIR}", f"-I{BUILD_INCLUDE}",
+        f"-L{stale_dir}", f"-L{BUILD_LIB}",
+        *runtime_link_flags(), *runtime_tail_flags(),
+        "-o", str(exe),
+    ]
+    build = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    assert build.returncode != 0, "a stale archive linked silently"
+    combined = build.stdout + build.stderr
+    assert ABI_SYMBOL in combined, combined
 
 
 # ---------------------------------------------------------------------------
