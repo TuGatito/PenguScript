@@ -2203,20 +2203,24 @@ def build_project(
     if defines:
         config.defines = list(config.defines or []) + defines
     if cc:
-        config.cc = cc
+        config.cc = _resolve_cc_argument(cc)
     if strict_c99:
         config.strict_c99 = True
+    # Item 4.10: an explicit `--target-compiler` wins and must agree with the
+    # compiler that will really run; without it the dialect follows the FINAL
+    # `--cc` (not the configured one, which `--cc` may just have overridden).
     if target_compiler:
         config.target_compiler = target_compiler
+    else:
+        config.target_compiler = _compiler_dialect(config.cc)
     if target:
         config.target = target
     config.release_unsafe = bool(release_unsafe)
     config.deny_deprecated = bool(deny_deprecated)
     _set_release_unsafe(config.release_unsafe)
 
-    # Item 4.10: `--target-compiler` must agree with the compiler actually
-    # invoked (the dialect itself is inferred in ProjectConfig.load). Reject an
-    # explicit mismatch before the C compiler produces confusing errors.
+    # Reject an explicit mismatch before the C compiler produces confusing
+    # errors (item 4.10) -- e.g. `--cc cl --target-compiler gcc`.
     _dialect_error = _validate_target_compiler(config.cc, config.target_compiler)
     if _dialect_error:
         _report_dialect_mismatch(_dialect_error, config, json_output)
@@ -2347,7 +2351,7 @@ def check_project(
     if defines:
         config.defines = list(config.defines or []) + defines
     if cc:
-        config.cc = cc
+        config.cc = _resolve_cc_argument(cc)
 
     if not json_output:
         emit(f"   Checking {config.name} v{config.version} [{config.profile}]", color="cyan", level="progress")
@@ -2503,7 +2507,7 @@ def check_files(
     if defines:
         config.defines = list(config.defines or []) + defines
     if cc:
-        config.cc = cc
+        config.cc = _resolve_cc_argument(cc)
 
     if not json_output:
         label = f"{len(files)} file{'s' if len(files) != 1 else ''}"
@@ -2757,6 +2761,24 @@ def _msvc_link_flags(link_flags: List[str]) -> List[str]:
             passthrough.append(flag)
     opts = [f"/LIBPATH:{p}" for p in lib_paths] + libraries + passthrough
     return ["/link"] + opts if opts else []
+
+
+def _resolve_cc_argument(cc: Optional[str]) -> Optional[str]:
+    """Resolves a ``--cc`` value, mapping the bare name ``tcc`` to the shipped TCC.
+
+    Item 4.12 (L7): ``pengu build --cc tcc`` handed the literal string to
+    ``subprocess``, so it failed with ``Could not execute: 'tcc'`` whenever the
+    development compiler was not on ``PATH`` — even though the release ships one
+    under ``build/tcc-dist`` and ``pick_dev_compiler`` already finds it there.
+    An absolute path or any other command is returned untouched.
+    """
+    if not cc:
+        return cc
+    if os.path.basename(cc).lower() in ("tcc", "tcc.exe"):
+        found = find_tcc()
+        if found:
+            return found
+    return cc
 
 
 def _missing_runtime_archive_message() -> str:
@@ -4651,7 +4673,7 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
     """
     config = ProjectConfig.load(config_path, profile=profile)
     if cc:
-        config.cc = cc
+        config.cc = _resolve_cc_argument(cc)
     artifact = build_project(config_path, profile=profile, test=test, defines=defines,
                              cc=cc, verbose=verbose, pch=pch, no_dce=no_dce,
                              strict_c99=strict_c99, target_compiler=target_compiler,
@@ -4743,7 +4765,7 @@ def run_script(script: str, defines: Optional[List[str]] = None,
     if defines:
         cfg.defines = list(cfg.defines or []) + defines
     if cc:
-        cfg.cc = cc
+        cfg.cc = _resolve_cc_argument(cc)
     if strict_c99:
         cfg.strict_c99 = True
     if target_compiler:
@@ -4994,20 +5016,24 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
     if defines:
         config.defines = list(config.defines or []) + defines
     if cc:
-        config.cc = cc
+        config.cc = _resolve_cc_argument(cc)
     if strict_c99:
         config.strict_c99 = True
+    # Item 4.10: an explicit `--target-compiler` wins and must agree with the
+    # compiler that will really run; without it the dialect follows the FINAL
+    # `--cc` (not the configured one, which `--cc` may just have overridden).
     if target_compiler:
         config.target_compiler = target_compiler
+    else:
+        config.target_compiler = _compiler_dialect(config.cc)
     if target:
         config.target = target
     config.release_unsafe = bool(release_unsafe)
     config.deny_deprecated = bool(deny_deprecated)
     _set_release_unsafe(config.release_unsafe)
 
-    # Item 4.10: `--target-compiler` must agree with the compiler actually
-    # invoked (the dialect itself is inferred in ProjectConfig.load). Reject an
-    # explicit mismatch before the C compiler produces confusing errors.
+    # Reject an explicit mismatch before the C compiler produces confusing
+    # errors (item 4.10) -- e.g. `--cc cl --target-compiler gcc`.
     _dialect_error = _validate_target_compiler(config.cc, config.target_compiler)
     if _dialect_error:
         _report_dialect_mismatch(_dialect_error, config, json_output)

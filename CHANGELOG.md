@@ -9,6 +9,44 @@ All notable changes to PenguScript will be documented in this file.
 > sin pérdida de datos, con errores formateados de forma consistente y con el
 > contrato `--json` completo.
 
+### 🟡 Fixed — L7 (item 4.12): `--cc tcc` encuentra el TCC incluido
+
+`pick_dev_compiler` ya localizaba el TCC empaquetado (`build/tcc-dist/…`) para
+`pengu run`, pero `--cc tcc` pasaba la cadena literal `tcc` a `subprocess`, así
+que fallaba siempre que TCC no estuviera en `PATH` — que es el caso normal,
+porque el proyecto trae el suyo:
+
+```
+$ pengu build --cc tcc
+Error:
+Could not execute: [Errno 2] No such file or directory: 'tcc'
+```
+
+`_resolve_cc_argument()` mapea ahora `--cc tcc` (o cualquier ruta cuyo basename
+sea `tcc`) al binario empaquetado, reutilizando `find_tcc()`. Medido:
+
+```
+$ pengu build --cc tcc --verbose | grep 'running C compiler'
+[pengu] running C compiler: …/build/tcc-dist/tcc-dist/bin/tcc …/bundle.c …
+$ ./build/app ; echo $?
+0
+```
+
+Un `--cc` desconocido sigue reportando `Could not execute: …` sin traceback y
+sin cambios.
+
+Efecto colateral necesario (interacción con 4.10): la inferencia del dialecto
+ocurría en `ProjectConfig.load`, **antes** de que `--cc` sobrescribiera el
+compilador, así que `--cc tcc` quedaba con `target_compiler = "gcc"` y la
+validación de 4.10 lo rechazaba con un mensaje engañoso ("the C compiler
+'tcc'"). Ahora un `--cc` explícito re-infier el dialecto desde el compilador
+final, salvo que el usuario pase `--target-compiler` (que sigue ganando y
+validándose). Verificado que el rechazo de 4.10 y la inferencia de clang siguen
+funcionando.
+
+`tests/test_cli_tcc_cc.py` (4 casos, incluido el unitario de la resolución y el
+que fija que `--cc tcc` no cambia el dialecto a MSVC).
+
 ### 🟠 Fixed — item 4.11: la línea de `cl.exe` no contiene ningún flag GNU
 
 `build_compile_commands` construía **una sola** lista de flags con forma GNU y se
