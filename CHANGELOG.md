@@ -88,6 +88,37 @@ proyecto sin `links` no produce ningún `-l`": es exactamente la conducta que es
 item cambia, y se actualiza conservando su intención (que no haya una librería
 de UI hardcodeada).
 
+### 🟠 Fixed — A4 (item 4.5): `--no-color` y `NO_COLOR` desactivan el ANSI
+
+El CLI imprimía sus códigos ANSI incondicionalmente: `--no-color` se aceptaba
+pero era inerte, y `NO_COLOR` no se leía. Medido: `pengu check | cat -v` mostraba
+`^[[1;36mChecking^[[0m`.
+
+Toda la salida visible del CLI pasa ahora por un único `emit()` con un mapa de
+colores con nombre (`cyan`/`green`/`yellow`/`red`/`dim`/`faint`), y la decisión se
+toma una vez en `configure_output()` (llamado desde `main`):
+
+```
+--no-color / NO_COLOR presente  >  isatty(stream)  >  texto plano
+```
+
+`NO_COLOR` sigue la convención de <https://no-color.org>: **su presencia**
+desactiva el color, sea cual sea su valor (`NO_COLOR=`, `NO_COLOR=0` también).
+Se eliminó la reescritura de `NO_COLOR` en el entorno: la variable es del usuario
+y otros procesos pueden leerla. `--no-color` se acepta también **después** del
+subcomando (`pengu check --no-color`), no sólo como flag global. El clear-screen
+del modo `watch` sólo se emite cuando el color está activo, para que la salida
+redirigida sea texto plano.
+
+Medido: `pengu --no-color check | cat -v` → 0 `^[[`; `NO_COLOR=1` y `NO_COLOR=`
+→ 0 `^[[`; en TTY (`script -qec`) → ANSI presente; redirigido a tubería → sin
+ANSI. Los errores se siguen imprimiendo, sin color.
+`tests/test_cli_color.py` (11 casos, incluido el que verifica que la salida con
+color y sin color sólo difiere en las secuencias ANSI).
+
+Regresión evitada: 83 sitios `print("\033[…")` migrados a `emit()` en un solo
+pase con la suite como red.
+
 ### 🔴 Fixed — B4 (item 4.1): `pengu fmt --indent N` corrompía la indentación
 
 `format_pengu_source` (`pengu_lsp/formatting.py`) usaba el `tab_size` de

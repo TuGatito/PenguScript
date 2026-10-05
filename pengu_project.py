@@ -2043,9 +2043,9 @@ def _report_denied_deprecations(diags: List[Dict[str, Any]], json_output: bool =
                          ensure_ascii=False))
     else:
         for d in denied:
-            print(f"\033[1;31m     Error\033[0m {d['file']}:{d['line']}:{d['col']} "
+            emit(f"     Error {d['file']}:{d['line']}:{d['col']} "
                   f"[{d['code']}] {d['message']}", file=sys.stderr)
-        print("\033[1;31m     Error\033[0m deprecated symbol used with --deny-deprecated",
+        emit("     Error deprecated symbol used with --deny-deprecated",
               file=sys.stderr)
     raise SystemExit(1)
 
@@ -2131,7 +2131,7 @@ def build_project(
                               "note": None}, ensure_ascii=False))
             print(json.dumps({"type": "summary", "ok": False, "errors": 1}, ensure_ascii=False))
             raise SystemExit(1)
-        print(f"\033[1;31m     Error\033[0m {exc}", file=sys.stderr)
+        emit(f"     Error {exc}", file=sys.stderr, color="red")
         raise SystemExit(1)
 
     try:
@@ -2143,13 +2143,13 @@ def build_project(
             print(json.dumps({"type": "summary", "ok": False, "errors": 1, "warnings": 0,
                               "duration_ms": 0.0}, ensure_ascii=False))
             raise SystemExit(1)
-        print(f"\033[1;31m     Error\033[0m {e.message}", file=sys.stderr)
+        emit(f"     Error {e.message}", file=sys.stderr, color="red")
         if e.help:
             print(f"      help: {e.help}", file=sys.stderr)
         raise SystemExit(1)
 
     if not json_output:
-        print(f"\033[1;36m   Compiling\033[0m {config.name} v{config.version} ({config.output.value}) [{config.profile}]"
+        emit(f"   Compiling {config.name} v{config.version} ({config.output.value}) [{config.profile}]"
               + (" [test]" if test else ""))
 
     builder = PenguBuilder(config)
@@ -2209,9 +2209,9 @@ def build_project(
             "duration_ms": round(elapsed * 1000, 2),
         }, ensure_ascii=False))
     elif is_cached:
-        print(f"\033[1;32m    Finished\033[0m (cached) [{config.profile}] target(s) in {elapsed:.2f}s -> {artifact}")
+        emit(f"    Finished (cached) [{config.profile}] target(s) in {elapsed:.2f}s -> {artifact}", color="green")
     else:
-        print(f"\033[1;32m    Finished\033[0m [{config.profile}] target(s) in {elapsed:.2f}s -> {artifact}")
+        emit(f"    Finished [{config.profile}] target(s) in {elapsed:.2f}s -> {artifact}", color="green")
     return artifact
 
 
@@ -2249,7 +2249,7 @@ def check_project(
         config.cc = cc
 
     if not json_output:
-        print(f"\033[1;36m   Checking\033[0m {config.name} v{config.version} [{config.profile}]")
+        emit(f"   Checking {config.name} v{config.version} [{config.profile}]", color="cyan")
 
     builder = PenguBuilder(config)
     builder.verbose = verbose and not json_output
@@ -2276,12 +2276,12 @@ def check_project(
     warnings = [d for d in diagnostics if d.get("severity") == "warning"]
     errors = [d for d in diagnostics if d.get("severity") != "warning"]
     for d in warnings:
-        print(f"\033[1;33m   Warning\033[0m{_fmt(d)[1:]}", file=sys.stderr)
+        emit(f"   Warning{_fmt(d)[1:]}", file=sys.stderr, color="yellow")
     if ok:
         suffix = f" ({len(warnings)} warning(s))" if warnings else ""
-        print(f"\033[1;32m     Clean\033[0m no errors found in {elapsed:.2f}s{suffix}")
+        emit(f"     Clean no errors found in {elapsed:.2f}s{suffix}", color="green")
     else:
-        print(f"\033[1;31m   Errors\033[0m found in {elapsed:.2f}s")
+        emit(f"   Errors found in {elapsed:.2f}s", color="red")
         for d in errors:
             print(_fmt(d), file=sys.stderr)
     return ok
@@ -2331,12 +2331,12 @@ def _report_check_results(ok: bool, diagnostics: List[Dict[str, Any]], elapsed: 
     warnings = [d for d in diagnostics if d.get("severity") == "warning"]
     errors = [d for d in diagnostics if d.get("severity") != "warning"]
     for d in warnings:
-        print(f"\033[1;33m   Warning\033[0m{_fmt(d)[1:]}", file=sys.stderr)
+        emit(f"   Warning{_fmt(d)[1:]}", file=sys.stderr, color="yellow")
     if ok:
         suffix = f" ({len(warnings)} warning(s))" if warnings else ""
-        print(f"\033[1;32m     Clean\033[0m no errors found in {elapsed:.2f}s{suffix}")
+        emit(f"     Clean no errors found in {elapsed:.2f}s{suffix}", color="green")
     else:
-        print(f"\033[1;31m   Errors\033[0m found in {elapsed:.2f}s")
+        emit(f"   Errors found in {elapsed:.2f}s", color="red")
         for d in errors:
             print(_fmt(d), file=sys.stderr)
     return ok
@@ -2406,7 +2406,7 @@ def check_files(
 
     if not json_output:
         label = f"{len(files)} file{'s' if len(files) != 1 else ''}"
-        print(f"\033[1;36m   Checking\033[0m {label} [{profile}]")
+        emit(f"   Checking {label} [{profile}]", color="cyan")
 
     ok = True
     diagnostics: List[Dict[str, Any]] = []
@@ -2629,12 +2629,12 @@ def fmt_files(paths: List[str], check_only: bool = False, write: bool = True,
             ):
                 print(dline)
         elif verbose or check_only:
-            print(f"\033[1;33m would format\033[0m {display}")
+            emit(f" would format {display}", color="yellow")
         if write and not check_only and not diff:
             with open(fp, "w", encoding="utf-8") as f:
                 f.write(formatted)
             if not diff:
-                print(f"\033[1;32m  formatted\033[0m {display}")
+                emit(f"  formatted {display}", color="green")
 
     if not diff:
         if check_only:
@@ -2679,9 +2679,9 @@ def clean_project(config_path: Optional[str] = None) -> None:
 
     if os.path.isdir(build_dir):
         shutil.rmtree(build_dir, ignore_errors=True)
-        print(f"\033[1;32m     Cleaned\033[0m build directory '{build_dir}'")
+        emit(f"     Cleaned build directory '{build_dir}'", color="green")
     else:
-        print("\033[1;33m     Cleaned\033[0m nothing to clean.")
+        emit("     Cleaned nothing to clean.", color="yellow")
 
 
 def _toml_scalar(value: Any) -> str:
@@ -2862,11 +2862,11 @@ def _dependency_build_allowed(dep_name: str, trusted: bool = False) -> bool:
     if os.environ.get("PENGU_TRUST_ALL", "").strip().lower() in ("1", "true", "yes", "on"):
         return True
     if not sys.stdin.isatty():
-        print(f"\033[1;33m     Skipped\033[0m '{dep_name}' has a build script but was not "
+        emit(f"     Skipped '{dep_name}' has a build script but was not "
               f"trusted; pass --trust to run it.", file=sys.stderr)
         return False
     try:
-        answer = input(f"\033[1;33m    Trust\033[0m run the build script of '{dep_name}'? [y/N] ")
+        answer = input(f"    Trust run the build script of '{dep_name}'? [y/N] ", color="yellow")
     except (EOFError, KeyboardInterrupt):
         return False
     return answer.strip().lower() in ("y", "yes")
@@ -2901,10 +2901,10 @@ def _run_dependency_build(target_dir: str, dep_name: str, trusted: bool = False)
     if build_cmd:
         if not _dependency_build_allowed(dep_name, trusted=trusted):
             return False
-        print(f"\033[1;36m    Building\033[0m dependency '{dep_name}' with {' '.join(build_cmd)}")
+        emit(f"    Building dependency '{dep_name}' with {' '.join(build_cmd)}", color="cyan")
         res = subprocess.run(build_cmd, cwd=target_dir, capture_output=True, text=True)
         if res.returncode != 0:
-            print(f"\033[1;33m     Warning\033[0m build script returned code {res.returncode}:\n{res.stderr}", file=sys.stderr)
+            emit(f"     Warning build script returned code {res.returncode}:\n{res.stderr}", file=sys.stderr, color="yellow")
         return True
     return False
 
@@ -2923,7 +2923,7 @@ def update_project(config_path: Optional[str] = None, verbose: bool = False,
     config = ProjectConfig.load(config_path)
     deps = config.dependencies or {}
     if not deps:
-        print("\033[1;33m       Update\033[0m no dependencies configured.")
+        emit("       Update no dependencies configured.", color="yellow")
         return 0
 
     lib_dir = os.path.abspath(os.path.join(config.base_dir, config.lib_dir))
@@ -2936,16 +2936,16 @@ def update_project(config_path: Optional[str] = None, verbose: bool = False,
             source = str(info or "")
             branch = None
         if not source:
-            print(f"\033[1;33m     Skipping\033[0m dependency '{dep_name}' (no source url configured).", file=sys.stderr)
+            emit(f"     Skipping dependency '{dep_name}' (no source url configured).", file=sys.stderr, color="yellow")
             continue
 
         target_dir = os.path.join(lib_dir, dep_name)
         if not os.path.isdir(target_dir):
-            print(f"\033[1;33m     Skipping\033[0m dependency '{dep_name}' (not installed at {target_dir}). "
+            emit(f"     Skipping dependency '{dep_name}' (not installed at {target_dir}). "
                   f"Run 'pengu add {source}' first.", file=sys.stderr)
             continue
 
-        print(f"\033[1;36m    Updating\033[0m dependency '{dep_name}'")
+        emit(f"    Updating dependency '{dep_name}'", color="cyan")
 
         git_dir = os.path.join(target_dir, ".git")
         if os.path.isdir(git_dir):
@@ -2956,7 +2956,7 @@ def update_project(config_path: Optional[str] = None, verbose: bool = False,
                 print(f"   $ {' '.join(cmd_fetch)}", file=sys.stderr)
             res = subprocess.run(cmd_fetch, capture_output=True, text=True)
             if res.returncode != 0:
-                print(f"\033[1;33m     Warning\033[0m git pull failed (code {res.returncode}):\n{res.stderr}", file=sys.stderr)
+                emit(f"     Warning git pull failed (code {res.returncode}):\n{res.stderr}", file=sys.stderr, color="yellow")
             else:
                 tail = (res.stdout or res.stderr or "").strip()
                 if tail:
@@ -2971,9 +2971,9 @@ def update_project(config_path: Optional[str] = None, verbose: bool = False,
     try:
         _ensure_lockfile(config, verbose=verbose)
     except Exception as exc:  # noqa: BLE001 - a lock failure must not hide the update
-        print(f"\033[1;33m     Warning\033[0m could not refresh pengu.lock: {exc}", file=sys.stderr)
+        emit(f"     Warning could not refresh pengu.lock: {exc}", file=sys.stderr, color="yellow")
 
-    print(f"\033[1;32m       Updated\033[0m {updated} dependency(ies).")
+    emit(f"       Updated {updated} dependency(ies).", color="green")
     return updated
 
 
@@ -3012,7 +3012,7 @@ def _restore_from_cache(source: str, branch: Optional[str], target_dir: str) -> 
         _copy_dep_tree(cached, target_dir)
     except OSError:
         return False
-    print(f"\033[1;36m    Cached\033[0m dependency from {cached}")
+    emit(f"    Cached dependency from {cached}", color="cyan")
     return True
 
 
@@ -3043,7 +3043,7 @@ def _restore_from_vendor(config: "ProjectConfig", name: str, target_dir: str) ->
         _copy_dep_tree(vendored, target_dir)
     except OSError:
         return False
-    print(f"\033[1;36m   Vendored\033[0m dependency '{name}'")
+    emit(f"   Vendored dependency '{name}'", color="cyan")
     return True
 
 
@@ -3081,7 +3081,7 @@ def vendor_dependencies(config: "ProjectConfig", verbose: bool = False) -> str:
             "is missing, `pengu build` restores it from here (and `--frozen` verifies\n"
             "the recorded commits and content hashes).\n"
         )
-    print(f"\033[1;32m    Vendored\033[0m {copied} dependency(ies) into {out_dir}")
+    emit(f"    Vendored {copied} dependency(ies) into {out_dir}", color="green")
     return out_dir
 
 
@@ -3128,7 +3128,7 @@ def add_dependency(
     os.makedirs(lib_dir, exist_ok=True)
     target_dir = os.path.join(lib_dir, dep_name)
 
-    print(f"\033[1;36m    Fetching\033[0m dependency '{dep_name}' from {dep_source}")
+    emit(f"    Fetching dependency '{dep_name}' from {dep_source}", color="cyan")
 
     # 2. Check Git URL vs Local directory
     is_git_url = any(dep_source.startswith(p) for p in ("http://", "https://", "git://", "git@", "ssh://")) or dep_source.endswith(".git")
@@ -3136,7 +3136,7 @@ def add_dependency(
     if is_git_url:
         if os.path.isdir(target_dir):
             if os.path.isdir(os.path.join(target_dir, ".git")):
-                print(f"\033[1;33m    Updating\033[0m existing Git repository in {target_dir}")
+                emit(f"    Updating existing Git repository in {target_dir}", color="yellow")
                 cmd_fetch = ["git", "-C", target_dir, "pull"]
                 subprocess.run(cmd_fetch, check=False)
             else:
@@ -3194,7 +3194,7 @@ def add_dependency(
     if _record_in_manifest:
         _update_config_dependency(config.base_dir, dep_name, dep_source, branch)
 
-    print(f"\033[1;32m       Added\033[0m dependency '{dep_name}' to {target_dir}")
+    emit(f"       Added dependency '{dep_name}' to {target_dir}", color="green")
 
     # 6. Pull the dependency's own dependencies (roadmap 4.2).  On a version
     #    conflict the whole add is rolled back, so the project never keeps a
@@ -3317,9 +3317,9 @@ def remove_dependency(name: str, config_path: Optional[str] = None,
             f"dependency '{dep_name}' is not installed (no {target_dir} and no manifest entry)"
         )
     if keep_files:
-        print(f"\033[1;32m     Removed\033[0m dependency '{dep_name}' from the manifest")
+        emit(f"     Removed dependency '{dep_name}' from the manifest", color="green")
     else:
-        print(f"\033[1;32m     Removed\033[0m dependency '{dep_name}' ({target_dir})")
+        emit(f"     Removed dependency '{dep_name}' ({target_dir})", color="green")
     return target_dir
 
 
@@ -3353,7 +3353,7 @@ def upgrade_dependency(name: str, version: Optional[str] = None,
         )
     is_git = os.path.isdir(os.path.join(target_dir, ".git"))
     if not is_git:
-        print(f"\033[1;33m    Skipping\033[0m '{dep_name}' (local copy, not a git checkout)")
+        emit(f"    Skipping '{dep_name}' (local copy, not a git checkout)", color="yellow")
         return target_dir
 
     fetch = subprocess.run(["git", "-C", target_dir, "fetch", "--tags", "--prune"],
@@ -3385,7 +3385,7 @@ def upgrade_dependency(name: str, version: Optional[str] = None,
     _set_config_dependency(config.base_dir, dep_name, new_entry)
     head = subprocess.run(["git", "-C", target_dir, "rev-parse", "--short", "HEAD"],
                           capture_output=True, text=True).stdout.strip()
-    print(f"\033[1;32m   Upgraded\033[0m dependency '{dep_name}'"
+    emit(f"   Upgraded dependency '{dep_name}'"
           + (f" to {version}" if version else (f" to {ref}" if ref else ""))
           + (f" ({head})" if head else ""))
     return target_dir
@@ -3624,7 +3624,7 @@ def resolve_transitive_dependencies(
                                name=name, config_path=config.base_dir, run_build=False,
                                _resolve_transitive=False, _record_in_manifest=False)
             except Exception as exc:  # noqa: BLE001 - surface as a clear warning
-                print(f"\033[1;33m     Warning\033[0m could not install '{name}': {exc}",
+                emit(f"     Warning could not install '{name}': {exc}",
                       file=sys.stderr)
                 resolved[name] = None
                 continue
@@ -3653,7 +3653,7 @@ def resolve_transitive_dependencies(
             if child_name in visiting or child_name in resolved:
                 continue
             if child_name == name:
-                print(f"\033[1;33m     Warning\033[0m dependency cycle ignored: "
+                emit(f"     Warning dependency cycle ignored: "
                       f"{name} -> {child_name}", file=sys.stderr)
                 continue
             queue.append((child_name, child_entry, name, depth + 1))
@@ -3689,7 +3689,7 @@ def verify_project(config_path: Optional[str] = None, verbose: bool = False) -> 
     config = ProjectConfig.load(config_path)
     lock = read_lock(config.base_dir)
     if lock is None:
-        print("\033[1;31m     Error\033[0m no pengu.lock found; run `pengu build` first.",
+        emit("     Error no pengu.lock found; run `pengu build` first.",
               file=sys.stderr)
         return 1
 
@@ -3716,15 +3716,15 @@ def verify_project(config_path: Optional[str] = None, verbose: bool = False) -> 
             if actual != pkg.sha256:
                 problems.append(f"{pkg.name}: content sha256 {actual[:12]}… != locked {pkg.sha256[:12]}…")
         if verbose and not problems:
-            print(f"  \033[1;32mok\033[0m {pkg.name} {pkg.version} {pkg.commit[:12] if pkg.commit else ''}")
+            emit(f"  ok {pkg.name} {pkg.version} {pkg.commit[:12] if pkg.commit else ''}", color="green")
 
     if problems:
-        print(f"\033[1;31m     Failed\033[0m pengu.lock verification ({len(problems)} problem(s)):",
+        emit(f"     Failed pengu.lock verification ({len(problems)} problem(s)):",
               file=sys.stderr)
         for prob in problems:
             print(f"  - {prob}", file=sys.stderr)
         return 1
-    print(f"\033[1;32m   Verified\033[0m {len(lock.packages)} package(s) match pengu.lock")
+    emit(f"   Verified {len(lock.packages)} package(s) match pengu.lock", color="green")
     return 0
 
 
@@ -3744,10 +3744,10 @@ def print_dependency_tree(config: "ProjectConfig", as_json: bool = False) -> int
         if node.required_by == ["<root>"] or "<root>" in node.required_by
     ]
     if not roots:
-        print(f"\033[1;36m   {config.name}\033[0m — no dependencies")
+        emit(f"   {config.name} — no dependencies", color="cyan")
         return 0
 
-    print(f"\033[1;36m{config.name} v{config.version}\033[0m")
+    emit(f"{config.name} v{config.version}", color="cyan")
 
     def render(name: str, prefix: str, is_last: bool, seen: set) -> None:
         node = graph.get(name)
@@ -4091,9 +4091,9 @@ pengu clean
     with open(os.path.join(proj_dir, "README.md"), "w", encoding="utf-8") as f:
         f.write(readme_content)
 
-    print(f"\033[1;32m     Created\033[0m {out_t.value} project '{name}' at {proj_dir}")
+    emit(f"     Created {out_t.value} project '{name}' at {proj_dir}", color="green")
     if (template or "exe").strip().lower() == "game":
-        print("\033[1;33m       Note\033[0m the 'game' template links raylib; "
+        emit("       Note the 'game' template links raylib; "
               "build it with `python build_runtime.py` if `pengu run` reports "
               "missing raylib symbols.", file=sys.stderr)
     return proj_dir
@@ -4192,7 +4192,7 @@ def doctor_report(as_json: bool = False) -> int:
     def row(label: str, value: object) -> None:
         print(f"  {label:<18} {value}")
 
-    print("\033[1;36mPenguScript doctor\033[0m")
+    emit("PenguScript doctor", color="cyan")
     row("version", info["pengu"])
     row("python", f"{info['python']} ({'frozen bundle' if info['frozen'] else 'source checkout'})")
     row("platform", info["platform"])
@@ -4209,11 +4209,11 @@ def doctor_report(as_json: bool = False) -> int:
     for line in cache_summary():
         print(f"  {line}")
     if problems:
-        print("\033[1;31mproblems:\033[0m")
+        emit("problems:", color="red")
         for prob in problems:
             print(f"  - {prob}")
         return 1
-    print("\033[1;32m  everything looks good\033[0m")
+    emit("  everything looks good", color="green")
     return 0
 
 
@@ -4309,7 +4309,7 @@ def time_script(script: str, defines: Optional[List[str]] = None,
         rc = subprocess.run([artifact] + list(script_args or []), cwd=base_dir).returncode
         phases["run"] = time.time() - t_run
         phases["TOTAL"] = time.time() - t_start
-        print("\n\033[1;36mphase timings\033[0m")
+        emit("\nphase timings", color="cyan")
         for label, seconds in phases.items():
             if label == "bundle.c":
                 print(f"  {label:<24} {builder.timings.get('bundle_lines', 0)} lines, "
@@ -4380,19 +4380,19 @@ def watch_script(script: str, defines: Optional[List[str]] = None,
                 stamps[path] = 0.0
         return stamps
 
-    print(f"\033[1;36m   Watching\033[0m {os.path.basename(script_abs)} "
+    emit(f"   Watching {os.path.basename(script_abs)} "
           f"({len(watched)} module(s)); Ctrl-C to stop")
     last = snapshot()
     try:
         while True:
             rc = run_script(script_abs, defines=defines, cc=cc, keep=keep)
-            print(f"\033[1;90m   exit={rc}; waiting for changes…\033[0m")
+            emit(f"   exit={rc}; waiting for changes…", color="dim")
             while True:
                 time.sleep(interval)
                 current = snapshot()
                 if current != last:
                     last = current
-                    print("\033[1;33m    Change detected, rebuilding\033[0m")
+                    emit("    Change detected, rebuilding", color="yellow")
                     try:
                         from pengu_parser.pengu_parser import PenguParser as _P2
                         from pengu_parser.pengu_symbols import resolve_imports as _ri2
@@ -4401,7 +4401,7 @@ def watch_script(script: str, defines: Optional[List[str]] = None,
                         pass
                     break
     except KeyboardInterrupt:
-        print("\n\033[1;90m   stopped\033[0m")
+        emit("\n   stopped", color="dim")
         return 0
 
 
@@ -4449,7 +4449,7 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
                              target=target, locked=locked, frozen=frozen,
                              release_unsafe=release_unsafe)
     if config.output == OutputType.EXE and os.path.isfile(artifact):
-        print(f"\033[1;36m     Running\033[0m {artifact}\n")
+        emit(f"     Running {artifact}\n", color="cyan")
         sys.stdout.flush()
         sys.stderr.flush()
         res = subprocess.run([artifact], cwd=config.base_dir)
@@ -4505,13 +4505,15 @@ def run_script(script: str, defines: Optional[List[str]] = None,
     if not script_abs.endswith(".pengu"):
         raise ValueError(f"Not a PenguScript file: {script}")
 
-    def say(message: str) -> None:
-        if not quiet:
-            print(message)
+    def say(message: str, **kwargs) -> None:
+        """Progress line for script mode; the `quiet` parameter wins."""
+        if quiet:
+            return
+        emit(message, **kwargs)
 
     if clear_cache:
         removed = clear_script_cache(verbose=verbose)
-        say(f"\033[1;36m    Cleared\033[0m {removed} cached script(s)")
+        say(f"    Cleared {removed} cached script(s)", color="cyan")
 
     base_dir = os.getcwd()
     rel = os.path.relpath(script_abs, base_dir)
@@ -4611,8 +4613,8 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         if cached:
             if verbose:
                 print(f"[pengu] cache hit {cache_key} -> {cached}")
-            say("\033[1;32m    Finished\033[0m (cached)")
-            say(f"\033[1;36m     Running\033[0m {cached}\n")
+            say("    Finished (cached)", color="green")
+            say(f"     Running {cached}\n", color="cyan")
             sys.stdout.flush()
             sys.stderr.flush()
             return subprocess.run([cached] + list(script_args or []), cwd=base_dir).returncode
@@ -4630,7 +4632,7 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         cfg.build_dir = build_root
 
     t0 = time.time()
-    say(f"\033[1;36m   Scripting\033[0m {os.path.basename(script_abs)}")
+    say(f"   Scripting {os.path.basename(script_abs)}", color="cyan")
     # DCE is decided when PenguCodegen is constructed (it reads PENGU_NO_DCE), so
     # the flag must be in place before the builder runs and restored afterwards:
     # the toolchain is also imported as a library from long-lived processes.
@@ -4653,9 +4655,9 @@ def run_script(script: str, defines: Optional[List[str]] = None,
             artifact, is_cached = builder.compile()
             elapsed = time.time() - t0
             if is_cached:
-                say(f"\033[1;32m    Finished\033[0m (cached) in {elapsed:.2f}s -> {artifact}")
+                say(f"    Finished (cached) in {elapsed:.2f}s -> {artifact}", color="green")
             else:
-                say(f"\033[1;32m    Finished\033[0m in {elapsed:.2f}s -> {artifact}")
+                say(f"    Finished in {elapsed:.2f}s -> {artifact}", color="green")
 
             if cache_key and not ephemeral:
                 stored = store_cached_binary(cache_key, artifact)
@@ -4665,7 +4667,7 @@ def run_script(script: str, defines: Optional[List[str]] = None,
             run_target = artifact
             if cache_key and not ephemeral:
                 run_target = lookup_cached_binary(cache_key) or artifact
-            say(f"\033[1;36m     Running\033[0m {run_target}\n")
+            say(f"     Running {run_target}\n", color="cyan")
             sys.stdout.flush()
             sys.stderr.flush()
             res = subprocess.run([run_target] + list(script_args or []), cwd=base_dir)
@@ -4723,11 +4725,14 @@ def _watch_and_test(config_path: Optional[str] = None, profile: str = "debug", e
                 except OSError:
                     pass
             if changed:
-                if not json_output:
+                if not json_output and _OUTPUT.color:
+                    # Screen clear for the watch loop: only with colours enabled
+                    # (`--no-color` / NO_COLOR / a pipe keeps output plain).
                     sys.stdout.write("\033[2J\033[H")
                     sys.stdout.flush()
-                msg = "\033[1;36m[watching]\033[0m change detected, rebuilding..."
-                print(msg, file=sys.stderr if json_output else sys.stdout)
+                emit("[watching] change detected, rebuilding...",
+                     color="cyan",
+                     file=sys.stderr if json_output else None)
                 try:
                     test_project(config_path=config_path, profile=profile, entry=entry,
                                  defines=defines, cc=cc, verbose=verbose, json_output=json_output)
@@ -4789,14 +4794,14 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
             print(json.dumps({"type": "summary", "ok": False, "errors": 1, "warnings": 0,
                               "duration_ms": 0.0}, ensure_ascii=False))
         else:
-            print(f"\033[1;31m     Error\033[0m {e.message}")
+            emit(f"     Error {e.message}", color="red")
             if e.help:
                 print(f"      help: {e.help}", file=sys.stderr)
         return 1
 
     t0 = time.time()
     if not json_output:
-        print(f"\033[1;36m   Testing\033[0m {config.name} v{config.version} [--test, {config.profile}]")
+        emit(f"   Testing {config.name} v{config.version} [--test, {config.profile}]", color="cyan")
     builder = PenguBuilder(config)
     builder.is_test_mode = True
     builder.verbose = verbose
@@ -4806,11 +4811,11 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
     elapsed = time.time() - t0
     if not json_output:
         if is_cached:
-            print(f"\033[1;32m    Finished\033[0m (cached) in {elapsed:.2f}s -> {artifact}")
+            emit(f"    Finished (cached) in {elapsed:.2f}s -> {artifact}", color="green")
         else:
-            print(f"\033[1;32m    Finished\033[0m in {elapsed:.2f}s -> {artifact}")
+            emit(f"    Finished in {elapsed:.2f}s -> {artifact}", color="green")
 
-        print("\033[1;36m     Running\033[0m tests\n")
+        emit("     Running tests\n", color="cyan")
         sys.stdout.flush()
         sys.stderr.flush()
         res = subprocess.run([artifact], cwd=config.base_dir)
@@ -4840,6 +4845,77 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
     sys.stdout.flush()
     sys.stderr.flush()
     return res.returncode
+
+
+# ---------------------------------------------------------------------------
+# CLI output (items 4.4 and 4.5)
+#
+# Every user-facing line the CLI writes goes through `emit()`, so that colour
+# (`--no-color` / NO_COLOR) is decided in one place instead of being baked into
+# each `print`. `configure_output()` is called once from `main()`; the defaults
+# keep library/test use (which never calls it) colour-free unless a caller opts in.
+# ---------------------------------------------------------------------------
+
+_ANSI_RESET = "\033[0m"
+_ANSI_COLORS = {
+    "cyan": "\033[1;36m",
+    "green": "\033[1;32m",
+    "yellow": "\033[1;33m",
+    "red": "\033[1;31m",
+    "dim": "\033[1;90m",
+    "faint": "\033[2m",
+}
+
+
+class _OutputState:
+    """Process-wide CLI output settings."""
+
+    def __init__(self) -> None:
+        self.color = False
+
+
+_OUTPUT = _OutputState()
+
+
+def configure_output(no_color: bool = False,
+                     stream: Optional[object] = None) -> None:
+    """Sets the process-wide output mode (call once, from ``main``).
+
+    Colour precedence: an explicit ``--no-color`` (or the presence of the
+    ``NO_COLOR`` environment variable, per https://no-color.org, which ignores
+    its value) disables ANSI; otherwise colour is used only when the stream is a
+    terminal, so piping always yields plain text.
+
+    Args:
+        no_color: True when ``--no-color`` was given.
+        stream: Stream used for the TTY probe (defaults to ``sys.stdout``).
+    """
+    if no_color or os.environ.get("NO_COLOR") is not None:
+        _OUTPUT.color = False
+        return
+    probe = stream if stream is not None else sys.stdout
+    try:
+        _OUTPUT.color = bool(probe.isatty())
+    except Exception:
+        _OUTPUT.color = False
+
+
+def emit(message: str = "", *, color: Optional[str] = None,
+         file: Optional[object] = None,
+         end: str = "\n") -> None:
+    """Writes one CLI line, honouring ``--no-color``.
+
+    Args:
+        message: Text to write (may already contain its own newlines).
+        color: Name in :data:`_ANSI_COLORS`, or None for plain text.
+        file: Destination stream (defaults to ``sys.stdout``).
+        end: Line terminator.
+    """
+    text = message
+    if color is not None and _OUTPUT.color and _ANSI_COLORS.get(color):
+        text = f"{_ANSI_COLORS[color]}{message}{_ANSI_RESET}"
+    out = sys.stdout if file is None else file
+    out.write(text + end)
 
 
 def create_cli_parser() -> argparse.ArgumentParser:
@@ -5164,6 +5240,13 @@ def create_cli_parser() -> argparse.ArgumentParser:
     assets_p.add_argument("--list", action="store_true", help="List tracked assets with sizes and PenguScript asset constants")
     assets_p.add_argument("--force", action="store_true", help="Force regeneration ignoring caches")
 
+    # Item 4.5: accept `--no-color` after the subcommand too (`pengu check
+    # --no-color`), not only as a global flag. SUPPRESS keeps it from clobbering
+    # the already-parsed global value when the flag is not repeated.
+    for _sub in subparsers.choices.values():
+        _sub.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS,
+                          help="Disable ANSI colours (also honoured: NO_COLOR=1)")
+
     return parser
 
 
@@ -5198,7 +5281,7 @@ def remap_c_diagnostics(text: str) -> List[str]:
 
 def _print_compile_error(err: "CompileFailedError") -> None:
     """Prints a formatted C-compilation error and exits with status 1."""
-    print("\n\033[1;31mError:\033[0m", file=sys.stderr)
+    emit("\nError:", file=sys.stderr, color="red")
     text = str(err)
     mapped = remap_c_diagnostics(text)
     if mapped:
@@ -5222,8 +5305,11 @@ def main():
     # '--strictc99' for '--strict-c99' silently disabling a guarantee is the
     # exact failure this guards against), so it is rejected with rc=2.
     args, unknown = parser.parse_known_args()
-    if getattr(args, "no_color", False) or os.environ.get("NO_COLOR"):
-        os.environ["NO_COLOR"] = "1"
+    # Items 4.4/4.5: decide colour and verbosity once, here. `NO_COLOR`'s mere
+    # presence disables ANSI (https://no-color.org) and is read by
+    # `configure_output`, which is why it is no longer rewritten into the
+    # environment: the variable belongs to the user, and other tools may read it.
+    configure_output(no_color=bool(getattr(args, "no_color", False)))
     if getattr(args, "command", None) == "run" and getattr(args, "script", None):
         forwarded = list(getattr(args, "script_args", None) or []) + list(unknown)
         setattr(args, "script_args", forwarded)
@@ -5252,7 +5338,7 @@ def main():
                 trusted=getattr(args, "trust", False),
             )
         except (DependencyConflictError, RuntimeError, FileNotFoundError) as e:
-            print(f"\033[1;31m     Error\033[0m {e}", file=sys.stderr)
+            emit(f"     Error {e}", file=sys.stderr, color="red")
             sys.exit(1)
     elif args.command == "remove":
         try:
@@ -5262,7 +5348,7 @@ def main():
                 keep_files=getattr(args, "keep_files", False),
             )
         except (FileNotFoundError, ValueError) as e:
-            print(f"\033[1;31m     Error\033[0m {e}", file=sys.stderr)
+            emit(f"     Error {e}", file=sys.stderr, color="red")
             sys.exit(1)
     elif args.command == "upgrade":
         try:
@@ -5273,7 +5359,7 @@ def main():
                 config_path=args.config,
             )
         except (FileNotFoundError, ValueError, RuntimeError) as e:
-            print(f"\033[1;31m     Error\033[0m {e}", file=sys.stderr)
+            emit(f"     Error {e}", file=sys.stderr, color="red")
             sys.exit(1)
     elif args.command == "verify":
         sys.exit(verify_project(config_path=args.config,
@@ -5283,7 +5369,7 @@ def main():
             vendor_dependencies(ProjectConfig.load(args.config),
                                 verbose=getattr(args, "verbose", False))
         except (DependencyConflictError, RuntimeError) as e:
-            print(f"\033[1;31m     Error\033[0m {e}", file=sys.stderr)
+            emit(f"     Error {e}", file=sys.stderr, color="red")
             sys.exit(1)
     elif args.command in ("tree", "metadata"):
         try:
@@ -5292,7 +5378,7 @@ def main():
                 as_json=(args.command == "metadata") or getattr(args, "json", False),
             ))
         except DependencyConflictError as e:
-            print(f"\033[1;31m     Error\033[0m {e}", file=sys.stderr)
+            emit(f"     Error {e}", file=sys.stderr, color="red")
             sys.exit(1)
     elif args.command == "build":
         try:
@@ -5465,9 +5551,9 @@ def main():
                 preprocessed=args.preprocessed,
                 blank_extensions=args.blank_extensions,
             )
-            print(f"\033[1;32m     Bound\033[0m {args.header} -> {out}")
+            emit(f"     Bound {args.header} -> {out}", color="green")
         except (HeaderParseError, FileNotFoundError, ValueError) as e:
-            print(f"\033[1;31m       Bind\033[0m {e}", file=sys.stderr)
+            emit(f"       Bind {e}", file=sys.stderr, color="red")
             sys.exit(1)
     elif args.command == "doctor":
         sys.exit(doctor_report(as_json=getattr(args, "json", False)))
@@ -5478,7 +5564,7 @@ def main():
         if getattr(args, "json", False):
             print(json.dumps({"removed": removed, "cache_root": cache_root()}))
         else:
-            print(f"\033[1;32m    Collected\033[0m {removed} cached script(s)")
+            emit(f"    Collected {removed} cached script(s)", color="green")
         sys.exit(0)
     elif args.command == "expand":
         sys.exit(expand_script(args.script, output=getattr(args, "output", None),
@@ -5556,9 +5642,9 @@ def main():
             builder = PenguBuilder(config)
             res = builder.generate_assets(force=getattr(args, "force", False))
             if res:
-                print(f"\033[1;32m    Assets\033[0m generated {res['interface_path']} and {res['c_path']} ({len(res['assets'])} assets)")
+                emit(f"    Assets generated {res['interface_path']} and {res['c_path']} ({len(res['assets'])} assets)", color="green")
             else:
-                print(f"\033[1;33m    Assets\033[0m no assets found in {config.assets_dir}")
+                emit(f"    Assets no assets found in {config.assets_dir}", color="yellow")
     else:
         parser.print_help()
 
