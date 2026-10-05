@@ -9,6 +9,27 @@ All notable changes to PenguScript will be documented in this file.
 > sin pérdida de datos, con errores formateados de forma consistente y con el
 > contrato `--json` completo.
 
+### 🟠 Fixed — item 4.9: un hijo muerto por señal se reporta como `128 + señal`
+
+`subprocess` reporta un hijo muerto por señal con un código **negativo**
+(`-8` para SIGFPE), y `sys.exit(-8)` sale como **248** (Python enmascara el
+estado a 8 bits), justo lo contrario del `136` que muestra un shell.
+
+Medido antes del fix, con un bloque `test` que divide por cero:
+`pengu test` → **rc=248**, y `pengu test --json` →
+`{"event":"end","aborted":true,"exit_code":-8}`.
+
+`_exit_code_from_child()` mapea `returncode < 0` a `128 + (-returncode)` en los
+cuatro sitios que devuelven el código de un artefacto: `test` (texto y JSON),
+`run <script>` y `time`. Medido después: `pengu test` → **rc=136** y
+`test --json` → `{"event":"end","aborted":true,"exit_code":136}` con 3/3 líneas
+JSON válidas. Los caminos de script (`eval "1/0"`, `run`) ya daban 136 porque
+`pengu_runtime.h` instala un handler que hace `_exit(128 + sig)`
+(Fase 3, item 3.6); el mapa es la red para los caminos donde ese handler no
+está — señaladamente el bundle de **test**, que no lo instala (item 4.18).
+
+`tests/test_cli_signal_exit.py` (4 casos, incluido el unitario del mapa).
+
 ### 🟡 Fixed — item 4.7: `tree --json` / `metadata` emiten JSON Lines
 
 `pengu tree --json` (y por tanto `pengu metadata`, que usa el mismo camino)

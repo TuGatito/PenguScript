@@ -4676,7 +4676,7 @@ def run_script(script: str, defines: Optional[List[str]] = None,
             sys.stdout.flush()
             sys.stderr.flush()
             res = subprocess.run([run_target] + list(script_args or []), cwd=base_dir)
-            return res.returncode
+            return _exit_code_from_child(res.returncode)
         finally:
             if build_root:
                 shutil.rmtree(build_root, ignore_errors=True)
@@ -4745,6 +4745,19 @@ def _watch_and_test(config_path: Optional[str] = None, profile: str = "debug", e
                     print(f"Error during test: {exc}", file=sys.stderr)
     except KeyboardInterrupt:
         return 0
+
+
+def _exit_code_from_child(returncode: int) -> int:
+    """Maps a child killed by a signal onto the shell convention ``128 + sig``.
+
+    ``subprocess`` reports a signalled child as a **negative** code (``-8`` for
+    SIGFPE), and ``sys.exit(-8)`` would surface as ``248`` (Python masks the
+    status to 8 bits) — the opposite of what a shell shows. Item 4.9: report the
+    same ``136`` a shell reports. A binary whose crash handler ran already exits
+    positively with ``128 + sig``, so this is the safety net for the paths where
+    the handler is not installed (notably test bundles).
+    """
+    return 128 + (-returncode) if returncode < 0 else returncode
 
 
 def test_project(config_path: Optional[str] = None, profile: str = "debug", entry: Optional[str] = None,
@@ -4835,7 +4848,7 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
         sys.stdout.flush()
         sys.stderr.flush()
         res = subprocess.run([artifact], cwd=config.base_dir)
-        return res.returncode
+        return _exit_code_from_child(res.returncode)
 
     # JSON output mode
     env = dict(os.environ)
@@ -4855,12 +4868,13 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
             except Exception:
                 print(line, file=sys.stderr)
     if not saw_end:
-        print(json.dumps({"event": "end", "aborted": res.returncode != 0, "exit_code": res.returncode}))
+        code = _exit_code_from_child(res.returncode)
+        print(json.dumps({"event": "end", "aborted": code != 0, "exit_code": code}))
     if res.stderr:
         print(res.stderr, file=sys.stderr, end="" if res.stderr.endswith("\n") else "\n")
     sys.stdout.flush()
     sys.stderr.flush()
-    return res.returncode
+    return _exit_code_from_child(res.returncode)
 
 
 # ---------------------------------------------------------------------------
