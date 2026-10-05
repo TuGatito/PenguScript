@@ -9,6 +9,30 @@ All notable changes to PenguScript will be documented in this file.
 > sin pérdida de datos, con errores formateados de forma consistente y con el
 > contrato `--json` completo.
 
+### 🟠 Fixed — A5 (item 4.6): `pengu test --json` emite JSON Lines también en fallo
+
+La rama JSON de `test_project` estaba **después** de `builder.compile()` y sólo
+capturaba `EntryPointNotFoundError`, así que un error de compilación escapaba
+como traceback con **cero** líneas JSON. Medido antes del fix: rc=1, stdout con
+0 líneas, stderr con 33 líneas de traceback — el contrato que el flag anuncia
+para CI quedaba roto justo cuando más importa.
+
+El camino de fallo pasa ahora por el mismo borde que los comandos de script
+(item 4.8) y emite el contrato completo:
+
+```
+$ pengu test --json          # src/main.pengu con error de sintaxis
+{"type": "diagnostic", "file": ".../src/main.pengu", "line": 3, "col": 5,
+ "code": "E0000", "severity": "error", "message": "Syntax error: ...",
+ "help": "...", "note": "..."}
+{"type": "summary", "ok": false, "errors": 1, "warnings": 0}
+```
+
+Medido: rc=1, **0 tracebacks**, 2/2 líneas JSON válidas. El camino feliz no
+cambia (`{"event":"start"}`, `test_pass`, `{"event":"end"}`) y `pengu test` sin
+`--json` sigue imprimiendo `[PASS] … / All 1 test(s) passed.`
+`tests/test_cli_test_json.py` (4 casos).
+
 ### 🟠 Fixed — A6 (item 4.8): los caminos de script reportan errores, no tracebacks
 
 Los cinco comandos orientados a script llegaban al compilador sin borde: un

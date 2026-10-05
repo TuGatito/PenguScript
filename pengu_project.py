@@ -4807,7 +4807,18 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
     builder.verbose = verbose
     builder.deny_deprecated = bool(deny_deprecated)
     enforce_deny_deprecated(builder, json_output=json_output)
-    artifact, is_cached = builder.compile()
+    try:
+        artifact, is_cached = builder.compile()
+    except CompileFailedError as e:
+        # Item 4.6: the JSON contract must hold on the failure path too. Before
+        # this, a compilation error escaped `test --json` as a traceback with
+        # zero JSON lines on stdout. Reported through the same edge the script
+        # paths use (item 4.8).
+        return report_pengu_error(e, json_output=json_output,
+                                  source=config.resolve_entry())
+    except _user_input_errors() as e:
+        return report_pengu_error(e, json_output=json_output,
+                                  source=config.resolve_entry())
     elapsed = time.time() - t0
     if not json_output:
         if is_cached:
