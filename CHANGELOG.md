@@ -88,6 +88,31 @@ proyecto sin `links` no produce ningún `-l`": es exactamente la conducta que es
 item cambia, y se actualiza conservando su intención (que no haya una librería
 de UI hardcodeada).
 
+### 🟠 Fixed — A4 (item 4.4): `--quiet` suprime el progreso
+
+El flag global `-q`/`--quiet` **se parseaba pero no se leía en ninguna parte**
+del CLI (`grep args.quiet` → 0 usos), así que `pengu --quiet build` imprimía el
+banner completo. Medido: `pengu --quiet build | wc -c` → **125 bytes** (con
+códigos ANSI incluidos).
+
+Las líneas de acción se emiten ahora con `level="progress"` y `emit()` las
+descarta cuando `configure_output(quiet=True)` está activo. La regla es
+deliberada y simple: **`--quiet` calla el progreso, nunca un fallo**. Errores
+(`level="error"`) y avisos (`level="warning"`) se imprimen siempre — 15 sitios
+de error y 8 de aviso quedaron clasificados como tales y verificados con un test
+que rompe un fuente y comprueba que el diagnóstico sigue saliendo.
+
+`--quiet` se acepta también **después** del subcomando (`pengu build --quiet`,
+`pengu run x --quiet`), no sólo como flag global: antes eso era
+`unrecognized arguments`. Se añadió a los 25 subparsers con
+`default=argparse.SUPPRESS` para que no pise el valor global.
+
+Medido: `pengu --quiet build` → rc=0, **stdout 0 bytes, stderr 0 bytes**;
+`pengu --quiet check` (ok) → 0 bytes; `pengu --quiet check <fuente roto>` →
+`Errors found in …` en stdout y el diagnóstico en stderr, rc=1;
+`pengu --quiet run <script>` imprime sólo la salida del script.
+`tests/test_cli_quiet.py` (6 casos, incluido el contrato unitario de `emit`).
+
 ### 🟠 Fixed — A4 (item 4.5): `--no-color` y `NO_COLOR` desactivan el ANSI
 
 El CLI imprimía sus códigos ANSI incondicionalmente: `--no-color` se aceptaba
