@@ -9,6 +9,25 @@ All notable changes to PenguScript will be documented in this file.
 > sin pérdida de datos, con errores formateados de forma consistente y con el
 > contrato `--json` completo.
 
+### 🟡 Fixed — item 4.7: `tree --json` / `metadata` emiten JSON Lines
+
+`pengu tree --json` (y por tanto `pengu metadata`, que usa el mismo camino)
+imprimía un objeto **pretty-printed multi-línea** con `indent=2`, mientras
+`check`, `build`, `test`, `doctor` y `gc` emiten un objeto por línea. Un
+consumidor no podía parsear stdout de forma uniforme.
+
+`print_dependency_tree` emite ahora **una sola línea** y lleva `"type": "tree"`,
+coherente con el `{"type": ...}` que usan los demás comandos. Medido con un
+proyecto recién creado: `tree --json`, `metadata`, `doctor --json` y `gc --json`
+→ **1 línea, 1/1 JSON válido** cada uno (antes, `tree`/`metadata` daban varias
+líneas y fallaban un parseo por línea).
+
+Nota medida: `pengu metadata` **no tiene** flag `--json` (es JSON por
+definición); el roadmap lo contaba entre "los 5 comandos con `--json`" y en
+realidad son 6 subcomandos con el flag (`tree`, `build`, `doctor`, `gc`, `test`,
+`check`) más `metadata`, que siempre emite JSON. `tests/test_cli_json_lines.py`
+(6 casos, uno por forma de salida, incluido `build --json` en fallo).
+
 ### 🟠 Fixed — A5 (item 4.6): `pengu test --json` emite JSON Lines también en fallo
 
 La rama JSON de `test_project` estaba **después** de `builder.compile()` y sólo

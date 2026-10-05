@@ -3729,14 +3729,19 @@ def verify_project(config_path: Optional[str] = None, verbose: bool = False) -> 
 
 
 def print_dependency_tree(config: "ProjectConfig", as_json: bool = False) -> int:
-    """Prints the resolved dependency graph (`pengu tree` / `metadata --json`)."""
+    """Prints the resolved dependency graph (`pengu tree` / `metadata --json`).
+
+    The JSON form is a **single line** (JSON Lines), matching every other
+    ``--json`` command so a consumer can parse stdout line by line (item 4.7).
+    """
     graph = resolve_transitive_dependencies(config, install_missing=False, verbose=False)
     if as_json:
         print(json.dumps({
+            "type": "tree",
             "project": config.name,
             "version": config.version,
             "dependencies": [n.to_dict() for n in sorted(graph.values(), key=lambda n: n.name)],
-        }, indent=2, ensure_ascii=False))
+        }, ensure_ascii=False))
         return 0
 
     roots = [
