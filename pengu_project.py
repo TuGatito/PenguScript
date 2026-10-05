@@ -1420,6 +1420,61 @@ class PenguBuilder:
             messages.append(f"{d['file']}:{d['line']}:{d['col']} {code_str}{d['message']}")
         return ok, messages
 
+    def _msvc_command(self, cc: str, sources: List[str], output_path: str,
+                      common_flags: List[str], link_flags: List[str],
+                      *, compile_only: bool = False,
+                      shared: bool = False) -> List[str]:
+        """Assembles a ``cl.exe`` command line (item 4.11).
+
+        ``cl`` has no ``-c``/``-o``/``-shared``/``-fPIC``: it compiles to an
+        object named after the source unless ``/Fo:`` says otherwise, and it
+        edits the link in place with ``/Fe:`` (executable), ``/LD`` (DLL) or
+        ``/link /DLL``. Flags that have no MSVC spelling are dropped instead of
+        being passed through for the compiler to reject.
+        """
+        flags = [f for f in common_flags if f not in ("-shared", "-fPIC")]
+        # Include directories reach this point in GNU spelling: the earlier
+        # `common_flags` remap runs before the project/system include paths are
+        # appended, so translate whatever is left here as well. Library search
+        # paths are not compile options at all — the link half (`/LIBPATH:`)
+        # already carries them, so drop the GNU spellings instead of handing
+        # cl.exe an option it would only warn about.
+        flags = [(("/I" + f[2:]) if f.startswith("-I") else f) for f in flags]
+        # Defines appended after the `common_flags` remap (the gzfile helper)
+        # need the same `/D` spelling.
+        flags = [(("/D" + f[2:]) if f.startswith("-D") else f) for f in flags]
+        # Library search paths are not compile options: they belong in the
+        # `/link` section as `/LIBPATH:`. They can arrive either here (the
+        # project/system paths are appended after the flag remap) or in
+        # `link_flags` (already translated by `_msvc_link_flags`), so collect
+        # both spellings and emit them once.
+        extra_libpath = [f[2:] for f in flags if f.startswith("-L")]
+        flags = [f for f in flags if not f.startswith(("-L", "-l"))]
+        link_part = list(link_flags)
+        if compile_only:
+            # /c produces an object: no link section at all.
+            link_part = [f for f in link_part if f != "/link"]
+        elif extra_libpath:
+            paths = [f"/LIBPATH:{p}" for p in extra_libpath]
+            if "/link" in link_part:
+                at = link_part.index("/link")
+                link_part[at + 1:at + 1] = paths
+            else:
+                link_part = ["/link"] + paths + link_part
+        if not compile_only:
+            flags += link_flags
+        # The first source is the TU being compiled (the bundle); the ones after
+        # it are extra C files that MSVC compiles on the same line.
+        obj = os.path.splitext(output_path)[0] + ".obj" if compile_only else output_path
+        cmd = [cc, sources[0]] + sources[1:]
+        if compile_only:
+            cmd += ["/c", f"/Fo:{obj}"]
+        elif shared:
+            cmd += ["/LD", f"/Fe:{output_path}"]
+        else:
+            cmd += [f"/Fe:{output_path}"]
+        return cmd + flags
+
     def build_compile_commands(self, bundle_path: str, output_path: str) -> List[List[str]]:
         """Assembles list of shell commands required to compile bundle and C glue into target artifact.
 
@@ -1682,6 +1737,11 @@ class PenguBuilder:
         if use_gnu_group and link_flags:
             link_flags = ["-Wl,--start-group"] + link_flags + ["-Wl,--end-group"]
 
+        # Item 4.11: cl.exe takes none of the GNU link syntax. Translate the
+        # whole list once here so every output kind below stays GNU-shaped.
+        if is_msvc:
+            link_flags = _msvc_link_flags(link_flags)
+
         # xlsxio headers are DLL_EXPORT-only on _WIN32 unless STATIC is defined.
         if any(l in ("xlsxio_read", "xlsxio_write") for l in all_links):
             if "-DSTATIC" not in common_flags:
@@ -1699,18 +1759,29 @@ class PenguBuilder:
 
         elif out_type == OutputType.OBJ:
             if not c_sources:
-                cmd = [cc, "-c", bundle_path, "-o", output_path] + common_flags
+                cmd = (self._msvc_command(cc, [bundle_path], output_path, common_flags,
+                                          link_flags, compile_only=True)
+                       if is_msvc
+                       else [cc, "-c", bundle_path, "-o", output_path] + common_flags)
                 commands.append(cmd)
             else:
-                temp_objs = [os.path.join(build_dir, "bundle.o")]
-                cmd_bundle = [cc, "-c", bundle_path, "-o", temp_objs[0]] + common_flags
+                temp_objs = [os.path.join(build_dir, "bundle.obj" if is_msvc else "bundle.o")]
+                cmd_bundle = (self._msvc_command(cc, [bundle_path], temp_objs[0], common_flags,
+                                                 link_flags, compile_only=True)
+                              if is_msvc
+                              else [cc, "-c", bundle_path, "-o", temp_objs[0]] + common_flags)
                 commands.append(cmd_bundle)
 
                 for i, c_file in enumerate(c_sources):
                     c_base = os.path.splitext(os.path.basename(c_file))[0]
-                    c_obj = os.path.join(build_dir, f"{c_base}_{i}.o")
+                    c_obj = os.path.join(build_dir,
+                                         f"{c_base}_{i}." + ("obj" if is_msvc else "o"))
                     temp_objs.append(c_obj)
-                    commands.append([cc, "-c", c_file, "-o", c_obj] + common_flags)
+                    commands.append(
+                        self._msvc_command(cc, [c_file], c_obj, common_flags, link_flags,
+                                           compile_only=True)
+                        if is_msvc
+                        else [cc, "-c", c_file, "-o", c_obj] + common_flags)
 
                 if is_win and ("cl" in cc.lower() or "msvc" in cc.lower()):
                     cmd_combine = ["link", "-lib", f"/OUT:{output_path}"] + temp_objs
@@ -1719,15 +1790,23 @@ class PenguBuilder:
                 commands.append(cmd_combine)
 
         elif out_type == OutputType.STATIC:
-            temp_objs = [os.path.join(build_dir, "bundle.o")]
-            cmd_bundle = [cc, "-c", bundle_path, "-o", temp_objs[0]] + common_flags
+            temp_objs = [os.path.join(build_dir, "bundle.obj" if is_msvc else "bundle.o")]
+            cmd_bundle = (self._msvc_command(cc, [bundle_path], temp_objs[0], common_flags,
+                                             link_flags, compile_only=True)
+                          if is_msvc
+                          else [cc, "-c", bundle_path, "-o", temp_objs[0]] + common_flags)
             commands.append(cmd_bundle)
 
             for i, c_file in enumerate(c_sources):
                 c_base = os.path.splitext(os.path.basename(c_file))[0]
-                c_obj = os.path.join(build_dir, f"{c_base}_{i}.o")
+                c_obj = os.path.join(build_dir,
+                                     f"{c_base}_{i}." + ("obj" if is_msvc else "o"))
                 temp_objs.append(c_obj)
-                commands.append([cc, "-c", c_file, "-o", c_obj] + common_flags)
+                commands.append(
+                    self._msvc_command(cc, [c_file], c_obj, common_flags, link_flags,
+                                       compile_only=True)
+                    if is_msvc
+                    else [cc, "-c", c_file, "-o", c_obj] + common_flags)
 
             if is_win and ("cl" in cc.lower() or "msvc" in cc.lower()):
                 cmd_ar = ["lib", f"/OUT:{output_path}"] + temp_objs
@@ -1736,7 +1815,10 @@ class PenguBuilder:
             commands.append(cmd_ar)
 
         elif out_type == OutputType.SHARED:
-            if is_win:
+            if is_msvc:
+                cmd = self._msvc_command(cc, [bundle_path] + c_sources, output_path,
+                                         common_flags, link_flags, shared=True)
+            elif is_win:
                 cmd = [cc, "-shared", bundle_path] + c_sources + ["-o", output_path] + common_flags + link_flags
             elif is_mac:
                 dyn_flag = "-dynamiclib" if "clang" in cc else "-shared"
@@ -1746,7 +1828,11 @@ class PenguBuilder:
             commands.append(cmd)
 
         else:  # EXE
-            cmd = [cc, bundle_path] + c_sources + ["-o", output_path] + common_flags + link_flags
+            if is_msvc:
+                cmd = self._msvc_command(cc, [bundle_path] + c_sources, output_path,
+                                         common_flags, link_flags)
+            else:
+                cmd = [cc, bundle_path] + c_sources + ["-o", output_path] + common_flags + link_flags
             commands.append(cmd)
 
         return commands
@@ -2639,6 +2725,38 @@ def _report_dialect_mismatch(message: str, config: "ProjectConfig",
         raise SystemExit(1)
     emit(f"     Error {message}", file=sys.stderr, color="red", level="error")
     raise SystemExit(1)
+
+
+def _msvc_link_flags(link_flags: List[str]) -> List[str]:
+    """Translates GNU link flags into ``cl.exe``'s ``/link`` options (item 4.11).
+
+    ``build_compile_commands`` builds one GNU-shaped flag list for every
+    compiler, so an MSVC build used to receive ``-L``/``-l``/``-pthread``/
+    ``-Wl,--start-group`` next to ``/W3`` and ``/std:c11``. ``cl`` understands
+    none of those (``D9002: ignoring unknown option``) and fails on unresolved
+    externals, because the library names never reached the linker.
+    """
+    libraries: List[str] = []
+    lib_paths: List[str] = []
+    passthrough: List[str] = []
+    for flag in link_flags:
+        if flag in ("-Wl,--start-group", "-Wl,--end-group"):
+            continue                      # a GNU-ld group; cl has no equivalent
+        if flag.startswith("-L"):
+            lib_paths.append(flag[2:])
+        elif flag in ("-pthread", "-ldl", "-lrt", "-lm"):
+            continue                      # provided by the MSVC runtime
+        elif flag.startswith("-l"):
+            name = flag[2:]
+            libraries.append(name if name.lower().endswith(".lib") else f"{name}.lib")
+        elif flag.startswith("-Wl,"):
+            continue                      # no GNU linker pass-through
+        else:
+            # Anything else (project ldflags) is the user's: keep it on the link
+            # line rather than silently dropping it.
+            passthrough.append(flag)
+    opts = [f"/LIBPATH:{p}" for p in lib_paths] + libraries + passthrough
+    return ["/link"] + opts if opts else []
 
 
 def _missing_runtime_archive_message() -> str:

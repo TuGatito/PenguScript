@@ -9,6 +9,46 @@ All notable changes to PenguScript will be documented in this file.
 > sin pérdida de datos, con errores formateados de forma consistente y con el
 > contrato `--json` completo.
 
+### 🟠 Fixed — item 4.11: la línea de `cl.exe` no contiene ningún flag GNU
+
+`build_compile_commands` construía **una sola** lista de flags con forma GNU y se
+la pasaba a cualquier compilador. Con `--cc cl` la línea mezclaba `/W3` y
+`/std:c11` con `-o`, `-I`, `-L`, `-lfoo`, `-pthread` y `-Wl,--start-group` —
+ninguno de los cuales acepta `cl` (`D9002: ignoring unknown option`) — y los
+nombres de librería **nunca llegaban al enlazador**, así que el build fallaba por
+símbolos sin resolver.
+
+Medido antes del fix (extraído del `Command:` real):
+
+```
+cl bundle.c -o app ... -I/usr/include/libxml2 -L .../build/lib
+   -lxml2 -lcurl -lm -ldl -Wl,--start-group -lpengu_runtime ... -Wl,--end-group
+```
+
+Después, para los cuatro tipos de salida (`exe`, `obj`, `static`, `shared`):
+
+```
+cl bundle.c /Fe:/…/app /O2 /W3 /std:c11 /Zi /Od /DDEBUG /I… /DWITH_GZFILEOP
+   /link pengu_runtime.lib pcre2-8.lib xml2.lib curl.lib …
+```
+
+- `-o` → `/Fe:` (ejecutable), `/LD /Fe:` (DLL), `/c /Fo:` (objeto);
+- `-I` → `/I`, `-D` → `/D` (también los que se añaden después del remap de
+  `common_flags`, p. ej. `WITH_GZFILEOP`);
+- `-L`/`-l` → `/link /LIBPATH:` + nombres `.lib`, sin `--start-group`;
+- `-pthread`, `-ldl`, `-lrt`, `-lm`, `-fPIC`, `-shared`, `-Wl,` se descartan
+  (los aporta el runtime de MSVC o no tienen equivalente);
+- en `obj`/`static` el objeto se llama `bundle.obj`, no `bundle.o`.
+
+La rama MSVC sólo se activa con un `cl`/`msvc` en `--cc`: verificado que la línea
+de gcc/clang no cambia. `cl` no está instalado en esta máquina, así que el
+contrato se verifica sobre el comando que **se ejecutaría** (el artefacto es la
+lista de flags y construirla no necesita compilador):
+`tests/test_cli_msvc_flags.py` (9 casos, incluido el unitario de la traducción).
+
+Nota: el archivo estático en Windows sigue usando `ar rcs` (el `lib /OUT:` sólo
+se emite cuando el target es Windows). Es previo a este item y no se toca aquí.
+
 ### 🟠 Fixed — A3 (item 4.10): `--target-compiler` se valida contra el compilador real
 
 La ayuda de `--target-compiler` decía **"default: infer from `--cc`"**, pero el
