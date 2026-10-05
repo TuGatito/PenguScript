@@ -9,6 +9,47 @@ All notable changes to PenguScript will be documented in this file.
 > sin pérdida de datos, con errores formateados de forma consistente y con el
 > contrato `--json` completo.
 
+### 🟠 Fixed — A3 (item 4.10): `--target-compiler` se valida contra el compilador real
+
+La ayuda de `--target-compiler` decía **"default: infer from `--cc`"**, pero el
+generador caía a `"gcc"` sin mirar el compilador, así que
+`pengu build --target-compiler msvc` con el gcc por defecto emitía
+`static __forceinline …` y moría **dentro** del compilador C con errores que no
+mencionan la causa:
+
+```
+error: expected '=', ',', ';', 'asm' or '__attribute__' before 'fast'
+error: nombre de tipo '__forceinline' desconocido
+```
+
+Ahora el dialecto se **infiere** de `--cc` cuando no se pide ninguno (que es lo
+que la ayuda prometía) y una pareja incoherente se rechaza **antes** de compilar,
+con un mensaje accionable:
+```
+$ pengu build --target-compiler msvc
+     Error --target-compiler msvc does not match the C compiler 'gcc'.
+  The generator emits msvc-dialect attributes, which 'gcc' does not understand;
+  the build would fail inside the compiler with unrelated-looking errors.
+  Use them together: `--cc cl --target-compiler msvc`, or drop
+  `--target-compiler` to let it follow `--cc` (gcc).
+```
+
+Medido: `--cc cl --target-compiler msvc` (la pareja correcta) ya no se rechaza y
+llega al compilador; `--cc gcc`, `--cc clang` sin `--target-compiler` construyen
+con normalidad. La validación sólo distingue `msvc` del resto, porque
+`pengu_codegen` sólo cambia los atributos para `msvc` (gcc/clang/tcc comparten el
+set GNU). Con `--json` el desajuste sale como `{"type":"diagnostic"}` +
+`{"type":"summary","ok":false}`.
+
+La inferencia vive en `ProjectConfig.load`, no en los comandos: así el config es
+coherente siempre y el hash de la caché de build es idéntico tanto si el build
+pasó por el CLI como si se construyó con un `ProjectConfig` directo (medido: un
+test existente de caché incremental lo detectó al primer intento poniendo la
+inferencia en los comandos).
+
+`tests/test_cli_target_compiler.py` (5 casos: rechazo en texto y JSON, parejas
+coherentes, inferencia, y el mapa compilador→dialecto).
+
 ### 🟠 Fixed — item 4.18: el bundle de test instala el crash handler
 
 El mapa de 4.9 (`-8 → 136`) arreglaba el **código** de salida del camino de

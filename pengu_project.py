@@ -385,12 +385,20 @@ class ProjectConfig:
             # compiled into libpengu_runtime.a rather than being header-only.
             if "pengu_runtime" not in cfg.links:
                 cfg.links.append("pengu_runtime")
+            if not (cfg.target_compiler or "").strip():
+                cfg.target_compiler = _compiler_dialect(cfg.cc)
             if profile:
                 cfg.profile = profile
             return cfg
 
         raw_data = cls._parse_file(config_path)
         cfg = cls._from_dict(raw_data, base_dir=search_dir)
+        # Item 4.10: the help has always promised "default: infer from --cc".
+        # Resolving it here (rather than in each command) keeps the config
+        # self-consistent, so the build-cache hash is identical whether the build
+        # came through the CLI or through ProjectConfig directly.
+        if not (cfg.target_compiler or "").strip():
+            cfg.target_compiler = _compiler_dialect(cfg.cc)
         if profile:
             cfg.profile = profile
         return cfg
@@ -2120,6 +2128,13 @@ def build_project(
     config.deny_deprecated = bool(deny_deprecated)
     _set_release_unsafe(config.release_unsafe)
 
+    # Item 4.10: `--target-compiler` must agree with the compiler actually
+    # invoked (the dialect itself is inferred in ProjectConfig.load). Reject an
+    # explicit mismatch before the C compiler produces confusing errors.
+    _dialect_error = _validate_target_compiler(config.cc, config.target_compiler)
+    if _dialect_error:
+        _report_dialect_mismatch(_dialect_error, config, json_output)
+
     try:
         _ensure_lockfile(config, locked=locked, frozen=frozen,
                          verbose=verbose and not json_output)
@@ -2553,6 +2568,77 @@ def _find_runtime_archive() -> Optional[str]:
     except Exception:
         pass
     return None
+
+
+def _compiler_dialect(cc: str) -> str:
+    """Maps a compiler command to the C dialect its attributes need.
+
+    Mirrors ``pengu_codegen``'s ``target_compiler`` values. Unknown compilers
+    map to ``"gcc"``, the dialect of the portable-GNU default, so only a real
+    mismatch (``cl`` with a GNU dialect, or GNU cc with ``msvc``) is rejected.
+    """
+    name = os.path.basename((cc or "").strip()).lower()
+    for suffix in (".exe", ".cmd", ".bat"):
+        if name.endswith(suffix):
+            name = name[: -len(suffix)]
+    if name in ("cl", "clang-cl"):
+        return "msvc"
+    if name.startswith("clang"):
+        return "clang"
+    if name.startswith("tcc"):
+        return "tcc"
+    return "gcc"
+
+
+def _validate_target_compiler(cc: str, target_compiler: str) -> Optional[str]:
+    """Returns an error message when the C dialect cannot come from ``cc``.
+
+    ``--cc`` and ``--target-compiler`` must agree: the code generator emits the
+    attributes of the *dialect*, so asking for MSVC attributes while compiling
+    with gcc (or the reverse) produces C the compiler rejects with a confusing
+    ``unknown type name '__forceinline'`` instead of a clear diagnostic.
+
+    Args:
+        cc: The C compiler command that will actually be invoked.
+        target_compiler: The requested dialect (``""`` when not configured).
+
+    Returns:
+        An actionable message, or None when the pair is coherent.
+    """
+    requested = (target_compiler or "").strip().lower()
+    if not requested:
+        return None
+    actual = _compiler_dialect(cc)
+    if requested == actual:
+        return None
+    # clang understands the GNU attribute set, so `--target-compiler gcc` with
+    # clang is coherent; the reverse (cl with a GNU dialect) is not.
+    if requested == "gcc" and actual == "clang":
+        return None
+    return (
+        f"--target-compiler {requested} does not match the C compiler '{cc}'.\n"
+        f"  The generator emits {requested}-dialect attributes, which "
+        f"'{os.path.basename(cc)}' does not understand;\n"
+        f"  the build would fail inside the compiler with unrelated-looking errors.\n"
+        f"  Use them together: `--cc cl --target-compiler msvc`, or drop\n"
+        f"  `--target-compiler` to let it follow `--cc` ({actual})."
+    )
+
+
+def _report_dialect_mismatch(message: str, config: "ProjectConfig",
+                            json_output: bool) -> None:
+    """Reports a `--cc`/`--target-compiler` mismatch and aborts the command."""
+    if json_output:
+        print(json.dumps({"type": "diagnostic",
+                          "file": os.path.join(config.base_dir, "pengu.toml"),
+                          "line": 0, "col": 0, "code": "E0000", "severity": "error",
+                          "message": message, "help": None, "note": None},
+                         ensure_ascii=False))
+        print(json.dumps({"type": "summary", "ok": False, "errors": 1, "warnings": 0},
+                         ensure_ascii=False))
+        raise SystemExit(1)
+    emit(f"     Error {message}", file=sys.stderr, color="red", level="error")
+    raise SystemExit(1)
 
 
 def _missing_runtime_archive_message() -> str:
@@ -4800,6 +4886,13 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
     config.release_unsafe = bool(release_unsafe)
     config.deny_deprecated = bool(deny_deprecated)
     _set_release_unsafe(config.release_unsafe)
+
+    # Item 4.10: `--target-compiler` must agree with the compiler actually
+    # invoked (the dialect itself is inferred in ProjectConfig.load). Reject an
+    # explicit mismatch before the C compiler produces confusing errors.
+    _dialect_error = _validate_target_compiler(config.cc, config.target_compiler)
+    if _dialect_error:
+        _report_dialect_mismatch(_dialect_error, config, json_output)
     _ensure_lockfile(config, locked=locked, frozen=frozen)
     config.output = OutputType.EXE
 
