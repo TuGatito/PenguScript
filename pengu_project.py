@@ -5303,6 +5303,85 @@ def _print_compile_error(err: "CompileFailedError") -> None:
     sys.exit(1)
 
 
+def _user_input_errors() -> Tuple[type, ...]:
+    """Exception types the CLI edge must report instead of crashing.
+
+    ``PenguError`` is imported lazily (the compiler front end pulls in Lark,
+    ~100 ms) so it cannot be named directly here: PEP 562's module ``__getattr__``
+    only serves attribute access, not bare names inside a function body.
+    ``FileNotFoundError``/``ValueError`` are included because the script entry
+    points raise those for user input too (a missing ``.pengu`` file, a
+    non-``.pengu`` path).
+    """
+    import importlib
+
+    pengu_error = getattr(importlib.import_module("pengu_parser.pengu_errors"), "PenguError")
+    return (pengu_error, FileNotFoundError, ValueError)
+
+
+def report_pengu_error(exc: BaseException, *, json_output: bool = False,
+                       source: Optional[str] = None) -> int:
+    """Reports a user-input error the way every script path should.
+
+    Human output is a one-line `file:line:col [code] message` (the same shape
+    `pengu check` uses, via :func:`_diagnostic_message`), plus `help`/`note`
+    when the error carries them. With ``json_output`` the diagnostic and a
+    summary are emitted as JSON Lines instead.
+
+    Args:
+        exc: The exception to report.
+        json_output: True to emit JSON Lines rather than text.
+        source: Source file the error refers to, when known.
+
+    Returns:
+        The process exit code (always non-zero).
+    """
+    path = source or getattr(exc, "filename", None) or getattr(exc, "file", None) or "<input>"
+    message = getattr(exc, "message", None) or str(exc)
+    if json_output:
+        diag = _diagnostic_message(exc, str(path))
+        print(json.dumps({"type": "diagnostic", **diag}, ensure_ascii=False))
+        print(json.dumps({
+            "type": "summary", "ok": False, "errors": 1, "warnings": 0,
+        }, ensure_ascii=False))
+    else:
+        line = getattr(exc, "line", None) or 0
+        col = getattr(exc, "column", None) or getattr(exc, "col", None) or 0
+        code = getattr(exc, "code", None) or ""
+        where = f"{path}:{int(line)}:{int(col)}" if line else str(path)
+        code_str = f" [{code}]" if code else ""
+        emit(f"  {where}{code_str} {message}", file=sys.stderr,
+             color="red", level="error")
+        help_text = getattr(exc, "help", None)
+        if help_text:
+            emit(f"    help: {help_text}", file=sys.stderr, level="error")
+        note_text = getattr(exc, "note", None)
+        if note_text:
+            emit(f"    note: {note_text}", file=sys.stderr, level="error")
+    return 1
+
+
+def _run_command(action: Callable[[], int], *,
+                 json_output: bool = False,
+                 source: Optional[str] = None) -> None:
+    """Runs one command body, reporting user-input errors instead of crashing.
+
+    This is the CLI edge for the script paths (`run <script>`, `eval`, `expand`,
+    `time`, `watch`): an error caused by the user's input is printed once, in
+    the standard shape, with a non-zero exit code — never as a Python traceback.
+
+    Args:
+        action: Zero-argument callable with the command body; its return value
+            becomes the process exit code.
+        json_output: True to report errors as JSON Lines.
+        source: Source file to blame in the diagnostic, when known.
+    """
+    try:
+        sys.exit(action())
+    except _user_input_errors() as exc:
+        sys.exit(report_pengu_error(exc, json_output=json_output, source=source))
+
+
 def main():
     """Main execution entry point."""
     parser = create_cli_parser()
@@ -5462,6 +5541,10 @@ def main():
             ))
         except CompileFailedError as e:
             _print_compile_error(e)
+        except _user_input_errors() as e:
+            # Script mode (`pengu run x.pengu`) reaches the compiler directly, so
+            # a syntax error or a missing file used to surface as a traceback.
+            sys.exit(report_pengu_error(e, source=getattr(args, "script", None)))
     elif args.command == "test":
         try:
             if getattr(args, "watch", False):
@@ -5579,22 +5662,30 @@ def main():
             emit(f"    Collected {removed} cached script(s)", color="green", level="progress")
         sys.exit(0)
     elif args.command == "expand":
-        sys.exit(expand_script(args.script, output=getattr(args, "output", None),
-                               defines=getattr(args, "defines", None),
-                               verbose=getattr(args, "verbose", False)))
+        _run_command(
+            lambda: expand_script(args.script, output=getattr(args, "output", None),
+                                  defines=getattr(args, "defines", None),
+                                  verbose=getattr(args, "verbose", False)),
+            source=args.script)
     elif args.command == "time":
-        sys.exit(time_script(args.script, defines=getattr(args, "defines", None),
-                             cc=getattr(args, "cc", None),
-                             script_args=_consume_script_args(getattr(args, "script_args", None)),
-                             no_dce=getattr(args, "no_dce", False)))
+        _run_command(
+            lambda: time_script(args.script, defines=getattr(args, "defines", None),
+                                cc=getattr(args, "cc", None),
+                                script_args=_consume_script_args(getattr(args, "script_args", None)),
+                                no_dce=getattr(args, "no_dce", False)),
+            source=args.script)
     elif args.command == "eval":
-        sys.exit(eval_expression(args.expression, defines=getattr(args, "defines", None),
-                                 cc=getattr(args, "cc", None),
-                                 no_cache=getattr(args, "no_cache", False)))
+        _run_command(
+            lambda: eval_expression(args.expression, defines=getattr(args, "defines", None),
+                                    cc=getattr(args, "cc", None),
+                                    no_cache=getattr(args, "no_cache", False)),
+            source="<eval>")
     elif args.command == "watch":
-        sys.exit(watch_script(args.script, defines=getattr(args, "defines", None),
-                              cc=getattr(args, "cc", None),
-                              keep=getattr(args, "keep", False)))
+        _run_command(
+            lambda: watch_script(args.script, defines=getattr(args, "defines", None),
+                                 cc=getattr(args, "cc", None),
+                                 keep=getattr(args, "keep", False)),
+            source=args.script)
     elif args.command == "clean":
         clean_project(config_path=args.config)
     elif args.command == "lsp":

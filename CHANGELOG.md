@@ -9,6 +9,43 @@ All notable changes to PenguScript will be documented in this file.
 > sin pérdida de datos, con errores formateados de forma consistente y con el
 > contrato `--json` completo.
 
+### 🟠 Fixed — A6 (item 4.8): los caminos de script reportan errores, no tracebacks
+
+Los cinco comandos orientados a script llegaban al compilador sin borde: un
+error de sintaxis en el fichero del usuario escapaba como traceback de Python.
+Medido antes del fix (`pengu run roto.pengu`): **33 líneas de stderr** con
+`Traceback (most recent call last)` y `ParseError` al final; `run noexiste.pengu`
+igual con `FileNotFoundError`. El roadmap C4 prohíbe que una entrada de usuario
+produzca un traceback.
+
+Ahora cada camino pasa por el borde `_run_command()` / `report_pengu_error()`,
+que reutiliza el `_diagnostic_message()` que ya usaban `check` y `build`: un
+diagnóstico en el formato estándar `archivo:linea:col [código] mensaje` más
+`help`/`note`, rc≠0 y **cero** tracebacks.
+
+```
+$ pengu run roto.pengu
+  roto.pengu:3:5 [E0000] Syntax error: unexpected 'return' at line 3, column 5
+    help: Check the syntax around this position (see LANGUAGE.md / CHEATSHEET.md).
+    note: PenguScript parses indentation-sensitive blocks: ...
+$ echo $?
+1
+```
+
+Medido en los cinco caminos (`run <script>`, `expand`, `time`, `watch`, `eval`) y
+en el caso negativo (`run noexiste.pengu` → `Script not found: ...`). Los caminos
+felices siguen en rc=0 y el caso de señal (`eval "1/0"` → crash handler, rc=136)
+sigue intacto: es el contrato de 4.9, no de 4.8, y el test lo fija.
+
+El `except` vive en el punto de despacho de cada comando, **no** envolviendo
+`main()`: los errores de argparse (`unrecognized arguments`, `--help`) deben
+seguir su camino. `PenguError` se resuelve por import perezoso (su módulo carga
+Lark, ~100 ms) mediante `_user_input_errors()`; nombrarlo directamente no
+funciona porque el `__getattr__` de PEP 562 sólo sirve acceso de atributo.
+
+`tests/test_cli_error_reporter.py` (13 casos: los 5 caminos, el negativo, los
+caminos felices, el contrato del reporter en texto y JSON, y el caso de señal).
+
 ### 🔴 Fixed — item 4.17b: el bundle referencia `pengu_abi_version` (cierra el caveat de 3.5)
 
 Enlazar el runtime (4.17a) no bastaba: `libpengu_runtime.a` contiene un único
