@@ -29,7 +29,10 @@ _DECL_RE = re.compile(r"^(declare|weave|rune|echo|omen|alias|seal|const)\b")
 # fixed 100% because generated bindings depend on the upstream header comments.
 _BASELINE_DOCUMENTED: Dict[str, int] = {
     "declare": 630,
-    "weave": 1129,
+    # Fase 6 item 6.7 raised `atlas` (36 -> 151) and `scrolls` (23 -> 89) to
+    # 100% of their public `weave`s; `arithmancy` was already at 100%. The
+    # ratchet is raised to the measured value so the gain cannot be given back.
+    "weave": 1314,
     "const": 118,
     "alias": 50,
     "rune": 91,
