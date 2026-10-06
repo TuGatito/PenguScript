@@ -58,16 +58,16 @@ EOF
 | 7.1 | §22.2/§22.3 se pueden generar desde `pengu_errors.py` | ✅ **confirmada**: 36 clases con `code` + 24 códigos crudos = 59 códigos, todo extraíble por AST |
 | 7.2 | "`E0035` cubre 4 condiciones" | ✅ **confirmada** (con matiz): cubre **4 condiciones no relacionadas** (colisión con nombre reservado de C, ubicación de `static var`, nombre de `test` inválido, colisión de campos en la emisión C). El audit §2.3 lista una 5ª fila (`main`) que **es falsa**: `main` ya usa `E0040` (`pengu_checker.py:2748`) |
 | 7.2 | "Ningún `(código, mensaje)` duplicado" | ⚠️ **matizada**: 374 pares distintos, **29 repetidos en ≥2 sitios** — pero son el *mismo* diagnóstico emitido en dos rutas (checker + infer) por defensa en profundidad, no el bug de códigos compartidos. **0 mensajes** aparecen bajo códigos distintos. El bug real es el de 7.2 (`E0035`), no la duplicación de sitios |
-| 7.3 | "una sola forma canónica de rango; la deprecada marcada" | pendiente de medición |
-| 7.4 | "105 bloques de `LANGUAGE.md`" | ⚠️ **matizada**: hay **101** bloques ```` ```pengu ```` (el "105" del audit §12.3 contaba otra cosa). El audit §12.3 afirma además que **72 de 105 no pasan `pengu check`** |
+| 7.3 | "una sola forma canónica de rango; la deprecada marcada" | ⚠️ **matizada y ampliada**: `LANGUAGE.md` §15.5 mostraba la línea canónica **dos veces** (la forma obsoleta no estaba documentada) y `LANGUAGE_Spanish.md` presentaba `1..10` como *"alternate range syntax"* sin marcarla: el par **divergía**. `frozen` listaba dos grafías como "alias" sin decir cuál es canónica |
+| 7.4 | "105 bloques de `LANGUAGE.md`" | ⚠️ **matizada**: hay **101** bloques ```` ```pengu ````, y medidos uno a uno **35 compilan y 66 no** (el audit §12.3 decía "72 de 105"). De los 66, sólo **6 eran bugs reales** de documentación; el resto eran fragmentos o contraejemplos deliberados |
 | 7.5 | "`tests/test_version.py` extendido" | ❌ **parcialmente refutada**: el archivo **no existe**. El audit §13.4 afirma que existe ("Existe `tests/test_version.py` que verifica la coherencia de `VERSION`…"); es falso en `355d946`. Hay que **crearlo**, no extenderlo |
-| 7.5 | "13 archivos con deriva" | ✅ **confirmada en orden de magnitud**: la lista de §13.4 (10 `.md` + `pengu_parser.py:92` + `pengu_lsp/__init__.py:1`) sigue vigente; el conteo exacto depende del patrón |
-| 7.6 | "reglas nuevas de §10.5 aplicadas" | pendiente de medición |
+| 7.5 | "13 archivos con deriva" | ⚠️ **sobreestimada**: medido, **9** archivos tenían deriva real de versión actual, **6** contenían sólo menciones históricas legítimas, y `pengu_lsp/__init__.py:1` está **refutado** (reexporta `pengu_version`, no hardcodea nada) |
+| 7.6 | "reglas nuevas de §10.5 aplicadas" | ⚠️ **mayormente ya satisfecha**: de las 6 reglas, **4 ya se cumplían** (indentación de 4, 0 `transmute`, doc inline 1314/1315, versiones asertadas), 1 pedía alcance y **1 estaba incumplida** (20 de 44 constructores `ritual` sin documentar) |
 | 7.7 | "las 5 reglas incumplibles de AUDIT §10.4" | ✅ **confirmada**: §10.4 lista exactamente 5 reglas |
 | 7.8 | "cubrir 'ningún gate por texto' (AUDIT §15.2)" | ✅ **confirmada**: §15.2 documenta 7 gates verdes sobre código roto |
 | 7.10 | "`docs/ABI.md` ya existe (Fase 3, item 3.11) — verificar y enlazar, no recrear" | ✅ **confirmada**: existe y `docs/README.md` ya lo lista |
-| 7.12 | "`MIGRATION.md` alimentado por `pengu migrate` (Fase 4, diferido a 1.1)" | pendiente de medición |
-| 7.13 | "los 1463 nombres públicos" | pendiente de medición |
+| 7.12 | "`MIGRATION.md` alimentado por `pengu migrate` (Fase 4, diferido a 1.1)" | ✅ **confirmada, con dependencia circular**: `pengu migrate` no existe (ni `tests/migration/`), y §4.14b declara que `MIGRATION.md` es una de sus entradas — 7.12 esperaba a `pengu migrate` y `pengu migrate` a 7.12. Se rompe entregando el documento |
+| 7.13 | "los 1463 nombres públicos" | ⚠️ **imprecisa**: hay **4014** declaraciones públicas en `std/` (1230 `weave`, 1862 `declare`…), y **1862** son bindings **generados** documentados por la cabecera C de origen. En los 27 módulos escritos a mano la cobertura es **1483/1576 = 94,1 %**, ya por encima del 90 % pedido |
 | 7.14 | "CI verifica que el número de bloques `pengu` coincide entre los pares" | ⚠️ **refutada tal como está**: las guías EN/ES **sí** coinciden (72 / 72), pero `LANGUAGE.md` (101) y `LANGUAGE_Spanish.md` (95) **NO** — divergen en 6 bloques |
 
 ---
