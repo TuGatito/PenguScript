@@ -5324,6 +5324,12 @@ _SUBCOMMAND_DOCS: Dict[str, Dict[str, str]] = {
         "epilog": "Exit codes: 0 generated, 1 missing assets dir / write error, 2 bad usage.\n"
                   "Example:\n  pengu assets --list",
     },
+    "benchmark": {
+        "description": "Run the reproducible benchmark suite from benches/ and report build/run/size.",
+        "epilog": "Exit codes: 0 measured, 1 the harness failed, 2 bad usage.\n"
+                  "At least one case (stdlib_ops) imports `std`.\n"
+                  "Example:\n  pengu benchmark --repeat 5 --csv benches/results/local.csv",
+    },
 }
 
 
@@ -5496,6 +5502,14 @@ def create_cli_parser() -> argparse.ArgumentParser:
                       help="Remove cached scripts unused for N days (default: 30)")
     gc_p.add_argument("--verbose", action="store_true", help="List the removed entries")
     gc_p.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+
+    # benchmark (item 4.15): front end for the reproducible harness in benches/
+    bench_p = subparsers.add_parser("benchmark",
+                                    help="Run the reproducible benchmark suite from benches/")
+    bench_p.add_argument("--repeat", type=int, default=3,
+                         help="Runs per measurement, best kept (default: 3)")
+    bench_p.add_argument("--csv", default=None, help="Write the raw results to this CSV file")
+    bench_p.add_argument("--only", default=None, help="Run a single case by name (e.g. fib_40)")
 
     # expand
     expand_p = subparsers.add_parser("expand", help="Print the generated bundle.c of a script to stdout")
@@ -6064,6 +6078,22 @@ def main():
             sys.exit(1)
     elif args.command == "doctor":
         sys.exit(doctor_report(as_json=getattr(args, "json", False)))
+    elif args.command == "benchmark":
+        # Item 4.15: front end for benches/run_bench.py. It is a separate file
+        # with its own CLI, so forward the flags it understands and stream its
+        # output through; a missing baseline toolchain is its "skipped" case.
+        harness = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "benches", "run_bench.py")
+        if not os.path.isfile(harness):
+            emit(f"     Error benchmark harness not found: {harness}",
+                 file=sys.stderr, color="red", level="error")
+            sys.exit(1)
+        bench_cmd = [sys.executable, harness, "--repeat", str(getattr(args, "repeat", 3))]
+        if getattr(args, "csv", None):
+            bench_cmd += ["--csv", args.csv]
+        if getattr(args, "only", None):
+            bench_cmd += ["--only", args.only]
+        sys.exit(subprocess.run(bench_cmd, cwd=os.getcwd()).returncode)
     elif args.command == "gc":
         removed = gc_script_cache(max_age_days=getattr(args, "max_age", 30),
                                   verbose=getattr(args, "verbose", False),

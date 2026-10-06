@@ -25,7 +25,7 @@ def _subparsers():
 
 def test_every_subcommand_has_a_description_and_epilog():
     subs = _subparsers()
-    assert len(subs) == 25, sorted(subs)
+    assert len(subs) == 26, sorted(subs)   # 25 + benchmark (4.15)
     for name, sub in sorted(subs.items()):
         assert sub.description, f"{name} has no description"
         assert len(sub.description.split()) >= 4, (name, sub.description)

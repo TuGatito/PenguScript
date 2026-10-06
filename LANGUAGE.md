@@ -3480,6 +3480,23 @@ pengu clean [--config CONFIG]
 
 - Deletes the `build/` directory, compiled objects, C bundles, and temporary caches.
 
+### 20.12.1 Benchmarks (`pengu benchmark`)
+
+Runs the reproducible harness in `benches/` and prints per-case build time, run
+time (best of N) and stripped artifact size, plus the environment block:
+
+```bash
+pengu benchmark [--repeat N] [--csv FILE] [--only CASE]
+```
+
+- Measures the PenguScript program and, when their toolchain is installed, the C/
+  Rust/Zig baselines; a missing toolchain is reported as `skipped`, never as a win.
+- `--only`: a single case by name (`hello_world`, `fib_40`, `string_ops`,
+  `list_ops`, `stdlib_ops`).
+- `stdlib_ops` is the case that goes through `std` (`std.tally` + `std.spark`);
+  the others measure the bare language on purpose.
+- The published numbers live in [`BENCHMARKS.md`](BENCHMARKS.md).
+
 ### 20.13 Toolchain Versioning (`pengu -V` / `--version`)
 
 ```bash

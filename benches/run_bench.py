@@ -46,6 +46,9 @@ CASES = {
     "fib_40": ("fib_40.pengu", "c/fib_40.c", "rust/fib_40.rs", "zig/fib_40.zig"),
     "string_ops": ("string_ops.pengu", "c/string_ops.c", "rust/string_ops.rs", "zig/string_ops.zig"),
     "list_ops": ("list_ops.pengu", "c/list_ops.c", None, None),
+    # The only case that goes through `std` (item 4.15): the others measure the
+    # bare language on purpose, so the shipped stdlib path needs its own entry.
+    "stdlib_ops": ("stdlib_ops.pengu", None, None, None),
 }
 
 

@@ -94,3 +94,52 @@ def test_benchmark_workflow_is_nightly_only():
     assert "schedule" in workflow and "workflow_dispatch" in workflow
     assert "pull_request" not in workflow, "benchmarks must not block PRs"
     assert "run_bench.py" in workflow
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 item 4.15: `pengu benchmark` and a std-importing case
+# ---------------------------------------------------------------------------
+
+
+def test_at_least_one_bench_imports_the_stdlib():
+    """The requirement is explicit in the roadmap: the suite must cover `std`."""
+    sources = sorted(BENCHES.glob("*.pengu"))
+    assert sources, "no .pengu benches found"
+    importing = [p.name for p in sources
+                 if any(line.strip().startswith("import std")
+                        for line in p.read_text(encoding="utf-8").splitlines())]
+    assert importing, [p.name for p in sources]
+
+
+def test_every_pengu_bench_is_registered_in_the_harness():
+    """A bench the harness does not know about is never measured."""
+    text = (BENCHES / "run_bench.py").read_text(encoding="utf-8")
+    for source in sorted(BENCHES.glob("*.pengu")):
+        assert f'"{source.name}"' in text, source.name
+
+
+@pytest.mark.skipif(not (have_tool("gcc") or have_tool("clang") or have_tool("cc")),
+                    reason="no C compiler")
+def test_pengu_benchmark_subcommand_runs_the_harness(tmp_path):
+    csv_out = tmp_path / "bench.csv"
+    res = subprocess.run(
+        [sys.executable, str(REPO / "pengu_project.py"), "benchmark",
+         "--repeat", "1", "--only", "stdlib_ops", "--csv", str(csv_out)],
+        capture_output=True, text=True, timeout=900, cwd=str(REPO),
+        env=dict(os.environ, NO_COLOR="1"),
+    )
+    assert res.returncode == 0, res.stderr
+    assert "stdlib_ops" in res.stdout, res.stdout
+    assert "pengu  build" in res.stdout, res.stdout
+    assert csv_out.is_file() and "stdlib_ops" in csv_out.read_text(encoding="utf-8")
+
+
+def test_pengu_benchmark_is_documented():
+    from pengu_project import create_cli_parser
+
+    parser = create_cli_parser()
+    choices = next(a for a in parser._actions if getattr(a, "choices", None)).choices
+    assert "benchmark" in choices
+    sub = choices["benchmark"]
+    assert sub.description and "bench" in sub.description.lower()
+    assert "Example" in sub.epilog and "pengu benchmark" in sub.epilog

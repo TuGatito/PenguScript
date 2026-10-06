@@ -9,6 +9,27 @@ All notable changes to PenguScript will be documented in this file.
 > sin pérdida de datos, con errores formateados de forma consistente y con el
 > contrato `--json` completo.
 
+### 🟡 Añadido — item 4.15: `pengu benchmark` y un bench que importa `std`
+
+El harness de `benches/run_bench.py` existía (medía build/run/tamaño con
+baselines de C/Rust/Zig y publicaba `BENCHMARKS.md`), pero no había forma de
+invocarlo desde el CLI y **ningún** caso usaba la stdlib: los cuatro medían el
+lenguaje desnudo a propósito, así que el camino de `std` no estaba cubierto.
+
+- Nuevo subcomando `pengu benchmark [--repeat N] [--csv FILE] [--only CASE]`,
+  que reenvía al harness y devuelve su código de salida. Medido:
+  `pengu benchmark --only stdlib_ops --repeat 1` →
+  `pengu build 2.120 s  run 7 ms  size 663.5 KiB` + bloque de entorno, rc=0.
+- Nuevo caso `benches/stdlib_ops.pengu`: construye una lista de 200 000 enteros
+  y la reduce con `std.tally` (`sum`, `max_val`), imprimiendo con `std.spark`.
+  Registrado en el mapa `CASES` del harness.
+
+`tests/test_benchmarks.py` (+4 casos: que al menos un bench importe `std`, que
+todo `.pengu` de `benches/` esté registrado en el harness — un bench que el
+harness no conoce nunca se mide —, que el subcomando ejecute el harness y
+escriba el CSV, y que el subcomando esté documentado en `--help`).
+`LANGUAGE.md` §20.12.1 documenta el contrato del subcomando.
+
 ### 🟡 Añadido — item 4.16: el contrato de cada subcomando en `--help`
 
 De los 25 subparsers, sólo **uno** tenía epílogo: `pengu build --help` explicaba

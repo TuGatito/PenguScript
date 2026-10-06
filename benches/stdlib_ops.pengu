@@ -1,0 +1,16 @@
+# stdlib-bound: exercises `std` (tally reduction + spark output) on a list
+# built in a loop. The other benches deliberately avoid imports so they measure
+# the bare language; this one measures the shipped stdlib path (item 4.15).
+import std.tally
+import std.spark
+
+weave main into int:
+    var xs as list of int is list of int
+    var i as int is 0
+    while i < 200000:
+        calling xs.push with i % 1024
+        set i is i + 1
+    var total as int is calling tally.sum with xs
+    var biggest as int is calling tally.max_val with xs
+    calling spark.println with "{total} {biggest}"
+    return 0
