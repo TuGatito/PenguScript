@@ -112,7 +112,10 @@ EXPECTED_MARKERS = {
         "edge: empty sum=0 product=1 min_max=none chunks=0",
         "loom ok",
     ],
-    "test_spark.pengu": ["=== Test Spark ===", "0.6.0-spark", "HOLA PERGAMINO", "spark ok"],
+    "test_spark.pengu": [
+        "=== Test Spark ===", "spark_version: 0.7.0-spark", "HOLA PERGAMINO",
+        "spark ok",
+    ],
     "test_oracle.pengu": [
         "=== Test Oracle ===", "some_s is_present ok", "pengu value", "none_s is_none ok",
         "fallback", "some_i unwrap_or ok", "none_i unwrap_or ok", "res_ok is_ok ok",

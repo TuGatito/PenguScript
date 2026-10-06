@@ -26,10 +26,13 @@
 # Version Constants
 # ----------------------------------------------------------------------------
 
-# Version of the spark core runtime module (0.7.0-spark).
+# Revision of the spark core API. Deliberately NOT the toolchain version: it
+# only moves when a spark signature changes. `spark_version()` returns this.
 const SPARK_VERSION as string is "0.7.0-spark"
 
-# Version of the standard library this module ships with (0.14.1).
+# Legacy stdlib tag frozen at the 0.14.x line. Superseded by the per-module
+# `<MOD>_VERSION` constants (see tests/test_std_versioning.py); kept only
+# because it is part of spark's published surface. NOT the toolchain VERSION.
 const STD_VERSION as string is "0.14.1"
 
 # ----------------------------------------------------------------------------
@@ -77,7 +80,9 @@ weave bool_to_string with b as bool into string:
 # Printing & Console Output
 # ----------------------------------------------------------------------------
 
-# Returns the spark runtime version string ("0.6.0-spark"; see SPARK_VERSION).
+# Returns the spark API revision string (see `SPARK_VERSION`). This is the
+# revision of the spark core *API*, not the toolchain release: it only changes
+# when a spark signature changes, so it intentionally does not track VERSION.
 weave spark_version into string:
     return SPARK_VERSION
 

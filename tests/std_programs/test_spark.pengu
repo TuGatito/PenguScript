@@ -2,9 +2,16 @@ import std.spark
 
 weave main into int:
     calling spark.println with "=== Test Spark ==="
+
+    # spark_version() must agree with the SPARK_VERSION constant, and the
+    # constant must be non-empty -- the single source of truth. (Before Phase 6
+    # this program printed a hardcoded "0.6.0-spark" and asserted nothing, so it
+    # kept passing while the real version was 0.7.0-spark.)
     var v as string is calling spark.spark_version
-    calling spark.println with v
-    calling spark.println with "0.6.0-spark"
+    calling spark.assert with (v == spark.SPARK_VERSION)
+    calling spark.assert with ((spark.SPARK_VERSION length) > 0)
+    calling spark.assert with (v == "0.7.0-spark")
+    calling spark.println with "spark_version: {v}"
 
     calling spark.assert with true
     calling spark.assert_msg with true, "should not fail"
