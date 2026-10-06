@@ -1,0 +1,38 @@
+# Roadmap 2.0 / Phase 8 item 8.3 — static analysis configuration.
+#
+# The gate is deliberately tiny: F821 (undefined name) and E9 (syntax-level
+# errors).  It is not a style config.  An undefined name in this codebase is a
+# latent compiler crash, not a lint nit — blocker B6 was exactly that
+# (`pengu_infer.py` referenced `node` where it meant `target_node`, and the
+# 2 074 green tests never noticed because no test executed that path with those
+# arguments).  Keeping the select list minimal is what made it possible to turn
+# the gate on at HEAD with zero violations and no per-line ignores.
+#
+# The same select list appears in .github/workflows/ci.yml; the CLI flag wins
+# there, so the two cannot drift apart silently.
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+# Vendored third-party sources and build artifacts are not ours to lint.
+# `pengucc_build/` is produced by make_release.py and only exists after a local
+# release run.
+exclude = [
+    "extern",
+    "extern/**",
+    "build",
+    "pengucc_build",
+    "vscode-extension",
+    "c_bind_stubs",
+    ".venv",
+]
+
+[tool.ruff.lint]
+# F821 — undefined name; E9 — syntax/parse-level breakage (E902, E999).
+select = ["F821", "E9"]
+
+[tool.ruff.lint.per-file-ignores]
+# Bundled TCC smoke scripts and the packaging entry points are executed, not
+# imported; they intentionally rely on the build directory being on sys.path.
+"scripts/*.py" = ["F821"]
