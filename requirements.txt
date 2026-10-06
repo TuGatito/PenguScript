@@ -12,3 +12,11 @@ tomli>=2.0.0; python_version < '3.11'
 # An undefined name can be a compiler crash, not a style issue: blocker B6 was
 # exactly that (`pengu_infer.py` referenced `node` instead of `target_node`).
 ruff>=0.6
+
+# Coverage measurement with a non-decreasing threshold (Phase 8, item 8.6).
+pytest-cov>=5.0
+coverage>=7.4
+
+# Property-based testing (Phase 8, item 8.7; the seven properties of
+# AUDIT_1.0.md §11.5, including fmt idempotency and semantics preservation).
+hypothesis>=6.100

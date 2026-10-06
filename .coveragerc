@@ -1,0 +1,56 @@
+# Roadmap 2.0 / Phase 8, item 8.6 — measured coverage with a non-decreasing floor.
+#
+# Scope is the *product*: the compiler package, the LSP package and the tooling a
+# user actually runs.  The test suite itself, the vendored sources under `extern/`
+# and everything generated under `build/` are excluded — measuring them would move
+# the number without saying anything about the code the project ships.
+#
+# `fail_under` is the ratchet.  It is the coverage measured on this commit, and it
+# may only go UP: `tests/test_coverage_ratchet.py` holds the same figure as
+# `RECORDED_FLOOR` and fails if the two disagree, so raising coverage is a
+# deliberate two-line change and lowering it cannot be done by accident.  The CI
+# step runs the full suite under `--cov`, so a drop below this number fails the
+# build.
+#
+# Measured value and the command that produced it are in AUDIT_1.0_FASE8.md.
+
+[run]
+source =
+    pengu_parser
+    pengu_lsp
+    pengu_project.py
+    pengu_assets.py
+    pengu_bind.py
+    pengu_cache.py
+    pengu_dce.py
+    pengu_doc.py
+    pengu_lock.py
+    pengu_paths.py
+    pengu_semver.py
+    pengu_tcc.py
+    pengu_version.py
+    extern_manifest.py
+    build_runtime.py
+omit =
+    */__pycache__/*
+    */tests/*
+    tools/*
+    scripts/*
+    migrate_manual_bindings.py
+    regen_std_bindings.py
+branch = False
+
+[report]
+precision = 2
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    if __name__ == .__main__.:
+    raise NotImplementedError
+    \.\.\.
+fail_under = 0
+show_missing = True
+skip_covered = False
+
+[html]
+directory = build/coverage_html
