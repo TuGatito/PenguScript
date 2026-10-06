@@ -10,7 +10,15 @@ blocker.
 Every item below has a gate in `.github/workflows/ci.yml`; run `pytest tests` and
 the gates locally before tagging.
 
-- [ ] Full suite green on Linux, macOS and Windows (gcc/clang, MSVC, MinGW).
+- [ ] Full suite green on Linux, macOS and Windows. ❌ **MSVC is not a supported
+      compiler and this checklist does not claim it**: the CI matrix compiles with
+      gcc/clang on Linux and macOS and with **MinGW** on Windows, and
+      `pengu_parser/pengu_runtime.c` includes PCRE2/libxml2/zlib/mbedTLS/libcurl/
+      libmicrohttpd, whose MSVC build does not exist. Measured: the MSVC *dialect*
+      of the generated C is syntax-checked by `tests/test_attributes_msvc_native.py`
+      (clang `-fdeclspec -fms-extensions`, plus `cl.exe /Zs` when present), but no
+      job links an MSVC binary. See `docs/CROSS_COMPILATION.md` §9 and
+      `AUDIT_1.0_FASE8.md` item 8.11.
 - [ ] `python -m pytest tests -q` — 0 failures.
 - [ ] Strict grammar gate: Lark parses the corpus with `strict=True`, no LALR
       conflicts.
