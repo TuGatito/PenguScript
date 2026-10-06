@@ -1492,6 +1492,9 @@ class TestReturnTypeInference:
 
     def test_module_scope_member_return_types(self):
         """Typed members of a user module resolve through import module scope."""
+        # `build/` is gitignored and absent in a fresh checkout; mkdtemp(dir=...)
+        # would raise FileNotFoundError instead of exercising the checker.
+        (REPO / "build").mkdir(exist_ok=True)
         work = tempfile.mkdtemp(prefix="rtmod_", dir=str(REPO / "build"))
         try:
             mod = os.path.join(work, "typedmod.pengu")

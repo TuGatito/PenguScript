@@ -457,13 +457,73 @@ que un usuario de VS Code nota.
 
 ### Criterio de "done" de la fase
 
-- [ ] Rename global con homónimo local: solo el símbolo objetivo se edita.
-- [ ] Go to definition nunca devuelve `.pengu_lsp_shadow_*`.
-- [ ] Las 4 code actions están conectadas (incluida organize imports).
-- [ ] El code lens ejecuta algo o no se emite.
-- [ ] `workspace/symbol` y `prepareRename` en las capacidades y funcionando.
-- [ ] Sin `PENGU_LSP_DEBUG`, el servidor no escribe nada en stderr en operación normal.
-- [ ] Estable y medido a 10 000 líneas.
+- [x] Rename global con homónimo local: solo el símbolo objetivo se edita.
+- [x] Go to definition nunca devuelve `.pengu_lsp_shadow_*`.
+- [x] Las 4 code actions están conectadas (incluida organize imports).
+- [x] El code lens ejecuta algo o no se emite.
+- [x] `workspace/symbol` y `prepareRename` en las capacidades y funcionando.
+- [x] Sin `PENGU_LSP_DEBUG`, el servidor no escribe nada en stderr en operación normal.
+- [x] Estable y medido a 10 000 líneas.
+
+### Cierre de la fase (verificación contra el código real)
+
+Cada premisa se comprobó **antes** de tocar nada. Tres items estaban ya
+resueltos o eran parciales (5.1 intra-fichero, 5.4 capacidades, 5.9 completo);
+lo demás se implementó. Suite: `pytest tests/test_lsp*.py -q` → **117 passed**.
+
+| # | Estado | Evidencia |
+|---|--------|-----------|
+| 5.1 | ✅ **cerrado** (la mitad intra-fichero ya lo estaba) | La rama global usaba `_identifier_occurrences(text, name)` **sin** `symbols/sym`: reescribía `var helper` en otro fichero. Ahora resuelve por fichero con `_file_symbols` (caché por hash) + `_non_local_occurrence`. Medido: antes `b.pengu -> [(1,8),(2,11)]`, después ausente del `WorkspaceEdit`. `tests/test_lsp_phase5.py` (2 casos) |
+| 5.2 | ✅ **cerrado** | Los símbolos del buffer sin guardar conservaban la ruta `.pengu_lsp_shadow_*` (borrada en el `finally`). `_remap_shadow_paths` los reapunta a la ruta real. Medido: `definition -> .../buf.pengu:0:0-0:6`. `tests/test_lsp_phase5.py` (2 casos) |
+| 5.3 | ✅ **cerrado** | `organize_imports_action` no aparecía en `server.py` (`rg` → solo `code_actions.py:396`). Conectado con respeto a `context.only` y sin depender de la palabra bajo el cursor. 3 casos |
+| 5.4 | ✅ **cerrado** | `pengu.runTest` se emitía sin `fm.commands` ni `executeCommandProvider`. Registrado con `@server.command`; resuelve binario, ejecuta `pengu test --entry`, informa con `showMessage`. 3 casos |
+| 5.5 | ✅ **cerrado** | No existía `workspace/symbol` (`rg` → 0 resultados). Handler sobre `declaration_details` (nuevo, conserva la keyword) → `SymbolInformation` con `SymbolKind`. 2 casos |
+| 5.6 | ✅ **cerrado** | No existía `prepareRename`. Devuelve rango solo para símbolos resueltos; rechaza keyword/literal/miembro. 4 casos |
+| 5.7 | ✅ **cerrado** | `server.py:252` imprimía `[LSP] Publishing …` siempre. Ahora `_debug()` tras `PENGU_LSP_DEBUG`; los errores siguen en stderr. 2 casos |
+| 5.8 | ✅ **cerrado** | `__init__.py` decía «v0.6» y `_get_version` leía `VERSION` con fallback `0.1.0`. Ahora ambos leen `pengu_version.__version__` (0.16.0). 2 casos |
+| 5.9 | ⏸️ **diferido a 1.1, con medición** | Ver abajo |
+| 5.10 | ✅ **cerrado** | No existían handlers. Añadidos, con invalidación de cachés (módulos, símbolos por fichero, índice de declaraciones, diagnósticos) y revalidación. 2 casos |
+| 5.11 | ✅ **cerrado** | `tests/test_lsp_stability.py`: 10 003 líneas válidas (0 diagnósticos), 13 operaciones medidas. Baseline abajo |
+
+#### §5.9 — semantic tokens por rango y delta: ⏸️ diferido a 1.1
+
+`semanticTokens/full` ya está (Fase 3.2.b) y es correcto; rango/delta son
+optimización. Medición sobre el pipeline real:
+
+| Fichero | Líneas | Tokens | Entradas | Tiempo |
+|---|---|---|---|---|
+| `std/spark.pengu` | 318 | 916 | 476 | **13 ms** |
+| `std/loom.pengu` | 1 496 | 13 412 | 6 251 | **151 ms** |
+| `std/tally.pengu` | 1 474 | 11 630 | 5 571 | **164 ms** |
+| sintético 10 000 líneas | 10 003 | 60 018 | 35 010 | **1 817 ms** |
+
+Desglose del sintético: `_strip_comments` 33 ms + `get_tokens` 663 ms +
+clasificación 997 ms. Conclusión: el coste solo es visible por encima de
+~2 000 líneas, que en el repo es código **generado** (`std/sqlite3.d.pengu`,
+9 043 líneas), no editado a mano. `range` no elimina el coste dominante
+(`get_tokens` recorre el documento entero; trocear el texto rompería el estado
+del lexer dentro de strings) y `delta` exige caché de tokens por URI +
+`resultId`, un rediseño M que no desbloquea la Fase 7.
+
+**Criterio de reapertura en 1.1:** medir `semanticTokens/full` > 300 ms en un
+fichero que un usuario edite de verdad (no generado), o que el cliente reporte
+lag al escribir. Implementación: `TEXT_DOCUMENT_SEMANTIC_TOKENS_RANGE` +
+`SemanticTokensDelta` con caché `uri -> (hash, resultId, data)`.
+
+#### §5.11 — baseline medida a 10 000 líneas
+
+Impreso por el test con `-s` (Python 3.14, cachés frías):
+
+```
+initialize 0.1 ms | didOpen 13747.0 ms | hover 2.2 ms | completion 15.0 ms
+definition 1.1 ms | references 677.5 ms | documentSymbol 15.5 ms
+workspaceSymbol 27.6 ms | codeAction 35.1 ms | rename 669.1 ms
+prepareRename 1.0 ms | formatting 71.0 ms | semanticTokens 1817.1 ms
+```
+
+`didOpen` es el coste de parse+check del corpus completo (dominado por el
+checker). Los techos del test (60 s/operación, 120 s `didOpen`) son laxos a
+propósito: cazan un cuelgue o un O(n²), no una máquina más lenta.
 
 ### Riesgos
 
@@ -471,9 +531,13 @@ que un usuario de VS Code nota.
   archivo, lo que implica indexar símbolos por archivo — puede ser **L** si no existe ya ese índice.
   **Mitigación:** verificar si `_compute_diagnostics` ya construye una tabla por archivo
   reutilizable; si no, un indexado perezoso por URI con caché por hash.
+  **Resuelto:** `_compute_diagnostics` construye la tabla por documento, pero solo para el
+  documento activo; se añadió `_file_symbols` (perezoso, caché por hash de contenido) y una
+  sonda de lexer previa para no chequear ficheros que ni siquiera mencionan el nombre.
 - **Riesgo:** 5.9 (semantic tokens por rango) puede interactuar con la caché de diagnósticos.
   **Mitigación:** es el último item de la fase y puede diferirse a 1.1 si el presupuesto se agota
   (no es bloqueante).
+  **Ejecutado:** diferido con la medición de arriba.
 
 ---
 

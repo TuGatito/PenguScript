@@ -476,12 +476,70 @@ def organize_imports_action(uri: str, source: str) -> Optional[CodeAction]:
 # Project-wide symbol locations (Go to Implementation / Find References)
 # ---------------------------------------------------------------------------
 
-_DECL_CACHE: Dict[Tuple[str, ...], Dict[str, List[Tuple[str, int, int]]]] = {}
+_DECL_CACHE: Dict[Tuple[str, ...], Dict[str, List[Tuple[str, int, int, str]]]] = {}
 
 _DECL_LINE = re.compile(
-    r"^\s*(?:weave|declare|const|rune|echo|omen|alias|seal|concept)\s+"
+    r"^\s*(weave|declare|const|rune|echo|omen|alias|seal|concept)\s+"
     r"([A-Za-z_][A-Za-z0-9_]*)\b"
 )
+
+
+def declaration_details(
+    extra_roots: Optional[List[str]] = None,
+    std_dir: Optional[str] = None,
+) -> Dict[str, List[Tuple[str, int, int, str]]]:
+    """Returns ``name -> [(file_path, line, column, keyword)]`` per symbol.
+
+    Same scan as :func:`declaration_locations`, but keeps the declaration
+    keyword (``weave``, ``rune``, ``omen``, ...) so callers can report an LSP
+    ``SymbolKind`` (used by ``workspace/symbol``). Results are cached per set of
+    roots.
+
+    Args:
+        extra_roots: Project directories to scan (in addition to stdlib).
+        std_dir: Standard library directory (defaults to the repo std/).
+
+    Returns:
+        Map of symbol name to a list of (file_path, 0-based line, column,
+        keyword) entries.
+    """
+    global _DECL_CACHE
+    std_root = os.path.abspath(std_dir or STD_DIR)
+    roots = [std_root]
+    for r in extra_roots or []:
+        if r:
+            roots.append(os.path.abspath(r))
+    key = tuple(roots)
+    cached = _DECL_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    details: Dict[str, List[Tuple[str, int, int, str]]] = {}
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [
+                d for d in dirnames if not d.startswith("_") and not d.startswith(".")
+            ]
+            for fname in filenames:
+                if fname.endswith(".d.pengu"):
+                    continue
+                if not fname.endswith(".pengu"):
+                    continue
+                fpath = os.path.join(dirpath, fname)
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        for i, line in enumerate(f):
+                            m = _DECL_LINE.match(line)
+                            if m:
+                                details.setdefault(m.group(2), []).append(
+                                    (fpath, i, m.start(2), m.group(1))
+                                )
+                except OSError:
+                    continue
+    _DECL_CACHE[key] = details
+    return details
 
 
 def declaration_locations(
@@ -503,43 +561,10 @@ def declaration_locations(
         Map of symbol name to a list of (file_path, 0-based line, column)
         locations.
     """
-    global _DECL_CACHE
-    std_root = os.path.abspath(std_dir or STD_DIR)
-    roots = [std_root]
-    for r in extra_roots or []:
-        if r:
-            roots.append(os.path.abspath(r))
-    key = tuple(roots)
-    cached = _DECL_CACHE.get(key)
-    if cached is not None:
-        return cached
-
-    locations: Dict[str, List[Tuple[str, int, int]]] = {}
-    for root in roots:
-        if not os.path.isdir(root):
-            continue
-        for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [
-                d for d in dirnames if not d.startswith("_") and not d.startswith(".")
-            ]
-            for fname in filenames:
-                if fname.endswith(".d.pengu"):
-                    continue
-                if not fname.endswith(".pengu"):
-                    continue
-                fpath = os.path.join(dirpath, fname)
-                try:
-                    with open(fpath, "r", encoding="utf-8") as f:
-                        for i, line in enumerate(f):
-                            m = _DECL_LINE.match(line)
-                            if m:
-                                locations.setdefault(m.group(1), []).append(
-                                    (fpath, i, m.start(1))
-                                )
-                except OSError:
-                    continue
-    _DECL_CACHE[key] = locations
-    return locations
+    return {
+        name: [(fpath, line, col) for fpath, line, col, _kw in entries]
+        for name, entries in declaration_details(extra_roots, std_dir).items()
+    }
 
 
 def word_occurrences_in_roots(

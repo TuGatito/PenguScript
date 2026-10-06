@@ -3,11 +3,13 @@
 import asyncio
 import hashlib
 import os
+import shutil
+import subprocess
 import sys
 import threading
 import urllib.parse
 import urllib.request
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # --- Critical: Force SelectorEventLoopPolicy on Windows ---
 # Python 3.14+ defaults to ProactorEventLoop, which causes hangs with pygls
@@ -34,6 +36,8 @@ from lsprotocol.types import (
     TEXT_DOCUMENT_REFERENCES,
     TEXT_DOCUMENT_SIGNATURE_HELP,
     TEXT_DOCUMENT_RENAME,
+    TEXT_DOCUMENT_PREPARE_RENAME,
+    PrepareRenameParams,
     TEXT_DOCUMENT_DOCUMENT_HIGHLIGHT,
     TEXT_DOCUMENT_FORMATTING,
     TEXT_DOCUMENT_DOCUMENT_SYMBOL,
@@ -74,6 +78,7 @@ from lsprotocol.types import (
     Location,
     TEXT_DOCUMENT_CODE_ACTION,
     CodeActionParams,
+    CodeActionKind,
     TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
     SemanticTokens,
     SemanticTokensLegend,
@@ -90,6 +95,16 @@ from lsprotocol.types import (
     TEXT_DOCUMENT_ON_TYPE_FORMATTING,
     DocumentOnTypeFormattingParams,
     DocumentOnTypeFormattingOptions,
+    WORKSPACE_SYMBOL,
+    WorkspaceSymbolParams,
+    SymbolInformation,
+    WORKSPACE_DID_CHANGE_CONFIGURATION,
+    DidChangeConfigurationParams,
+    WORKSPACE_DID_CHANGE_WATCHED_FILES,
+    DidChangeWatchedFilesParams,
+    ExecuteCommandParams,
+    ShowMessageParams,
+    MessageType,
 )
 
 from pengu_parser.pengu_parser import PenguParser
@@ -105,9 +120,21 @@ from .code_actions import (
     add_missing_import_action,
     remove_unused_variable_action,
     implement_concept_methods_action,
+    organize_imports_action,
     declaration_locations,
+    declaration_details,
     word_occurrences_in_roots,
 )
+
+
+def _debug(msg: str) -> None:
+    """Progress log to stderr, emitted only when PENGU_LSP_DEBUG is set.
+
+    Normal operation must stay silent: the LSP talks JSON-RPC over stdio, and
+    any stray write to stderr shows up as noise in the client's output channel.
+    """
+    if os.environ.get("PENGU_LSP_DEBUG"):
+        print(f"[LSP] {msg}", file=sys.stderr)
 
 
 def uri_to_path(uri: str) -> str:
@@ -208,6 +235,9 @@ class PenguLanguageServer(LanguageServer):
         super().__init__(*args, **kwargs)
         self._symbols: Dict[str, SymbolTable] = {}
         self._docs: Dict[str, str] = {}
+        # Client settings (workspace/didChangeConfiguration), flattened so both
+        # `pengus.executablePath` and a nested `{"pengus": {...}}` payload work.
+        self._settings: Dict[str, Any] = {}
         # Per-URI debounced validation tasks (didChange batching).
         self._validate_tasks: Dict[str, "asyncio.Task[None]"] = {}
         # uri -> (source content hash, last published diagnostics). Revalidating
@@ -226,6 +256,26 @@ class PenguLanguageServer(LanguageServer):
     def _source_hash(source: str) -> str:
         """Stable content hash used to skip redundant validations."""
         return hashlib.sha1(source.encode("utf-8", "replace")).hexdigest()
+
+    def get_setting(self, key: str, default=None):
+        """Returns a client setting by dotted key (e.g. 'pengus.executablePath')."""
+        return self._settings.get(key, default)
+
+    def update_settings(self, settings) -> None:
+        """Stores client settings, flattening one level of nesting.
+
+        Clients differ: some send ``{"pengus.executablePath": x}``, others
+        ``{"pengus": {"executablePath": x}}``. Flattening both shapes keeps
+        every lookup on a dotted path.
+        """
+        if not isinstance(settings, dict):
+            return
+        for key, value in settings.items():
+            if isinstance(value, dict):
+                for sub_key, sub_value in value.items():
+                    self._settings[f"{key}.{sub_key}"] = sub_value
+            else:
+                self._settings[key] = value
 
     def get_document_source(self, uri: str) -> str:
         """Retrieves text document source code from pygls workspace, test cache, or filesystem fallback."""
@@ -249,7 +299,7 @@ class PenguLanguageServer(LanguageServer):
 
     def publish_diagnostics(self, uri: str, diagnostics: List[Diagnostic]) -> None:
         """Publishes LSP diagnostics to the client using the native pygls method."""
-        print(f"[LSP] Publishing {len(diagnostics)} diagnostics for {uri}", file=sys.stderr)
+        _debug(f"Publishing {len(diagnostics)} diagnostics for {uri}")
         try:
             self.text_document_publish_diagnostics(
                 PublishDiagnosticsParams(uri=uri, diagnostics=diagnostics)
@@ -259,16 +309,17 @@ class PenguLanguageServer(LanguageServer):
 
 
 def _get_version() -> str:
-    """Reads version from VERSION file."""
-    version_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "VERSION")
-    meipass = getattr(sys, "_MEIPASS", "")
-    if meipass:
-        version_file = os.path.join(meipass, "VERSION")
+    """Returns the PenguScript version from the single source of truth.
+
+    ``pengu_version`` reads the ``VERSION`` file (and honours PyInstaller
+    bundles), so the LSP never hardcodes a version that can drift.
+    """
     try:
-        with open(version_file, "r", encoding="utf-8") as f:
-            return f.read().strip()
-    except FileNotFoundError:
-        return "0.1.0"
+        from pengu_version import __version__
+
+        return str(__version__)
+    except Exception:
+        return "0.0.0"
 
 
 server = PenguLanguageServer("pengus-lsp", f"v{_get_version()}")
@@ -382,6 +433,31 @@ def _style_warning_diagnostics(source: str) -> List[Diagnostic]:
     return diags
 
 
+def _remap_shadow_paths(symbols, shadow_path: str, real_path: str) -> None:
+    """Points symbols declared in a shadow file back at the real buffer path.
+
+    Unsaved buffers are checked through a temporary ``.pengu_lsp_shadow_*`` file
+    (see :func:`_compute_diagnostics`), which is deleted right after the check.
+    Symbols declared in that buffer carry the shadow path, so navigation would
+    hand the client a ``file://`` URI that no longer exists. Rewriting the
+    in-memory symbol table to the real path makes ``textDocument/definition``
+    land on the user's own buffer.
+
+    Args:
+        symbols: SymbolTable produced by a checker run (may be None/partial).
+        shadow_path: Temporary file the buffer was materialized to.
+        real_path: Real path of the (unsaved) buffer.
+    """
+    if symbols is None or not shadow_path or not real_path:
+        return
+    shadow_abs = os.path.abspath(shadow_path)
+    for scope in getattr(symbols, "all_scopes", []):
+        for sym in getattr(scope, "symbols", {}).values():
+            fp = getattr(sym, "file_path", None)
+            if fp and os.path.abspath(fp) == shadow_abs:
+                sym.file_path = real_path
+
+
 def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
     """Runs parse + semantic check for one document (pure computation).
 
@@ -434,6 +510,8 @@ def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
     try:
         tree = parser.parse(source)
         checker.check(tree, source=source, filename=check_path)
+        if shadow is not None:
+            _remap_shadow_paths(checker.symbols, shadow, file_path)
         # If check succeeds without exception: the document is clean; lint it.
         with server._validation_lock:
             server._symbols[uri] = checker.symbols
@@ -443,6 +521,8 @@ def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
     except PenguError as e:
         all_errs = e.all_errors if hasattr(e, "all_errors") and e.all_errors else [e]
         diags = diagnostics_from_errors(all_errs, source)
+        if shadow is not None:
+            _remap_shadow_paths(getattr(checker, "symbols", None), shadow, file_path)
         with server._validation_lock:
             if hasattr(checker, "symbols"):
                 server._symbols[uri] = checker.symbols
@@ -633,6 +713,61 @@ def did_save(params: DidSaveTextDocumentParams):
         validate_document(uri, source)
 
 
+def _invalidate_all_caches() -> None:
+    """Drops every derived cache after an external change (config or files).
+
+    Parser/checker results, per-file symbol tables and the project declaration
+    index all depend on files on disk or on client settings; none of them may
+    survive a change that could invalidate them.
+    """
+    _MODULE_CACHE.clear()
+    clear_symbol_caches()
+    with server._validation_lock:
+        server._validation_cache.clear()
+
+
+def did_change_configuration(params: DidChangeConfigurationParams) -> None:
+    """Programmatic didChangeConfiguration: re-read settings and re-validate.
+
+    Settings such as ``pengus.executablePath`` change how the server resolves
+    external tools, so caches are dropped and every open document is checked
+    again with the new configuration.
+    """
+    server.update_settings(getattr(params, "settings", None))
+    _invalidate_all_caches()
+    for uri in list(server._docs.keys()):
+        validate_document(uri, server._docs[uri])
+
+
+def did_change_watched_files(params: DidChangeWatchedFilesParams) -> None:
+    """Programmatic didChangeWatchedFiles: react to on-disk changes.
+
+    Any ``.pengu``/``pengu.yaml`` change (created, modified or deleted) can
+    alter symbols, imports and diagnostics, so derived caches are dropped and
+    open documents re-validated.
+    """
+    _invalidate_all_caches()
+    for uri in list(server._docs.keys()):
+        validate_document(uri, server._docs[uri])
+
+
+@server.feature(WORKSPACE_DID_CHANGE_CONFIGURATION)
+async def _wire_did_change_configuration(params: DidChangeConfigurationParams):
+    """workspace/didChangeConfiguration: settings changed; revalidate."""
+    server.update_settings(getattr(params, "settings", None))
+    _invalidate_all_caches()
+    for uri in list(server._docs.keys()):
+        await _schedule_validation(uri, server._docs[uri], 0.0)
+
+
+@server.feature(WORKSPACE_DID_CHANGE_WATCHED_FILES)
+async def _wire_did_change_watched_files(params: DidChangeWatchedFilesParams):
+    """workspace/didChangeWatchedFiles: files changed on disk; revalidate."""
+    _invalidate_all_caches()
+    for uri in list(server._docs.keys()):
+        await _schedule_validation(uri, server._docs[uri], 0.0)
+
+
 def path_to_uri(path: str) -> str:
     """Converts a filesystem path to a file URI."""
     from pathlib import Path
@@ -811,6 +946,89 @@ def implementation(params: ImplementationParams):
     return out
 
 
+def _workspace_roots() -> List[str]:
+    """Project directories the server should index for workspace-wide queries.
+
+    Prefers the client's workspace folders, then the single root path; when the
+    client sent neither, falls back to the directories of the open documents.
+    """
+    roots: List[str] = []
+
+    def _add(path: Optional[str]) -> None:
+        if not path:
+            return
+        ap = os.path.abspath(path)
+        if os.path.isdir(ap) and ap not in roots:
+            roots.append(ap)
+
+    try:
+        for folder in server.workspace.folders.values():
+            _add(uri_to_path(folder.uri))
+    except Exception:
+        pass
+    try:
+        _add(getattr(server.workspace, "root_path", None))
+    except Exception:
+        pass
+    if not roots:
+        for doc_uri in list(server._docs.keys()):
+            doc_path = uri_to_path(doc_uri)
+            _add(_project_scan_root(doc_path) or (os.path.dirname(doc_path) or None))
+    return roots
+
+
+_DECL_SYMBOL_KINDS = {
+    "weave": SymbolKind.Function,
+    "rune": SymbolKind.Struct,
+    "echo": SymbolKind.Enum,
+    "omen": SymbolKind.Enum,
+    "alias": SymbolKind.TypeParameter,
+    "seal": SymbolKind.Interface,
+    "concept": SymbolKind.Interface,
+    "const": SymbolKind.Constant,
+    "declare": SymbolKind.Function,
+}
+
+
+@server.feature(WORKSPACE_SYMBOL)
+def workspace_symbols(params: WorkspaceSymbolParams) -> Optional[List[SymbolInformation]]:
+    """Handles workspace/symbol: project-wide "Go to Symbol in Workspace".
+
+    Reuses the declaration index built by ``code_actions.declaration_details``
+    (top-level ``weave``/``rune``/``omen``/... declarations across the project
+    roots and the stdlib) and filters it by the client's ``query`` substring.
+    """
+    query = (params.query or "").strip().lower()
+    roots = _workspace_roots()
+    if not roots:
+        return None
+    try:
+        details = declaration_details(extra_roots=roots)
+    except Exception:
+        return None
+
+    out: List[SymbolInformation] = []
+    for name, entries in details.items():
+        if query and query not in name.lower():
+            continue
+        for fpath, line, col, keyword in entries:
+            out.append(
+                SymbolInformation(
+                    name=name,
+                    kind=_DECL_SYMBOL_KINDS.get(keyword, SymbolKind.Variable),
+                    location=Location(
+                        uri=path_to_uri(fpath),
+                        range=Range(
+                            start=Position(line=line, character=col),
+                            end=Position(line=line, character=col + len(name)),
+                        ),
+                    ),
+                )
+            )
+    out.sort(key=lambda s: (s.name, s.location.uri, s.location.range.start.line))
+    return out or None
+
+
 def _is_declaration_occurrence(line: str, col: int, word: str) -> bool:
     """True when ``word`` at column ``col`` starts a top-level declaration."""
     import re
@@ -883,6 +1101,7 @@ def _interpolation_positions(raw: str, name: str, line: int, col: int) -> List[T
 
 def _identifier_occurrences(
     doc_text: str, name: str, symbols: Optional[SymbolTable] = None, sym=None,
+    include=None,
 ) -> List[Tuple[int, int]]:
     """0-based ``(line, col)`` of every identifier occurrence of ``name``.
 
@@ -891,11 +1110,20 @@ def _identifier_occurrences(
     exact for lexical scoping: a homonym in a sibling/child scope (shadowing) is
     rejected without needing a hand-tuned line range.  Comments and string
     literals never match; string interpolations do.
+
+    ``include`` replaces that identity check with an arbitrary predicate over
+    the 1-based line number; it is used to resolve occurrences against *another*
+    file's symbol table during a project-wide rename.
     """
     if not doc_text or not name:
         return []
 
     def _belongs(line1: int) -> bool:
+        if include is not None:
+            try:
+                return bool(include(line1))
+            except Exception:
+                return False
         if symbols is None or sym is None:
             return True
         try:
@@ -987,6 +1215,68 @@ def _project_scan_root(file_path: str) -> Optional[str]:
     return root_abs
 
 
+# path -> (content hash, SymbolTable). Rename resolves every occurrence against
+# its own file's scopes; the hash invalidates the entry when the file changes on
+# disk (and didChangeWatchedFiles clears the whole map).
+_FILE_SYMBOL_CACHE: Dict[str, Tuple[str, Optional[SymbolTable]]] = {}
+
+
+def clear_symbol_caches() -> None:
+    """Drops cached per-file symbol tables and the project declaration index."""
+    _FILE_SYMBOL_CACHE.clear()
+    try:
+        from . import code_actions
+
+        code_actions._DECL_CACHE.clear()
+    except Exception:
+        pass
+
+
+def _file_symbols(path: str, text: str) -> Optional[SymbolTable]:
+    """SymbolTable for another project file, cached by content hash.
+
+    Used by project-wide rename to tell a real reference to a global symbol
+    apart from a local homonym (``var helper``) declared in that file.  Returns
+    None when the file cannot be checked; callers then leave it untouched.
+    """
+    key = hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()
+    hit = _FILE_SYMBOL_CACHE.get(path)
+    if hit is not None and hit[0] == key:
+        return hit[1]
+    project_root = _project_root_for_path(path)
+    checker = PenguChecker(base_dir=project_root, lib_dir=_lib_dir_for_project(project_root))
+    symbols: Optional[SymbolTable] = None
+    try:
+        checker.check(PenguParser().parse(text), source=text, filename=path)
+        symbols = getattr(checker, "symbols", None)
+    except PenguError:
+        # Partial symbols are still enough to resolve scopes.
+        symbols = getattr(checker, "symbols", None)
+    except Exception:
+        symbols = None
+    _FILE_SYMBOL_CACHE[path] = (key, symbols)
+    return symbols
+
+
+def _non_local_occurrence(symbols: Optional[SymbolTable], name: str):
+    """Predicate over 1-based lines: True when ``name`` resolves to a global.
+
+    A local ``var``/``let``/``param`` (or an unresolved name) is rejected, so a
+    rename of a project global never rewrites a local homonym in another file.
+    """
+    if symbols is None:
+        return lambda _line1: False
+    local_kinds = ("var", "let", "param")
+
+    def _include(line1: int) -> bool:
+        sym = symbols.lookup_at(name, line1)
+        if sym is None:
+            return False
+        return getattr(sym, "kind", "") not in local_kinds
+
+    return _include
+
+
 @server.feature(TEXT_DOCUMENT_REFERENCES)
 def references(params: ReferenceParams):
     """Handles textDocument/references requests.
@@ -1060,31 +1350,46 @@ def references(params: ReferenceParams):
 def code_action(params: CodeActionParams):
     """Handles textDocument/codeAction requests.
 
-    Currently offers an "Add missing import" quick fix when the cursor sits on
-    an undefined identifier that some stdlib/project module exports.
+    Offers four actions: "Add missing import" (cursor on an undefined
+    identifier some module exports), "Remove unused variable", "Implement
+    missing concept methods", and the source action "Organize imports"
+    (drop unused imports, sort the rest). ``context.only`` is honoured, so a
+    client asking only for ``source.organizeImports`` gets just that action.
     """
     uri = params.text_document.uri
     source = server.get_document_source(uri)
     if not source:
         return []
-    symbols = server._symbols.get(uri)
-    start = params.range.start if params.range is not None else params.position
-    word = get_word_at_position(source, start)
-    if not word:
-        return []
+    only = list(getattr(params.context, "only", None) or [])
 
-    file_path = uri_to_path(uri)
-    base_dir = os.path.dirname(file_path) if os.path.exists(file_path) else os.getcwd()
+    def _wanted(kind: str) -> bool:
+        return not only or any(kind == k or kind.startswith(k + ".") for k in only)
+
     actions = []
-    imp_action = add_missing_import_action(uri, word, source, symbols, base_dir=base_dir)
-    if imp_action:
-        actions.append(imp_action)
-    unused_action = remove_unused_variable_action(uri, word, source, symbols)
-    if unused_action:
-        actions.append(unused_action)
-    concept_action = implement_concept_methods_action(uri, source, start, symbols)
-    if concept_action:
-        actions.append(concept_action)
+
+    # Source action: independent of the cursor, so it must not be gated on a
+    # word under it (VS Code sends it from the Command Palette on any line).
+    if _wanted(CodeActionKind.SourceOrganizeImports):
+        org_action = organize_imports_action(uri, source)
+        if org_action:
+            actions.append(org_action)
+
+    if _wanted(CodeActionKind.QuickFix):
+        symbols = server._symbols.get(uri)
+        start = params.range.start if params.range is not None else params.position
+        word = get_word_at_position(source, start)
+        if word:
+            file_path = uri_to_path(uri)
+            base_dir = os.path.dirname(file_path) if os.path.exists(file_path) else os.getcwd()
+            imp_action = add_missing_import_action(uri, word, source, symbols, base_dir=base_dir)
+            if imp_action:
+                actions.append(imp_action)
+            unused_action = remove_unused_variable_action(uri, word, source, symbols)
+            if unused_action:
+                actions.append(unused_action)
+            concept_action = implement_concept_methods_action(uri, source, start, symbols)
+            if concept_action:
+                actions.append(concept_action)
     return actions
 
 
@@ -1221,6 +1526,69 @@ def document_highlight(params: DocumentHighlightParams) -> Optional[List[Documen
     return highlights
 
 
+@server.feature(TEXT_DOCUMENT_PREPARE_RENAME)
+def prepare_rename(params: PrepareRenameParams):
+    """Handles textDocument/prepareRename.
+
+    Returns the range of the identifier under the cursor only when it is a
+    real renameable symbol (local or global): keywords, literals, member
+    accesses (``obj.field``, ``self->field``) and anything the symbol table
+    cannot resolve are rejected, so the editor never starts a rename that
+    :func:`rename_symbol` would refuse.
+
+    Args:
+        params: prepareRename request parameters.
+
+    Returns:
+        The Range of the identifier, or None to signal "not renameable".
+    """
+    import re
+    uri = params.text_document.uri
+    doc_text = server.get_document_source(uri)
+    if not doc_text:
+        return None
+
+    word = get_word_at_position(doc_text, params.position)
+    if not word:
+        return None
+    clean_word = word.replace("self->", "").replace(".", "").strip()
+    if not clean_word or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", clean_word):
+        return None
+
+    lines = doc_text.splitlines()
+    line_no = params.position.line
+    if not (0 <= line_no < len(lines)):
+        return None
+    line = lines[line_no]
+    col = min(max(params.position.character, 0), len(line))
+
+    start = col
+    while start > 0 and (line[start - 1].isalnum() or line[start - 1] == "_"):
+        start -= 1
+    end = col
+    while end < len(line) and (line[end].isalnum() or line[end] == "_"):
+        end += 1
+    if start == end:
+        return None
+
+    # Member accesses are not renameable: `obj.field` (field) and
+    # `self->field` (field), plus `self` itself.
+    if start > 0 and line[start - 1] == ".":
+        return None
+    if start >= 2 and line[start - 2:start] == "->":
+        return None
+    if line[end:end + 2] == "->":
+        return None
+
+    symbols = server._symbols.get(uri)
+    if _resolve_symbol_at(symbols, params.position, clean_word) is None:
+        return None
+    return Range(
+        start=Position(line=line_no, character=start),
+        end=Position(line=line_no, character=end),
+    )
+
+
 @server.feature(TEXT_DOCUMENT_RENAME)
 def rename_symbol(params: RenameParams) -> Optional[WorkspaceEdit]:
     """Handles textDocument/rename requests.
@@ -1280,16 +1648,30 @@ def rename_symbol(params: RenameParams) -> Optional[WorkspaceEdit]:
 
     if root and len(name_decls) <= 1:
         # Unambiguous global: rename every real occurrence across the project.
+        # Each file is resolved against *its own* symbol table, so a local
+        # homonym (`var helper`) in another document is never rewritten.
+        def _collect(f_abs: str, text: str, file_symbols, edit_uri: str) -> None:
+            edits = _edits(_identifier_occurrences(
+                text, clean_old, include=_non_local_occurrence(file_symbols, clean_old)
+            ))
+            if edits:
+                changes[edit_uri] = edits
+
+        # Active document first, from the in-memory buffer: it may be unsaved
+        # (absent from disk) or hold edits the disk copy does not have yet.
+        _collect(current_abs, doc_text, symbols, uri)
         for fpath in _iter_project_sources(root):
             f_abs = os.path.abspath(fpath)
+            if f_abs == current_abs:
+                continue
             try:
                 with open(f_abs, "r", encoding="utf-8") as fh:
                     text = fh.read()
             except OSError:
                 continue
-            edits = _edits(_identifier_occurrences(text, clean_old))
-            if edits:
-                changes[path_to_uri(f_abs)] = edits
+            if not _identifier_occurrences(text, clean_old):
+                continue  # cheap lexer probe: skip files that never mention it
+            _collect(f_abs, text, _file_symbols(f_abs, text), path_to_uri(f_abs))
     else:
         edits = _edits(_identifier_occurrences(doc_text, clean_old, symbols, sym))
         if edits:
@@ -1792,6 +2174,109 @@ def code_lenses(params: CodeLensParams) -> Optional[List[CodeLens]]:
             ),
         ))
     return lenses
+
+
+_TEST_RUN_COMMAND = "pengu.runTest"
+_TEST_RUN_TIMEOUT_S = 120
+
+
+def _pengu_command() -> Optional[List[str]]:
+    """Command prefix for the PenguScript CLI, or None when it cannot be found.
+
+    Resolution order:
+
+    1. ``PENGU_EXECUTABLE`` / ``PENGU_BIN`` environment variables;
+    2. the ``pengus.executablePath`` client setting;
+    3. ``sys.executable`` when it is the frozen ``pengu`` binary (PyInstaller
+       replaces ``sys.executable`` with the running executable, and the LSP is
+       launched as ``pengu lsp --stdio``);
+    4. ``pengu`` / ``pengu.exe`` on ``PATH``;
+    5. in a source checkout, ``python pengu_project.py`` next to the package.
+
+    Returning a list keeps room for a wrapper (e.g. ``python -m ...``).
+    """
+    for env_var in ("PENGU_EXECUTABLE", "PENGU_BIN"):
+        candidate = os.environ.get(env_var)
+        if candidate and os.path.isfile(candidate):
+            return [candidate]
+    configured = server.get_setting("pengus.executablePath")
+    if configured:
+        candidate = os.path.expanduser(str(configured))
+        if os.path.isfile(candidate):
+            return [candidate]
+        found = shutil.which(str(configured))
+        if found:
+            return [found]
+    exe_name = os.path.basename(sys.executable).lower()
+    if exe_name.startswith("pengu"):
+        return [sys.executable]
+    for name in ("pengu", "pengu.exe"):
+        found = shutil.which(name)
+        if found:
+            return [found]
+    cli = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pengu_project.py")
+    if os.path.isfile(cli):
+        return [sys.executable, cli]
+    return None
+
+
+@server.command(_TEST_RUN_COMMAND)
+def run_test(ls, uri: str, name: str = "") -> str:
+    """Runs ``pengu test --entry <file>`` for the "▶ Run test" code lens.
+
+    The command result is the captured CLI output (stdout + stderr); a
+    pass/fail summary is also surfaced with ``window/showMessage`` so the run is
+    visible in the editor. Never raises: a missing CLI or a timeout is reported
+    to the user instead of failing the JSON-RPC request.
+
+    Args:
+        ls: Injected language server instance.
+        uri: Document URI the lens belongs to.
+        name: Test block name (used only for the summary message).
+
+    Returns:
+        Combined CLI output, or an empty string when the run could not start.
+    """
+    path = uri_to_path(uri)
+    prefix = _pengu_command()
+    if prefix is None:
+        ls.window_show_message(ShowMessageParams(
+            message="PenguScript: 'pengu' executable not found. "
+                    "Set pengus.executablePath or add pengu to PATH.",
+            type=MessageType.Error,
+        ))
+        return ""
+    try:
+        proc = subprocess.run(
+            prefix + ["test", "--entry", path],
+            capture_output=True,
+            text=True,
+            timeout=_TEST_RUN_TIMEOUT_S,
+            cwd=os.path.dirname(path) or None,
+        )
+    except subprocess.TimeoutExpired:
+        ls.window_show_message(ShowMessageParams(
+            message=f"PenguScript: test run timed out after {_TEST_RUN_TIMEOUT_S}s.",
+            type=MessageType.Error,
+        ))
+        return ""
+    except OSError as exc:
+        ls.window_show_message(ShowMessageParams(
+            message=f"PenguScript: could not run '{prefix[0]}': {exc}",
+            type=MessageType.Error,
+        ))
+        return ""
+
+    output = (proc.stdout or "") + (proc.stderr or "")
+    label = f"test {name!r}" if name else "tests"
+    passed = proc.returncode == 0
+    ls.window_show_message(ShowMessageParams(
+        message=f"PenguScript: {label} {'passed' if passed else 'failed'} "
+                f"(exit code {proc.returncode}).",
+        type=MessageType.Info if passed else MessageType.Error,
+    ))
+    _debug(output)
+    return output
 
 
 def _leading_ws(line: str) -> str:

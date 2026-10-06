@@ -3,6 +3,187 @@
 All notable changes to PenguScript will be documented in this file.
 
 
+## [Unreleased] — FASE 5: Completar LSP (ROADMAP 2.0)
+
+> Cierra los dos bugs de **corrección semántica** del LSP (rename global y
+> ubicaciones fantasma de buffers sin guardar), conecta el código muerto que ya
+> estaba escrito (organize imports, code lens) y añade las dos features que un
+> usuario de VS Code nota (`workspace/symbol`, `prepareRename`). Cada premisa
+> del roadmap se verificó contra el código real **antes** de tocar nada; lo que
+> ya estaba resuelto se marca como tal.
+
+### 🐛 Corregido — 5.1 / A8: el rename global ya no reescribe homónimos locales de otros ficheros
+
+La verificación previa confirmó que el fix de la Fase 3.1 (`_identifier_occurrences`
++ resolución por `SymbolTable`) **ya cubría el ámbito intra-fichero**, pero la rama
+global seguía escaneando el resto del proyecto con el lexer *sin* resolver
+ámbitos:
+
+```python
+# antes (server.py, rama global)
+edits = _edits(_identifier_occurrences(text, clean_old))   # sin symbols/sym
+```
+
+Medición del defecto (fichero `a.pengu` con `weave helper`, `b.pengu` con
+`var helper` local):
+
+```
+FILE .../a.pengu -> [(0, 6)]
+FILE .../b.pengu -> [(1, 8), (2, 11)]   # ← reescribía el `var helper` local
+```
+
+Ahora cada fichero se resuelve contra **su propia** tabla de símbolos
+(`_file_symbols`, cacheada por hash de contenido) y solo se renombra una
+ocurrencia si resuelve a un símbolo **no local** (`_non_local_occurrence`). El
+documento activo se procesa desde el buffer en memoria, así que un buffer sin
+guardar ya no se pierde (antes se leía de disco y un `OSError` lo saltaba).
+Medición tras el fix: `b.pengu` **no aparece** en el `WorkspaceEdit`.
+
+- `tests/test_lsp_phase5.py::test_5_1_global_rename_skips_local_homonym_in_other_file`
+- `tests/test_lsp_phase5.py::test_5_1_global_rename_updates_uses_in_declaration_file`
+
+### 🐛 Corregido — 5.2 / A9: `textDocument/definition` ya no devuelve rutas shadow
+
+Un buffer sin guardar se materializa en un fichero temporal
+`.pengu_lsp_shadow_*` para que el checker resuelva imports, y ese temporal se
+borra al terminar. Los símbolos declarados en el buffer se quedaban con la ruta
+del shadow, así que la navegación devolvía un `file://` inexistente:
+
+```
+definition -> file:///tmp/.../.pengu_lsp_shadow_0oopyd97.pengu:0:0-0:6
+```
+
+`_remap_shadow_paths` reescribe en memoria la ruta de esos símbolos a la ruta
+real del buffer antes de guardar la tabla en `server._symbols`. Medición tras
+el fix: `definition -> file:///tmp/.../buf.pengu:0:0-0:6` (la URI real).
+
+- `tests/test_lsp_phase5.py::test_5_2_definition_never_returns_shadow_path`
+- `tests/test_lsp_phase5.py::test_5_2_symbols_of_unsaved_buffer_carry_real_path`
+
+### 🟡 Conectado — 5.3: code action `source.organizeImports`
+
+`code_actions.organize_imports_action` estaba implementado y sin conectar.
+Ahora `textDocument/codeAction` lo registra, respeta `context.only` y —al ser
+una *source action*— no depende de que haya una palabra bajo el cursor (VS Code
+la lanza desde la paleta de comandos sobre cualquier línea). Cuando el cliente
+pide solo `source.organizeImports`, no se devuelven quick fixes.
+
+- `tests/test_lsp_phase5.py::test_5_3_organize_imports_offered_for_source_only`
+- `tests/test_lsp_phase5.py::test_5_3_organize_imports_not_gated_on_cursor_word`
+- `tests/test_lsp_phase5.py::test_5_3_quickfix_not_returned_when_only_organize_requested`
+
+### 🟡 Registrado — 5.4: el code lens `pengu.runTest` ahora ejecuta
+
+El lens emitía el comando `pengu.runTest` sin que el servidor lo registrara (y
+sin `executeCommandProvider`), la peor de las opciones. Se registra con
+`@server.command("pengu.runTest")`: resuelve el binario (`PENGU_EXECUTABLE` /
+`PENGU_BIN`, ajuste `pengus.executablePath`, o `pengu` en `PATH`), ejecuta
+`pengu test --entry <fichero>` con timeout y muestra el resultado con
+`window/showMessage` (y lo devuelve como resultado del comando). Si no hay
+binario, avisa en vez de fallar la petición.
+
+- `tests/test_lsp_phase5.py::test_5_4_run_test_command_registered_and_advertised`
+- `tests/test_lsp_phase5.py::test_5_4_run_test_executes_and_reports`
+- `tests/test_lsp_phase5.py::test_5_4_run_test_reports_missing_executable`
+
+### 🟠 Añadido — 5.5 / M11: `workspace/symbol`
+
+Nuevo handler sobre el índice de declaraciones (`declaration_details`, que ahora
+conserva la palabra clave `weave`/`rune`/`omen`/… para mapear el `SymbolKind`).
+Raíces: las *workspace folders* del cliente, la raíz única, o los directorios de
+los documentos abiertos. Filtra por el `query` del cliente.
+
+- `tests/test_lsp_phase5.py::test_5_5_workspace_symbol_returns_project_symbols`
+
+### 🟡 Añadido — 5.6: `textDocument/prepareRename`
+
+Devuelve el rango del identificador solo cuando es un símbolo renombrable real
+(local o global); rechaza keywords, literales, accesos a miembro (`obj.campo`,
+`self->campo`) y todo lo que la tabla de símbolos no resuelva, de modo que el
+editor no lance un rename que `rename_symbol` rechazaría.
+
+- `tests/test_lsp_phase5.py::test_5_6_prepare_rename_returns_range_for_symbol`
+- `tests/test_lsp_phase5.py::test_5_6_prepare_rename_rejects_keyword`
+- `tests/test_lsp_phase5.py::test_5_6_prepare_rename_rejects_member_access`
+- `tests/test_lsp_phase5.py::test_5_6_prepare_rename_rejects_literal`
+
+### 🟡 Silenciado — 5.7: los logs de progreso van tras `PENGU_LSP_DEBUG`
+
+`publish_diagnostics` escribía `[LSP] Publishing N diagnostics` en stderr en
+cada publicación. Ahora pasa por `_debug()`, que solo emite con
+`PENGU_LSP_DEBUG` definido. Los errores reales siguen yendo a stderr siempre.
+
+- `tests/test_lsp_phase5.py::test_5_7_publishing_message_needs_debug_env`
+- `tests/test_lsp_phase5.py::test_5_7_validate_document_is_silent`
+
+### 🟡 Actualizado — 5.8: versión y docstrings
+
+`pengu_lsp.__init__` deja de hardcodear «v0.6» y reexporta
+`pengu_version.__version__`; `_get_version()` lee del mismo sitio (antes leía
+`VERSION` a mano con un fallback distinto). El docstring de `code_action`
+enumera las **cuatro** acciones reales.
+
+- `tests/test_lsp_phase5.py::test_5_8_version_comes_from_pengu_version`
+- `tests/test_lsp_phase5.py::test_5_8_code_action_docstring_lists_actions`
+
+### 🟡 Añadido — 5.10: `didChangeConfiguration` y `didChangeWatchedFiles`
+
+`workspace/didChangeConfiguration` guarda los ajustes (flatten de un nivel, para
+aceptar tanto `pengus.executablePath` como `{"pengus": {...}}`), invalida todas
+las cachés derivadas y revalida los documentos abiertos.
+`workspace/didChangeWatchedFiles` invalida el índice de declaraciones, la caché
+de símbolos por fichero y las tablas por URI, y revalida.
+
+- `tests/test_lsp_phase5.py::test_5_10_configuration_change_updates_settings_and_revalidates`
+- `tests/test_lsp_phase5.py::test_5_10_watched_files_drops_caches_and_revalidates`
+
+### 🧪 Añadido — 5.11: estabilidad medida a 10 000 líneas
+
+`tests/test_lsp_stability.py` genera un programa **válido** de 10 003 líneas
+(2 500 `weave` + `main`, `check` limpio, 0 diagnósticos) y dispara las 13
+operaciones del roadmap midiendo cada una. Baseline (Python 3.14, cachés
+frías), impreso por el test con `-s`:
+
+```
+initialize 0.1 ms | didOpen 13747 ms | hover 2.2 ms | completion 15.0 ms
+definition 1.1 ms | references 677.5 ms | documentSymbol 15.5 ms
+workspaceSymbol 27.6 ms | codeAction 35.1 ms | rename 669.1 ms
+prepareRename 1.0 ms | formatting 71.0 ms | semanticTokens 1817.1 ms
+```
+
+Los límites del test son laxos a propósito (60 s por operación, 120 s para
+`didOpen`): cazan un cuelgue o un O(n²), no una máquina el doble de lenta.
+
+### ⏸️ Diferido a 1.1 — 5.9: semantic tokens por rango y delta
+
+`textDocument/semanticTokens/full` ya está implementado (Fase 3.2.b) y es
+correcto. Rango/delta son una **optimización**, no correctitud, y la medición no
+justifica el rediseño en esta fase:
+
+- Módulos reales escritos a mano (≤1 500 líneas): `std/spark.pengu` (318 líneas)
+  **13 ms**, `std/loom.pengu` (1 496) **151 ms**, `std/tally.pengu` (1 474)
+  **164 ms**. El pipeline son ~60 000 tokens → 35 000 entradas, y el desglose es
+  `_strip_comments` 33 ms + `get_tokens` 663 ms + clasificación 997 ms.
+- Solo importa en ficheros grandes: el sintético de 10 000 líneas tarda
+  **1 817 ms** y el binding generado `std/sqlite3.d.pengu` (9 043) está en ese
+  orden, pero es código generado que el usuario no edita.
+- `range` no reduce el coste dominante (`get_tokens` recorre el documento
+  completo; trocear el texto rompería el estado del lexer en strings) y `delta`
+  exige caché de tokens por URI y result-id: es un rediseño M que no desbloquea
+  nada de la Fase 7.
+
+Detalle y criterio de reapertura en `ROADMAP_2.0.md` (Fase 5, §5.9).
+
+### ✅ Verificado ya resuelto
+
+- **5.1 (parte intra-fichero)**: `_identifier_occurrences` + `SymbolTable`
+  (Fase 3.1) ya resolvían ámbitos y excluían comentarios/strings/miembros. El
+  test de regresión de la Fase 3.1 (`tests/test_lsp_semantic_rename.py`, 8
+  casos) sigue verde; lo que faltaba era la rama **entre ficheros**.
+- **5.4 (`executeCommandProvider`)**: pygls lo publica desde
+  `fm.commands`; en cuanto se registra el comando, la capacidad aparece.
+
+
 ## [Unreleased] — FASE 4: Completar CLI
 
 > Hace que el CLI **haga lo que su ayuda dice**: sin flags que no hacen nada,
