@@ -4,6 +4,16 @@ The GNU default wraps expression-level statements in `__extension__(({ ... }))`
 and uses `__auto_type`.  Strict mode hoists those statements into the enclosing
 statement and returns a concrete temporary, so the generated C compiles as
 `-std=c99 -pedantic-errors`.
+
+Phase 8 / item 8.1 (blocker B10) turned the two *text* checks this file used to
+carry into compiler invocations: "no `__extension__` in the bundle" is not a
+property, it is a guess about how portability is spelled.  The gate is now
+
+* the strict bundle is accepted by `-std=c99 -pedantic-errors` and runs; and
+* the default bundle of the same program is **rejected** by the same flags.
+
+The second half is what makes the first half mean something: without it the test
+would pass even if both modes emitted identical output.
 """
 
 import os
@@ -59,17 +69,29 @@ weave main into int:
 """
 
 
-def test_strict_mode_has_no_gnu_extensions():
-    c = gen_bundle(_PROG, strict_c99=True)
-    assert "__extension__" not in c
-    assert "__auto_type" not in c
-    assert "({ " not in c
+def test_strict_mode_is_accepted_and_the_default_is_rejected(compile_c):
+    """The portability claim, decided by a compiler instead of by a substring.
 
+    Strict output must pass `-std=c99 -pedantic-errors`; the default output of the
+    same program must *fail* it.  The failing half is the non-vacuity guard: if the
+    default were accepted too, "strict mode is portable" would carry no information.
 
-def test_gnu_mode_is_still_the_default():
-    c = gen_bundle(_PROG)
-    # Default output must keep using statement expressions (no behaviour change).
-    assert "__extension__" in c
+    ``-D__extension__=`` is not a trick for its own sake; it is required for the
+    guard to mean anything.  GCC's ``__extension__`` keyword exists precisely to
+    silence ``-pedantic`` for the construct that follows it, so `-pedantic-errors`
+    alone accepts the default bundle *because* every statement expression is
+    wrapped in ``__extension__`` (measured: 0 errors with the keyword, 9 without).
+    Neutralising the keyword asks the compiler the question that matters: does this
+    translation unit rely on a GNU extension?
+    """
+    strict_exe = compile_c(gen_bundle(_PROG, strict_c99=True), name="strict_prog",
+                           std="c99", pedantic=True)
+    run = subprocess.run([str(strict_exe)], capture_output=True, text=True, timeout=60)
+    assert run.returncode == 0, f"strict program failed: rc={run.returncode}\n{run.stderr}"
+
+    with pytest.raises(AssertionError, match="C compilation failed"):
+        compile_c(gen_bundle(_PROG), name="default_prog", std="c99", pedantic=True,
+                  syntax_only=True, extra=["-D__extension__=", "-fmax-errors=1"])
 
 
 @pytest.mark.skipif(not HAVE_CC, reason="no C compiler available")
