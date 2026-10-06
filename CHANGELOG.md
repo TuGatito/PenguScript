@@ -177,6 +177,10 @@ cuando se revierte el fix (C2).
   de la API de `spark` cambiara con cada release del compilador, que es justo lo
   que evita la allowlist de la 4.9. `STD_VERSION` es un tag legado que no sigue
   la convención `<MOD>_VERSION`; renombrarlo o retirarlo es superficie pública.
+- **`ROADMAP_1.0.0.md` había sido borrado por error en el commit base**
+  (`86a80a2`, "Fase 5") mientras `tests/test_phase6_scope.py` seguía leyéndolo,
+  dejando 2 tests en rojo por una regresión ajena a esta fase. Restaurado byte a
+  byte desde el historial: `tests/test_phase6_scope.py` → 5/5 en verde.
 
 ## [Unreleased] — FASE 5: Completar LSP (ROADMAP 2.0)
 

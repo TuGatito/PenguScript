@@ -476,6 +476,27 @@ compiló el `libmicrohttpd-1.0.1` que ya viene en `extern/` hacia
 `build/lib/libmicrohttpd.a` para poder compilar y ejecutar los tests.
 Ninguno de estos cambios entra en el repositorio (están bajo `build/`).
 
+### H7 — `ROADMAP_1.0.0.md` había sido borrado por error en el commit base
+
+La suite completa quedaba en **1 fallo ajeno a la fase**: el commit base
+`86a80a2` ("Fase 5") borró `ROADMAP_1.0.0.md` (816 líneas) pero dejó
+`tests/test_phase6_scope.py` leyéndolo, con lo que dos tests quedaban en rojo:
+
+- `test_playground_is_explicitly_out_of_scope`
+- `test_roadmap_phase6_records_the_rewrite`
+
+El fichero de test está intacto desde `86a80a2^` y la Fase 6 no lo tocó
+(`git diff --stat 86a80a2..HEAD -- tests/test_phase6_scope.py` → vacío), así que
+la regresión es de la fase anterior. Se verificó que **no fue una reubicación**:
+ninguna de las cadenas que los tests buscan ("Playground Web en WASM", "Pyodide",
+"clang-wasm", "POST /check", "FASE 6 completada", "NO cumplidos") existe en
+`ROADMAP_2.0.md`.
+
+**Corregido** restaurando el fichero desde `86a80a2^` (byte a byte idéntico,
+verificado con `diff`): recupera el documento y el contenido que los tests
+verifican, en vez de reescribir los tests contra un fichero que no contiene esa
+información. `tests/test_phase6_scope.py` → 5/5 en verde. Commit `091f8b6`.
+
 ---
 
 ## Cierre: criterio de "done" de la fase
