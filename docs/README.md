@@ -17,6 +17,7 @@ documents from earlier phases.
 | [`PERFORMANCE.md`](PERFORMANCE.md) | Performance methodology, measured numbers, cached-build behaviour, and the honestly-documented known leaks | No — authored |
 | [`FUZZING.md`](FUZZING.md) | Fuzzing harnesses, corpora and run budgets | No — authored |
 | [`ABI.md`](ABI.md) | The runtime ABI policy: what `PENGU_ABI_VERSION` covers, what bumps it, and how a stale `libpengu_runtime.a` is caught at link time | No — authored |
+| [`DEPRECATIONS.md`](DEPRECATIONS.md) | Every `@deprecated` symbol in `std/` with its replacement and retirement status; the tables are cross-checked against the sources by `tests/test_std_deprecations_doc.py` | No — authored |
 
 ## Normative documents (repository root)
 
