@@ -6,10 +6,42 @@ release it is scheduled to disappear in. The format of the tables is checked by
 `@deprecated` markers actually present in the sources**, so this file cannot
 silently drift from the code.
 
-How the marker works: `@deprecated` is a compile-time attribute. Using a
-deprecated symbol emits `W0006`, and `pengu check --deny-deprecated` / `pengu
-test --deny-deprecated` promote it to an error. The reason string is always
-`Use X instead` (see `LANGUAGE.md` §"Attributes").
+## How the marker works — and an important caveat
+
+The toolchain has a **real** `@deprecated` attribute with the syntax
+`@deprecated("Use X instead")`. It is parsed by the grammar
+(`attribute: "@" NAME ["(" attribute_args ")"]`), stored on the symbol, and emits
+`W0006` at the *use* site. `pengu check --deny-deprecated` and
+`pengu test --deny-deprecated` promote `W0006` to an error. Tests:
+`tests/test_deprecation.py` (the mechanism, Phase 2) and
+`tests/test_deprecation_policy.py` (surfacing + CI denial, Phase 5).
+
+**The stdlib uses only the docstring convention today, not that attribute.**
+Every marker in `std/` is a `## @deprecated Use X instead.` doc comment, and the
+checker reads the *attribute*, not the docstring — so **none of these aliases
+currently emits `W0006`**. Measured during Phase 6: 90 docstring markers, 0 real
+`@deprecated(...)` attributes in `std/`.
+
+Applying the real attribute is a 1.1 change, not a 1.0 one: it needs three
+things done together (each measured during Phase 6).
+
+1. **Migrate the internal users first**, or the stdlib warns about itself:
+   `string.find` (10 sites in `std/invoke` and `std/precis`), `string.rfind`
+   (1 site in `std/precis`), `oracle.maybe_some_string` (7 sites in
+   `std/precis`), and `oracle.result_ok_string` / `oracle.result_err_string`
+   (11 each, in `std/seal` and `std/ward`).
+2. **Move the alias coverage out of the `test` blocks.** `std/scrolls` and
+   `std/tally` exercise their aliases from in-file `test` blocks, and
+   `pengu check --entry std/<mod>.pengu` type-checks those too, so keeping both
+   the alias and its coverage triggers `W0006` on the module itself.
+3. **Carry the position.** `W0006` currently renders as `file:0:0` because the
+   checker's warning channel is a plain string list; item 6.3 fixed that for
+   `W0001` only. Until `W0006` carries `on line L col C`, an enforced stdlib
+   deprecation would be unlocatable.
+
+Until then, this file is the contract users actually get: **documented, not
+enforced**. Read a row as "this name is scheduled to change", not as "the
+compiler will warn you".
 
 Policy (decision D6, 1.x): the stdlib is coupled to the compiler. Deprecated
 symbols are **kept for the whole 1.x line** and removed in **2.0**, unless the
@@ -18,7 +50,7 @@ programs keep compiling across 1.x.
 
 Statuses:
 
-- **1.x** — still shipped, still warns; removal scheduled for 2.0.
+- **1.x** — still shipped, scheduled for removal in 2.0.
 - **blocked** — cannot be retired yet because the stdlib itself still calls it;
   the retirement is gated on an internal migration.
 

@@ -24,9 +24,14 @@
 ##   runes genéricos `Pair` y `Triple`, definidos en este módulo
 ##   (`oracle.Pair of int and string`); `Pair` deriva `Par`, `Vinculum`,
 ##   `Imago` y `Nexus` para compararse y usarse como clave de `map`.
-## - **`@deprecated` es una convención documental.** El toolchain no tiene
-##   soporte de deprecación: los alias de compatibilidad son `weave` normales
-##   cuyo docstring empieza por `## @deprecated Use X instead.`.
+## - **Deprecación documental, no aplicada.** El toolchain *sí* soporta el
+##   atributo real `@deprecated("Use X instead")` (emite `W0006`), pero estos
+##   alias usan por ahora la convención de docstring `## @deprecated Use X
+##   instead.` y por tanto **no** emiten aviso. Aplicarlo requeriría migrar
+##   antes los usos internos (`result_ok_string`/`result_err_string` en
+##   `std.seal` y `std.ward`, `maybe_some_string` en `std.precis`); está
+##   planificado para 1.1 y el inventario con reemplazo y versión de retirada
+##   vive en `docs/DEPRECATIONS.md`.
 ## - **Constructores de `result`.** `ok_of` / `err_of` son intrínsecos del
 ##   compilador (formas desnuda y `oracle.ok_of` / `oracle.err_of`) y exigen
 ##   contexto de tipo (`as result of T to E` o un `return` en una `weave` que

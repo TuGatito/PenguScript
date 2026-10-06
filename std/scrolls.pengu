@@ -32,8 +32,15 @@
 ## ## Notas de diseño
 ## - **Sin `+` para strings** (E0005): la única composición es la interpolación
 ##   `"{expr}"`; `_concat` es el único punto de acumulación del módulo.
-## - **`@deprecated` es una convención documental**: el toolchain no soporta
-##   deprecación; los alias empiezan su docstring por `## @deprecated Use X`.
+## - **Deprecación documental, no aplicada.** El toolchain *sí* soporta el
+##   atributo real `@deprecated("Use X instead")` (emite `W0006`, y
+##   `--deny-deprecated` lo promueve a error), pero estos alias usan por ahora
+##   la convención de docstring `## @deprecated Use X instead.` y por tanto
+##   **no** emiten aviso. Convertirlos en atributos reales obligaría además a
+##   migrar los usos internos (`find`/`rfind` en `std.invoke`/`std.precis`) y a
+##   sacar los alias de los bloques `test`, porque cualquier uso dispara el
+##   aviso. Está planificado para 1.1; el inventario con reemplazo y versión de
+##   retirada vive en `docs/DEPRECATIONS.md`.
 ## - **Forma funcional.** Cada método tiene su `weave` de módulo, que solo
 ##   añade el receptor `s` y delega; su contrato es el del método ya
 ##   documentado arriba (no se repite la misma línea 68 veces).

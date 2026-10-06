@@ -9,6 +9,19 @@
 ## firma**; las adiciones Pengunic usan `Pair` (`std.oracle`) o un núcleo
 ## genérico (`shard T`).
 ##
+## ## Cuándo usar `loom` y cuándo `tally`
+## `loom` es la familia **segura**: una lista vacía se representa como ausencia
+## (`loom.median`, `loom.mode` y `loom.min_max` devuelven `maybe none`) y las
+## estadísticas conservan la fracción (`loom.mean` sobre `[1, 2]` da `1.5`).
+## Es lo que quieres cuando una lista vacía no tiene respuesta y un centinela
+## ocultaría un bug.
+##
+## `std.tally` es la familia de reducciones con **identidad natural**: la lista
+## vacía colapsa a un centinela (`sum` -> 0, `product_num` -> 1, `max_val` -> 0)
+## y las estadísticas fraccionarias se truncan a `int`. Los 15 nombres
+## compartidos **no tienen la misma firma**: no son duplicados, son dos contratos
+## distintos. Ver `LANGUAGE.md` §19.1.1 y `docs/DEPRECATIONS.md`.
+##
 ## ## Ownership
 ## Ninguna función muta ni libera sus entradas: solo las lee y devuelve listas
 ## nuevas auto-banishables (o escalares), incluidas las internas de `chunks`.
@@ -34,8 +47,9 @@
 ## - **Núcleo genérico.** Los `generic_*` y `flatten_generic` son el núcleo
 ##   `shard T`; las concretas delegan en ellos con `of int`. Un cuerpo genérico
 ##   no puede invocar a otro: cada núcleo es autocontenido.
-## - **Alias sin toolchain.** `@deprecated` no existe: el único alias (`flatten`)
-##   reenvía y lo anuncia en su docstring.
+## - **Un único alias.** `flatten` lleva el atributo `@deprecated Use
+##   flat_map_identity instead` (emite `W0006` al usarse; ver
+##   `docs/DEPRECATIONS.md`).
 ## - **Tests internos.** El harness `_expect*` usa `spark.panic`; `std.ward`
 ##   arrastraría `std.scrolls`/`std.oracle` (en reescritura) a loom.
 ## - **Límites del codegen en `test`.** Dentro de un bloque `test` el compilador

@@ -10,6 +10,20 @@
 ## exacta de siempre, y delegan en los métodos; los métodos genéricos viven en
 ## bloques `enchanting` con su propio bound.
 ##
+## ## Cuándo usar `tally` y cuándo `loom`
+## `tally` es la familia de reducciones con **identidad natural**: una lista
+## vacía colapsa a un centinela (`sum` -> 0, `product_num` -> 1, `max_val` -> 0,
+## `mode` -> 0) y las estadísticas fraccionarias se truncan a `int`
+## (`calling xs.mean` sobre `[1, 2]` da 1). Es lo que quieres cuando el centinela
+## significa algo y no quieres ramificar.
+##
+## `std.loom` es la familia segura: `loom.mean` devuelve `float` (`1.5`) y
+## `loom.median`/`loom.mode`/`loom.min_max` devuelven `maybe` cuando la lista
+## está vacía. Los 15 nombres compartidos **no tienen la misma firma**: no son
+## duplicados, son dos contratos distintos. Usa `loom` cuando una lista vacía no
+## tenga respuesta y devolver un centinela ocultaría un bug.
+## Ver `LANGUAGE.md` §19.1.1 y `docs/DEPRECATIONS.md`.
+##
 ## ## Ownership
 ## Ninguna operación muta ni libera la lista de entrada: solo se lee
 ## (`essence of self`) y se devuelve un valor escalar o una **lista nueva**

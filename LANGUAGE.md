@@ -2850,6 +2850,47 @@ All pure modules are located in the `std/` directory and imported as `import std
 | `std.ledger` | Tabular data, CSV/TSV parsing, serialization, and matrix operations: parsing (`parse_csv`, `parse_tsv`, `parse_line`, `detect_delimiter`, `parse_csv_strict`, `parse_csv_nocomments`, `parse_csv_skip`, `parse_line_strict`, `parse_csv_normalized`), table abstraction `rune CsvTable` (`from_csv`, `from_rows`, `row_count`, `column_count`, `has_column`, `column_index`, `get`, `get_or`, `column`, `row_as_map`, `to_csv`), matrix enchantments (`list of list of string`: `row_count`, `column_count`, `is_rectangular`, `column`, `transpose`), key-value map conversions (`parse_csv_as_pairs`, `parse_csv_key_value`, `write_key_value_map`), escaping (`escape_field`, `escape_field_rfc4180`, `escape_field_backslash`), formatters (`to_csv_string`, `to_tsv_string`, `to_csv_string_no_trailing_newline`, `to_csv_string_crlf`), and file operations (`read_csv`, `read_tsv`, `write_csv`, `write_tsv`, `write_csv_safe`). |
 | `std.arithmancy` | Game-ready linear algebra and advanced mathematical functions: constants (`PI`, `TAU`, `E`, `EPSILON`), scalar functions (`abs_i`, `abs_f`, `min_i`, `max_i`, `min_f`, `max_f`, `clamp_i`, `clamp_f`, `sqrt_f`, `pow_f`, `sin_f`, `cos_f`, `tan_f`, `asin_f`, `acos_f`, `atan_f`, `atan2_f`, `deg_to_rad`, `rad_to_deg`, `lerp_f`, `smoothstep_f`), 2D vectors (`rune Vec2` with `dot`, `cross`, `length`, `normalize`, `distance`), 3D vectors (`rune Vec3` with `dot`, `cross`, `length`, `normalize`, `distance`), 4D vectors (`rune Vec4`), 4x4 transformation matrices (`rune Mat4` with `identity`, `translation`, `scaling`, `rotation_x/y/z`, `multiply`, `transpose`, `look_at`, `perspective`, `orthographic`), and quaternions (`rune Quat` with `identity`, `from_axis_angle`, `multiply`, `slerp`, `to_mat4`). |
 
+### 19.1.1 Choosing between `std.loom` and `std.tally`
+
+`std.loom` and `std.tally` both operate on lists and share 15 public names
+(`mean`, `median`, `mode`, `min_max`, `sum`, `flatten`, `take`, `windowed`,
+`zip_with`, `running_sum`, `scan_left`, `repeat`, `enumerate_pairs`,
+`is_sorted_asc`, `is_sorted_desc`). They are **not duplicates**: no shared name
+has the same signature. They are two deliberate API philosophies, and the
+choice is decided by what an empty or absent input should mean.
+
+| | `std.tally` | `std.loom` |
+|---|---|---|
+| Shape | enchants `list of T` (`calling xs.sum`) plus concrete `list of int` module functions | module functions only (`calling loom.sum with xs`); declares no `enchanting` |
+| Empty input | collapses to a sentinel (`0`, `""`, `false`) | signals absence (`maybe none`) |
+| Fractional results | truncated to `int` | preserved as `float` (`maybe float` for `median`) |
+| Generics | methods are generic (`T: Num/Ordo/Par/Integrum`); compatibility functions are concrete | `shard T` on the `generic_*` cores; the rest is concrete `list of int` |
+| Reach for it when | the sentinel is meaningful and the caller wants no branching (`sum`, `product_num`, `max_val`, `min_val` over counts) | absence must stay distinguishable (`mean` as a real average, `median`/`mode` on an empty list, `min_max` meaning "no elements") |
+
+Concrete example of the divergence:
+
+```pengu
+import std.loom
+import std.tally
+
+weave main into int:
+    var xs as list of int is calling loom.range with 1, 3, 1
+    var exact as float is calling loom.mean with xs      # 1.5
+    var lossy as int is calling tally.mean with xs       # 1
+    var no_median as maybe float is calling loom.median with (list of int)  # none
+    return 0
+```
+
+Rule of thumb: **use `tally` when the operation is a reduction with a natural
+identity** (`sum` -> 0, `product_num` -> 1, and `max_val` -> 0 is a deliberate
+sentinel) and **`loom` when an empty list has no answer**, where returning a
+sentinel would hide a bug.
+
+The deprecation status of the legacy aliases in both modules is catalogued in
+[`docs/DEPRECATIONS.md`](docs/DEPRECATIONS.md); unifying the two families is
+deferred to 1.1 because either direction is a breaking change for the callers of
+whichever family loses (item 6.5, `AUDIT_1.0_FASE6.md`).
+
 ### 19.2 C Native Binding Modules (25 `.d.pengu` modules)
 
 These declaration bindings expose native C libraries with zero abstraction overhead. The compiler links the corresponding C libraries during build:
