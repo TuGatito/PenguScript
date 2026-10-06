@@ -784,7 +784,12 @@ entre módulos) **y 7.14b** (traducir §5.0/§19.0/§19.1.1/§23, ≈279 líneas
 rewriter `pengu migrate` de 7.12, que ya estaba diferido en §4.14b. **Hallazgos
 nuevos:** F7-N1 (nominalidad de `seal` no aplicada en 3 posiciones), F7-N2 (refutada
 la regla de "2 espacios"), F7-N3 (colisión de códigos entre capas, con `E0062`
-fantasma).
+fantasma) **y F7-N4:** `tests/test_deps_commands.py` falla por una etiqueta git
+cacheada — **pre-existente**, medido en el commit base `355d946`, y diferido a la
+Fase 8 (robustez de tests).
+
+**Verificación de la fase:** suite completa `pytest tests -q` →
+**2 918 pasan, 1 falla** (la de F7-N4, pre-existente), 24 skip, 3 xfail, en 27 min.
 
 ### Riesgos
 

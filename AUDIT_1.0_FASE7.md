@@ -1081,6 +1081,45 @@ precisamente la clase de defecto del item):
 **Lección para el roadmap:** el criterio de 7.2 ("ningún `(código, mensaje)`
 duplicado") se queda corto: hay que exigir además que un código no cruce capas.
 
+### F7-N4 — 🟡 `test_deps_commands.py` falla por una etiqueta git cacheada (**pre-existente**)
+
+**Cómo se encontró:** al correr la suite completa de la Fase 7 (2 918 pasan, **1
+falla**).
+
+**Medición — la falla NO es de la Fase 7:**
+
+```bash
+$ .venv/bin/python -m pytest tests/test_deps_commands.py::test_add_upgrade_remove_end_to_end -q
+RuntimeError: git fetch failed for 'dep':
+! [rechazado] v1.0.0 -> v1.0.0 (sobrescribiría tag existente)
+1 failed in 0.32s
+
+# el mismo test, en un export limpio del commit BASE (355d946, sin ningún cambio de la Fase 7):
+$ git archive 355d946 | tar -x -C /tmp/base && cd /tmp/base && pytest <mismo test> -q
+1 failed in 0.99s          # idéntico
+```
+
+**Causa:** el test crea un repo git local como dependencia y **mueve** la etiqueta
+`v1.0.0`; el clon cacheado en `~/.cache/pengu/deps/<digest>` ya tiene esa etiqueta, y
+`git fetch --tags --prune` de `pengu_project.py:3598` **aborta** en vez de
+sobrescribirla. El digest de la caché no incluye el estado de las etiquetas, así que
+la segunda ejecución (y cualquier ejecución posterior a la primera) falla. Aislar con
+un `HOME` temporal no lo evita: el log sigue mostrando
+`/home/tugatito/.cache/pengu/deps/…`, o sea que la caché no respeta `HOME`.
+
+**Impacto:** el test es **no idempotente** —pasa una vez y falla después—, y
+enmascara cualquier regresión real de `pengu add/upgrade/remove` en ese archivo.
+
+**Decisión:** ⏸️ **diferido a la Fase 8**, con dos razones: no es una regresión de
+esta fase (está medido en el commit base) y es robustez de tests, que es exactamente
+el objeto de la Fase 8 ("convertir todo gate de texto en un gate que compila,
+ejecuta o mide"). Aquí sólo se **documenta**, no se toca: arreglarlo a la carrera
+justo antes del cierre introduciría riesgo sin presupuesto para verificarlo.
+
+**Reapertura:** un item de Fase 8 que haga el fetch tolerante a etiquetas movidas
+(`--force`) o que aísle la caché por test, con un test que corra el ciclo **dos
+veces** seguidas y falle si la segunda no pasa.
+
 ### F7-N1 — 🟠 El checker no hace cumplir la nominalidad de `seal` en 3 posiciones
 
 **Cómo se encontró:** verificando la afirmación de `CHEATSHEET.md` §10.4 ("valores de
