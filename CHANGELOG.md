@@ -9,6 +9,21 @@ All notable changes to PenguScript will be documented in this file.
 > sin pérdida de datos, con errores formateados de forma consistente y con el
 > contrato `--json` completo.
 
+### 🟡 Limpieza — item 4.13: fuera el `main()` duplicado de `pengu_bind.py`
+
+`pengu_bind.py` llevaba un `main()` con un `argparse` **completo copiado** del
+subcomando `bind` de `pengu_project.py`, alcanzable sólo ejecutando el módulo
+como script — que no hace nadie: `pengu bind` importa `generate_bind_file`
+directamente y los scripts del repo (`regen_std_bindings.py`,
+`migrate_manual_bindings.py`) también. Dos copias del mismo contrato terminan
+divergiendo; la API del módulo es la función, no un segundo CLI.
+
+Eliminados `main()` y el guard `if __name__ == "__main__"` (52 líneas).
+Medido: `grep -c "def main" pengu_bind.py` → **0** y `pengu bind` sigue
+funcionando (`Bound h.h -> h.d.pengu`, con `rune Bird:` y `wings as int`).
+`tests/test_bind_no_duplicate_main.py` (4 casos: sin `main` ni guard, módulo
+importable, `pengu bind` operativo, y que `regen_std_bindings.py` usa la API).
+
 ### 🟡 Fixed — L7 (item 4.12): `--cc tcc` encuentra el TCC incluido
 
 `pick_dev_compiler` ya localizaba el TCC empaquetado (`build/tcc-dist/…`) para
