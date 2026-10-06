@@ -2,6 +2,74 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [Unreleased] — FASE 7 (ROADMAP 2.0): Completar Style Guide y Docs
+
+> Hace verificable la documentación: el catálogo de diagnósticos se genera desde el
+> código, los bloques `pengu` de la referencia se compilan, la deriva de versión
+> pasa a estar gateada, cada regla del style guide tiene un test y existen los
+> documentos que faltaban (`CONTRIBUTING.md`, `docs/ARCHITECTURE.md`,
+> `docs/CROSS_COMPILATION.md`, `MIGRATION.md`, `docs/api/`).
+> Detalle por item, con la verificación de cada premisa, en `AUDIT_1.0_FASE7.md`.
+
+### Added
+
+- **`tools/gen_error_catalog.py`** — genera `LANGUAGE.md` §22.2/§22.3 y
+  `docs/error_catalog.json` desde el código por AST (clases, `code=`, docstrings,
+  `help`/`note`, emisiones crudas, `WARNING_CATALOG` y la capa de proyecto).
+  `--check` es el gate. Sustituye una tabla escrita a mano que nombraba **5 clases
+  de excepción inexistentes** y atribuía códigos a la clase equivocada.
+- **`WARNING_CATALOG`** en `pengu_parser/pengu_errors.py` — registro canónico de los
+  códigos de advertencia, que hasta ahora sólo existían en el documento.
+- **`tools/check_doc_blocks.py`** — compila los bloques `pengu` de `LANGUAGE.md` y
+  `LANGUAGE_Spanish.md` con un protocolo de tres marcadores (`pengu`,
+  `pengu-fragment`, `pengu-invalid`); los dos últimos deben **no** compilar, así que
+  el marcador no sirve de escondite. 197 bloques verificados.
+- **`tests/test_version.py`** — no existía (`pengu_version.py` afirmaba que sí).
+  Fija `VERSION`/`FALLBACK_VERSION`/`__version__`, 12 afirmaciones de versión y un
+  ratchet de tokens obsoletos.
+- **`tests/test_error_catalog_sync.py`**, **`tests/test_doc_blocks.py`**,
+  **`tests/test_language_policy.py`**, **`tests/test_migration_doc.py`**,
+  **`tests/test_api_docs.py`**, **`tests/test_std_style_rules.py`**,
+  **`tests/test_docs_canonical_syntax.py`**, **`tests/test_style_guide_exceptions.py`**.
+- **`CONTRIBUTING.md`** — setup, tests, el principio "ningún gate por texto"
+  (AUDIT §15.2), estilo, y el flujo de un diagnóstico nuevo.
+- **`docs/ARCHITECTURE.md`** — el pipeline completo (`parse → collect → check →
+  infer → codegen → cache → cc`) con los símbolos de entrada reales.
+- **`docs/CROSS_COMPILATION.md`** — `--target`/`--cc`, triples soportados y las
+  limitaciones medidas (un triple desconocido cae silenciosamente al host).
+- **`MIGRATION.md`** — la tabla de roturas por versión (la única: `and` separador →
+  `,` en 0.10.0), verificada contra el `CHANGELOG` y compilada.
+- **`docs/api/`** — referencia de API generada por `tools/gen_api_docs.py`: 1483 de
+  1576 declaraciones públicas documentadas (94,1 %) en los 27 módulos escritos a mano.
+
+### Changed
+
+- `E0035` deja de cubrir 4 condiciones sin relación: `static var` fuera de una
+  función → **`E0063`**, nombre de test inválido → **`E0064`**, colisión de campos en
+  C → **`E0065`**.
+- `DependencyConflictError` emite ahora su código **`E0062`**, que
+  `pengu_project.py` documentaba sin emitirlo nunca.
+- `CHEATSHEET.md` corregido: el `seal` y su tipo subyacente dan `E0005`, no `E0035`;
+  `E0035` es la colisión con C. §15.5 deja de mostrar la línea canónica de rango dos
+  veces y marca `a..b` como obsoleta con su código `W0013`.
+- 9 archivos con deriva de versión corregidos a `0.16.0`.
+- 20 constructores `weave ritual` de `std/arithmancy.pengu` documentan su invariante
+  (44/44), incluida la asimetría `Vec2.up = (0,-1)` / `Vec3.up = (0,1,0)`.
+- 6 errores reales corregidos en ejemplos de `LANGUAGE.md` (interpolación inválida,
+  inferencia genérica en `ffi`, `ref to` frente a valor en `filum`, `maybe Regex` en
+  `regulus`).
+- Política de idioma declarada en los 5 documentos bilingües: inglés canónico y
+  normativo, español no normativo con su lag enumerado.
+- `.gitignore`: `docs/api/` deja de ignorarse (es un artefacto generado **rastreado**,
+  con gate anti-deriva).
+
+### Fixed
+
+- El gate `ruff --select F821,E9` estaba **rojo en HEAD**:
+  `pengu_project.py:5819` usaba `Callable` sin importarlo.
+- `pengu_lsp/__init__.py` no hardcodea versión (refuta AUDIT §13.4); codegen de la
+  versión en `pengu_version.py` corregido en sus ejemplos.
+
 
 ## [Unreleased] — FASE 6 (ROADMAP 2.0): Completar stdlib
 

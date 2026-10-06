@@ -746,14 +746,45 @@ item, con la verificación de premisas, está en `AUDIT_1.0_FASE7.md`.
 
 ### Criterio de "done" de la fase
 
-- [ ] El catálogo de errores de `LANGUAGE.md` se genera y un test detecta la divergencia.
-- [ ] Ningún `(código, mensaje)` de diagnóstico está duplicado.
-- [ ] CI compila los bloques `pengu` completos de `LANGUAGE.md` → 0 fallos.
-- [ ] 0 deriva de versión en los 13 archivos.
-- [ ] Cada regla del style guide tiene un test que la verifica en la stdlib.
-- [ ] `CONTRIBUTING.md`, `docs/ARCHITECTURE.md`, `docs/ABI.md`, `docs/CROSS_COMPILATION.md`,
-      `MIGRATION.md` existen.
-- [ ] La referencia de API cubre ≥90 % de los nombres públicos de la stdlib.
+- [x] El catálogo de errores de `LANGUAGE.md` se genera y un test detecta la divergencia.
+      `tools/gen_error_catalog.py --check` → `62 codes, 327 conditions, 9 warnings,
+      2 project-layer codes, in sync`; `tests/test_error_catalog_sync.py` (21 casos).
+      Las **5 clases fantasma** desaparecen.
+- [x] Ningún `(código, mensaje)` de diagnóstico está duplicado. **Matizado:**
+      `mensaje → código` ya era una función (0 violaciones, medido); el bug real era
+      el inverso — `E0035` cubría **4 condiciones sin relación** → desplazadas a
+      `E0063`/`E0064`/`E0065`. El ratchet `CONDITION_SHAPES` (62 códigos) cierra la
+      clase de bug, y un test aparte impide que las capas lenguaje/proyecto
+      reutilicen un código (hallazgo F7-N3).
+- [x] CI compila los bloques `pengu` completos de `LANGUAGE.md` → 0 fallos.
+      Medido antes: 35 de 101 compilaban. Ahora **39/56/6** (compilan / fragmento /
+      inválido deliberado) y `tools/check_doc_blocks.py --check` verifica los **197**
+      bloques de los dos documentos en 2 m 08 s. Se corrigieron **6 bugs reales** de
+      documentación.
+- [x] 0 deriva de versión. **Matizado:** no eran 13 archivos sino **9** con deriva
+      real (6 más tenían menciones históricas legítimas y `pengu_lsp/__init__.py`
+      está refutado). `tests/test_version.py` (**creado**: no existía) fija las 12
+      afirmaciones de versión y aplica un ratchet de tokens obsoletos.
+- [x] Cada regla del style guide tiene un test que la verifica en la stdlib.
+      `tests/test_std_style_rules.py` (9 casos) + `tests/test_style_guide_exceptions.py`
+      (19). De las 6 reglas de §10.5, **cuatro ya se cumplían**, una pedía alcance y
+      **una estaba incumplida** (20 de 44 `ritual` sin documentar → 44/44).
+- [x] `CONTRIBUTING.md`, `docs/ARCHITECTURE.md`, `docs/ABI.md`, `docs/CROSS_COMPILATION.md`,
+      `MIGRATION.md` existen. `docs/ABI.md` **ya existía** (Fase 3, item 3.11) y se
+      verificó y enlazó en vez de recrearse.
+- [x] La referencia de API cubre ≥90 % de los nombres públicos de la stdlib.
+      **Matizado:** son **4014** nombres públicos, no 1463, y 1862 son `declare` de
+      bindings generados (documentados por la cabecera C de origen). En los 27
+      módulos escritos a mano: **1483/1576 = 94,1 %**. `docs/api/` se genera y
+      `tests/test_api_docs.py` lo verifica byte a byte.
+
+**Estado final de la Fase 7: 14 items cerrados** (7.10 era verificación de trabajo ya
+hecho) **y 2 sub-items diferidos con medición: 7.6b** (49 nombres públicos repetidos
+entre módulos) **y 7.14b** (traducir §5.0/§19.0/§19.1.1/§23, ≈279 líneas), más el
+rewriter `pengu migrate` de 7.12, que ya estaba diferido en §4.14b. **Hallazgos
+nuevos:** F7-N1 (nominalidad de `seal` no aplicada en 3 posiciones), F7-N2 (refutada
+la regla de "2 espacios"), F7-N3 (colisión de códigos entre capas, con `E0062`
+fantasma).
 
 ### Riesgos
 
