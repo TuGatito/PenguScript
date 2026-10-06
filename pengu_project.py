@@ -5192,6 +5192,141 @@ def emit(message: str = "", *, color: Optional[str] = None,
     out.write(text + end)
 
 
+_SUBCOMMAND_DOCS: Dict[str, Dict[str, str]] = {
+    "init": {
+        "description": "Create a new PenguScript project from a template.",
+        "epilog": "Exit codes: 0 created, 1 directory exists / write error, 2 bad usage.\n"
+                  "Example:\n  pengu init my_app --type exe",
+    },
+    "add": {
+        "description": "Add an external dependency by cloning it into lib/<name>.",
+        "epilog": "Exit codes: 0 added, 1 clone/build failure, 2 bad usage.\n"
+                  "Example:\n  pengu add https://github.com/me/lib.git --name mylib",
+    },
+    "remove": {
+        "description": "Remove an installed dependency and its manifest entry.",
+        "epilog": "Exit codes: 0 removed, 1 unknown dependency, 2 bad usage.\n"
+                  "Example:\n  pengu remove mylib",
+    },
+    "upgrade": {
+        "description": "Upgrade one dependency to a branch or tag.",
+        "epilog": "Exit codes: 0 upgraded, 1 git failure, 2 bad usage.\n"
+                  "Example:\n  pengu upgrade mylib --version v1.2.0",
+    },
+    "tree": {
+        "description": "Print the resolved dependency graph (text, or JSON Lines with --json).",
+        "epilog": "Exit codes: 0 printed, 1 resolution failure, 2 bad usage.\n"
+                  "Example:\n  pengu tree --json",
+    },
+    "metadata": {
+        "description": "Print machine-readable project metadata as one JSON line.",
+        "epilog": "Exit codes: 0 printed, 1 config error, 2 bad usage.\n"
+                  "Example:\n  pengu metadata | python -c \"import json,sys; json.load(sys.stdin)\"",
+    },
+    "verify": {
+        "description": "Verify installed dependencies against pengu.lock.",
+        "epilog": "Exit codes: 0 everything matches, 1 mismatch/missing, 2 bad usage.\n"
+                  "Example:\n  pengu verify",
+    },
+    "vendor": {
+        "description": "Copy dependencies into vendor/ so the build works offline.",
+        "epilog": "Exit codes: 0 vendored, 1 copy failure, 2 bad usage.\n"
+                  "Example:\n  pengu vendor --out vendor",
+    },
+    "build": {
+        "description": "Compile the project into its configured artifact.",
+        "epilog": "Exit codes: 0 built, 1 build error, 2 bad usage.\n"
+                  "A missing libpengu_runtime.a stops before the C compiler.\n"
+                  "Example:\n  pengu build --profile release",
+    },
+    "run": {
+        "description": "Build and execute the project, or run a standalone .pengu script.",
+        "epilog": "Exit codes: the executed program's own code; 1 build/parse error, 2 bad usage.\n"
+                  "Example:\n  pengu run src/main.pengu -- --flag arg",
+    },
+    "doctor": {
+        "description": "Report toolchain health (compiler, tcc, runtime header, cache, std/).",
+        "epilog": "Exit codes: 0 healthy, 1 one or more problems, 2 bad usage.\n"
+                  "Example:\n  pengu doctor --json",
+    },
+    "gc": {
+        "description": "Garbage-collect cached script binaries.",
+        "epilog": "Exit codes: 0 collected, 1 failure, 2 bad usage.\n"
+                  "Example:\n  pengu gc --max-age 7",
+    },
+    "expand": {
+        "description": "Print the generated bundle.c for a script (no compilation).",
+        "epilog": "Exit codes: 0 printed, 1 parse/check error, 2 bad usage.\n"
+                  "Example:\n  pengu expand src/main.pengu -o bundle.c",
+    },
+    "time": {
+        "description": "Run a script and report per-phase timings.",
+        "epilog": "Exit codes: 0 ran, 1 build/parse error, 2 bad usage.\n"
+                  "Example:\n  pengu time src/main.pengu",
+    },
+    "eval": {
+        "description": "Evaluate a one-line PenguScript expression and print the result.",
+        "epilog": "Exit codes: 0 evaluated, 1 parse/compile/run error, 2 bad usage.\n"
+                  "A fault inside the program is reported as 128+signal (e.g. 136 for SIGFPE).\n"
+                  "Example:\n  pengu eval \"2 + 3\"",
+    },
+    "watch": {
+        "description": "Re-run a script whenever it or any module it imports changes.",
+        "epilog": "Exit codes: 1 parse/build error on the first run, 2 bad usage;\n"
+                  "otherwise it runs until interrupted (Ctrl-C).\n"
+                  "Example:\n  pengu watch src/main.pengu",
+    },
+    "test": {
+        "description": "Compile and run the integrated `test` blocks.",
+        "epilog": "Exit codes: 0 all passed, 1 a test failed or compilation error, 2 bad usage.\n"
+                  "Example:\n  pengu test --json",
+    },
+    "check": {
+        "description": "Parse and type-check every module without generating C (fast CI gate).",
+        "epilog": "Exit codes: 0 clean, 1 errors (or warnings with --deny-deprecated), 2 bad usage.\n"
+                  "Example:\n  pengu check --json",
+    },
+    "update": {
+        "description": "Update every dependency: git pull plus its build scripts.",
+        "epilog": "Exit codes: 0 updated, 1 pull/build failure, 2 bad usage.\n"
+                  "Example:\n  pengu update",
+    },
+    "bind": {
+        "description": "Translate a C header into a PenguScript .d.pengu declaration file.",
+        "epilog": "Exit codes: 0 generated, 1 header could not be parsed (actionable tips are\n"
+                  "printed), 2 bad usage.\n"
+                  "Example:\n  pengu bind /usr/include/zlib.h --output std/zlib.d.pengu",
+    },
+    "fmt": {
+        "description": "Format .pengu sources; --check exits non-zero instead of writing.",
+        "epilog": "Exit codes: 0 nothing to change (or written), 1 --check found changes,\n"
+                  "2 bad usage. Indentation precedence: --indent/--tabs, then .pengufmt.toml,\n"
+                  "then 4 spaces.\n"
+                  "Example:\n  pengu fmt src/ --check",
+    },
+    "clean": {
+        "description": "Remove the build directory and generated artifacts.",
+        "epilog": "Exit codes: 0 cleaned, 1 failure, 2 bad usage.\n"
+                  "Example:\n  pengu clean",
+    },
+    "lsp": {
+        "description": "Launch the Language Server Protocol server for editors.",
+        "epilog": "Exit codes: 0 server stopped, 1 protocol/startup error, 2 bad usage.\n"
+                  "Example:\n  pengu lsp --stdio",
+    },
+    "doc": {
+        "description": "Generate Markdown documentation from `##` doc comments.",
+        "epilog": "Exit codes: 0 generated, 1 parse error, 2 bad usage.\n"
+                  "Example:\n  pengu doc --output docs/",
+    },
+    "assets": {
+        "description": "Generate or list the project's embedded asset modules.",
+        "epilog": "Exit codes: 0 generated, 1 missing assets dir / write error, 2 bad usage.\n"
+                  "Example:\n  pengu assets --list",
+    },
+}
+
+
 def create_cli_parser() -> argparse.ArgumentParser:
     """Constructs the Cargo-style CLI argument parser."""
     parser = argparse.ArgumentParser(
@@ -5522,6 +5657,16 @@ def create_cli_parser() -> argparse.ArgumentParser:
                           help="Suppress progress output (errors still go to stderr)")
         _sub.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS,
                           help="Disable ANSI colours (also honoured: NO_COLOR=1)")
+
+    # Item 4.16: every subcommand documents its contract in `--help` — what it
+    # does, the exit codes it can produce, and a runnable example. A subcommand
+    # that already carries its own epilog keeps it.
+    for _name, _sub in subparsers.choices.items():
+        doc = _SUBCOMMAND_DOCS.get(_name, {})
+        if not _sub.description and doc.get("description"):
+            _sub.description = doc["description"]
+        if not _sub.epilog and doc.get("epilog"):
+            _sub.epilog = doc["epilog"]
 
     return parser
 

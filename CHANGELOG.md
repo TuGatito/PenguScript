@@ -9,6 +9,32 @@ All notable changes to PenguScript will be documented in this file.
 > sin pérdida de datos, con errores formateados de forma consistente y con el
 > contrato `--json` completo.
 
+### 🟡 Añadido — item 4.16: el contrato de cada subcomando en `--help`
+
+De los 25 subparsers, sólo **uno** tenía epílogo: `pengu build --help` explicaba
+los flags pero no los códigos de salida ni un ejemplo ejecutable. Ahora cada
+subcomando lleva una descripción de una frase (la propia del parser, que antes
+sólo aparecía en el listado de `pengu --help`) y un epílogo con **los códigos de
+salida esperados** y **un ejemplo**:
+
+```
+$ pengu eval --help
+…
+Exit codes: 0 evaluated, 1 parse/compile/run error, 2 bad usage. A fault inside
+the program is reported as 128+signal (e.g. 136 for SIGFPE).
+Example:
+  pengu eval "2 + 3"
+```
+
+Se documentan los códigos que los tests de esta fase hacen valer: `build`
+(0/1/2, y que un `libpengu_runtime.a` ausente para antes del compilador), `test`
+(0/1/2), `fmt` (1 con `--check` cuando hay cambios, y la precedencia
+`--indent`/`--tabs` > `.pengufmt.toml` > 4), `eval` (128+señal). Un subcomando
+con epílogo propio lo conserva.
+
+`tests/test_cli_help_contract.py` (28 casos: estructura del parser para los 25,
+que cada epílogo nombre un `pengu <cmd>` concreto, y que `--help` lo renderice).
+
 ### 🟡 Limpieza — item 4.13: fuera el `main()` duplicado de `pengu_bind.py`
 
 `pengu_bind.py` llevaba un `main()` con un `argparse` **completo copiado** del
