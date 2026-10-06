@@ -151,20 +151,44 @@ def test_pengu_cache_env_var_disables_caching(sandbox):
 
 
 def test_script_arguments_are_forwarded(sandbox):
+    """Roadmap 8.17 (3): the args must be *exactly* the two after `--`.
+
+    The old assertion was ``assert "2" in res.stdout`` — a substring of the whole
+    CLI transcript.  It went green whenever any progress line happened to contain a
+    digit 2 (`Finished in 0.7x s`, a temp path, ...) and red otherwise; measured
+    over five runs of this file it failed 1 time, and the printed value was never
+    the thing being asserted.  It also encoded the wrong contract:
+    ``std.rites.get_args`` documents index 0 as the program name, so two forwarded
+    arguments means ``args.len == 3``, never 2.
+
+    The assertion is now on exact output lines, so it measures the forwarding
+    itself instead of the noise around it.
+    """
     work, cache = sandbox["work"], sandbox["cache"]
     script = work / "args.pengu"
     script.write_text(
         "import std.rites\nimport std.spark\n\n"
         "weave main into int:\n"
         "    var args as list of string is calling rites.get_args\n"
-        "    calling spark.println with \"{args.len}\"\n"
+        "    calling spark.println with \"ARGC:{args.len}\"\n"
+        "    var a1 as string is calling rites.arg_at_or with 1, \"\"\n"
+        "    var a2 as string is calling rites.arg_at_or with 2, \"\"\n"
+        "    calling spark.println with \"ARG1:{a1}\"\n"
+        "    calling spark.println with \"ARG2:{a2}\"\n"
         "    return 0\n",
         encoding="utf-8",
     )
     res = _cli(["run", str(script), "--", "one", "two"], work, cache)
     if res.returncode != 0:
         pytest.skip(f"std.rites.get_args unavailable: {res.stderr[:200]}")
-    assert "2" in res.stdout, res.stdout
+    lines = [line.strip() for line in res.stdout.splitlines()]
+    # argv[0] is the program name, hence 3 and not 2.
+    assert "ARGC:3" in lines, lines
+    assert "ARG1:one" in lines, lines
+    assert "ARG2:two" in lines, lines
+    # The `--` separator belongs to the CLI, never to the script.
+    assert not any(line.split(":", 1)[-1].startswith("--")
+                   for line in lines if line.startswith(("ARG1:", "ARG2:"))), lines
 
 
 def test_run_does_not_create_build_in_the_working_directory(sandbox):
