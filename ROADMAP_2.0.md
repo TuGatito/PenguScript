@@ -896,9 +896,10 @@ de la stdlib bajo LeakSanitizer.
 - [x] CodeQL en CI (`dca109f`); 0 alertas altas es un presupuesto de alertas, no un estado del job.
 - [x] Todas las actions fijadas por SHA (`dca109f`), con test que lo vigila.
 - [x] **Ningún test del repositorio verifica una propiedad inspeccionando texto.** Los 4 gates
-      nombrados por B10 compilan o ejecutan; las 4 coincidencias restantes de
-      `grep -rn 'not in bundle\|not in result'` están clasificadas en el audit (2 son salida
-      estructurada de LSP/stdlib, 1 es eliminación en comptime diferida a 1.1).
+      nombrados por B10 compilan o ejecutan y la medida baja de 7 a **3** coincidencias de
+      `grep -rn 'not in bundle\|not in result' tests/`, las 3 clasificadas en el audit: 1 con
+      motivo medido (un `ref to T` no es construible en runtime) y 2 que son salida
+      estructurada de LSP/stdlib, no código generado.
 
 ### Riesgos
 
@@ -1076,6 +1077,11 @@ Publicar 1.0.0.
 | **`pengu repl`** | `pengu eval` cubre la necesidad puntual; un REPL real requiere estado incremental en el compilador (que hoy reconstruye el `inferrer` por llamada) | 1.1 |
 | **Windows `__declspec(thread)` en DLLs dinámicas** | Limitación de la plataforma documentada por Microsoft; solo aplica a DLLs cargadas con `LoadLibrary` | Documentar, no arreglar |
 | **Cobertura de `clang -Weverything` (389 warnings)** | 267 son `-Wunsafe-buffer-usage`, que es una preferencia de estilo de una toolchain, no un bug. Se mantiene el estándar `-Wall -Wextra -Werror` | No planificado |
+| **8.19 — fugas de la stdlib bajo LeakSanitizer** (nuevo, F8-N2) | Medido: las trazas apuntan a `std/invoke.pengu:105/292` (`pengu_list_new`, `pengu_map_new_owned`) y el suite completo bajo ASan acumula **164 fallos al 92 %**. Es un cambio de propiedad de memoria en `std/*.pengu`/`pengu_codegen.py`, no un ajuste de CI; sin él el job de sanitizers no puede estar verde (8.2) | 1.1 (bloquea 10.4) |
+| **8.20 — `--strict-c99` genera C inválido y miscompila** (nuevo, F8-N4/N4a; extiende 3.2/3.3) | Medido en los 56 programas de std: 18 con 13 errores duros (`'k' undeclared` de una comprehension mal hoisteada) y 1 que compila limpio y aborta en runtime (`test_loom_extended`, `Index out of bounds` en `std/loom.pengu:347`) mientras el build por defecto sale rc 0. **18 + 1 filas en `xfail(strict=True)`** que pasarán a `xpass` al arreglarlo | 1.1 |
+| **8.21 — `array of T` sin tamaño imprime un Traceback** (nuevo, F8-N6) | El ejemplo de `LANGUAGE.md` §5.0 hace que `check` pase y `build` lance `SemanticError` desde codegen, que el CLI no captura: **viola la regla C4**. Pin `xfail(strict=True)` en `tests/test_phase8_findings.py` | 1.1 |
+| **8.22 — contrato del CLI en las rutas de entrada** (nuevo, F8-N7) | Medido: `pengu time <inexistente>` y `pengu fmt <inexistente>` lanzan Traceback (C4) y `build`/`test`/`doc` con `--entry` inexistente devuelven **rc 0** construyendo la entrada por defecto. 5 filas `xfail(strict=True)` en `tests/test_cli_contract.py` | 1.1 |
+| **8.23 — `compute_config_hash()` ignora `PENGU_NO_DCE`** (nuevo, F8-N9) | Medido: mismo origen, 3254 bytes con DCE y 16047 sin DCE, **misma clave** `8c5f7a759af9810d`; el rebuild en el mismo directorio devuelve `is_cached=True` con el bundle obsoleto. Pin `xfail(strict=True)` en `tests/test_properties.py` | 1.1 |
 | **Idioma único en la documentación** | La cobertura bilingüe real es un activo (72 bloques sincronizados en cada guía). Se formaliza la política (item 7.14) en vez de eliminar un idioma | N/A |
 
 ---

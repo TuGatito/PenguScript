@@ -31,8 +31,3 @@ exclude = [
 [tool.ruff.lint]
 # F821 — undefined name; E9 — syntax/parse-level breakage (E902, E999).
 select = ["F821", "E9"]
-
-[tool.ruff.lint.per-file-ignores]
-# Bundled TCC smoke scripts and the packaging entry points are executed, not
-# imported; they intentionally rely on the build directory being on sys.path.
-"scripts/*.py" = ["F821"]

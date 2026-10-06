@@ -1176,8 +1176,18 @@ class TestControlFlow:
 class TestEnchantingMethodCalls:
     """Method calls on enchanted types generate C method calls."""
 
+    @requires_cc
+    @requires_runtime
     def test_enchanting_method_call_value(self):
-        """Calling a method on a value instance passes a pointer &var."""
+        """A method call on a value instance passes a pointer `&var`.
+
+        Roadmap 8.1 (B10): this used to be decided by looking for
+        `Persona_present(&p)` in the generated C and for two substrings that must
+        *not* appear.  Both halves are now a compile-and-run: `p->present` and
+        `p.present(` are not valid C here, so the program only builds and prints
+        "Juan" if the call really lowered to the method with a pointer to the
+        instance.
+        """
         code = """
 rune Persona:
   nombre as string
@@ -1187,19 +1197,28 @@ enchanting Persona:
   weave present into string:
     return self->nombre
 
-weave main into void:
+weave main into int:
   var p as Persona is with nombre is "Juan", edad is 25
   calling print with calling p.present
+  return 0
 """
-        bundle = gen_bundle(code, filename="main.pengu")
-        # Should generate Persona_present(&p)
-        assert "Persona_present(&p)" in bundle
-        # Should NOT contain p->present
-        assert "p->present" not in bundle
-        assert "p.present(" not in bundle
+        res = compile_run(code, tag="enchant_value")
+        assert res.returncode == 0, res.stderr
+        assert "Juan" in res.stdout, res.stdout
 
     def test_enchanting_method_call_ref(self):
-        """Calling a method on a ref instance passes the ref directly."""
+        """Calling a method on a ref instance passes the ref directly.
+
+        Roadmap 8.1 (B10) left this one as a *text* check, and the reason is
+        measured rather than convenient: a `ref to T` value cannot be built in a
+        `main`-driven program. The language has no address-of operator, an id
+        value at a call site is not converted implicitly
+        (`Argument 'c' of 'bump' expects 'ref to Counter', got 'Counter'`), and the
+        only allocator is a std module import. The only runtime ref is a parameter,
+        which needs a caller that could already build one. So the emission is
+        pinned here, and the runtime side of refs is covered by the suites that
+        pass refs between weaves.
+        """
         code = """
 rune Counter:
   val as int

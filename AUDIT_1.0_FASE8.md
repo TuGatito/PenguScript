@@ -21,8 +21,8 @@
 | 8.3 | `ruff` con `F821,E9` como error (A11) | ✅ | commit `68a5f5b`; `ruff check --select F821,E9 .` → 0 |
 | 8.4 | Corpus de compliance (A13) | ✅ **54 programas** (pedido: 50) | commit `eff1288`; `pytest tests/test_compliance_corpus.py` → 60 passed |
 | 8.5 | Corpus de migración (A13) | ✅ (alcance medido: ≥0.10.0) | commits `66d35e3`, `d3b0b19`; `pytest tests/test_migration_corpus.py` → 21 passed |
-| 8.6 | `pytest-cov` con umbral | ⏸️ config + gate listos; umbral pendiente de la corrida | commit `73cda9a` |
-| 8.7 | Property-based testing (M13) | ⏸️ ver nota | commit pendiente |
+| 8.6 | `pytest-cov` con umbral | ✅ **80.20 % medido**, umbral 80 | commits `73cda9a`, `bf9e782` |
+| 8.7 | Property-based testing (M13) | ✅ 7 propiedades, 8 passed / 1 xfailed | commit `647bca2`; hallazgo F8-N9 |
 | 8.8 | Contrato de CLI | ✅ 27 subcomandos (no 25) + 5 violaciones halladas | commit `1bf99a9`; 122 passed, 5 xfailed |
 | 8.9 | Cada `code="Exxxx"` alcanzable | ✅ 73/73 (69 con programa + 4 exentos) | commit `0595f07`; 133 passed, 4 xfailed |
 | 8.10 | Estrés a 10 000 líneas | ✅ | commit `7ae14c8`; check 6.51 s, build 7.15 s sobre 10 003 líneas |
@@ -182,17 +182,22 @@ regla C2 queda automatizada.
 **Resultado:** `test_attributes_msvc_native.py` + `test_attributes_msvc_text.py` →
 **5 passed, 1 skipped** (el `cl.exe` real, ausente aquí).
 
-### Criterio `grep -rn 'not in bundle\|not in result' tests/` → 0
+### Criterio `grep -rn 'not in bundle\|not in result' tests/`
 
-Cumplido para los 4 gates nombrados. Quedan 4 coincidencias que **no** son gates
-de texto del compilador y se dejan con nota:
+Los 4 gates nombrados por B10 compilan o ejecutan. La medida pasa de **7** a **3**
+coincidencias, y las 3 que quedan están clasificadas:
 
 | Archivo | Qué afirma | Por qué se queda |
 |---|---|---|
-| `test_compiler_features.py:1198,1199,1216` | ausencia de `p->present` en el bundle | Afirma una **eliminación en comptime**; convertirla exige un programa que además *ejecute* lo eliminado (candidato a 1.1, no bloquea) |
+| `test_compiler_features.py:1235` | `c->inc` no aparece en el bundle | **Motivo medido**, no comodidad: un valor `ref to T` no se puede construir en un programa dirigido por `main` (el lenguaje no tiene operador de dirección, un `id` no se convierte implícitamente — `Argument 'c' of 'bump' expects 'ref to Counter', got 'Counter'` — y el único asignador es un import de std), así que la emisión se fija por texto y el lado runtime lo cubren las suites que pasan refs entre weaves |
 | `test_lsp_phase5.py:87` | `b_uri not in result.changes` | Salida **estructurada** de una operación LSP (no es código generado) |
 | `test_stdlib.py:237` | marcadores ausentes en `stdout` | Marcadores de la stdlib, no del compilador |
-| `test_run_cache.py:167` | (eliminado en 8.17③) | Se convirtió en aserción por líneas exactas |
+
+Las otras dos coincidencias que existían al empezar la fase sí se convirtieron:
+las dos comprobaciones de `TestEnchantingMethodCalls::test_enchanting_method_call_value`
+pasaron a compilar **y ejecutar** (el programa sólo construye e imprime "Juan" si
+la llamada bajó a `Persona_present(&p)`), y `test_run_cache.py:167` pasó a
+aserciones por líneas exactas (8.17③).
 
 ---
 
@@ -238,21 +243,32 @@ verificables por nada. El hueco queda escrito en `tests/migration/README.md`.
 
 ---
 
-## 8.6 — Cobertura con umbral no decreciente — ⏸️ config entregada, umbral final pendiente
+## 8.6 — Cobertura medida con umbral no decreciente
 
 `.coveragerc` mide el **producto** (`pengu_parser`, `pengu_lsp` y el tooling de
-raíz) y excluye `tests/`, `extern/`, `tools/`, `scripts/` y los generadores. El
-`fail_under` es el ratchet: `tests/test_ci_workflows.py::test_coverage_gate_is_wired_into_the_full_suite`
-lo lee del `.coveragerc`, y el paso de CI corre **el suite completo bajo
-`--cov`** (una sola pasada, no dos).
+raíz) y excluye `tests/`, `extern/`, `tools/`, `scripts/` y los generadores, para
+que el número hable del código que se publica y no del suite. El paso de CI corre
+**el suite completo bajo `--cov`** (una sola pasada, no dos) y `pytest-cov`
+aplica `fail_under` del fichero.
 
-Comprobado que `pytest-cov` respeta `fail_under` del fichero de config (sonda:
-`fail_under = 99` sobre un suite al 85 % → `ERROR: Coverage failure` y el run
-falla).
+**Medición (comando al final):**
+```
+TOTAL                          19235   3808   80.20%
+Required test coverage of 50.0% reached. Total coverage: 80.20%
+```
+**Umbral fijado en 80** (0.2 puntos por debajo de lo medido, para que una
+colección que difiera por un pelo no convierta el ratchet en una moneda al aire) y
+`RECORDED_FLOOR = 80.0` en `tests/test_ci_workflows.py`, con la comprobación
+`floor >= RECORDED_FLOOR`: subir cobertura es un cambio deliberado de dos líneas
+(el `.coveragerc` y la constante) y bajarla no puede pasar por accidente.
 
-**Pendiente:** el valor medido (se fija al número de la corrida de cobertura de
-§"Mediciones", con `RECORDED_FLOOR` en el test para que bajarlo sea un acto
-deliberado de dos líneas).
+Cobertura por archivo (los 4 grandes, `--cov-report=term-missing`):
+`pengu_parser/pengu_checker.py` 85.82 %, `pengu_parser/pengu_codegen.py` 78.65 %,
+`pengu_parser/pengu_infer.py` 77.90 %, `pengu_lsp/server.py` 80.90 %,
+`pengu_project.py` 78.06 %.
+
+También comprobado que el mecanismo *muerde*: con `fail_under = 99` sobre un
+suite al 85 % el run acaba en `ERROR: Coverage failure` (sonda ejecutada).
 
 ---
 
@@ -569,9 +585,25 @@ for i in $(seq 1 5);  do pytest tests/test_run_cache.py -q; done
 
 | Item | Por qué se difiere | Medición que lo justifica | Criterio de reapertura |
 |------|--------------------|---------------------------|------------------------|
-| **8.2 (job verde)** | Las fugas están en la stdlib, no en un test | 6/6 fallos en los 3 archivos con fugas y decenas de fallos en el suite completo bajo ASan | Cerrar 8.19 (fugas de stdlib); entonces el `--deselect` se vacía y el test de propagación obliga a tocar el workflow |
-| **8.6 (umbral)** | El número debe salir de la corrida del suite completo | Ver §"Mediciones finales" | Fijar `fail_under` al valor medido y `RECORDED_FLOOR` en el test |
-| **8.7 (propiedades)** | Ver §"Mediciones finales" | — | — |
+| **8.2 (job verde)** | Las fugas están en la stdlib, no en un test | 6/6 fallos en los 3 archivos con fugas y **164 marcas de fallo al 92 %** del suite completo bajo ASan | Cerrar 8.19 (fugas de stdlib); entonces el `--deselect` se vacía y el test de propagación obliga a tocar el workflow |
 | **8.12 (`.exe` real)** | No hay `x86_64-w64-mingw32-gcc` aquí y la runtime no es cross-buildable (`pengu_runtime.c` incluye PCRE2/libxml2/zlib/mbedTLS/curl/microhttpd) | `which x86_64-w64-mingw32-gcc` → no existe; el bundle mínimo falla al enlazar solo por `pengu_abi_version` | Un runner con MinGW + runtime cross-built; el shim del workflow desaparece |
 | **8.1 (los 32 programas bloqueados)** | B5 (roadmap 3.3) y F8-N4 están diferidos a 1.1 | 14 con statement-expressions, 18 con C inválido, 1 miscompilado | `xfail(strict=True)`: al arreglarlos pasan a `xpass` y el archivo falla |
 | **8.5 (versiones <0.10.0)** | La sintaxis no está documentada en ningún documento normativo | `CHANGELOG.md` lista 35 versiones; `MIGRATION.md` §2 empieza en 0.10.0 | Aparece documentación normativa de la sintaxis pre-0.10 |
+| **8.19 (nuevo, 1.1)** | Fugas de memoria de la stdlib bajo LeakSanitizer: es un cambio de propiedad de memoria en `std/*.pengu`/`pengu_codegen.py`, no un ajuste de CI | Trazas en `std/invoke.pengu:105/292` (`pengu_list_new`, `pengu_map_new_owned`); 164 fallos en el suite bajo ASan | Cualquier corrida de sanitizers sin `--deselect` |
+
+## Mediciones finales de reproducibilidad
+
+Corrida de cobertura (run B) y corrida limpia (run C) sobre el estado final del
+árbol; la tupla es `(failed, passed, skipped, xfailed, xpassed)`:
+
+| Corrida | Comando | Tupla | Tiempo |
+|---|---|---|---|
+| B (con cobertura) | `pytest tests -q --cov --cov-config=.coveragerc --cov-report=term-missing --cov-report=xml:coverage.xml` | **1 failed**, 3274 passed, 25 skipped, 46 xfailed, **0 xpassed** | 34:51 |
+| C (limpia) | `pytest tests -q --timeout=1200` | **0 failed**, 3274 passed, 25 skipped, 46 xfailed, **0 xpassed** | 34:0x |
+
+El único fallo de la corrida B lo produjo el propio gate de formato del repo
+(`test_fmt_config_precedence.py::test_repository_sources_are_clean_under_pengu_fmt`
+→ 10 programas del corpus de migración sin formatear): el gate hizo su trabajo
+sobre los ficheros nuevos de la fase. Se corrigió con `pengu fmt tests/migration`
+y las 10 corridas de migración siguen pasando; a partir de ahí la corrida C ya es
+limpia.

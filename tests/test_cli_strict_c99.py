@@ -2,13 +2,9 @@
 
 Why this file was rewritten
 ---------------------------
-It used to approve "portable C99" by inspecting text::
-
-    bundle = (tmp_path / "build" / "bundle.c").read_text()
-    assert "__extension__" not in bundle
-    assert "__auto_type" not in bundle
-
-Absence of two chosen substrings is not a property of the output.  Item 8.1
+It used to approve "portable C99" by inspecting text: it read the generated
+bundle and asserted the absence of two chosen substrings (``__extension__`` and
+``__auto_type``). Absence of two substrings is not a property of the output.  Item 8.1
 (B10) turns that into a compiler invocation, and the compiler immediately says
 something the text could not: `--strict-c99` still emits **statement
 expressions** for std-importing programs (roadmap 3.3, deferred), so
