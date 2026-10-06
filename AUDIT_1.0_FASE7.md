@@ -733,6 +733,70 @@ el ratchet bidireccional.
 
 ---
 
+### 7.12 — `MIGRATION.md`
+
+**Premisa del roadmap:** "Guía por versión: qué cambió, cómo migrar; alimentado por
+`pengu migrate` (4.14)".
+
+**Verificación previa — la dependencia está rota en los dos sentidos:**
+
+```bash
+$ .venv/bin/python pengu_project.py --help | grep -i migrate
+# (sin resultados: NO existe el subcomando)
+$ ls tests/migration
+ls: no se puede acceder a 'tests/migration': No existe el fichero o el directorio
+$ grep -c BREAKING CHANGELOG.md
+2      # una sola sección "### Changed — BREAKING", bajo la 0.10.0
+```
+
+El roadmap de la Fase 4 ya difirió `pengu migrate` a 1.1 (§4.14b) **y** declaró que
+`MIGRATION.md` es una de sus entradas necesarias ("`pengu migrate` ... depende de
+8.5/7.12"). Es decir: 7.12 espera a `pengu migrate` y `pengu migrate` espera a 7.12.
+Romper ese círculo es exactamente lo que aporta este item.
+
+**Resultado:** ✅ cerrado en lo entregable, ⏸️ el rewriter sigue diferido.
+
+**Evidencia:**
+
+```bash
+$ .venv/bin/python -m pytest tests/test_migration_doc.py -q
+10 passed
+
+# las afirmaciones del documento se compilan:
+$ calling f with 1 and 2      -> E0005: Ambiguous 'and' after a call with arguments
+$ calling f with 1, 2         -> OK
+$ weave g with x as int and y as int -> E0000: 'and' is no longer a separator: use ','
+$ [1 and 2]                   -> E0000: 'and' is no longer a separator: use ','
+$ shard T and U               -> OK      (sigue siendo válido: NO reescribir)
+$ let ok is a and b           -> OK      (sigue siendo válido: NO reescribir)
+```
+
+**Qué se hizo:** `MIGRATION.md` (102 líneas) con: contrato de estabilidad (enlaza
+`LANGUAGE.md` §23 y la regla de dos releases), **tabla de cambios rompientes por
+versión** (sólo `0.10.0`: `and` separador → `,`; `0.11.0`–`0.16.0`: ninguno), la
+sección detallada del cambio con tabla antes/después, los **dos códigos de
+diagnóstico** que lo distinguen (`E0000 "no longer a separator"` frente a `E0005
+"Ambiguous 'and'"`), las **dos formas de `and` que siguen siendo correctas** y no
+deben reescribirse, el procedimiento de verificación de una actualización
+(`pengu check` / `test` / `build --deny-deprecated` / `fmt --check` / `--locked` /
+`--frozen`), y §5 que declara `pengu migrate` como **no disponible** con el motivo
+medido.
+
+**Test:** `tests/test_migration_doc.py` (10 casos) — no comprueba que el texto
+exista:
+- cruza la tabla de §2 con las secciones `BREAKING` reales del `CHANGELOG`, y falla
+  si aparece una nueva versión rompiente que la guía no recoja;
+- **compila** cada par antes/después: las formas "Before" deben fallar y las
+  "After" deben compilar;
+- fija las dos formas de `and` que **siguen** siendo válidas (si el compilador
+  dejara de aceptarlas, el consejo "no lo reescribas" sería dañino);
+- comprueba que `pengu migrate` realmente **no** existe, para que §5 no quede
+  obsoleta si se implementa.
+
+**Commit:** `fase7(item 7.12): MIGRATION.md — tabla de roturas verificada contra el CHANGELOG`
+
+---
+
 ## Hallazgos nuevos de la Fase 7 (no estaban en el roadmap)
 
 ### F7-N3 — 🔴 El espacio de nombres `Exxxx` está compartido entre capas y nadie lo vigilaba
