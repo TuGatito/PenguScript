@@ -3224,9 +3224,43 @@ def _dep_cache_root() -> Optional[str]:
     return os.path.join(base, "pengu", "deps")
 
 
-def _dep_cache_key(source: str, branch: Optional[str]) -> str:
-    raw = f"{source}\0{branch or ''}".encode("utf-8")
+def _dep_cache_key(source: str, branch: Optional[str],
+                   revision: Optional[str] = None) -> str:
+    """Key of the global dependency cache (roadmap 4.7).
+
+    ``revision`` is the resolved ``HEAD`` of a *local* source (see
+    :func:`_local_source_revision`).  A path is not an identity: the same
+    directory can point at different commits over time, and a key made of the
+    source string alone then restores a snapshot of an older state.  That is not
+    hypothetical — it made ``pengu upgrade`` die with ``git fetch failed … would
+    overwrite existing tag`` whenever a local dependency had gained a commit
+    since the first ``pengu add`` (roadmap 8.17 finding F8-N1).
+    """
+    raw = f"{source}\0{branch or ''}\0{revision or ''}".encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:16]
+
+
+def _local_source_revision(source: str) -> Optional[str]:
+    """``HEAD`` of a local git dependency source, or None when it is not one.
+
+    Remote URLs and plain directories return None and keep the source-string
+    key: re-downloading a remote is exactly what the cache exists to avoid, and
+    its content cannot be resolved without the network.
+    """
+    if not os.path.isdir(os.path.join(source, ".git")):
+        return None
+    try:
+        res = subprocess.run(["git", "-C", source, "rev-parse", "HEAD"],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    head = (res.stdout or "").strip()
+    return head if res.returncode == 0 and head else None
+
+
+def _dep_cache_key_for(source: str, branch: Optional[str]) -> str:
+    """Cache key of ``source`` as the install path computes it."""
+    return _dep_cache_key(source, branch, _local_source_revision(source))
 
 
 def _copy_dep_tree(src: str, dst: str) -> None:
@@ -3241,7 +3275,7 @@ def _restore_from_cache(source: str, branch: Optional[str], target_dir: str) -> 
     root = _dep_cache_root()
     if not root:
         return False
-    cached = os.path.join(root, _dep_cache_key(source, branch))
+    cached = os.path.join(root, _dep_cache_key_for(source, branch))
     if not os.path.isdir(cached):
         return False
     try:
@@ -3257,7 +3291,7 @@ def _populate_cache(source: str, branch: Optional[str], source_dir: str) -> None
     root = _dep_cache_root()
     if not root or not os.path.isdir(source_dir):
         return
-    dest = os.path.join(root, _dep_cache_key(source, branch))
+    dest = os.path.join(root, _dep_cache_key_for(source, branch))
     try:
         os.makedirs(root, exist_ok=True)
         if not os.path.isdir(dest):

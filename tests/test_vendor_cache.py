@@ -8,10 +8,13 @@ import pytest
 from pengu_project import (
     ProjectConfig,
     _dep_cache_key,
+    _dep_cache_key_for,
     _dep_cache_root,
+    _local_source_revision,
     add_dependency,
     build_project,
     init_project,
+    upgrade_dependency,
     vendor_dependencies,
 )
 from pengu_lock import read_lock
@@ -25,6 +28,10 @@ def _git(repo, *args):
         ["git", "-c", "user.email=t@t", "-c", "user.name=t", *args],
         cwd=repo, capture_output=True, text=True,
     )
+
+
+def _rev(repo):
+    return _git(repo, "rev-parse", "HEAD").stdout.strip()
 
 
 def _make_repo(base, name, tag="v1.0.0"):
@@ -68,7 +75,7 @@ def test_dependency_is_cached_and_restored(tmp_path, monkeypatch):
     proj = os.path.join(str(tmp_path), "c_app")
 
     add_dependency(source=repo, name="dep", config_path=proj, run_build=False)
-    key = _dep_cache_key(repo, None)
+    key = _dep_cache_key_for(repo, None)
     assert os.path.isdir(cache / key), "cache was not populated"
 
     # Removing lib/ and re-adding must restore from the cache, not the network.
@@ -76,6 +83,60 @@ def test_dependency_is_cached_and_restored(tmp_path, monkeypatch):
     shutil.rmtree(os.path.join(proj, "lib", "dep"))
     add_dependency(source=repo, name="dep", config_path=proj, run_build=False)
     assert os.path.isdir(os.path.join(proj, "lib", "dep"))
+
+
+def test_local_source_revision_is_the_head_or_none(tmp_path):
+    """The key input is resolved from the source, never guessed from the string."""
+    assert _local_source_revision("https://x/a.git") is None
+    assert _local_source_revision(str(tmp_path / "does-not-exist")) is None
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    assert _local_source_revision(str(plain)) is None
+
+
+@requires_git
+def test_changed_local_source_is_not_served_from_a_stale_cache(tmp_path, monkeypatch):
+    """Roadmap 8.17 (finding F8-N1): the key follows a local source's HEAD.
+
+    Regression test for the flaky `test_add_upgrade_remove_end_to_end`.  The cache
+    was keyed by the source *string*, so a local dependency that gained a commit
+    (moving its ``v1.0.0`` tag onto it) was still restored from the snapshot taken
+    at the previous commit; ``pengu upgrade`` then aborted with
+    ``git fetch failed … would overwrite existing tag``.  Reverting
+    ``_local_source_revision`` makes the second project below receive the *first*
+    commit, so the assertion on ``second`` fails.
+    """
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("PENGU_DEP_CACHE", str(cache))
+    repo = _make_repo(tmp_path, "dep.git")
+    first = _rev(repo)
+    assert first
+
+    init_project("a_app", output_type="exe", target_dir=str(tmp_path))
+    proj_a = os.path.join(str(tmp_path), "a_app")
+    add_dependency(source=repo, name="dep", config_path=proj_a, run_build=False)
+    assert _rev(os.path.join(proj_a, "lib", "dep")) == first
+
+    # The local source moves on: a new commit, with the tag moved onto it.
+    with open(os.path.join(repo, "pengu", "m.pengu"), "w", encoding="utf-8") as f:
+        f.write("weave m_fn into int:\n  return 2\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "second")
+    _git(repo, "tag", "-f", "v1.0.0")
+    second = _rev(repo)
+    assert second != first
+
+    # A brand-new project must see the *new* state, not the cached snapshot.
+    init_project("b_app", output_type="exe", target_dir=str(tmp_path))
+    proj_b = os.path.join(str(tmp_path), "b_app")
+    add_dependency(source=repo, name="dep", config_path=proj_b, run_build=False)
+    assert _rev(os.path.join(proj_b, "lib", "dep")) == second, (
+        "the stale cached snapshot was restored"
+    )
+
+    # ...and the upgrade path that used to explode now succeeds.
+    upgrade_dependency("dep", version="v1.0.0", config_path=proj_b)
+    assert _rev(os.path.join(proj_b, "lib", "dep")) == second
 
 
 @requires_git
