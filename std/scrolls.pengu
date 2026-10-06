@@ -638,136 +638,233 @@ enchanting string:
 # documentado arriba. El contrato y los bordes son idénticos.
 weave len with s as string into int:
     return calling s.len
+## True cuando el string está vacío (longitud 0).
 weave is_empty with s as string into bool:
     return calling s.is_empty
+# --- Búsqueda -------------------------------------------------------
+## True cuando `sub` aparece en alguna posición del string.
 weave contains with s as string, sub as string into bool:
     return calling s.contains with sub
+## True cuando el string empieza por `prefix` (un `prefix` vacío encaja).
 weave starts_with with s as string, prefix as string into bool:
     return calling s.starts_with with prefix
+## True cuando el string termina en `suffix` (un `suffix` vacío encaja).
 weave ends_with with s as string, suffix as string into bool:
     return calling s.ends_with with suffix
+## Índice de la primera aparición de `sub`, o -1 si no está.
+## Edge cases: Un `sub` vacío devuelve 0.
 weave index_of with s as string, sub as string into int:
     return calling s.index_of with sub
+## Índice de la última aparición de `sub`, o -1 si no está.
+## Edge cases: Un `sub` vacío devuelve la longitud del string.
 weave last_index_of with s as string, sub as string into int:
     return calling s.last_index_of with sub
+# --- Corte ----------------------------------------------------------
+## Substring desde `start_pos` (incluido) hasta `end_pos` (excluido).
+## Edge cases: `start_pos == end_pos` devuelve ""; los índices van tal cual al runtime.
 weave substring with s as string, start_pos as int, end_pos as int into string:
     return calling s.substring with start_pos, end_pos
+## El byte en `idx` como un string de un carácter.
 weave char_at with s as string, idx as int into string:
     return calling s.char_at with idx
+# --- Mayúsculas y minúsculas ---------------------------------------
+## Copia con las letras ASCII A-Z convertidas a minúsculas.
 weave lower with s as string into string:
     return calling s.lower
+## Copia con las letras ASCII a-z convertidas a mayúsculas.
 weave upper with s as string into string:
     return calling s.upper
+## @deprecated Use lower instead.
 weave to_lower with s as string into string:
     return calling s.to_lower
+## @deprecated Use upper instead.
 weave to_upper with s as string into string:
     return calling s.to_upper
+# --- Espacios -------------------------------------------------------
+## Copia sin espacios ASCII al principio ni al final.
 weave trim with s as string into string:
     return calling s.trim
+## Copia sin espacios ASCII al principio.
 weave trim_start with s as string into string:
     return calling s.trim_start
+## Copia sin espacios ASCII al final.
 weave trim_end with s as string into string:
     return calling s.trim_end
+# --- Reemplazo y división ------------------------------------------
+## Copia con la primera aparición de `from_str` sustituida por `to_str`.
+## Edge cases: un `from_str` vacío inserta `to_str` al principio (legado).
 weave replace with s as string, from_str as string, to_str as string into string:
     return calling s.replace with from_str, to_str
+## Copia con **todas** las apariciones no solapadas de `from_str`
+## Edge cases: Un `from_str` vacío devuelve el string sin cambios.
 weave replace_all with s as string, from_str as string, to_str as string into string:
     return calling s.replace_all with from_str, to_str
+## Divide por cada aparición de `delim`.
+## Edge cases: Un `delim` vacío devuelve una lista con el string entero.
 weave split with s as string, delim as string into list of string:
     return calling s.split with delim
+## Copia repetida `count` veces.
+## Edge cases: `count <= 0` o string vacío devuelven "".
 weave repeat with s as string, count as int into string:
     return calling s.repeat with count
+## Copia repetida `count` veces y unida con `sep`.
+## Edge cases: `count <= 0` o string vacío devuelven "".
 weave repeat_join with s as string, count as int, sep as string into string:
     return calling s.repeat_join with count, sep
+## Copia con los bytes en orden inverso.
 weave reverse with s as string into string:
     return calling s.reverse
+## True cuando todos los bytes son letras ASCII y hay al menos uno.
 weave is_alpha with s as string into bool:
     return calling s.is_alpha
+## True cuando todos los bytes son dígitos ASCII y hay al menos uno.
 weave is_digit with s as string into bool:
     return calling s.is_digit
+## True cuando todos los bytes son letras o dígitos ASCII y hay al menos uno.
 weave is_alnum with s as string into bool:
     return calling s.is_alnum
+## Copia con la primera letra en mayúscula y el resto en minúsculas.
+## Edge cases: Devuelve "" para el string vacío.
 weave capitalize with s as string into string:
     return calling s.capitalize
+## Copia con la inicial de cada palabra en mayúscula y el resto en minúsculas.
 weave title with s as string into string:
     return calling s.title
+## @deprecated Use title instead.
 weave title_case with s as string into string:
     return calling s.title_case
+## Copia con cada letra ASCII cambiada de caja; el resto no cambia.
 weave swap_case with s as string into string:
     return calling s.swap_case
+## Copia en `snake_case`: separa camelCase y normaliza los separadores a `_`.
+## Edge cases: Colapsa separadores repetidos; "" devuelve "".
 weave to_snake_case with s as string into string:
     return calling s.to_snake_case
+## Copia en `kebab-case`: `to_snake_case` con `_` cambiado por `-`.
 weave to_kebab_case with s as string into string:
     return calling s.to_kebab_case
+## Forma corta de `to_snake_case`.
 weave snake_case with s as string into string:
     return calling s.snake_case
+## Forma corta de `to_kebab_case`.
 weave kebab_case with s as string into string:
     return calling s.kebab_case
+## Copia en `PascalCase`: cada palabra de `snake_case` capitalizada.
+## Edge cases: "" devuelve "".
 weave pascal_case with s as string into string:
     return calling s.pascal_case
+## @deprecated Use index_of instead.
 weave find with s as string, sub as string into int:
     return calling s.find with sub
+## @deprecated Use last_index_of instead.
 weave rfind with s as string, sub as string into int:
     return calling s.rfind with sub
+## Cuenta las apariciones **no solapadas** de `sub`.
+## Edge cases: Devuelve 0 cuando `sub` está vacío o es más largo.
 weave count with s as string, sub as string into int:
     return calling s.count with sub
+## @deprecated Use count instead.
 weave count_matches with s as string, sub as string into int:
     return calling s.count_matches with sub
+## @deprecated Use trim_start instead.
 weave lstrip with s as string into string:
     return calling s.lstrip
+## @deprecated Use trim_end instead.
 weave rstrip with s as string into string:
     return calling s.rstrip
+## True cuando el string no está vacío y todos sus bytes son espacios.
+## Edge cases: Devuelve false para "" (ver `is_blank`).
 weave is_space with s as string into bool:
     return calling s.is_space
+## @deprecated Use is_space instead.
 weave is_whitespace with s as string into bool:
     return calling s.is_whitespace
+## True cuando el string está vacío o todos sus bytes son espacios.
 weave is_blank with s as string into bool:
     return calling s.is_blank
+## Lista de palabras separadas por runs de espacios ASCII.
+## Edge cases: ignora espacios extremos; "" o solo espacios dan lista vacía.
 weave split_whitespace with s as string into list of string:
     return calling s.split_whitespace
+## Nombre corto de `split_whitespace`.
 weave words with s as string into list of string:
     return calling s.words
+## Lista de líneas separadas por `\n`.
+## Edge cases: "" da lista vacía; un `\n` final añade una línea vacía.
 weave split_lines with s as string into list of string:
     return calling s.split_lines
+## Lista de líneas con el `\r` final de cada una eliminado (CRLF).
+## Edge cases: "" da lista vacía; un `\n` final añade una línea vacía.
 weave lines with s as string into list of string:
     return calling s.lines
+## Número de líneas separadas por `\n`.
+## Edge cases: 0 para ""; 1 para un string sin `\n`.
 weave line_count with s as string into int:
     return calling s.line_count
+## Número de palabras separadas por espacios ASCII.
 weave word_count with s as string into int:
     return calling s.word_count
+# --- Alineación -----------------------------------------------------
+## Alinea a la izquierda en `width`, rellenando por la derecha con `pad_char`.
+## Edge cases: si ya cabe o `pad_char` está vacío no cambia; se recorta a `width`.
 weave ljust with s as string, width as int, pad_char as string is " " into string:
     return calling s.ljust with width, pad_char
+## Alinea a la derecha en `width`, rellenando por la izquierda con `pad_char`.
 weave rjust with s as string, width as int, pad_char as string is " " into string:
     return calling s.rjust with width, pad_char
+## @deprecated Use rjust instead.
 weave pad_left with s as string, width as int, pad_char as string is " " into string:
     return calling s.pad_left with width, pad_char
+## @deprecated Use ljust instead.
 weave pad_right with s as string, width as int, pad_char as string is " " into string:
     return calling s.pad_right with width, pad_char
+## Rellena con ceros por la izquierda hasta `width`, conservando el signo.
 weave zfill with s as string, width as int into string:
     return calling s.zfill with width
+## Centra en un campo de `width` rellenando con `pad_char`.
+## Edge cases: con relleno impar la izquierda recibe la mitad menor (Python).
 weave center with s as string, width as int, pad_char as string is " " into string:
     return calling s.center with width, pad_char
+# --- Prefijos y sufijos --------------------------------------------
+## Copia con `prefix` eliminado del principio si está presente.
 weave removeprefix with s as string, prefix as string into string:
     return calling s.removeprefix with prefix
+## Copia con `suffix` eliminado del final si está presente.
 weave removesuffix with s as string, suffix as string into string:
     return calling s.removesuffix with suffix
+## Divide en la **primera** aparición de `sep`: `[antes, sep, después]`.
+## Edge cases: si `sep` falta o está vacío devuelve `[s, "", ""]`.
 weave partition with s as string, sep as string into list of string:
     return calling s.partition with sep
+## True cuando no hay mayúsculas y hay al menos una minúscula.
 weave is_lower with s as string into bool:
     return calling s.is_lower
+## True cuando no hay minúsculas y hay al menos una mayúscula.
 weave is_upper with s as string into bool:
     return calling s.is_upper
+## True cuando el string se lee igual al derecho y al revés.
+## Edge cases: Los strings de longitud 0 o 1 son palíndromos.
 weave is_palindrome with s as string into bool:
     return calling s.is_palindrome
+# --- Comparación ----------------------------------------------------
+## Compara byte a byte con `other` y devuelve -1, 0 o 1.
 weave compare with a as string, b as string into int:
     return calling a.compare with b
+## Lista con cada byte como un string de un carácter.
 weave chars with s as string into list of string:
     return calling s.chars
+## Lista con el código numérico de cada byte.
 weave bytes with s as string into list of int:
     return calling s.bytes
+# --- Truncado -------------------------------------------------------
+## Recorta a `max_len` bytes añadiendo `suffix` si hubo recorte.
+## Edge cases: `max_len <= len(suffix)` recorta sin sufijo; `max_len <= 0` da "".
 weave truncate with s as string, max_len as int, suffix as string into string:
     return calling s.truncate with max_len, suffix
+## Recorta a `max_len` bytes añadiendo "..." si hubo recorte.
 weave ellipsis with s as string, max_len as int into string:
     return calling s.ellipsis with max_len
+## True cuando el string es un literal numérico exacto: signo y `.` opcionales.
 weave is_numeric with s as string into bool:
     return calling s.is_numeric
 
