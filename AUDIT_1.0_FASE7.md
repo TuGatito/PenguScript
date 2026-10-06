@@ -367,7 +367,76 @@ $ pytest tests/test_version.py -q
 
 ### 7.3 — Documentar la sintaxis canónica de rango y `frozen`
 
-_(pendiente)_
+**Premisa del roadmap:** "una sola forma canónica documentada; la deprecada marcada".
+
+**Verificación previa — hay más de lo que dice el roadmap, y peor:**
+
+```bash
+$ grep -n '1 to 10\|1\.\.10' LANGUAGE.md LANGUAGE_Spanish.md
+LANGUAGE.md:2541:1 to 10         # PenguRange [1, 10), end-exclusive
+LANGUAGE.md:2542:1 to 10         # canonical range syntax        <-- ¡duplicada!
+LANGUAGE_Spanish.md:2527:1 to 10  # PenguRange [1, 10), end-exclusive
+LANGUAGE_Spanish.md:2528:1..10    # alternate range syntax       <-- sin marcar
+$ grep -c 'W0013' LANGUAGE.md
+1        # sólo en la fila generada de §22.3, no donde se enseñan los rangos
+```
+
+Tres defectos reales:
+
+1. `LANGUAGE.md` §15.5 muestra la **misma línea canónica dos veces**: una
+   reescritura anterior sustituyó la línea de `..` por una copia de la canónica,
+   así que la forma obsoleta **no estaba documentada en absoluto**.
+2. `LANGUAGE_Spanish.md` §15.5 sí la muestra, presentada como *"alternate range
+   syntax"* sin marcar que está obsoleta: el par **divergía** en cuál es la forma
+   actual.
+3. `W0013` sólo aparecía en el catálogo generado, no donde el lector aprende la
+   sintaxis.
+
+Además, `frozen`: §9.5 listaba `frozen ref to int` junto a `ref to frozen int` como
+"alias" sin decir cuál escribir.
+
+**Resultado:** ✅ cerrado
+
+**Evidencia:**
+
+```bash
+$ .venv/bin/python - <<'EOF'   # W0013 se emite de verdad para '..'
+for i in 1..5: ...
+EOF
+[W0013] '..' range syntax is deprecated; write 'a to b' instead on line 2
+
+$ .venv/bin/python -m pytest tests/test_docs_canonical_syntax.py -q
+13 passed
+```
+
+**Falsificación (el gate falla al revertir, comprobado):** devolviendo la línea
+duplicada a §15.5 →
+
+```bash
+$ pytest tests/test_docs_canonical_syntax.py -q
+1 failed, 12 passed
+# test_the_range_section_does_not_repeat_the_canonical_example
+```
+
+**Qué se hizo:**
+
+1. `LANGUAGE.md` §15.5: eliminada la línea duplicada; se declara **"Canonical
+   syntax: `a to b`"** y se marca `a..b` como deprecada, con el código `W0013`,
+   la reescritura por `pengu fmt` y la versión de retirada (2.0).
+2. `LANGUAGE_Spanish.md` §15.5: la misma declaración en español; `1..10` deja de
+   presentarse como alternativa neutra.
+3. `frozen` (§9.5, ambos documentos): se nombra la colocación canónica
+   (`ref to frozen T`, porque `frozen` cualifica al *pointee*) y se dice que
+   `frozen ref to T` se acepta y `ast_to_type` la normaliza. Se motiva: escribir
+   la forma canónica hace que un `grep` de `ref to frozen` encuentre todas las
+   vistas de solo lectura.
+4. `tests/test_docs_canonical_syntax.py` (13 casos): la forma canónica está
+   declarada, la obsoleta está marcada **y atada a su código**, el par EN/ES
+   coincide, §15.5 no repite el ejemplo, y un test cruza la afirmación del
+   documento con la emisión real de `W0013` vía el catálogo generado.
+
+**Test:** `tests/test_docs_canonical_syntax.py` (archivo nuevo).
+**Commit:** `fase7(item 7.3): sintaxis canónica de rango y frozen en ambos documentos`
 
 ---
 

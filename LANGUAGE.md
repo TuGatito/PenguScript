@@ -1169,10 +1169,15 @@ orthogonal to `let`/`var`, which control whether the **name** can be reassigned.
 ```pengu
 frozen int                      # const int
 ref to frozen int               # const int*
-frozen ref to int               # alias of 'ref to frozen int'
+frozen ref to int               # accepted alias — normalises to 'ref to frozen int'
 frozen Player                   # const Player
 ref to frozen void              # const void*   ← what qsort asks for
 ```
+
+- **Canonical qualifier placement:** `frozen` qualifies the *pointee*, so the
+  canonical spelling is `ref to frozen T`. `frozen ref to T` is accepted and
+  normalised by `ast_to_type` to the same type — write the canonical form in new
+  code so that a grep for `ref to frozen` finds every read-only view.
 
 `frozen` is a **soft** keyword: it is only special in type position, so a
 variable, field or weave named `frozen` keeps working.
@@ -2538,12 +2543,15 @@ var p as Player is:
 ### 15.5 Ranges & membership
 
 ```pengu
-1 to 10         # PenguRange [1, 10), end-exclusive
-1 to 10         # canonical range syntax
+1 to 10         # PenguRange [1, 10), end-exclusive — this is the canonical form
 for i in 1 to 5: ...
 if x in 0 to 100: ...
 ```
 
+- **Canonical syntax: `a to b`.** The older `a..b` spelling still works through
+  1.x but is deprecated and **removed in 2.0**; using it emits `W0013`
+  (`RangeSyntaxDeprecated`) and `pengu fmt` rewrites it. Write `a to b` in new
+  code and migrate existing code with `pengu fmt`.
 - Ranges are half-open (`[start, end)`).
 - **Compile-Time Range Validation (`E0042`):** When start and end are known at compile time, `start <= end` is enforced for positive ranges. If `start > end` without a negative step, the compiler raises `E0042: InvalidRangeError`.
 

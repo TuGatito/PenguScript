@@ -1051,10 +1051,16 @@ alias Buffer as opaque      # C opaque pointer handle (used behind `ref to`)
 ```pengu
 frozen int                      # const int
 ref to frozen int               # const int*
-frozen ref to int               # alias of 'ref to frozen int'
+frozen ref to int               # alias aceptado — normaliza a 'ref to frozen int'
 frozen Player                   # const Player
 ref to frozen void              # const void*   ← what qsort asks for
 ```
+
+- **Colocación canónica del cualificador:** `frozen` cualifica al *pointee*, así
+  que la grafía canónica es `ref to frozen T`. `frozen ref to T` se acepta y
+  `ast_to_type` la normaliza al mismo tipo; escribe la forma canónica en código
+  nuevo para que un `grep` de `ref to frozen` encuentre todas las vistas de solo
+  lectura.
 
 `frozen` es una palabra clave **suave**: solo es especial en posición de tipo, así que una variable, un campo o un weave llamado `frozen` sigue funcionando.
 
@@ -2524,12 +2530,15 @@ var p as Player is:
 ### 15.5 Rangos y pertenencia
 
 ```pengu
-1 to 10         # PenguRange [1, 10), end-exclusive
-1..10           # alternate range syntax
+1 to 10         # PenguRange [1, 10), end-exclusive — esta es la forma canónica
 for i in 1 to 5: ...
 if x in 0 to 100: ...
 ```
 
+- **Sintaxis canónica: `a to b`.** La grafía antigua `a..b` sigue funcionando
+  durante 1.x pero está **obsoleta** y se **elimina en 2.0**; usarla emite `W0013`
+  (`RangeSyntaxDeprecated`) y `pengu fmt` la reescribe. Escribe `a to b` en código
+  nuevo y migra el existente con `pengu fmt`.
 - Los rangos son semiabiertos (`[start, end)`).
 - **Validación de rangos en tiempo de compilación (`E0042`):** cuando el inicio y el fin
   se conocen en tiempo de compilación, se exige `start <= end` para los rangos
