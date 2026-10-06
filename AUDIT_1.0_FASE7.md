@@ -877,6 +877,68 @@ como contraejemplo, y que las 6 correcciones concretas siguen en el texto.
 
 ---
 
+### 7.13 — Referencia de API por módulo
+
+**Premisa del roadmap:** "Los **1463** nombres públicos aparecen con firma y doc; el
+37 % sin documentar baja a <10 %". La trampa conocida avisaba además de que
+`pengu_doc.py` ya existe y que esto **podría ser una extensión, no un módulo nuevo**.
+
+**Verificación previa — las cifras del roadmap no son las del árbol:**
+
+```bash
+$ python3 - <<'EOF'   # recuento de declaraciones en std/
+EOF
+kinds: const 593, declare 1862, weave 1315, omen 66, rune 111, alias 153
+públicas (sin `_`): 4014        privadas: 86 (85 weave + 1 const)
+# de las 4014, 1862 son `declare` de bindings GENERADOS (*.d.pengu)
+```
+
+No son 1463 nombres, son **4014**, y de ellos **1862** son `declare` de bindings
+generados cuyo texto de documentación es el **comentario de la cabecera C de
+origen**. Medido, el porcentaje documentado en los **27 módulos escritos a mano** es
+**1483/1576 = 94,1 %**, ya por encima del 90 % que pide el roadmap; el "37 % sin
+documentar" contaba la superficie generada como si fuera propia.
+
+**Resultado:** ✅ cerrado — `docs/api/` generado (29 archivos) y con gate.
+
+**Evidencia:**
+
+```bash
+$ .venv/bin/python tools/gen_api_docs.py --check
+api docs: 29 file(s) in sync, 1483/1576 public declarations documented (94.1 %)
+
+$ .venv/bin/python -m pytest tests/test_api_docs.py -q
+8 passed        # 49 s medidos (una sola generación completa por sesión)
+```
+
+**Qué se hizo:**
+
+1. `tools/gen_api_docs.py` (nuevo): genera `docs/api/<módulo>.md` para los **27
+   módulos escritos a mano** más `docs/api/README.md` (tabla de cobertura) y
+   `docs/api/index.json` (forma legible por máquina). Modos `--write`, `--check`,
+   `--report`.
+2. **Reutiliza `pengu_doc.render_module_doc`** en vez de duplicar el renderizador:
+   hay un solo camino, el que ya usa `pengu doc`.
+3. **Descubrimiento durante la implementación:** construir el checker a mano **no
+   funciona** —`std/archivum.pengu` falla con `E0005` porque necesita el grafo de
+   imports completo (`string.split` vive en `scrolls`)—, y sólo el
+   `PenguBuilder` pasa `import_order` al checker. El generador usa ahora la misma
+   construcción que `pengu check --entry`, así que la referencia documenta lo que
+   el CLI **acepta de verdad**, no una aproximación.
+4. **Corrección de eficiencia:** `--check` recalculaba la cobertura con una segunda
+   pasada completa de los 27 módulos. Ahora la deriva del `index.json` que ya
+   construyó; el coste del gate bajó de ~3 min a **49 s**.
+5. `docs/api/` añadido al índice de `docs/README.md`.
+
+**Test:** `tests/test_api_docs.py` (8 casos): regenerar reproduce `docs/api/` byte a
+byte; cada declaración pública del índice aparece en la página de su módulo; ningún
+símbolo privado se filtra; la cobertura no baja del **ratchet** fijado en 0,94
+(94,1 % medido) y sigue por encima del 90 % del roadmap; los `@deprecated` quedan
+marcados; y el gate **falla** (no sólo avisa) cuando se manipula una página.
+**Commit:** `fase7(item 7.13): docs/api generado desde el símbolo real`
+
+---
+
 ## Hallazgos nuevos de la Fase 7 (no estaban en el roadmap)
 
 ### F7-N3 — 🔴 El espacio de nombres `Exxxx` está compartido entre capas y nadie lo vigilaba

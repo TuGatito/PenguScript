@@ -20,6 +20,7 @@ documents from earlier phases.
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | The compiler pipeline end to end (`parse → collect → check → infer → codegen → cache → cc`): per-stage entry symbols, the diagnostic model, the incremental build cache, and the FFI/runtime boundaries | No — authored |
 | [`CROSS_COMPILATION.md`](CROSS_COMPILATION.md) | `--target` / `--cc`: supported triples, required MinGW toolchains, `PENGU_RUNTIME_CROSS`, and the measured limitations (an unknown triple silently builds for the host) | No — authored |
 | [`error_catalog.json`](error_catalog.json) | The machine-readable diagnostic catalogue: every `Exxxx`, the classes that emit it, its message shapes and its `help:`/`note:` guidance | **Yes** — written by `tools/gen_error_catalog.py` |
+| [`api/`](api/README.md) | The per-module API reference for the hand-written standard library: every public declaration with its signature and doc summary, plus a coverage table (`index.json` is the machine-readable form) | **Yes** — written by `tools/gen_api_docs.py` |
 | [`DEPRECATIONS.md`](DEPRECATIONS.md) | Every `@deprecated` symbol in `std/` with its replacement and retirement status; the tables are cross-checked against the sources by `tests/test_std_deprecations_doc.py` | No — authored |
 
 ## Normative documents (repository root)

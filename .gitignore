@@ -21,8 +21,11 @@ pyinstaller_work/
 
 # Generated project artefacts
 compile_commands.json
-docs/api/
 pengu_doc_out/
+# NOTE: `docs/api/` used to be ignored here as a `pengu doc` output directory.
+# It is now a *tracked*, generated artefact (roadmap item 7.13): the reference is
+# committed so it can be browsed, and `tests/test_api_docs.py` fails when it
+# drifts from the compiler. Regenerate with `python tools/gen_api_docs.py --write`.
 
 # Compiled Binaries & Object Files
 *.exe
