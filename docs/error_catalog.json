@@ -702,12 +702,9 @@
         "SemanticError"
       ],
       "conditions": [
-        "'static var' is only allowed directly inside a function body (weave).",
         "Constant name '{}' is a reserved C keyword or standard identifier",
-        "Field '{}' collides with field '{}' in C code emission ('{}')",
         "Function name '{}' is a reserved C keyword",
         "Function name '{}' is a reserved standard C function or identifier",
-        "Test name must be a non-empty string or identifier",
         "Type name '{}' is a reserved C keyword or standard identifier"
       ]
     },
@@ -1002,6 +999,64 @@
       "conditions": [
         "'error' is only available inside 'or:' error-handling blocks"
       ]
+    },
+    "E0063": {
+      "classes": [
+        "StaticVarPlacementError"
+      ],
+      "conditions": [
+        "'static var' is only allowed directly inside a function body (weave)."
+      ],
+      "explanation": "'static var' declared outside a function body.\n\nA function-static variable is C's ``static`` local: it belongs to one weave\nand is created once.  Declaring it in a ``test`` block, at module top level,\nor nested inside a conditional has no coherent C translation, so it is\nrejected on placement rather than on type.\n\nThis used to share ``E0035`` with the \"name collides with a C reserved word\"\ndiagnostic -- two conditions with nothing in common, which made a\ncode-based quick-fix impossible (roadmap Phase 7, item 7.2).",
+      "guidance": [
+        {
+          "help": "Move the 'static var' declaration to the top level of the function body.",
+          "note": "Function-static variables must be direct children of the function body."
+        }
+      ]
+    },
+    "E0064": {
+      "classes": [
+        "InvalidTestNameError"
+      ],
+      "conditions": [
+        "Test name must be a non-empty string or identifier"
+      ],
+      "explanation": "a ``test`` block has no usable name.\n\nUnit tests are reported by name, so ``test`` with an empty or ``_``-only name\ncannot be identified in the runner output.\n\nThis used to share ``E0035`` (roadmap Phase 7, item 7.2).",
+      "guidance": [
+        {
+          "help": "Give the test a descriptive name: 'test \"does something\"' or 'test does_something'.",
+          "note": "Unit tests need a name for reporting."
+        }
+      ]
+    },
+    "E0065": {
+      "classes": [
+        "CFieldCollisionError"
+      ],
+      "conditions": [
+        "Field '{}' collides with field '{}' in C code emission ('{}')"
+      ],
+      "explanation": "two PenguScript fields map to the same C field name.\n\n``_c_ident`` escapes C keywords by prefixing an underscore, so ``x`` and\n``_x`` both emit the C field ``_x``.  The collision is between two *user*\nfields, not with a C reserved word, which is why it is not ``E0035``.\n\nThis used to share ``E0035`` (roadmap Phase 7, item 7.2).",
+      "guidance": [
+        {
+          "help": "Rename one of the fields so their C identifiers differ.",
+          "note": "PenguScript escapes C keywords by prefixing an underscore, which may clash with existing identifiers."
+        }
+      ]
+    }
+  },
+  "project": {
+    "E0061": {
+      "conditions": [
+        "pengu.lock is out of date or the dependencies changed:\n  -",
+        "{} requires an existing pengu.lock, but none was found.\n  Run `pengu build` once without {} to generate it, then commit it."
+      ]
+    },
+    "E0062": {
+      "conditions": [
+        "conflicting version requirements for dependency '{}':\n{}\n  Fix it by pinning one version in your manifest, or by using compatible constraints."
+      ]
     }
   },
   "warnings": {
@@ -1039,9 +1094,7 @@
     },
     "W0005": {
       "conditions": [
-        "Inconsistent indentation: line ",
         "Inconsistent indentation: line {} uses tabs, line {} uses spaces",
-        "Variable '",
         "Variable '{}' shadows global function '{}' on line {}"
       ],
       "name": "ShadowedGlobalWarning",
@@ -1049,7 +1102,6 @@
     },
     "W0006": {
       "conditions": [
-        "Symbol '",
         "Symbol '{}' is deprecated",
         "Symbol '{}' is deprecated: {}"
       ],
@@ -1058,7 +1110,6 @@
     },
     "W0007": {
       "conditions": [
-        "'unsafe:' block disables bounds/overflow checks on line ",
         "'unsafe:' block disables bounds/overflow checks on line {}"
       ],
       "name": "UnsafeBlockWarning",
@@ -1066,7 +1117,6 @@
     },
     "W0013": {
       "conditions": [
-        "'..' range syntax is deprecated; write 'a to b' instead on line ",
         "'..' range syntax is deprecated; write 'a to b' instead on line {}"
       ],
       "name": "RangeSyntaxDeprecated",

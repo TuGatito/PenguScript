@@ -3440,7 +3440,7 @@ error[E0006]: cannot assign to immutable variable 'count'
 
 <!-- BEGIN GENERATED DIAGNOSTIC CATALOG — tools/gen_error_catalog.py -->
 
-### 22.2 Catálogo de errores del compilador (`E0000`–`E0058`)
+### 22.2 Catálogo de errores del compilador (`E0000`–`E0065`)
 
 Generado desde el código por `tools/gen_error_catalog.py`. La forma legible por máquina es [`docs/error_catalog.json`](docs/error_catalog.json); `tests/test_error_catalog_sync.py` falla si el código y esta tabla divergen, así que **no se edita a mano**: `python tools/gen_error_catalog.py --write`.
 
@@ -3483,7 +3483,7 @@ La columna `Conditions` es el número de formas de mensaje distintas que el cód
 | `E0032` | `ConceptBoundNotSatisfiedError`, `SemanticError` | 4 | Generic type argument does not implement required concept bound. | 1 help / 1 note |
 | `E0033` | `InvalidRitualSelfAccessError` | 1 | Using 'self' inside a ritual (static) method. | 1 help / 1 note |
 | `E0034` | `InvalidRitualCallError` | 2 | Calling instance method statically or ritual method on instance. | 1 help / 1 note |
-| `E0035` | `SemanticError` | 7 | — | — |
+| `E0035` | `SemanticError` | 4 | — | — |
 | `E0036` | `SemanticError` | 2 | — | — |
 | `E0037` | `SemanticError` | 1 | — | — |
 | `E0038` | `SemanticError` | 1 | — | — |
@@ -3507,6 +3507,9 @@ La columna `Conditions` es el número de formas de mensaje distintas que el cód
 | `E0056` | `UnknownAttributeError` | 5 | unknown attribute or invalid attribute usage. | 1 help / 1 note |
 | `E0057` | `InvalidCharLiteralError` | 2 | char literal cannot hold codepoint > 0x7F. | 1 help / 1 note |
 | `E0058` | `SemanticError` | 1 | — | — |
+| `E0063` | `StaticVarPlacementError` | 1 | 'static var' declared outside a function body.  A function-static variable is C's ``static`` local: it belongs to one weave and is created once.  Declaring it in a ``test`` block, at module top level, or nested inside a conditional has no coherent C translation, so it is rejected on placement rather than on type.  This used to share ``E0035`` with the "name collides with a C reserved word" diagnostic -- two conditions with nothing in common, which made a code-based quick-fix impossible (roadmap Phase 7, item 7.2). | 1 help / 1 note |
+| `E0064` | `InvalidTestNameError` | 1 | a ``test`` block has no usable name.  Unit tests are reported by name, so ``test`` with an empty or ``_``-only name cannot be identified in the runner output.  This used to share ``E0035`` (roadmap Phase 7, item 7.2). | 1 help / 1 note |
+| `E0065` | `CFieldCollisionError` | 1 | two PenguScript fields map to the same C field name.  ``_c_ident`` escapes C keywords by prefixing an underscore, so ``x`` and ``_x`` both emit the C field ``_x``.  The collision is between two *user* fields, not with a C reserved word, which is why it is not ``E0035``.  This used to share ``E0035`` (roadmap Phase 7, item 7.2). | 1 help / 1 note |
 
 ### 22.3 Catálogo de advertencias del compilador (`W0000`–`W0013`)
 
@@ -3519,10 +3522,19 @@ Las advertencias se emiten como cadenas `"[Wxxxx] message"`; el nombre simbólic
 | `W0002` | UnsafeEchoAccessWarning | 1 | Untagged union reads are inherently unsafe; prefer algebraic 'omen' variants with payloads. |
 | `W0003` | (reserved) (reservada) | 0 | — |
 | `W0004` | UnreachableCodeWarning | 2 | Remove dead code following unconditional returns or compile-time false branches. |
-| `W0005` | ShadowedGlobalWarning | 4 | Rename the local, or qualify the call so the intent is explicit. |
-| `W0006` | DeprecatedSymbolWarning | 3 | Migrate to the replacement named in the reason. CI can turn this into an error with --deny-deprecated. |
-| `W0007` | UnsafeBlockWarning | 2 | Keep 'unsafe:' blocks as small as possible and document why they are sound. |
-| `W0013` | RangeSyntaxDeprecated | 2 | Write 'a to b'. The '..' form keeps working through 1.x and is removed in 2.0. |
+| `W0005` | ShadowedGlobalWarning | 2 | Rename the local, or qualify the call so the intent is explicit. |
+| `W0006` | DeprecatedSymbolWarning | 2 | Migrate to the replacement named in the reason. CI can turn this into an error with --deny-deprecated. |
+| `W0007` | UnsafeBlockWarning | 1 | Keep 'unsafe:' blocks as small as possible and document why they are sound. |
+| `W0013` | RangeSyntaxDeprecated | 1 | Write 'a to b'. The '..' form keeps working through 1.x and is removed in 2.0. |
+
+### 22.3.1 Project-layer diagnostics (`E0061`–`E0062`)
+
+Emitted by the project layer (`pengu.lock` under `--locked`/`--frozen`, and dependency resolution) as plain `[Exxxx]` strings — **not** by the language compiler, and not through a `code=` keyword.  They share the `Exxxx` namespace, so the numbering is kept disjoint from §22.2 by `tests/test_error_catalog_sync.py`.
+
+| Code | Conditions | Layer |
+|---|---|---|
+| `E0061` | 2 | project |
+| `E0062` | 1 | project |
 
 <!-- END GENERATED DIAGNOSTIC CATALOG -->
 

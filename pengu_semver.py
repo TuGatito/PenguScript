@@ -199,7 +199,13 @@ class ResolutionConflict:
 
 
 class DependencyConflictError(RuntimeError):
-    """Two requirements on the same dependency cannot be satisfied at once."""
+    """Two requirements on the same dependency cannot be satisfied at once.
+
+    Carries the project-layer diagnostic code ``E0062``.  ``pengu_project.py``
+    documented that code for this error while the message did not actually
+    contain it, so no tool (or user) could match the diagnostic; the code is now
+    emitted with the message and catalogued in ``LANGUAGE.md`` §22.3.1.
+    """
 
     def __init__(self, conflict: ResolutionConflict):
         reqs = "\n".join(
@@ -207,7 +213,7 @@ class DependencyConflictError(RuntimeError):
             for r in conflict.requirements
         )
         super().__init__(
-            f"conflicting version requirements for dependency '{conflict.name}':\n{reqs}\n"
+            f"[E0062] conflicting version requirements for dependency '{conflict.name}':\n{reqs}\n"
             f"  Fix it by pinning one version in your manifest, or by using "
             f"compatible constraints."
         )

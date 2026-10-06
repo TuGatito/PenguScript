@@ -149,6 +149,41 @@ def test_every_emitted_warning_is_registered(catalog):
     )
 
 
+def test_language_and_project_codes_are_disjoint(catalog):
+    """A code must mean exactly one thing, across layers.
+
+    The project layer (`pengu.lock` under `--locked`/`--frozen`, dependency
+    resolution) prints plain `[Exxxx]` strings and shares the `Exxxx` namespace
+    with the language diagnostics.  Item 7.2 nearly reassigned `E0061` -- already
+    the lockfile code -- to a new language error, which is why this test exists.
+    """
+    language = set(catalog["errors"])
+    project = set(catalog["project"])
+    assert language & project == set(), (
+        f"codes used by both the language and the project layer: "
+        f"{sorted(language & project)}"
+    )
+
+
+def test_project_layer_codes_are_catalogued(catalog):
+    """The project layer's codes are documented, not invisible."""
+    assert {"E0061", "E0062"} <= set(catalog["project"]), (
+        "the project-layer codes lost from the catalogue"
+    )
+    for code, entry in catalog["project"].items():
+        assert entry.get("conditions"), f"{code} is catalogued with no condition"
+
+
+@pytest.mark.parametrize("path", [LANGUAGE, LANGUAGE_ES])
+def test_project_table_matches_the_catalog(catalog, path):
+    """§22.3.1 is generated from the same data as the rest."""
+    text = path.read_text(encoding="utf-8")
+    counts = G.extract_project_table(text)
+    want = {code: len(entry.get("conditions", []))
+            for code, entry in catalog["project"].items()}
+    assert counts == want, f"{path.name}: §22.3.1 drifted from the sources"
+
+
 def test_check_mode_is_clean(capsys):
     """`--check` is the CI gate; it must exit 0 on the checked-in state."""
     assert G.cmd_check() == 0

@@ -31,6 +31,7 @@ from .pengu_errors import (
     ArraySizeMismatchError, InvalidRangeError, PrivateSymbolAccessError, NonExhaustiveJudgeError,
     UnknownArrayDimensionError, AutoOwnedBanishError, BorrowedBanishError, InvalidBuilderStatementError,
     DuplicateConceptBindingError, InfiniteTypeSizeError, UnknownAttributeError,
+    StaticVarPlacementError, InvalidTestNameError, CFieldCollisionError,
     suggest_similar_identifier
 )
 
@@ -1140,10 +1141,10 @@ class PenguChecker:
                         c_fid = _c_ident(f_name)
                         if c_fid in seen_c_fields:
                             err = self._make_error(
-                                SemanticError,
+                                CFieldCollisionError,
                                 f"Field '{f_name}' collides with field '{seen_c_fields[c_fid]}' in C code emission ('{c_fid}')",
                                 f_decl,
-                                code="E0035",
+                                code="E0065",
                                 help=f"Rename '{f_name}' to avoid collision with C identifier '{c_fid}'.",
                                 note="PenguScript escapes C keywords by prefixing an underscore, which may clash with existing identifiers."
                             )
@@ -1261,10 +1262,10 @@ class PenguChecker:
                         c_fid = _c_ident(f_name)
                         if c_fid in seen_c_fields:
                             err = self._make_error(
-                                SemanticError,
+                                CFieldCollisionError,
                                 f"Field '{f_name}' collides with field '{seen_c_fields[c_fid]}' in C code emission ('{c_fid}')",
                                 f_decl,
-                                code="E0035",
+                                code="E0065",
                                 help=f"Rename '{f_name}' to avoid collision with C identifier '{c_fid}'.",
                                 note="PenguScript escapes C keywords by prefixing an underscore, which may clash with existing identifiers."
                             )
@@ -4227,10 +4228,10 @@ class PenguChecker:
 
         if self.symbols.current_scope.kind not in ("weave",):
             err = self._make_error(
-                SemanticError,
+                StaticVarPlacementError,
                 "'static var' is only allowed directly inside a function body (weave).",
                 node,
-                code="E0035",
+                code="E0063",
                 help="Move the 'static var' declaration to the top level of the function body.",
                 note="Function-static variables must be direct children of the function body."
             )
@@ -6845,10 +6846,10 @@ class PenguChecker:
 
         if not test_name or test_name == "_":
             err = self._make_error(
-                SemanticError,
+                InvalidTestNameError,
                 "Test name must be a non-empty string or identifier",
                 node,
-                code="E0035",
+                code="E0064",
                 help="Give the test a descriptive name: 'test \"does something\"' or 'test does_something'.",
                 note="Unit tests need a name for reporting."
             )

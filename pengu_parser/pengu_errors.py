@@ -440,6 +440,56 @@ class InvalidCharLiteralError(SemanticError):
         super().__init__(message, line=line, col=col, column=column, **kwargs)
 
 
+class StaticVarPlacementError(SemanticError):
+    """E0063: 'static var' declared outside a function body.
+
+    A function-static variable is C's ``static`` local: it belongs to one weave
+    and is created once.  Declaring it in a ``test`` block, at module top level,
+    or nested inside a conditional has no coherent C translation, so it is
+    rejected on placement rather than on type.
+
+    This used to share ``E0035`` with the "name collides with a C reserved word"
+    diagnostic -- two conditions with nothing in common, which made a
+    code-based quick-fix impossible (roadmap Phase 7, item 7.2).
+    """
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0063")
+        kwargs.setdefault("help", "Move the 'static var' declaration to the top level of the function body.")
+        kwargs.setdefault("note", "Function-static variables must be direct children of the function body.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+class InvalidTestNameError(SemanticError):
+    """E0064: a ``test`` block has no usable name.
+
+    Unit tests are reported by name, so ``test`` with an empty or ``_``-only name
+    cannot be identified in the runner output.
+
+    This used to share ``E0035`` (roadmap Phase 7, item 7.2).
+    """
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0064")
+        kwargs.setdefault("help", "Give the test a descriptive name: 'test \"does something\"' or 'test does_something'.")
+        kwargs.setdefault("note", "Unit tests need a name for reporting.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+class CFieldCollisionError(SemanticError):
+    """E0065: two PenguScript fields map to the same C field name.
+
+    ``_c_ident`` escapes C keywords by prefixing an underscore, so ``x`` and
+    ``_x`` both emit the C field ``_x``.  The collision is between two *user*
+    fields, not with a C reserved word, which is why it is not ``E0035``.
+
+    This used to share ``E0035`` (roadmap Phase 7, item 7.2).
+    """
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0065")
+        kwargs.setdefault("help", "Rename one of the fields so their C identifiers differ.")
+        kwargs.setdefault("note", "PenguScript escapes C keywords by prefixing an underscore, which may clash with existing identifiers.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
 
 
 

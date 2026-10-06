@@ -197,17 +197,137 @@ DUPLICATE (code,msg) sites: 29              # mismo diagnóstico en 2 rutas, ben
 | `Test name must be a non-empty string or identifier` | 1 | Nombre de test inválido |
 | `Field '…' collides with field '…' in C code emission ('…')` | 1 | Colisión de campos entre sí |
 
-**Resultado:** ⏳ en implementación (la evidencia se registra al cerrar)
+**Resultado:** ✅ cerrado
 
-**Evidencia:** _(pendiente)_
+**Evidencia:**
 
-**Test:** `tests/test_error_codes_uniqueness.py::test_no_new_shared_condition_families` (ratchet
-sobre el catálogo generado) + `::test_static_var_placement_has_its_own_code` y similares.
-**Commit:** _(ver roadmap)_
+```bash
+$ .venv/bin/python -c "..."   # condiciones por código, vía el catálogo generado de 7.1
+E0035: 4   # antes 7
+E0063: 1   # 'static var' fuera de un cuerpo de función
+E0064: 1   # nombre de test vacío
+E0065: 1   # colisión de campos entre sí en la emisión C
+
+# comportamiento real, no sólo texto fuente:
+$ static var dentro de un 'if' dentro de un weave
+  -> [E0063] 'static var' is only allowed directly inside a function body (weave).
+$ test "":
+  -> [E0064] Test name must be a non-empty string or identifier
+$ rune BadRune: FILE/_FILE
+  -> [E0065] Field '_FILE' collides with field 'FILE' in C code emission ('_FILE')
+$ rune int:            -> [E0035] Type name 'int' is a reserved C keyword or standard identifier
+$ const FILE as int is 5 -> [E0035] Constant name 'FILE' is a reserved C keyword ...
+$ weave printf ...     -> [E0035] Function name 'printf' is a reserved standard C function ...
+```
+
+**Falsificación (el gate falla al revertir, comprobado):** devolviendo el sitio de
+`'static var'` a `SemanticError`/`E0035`:
+
+```bash
+$ pytest tests/test_error_codes_uniqueness.py -q
+5 failed, 10 passed
+# test_every_emitted_code_has_exactly_one_condition_family
+# test_ratchet_is_not_padded
+# test_e0035_covers_only_the_c_reserved_name_family
+# test_displaced_conditions_have_their_own_code[E0063-…]
+# test_the_split_is_real_not_cosmetic
+```
+
+**Qué se hizo:**
+
+1. Tres clases nuevas en `pengu_parser/pengu_errors.py` con códigos nuevos, cada
+   una documentando en su docstring **por qué** estaba compartiendo `E0035` y con
+   qué condición:
+   - `E0063 StaticVarPlacementError` — `'static var'` fuera de un cuerpo de weave.
+   - `E0064 InvalidTestNameError` — `test` sin nombre utilizable.
+   - `E0065 CFieldCollisionError` — dos campos *de usuario* colisionan en el
+     identificador C (no es una colisión con C, que es lo que `E0035` significa).
+2. Los 4 sitios de emisión en `pengu_checker.py` actualizados; `E0035` queda con
+   su única familia ("el nombre choca con una palabra reservada o un identificador
+   estándar de C"), 4 formas de mensaje en lugar de 7.
+3. `tests/test_error_codes_uniqueness.py` extendido: la mitad nueva del archivo
+   **camina el AST de todos los emisores** (no `kwargs.setdefault`) y aplica
+   cuatro invariantes:
+   - `test_every_emitted_code_has_exactly_one_condition_family`: ratchet
+     `CONDITION_SHAPES` de 61 códigos; **ensanchar el significado de un código es
+     un fallo de build** hasta bumpear la tabla a propósito.
+   - `test_ratchet_is_not_padded`: un número obsoleto demasiado alto también falla
+     (si no, ocultaría una condición eliminada).
+   - `test_no_message_shape_is_emitted_under_two_codes`: `mensaje → código` debe
+     ser una función. Medido: **0 violaciones** (la invariante fuerte ya se
+     cumplía; el bug real era el inverso, un código con 4 condiciones).
+   - `test_e0035_covers_only_the_c_reserved_name_family` y
+     `test_the_split_is_real_not_cosmetic` (compila los 3 casos; no se conforma
+     con el texto fuente).
+4. `tests/test_regression_0_13_7.py::test_item9_c_ident_collision_detection`
+   actualizado a `E0065` con el motivo del cambio (`FILE`/`_FILE` es una colisión
+   entre campos de usuario, no con C).
+5. Catálogo y documentos regenerados (`--write`); `§22.2` ya recoge `E0063`–`E0065`.
+
+**Nota sobre el criterio del roadmap:** *"cada `(código, mensaje)` es único"* se
+mide y **ya se cumplía** (0 mensajes bajo dos códigos); los 29 pares
+`(código, mensaje)` repetidos son el mismo diagnóstico en dos rutas (checker e
+infer) y **no** son el bug de códigos compartidos. El criterio se reinterpreta en
+su forma útil, que es la que el audit §2.3 describe en prosa: *un código no puede
+cubrir condiciones sin relación*, ahora con ratchet ejecutable.
+
+**Test:** `tests/test_error_codes_uniqueness.py` (15 casos, 8 nuevos) +
+`tests/test_error_catalog_sync.py`.
+**Commit:** `fase7(item 7.2): códigos únicos — E0035 deja de cubrir 4 condiciones`
 
 ---
 
 ## Hallazgos nuevos de la Fase 7 (no estaban en el roadmap)
+
+### F7-N3 — 🔴 El espacio de nombres `Exxxx` está compartido entre capas y nadie lo vigilaba
+
+**Cómo se encontró:** al asignar códigos nuevos en 7.2 elegí `E0059`–`E0061` (el
+siguiente hueco tras `E0058` del catálogo del lenguaje). `E0061` **ya estaba en
+uso**: es el código del `pengu.lock` ausente/desactualizado bajo
+`--locked`/`--frozen`, y hay tests que lo asertan.
+
+**Medición:**
+
+```bash
+$ grep -rhoP 'E\d{4}' pengu_project.py pengu_lock.py pengu_semver.py | sort | uniq -c
+      2 E0000        # ruido: docstrings/menciones
+      3 E0061        # pengu_project.py:2110, :2126, :2244 (lockfile)
+      1 E0062        # pengu_project.py:3800 (docstring)
+$ grep -rn 'E0062' --include="*.py" . | grep -v __pycache__
+./pengu_project.py:3800:    :class:`DependencyConflictError` (roadmap 4.2, error E0062).
+```
+
+Dos defectos distintos:
+
+1. **Colisión de espacio de nombres.** El lenguaje emite `E0000`–`E0058` por el
+   kwarg `code=`; la capa de proyecto (lockfile, resolución de dependencias) emite
+   `E0061`/`E0062` como **cadenas** `"[Exxxx] …"`. Nada cruzaba las dos capas, así
+   que reutilizar un código habría creado dos significados para el mismo número.
+   Es la misma clase de bug que 7.2 cierra dentro del lenguaje, un nivel más
+   arriba.
+2. **`E0062` era fantasma.** El docstring de `pengu_project.py:3800` prometía ese
+   código para `DependencyConflictError`, pero el mensaje de la excepción no lo
+   contenía nunca: ningún usuario ni herramienta podía casar el diagnóstico.
+
+**Impacto:** un código con dos significados inutiliza cualquier quick-fix guiado
+por código, que es exactamente el argumento del audit §2.3 para el lenguaje.
+
+**Decisión:** ✅ **corregido dentro de 7.2** (no diferido: es barato y es
+precisamente la clase de defecto del item):
+- Los tres códigos nuevos del lenguaje pasan a **`E0063`/`E0064`/`E0065`**,
+  saltando el rango ya ocupado por la capa de proyecto.
+- `DependencyConflictError` ahora emite su código:
+  `[E0062] conflicting version requirements for dependency '…'`. No había ningún
+  test que asertara el texto literal del mensaje (sólo `pytest.raises` del tipo),
+  así que el cambio no rompe a nadie y el código pasa a ser real.
+- `tools/gen_error_catalog.py` extrae también la capa de proyecto (cadenas
+  `"[Exxxx] …"` y los dicts JSON con `"code": "Exxxx"`) y genera §22.3.1.
+- `tests/test_error_catalog_sync.py::test_language_and_project_codes_are_disjoint`
+  falla si las dos capas vuelven a solaparse. **Falsificado:** renumerando
+  `E0065`→`E0061` → `5 failed`, incluido el test de disjunción.
+
+**Lección para el roadmap:** el criterio de 7.2 ("ningún `(código, mensaje)`
+duplicado") se queda corto: hay que exigir además que un código no cruce capas.
 
 ### F7-N1 — 🟠 El checker no hace cumplir la nominalidad de `seal` en 3 posiciones
 

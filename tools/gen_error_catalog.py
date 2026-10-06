@@ -122,6 +122,24 @@ def _source_files() -> list[Path]:
     return sorted(p for p in files if p.is_file())
 
 
+def _iter_string_nodes(tree: ast.AST):
+    """Yields the *outermost* string nodes of ``tree``.
+
+    ``ast.walk`` also visits the literal fragments *inside* an f-string, so
+    ``f"[E0061] foo {x}"`` yields both the whole f-string and the constant
+    ``"[E0061] foo "``.  Matching the fragment would register a truncated
+    duplicate condition, so the interior nodes are skipped.
+    """
+    interior = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.JoinedStr):
+            for part in node.values:
+                interior.add(id(part))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Constant, ast.JoinedStr)) and id(node) not in interior:
+            yield node
+
+
 def _parse(path: Path) -> ast.Module | None:
     try:
         return ast.parse(path.read_text(encoding="utf-8"))
@@ -149,6 +167,61 @@ def _template_kwarg(call: ast.Call, name: str) -> str | None:
         if kw.arg == name:
             return _render(kw.value)
     return None
+
+
+def extract_project_diagnostics() -> dict[str, list[str]]:
+    """Maps project/CLI-layer codes to the messages emitted for them.
+
+    The project layer (`pengu.lock`, dependency resolution) does **not** use
+    ``code=`` keywords: it prints ``"[E0061] …"`` strings and builds JSON
+    diagnostics with ``{"code": "E0061", …}``.  Those codes share the ``Exxxx``
+    namespace with the language diagnostics and, until this function existed,
+    nothing prevented the two layers from colliding — ``E0061`` was very nearly
+    reassigned to a language error while the lockfile already used it.
+
+    Returns ``{code: [message shapes]}``.
+    """
+    conditions: dict[str, list[str]] = {}
+    for path in _source_files():
+        tree = _parse(path)
+        if tree is None:
+            continue
+        # "[E0061] message ..." literals and f-strings.
+        for node in _iter_string_nodes(tree):
+            text = _render(node)
+            if not text:
+                continue
+            match = re.match(r"^\[(E\d{4})\]\s*(.*)$", text, re.S)
+            if match:
+                _add(conditions, match.group(1), match.group(2))
+        # {"code": "E0061", "message": "..."} JSON diagnostics.
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Dict):
+                continue
+            code = None
+            for key, value in zip(node.keys, node.values):
+                if (isinstance(key, ast.Constant) and key.value == "code"
+                        and isinstance(value, ast.Constant) and isinstance(value.value, str)
+                        and _E_CODE_RE.match(value.value)):
+                    code = value.value
+            if not code:
+                continue
+            message = None
+            for key, value in zip(node.keys, node.values):
+                if isinstance(key, ast.Constant) and key.value in ("message", "msg"):
+                    message = _render(value)
+            if message:
+                _add(conditions, code, message)
+    return conditions
+
+
+def _add(bank: dict[str, list[str]], code: str, message: str) -> None:
+    message = message.strip()
+    if not message:
+        return
+    shapes = bank.setdefault(code, [])
+    if message not in shapes:
+        shapes.append(message)
 
 
 def extract_error_classes() -> dict[str, dict]:
@@ -267,17 +340,17 @@ def extract_warnings() -> dict[str, list[str]]:
                         bank = conditions.setdefault(code, [])
                         if message not in bank:
                             bank.append(message)
-            if isinstance(node, (ast.Constant, ast.JoinedStr)):
-                text = _render(node)
-                if not text:
-                    continue
-                match = _WARNING_TEXT_RE.match(text)
-                if not match:
-                    continue
-                code, message = match.group(1), match.group(2)
-                bank = conditions.setdefault(code, [])
-                if message not in bank:
-                    bank.append(message)
+        for node in _iter_string_nodes(tree):
+            text = _render(node)
+            if not text:
+                continue
+            match = _WARNING_TEXT_RE.match(text)
+            if not match:
+                continue
+            code, message = match.group(1), match.group(2)
+            bank = conditions.setdefault(code, [])
+            if message not in bank:
+                bank.append(message)
     return conditions
 
 
@@ -345,7 +418,20 @@ def build_catalog() -> dict:
             entry["conditions"] = sorted(conditions)
         warnings[code] = entry
 
-    return {"errors": errors, "warnings": warnings}
+    # Project/CLI-layer codes live in the same Exxxx namespace but not in the
+    # language catalogue: they are emitted by `pengu.lock` handling and version
+    # resolution, not by the compiler proper.
+    project_conditions = extract_project_diagnostics()
+    project: dict[str, dict] = {}
+    for code, shapes in sorted(project_conditions.items()):
+        if code in errors:
+            # A code cannot mean two things. `build_catalog` still returns it so
+            # the caller can report it; the test suite fails on the overlap.
+            project[code] = {"conditions": sorted(shapes), "conflict": True}
+        else:
+            project[code] = {"conditions": sorted(shapes)}
+
+    return {"errors": errors, "warnings": warnings, "project": project}
 
 
 # ---------------------------------------------------------------------------
@@ -414,9 +500,38 @@ def render_english(catalog: dict) -> str:
         n = len(entry.get("conditions", []))
         practice = _md_cell(entry.get("practice", "—"))
         out.append(f"| `{code}` | {_md_cell(name)} | {n} | {practice} |")
+    out += _render_project_table(catalog)
     out.append("")
     out.append(MARK_END)
     return "\n".join(out)
+
+
+def _render_project_table(catalog: dict) -> list[str]:
+    """The project/CLI-layer table, kept separate from the language catalogue.
+
+    These codes are emitted as plain ``"[E0061] …"`` strings by the lockfile and
+    dependency-resolution code, not by the compiler.  They share the ``Exxxx``
+    namespace, so they are documented here and crossed with the language codes
+    by the test suite: a code must not mean two things.
+    """
+    project = catalog.get("project", {})
+    out: list[str] = [""]
+    out.append(f"### 22.3.1 Project-layer diagnostics ({_code_range(sorted(project))})")
+    out.append("")
+    out.append(
+        "Emitted by the project layer (`pengu.lock` under `--locked`/`--frozen`, "
+        "and dependency resolution) as plain `[Exxxx]` strings — **not** by the "
+        "language compiler, and not through a `code=` keyword.  They share the "
+        "`Exxxx` namespace, so the numbering is kept disjoint from §22.2 by "
+        "`tests/test_error_catalog_sync.py`.")
+    out.append("")
+    out.append("| Code | Conditions | Layer |")
+    out.append("|---|---|---|")
+    for code, entry in project.items():
+        n = len(entry.get("conditions", []))
+        layer = "project (conflict with §22.2!)" if entry.get("conflict") else "project"
+        out.append(f"| `{code}` | {n} | {layer} |")
+    return out
 
 
 def render_spanish(catalog: dict) -> str:
@@ -473,6 +588,7 @@ def render_spanish(catalog: dict) -> str:
         n = len(entry.get("conditions", []))
         practice = _md_cell(entry.get("practice", "—"))
         out.append(f"| `{code}` | {_md_cell(name)} | {n} | {practice} |")
+    out += _render_project_table(catalog)
     out.append("")
     out.append(MARK_END)
     return "\n".join(out)
@@ -540,6 +656,28 @@ def _replace_region(markdown: str, rendered: str) -> str:
             + markdown[end:])
 
 
+def extract_project_table(markdown: str) -> dict[str, int]:
+    """Parses the §22.3.1 project-layer table into ``{code: condition count}``."""
+    if MARK_BEGIN not in markdown or MARK_END not in markdown:
+        raise ValueError("generated catalogue markers not found")
+    region = markdown.split(MARK_BEGIN, 1)[1].split(MARK_END, 1)[0]
+    if "### 22.3.1" not in region:
+        raise ValueError("§22.3.1 project-layer table not found")
+    section = region.split("### 22.3.1", 1)[1]
+    counts: dict[str, int] = {}
+    for line in section.splitlines():
+        match = _TABLE_ROW_RE.match(line.strip())
+        if not match:
+            continue
+        code, rest = match.group(1), match.group(2)
+        cells = [c.strip() for c in re.split(r"(?<!\\)\|", rest)]
+        # This table is `| Code | Conditions | Layer |`: the count is the first
+        # cell, unlike §22.2 where the class list comes first.
+        if cells and cells[0].isdigit():
+            counts[code] = int(cells[0])
+    return counts
+
+
 def _load_json(path: Path) -> dict | None:
     if not path.exists():
         return None
@@ -569,6 +707,12 @@ def cmd_check() -> int:
     catalog = build_catalog()
     problems: list[str] = []
 
+    overlap = sorted(set(catalog["errors"]) & set(catalog.get("project", {})))
+    if overlap:
+        problems.append(
+            f"codes used by BOTH the language and the project layer: {overlap} "
+            "(a code must mean exactly one thing)")
+
     on_disk = _load_json(CATALOG_JSON)
     if on_disk is None:
         problems.append(f"{CATALOG_JSON.relative_to(REPO)}: missing or unparseable")
@@ -581,6 +725,7 @@ def cmd_check() -> int:
         expected = render(catalog)
         try:
             classes, counts = extract_tables(text)
+            project_counts = extract_project_table(text)
         except ValueError as exc:
             problems.append(f"{path.name}: {exc}")
             continue
@@ -589,8 +734,11 @@ def cmd_check() -> int:
                        for code, entry in catalog["errors"].items()}
         want_counts.update({code: len(entry.get("conditions", []))
                             for code, entry in catalog["warnings"].items()})
+        want_project = {code: len(entry.get("conditions", []))
+                        for code, entry in catalog.get("project", {}).items()}
         problems += _compare(f"{path.name} table classes", want_classes, classes)
         problems += _compare(f"{path.name} table counts", want_counts, counts)
+        problems += _compare(f"{path.name} project table", want_project, project_counts)
         if MARK_BEGIN not in text or MARK_END not in text:
             problems.append(f"{path.name}: generated markers missing")
 
@@ -604,7 +752,9 @@ def cmd_check() -> int:
     n_err = len(catalog["errors"])
     n_cond = sum(len(e.get("conditions", [])) for e in catalog["errors"].values())
     n_warn = len(catalog["warnings"])
-    print(f"error catalog: {n_err} codes, {n_cond} conditions, {n_warn} warnings, in sync")
+    n_proj = len(catalog.get("project", {}))
+    print(f"error catalog: {n_err} codes, {n_cond} conditions, {n_warn} warnings, "
+          f"{n_proj} project-layer codes, in sync")
     return 0
 
 

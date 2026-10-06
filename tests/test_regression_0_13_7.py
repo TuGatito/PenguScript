@@ -212,7 +212,12 @@ def test_item8_is_string_expr_alias_support():
 
 
 def test_item9_c_ident_collision_detection():
-    """#9: Fields that collide after C identifier escaping are rejected with E0035."""
+    """#9: Fields that collide after C identifier escaping are rejected.
+
+    Phase 7 item 7.2 moved this off ``E0035`` (which now means only "the name
+    collides with a C reserved word or standard identifier") onto its own code,
+    ``E0065``: the collision here is between two *user* fields, not with C.
+    """
     code = """rune BadRune:
     FILE as i32
     _FILE as i32
@@ -220,7 +225,7 @@ def test_item9_c_ident_collision_detection():
 weave main into int:
     return 0
 """
-    check_error(code, "E0035")
+    check_error(code, "E0065")
 
 
 @requires_cc
