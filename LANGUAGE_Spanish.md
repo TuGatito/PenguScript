@@ -1,6 +1,13 @@
 # Referencia del Lenguaje PenguScript
 
 > **Versión cubierta:** PenguScript **0.16.0** (sincronizada con `VERSION` y `pengu_version.py`; generador de código C99/C11; cabeceras de runtime en `pengu_runtime.h`).
+> **Política de idioma.** El inglés es el idioma canónico de la documentación de
+> PenguScript, así que el documento **normativo** es [`LANGUAGE.md`](LANGUAGE.md).
+> Esta traducción al español es **no normativa**: puede ir por detrás y, donde los dos
+> discrepen, gana `LANGUAGE.md`. La deriva está medida y acotada por
+> `tests/test_language_policy.py`; a fecha de esta revisión faltan por traducir
+> **§5.0**, **§19.0**, **§19.1.1** y **§23.2** (dentro de §23, política de deprecación y estabilidad).
+>
 > Esta es la guía definitiva de sintaxis y semántica, escrita a partir de las fuentes
 > del compilador (`pengu_grammar.py`, `pengu_checker.py`, `pengu_codegen.py`,
 > `pengu_infer.py`, `pengu_runtime.h`). Complementa el
@@ -1916,6 +1923,40 @@ weave main into void:
 > [!NOTE]
 > Para una API a nivel de módulo sobre estos operadores, consulta los ayudantes nativos
 > de `std.oracle` (`some_int`, `unwrap_int`, `unwrap_or_string`, …).
+
+### Elección entre `maybe` y `result` (decisión D5)
+
+Ambos contenedores existen y ninguno sustituye al otro:
+
+- **`maybe T`** responde a *"¿hay un valor?"*. Úsalo cuando la ausencia de valor es
+  toda la historia: búsquedas, campos opcionales, "encuentra la primera coincidencia".
+- **`result of T to E`** responde a *"¿qué ha fallado?"*. Úsalo cuando una operación
+  puede fallar por varias razones y quien llama quiere reaccionar de forma distinta:
+  E/S, red, parseo, decodificación.
+
+La migración es aditiva y nunca rompedora: `std.archivum` conserva `read_file` →
+`maybe string` (y `write_file` → `bool`) exactamente como antes, y añade
+`read_file_result`, `write_file_result` y `delete_file_result`, que devuelven
+`result of T to IoError`, donde `IoError` es un omen (`NotFound`,
+`IsADirectory`, `NotAFile`, `Permission`, `Unknown`):
+
+```pengu
+import std.archivum
+
+weave load with path as string into string:
+    var r is calling archivum.read_file_result with path
+    if r.is_ok:
+        return r.value
+    if r.error == archivum.IoError.NotFound:
+        return "missing"                       # distinguible de...
+    if r.error == archivum.IoError.Permission:
+        return "denied"                        # ...esto, y sin FFI
+    return calling archivum.describe_error with r.error
+```
+
+El resto de la biblioteca estándar conserva `maybe`/`bool` hasta que cada módulo
+reciba el mismo tratamiento aditivo; la migración completa se sigue como el item
+4.4 del roadmap y es deliberadamente la última porque toca APIs públicas.
 
 ---
 

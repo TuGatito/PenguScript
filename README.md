@@ -4,6 +4,13 @@
 
 **🌍 Languages / Idiomas:** [🇬🇧 English](#-english) · [🇪🇸 Español](#-español)
 
+> **Language policy.** English is the canonical language of this repository's
+> documentation; the Spanish sections are **non-normative** translations of the same
+> content, kept structurally in step by `tests/test_language_policy.py`.
+> **Política de idioma.** El inglés es el idioma canónico de la documentación de este
+> repositorio; las secciones en español son traducciones **no normativas** del mismo
+> contenido.
+
 > **Status:** active development. CI builds the C runtime, runs `pytest tests/`, and packages a standalone release (compiler + VS Code extension) on **Windows, Linux and macOS** — see `.github/workflows/ci.yml`; tagged releases are published by `.github/workflows/release.yml`.
 
 > [!WARNING]

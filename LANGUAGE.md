@@ -1,6 +1,12 @@
 # PenguScript Language Reference
 
 > **Version covered:** PenguScript **0.16.0** (synchronized with `VERSION` and `pengu_version.py`; C99/C11 code generator; runtime headers under `pengu_runtime.h`).
+> **Language policy.** English is the canonical language of the PenguScript
+> documentation, so **this document is the normative one**. A Spanish translation is
+> maintained at [`LANGUAGE_Spanish.md`](LANGUAGE_Spanish.md); it is **non-normative**,
+> it may lag, and where the two disagree this file wins. The lag is measured and
+> cannot grow — see `tests/test_language_policy.py`.
+>
 > This is the definitive syntax & semantics guide, written against the compiler
 > sources (`pengu_grammar.py`, `pengu_checker.py`, `pengu_codegen.py`,
 > `pengu_infer.py`, `pengu_runtime.h`). It complements the quick

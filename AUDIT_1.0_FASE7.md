@@ -629,6 +629,110 @@ re-ejecutan; la guía da el comando para reproducirlas.
 
 ---
 
+### 7.14 — Política de idioma (inglés canónico, español marcado)
+
+**Premisa del roadmap:** "Cada documento bilingüe declara su estado; CI verifica que
+el número de bloques `pengu` coincide entre los pares".
+
+**Verificación previa:**
+
+```bash
+$ python3 -c "…contar fences…"
+LANGUAGE.md: 101                 LANGUAGE_Spanish.md: 95        diff=6
+PenguScriptGuideEnglish.md: 72   PenguScriptGuideSpanish.md: 72  diff=0
+$ grep -ci "non-normative\|no normativ\|canonical language" \
+      LANGUAGE.md LANGUAGE_Spanish.md PenguScriptGuideEnglish.md \
+      PenguScriptGuideSpanish.md CHEATSHEET.md
+0 0 0 0 0        # ningún documento declaraba la política
+```
+
+Dos hallazgos: **0 de 5** documentos declaraban la política, y el par de la
+referencia del lenguaje **divergía en 6 bloques**.
+
+**Dónde estaba exactamente la divergencia** (medido por sección, no a ojo): de las
+149 secciones numeradas de `LANGUAGE.md` frente a 134 del español, faltan en el
+español `5.0`, `19.0`, `19.1.1`, `20.2.1`–`20.2.5`, `20.12.1` y `23`–`23.5`; y en la
+sección compartida `§12` el inglés tiene 2 bloques y el español 1. Reparto:
+
+| Origen del bloque ausente | Bloques |
+|---|---|
+| `§5.0` (Safety guarantees and their opt-outs) | 2 |
+| `§19.0` (Standard-library versioning policy) | 1 |
+| `§19.1.1` (Choosing between `std.loom` and `std.tally`) | 1 |
+| `§23.2` (Deprecating a symbol) | 1 |
+| `§12`, subsección de la decisión D5 | 1 |
+| **Total** | **6** |
+
+Las secciones nunca traducidas suman **279 líneas** de prosa normativa.
+
+**Resultado:** ✅ cerrado en su criterio (política declarada + CI que verifica el
+estado del par, con el lag medido y acotado); la **traducción** de las 4 secciones
+restantes se registra como item **7.14b**, no se simula.
+
+**Evidencia:**
+
+```bash
+$ .venv/bin/python -m pytest tests/test_language_policy.py -q
+11 passed
+```
+
+**Falsificación (comprobada en los dos sentidos):**
+
+```bash
+# 1) crecer el lag: convertir un fence ```pengu del documento español en ```text
+1 failed   # test_pair_block_counts_match_modulo_the_itemised_lag
+# 2) declarar traducida una sección que no lo está (añadir §20.2.3 al allowlist)
+1 failed   # test_the_spanish_declaration_itemises_the_lag
+```
+
+**Qué se hizo:**
+
+1. Declaración de política en los **5** documentos bilingües (`LANGUAGE.md`,
+   `LANGUAGE_Spanish.md`, las dos guías y `README.md`): el inglés es canónico y
+   normativo; el español es **no normativo**, puede ir por detrás y donde discrepe
+   gana el inglés.
+2. La declaración española **enumera** lo que falta traducir (`§5.0`, `§19.0`,
+   `§19.1.1`, `§23.2`), para que el lector sepa qué no está leyendo.
+3. Traducido el bloque que faltaba en `§12`: la subsección de la decisión **D5**
+   (`maybe` vs `result`, con el ejemplo de `archivum.read_file_result`) → **+1
+   bloque**, de 95 a 96.
+4. `tests/test_language_policy.py` (11 casos) con un **ratchet bidireccional**: los
+   pares deben cuadrar **salvo** el lag enumerado en `UNTRANSLATED`, y cada sección
+   listada debe seguir ausente con exactamente el recuento declarado. Así el lag no
+   puede crecer en silencio **ni** la lista pudrirse en una exención obsoleta.
+
+**Test:** `tests/test_language_policy.py` (archivo nuevo, 11 casos).
+**Commit:** `2074cc2`
+
+#### ⏸️ 7.14b — Traducir §5.0, §19.0, §19.1.1 y §23 de `LANGUAGE_Spanish.md`
+
+**MEDICIÓN:** 4 secciones, **279 líneas** en inglés, **5 bloques `pengu`**:
+
+| Sección | Líneas | Bloques |
+|---|---|---|
+| `§5.0` Safety guarantees and their opt-outs | 50 | 2 |
+| `§19.0` Standard-library versioning policy | 22 | 1 |
+| `§19.1.1` Choosing between `std.loom` and `std.tally` | 41 | 1 |
+| `§23` Deprecation & Stability Policy (`§23.1`–`§23.5`) | 89 | 1 (`§23.2`) |
+
+**POR QUÉ SE DIFIERE:** es traducción de prosa normativa, no un cambio de estructura.
+Hacerlo a la carrera introduciría divergencia semántica en un documento normativo,
+que es peor que un lag declarado. El ratchet ya impide que la brecha **crezca** y
+obliga a mantener la lista al día, así que el lag es visible y acotado.
+
+**QUÉ FALTA:** traducir esas 4 secciones y, en el mismo commit, vaciar sus entradas
+de `UNTRANSLATED`; el test `test_the_untranslated_list_is_exact` falla si una sección
+se traduce y sigue listada.
+
+**ESTIMACIÓN REAL:** M (≈279 líneas; requiere criterio terminológico, no es mecánico
+al 100 %).
+
+**ENTREGADO EN SU LUGAR:** la declaración de política en los 5 documentos, la
+subsección D5 de `§12` traducida (el bloque que faltaba en una sección compartida) y
+el ratchet bidireccional.
+
+---
+
 ## Hallazgos nuevos de la Fase 7 (no estaban en el roadmap)
 
 ### F7-N3 — 🔴 El espacio de nombres `Exxxx` está compartido entre capas y nadie lo vigilaba

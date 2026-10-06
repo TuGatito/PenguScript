@@ -1,6 +1,11 @@
 # Guía de Estilo Pengunic
 
 > **Versión cubierta:** PenguScript **0.16.0**
+> **Política de idioma.** El inglés es canónico: la guía normativa es
+> [`PenguScriptGuideEnglish.md`](PenguScriptGuideEnglish.md). Esta traducción al
+> español es **no normativa**; donde discrepen, gana la guía inglesa.
+> `tests/test_language_policy.py` comprueba que las dos avanzan en paralelo.
+>
 > Este documento define las convenciones de nomenclatura, organización e idioma que rigen la biblioteca estándar (`std.*`) y que deberían seguir todos los módulos de usuario. Es el complemento normativo de [`LANGUAGE.md`](LANGUAGE.md): dónde el *Language Reference* describe qué *se puede* escribir, este documento prescribe qué *se debe* escribir.
 > Léelo como se lee [PEP 8](https://peps.python.org/pep-0008/) + [PEP 20](https://peps.python.org/pep-0020/) para Python, o el [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/) para Rust.
 

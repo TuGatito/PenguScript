@@ -1,6 +1,11 @@
 # Pengunic Style Guide
 
 > **Covered version:** PenguScript **0.16.0**
+> **Language policy.** English is canonical: this guide is normative. The Spanish
+> translation [`PenguScriptGuideSpanish.md`](PenguScriptGuideSpanish.md) is
+> **non-normative**; where they disagree, this file wins. `tests/test_language_policy.py`
+> checks that the two stay structurally in step.
+>
 > This document defines the naming, organization and language conventions that govern the standard library (`std.*`) and that every user module should follow. It is the normative companion of [`LANGUAGE.md`](LANGUAGE.md): where the *Language Reference* describes what *can* be written, this document prescribes what *should* be written.
 > Read it the way you read [PEP 8](https://peps.python.org/pep-0008/) + [PEP 20](https://peps.python.org/pep-0020/) for Python, or the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/) for Rust.
 
