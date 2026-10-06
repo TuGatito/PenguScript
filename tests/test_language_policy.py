@@ -43,10 +43,11 @@ PAIRS = (
 #: this many blocks; that two-way check is what stops the list from rotting.
 UNTRANSLATED: dict[str, dict[str, int]] = {
     "LANGUAGE_Spanish.md": {
-        "5.0": 2,       # Safety guarantees and their opt-outs
+        "5.0": 1,       # Safety guarantees and their opt-outs
         "19.0": 1,      # Standard-library versioning policy
         "19.1.1": 1,    # Choosing between std.loom and std.tally
-        "23.2": 1,      # Deprecating a symbol (the whole of §23 is untranslated)
+        "23.2": 0,      # Deprecating a symbol (the whole of §23 is untranslated;
+                        #          its only example is a `pengu-fragment`)
     },
 }
 

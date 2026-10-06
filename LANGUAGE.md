@@ -115,7 +115,7 @@ $ pengu lsp                      # launch the language server (pygls)
 
 ### 3.2 Comments & docs
 
-```pengu
+```pengu-fragment
 # line comment
 ## doc comment (used by `pengu doc` and hover/extraction)
 # banner --------------------------------------------
@@ -358,7 +358,7 @@ process receives `SIGFPE` and terminates; PenguScript does not silently produce 
 value. The compiler does not insert a divisor check (it would cost a branch on
 every division), so guard divisors when they can legitimately be zero:
 
-```pengu
+```pengu-fragment
 if d == 0:
     return 0
 return n / d
@@ -373,7 +373,7 @@ set `-DPENGU_OOM_ABORT=0` to receive NULL instead.
 
 PenguScript supports eight declaration layouts for variables, constants, and destructured bindings:
 
-```pengu
+```pengu-fragment
 # 1. Explicitly typed variable / binding with initializer
 var count as int is 0
 let name as string is "Ada"
@@ -451,7 +451,7 @@ When the target's type is a **bare type parameter**, the assigned value must
 satisfy every bound declared for that parameter (the same rule the call site
 applies to arguments):
 
-```pengu
+```pengu-fragment
 weave store shard T where T: Num with x as ref to T into void:
     set essence of x is "hello"     # E0005: 'string' does not satisfy 'Num'
     set essence of x is 42          # OK: 'int' implements 'Num'
@@ -470,7 +470,7 @@ The check applies equally to element targets (`set xs at 0 is v` with
 
 `set` also accepts the compound operators `+= -= *= /= %= &= |= ^= <<= >>=`:
 
-```pengu
+```pengu-fragment
 set counter += 1
 set total -= fee
 set acc *= factor
@@ -501,7 +501,7 @@ Symbols are public across modules by default. Any top-level symbol or rune field
 
 Locals can be explicitly declared with the soft keyword `borrowed`, with or without an explicit type annotation:
 
-```pengu
+```pengu-fragment
 var borrowed view is existing_string
 var borrowed count as int is 5
 let borrowed slice_view is container_ref
@@ -549,7 +549,7 @@ Everything is left-associative. `or` binds looser than `and`, so `a or b and c` 
 
 ### 6.2 Arithmetic & bitwise
 
-```pengu
+```pengu-fragment
 let z as int is (a + b) * 2 % 7
 let f as float is 1.5
 let bits as int is (x << 2) | (y & 0x0F)
@@ -564,7 +564,7 @@ let flip as int is ~mask
 
 ### 6.3 Comparison, membership & word tests
 
-```pengu
+```pengu-fragment
 if x > 0: ...
 if m is present: ...          # m must be 'maybe T'; anything else is E0005
 unless m is present: ...
@@ -587,7 +587,7 @@ if p == null: ...             # valid for any pointer/opaque type
 
 ### 6.4 Address, dereference & size
 
-```pengu
+```pengu-fragment
 var p as ref to int is sigil of x     # &x
 var v as int is essence of p          # *p
 set essence of p is 42                # *p = 42 (LHS of assignment)
@@ -602,7 +602,7 @@ let raw_ptr as ref to void is transmute p to ref to void   # unsafe bit-cast
 
 ### 6.5 Character & byte primitives
 
-```pengu
+```pengu-fragment
 let code as int is ord "A"            # 65
 let empty_code as int is ord ""       # 0
 let ch as string is chr 66            # "B" (single-character string)
@@ -619,7 +619,7 @@ let raw_arr as ref to byte is bytes of byte_array         # writable view
 
 ### 6.6 `maybe` constructors & `null` context
 
-```pengu
+```pengu-fragment
 var m as maybe int is some 42         # boxes 42 into a PenguMaybe heap cell
 var n as maybe int is maybe none      # empty optional
 var p as ref to int is null           # null pointer
@@ -647,7 +647,7 @@ var p as ref to int is null           # null pointer
 
 ### 7.1 `if` / `unless` (statements) and `if`-expressions
 
-```pengu
+```pengu-fragment
 if score >= 100:
     calling print with "winner"
 else:
@@ -665,7 +665,7 @@ let label as string is if x > 10 then "big" else "small"
 
 An `if` condition may safely bind the value held by a `maybe T` without an explicit unwrap:
 
-```pengu
+```pengu-fragment
 weave describe with user as maybe User into string:
     if u as User is user:               # u is User inside the branch
         return u.name
@@ -682,7 +682,7 @@ weave describe with user as maybe User into string:
 
 A control flow block or branch may contain a single statement on the same line following the colon (`:`):
 
-```pengu
+```pengu-fragment
 if x == 1: return 1
 unless x == 0: calling print with "non-zero"
 while i < n: set i is i + 1
@@ -693,7 +693,7 @@ The allowed statement forms on the same line as a colon (`simple_stmt`) are: `co
 
 ### 7.2 `while`
 
-```pengu
+```pengu-fragment
 var i as int is 0
 while i < 10:
     calling tick with i
@@ -702,7 +702,7 @@ while i < 10:
 
 ### 7.3 `for`
 
-```pengu
+```pengu-fragment
 for i from 0 to 10:            # integer range [0, 10), end-exclusive
     calling print with (i to string)
 
@@ -722,7 +722,7 @@ for j from 5 to 0 step -1:     # negative step
 
 List comprehensions produce a new `list of T` by evaluating an expression across an iterable:
 
-```pengu
+```pengu-fragment
 let squares is for x in nums then x * x
 let evens  is for x in nums when x % 2 == 0 then x
 ```
@@ -743,7 +743,7 @@ let evens  is for x in nums when x % 2 == 0 then x
 
 ### 7.4 `judge` — pattern matching
 
-```pengu
+```pengu-fragment
 let state_desc is judge state:
     when Ready -> "ready"
     when Loading -> "loading"
@@ -785,7 +785,7 @@ Standard control flow statements. `break` and `continue` are only permitted insi
 
 Any indented block can evaluate to a value when placed in a value position:
 
-```pengu
+```pengu-fragment
 let x is do:                      # evaluates to its last statement's value
     var a is 10
     set a is a + 5
@@ -934,7 +934,7 @@ is ⏸️ deferred (see `ROADMAP_2.0.md`).
 
 A function value has type `weave … into …` (`FnType`). In C, function identifiers decay seamlessly to function pointers. Both `weave with … into …` and `ref to weave with … into …` are fully interchangeable:
 
-```pengu
+```pengu-fragment
 alias Handler as weave with x as int into void
 
 weave handler with x as int into void:
@@ -953,7 +953,7 @@ weave main into void:
 
 Anonymous inline functions are declared using `lambda`, comma-separated typed parameters, and an `into` expression:
 
-```pengu
+```pengu-fragment
 let no_args as weave into int is lambda into 42
 let double as weave with x as int into int is lambda x as int into x * 2
 let add as weave with a as int, b as int into int is lambda a as int, b as int into a + b
@@ -966,7 +966,7 @@ let add as weave with a as int, b as int into int is lambda a as int, b as int i
 
 ### 8.5 `ritual` methods (static)
 
-```pengu
+```pengu-fragment
 enchanting Vec2:
     weave ritual zero into Vec2:
         return with x is 0.0, y is 0.0
@@ -999,7 +999,7 @@ rune Player:
 
 Construction:
 
-```pengu
+```pengu-fragment
 var p as Player is with name is "Hero", hp is 100, is_alive is true
 var q as Player with:                        # block form, see §18
     set .name is "Villain"
@@ -1025,7 +1025,7 @@ var hero as Person with:
 By default a type that contains itself **by value** has infinite size and is
 rejected with `E0050`:
 
-```pengu
+```pengu-fragment
 rune Bad:
     next as Bad          # E0050: infinite type size
 ```
@@ -1172,7 +1172,7 @@ alias Buffer as opaque      # C opaque pointer handle (used behind `ref to`)
 `frozen` is C's `const`: it marks a value or a pointee as not writable. It is
 orthogonal to `let`/`var`, which control whether the **name** can be reassigned.
 
-```pengu
+```pengu-fragment
 frozen int                      # const int
 ref to frozen int               # const int*
 frozen ref to int               # accepted alias — normalises to 'ref to frozen int'
@@ -1192,7 +1192,7 @@ variable, field or weave named `frozen` keeps working.
 
 A mutable value flows into `frozen` (as in C); the reverse does not:
 
-```pengu
+```pengu-fragment
 var x as int is 5
 set x is 6                      # OK
 
@@ -1213,7 +1213,7 @@ var y as frozen int is x        # OK: 'y' is a read-only copy
 `frozen` exists to describe C signatures that carry `const`. Complete `qsort`
 example (sorted output: `1 2 3`):
 
-```pengu
+```pengu-fragment
 include "stdlib.h"
 
 declare qsort with base as ref to void, nmemb as usize, size as usize, compar as ref to weave with a as ref to frozen void, b as ref to frozen void into int into void
@@ -1269,7 +1269,7 @@ the array argument decays to a pointer as in C.)
 (decay), and a C string *literal* (`char*` → `const void*`), which is emitted as
 a C literal:
 
-```pengu
+```pengu-fragment
 declare UpdateTexture with texture as Texture2D, pixels as ref to frozen void into void
 declare XXH64 with input as ref to frozen void, length as usize, seed as u64 into u64
 
@@ -1435,7 +1435,7 @@ concept Speaker:
 
 Un bloque `bind` conecta formalmente un tipo concreto con un `concept`:
 
-```pengu
+```pengu-fragment
 rune Dog:
     name as string
 
@@ -1512,7 +1512,7 @@ Cuando el compilador encuentra una llamada `calling x.method(...)`, el analizado
 
 Los concepts se emplean principalmente como restricciones de tipo (*bounds*) en funciones y estructuras genéricas:
 
-```pengu
+```pengu-fragment
 concept Measurable:
     weave weight into float
 
@@ -1550,7 +1550,7 @@ Un `concept` en PenguScript no es un tipo de datos ordinario en tiempo de ejecuc
 
 #### Ejemplo de uso incorrecto vs. corrección idiomática:
 
-```pengu
+```pengu-invalid
 concept Speaker:
     weave greet into string
 
@@ -1686,7 +1686,7 @@ Any         everything (an explicit escape hatch)
 In particular `T: Num` does **not** grant `==` or `<`: equality needs `Par` and
 ordering needs `Ordo`. A generic that both adds and compares says so:
 
-```pengu
+```pengu-fragment
 weave clamped shard T where T: Num and T: Ordo with lo as T, hi as T, v as T into T:
   if v < lo then return lo
   if v > hi then return hi
@@ -1727,7 +1727,7 @@ implementation.
 A type may bind several concepts, but the `(type, method)` pair may only be
 provided once:
 
-```pengu
+```pengu-fragment
 concept A:
     weave f into int
 
@@ -1751,7 +1751,7 @@ method names are distinct.
 
 ## 11. Generics
 
-```pengu
+```pengu-fragment
 rune Box shard T:
     value as T
 
@@ -1806,7 +1806,7 @@ supported without redeclaring helpers: `Box of (Box of int)`.
 
 Explicit type arguments are available when inference cannot see them:
 
-```pengu
+```pengu-fragment
 var a as int is calling identity of int with 5
 var b as string is calling identity of string with "hi"
 ```
@@ -1816,7 +1816,7 @@ var b as string is calling identity of string with "hi"
 `where` clauses attach concepts to type parameters (see §10.5 for the full
 grammar and §10.9 for the concept table):
 
-```pengu
+```pengu-fragment
 weave sum shard T where T: Num with xs as list of T into T:
     ...
 
@@ -1850,7 +1850,7 @@ Operators are only available when the corresponding concept is in the bounds:
 Using an operator without its bound raises `E0049` with the exact `where`
 clause to add:
 
-```pengu
+```pengu-fragment
 weave bad shard T with a as T, b as T into T:
     return a + b            # E0049: add 'where T: Num'
 
@@ -1874,7 +1874,7 @@ weave sum shard T where T: Num with xs as list of T into T:
 `donum T` needs a bound whose types are defaultable (`Num`, `Integrum`, `Par`,
 `Ordo`, `Forma`, `Donum`), or a concrete type that implements `Donum`:
 
-```pengu
+```pengu-fragment
 var n as int is donum int                 # 0
 var s as string is donum string           # empty string
 var f as float is donum float             # 0.0
@@ -1985,7 +1985,7 @@ the current behaviour so the feature cannot be reintroduced silently.
 
 ## 12. Optionals & errors
 
-```pengu
+```pengu-fragment
 weave find_user with id as int into maybe string:
     if id == 1:
         return some "Admin"
@@ -2072,7 +2072,7 @@ deliberately last because it touches public APIs.
 
 ## 13. Memory & pointers
 
-```pengu
+```pengu-fragment
 var raw as ref to int is sigil of value   # &value
 var copy as int is essence of raw         # *raw
 defer banish ptr                          # run on scope exit
@@ -2247,7 +2247,7 @@ Because `push`/`put` copy, the source variable is still released by the
 auto-banish (§13.4) and there is no aliasing between the container and the
 original:
 
-```pengu
+```pengu-fragment
 var rows as list of list of string is list of list of string
 var row as list of string is ["a", "b"]     # owned
 calling rows.push with row                  # deep copy into rows
@@ -2258,7 +2258,7 @@ Rune values are different: a local `rune` that owns heap fields is **not**
 auto-banished, so release it explicitly with `banish` (which requires
 `derive Nexus`, §9.1.2) or keep it inside an owning container:
 
-```pengu
+```pengu-fragment
 rune Doc derive Par, Nexus:
     title as string
     tags as list of string
@@ -2277,7 +2277,7 @@ weave main into int:
 
 ### 14.1 Imports & modules
 
-```pengu
+```pengu-fragment
 import std.spark
 import std.scrolls as s              # alias
 import components.player             # project module (src/components/player.pengu)
@@ -2314,7 +2314,7 @@ insignia mylib_
 in a `.d.pengu` (`omen KeyboardKey:` + `KEY_RIGHT is 39`) are reachable in three
 ways, and the first two are the ones to use:
 
-```pengu
+```pengu-fragment
 import std.raylib
 
 calling raylib.IsKeyDown with raylib.KEY_RIGHT                # bare module-qualified ✅
@@ -2457,7 +2457,7 @@ weave set_volume with ctx as ref to AudioContext, vol as float into void:
 
 ### 15.1 Numbers, characters, booleans, null
 
-```pengu
+```pengu-fragment
 42  -7  0xFF  0b101  1_000        # integers
 1.5  -0.25  2e3                    # floats
 'A'  '\n'  '\x41'                  # characters
@@ -2468,7 +2468,7 @@ true  false  null
 
 ### 15.2 Strings
 
-```pengu
+```pengu-fragment
 let a as string is "plain"
 let b as string is "value: {x} and {name}"      # interpolation → pengu_string_format
 let c as string is r"raw \n no escapes"          # raw single-line
@@ -2511,7 +2511,7 @@ let e as string is r"""raw triple"""             # raw + multiline
 
 ### 15.3 Arrays, lists, slices, maps
 
-```pengu
+```pengu-fragment
 const MAX as int is 3
 let nums as array of int with size MAX is [10, 20, 30]   # size by const name
 let dyn as list of int is list of int                    # growable PenguList
@@ -2532,7 +2532,7 @@ let m as map of string to int is map of string to int
 
 Arrays, maps, and struct literals can be declared using clean, block-indented syntax:
 
-```pengu
+```pengu-fragment
 var grid as array of array of int with size 2 with size 3 is:
     1, 2, 3
     4, 5, 6
@@ -2548,7 +2548,7 @@ var p as Player is:
 
 ### 15.5 Ranges & membership
 
-```pengu
+```pengu-fragment
 1 to 10         # PenguRange [1, 10), end-exclusive — this is the canonical form
 for i in 1 to 5: ...
 if x in 0 to 100: ...
@@ -2588,7 +2588,7 @@ else:
 #### 2. Statement Blocks & Chains (`when_stmt`)
 Compile-time branching inside function bodies, supporting `else when` chains and final `else:`:
 
-```pengu
+```pengu-fragment
 weave sleep_ms with ms as int into void:
     when os == "windows":
         calling Sleep with (ms to u32)
@@ -2601,7 +2601,7 @@ weave sleep_ms with ms as int into void:
 #### 3. Expression Form (`when_expr`)
 Compile-time ternary expression:
 
-```pengu
+```pengu-fragment
 let buffer_size as int is when arch == "x64" then 8192 else 4096
 ```
 
@@ -2620,7 +2620,7 @@ let buffer_size as int is when arch == "x64" then 8192 else 4096
 
 PenguScript features first-class unit testing support built directly into the language and toolchain.
 
-```pengu
+```pengu-fragment
 test "arithmetic":
     calling expect_eq_int with 1 + 1, 2
 
@@ -2748,7 +2748,7 @@ The `with:` builder is also the iteration value inside a value-position loop
 (§7.6), which lets you build collections of composite runes without repeating
 the target type:
 
-```pengu
+```pengu-fragment
 var ps as list of Person is for i from 0 to 3:
     with:                              # element type comes from 'list of Person'
         set .name is "p"
@@ -2780,7 +2780,7 @@ see [§7.6](#76-block-expressions-do-value-position-if--unless-and-loops).
 
 The `with` statement also operates directly on existing collections (`list of T` and `map of K to V`, or references to them `ref to list of T` / `ref to map of K to V`). Inside the block, leading-dot method calls invoke the collection's built-in methods without repeating the collection variable name:
 
-```pengu
+```pengu-fragment
 var scores as list of int is list of int
 with scores:
     calling .push with 10
@@ -2948,11 +2948,11 @@ import std.spark
 
 weave demonstrate_ffi with c_buf as ref to frozen byte, len as int into void:
     # 1. Borrow C memory as a slice view (zero allocations, non-owning)
-    var view as slice of byte is calling ffi.slice_from_ptr with (transmute c_buf to ref to void), len
-    calling spark.println with "Slice length: {(view.length to string)}"
+    var view as slice of byte is calling ffi.slice_of_bytes_from_ptr with (transmute c_buf to ref to void), len
+    calling spark.println with "Slice length: {view.length}"
 
     # 2. Convert null-terminated C string into an owned PenguScript string
-    var c_str as ref to frozen char is transmute c_buf to ref to frozen char
+    var c_str as ref to char is transmute c_buf to ref to char
     var owned_s as string is calling ffi.string_from_cstr with c_str
 
     # 3. Obtain non-owning null-terminated C string pointer from PenguScript string
@@ -3000,7 +3000,7 @@ weave demonstrate_seal with payload as string into void:
     if compressed.is_present:
         var original as maybe string is calling seal.unzip with compressed.value
         if original.is_present:
-            calling spark.println with "Roundtrip match: {(original.value == payload to string)}"
+            calling spark.println with "Roundtrip match: {(original.value == (payload to string))}"
 ```
 
 #### Networking & HTTP (`std.precis`)
@@ -3045,8 +3045,8 @@ weave demonstrate_concurrency into void:
     calling worker_routine with (sigil of wg), (sigil of m)
     calling filum.wait with (sigil of wg)
 
-    calling filum.free_mutex with m
-    calling filum.free_wait_group with wg
+    calling filum.free_mutex with (sigil of m)
+    calling filum.free_wait_group with (sigil of wg)
 ```
 
 #### PCRE2 Regular Expressions (`std.regulus`)
@@ -3057,17 +3057,17 @@ import std.spark
 import std.regulus
 
 weave demonstrate_regex into void:
-    var re as regulus.Regex is calling regulus.compile with "[a-zA-Z]+@([a-zA-Z0-9-]+\\.[a-z]+)", "i"
-    var m as maybe regulus.Match is calling regulus.search with re, "Contact: admin@penguscript.org"
-
-    if m.is_present:
-        var match_data as regulus.Match is m.value
-        calling spark.println with "Matched text: {match_data.matched}"
-        calling regulus.match_free with match_data
-
-    var replaced as string is calling regulus.replace with re, "Send to user@domain.com", "[hidden]"
-    calling spark.println with "Sanitized: {replaced}"
-    calling regulus.regex_free with re
+    var re as maybe regulus.Regex is calling regulus.compile with "[a-zA-Z]+@([a-zA-Z0-9-]+\\.[a-z]+)", "i"
+    if re.is_present:
+        var rx as regulus.Regex is re.value
+        var m as maybe regulus.Match is calling regulus.search with (sigil of rx), "Contact: admin@penguscript.org"
+        if m.is_present:
+            var match_data as regulus.Match is m.value
+            calling spark.println with "Matched text: {match_data.matched}"
+            calling regulus.match_free with (sigil of match_data)
+        var replaced as string is calling regulus.replace with (sigil of rx), "Send to user@domain.com", "[hidden]"
+        calling spark.println with "Sanitized: {replaced}"
+        calling regulus.regex_free with (sigil of rx)
 ```
 
 #### 2D & 3D Interactive Graphics (`std.raylib` & `std.raymath`)
@@ -3159,7 +3159,7 @@ You can pass either the generated constant (`arca.ASSET_LOGO_PNG_A731E040`) or t
 #### Usage Examples
 
 **Raylib Texture & Shader Loading (Direct Memory):**
-```pengu
+```pengu-fragment
 import arca
 import std.raylib
 import std.ffi
@@ -3198,7 +3198,7 @@ weave main into int:
 ```
 
 **WebUI Standalone Application:**
-```pengu
+```pengu-fragment
 import arca
 import std.webui
 import std.spark
@@ -3786,7 +3786,7 @@ Emitted by the project layer (`pengu.lock` under `--locked`/`--frozen`, and depe
 ### 22.4 Illustrative Diagnostic Scenarios
 
 #### Scenario 1: Top-Level Mutable State (`E0002`)
-```pengu
+```pengu-invalid
 # Invalid:
 var counter as int is 0
 
@@ -3800,7 +3800,7 @@ weave next_counter into int:
 ```
 
 #### Scenario 2: Leading Dot Access Outside Builder (`E0009`)
-```pengu
+```pengu-invalid
 # Invalid:
 set .hp is 100
 
@@ -3812,7 +3812,7 @@ set player.hp is 100
 ```
 
 #### Scenario 3: Non-Exhaustive Judge (`E0044`)
-```pengu
+```pengu-invalid
 # Invalid (missing Fighting variant):
 let name is judge current_phase:
     when Phase.Idle -> "Standing by"
@@ -3825,7 +3825,7 @@ let name is judge current_phase:
 ```
 
 #### Scenario 4: Scope-Owned Banish (`E0047`)
-```pengu
+```pengu-invalid
 # Invalid:
 var words as list of string is list of string
 calling words.push with "hello"
@@ -3838,7 +3838,7 @@ calling words.push with "hello"
 ```
 
 #### Scenario 5: String Composition (`E0005`)
-```pengu
+```pengu-invalid
 # Invalid: '+' never concatenates strings.
 var name as string is "world"
 calling print with "Hello, " + name
@@ -3880,7 +3880,7 @@ fixes bugs. From 1.0.0 onwards the rules below are binding.
 
 Mark the symbol with the `@deprecated("reason")` attribute:
 
-```pengu
+```pengu-fragment
 ## Reads a file. Prefer read_file_result for the failure cause.
 ## @deprecated use read_file_result to distinguish the failure cause
 @deprecated("use read_file_result to distinguish the failure cause")

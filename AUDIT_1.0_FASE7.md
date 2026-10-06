@@ -797,6 +797,86 @@ exista:
 
 ---
 
+### 7.4 — Reparar los bloques `pengu` de `LANGUAGE.md`
+
+**Premisa del roadmap:** "CI compila los bloques `pengu` completos → 0 fallos; los
+`pengu-fragment` excluidos". El audit §12.3 decía *"72 de 105 ejemplos no pasan
+`pengu check`"*.
+
+**Verificación previa:** hay **101** bloques ```` ```pengu ```` (no 105), y medidos uno
+a uno con el compilador real: **35 compilan, 66 fallan**. La cifra del audit era
+cualitativamente correcta y cuantitativamente imprecisa.
+
+**Los 66 fallos no eran la misma cosa** — clasificados por el error del compilador:
+
+| Categoría | Nº | Naturaleza |
+|---|---|---|
+| Sin código de diagnóstico | 40 | Fragmentos (`1 to 10`, `42 -7 0xFF`, listas de directivas, `...` de elisión) |
+| `E0000` sintaxis | 25 | Fragmentos: sentencias sueltas, `frozen int`, `if x: ...`, filas de array |
+| `E0019` interpolación | 1 | **Bug real de documentación** |
+| Errores con código propio | 4 | **Bugs reales**: inferencia genérica, `ref to`/valor, `maybe Regex` |
+
+**Los 6 defectos reales encontrados y corregidos** (todos medidos, todos
+reproducidos antes de tocar el texto):
+
+| # | Bloque | Defecto | Corrección |
+|---|---|---|---|
+| 1 | demo `seal` | `"…{(original.value == payload to string)}"` → `E0019` (`unexpected 'to'`): un cast **sin paréntesis** tras una comparación no se acepta dentro de `{…}` | `{(original.value == (payload to string))}` |
+| 2 | demo `ffi` | `ffi.slice_from_ptr` es genérico (`shard T`) y el checker no puede inferir `T` → `E0005` | usar el helper no genérico `ffi.slice_of_bytes_from_ptr`, que existe exactamente para esto |
+| 3 | demo `ffi` | `"…{(view.length to string)}"` → `E0019` | `"{view.length}"` |
+| 4 | demo `ffi` | `ffi.string_from_cstr` pide `ref to char`; el ejemplo pasaba `ref to frozen char` → `E0005` | `var c_str as ref to char is transmute c_buf to ref to char` |
+| 5 | demo `filum` | `filum.free_mutex`/`free_wait_group` piden `ref to`, el ejemplo pasaba un valor → `E0005` | `with (sigil of m)` / `(sigil of wg)` |
+| 6 | demo `regulus` | `regulus.compile` devuelve `maybe Regex` y el resto de la API pide `ref to Regex`; el ejemplo asignaba directamente a `Regex` → 10 errores en cascada | desenvolver con `if re.is_present:` y pasar `(sigil of rx)` |
+
+**Resultado:** ✅ cerrado — **0 fallos** entre los bloques `pengu`, y los no-programas
+están **clasificados de forma explícita y verificada**.
+
+**Evidencia:**
+
+```bash
+$ .venv/bin/python tools/check_doc_blocks.py --check
+documentation blocks: 197 blocks verified, every marker matches reality   # rc=0
+
+$ # recuento por marcador tras la reparación
+LANGUAGE.md          pengu=39  pengu-fragment=56  pengu-invalid=6
+LANGUAGE_Spanish.md  pengu=36  pengu-fragment=54  pengu-invalid=6
+```
+
+**Falsificación:** el test del punto de entrada introduce un documento con un bloque
+`pengu` que no compila y comprueba que `--check` sale con **1** y reporta
+`a pengu block does not compile`. Además el protocolo es **bidireccional**: un
+`pengu-fragment` que pase a compilar también falla (`promote it to pengu`), así que
+los marcadores no sirven de escondite.
+
+**Qué se hizo:**
+
+1. `tools/check_doc_blocks.py` (nuevo): protocolo de tres marcadores —
+   ```` ```pengu ```` debe compilar, ```` ```pengu-fragment ```` y
+   ```` ```pengu-invalid ```` **no** deben compilar. Modos `--check` (gate de CI),
+   `--report` (clasificación) y `--relabel` (reescribe los marcadores midiendo).
+2. Reparados los 6 defectos reales en **ambos** documentos.
+3. Reclasificados los 62 bloques restantes que no son programas: 58 fragmentos y 6
+   ejemplos deliberadamente inválidos (los escenarios de §22.4, que existen para
+   mostrar el diagnóstico).
+4. **Autoauditoría del reetiquetado:** se buscaron específicamente los fragmentos
+   "sospechosos" (los que parecen programas completos: con `weave main`, o con
+   `import std.` **y** un `weave`). Salieron 10; 8 son fragmentos legítimos
+   (una `alias` a tipo-`weave`, un bloque `enchanting` sin `rune`, directivas,
+   `import arca` de un módulo hipotético, una elisión `...`) y **2 eran bugs
+   reales** (los demos `ffi` y `regulus`, los defectos 2–6 de la tabla). Es decir:
+   la búsqueda de sospechosos encontró bugs que el recuento global habría dejado
+   pasar como "fragmentos".
+
+**Test:** `tests/test_doc_blocks.py` (6 casos). El gate real (`cmd_check`) compila
+los **197** bloques de los dos documentos: **2 m 08 s** medidos, dentro del timeout
+de 600 s del proyecto, y se ejecuta **una sola vez** por sesión de pytest (fixture
+de módulo) porque el punto de entrada se prueba aparte sobre un documento temporal.
+Comprueba además que los tres marcadores se usan, que todo `pengu-invalid` se anuncia
+como contraejemplo, y que las 6 correcciones concretas siguen en el texto.
+**Commit:** `fase7(item 7.4): bloques pengu verificados — 6 bugs de docs corregidos`
+
+---
+
 ## Hallazgos nuevos de la Fase 7 (no estaban en el roadmap)
 
 ### F7-N3 — 🔴 El espacio de nombres `Exxxx` está compartido entre capas y nadie lo vigilaba

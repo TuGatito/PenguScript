@@ -1154,7 +1154,7 @@ set -uo pipefail
 PENGU="./.venv/bin/pengu"
 PY="./.venv/bin/python"
 fail=0
-ok()   { printf "  \033[32mOK\033[0m   %s\n" "$1"; }
+ok()   { printf "  \033[32mOK\033[0m   %s\| 7.4 | ✅ cerrado | `fase7(7.4)` | Medición previa con el compilador real: de **101** bloques ```` ```pengu ```` (el roadmap decía 105), **35 compilaban y 66 no**. Clasificados por error: 40 sin código, 25 `E0000`, 1 `E0019` y 4 con código propio. **6 defectos reales de documentación corregidos** en ambos documentos: (1) un cast sin paréntesis tras comparación dentro de `{…}` → `E0019`; (2) `ffi.slice_from_ptr` es genérico y no se podía inferir `T` → usar `ffi.slice_of_bytes_from_ptr`; (3) `{(view.length to string)}` → `{view.length}`; (4) `ffi.string_from_cstr` pide `ref to char`, no `ref to frozen char`; (5) `filum.free_mutex`/`free_wait_group` piden `ref to` → pasar `(sigil of …)`; (6) `regulus.compile` devuelve `maybe Regex` y la API pide `ref to Regex` → desenvolver y pasar `(sigil of rx)`. Los 62 restantes no eran programas: se clasifican con **tres marcadores** (`pengu` debe compilar; `pengu-fragment` y `pengu-invalid` **no** deben compilar), lo que hace el escape imposible de abusar. Resultado: `39/56/6` en `LANGUAGE.md` y `36/54/6` en `LANGUAGE_Spanish.md` (la diferencia de 3 es el lag de traducción de 7.14b). `tools/check_doc_blocks.py` es el gate; **197 bloques verificados** en 2 m 08 s. Autoauditoría: se buscaron fragmentos con pinta de programa completo y **2 de los 10 eran bugs reales**, que el recuento global habría escondido. C2: el test del punto de entrada inyecta un bloque roto → `--check` sale 1 |\nn" "$1"; }
 bad()  { printf "  \033[31mFAIL\033[0m %s\n" "$1"; fail=1; }
 chk()  { if eval "$2" >/dev/null 2>&1; then ok "$1"; else bad "$1"; fi; }
 
