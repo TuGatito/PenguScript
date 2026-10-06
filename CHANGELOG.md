@@ -3,6 +3,181 @@
 All notable changes to PenguScript will be documented in this file.
 
 
+## [Unreleased] — FASE 6 (ROADMAP 2.0): Completar stdlib
+
+> Cierra el bug de signo de `seal.crc32`, propaga la posición de los diagnósticos
+> `W0001`, arregla el padding de `decode_base64` y el delimitador de
+> `escape_field`, valida `days_in_month`, hace que `spark_version()` asserta de
+> verdad, sube la documentación inline de `atlas`/`scrolls` al 100%, corrige el
+> catálogo de `CHEATSHEET.md`, publica `docs/DEPRECATIONS.md` y añade 5
+> benchmarks que importan `std`. Cada premisa del roadmap se verificó contra el
+> código real **antes** de tocar nada; el detalle está en `AUDIT_1.0_FASE6.md`.
+
+**Resultado: 13 items cerrados, 2 diferidos con medición, 2 refutados.** Los 52
+módulos de `std/` siguen con **0 errores y 0 warnings**. 40 ficheros tocados,
++2338/−59, 11 ficheros de test nuevos.
+
+### 🐛 Corregido
+
+- **`std.seal.crc32` devolvía un número negativo para cualquier checksum ≥
+  `0x80000000`.** El runtime declaraba `int pengu_c_seal_crc32(...)` y devolvía
+  `(int)crc32(...)`, así que `crc32("a")` daba `-390611389` en vez de
+  `3904355907` (`0xE8B7BE43`, el valor de `zlib.crc32`). El bit pattern de la
+  ABI C es idéntico (registro de 32 bits), así que el fix vive en los tipos
+  declarados: `uint32_t` en C y `u32` en el binding. `crc32_file` pasa de
+  `MaybeInt` (deprecado) a `maybe u32`; `to_crc32` → `u32`.
+  (`std/seal.pengu`, `pengu_parser/pengu_runtime.c`, `pengu_runtime.h`)
+
+  > Nota: el roadmap citaba `390611389` como valor esperado; ese número también
+  > era erróneo. El test calcula el esperado con `zlib.crc32` en tiempo de
+  > import, así que no puede volver a desviarse.
+
+- **Los diagnósticos `W0001` (`transmute`) salían sin posición** (`file:0:0`)
+  porque el canal de avisos del checker es una lista de strings y el mensaje se
+  construía sin ella. Nuevo helper
+  `TypeInferrer._warn(code, message, node, dedup)` que añade `on line L col C`
+  cuando el nodo tiene metadata, y `_warning_diag` ahora parsea `col`. Medido:
+  `t_warn.pengu:5:12` y `:9:12` en lugar de `0:0`.
+
+- **`std.cipher.decode_base64` aceptaba `=` fuera de la posición final.**
+  `"QQ==QQ=="` se decodificaba en silencio en lugar de rechazarse. Se añade una
+  pasada de validación RFC 4648 (el `=` solo cierra la cadena, como máximo dos,
+  dentro del último cuánto). Ahora rechaza `"QQ==QQ=="`, `"QQ==QQ"`,
+  `"QQ=QQ=="`, `"Q==="`, `"QUJD===="`, `"="` y `"===="`.
+
+- **`std.ledger.escape_field` comparaba solo el primer byte del delimitador.**
+  `var dcode as int is ord delim` leía únicamente `delim[0]`, así que con `"::"`
+  el campo `"a:b"` se entrecomillaba y ninguno podía casar con la secuencia
+  real. Ahora usa `calling field.contains with delim`; misma corrección en
+  `escape_field_backslash`.
+
+- **`std.chronicle.days_in_month` no validaba el mes:** el fallback devolvía 31
+  para `m=0`, `m=13`, negativos e `INT_MIN`. Ahora `m < 1` / `m > 12` → 0, con
+  el contrato documentado. (Contrariamente a lo que decía el roadmap, no había
+  lectura fuera de límites: la función no tiene tabla ni indexación.)
+
+- **`test_spark.pengu` no assertaba nada sobre la versión.** Imprimía el literal
+  obsoleto `"0.6.0-spark"` mientras la constante real era `0.7.0-spark`, y
+  `tests/test_stdlib.py` fijaba ese mismo literal como marcador esperado, así que
+  el suite pasaba en verde con la versión desactualizada: una aserción placebo
+  sostenida precisamente por estar obsoleta. El programa ahora asserta
+  `spark_version() == SPARK_VERSION`, que la constante no está vacía, y su valor;
+  los docstrings de `SPARK_VERSION`/`STD_VERSION`/`spark_version()` quedan
+  corregidos y explican que son revisiones de API, no del toolchain.
+
+- **`CHEATSHEET.md` documentaba funciones inexistentes.** `product` → `product_num`,
+  `max`/`min` → `max_int`/`min_int` (los `weave` reales de `std/loom`), zlib
+  `compress`/`decompress` → `zlib_compress`/`zlib_decompress`, y el recuento de
+  módulos 25 → **27**: `celeris` y `xlsx` faltaban por completo del catálogo y se
+  añaden con sus funciones reales y su carácter opt-in.
+
+- **Tres cabeceras de `std/` describían mal la deprecación.** `scrolls`, `oracle`
+  y una nota de `loom` afirmaban que "el toolchain no soporta deprecación". Es
+  falso: el atributo real `@deprecated("…")` existe, se parsea y emite `W0006`
+  (lo arregló la Fase 2 item 2.11 y lo hizo denegable la 5.4). Lo que ocurre es
+  lo contrario — **la stdlib no usa ese atributo en ningún sitio**: 90 marcadores
+  de docstring y 0 atributos reales, así que ninguno de esos alias avisa hoy.
+
+### 🟡 Añadido
+
+- **`docs/DEPRECATIONS.md`**: inventario completo de los marcadores de
+  deprecación de la stdlib — 90 marcadores, 64 símbolos únicos — repartidos en
+  `tally` (6 alias), `scrolls` (11 métodos), `loom` (1) y `oracle` (46). Cada fila
+  lleva reemplazo, versión de retirada y estado (`1.x` o `blocked`). `oracle`
+  queda marcado **blocked** con medición: 29 llamadas a la familia legada siguen
+  vivas en `std/`, y `result_ok_string`/`result_err_string` los usan `seal` y
+  `ward`. El documento explica además, con los tres bloqueos medidos, por qué la
+  deprecación de la stdlib es hoy **documental y no aplicada**.
+
+- **5 benchmarks nuevos que importan `std`** (item 6.16): `scrolls_ops`,
+  `atlas_ops`, `cipher_ops`, `loom_ops` y `arithmancy_ops`, que se suman a
+  `stdlib_ops` (4.15). Son **6 casos que cubren 6 módulos distintos** de la
+  librería y corren tanto con `pengu run` como con `pengu benchmark`. No llevan
+  baseline en C/Rust/Zig a propósito: lo que comparan es stdlib contra lenguaje
+  desnudo. Documentado en `benches/README.md`.
+
+- **`LANGUAGE.md` §19.1.1 — "Choosing between `std.loom` and `std.tally`"**:
+  tabla comparativa (forma, tratamiento de la entrada vacía, resultados
+  fraccionarios, genéricos, cuándo usar cada uno), el ejemplo que muestra la
+  divergencia (`loom.mean([1,2]) == 1.5` frente a `tally.mean([1,2]) == 1`) y la
+  regla de decisión. Se enlaza desde las cabeceras de ambos módulos, que ganan su
+  propia sección "Cuándo usar", y desde la fila `loom` del `CHEATSHEET`.
+
+### 🧪 Tests
+
+11 ficheros nuevos (2822 tests en total en el repo):
+
+- `test_std_seal_crc32.py` (6) — incluido un gate sobre la **firma del C
+  generado** (`int32_t` → `uint32_t`), que es lo único que distingue el estado
+  pre-fix del arreglado, porque la ABI es idéntica a nivel de bits.
+- `test_std_cipher_base64.py` (4), `test_std_ledger_escape.py` (5),
+  `test_std_chronicle_days_in_month.py` (3) — un test por bug de correctitud.
+- `test_std_warning_positions.py` (3) — posición en texto y en el canal `--json`.
+- `test_loom_tally_coexistence.py` (5) — fija la decisión de 6.5.
+- `test_std_orphan_modules.py` (11) — refuta 6.14 y añade una guarda general de
+  huérfanos (módulos hand-written y bindings) con regex anclada.
+- `test_std_deprecations_doc.py` (10) — cruza `docs/DEPRECATIONS.md` con los
+  marcadores reales **en ambas direcciones**.
+- `test_std_deprecation_enforcement.py` (4) — fija que la deprecación de la
+  stdlib es documental (0 atributos reales) y que el documento lo dice.
+- `test_bindings_version_policy.py` (4) — refuta 6.8 y protege la política de 4.9.
+- `test_cheatsheet_catalog.py` (31) — cruza los nombres documentados con los
+  `weave` reales y el recuento de módulos.
+- `test_std_compass_cp_helpers.py` (4) — fija la medición del diferido 6.11.
+- `test_benchmarks.py` (+3 gates) — ≥6 casos `std`, ≥6 módulos distintos, todos
+  registrados.
+
+Todos los gates de correctitud se verificaron **por mutación**: el test falla
+cuando se revierte el fix (C2).
+
+### ⏸️ Diferido a 1.1
+
+- **6.5 — Unificación `loom` ∩ `tally`.** Medición: de los 15 nombres públicos
+  compartidos, **0 comparten firma**; cuatro son conflictos semánticos
+  (`mean` `float`/`int`, `median` `maybe float`/`int`, `mode` `maybe int`/`int`,
+  `min_max` `maybe Pair`/`list of int`). `loom` es la familia segura con `maybe`,
+  `tally` la de reducciones con identidad natural: no hay duplicación que
+  resolver, y unificar rompe a los usuarios de la familia que pierda. Depende de
+  que la stdlib aplique `@deprecated` de verdad. **Reapertura:** la política de
+  deprecación con ventana de dos releases.
+
+- **6.11 — `compass.cp_*` → `_cp_*`.** Medición: 32 helpers, **0 usuarios
+  externos** en todo el repo, los 32 documentados, ~169 usos internos, y el split
+  es deliberado (evita colisiones de símbolo en el codegen). Renombrar es un
+  cambio rompedor de superficie pública documentada sin aviso previo y sin
+  beneficio de correctitud. **Reapertura:** la limpieza de superficie pública de
+  1.1, junto a 6.5.
+
+### ❌ Refutado (premisa falsa o ya resuelto)
+
+- **6.2** — `std/ffi.pengu` no tiene ningún `transmute 0`: ya se sustituyó por
+  `null` en `6e30471`. Las líneas 133/137/141 son hoy `return null`.
+- **6.4** — `W0005` = 0 en los 52 módulos; la Fase 2 (2.12) los suprimió en
+  bloques `test`, que es la vía que el roadmap aceptaba.
+- **6.8** — Los bindings `.d.pengu` **no deben** llevar `<MOD>_VERSION`: el test
+  de versionado los excluye a propósito porque su constante es la de **upstream**
+  (`RAYLIB_VERSION = "6.0"`, `SQLITE_VERSION = "3.53.4"`), y
+  `RAYLIB_VERSION`/`RAYGUI_VERSION` ya existen. El objetivo "25/25" contradice la
+  política que fijó la 4.9.
+- **6.14** — `celeris`, `xlsx` y `trial` **no son huérfanos**: los tres tienen un
+  importador que los compila y ejecuta (`xlsx` se salta su test por el `extern`
+  opcional que el propio módulo documenta). No se mueve nada a `std/contrib/`.
+
+### 🔎 Hallazgos documentados (sin cambio en 1.0)
+
+- **`W0006` también pierde la posición** (`file:0:0`): el item 6.3 arregló solo
+  `W0001`. Prerequisito de aplicar `@deprecated` en la stdlib.
+- **`parse_line`/`parse_line_strict` de `std.ledger`** conservan el mismo bug de
+  primer byte que `escape_field` tenía (2 sitios), fuera del alcance de 6.10.
+- **9 de los 25 bindings `.d.pengu` no tienen importador ni test** en el repo;
+  son adaptadores opt-in catalogados en `LANGUAGE.md`/`CHEATSHEET.md`. La guarda
+  de huérfanos ahora exige que todo binding sea alcanzable por import o por
+  documentación.
+- **`SPARK_VERSION` no debe seguir a `VERSION`:** forzarlo haría que la revisión
+  de la API de `spark` cambiara con cada release del compilador, que es justo lo
+  que evita la allowlist de la 4.9. `STD_VERSION` es un tag legado que no sigue
+  la convención `<MOD>_VERSION`; renombrarlo o retirarlo es superficie pública.
+
 ## [Unreleased] — FASE 5: Completar LSP (ROADMAP 2.0)
 
 > Cierra los dos bugs de **corrección semántica** del LSP (rename global y

@@ -574,30 +574,124 @@ de API y elevar la documentación inline de los 3 módulos con huecos.
 | 6.16 | Benchmarks que importen `std` | `benches/*.pengu` (nuevos) | M | ≥6 benchmarks, uno por tier; `pengu benchmark` los ejecuta |
 | 6.17 | Documentar `loom` como recomendado frente a `tally` para colecciones vacías | `LANGUAGE.md`, `CHEATSHEET.md`, docinline de ambos | S | La doc explica cuándo usar cada uno |
 
+### Estado de ejecución — Fase 6
+
+Cerrados con test que falla al revertir (C2) y medición previa (C3). El detalle por
+item, con la verificación de premisas, está en `AUDIT_1.0_FASE6.md`; el resumen por
+item, en `CHANGELOG.md` (`## [Unreleased] — FASE 6`).
+
+| # | Estado | Evidencia (commit / comando) | Qué se hizo |
+|---|--------|------------------------------|-------------|
+| 6.1 | ✅ cerrado | `e480024` | `pengu_c_seal_crc32` devolvía `(int)crc32(...)`, así que todo checksum ≥ `0x80000000` salía negativo. Ahora `uint32_t` en C y `u32` en el binding; `crc32_file` pasa de `MaybeInt` (deprecado) a `maybe u32`; `to_crc32` → `u32`. Medido: `u32 var = 3904355907` (antes `-390611389`). **El valor del roadmap (390611389) era erróneo**: el CRC-32 IEEE de `"a"` es `0xE8B7BE43`. La ABI C es idéntica a nivel de bits, así que el gate que distingue los dos estados es la firma del C generado (`int32_t` → `uint32_t`). C2: 1 failed → 6 passed |
+| 6.2 | ✅ refutado (ya resuelto) | — | `grep -c "transmute 0" std/ffi.pengu` → **0**. Las líneas 133/137/141 son hoy `return null` en `null_void`/`null_char`/`null_byte`, desde `6e30471`. 0 `W0001` en los 52 módulos. Sin cambios |
+| 6.3 | ✅ cerrado | `5defafd` | `W0001` se emitía sin posición (`file:0:0`) porque el canal `warnings` es `List[str]` y `_warning_diag` solo leía `on line N`. Nuevo `TypeInferrer._warn(code, message, node, dedup)` que añade `on line L col C`; `_warning_diag` parsea `col`. Medido: `t_warn.pengu:5:12` y `:9:12` (columna exacta de `transmute`). `W0002` se deja en `0:0` a propósito (sus nodos no traen metadata y el fallback daba la línea 1). C2: 2 failed → 3 passed |
+| 6.4 | ✅ refutado (ya resuelto) | — | `W0005` = **0** en los 52 módulos. La Fase 2 (2.12) los suprimió en bloques `test` (`pengu_checker.py:402,4373`), que es la vía que el propio roadmap aceptaba. Sin cambios |
+| 6.5 | ⏸️ diferido a 1.1 | `e10223c` | Los 15 nombres compartidos existen, pero **0 comparten firma**: `loom.mean([1,2]) == 1.5` vs `tally.mean([1,2]) == 1`; `loom.mode([])` → `none` vs `tally.mode([])` → `0`. Son dos contratos deliberados, no duplicación; unificar rompe a una de las dos familias. Ver §6.5b |
+| 6.6 | ✅ cerrado | `f1a06a3` | `test_spark.pengu` imprimía el literal obsoleto `"0.6.0-spark"` y **no assertaba nada**; `test_stdlib.py` lo fijaba como marcador, así que el suite pasaba en verde con la constante en `0.7.0-spark`. Ahora asserta `spark_version() == SPARK_VERSION` + valor; docstrings corregidos. C2: cambiar la constante rompe el test (antes no). La premisa "coherentes con `VERSION`" se refuta: la allowlist de 4.9 las declara versiones de API |
+| 6.7 | ✅ cerrado | `17ea760`, `11e8d69` | Medido con la lógica del propio ratchet: `scrolls` 23/89 (25.8%) → **89/89 (100%)**; `atlas` 36/151 (23.8%) → **151/151 (100%)**; `arithmancy` ya estaba en **100%** (el roadmap decía 39%). Transferencia mecánica desde los métodos documentados + tipos concretos sustituidos en las variantes monomorfizadas + 30 escritas a mano. |
+| 6.8 | ❌ refutado (N/A) | `929c0dd` | `test_std_versioning.py` **excluye** `*.d.pengu` a propósito: la constante de un binding es la de **upstream** (`RAYLIB_VERSION = "6.0"`, `SQLITE_VERSION = "3.53.4"`). Añadir una que siga al toolchain obligaría a sobrescribirla, y `RAYLIB_VERSION`/`RAYGUI_VERSION` ya existen. El objetivo "25/25" contradice la política de 4.9. Sin cambios |
+| 6.9 | ✅ cerrado | `4402c88` | El bucle de cuantos trataba `=` como dato, así que `"QQ==QQ=="` se aceptaba. Pasada de validación RFC 4648 antes del bucle: `=` solo cierra la cadena, máx. 2, dentro del último cuánto. Rechaza `"QQ==QQ=="`, `"QQ==QQ"`, `"QQ=QQ=="`, `"Q==="`, `"QUJD===="`; acepta los válidos y el whitespace. C2: 1 failed → 4 passed |
+| 6.10 | ✅ cerrado | `cd98556` | `var dcode as int is ord delim` comparaba cada carácter contra el **primer** code point; `ord` acepta una variable multichar en runtime. Ahora `calling field.contains with delim`. Medido: `escape_field("a:b", "::")` → `a:b` (antes se entrecomillaba). Misma corrección en `escape_field_backslash`. C2: tests multichar fallan pre-fix |
+| 6.11 | ⏸️ diferido a 1.1 | `3c6dbed` | 32 helpers `cp_*` confirmados, pero **0 usuarios externos** en `std/`/`tests/`/`benches/`/`docs/`, los 32 documentados, ~169 usos internos, y el split es deliberado (codegen). Renombrar rompe a usuarios 0.16 sin beneficio de correctitud. Ver §6.11b |
+| 6.12 | ✅ cerrado | `65b4058` | El fallback `return 31` daba 31 para `m=0`, `m=13`, negativos e `INT_MIN`. Ahora `m < 1` / `m > 12` → 0. **La causa del roadmap ("no leer `feb_days[12]`") es falsa**: no hay tabla ni indexación, nunca hubo OOB. C2: 2 failed → 3 passed |
+| 6.13 | ✅ cerrado | `c4413df` | `product`→`product_num`, `max`/`min`→`max_int`/`min_int`, zlib `compress`→`zlib_compress`, "25 modules"→27. Además `celeris` y `xlsx` **faltaban del catálogo**. Test nuevo que cruza los nombres documentados con los `weave` reales. C2 verificado por mutación |
+| 6.14 | ✅ refutado | `7982e23` | Los tres tienen importador que compila y ejecuta: `celeris` (asserta `hash64 == 0x610DF71A00097754`), `xlsx` (escribe y relee un `.xlsx`; SKIP por el extern opcional), `trial` (vía `test_stdlib.py`). No se mueve nada. El guard usa regex anclada, no substring |
+| 6.15 | ✅ cerrado | `0a7cdfb`, `1c004fa` | `docs/DEPRECATIONS.md` con los 64 símbolos únicos (90 marcadores) en 4 módulos, con reemplazo, versión de retirada y estado; `oracle` marcado **blocked** con medición (29 llamadas internas). Test que cruza el documento con los marcadores reales **en ambas direcciones**. Hallazgo: la stdlib tiene 90 marcadores de docstring y **0 atributos `@deprecated` reales** (ver §H1) |
+| 6.16 | ✅ cerrado | `65ca7e5` | De 1 caso que importa `std` a **6**, en 6 módulos distintos: `scrolls_ops`, `atlas_ops`, `cipher_ops`, `loom_ops`, `arithmancy_ops` además de `stdlib_ops`. Los 6 corren con `pengu benchmark`. Tres gates nuevos impiden cumplir el criterio "de mentira" |
+| 6.17 | ✅ cerrado | `1c004fa` | `LANGUAGE.md` §19.1.1 "Choosing between `std.loom` and `std.tally`" con tabla, ejemplo de la divergencia y regla de decisión; enlazado desde ambos módulos y desde el `CHEATSHEET`. Corrección colateral de tres cabeceras que afirmaban que el toolchain no soporta deprecación (es falso) |
+
+**Estado final de la Fase 6: 13 items cerrados, 2 diferidos con medición (6.5,
+6.11) y 2 refutados (6.8, 6.14)**; los items 6.2, 6.4 y la mitad de 6.16 ya venían
+resueltos de fases anteriores. Los 52 módulos siguen en **0 errores y 0
+warnings**.
+
+#### ⏸️ 6.5b — Unificación `loom` ∩ `tally` (diferido a 1.1, con medición)
+
+**MEDICIÓN (2026, árbol de Fase 6):**
+
+- 15 nombres públicos compartidos; **0 con la misma firma**. Conflictos
+  semánticos: `mean` (`float`/`int`), `median` (`maybe float`/`int`), `mode`
+  (`maybe int`/`int`), `min_max` (`maybe Pair`/`list of int`); de forma:
+  `enumerate_pairs`, `windowed`, `running_sum`, `zip_with`, `flatten`, `take`.
+- Ejecutado: `loom.mean([1,2]) == 1.5` y `tally.mean([1,2]) == 1`;
+  `loom.mode([])` → `none` y `tally.mode([])` → `0`.
+- Uso: `loom` aparece en 11 ficheros de `tests/`+`benches/`; `tally` en 15.
+
+**CAUSA RAÍZ / POR QUÉ SE DIFIERE:** no hay duplicación que resolver. Son dos
+filosofías de API deliberadas (la segura con `maybe`/`float` y la de reducciones
+con identidad natural). Unificar es un cambio rompedor para la familia que pierda,
+y hacerlo bien exige alias `@deprecated` con ventana de dos releases. La stdlib
+**no aplica atributos `@deprecated` reales** hoy (ver §H1 en
+`AUDIT_1.0_FASE6.md`), así que la migración no puede avisar a nadie todavía.
+
+**QUÉ FALTA:** la aplicación real de `@deprecated` en la stdlib (con la migración
+de los usos internos y la posición de `W0006`) y una ventana de deprecación.
+
+**ESTIMACIÓN REAL:** M, con dependencia de H1.
+
+**ENTREGADO EN SU LUGAR:** el contrato de convivencia queda fijado y documentado
+(`tests/test_loom_tally_coexistence.py`, `LANGUAGE.md` §19.1.1), de modo que
+cualquier unificación futura tendrá que ser una decisión versionada y deliberada.
+
+#### ⏸️ 6.11b — `compass.cp_*` → `_cp_*` (diferido a 1.1, con medición)
+
+**MEDICIÓN (2026, árbol de Fase 6):**
+
+- 32 helpers `cp_*`; **0 referencias externas** en `std/`, `tests/`, `benches/`,
+  `docs/` y las guías de la raíz.
+- Los 32 llevan comentario de documentación propio.
+- ~169 sitios de referencia internos dentro de `compass.pengu`.
+- `CHANGELOG.md` registra que la separación `cp_*` existe a propósito
+  ("prevent method/weave symbol collision in codegen"), no es deuda accidental.
+
+**CAUSA RAÍZ / POR QUÉ SE DIFIERE:** renombrar 32 símbolos públicos documentados
+es un cambio rompedor para cualquier código 0.16 que los llame, y no llevan
+marcador de deprecación, así que no habría aviso previo. No aporta correctitud y
+no bloquea 1.0. Pertenece a la limpieza de superficie pública de 1.1, junto a 6.5.
+
+**QUÉ FALTA:** la política de deprecación con ventana de dos releases (§H1) y la
+decisión de si `cp_*` pasa a `_cp_*` o se promueve a espacio de nombres de bajo
+nivel documentado.
+
+**ESTIMACIÓN REAL:** S–M (mecánico pero de 169 sitios).
+
+**ENTREGADO EN SU LUGAR:** la medición queda fijada por
+`tests/test_std_compass_cp_helpers.py`, que falla si alguien empieza a importar
+`cp_*` desde fuera y obliga a revisar la decisión.
+
 ### Criterio de "done" de la fase
 
-- [ ] Los 52 módulos: `pengu check --entry std/<mod>.pengu` → **0 errores y 0 warnings propios**.
-- [ ] `crc32` coincide con el estándar para valores ≥ `0x80000000`.
-- [ ] 0 `transmute` con size mismatch en la stdlib.
-- [ ] 0 W0005 en la stdlib (o solo en bloques `test`, silenciados por 2.12).
-- [ ] `loom`/`tally` sin nombres públicos en conflicto.
+- [x] Los 52 módulos: `pengu check --entry std/<mod>.pengu` → **0 errores y 0 warnings propios**.
+- [x] `crc32` coincide con el estándar para valores ≥ `0x80000000`.
+- [x] 0 `transmute` con size mismatch en la stdlib.
+- [x] 0 W0005 en la stdlib (o solo en bloques `test`, silenciados por 2.12).
+- [ ] `loom`/`tally` sin nombres públicos en conflicto. — **Diferido a 1.1** (§6.5b):
+      la medición muestra que no son duplicados, sino dos contratos distintos; unificar
+      es rompedor para una de las dos familias y hoy la stdlib no aplica `@deprecated` real.
 - [ ] 25/25 bindings con `<MOD>_VERSION`; todas las versiones coinciden con `VERSION`.
-- [ ] ≥90 % de doc inline en `atlas`, `arithmancy`, `scrolls`; 100 % en el resto.
-- [ ] `CHEATSHEET.md` sin nombres de función inexistentes (test que cruce nombres documentados con
+      — **Refutado como criterio** (6.8): contradice la política de 4.9; las constantes de
+      un binding son las de upstream y dos de ellas ya existen con ese nombre.
+- [x] ≥90 % de doc inline en `atlas`, `arithmancy`, `scrolls`; 100 % en el resto.
+- [x] `CHEATSHEET.md` sin nombres de función inexistentes (test que cruce nombres documentados con
       los `weave` reales).
-- [ ] ≥6 benchmarks que importen `std` y corran en CI (`bench.yml`).
+- [x] ≥6 benchmarks que importen `std` y corran en CI (`bench.yml`).
 
 ### Riesgos
 
 - **Riesgo:** 6.7 (doc inline de 3 módulos grandes) es **L** por volumen: `atlas` 135 funciones,
   `arithmancy` 111, `scrolls` 66. **Mitigación:** es trabajo paralelizable; puede hacerse con varios
-  contribuidores y no bloquea nada más que el gate de doc.
+  contribuidores y no bloquea nada más que el gate de doc. **Resuelto:** los tres
+  quedan al 100% (`17ea760`, `11e8d69`); el volumen real medido fue 66 + 116 + 0.
 - **Riesgo:** 6.5 (`loom`/`tally`) puede romper a los usuarios que ya usan `tally.mean` esperando
   `int`. **Mitigación:** unificar hacia `loom` **añadiendo** alias deprecados en `tally` durante 1.x,
-  no renombrando en seco.
+  no renombrando en seco. **Confirmado y diferido:** la medición (§6.5b) muestra que
+  ni siquiera los alias bastan, porque los contratos difieren en el tipo de retorno.
 - **Riesgo:** 6.14 puede revelar que `celeris`/`xlsx` dependen de `extern/` no construido.
   **Mitigación:** verificar con `test_ffi_libs.py` antes de decidir; si dependen de libs opcionales,
-  moverlos a `std/contrib/` es la opción correcta.
+  moverlos a `std/contrib/` es la opción correcta. **Resuelto:** los tres tienen importador que
+  compila y ejecuta; `xlsx` se salta su test precisamente por el `extern` opcional, que el propio
+  módulo documenta. No se mueve nada.
+
 
 ---
 
