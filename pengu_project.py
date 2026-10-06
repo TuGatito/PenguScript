@@ -5330,6 +5330,14 @@ _SUBCOMMAND_DOCS: Dict[str, Dict[str, str]] = {
                   "At least one case (stdlib_ops) imports `std`.\n"
                   "Example:\n  pengu benchmark --repeat 5 --csv benches/results/local.csv",
     },
+    "new": {
+        "description": "Create a new project from a template (template-first `init`).",
+        "epilog": "Templates: exe (default program), cli (argument handling), lib (static\n"
+                  "library with a smoke test), game (raylib window).\n"
+                  "Exit codes: 0 created, 1 write error, 2 bad usage. Like `init`, an\n"
+                  "existing directory is written into, not rejected.\n"
+                  "Example:\n  pengu new lib my_lib",
+    },
 }
 
 
@@ -5380,6 +5388,17 @@ def create_cli_parser() -> argparse.ArgumentParser:
                         help="Project manifest format (default: toml, the canonical one)")
     init_p.add_argument("--template", choices=["exe", "cli", "lib", "game"], default=None,
                         help="Project template flavour (default: derived from --type)")
+
+    # new (item 4.14): a template-first front end for `init`
+    new_p = subparsers.add_parser("new", help="Create a new project from a template (template-first `init`)")
+    new_p.add_argument("template", choices=["exe", "cli", "lib", "game"],
+                       help="Template flavour to create")
+    new_p.add_argument("name", help="Name of project directory to create")
+    new_p.add_argument("--links", "-l", help="Comma-separated library names to link (e.g. raylib,m)")
+    new_p.add_argument("--output-name", help="Custom output artifact base name")
+    new_p.add_argument("--cc", default="gcc", help="C compiler command (default: gcc)")
+    new_p.add_argument("--format", dest="manifest_format", choices=["toml", "yaml"], default="toml",
+                       help="Project manifest format (default: toml, the canonical one)")
 
     # add
     add_p = subparsers.add_parser("add", help="Add an external dependency or binding to the project")
@@ -5843,6 +5862,19 @@ def main():
             output_name=args.output_name,
             manifest_format=getattr(args, "manifest_format", "toml"),
             template=getattr(args, "template", None) or "exe",
+        )
+    elif args.command == "new":
+        # Item 4.14: same machinery as `init`, chosen by template first. `init`
+        # stays for the output-type-first spelling.
+        links_list = [i.strip() for i in args.links.split(",") if i.strip()] if args.links else []
+        init_project(
+            name=args.name,
+            output_type=None,
+            links=links_list,
+            cc=args.cc,
+            output_name=args.output_name,
+            manifest_format=getattr(args, "manifest_format", "toml"),
+            template=args.template,
         )
     elif args.command == "add":
         try:

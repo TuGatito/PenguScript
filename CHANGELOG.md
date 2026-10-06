@@ -9,6 +9,39 @@ All notable changes to PenguScript will be documented in this file.
 > sin pérdida de datos, con errores formateados de forma consistente y con el
 > contrato `--json` completo.
 
+### 🟡 Añadido — item 4.14: `pengu new` (y `pengu migrate` diferido con medición)
+
+`pengu new <template> <name>` es la forma "template primero" de `pengu init`:
+reutiliza exactamente los mismos templates (`exe`, `cli`, `lib`, `game`), así que
+un template nuevo no puede divergir entre dos caminos. Medido:
+
+```
+$ pengu new lib my_lib && cd my_lib && pengu test
+All 2 test(s) passed.            # el template lib trae smoke test
+$ pengu new exe app && cd app && pengu build && ./build/app
+Hello from app!
+```
+
+`tests/test_cli_new_command.py` (10 casos, incluido el que compara el árbol de
+`new cli` con el de `init --template cli` para que no puedan divergir).
+
+**⏸️ `pengu migrate` se difiere a 1.1, con medición.** El roadmap acota su
+mínimo viable a reescribir las construcciones que el CHANGELOG marca como
+eliminadas. Medición:
+
+- `tests/migration/` **no existe** y `MIGRATION.md` **no existe** (es el item
+  7.12 de Fase 7): no hay corpus de entrada.
+- **0 de 61** programas de `tests/std_programs/` fallan `pengu check`: el corpus
+  del repo ya está migrado.
+
+El único cambio `BREAKING` es `and` como separador de listas, pero `and` **sigue
+siendo el operador booleano** y hay contextos donde ambas lecturas son válidas
+(`calling find with 1 and true` es `E0005`). Reescribirlo con seguridad exige
+AST más tipos y, sobre todo, ficheros reales contra los que validar; hoy sería
+una herramienta especificada desde la documentación de un solo cambio.
+Dependencia: 8.5 (corpus de migración) y 7.12 (`MIGRATION.md`). Estimación real
+M–L. Detalle en `ROADMAP_2.0.md` (Fase 4, §4.14b).
+
 ### 🟡 Añadido — item 4.15: `pengu benchmark` y un bench que importa `std`
 
 El harness de `benches/run_bench.py` existía (medía build/run/tamaño con

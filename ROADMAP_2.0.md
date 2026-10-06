@@ -362,6 +362,34 @@ por item está en `CHANGELOG.md` (`## [Unreleased] — FASE 4`).
 | 4.18 | ✅ cerrado | `4c9cade` | (Nace de la medición de 4.9.) El `main` generado en modo `--test` no llamaba a `pengu_install_crash_handler()` (3.8 sólo cubrió el `main` normal), así que un fallo en un test mataba el proceso por señal sin volcado. Medido: `grep -c pengu_install_crash_handler build/bundle.c` → 0 (test) / 1 (normal). Ahora `pengu test` → 136 + `[PENGU CRASH] … at pengu_test_0 (main.pengu:4)`; `--json` conserva 3/3 líneas válidas. C2: 2 failed → 6 passed |
 | 4.10–4.16 | ⏳ pendiente | — | Ver la tabla de items de arriba |
 
+#### ⏸️ 4.14b — `pengu migrate` (diferido a 1.1, con medición)
+
+**MEDICIÓN (2026-10, árbol de Fase 4):**
+
+- `tests/migration/` **no existe** y `MIGRATION.md` **no existe** (el roadmap lo
+  asigna a Fase 7, item 7.12). No hay corpus de entrada.
+- Barrido completo: **0 de 61** programas de `tests/std_programs/` fallan
+  `pengu check`; el corpus del repo ya está en la sintaxis actual.
+
+**CAUSA RAÍZ / POR QUÉ SE DIFIERE:** el único cambio marcado `BREAKING` en el
+CHANGELOG es `and` como separador de listas (`calling f with 1 and 2` →
+`calling f with 1, 2`). Pero `and` **sigue siendo el operador booleano**, y hay
+contextos donde ambas lecturas son válidas (`var ok as bool is a and b` es
+correcto; `calling find with 1 and true` es `E0005` por ambigüedad). Reescribir
+eso con seguridad exige analizar el AST y conocer el tipo de los operandos para
+no romper una conjunción booleana — y no hay **ni un programa real** contra el
+que validarlo: se especificaría la herramienta a partir de la documentación de
+un único cambio.
+
+**QUÉ FALTA:** el corpus de migración (Fase 8, item 8.5) y `MIGRATION.md`
+(Fase 7, 7.12) como entradas reales; con ellos `pengu migrate --dry-run` puede
+implementarse y verificarse contra ficheros que de verdad lo necesiten.
+
+**ESTIMACIÓN REAL:** M–L (no el M del roadmap), y **depende** de 8.5/7.12.
+
+**ENTREGADO EN SU LUGAR:** `pengu new <template> <name>` (la mitad prioritaria
+del item 4.14, según el propio enunciado del roadmap).
+
 ### Criterio de "done" de la fase
 
 - [ ] `pengu fmt --check` es idempotente sobre el repo completo y no cambia ningún archivo de `std/`.
