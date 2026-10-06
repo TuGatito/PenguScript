@@ -522,3 +522,64 @@ class ErrorReporter:
     def report_all(self, errors: List[PenguError], use_color: bool = False) -> str:
         """Renders multiple errors separated by newlines."""
         return "\n\n".join(self.report(err, use_color=use_color) for err in errors)
+
+
+#: Canonical registry of compiler warning codes.
+#:
+#: The checker and the type inferencer emit warnings as plain
+#: ``"[Wxxxx] message"`` strings (see ``PenguChecker.warnings`` and
+#: ``PenguTypeInferencer._warn``), so the *code* is the only machine-readable
+#: part of a warning.  This table is the single source of truth for the
+#: catalogue: the symbolic name and the recommended practice for each code.
+#: ``LANGUAGE.md`` §22.3 is generated from it by ``tools/gen_error_catalog.py``,
+#: and `tests/test_error_catalog_sync.py` fails when a warning is emitted whose
+#: code is missing here, or when this table and the document diverge.
+#:
+#: ``reserved`` codes are documented but deliberately not emitted: the number is
+#: kept so that existing codes never move.
+WARNING_CATALOG: Dict[str, Dict[str, str]] = {
+    "W0000": {
+        "name": "UncategorizedWarning",
+        "practice": "None — infrastructure fallback, used when a warning string does "
+                    "not match the '[Wxxxx] message' shape.",
+    },
+    "W0001": {
+        "name": "UnsafeTransmuteWarning",
+        "practice": "Use safe 'to <Type>' casting where possible, or verify that the "
+                    "memory layout sizes match.",
+    },
+    "W0002": {
+        "name": "UnsafeEchoAccessWarning",
+        "practice": "Untagged union reads are inherently unsafe; prefer algebraic "
+                    "'omen' variants with payloads.",
+    },
+    "W0003": {
+        "name": "(reserved)",
+        "practice": "—",
+        "reserved": "true",
+    },
+    "W0004": {
+        "name": "UnreachableCodeWarning",
+        "practice": "Remove dead code following unconditional returns or compile-time "
+                    "false branches.",
+    },
+    "W0005": {
+        "name": "ShadowedGlobalWarning",
+        "practice": "Rename the local, or qualify the call so the intent is explicit.",
+    },
+    "W0006": {
+        "name": "DeprecatedSymbolWarning",
+        "practice": "Migrate to the replacement named in the reason. CI can turn this "
+                    "into an error with --deny-deprecated.",
+    },
+    "W0007": {
+        "name": "UnsafeBlockWarning",
+        "practice": "Keep 'unsafe:' blocks as small as possible and document why they "
+                    "are sound.",
+    },
+    "W0013": {
+        "name": "RangeSyntaxDeprecated",
+        "practice": "Write 'a to b'. The '..' form keeps working through 1.x and is "
+                    "removed in 2.0.",
+    },
+}

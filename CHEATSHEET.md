@@ -1740,7 +1740,7 @@ Rules: payload variants cannot use `is <value>` (`E0028`); integer and string va
 
 ### 10.4 Distinct nominal types: `seal`
 
-`seal Name as T` creates a zero-overhead distinct type. Values of different seals — or of a seal and its underlying type — are never interchangeable without an explicit `to` cast (`E0035`):
+`seal Name as T` creates a zero-overhead distinct type. A seal and its underlying type are never interchangeable without an explicit `to` cast, and a seal is rejected where a *different* seal is expected in every position the checker covers today (`E0005`):
 
 ```pengu
 seal UserId as int
@@ -1749,9 +1749,16 @@ seal PostId as int
 weave seal_demo into void:
     var user_id as UserId is 1001 to UserId
     var post_id as PostId is 2002 to PostId
-    # set user_id is post_id      # Compile error E0035
+    # var raw_id as int is user_id   # E0005: UserId is not int — write 'user_id to int'
     var raw_id as int is user_id to int
 ```
+
+> **Known gap (Phase 7 finding F7-N1).** The nominal seal → seal distinction is enforced on
+> declaration (`var a as UserId is b`), on `return`, and on container insertion (`list.push`), but
+> **not** on `set a is b`, on call arguments, or on `==`: those three paths silently accept two
+> different seals that share a representation. Measured by `tests/test_error_catalog_sync.py`'s
+> sibling in `AUDIT_1.0_FASE7.md` §F7-N1; `std/` declares no `seal`, so the fix has no blast
+> radius there. Tracked for Phase 8.
 
 ```c
 typedef int32_t UserId;
@@ -2898,7 +2905,7 @@ weave main into int:
 
 ### 20.4 Common diagnostics
 
-Diagnostics use Rust-style formatting (`error[CODE]: message`, plus `help:` and `note:` lines). Codes referenced throughout this reference: `E0004` unknown module member, `E0005` type mismatch, `E0008` `sigil of null`, `E0014` missing type annotation, `E0020` return type mismatch, `E0023`/`E0024` variadic `many` misuse, `E0025` body in `.d.pengu`, `E0026` duplicate `insignia`, `E0027` duplicate omen value, `E0028` payload + explicit value, `E0029` mixed/invalid omen values, `E0030`–`E0032` concept/signature/bound errors, `E0033`/`E0034` ritual misuse, `E0035` seal mismatch, `E0036` import-alias collision, `E0038` duplicate map key, `E0039` non-constant `when`, `E0040` reserved `main`, `E0041` array size/shape mismatch, `E0042` invalid range (`start > end`), `E0043` private symbol access, `E0044` non-exhaustive judge, `E0045` `try` outside a compatible `maybe`/`result` function, `E0046` omen variant name collision.
+Diagnostics use Rust-style formatting (`error[CODE]: message`, plus `help:` and `note:` lines). Codes referenced throughout this reference: `E0004` unknown module member, `E0005` type mismatch, `E0008` `sigil of null`, `E0014` missing type annotation, `E0020` return type mismatch, `E0023`/`E0024` variadic `many` misuse, `E0025` body in `.d.pengu`, `E0026` duplicate `insignia`, `E0027` duplicate omen value, `E0028` payload + explicit value, `E0029` mixed/invalid omen values, `E0030`–`E0032` concept/signature/bound errors, `E0033`/`E0034` ritual misuse, `E0035` name collides with a C reserved word or standard identifier, `E0036` import-alias collision, `E0038` duplicate map key, `E0039` non-constant `when`, `E0040` reserved `main`, `E0041` array size/shape mismatch, `E0042` invalid range (`start > end`), `E0043` private symbol access, `E0044` non-exhaustive judge, `E0045` `try` outside a compatible `maybe`/`result` function, `E0046` omen variant name collision.
 
 ---
 

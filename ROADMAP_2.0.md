@@ -725,6 +725,15 @@ estilo describan el lenguaje que el compilador realmente implementa.
 | 7.13 | Generar referencia de API por módulo | `tools/gen_api_docs.py`, `docs/api/*.md` | M | Los 1463 nombres públicos aparecen con firma y doc; el 37 % sin documentar baja a <10 % |
 | 7.14 | Política de idioma: inglés canónico, español marcado no normativo | `README.md`, guías | S | Cada documento bilingüe declara su estado; CI verifica que el número de bloques `pengu` coincide entre los pares |
 
+### Cierre de la fase (verificación contra el código real)
+
+Cerrados con medición previa (C3) y test que falla al revertir (C2). El detalle por
+item, con la verificación de premisas, está en `AUDIT_1.0_FASE7.md`.
+
+| # | Estado | Evidencia (commit / comando) | Qué se hizo |
+|---|--------|------------------------------|-------------|
+| 7.1 | ✅ cerrado | `fase7(7.1)` | `tools/gen_error_catalog.py` construye el catálogo **por AST** (clases + `code=` + docstring + `help`/`note`, las dos formas de emisión cruda, y `WARNING_CATALOG`) y genera `docs/error_catalog.json` + la región §22.2/§22.3 de `LANGUAGE.md` **y** `LANGUAGE_Spanish.md`. Las **5 clases fantasma** (`DuplicateConstantError`, `AmbiguousStructInitError`, `StaticArrayError`, `ErrorLiteralContextError`, `DanglingSliceError`) desaparecen: 24 códigos sin clase dedicada pasan a nombrar la clase que realmente los emite. `--check` → `59 codes, 327 conditions, 9 warnings, in sync`. Las interpolaciones se normalizan a `{}`, lo que colapsa 374 pares literales en 327 condiciones canónicas (diagnósticos que sólo diferían por el nombre del local). Deriva colateral corregida en `CHEATSHEET.md`: afirmaba `E0035` para el `seal` (es `E0005`) y "`E0035` seal mismatch". C2 verificado: perturbar la tabla → 2 failed; emitir un código nuevo → 6 failed |
+
 ### Criterio de "done" de la fase
 
 - [ ] El catálogo de errores de `LANGUAGE.md` se genera y un test detecta la divergencia.

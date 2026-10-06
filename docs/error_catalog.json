@@ -1,0 +1,1076 @@
+{
+  "errors": {
+    "E0000": {
+      "classes": [
+        "ParseError",
+        "SemanticError"
+      ],
+      "conditions": [
+        "Compiler invariant violated: target_ident must be provided when target_decl is specified in _translate_or_block",
+        "Syntax error: multiple statements on a single line require a newline delimiter",
+        "lambda not registered; run pre-scan before codegen"
+      ],
+      "explanation": "the source text could not be parsed (syntax error).\n\nRaised by ``PenguParser.parse`` instead of leaking a raw Lark exception, so\nthe CLI/LSP can report syntax problems with the usual\n``[Ecode] message`` + ``help:`` / ``note:`` shape. Kept on the generic E0000\ncode: syntax problems share the \"not valid source\" bucket with the other\ninfrastructure errors instead of consuming a new semantic code.",
+      "guidance": [
+        {
+          "help": "Check the syntax around this position (see LANGUAGE.md / CHEATSHEET.md).",
+          "note": "PenguScript parses indentation-sensitive blocks: statements in a block must be indented consistently, and argument/parameter/field lists are separated with ','."
+        }
+      ]
+    },
+    "E0001": {
+      "classes": [
+        "ConstInsideWeaveError"
+      ],
+      "conditions": [
+        "'const' inside a weave must be compile-time evaluable; use 'let' for runtime-immutable bindings"
+      ],
+      "explanation": "const declared inside weave / function body.",
+      "guidance": [
+        {
+          "help": "Move constant declaration outside the function or use 'let' / 'var' for local variables.",
+          "note": "PenguScript enforces V-safety: constants are top-level globals and locals are let/var."
+        }
+      ]
+    },
+    "E0002": {
+      "classes": [
+        "VarLetTopLevelError"
+      ],
+      "conditions": [
+        "'let' is not allowed at top-level. Use 'const' or move inside a function.",
+        "'static var' is not allowed at top-level. Use 'const' or move inside a function.",
+        "'var' is not allowed at top-level. Use 'const' or move inside a function."
+      ],
+      "explanation": "var/let declared at top-level.",
+      "guidance": [
+        {
+          "help": "Use 'const' for top-level definitions, or move inside a function. For stateful modules, use accessor weaves with 'static var' or an explicit context struct.",
+          "note": "Global mutable state is forbidden in PenguScript to guarantee safety."
+        }
+      ]
+    },
+    "E0003": {
+      "classes": [
+        "SelfDotAccessError",
+        "SemanticError"
+      ],
+      "conditions": [
+        "'self' is always a reference in enchanting and must be accessed with '->', not '.'",
+        "'self' is only valid inside 'enchanting' blocks",
+        "'self' used outside enchanting context",
+        "Arrow access '->' requires reference type (ref to T), got '{}'",
+        "Cannot use '->' on non-reference",
+        "Reference must be accessed with '->', not '.'"
+      ],
+      "explanation": "self accessed with dot instead of arrow.",
+      "guidance": [
+        {
+          "help": "Change 'self.' to 'self->'.",
+          "note": "'self' in enchanting is always a reference (ref to SelfType)."
+        }
+      ]
+    },
+    "E0004": {
+      "classes": [
+        "SemanticError",
+        "UndefinedIdentifierError"
+      ],
+      "conditions": [
+        "Cannot enchant undefined Rune '{}'",
+        "Cannot resolve imported module '{}'",
+        "Circular dependency detected in imports: {}",
+        "Duplicate import of module '{}'",
+        "Function '{}' is not declared",
+        "Module '{}' has no exported member '{}'",
+        "Module file not found: {}",
+        "Type '{}' has no enchanting method '{}'",
+        "Type '{}' has no method '{}'",
+        "Type '{}' has no ritual method '{}'",
+        "Undefined concept '{}' in bind declaration",
+        "Undefined function '{}'",
+        "Undefined identifier '{}'",
+        "Undefined type '{}' in 'size of'",
+        "Undefined type '{}' in bind declaration"
+      ],
+      "explanation": "identifier not defined in symbol table.",
+      "guidance": [
+        {
+          "help": "Check if the variable or function name is misspelled or declared in this scope.",
+          "note": "All variables must be defined before use."
+        }
+      ]
+    },
+    "E0005": {
+      "classes": [
+        "SemanticError",
+        "TypeMismatchError"
+      ],
+      "conditions": [
+        "'bytes of' expects a string or an 'array of byte', got '{}'",
+        "'chr' byte value {} is out of range 0-255",
+        "'chr' expects an integer byte value, got '{}'",
+        "'for from' start bound must be integer, got '{}'",
+        "'for step' must be integer, got '{}'",
+        "'for to' end bound must be integer, got '{}'",
+        "'if' branches have incompatible types: '{}' vs '{}'",
+        "'if' condition must be bool, got '{}'",
+        "'is not present' cannot be combined with a binding ('{}')",
+        "'judge' subject must be an omen, bool, int, or string, got '{}'",
+        "'many' parameters are not allowed in 'declare' statements",
+        "'or else' fallback type '{}' incompatible with '{}'",
+        "'or else' left operand must be maybe or Result, got '{}'",
+        "'or:' cannot be applied to a value of unknown type 'any'",
+        "'or:' fallback produces '{}', but the success value is '{}'",
+        "'or:' reached codegen with 'any' operand type; the checker must resolve the operand type before this point",
+        "'or:' requires a 'maybe T' or 'result of T to E' operand, got '{}'",
+        "'ord' expects a string of length 1, got '{}'",
+        "'ord' expects a string of length 1, got {} characters",
+        "'some' cannot wrap a fixed array; use a slice or reference instead",
+        "'some' cannot wrap a void or unknown value",
+        "'try' requires Result or Maybe type, got '{}'",
+        "'unless' condition must be bool, got '{}'",
+        "'while' condition must be bool, got '{}'",
+        "'{}' block branches have incompatible value types: '{}' vs '{}'",
+        "'{}' block expression mixes a value branch ('{}') with a branch that has no final expression",
+        "'{}' cannot wrap a fixed array; use a slice or reference instead",
+        "'{}' cannot wrap a void or unknown value",
+        "'{}' check requires bool type, got '{}'",
+        "'{}' condition must be bool, got '{}'",
+        "'{}' expects exactly one argument",
+        "'{}' requires a maybe T or result of T to E operand, got '{}'",
+        "'{}' requires a maybe type, got '{}'",
+        "Ambiguous '{}' after {}",
+        "Ambiguous '{}' in the arguments of '{}'",
+        "Argument '{}' of '{}' expects '{}', got '{}'",
+        "Arithmetic operator '{}' requires numeric type, got '{}'",
+        "Array literal cannot be passed directly to '{}'",
+        "Array literal elements must have compatible types, got '{}' and '{}'",
+        "Array size must be a positive compile-time constant integer, got non-constant '{}'",
+        "Array size must be an integer, got '{}'",
+        "Array/Slice index must be an integer, got '{}'",
+        "Binding '{}' as '{}' from '{}'",
+        "Binding '{}' cannot be bound to a 'void' value",
+        "Binding '{}' requires a maybe value, got '{}'",
+        "Cannot assign value of type '{}' to target of type '{}'",
+        "Cannot assign value of type '{}' to target of type '{}' (bound: {})",
+        "Cannot cast '{}' to '{}'",
+        "Cannot compare 'null' with non-pointer type '{}'",
+        "Cannot concatenate strings with '+' (the {} operand is '{}')",
+        "Cannot concatenate strings with '+='",
+        "Cannot determine the payload type of 'some'",
+        "Cannot determine the payload type of '{}'",
+        "Cannot get 'length' of non-collection type '{}'",
+        "Cannot index non-collection type '{}' with 'at'",
+        "Cannot index non-indexable type '{}'",
+        "Cannot index pointer to void or opaque '{}' with 'at'",
+        "Cannot initialize '{}' of type '{}' (bound: {}) with a value of type '{}'",
+        "Cannot initialize a binding of type '{}' (bound: {}) with a value of type '{}'",
+        "Cannot iterate directly over generic type parameter '{}'",
+        "Cannot iterate over non-collection type '{}'",
+        "Cannot iterate over non-collection type '{}' at codegen time",
+        "Cannot iterate over non-iterable type '{}' in comprehension",
+        "Cannot return value of type '{}' from a function returning '{}' (bound: {})",
+        "Cannot slice type '{}'",
+        "Cannot take slice of non-collection type '{}'",
+        "Comparison '{}' on incompatible types: '{}' vs '{}'",
+        "Compiler invariant violated: 'or:' reached codegen with an uninferable operand; the checker should have rejected this.",
+        "Compound '%=' requires integers, got '{}' for the {}",
+        "Compound '{}' requires a numeric target, got '{}'",
+        "Compound '{}' requires a numeric value, got '{}'",
+        "Compound '{}' requires integers, got '{}' for the {}",
+        "Concept '{}' cannot be automatically derived for omen '{}'",
+        "Concept '{}' cannot be automatically derived for rune '{}'",
+        "Concept '{}' cannot be derived for echo '{}'",
+        "Concept(s) {} cannot be derived for string-valued omen '{}'",
+        "Constant '{}' cannot be of type '{}' because it requires dynamic heap allocation",
+        "Constant '{}' initializer is not a compile-time constant expression",
+        "Constant '{}' of type '{}' cannot be statically initialized at compile time",
+        "Could not infer type parameter(s) {} for generic function '{}'",
+        "Could not infer type parameter(s) {} for method '{}'",
+        "Duplicate named argument '{}' for '{}'",
+        "Duplicate parameter name '{}' in function '{}'",
+        "Duplicate parameter name '{}' in method '{}'",
+        "Duplicate type parameter in generic declaration '{}'",
+        "Field '{}' expected '{}', got '{}'",
+        "Function expects at least {} arguments, but received {}",
+        "Function expects between {} and {} arguments, but received {}",
+        "Generic parameter '{}' of generic type '{}' cannot have a default value depending on type parameters",
+        "Generic type '{}' expects {} type argument(s), got {}",
+        "Judge branches have incompatible return types: '{}' vs '{}'",
+        "Judge guard must be boolean, got '{}'",
+        "List capacity must be an integer, got '{}'",
+        "Logical 'not' requires bool type, got '{}'",
+        "Logical operator '{}' requires bool, got '{}'",
+        "Map key expected '{}', got '{}'",
+        "Map literal values have type '{}', but the expected map stores '{}'",
+        "Map literal values must share a common type, got '{}' and '{}'",
+        "Map of {} to {} put key expects {}, got {}",
+        "Map of {} to {} put value expects {}, got {}",
+        "Missing argument(s) for parameter(s) {} of '{}'",
+        "Missing required argument '{}'",
+        "Non-default parameter '{}' follows default parameter in function '{}'",
+        "Non-default parameter '{}' follows default parameter in method '{}'",
+        "Operator '{}' element type '{}' is incompatible with collection element type '{}'",
+        "Operator '{}' expects a collection (range, string, array, slice, list, or map), got '{}'",
+        "Operator '{}' for string collection requires char, byte, or string element, got '{}'",
+        "Operator '{}' key type '{}' is incompatible with map key type '{}'",
+        "Operator '{}' requires integer type, got '{}'",
+        "Ordering comparison '{}' is not supported for 'null'",
+        "Ordering comparison '{}' is not supported for 'string'; use '=='/'!=' or convert explicitly",
+        "Pattern '{}' is not a variant of omen '{}'",
+        "Pattern '{}' of type '{}' cannot match integer subject",
+        "Pattern '{}' of type '{}' cannot match string subject",
+        "Pattern of type '{}' cannot match boolean subject",
+        "Pattern of type '{}' cannot match integer subject",
+        "Pattern of type '{}' cannot match omen '{}'",
+        "Pattern of type '{}' cannot match string subject",
+        "Payload bindings are only supported on omen variants",
+        "Pointer index must be an integer, got '{}'",
+        "Positional argument after named argument",
+        "Range {} must be an integer, got '{}'",
+        "Slice range bounds must be integers, got '{}'",
+        "Slice range bounds must be integers, got '{}' to '{}'",
+        "Static variable '{}' cannot be bound to a 'void' value",
+        "String index must be an integer, got '{}'",
+        "String interpolation is not supported when expecting a C string literal (ref to char)",
+        "Unary '-' requires numeric type, got '{}'",
+        "Unknown named argument '{}' for '{}'",
+        "Variable '{}' cannot be bound to a 'void' value",
+        "Variadic 'many' parameter '{}' in function '{}' cannot have a default value",
+        "Variant '{}' has no field '{}'",
+        "Variant '{}' has no payload fields",
+        "Variant pattern qualifier '{}' does not match subject omen '{}'",
+        "loop used as a value must produce a value on every iteration",
+        "when condition must be bool, got '{}'",
+        "{} literal is not a statement"
+      ],
+      "explanation": "types incompatible.",
+      "guidance": [
+        {
+          "help": "Ensure the value type matches the expected type or use explicit conversion 'to <Type>'.",
+          "note": "PenguScript requires type safety and explicit conversions."
+        }
+      ]
+    },
+    "E0006": {
+      "classes": [
+        "InvalidMemoryOpError",
+        "MutabilityError"
+      ],
+      "conditions": [
+        "Cannot assign through read-only 'frozen' {}",
+        "Cannot assign to constant '{}'",
+        "Cannot assign to immutable 'let' variable '{}'",
+        "Cannot modify characters in an immutable string directly",
+        "Cannot mutate element of frozen collection '{}'",
+        "Cannot mutate element through pointer to frozen type '{}'",
+        "Cannot mutate field '.{}' on frozen target '{}' in 'with'",
+        "Cannot mutate field '.{}' on immutable 'let' struct in 'with'",
+        "Cannot mutate field '{}' on immutable 'let' struct in 'with'",
+        "Cannot mutate field of frozen value '{}'",
+        "Cannot mutate {} of immutable 'let' variable '{}'"
+      ],
+      "explanation": "assignment to immutable let binding or constant.",
+      "guidance": [
+        {
+          "help": "Declare the variable with 'var' instead of 'let' to allow mutation.",
+          "note": "'let' bindings are immutable by default."
+        }
+      ]
+    },
+    "E0007": {
+      "classes": [
+        "InvalidControlFlowError"
+      ],
+      "conditions": [
+        "'{}' is only allowed inside loops (for / while)."
+      ],
+      "explanation": "break/continue outside loop.",
+      "guidance": [
+        {
+          "help": "Remove the control flow statement or place it inside a 'for' or 'while' loop block.",
+          "note": "Control flow operations 'break' and 'continue' require an enclosing loop."
+        }
+      ]
+    },
+    "E0008": {
+      "classes": [
+        "InvalidMemoryOpError",
+        "SemanticError",
+        "TypeMismatchError"
+      ],
+      "conditions": [
+        "'banish' requires a reference type (ref to T), string, list, map, or a type with 'derive Nexus', got '{}'",
+        "'essence of' requires reference type (ref to T), got '{}'",
+        "'unsafe:' is only allowed inside function bodies (weave).",
+        "'{}' is only allowed inside function bodies (weave).",
+        "'{}' statement expects function call or banish expression",
+        "Cannot assign directly to array type '{}'",
+        "Cannot banish a literal value. 'banish' requires a variable or field lvalue.",
+        "Cannot banish a non-lvalue expression. 'banish' requires a variable or field.",
+        "Cannot banish a temporary expression. 'banish' requires a variable or field lvalue.",
+        "Cannot banish constant '{}'",
+        "Cannot banish frozen (read-only) value of type '{}'",
+        "Cannot banish frozen (read-only) variable '{}'",
+        "Cannot banish temporary expression: 'banish' requires an assignable variable or memory location",
+        "Cannot take 'sigil of' a literal or temporary expression",
+        "Cannot take 'sigil of' constant '{}'"
+      ],
+      "explanation": "invalid sigil/banish on literal/const.",
+      "guidance": [
+        {
+          "help": "Only mutable variables and memory references can be used with this memory operation.",
+          "note": "Memory safety requires valid pointer targets."
+        }
+      ]
+    },
+    "E0009": {
+      "classes": [
+        "InvalidWithTargetError",
+        "SemanticError"
+      ],
+      "conditions": [
+        "Field assignment '.{}' used outside 'with' statement",
+        "Method call '.{}' used outside 'with' statement"
+      ],
+      "explanation": "leading dot access outside with block.",
+      "guidance": [
+        {
+          "help": "Wrap the call in a 'with' block (e.g. 'with player:') or use direct object access.",
+          "note": "Leading dot notation '.name' is only valid inside an active 'with' block."
+        }
+      ]
+    },
+    "E0010": {
+      "classes": [
+        "SemanticError"
+      ],
+      "conditions": [
+        "Cannot infer rune type for struct init with fields {}, no rune matches"
+      ]
+    },
+    "E0011": {
+      "classes": [
+        "SemanticError"
+      ],
+      "conditions": [
+        "Constant '{}' is redefined with conflicting values ({} vs {}) in '{}'"
+      ]
+    },
+    "E0012": {
+      "classes": [
+        "SemanticError"
+      ],
+      "conditions": [
+        "Cannot instantiate opaque type '{}' with 'with'"
+      ]
+    },
+    "E0013": {
+      "classes": [
+        "SemanticError"
+      ],
+      "conditions": [
+        "Cannot access field '{}' on non-struct type '{}'",
+        "Cannot access field '{}' on reference to non-struct type '{}'",
+        "Echo '{}' has no field '{}'",
+        "Field '{}' does not exist on Rune '{}'",
+        "Map has no field '{}'",
+        "Maybe has no field '{}'",
+        "Omen '{}' has no variant '{}'",
+        "Result has no field '{}'",
+        "Rune '{}' has no field '{}'",
+        "Type '{}' has no field '{}'"
+      ]
+    },
+    "E0014": {
+      "classes": [
+        "InvalidBuilderStatementError",
+        "SemanticError",
+        "TypeMismatchError"
+      ],
+      "conditions": [
+        "'maybe none' requires explicit type context (e.g. 'as maybe T')",
+        "'with:' block construction requires a struct-like target type (rune/echo/omen) from an explicit annotation",
+        "'with:' block construction requires an explicit type annotation (e.g. 'var x as T with:')",
+        "'with:' block only allows 'set .field is ...' assignments and 'calling .method' statements, not '{}'",
+        "'{}' requires explicit type context (e.g. 'as result of T to E')",
+        "Binding '{}' initialized with 'null' or uninferable value requires an explicit type annotation (e.g. 'as ref to T' or 'as opaque')",
+        "Constant '{}' initialized with 'null' requires an explicit type annotation (e.g. 'as ref to T' or 'as opaque')",
+        "Empty map literal '{}' cannot infer its type; add an explicit type annotation (e.g. 'let m as map of string to int is {}')",
+        "Static variable '{}' initialized with 'null' requires an explicit type annotation (e.g. 'as ref to T' or 'as opaque')",
+        "Variable '{}' initialized with 'null' or uninferable value requires an explicit type annotation (e.g. 'as ref to T' or 'as opaque')"
+      ],
+      "explanation": "invalid statement inside with: builder block.",
+      "guidance": [
+        {
+          "help": "Use field assignments and method calls inside the builder block.",
+          "note": "Construction blocks may not contain control flow or declarations."
+        }
+      ]
+    },
+    "E0015": {
+      "classes": [
+        "SemanticError",
+        "UnknownArrayDimensionError"
+      ],
+      "conditions": [
+        "Unknown array dimension in '{}' for binding '{}'",
+        "Unknown array dimension in '{}' for constant '{}'",
+        "Unknown array dimension in '{}' for variable '{}'",
+        "Unknown array dimension in '{}'. Expected fixed dimensions or inferable initializer."
+      ],
+      "explanation": "Array dimension size is unknown and cannot be inferred.",
+      "guidance": [
+        {
+          "help": "Specify all dimensions (e.g. 'array of array of T with size M with size N') or initialize with full literal rows.",
+          "note": "C requires fixed array sizes for all dimensions."
+        }
+      ]
+    },
+    "E0016": {
+      "classes": [
+        "UndefinedIdentifierError"
+      ],
+      "conditions": [
+        "C define '{}' used without prior 'include' statement"
+      ]
+    },
+    "E0017": {
+      "classes": [
+        "SemanticError"
+      ],
+      "conditions": [
+        "Cannot destructure expression of type '{}'",
+        "Destructuring mismatch: Array has size {}, but {} variables were provided",
+        "Destructuring mismatch: Rune '{}' has {} fields, but {} variables were provided",
+        "Type '{}' does not support destructuring"
+      ]
+    },
+    "E0018": {
+      "classes": [
+        "TypeMismatchError"
+      ],
+      "conditions": [
+        "List of {} push expects {}, got {}"
+      ]
+    },
+    "E0019": {
+      "classes": [
+        "SemanticError",
+        "UndefinedIdentifierError"
+      ],
+      "conditions": [
+        "Internal: string interpolation expression '{}' failed to re-parse at codegen time",
+        "Invalid expression inside string interpolation '{{}}': {}",
+        "Undefined variable '{}' in string interpolation"
+      ]
+    },
+    "E0020": {
+      "classes": [
+        "SemanticError",
+        "TypeMismatchError"
+      ],
+      "conditions": [
+        "'or return' value type '{}' incompatible with function return type '{}'",
+        "Entry point 'main' must return an integer or 'void', got '{}'",
+        "Function '{}' declared into '{}' does not return a value (ends with '{}')",
+        "Implicit return type '{}' does not match weave return type '{}'",
+        "Method '{}' declared into '{}' does not return a value (ends with '{}')",
+        "Return statement with no value in function returning '{}'",
+        "Returned value of type '{}' does not match weave return type '{}'"
+      ]
+    },
+    "E0021": {
+      "classes": [
+        "GenericTypeMissingArgsError"
+      ],
+      "conditions": [
+        "Generic type '{}' requires type arguments. Use '{} of {}'."
+      ],
+      "explanation": "Generic type used without required type arguments.",
+      "guidance": [
+        {
+          "help": "Provide type arguments using 'of', e.g. 'Pair of int and float'.",
+          "note": "All generic types must be instantiated with 'of' before use."
+        }
+      ]
+    },
+    "E0022": {
+      "classes": [
+        "TypeParamOutsideGenericError"
+      ],
+      "conditions": [
+        "Type parameter '{}' can only be used within a generic declaration (shard)."
+      ],
+      "explanation": "Type parameter used outside generic declaration context.",
+      "guidance": [
+        {
+          "help": "Declare type parameter with 'shard' or use a defined concrete type.",
+          "note": "Type parameters can only be used within generic declarations."
+        }
+      ]
+    },
+    "E0023": {
+      "classes": [
+        "MultipleManyParamsError"
+      ],
+      "conditions": [
+        "Only one 'many' parameter is allowed in function '{}'",
+        "Only one 'many' parameter is allowed in method '{}'"
+      ],
+      "explanation": "Multiple many parameters in a function.",
+      "guidance": [
+        {
+          "help": "A function can only have one 'many' parameter.",
+          "note": "PenguScript allows at most one variadic parameter per function."
+        }
+      ]
+    },
+    "E0024": {
+      "classes": [
+        "ManyParamNotLastError"
+      ],
+      "conditions": [
+        "The 'many' parameter must be the last parameter in function '{}'",
+        "The 'many' parameter must be the last parameter in method '{}'"
+      ],
+      "explanation": "many parameter is not the last parameter.",
+      "guidance": [
+        {
+          "help": "Move the 'many' parameter to the end of the parameter list.",
+          "note": "The variadic parameter 'many' must be the final parameter."
+        }
+      ]
+    },
+    "E0025": {
+      "classes": [
+        "SemanticError"
+      ],
+      "conditions": [
+        "'test' blocks are not allowed in declaration files (.d.pengu)",
+        "Implementation body not allowed in declaration file (.d.pengu)"
+      ]
+    },
+    "E0026": {
+      "classes": [
+        "MultipleInsigniaError"
+      ],
+      "conditions": [
+        "Multiple 'insignia' directives not allowed"
+      ],
+      "explanation": "Multiple insignia directives in a single file.",
+      "guidance": [
+        {
+          "help": "Only one 'insignia' directive is allowed per module file.",
+          "note": "The 'insignia' directive defines the global C prefix for all subsequent declarations in this file."
+        }
+      ]
+    },
+    "E0027": {
+      "classes": [
+        "DuplicateOmenValueError"
+      ],
+      "conditions": [
+        "Duplicate value '{}' in omen '{}': variants '{}' and '{}' have the same value"
+      ],
+      "explanation": "Duplicate variant value in omen.",
+      "guidance": [
+        {
+          "help": "Ensure all omen variant values are unique.",
+          "note": "Omen variant values must be distinct."
+        }
+      ]
+    },
+    "E0028": {
+      "classes": [
+        "InvalidOmenPayloadValueError"
+      ],
+      "conditions": [
+        "Value assignment is not allowed on algebraic omen variant '{}' with payload ('with')"
+      ],
+      "explanation": "Value assignment in algebraic omen variant with payload.",
+      "guidance": [
+        {
+          "help": "Remove 'is <value>' from algebraic variants with 'with'.",
+          "note": "Explicit numerical values are only supported on simple enums without payload."
+        }
+      ]
+    },
+    "E0029": {
+      "classes": [
+        "InvalidOmenConstantValueError",
+        "SemanticError"
+      ],
+      "conditions": [
+        "Cannot mix integer and string values in omen '{}' (variant '{}' uses {} values)",
+        "Omen variant '{}' value must be a compile-time integer constant or string literal",
+        "String-valued omen '{}' cannot define payload variants like '{}' ('with' fields)"
+      ],
+      "explanation": "Non-constant or non-integer value in omen variant.",
+      "guidance": [
+        {
+          "help": "Use a compile-time integer literal or constant expression.",
+          "note": "Omen values must evaluate to an integer at compile time."
+        }
+      ]
+    },
+    "E0030": {
+      "classes": [
+        "ConceptMethodMismatchError"
+      ],
+      "conditions": [
+        "Method '{}' in bind block is {}, but concept '{}' declares it {}",
+        "Parameter '{}' of method '{}' in bind block has type '{}', expected '{}'",
+        "Signature of method '{}' in bind block does not match concept '{}' declaration (parameter count mismatch: expected {}, found {})"
+      ],
+      "explanation": "Concept method signature mismatch in bind implementation.",
+      "guidance": [
+        {
+          "help": "Ensure parameter and return types match the concept method declaration.",
+          "note": "Methods in 'bind' blocks must have signatures identical to the concept definition."
+        }
+      ]
+    },
+    "E0031": {
+      "classes": [
+        "UnimplementedConceptMethodError"
+      ],
+      "conditions": [
+        "Type '{}' does not implement method '{}' required by concept '{}'"
+      ],
+      "explanation": "Missing required concept method implementation.",
+      "guidance": [
+        {
+          "help": "Implement all methods declared in the concept.",
+          "note": "A 'bind' block must provide implementations for every method of the concept."
+        }
+      ]
+    },
+    "E0032": {
+      "classes": [
+        "ConceptBoundNotSatisfiedError",
+        "SemanticError"
+      ],
+      "conditions": [
+        "Cannot derive '{}' for omen '{}' because variant '{}' field '{}' of type '{}' does not implement '{}'",
+        "Cannot derive '{}' for rune '{}' because field '{}' of type '{}' does not implement '{}'",
+        "Type '{}' does not implement concept '{}' required by generic parameter '{}'",
+        "Type '{}' does not implement concept '{}' required by generic parameter '{}' of '{}'"
+      ],
+      "explanation": "Generic type argument does not implement required concept bound.",
+      "guidance": [
+        {
+          "help": "Bind the required concept to the type using 'bind Type with Concept:'.",
+          "note": "Generic type arguments must satisfy all concept bounds declared in the 'where' clause."
+        }
+      ]
+    },
+    "E0033": {
+      "classes": [
+        "InvalidRitualSelfAccessError"
+      ],
+      "conditions": [
+        "'self' cannot be used inside a 'ritual' method"
+      ],
+      "explanation": "Using 'self' inside a ritual (static) method.",
+      "guidance": [
+        {
+          "help": "Remove 'self' or remove the 'ritual' modifier to make this an instance method.",
+          "note": "'ritual' methods are static/associated functions and do not have an instance 'self'."
+        }
+      ]
+    },
+    "E0034": {
+      "classes": [
+        "InvalidRitualCallError"
+      ],
+      "conditions": [
+        "Method '{}' is a 'ritual' (static) method and must be called on the type '{}', not an instance",
+        "Method '{}' of type '{}' is an instance method and cannot be called statically without an instance"
+      ],
+      "explanation": "Calling instance method statically or ritual method on instance.",
+      "guidance": [
+        {
+          "help": "Call ritual methods on the type (e.g. Type.method) and instance methods on an object.",
+          "note": "Ritual methods are associated with the type, while instance methods require an object."
+        }
+      ]
+    },
+    "E0035": {
+      "classes": [
+        "SemanticError"
+      ],
+      "conditions": [
+        "'static var' is only allowed directly inside a function body (weave).",
+        "Constant name '{}' is a reserved C keyword or standard identifier",
+        "Field '{}' collides with field '{}' in C code emission ('{}')",
+        "Function name '{}' is a reserved C keyword",
+        "Function name '{}' is a reserved standard C function or identifier",
+        "Test name must be a non-empty string or identifier",
+        "Type name '{}' is a reserved C keyword or standard identifier"
+      ]
+    },
+    "E0036": {
+      "classes": [
+        "SemanticError"
+      ],
+      "conditions": [
+        "Import alias '{}' for module '{}' conflicts with an existing symbol",
+        "Import alias cannot be '_' (discard)"
+      ]
+    },
+    "E0037": {
+      "classes": [
+        "SemanticError"
+      ],
+      "conditions": [
+        "Loop index and element bindings cannot both be named '{}'"
+      ]
+    },
+    "E0038": {
+      "classes": [
+        "SemanticError"
+      ],
+      "conditions": [
+        "Duplicate key '{}' in map literal"
+      ]
+    },
+    "E0039": {
+      "classes": [
+        "SemanticError",
+        "TypeMismatchError"
+      ],
+      "conditions": [
+        "'defined({})' can only be used in a compile-time 'when' condition",
+        "'when' condition must evaluate to a compile-time boolean constant",
+        "'when' expression condition must evaluate to a compile-time boolean constant"
+      ]
+    },
+    "E0040": {
+      "classes": [
+        "SemanticError"
+      ],
+      "conditions": [
+        "'main' is a reserved compile-time variable"
+      ]
+    },
+    "E0041": {
+      "classes": [
+        "ArraySizeMismatchError",
+        "SemanticError"
+      ],
+      "conditions": [
+        "'{}' is not a field or variant of omen '{}'",
+        "Array has {} elements but the declared size is {}",
+        "Array has {} rows but the declared size is {}",
+        "Array literal has {} elements but declared size is {}",
+        "Inconsistent row length in array literal: row 1 has length {} while row {} has length {}",
+        "Row {} has {} elements but the declared width is {}",
+        "omen '{}' initializer selects more than one variant: {}",
+        "omen field '{}' is ambiguous: it belongs to variants {}; name the variant explicitly",
+        "omen payload fields belong to different variants ('{}' vs '{}')"
+      ],
+      "explanation": "Array literal dimensions or row length do not match declared size.",
+      "guidance": [
+        {
+          "help": "Ensure each row and the total number of rows match the declared array size.",
+          "note": "Fixed-size arrays require exact dimension matching at compile time."
+        }
+      ]
+    },
+    "E0042": {
+      "classes": [
+        "InvalidRangeError"
+      ],
+      "conditions": [
+        "Invalid range: descending ranges require start >= end when both bounds are known at compile time",
+        "Invalid range: start must be less than or equal to end when both bounds are known at compile time",
+        "Invalid range: step cannot be zero"
+      ],
+      "explanation": "Invalid range expression bounds.",
+      "guidance": [
+        {
+          "help": "Ensure the range start is less than or equal to end.",
+          "note": "Ranges must have valid ascending bounds when known at compile time."
+        }
+      ]
+    },
+    "E0043": {
+      "classes": [
+        "PrivateSymbolAccessError"
+      ],
+      "conditions": [
+        "Field '{}' is private to rune '{}'",
+        "Symbol '{}' is private to module '{}'"
+      ],
+      "explanation": "Attempted access to private symbol from another module.",
+      "guidance": [
+        {
+          "help": "Symbols starting with '_' are private. Use a name without a leading underscore to make it public, or use 'insignia' for C binding prefixes.",
+          "note": "Symbols with a leading underscore are private to their defining module/rune."
+        }
+      ]
+    },
+    "E0044": {
+      "classes": [
+        "NonExhaustiveJudgeError"
+      ],
+      "conditions": [
+        "Judge over omen/bool is not exhaustive and has no 'else ->' branch"
+      ],
+      "explanation": "Non-exhaustive judge expression without default else clause.",
+      "guidance": [
+        {
+          "help": "Add missing variant clauses or provide a default 'else ->' branch.",
+          "note": "All possible variants/cases must be covered in judge expressions."
+        }
+      ]
+    },
+    "E0045": {
+      "classes": [
+        "SemanticError",
+        "TypeMismatchError"
+      ],
+      "conditions": [
+        "'try' error type '{}' is not compatible with the enclosing function's error type '{}'",
+        "'try' over 'maybe T' requires the enclosing function to return 'maybe T', not '{}'",
+        "'try' over 'result of T to E' requires the enclosing function to return a compatible result type (error type '{}'), not '{}'",
+        "'try' over 'result of T to E' requires the enclosing function to return a compatible result type, not '{}'"
+      ]
+    },
+    "E0046": {
+      "classes": [
+        "SemanticError"
+      ],
+      "conditions": [
+        "Constant '{}' is defined with conflicting values ({} in '{}' vs {} in '{}')",
+        "Multiple entry points 'main' defined: first in '{}', duplicate in '{}'",
+        "Omen variant name '{}' is used by both omen '{}' and omen '{}'",
+        "Omen variant name '{}' of omen '{}' collides with the {}",
+        "Top-level symbol '{}' collides with the full name of the '{}' omen variant"
+      ]
+    },
+    "E0047": {
+      "classes": [
+        "AutoOwnedBanishError"
+      ],
+      "conditions": [
+        "'banish' on auto-owned local '{}' would double-free"
+      ],
+      "explanation": "Attempt to manually banish an auto-owned variable.",
+      "guidance": [
+        {
+          "help": "Remove 'banish' — the compiler frees this variable automatically at the end of its scope.",
+          "note": "Variables allocated locally with fresh ownership are scope-owned and cleaned up automatically."
+        }
+      ]
+    },
+    "E0048": {
+      "classes": [
+        "BorrowedBanishError"
+      ],
+      "conditions": [
+        "'banish' on borrowed local '{}'"
+      ],
+      "explanation": "Attempt to banish a borrowed variable.",
+      "guidance": [
+        {
+          "help": "Remove 'banish' — borrowed references do not own the underlying memory.",
+          "note": "Only the owner of a resource is allowed to banish it."
+        }
+      ]
+    },
+    "E0049": {
+      "classes": [
+        "SemanticError"
+      ],
+      "conditions": [
+        "Cannot use comparison '{}' on type '{}' without the '{}' concept",
+        "Cannot use equality comparison '{}' on type parameter '{}' without 'Par' bound",
+        "Cannot use operator '{}' on type parameter '{}' without 'Integrum' bound",
+        "Cannot use operator '{}' on type parameter '{}' without '{}' bound",
+        "Cannot use ordering comparison '{}' on type parameter '{}' without 'Ordo' bound",
+        "Cannot use unary '-' on type parameter '{}' without 'Num' bound",
+        "Type '{}' has no default value for 'donum'",
+        "Type parameter '{}' cannot be defaulted with 'donum'"
+      ]
+    },
+    "E0050": {
+      "classes": [
+        "InfiniteTypeSizeError"
+      ],
+      "conditions": [
+        "Recursive type '{}' has infinite size because field '{}' contains '{}' directly by value"
+      ],
+      "explanation": "recursive type without indirection (infinite size).",
+      "guidance": [
+        {
+          "help": "Use 'ref to' or 'maybe ref to' to break the cycle with indirection.",
+          "note": "Types containing themselves directly by value have infinite size."
+        }
+      ]
+    },
+    "E0051": {
+      "classes": [
+        "SemanticError"
+      ],
+      "conditions": [
+        "Cannot return a slice ('{} at ...') of the stack array '{}'; the slice would dangle once the weave returns"
+      ]
+    },
+    "E0052": {
+      "classes": [
+        "DuplicateConceptBindingError"
+      ],
+      "conditions": [
+        "Duplicate concept binding: '{}' already bound to '{}'",
+        "Method '{}' of type '{}' is already provided by concept '{}'"
+      ],
+      "explanation": "duplicate concept binding or duplicate (type, method) implementation.\n\nCovers two cases: binding the same ``(type, concept)`` pair twice, and two\ndistinct concepts providing the same ``(type, method)`` pair (which a call\nsite could not resolve).",
+      "guidance": [
+        {
+          "help": "A type can bind a concept once, and each (type, method) pair only once.",
+          "note": "Remove the duplicate 'bind' block or rename the conflicting method."
+        }
+      ]
+    },
+    "E0053": {
+      "classes": [
+        "SemanticError"
+      ],
+      "conditions": [
+        "Duplicate binding name '{}' in destructuring",
+        "Redefinition of '{}' in the same scope"
+      ]
+    },
+    "E0054": {
+      "classes": [
+        "SemanticError"
+      ],
+      "conditions": [
+        "Ambiguous struct init with fields {}, matches: {}"
+      ]
+    },
+    "E0055": {
+      "classes": [
+        "SemanticError"
+      ],
+      "conditions": [
+        "Static variable '{}' cannot have an array type ('{}')"
+      ]
+    },
+    "E0056": {
+      "classes": [
+        "UnknownAttributeError"
+      ],
+      "conditions": [
+        "Attribute '@align' requires 1 integer argument, got {}",
+        "Attribute '@deprecated' takes at most 1 string argument, got {}",
+        "Attribute '@{}' is not supported on {} declarations",
+        "Attribute '@{}' takes 0 arguments, got {}",
+        "Unknown attribute '@{}'"
+      ],
+      "explanation": "unknown attribute or invalid attribute usage.",
+      "guidance": [
+        {
+          "help": "Supported attributes are @inline, @cold, @deprecated, @packed, and @align(N).",
+          "note": "Attributes configure compilation semantics, code generation, and diagnostics."
+        }
+      ]
+    },
+    "E0057": {
+      "classes": [
+        "InvalidCharLiteralError"
+      ],
+      "conditions": [
+        "Character literal '{}' with codepoint U+{} exceeds ASCII range (0..127); 'char' in PenguScript is 7-bit ASCII/1-byte. Use 'string' for multi-byte Unicode.",
+        "Invalid hexadecimal Unicode escape '{}' in character literal"
+      ],
+      "explanation": "char literal cannot hold codepoint > 0x7F.",
+      "guidance": [
+        {
+          "help": "Use a string literal or chr(...) for Unicode codepoints above 0x7F.",
+          "note": "PenguScript 'char' is an 8-bit ASCII character."
+        }
+      ]
+    },
+    "E0058": {
+      "classes": [
+        "SemanticError"
+      ],
+      "conditions": [
+        "'error' is only available inside 'or:' error-handling blocks"
+      ]
+    }
+  },
+  "warnings": {
+    "W0000": {
+      "name": "UncategorizedWarning",
+      "practice": "None — infrastructure fallback, used when a warning string does not match the '[Wxxxx] message' shape."
+    },
+    "W0001": {
+      "conditions": [
+        "transmute from '{}' ({} bytes) to '{}' ({} bytes) has size mismatch and is unsafe",
+        "transmute is unsafe, use 'to' for safe conversions"
+      ],
+      "name": "UnsafeTransmuteWarning",
+      "practice": "Use safe 'to <Type>' casting where possible, or verify that the memory layout sizes match."
+    },
+    "W0002": {
+      "conditions": [
+        "Echo union '{}' access is unsafe"
+      ],
+      "name": "UnsafeEchoAccessWarning",
+      "practice": "Untagged union reads are inherently unsafe; prefer algebraic 'omen' variants with payloads."
+    },
+    "W0003": {
+      "name": "(reserved)",
+      "practice": "—",
+      "reserved": true
+    },
+    "W0004": {
+      "conditions": [
+        "Unreachable code in else branch",
+        "Unreachable code in then branch"
+      ],
+      "name": "UnreachableCodeWarning",
+      "practice": "Remove dead code following unconditional returns or compile-time false branches."
+    },
+    "W0005": {
+      "conditions": [
+        "Inconsistent indentation: line ",
+        "Inconsistent indentation: line {} uses tabs, line {} uses spaces",
+        "Variable '",
+        "Variable '{}' shadows global function '{}' on line {}"
+      ],
+      "name": "ShadowedGlobalWarning",
+      "practice": "Rename the local, or qualify the call so the intent is explicit."
+    },
+    "W0006": {
+      "conditions": [
+        "Symbol '",
+        "Symbol '{}' is deprecated",
+        "Symbol '{}' is deprecated: {}"
+      ],
+      "name": "DeprecatedSymbolWarning",
+      "practice": "Migrate to the replacement named in the reason. CI can turn this into an error with --deny-deprecated."
+    },
+    "W0007": {
+      "conditions": [
+        "'unsafe:' block disables bounds/overflow checks on line ",
+        "'unsafe:' block disables bounds/overflow checks on line {}"
+      ],
+      "name": "UnsafeBlockWarning",
+      "practice": "Keep 'unsafe:' blocks as small as possible and document why they are sound."
+    },
+    "W0013": {
+      "conditions": [
+        "'..' range syntax is deprecated; write 'a to b' instead on line ",
+        "'..' range syntax is deprecated; write 'a to b' instead on line {}"
+      ],
+      "name": "RangeSyntaxDeprecated",
+      "practice": "Write 'a to b'. The '..' form keeps working through 1.x and is removed in 2.0."
+    }
+  }
+}

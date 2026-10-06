@@ -3669,82 +3669,93 @@ error[E0006]: cannot assign to immutable variable 'count'
    = help: Declare the variable with 'var' instead of 'let' to allow mutation.
 ```
 
+<!-- BEGIN GENERATED DIAGNOSTIC CATALOG — tools/gen_error_catalog.py -->
+
 ### 22.2 Compiler Error Catalog (`E0000`–`E0058`)
 
-| Code | Exception Class | Semantic Condition & Explanation | Default Help / Note |
-|---|---|---|---|
-| `E0000` | `ParseError` | Syntax error: invalid token, improper indentation, or missing comma separators. | Check syntax around location; verify indentation consistency. |
-| `E0001` | `ConstInsideWeaveError` | `const` declared inside a function body. Constants are top-level only. | Move constant declaration outside function, or use `let`/`var`. |
-| `E0002` | `VarLetTopLevelError` | `var` or `let` declared at top-level. Global mutable state is forbidden. | Use `const` for top-level, or use `static var` inside a weave. |
-| `E0003` | `SelfDotAccessError` | `self.` dot access used instead of arrow `self->`. | Change `self.` to `self->` (`self` is always a pointer reference). |
-| `E0004` | `UndefinedIdentifierError` / `SemanticError` | Symbol not found, circular import cycle detected, or duplicate module import. | Check spelling, verify declaration/import, or break circular dependency. |
-| `E0005` | `TypeMismatchError` / `SemanticError` | Incompatible types in assignment, argument, or operator. Includes string composition with `+`/`+=` (`"a" + b`, `set s += x`), which must use `"{expr}"` interpolation. | Match expected type, convert with `to <Type>`, or compose strings with `"{expr}"`. |
-| `E0006` | `MutabilityError` | Attempted assignment to immutable `let` binding, `const`, or `frozen` target. | Declare variable with `var` instead of `let` to allow mutation. |
-| `E0007` | `InvalidControlFlowError` | `break` or `continue` statement used outside of a loop block. | Remove control flow statement or place inside a `while` or `for` loop. |
-| `E0008` | `InvalidMemoryOpError` / `SemanticError` | Invalid `sigil of` on literal/const, or invalid `banish` on non-pointer/seal/frozen. | Address-of and manual banish require valid mutable memory targets. |
-| `E0009` | `InvalidWithTargetError` | Leading dot member access (`.field`) used outside an active `with` block. | Wrap call in a `with` block or use explicit target object access. |
-| `E0010` | `SemanticError` (`code="E0010"`) | Struct init `with x is 1` matches no known `rune` type in scope. | Check field names or annotate target type explicitly (`as RuneName`). |
-| `E0011` | `SemanticError` (`code="E0011"`) | Struct init matches multiple runes with identical field names. | Disambiguate by specifying the rune type explicitly with `as RuneName`. |
-| `E0012` | `SemanticError` (`code="E0012"`) | Attempt to instantiate an `opaque` type directly with `with`. | Opaque types cannot be instantiated directly; obtain via C interop. |
-| `E0013` | `SemanticError` (`code="E0013"`) | Field does not exist on rune, echo, maybe, result, or primitive type. | Check field spelling or verify declared fields on the struct/union. |
-| `E0014` | `InvalidBuilderStatementError` / `TypeMismatchError` | Forbidden statement in `with:` builder, or untyped `null`/`maybe none` initialization. | Use only field assignments/calls in builders; provide explicit type for `null`. |
-| `E0015` | `UnknownArrayDimensionError` / `SemanticError` | Fixed array dimension cannot be determined, or `error` accessed outside `or:`. | Specify all dimensions explicitly; access `error` only within `or:` blocks. |
-| `E0016` | `SemanticError` (`code="E0016"`) | C macro define used without prior `include "header.h"` directive. | Add `include "header.h"` before referencing C constants. |
-| `E0017` | `SemanticError` (`code="E0017"`) | Cannot destructure expression (target is not rune, fixed array, slice, or list).| Destructuring only supports runes, fixed arrays, slices, and lists. |
-| `E0018` | `TypeMismatchError` (`code="E0018"`) | Element type incompatible with container (`list.push` or map insert). | Pass a value compatible with the container's declared element type. |
-| `E0019` | `SemanticError` (`code="E0019"`) | Undefined variable or malformed expression inside string `{expr}`. | Ensure variable exists in scope, or use raw string `r"..."` to disable. |
-| `E0020` | `TypeMismatchError` (`code="E0020"`) | Return expression or `or return` value incompatible with function return type. | Return a value matching the function's declared return type. |
-| `E0021` | `GenericTypeMissingArgsError` | Generic type used without required type arguments (`of`). | Provide type arguments using `of` (e.g. `Pair of int and float`). |
-| `E0022` | `TypeParamOutsideGenericError`| Type parameter used outside a generic declaration context. | Declare type parameter with `shard` or use a concrete type. |
-| `E0023` | `MultipleManyParamsError` | Multiple `many` variadic parameters declared in a single function. | A function can have at most one `many` variadic parameter. |
-| `E0024` | `ManyParamNotLastError` | `many` variadic parameter is not the final parameter in parameter list. | Move the `many` variadic parameter to the end of the parameter list. |
-| `E0025` | `SemanticError` (`code="E0025"`) | Function body or `test` block placed inside a `.d.pengu` declaration file. | Use `declare` without body in declaration files; remove test blocks. |
-| `E0026` | `MultipleInsigniaError` | Multiple `insignia` directives defined in the same module file. | Only one `insignia` directive is allowed per module file. |
-| `E0027` | `DuplicateOmenValueError` | Duplicate explicit integer value assigned to omen variants. | Ensure all omen variant values are distinct. |
-| `E0028` | `InvalidOmenPayloadValueError`| Explicit value assignment `is <val>` on algebraic omen with payload (`with`). | Remove `is <value>` from algebraic variants with payloads. |
-| `E0029` | `InvalidOmenConstantValueError`| Non-constant or non-integer value assigned to omen variant. | Omen variant values must evaluate to a compile-time integer constant. |
-| `E0030` | `ConceptMethodMismatchError` | Method signature in `bind` does not match concept declaration. | Ensure parameter types and return type match concept specification. |
-| `E0031` | `UnimplementedConceptMethodError`| `bind` block fails to implement all required concept methods. | Implement every method declared in the bound concept. |
-| `E0032` | `ConceptBoundNotSatisfiedError`| Generic type argument does not implement required concept bound (`where`). | Implement concept via `bind Type with Concept:` before passing as argument. |
-| `E0033` | `InvalidRitualSelfAccessError` | `self` accessed inside a `ritual` (static) method. | Ritual methods are static; remove `self` or remove `ritual` modifier. |
-| `E0034` | `InvalidRitualCallError` | Calling instance method statically or calling ritual method on instance. | Call ritual methods on type (`Type.method`) and instance methods on objects. |
-| `E0035` | `SemanticError` (`code="E0035"`) | C reserved identifier collision, nested static var, array static, or empty test. | Choose a non-reserved identifier; declare statics directly in weaves. |
-| `E0036` | `SemanticError` (`code="E0036"`) | Duplicate top-level symbol, import alias `_`, or conflicting import alias. | Rename the duplicate symbol or change the import alias. |
-| `E0037` | `SemanticError` (`code="E0037"`) | Loop index and element bindings share the same name in `for i, v in col`. | Rename one of the two loop bindings to maintain distinct identifiers. |
-| `E0038` | `SemanticError` (`code="E0038"`) | Duplicate key literal defined inside a map literal. | Map literal keys must be unique. |
-| `E0039` | `SemanticError` (`code="E0039"`) | `when` condition does not evaluate to a compile-time boolean constant. | Use compile-time booleans, `defined()`, or comptime variables. |
-| `E0040` | `SemanticError` (`code="E0040"`) | `main` used as a local/static variable, parameter, constant, or field name. | `main` is reserved for program entrypoint and `when main:` checks. |
-| `E0041` | `ArraySizeMismatchError` | Array literal element count or row length does not match declared size. | Ensure literal element count matches declared fixed array size. |
-| `E0042` | `InvalidRangeError` | Invalid range bounds: `start > end` in compile-time known range expression. | Ensure range start bound is less than or equal to end bound. |
-| `E0043` | `PrivateSymbolAccessError` | Access to private symbol (leading `_`) from outside defining module or rune. | Symbols with `_` prefix are private; use public name or C `insignia`. |
-| `E0044` | `NonExhaustiveJudgeError` | `judge` expression over omen or bool is non-exhaustive without `else ->`. | Cover all omen variants or add an `else ->` default branch. |
-| `E0045` | `SemanticError` (`code="E0045"`) / `TypeMismatchError` | `try` used inside function not returning compatible `maybe` or `result`. | Change function return type to `maybe T` or `result of T to E`. |
-| `E0046` | `SemanticError` (`code="E0046"`) | Omen variant name collides across omens without qualification. | Use distinct variant names or refer via qualified `Omen.variant` form. |
-| `E0047` | `AutoOwnedBanishError` / `DuplicateConceptBindingError` | Attempted manual `banish` on an auto-owned variable, **or** a concept is bound twice to the same type / two concepts provide the same method (`(type, method)` must be unique). | Remove the manual `banish`, or remove/rename the duplicate `bind` method. |
-| `E0048` | `BorrowedBanishError` | Attempted manual `banish` on a borrowed reference (`borrowed` or view). | Only the owner of an allocation may banish it; remove `banish`. |
-| `E0049` | `SemanticError` (`code="E0049"`) | Operation used on a generic type parameter (or struct-like type) that does not carry the required concept bound: arithmetic without `Num`, `%`/bitwise without `Integrum`, `==` without `Par`, ordering without `Ordo`, `donum T` without a defaultable bound, `==`/`<` on a rune or algebraic omen without `derive Par`/`Ordo`. | Add the reported `where T: Concept` clause or `derive Concept` to the declaration. |
-| `E0050` | `InfiniteTypeSizeError` | A rune (or algebraic omen) contains itself **by value**, directly or through another by-value type, so its C size cannot be computed. | Break the cycle with pointer indirection: `ref to T`, `maybe ref to T`, `list of T`, `map of K to V`. |
-| `E0051` | `DanglingSliceError` | Returning a slice of a stack array would leave a dangling pointer once the weave returns. | Copy the data into a `list of T`, or return the array by value. |
-| `E0052` | `DuplicateConceptBindingError` | The same `bind X with Concept:` declaration appears twice. | Remove the duplicate binding. |
-| `E0053` | `DuplicateConstantError` | A constant name is redefined in the same scope. | Use a distinct name. |
-| `E0054` | `AmbiguousStructInitError` | A struct literal's fields match more than one rune type. | Disambiguate with an explicit `as RuneName` annotation. |
-| `E0055` | `StaticArrayError` | A function-static variable cannot have an array type. | Use a pointer, rune, list or map for static storage. |
-| `E0056` | `UnknownAttributeError` | An unknown `@attribute` was applied to a declaration. | Supported attributes: `@inline`, `@cold`, `@deprecated`, `@packed`, `@align(N)`. |
-| `E0057` | `InvalidCharLiteralError` | A character literal or `\u{...}` escape is malformed or out of range. | Use valid hexadecimal digits; `char` holds one byte (`string` for non-ASCII text). |
-| `E0058` | `ErrorLiteralContextError` | `error` is used outside an `or:` error-handling block. | Use `error` only inside `or:` attached to a failing expression. |
+Generated from the compiler sources by `tools/gen_error_catalog.py` (error classes and their `code=` defaults in [`pengu_parser/pengu_errors.py`](pengu_parser/pengu_errors.py), every `code="Exxxx"` emission in `pengu_parser/`, `pengu_project.py` and `pengu_lsp/`).  The machine-readable form of this table is [`docs/error_catalog.json`](docs/error_catalog.json); `tests/test_error_catalog_sync.py` fails when the code and this table diverge, so **do not edit it by hand** — run `python tools/gen_error_catalog.py --write`.
 
-### 22.3 Compiler Warning Catalog (`W0001`–`W0013`)
+`Conditions` is the number of distinct message shapes the code can carry (interpolated values are shown as `{}`).  `help:`/`note:` lists how many guidance pairs are attached to the code.
 
-| Code | Warning Name | Trigger Condition | Recommended Practice |
+| Code | Exception class | Conditions | Explanation | help: / note: |
+|---|---|---|---|---|
+| `E0000` | `ParseError`, `SemanticError` | 3 | the source text could not be parsed (syntax error).  Raised by ``PenguParser.parse`` instead of leaking a raw Lark exception, so the CLI/LSP can report syntax problems with the usual ``[Ecode] message`` + ``help:`` / ``note:`` shape. Kept on the generic E0000 code: syntax problems share the "not valid source" bucket with the other infrastructure errors instead of consuming a new semantic code. | 1 help / 1 note |
+| `E0001` | `ConstInsideWeaveError` | 1 | const declared inside weave / function body. | 1 help / 1 note |
+| `E0002` | `VarLetTopLevelError` | 3 | var/let declared at top-level. | 1 help / 1 note |
+| `E0003` | `SelfDotAccessError`, `SemanticError` | 6 | self accessed with dot instead of arrow. | 1 help / 1 note |
+| `E0004` | `SemanticError`, `UndefinedIdentifierError` | 15 | identifier not defined in symbol table. | 1 help / 1 note |
+| `E0005` | `SemanticError`, `TypeMismatchError` | 137 | types incompatible. | 1 help / 1 note |
+| `E0006` | `InvalidMemoryOpError`, `MutabilityError` | 11 | assignment to immutable let binding or constant. | 1 help / 1 note |
+| `E0007` | `InvalidControlFlowError` | 1 | break/continue outside loop. | 1 help / 1 note |
+| `E0008` | `InvalidMemoryOpError`, `SemanticError`, `TypeMismatchError` | 15 | invalid sigil/banish on literal/const. | 1 help / 1 note |
+| `E0009` | `InvalidWithTargetError`, `SemanticError` | 2 | leading dot access outside with block. | 1 help / 1 note |
+| `E0010` | `SemanticError` | 1 | — | — |
+| `E0011` | `SemanticError` | 1 | — | — |
+| `E0012` | `SemanticError` | 1 | — | — |
+| `E0013` | `SemanticError` | 10 | — | — |
+| `E0014` | `InvalidBuilderStatementError`, `SemanticError`, `TypeMismatchError` | 10 | invalid statement inside with: builder block. | 1 help / 1 note |
+| `E0015` | `SemanticError`, `UnknownArrayDimensionError` | 4 | Array dimension size is unknown and cannot be inferred. | 1 help / 1 note |
+| `E0016` | `UndefinedIdentifierError` | 1 | — | — |
+| `E0017` | `SemanticError` | 4 | — | — |
+| `E0018` | `TypeMismatchError` | 1 | — | — |
+| `E0019` | `SemanticError`, `UndefinedIdentifierError` | 3 | — | — |
+| `E0020` | `SemanticError`, `TypeMismatchError` | 7 | — | — |
+| `E0021` | `GenericTypeMissingArgsError` | 1 | Generic type used without required type arguments. | 1 help / 1 note |
+| `E0022` | `TypeParamOutsideGenericError` | 1 | Type parameter used outside generic declaration context. | 1 help / 1 note |
+| `E0023` | `MultipleManyParamsError` | 2 | Multiple many parameters in a function. | 1 help / 1 note |
+| `E0024` | `ManyParamNotLastError` | 2 | many parameter is not the last parameter. | 1 help / 1 note |
+| `E0025` | `SemanticError` | 2 | — | — |
+| `E0026` | `MultipleInsigniaError` | 1 | Multiple insignia directives in a single file. | 1 help / 1 note |
+| `E0027` | `DuplicateOmenValueError` | 1 | Duplicate variant value in omen. | 1 help / 1 note |
+| `E0028` | `InvalidOmenPayloadValueError` | 1 | Value assignment in algebraic omen variant with payload. | 1 help / 1 note |
+| `E0029` | `InvalidOmenConstantValueError`, `SemanticError` | 3 | Non-constant or non-integer value in omen variant. | 1 help / 1 note |
+| `E0030` | `ConceptMethodMismatchError` | 3 | Concept method signature mismatch in bind implementation. | 1 help / 1 note |
+| `E0031` | `UnimplementedConceptMethodError` | 1 | Missing required concept method implementation. | 1 help / 1 note |
+| `E0032` | `ConceptBoundNotSatisfiedError`, `SemanticError` | 4 | Generic type argument does not implement required concept bound. | 1 help / 1 note |
+| `E0033` | `InvalidRitualSelfAccessError` | 1 | Using 'self' inside a ritual (static) method. | 1 help / 1 note |
+| `E0034` | `InvalidRitualCallError` | 2 | Calling instance method statically or ritual method on instance. | 1 help / 1 note |
+| `E0035` | `SemanticError` | 7 | — | — |
+| `E0036` | `SemanticError` | 2 | — | — |
+| `E0037` | `SemanticError` | 1 | — | — |
+| `E0038` | `SemanticError` | 1 | — | — |
+| `E0039` | `SemanticError`, `TypeMismatchError` | 3 | — | — |
+| `E0040` | `SemanticError` | 1 | — | — |
+| `E0041` | `ArraySizeMismatchError`, `SemanticError` | 9 | Array literal dimensions or row length do not match declared size. | 1 help / 1 note |
+| `E0042` | `InvalidRangeError` | 3 | Invalid range expression bounds. | 1 help / 1 note |
+| `E0043` | `PrivateSymbolAccessError` | 2 | Attempted access to private symbol from another module. | 1 help / 1 note |
+| `E0044` | `NonExhaustiveJudgeError` | 1 | Non-exhaustive judge expression without default else clause. | 1 help / 1 note |
+| `E0045` | `SemanticError`, `TypeMismatchError` | 4 | — | — |
+| `E0046` | `SemanticError` | 5 | — | — |
+| `E0047` | `AutoOwnedBanishError` | 1 | Attempt to manually banish an auto-owned variable. | 1 help / 1 note |
+| `E0048` | `BorrowedBanishError` | 1 | Attempt to banish a borrowed variable. | 1 help / 1 note |
+| `E0049` | `SemanticError` | 8 | — | — |
+| `E0050` | `InfiniteTypeSizeError` | 1 | recursive type without indirection (infinite size). | 1 help / 1 note |
+| `E0051` | `SemanticError` | 1 | — | — |
+| `E0052` | `DuplicateConceptBindingError` | 2 | duplicate concept binding or duplicate (type, method) implementation.  Covers two cases: binding the same ``(type, concept)`` pair twice, and two distinct concepts providing the same ``(type, method)`` pair (which a call site could not resolve). | 1 help / 1 note |
+| `E0053` | `SemanticError` | 2 | — | — |
+| `E0054` | `SemanticError` | 1 | — | — |
+| `E0055` | `SemanticError` | 1 | — | — |
+| `E0056` | `UnknownAttributeError` | 5 | unknown attribute or invalid attribute usage. | 1 help / 1 note |
+| `E0057` | `InvalidCharLiteralError` | 2 | char literal cannot hold codepoint > 0x7F. | 1 help / 1 note |
+| `E0058` | `SemanticError` | 1 | — | — |
+
+### 22.3 Compiler Warning Catalog (`W0000`–`W0013`)
+
+Warnings are emitted as `"[Wxxxx] message"` strings; the symbolic name and the recommended practice come from `WARNING_CATALOG` in [`pengu_parser/pengu_errors.py`](pengu_parser/pengu_errors.py), which is also generated into [`docs/error_catalog.json`](docs/error_catalog.json).
+
+| Code | Warning name | Conditions | Recommended practice |
 |---|---|---|---|
-| `W0001` | `UnsafeTransmuteWarning` | `transmute` between types of differing byte sizes or non-pointer types. | Use safe `to <Type>` casting where possible, or verify memory layout sizes match. |
-| `W0002` | `UnsafeEchoAccessWarning` | Accessing fields of an untagged union (`echo`). | Untagged union reads are inherently unsafe; prefer algebraic `omen` variants with payloads. |
-| `W0003` | *(reserved)* | Not currently emitted; the number is reserved so existing codes stay stable. | — |
-| `W0004` | `UnreachableCodeWarning` | Unreachable statements detected after early `return`, `panic`, or in `if`/`when` branch. | Remove dead code following unconditional returns or compile-time false branches. |
-| `W0005` | `ShadowedGlobalWarning` | A local `var`/`let` shadows a module-level weave. | Rename the local, or qualify the call so the intent is explicit. |
-| `W0006` | `DeprecatedSymbolWarning` | A symbol marked `@deprecated("reason")` is used (call, type reference, field access, or signature). | Migrate to the replacement named in the reason. CI can turn this into an error with `--deny-deprecated`. |
-| `W0007` | `UnsafeBlockWarning` | An `unsafe:` block disables bounds/overflow checks for its statements. | Keep `unsafe:` blocks as small as possible and document why they are sound. |
-| `W0013` | `RangeSyntaxDeprecated` | A range is written with `..` instead of `to` (`for i in 1..5`, `xs at 0..2`). | Write `a to b`. The `..` form keeps working through 1.x and is removed in 2.0. |
+| `W0000` | UncategorizedWarning | 0 | None — infrastructure fallback, used when a warning string does not match the '[Wxxxx] message' shape. |
+| `W0001` | UnsafeTransmuteWarning | 2 | Use safe 'to <Type>' casting where possible, or verify that the memory layout sizes match. |
+| `W0002` | UnsafeEchoAccessWarning | 1 | Untagged union reads are inherently unsafe; prefer algebraic 'omen' variants with payloads. |
+| `W0003` | (reserved) | 0 | — |
+| `W0004` | UnreachableCodeWarning | 2 | Remove dead code following unconditional returns or compile-time false branches. |
+| `W0005` | ShadowedGlobalWarning | 4 | Rename the local, or qualify the call so the intent is explicit. |
+| `W0006` | DeprecatedSymbolWarning | 3 | Migrate to the replacement named in the reason. CI can turn this into an error with --deny-deprecated. |
+| `W0007` | UnsafeBlockWarning | 2 | Keep 'unsafe:' blocks as small as possible and document why they are sound. |
+| `W0013` | RangeSyntaxDeprecated | 2 | Write 'a to b'. The '..' form keeps working through 1.x and is removed in 2.0. |
+
+<!-- END GENERATED DIAGNOSTIC CATALOG -->
 
 ### 22.4 Illustrative Diagnostic Scenarios
 
