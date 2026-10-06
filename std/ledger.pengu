@@ -39,6 +39,10 @@ declare pengu_map_keys_string with m as ref to map of string to string into list
 
 ## Wraps a field in double quotes when it contains the delimiter, a quote, or a
 ## line break; doubles embedded quotes (RFC 4180).
+##
+## `delimiter` is matched as a whole sequence, so with `"::"` the field `"a:b"`
+## stays unquoted while `"a::b"` is quoted. An empty `delimiter` falls back to
+## `","`.
 weave escape_field with field as string , delimiter as string is "," into string:
     var delim as string is delimiter
     if delimiter length == 0:
@@ -46,22 +50,21 @@ weave escape_field with field as string , delimiter as string is "," into string
     var fl as int is field length
     if fl == 0:
         return ""
-    var dcode as int is ord delim
-    var need_quotes as bool is false
+    # Compare the whole delimiter, not just its first byte: `ord delim` read
+    # only `delim[0]`, so a multi-byte delimiter like "::" quoted any field
+    # containing a bare ":" and never matched the real delimiter position.
+    var need_quotes as bool is calling field.contains with delim
     var i as int is 0
     while i < fl:
         var code as int is ord (field at i)
-        if code == dcode:
+        if code == 34:
             set need_quotes is true
         else:
-            if code == 34:
+            if code == 10:
                 set need_quotes is true
             else:
-                if code == 10:
+                if code == 13:
                     set need_quotes is true
-                else:
-                    if code == 13:
-                        set need_quotes is true
         set i is i + 1
     if need_quotes == false:
         return field
@@ -81,18 +84,20 @@ weave escape_field_rfc4180 with field as string , delimiter as string is "," int
     return calling escape_field with field , delimiter
 
 ## Escapes a field using backslash escaping (\", \\, \n, \r) rather than doubled quotes.
+##
+## Like `escape_field`, `delimiter` is compared as a whole sequence.
 weave escape_field_backslash with field as string , delimiter as string is "," into string:
     var fl as int is field length
     if fl == 0:
         return ""
     var out as string is ""
-    var dcode as int is ord delimiter
-    var need_quotes as bool is false
+    # Same first-byte bug as escape_field had: compare the full delimiter.
+    var need_quotes as bool is calling field.contains with delimiter
     var i as int is 0
     while i < fl:
         var ch as string is field at i
         var code as int is ord ch
-        if code == dcode or code == 34 or code == 10 or code == 13 or code == 92:
+        if code == 34 or code == 10 or code == 13 or code == 92:
             set need_quotes is true
         if code == 34:
             set out is "{out}\\\""
