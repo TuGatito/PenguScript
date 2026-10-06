@@ -4,9 +4,10 @@
 #
 # Ownership model:
 #   * Every digest helper (crc32, md5, sha1, sha256, sha512 and their *_file
-#     variants) returns an OWNED result: an int checksum, a lowercase hex
-#     string, or a MaybeInt / maybe string wrapper. Owned strings may be
-#     banished once the caller is done with them.
+#     variants) returns an OWNED result: a u32 checksum for CRC-32, a lowercase
+#     hex string for the cryptographic digests, or a `maybe` wrapper for the
+#     helpers that can fail. Owned strings may be banished once the caller is
+#     done with them.
 #   * gzip / unzip / zlib_compress / zlib_decompress return `maybe string`: a
 #     present value is an owned fresh (binary) string the caller may banish
 #     after use; none means the operation failed.
@@ -40,8 +41,8 @@ const CRC32_POLYNOMIAL as int is 3988292384
 # External C Functions (from Runtime)
 # ----------------------------------------------------------------------------
 
-# Computes the CRC-32 checksum of `data` (zlib crc32) as an int.
-declare pengu_c_seal_crc32 with data as string into int
+# Computes the CRC-32 checksum of `data` (zlib crc32) as an unsigned 32-bit value.
+declare pengu_c_seal_crc32 with data as string into u32
 # MD5 digest of `data`; returns an owned lowercase hex string.
 declare pengu_c_seal_md5 with data as string into string
 # SHA-1 digest of `data`; returns an owned lowercase hex string.
@@ -67,19 +68,21 @@ declare pengu_c_seal_hash_file with path as string , hash_type as string into ma
 # ----------------------------------------------------------------------------
 
 # Computes the CRC-32 checksum of `data` (IEEE 802.3 polynomial, as used by
-# zlib / PNG) and returns it as an int. Pure value: no ownership concerns.
-weave crc32 with data as string into int:
+# zlib / PNG) and returns it as an unsigned 32-bit value. Values >= 0x80000000
+# are positive, so the result compares equal to `zlib.crc32()` in Python, to
+# `cksum` output, and to the CRC column of PNG chunks. Pure value: no ownership
+# concerns.
+weave crc32 with data as string into u32:
     return calling pengu_c_seal_crc32 with data
 
-# CRC-32 of the contents of the file at `path`. Returns a MaybeInt (from
-# std.oracle): present with the checksum when the file was read successfully,
-# none when it is missing or unreadable.
-weave crc32_file with path as string into MaybeInt:
+# CRC-32 of the contents of the file at `path`. Present with the unsigned
+# 32-bit checksum when the file was read successfully, none when it is missing
+# or unreadable.
+weave crc32_file with path as string into maybe u32:
     var content as maybe string is calling archivum.read_file with path
-    if content.is_present:
-        var val as int is calling pengu_c_seal_crc32 with content.value
-        return calling oracle.maybe_some_int with val
-    return calling oracle.maybe_none_int
+    if content is present:
+        return some (calling pengu_c_seal_crc32 with content.value)
+    return maybe none
 
 # ----------------------------------------------------------------------------
 # Public API - Hashes (MD5, SHA1, SHA256, SHA512)
@@ -453,8 +456,8 @@ enchanting string:
     weave to_sha512 into string:
         return calling sha512 with essence of self
 
-    ## Returns the CRC-32 integer checksum of `self`.
-    weave to_crc32 into int:
+    ## Returns the CRC-32 unsigned 32-bit checksum of `self`.
+    weave to_crc32 into u32:
         return calling crc32 with essence of self
 
     ## Compresses `self` into a gzip stream.

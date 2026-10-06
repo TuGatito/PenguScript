@@ -4789,7 +4789,9 @@ PenguString pengu_c_regulus_replace(void *regex, PenguString text, PenguString r
    * 23. Compression & Cryptographic Hashing (Seal)
    * ========================================================================= */
 
-  int pengu_c_seal_crc32(PenguString data);
+  /* CRC-32 (IEEE 802.3) of `data`, as the full unsigned 32-bit checksum:
+   * values >= 0x80000000 stay positive, matching zlib's crc32(). */
+  uint32_t pengu_c_seal_crc32(PenguString data);
   PenguString pengu_c_seal_md5(PenguString data);
   PenguString pengu_c_seal_sha1(PenguString data);
   PenguString pengu_c_seal_sha256(PenguString data);

@@ -1260,8 +1260,12 @@ void pengu_c_parchment_document_free(void* doc) {
  * 4. Seal (Compression & Hashing Real Implementation)
  * ========================================================================= */
 
-int pengu_c_seal_crc32(PenguString data) {
-    return (int)crc32(0L, (const Bytef*)(data.data ? data.data : ""), (uInt)data.len);
+uint32_t pengu_c_seal_crc32(PenguString data) {
+    /* zlib's crc32() is already the full unsigned 32-bit checksum; keep it
+     * unsigned. Truncating to `int` (the pre-1.0 shape) made every checksum
+     * >= 0x80000000 negative, so callers could not compare it against
+     * zlib.crc32 / cksum output. */
+    return (uint32_t)crc32(0L, (const Bytef*)(data.data ? data.data : ""), (uInt)data.len);
 }
 
 PenguString pengu_c_seal_md5(PenguString data) {
