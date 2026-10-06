@@ -56,24 +56,24 @@ LEAK_PROGRAMS = _discover("leak_*.pengu")
 #: temporary passed straight to a call is never released.  `leak_binary_interp`
 #: ends with `calling spark.println with (joined length to string)`, which
 #: lowers to `spark_println((pengu_to_string(joined.len)))` → 2 bytes lost.
-#: Non-strict: the leak is intermittently hidden by the interposer's
-#: conservative reachability marking, so a strict marker would flake to XPASS.
-#: The deterministic strict pin lives in
-#: `test_call_argument_string_temporary_is_released` below.
+#:
+#: Roadmap 8.17 (flaky test ①): the leak checker itself is what alternates, not
+#: the compiler.  `tests/leakcheck.c` marks a block reachable if *any* word in the
+#: thread stack or a writable segment still looks like a pointer to it, so a
+#: 2-byte temporary that is already dead is sometimes still "reachable" from a
+#: stale stack slot.  Measured over 12 runs of this suite: both `xfail` and
+#: `xpass` occurred with `strict=False`, and `strict=True` merely trades the
+#: xpass for an intermittent failure.  The verdict therefore cannot be the leak
+#: checker's coin flip; see the disjunction in
+#: :func:`test_string_composition_no_memory_leaks` and the deterministic strict
+#: pin in :func:`test_call_argument_string_temporary_is_released`.
 _KNOWN_STRING_TEMP_LEAKS = {"leak_binary_interp"}
-_KNOWN_LEAK_REASON = (
-    "known codegen leak: a '(value to string)' temporary passed as a call "
-    "argument is never released"
-)
-LEAK_PARAMS = [
-    pytest.param(
-        program,
-        id=_test_id(program),
-        marks=[pytest.mark.xfail(strict=False, reason=_KNOWN_LEAK_REASON)]
-        if program.stem in _KNOWN_STRING_TEMP_LEAKS else [],
-    )
-    for program in LEAK_PROGRAMS
-]
+
+#: Exit code the interposer (`_exit(42)`) and valgrind (`--error-exitcode=42`)
+#: both use for "bytes were lost".
+_LEAK_EXIT_CODE = 42
+
+LEAK_PARAMS = [pytest.param(program, id=_test_id(program)) for program in LEAK_PROGRAMS]
 
 
 def _expected_code(path: Path) -> str:
@@ -131,12 +131,22 @@ def _compile_program(program: Path, out_dir: Path) -> Path:
 @requires_runtime
 @requires_leakcheck
 def test_string_composition_no_memory_leaks(program: Path, tmp_path: Path):
-    """Interpolated temporaries and owned slots release every allocation."""
+    """Interpolated temporaries and owned slots release every allocation.
+
+    Roadmap 8.17 (flaky test ①): for the programs in
+    ``_KNOWN_STRING_TEMP_LEAKS`` **both** outcomes are the documented known
+    issue, so the verdict is written as a disjunction instead of an xfail whose
+    result depends on whether a stale stack slot happened to keep a dead 2-byte
+    block looking reachable.  Anything else — a leak in another program, or a
+    different failure mode — still fails here, and the tracked leak itself is
+    pinned deterministically by
+    :func:`test_call_argument_string_temporary_is_released`.
+    """
     exe = _compile_program(program, tmp_path)
 
     valgrind = shutil.which("valgrind")
     if valgrind:
-        cmd = [valgrind, "--leak-check=full", "--error-exitcode=42",
+        cmd = [valgrind, "--leak-check=full", f"--error-exitcode={_LEAK_EXIT_CODE}",
                "--show-leak-kinds=definite", str(exe)]
         env = None
     else:
@@ -146,6 +156,13 @@ def test_string_composition_no_memory_leaks(program: Path, tmp_path: Path):
         env["LD_PRELOAD"] = str(so)
 
     res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(REPO), env=env)
+
+    if res.returncode == _LEAK_EXIT_CODE and program.stem in _KNOWN_STRING_TEMP_LEAKS:
+        # Tracked: the '(value to string)' temporary passed as a call argument.
+        # Reported here, owned by the strict pin below.
+        print(f"[known leak] {program.name}: {res.stderr.strip().splitlines()[-1:]}")
+        return
+
     assert res.returncode == 0, (
         f"leak detected in {program.name} (exit {res.returncode}):\n"
         f"{res.stderr}\n{res.stdout}"
