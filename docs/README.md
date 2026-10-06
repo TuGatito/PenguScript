@@ -17,6 +17,9 @@ documents from earlier phases.
 | [`PERFORMANCE.md`](PERFORMANCE.md) | Performance methodology, measured numbers, cached-build behaviour, and the honestly-documented known leaks | No — authored |
 | [`FUZZING.md`](FUZZING.md) | Fuzzing harnesses, corpora and run budgets | No — authored |
 | [`ABI.md`](ABI.md) | The runtime ABI policy: what `PENGU_ABI_VERSION` covers, what bumps it, and how a stale `libpengu_runtime.a` is caught at link time | No — authored |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | The compiler pipeline end to end (`parse → collect → check → infer → codegen → cache → cc`): per-stage entry symbols, the diagnostic model, the incremental build cache, and the FFI/runtime boundaries | No — authored |
+| [`CROSS_COMPILATION.md`](CROSS_COMPILATION.md) | `--target` / `--cc`: supported triples, required MinGW toolchains, `PENGU_RUNTIME_CROSS`, and the measured limitations (an unknown triple silently builds for the host) | No — authored |
+| [`error_catalog.json`](error_catalog.json) | The machine-readable diagnostic catalogue: every `Exxxx`, the classes that emit it, its message shapes and its `help:`/`note:` guidance | **Yes** — written by `tools/gen_error_catalog.py` |
 | [`DEPRECATIONS.md`](DEPRECATIONS.md) | Every `@deprecated` symbol in `std/` with its replacement and retirement status; the tables are cross-checked against the sources by `tests/test_std_deprecations_doc.py` | No — authored |
 
 ## Normative documents (repository root)
