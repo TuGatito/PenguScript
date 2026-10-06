@@ -445,3 +445,106 @@ def strip_bounds_checks(c_code: str) -> str:
         prev = c_code
         c_code = _BOUNDS_WRAPPER_RE.sub(r"\1", c_code)
     return re.sub(r"\[\(([^()]*)\)\]", r"[\1]", c_code)
+
+
+# --------------------------------------------------------------------------- #
+# Level 4: reusable C-compilation fixtures (roadmap 8.18)
+# --------------------------------------------------------------------------- #
+#
+# `check_c_syntax` above and the hand-rolled `subprocess.run([cc, ...])` blocks
+# scattered over the portability, MSVC and cross-compile suites each re-derived
+# the same knowledge: which compiler, which `-std`, which `-I`/`-L`, and which
+# tail libraries.  Item 8.1 found the cost of that duplication — a suite that
+# built argv by hand could assert "portable" while never asking a compiler.
+# These fixtures are that knowledge in one place; the portability and attribute
+# suites consume them instead of building argv themselves.
+
+
+class CToolchain:
+    """The C compiler this suite will use, plus the repo's include/link flags."""
+
+    def __init__(self, cc: str, have_runtime: bool) -> None:
+        self.cc = cc
+        self.have_runtime = have_runtime
+
+    def include_flags(self) -> list:
+        return [f"-I{REPO}", f"-I{BUILD_DIR}", f"-I{BUILD_INCLUDE}"]
+
+    def link_flags(self) -> list:
+        return [f"-L{BUILD_LIB}", *runtime_link_flags(), *runtime_tail_flags()]
+
+    def std_flags(self, std: str, pedantic: bool) -> list:
+        """``-std=`` plus the strictness flag this platform actually supports.
+
+        ``-pedantic-errors`` turns a GNU extension into a hard error, which is
+        the whole point of the portability gate; MSVC has no equivalent and
+        MinGW's gcc keeps ``-pedantic`` (warnings) because its C library headers
+        are not pedantic-clean.
+        """
+        if not std:
+            return []
+        if not pedantic:
+            return [f"-std={std}"]
+        return [f"-std={std}", "-pedantic"] if os.name == "nt" else [f"-std={std}", "-pedantic-errors"]
+
+
+def default_cc() -> Optional[str]:
+    """First C compiler on PATH, or None."""
+    for name in ("gcc", "clang", "cc"):
+        found = shutil.which(name)
+        if found:
+            return found
+    return None
+
+
+@pytest.fixture(scope="session")
+def c_toolchain() -> CToolchain:
+    """Session-wide C compiler description; skips when there is no compiler."""
+    cc = default_cc()
+    if cc is None:
+        pytest.skip("no C compiler available")
+    return CToolchain(cc=cc, have_runtime=HAVE_RUNTIME)
+
+
+@pytest.fixture()
+def compile_c(c_toolchain, tmp_path):
+    """Returns ``compile(source, *, std, pedantic, syntax_only, extra) -> Path``.
+
+    The returned callable compiles a C *text* (typically a generated bundle) and
+    fails the test with the compiler's own stderr when it does not build.  With
+    ``syntax_only=True`` it runs ``-fsyntax-only`` and returns the source path,
+    which is what a portability gate wants when there is no runtime archive.
+    """
+
+    def _compile(c_code: str, *, name: str = "prog", std: str = "c11",
+                 pedantic: bool = False, syntax_only: bool = False,
+                 cc: Optional[str] = None, extra=(), timeout: int = 300) -> Path:
+        src = tmp_path / f"{name}.c"
+        src.write_text(c_code, encoding="utf-8")
+        cmd = [cc or c_toolchain.cc, *c_toolchain.std_flags(std, pedantic),
+               *c_toolchain.include_flags()]
+        if syntax_only:
+            cmd += ["-fsyntax-only", str(src)]
+        else:
+            exe = tmp_path / (name + (".exe" if os.name == "nt" else ""))
+            cmd += [str(src), *c_toolchain.link_flags(), "-o", str(exe)]
+        cmd += list(extra)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        assert res.returncode == 0, (
+            f"C compilation failed (rc={res.returncode}):\n$ {' '.join(cmd)}\n"
+            f"{res.stderr}\n{res.stdout}"
+        )
+        return src if syntax_only else exe
+
+    return _compile
+
+
+@pytest.fixture()
+def run_c(compile_c):
+    """Compiles a C text with :func:`compile_c` and executes it."""
+
+    def _run(c_code: str, *, run_timeout: int = 120, **kwargs) -> subprocess.CompletedProcess:
+        exe = compile_c(c_code, **kwargs)
+        return subprocess.run([str(exe)], capture_output=True, text=True, timeout=run_timeout)
+
+    return _run
