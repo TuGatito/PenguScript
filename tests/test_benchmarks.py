@@ -7,6 +7,7 @@ their environment.
 """
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -132,6 +133,51 @@ def test_pengu_benchmark_subcommand_runs_the_harness(tmp_path):
     assert "stdlib_ops" in res.stdout, res.stdout
     assert "pengu  build" in res.stdout, res.stdout
     assert csv_out.is_file() and "stdlib_ops" in csv_out.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Item 6.16 — at least six benchmarks must import `std`, one per tier.
+# ---------------------------------------------------------------------------
+
+def _stdlib_cases_from_registry():
+    """Reads STDLIB_CASES out of the harness without importing it."""
+    import ast
+
+    tree = ast.parse((BENCHES / "run_bench.py").read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            getattr(t, "id", None) == "STDLIB_CASES" for t in node.targets
+        ):
+            return tuple(ast.literal_eval(node.value))
+    raise AssertionError("run_bench.py no longer defines STDLIB_CASES")
+
+
+def test_at_least_six_benchmarks_import_std():
+    cases = _stdlib_cases_from_registry()
+    assert len(cases) >= 6, f"item 6.16 requires >= 6 std benches, found {cases}"
+    for case in cases:
+        src = (BENCHES / f"{case}.pengu").read_text(encoding="utf-8")
+        assert "import std." in src, f"{case}.pengu does not import std"
+
+
+def test_std_benchmarks_cover_distinct_modules():
+    """`one per tier`: the cases must not all exercise the same module."""
+    modules = set()
+    for case in _stdlib_cases_from_registry():
+        src = (BENCHES / f"{case}.pengu").read_text(encoding="utf-8")
+        for m in re.finditer(r"^import std\.([a-z_]+)", src, re.M):
+            modules.add(m.group(1))
+    assert len(modules) >= 6, (
+        f"std benchmarks only exercise {sorted(modules)}; expected >= 6 distinct modules"
+    )
+
+
+def test_stdlib_cases_are_registered_in_the_harness():
+    from_bench = _stdlib_cases_from_registry()
+    text = (BENCHES / "run_bench.py").read_text(encoding="utf-8")
+    for case in from_bench:
+        assert f'"{case}":' in text, f"{case} missing from CASES"
+        assert (BENCHES / f"{case}.pengu").is_file(), case
 
 
 def test_pengu_benchmark_is_documented():

@@ -46,10 +46,28 @@ CASES = {
     "fib_40": ("fib_40.pengu", "c/fib_40.c", "rust/fib_40.rs", "zig/fib_40.zig"),
     "string_ops": ("string_ops.pengu", "c/string_ops.c", "rust/string_ops.rs", "zig/string_ops.zig"),
     "list_ops": ("list_ops.pengu", "c/list_ops.c", None, None),
-    # The only case that goes through `std` (item 4.15): the others measure the
-    # bare language on purpose, so the shipped stdlib path needs its own entry.
+    # The stdlib-bound cases (items 4.15 and 6.16). Every other case measures the
+    # bare language on purpose, so the shipped stdlib paths need their own
+    # entries: one per tier of `std/`, and no C/Rust/Zig baseline because the
+    # useful comparison is stdlib-vs-raw-language, not Pengu-vs-C.
     "stdlib_ops": ("stdlib_ops.pengu", None, None, None),
+    "scrolls_ops": ("scrolls_ops.pengu", None, None, None),
+    "atlas_ops": ("atlas_ops.pengu", None, None, None),
+    "cipher_ops": ("cipher_ops.pengu", None, None, None),
+    "loom_ops": ("loom_ops.pengu", None, None, None),
+    "arithmancy_ops": ("arithmancy_ops.pengu", None, None, None),
 }
+
+#: Cases that import `std`. The Fase 6 gate (item 6.16) requires >= 6, covering
+#: the string, container, codec, math and collection tiers of the stdlib.
+STDLIB_CASES = (
+    "stdlib_ops",
+    "scrolls_ops",
+    "atlas_ops",
+    "cipher_ops",
+    "loom_ops",
+    "arithmancy_ops",
+)
 
 
 def _which(*names: str) -> Optional[str]:

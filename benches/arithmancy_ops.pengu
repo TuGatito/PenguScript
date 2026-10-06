@@ -1,0 +1,25 @@
+# stdlib-bound: `std.arithmancy` float math + pure integer helpers.
+# Measures the C math bridge (sqrt/pow/trig) alongside the pure PenguScript
+# number-theory helpers (is_prime/gcd/lcm), which the other benches never touch.
+import std.arithmancy
+import std.spark
+
+weave main into int:
+    var acc as float is 0.0
+    var i as int is 1
+    while i < 20000:
+        set acc is acc + (calling arithmancy.sqrt with (i to float))
+        set acc is acc + (calling arithmancy.sin with (i to float))
+        set i is i + 1
+
+    var primes as int is 0
+    var n as int is 2
+    while n < 20000:
+        if calling arithmancy.is_prime with n:
+            set primes is primes + 1
+        set n is n + 1
+
+    var g as int is calling arithmancy.gcd with 1071, 462
+    var l as int is calling arithmancy.lcm with 21, 6
+    calling spark.println with "{acc} {primes} {g} {l}"
+    return 0

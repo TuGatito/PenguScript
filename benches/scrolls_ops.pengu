@@ -1,0 +1,21 @@
+# stdlib-bound: `std.scrolls` string API (search, slice, case, split/join).
+# Complements `string_ops.pengu`, which measures the bare language's
+# interpolation + slicing; this measures the shipped string module's code paths.
+import std.scrolls
+import std.spark
+
+weave main into int:
+    var acc as int is 0
+    var i as int is 0
+    while i < 20000:
+        var s as string is "Item-{i}-Alpha"
+        var lower_s as string is calling scrolls.lower with s
+        var idx as int is calling scrolls.index_of with lower_s, "alpha"
+        if idx >= 0:
+            set acc is acc + idx
+        var parts as list of string is calling scrolls.split with s, "-"
+        var rejoined as string is calling scrolls.join with parts, "-"
+        set acc is acc + (rejoined length)
+        set i is i + 1
+    calling spark.println with "{acc}"
+    return 0

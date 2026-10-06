@@ -1,0 +1,30 @@
+# stdlib-bound: `std.loom` functional sequence algorithms.
+# `list_ops.pengu` measures raw container growth + iteration; this measures the
+# generic sorted-set / transform layer built on top of it.
+import std.loom
+import std.spark
+
+weave main into int:
+    var xs as list of int is list of int
+    var i as int is 0
+    while i < 50000:
+        calling xs.push with i % 4096
+        set i is i + 1
+
+    var total as int is calling loom.sum with xs
+    var biggest as int is calling loom.max_int with xs
+    var smallest as int is calling loom.min_int with xs
+    var ascending as bool is calling loom.is_sorted_asc with xs
+
+    var ys as list of int is list of int
+    var j as int is 0
+    while j < 5000:
+        calling ys.push with j * 2
+        set j is j + 1
+    var running as list of int is calling loom.running_sum with ys
+    var last as int is 0
+    if running.len > 0:
+        set last is running at (running.len - 1)
+
+    calling spark.println with "{total} {biggest} {smallest} {ascending} {last}"
+    return 0

@@ -1,0 +1,21 @@
+# stdlib-bound: `std.atlas` hash-map helpers over `map of string to int`.
+# The other benches never touch the map path, so its hashing, growth and
+# generic-wrapper overhead had no coverage.
+import std.atlas
+import std.spark
+
+weave main into int:
+    var m as map of string to int is map of string to int
+    var i as int is 0
+    while i < 20000:
+        calling atlas.put with m, "k{i}", i
+        set i is i + 1
+    var probe as int is 0
+    var total as int is 0
+    while probe < 20000:
+        if calling atlas.has_key with m, "k{probe}":
+            set total is total + (calling atlas.get_or with m, "k{probe}", 0)
+        set probe is probe + 1
+    var keys as list of string is calling atlas.keys_sorted with m
+    calling spark.println with "{total} {keys.len}"
+    return 0

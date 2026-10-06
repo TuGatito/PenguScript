@@ -1,0 +1,23 @@
+# stdlib-bound: `std.cipher` Base64 codec + `std.seal` digests.
+# Exercises the pure-PenguScript codec (per-quantum loop, string building) and
+# the C-backed hash bridge in one pass.
+import std.cipher
+import std.seal
+import std.spark
+
+weave main into int:
+    var acc as int is 0
+    var i as int is 0
+    while i < 5000:
+        var payload as string is "PenguScript payload number {i}"
+        var enc as string is calling cipher.encode_base64 with payload
+        var dec as maybe string is calling cipher.decode_base64 with enc
+        if dec is present:
+            set acc is acc + (dec.value length)
+        else:
+            return 1
+        var digest as string is calling seal.md5 with payload
+        set acc is acc + (digest length)
+        set i is i + 1
+    calling spark.println with "{acc}"
+    return 0
