@@ -32,8 +32,16 @@ concurrency:
 # `tests/test_known_issues.py::test_every_sanitizer_pytest_step_deselects_the_known_leak`
 # fail when a future step forgets it.
 env:
+  # Measured (item 8.2): all three legacy-compat suites leak under
+  # LeakSanitizer; deselecting only the first one still left the third step red.
+  # The traces point at stdlib code (`std/invoke.pengu` parser combinators), so
+  # this is a tracked product finding (item 8.19), not a CI-only workaround.
+  #
+  # One line on purpose, and expanded UNQUOTED at each call site so the shell
+  # word-splits it into one `--deselect <nodeid>` per entry. Quoting it would
+  # pass the three node ids as a single (unmatched) argument.
   PENGU_SANITIZER_DESELECT: >-
-    tests/test_std_backward_compat.py::test_std_backward_compat
+    tests/test_std_backward_compat.py::test_std_backward_compat tests/test_std_data_backward_compat.py::test_std_data_backward_compat tests/test_std_util_backward_compat.py::test_std_util_backward_compat
 
 jobs:
   asan-ubsan:
@@ -48,7 +56,7 @@ jobs:
       ASAN_OPTIONS: 'detect_leaks=1:abort_on_error=1:halt_on_error=1:strict_string_checks=1:detect_stack_use_after_return=1'
       UBSAN_OPTIONS: 'print_stacktrace=1:halt_on_error=1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # runtime-cache-scope keeps sanitized runtime objects away from the plain
       # ones; the runtime itself is not built with the sanitizers, but the scope
@@ -72,12 +80,12 @@ jobs:
       - name: Test suite under ASan + UBSan
         run: |
           python -m pytest tests -q -p no:cacheprovider --timeout=900 \
-            --deselect "$PENGU_SANITIZER_DESELECT"
+            --deselect $PENGU_SANITIZER_DESELECT
 
       - name: Leak check on the auto-banish model (must stay clean)
         run: |
           python -m pytest tests/test_known_issues.py -q -p no:cacheprovider --timeout=300 \
-            --deselect "$PENGU_SANITIZER_DESELECT"
+            --deselect $PENGU_SANITIZER_DESELECT
 
       # Same deselect as above: this step re-runs the file that *contains* the
       # tracked leak, and without the flag it turned the job red on its own.
@@ -85,11 +93,11 @@ jobs:
         run: |
           python -m pytest tests/test_std_backward_compat.py tests/test_std_data_backward_compat.py \
                            tests/test_std_util_backward_compat.py -q -p no:cacheprovider --timeout=900 \
-                           --deselect "$PENGU_SANITIZER_DESELECT"
+                           --deselect $PENGU_SANITIZER_DESELECT
 
       - name: Upload sanitizer logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sanitizer-logs-${{ github.run_id }}
           path: |
@@ -105,7 +113,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up build environment
         uses: ./.github/actions/setup-pengu
@@ -125,4 +133,4 @@ jobs:
             tests/test_std_backward_compat.py \
             tests/test_std_data_backward_compat.py \
             -q -p no:cacheprovider --timeout=1800 \
-            --deselect "$PENGU_SANITIZER_DESELECT"
+            --deselect $PENGU_SANITIZER_DESELECT

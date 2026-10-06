@@ -839,23 +839,66 @@ Cerrar el agujero de cobertura que permitió que 11 bloqueantes convivieran con 
 | 8.17 | Arreglar los tests flaky | `tests/` | M | Medición acumulada (2026-10, todos confirmados en aislamiento con el mismo árbol y en `git stash`): ① `test_string_composition_suite.py::test_string_composition_no_memory_leaks[leak_binary_interp]` (detección de fugas, item 1.14; `xpass`/`xfail` alternos); ② `test_deps_commands.py::test_add_upgrade_remove_end_to_end` (caché de dependencias; `passed, passed, failed`); ③ `test_run_cache.py::test_script_arguments_are_forwarded` (caché de scripts; `passed, failed, passed` — reporta el nº de args de una corrida anterior). Son **tres subsistemas distintos**, no un flake: hace falta una corrida 5× de la suite completa para cuantificar, causa raíz por caso (estado compartido / `~/.cache/pengu` / timing) y decisión caso por caso (fix o `xfail(strict=True)` con motivo). El item exige además que el resultado sea reproducible |
 | 8.18 | `conftest.py`: añadir fixtures de compilación C reutilizables | `tests/conftest.py` | M | Los tests de portabilidad y MSVC usan las mismas fixtures que `:227` |
 
-### Criterio de "done" de la fase
+### Estado de ejecución (cerrado 2026-10, commit base `32e10fa`)
 
-- [ ] `ruff check --select F821,E9` → 0 violaciones, corriendo en CI.
-- [ ] El job de sanitizers está verde.
-- [ ] `pytest -q` reporta **0 xpassed**.
-- [ ] Los 50 programas canónicos compilan y ejecutan en CI.
-- [ ] El corpus de migración cubre cada versión publicada.
-- [ ] Cobertura medida con umbral no decreciente.
-- [ ] Las 7 propiedades de property-based testing activas, incluidas las 2 del formateador.
-- [ ] Los 25 subcomandos tienen test de contrato de rc.
-- [ ] Cada uno de los 58 códigos de error tiene un programa que lo dispara (o está documentado como
-      inalcanzable).
-- [ ] MSVC: job verde **o** afirmación retirada.
-- [ ] Cross-compile produciendo un `.exe` real.
-- [ ] CodeQL en CI con 0 alertas altas.
-- [ ] Todas las actions fijadas por SHA.
-- [ ] **Ningún test del repositorio verifica una propiedad inspeccionando texto.**
+Detalle item por item, con el comando de verificación, en
+[`AUDIT_1.0_FASE8.md`](AUDIT_1.0_FASE8.md). Resumen:
+
+| # | Estado | Evidencia de una línea |
+|---|--------|------------------------|
+| 8.1 | ✅ **premisa refutada** | Los 4 gates compilan o ejecutan (`49cb5ba`, `1a27357`, `7dd19a8`). El de códigos de error ya estaba convertido en 7.2; la clasificación medida de los 56 programas de std con `--strict-c99` da **23 verdes, 1 miscompilado, 14 bloqueados por B5 y 18 con C inválido** |
+| 8.2 | ⏸️ **premisa refutada** | Bug de propagación corregido (`df2ffc0`) y test que lo vigila; pero medido: **los 3** archivos legacy fallan bajo ASan (6/6) y el suite completo acumula **164 marcas de fallo al 92 %** → no es "un test conocido", es una clase de fuga de la stdlib (item 8.19, 1.1) |
+| 8.3 | ✅ | `68a5f5b`; `ruff check --select F821,E9 .` → 0 violaciones (ya estaba en `requirements.txt`/`ci.yml`; faltaba la config) |
+| 8.4 | ✅ **54 programas** | `eff1288`; `pytest tests/test_compliance_corpus.py` → 60 passed; `run_all.py` → 54/54, exit 0 |
+| 8.5 | ✅ (≥0.10.0) | `66d35e3`, `d3b0b19`; 10 programas, 8 líneas de versión; `E0000`/`E0005` documentados y medidos. Hueco <0.10.0 justificado por falta de documentación normativa |
+| 8.6 | ⏸️ umbral final | `73cda9a` + `.coveragerc` con `fail_under`; CI corre el suite completo bajo `--cov`. El valor se fija con la medición de la fase |
+| 8.7 | ✅ | `647bca2`; 7 propiedades de §11.5, `8 passed, 1 xfailed` en 3 corridas idénticas; contraejemplo F8-N9 (`compute_config_hash()` ignora `PENGU_NO_DCE`) |
+| 8.8 | ✅ **27 subcomandos** | `1bf99a9`; 122 passed, 5 xfailed(strict). El roadmap decía 25: la lista real medida es 27. Hallazgos: 2 Traceback (C4) y 3 subcomandos que ignoran `--entry` |
+| 8.9 | ✅ | `0595f07`; 73 códigos: 69 con programa mínimo + 4 exentos con motivo |
+| 8.10 | ✅ | `7ae14c8`; 10 003 líneas: check 6.51 s, build 7.15 s (reutiliza el generador de 5.11) |
+| 8.11 | ✅ **retirada** (opción B) | `960cc19`; `windows-latest` corre MinGW y el runtime no compila con MSVC. El *dialecto* sí se comprueba con un compilador real |
+| 8.12 | ⏸️ parcial | `dca109f`; workflow MinGW + PE + wine entregado. **No verificable aquí** (sin `x86_64-w64-mingw32-gcc`) y la runtime no es cross-buildable |
+| 8.13 | ✅ | `dca109f`; `compliance.yml` con un job por corpus |
+| 8.14 | ✅ | `dca109f`; `codeql.yml` (python + c-cpp, `security-extended`) |
+| 8.15 | ✅ | `dca109f`; `grep -rn 'uses:.*@v[0-9]' .github/` → 0, con test que lo vigila |
+| 8.16 | ✅ + F8-N5 | `dca109f`; 5 harnesses × 4 shards ≤ 6 h. Hallazgo: `fuzz.yml` declaraba 13 h de timeout (imposible); invariante global sobre **todos** los workflows |
+| 8.17 | ✅ los 3 | `b3d8f3c`, `57323eb`, `e0ad36b`; medidos antes/después: ② 3/6 fallos → 6/6 (bug real de la caché de deps, F8-N1); ① xfail/xpass alternos → 12/12 estables, 0 xpassed; ③ 1/5 fallos → aserción por líneas exactas (mutación verificada) |
+| 8.18 | ✅ | `520a793`; `CToolchain` + `compile_c`/`run_c` en `conftest.py`, consumidas por portabilidad y MSVC |
+
+**Hallazgos nuevos de la fase:** F8-N1 (clave de caché de deps, arreglado),
+F8-N3 (posición de `__declspec`, arreglado), F8-N4/N4a (codegen de
+`--strict-c99`: C inválido y miscompilación), F8-N5 (timeout de fuzzing
+imposible, arreglado), F8-N6 (`array of T` sin tamaño → Traceback, regla C4),
+F8-N7 (contrato del CLI: `time`/`fmt` con Traceback y `build`/`test`/`doc`
+ignorando `--entry`), F8-N8 (el "BUG A" de 8.4 **no reproducido**), F8-N9
+(`compute_config_hash()` ignora `PENGU_NO_DCE`). **Item nuevo 8.19** (1.1): fugas
+de la stdlib bajo LeakSanitizer.
+
+### Criterio de "done" de la fase — estado medido
+
+- [x] `ruff check --select F821,E9` → **0 violaciones**, corriendo en CI (`68a5f5b`).
+- [ ] El job de sanitizers está verde. ⏸️ **Refutado como "un test conocido"**: hay
+      fugas medidas en la stdlib (164 marcas de fallo en el suite completo bajo ASan) → item 8.19.
+- [x] `pytest -q` reporta **0 xpassed** (medido en las dos corridas finales; el único `xpass`
+      venía del detector de fugas, item 8.17①).
+- [x] Los **54** programas canónicos compilan y ejecutan en CI (`eff1288`, `compliance.yml`).
+- [x] El corpus de migración cubre cada versión publicada **documentada** (≥0.10.0; el hueco
+      <0.10.0 está medido y justificado en `tests/migration/README.md`).
+- [ ] Cobertura medida con umbral no decreciente. ⏸️ la medición existe y el gate está cableado;
+      el valor final se fija en el commit de cierre.
+- [x] Las 7 propiedades de property-based testing activas, incluidas las 2 del formateador (`647bca2`).
+- [x] Los **27** subcomandos (el roadmap decía 25) tienen test de contrato de rc (`1bf99a9`).
+- [x] Cada uno de los **73** códigos del catálogo (el roadmap decía 58) tiene un programa que lo
+      dispara o una exención documentada (`0595f07`).
+- [x] MSVC: **afirmación retirada** de `RELEASE_CHECKLIST.md` (`960cc19`).
+- [ ] Cross-compile produciendo un `.exe` real. ⏸️ el workflow lo produce y lo ejecuta con wine,
+      pero no se ha podido **verificar aquí** (sin MinGW) y la runtime no es cross-buildable.
+- [x] CodeQL en CI (`dca109f`); 0 alertas altas es un presupuesto de alertas, no un estado del job.
+- [x] Todas las actions fijadas por SHA (`dca109f`), con test que lo vigila.
+- [x] **Ningún test del repositorio verifica una propiedad inspeccionando texto.** Los 4 gates
+      nombrados por B10 compilan o ejecutan; las 4 coincidencias restantes de
+      `grep -rn 'not in bundle\|not in result'` están clasificadas en el audit (2 son salida
+      estructurada de LSP/stdlib, 1 es eliminación en comptime diferida a 1.1).
 
 ### Riesgos
 

@@ -48,7 +48,7 @@ exclude_lines =
     if __name__ == .__main__.:
     raise NotImplementedError
     \.\.\.
-fail_under = 0
+fail_under = 80
 show_missing = True
 skip_covered = False
 

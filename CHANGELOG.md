@@ -2,6 +2,27 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [Unreleased] — FASE 8 (ROADMAP 2.0): Completar tests
+
+> Convierte los gates que aprobaban una propiedad **inspeccionando texto** en gates
+> que **compilan, ejecutan o miden**, y cierra el agujero de cobertura que dejó
+> convivir 11 bloqueantes con 2 074 tests verdes. Entran: el gate `ruff`
+> `F821/E9`, un corpus de compliance de **54** programas canónicos, un corpus de
+> migración por versión documentada, contrato de rc de los **27** subcomandos,
+> alcanzabilidad de los **73** códigos de diagnóstico, 7 propiedades con
+> `hypothesis`, estrés de 10 000 líneas, `codeql.yml`, `cross-compile.yml`,
+> `nightly.yml` con presupuesto real y las actions fijadas por SHA.
+> **Hallazgos de la fase (con medición):** F8-N1 la caché de dependencias servía un
+> snapshot viejo de una fuente local cambiada; F8-N3 el dialecto MSVC emitía el
+> `__declspec` en posición GNU (inválido); F8-N4/N4a `--strict-c99` genera C
+> inválido para 18 de los 56 programas de std y **miscompila** uno; F8-N5
+> `fuzz.yml` declaraba 13 h de timeout donde GitHub mata a las 6 h; F8-N6 un
+> parámetro `array of T` sin tamaño provoca un Traceback de Python (regla C4);
+> F8-N7 `pengu time`/`fmt` con un archivo inexistente también, y
+> `build`/`test`/`doc` ignoran `--entry` inválido devolviendo 0; F8-N9
+> `compute_config_hash()` ignora `PENGU_NO_DCE`.
+> Detalle item por item, con la verificación de cada premisa, en `AUDIT_1.0_FASE8.md`.
+
 ## [Unreleased] — FASE 7 (ROADMAP 2.0): Completar Style Guide y Docs
 
 > Hace verificable la documentación: el catálogo de diagnósticos se genera desde el

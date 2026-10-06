@@ -2,13 +2,13 @@
 # replacement, plus attribute annotations.  Compiles with a warning, not an error.
 @deprecated("use modern instead")
 weave old into int:
-  return 1
+    return 1
 
 @inline
 weave modern into int:
-  return calling old
+    return calling old
 
 weave main into int:
-  if calling modern == 1:
-    return 0
-  return 1
+    if calling modern == 1:
+        return 0
+    return 1

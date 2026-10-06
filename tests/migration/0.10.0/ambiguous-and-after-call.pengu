@@ -2,8 +2,8 @@
 # arguments the compiler cannot know whether `and` was meant as a conjunction or
 # as a separator, so it refuses with E0005 instead of guessing.
 weave two into int:
-  return 2
+    return 2
 
 weave main into int:
-  var x as int is calling two with 1 and 2
-  return x
+    var x as int is calling two with 1 and 2
+    return x

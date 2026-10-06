@@ -1,10 +1,10 @@
 # MIGRATION.md §3 — the migrated form of the program above: `and` becomes `,`.
 # This is what a project must look like after moving from 0.9.x to 0.10.0.
 weave add with a as int, b as int into int:
-  return a + b
+    return a + b
 
 weave main into int:
-  var x as int is calling add with 1, 2
-  if x == 3:
-    return 0
-  return 1
+    var x as int is calling add with 1, 2
+    if x == 3:
+        return 0
+    return 1

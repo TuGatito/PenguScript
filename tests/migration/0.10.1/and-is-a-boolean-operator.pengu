@@ -3,9 +3,9 @@
 import std.spark
 
 weave main into int:
-  var a as bool is true
-  var b as bool is false
-  if a and not b:
-    calling spark.println with "and is conjunction"
-    return 0
-  return 1
+    var a as bool is true
+    var b as bool is false
+    if a and not b:
+        calling spark.println with "and is conjunction"
+        return 0
+    return 1

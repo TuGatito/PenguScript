@@ -1,13 +1,13 @@
 # 0.14.0-era exhaustive dispatch: `omen` (enum) + `judge`/`when`.
 omen Color:
-  Red
-  Blue
+    Red
+    Blue
 
 weave main into int:
-  var c as Color is Color.Blue
-  var n as int is judge c:
-    when Color.Red -> 1
-    when Color.Blue -> 2
-  if n == 2:
-    return 0
-  return 1
+    var c as Color is Color.Blue
+    var n as int is judge c:
+        when Color.Red -> 1
+        when Color.Blue -> 2
+    if n == 2:
+        return 0
+    return 1

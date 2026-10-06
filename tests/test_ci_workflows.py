@@ -427,6 +427,16 @@ def test_corpora_run_in_their_own_workflow():
     assert (REPO / "tests" / "migration" / "EXPECTED.json").is_file()
 
 
+#: Ratchet (roadmap 8.6).  Raising coverage is a deliberate two-line change —
+#: this constant and `.coveragerc` — and lowering it cannot happen by accident.
+#: Measured on the commit that closed the phase: **80.20 %** over 19 235
+#: statements (`pytest tests --cov --cov-config=.coveragerc`).  The configured
+#: floor is 80, i.e. 0.2 points below the measurement, so a run whose collection
+#: differs by a hair does not turn the ratchet into a coin flip; the audit records
+#: both numbers and the command that produced them.
+RECORDED_FLOOR = 80.0
+
+
 def test_coverage_gate_is_wired_into_the_full_suite():
     """Roadmap 8.6: the full suite runs under coverage with a committed floor."""
     import configparser
@@ -435,6 +445,9 @@ def test_coverage_gate_is_wired_into_the_full_suite():
     cfg.read(REPO / ".coveragerc")
     floor = float(cfg["report"]["fail_under"])
     assert floor > 0, "a zero floor would make the gate vacuous"
+    assert floor >= RECORDED_FLOOR, (
+        f"the coverage floor was lowered: {floor} < {RECORDED_FLOOR}"
+    )
     assert "pengu_project.py" in cfg["run"]["source"]
     assert "pengu_parser" in cfg["run"]["source"]
 
