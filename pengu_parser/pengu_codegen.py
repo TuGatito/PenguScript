@@ -2861,20 +2861,27 @@ class PenguCodegen:
             f_attrs_map = self.rune_field_attributes.get(name, {})
             for f_name, f_type in fields.items():
                 fa = f_attrs_map.get(f_name, {})
+                fa_prefix = ""
                 fa_parts = []
                 if "align" in fa and fa["align"]:
                     if is_msvc:
-                        fa_parts.append(f"__declspec(align({fa['align'][0]}))")
+                        # MSVC's __declspec must precede the declared name.  The
+                        # GNU-style *trailing* position this used to emit
+                        # (`int32_t head __declspec(align(8));`) is not valid MSVC —
+                        # measured with `clang -fdeclspec -fms-extensions
+                        # -fsyntax-only`, the MSVC-syntax oracle the suite can run
+                        # on Linux (Phase 8 finding F8-N3).
+                        fa_prefix = f"__declspec(align({fa['align'][0]})) "
                     else:
                         fa_parts.append(f"aligned({fa['align'][0]})")
-                fa_str = (f" {' '.join(fa_parts)}" if is_msvc and fa_parts
-                          else (f" __attribute__(({', '.join(fa_parts)}))" if fa_parts else ""))
+                fa_str = (f" __attribute__(({', '.join(fa_parts)}))" if fa_parts else "")
                 if isinstance(f_type, ArrayType) and f_type.size is not None:
                     elem_str = CTypeMapper.to_c_type(f_type.element)
-                    rune_lines.append(f"  {elem_str} {self._c_ident(f_name)}[{f_type.size}]{fa_str};")
+                    rune_lines.append(
+                        f"  {fa_prefix}{elem_str} {self._c_ident(f_name)}[{f_type.size}]{fa_str};")
                 else:
                     f_str = CTypeMapper.to_c_type(f_type)
-                    rune_lines.append(f"  {f_str} {self._c_ident(f_name)}{fa_str};")
+                    rune_lines.append(f"  {fa_prefix}{f_str} {self._c_ident(f_name)}{fa_str};")
             rune_lines.append("};" + packed_suffix)
             blocks.append("\n".join(rune_lines))
 

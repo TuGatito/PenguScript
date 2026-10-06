@@ -1,6 +1,14 @@
-"""Roadmap Phase 2 / §2.2.c — attribute mapping per target compiler.
+"""Roadmap Phase 2 / §2.2.c — attribute mapping per target compiler (text pins).
 
 GNU/Clang/TCC keep `__attribute__`; MSVC gets `__declspec` and the pack pragma.
+
+This file is deliberately a *text* suite: it unit-tests the dialect mapper by
+pinning the exact spelling it produces for each target. It was renamed from
+`test_attributes_msvc.py` by roadmap Phase 8 item 8.1 (blocker B10), because it
+used to be presented as the MSVC gate while never invoking a compiler — and it
+passed for years while the MSVC output was `int32_t head __declspec(align(8));`,
+which `cl.exe`/clang-MS reject. The *compiler* gate now lives next to it in
+`tests/test_attributes_msvc_native.py`.
 """
 
 from tests.conftest import gen_bundle
