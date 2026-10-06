@@ -102,3 +102,32 @@ def test_sanitizer_workflow_deselects_by_name_not_by_disabling_detection():
     assert "test_std_backward_compat" in workflow
     # detect_leaks must stay on for the sanitizer job.
     assert "detect_leaks=1" in workflow
+
+
+def test_every_sanitizer_pytest_step_deselects_the_known_leak():
+    """Roadmap 8.2 (B9): one variable, consumed by *every* pytest step.
+
+    Regression guard for the bug this item fixes.  The deselect node id used to be
+    inlined in the first ``pytest tests`` invocation, so the third ASan step and
+    the valgrind step re-ran the leaking ``test_std_backward_compat`` and the job
+    was red over a finding that was already documented as a known issue.  Putting
+    the literal back into a single step (i.e. reverting the fix) fails here.
+    """
+    import yaml
+
+    workflow = yaml.safe_load(
+        (REPO / ".github" / "workflows" / "sanitizers.yml").read_text(encoding="utf-8")
+    )
+    shared = (workflow.get("env") or {}).get("PENGU_SANITIZER_DESELECT", "")
+    assert "test_std_backward_compat.py::test_std_backward_compat" in shared, (
+        "the known-leak node id must be declared once, at workflow level"
+    )
+
+    steps = [step for job in (workflow.get("jobs") or {}).values()
+             for step in (job.get("steps") or []) if "pytest" in (step.get("run") or "")]
+    assert len(steps) >= 4, f"expected the four sanitizer pytest steps, found {len(steps)}"
+    missing = [step.get("name") for step in steps
+               if "--deselect" not in step["run"] or "PENGU_SANITIZER_DESELECT" not in step["run"]]
+    assert missing == [], (
+        f"these sanitizer steps would re-run the known leak: {missing}"
+    )

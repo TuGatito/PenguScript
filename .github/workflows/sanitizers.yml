@@ -22,6 +22,19 @@ concurrency:
   group: sanitizers-${{ github.ref }}
   cancel-in-progress: true
 
+# Roadmap 2.0 / Phase 8 item 8.2 (blocker B9): the known-leak deselect lives
+# HERE, once, and every step that runs pytest consumes it.
+#
+# It used to be hard-coded inside the first `pytest tests` invocation only, so
+# the "ASan/UBSan on the std programs" step and the valgrind step re-ran the
+# same leaking test and the job stayed red: the deselect reached one step out of
+# four.  A single variable is also what lets
+# `tests/test_known_issues.py::test_every_sanitizer_pytest_step_deselects_the_known_leak`
+# fail when a future step forgets it.
+env:
+  PENGU_SANITIZER_DESELECT: >-
+    tests/test_std_backward_compat.py::test_std_backward_compat
+
 jobs:
   asan-ubsan:
     name: ASan + UBSan (Linux)
@@ -52,22 +65,27 @@ jobs:
       # (~1 KB in 5 allocations, reported by ASan/LeakSanitizer).  A minimal
       # `list of int` is clean, so the auto-banish model itself is fine - the leak
       # is in the legacy `coven.SetString` / `map` paths exercised by
-      # tests/test_std_backward_compat.py.  That test is deselected here *by name*
-      # so the leak stays visible in this comment and in tests/known_issues,
-      # instead of being silenced with detect_leaks=0.
+      # tests/test_std_backward_compat.py.  That test is deselected *by name* (see
+      # PENGU_SANITIZER_DESELECT above) so the leak stays visible in the workflow
+      # env, in this comment and in tests/known_issues, instead of being silenced
+      # with detect_leaks=0.
       - name: Test suite under ASan + UBSan
         run: |
           python -m pytest tests -q -p no:cacheprovider --timeout=900 \
-            --deselect "tests/test_std_backward_compat.py::test_std_backward_compat"
+            --deselect "$PENGU_SANITIZER_DESELECT"
 
       - name: Leak check on the auto-banish model (must stay clean)
         run: |
-          python -m pytest tests/test_known_issues.py -q -p no:cacheprovider --timeout=300
+          python -m pytest tests/test_known_issues.py -q -p no:cacheprovider --timeout=300 \
+            --deselect "$PENGU_SANITIZER_DESELECT"
 
+      # Same deselect as above: this step re-runs the file that *contains* the
+      # tracked leak, and without the flag it turned the job red on its own.
       - name: ASan/UBSan on the std programs
         run: |
           python -m pytest tests/test_std_backward_compat.py tests/test_std_data_backward_compat.py \
-                           tests/test_std_util_backward_compat.py -q -p no:cacheprovider --timeout=900
+                           tests/test_std_util_backward_compat.py -q -p no:cacheprovider --timeout=900 \
+                           --deselect "$PENGU_SANITIZER_DESELECT"
 
       - name: Upload sanitizer logs
         if: always()
@@ -98,10 +116,13 @@ jobs:
           sudo apt-get install -y --no-install-recommends valgrind
 
       # A representative subset: the std suites exercise containers, strings and
-      # the auto-banish model, which is where leaks would show up.
+      # the auto-banish model, which is where leaks would show up.  The tracked
+      # legacy-container leak is deselected with the same variable as the ASan
+      # job, so both jobs agree on what is a known issue and what is a failure.
       - name: Valgrind on the container/serialization suites
         run: |
           PENGU_TEST_VALGRIND=1 python -m pytest \
             tests/test_std_backward_compat.py \
             tests/test_std_data_backward_compat.py \
-            -q -p no:cacheprovider --timeout=1800
+            -q -p no:cacheprovider --timeout=1800 \
+            --deselect "$PENGU_SANITIZER_DESELECT"
