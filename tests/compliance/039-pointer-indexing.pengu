@@ -1,0 +1,31 @@
+# LANGUAGE.md §13.1 — Indexing through pointers and borrowing C buffers
+# Pins: reads and writes through `ref to T` with `at`; fixed arrays decay to pointers.
+import std.spark
+
+weave fill with p as ref to int, count as int into int:
+    for i in 0 to count:
+        set p at i is i * 10
+    return p at 0
+
+weave sum_ptr with p as ref to int, count as int into int:
+    var acc as int is 0
+    for i in 0 to count:
+        set acc is acc + (p at i)
+    return acc
+
+weave main into int:
+    var buf as array of int with size 4 is [0, 0, 0, 0]
+    var first as int is calling fill with buf, 4
+    calling spark.assert with (first == 0)
+    calling spark.assert with ((buf at 3) == 30)
+    calling spark.assert with ((calling sum_ptr with buf, 4) == 60)
+
+    # a bare pointer is indexable in read and write position too
+    var x as int is 3
+    var px as ref to int is sigil of x
+    set px at 0 is 9
+    calling spark.assert with (x == 9)
+    calling spark.assert with ((px at 0) == 9)
+
+    calling spark.assert with ((calling sum_ptr with buf, 2) == 10)
+    return 0

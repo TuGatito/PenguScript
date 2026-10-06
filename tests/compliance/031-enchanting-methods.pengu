@@ -1,0 +1,41 @@
+# LANGUAGE.md §10.1 — `enchanting` — métodos sobre tipos
+# Pins: self-> instance methods, ritual statics, and enchanting a built-in container.
+import std.spark
+
+rune Counter:
+    value as int
+
+enchanting Counter:
+    weave ritual from_num with v as int into Counter:
+        return with value is v
+
+    weave bump into void:
+        set self->value is self->value + 1
+
+    weave get into int:
+        return self->value
+
+enchanting list of int:
+    weave total into int:
+        var acc as int is 0
+        for x in essence of self:
+            set acc is acc + x
+        return acc
+
+    weave biggest into int:
+        var m as int is 0
+        for x in essence of self:
+            if x > m:
+                set m is x
+        return m
+
+weave main into int:
+    var c as Counter is calling Counter.from_num with 10
+    calling c.bump
+    calling c.bump
+    calling spark.assert with ((calling c.get) == 12)
+
+    var xs as list of int is [1, 5, 3]
+    calling spark.assert with ((calling xs.total) == 9)
+    calling spark.assert with ((calling xs.biggest) == 5)
+    return 0

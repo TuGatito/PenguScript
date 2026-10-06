@@ -1,0 +1,54 @@
+# LANGUAGE.md §18 — Block-style construction (`with:` expressions)
+# Pins: `with:` builders, nested builders with inferred targets, `with target:` edits.
+import std.spark
+
+rune Address:
+    street as string
+    city as string
+    zip as string
+
+rune Person:
+    name as string
+    age as int
+    address as Address
+
+enchanting Person:
+    weave birthday into void:
+        set self->age is self->age + 1
+
+weave build into Person:
+    return with:
+        set .name is "Ada"
+        set .age is 30
+        set .address is with:
+            set .street is "1 First Ave"
+            set .city is "Springfield"
+            set .zip is "00001"
+
+weave main into int:
+    var p as Person with:
+        set .name is "Ada"
+        set .age is 30
+        set .address is with:
+            set .street is "1 First"
+            set .city is "Springfield"
+            set .zip is "00001"
+        calling .birthday
+    calling spark.assert with (p.age == 31)
+    calling spark.assert with (p.address.city == "Springfield")
+
+    # edit an existing rune in place, nesting another builder
+    with p:
+        set .name is "Grace"
+        set .address is with:
+            set .street is "2 Second Ave"
+            set .city is "Shelbyville"
+            set .zip is "00002"
+    calling spark.assert with (p.name == "Grace")
+    calling spark.assert with (p.address.street == "2 Second Ave")
+    calling spark.assert with (p.address.zip == "00002")
+
+    var q as Person is calling build
+    calling spark.assert with (q.age == 30)
+    calling spark.assert with (q.address.zip == "00001")
+    return 0

@@ -1,0 +1,26 @@
+# LANGUAGE.md §14.1 — Imports & modules
+# Pins: `import std.<module>`, an aliased import (`as`), and cross-module calls.
+import std.spark
+import std.scrolls as sc
+
+weave main into int:
+    var raw as string is "  Pengu  "
+    var trimmed as string is calling sc.trim with raw
+    calling spark.assert with (trimmed == "Pengu")
+
+    var upper as string is calling sc.upper with trimmed
+    calling spark.assert with (upper == "PENGU")
+    var lower as string is calling sc.lower with upper
+    calling spark.assert with (lower == "pengu")
+
+    var parts as list of string is ["a", "b", "c"]
+    var joined as string is calling sc.join with parts, "-"
+    calling spark.assert with (joined == "a-b-c")
+
+    var split as list of string is calling sc.split with joined, "-"
+    calling spark.assert with ((calling split.len) == 3)
+    calling spark.assert with (calling sc.contains with joined, "b")
+
+    # the same module is reachable under its alias only; spark is unprefixed
+    calling spark.assert with ((calling spark.len_string with trimmed) == 5)
+    return 0

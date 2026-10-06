@@ -1,0 +1,40 @@
+# LANGUAGE.md §8.2 — `declare` — external C functions
+# Pins: `declare` prototypes bound to real C symbols (inc. a fn-pointer param) + `many T`.
+import std.spark
+
+include "string.h"
+declare strlen with s as ref to char into usize
+
+include "stdlib.h"
+declare qsort with base as ref to void, nmemb as usize, size as usize, compar as ref to weave with a as ref to frozen void, b as ref to frozen void into int into void
+
+weave count_args with xs as many int into int:
+    return (xs length to int)
+
+weave sum_args with xs as many int into int:
+    var acc as int is 0
+    for i from 0 to (xs length to int):
+        set acc is acc + (xs at i)
+    return acc
+
+weave cmp_ints with a as ref to frozen void, b as ref to frozen void into int:
+    let xa is essence of (transmute a to ref to frozen int)
+    let xb is essence of (transmute b to ref to frozen int)
+    if xa < xb:
+        return -1
+    if xa > xb:
+        return 1
+    return 0
+
+weave main into int:
+    # the string literal converts to `ref to char` and reaches libc directly
+    calling spark.assert with ((calling strlen with "hello") == 5)
+
+    var xs as array of int with size 3 is [3, 1, 2]
+    calling qsort with xs, 3, (size of int), cmp_ints
+    calling spark.assert with ((xs at 0) == 1)
+    calling spark.assert with ((xs at 2) == 3)
+
+    calling spark.assert with ((calling count_args with 7, 8, 9) == 3)
+    calling spark.assert with ((calling sum_args with 1, 2, 3, 4) == 10)
+    return 0

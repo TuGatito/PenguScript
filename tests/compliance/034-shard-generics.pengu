@@ -1,0 +1,44 @@
+# LANGUAGE.md §11.1 — `shard` fundamentals
+# Pins: generic rune/weave monomorphization, nesting, `of T` explicit arguments.
+import std.spark
+
+rune Box shard T:
+    value as T
+
+rune Pair shard A and B:
+    first as A
+    second as B
+
+weave identity shard T with x as T into T:
+    return x
+
+weave swap shard A and B with a as A, b as B into Pair of B and A:
+    return with first is b, second is a
+
+weave first_or shard T where T: Par with xs as list of T, fallback as T into T:
+    if (calling xs.len) == 0:
+        return fallback
+    return xs at 0
+
+weave main into int:
+    var bi as Box of int is with value is 5
+    calling spark.assert with (bi.value == 5)
+    var bs as Box of string is with value is "hi"
+    calling spark.assert with (bs.value == "hi")
+    var nested as Box of (Box of int) is with value is bi
+    calling spark.assert with (nested.value.value == 5)
+
+    var a as int is calling identity of int with 5
+    var s as string is calling identity of string with "hi"
+    calling spark.assert with (a == 5)
+    calling spark.assert with (s == "hi")
+
+    var p as Pair of string and int is calling swap with 7, "x"
+    calling spark.assert with (p.first == "x")
+    calling spark.assert with (p.second == 7)
+
+    var xs as list of int is [4, 5]
+    calling spark.assert with ((calling first_or with xs, -1) == 4)
+    var empty as list of int is list of int
+    calling spark.assert with ((calling first_or with empty, -1) == -1)
+    return 0

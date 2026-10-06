@@ -1,0 +1,37 @@
+# LANGUAGE.md §6.6 — `maybe` constructors & `null` context
+# Pins: `some` boxing, `maybe none`, typed `null`, and the presence check.
+import std.spark
+
+weave first_code with s as string into maybe int:
+    for ch in s:
+        return some (ord ch)
+    return maybe none
+
+weave unwrap_or_neg with m as maybe int into int:
+    if m is present:
+        return m.value
+    return -1
+
+weave main into int:
+    var boxed as maybe int is some 42
+    calling spark.assert with (boxed is present)
+    calling spark.assert with (boxed.value == 42)
+
+    var empty as maybe int is maybe none
+    calling spark.assert with (empty is not present)
+
+    # `null` requires an expected pointer type; the annotation supplies it.
+    var ptr as ref to int is null
+    var n as int is 5
+    var real as ref to int is sigil of n
+    calling spark.assert with (ptr == null)
+    calling spark.assert with (real != null)
+
+    calling spark.assert with ((calling unwrap_or_neg with boxed) == 42)
+    calling spark.assert with ((calling unwrap_or_neg with empty) == -1)
+
+    var opt as maybe int is calling first_code with "Pengu"
+    calling spark.assert with (opt.value == 80)
+    var none_c as maybe int is calling first_code with ""
+    calling spark.assert with (none_c is not present)
+    return 0

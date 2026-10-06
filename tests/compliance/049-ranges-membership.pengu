@@ -1,0 +1,26 @@
+# LANGUAGE.md §15.5 — Ranges & membership
+# Pins: `a to b` half-open ranges in iteration and `in` membership tests.
+import std.spark
+
+weave main into int:
+    var count as int is 0
+    for i in 1 to 5:
+        set count is count + 1
+    calling spark.assert with (count == 4)
+
+    var sum as int is 0
+    for i in 0 to 5:
+        set sum is sum + i
+    calling spark.assert with (sum == 10)
+
+    calling spark.assert with (1 in 1 to 5)
+    calling spark.assert with (4 in 1 to 5)
+    calling spark.assert with (not (5 in 1 to 5))
+    calling spark.assert with (not (0 in 1 to 5))
+
+    # the end bound is exclusive even at the boundary
+    var hits as int is 0
+    for i in 2 to 2:
+        set hits is hits + 1
+    calling spark.assert with (hits == 0)
+    return 0

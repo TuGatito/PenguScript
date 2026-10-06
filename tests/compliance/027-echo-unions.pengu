@@ -1,0 +1,18 @@
+# LANGUAGE.md §9.2 — `echo` — unions
+# Pins: an `echo` lowers to a C union whose fields share storage.
+import std.spark
+
+echo Number:
+    i as int
+    f as float
+
+weave main into int:
+    var n as Number is with i is 42
+    calling spark.assert with (n.i == 42)
+    set n.i is 7
+    calling spark.assert with (n.i == 7)
+
+    var o as Number is with f is 1.5
+    calling spark.assert with (o.f == 1.5)
+    calling spark.assert with ((size of Number) >= 4)
+    return 0

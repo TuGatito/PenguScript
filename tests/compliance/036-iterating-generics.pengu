@@ -1,0 +1,45 @@
+# LANGUAGE.md §11.5 — Iterating generics
+# Pins: `for x in list of T` inside generic code, plus concrete map/string iteration.
+import std.spark
+
+weave count shard T where T: Par with xs as list of T into int:
+    var n as int is 0
+    for x in xs:
+        set n is n + 1
+    return n
+
+weave sum shard T where T: Num with xs as list of T into T:
+    var acc as T is donum T
+    for x in xs:
+        set acc is acc + x
+    return acc
+
+weave contains_any shard T where T: Par with xs as list of T, needle as T into bool:
+    for x in xs:
+        if x == needle:
+            return true
+    return false
+
+weave main into int:
+    var ints as list of int is [1, 2, 3, 4]
+    var strs as list of string is ["a", "b"]
+    calling spark.assert with ((calling count with ints) == 4)
+    calling spark.assert with ((calling count with strs) == 2)
+    calling spark.assert with ((calling sum with ints) == 10)
+    calling spark.assert with (calling contains_any with ints, 3)
+    calling spark.assert with (not (calling contains_any with ints, 9))
+    calling spark.assert with (calling contains_any with strs, "b")
+
+    var m as map of string to int is map of string to int
+    with m:
+        calling .put with "a", 1
+    var keys as int is 0
+    for k in m:
+        set keys is keys + 1
+    calling spark.assert with (keys == 1)
+
+    var chars as int is 0
+    for ch in "abc":
+        set chars is chars + 1
+    calling spark.assert with (chars == 3)
+    return 0

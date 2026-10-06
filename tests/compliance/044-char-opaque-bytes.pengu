@@ -1,0 +1,31 @@
+# LANGUAGE.md §14.3 — `ref to char`, `opaque`, `.d.pengu`, and `bytes of`
+# Pins: C-string interop via `ref to char`, opaque handles behind `ref to`, `bytes of`.
+import std.spark
+
+include "string.h"
+declare strlen with s as ref to char into usize
+declare strcmp with a as ref to char, b as ref to char into int
+
+alias FileHandle as opaque
+
+weave c_len with s as ref to char into int:
+    return ((calling strlen with s) to int)
+
+weave main into int:
+    var lit as ref to char is "hello"
+    calling spark.assert with ((calling strlen with lit) == 5)
+    calling spark.assert with ((calling c_len with "hey") == 3)
+    calling spark.assert with ((calling strcmp with "abc", "abc") == 0)
+
+    var s as string is "Pengu"
+    var view as ref to frozen byte is bytes of s
+    calling spark.assert with (((view at 0) to int) == 80)
+    calling spark.assert with (((view at 4) to int) == 117)
+
+    # opaque types have no by-value representation; they travel behind `ref to`
+    var h as ref to FileHandle is null
+    calling spark.assert with (h == null)
+    var raw as ref to void is transmute (sigil of s) to ref to void
+    var h2 as ref to FileHandle is transmute raw to ref to FileHandle
+    calling spark.assert with (h2 != null)
+    return 0

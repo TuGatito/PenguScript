@@ -1,0 +1,8 @@
+# LANGUAGE.md §2 — Quick start
+# Pins: the `weave main into int` entry point and the builtin `print` lowering.
+import std.spark
+
+weave main into int:
+    calling print with "Hello, Pengu!\n"
+    calling spark.println with "compliance corpus online"
+    return 0

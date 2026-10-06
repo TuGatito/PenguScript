@@ -1,0 +1,35 @@
+# LANGUAGE.md §6.3 — Comparison, membership & word tests
+# Pins: `in`/`not in` on char, string, map and range; `is present`/`is true`; `null`.
+import std.spark
+
+weave main into int:
+    var ch as char is 'e'
+    calling spark.assert with (ch in "aeiou")
+    calling spark.assert with ("ell" in "hello")
+    calling spark.assert with (not ("zz" in "hello"))
+
+    calling spark.assert with (3 in 0 to 10)
+    calling spark.assert with (not (30 in 0 to 10))
+
+    var m as map of string to int is map of string to int
+    with m:
+        calling .put with "k", 1
+    calling spark.assert with ("k" in m)
+    calling spark.assert with (not ("z" in m))
+
+    var yes as bool is true
+    var no as bool is false
+    calling spark.assert with (yes is true)
+    calling spark.assert with (no is false)
+
+    var present as maybe int is some 1
+    var absent as maybe int is maybe none
+    calling spark.assert with (present is present)
+    calling spark.assert with (absent is not present)
+
+    var p as ref to int is null
+    var n as int is 5
+    var q as ref to int is sigil of n
+    calling spark.assert with (p == null)
+    calling spark.assert with (q != null)
+    return 0

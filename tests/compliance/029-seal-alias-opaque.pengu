@@ -1,0 +1,35 @@
+# LANGUAGE.md §9.4 — `seal`, `alias`, `opaque`
+# Pins: nominal seal (explicit `to` casts), transparent alias, opaque handle behind ref.
+import std.spark
+
+seal UserId as int
+alias Inches as int
+alias Handle as opaque
+
+weave takes_inches with v as Inches into int:
+    return v
+
+weave main into int:
+    var raw as int is 7
+    var uid as UserId is (raw to UserId)
+    calling spark.assert with ((uid to int) == 7)
+    var raw2 as int is (uid to int) + 1
+    var widened as UserId is (raw2 to UserId)
+    calling spark.assert with ((widened to int) == 8)
+
+    # `alias` is transparent: interchangeable with its target everywhere
+    var a as Inches is 10
+    var b as int is a
+    calling spark.assert with (b == 10)
+    calling spark.assert with ((calling takes_inches with a) == 10)
+
+    # `opaque` handles are only usable behind `ref to`
+    var h as ref to Handle is null
+    calling spark.assert with (h == null)
+    var n as int is 5
+    var rawv as ref to void is transmute (sigil of n) to ref to void
+    var h2 as ref to Handle is transmute rawv to ref to Handle
+    calling spark.assert with (h2 != null)
+    var back as ref to int is transmute h2 to ref to int
+    calling spark.assert with ((essence of back) == 5)
+    return 0

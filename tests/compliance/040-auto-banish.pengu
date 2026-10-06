@@ -1,0 +1,42 @@
+# LANGUAGE.md §13.4 — Scope-Owned Locals (Auto-Banish)
+# Pins: fresh heap locals (string/list/map) are released deterministically per scope.
+import std.spark
+
+weave build_name with n as int into string:
+    var acc as string is ""
+    var i as int is 0
+    while i < n:
+        set acc is "{acc}{i}"
+        set i is i + 1
+    return acc
+
+weave scoped_containers into int:
+    var items as list of int is [1, 2]
+    with items:
+        calling .push with 3
+    calling spark.assert with ((calling items.len) == 3)
+
+    var table as map of string to int is map of string to int
+    with table:
+        calling .put with "a", 1
+    calling spark.assert with ((table at "a") == 1)
+    return 0
+
+weave main into int:
+    # a returned dynamic string escapes its scope and must not be auto-freed there
+    var created as string is calling build_name with 2
+    calling spark.assert with (created == "01")
+
+    var two as string is calling build_name with 3
+    var greeting as string is "hello {two}"
+    calling spark.assert with (greeting == "hello 012")
+
+    # nested scopes each own and release their fresh buffers
+    calling spark.assert with ((calling scoped_containers) == 0)
+
+    # reassignment only ever stores a fresh value, so the local stays auto-owned
+    var s as string is "a{1}"
+    set s is "{s}b"
+    set s is "{s}c"
+    calling spark.assert with (s == "a1bc")
+    return 0

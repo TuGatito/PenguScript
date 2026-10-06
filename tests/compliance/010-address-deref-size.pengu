@@ -1,0 +1,24 @@
+# LANGUAGE.md §6.4 — Address, dereference & size
+# Pins: `sigil of`, `essence of` (read and `set` target), `size of`, `transmute`.
+import std.spark
+
+rune Pair:
+    a as int
+    b as int
+
+weave main into int:
+    var x as int is 7
+    var p as ref to int is sigil of x
+    calling spark.assert with ((essence of p) == 7)
+    set essence of p is 99
+    calling spark.assert with (x == 99)
+
+    # unsafe bit-cast round trip (W0001 is expected and non-fatal)
+    var raw as ref to void is transmute p to ref to void
+    calling spark.assert with (raw != null)
+    var back as ref to int is transmute raw to ref to int
+    calling spark.assert with ((essence of back) == 99)
+
+    calling spark.assert with ((size of int) == 4)
+    calling spark.assert with ((size of Pair) >= 8)
+    return 0
