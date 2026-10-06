@@ -20,7 +20,7 @@ import tempfile
 import re
 from enum import Enum
 from pathlib import Path
-from typing import List, Dict, Optional, Any, Tuple, Set, TYPE_CHECKING
+from typing import List, Dict, Optional, Any, Tuple, Set, Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover - annotations only (see from __future__ above)
     from lark import Tree
