@@ -158,7 +158,9 @@ weave encode_base64_bytes with data as string into string:
 ##
 ## Signature: decode_base64(data as string) into maybe string
 ## Ownership: Returns an owned maybe string.
-## Edge cases: Returns maybe none when input is malformed or has invalid padding.
+## Edge cases: Returns maybe none when input is malformed, when `=` appears
+## anywhere but at the very end, or when padding is excessive (`"QQ==="`,
+## `"QQ==QQ=="`) or short (`"Q==="`). Unpadded input decodes normally.
 weave decode_base64 with data as string into maybe string:
     var dl as int is data length
     if dl == 0:
@@ -178,6 +180,29 @@ weave decode_base64 with data as string into maybe string:
     var clen as int is clean length
     if clen % 4 != 0:
         return maybe none
+    # Padding may only close the string. Without this pass the quantum loop
+    # below treats `=` as a data character, which shifts every following
+    # quantum and silently accepted inputs such as "QQ==QQ==".
+    if clen > 0:
+        var first_pad as int is -1
+        var pad_count as int is 0
+        var pi as int is 0
+        while pi < clen:
+            if (clean at pi) == "=":
+                if first_pad < 0:
+                    set first_pad is pi
+                set pad_count is pad_count + 1
+            else:
+                if first_pad >= 0:
+                    return maybe none
+            set pi is pi + 1
+        if pad_count > 2:
+            return maybe none
+        if first_pad >= 0:
+            if first_pad < (clen - 4):
+                return maybe none
+            if (first_pad + pad_count) != clen:
+                return maybe none
     var out as string is ""
     var pos as int is 0
     while pos < clen:
