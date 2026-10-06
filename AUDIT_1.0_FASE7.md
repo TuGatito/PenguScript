@@ -365,6 +365,152 @@ $ pytest tests/test_version.py -q
 
 ---
 
+### 7.3 — Documentar la sintaxis canónica de rango y `frozen`
+
+_(pendiente)_
+
+---
+
+### 7.8 — `CONTRIBUTING.md`
+
+**Premisa del roadmap:** cubre cómo correr los tests, el principio "ningún gate por
+texto" (AUDIT §15.2), el estilo y el proceso de release.
+
+**Verificación previa:**
+
+```bash
+$ test -f CONTRIBUTING.md
+# (no existía)
+$ sed -n '2942,2975p' AUDIT_1.0.md   # §15.2 lista 7 gates verdes sobre código roto
+```
+
+**Resultado:** ✅ cerrado — `CONTRIBUTING.md` (350 líneas, 10 secciones).
+
+**Evidencia / verificación:**
+
+- §4 reproduce la tabla de los **7 gates falsos-verdes** de §15.2 y enuncia la
+  regla ("si aprueba una propiedad inspeccionando texto, no es un gate"), con los
+  4 ofensores históricos y su conversión en Fase 8.
+- §7 documenta el flujo de diagnóstico con el catálogo **generado** de 7.1
+  (`tools/gen_error_catalog.py --write`, no editar a mano §22.2/§22.3).
+- Todas las rutas y anclas de la doc resuelven (comprobado: 0 enlaces roMuertos de
+  ruta; la ancla `README.md#building-the-runtime-from-source` corresponde al
+  encabezado real `### Building the Runtime from Source`, `README.md:448`).
+- **Refutación incorporada:** el brief de la fase decía que el estilo es de **2
+  espacios** porque `pengu fmt` lo impone. Es **falso** (`F7-N2`): `.pengufmt.toml`
+  y `std/.pengufmt.toml` fijan `tab_size = 4`, `_resolve_indent` devuelve 4 por
+  defecto y `pengu fmt --check std/` da 0 archivos. `CONTRIBUTING.md` documenta 4
+  espacios, que es lo medido.
+
+**Test:** no aplica (documento); la verificación es la resolución de enlaces y la
+inspección de las secciones exigidas.
+**Commit:** `fase7(item 7.8): CONTRIBUTING.md`
+
+---
+
+### 7.9 — `docs/ARCHITECTURE.md`
+
+**Premisa del roadmap:** mapa de fases (parse → collect → check → infer → codegen →
+cache) con archivos y puntos de entrada.
+
+**Resultado:** ✅ cerrado — `docs/ARCHITECTURE.md` (499 líneas).
+
+**Evidencia / verificación:**
+
+- Diagrama ASCII del pipeline, tabla `Etapa | Archivo(s) | Símbolo de entrada |
+  Entrada | Salida | Fallos`, detalle por etapa, modelo de diagnóstico, caché e
+  incrementalidad, frontera FFI, frontera runtime/ABI (enlaza `ABI.md`, no lo
+  duplica) y guía "dónde tocar para cambiar qué".
+- **Verificación por muestreo** de 14 símbolos de entrada en su archivo real:
+  `PenguBuilder`, `.bundle()`, `.compile()`, `build_project`, `check_project`,
+  `PenguParser`, `resolve_imports`, `_collect_top_level`, `TypeInferrer`,
+  `generate_bundle`, `cache_root`, `BindGenerator`, `runtime_lib_dirs`,
+  `PenguLanguageServer` → todos existen (1 ocurrencia cada uno salvo
+  `PenguBuilder`, 10).
+- **Corregido tras 7.2:** el documento afirmaba que `E0059`–`E0060` estaban *sin
+  asignar* y que `E0061` era del lockfile y `E0062` de dependencias, con el rango
+  del lenguaje acabando en `E0058`. Tras 7.2 eso era obsoleto; §4 ahora documenta
+  `E0063`–`E0065` como lenguaje y `E0061`/`E0062` como capa de proyecto, y advierte
+  explícitamente del **peligro de colisión entre capas** (`F7-N3`).
+- El documento enuncia la convención correcta: **el nombre del símbolo, no el
+  número de línea, es el contrato** (las líneas se desplazan con cada edición).
+
+**Test:** verificación por muestreo (arriba) + resolución de enlaces (0 roto).
+**Commit:** `fase7(item 7.9): docs/ARCHITECTURE.md`
+
+---
+
+### 7.10 — `docs/ABI.md` (verificar y enlazar, no recrear)
+
+**Premisa del roadmap:** "**Ya existe** (Fase 3, item 3.11). Verifica y enlaza, no
+recrees."
+
+**Verificación previa:**
+
+```bash
+$ test -f docs/ABI.md && wc -c docs/ABI.md
+6852 docs/ABI.md                                     # EXISTE
+$ grep -n 'PENGU_ABI_VERSION' docs/ABI.md pengu_runtime.h | head -3
+docs/ABI.md:10: `PENGU_ABI_VERSION` (currently **1**) …
+pengu_runtime.h:58:#define PENGU_ABI_VERSION 1      # coincide
+$ grep -n 'ABI.md' docs/README.md
+19:| [`ABI.md`](ABI.md) | The runtime ABI policy … | No — authored |   # ya enlazado
+$ grep -c 'def test' tests/test_abi_version.py tests/test_abi_layout.py
+tests/test_abi_version.py:7
+tests/test_abi_layout.py:1
+$ ls tests/abi/
+test_abi_layout.c
+```
+
+**Resultado:** ✅ **premisa confirmada y sustancialmente ya satisfecha** — es el
+único item de la fase que no requería trabajo nuevo. El documento existe, su
+afirmación de versión (`1`) coincide con `pengu_runtime.h:58`, está indexado en
+`docs/README.md` y está cubierto por `tests/test_abi_version.py` (7 casos),
+`tests/test_abi_layout.py` y el arnés C `tests/abi/test_abi_layout.c`.
+
+**Entregado en su lugar:** `docs/README.md` pasa a indexar los tres documentos
+nuevos de la fase (`ARCHITECTURE.md`, `CROSS_COMPILATION.md`, y el
+`error_catalog.json` generado), de modo que ninguno queda huérfano; y
+`docs/ARCHITECTURE.md` enlaza `ABI.md` en su sección de frontera runtime/ABI (sin
+duplicar su contenido).
+
+**Test:** no aplica (verificación + enlace); la coherencia del ABI ya la cubren los
+tests existentes.
+**Commit:** `fase7(item 7.10): indexar los documentos nuevos en docs/README.md`
+
+---
+
+### 7.11 — `docs/CROSS_COMPILATION.md`
+
+**Premisa del roadmap:** basado en `LANGUAGE.md` §20.2.3.
+
+**Verificación previa:** `LANGUAGE.md` §20.2.3 existe (línea 3325), documenta
+`--target <triple>`, `--cc`, la detección automática y `PENGU_RUNTIME_CROSS`, y
+declara que sólo Linux ⇄ Windows está soportado en 1.0.
+
+**Resultado:** ✅ cerrado — `docs/CROSS_COMPILATION.md` (396 líneas).
+
+**Evidencia / hallazgos verificados en el código** (no copiados de la doc):
+
+| Hallazgo | Medición |
+|---|---|
+| Los triples se parsean en `parse_target_triple` (`pengu_project.py:217-245`) y **un triple desconocido cae silenciosamente al host** | `riscv64-unknown-elf` → `os=""` y construye para el host, sin `.exe` |
+| `--target` **no** fija el contexto de `when os` | Un programa que devuelve 1 bajo `when os=="windows"` emitía `return 0` con sólo `--target`; con `-D os=windows` emitía `return 1` |
+| Sólo el bundle C cruzado no necesita toolchain | `build --target x86_64-w64-mingw32 -o win_bundle.c` funciona sin MinGW |
+| La pre-flight del runtime **no** mira `PENGU_RUNTIME_CROSS` | `_find_runtime_archive()` (`:2655`) busca sólo `runtime_lib_dirs()` del host, así que un `libpengu_runtime.a` del host debe seguir siendo localizable |
+| `build_runtime.py` **no** tiene modo cruzado | Sólo `--rebuild`; `get_toolchain()` (`:89-96`) elige gcc/clang/cc del host |
+| El único test de MinGW es `skipif` y **no produce ni ejecuta un `.exe`** | `tests/test_cross_compile.py:119-130`; no hay job de cross-compilación en CI |
+
+Los tres primeros se documentan como **limitaciones honestas** con el comando que
+las reproduce, porque son trampas reales para el usuario (un triple mal escrito
+compila para el host sin avisar).
+
+**Test:** no aplica (documento); los fallos de toolchain ausente se citan
+literalmente desde `pengu_project.py:802-807` y `:2794-2805`.
+**Commit:** `fase7(item 7.11): docs/CROSS_COMPILATION.md`
+
+---
+
 ## Hallazgos nuevos de la Fase 7 (no estaban en el roadmap)
 
 ### F7-N3 — 🔴 El espacio de nombres `Exxxx` está compartido entre capas y nadie lo vigilaba
