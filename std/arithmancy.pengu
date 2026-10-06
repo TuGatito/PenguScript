@@ -453,21 +453,27 @@ weave vec2 with x as float , y as float into Vec2:
     return with x is x , y is y
 
 enchanting Vec2:
+    ## `(0, 0)` — the origin.
     weave ritual zero into Vec2:
         return with x is 0.0 , y is 0.0
 
+    ## `(1, 1)`. Not a unit vector: normalise before using it as a direction.
     weave ritual one into Vec2:
         return with x is 1.0 , y is 1.0
 
+    ## Screen up `(0, -1)`. **Y grows downward** in the 2-D screen convention, so `up` has a negative Y.
     weave ritual up into Vec2:
         return with x is 0.0 , y is -1.0
 
+    ## Screen down `(0, 1)`, the positive-Y direction (Y grows downward).
     weave ritual down into Vec2:
         return with x is 0.0 , y is 1.0
 
+    ## Screen left `(-1, 0)`.
     weave ritual left into Vec2:
         return with x is -1.0 , y is 0.0
 
+    ## Screen right `(1, 0)`.
     weave ritual right into Vec2:
         return with x is 1.0 , y is 0.0
 
@@ -590,27 +596,35 @@ weave vec3 with x as float , y as float , z as float into Vec3:
     return with x is x , y is y , z is z
 
 enchanting Vec3:
+    ## `(0, 0, 0)` — the origin.
     weave ritual zero into Vec3:
         return with x is 0.0 , y is 0.0 , z is 0.0
 
+    ## `(1, 1, 1)`. Not a unit vector: normalise before using it as a direction.
     weave ritual one into Vec3:
         return with x is 1.0 , y is 1.0 , z is 1.0
 
+    ## World up `(0, 1, 0)`. Unlike the 2-D screen convention, Y is **up** in 3-D.
     weave ritual up into Vec3:
         return with x is 0.0 , y is 1.0 , z is 0.0
 
+    ## World down `(0, -1, 0)`.
     weave ritual down into Vec3:
         return with x is 0.0 , y is -1.0 , z is 0.0
 
+    ## `(-1, 0, 0)`.
     weave ritual left into Vec3:
         return with x is -1.0 , y is 0.0 , z is 0.0
 
+    ## `(1, 0, 0)`.
     weave ritual right into Vec3:
         return with x is 1.0 , y is 0.0 , z is 0.0
 
+    ## `(0, 0, -1)`: the conventional forward axis is **negative** Z.
     weave ritual forward into Vec3:
         return with x is 0.0 , y is 0.0 , z is -1.0
 
+    ## `(0, 0, 1)`.
     weave ritual back into Vec3:
         return with x is 0.0 , y is 0.0 , z is 1.0
 
@@ -730,9 +744,11 @@ weave vec4 with x as float , y as float , z as float , w as float into Vec4:
     return with x is x , y is y , z is z , w is w
 
 enchanting Vec4:
+    ## `(0, 0, 0, 0)`.
     weave ritual zero into Vec4:
         return with x is 0.0 , y is 0.0 , z is 0.0 , w is 0.0
 
+    ## `(1, 1, 1, 1)`. Not a normalised homogeneous vector.
     weave ritual one into Vec4:
         return with x is 1.0 , y is 1.0 , z is 1.0 , w is 1.0
 
@@ -877,9 +893,11 @@ weave mat4_look_at with eye as Vec3 , center as Vec3 , up as Vec3 into Mat4:
     return with m00 is s.x , m01 is s.y , m02 is s.z , m03 is -s_dot_eye , m10 is u.x , m11 is u.y , m12 is u.z , m13 is -u_dot_eye , m20 is -f.x , m21 is -f.y , m22 is -f.z , m23 is f_dot_eye , m30 is 0.0 , m31 is 0.0 , m32 is 0.0 , m33 is 1.0
 
 enchanting Mat4:
+    ## The identity matrix: multiplying by it returns the operand unchanged.
     weave ritual identity into Mat4:
         return calling mat4_identity
 
+    ## The all-zero matrix. Not invertible: multiplying by it collapses every vector to the origin.
     weave ritual zero into Mat4:
         return calling mat4_zero
 
@@ -971,9 +989,11 @@ weave quat_from_euler with rx as float , ry as float , rz as float into Quat:
     return with x is s1 * c2 * c3 - c1 * s2 * s3 , y is c1 * s2 * c3 + s1 * c2 * s3 , z is c1 * c2 * s3 - s1 * s2 * c3 , w is c1 * c2 * c3 + s1 * s2 * s3
 
 enchanting Quat:
+    ## The identity rotation `(0, 0, 0, 1)`: applying it leaves a vector unchanged.
     weave ritual identity into Quat:
         return calling quat_identity
 
+    ## The all-zero quaternion. It has no inverse, so it is **not** a rotation — use `identity` for "no rotation".
     weave ritual zero into Quat:
         return with x is 0.0 , y is 0.0 , z is 0.0 , w is 0.0
 

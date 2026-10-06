@@ -939,6 +939,96 @@ marcados; y el gate **falla** (no sólo avisa) cuando se manipula una página.
 
 ---
 
+### 7.6 — Aplicar el style guide a la stdlib de forma verificable
+
+**Premisa del roadmap:** "Reglas nuevas de §10.5 aplicadas; **un test por regla**
+(indentación, sin `transmute` fuera de ffi/filum, versiones asertadas)".
+
+**Verificación previa — de las 6 reglas de §10.5, cuatro ya se cumplían, una pedía
+alcance y una estaba realmente incumplida:**
+
+| Regla de §10.5 | Medición | Estado |
+|---|---|---|
+| Indentación de 4 espacios, nunca tabuladores | `fmt --check std/` → `0 file(s) would be reformatted`; `.pengufmt.toml` y `std/.pengufmt.toml` fijan `tab_size = 4` | ya se cumplía |
+| Sin `transmute` fuera de `ffi`/`filum` | **0** llamadas a `transmute` en todo `std/` (única aparición: comentario en `std/ffi.pengu:67`) | ya se cumplía |
+| Toda función pública nueva con doc inline | ratchet de `tests/test_std_docs_completeness.py` (`weave` 1314/1315, la excepción es un helper privado) | ya se cumplía |
+| **Los constructores `ritual` documentan su invariante** | **20 de 44** sin comentario de doc | ❌ **incumplida** |
+| `<MOD>_VERSION` coincide y se **aserta** | `tests/test_std_versioning.py` (3 casos) + `tests/test_bindings_version_policy.py` | ya se cumplía |
+| Sin shadowing de globales; nombres públicos únicos | `0 W0005`; pero **49** nombres de `weave` públicos repetidos entre módulos | parcial → ver 7.6b |
+
+**El hallazgo con valor real:** los 20 constructores sin documentar eran todos
+constantes geométricas de `arithmancy`, y escribirlas destapó una **trampa de
+convención**: `Vec2.up` es `(0, -1)` porque la convención 2-D de pantalla tiene **Y
+hacia abajo**, mientras que `Vec3.up` es `(0, 1, 0)` porque 3-D tiene Y hacia
+arriba. Sin el invariante escrito, los dos constructores parecen contradecirse.
+
+**Resultado:** ✅ cerrado para las reglas verificables; la unificación de nombres
+duplicados queda como **7.6b**.
+
+**Evidencia:**
+
+```bash
+$ .venv/bin/python -m pytest tests/test_std_style_rules.py -q
+9 passed
+
+$ .venv/bin/python pengu_project.py check --entry std/arithmancy.pengu
+     Clean no errors found in 0.69s
+$ # 44/44 `weave ritual` documentados (antes 24/44)
+```
+
+**Falsificación (comprobado):** quitar el doc de `Vec2.up` → 2 failed
+(`test_rule_ritual_constructors_document_their_invariant` y
+`test_rule_ritual_invariants_state_the_axis_convention`); meter una indentación de 6
+espacios en `spark` → 1 failed (`test_rule_indentation_is_four_spaces`).
+
+**Qué se hizo:**
+
+1. Documentados los **20** constructores `ritual` que faltaban en
+   `std/arithmancy.pengu`, cada uno con su valor y su invariante (incluida la
+   asimetría de convención de ejes, y que `Quat.zero`/`Mat4.zero` **no** son
+   rotaciones/identidades válidas).
+2. `tests/test_std_style_rules.py` (9 casos, **un test por regla**):
+   indentación (múltiplos de 4, sin tabuladores en los 27 módulos, contrastado con
+   los dos `.pengufmt.toml`); `transmute` confinado a `ffi`/`filum`; doc inline en
+   todo `weave` público; invariante de los `ritual` + la trampa de ejes; versiones
+   asertadas por los tests dedicados; y **ratchets** para las dos reglas diferidas
+   (`cp_*` en 32, nombres duplicados en 49) de modo que no puedan crecer.
+3. La regla de shadowing se prueba con un proxy estructural barato que **respeta la
+   supresión documentada de `W0005` dentro de bloques `test`** (roadmap 2.12) —el
+   primer intento falló con `tally.pengu:1413 var last` precisamente porque no la
+   respetaba, y el compilador tiene razón: es un bloque `test`.
+
+**Test:** `tests/test_std_style_rules.py` (archivo nuevo, 9 casos).
+**Commit:** `fase7(item 7.6): 20 constructores ritual documentados + un test por regla`
+
+#### ⏸️ 7.6b — Unificar los 49 nombres públicos repetidos entre módulos
+
+**MEDICIÓN:** **49** nombres de `weave` públicos aparecen en más de un módulo
+escrito a mano (el roadmap hablaba de 15, que era sólo la intersección
+`loom` ∩ `tally`). De ellos, **10** son helpers `assert*` reexportados a propósito.
+El resto incluye `contains`, `find`, `find_all`, `flatten`, `index_of`, `is_empty`,
+`join`, `last_index_of`, `len`, `enumerate_pairs`, `is_sorted_asc/desc`,
+`is_unix`/`is_windows`…
+
+**POR QUÉ SE DIFIERE:** es la misma decisión que 6.5 (`loom`/`tally`), ampliada: hay
+que comprobar firma a firma cuáles son reexportaciones legítimas y cuáles contratos
+divergentes, y unificar los divergentes es un cambio **rompedor** que exige una
+ventana de deprecación de dos releases. La stdlib todavía no aplica atributos
+`@deprecated` reales (hallazgo H1 de la Fase 6), así que hoy no hay forma de avisar
+a nadie. Depende de 6.5 y de la política de deprecación.
+
+**QUÉ FALTA:** el cruce firma a firma de los 49 para separar reexportación de
+divergencia, y luego la decisión versionada por par.
+
+**ESTIMACIÓN REAL:** M–L (49 nombres, con análisis de firmas).
+
+**ENTREGADO EN SU LUGAR:** el recuento queda **fijado por un ratchet**
+(`DUPLICATE_NAME_BASELINE = 49` en `tests/test_std_style_rules.py`), con la lista de
+los 10 reexports intencionales declarada explícitamente: una colisión nueva falla el
+build, y un `assert*` que deje de ser reexport no puede pasar desapercibido.
+
+---
+
 ## Hallazgos nuevos de la Fase 7 (no estaban en el roadmap)
 
 ### F7-N3 — 🔴 El espacio de nombres `Exxxx` está compartido entre capas y nadie lo vigilaba
