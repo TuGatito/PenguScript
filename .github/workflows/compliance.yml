@@ -1,0 +1,70 @@
+name: Compliance & migration corpora
+
+# Roadmap 2.0 / Phase 8, items 8.4, 8.5 and 8.13.
+#
+# Two corpora, two different questions:
+#
+#   compliance — `tests/compliance/` holds one canonical program per section of
+#                `LANGUAGE.md`. It answers "does the language still do what the
+#                normative document says it does?".
+#   migration  — `tests/migration/` holds one program per published version line
+#                from 0.10.0 on, with the outcome `MIGRATION.md` documents. It
+#                answers "does code written for an older release still behave the
+#                way the migration guide says?".
+#
+# They run as separate jobs so a failure names the corpus, and separately from
+# `ci.yml` so a corpus that needs a rebuild does not re-run the whole matrix.
+# Both need the C runtime (the compliance corpus compiles and executes).
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: corpora-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  compliance:
+    name: Compliance corpus (LANGUAGE.md)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-pengu
+
+      - name: Run the corpus runner end to end
+        run: |
+          python tests/compliance/run_all.py
+
+      - name: Run the corpus under pytest
+        run: |
+          python -m pytest tests/test_compliance_corpus.py -q -p no:cacheprovider --timeout=1800
+
+  migration:
+    name: Migration corpus (MIGRATION.md)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-pengu
+
+      - name: Run the migration corpus
+        run: |
+          python -m pytest tests/test_migration_corpus.py -q -p no:cacheprovider --timeout=1800

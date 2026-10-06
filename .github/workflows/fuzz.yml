@@ -20,7 +20,7 @@ on:
       seconds:
         description: 'Seconds per harness'
         required: false
-        default: '43200'   # 12 h; the job timeout below leaves margin
+        default: '21600'   # 6 h, the platform's per-job ceiling
         type: string
 
 permissions:
@@ -34,9 +34,11 @@ jobs:
   fuzz:
     name: fuzz (${{ matrix.harness }})
     runs-on: ubuntu-latest
-    # 13 h: covers the 12 h default budget with margin, and is explicit instead of
-    # relying on the platform's 6 h default (which used to kill long runs).
-    timeout-minutes: 780
+    # GitHub kills a job after 6 h of execution, so a larger `timeout-minutes`
+    # could never be reached: it was a number in a file, not a budget. The default
+    # budget is clamped to fit (Phase 8 finding F8-N5); the long-budget form is
+    # `.github/workflows/nightly.yml`, which splits it across shards.
+    timeout-minutes: 350
     permissions:
       contents: read
     strategy:
@@ -50,10 +52,10 @@ jobs:
           - harness: lsp
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.14'
           cache: 'pip'
@@ -71,7 +73,7 @@ jobs:
           fi
 
       - name: Cache runtime build
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             build/lib
@@ -87,12 +89,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          SECONDS=300
           case "${GITHUB_EVENT_NAME}" in
-            pull_request)      echo "seconds=300" >> "$GITHUB_OUTPUT" ;;
-            schedule)          echo "seconds=3600" >> "$GITHUB_OUTPUT" ;;
-            workflow_dispatch) echo "seconds=${{ github.event.inputs.seconds }}" >> "$GITHUB_OUTPUT" ;;
-            *)                 echo "seconds=300" >> "$GITHUB_OUTPUT" ;;
+            schedule)          SECONDS=3600 ;;
+            workflow_dispatch) SECONDS="${{ github.event.inputs.seconds }}" ;;
           esac
+          # Never claim more than the platform will allow a single job to run.
+          if [ "$SECONDS" -gt 21600 ]; then
+            echo "::warning::clamping the fuzz budget to GitHub's 6 h job limit"
+            SECONDS=21600
+          fi
+          echo "seconds=$SECONDS" >> "$GITHUB_OUTPUT"
 
       - name: Run ${{ matrix.harness }} harness
         shell: bash
@@ -110,7 +117,7 @@ jobs:
       - name: Upload crash corpus
         # always(): findings are written to disk even when the harness exits 0.
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: fuzz-findings-${{ matrix.harness }}-${{ github.run_id }}
           path: build/fuzz_crashes/

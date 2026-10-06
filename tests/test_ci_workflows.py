@@ -20,7 +20,10 @@ WORKFLOWS = REPO / ".github" / "workflows"
 COMPOSITE = REPO / ".github" / "actions" / "setup-pengu" / "action.yml"
 RELEASE_VERSION = REPO / "scripts" / "release_version.py"
 
-ALL_WORKFLOWS = ["ci.yml", "release.yml", "bench.yml", "fuzz.yml", "sanitizers.yml"]
+#: Every workflow file, read from disk rather than listed by hand (Phase 8 /
+#: item 8.16): a hand-written list is how `fuzz.yml` kept a 13 h timeout that
+#: GitHub kills after 6 h — the invariant simply never ran against it.
+ALL_WORKFLOWS = sorted(p.name for p in WORKFLOWS.glob("*.yml"))
 
 
 def _load(name: str) -> dict:
@@ -310,3 +313,132 @@ def test_fuzz_upload_runs_always():
     raw = _raw("fuzz.yml")
     assert "if: always()" in raw
     assert "if-no-files-found: ignore" in raw
+
+
+# --------------------------------------------------------------------------- #
+# S9 — Phase 8: the gates this phase added
+# --------------------------------------------------------------------------- #
+
+
+def test_every_workflow_file_is_covered_by_these_invariants():
+    """A new workflow must not be able to skip the invariants above.
+
+    `ALL_WORKFLOWS` is read from disk; this test exists so the reason is visible
+    from the suite, and so a workflow added under another extension (`.yaml`) is
+    noticed instead of silently ignored.
+    """
+    on_disk = sorted(p.name for p in WORKFLOWS.glob("*.yml"))
+    assert ALL_WORKFLOWS == on_disk
+    assert not list(WORKFLOWS.glob("*.yaml")), "a .yaml workflow would escape ALL_WORKFLOWS"
+
+
+@pytest.mark.parametrize("name", ALL_WORKFLOWS)
+def test_every_action_is_pinned_to_a_commit_sha(name):
+    """Roadmap 8.15: `uses: owner/repo@v4` is a mutable reference.
+
+    A tag can be re-pointed at any commit, so the workflow would execute code the
+    review never saw. Every non-local `uses:` must be a full commit SHA with the
+    human-readable version in a trailing comment.
+    """
+    for action, rest in re.findall(r"uses:\s*([^\s#]+)([^\n]*)", _raw(name)):
+        if action.startswith(("./", "docker://")):
+            continue
+        assert re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", action), (
+            f"{name}: {action} is not pinned to a 40-hex commit SHA"
+        )
+        assert re.search(r"#\s*v\d", rest), f"{name}: {action} has no `# vX` comment"
+
+
+def test_the_composite_action_is_pinned_too():
+    text = COMPOSITE.read_text(encoding="utf-8")
+    for action, rest in re.findall(r"uses:\s*([^\s#]+)([^\n]*)", text):
+        if action.startswith(("./", "docker://")):
+            continue
+        assert re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", action), action
+        assert re.search(r"#\s*v\d", rest), action
+
+
+@pytest.mark.parametrize("name", ALL_WORKFLOWS)
+def test_no_job_timeout_exceeds_the_platform_ceiling(name):
+    """Roadmap 8.16: GitHub kills a job after 6 h of execution.
+
+    A larger `timeout-minutes` can never be reached, so it is a claim the platform
+    will not honour. `fuzz.yml` used to declare 13 h (finding F8-N5).
+    """
+    for job_name, job in _jobs(_load(name)).items():
+        assert int(job["timeout-minutes"]) <= 360, (
+            f"{name}:{job_name} declares {job['timeout-minutes']} minutes > 360"
+        )
+
+
+def test_nightly_fuzz_budget_is_sharded_within_the_ceiling():
+    """Roadmap 8.16: a 72 h-per-harness budget can only exist as shards.
+
+    Shards are parallel *jobs*, so the invariant is about the fuzz seconds each
+    harness consumes (``shards x per-shard budget <= 6 h``), not about wall clock:
+    the default total must fit the platform ceiling and the workflow must divide it
+    rather than trusting the input.
+    """
+    doc = _load("nightly.yml")
+    job = _jobs(doc)["fuzz"]
+    matrix = job["strategy"]["matrix"]
+    assert set(matrix["harness"]) == {"parser", "bind", "semver", "lock", "lsp"}
+    shards = len(matrix["shard"])
+    assert shards >= 2, "a single shard cannot fit inside the 6 h ceiling"
+
+    inputs = _triggers(doc)["workflow_dispatch"]["inputs"]
+    hours = float(inputs["hours_per_harness"]["default"])
+    assert hours <= 6, f"the default budget of {hours} h exceeds the platform ceiling"
+
+    raw = _raw("nightly.yml")
+    assert "21600" in raw, "nightly.yml must clamp to GitHub's 6 h ceiling"
+    assert "total / SHARDS" in raw, "the budget must be divided across the shards"
+    assert int(job["timeout-minutes"]) <= 360
+
+
+def test_codeql_workflow_analyses_both_languages():
+    """Roadmap 8.14: Python *and* the C runtime."""
+    job = _jobs(_load("codeql.yml"))["analyze"]
+    entries = job["strategy"]["matrix"]["include"]
+    languages = {entry["language"] for entry in entries}
+    assert {"python", "c-cpp"} <= languages, languages
+    raw = _raw("codeql.yml")
+    assert "github/codeql-action/init@" in raw
+    assert "github/codeql-action/analyze@" in raw
+    assert "security-extended" in raw, "the default query suite misses the memory-safety queries"
+    assert all(entry["build-mode"] == "none" for entry in entries), entries
+
+
+def test_cross_compile_workflow_produces_and_runs_a_pe():
+    """Roadmap 8.12: a real `.exe`, validated by `file` and executed."""
+    raw = _raw("cross-compile.yml")
+    assert "gcc-mingw-w64-x86-64" in raw
+    assert "x86_64-w64-mingw32-gcc" in raw
+    assert "PE32+" in raw, "the .exe must be validated as a PE image, not assumed"
+    assert "wine64" in raw, "the .exe must be executed, not just produced"
+    assert "--target x86_64-w64-mingw32" in raw
+
+
+def test_corpora_run_in_their_own_workflow():
+    """Roadmap 8.13: both corpora are wired into CI."""
+    raw = _raw("compliance.yml")
+    assert "tests/test_compliance_corpus.py" in raw
+    assert "tests/test_migration_corpus.py" in raw
+    assert (REPO / "tests" / "migration" / "EXPECTED.json").is_file()
+
+
+def test_coverage_gate_is_wired_into_the_full_suite():
+    """Roadmap 8.6: the full suite runs under coverage with a committed floor."""
+    import configparser
+
+    cfg = configparser.ConfigParser()
+    cfg.read(REPO / ".coveragerc")
+    floor = float(cfg["report"]["fail_under"])
+    assert floor > 0, "a zero floor would make the gate vacuous"
+    assert "pengu_project.py" in cfg["run"]["source"]
+    assert "pengu_parser" in cfg["run"]["source"]
+
+    raw = _raw("ci.yml")
+    assert "--cov" in raw and ".coveragerc" in raw
+    assert "coverage.xml" in raw
+    assert "pytest-cov" in (REPO / "requirements.txt").read_text(encoding="utf-8")
