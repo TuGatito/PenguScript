@@ -578,9 +578,11 @@ weave map_values shard K, V with m as map of K to V into list of V:
         calling out.push with v
     return out
 
+## Inserta o actualiza `key -> value` en `m`.
 weave map_put shard K, V with m as map of K to V, key as K, value as V into void:
     calling m.put with key, value
 
+## Elimina `key` del mapa genérico `m`; `true` si existía.
 weave map_remove shard K, V with m as map of K to V, key as K into bool:
     if calling m.contains with key:
         with m:
@@ -588,6 +590,7 @@ weave map_remove shard K, V with m as map of K to V, key as K into bool:
         return true
     return false
 
+## Vacía el mapa genérico `m` dejándolo sin entradas.
 weave map_clear shard K, V with m as map of K to V into void:
     with m:
         calling .clear
@@ -711,59 +714,85 @@ weave from_pairs shard K and V where K: Par, V: Par with ps as list of oracle.Pa
 ## Número de entradas de un `map of string to int` (API histórica).
 weave map_len_str_int with m as map of string to int into int:
     return calling m.len
+## Combina `a` y `b` en un `map of string to int` nuevo; las claves de `b` ganan.
 weave merge with a as map of string to int, b as map of string to int into map of string to int:
     return calling map_merge with a, b
+## Combina `a` y `b` en un `map of string to int` nuevo; las claves ya presentes en `a` conservan su valor.
 weave merge_keep_left with a as map of string to int, b as map of string to int into map of string to int:
     return calling map_merge_keep_left with a, b
+## Combina `a` y `b` en un `map of string to int` nuevo; las claves de `b` ganan.
 weave merge_keep_right with a as map of string to int, b as map of string to int into map of string to int:
     return calling map_merge with a, b
+## Construye un mapa desde listas paralelas hasta `min(ks.len, vs.len)`.
 weave from_lists with ks as list of string, vs as list of int into map of string to int:
     return calling map_from_lists with ks, vs
+## Combina `a` y `b` en un `map of string to string` nuevo; las claves de `b` ganan.
 weave merge_ss with a as map of string to string, b as map of string to string into map of string to string:
     return calling map_merge with a, b
+## Combina `a` y `b` en un `map of string to string` nuevo; las claves ya presentes en `a` conservan su valor.
 weave merge_keep_left_ss with a as map of string to string, b as map of string to string into map of string to string:
     return calling map_merge_keep_left with a, b
+## Combina `a` y `b` en un `map of string to string` nuevo; las claves de `b` ganan.
 weave merge_keep_right_ss with a as map of string to string, b as map of string to string into map of string to string:
     return calling map_merge with a, b
+## Construye un mapa desde listas paralelas hasta `min(ks.len, vs.len)`.
 weave from_lists_ss with ks as list of string, vs as list of string into map of string to string:
     return calling map_from_lists with ks, vs
+## Combina `a` y `b` en un `map of string to float` nuevo; las claves de `b` ganan.
 weave merge_sf with a as map of string to float, b as map of string to float into map of string to float:
     return calling map_merge with a, b
+## Combina `a` y `b` en un `map of string to float` nuevo; las claves ya presentes en `a` conservan su valor.
 weave merge_keep_left_sf with a as map of string to float, b as map of string to float into map of string to float:
     return calling map_merge_keep_left with a, b
+## Combina `a` y `b` en un `map of string to float` nuevo; las claves de `b` ganan.
 weave merge_keep_right_sf with a as map of string to float, b as map of string to float into map of string to float:
     return calling map_merge with a, b
+## Construye un mapa desde listas paralelas hasta `min(ks.len, vs.len)`.
 weave from_lists_sf with ks as list of string, vs as list of float into map of string to float:
     return calling map_from_lists with ks, vs
+## Combina `a` y `b` en un `map of int to int` nuevo; las claves de `b` ganan.
 weave merge_ii with a as map of int to int, b as map of int to int into map of int to int:
     return calling map_merge with a, b
+## Combina `a` y `b` en un `map of int to int` nuevo; las claves ya presentes en `a` conservan su valor.
 weave merge_keep_left_ii with a as map of int to int, b as map of int to int into map of int to int:
     return calling map_merge_keep_left with a, b
+## Combina `a` y `b` en un `map of int to int` nuevo; las claves de `b` ganan.
 weave merge_keep_right_ii with a as map of int to int, b as map of int to int into map of int to int:
     return calling map_merge with a, b
+## Construye un mapa desde listas paralelas hasta `min(ks.len, vs.len)`.
 weave from_lists_ii with ks as list of int, vs as list of int into map of int to int:
     return calling map_from_lists with ks, vs
+## Combina `a` y `b` en un `map of int to string` nuevo; las claves de `b` ganan.
 weave merge_is with a as map of int to string, b as map of int to string into map of int to string:
     return calling map_merge with a, b
+## Combina `a` y `b` en un `map of int to string` nuevo; las claves ya presentes en `a` conservan su valor.
 weave merge_keep_left_is with a as map of int to string, b as map of int to string into map of int to string:
     return calling map_merge_keep_left with a, b
+## Combina `a` y `b` en un `map of int to string` nuevo; las claves de `b` ganan.
 weave merge_keep_right_is with a as map of int to string, b as map of int to string into map of int to string:
     return calling map_merge with a, b
+## Construye un mapa desde listas paralelas hasta `min(ks.len, vs.len)`.
 weave from_lists_is with ks as list of int, vs as list of string into map of int to string:
     return calling map_from_lists with ks, vs
+## Combina `a` y `b` en un `map of string to bool` nuevo; las claves de `b` ganan.
 weave merge_sb with a as map of string to bool, b as map of string to bool into map of string to bool:
     return calling map_merge with a, b
+## Combina `a` y `b` en un `map of string to bool` nuevo; las claves ya presentes en `a` conservan su valor.
 weave merge_keep_left_sb with a as map of string to bool, b as map of string to bool into map of string to bool:
     return calling map_merge_keep_left with a, b
+## Combina `a` y `b` en un `map of string to bool` nuevo; las claves de `b` ganan.
 weave merge_keep_right_sb with a as map of string to bool, b as map of string to bool into map of string to bool:
     return calling map_merge with a, b
+## Construye un mapa desde listas paralelas hasta `min(ks.len, vs.len)`.
 weave from_lists_sb with ks as list of string, vs as list of bool into map of string to bool:
     return calling map_from_lists with ks, vs
 ## Número de entradas de `m`; alias de `calling m.size`.
 weave size with m as map of string to int into int:
     return calling m.size
+## Devuelve `true` cuando `map of string to int` no tiene entradas.
 weave is_empty with m as map of string to int into bool:
     return calling m.is_empty
+## Devuelve `true` cuando `key` existe en `map of string to int`.
 weave has_key with m as map of string to int, key as string into bool:
     return calling m.has_key with key
 ## `true` si todos los valores de `m` son > 0.
@@ -775,8 +804,10 @@ weave any_value_negative with m as map of string to int into bool:
 ## `true` si los valores de `m` están en `[lo, hi]`.
 weave values_in_range with m as map of string to int, lo as int, hi as int into bool:
     return calling m.values_in_range with lo, hi
+## Valor de `key`, o `fallback` si la clave no está.
 weave get_or with m as map of string to int, key as string, default as int is 0 into int:
     return calling m.get_or with key, default
+## `some v` si `key` está presente; `maybe none` en caso contrario.
 weave get_safe with m as map of string to int, key as string into maybe int:
     return calling m.get_safe with key
 ## Inserta o actualiza `key -> value` en `m`.
@@ -788,22 +819,31 @@ weave remove with m as map of string to int, key as string into bool:
 ## Vacía `m`.
 weave clear with m as map of string to int into void:
     calling m.clear
+## Actualiza el valor de una clave existente; `false` si no existe.
 weave update with m as map of string to int, key as string, value as int into bool:
     return calling m.update with key, value
+## Lista nueva con todas las claves.
 weave keys with m as map of string to int into list of string:
     return calling m.keys
+## Lista nueva con todos los valores.
 weave values with m as map of string to int into list of int:
     return calling m.values
+## Lista nueva con las claves de `m` ordenadas ascendentemente.
 weave keys_sorted with m as map of string to int into list of string:
     return calling m.keys_sorted
+## Suma de todos los valores; `donum V` (cero) si está vacío.
 weave sum_values with m as map of string to int into int:
     return calling m.sum_values
+## Valor máximo; `donum V` (cero) si está vacío.
 weave max_value with m as map of string to int into int:
     return calling m.max_value
+## Valor mínimo; `donum V` (cero) si está vacío.
 weave min_value with m as map of string to int into int:
     return calling m.min_value
+## Submapa con las entradas cuya clave contiene `sub` como substring.
 weave filter_keys_contains with m as map of string to int, sub as string into map of string to int:
     return calling m.filter_keys_contains with sub
+## Submapa con las entradas cuya clave empieza por `prefix`.
 weave filter_keys_startswith with m as map of string to int, prefix as string into map of string to int:
     return calling m.filter_keys_startswith with prefix
 ## Submapa con los valores de `m` dentro de `[lo, hi]`.
@@ -815,150 +855,223 @@ weave map_values_double with m as map of string to int into map of string to int
 ## Mapa nuevo con cada valor de `m` negado.
 weave map_values_negate with m as map of string to int into map of string to int:
     return calling m.map_values_negate
+## Lista nueva con todas las claves.
 weave to_keys_list with m as map of string to int into list of string:
     return calling m.to_keys_list
+## Lista nueva con todos los valores.
 weave to_values_list with m as map of string to int into list of int:
     return calling m.to_values_list
+## Número de entradas de `m`; equivalente a `calling m.len`.
 weave size_ss with m as map of string to string into int:
     return calling m.size
+## Devuelve `true` cuando `m` no tiene entradas.
 weave is_empty_ss with m as map of string to string into bool:
     return calling m.is_empty
+## Devuelve `true` cuando `key` existe en `m`.
 weave has_key_ss with m as map of string to string, k as string into bool:
     return calling m.has_key with k
+## Valor de `key`, o `fallback` si la clave no está.
 weave get_or_ss with m as map of string to string, k as string, default as string is "" into string:
     return calling m.get_or with k, default
+## `some v` si `key` está presente; `maybe none` en caso contrario.
 weave get_safe_ss with m as map of string to string, k as string into maybe string:
     return calling m.get_safe with k
+## Inserta o actualiza `key -> value` en `m`.
 weave put_ss with m as map of string to string, k as string, v as string into void:
     calling m.put with k, v
+## Elimina `key` de `m`; `true` si existía.
 weave remove_ss with m as map of string to string, k as string into bool:
     return calling m.remove with k
+## Vacía `m` por completo.
 weave clear_ss with m as map of string to string into void:
     calling m.clear
+## Lista nueva con todas las claves, en orden interno del hash.
 weave keys_ss with m as map of string to string into list of string:
     return calling m.keys
+## Lista nueva con todos los valores, en orden interno del hash.
 weave values_ss with m as map of string to string into list of string:
     return calling m.values
+## Claves de un `map of string to string`, ordenadas ascendentemente.
 weave keys_sorted_ss with m as map of string to string into list of string:
     return calling m.keys_sorted
+## Valores de un `map of string to string`, ordenados por su clave ascendente.
 weave values_sorted_ss with m as map of string to string into list of string:
     return calling m.values_sorted
+## Copia superficial independiente de `m`.
 weave clone_ss with m as map of string to string into map of string to string:
     return calling m.clone
+## Número de entradas de `m`; equivalente a `calling m.len`.
 weave size_sf with m as map of string to float into int:
     return calling m.size
+## Devuelve `true` cuando `m` no tiene entradas.
 weave is_empty_sf with m as map of string to float into bool:
     return calling m.is_empty
+## Devuelve `true` cuando `key` existe en `m`.
 weave has_key_sf with m as map of string to float, k as string into bool:
     return calling m.has_key with k
+## Valor de `key`, o `fallback` si la clave no está.
 weave get_or_sf with m as map of string to float, k as string, default as float is 0.0 into float:
     return calling m.get_or with k, default
+## `some v` si `key` está presente; `maybe none` en caso contrario.
 weave get_safe_sf with m as map of string to float, k as string into maybe float:
     return calling m.get_safe with k
+## Inserta o actualiza `key -> value` en `m`.
 weave put_sf with m as map of string to float, k as string, v as float into void:
     calling m.put with k, v
+## Elimina `key` de `m`; `true` si existía.
 weave remove_sf with m as map of string to float, k as string into bool:
     return calling m.remove with k
+## Vacía `m` por completo.
 weave clear_sf with m as map of string to float into void:
     calling m.clear
+## Lista nueva con todas las claves, en orden interno del hash.
 weave keys_sf with m as map of string to float into list of string:
     return calling m.keys
+## Lista nueva con todos los valores, en orden interno del hash.
 weave values_sf with m as map of string to float into list of float:
     return calling m.values
+## Claves de un `map of string to float`, ordenadas ascendentemente.
 weave keys_sorted_sf with m as map of string to float into list of string:
     return calling m.keys_sorted
+## Suma de todos los valores; `donum V` (cero) si está vacío.
 weave sum_values_sf with m as map of string to float into float:
     return calling m.sum_values
+## Valor máximo; `donum V` (cero) si está vacío.
 weave max_value_sf with m as map of string to float into float:
     return calling m.max_value
+## Valor mínimo; `donum V` (cero) si está vacío.
 weave min_value_sf with m as map of string to float into float:
     return calling m.min_value
+## Copia superficial independiente de `m`.
 weave clone_sf with m as map of string to float into map of string to float:
     return calling m.clone
+## Número de entradas de `m`; equivalente a `calling m.len`.
 weave size_ii with m as map of int to int into int:
     return calling m.size
+## Devuelve `true` cuando `m` no tiene entradas.
 weave is_empty_ii with m as map of int to int into bool:
     return calling m.is_empty
+## Devuelve `true` cuando `key` existe en `m`.
 weave has_key_ii with m as map of int to int, k as int into bool:
     return calling m.has_key with k
+## Valor de `key`, o `fallback` si la clave no está.
 weave get_or_ii with m as map of int to int, k as int, default as int is 0 into int:
     return calling m.get_or with k, default
+## `some v` si `key` está presente; `maybe none` en caso contrario.
 weave get_safe_ii with m as map of int to int, k as int into maybe int:
     return calling m.get_safe with k
+## Inserta o actualiza `key -> value` en `m`.
 weave put_ii with m as map of int to int, k as int, v as int into void:
     calling m.put with k, v
+## Elimina `key` de `m`; `true` si existía.
 weave remove_ii with m as map of int to int, k as int into bool:
     return calling m.remove with k
+## Vacía `m` por completo.
 weave clear_ii with m as map of int to int into void:
     calling m.clear
+## Lista nueva con todas las claves, en orden interno del hash.
 weave keys_ii with m as map of int to int into list of int:
     return calling m.keys
+## Lista nueva con todos los valores, en orden interno del hash.
 weave values_ii with m as map of int to int into list of int:
     return calling m.values
+## Claves de un `map of int to int`, ordenadas ascendentemente.
 weave keys_sorted_ii with m as map of int to int into list of int:
     return calling m.keys_sorted
+## Valores de un `map of int to int`, ordenados por su clave ascendente.
 weave values_sorted_ii with m as map of int to int into list of int:
     return calling m.values_sorted
+## Suma de todos los valores; `donum V` (cero) si está vacío.
 weave sum_values_ii with m as map of int to int into int:
     return calling m.sum_values
+## Valor máximo; `donum V` (cero) si está vacío.
 weave max_value_ii with m as map of int to int into int:
     return calling m.max_value
+## Valor mínimo; `donum V` (cero) si está vacío.
 weave min_value_ii with m as map of int to int into int:
     return calling m.min_value
+## Copia superficial independiente de `m`.
 weave clone_ii with m as map of int to int into map of int to int:
     return calling m.clone
+## Número de entradas de `m`; equivalente a `calling m.len`.
 weave size_is with m as map of int to string into int:
     return calling m.size
+## Devuelve `true` cuando `m` no tiene entradas.
 weave is_empty_is with m as map of int to string into bool:
     return calling m.is_empty
+## Devuelve `true` cuando `key` existe en `m`.
 weave has_key_is with m as map of int to string, k as int into bool:
     return calling m.has_key with k
+## Valor de `key`, o `fallback` si la clave no está.
 weave get_or_is with m as map of int to string, k as int, default as string is "" into string:
     return calling m.get_or with k, default
+## `some v` si `key` está presente; `maybe none` en caso contrario.
 weave get_safe_is with m as map of int to string, k as int into maybe string:
     return calling m.get_safe with k
+## Inserta o actualiza `key -> value` en `m`.
 weave put_is with m as map of int to string, k as int, v as string into void:
     calling m.put with k, v
+## Elimina `key` de `m`; `true` si existía.
 weave remove_is with m as map of int to string, k as int into bool:
     return calling m.remove with k
+## Vacía `m` por completo.
 weave clear_is with m as map of int to string into void:
     calling m.clear
+## Lista nueva con todas las claves, en orden interno del hash.
 weave keys_is with m as map of int to string into list of int:
     return calling m.keys
+## Lista nueva con todos los valores, en orden interno del hash.
 weave values_is with m as map of int to string into list of string:
     return calling m.values
+## Claves de un `map of int to string`, ordenadas ascendentemente.
 weave keys_sorted_is with m as map of int to string into list of int:
     return calling m.keys_sorted
+## Valores de un `map of int to string`, ordenados por su clave ascendente.
 weave values_sorted_is with m as map of int to string into list of string:
     return calling m.values_sorted
+## Copia superficial independiente de `m`.
 weave clone_is with m as map of int to string into map of int to string:
     return calling m.clone
+## Número de entradas de `m`; equivalente a `calling m.len`.
 weave size_sb with m as map of string to bool into int:
     return calling m.size
+## Devuelve `true` cuando `m` no tiene entradas.
 weave is_empty_sb with m as map of string to bool into bool:
     return calling m.is_empty
+## Devuelve `true` cuando `key` existe en `m`.
 weave has_key_sb with m as map of string to bool, k as string into bool:
     return calling m.has_key with k
+## Valor de `key`, o `fallback` si la clave no está.
 weave get_or_sb with m as map of string to bool, k as string, default as bool is false into bool:
     return calling m.get_or with k, default
+## `some v` si `key` está presente; `maybe none` en caso contrario.
 weave get_safe_sb with m as map of string to bool, k as string into maybe bool:
     return calling m.get_safe with k
+## Inserta o actualiza `key -> value` en `m`.
 weave put_sb with m as map of string to bool, k as string, v as bool into void:
     calling m.put with k, v
+## Elimina `key` de `m`; `true` si existía.
 weave remove_sb with m as map of string to bool, k as string into bool:
     return calling m.remove with k
+## Vacía `m` por completo.
 weave clear_sb with m as map of string to bool into void:
     calling m.clear
+## Lista nueva con todas las claves, en orden interno del hash.
 weave keys_sb with m as map of string to bool into list of string:
     return calling m.keys
+## Lista nueva con todos los valores, en orden interno del hash.
 weave values_sb with m as map of string to bool into list of bool:
     return calling m.values
+## Claves de un `map of string to bool`, ordenadas ascendentemente.
 weave keys_sorted_sb with m as map of string to bool into list of string:
     return calling m.keys_sorted
+## Número de entradas de `m` cuyo valor es `true`.
 weave count_true_sb with m as map of string to bool into int:
     return calling m.count_true
+## Número de entradas de `m` cuyo valor es `false`.
 weave count_false_sb with m as map of string to bool into int:
     return calling m.count_false
+## Copia superficial independiente de `m`.
 weave clone_sb with m as map of string to bool into map of string to bool:
     return calling m.clone
 
@@ -1006,12 +1119,14 @@ weave _expect_true with cond as bool, label as string into void:
         calling spark.println with "FAIL {label}"
         calling spark.panic with "atlas: test failed"
 
+## Mapa de una sola entrada `k -> v` (helper de tests).
 weave _one shard K and V where K: Par, V: Par with k as K, v as V into map of K to V:
     var m as map of K to V is map of K to V
     with m:
         calling .put with k, v
     return m
 
+## Número de elementos de `xs` (helper de tests).
 weave _count shard T with xs as list of T into int:
     return calling xs.len
 
