@@ -1346,12 +1346,22 @@ class PenguBuilder:
             return False, [_diag(exc, entry_abs)]
 
         def _warning_diag(text: str, fpath: str) -> Dict[str, Any]:
-            """Turns a checker warning string into a structured diagnostic."""
+            """Turns a checker warning string into a structured diagnostic.
+
+            The checker stores warnings as plain strings.  Any position it
+            knows travels as a trailing ``on line L col C`` suffix (roadmap
+            6.3); warnings without a position stay at ``0:0`` rather than
+            inventing one.
+            """
             import re as _re
-            m = _re.match(r"\[(W\d{4})\]\s*(.*?)(?:\s+on line\s+(\d+))?$", text)
+            m = _re.match(
+                r"\[(W\d{4})\]\s*(.*?)(?:\s+on line\s+(\d+)(?:\s+col\s+(\d+))?)?$",
+                text,
+            )
             code = m.group(1) if m else "W0000"
             message = m.group(2) if m else text
             line = int(m.group(3)) if (m and m.group(3)) else 0
+            col = int(m.group(4)) if (m and m.group(4)) else 0
             severity = "warning"
             note = None
             if self.deny_deprecated and code == "W0006":
@@ -1360,7 +1370,7 @@ class PenguBuilder:
             return {
                 "file": fpath,
                 "line": line,
-                "col": 0,
+                "col": col,
                 "code": code,
                 "severity": severity,
                 "message": message,

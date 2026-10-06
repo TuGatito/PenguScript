@@ -446,6 +446,24 @@ class TypeInferrer:
                         return cl, cc
         return None, None
 
+    def _warn(self, code: str, message: str, node: Any = None,
+              dedup: bool = False) -> None:
+        """Appends a warning, tagging it with the AST position when available.
+
+        The checker's warning channel is a plain ``List[str]`` (consumers match
+        substrings such as ``"[W0006] Symbol 'x' is deprecated"``), so the
+        position travels in the string as a ``on line L col C`` suffix.  The
+        CLI's ``_warning_diag`` parses that suffix back into the structured
+        diagnostic; without it every warning rendered as ``file:0:0``.
+        """
+        line, col = self._get_loc(node) if node is not None else (None, None)
+        text = f"[{code}] {message}"
+        if line is not None:
+            text += f" on line {line} col {col if col is not None else 0}"
+        if dedup and text in self.warnings:
+            return
+        self.warnings.append(text)
+
     @staticmethod
     def _is_string_like(t: Optional[Type]) -> bool:
         """True for types whose values are strings (used to reject string '+')."""
@@ -1278,7 +1296,13 @@ class TypeInferrer:
                 return FrozenType(f_type) if is_frozen else f_type
 
             elif isinstance(target_type, EchoType):
-                self.warnings.append(f"[W0002] Echo union '{target_type.name}' access is unsafe")
+                # No position: `arrow_access` nodes carry no source metadata
+                # of their own and the fallback would report the enclosing
+                # rule (line 1). Reporting nothing beats reporting line 1.
+                self._warn(
+                    "W0002",
+                    f"Echo union '{target_type.name}' access is unsafe",
+                )
                 if field_name not in target_type.fields:
                     raise self._make_error(
                         SemanticError,
@@ -1432,7 +1456,11 @@ class TypeInferrer:
                 f_type = inner.fields[field_name]
                 return FrozenType(f_type) if is_frozen else f_type
             elif isinstance(inner, EchoType):
-                self.warnings.append(f"[W0002] Echo union '{inner.name}' access is unsafe")
+                # No position: see the note on the arrow_access W0002 above.
+                self._warn(
+                    "W0002",
+                    f"Echo union '{inner.name}' access is unsafe",
+                )
                 if field_name not in inner.fields:
                     raise self._make_error(
                         SemanticError,
@@ -2193,11 +2221,18 @@ class TypeInferrer:
             src_sz = get_type_size(src_type)
             tgt_sz = get_type_size(target_type)
             if src_sz is not None and tgt_sz is not None and src_sz != tgt_sz:
-                self.warnings.append(
-                    f"[W0001] transmute from '{src_type}' ({src_sz} bytes) to '{target_type}' ({tgt_sz} bytes) has size mismatch and is unsafe"
+                self._warn(
+                    "W0001",
+                    f"transmute from '{src_type}' ({src_sz} bytes) to "
+                    f"'{target_type}' ({tgt_sz} bytes) has size mismatch and is unsafe",
+                    node,
                 )
             else:
-                self.warnings.append("[W0001] transmute is unsafe, use 'to' for safe conversions")
+                self._warn(
+                    "W0001",
+                    "transmute is unsafe, use 'to' for safe conversions",
+                    node,
+                )
             return target_type
 
         elif rule == "cast_expr":
