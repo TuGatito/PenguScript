@@ -2364,7 +2364,7 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 
 `std/spark.pengu` defines `SPARK_VERSION` and `STD_VERSION` constants; `spark.spark_version` returns the version string.
 
-### 15.2 Core module catalog (25 modules)
+### 15.2 Core module catalog (27 modules)
 
 | Module | Import | Implementation | Purpose & key functions |
 | ------ | ------ | -------------- | ----------------------- |
@@ -2385,14 +2385,16 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 | **cipher** | `import std.cipher` | Pure PenguScript | JSON + Base64: `parse_json`, `stringify_json`, `pretty_json`, `encode_base64`, `decode_base64`, `is_base64`, value-level `parse_value`/`stringify_value`, file helpers. |
 | **parchment** | `import std.parchment` | libxml2 backend | XML/HTML DOM: `parse_xml`, `parse_html`, `find`, `find_all`, `attr`, `set_attr`, `text`, `set_text`, `create_element`, `create_text`, `append_child`, serialization (`to_string`, `doc_to_string`, `escape_text`). |
 | **regulus** | `import std.regulus` | PCRE2 backend | Regular expressions: `compile`, `is_match`, `is_full_match`, `search`, `match`, `find_all`, `replace`, `split`, `escape`, `is_valid`, `quick_match`, `quick_replace`; `Match`/`Regex` value types. |
-| **seal** | `import std.seal` | mbedTLS/zlib backend | Hashing & compression: `crc32`, `md5`, `sha1`, `sha256`, `sha512` (+ `*_file` variants), `gzip`/`unzip`, zlib `compress`/`decompress` (file helpers included). |
+| **seal** | `import std.seal` | mbedTLS/zlib backend | Hashing & compression: `crc32` (unsigned 32-bit), `md5`, `sha1`, `sha256`, `sha512` (+ `*_file` variants), `gzip`/`unzip`, zlib `zlib_compress`/`zlib_decompress` (+ `*_file` helpers), HMAC (`hmac_sha256`/`hmac_sha1`/`hmac_md5`) and constant-time verification. |
 | **precis** | `import std.precis` | libcurl/microhttpd backend | Networking: HTTP client `get`/`post`/`put`/`delete`/`request`, embedded HTTP server (`serve_http`, `response`, `serve_file`), TCP sockets (`connect_tcp`, `tcp_send`, `tcp_recv`, `tcp_close`, `dns_lookup`), `url_encode`/decode; `ClientResponse`/`Request` types. |
 | **filum** | `import std.filum` | C primitives | Concurrency: `mutex`/`lock`/`unlock`/`try_lock`, `wait_group` (`add`, `done`, `wait`), `once`, channels, thread spawn, condition variables, atomics (opaque-handle value types). |
-| **loom** | `import std.loom` | Pure PenguScript | Functional collection utilities: `range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`, `sum`, `product`, `max`/`min`, plus map/filter/reduce style helpers and zip/flattening. |
+| **loom** | `import std.loom` | Pure PenguScript | Functional collection utilities: `range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`, `sum`, `product_num`, `max_int`/`min_int`, `min_max`, plus map/filter/reduce style helpers, sorted set operations and zip/flattening. Prefer `loom` over `tally` when an empty input must be representable (see §19.1). |
 | **ward** | `import std.ward` | Pure PenguScript | Assertions & invariants: `assert`, `assert_msg`, `assert_true`/`assert_false`, `assert_eq_*` / `assert_ne_*` (int/string/bool), `assert_present_*`/`assert_none_*`, `assert_ok_*`/`assert_err_*`, `expect*` message variants, `panic`, `unreachable`, and result-returning `check*` helpers. |
 | **trial** | `import std.trial` | Pure PenguScript | Unit-test framework: re-exports `ward` assertions, plus suites (`new_suite`), `test_case`/`test`, lifecycle hooks and colored reporting (`summary`). |
 | **whisper** | `import std.whisper` | C primitives + Pengu | Structured logging: `set_level`, `get_level`, `get_level_name`, level constants `LOG_TRACE`…`LOG_FATAL`, and level loggers `trace`, `debug`, `info`, `warn`, `error`, `fatal`. |
 | **ffi** | `import std.ffi` | C runtime bridges | Foreign function interface bridges: `cstr_from_string`, `cstr_free`, `string_from_cstr`, `bytes_from_string`, non-owning slice views (`slice_from_ptr`, `slice_of_*_from_ptr`), and list copies from pointers. |
+| **celeris** | `import std.celeris` | xxHash backend (opt-in) | Fast non-cryptographic hashing over `std.xxhash`: `hash32`, `hash32_seeded` (→ `u32`), `hash64`, `hash64_seeded`, `hash3_64`, `hash3_128` and their `*_seeded` variants. Opt-in: pulls the xxHash static library into the bundle. |
+| **xlsx** | `import std.xlsx` | xlsxio backend (opt-in) | Spreadsheet writer: `write_sheet`, `write_rows` for real `.xlsx` workbooks. Opt-in: needs the xlsxio link line (`-lxlsxio_write -lxlsxio_read -lzip -lz -lexpat`) and `-DSTATIC`. `std.ledger` stays pure CSV/TSV. |
 
 ### 15.3 Integrated external libraries
 
