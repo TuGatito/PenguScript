@@ -58,8 +58,8 @@ def _resolve_version() -> str:
     return read_version_file() or FALLBACK_VERSION
 
 
-#: The language/toolchain version, e.g. ``"0.10.0"``.
+#: The language/toolchain version, e.g. ``"0.16.0"``.
 __version__ = _resolve_version()
 
-#: Version with a leading ``v``, for banners: ``"v0.10.0"``.
+#: Version with a leading ``v``, for banners: ``"v0.16.0"``.
 __version_tag__ = f"v{__version__}"

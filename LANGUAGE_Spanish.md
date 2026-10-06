@@ -1,6 +1,6 @@
 # Referencia del Lenguaje PenguScript
 
-> **Versión cubierta:** PenguScript **0.14.x** (sincronizada con `VERSION` y `pengu_version.py`; generador de código C99/C11; cabeceras de runtime en `pengu_runtime.h`).
+> **Versión cubierta:** PenguScript **0.16.0** (sincronizada con `VERSION` y `pengu_version.py`; generador de código C99/C11; cabeceras de runtime en `pengu_runtime.h`).
 > Esta es la guía definitiva de sintaxis y semántica, escrita a partir de las fuentes
 > del compilador (`pengu_grammar.py`, `pengu_checker.py`, `pengu_codegen.py`,
 > `pengu_infer.py`, `pengu_runtime.h`). Complementa el
@@ -2292,7 +2292,7 @@ prioridad.
 
 ```yaml
 name: my_app
-version: 0.14.0
+version: 0.16.0
 output: exe                  # exe | c | obj | static | shared
 entry: src/main.pengu        # main entry module (defaults to src/main.pengu)
 src_dirs: [src]              # source lookup roots (default: [src])
@@ -3314,7 +3314,7 @@ pengu -V
 pengu --version
 ```
 
-- Muestra la cadena de versión (p. ej. `PenguScript v0.14.0`). La versión del compilador se registra en `VERSION` y se replica en `pengu_version.py`.
+- Muestra la cadena de versión (p. ej. `PenguScript v0.16.0`). La versión del compilador se registra en `VERSION` y se replica en `pengu_version.py`.
 
 ### 20.14 Infraestructura del runtime y diagnósticos
 
@@ -3614,4 +3614,4 @@ set acc is "{acc}b"
 
 ---
 
-*Fin de la referencia. Se agradecen las correcciones — este documento refleja el comportamiento del compilador en la versión 0.14.x; ejecuta `pengu check` sobre cualquier fragmento para confirmar la semántica en tu toolchain.*
+*Fin de la referencia. Se agradecen las correcciones — este documento refleja el comportamiento del compilador en la versión 0.16.x; ejecuta `pengu check` sobre cualquier fragmento para confirmar la semántica en tu toolchain.*

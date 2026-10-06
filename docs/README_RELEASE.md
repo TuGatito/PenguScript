@@ -24,7 +24,7 @@ pengucc_build/
 ├── include/pengu/*.h                # Runtime + dependency headers
 ├── share/pengu/std/                 # Standard library modules
 ├── share/pengu/VERSION
-├── pengus-0.14.0.vsix     # VS Code extension
+├── pengus-0.16.0.vsix     # VS Code extension
 ├── install.sh                       # FHS installer (PREFIX/DESTDIR aware)
 └── uninstall.sh
 ```
@@ -47,7 +47,7 @@ DESTDIR=/tmp/stage PREFIX=/usr ./install.sh   # package-manager staging
 1. Open Visual Studio Code.
 2. Go to **Extensions** (`Ctrl+Shift+X`).
 3. Click the `...` menu (Views and More Actions) in the top-right corner.
-4. Select **Install from VSIX...** and choose `/home/tugatito/Documentos/GitHub/PenguScript/pengucc_build/pengus-0.14.0.vsix`.
+4. Select **Install from VSIX...** and choose `/home/tugatito/Documentos/GitHub/PenguScript/pengucc_build/pengus-0.16.0.vsix`.
 
 ### 3. Create a new project
 ```bash

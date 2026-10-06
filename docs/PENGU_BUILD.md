@@ -1,4 +1,4 @@
-# PenguScript v0.6 Build System & Package Manager
+# PenguScript v0.16.0 Build System & Package Manager
 
 The PenguScript Build Manager (`pengu_project.py`) is a Cargo-style tool providing project initialization, module dependency resolution, C bundling, incremental compilation caching, debug/release profiles, and multi-target compilation with custom library linking.
 

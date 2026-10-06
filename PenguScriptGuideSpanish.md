@@ -1,6 +1,6 @@
 # Guía de Estilo Pengunic
 
-> **Versión cubierta:** PenguScript **0.14.x**
+> **Versión cubierta:** PenguScript **0.16.0**
 > Este documento define las convenciones de nomenclatura, organización e idioma que rigen la biblioteca estándar (`std.*`) y que deberían seguir todos los módulos de usuario. Es el complemento normativo de [`LANGUAGE.md`](LANGUAGE.md): dónde el *Language Reference* describe qué *se puede* escribir, este documento prescribe qué *se debe* escribir.
 > Léelo como se lee [PEP 8](https://peps.python.org/pep-0008/) + [PEP 20](https://peps.python.org/pep-0020/) para Python, o el [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/) para Rust.
 

@@ -169,7 +169,7 @@ $ pytest tests/test_error_catalog_sync.py -q
 ambos documentos vs JSON, ausencia de las 5 clases fantasma, todo código emitido
 está catalogado y todo código catalogado se emite, toda advertencia emitida está
 registrada, y `--check` en verde.
-**Commit:** `fase7(item 7.1): generar §22.2/§22.3 desde el código`
+**Commit:** `5fc0373`
 
 ---
 
@@ -273,7 +273,95 @@ cubrir condiciones sin relación*, ahora con ratchet ejecutable.
 
 **Test:** `tests/test_error_codes_uniqueness.py` (15 casos, 8 nuevos) +
 `tests/test_error_catalog_sync.py`.
-**Commit:** `fase7(item 7.2): códigos únicos — E0035 deja de cubrir 4 condiciones`
+**Commit:** `7c44c13`
+
+---
+
+### 7.5 — Sincronizar versiones (`tests/test_version.py` extendido)
+
+**Premisa del roadmap:** "`tests/test_version.py` extendido escanea los `.md` y docstrings; 0 deriva".
+
+**Verificación previa — la premisa se cae en su primera mitad:**
+
+```bash
+$ ls tests/test_version.py
+ls: no se puede acceder a 'tests/test_version.py': No such file or directory
+```
+
+**El archivo NO existe.** El audit §13.4 afirma *"Existe `tests/test_version.py` que verifica la
+coherencia de `VERSION`, `FALLBACK_VERSION` y algunos puntos"* — es **falso** en `355d946`. No hay
+nada que extender: hay que crearlo. `pengu_version.py:10-12` también afirma que "a unit test
+asserts that the fallback, the file and the places that spell the version out stay in sync": esa
+frase llevaba siendo falsa desde que se escribió.
+
+**Segunda mitad de la premisa — "13 archivos con deriva":** medida, es una **sobreestimación**. El
+recuento del audit §13.4 mezcla tres cosas distintas:
+
+| Categoría | Archivos | Veredicto |
+|---|---|---|
+| Afirmación de versión **actual**, realmente desviada | `LANGUAGE.md` (4 sitios), `LANGUAGE_Spanish.md` (4), `PenguScriptGuideEnglish.md:3`, `PenguScriptGuideSpanish.md:3`, `pengu_parser/pengu_parser.py:95`, `docs/PENGU_BUILD.md:1` (`v0.6`), `docs/README_RELEASE.md:27,50`, `pengu_version.py:61,64`, `README.md:404` | **9 archivos** — deriva real |
+| Mención **histórica** legítima | `docs/PERFORMANCE.md` (medición de 0.15.0), `docs/DEPRECATIONS.md` (versión que deprecó cada alias), `ROADMAP_1.0.0.md`, `docs/archive/AUDIT_RESPONSE.md`, `README.md:396,910` (qué release completó la stdlib), `CHEATSHEET.md` ("since 0.10.0") | **no es deriva** |
+| **Refutado** | `pengu_lsp/__init__.py:1` | El audit decía *"PenguScript v0.6 Language Server Protocol Package"*; hoy el archivo **no contiene ninguna versión**: reexporta `from pengu_version import __version__` |
+
+Así que "13 archivos" cuenta las menciones históricas como si fueran deriva. La cifra defendible es
+**9 archivos con afirmaciones desviadas**.
+
+**Resultado:** ✅ cerrado
+
+**Evidencia:**
+
+```bash
+$ .venv/bin/python -m pytest tests/test_version.py -q
+28 passed, 6 skipped
+
+# las 9 afirmaciones desviadas corregidas a 0.16.0 (o a "previous release" donde
+# el número era incidental), y docs/PENGU_BUILD.md: "v0.6" -> "v0.16.0"
+$ grep -rn 'Version covered\|Versión cubierta' LANGUAGE.md LANGUAGE_Spanish.md \
+      PenguScriptGuideEnglish.md PenguScriptGuideSpanish.md
+LANGUAGE.md:3:> **Version covered:** PenguScript **0.16.0** … 
+LANGUAGE_Spanish.md:3:> **Versión cubierta:** PenguScript **0.16.0** …
+PenguScriptGuideEnglish.md:3:> **Covered version:** PenguScript **0.16.0**
+PenguScriptGuideSpanish.md:3:> **Versión cubierta:** PenguScript **0.16.0**
+```
+
+**Falsificación (los gates fallan al revertir, comprobado):**
+
+```bash
+$ # guía EN vuelta a 0.14.x + FALLBACK_VERSION a 0.15.0
+$ pytest tests/test_version.py -q
+4 failed, 24 passed        # fallback, claim de la guía, y los dos ratchets de tokens
+```
+
+**Qué se hizo:**
+
+1. `tests/test_version.py` (**creado**, 28 casos + 6 skip justificados):
+   - **Maquinaria:** `VERSION` == `FALLBACK_VERSION` == `pengu_version.__version__` ==
+     `__version_tag__` == `pengu_lsp.__version__`. El fallback es el que más
+     importa: sólo se usa en builds congelados, así que su deriva es invisible
+     hasta que se publica.
+   - **12 afirmaciones de versión actual** parametrizadas (cabeceras de los 4
+     documentos normativos, los 2 ejemplos `pengu.yaml`, el `e.g. PenguScript vX`,
+     el "behavior at version", `docs/PENGU_BUILD.md`, los `.vsix` de
+     `docs/README_RELEASE.md`), cada una comparada con `VERSION`. Se acepta la
+     forma `0.16.x` como afirmación de la serie.
+   - **Ratchet de tokens obsoletos** (`_STALE_RE` + `HISTORICAL`): cualquier
+     `0.14.x`/`0.15.0`/`v0.6` en el conjunto escaneado falla hasta que alguien
+     escriba **por qué** es histórico. `test_historical_allowlist_has_no_dead_entries`
+     impide que la lista de excepciones se pudra en una amnistía general.
+   - Deliberadamente **no** se escanea `pengu_project.py`: está lleno de literales
+     numéricos (`time.sleep(0.15)`, duraciones de caché) que no son versiones, y un
+     gate que da falsos positivos es un gate que la gente aprende a ignorar. Su
+     superficie de versión es la plantilla `pengu.yaml`, que es la versión *del
+     proyecto*, no la del toolchain.
+   - Deliberadamente la regex **no** marca `0.9`, `0.85`, `0.4` ni `0.1.0` (medido:
+     aparecen como tiempos de benchmark, llamadas a `time.sleep` y la versión por
+     defecto de un proyecto nuevo).
+2. Las 9 afirmaciones desviadas corregidas.
+3. `pengu_version.py`: los ejemplos de docstring (`"0.10.0"`, `"v0.10.0"`) pasan a
+   la versión actual; eran la única deriva dentro del propio módulo de versión.
+
+**Test:** `tests/test_version.py` (archivo nuevo).
+**Commit:** `fase7(item 7.5): tests/test_version.py — 9 archivos con deriva a 0.16.0`
 
 ---
 

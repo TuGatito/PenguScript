@@ -1,6 +1,6 @@
 # PenguScript Language Reference
 
-> **Version covered:** PenguScript **0.14.x** (synchronized with `VERSION` and `pengu_version.py`; C99/C11 code generator; runtime headers under `pengu_runtime.h`).
+> **Version covered:** PenguScript **0.16.0** (synchronized with `VERSION` and `pengu_version.py`; C99/C11 code generator; runtime headers under `pengu_runtime.h`).
 > This is the definitive syntax & semantics guide, written against the compiler
 > sources (`pengu_grammar.py`, `pengu_checker.py`, `pengu_codegen.py`,
 > `pengu_infer.py`, `pengu_runtime.h`). It complements the quick
@@ -2346,7 +2346,7 @@ PenguScript projects are configured via `pengu.yaml` or `pengu.toml` located at 
 
 ```yaml
 name: my_app
-version: 0.14.0
+version: 0.16.0
 output: exe                  # exe | c | obj | static | shared
 entry: src/main.pengu        # main entry module (defaults to src/main.pengu)
 src_dirs: [src]              # source lookup roots (default: [src])
@@ -3545,7 +3545,7 @@ pengu -V
 pengu --version
 ```
 
-- Outputs the version string (e.g. `PenguScript v0.14.0`). The compiler version is tracked in `VERSION` and mirrored in `pengu_version.py`.
+- Outputs the version string (e.g. `PenguScript v0.16.0`). The compiler version is tracked in `VERSION` and mirrored in `pengu_version.py`.
 
 ### 20.14 Runtime Infrastructure & Diagnostics
 
@@ -3919,6 +3919,6 @@ series (see §19.0). A `MAJOR` bump is therefore the only place where a module c
 be restructured; module renames are handled with the deprecation rules above.
 
 *End of reference. Corrections welcome — this document mirrors compiler
-behavior at version 0.14.x; run `pengu check` on any snippet to confirm
+behavior at version 0.16.x; run `pengu check` on any snippet to confirm
 semantics on your toolchain.*
 
