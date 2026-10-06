@@ -22,6 +22,7 @@
 12. [Pruebas (`test`)](#12-pruebas-test)
 13. [Tabla de traducción C → Pengunic](#13-tabla-de-traducción-c--pengunic)
 14. [Anti-patrones](#14-anti-patrones)
+15. [Excepciones documentadas](#15-excepciones-documentadas)
 
 ---
 
@@ -1350,3 +1351,37 @@ weave push_if_new with xs as ref to list of int, v as int into bool:
 ```
 
 ---
+
+## 15. Excepciones documentadas
+
+Una regla de estilo que la biblioteca estándar no puede cumplir es peor que no
+tener regla: enseña a los contribuidores a ignorar la guía. La Fase 7 del roadmap
+midió cada regla que la auditoría de 1.0 marcó como incumplible y registra aquí el
+resultado — *exigida*, *acotada* o *relajada con una excepción con nombre*. Los
+números se pueden volver a medir con el comando de la última columna; la
+derivación completa está en [`AUDIT_1.0_FASE7.md`](AUDIT_1.0_FASE7.md) §7.7.
+
+| Regla (§) | Estado | Medición | Cómo re-medir |
+|---|---|---|---|
+| Un `weave` público lleva docstring `##` (§11.2) | **Exigida** | `weave` 1314/1315. La única excepción es `std/cipher.pengu:375 weave _b32_val`, un helper **privado** — así que la cobertura de funciones *públicas* es del 100 % | `python -m pytest tests/test_std_docs_completeness.py -q` |
+| Todo `declare` / `const` / `alias` / `omen` está documentado (§11.3) | **Acotada fuera** | `declare` 630/1862 (33,8 %), `const` 123/593 (20,7 %), `alias` 50/153 (32,7 %), `omen` 4/66 (6,1 %). La mayoría son **bindings generados** cuyo texto de documentación es el comentario de la cabecera C de origen; exigir el 100 % obligaría a inventar prosa para superficie de terceros | `python -m pytest tests/test_std_docs_completeness.py -q` |
+| Indentar con 4 espacios, nunca tabuladores (§3.1) | **Exigida** | `.pengufmt.toml` y `std/.pengufmt.toml` fijan `tab_size = 4`, `pengu_project._resolve_indent` devuelve 4 por defecto, y el formateador es idempotente en toda la stdlib | `python pengu_project.py fmt --check std/` |
+| Un local no puede ensombrecer un `weave` global (§2.6) | **Exigida** | `0 W0005` en los 27 módulos escritos a mano de `std/` | `python pengu_project.py check --entry std/<módulo>.pengu` |
+| Sin conversiones inseguras (§9.4) | **Exigida** | `0 W0001` en los 27 módulos y **cero** llamadas a `transmute` en `std/` — la única aparición es un comentario explicativo en `std/ffi.pengu:67`. Si alguna vez hiciera falta, queda confinada a `std/ffi` y `std/filum` y debe ser del mismo tamaño | `python pengu_project.py check --entry std/<módulo>.pengu` |
+| Los nombres y las firmas son consistentes entre módulos (§10.3) | **Relajada — excepción con nombre** | `std.loom` y `std.tally` comparten deliberadamente 15 nombres con contratos *distintos* (`loom.mean([1,2]) == 1.5` frente a `tally.mean([1,2]) == 1`; `loom.mode([])` → `none` frente a `tally.mode([])` → `0`). Son contratos documentados, no deriva | ver [`LANGUAGE.md` §19.1.1](LANGUAGE.md#1911-choosing-between-stdloom-and-stdtally) |
+
+Dos consecuencias que conviene decir claramente, porque auditorías anteriores
+afirmaban lo contrario:
+
+1. **La regla de indentación nunca fue el problema.** Una auditoría anterior
+   registró que "`pengu fmt` impone 2 espacios y `--indent 4` corrompe el
+   archivo". Es falso desde `c42776c`: la configuración fija 4, el valor por
+   defecto es 4 y `fmt --check std/` sale limpio. La prosa obsoleta que decía
+   "2 espacios" en `LANGUAGE.md` §20.7 y `CHEATSHEET.md` se corrigió en la Fase 7.
+2. **"Docstring en el 100 % de las declaraciones" no es una regla que valga la
+   pena.** Acotada a *funciones públicas* se cumple exactamente; extendida a la
+   superficie generada de `declare` exigiría documentar código que este proyecto
+   no escribe.
+
+Una regla sólo entra en esta tabla con una medición y un comando. Si un cambio
+futuro rompe una fila *Exigida*, eso es una regresión, no una excepción nueva.

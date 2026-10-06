@@ -22,6 +22,7 @@
 12. [Tests (`test`)](#12-tests-test)
 13. [C → Pengunic translation table](#13-c--pengunic-translation-table)
 14. [Anti-patterns](#14-anti-patterns)
+15. [Documented exceptions](#15-documented-exceptions)
 
 ---
 
@@ -1350,3 +1351,37 @@ weave push_if_new with xs as ref to list of int, v as int into bool:
 ```
 
 ---
+
+## 15. Documented exceptions
+
+A style rule that the standard library cannot satisfy is worse than no rule: it
+teaches contributors to ignore the guide. Roadmap Phase 7 measured every rule the
+1.0 audit had flagged as unenforceable and recorded the outcome here — *enforced*,
+*scoped*, or *relaxed with a named exception*. The numbers are re-measurable with
+the command in the last column; the full derivation is in
+[`AUDIT_1.0_FASE7.md`](AUDIT_1.0_FASE7.md) §7.7.
+
+| Rule (§) | Status | Measurement | How to re-measure |
+|---|---|---|---|
+| A public `weave` carries a `##` docstring (§11.2) | **Enforced** | `weave` 1314/1315. The single exception is `std/cipher.pengu:375 weave _b32_val`, a **private** helper — so coverage of *public* functions is 100 % | `python -m pytest tests/test_std_docs_completeness.py -q` |
+| Every `declare` / `const` / `alias` / `omen` is documented (§11.3) | **Scoped out** | `declare` 630/1862 (33.8 %), `const` 123/593 (20.7 %), `alias` 50/153 (32.7 %), `omen` 4/66 (6.1 %). Most are **generated bindings** whose doc text is the upstream C header comment; demanding 100 % would mean inventing prose for third-party API surface | `python -m pytest tests/test_std_docs_completeness.py -q` |
+| Indent with 4 spaces, never tabs (§3.1) | **Enforced** | `.pengufmt.toml` and `std/.pengufmt.toml` pin `tab_size = 4`, `pengu_project._resolve_indent` defaults to 4, and the formatter is idempotent on the whole stdlib | `python pengu_project.py fmt --check std/` |
+| A local may not shadow a global `weave` (§2.6) | **Enforced** | `0 W0005` across all 27 hand-written `std/` modules | `python pengu_project.py check --entry std/<module>.pengu` |
+| No unsafe conversion (§9.4) | **Enforced** | `0 W0001` across all 27 modules, and **zero** `transmute` calls in `std/` — the only occurrence is an explanatory comment in `std/ffi.pengu:67`. Should one ever be needed, it is confined to `std/ffi` and `std/filum` and must be same-size | `python pengu_project.py check --entry std/<module>.pengu` |
+| Names and signatures are consistent across modules (§10.3) | **Relaxed — named exception** | `std.loom` and `std.tally` deliberately share 15 names with *different* contracts (`loom.mean([1,2]) == 1.5` vs `tally.mean([1,2]) == 1`; `loom.mode([])` → `none` vs `tally.mode([])` → `0`). Both are documented contracts, not drift | see [`LANGUAGE.md` §19.1.1](LANGUAGE.md#1911-choosing-between-stdloom-and-stdtally) |
+
+Two consequences worth stating plainly, because earlier audits reported the
+opposite:
+
+1. **The indentation rule was never the problem.** An earlier audit recorded that
+   "`pengu fmt` imposes 2 spaces and `--indent 4` corrupts the file". That is
+   false as of `c42776c`: the config pins 4, the default is 4, and
+   `fmt --check std/` is clean. The stale "2-space" prose that survived in
+   `LANGUAGE.md` §20.7 and `CHEATSHEET.md` was corrected in Phase 7.
+2. **"Docstring on 100 % of declarations" is not a rule worth having.** Scoped to
+   *public functions* it is met exactly; extended to generated `declare`
+   surfaces it would require writing documentation for code this project does not
+   author.
+
+A rule is only added to this table with a measurement and a command. If a future
+change makes an *Enforced* row fail, that is a regression, not a new exception.

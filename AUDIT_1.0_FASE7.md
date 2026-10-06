@@ -580,6 +580,55 @@ literalmente desde `pengu_project.py:802-807` y `:2794-2805`.
 
 ---
 
+### 7.7 — Eliminar o relajar las reglas incumplibles
+
+**Premisa del roadmap:** "las 5 reglas de AUDIT §10.4 ajustadas con excepción documentada".
+
+**Verificación previa — §10.4 lista 5 reglas, pero al medirlas sólo 2 necesitan excepción:**
+
+| Regla de AUDIT §10.4 | Medición | Veredicto |
+|---|---|---|
+| "Toda función pública debe tener docstring" — *"37 % de nombres públicos sin doc"* | `weave`: **1314/1315 = 99,9 %**. La única sin doc es `std/cipher.pengu:375 weave _b32_val`, un helper **privado** → cobertura de funciones *públicas* = **100 %**. `declare` 630/1862 (33,8 %), `const` 123/593 (20,7 %), `alias` 50/153 (32,7 %), `omen` 4/66 (6,1 %) — superficie **generada** | **Acotar** la regla a `weave` públicos; los bindings generados quedan fuera |
+| "Usa 4 espacios (implícito)" — *"`pengu fmt` impone 2 y `--indent 4` corrompe"* | `.pengufmt.toml` y `std/.pengufmt.toml` → `tab_size = 4`; `_resolve_indent` → `return 4`; `pengu fmt --check std/` → `0 file(s)`. Commit `c42776c` | ❌ **REFUTADA** (`F7-N2`): la regla ya se cumple y está fijada. Lo obsoleto era la prosa que decía "2 espacios" |
+| "Sin shadowing de nombres globales" — `loom` 21, `tally` 3, `precis` 4, … = 29 W0005 | **0 W0005** en los 27 módulos de `std/` | **Exigida** — no hay nada que relajar |
+| "API consistente entre módulos" — `loom`/`tally` comparten 15 nombres con tipos de retorno distintos | 15 nombres compartidos, **0 con la misma firma**; dos contratos deliberados (6.5, diferido a 1.1), ya documentados en `LANGUAGE.md` §19.1.1 | **Relajar con excepción con nombre** |
+| "Sin conversiones inseguras" — `ffi` 13 `transmute` (3 con mismatch), `filum` 8 | **0 llamadas a `transmute`** en todo `std/` (la única aparición es el comentario `std/ffi.pengu:67`); **0 W0001** en los 27 módulos | **Exigida** — y si alguna vez hiciera falta, confinada a `ffi`/`filum` y del mismo tamaño |
+
+Medición de W0005/W0001 sobre los 27 módulos, **con control positivo** para que el 0
+no sea un falso negativo:
+
+```bash
+$ for f in std/*.pengu; do pengu check --entry "$f"; done
+std/archivum.pengu W0005=0 W0001=0 errors=0
+… (los 27 igual)
+# control positivo — un programa que sí los dispara:
+Warning w1.pengu:7:0 [W0005] Variable 'helper' shadows global function 'helper'
+Warning w1.pengu:6:21 [W0001] transmute from 'i32' (4 bytes) to 'i64' (8 bytes) has size mismatch and is unsafe
+```
+
+**Resultado:** ✅ cerrado — sólo **2 reglas** se ajustan (una acotada, una relajada);
+las otras **3 se confirman exigidas** con medición, y una de ellas (§10.4 la daba
+por incumplible) estaba simplemente **mal medida**.
+
+**Qué se hizo:** nueva sección **§15 "Documented exceptions" / "Excepciones
+documentadas"** en las **dos** guías, con una tabla de 6 filas (regla, estado,
+medición y **comando para re-medirla**) y dos consecuencias explícitas: que la regla
+de indentación nunca estuvo rota y que "docstring en el 100 % de las declaraciones"
+no es una regla que valga la pena tener. Entrada añadida a la tabla de contenidos de
+ambas.
+
+**Test:** `tests/test_style_guide_exceptions.py` (19 casos). No se conforma con que
+el texto exista: **recalcula** los números de cobertura desde las fuentes y los
+compara con los citados en la guía, comprueba que el único `weave` sin doc es
+privado, contrasta la afirmación de indentación con la configuración real
+(`.pengufmt.toml` + `_resolve_indent`) y verifica con un grep que `std/` no tiene
+llamadas a `transmute`. Las comprobaciones caras (W0005/W0001 sobre 27 módulos) no se
+re-ejecutan; la guía da el comando para reproducirlas.
+**Falsificación:** cambiar `1314/1315` por `1313/1315` en la guía → 1 failed.
+**Commit:** `1dd2d55`
+
+---
+
 ## Hallazgos nuevos de la Fase 7 (no estaban en el roadmap)
 
 ### F7-N3 — 🔴 El espacio de nombres `Exxxx` está compartido entre capas y nadie lo vigilaba
