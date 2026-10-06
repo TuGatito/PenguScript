@@ -1,0 +1,11 @@
+# 0.12.0-era module surface: `import` + module-level `const` + a `declare`d C
+# bridge.  Still valid on every later release (additive changes only).
+import std.spark
+
+const ANSWER as int is 42
+
+declare getpid_int into int
+
+weave main into int:
+  calling spark.println with "answer={ANSWER}"
+  return 0

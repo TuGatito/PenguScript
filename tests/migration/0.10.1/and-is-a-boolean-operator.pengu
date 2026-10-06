@@ -1,0 +1,11 @@
+# MIGRATION.md §3 — `and`/`or` are boolean operators and stay correct; they must
+# NOT be rewritten by a migration.  Pins the other side of the 0.10.0 change.
+import std.spark
+
+weave main into int:
+  var a as bool is true
+  var b as bool is false
+  if a and not b:
+    calling spark.println with "and is conjunction"
+    return 0
+  return 1

@@ -1,0 +1,12 @@
+# 0.13.0-era optional handling: `maybe T`, `some`, `maybe none` and `or else`.
+weave pick with flag as bool into maybe int:
+  if flag:
+    return some 5
+  return maybe none
+
+weave main into int:
+  var m as maybe int is calling pick with true
+  var v as int is m or else 0
+  if v == 5:
+    return 0
+  return 1

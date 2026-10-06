@@ -1,0 +1,11 @@
+# MIGRATION.md §3 — in a *pure name/type* list `and` is still a separator
+# (`shard T and U`), which is exactly why the 0.10.0 rewrite cannot be automated.
+rune Box shard T and U:
+  first as T
+  second as U
+
+weave main into int:
+  var p as Box of int, int is with first is 7, second is 2
+  if p.first == 7:
+    return 0
+  return 1

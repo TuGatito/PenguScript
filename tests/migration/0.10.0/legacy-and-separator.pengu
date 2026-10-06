@@ -1,0 +1,8 @@
+# MIGRATION.md §3 — the only breaking change in the project's history (0.10.0).
+# Before 0.10.0, `and` separated elements in a parameter list.  Since 0.10.0 it is
+# the boolean operator, so this program must be REJECTED with E0000.
+weave add with a as int and b as int into int:
+  return a + b
+
+weave main into int:
+  return calling add with 1, 2

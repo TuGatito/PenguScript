@@ -1,0 +1,85 @@
+{
+  "_comment": [
+    "Migration corpus — roadmap 2.0 Phase 8 item 8.5.",
+    "Every entry is a program written in the syntax of the version named in its",
+    "directory, plus the outcome MIGRATION.md documents for it.  The corpus exists",
+    "so that a future breaking change cannot land without an example of what it",
+    "breaks, and so that `pengu migrate` (roadmap 4.14b, deferred to 1.1) has a",
+    "validation corpus the day it is written.",
+    "'expects': 'ok' means `pengu check --entry` must exit 0 and the built program",
+    "must exit with 'rc'.  'expects': 'error' means it must exit non-zero with the",
+    "code in 'code' (asserted on the structured [Exxxx] token, never on prose)."
+  ],
+  "programs": [
+    {
+      "file": "0.10.0/legacy-and-separator.pengu",
+      "version": "0.10.0",
+      "expects": "error",
+      "code": "E0000",
+      "why": "MIGRATION.md §3: before 0.10.0 `and` separated parameter lists; the compiler now refuses it with E0000 instead of guessing."
+    },
+    {
+      "file": "0.10.0/ambiguous-and-after-call.pengu",
+      "version": "0.10.0",
+      "expects": "error",
+      "code": "E0005",
+      "why": "MIGRATION.md §3: after a call with arguments `and` is ambiguous, so it is rejected with E0005 — this is the case an automated rewriter cannot resolve."
+    },
+    {
+      "file": "0.10.0/expr-list-migrated.pengu",
+      "version": "0.10.0",
+      "expects": "ok",
+      "rc": 0,
+      "why": "The migrated form of the two programs above (`and` -> `,`): what a 0.9.x project must look like after the move."
+    },
+    {
+      "file": "0.10.1/and-is-a-boolean-operator.pengu",
+      "version": "0.10.1",
+      "expects": "ok",
+      "rc": 0,
+      "why": "The other half of the 0.10.0 change: `and` as a boolean operator stays correct and must NOT be rewritten."
+    },
+    {
+      "file": "0.11.0/shard-name-type-lists.pengu",
+      "version": "0.11.0",
+      "expects": "ok",
+      "rc": 0,
+      "why": "`and` is still a separator in pure name/type lists (`shard T and U`), which is why the 0.10.0 rewrite is not mechanical."
+    },
+    {
+      "file": "0.12.0/modules-and-consts.pengu",
+      "version": "0.12.0",
+      "expects": "ok",
+      "rc": 0,
+      "why": "0.12.0 module surface: `import`, module-level `const` and a `declare`d C bridge. No breaking change since."
+    },
+    {
+      "file": "0.13.0/maybe-and-or-else.pengu",
+      "version": "0.13.0",
+      "expects": "ok",
+      "rc": 0,
+      "why": "0.13.0 optional handling: `maybe T`, `some`, `maybe none`, `or else`."
+    },
+    {
+      "file": "0.14.0/judge-and-omen.pengu",
+      "version": "0.14.0",
+      "expects": "ok",
+      "rc": 0,
+      "why": "0.14.0 exhaustive dispatch: `omen` plus `judge`/`when`."
+    },
+    {
+      "file": "0.15.0/comprehensions-and-maps.pengu",
+      "version": "0.15.0",
+      "expects": "ok",
+      "rc": 0,
+      "why": "0.15.0 collection surface: comprehensions, `map of K to V`, `in`."
+    },
+    {
+      "file": "0.16.0/deprecation-and-annotations.pengu",
+      "version": "0.16.0",
+      "expects": "ok",
+      "rc": 0,
+      "why": "0.16.0 surface: `@deprecated` (W0006) with its replacement plus attribute annotations; a warning, not an error."
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+# 0.15.0-era collection surface: comprehensions, `map of K to V` and `in`.
+weave main into int:
+  var xs as list of int is [1, 2, 3, 4]
+  var evens is for x in xs when x % 2 == 0 then x
+  var d as map of string to int is {"a": 1}
+  if evens.len == 2 and "a" in d:
+    return 0
+  return 1

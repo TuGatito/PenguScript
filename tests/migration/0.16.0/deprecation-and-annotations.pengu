@@ -1,0 +1,14 @@
+# 0.16.0-era surface: `@deprecated` (W0006, see docs/DEPRECATIONS.md) with the
+# replacement, plus attribute annotations.  Compiles with a warning, not an error.
+@deprecated("use modern instead")
+weave old into int:
+  return 1
+
+@inline
+weave modern into int:
+  return calling old
+
+weave main into int:
+  if calling modern == 1:
+    return 0
+  return 1
