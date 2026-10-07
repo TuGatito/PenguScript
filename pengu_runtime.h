@@ -675,6 +675,22 @@ extern "C"
 
 #else /* !PENGU_FRAME_TRACE */
 
+  /*
+   * Phase 10 / F10-N3. The generated `main` always calls this (pengu_codegen's
+   * entry-point wrapper does not itself test the macro), so the symbol has to
+   * exist in *both* configurations. It used to be defined only inside the
+   * `#if PENGU_FRAME_TRACE` branch above, which made the knob BENCHMARKS.md
+   * documents for its "1.8x vs C" measurement (`-DPENGU_FRAME_TRACE=0`) fail to
+   * compile the bundle with
+   *   error: implicit declaration of function 'pengu_install_crash_handler'
+   * With the frame trace compiled out there is no frame stack to dump, so this
+   * stays a deliberate no-op: bounds panics and the signal handler that does not
+   * depend on the trace keep working, and nothing about the ABI changes.
+   */
+  static inline void pengu_install_crash_handler(void)
+  {
+  }
+
   static inline void pengu_frame_push(const char *func, const char *file, int line)
   {
     (void)func; (void)file; (void)line;
