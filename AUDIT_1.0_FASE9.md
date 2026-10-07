@@ -101,6 +101,12 @@ validador los rechaza si apuntan fuera (probado con un tar sintético en
 **segunda verificación independiente** de la tabla de digests: los bytes
 descargados otra vez hashean a los valores fijados en el commit.
 
+**Y la prueba completa:** `python make_release.py` (ruta de release, `force=True`)
+recorrió las **16** entradas — descarga, hash contra el digest fijado y
+extracción endurecida — sin un solo fallo, y dejó `extern/.pengu_verified.json`
+con las 16 entradas; la llamada de `build_runtime.py` (sin `force`) las reutiliza
+por el sello en vez de re-descargar.
+
 ---
 
 ## 4. Hallazgos nuevos
