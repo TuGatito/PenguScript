@@ -15,7 +15,7 @@
 | Surface | State | Why |
 |---|---|---|
 | Reserved words (LANGUAGE.md §3.4) | 🔒 Frozen — 69 tokens | A new reserved word breaks source compatibility; additions need 2.0 |
-| Soft keywords (`frozen`, `borrowed`, `inline`, `ritual`) | 🔒 Frozen | Contextual only, so they can be used as identifiers; the *positions* are promised |
+| Soft keywords (`frozen`, `inline`, `ritual`) | 🔒 Frozen | Contextual only, so they can be used as identifiers; the *positions* are promised. `borrowed` was a soft keyword and was removed in 1.0 |
 | Range syntax `a to b` | 🔒 Frozen as canonical | `..` is deprecated (`W0013`), kept through 1.x, removed in 2.0 |
 | `ref to frozen T` | 🔒 Frozen as canonical | `frozen ref to T` is an accepted alias that normalises to it (LANGUAGE.md §9.5) |
 | Primitive → C type table (LANGUAGE.md §4.1) | 🔒 Frozen | It is the ABI |
@@ -99,7 +99,6 @@ with
 
 <!-- freeze:soft-keywords -->
 ```text
-borrowed
 frozen
 inline
 ritual
@@ -108,20 +107,23 @@ ritual
 
 ## 2. ABI
 
-`PENGU_ABI_VERSION` is **1**. The runtime layout (PenguString, PenguList, PenguMap,
+`PENGU_ABI_VERSION` is **2**. The runtime layout (PenguString, PenguList, PenguMap,
 PenguMaybe, PenguResult, the frame stack) is frozen for 1.x; changing any layout is a
 two-step operation documented in [`docs/ABI.md`](docs/ABI.md).
 
+v2 is the manual-memory layout: `PenguList` (24 bytes) and `PenguMap` (32 bytes) no
+longer carry element cleanup/clone callbacks, and containers never clone on store.
+
 | Surface | State | Why |
 |---|---|---|
-| `PENGU_ABI_VERSION` | 🔒 Frozen at 1 | A bump means a binary-incompatible layout change |
+| `PENGU_ABI_VERSION` | 🔒 Frozen at 2 | A bump means a binary-incompatible layout change |
 | Struct layouts in `pengu_runtime.h` | 🔒 Frozen | Same reason |
 | The `_Static_assert` + `pengu_abi_version()` link gate | 🔒 Frozen | It is how a mismatched archive fails loudly |
 | Adding a **new** exported runtime symbol | 🟡 Permitted in 1.x | Additive; guarded by `tests/test_abi_version.py` |
 
 <!-- freeze:abi-version -->
 ```text
-PENGU_ABI_VERSION = 1
+PENGU_ABI_VERSION = 2
 ```
 <!-- /freeze:abi-version -->
 
@@ -375,8 +377,6 @@ E0043
 E0044
 E0045
 E0046
-E0047
-E0048
 E0049
 E0050
 E0051

@@ -1,16 +1,16 @@
 # PenguScript Runtime ABI
 
 > The versioning policy for `PENGU_ABI_VERSION`. The canonical layout table lives
-> in [`../pengu_runtime.h`](../pengu_runtime.h) (`ABI v1 — frozen at PenguScript
+> in [`../pengu_runtime.h`](../pengu_runtime.h) (`ABI v2 — frozen at PenguScript
 > 1.0.0`), which is the normative artifact; this document defines *when the
 > number moves*, the header defines *what the number currently means*.
 
 ## What it is
 
-`PENGU_ABI_VERSION` (currently **1**) is the version of the **binary layout of the
+`PENGU_ABI_VERSION` (currently **2**) is the version of the **binary layout of the
 runtime containers** shared between two separately compiled artifacts:
 
-1. the C bundle that `pengu_codegen.py` emits for a program (`bundle.c`), and
+1. the C bundle that the `pengu_codegen` package emits for a program (`bundle.c`), and
 2. a prebuilt `build/lib/libpengu_runtime.a` compiled at some earlier point.
 
 The version covers the structs the generated code embeds *by value* or indexes by
@@ -18,13 +18,19 @@ field, and the signatures of every exported `pengu_*` function the bundle calls:
 
 | Struct | Role |
 |---|---|
-| `PenguString` | owned/borrowed string (`data`, `len`, `is_owned`) |
+| `PenguString` | string buffer (`data`, `len`, `is_owned`); `is_owned == 1` marks a heap buffer you can `banish`, `0` a literal or non-owning view |
 | `PenguSlice` | typed view (`data`, `len`, `elem_size`) |
-| `PenguList` | growable list (+ `elem_cleanup` / `elem_clone`) |
-| `PenguMap` | hash map (+ key/value sizes, cleanup and clone hooks) |
+| `PenguList` | growable list, **24 bytes**: `data`=0 `len`=8 `cap`=12 `elem_size`=16 (no element callbacks) |
+| `PenguMap` | hash map, **32 bytes**: `entries`=0 `len`=8 `cap`=12 `key_size`=16 `val_size`=24 (no cleanup/clone hooks) |
 | `PenguMaybe` | optional (`is_present`, `value`) |
 | `PenguResult` | fallible result (`is_ok`, `ok_val`, `err_val`) |
 | `PenguRange` | `start` / `end` iteration pair |
+
+**v2 (manual memory management):** `PenguList` and `PenguMap` dropped their element
+cleanup/clone callbacks, shrinking from 40 to 24 bytes and from 64 to 32 bytes
+respectively. Storing an element is now always a `memcpy` and releasing a container
+frees only the container's own buffer — see LANGUAGE.md §13.5. Every v1 bundle that
+embedded the old structs by value must be recompiled.
 
 The generated bundle and the archive must therefore be built against the **same**
 `pengu_runtime.h`. If they are not, a mismatch does not fail loudly on its own: the
@@ -58,7 +64,7 @@ error.
 
 Changing a struct is a two-step operation: bump `PENGU_ABI_VERSION` in
 `pengu_runtime.h`, bump `PENGU_EXPECTED_ABI_VERSION` in
-`pengu_parser/pengu_codegen.py`, and update the size/offset table in the header
+`pengu_parser/pengu_codegen/_base.py`, and update the size/offset table in the header
 plus `tests/abi/test_abi_layout.c`.
 
 ## How it is verified
@@ -71,8 +77,8 @@ The generated bundle carries an assertion against the `pengu_runtime.h` it was
 generated next to:
 
 ```c
-_Static_assert(PENGU_ABI_VERSION == 1,
-               "pengu_runtime.h ABI mismatch: bundle expects v1");
+_Static_assert(PENGU_ABI_VERSION == 2,
+               "pengu_runtime.h ABI mismatch: bundle expects v2");
 ```
 
 This catches a bundle produced by a codegen that expects one version being built
@@ -117,7 +123,7 @@ Every generated bundle carries a pin, so the archive cannot be dropped by the
 linker and a stale `libpengu_runtime.a` fails at link time:
 
 ```c
-/* emitted once per bundle by pengu_parser/pengu_codegen.py */
+/* emitted once per bundle by pengu_parser/pengu_codegen/bundle.py */
 extern int pengu_abi_version(void);
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((used))

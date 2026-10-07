@@ -1185,7 +1185,13 @@ def build_pengu_runtime(cc, ar, rebuild=False):
         return None
 
     if target_lib.exists() and not rebuild:
-        if target_lib.stat().st_mtime >= runtime_c.stat().st_mtime:
+        # `pengu_runtime.c` includes `pengu_runtime.h`, and the ABI version and
+        # every struct layout live in the header.  Comparing only against the
+        # `.c` mtime kept a stale `libpengu_runtime.a` alive across an ABI bump:
+        # the generated bundle then failed the `_Static_assert` (or, worse,
+        # linked against mismatched struct offsets).  Both inputs must be older.
+        newest_input = max(runtime_c.stat().st_mtime, runtime_h.stat().st_mtime)
+        if target_lib.stat().st_mtime >= newest_input:
             print(f"[RUNTIME] {target_lib.name} is up to date.")
             return target_lib
 

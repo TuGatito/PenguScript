@@ -63,6 +63,14 @@ RUNTIME_C = REPO / "pengu_parser" / "pengu_runtime.c"
 ABI_SYMBOL = "pengu_abi_version"
 
 
+def _header_abi_version() -> int:
+    """The `PENGU_ABI_VERSION` the header advertises, read from the source."""
+    header = (REPO / "pengu_runtime.h").read_text(encoding="utf-8")
+    match = re.search(r"^#define\s+PENGU_ABI_VERSION\s+(\d+)", header, re.MULTILINE)
+    assert match, "PENGU_ABI_VERSION is not defined in pengu_runtime.h"
+    return int(match.group(1))
+
+
 def _nm_defined_symbols(archive: Path) -> dict:
     """Returns {symbol_name: nm_type_letter} for *defined* symbols in `archive`.
 
@@ -342,6 +350,8 @@ def test_consumer_of_the_symbol_cannot_link_a_stale_archive(tmp_path):
     )
     exe = tmp_path / "consumer_ok"
     run = subprocess.run([str(exe)], capture_output=True, text=True, timeout=60)
-    assert run.returncode == 1, (
-        f"the control binary should exit with the ABI version (1), got {run.returncode}"
+    expected_abi = _header_abi_version()
+    assert run.returncode == expected_abi, (
+        f"the control binary should exit with the ABI version ({expected_abi}), "
+        f"got {run.returncode}"
     )

@@ -1,4 +1,4 @@
-"""ABI v1 layout gate (roadmap Phase 2, items 2.2.a / 2.2.b).
+"""ABI v2 layout gate (roadmap Phase 2, items 2.2.a / 2.2.b).
 
 Compiles and runs ``tests/abi/test_abi_layout.c`` against the shipped
 ``pengu_runtime.h`` and asserts ``sizeof``/``offsetof`` for every runtime struct
@@ -36,4 +36,4 @@ def test_runtime_abi_layout(tmp_path):
 
     run = subprocess.run([str(exe)], capture_output=True, text=True, timeout=60)
     assert run.returncode == 0, f"ABI layout changed:\n{run.stderr}\n{run.stdout}"
-    assert "ABI v1 OK" in run.stdout or "ABI v1 SKIP" in run.stdout
+    assert "ABI v2 OK" in run.stdout or "ABI v2 SKIP" in run.stdout

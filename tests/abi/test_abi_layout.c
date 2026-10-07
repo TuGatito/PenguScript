@@ -1,11 +1,11 @@
 /*
- * ABI v1 layout check for the PenguScript C runtime.
+ * ABI v2 layout check for the PenguScript C runtime.
  *
  * Compile and run standalone:
  *     gcc -I<repo> tests/abi/test_abi_layout.c -o abi_check && ./abi_check
  *
  * The sizes/offsets below are for 64-bit targets (LP64 and LLP64); on a 32-bit
- * target the program reports SKIP instead of asserting, because ABI v1 only
+ * target the program reports SKIP instead of asserting, because ABI v2 only
  * covers 64-bit platforms.  `tests/test_abi_layout.py` runs this for the gc
  * toolchain available in CI.
  */
@@ -39,7 +39,7 @@ static int failures = 0;
 int main(void)
 {
 #if !defined(__LP64__) && !defined(_WIN64) && !defined(__x86_64__) && !defined(__aarch64__)
-    printf("ABI v1 SKIP (non-64-bit target): sizeof(PenguString)=%zu\n", sizeof(PenguString));
+    printf("ABI v2 SKIP (non-64-bit target): sizeof(PenguString)=%zu\n", sizeof(PenguString));
     return 0;
 #else
     /* PenguString: char* + int + int32_t */
@@ -54,17 +54,15 @@ int main(void)
     CHECK_OFFSET(PenguSlice, len, 8);
     CHECK_OFFSET(PenguSlice, elem_size, 16);
 
-    /* PenguList: void* + int + int + size_t + 2 fn pointers */
-    CHECK_SIZE(PenguList, 40);
+    /* PenguList: void* + int + int + size_t (no element callbacks since v2) */
+    CHECK_SIZE(PenguList, 24);
     CHECK_OFFSET(PenguList, data, 0);
     CHECK_OFFSET(PenguList, len, 8);
     CHECK_OFFSET(PenguList, cap, 12);
     CHECK_OFFSET(PenguList, elem_size, 16);
-    CHECK_OFFSET(PenguList, elem_cleanup, 24);
-    CHECK_OFFSET(PenguList, elem_clone, 32);
 
-    /* PenguMap: entries + int + int + 2 size_t + 4 fn pointers */
-    CHECK_SIZE(PenguMap, 64);
+    /* PenguMap: entries + int + int + 2 size_t (no entry callbacks since v2) */
+    CHECK_SIZE(PenguMap, 32);
     CHECK_OFFSET(PenguMap, entries, 0);
     CHECK_OFFSET(PenguMap, len, 8);
     CHECK_OFFSET(PenguMap, cap, 12);
@@ -87,16 +85,16 @@ int main(void)
     CHECK_OFFSET(PenguRange, start, 0);
     CHECK_OFFSET(PenguRange, end, 8);
 
-    if (PENGU_ABI_VERSION != 1) {
-        fprintf(stderr, "FAIL: PENGU_ABI_VERSION = %d, expected 1\n", PENGU_ABI_VERSION);
+    if (PENGU_ABI_VERSION != 2) {
+        fprintf(stderr, "FAIL: PENGU_ABI_VERSION = %d, expected 2\n", PENGU_ABI_VERSION);
         failures++;
     }
 
     if (failures) {
-        fprintf(stderr, "ABI v1 FAILED (%d check(s))\n", failures);
+        fprintf(stderr, "ABI v2 FAILED (%d check(s))\n", failures);
         return 1;
     }
-    printf("ABI v1 OK\n");
+    printf("ABI v2 OK\n");
     return 0;
 #endif
 }
