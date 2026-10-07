@@ -2,6 +2,99 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [1.0.0] — 2026-10-07
+
+> Primer release estable. Recoge el cierre de los **11 bloqueantes** de
+> `AUDIT_1.0.md` §20.1 (cada uno con un test que falla al revertir el fix), la
+> congelación de la superficie pública y la publicación del corpus ejecutable de
+> compatibilidad. El detalle por fase está en los `AUDIT_1.0_FASE*.md` y el
+> resumen de lo que **no** entra en 1.0, con su medición, en `ROADMAP_1.1.md`.
+> La versión anterior publicada era `0.16.0`; `1.0.0-rc1` fue el release
+> candidate y no se publicó por separado.
+
+### Added
+
+- **`tests/compliance/` — 54 programas canónicos de compliance** (Fase 8, item
+  8.4): uno por sección de `LANGUAGE.md` (§2–§19), con `corpus.json` como fuente
+  de verdad y `run_all.py` como runner. La regla C1 se cumple por construcción:
+  cada programa se **checkea, construye y ejecuta**, y su código de salida se
+  compara con el declarado. Gate: `pytest tests/test_compliance_corpus.py -q`.
+- **`tests/migration/` — 10 programas de migración** (Fase 8, item 8.5): uno por
+  línea de versión publicada desde `0.10.0`, con el resultado que `MIGRATION.md`
+  documenta en `EXPECTED.json`. **8 de los 10 pasan por diseño; los otros 2
+  fallan a propósito**, porque son la sintaxis pre-`0.10.0` de `and` como
+  separador y el compilador debe rechazarlos con `E0000`/`E0005` (**F10-N10**).
+  Gate: `pytest tests/test_migration_corpus.py -q`.
+- **`docs/FREEZE.md` — manifiesto de la superficie congelada** (Fase 10, item
+  10.1) y su gate `tests/test_freeze_manifest.py`, que compara cada lista
+  contra el árbol y **ejecuta** el CLI en vez de contra una segunda copia del
+  documento.
+- **Property-based testing con `hypothesis`** (Fase 8, item 8.7): las **7**
+  propiedades de `AUDIT_1.0.md` §11.5 (`tests/test_properties.py`), incluidas la
+  idempotencia del formateador y la preservación de semántica.
+- **`docs/RELEASE.md`** y `tests/test_release_handoff.py` (Fase 9): el handoff
+  tag → `release.yml` → `release-verify.yml` es un **dispatch explícito** con
+  `actions: write`, porque un push hecho con `GITHUB_TOKEN` no dispara workflows.
+
+### Changed
+
+- **Versión `1.0.0` en todo el sitio** (Fase 11, item 11.1): `VERSION`,
+  `pengu_version.py:FALLBACK_VERSION`, los **26** `<MOD>_VERSION` de
+  `std/*.pengu` (política §19.0; `spark` queda fuera porque `SPARK_VERSION`/
+  `STD_VERSION` son revisiones de API), las cabeceras de los 4 documentos
+  normativos, los 2 ejemplos `pengu.yaml`, `docs/PENGU_BUILD.md`,
+  `docs/README_RELEASE.md` (`pengus-1.0.0.vsix`), `docs/ARCHITECTURE.md`,
+  `docs/CROSS_COMPILATION.md`, `docs/ABI.md`, `docs/FREEZE.md`, la nota de
+  congelación de la ABI en `pengu_runtime.h`, el docstring del parser,
+  `vscode-extension/package{,-lock}.json` y los **14** programas
+  `tests/std_programs/*.pengu` que afirman su constante en el lenguaje.
+  `docs/api/*.md` regenerados. `pengu -V` → `pengu 1.0.0`.
+- **El ratchet de tokens obsoletos pasa a cubrir `0.10`–`0.16` al subir a
+  `1.0.0`** (Fase 11): el rango es relativo a `VERSION` desde F10-N6, y las
+  excepciones son por `(fichero, token)`, así que las menciones históricas
+  legítimas (`SECURITY.md`, `RELEASE_CHECKLIST.md`) quedan nombradas con su
+  motivo en vez de eximir el fichero entero.
+- **`ROADMAP_2.0.md` → `ROADMAP_1.1.md`** (Fase 11, item 11.5): movido con
+  `git mv` (la historia se conserva) y reescrito como el camino de 1.1. Lo ya
+  cerrado no se repite: se cita el audit de la fase. Enlaces vivos actualizados
+  en `README.md`, `CONTRIBUTING.md`, `docs/README.md`, `LANGUAGE.md` y el resto.
+- **`MIGRATION.md` deja de decir que no hay corpus** (Fase 11, item 11.6): la
+  afirmación "`tests/migration/` no existe" era falsa desde la Fase 8. Ambos
+  corpus quedan depositados como referencia pública de compatibilidad 1.x, con
+  README normativo y enlace desde `LANGUAGE.md` §22.5.
+
+### Verified — what the release actually measured
+
+- **Matriz de compiladores real**: gcc **54/54** y clang **54/54** sobre el
+  corpus de compliance. **tcc** no está instalado en esta máquina (⏸️, no se
+  afirma). **MSVC queda retirado** como compilador soportado (F8-N11/8.11): el
+  *dialecto* se comprueba con `clang -fdeclspec`, pero ningún job enlaza un
+  binario MSVC, porque el stack (PCRE2/libxml2/zlib/mbedTLS/libcurl/
+  libmicrohttpd) no tiene build MSVC.
+- **Alcance real de sanitizers y fuzzing** (F9-N6): ASan/UBSan con el alcance
+  que la Fase 9 dejó **medido y declarado**, no con la promesa original. Fuzzing
+  en shards de **90 min × 4 = 6 h**, que es el máximo que GitHub no mata (72 h
+  en un solo job era imposible y se retiró de los documentos).
+- **Notarización macOS: no se afirma** (F9-N8/N9). Sin cuenta de desarrollador de
+  Apple no hay `notarytool` y `spctl --assess` no se cumple; lo que se gatea es
+  `codesign --verify --strict` y `release-verify.yml` publica la salida real de
+  `spctl`.
+- **Reproducibilidad**: `python make_release.py --layout portable --print-hashes`
+  produce los mismos hashes en dos corridas del mismo commit, con los 3
+  artefactos (compilador, runtime/`.a` en `runtime/`, `.vsix`) construidos.
+- **Sin tracebacks en entrada de usuario** (regla C4): `pengu check --bogus`
+  sale `2`, `pengu check no_existe.pengu` sale `1`, ambos con diagnóstico
+  Rust-style y sin `Traceback`.
+
+### Not in 1.0 (⏸️ diferido, con medición)
+
+Borrow checking real, async/await, closures con captura, macros de AST, dynamic
+dispatch, reflection/RTTI, backtracking completo de dependencias, `Result`
+completo en la stdlib, playground WASM, associated types, `pengu repl` y las
+fugas de stdlib bajo LeakSanitizer. Cada uno con su justificación y su comando de
+reapertura en [`ROADMAP_1.1.md`](ROADMAP_1.1.md). El anuncio que lo declara es
+[`docs/ANNOUNCEMENT_1.0.md`](docs/ANNOUNCEMENT_1.0.md).
+
 ## [Unreleased] — FASE 10 (ROADMAP 2.0): Congelación y RC
 
 > Congela la superficie pública en `docs/FREEZE.md` con un test que la compara

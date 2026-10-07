@@ -142,10 +142,19 @@ def test_bench_and_release_do_not_cancel_in_progress():
 
 
 def test_release_version_skips_unreleased():
+    """The script must return the newest **released** version, not `Unreleased`.
+
+    Phase 11 (F11-N3): this assertion used to hardcode `v0.16.0`, so promoting the
+    changelog to `[1.0.0]` failed a test that was really about *skipping*
+    `[Unreleased]`, not about which release was newest. It now derives the
+    expectation from `VERSION`, which is what the tag has to match.
+    """
+    version = (REPO / "VERSION").read_text(encoding="utf-8").strip()
     out = subprocess.run([sys.executable, str(RELEASE_VERSION)],
                          capture_output=True, text=True, cwd=str(REPO))
     assert out.returncode == 0, out.stderr
-    assert out.stdout.strip() == "v0.16.0", out.stdout
+    assert out.stdout.strip() == f"v{version}", out.stdout
+    assert "unreleased" not in out.stdout.strip().lower(), out.stdout
 
 
 def test_release_version_fails_when_only_unreleased(tmp_path):
