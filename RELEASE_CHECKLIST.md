@@ -151,11 +151,13 @@ Being explicit here prevents over-promising:
 
 - **Web playground / WASM**: out of scope for 1.0 (see `ROADMAP_1.0.0.md`
   §Fuera de scope para 1.0 for the technical justification).
-- **Performance vs C**: 2.9×–7.3× depending on the workload; 1.8× on call-heavy
-  code with `-DPENGU_FRAME_TRACE=0` (`BENCHMARKS.md`).
-- **Binary size**: ~100 KiB for the benchmark programs, not the 65 KB once
-  targeted.
-- **`pengu run` cache hit**: above the 0.08 s target (Python startup dominates).
+- **Performance vs C**: 3.7×–9.5× depending on the workload; 1.5× on call-heavy
+  code with `-DPENGU_FRAME_TRACE=0` (`BENCHMARKS.md`, measured 2026-10-07).
+- **Binary size**: 659–668 KiB for the benchmark programs — every build links the
+  runtime plus PCRE2, libxml2, libcurl, mbedTLS, libmicrohttpd and zlib — not the
+  65 KB once targeted (`BENCHMARKS.md` §Binary size).
+- **`pengu run` cache hit**: 0.381 s, well above the 0.08 s target (Python startup
+  dominates).
 - **Full `Result` stdlib migration**: additive only so far (`std.archivum`);
   `precis`/`cipher` and the rest are still pending.
 - **Complete dependency backtracking**: resolution is forward-only.

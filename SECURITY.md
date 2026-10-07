@@ -9,7 +9,7 @@ to report a problem, and what to expect afterwards.
 
 | Version | Supported |
 |---|---|
-| `1.x` (from `1.0.0`) | ✅ security fixes |
+| `1.x` (from `1.0.0`; `1.0.0-rc1` is the current pre-release) | ✅ security fixes |
 | `0.16.x` | ✅ security fixes until `1.0.0` is released |
 | `< 0.16` | ❌ |
 
@@ -44,8 +44,9 @@ Out of scope:
 
 Include: affected version (`pengu version`), platform/toolchain, a minimal
 reproducer (a `.pengu` file or a header + the exact command), and the impact you
-believe it has. PGP-encrypted reports are welcome; the release key fingerprint is
-published with each signed release.
+believe it has. ❌ **PGP-encrypted reports are not offered yet**: no release key
+exists, so there is no fingerprint to encrypt to (see §Release integrity). Until
+one is published, use the two channels above.
 
 ## Disclosure timeline
 
@@ -67,38 +68,32 @@ published with each signed release.
 ## Secure-by-default measures
 
 PenguScript already ships several mitigations; reports that bypass them are
-prioritised:
+prioritised. Every one carries a gate — a test or a workflow that fails if the
+mitigation is removed — because a security claim without one is decoration.
+`tests/test_release_claims.py::test_every_secure_by_default_claim_names_a_gate`
+enforces the last column.
 
-- **Bounds checking is always on** in every profile; `unsafe:` blocks and
-  `--release-unsafe` are explicit opt-outs (and `unsafe:` emits `W0007`).
-- **Integer overflow is defined**: `-ftrapv` in debug, `-fwrapv` in release;
-  only `--release-unsafe` restores C's undefined behaviour.
-- **Runtime ABI pinning**: the generated bundle `_Static_assert`s
-  `PENGU_ABI_VERSION` against the `pengu_runtime.h` it was generated next to, so
-  a bundle and header that disagree fail at compile time instead of corrupting
-  memory. The runtime additionally exports `pengu_abi_version()`, and every
-  bundle references it: `pengu build` links `libpengu_runtime.a` unconditionally
-  and `pengu_abi_version` is pinned with `__attribute__((used))`, so an archive
-  built against a different ABI fails at link with
-  `undefined reference to pengu_abi_version` instead of silently reinterpreting
-  struct fields. The property is verified under **gcc** and **clang**; **tcc**
-  writes stripped executables, so the symbol cannot be inspected there and no
-  hard link failure is guaranteed — tcc is the development compiler, not a
-  release one. See [`docs/ABI.md`](docs/ABI.md) for the exact scope.
-- **Lockfile integrity**: `pengu.lock` records the exact commit and a SHA-256 of
-  every dependency's content tree; `--locked`/`--frozen` verify it and
-  `pengu verify` re-checks an existing checkout.
-- **Dependency build scripts require trust**: `build.py`/`build.sh`/`Makefile`
-  run only with `--trust`, `PENGU_TRUST_ALL=1`, or an interactive confirmation;
-  otherwise they are skipped with a warning.
-- **Binding preprocessor sandbox**: headers are treated as untrusted input.
-  Absolute and directory-escaping `#include`s are refused, and on Linux the
-  preprocessor runs under `bwrap` with only the toolchain and the needed
-  directories visible, read-only and without network.
-  `PENGU_NO_SANDBOX=1` / `PENGU_ALLOW_ABSOLUTE_INCLUDES=1` opt out (at your own
-  risk).
+| Mitigation | Gate |
+|---|---|
+| **Bounds checking is always on** in every profile; `unsafe:` blocks and `--release-unsafe` are explicit opt-outs (and `unsafe:` emits `W0007`). | `tests/test_bounds_policy.py` |
+| **Integer overflow is defined**: `-ftrapv` in debug, `-fwrapv` in release; only `--release-unsafe` restores C's undefined behaviour. | `tests/test_overflow_policy.py` |
+| **Runtime ABI pinning**: the generated bundle `_Static_assert`s `PENGU_ABI_VERSION` against the `pengu_runtime.h` it was generated next to, so a bundle and header that disagree fail at compile time instead of corrupting memory. The runtime additionally exports `pengu_abi_version()`, and every bundle references it — `pengu build` links `libpengu_runtime.a` unconditionally and `pengu_abi_version` is pinned with `__attribute__((used))` — so an archive built against a different ABI fails at link with `undefined reference to pengu_abi_version` instead of silently reinterpreting struct fields. The property is verified under **gcc** and **clang**; **tcc** writes stripped executables, so the symbol cannot be inspected there and no hard link failure is guaranteed — tcc is the development compiler, not a release one. See [`docs/ABI.md`](docs/ABI.md) for the exact scope. | `tests/test_abi_version.py`, `tests/test_abi_layout.py` |
+| **Lockfile integrity**: `pengu.lock` records the exact commit and a SHA-256 of every dependency's content tree; `--locked`/`--frozen` verify it and `pengu verify` re-checks an existing checkout. | `tests/test_lockfile.py` |
+| **Dependency build scripts require trust**: `build.py`/`build.sh`/`Makefile` run only with `--trust`, `PENGU_TRUST_ALL=1`, or an interactive confirmation; otherwise they are skipped with a warning. | `tests/test_phase5_bugfixes.py`, `tests/test_supply_chain.py` |
+| **Binding preprocessor sandbox**: headers are treated as untrusted input. Absolute and directory-escaping `#include`s are refused, and on Linux the preprocessor runs under `bwrap` with only the toolchain and the needed directories visible, read-only and without network. `PENGU_NO_SANDBOX=1` / `PENGU_ALLOW_ABSOLUTE_INCLUDES=1` opt out (at your own risk). | `tests/test_supply_chain.py` |
 
 ## Release integrity
 
-From `1.0.0`, release artifacts are signed and ship with checksums; the
-signature and the expected digests are published in the release notes.
+Every published artifact ships with a `SHA256SUMS.txt` produced by
+[`.github/workflows/release.yml`](.github/workflows/release.yml) ("Collect assets
+and write SHA256SUMS"), so a download can be verified without trusting TLS. The
+macOS binary carries a **verified ad-hoc** signature (`codesign --verify
+--strict`); it is **not** notarized and the project does **not** claim it passes
+`spctl --assess` (there is no Apple developer account — `docs/RELEASE.md`
+§macOS).
+
+❌ **GPG signing of the release artifacts is not performed today, and is not
+claimed here.** No release key exists and no fingerprint is published; producing
+and publishing one is a `manual:` item in `RELEASE_CHECKLIST.md` §2. The earlier
+revision of this document promised "signed" artifacts; that claim is withdrawn
+rather than left unverifiable.
