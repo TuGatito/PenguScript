@@ -2,8 +2,8 @@
 
 This guide tells you what to change when you move a project from one PenguScript
 release to another, and how to verify the move. It is deliberately short: the
-language has exactly **one** breaking change in its history so far, and it landed
-in `0.10.0`.
+language has exactly **two** breaking changes in its history, and they landed in
+`0.10.0` and `1.0.0`.
 
 > **Current version: 1.0.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
@@ -27,10 +27,11 @@ in `0.10.0`.
 | Version | Breaking change | Action |
 |---|---|---|
 | `0.10.0` | `and` stops being a list separator next to expressions | replace it with `,` — see §3 |
-| `0.11.0` – `1.0.0` | **none** | nothing to do |
+| `0.11.0` – `0.16.0` | **none** | nothing to do |
+| `1.0.0` | the implicit ownership model is removed; memory is manual | delete `borrowed`, add explicit `banish`/`defer banish` — see §4 |
 
 There are no other breaking entries in the changelog. If you find one that is not
-in this table, that is a documentation bug — see §6.
+in this table, that is a documentation bug — see §7.
 
 Every row here has an executable counterpart in
 [`tests/migration/`](tests/migration/README.md) (`EXPECTED.json`), which runs the
@@ -76,7 +77,102 @@ So: if you see `E0000 … use ','`, rewrite that `and` as a comma. If you see
 `E0005 Ambiguous 'and'`, decide whether you meant a conjunction or a separator —
 the compiler cannot know, and neither can an automated rewriter.
 
-## 4. Verifying an upgrade
+## 4. `1.0.0`: from implicit ownership to manual memory
+
+Until `0.16.0` the compiler tried to own memory for you: a local created from a
+fresh expression was released at the end of its scope ("auto-banish"), a
+`borrowed` binding opted out of that, escape analysis decided which locals could
+live on the stack, and storing a value into a container or a struct field
+deep-copied its heap payload.
+
+All of that is gone. `1.0.0` keeps `banish`, `defer banish`, `errdefer`,
+`ref to T`, `sigil of x`, `frozen` and `derive`, and removes everything the
+compiler used to infer. The migration is mechanical once you know the four rules:
+
+### 4.1 Delete every `borrowed`
+
+`borrowed` no longer parses. A binding is simply a binding; what it *points at*
+is now your business, exactly as with a C pointer.
+
+| Before | After |
+|---|---|
+| `var borrowed v is src` | `let v is src` |
+| `let borrowed v is src` | `let v is src` |
+| `var borrowed x as int is 5` | `var x as int is 5` |
+
+`var borrowed x is 1` now fails with `E0000` (a syntax error): the parser reads
+`borrowed` as an ordinary name and then does not expect `x`.
+
+### 4.2 Add the release you used to get for free
+
+Nothing is released at scope exit any more, so any value you allocate and do not
+return must be released explicitly. `defer banish` is the direct replacement for
+the old auto-banish and keeps the LIFO ordering:
+
+```pengu
+weave main into int:
+    var s is "hello {name}"     # owns a heap buffer
+    defer banish s              # released when the scope exits
+    calling print with s
+    return 0
+```
+
+Releasing is a no-op on a string literal or any other non-owning view
+(`PenguString.is_owned == 0`), so `defer banish s` is safe even when `s` might be
+a literal.
+
+### 4.3 Stop relying on copies on store
+
+`list.push` and `map.put` `memcpy` the element; assigning to a rune field
+`memcpy`s the field. Nothing clones a heap payload. Code that used to rely on the
+copy now aliases the same buffer, so pick one of:
+
+* release the container's elements by hand before releasing the container:
+
+  ```pengu
+  var i as int is 0
+  while i < calling xs.len:
+      banish (xs at i)        # release the element in place
+      set i is i + 1
+  banish xs                   # then the container's own buffer
+  ```
+
+* or keep the source alive and release it exactly once, through whichever of the
+  two names you prefer. Releasing both is a double free.
+
+`banish` on a container frees **only** the container's own buffer (`pengu_list`),
+or its key/value blocks and entry table (`pengu_map`). It never touches the
+elements.
+
+### 4.4 Stop expecting an inferred destructor
+
+A rune with a `string` or `list` field used to get a destructor for free. Now it
+only gets one if you ask:
+
+| Before | After |
+|---|---|
+| `rune Doc:` … `title as string` | `rune Doc derive Nexus:` … `title as string` |
+
+With `derive Nexus`, `banish doc` runs the generated destructor and releases the
+fields; without it, `banish doc` is `E0008` and you release the fields yourself
+(`banish doc.title`). `derive Imago` is the matching opt-in for a deep copy.
+
+### 4.5 Rebuild anything that was precompiled
+
+The runtime ABI moved to **v2**: `PenguList` is 24 bytes (was 40) and `PenguMap`
+32 (was 64), because the element cleanup/clone callbacks were removed. A
+prebuilt `libpengu_runtime.a` will fail loudly — the generated bundle carries
+`_Static_assert(PENGU_ABI_VERSION == 2, …)` and references `pengu_abi_version()`
+— so rebuild the runtime (`python build_runtime.py`).
+
+### 4.6 What did *not* change
+
+`frozen` is still C's `const` (`E0006` when you write through it). `let` is still
+immutability, not ownership. `banish` on a literal or temporary is still `E0008`.
+Returning a `slice of` a stack array is still `E0051`. `some`/`ok`/`err` still
+allocate a box for the payload — they just store its bytes instead of cloning it.
+
+## 5. Verifying an upgrade
 
 ```bash
 pengu check                 # 0 errors and no new warnings
@@ -89,7 +185,7 @@ pengu build --locked        # the dependency lockfile is still satisfied
 `pengu build --frozen` is the CI form: it refuses to update `pengu.lock` at all,
 so a dependency that moved cannot slip in unnoticed.
 
-## 5. `pengu migrate` (not yet available)
+## 6. `pengu migrate` (not yet available)
 
 An automated rewriter — `pengu migrate --from <v> --to <v>` — is **not** part of
 1.0. It is deferred to 1.1 (roadmap item 4.14b) for a measured reason: the only
@@ -109,7 +205,7 @@ entry in §2 of this guide, not a quiet edit to the corpus.
 Each section above becomes one rule `pengu migrate` applies, and the table in §2
 becomes its supported version range.
 
-## 6. Reporting a migration problem
+## 7. Reporting a migration problem
 
 If an upgrade breaks code in a way this guide does not describe, that is a
 documentation bug: open an issue with the failing snippet and the release you came

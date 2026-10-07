@@ -12,8 +12,56 @@ All notable changes to PenguScript will be documented in this file.
 > La versión anterior publicada era `0.16.0`; `1.0.0-rc1` fue el release
 > candidate y no se publicó por separado.
 
+### ⚠️ BREAKING — el modelo de ownership implícito se retira
+
+PenguScript **ya no razona sobre quién posee qué**. El compilador no libera nada
+por ti: la gestión de memoria es **manual**, como en Zig, Odin o Nelua. `banish x`
+libera, `defer banish x` programa la liberación, y todo lo demás es decisión del
+programador. Esta es la primera ruptura de compatibilidad desde `0.10.0`; el
+recorrido de migración está en [`MIGRATION.md` §3](MIGRATION.md).
+
+- **Removed: modelo de ownership implícito.** Desaparecen el `auto-banish` (el
+  compilador liberaba un local al salir de su scope), el *escape analysis* que
+  decidía stack vs heap, y la promoción de locales. La única regla de vida que el
+  compilador sigue imponiendo es sintáctica: devolver un `slice of` un array de
+  stack es `E0051` porque colgaría.
+- **Removed: el modificador `borrowed`.** `var borrowed x is …` y
+  `let borrowed x is …` ya no son sintaxis válida; `borrowed` vuelve a ser un
+  identificador corriente. Sin ownership implícito no había nada que "no poseer".
+- **Removed: copia profunda automática al almacenar.** `list.push`, `map.put` y
+  la asignación a un campo de rune copian **bytes** (`memcpy`); no clonan la carga
+  de heap. La vida del buffer es responsabilidad de quien lo creó.
+- **Removed: derivación implícita de `Imago`/`Nexus`.** Un rune solo recibe
+  helper de copia o destructor si escribe `derive Imago` / `derive Nexus`. El
+  destructor de un rune ya no se infiere de que tenga campos que posean heap.
+- **Removed: `E0047` (`AutoOwnedBanishError`) y `E0048` (`BorrowedBanishError`).**
+  Quedan **reservados**: no se reutilizan para otro diagnóstico. `banish` sobre
+  cualquier `var`/`let` es legal; sigue siendo `E0008` sobre un literal o un
+  temporal.
+- **Runtime ABI v2.** `PenguList` pasa de 40 a **24 bytes** y `PenguMap` de 64 a
+  **32 bytes**: pierden los callbacks `elem_cleanup`/`elem_clone` y sus cuatro
+  análogos del mapa. `pengu_banish_list` / `pengu_banish_map` liberan **solo** el
+  buffer o las entradas del propio contenedor, nunca los elementos. Hay que
+  reconstruir cualquier `libpengu_runtime.a` precompilada. Fuera del runtime:
+  `pengu_list_new_owned`, `pengu_map_new_owned`, `PenguElemCleanup`,
+  `PenguElemClone`, `pengu_string_cleanup`, `pengu_string_clone`,
+  `pengu_list_cleanup`, `pengu_list_clone`, `pengu_map_cleanup`,
+  `pengu_map_clone`.
+- **`PenguString.is_owned` se queda.** Es lo que hace que `banish` sobre un
+  literal `.rodata` o sobre una vista sea un no-op seguro en vez de un
+  double-free.
+- **`some x` / `ok x` / `err x` copian con `memcpy`.** La caja guarda los bytes de
+  la carga; no duplica un buffer de heap. `banish m` sobre un `maybe`/`result` sí
+  libera carga y caja, porque es el usuario quien lo pide.
+
 ### Added
 
+- **`tests/test_manual_memory/` — la referencia ejecutable del modelo manual**
+  (Fase 12): `test_*.pengu` se compilan y ejecutan, `fail_*.pengu` deben fallar
+  con el código documentado en su marcador `# EXPECTED:`, y las pruebas de forma
+  de código fijan lo que el compilador **no** debe emitir (ningún `banish` de
+  scope, ningún `clone` al hacer `push`, ningún destructor implícito). Gate:
+  `pytest tests/test_manual_memory.py -q`.
 - **`tests/compliance/` — 54 programas canónicos de compliance** (Fase 8, item
   8.4): uno por sección de `LANGUAGE.md` (§2–§19), con `corpus.json` como fuente
   de verdad y `run_all.py` como runner. La regla C1 se cumple por construcción:
@@ -37,6 +85,16 @@ All notable changes to PenguScript will be documented in this file.
 - **`docs/RELEASE.md`** y `tests/test_release_handoff.py` (Fase 9): el handoff
   tag → `release.yml` → `release-verify.yml` es un **dispatch explícito** con
   `actions: write`, porque un push hecho con `GITHUB_TOKEN` no dispara workflows.
+
+### ♻️ Refactored
+
+- **`pengu_codegen.py` se parte en el paquete `pengu_codegen/`** (Fase 12). El
+  monolito de ~10 000 líneas pasa a submódulos cohesionados sobre una única
+  clase ensamblada por mixins, así que la API pública
+  (`from pengu_parser.pengu_codegen import PenguCodegen`) no cambia para ningún
+  consumidor. `pengu_codegen/__init__.py` reexporta la superficie que ya era
+  pública (`PenguCodegen`, `CTypeMapper`, los helpers de arrays, el parser de
+  atributos y `set_restrict_keyword`/`set_release_unsafe`).
 
 ### Changed
 
