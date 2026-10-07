@@ -41,9 +41,9 @@ insignia_stmt: "insignia" NAME _NEWLINE
 # Statement-level declarations require a mandatory _NEWLINE delimiter (or _DEDENT from an indented block)
 # so multiple simple statements on a single line (e.g. 'var x is 1 var y is 2') are rejected as syntax errors.
 const_decl: "const" NAME ["as" type] "is" (expr [_NEWLINE] | indent_literal)
-var_decl: "var" [BORROWED] NAME ["as" type] ("is" (value_expr [_NEWLINE] | indent_literal) | with_init_expr)
+var_decl: "var" NAME ["as" type] ("is" (value_expr [_NEWLINE] | indent_literal) | with_init_expr)
 static_var_decl: "static" "var" NAME ["as" type] ("is" (value_expr [_NEWLINE] | indent_literal) | with_init_expr)
-let_decl: "let" [BORROWED] var_name_list ["as" type] ("is" (value_expr [_NEWLINE] | indent_literal) | with_init_expr)
+let_decl: "let" var_name_list ["as" type] ("is" (value_expr [_NEWLINE] | indent_literal) | with_init_expr)
 var_name_list: NAME ("," NAME)*
 
 indent_literal: [":"] _NEWLINE _INDENT (indent_array | indent_entries) _DEDENT
@@ -568,7 +568,6 @@ COMPOUND_OP.3: "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | "
 ARROW: "->"
 DOTDOT.5: ".."
 VARARGS.6: "..."
-BORROWED.2: "borrowed"
 """
 
 # Single-line block statements ('if c: return 0') parse as their own grammar
