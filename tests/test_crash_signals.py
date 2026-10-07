@@ -34,6 +34,7 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import (
+    requires_no_sanitizer_reason,
     BUILD_DIR,
     BUILD_INCLUDE,
     BUILD_LIB,
@@ -101,6 +102,9 @@ def test_fault_signal_is_installed_by_the_crash_handler(signame, expected, tmp_p
     )
 
 
+@requires_no_sanitizer_reason(
+    "UBSan reports the division by zero instead of delivering SIGFPE",
+)
 def test_integer_division_by_zero_dumps_frames_and_exits_136():
     """The item's acceptance criterion, end to end through a compiled program.
 
@@ -134,6 +138,9 @@ def test_integer_division_by_zero_dumps_frames_and_exits_136():
     )
 
 
+@requires_no_sanitizer_reason(
+    "UBSan reports the overflow instead of the trap the test asserts",
+)
 def test_debug_signed_overflow_trap_is_reported():
     """`-ftrapv` (debug builds) turns signed overflow into a trap; it is dumped.
 

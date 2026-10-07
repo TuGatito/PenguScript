@@ -2,6 +2,7 @@
 
 import pytest
 from tests.conftest import (
+    requires_no_sanitizer_reason,
     check_ok, gen_bundle, check_c_syntax, compile_run, requires_cc, requires_runtime
 )
 
@@ -56,6 +57,10 @@ weave main into int:
 
 @requires_cc
 @requires_runtime
+@requires_no_sanitizer_reason(
+    "finding F8-N10: passing an array to a variadic C function leaves a "
+    "dangling stack reference; ASan reports stack-use-after-scope in `sum`"
+)
 def test_variadic_array_argument_runtime():
     """Verify runtime evaluation of variadic function called with array literal and array variable."""
     src = """

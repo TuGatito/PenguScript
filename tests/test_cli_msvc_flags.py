@@ -16,6 +16,8 @@ import sys
 
 import pytest
 
+from tests.conftest import requires_no_sanitizer_reason
+
 from pengu_project import OutputType, PenguBuilder, ProjectConfig
 
 # GNU spellings that must never appear on an MSVC command line. `-c` is not
@@ -36,12 +38,18 @@ def _commands(output_type, cc="cl", target_compiler="msvc", links=("pengu_runtim
 @pytest.mark.parametrize("output_type", [
     OutputType.EXE, OutputType.OBJ, OutputType.STATIC, OutputType.SHARED,
 ])
+@requires_no_sanitizer_reason(
+    "PENGU_CFLAGS injects -fsanitize=... into the command line; this test asserts an MSVC command carries no GNU flags",
+)
 def test_msvc_command_has_no_gnu_flags(output_type):
     for cmd in _commands(output_type):
         offenders = [tok for tok in cmd if tok.startswith(GNU_FLAGS)]
         assert not offenders, f"GNU flags on an MSVC command: {offenders}\n{' '.join(cmd)}"
 
 
+@requires_no_sanitizer_reason(
+    "PENGU_CFLAGS injects -fsanitize=... into the command line; this test asserts an MSVC command carries no GNU flags",
+)
 def test_msvc_executable_uses_fe_and_link_section():
     cmd = _commands(OutputType.EXE)[0]
     assert cmd[0] == "cl"

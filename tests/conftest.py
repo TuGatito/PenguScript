@@ -87,6 +87,28 @@ requires_leakcheck = pytest.mark.skipif(
            "install valgrind or run on Linux)",
 )
 
+#: True when the suite is running under PENGU_CFLAGS with a sanitizer
+#: (`-fsanitize=...`), i.e. inside `.github/workflows/sanitizers.yml`.
+#:
+#: Phase 8 item 8.2 measured which tests cannot hold their premise under
+#: instrumentation: UBSan's own report replaces the crash handler's `[PENGU CRASH]`
+#: dump, so tests that assert our signal path see rc=1 instead of the expected
+#: signal, and `PENGU_CFLAGS` injects GNU flags into a command line that a test
+#: asserts contains none for MSVC.  Those tests skip *here*, with the reason
+#: visible, instead of leaving the sanitizer job red for a non-finding.
+SANITIZERS_ACTIVE = "sanitize" in os.environ.get("PENGU_CFLAGS", "")
+
+requires_no_sanitizer = pytest.mark.skipif(
+    SANITIZERS_ACTIVE,
+    reason="not meaningful under PENGU_CFLAGS sanitizers: UBSan reports before "
+           "the project's crash handler runs (see AUDIT_1.0_FASE8.md item 8.2)",
+)
+
+
+def requires_no_sanitizer_reason(reason: str):
+    """`requires_no_sanitizer`, with a reason specific to the test it decorates."""
+    return pytest.mark.skipif(SANITIZERS_ACTIVE, reason=reason)
+
 
 def build_leakcheck(tmp_path: Path) -> Path:
     """Builds the ``LD_PRELOAD`` leak interposer, or skips the caller.

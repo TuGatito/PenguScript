@@ -18,6 +18,7 @@ measurement instead of fixing it in the dark:
 assertions instead of being forgotten.
 """
 
+import os
 import subprocess
 import sys
 
@@ -122,3 +123,61 @@ def test_unsized_array_parameter_does_not_traceback(tmp_path):
         "the CLI leaked a Python traceback:\n" + combined
     )
     assert built.returncode != 0
+
+
+#: F8-N10 — an array passed to a variadic C function leaves a dangling reference to
+#: a stack temporary.  The reproduction is the compliance corpus program for
+#: `LANGUAGE.md` §8.2 (`declare`, external C functions), which passes an array to a
+#: variadic `sum_args`.  The program returns the right answer without
+#: instrumentation — which is why the suite was green for years — so the pin only
+#: runs under AddressSanitizer.
+_VARIADIC_REPRO = REPO / "tests" / "compliance" / "020-declare-extern-c.pengu"
+
+
+@pytest.mark.skipif(
+    "sanitize" not in os.environ.get("PENGU_CFLAGS", ""),
+    reason="F8-N10 is only observable under AddressSanitizer (see sanitizers.yml)",
+)
+@pytest.mark.xfail(
+    strict=True,
+    reason="F8-N10: ASan reports 'stack-use-after-scope' in the variadic callee; the "
+           "uninstrumented run returns the right value, so only this run sees the "
+           "dangling reference",
+)
+def test_variadic_array_argument_is_stack_use_after_scope(tmp_path):
+    """The memory error the sanitizer job found and the plain suite cannot see.
+
+    Polarity: the *bug* is the ASan report, so the assertion is "no report".  It
+    currently fails (xfail), and the fix turns it into an XPASS, which `strict`
+    converts into a build failure that asks for this marker to be removed.
+    """
+    assert _VARIADIC_REPRO.is_file(), f"missing reproduction {_VARIADIC_REPRO}"
+    bundle = tmp_path / "variadic.c"
+    built = _cli(["build", "--entry", str(_VARIADIC_REPRO), "--output", str(bundle)])
+    assert built.returncode == 0, f"build failed:\n{built.stdout}\n{built.stderr}"
+
+    from tests.conftest import (BUILD_DIR, BUILD_INCLUDE, BUILD_LIB, default_cc,
+                                runtime_link_flags, runtime_tail_flags)
+
+    # The sanitizer flags have to be applied here too: this test compiles the
+    # bundle itself, so without them there is no instrumentation and no report.
+    import shlex
+
+    extra = shlex.split(os.environ.get("PENGU_CFLAGS", "")) + shlex.split(
+        os.environ.get("PENGU_LDFLAGS", "")
+    )
+
+    exe = tmp_path / "prog"
+    compiled = subprocess.run(
+        [default_cc(), str(bundle), f"-I{REPO}", f"-I{BUILD_DIR}", f"-I{BUILD_INCLUDE}",
+         *extra, f"-L{BUILD_LIB}", *runtime_link_flags(), *runtime_tail_flags(),
+         "-o", str(exe)],
+        capture_output=True, text=True, timeout=600,
+    )
+    assert compiled.returncode == 0, compiled.stderr
+    run = subprocess.run([str(exe)], capture_output=True, text=True, timeout=120)
+    combined = run.stdout + run.stderr
+    assert "AddressSanitizer" not in combined, (
+        "AddressSanitizer reported a memory error:\n" + combined[-2000:]
+    )
+    assert run.returncode == 0, f"rc={run.returncode}\n{combined[-2000:]}"

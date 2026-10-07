@@ -20,7 +20,7 @@ import sys
 
 import pytest
 
-from tests.conftest import REPO, requires_cc, requires_runtime
+from tests.conftest import requires_no_sanitizer_reason, REPO, requires_cc, requires_runtime
 
 PENGU = [sys.executable, str(REPO / "pengu_project.py")]
 
@@ -58,6 +58,9 @@ def crashing_project(tmp_path):
 
 @requires_cc
 @requires_runtime
+@requires_no_sanitizer_reason(
+    "UBSan reports the fault before the crash handler writes its dump",
+)
 def test_test_command_reports_signal_as_128_plus(crashing_project):
     res = _run(["test"], cwd=crashing_project)
     assert res.returncode == SIGFPE_EXIT, (res.returncode, res.stdout, res.stderr)
@@ -65,6 +68,9 @@ def test_test_command_reports_signal_as_128_plus(crashing_project):
 
 @requires_cc
 @requires_runtime
+@requires_no_sanitizer_reason(
+    "UBSan reports the fault before the crash handler writes its dump",
+)
 def test_test_json_reports_signal_exit_code(crashing_project):
     res = _run(["test", "--json"], cwd=crashing_project)
     assert res.returncode == SIGFPE_EXIT, (res.returncode, res.stdout, res.stderr)
@@ -106,6 +112,9 @@ def test_exit_code_helper_unit():
 
 @requires_cc
 @requires_runtime
+@requires_no_sanitizer_reason(
+    "UBSan reports the fault before the crash handler writes its dump",
+)
 def test_test_bundle_reports_the_crash_dump(crashing_project):
     """Without the handler the process dies by signal and prints nothing."""
     res = _run(["test"], cwd=crashing_project)
@@ -119,6 +128,9 @@ def test_test_bundle_reports_the_crash_dump(crashing_project):
 
 @requires_cc
 @requires_runtime
+@requires_no_sanitizer_reason(
+    "UBSan reports the fault before the crash handler writes its dump",
+)
 def test_test_json_keeps_json_contract_with_the_handler(crashing_project):
     """Installing the handler must not break the `--json` stream on stdout."""
     res = _run(["test", "--json"], cwd=crashing_project)

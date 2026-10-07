@@ -64,6 +64,11 @@ leak detection, so the finding stays visible.
     reason="needs PENGU_CFLAGS with -fsanitize=address (see sanitizers.yml)",
 )
 @pytest.mark.xfail(
+    # The xfail is only meaningful while LeakSanitizer is actually looking: with
+    # `detect_leaks=0` (the sanitizer job's memory-safety contract) the program is
+    # clean, the test passes, and an unguarded non-strict xfail would report an
+    # XPASS - which the phase's "0 xpassed" criterion forbids.
+    condition="detect_leaks=1" in os.environ.get("ASAN_OPTIONS", ""),
     reason="tracked leak in the legacy coven.SetString/map paths; see KNOWN_LEAK_ISSUE",
     strict=False,
 )

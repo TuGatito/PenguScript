@@ -25,6 +25,7 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import (
+    requires_no_sanitizer_reason,
     BUILD_INCLUDE,
     REPO,
     compile_run,
@@ -102,6 +103,9 @@ def test_crash_path_calls_no_async_signal_unsafe_function(tmp_path):
     )
 
 
+@requires_no_sanitizer_reason(
+    "UBSan reports the fault before the crash handler writes its dump",
+)
 def test_crash_handler_still_reports_the_pengu_frame(tmp_path):
     """Hand-formatting must not cost the diagnostic: the frame is still named.
 
@@ -148,6 +152,9 @@ def test_bounds_panic_message_is_unchanged_by_hand_formatting(tmp_path):
     )
 
 
+@requires_no_sanitizer_reason(
+    "UBSan reports the fault before the crash handler writes its dump",
+)
 def test_the_call_chain_is_reported_when_the_call_is_a_statement():
     """The dump is a *call chain*, not just the innermost function.
 

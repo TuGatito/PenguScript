@@ -126,7 +126,7 @@ y `pengu_codegen.py`: es un item propio, no un ajuste de CI. Se abre como
 
 | Paso | Contrato | `detect_leaks` | Medición |
 |---|---|---|---|
-| `Memory safety across the suite (ASan + UBSan)` | Use-after-free, overflow, UB en todo el suite | **0** (declarado) | ⏳ corrida del suite completo lanzada al cierre de la fase; el resultado se anota en §"Mediciones finales". Las 164 marcas observadas con `detect_leaks=1` eran abortos de LeakSanitizer, no errores de memoria |
+| `Memory safety across the suite (ASan + UBSan)` | Use-after-free, overflow, UB en todo el suite | **0** (declarado) | Primera corrida: **16 failed, 3253 passed, 46 xfailed, 1 xpassed**. Los 16 se resolvieron en dos clases (13 no pueden sostener su premisa bajo instrumentación y ahora llevan `requires_no_sanitizer_reason(...)`; **3 son el hallazgo real F8-N10**). Verificación final en §"Mediciones finales" |
 | `Leak freedom on the auto-banish model` | Cero fugas en el subconjunto verificado | **1** | **4 passed, 1 xfailed** (el xfail es el leak rastreado) |
 | `Memory safety on the std legacy-compat programs` | Sin errores de memoria en los programas cuyo leak está rastreado | **0** | **6 passed** |
 | valgrind job | El mismo subconjunto con el segundo detector | — | **no medido aquí** (no hay valgrind en la máquina); el paso ya no selecciona ficheros totalmente deseleccionados |
@@ -566,6 +566,7 @@ gate de MSVC invocara `clang` con `-fdeclspec` sin construir argv a mano.
 | **F8-N7** | Regla C4 + contrato: `pengu time <inexistente>` y `pengu fmt <inexistente>` lanzan **Traceback**; `build`, `test` y `doc` con `--entry` inexistente devuelven **rc 0** y construyen la entrada por defecto en silencio | ❌ pin `xfail(strict)` en `test_cli_contract.py` |
 | **F8-N8** | El "BUG A" reportado por el autor de 8.4 (comparar `error` dentro de un `or:` → check limpio y build roto) **no se reproduce**: medido en dos formas, ambas construyen; la variante que falla lo hace en `check` con el `TypeMismatchError` correcto | ❌ refutado, gate positivo |
 | **F8-N2** | La stdlib fuga en LeakSanitizer (traza en `std/invoke.pengu`): el job de sanitizers **no puede** estar verde deseleccionando un test | ⏸️ item 8.19 (1.1) |
+| **F8-N10** | **Bug real de memoria**: pasar un array a una función C variádica deja una referencia colgante a un temporal de pila. ASan: `stack-use-after-scope ... in sum_args` (`tests/compliance/020-declare-extern-c.pengu:17`) y `... in sum` (`variadic_arr_rt.pengu:5`). Sin instrumentación el programa devuelve el valor correcto, así que el suite llevaba años verde | ❌ pin `xfail(strict)` en `test_phase8_findings.py` + item 8.24 (1.1) |
 
 ---
 
