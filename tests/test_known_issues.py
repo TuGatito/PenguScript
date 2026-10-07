@@ -131,3 +131,39 @@ def test_every_sanitizer_pytest_step_deselects_the_known_leak():
     assert missing == [], (
         f"these sanitizer steps would re-run the known leak: {missing}"
     )
+
+
+def test_the_leak_verdict_is_only_disabled_when_it_is_declared():
+    """Phase 8 item 8.2: `detect_leaks=0` narrows the claim, so it must be said out loud.
+
+    The measured leak surface of the stdlib (item 8.19) makes a full-suite
+    LeakSanitizer run red for reasons that are tracked, so the job keeps two
+    contracts instead of one: memory safety with the leak verdict off, and leak
+    freedom with it on.  This test is what stops the first contract from quietly
+    becoming the only one - it requires both, requires the audit item to be named
+    in the workflow, and forbids disabling the verdict through the job-level env
+    where a reader would not notice which step gave up what.
+    """
+    import yaml
+
+    doc = yaml.safe_load(
+        (REPO / ".github" / "workflows" / "sanitizers.yml").read_text(encoding="utf-8")
+    )
+
+    def _asan(step):
+        return (step.get("env") or {}).get("ASAN_OPTIONS", "")
+
+    steps = [step for job in (doc.get("jobs") or {}).values()
+             for step in (job.get("steps") or []) if "pytest" in (step.get("run") or "")]
+    off = [s.get("name") for s in steps if "detect_leaks=0" in _asan(s)]
+    on = [s.get("name") for s in steps if "detect_leaks=1" in _asan(s)]
+    assert off, "no step declares the memory-safety contract (detect_leaks=0)"
+    assert on, "no step keeps the strict leak contract (detect_leaks=1)"
+
+    for job_name, job in (doc.get("jobs") or {}).items():
+        assert "detect_leaks=0" not in ((job.get("env") or {}).get("ASAN_OPTIONS") or ""), (
+            f"{job_name} disables the leak verdict for every step through the job env"
+        )
+    assert "8.19" in (REPO / ".github" / "workflows" / "sanitizers.yml").read_text(encoding="utf-8"), (
+        "the workflow must name the tracked leak item that justifies the split"
+    )

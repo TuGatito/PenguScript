@@ -5,9 +5,14 @@
 > Regla que gobierna la fase (Anexo C, C1): **ningún gate aprueba una propiedad
 > inspeccionando texto**. Un gate compila, ejecuta o mide.
 
-- **Estado de la fase:** 16 de 18 items cerrados; 2 diferidos con medición (8.6
-  umbral final y 8.12 `.exe` real), 1 refutado por completo (8.1: la premisa "el
-  fallo es solo B5" es falsa en dos direcciones) y 1 retirado (8.11, opción B).
+- **Estado de la fase:** **15 items cerrados** (uno de ellos, 8.11, cerrado
+  *retirando* la afirmación en vez de dejarla sin gate), **2 parciales con
+  medición** (8.2: el job de sanitizers no puede estar verde porque las fugas son
+  de la stdlib; 8.12: el `.exe` real no es verificable sin MinGW) y **ninguna
+  premisa del roadmap sobrevivió intacta**: las de 8.1, 8.2, 8.4, 8.6, 8.8, 8.9 y
+  8.16 estaban obsoletas o incompletas, y cada refutación está medida abajo.
+- **Items nuevos abiertos durante la fase:** 8.19–8.23 (hallazgos F8-N2, F8-N4,
+  F8-N6, F8-N7, F8-N9), todos con programa de reproducción.
 - **Commit base de la fase:** `32e10fa` (cierre de Fase 7).
 - **Máquina de medición:** Linux x86_64, GCC 15, 36 núcleos, `gcc`/`clang`
   presentes, **sin** `x86_64-w64-mingw32-gcc` (hay `wine`), sin `valgrind`.
@@ -16,8 +21,8 @@
 
 | # | Item | Estado | Evidencia |
 |---|------|--------|-----------|
-| 8.1 | Convertir los 4 gates de texto (B10) | ✅ (con 4 hallazgos nuevos) | commits `49cb5ba`, `1a27357`, `7dd19a8`; clasificación medida de los 56 programas de std |
-| 8.2 | Job de sanitizers verde (B9) | ⏸️ **parcial, premisa refutada** | commit `df2ffc0`; medición: 6/6 fallos y el suite completo bajo ASan tiene decenas de fugas |
+| 8.1 | Convertir los 4 gates de texto (B10) | ✅ premisa refutada; F8-N3/N4/N4a | commits `49cb5ba`, `1a27357`, `7dd19a8`; clasificación medida de los 56 programas de std |
+| 8.2 | Job de sanitizers verde (B9) | ⏸️ **parcial, premisa refutada** | commit `df2ffc0`; medido: 6/6 fallos en los 3 archivos legacy y **164 marcas de fallo al 92 %** del suite bajo ASan |
 | 8.3 | `ruff` con `F821,E9` como error (A11) | ✅ | commit `68a5f5b`; `ruff check --select F821,E9 .` → 0 |
 | 8.4 | Corpus de compliance (A13) | ✅ **54 programas** (pedido: 50) | commit `eff1288`; `pytest tests/test_compliance_corpus.py` → 60 passed |
 | 8.5 | Corpus de migración (A13) | ✅ (alcance medido: ≥0.10.0) | commits `66d35e3`, `d3b0b19`; `pytest tests/test_migration_corpus.py` → 21 passed |
@@ -113,14 +118,29 @@ de la stdlib / del codegen) es un cambio de propiedad de memoria en `std/*.pengu
 y `pengu_codegen.py`: es un item propio, no un ajuste de CI. Se abre como
 **item 8.19** para 1.1 con esta medición. Lo que se entrega en 8.2 es:
 
-1. el bug de propagación corregido (era real y hacía ruido);
-2. el deselect ampliado a **los tres** archivos medidos, que sí deja verde el
-   paso "ASan/UBSan on the std programs";
-3. `tests/known_issues` documentando la clase de fuga con su traza.
+1. el bug de propagación corregido (era real y hacía ruido), con un test que falla
+   si un paso futuro lo olvida;
+2. el deselect ampliado a **los tres** archivos medidos;
+3. el job partido en **los dos contratos que sí puede sostener**, en vez de una
+   lista de deselectos más larga que lo que comprueba:
 
-**Criterio de reapertura:** cuando 8.19 cierre las fugas de la stdlib, el primer
-paso del job debe quedar verde con `--deselect` vacío; el test de propagación
-obliga a tocar el workflow para quitar la variable.
+| Paso | Contrato | `detect_leaks` | Medición |
+|---|---|---|---|
+| `Memory safety across the suite (ASan + UBSan)` | Use-after-free, overflow, UB en todo el suite | **0** (declarado) | ⏳ corrida del suite completo lanzada al cierre de la fase; el resultado se anota en §"Mediciones finales". Las 164 marcas observadas con `detect_leaks=1` eran abortos de LeakSanitizer, no errores de memoria |
+| `Leak freedom on the auto-banish model` | Cero fugas en el subconjunto verificado | **1** | **4 passed, 1 xfailed** (el xfail es el leak rastreado) |
+| `Memory safety on the std legacy-compat programs` | Sin errores de memoria en los programas cuyo leak está rastreado | **0** | **6 passed** |
+| valgrind job | El mismo subconjunto con el segundo detector | — | **no medido aquí** (no hay valgrind en la máquina); el paso ya no selecciona ficheros totalmente deseleccionados |
+
+El silencio del veredicto de fuga en el primer paso es **declarado**, no escondido:
+`tests/test_known_issues.py::test_the_leak_verdict_is_only_disabled_when_it_is_declared`
+exige que existan los dos contratos, que el workflow nombre el item 8.19 que lo
+justifica y que nadie apague el veredicto desde el `env` del job (donde el lector
+no vería qué paso renuncia a qué).
+
+**Criterio de reapertura:** cuando 8.19 cierre las fugas de la stdlib debe poder
+correrse el suite completo con `detect_leaks=1` y `--deselect` vacío; el test de
+propagación obliga a tocar el workflow para quitar la variable, y el test de los
+dos contratos obliga a borrar la rama `detect_leaks=0`.
 
 ---
 
@@ -517,6 +537,8 @@ el nombre del programa, así que **2 argumentos reenviados dan `args.len == 3`**
 **C2 verificado por mutación:** descartando los args reenviados en `main()`, el
 test nuevo **falla** (`rc=1`) mientras que el `"2" in stdout` viejo **seguía
 pasando** — es la demostración de que el gate viejo enmascaraba el fallo.
+**Medición después:** además del archivo en aislamiento, el test pasa en las dos
+corridas completas del suite (C y D), que son la medición que impone el item.
 
 ---
 
@@ -598,12 +620,26 @@ Corrida de cobertura (run B) y corrida limpia (run C) sobre el estado final del
 
 | Corrida | Comando | Tupla | Tiempo |
 |---|---|---|---|
-| B (con cobertura) | `pytest tests -q --cov --cov-config=.coveragerc --cov-report=term-missing --cov-report=xml:coverage.xml` | **1 failed**, 3274 passed, 25 skipped, 46 xfailed, **0 xpassed** | 34:51 |
-| C (limpia) | `pytest tests -q --timeout=1200` | **0 failed**, 3274 passed, 25 skipped, 46 xfailed, **0 xpassed** | 34:0x |
+| B (con cobertura, estado previo al `fmt`) | `pytest tests -q --cov --cov-config=.coveragerc --cov-report=term-missing --cov-report=xml:coverage.xml` | **1 failed**, 3274 passed, 25 skipped, 46 xfailed, **0 xpassed** | 34:51 |
+| C (limpia) | `pytest tests -q -p no:cacheprovider --timeout=1200` | **0 failed**, 3275 passed, 25 skipped, 46 xfailed, **0 xpassed** | 34:29 |
+| D (limpia, repetición) | idéntico a C | **0 failed**, 3275 passed, 25 skipped, 46 xfailed, **0 xpassed** | 34:34 |
+
+**C y D son la misma tupla** `(0, 3275, 25, 46, 0)`, corridas consecutivas sobre
+el mismo árbol congelado: el criterio de reproducibilidad del item 8.17 queda
+medido, no argumentado.
 
 El único fallo de la corrida B lo produjo el propio gate de formato del repo
 (`test_fmt_config_precedence.py::test_repository_sources_are_clean_under_pengu_fmt`
 → 10 programas del corpus de migración sin formatear): el gate hizo su trabajo
 sobre los ficheros nuevos de la fase. Se corrigió con `pengu fmt tests/migration`
-y las 10 corridas de migración siguen pasando; a partir de ahí la corrida C ya es
-limpia.
+y las 10 corridas de migración siguen pasando; de ahí que C tenga 3275 passed
+(el +1 es exactamente ese test) y 0 failed.
+
+**Criterio "0 xpassed":** cumplido en las tres corridas. El único `xpass` que
+existía al empezar la fase era el del detector de fugas (item 8.17①), y su causa
+está explicada arriba.
+
+**Nota de rigor sobre las corridas:** entre B y C sólo cambiaron los 10 programas
+`.pengu` del corpus de migración (formateados) — ningún fichero de test ni de
+código. Entre C y D no cambia nada del árbol: D es la repetición exigida por el
+item 8.17 sobre el estado final congelado.
