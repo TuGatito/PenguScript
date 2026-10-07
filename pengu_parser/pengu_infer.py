@@ -28,7 +28,7 @@ from .pengu_errors import (
     UnimplementedConceptMethodError, ConceptBoundNotSatisfiedError,
     InvalidRitualSelfAccessError, InvalidRitualCallError,
     ArraySizeMismatchError, InvalidRangeError, PrivateSymbolAccessError, NonExhaustiveJudgeError,
-    UnknownArrayDimensionError, AutoOwnedBanishError, BorrowedBanishError, suggest_similar_identifier,
+    UnknownArrayDimensionError, suggest_similar_identifier,
     InvalidCharLiteralError
 )
 
@@ -2591,25 +2591,6 @@ class TypeInferrer:
             if isinstance(target, Tree) and target.data == "var_ref":
                 sym_name = str(target.children[0])
                 sym = self.symbols.lookup(sym_name)
-                if sym and sym.kind in ("var", "let"):
-                    if getattr(sym, "is_auto_banished", False):
-                        raise self._make_error(
-                            AutoOwnedBanishError,
-                            f"'banish' on auto-owned local '{sym_name}' would double-free",
-                            target,
-                            code="E0047",
-                            help="Remove 'banish' — the compiler frees this variable automatically at the end of its scope.",
-                            note="Variables allocated locally with fresh ownership are scope-owned and cleaned up automatically."
-                        )
-                    if getattr(sym, "is_borrowed", False):
-                        raise self._make_error(
-                            BorrowedBanishError,
-                            f"'banish' on borrowed local '{sym_name}'",
-                            target,
-                            code="E0048",
-                            help="Remove 'banish' — borrowed references do not own the underlying memory.",
-                            note="Only the owner of a resource is allowed to banish it."
-                        )
                 if sym and sym.kind == "const":
                     raise self._make_error(
                         InvalidMemoryOpError,

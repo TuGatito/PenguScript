@@ -26,7 +26,6 @@ class Symbol:
         is_mutable: True if variable can be modified with set.
         is_defined_in_c: True if symbol is provided by C include headers.
         is_inline: True if function should be inlined in codegen.
-        is_stack_alloc: True if struct can be allocated on stack without heap escape.
         is_ritual: True if function or symbol is considered a ritual (e.g. comptime/macro).
         const_val: Constant evaluated value if known at compile-time.
         line: Source line of declaration.
@@ -43,7 +42,6 @@ class Symbol:
     is_mutable: bool = False
     is_defined_in_c: bool = False
     is_inline: bool = False
-    is_stack_alloc: bool = False
     is_ritual: bool = False
     is_static: bool = False
     const_val: Optional[Any] = None
@@ -55,8 +53,6 @@ class Symbol:
     c_name: Optional[str] = None
     concept_bounds: List[str] = field(default_factory=list)
     is_public: bool = False
-    is_borrowed: bool = False
-    is_auto_banished: bool = False
     attributes: Dict[str, List[Any]] = field(default_factory=dict)
 
     def get_c_name(self) -> str:
@@ -744,18 +740,18 @@ def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None
 def decl_layout(node: Tree) -> Tuple[Optional[Tree], Optional[Tree]]:
     """Extracts (type_node, expr_node) from var_decl, let_decl, or static_var_decl.
 
-    Handles all 8 syntactic layouts with or without BORROWED and with or without
-    an explicit type annotation, correctly accounting for optional None placeholders.
+    All three rules share one child layout: the declared name (or
+    ``var_name_list``), the optional type annotation (a ``None`` placeholder
+    when absent) and the initializer expression.  The type therefore lives at
+    index 1 and the value at index 2.  The length checks keep the extractor
+    working for hand-built trees in tests, where the placeholder for an absent
+    annotation may be missing entirely.
     """
     children = node.children
-    if not children:
+    if len(children) < 2:
         return None, None
-    first = children[0]
-    has_borrowed_slot = (first is None) or (getattr(first, "type", None) == "BORROWED")
-    rem = children[2:] if has_borrowed_slot else children[1:]
+    rem = children[1:]
     if len(rem) >= 2:
         return rem[0], rem[1]
-    elif len(rem) == 1:
-        return None, rem[0]
-    return None, None
+    return None, rem[0]
 

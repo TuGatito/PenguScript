@@ -29,30 +29,11 @@ from .pengu_errors import (
     ConceptMethodMismatchError, UnimplementedConceptMethodError, ConceptBoundNotSatisfiedError,
     InvalidRitualSelfAccessError, InvalidRitualCallError,
     ArraySizeMismatchError, InvalidRangeError, PrivateSymbolAccessError, NonExhaustiveJudgeError,
-    UnknownArrayDimensionError, AutoOwnedBanishError, BorrowedBanishError, InvalidBuilderStatementError,
+    UnknownArrayDimensionError, InvalidBuilderStatementError,
     DuplicateConceptBindingError, InfiniteTypeSizeError, UnknownAttributeError,
     StaticVarPlacementError, InvalidTestNameError, CFieldCollisionError,
     suggest_similar_identifier
 )
-
-
-def _has_borrowed_modifier(node: Tree) -> Tuple[bool, int]:
-    """Return (is_borrowed, name_index).
-
-    When optional modifiers are parsed, Lark may emit None as a placeholder
-    for [BORROWED] at index 0, shifting the variable name to index 1.
-    If children[0] is Token(BORROWED), is_borrowed is True and name is at index 1.
-    If children[0] is None, is_borrowed is False and name is at index 1.
-    Otherwise (e.g. compacted tree), children[0] is the variable name itself.
-    """
-    if not node.children:
-        return False, 0
-    first = node.children[0]
-    if first is not None and getattr(first, "type", None) == "BORROWED":
-        return True, 1
-    if first is None:
-        return False, 1
-    return False, 0
 
 
 # Public layout extractor is defined in pengu_symbols; keep local alias for internal checker use.
@@ -319,15 +300,6 @@ def check_infinite_size(t: Type, target_base_name: str, seen: Optional[Set[str]]
 
 # Loop rules that can also be used as values (collecting their body's value).
 _LOOP_RULES = ("while_stmt", "for_range_stmt", "for_in_stmt")
-
-# AST node types for compound data structures and container literals in escape analysis
-_ESCAPE_COMPOUND_RULES = (
-    "struct_init", "field_init", "struct_init_expr", "with_init_expr",
-    "array_init_expr", "array_lit", "list_lit", "map_lit", "tuple_lit",
-    "some_expr", "ok_expr", "err_expr",
-    "indent_literal", "indent_entries", "indent_array",
-    "indent_row", "field_entry", "map_entry",
-)
 
 
 # Imported modules are re-parsed every time a module imports them (the
@@ -2440,7 +2412,11 @@ class PenguChecker:
         elif rule == "banish_stmt":
             target_expr = node.children[0]
             curr = target_expr
-            while isinstance(curr, Tree) and curr.data in ("primary", "expr_stmt") and len(curr.children) == 1:
+            # Grouping parentheses are not part of the target: 'banish (xs at 0)'
+            # names the same storage cell as 'banish xs at 0'.
+            while (isinstance(curr, Tree)
+                   and curr.data in ("primary", "expr_stmt", "paren_expr", "value_expr", "expr")
+                   and len(curr.children) == 1):
                 curr = curr.children[0]
 
             if isinstance(curr, Tree) and curr.data in (
@@ -2474,10 +2450,15 @@ class PenguChecker:
                 self._record_error(err)
                 return
 
+            # An element access ('xs at i', 'm at k', 's at i') names a storage
+            # cell, so it is an lvalue: 'banish xs at i' releases the owned
+            # element in place.  The type check below still rejects banishing an
+            # element whose type owns nothing (an int, a bool, …).
             is_lvalue = isinstance(curr, Token) or (
                 isinstance(curr, Tree) and curr.data in (
                     "var_ref", "normal_target", "field_access", "dot_access",
-                    "arrow_access", "at_access", "essence_of"
+                    "arrow_access", "at_access", "at_expr", "array_at_expr",
+                    "slice_at_expr", "essence_of"
                 )
             )
             if not is_lvalue:
@@ -2495,29 +2476,6 @@ class PenguChecker:
             if isinstance(curr, Tree) and curr.data == "var_ref":
                 sym_name = str(curr.children[0])
                 sym = self.symbols.lookup(sym_name)
-                if sym is not None and sym.kind in ("var", "let"):
-                    if getattr(sym, "is_auto_banished", False):
-                        err = self._make_error(
-                            AutoOwnedBanishError,
-                            f"'banish' on auto-owned local '{sym_name}' would double-free",
-                            target_expr,
-                            code="E0047",
-                            help="Remove 'banish' — the compiler frees this variable automatically at the end of its scope.",
-                            note="Variables allocated locally with fresh ownership are scope-owned and cleaned up automatically."
-                        )
-                        self._record_error(err)
-                        return
-                    if getattr(sym, "is_borrowed", False):
-                        err = self._make_error(
-                            BorrowedBanishError,
-                            f"'banish' on borrowed local '{sym_name}'",
-                            target_expr,
-                            code="E0048",
-                            help="Remove 'banish' — borrowed references do not own the underlying memory.",
-                            note="Only the owner of a resource is allowed to banish it."
-                        )
-                        self._record_error(err)
-                        return
                 if sym and sym.kind == "const":
                     err = self._make_error(
                         InvalidMemoryOpError,
@@ -2566,6 +2524,9 @@ class PenguChecker:
                 is_valid_type = (
                     isinstance(t, (RefType, ListType, MapType, AnyType))
                     or (isinstance(t, BaseType) and t.name == "string")
+                    # 'maybe T' / 'result of T to E' own their payload box, so
+                    # 'banish m' is the explicit way to release payload + box.
+                    or isinstance(t, (MaybeType, ResultType))
                     or (isinstance(curr, Tree) and curr.data == "essence_of")
                     # A value type with a derived Nexus owns its fields and has
                     # a generated destructor, so it can be released explicitly:
@@ -2575,7 +2536,10 @@ class PenguChecker:
                 if not is_valid_type:
                     err = self._make_error(
                         InvalidMemoryOpError,
-                        f"'banish' requires a reference (ref to T), string, list, map, or a type with 'derive Nexus', got nominal seal type '{t}'" if isinstance(t, SealType) else f"'banish' requires a reference (ref to T), string, list, map, or a type with 'derive Nexus', got '{t}'",
+                        (f"'banish' requires a reference (ref to T), string, list, map, maybe, result, "
+                         f"or a type with 'derive Nexus', got nominal seal type '{t}'" if isinstance(t, SealType)
+                         else f"'banish' requires a reference (ref to T), string, list, map, maybe, result, "
+                              f"or a type with 'derive Nexus', got '{t}'"),
                         target_expr,
                         code="E0008",
                         help="Pass a reference (ref to T), string, list, or map to 'banish', or add 'derive Nexus' to the type. Nominal seal types are also rejected; cast first: 'banish (v to string)'.",
@@ -3058,14 +3022,11 @@ class PenguChecker:
         self._check_node(stmt)
         return VOID_TYPE
 
-    def _check_value_block(self, stmts: List[Tree], expected: Optional[Type] = None,
-                           copies_value: bool = False) -> Type:
+    def _check_value_block(self, stmts: List[Tree], expected: Optional[Type] = None) -> Type:
         """Validates a value block in a fresh scope and returns its value type.
 
         Every statement is checked normally; the last one supplies the block's
-        value (see :meth:`_check_block_value_stmt`).  ``copies_value`` is set for
-        loop bodies: their value is deep-copied into the collected list, so a
-        local that produces it does not escape and stays auto-banished.
+        value (see :meth:`_check_block_value_stmt`).
         """
         if not stmts:
             return VOID_TYPE
@@ -3074,11 +3035,6 @@ class PenguChecker:
         val = VOID_TYPE
         s_stmts = [s for s in stmts if isinstance(s, Tree)]
         self.block_stmts_stack.append(s_stmts)
-        if not hasattr(self, "_value_block_stack"):
-            self._value_block_stack = []
-        # 'None' marks a block whose value is copied out (a loop body): the
-        # producing local keeps ownership and must still be released.
-        self._value_block_stack.append(None if copies_value else s_stmts)
         try:
             self.symbols.push_scope(kind="do", start_line=s_start, end_line=e_end)
             for ch in stmts[:-1]:
@@ -3086,7 +3042,6 @@ class PenguChecker:
             val = self._check_block_value_stmt(stmts[-1], expected)
         finally:
             self.symbols.pop_scope(end_line=e_end)
-            self._value_block_stack.pop()
             self.block_stmts_stack.pop()
         return val
 
@@ -3683,302 +3638,12 @@ class PenguChecker:
             curr = curr.element
         return False
 
-    def _is_direct_var_ref(self, node: Any, target_name: str) -> bool:
-        if not isinstance(node, Tree):
-            return isinstance(node, Token) and node.type == "NAME" and str(node) == target_name
-        if node.data == "var_ref" and node.children:
-            return str(node.children[0]) == target_name
-        if node.data in ("paren_expr", "value_expr", "expr", "normal_target", "set_target") and len(node.children) == 1:
-            return self._is_direct_var_ref(node.children[0], target_name)
-        return False
-
-    def _contains_var_ref(self, node: Any, target_name: str) -> bool:
-        if not isinstance(node, Tree):
-            return isinstance(node, Token) and node.type == "NAME" and str(node) == target_name
-        if node.data == "var_ref" and node.children and str(node.children[0]) == target_name:
-            return True
-        return any(self._contains_var_ref(c, target_name) for c in node.children)
-
-    def _string_cast_is_borrowed(self, node: Any) -> bool:
-        """True when ``x to string`` reuses memory that ``x`` already owns.
-
-        'string to string' is the identity (the result aliases x's buffer) and
-        'bool to string' yields the static ``"true"``/``"false"`` rodata view;
-        neither allocates a fresh buffer, so the result must not be auto-banished.
-        Any other source (int, float, char, …) goes through
-        ``pengu_string_from_*`` and produces an owned heap buffer.
-        """
-        if not isinstance(node, Tree) or not node.children:
-            return False
-        operand = node.children[0]
-        op_t = getattr(operand, "_pengu_value_type", None)
-        if op_t is None:
-            try:
-                op_t = self.inferrer.infer(operand)
-            except Exception:
-                op_t = None
-        while isinstance(op_t, (AliasType, FrozenType, SealType)):
-            nxt = getattr(op_t, "target", None) or getattr(op_t, "underlying", None)
-            if nxt is None or nxt is op_t:
-                break
-            op_t = nxt
-        return isinstance(op_t, BaseType) and op_t.name in ("string", "bool")
-
-    def _is_fresh_heap_expr(self, expr_node: Any, eff_type: Type) -> bool:
-        if not isinstance(expr_node, Tree):
-            return False
-        curr = expr_node
-        while isinstance(curr, Tree) and curr.data in ("value_expr", "expr", "paren_expr") and len(curr.children) == 1:
-            curr = curr.children[0]
-        if not isinstance(curr, Tree):
-            return False
-
-        if isinstance(eff_type, (MaybeType, ResultType)) and curr.data in ("some_expr", "maybe_none", "calling_expr"):
-            # A 'maybe T'/'result of T to E' box is heap-allocated by 'some'/
-            # 'ok_of'/'err_of' (or handed over by a call), so the binding owns it
-            # even though the expression is not a fresh string/container.
-            return True
-
-        if (isinstance(eff_type, OmenType) and eff_type.is_algebraic
-                and curr.data == "struct_init"):
-            # 'var e as Event is with Msg is ...' materialises the tagged struct
-            # on the stack; the binding owns the payload of the active variant.
-            # A fresh payload is moved in, an embedded owning local is disowned
-            # by escape analysis (the documented compound-literal rule), and a
-            # literal string stays a non-owning .rodata view that banish ignores.
-            if not type_owns_heap(eff_type, symbols=self.symbols):
-                return False
-            return True
-
-        if curr.data in ("var_ref", "field_access", "arrow_access", "at_expr", "array_at_expr", "null_lit", "none_lit", "try_expr", "or_else", "or_return", "or_block", "calling_expr"):
-            # NOTE: an 'or_block' is deliberately not treated as fresh.  The ok
-            # path of '(maybe T) or:' moves the payload out, so the fallback
-            # decides the ownership of the result.
-            return False
-
-        if eff_type == STRING_TYPE or (isinstance(eff_type, BaseType) and eff_type.name == "string"):
-            if curr.data in ("add", "binary_op"):
-                return True
-            if curr.data == "chr_expr":
-                return True
-            if curr.data in ("to_expr", "to_string_expr"):
-                # 'x to string' is the identity when 'x' already is a string and
-                # 'bool to string' returns the static "true"/"false" view, so
-                # neither allocates.  Marking them fresh would auto-banish (and
-                # free) a buffer owned elsewhere: for an owned source that is a
-                # double free, for a literal it is the C1 free(.rodata) crash.
-                if self._string_cast_is_borrowed(curr):
-                    return False
-                return True
-            if curr.data == "string_lit" and curr.children:
-                try:
-                    from .pengu_parser import extract_string_parts
-                    _, _, parts = extract_string_parts(curr.children[0])
-                    if any(getattr(p, "is_expr", False) for p in parts):
-                        return True
-                except Exception:
-                    pass
-                return False
-            return False
-
-        if isinstance(eff_type, (ListType, MapType)):
-            return True
-
-        return False
-
-    def _mentions_defer_banish(self, stmts: List[Tree], sym_name: str) -> bool:
-        for s in stmts:
-            if not isinstance(s, Tree):
-                continue
-            for d in s.iter_subtrees():
-                if d.data in ("defer_stmt", "errdefer_stmt"):
-                    for b in d.iter_subtrees():
-                        if b.data in ("banish_expr", "banish_stmt"):
-                            for vr in b.iter_subtrees():
-                                if vr.data == "var_ref" and vr.children and str(vr.children[0]) == sym_name:
-                                    return True
-                                if isinstance(vr, Token) and vr.type == "NAME" and str(vr) == sym_name:
-                                    return True
-        return False
-
-    def _mentions_set_target(self, stmts: List[Tree], sym_name: str,
-                             sym_type: Type = None) -> bool:
-        """True when a 'set' on ``sym_name`` stores a value the local does not own.
-
-        Only a *borrowed* rvalue disables auto-banish.  When every assignment
-        moves in a fresh value (literal, constructor, interpolation, or a call
-        whose result owns memory) the local still owns its current value, so it
-        may be released at scope exit; the code generator pairs that with a
-        release-before-assign on each 'set', turning the old O(n) loop leak into
-        O(1).  A 'set s is t' of an existing variable aliases t's buffer, so it
-        must keep the local out of the auto-banish set.
-        """
-        for s in stmts:
-            if not isinstance(s, Tree):
-                continue
-            for st in s.iter_subtrees():
-                if st.data in ("set_stmt", "compound_set_stmt") and st.children:
-                    target_node = st.children[0]
-                    if not self._is_direct_var_ref(target_node, sym_name):
-                        continue
-                    rhs = self._set_stmt_rvalue(st)
-                    # 'set s is s' is a no-op and keeps the current ownership.
-                    if rhs is not None and self._is_direct_var_ref(rhs, sym_name):
-                        continue
-                    if rhs is None or not self._is_fresh_heap_expr(rhs, sym_type):
-                        return True
-        return False
-
-    @staticmethod
-    def _set_stmt_rvalue(st: Tree) -> Any:
-        """Rvalue of a 'set'/'compound set' statement (None when unknown)."""
-        if st.data == "set_stmt" and len(st.children) >= 2:
-            return st.children[1]
-        if st.data == "compound_set_stmt" and len(st.children) >= 3:
-            return st.children[2]
-        return None
-
     # Container members that are plain scalars, not views into the buffer: a
     # 'return s.len' must not keep 's' alive (that leaked the buffer).
     _SCALAR_MEMBER_NAMES = frozenset({
         "len", "length", "capacity", "cap", "size", "count", "is_present",
         "tag", "hash", "kind", "value_type",
     })
-
-    def _is_scalar_member_access(self, node: Any) -> bool:
-        """True for 'x.len'/'x.capacity'-style scalar member reads."""
-        return (isinstance(node, Tree) and node.data in ("field_access", "arrow_access")
-                and len(node.children) >= 2 and str(node.children[1]) in self._SCALAR_MEMBER_NAMES)
-
-    def _block_value_node_of(self, stmts: List[Any]) -> Any:
-        """Value expression of a value-position statement list (or None)."""
-        if not stmts:
-            return None
-        last = stmts[-1]
-        while (isinstance(last, Tree) and last.data in ("stmt", "simple_stmt", "block")
-               and last.children):
-            nxt = last.children[-1]
-            if nxt is last:
-                break
-            last = nxt
-        if not isinstance(last, Tree):
-            return None
-        if last.data == "expr_stmt" and last.children:
-            return last.children[0]
-        # A trailing value-position 'if'/'unless'/'do:'/loop *is* its own value.
-        # The inferred type may not be recorded yet (a local earlier in the same
-        # block is analysed before the trailing statement is checked), so the
-        # rule name is enough.
-        if getattr(last, "_pengu_value_type", None) is not None:
-            return last
-        if last.data in ("do_expr", "if_stmt", "unless_stmt",
-                         "while_stmt", "for_range_stmt", "for_in_stmt"):
-            return last
-        return None
-
-    def _compute_auto_banished(self, sym_name: str, eff_type: Type, expr_node: Any, is_borrowed: bool) -> bool:
-        if is_borrowed:
-            return False
-
-        actual = eff_type
-        while isinstance(actual, (AliasType, FrozenType)) and getattr(actual, "target", None):
-            actual = actual.target
-
-        is_banishable_type = (
-            actual == STRING_TYPE or (isinstance(actual, BaseType) and actual.name == "string")
-            or isinstance(actual, (ListType, MapType, MaybeType, ResultType))
-            # An algebraic omen with a heap-owning variant payload has a
-            # generated destructor and must be released at scope exit, exactly
-            # like a list/map: without this every local 'omen Event' leaked.
-            or (isinstance(actual, OmenType) and actual.is_algebraic
-                and type_owns_heap(actual, symbols=self.symbols))
-        )
-        if not is_banishable_type:
-            return False
-
-        if not self._is_fresh_heap_expr(expr_node, actual):
-            return False
-
-        scope_stmts = self.block_stmts_stack[-1] if self.block_stmts_stack else []
-        if self._mentions_defer_banish(scope_stmts, sym_name):
-            return False
-        if self._mentions_set_target(scope_stmts, sym_name, actual):
-            return False
-        prev_self_type = getattr(self, "_escape_self_type", None)
-        self._escape_self_type = (sym_name, eff_type)
-        try:
-            if self._check_symbol_escape(sym_name, scope_stmts):
-                return False
-            # A local declared inside a value block ('do:'/'if:') escapes when
-            # that block's own value borrows it ('var sl is do: … xs at 0 to 2'):
-            # banishing it would leave the block value dangling.  The check
-            # recurses through nested value blocks ('do: do: y').
-            vb_stack = getattr(self, "_value_block_stack", None)
-            if vb_stack and vb_stack[-1] is not None:
-                if self._value_block_hands_out(vb_stack[-1], sym_name):
-                    return False
-        finally:
-            self._escape_self_type = prev_self_type
-
-        return True
-
-    def _value_block_expressions(self, node: Any, _depth: int = 0) -> List[Any]:
-        """Value expressions of a 'do:'/'if' block, nested blocks included."""
-        if not isinstance(node, Tree) or _depth > 16:
-            return []
-        out: List[Any] = []
-        if node.data == "do_expr":
-            v = self._block_value_node_of([c for c in node.children if isinstance(c, Tree)])
-            if v is not None:
-                out.append(v)
-        elif node.data in ("if_stmt", "unless_stmt"):
-            # Value position is guaranteed by the caller (the expression would
-            # not be translated otherwise); the recorded type may not exist yet.
-            for branch in node.children[1:]:
-                if not isinstance(branch, Tree):
-                    continue
-                if branch.data in ("block", "else_block", "when_else_plain", "when_else_when"):
-                    v = self._block_value_node_of([c for c in branch.children if isinstance(c, Tree)])
-                else:
-                    v = self._block_value_node_of([branch])
-                if v is not None:
-                    out.append(v)
-        else:
-            return []
-        for sub in list(out):
-            if (isinstance(sub, Tree) and sub.data in ("do_expr", "if_stmt", "unless_stmt")
-                    and getattr(sub, "_pengu_value_type", None) is not None):
-                out.extend(self._value_block_expressions(sub, _depth + 1))
-        return out
-
-    def _value_block_hands_out(self, stmts_or_node: Any, sym_name: str) -> bool:
-        """True when a value block hands ``sym_name``'s storage to its consumer."""
-        if isinstance(stmts_or_node, list):
-            value = self._block_value_node_of(stmts_or_node)
-            nodes: List[Any] = [value] if value is not None else []
-        else:
-            nodes = [stmts_or_node]
-        # Flatten nested value blocks ('do: do: y', value-'if' branches): their
-        # value is what the enclosing expression finally consumes.
-        candidates: List[Any] = []
-        for n in nodes:
-            candidates.append(n)
-            if isinstance(n, Tree) and n.data in ("do_expr", "if_stmt", "unless_stmt"):
-                candidates.extend(self._value_block_expressions(n))
-        for sub in candidates:
-            un = sub
-            while (isinstance(un, Tree) and un.data in ("paren_expr", "value_expr", "expr")
-                   and len(un.children) == 1):
-                un = un.children[0]
-            if self._is_direct_var_ref(un, sym_name):
-                return True
-            if (isinstance(un, Tree) and un.data in (
-                    "at_expr", "array_at_expr", "slice_at_expr", "bytes_expr",
-                    "field_access", "arrow_access", "self_arrow", "essence_of")
-                    and not self._is_scalar_member_access(un)
-                    and self._contains_var_ref(un, sym_name)):
-                return True
-        return False
 
     def _check_var_decl(self, node: Tree) -> None:
         """Checks local mutable variable declaration for type validity and folds constants.
@@ -3987,8 +3652,7 @@ class PenguChecker:
             node: AST Tree for var declaration.
         """
         line, col = self._get_loc(node)
-        is_borrowed, name_idx = _has_borrowed_modifier(node)
-        v_name = str(node.children[name_idx])
+        v_name = str(node.children[0])
         if v_name == "main":
             self._record_error(self._make_error(
                 SemanticError,
@@ -4090,20 +3754,16 @@ class PenguChecker:
 
             folded_val = self.const_folder.fold(v_expr)
             doc = self._extract_preceding_doc(line)
-            is_auto = self._compute_auto_banished(v_name, eff_type, v_expr, is_borrowed)
             sym = Symbol(
                 name=v_name,
                 type=eff_type,
                 kind="var",
                 is_mutable=True,
-                is_stack_alloc=isinstance(eff_type, RuneType),
                 const_val=folded_val,
                 line=line,
                 column=col,
                 doc=doc,
                 file_path=self.filename,
-                is_borrowed=is_borrowed,
-                is_auto_banished=is_auto,
             )
             self.symbols.define(sym)
             node._pengu_symbol = sym
@@ -4141,67 +3801,6 @@ class PenguChecker:
         if t is VOID_TYPE:
             return True
         return str(getattr(t, "name", "")) == "void"
-
-    @staticmethod
-    def _clone_capable_type(t: Any) -> bool:
-        """True when the value generator can deep-copy a value of this type.
-
-        Mirrors the code generator's ``_element_clone_fn``: such a value may be
-        copied into a 'some' box (or a container) without aliasing the source.
-        """
-        u = t
-        while isinstance(u, (AliasType, FrozenType, SealType)):
-            nxt = getattr(u, "target", None) or getattr(u, "underlying", None)
-            if nxt is None or nxt is u:
-                break
-            u = nxt
-        if isinstance(u, BaseType) and u.name == "string":
-            return True
-        if isinstance(u, (ListType, MapType)):
-            return True
-        if isinstance(u, RuneType):
-            return "Imago" in list(getattr(u, "derived_concepts", []) or [])
-        return False
-
-    def _some_payload_type(self, node: Any, parent: Any = None,
-                           grandparent: Any = None) -> Optional[Type]:
-        """Payload type of a 'some expr' node (inference, else its annotation).
-
-        The escape analysis for a local may run before the binding that boxes it
-        is declared, so the declared 'maybe T' of the enclosing declaration is
-        used as a fallback.
-        """
-        if not (isinstance(node, Tree) and node.data == "some_expr" and node.children):
-            return None
-        payload_t: Optional[Type] = None
-        try:
-            payload_t = self.inferrer.infer(node.children[0])
-        except Exception:
-            payload_t = None
-        if payload_t is None or isinstance(payload_t, AnyType):
-            for anc in (parent, grandparent):
-                if not (isinstance(anc, Tree) and anc.data in ("var_decl", "let_decl")):
-                    continue
-                try:
-                    tnode, _v = _decl_layout(anc)
-                    decl_t = (ast_to_type(tnode, self.symbols.lookup_type)
-                              if tnode is not None else None)
-                except Exception:
-                    decl_t = None
-                if isinstance(decl_t, MaybeType):
-                    payload_t = decl_t.element
-                break
-        if payload_t is None or isinstance(payload_t, AnyType):
-            # 'return some s' (or a value block): the enclosing signature carries
-            # the box type, and the local being analysed may not be in the symbol
-            # table yet (its own declaration is still being checked).
-            try:
-                ret_t = self.symbols.current_return_type()
-            except Exception:
-                ret_t = None
-            if isinstance(ret_t, MaybeType):
-                payload_t = ret_t.element
-        return payload_t
 
     def _check_static_var_decl(self, node: Tree) -> None:
         """Checks 'static var' declarations that persist across function calls.
@@ -4309,7 +3908,6 @@ class PenguChecker:
                 kind="var",
                 is_mutable=True,
                 is_static=True,
-                is_stack_alloc=False,
                 const_val=folded_val,
                 line=line,
                 column=col,
@@ -4330,8 +3928,7 @@ class PenguChecker:
             node: AST Tree for let declaration.
         """
         line, col = self._get_loc(node)
-        is_borrowed, name_idx = _has_borrowed_modifier(node)
-        names_node = node.children[name_idx]
+        names_node = node.children[0]
         names: List[str] = [str(c) for c in names_node.children] if isinstance(names_node, Tree) else [str(names_node)]
         seen_in_decl = set()
         for nm in names:
@@ -4444,20 +4041,16 @@ class PenguChecker:
                         note="Immutable bindings must match their declared type."
                     )
                     self._record_error(err)
-                is_auto = self._compute_auto_banished(v_name, eff_type, l_expr, is_borrowed)
                 sym = Symbol(
                     name=v_name,
                     type=eff_type,
                     kind="let",
                     is_mutable=False,
-                    is_stack_alloc=isinstance(eff_type, RuneType),
                     const_val=folded_val,
                     line=line,
                     column=col,
                     doc=doc,
                     file_path=self.filename,
-                    is_borrowed=is_borrowed,
-                    is_auto_banished=is_auto,
                 )
                 self.symbols.define(sym)
                 node._pengu_symbol = sym
@@ -4476,7 +4069,7 @@ class PenguChecker:
                             note="Destructuring requires an exact match in the number of targets."
                         )
                     for (v_name, (f_name, f_type)) in zip(names, fields_list):
-                        sym = Symbol(name=v_name, type=f_type, kind="let", is_mutable=False, line=line, column=col, doc=doc, file_path=self.filename, is_borrowed=is_borrowed)
+                        sym = Symbol(name=v_name, type=f_type, kind="let", is_mutable=False, line=line, column=col, doc=doc, file_path=self.filename)
                         self.symbols.define(sym)
                         destructured_syms.append(sym)
                 elif isinstance(inferred, ArrayType):
@@ -4491,13 +4084,13 @@ class PenguChecker:
                             note="Destructuring requires an exact match in the number of targets."
                         )
                     for v_name in names:
-                        sym = Symbol(name=v_name, type=elem_t, kind="let", is_mutable=False, line=line, column=col, file_path=self.filename, is_borrowed=is_borrowed)
+                        sym = Symbol(name=v_name, type=elem_t, kind="let", is_mutable=False, line=line, column=col, file_path=self.filename)
                         self.symbols.define(sym)
                         destructured_syms.append(sym)
                 elif isinstance(inferred, (SliceType, ListType)):
                     elem_t = inferred.element
                     for v_name in names:
-                        sym = Symbol(name=v_name, type=elem_t, kind="let", is_mutable=False, line=line, column=col, file_path=self.filename, is_borrowed=is_borrowed)
+                        sym = Symbol(name=v_name, type=elem_t, kind="let", is_mutable=False, line=line, column=col, file_path=self.filename)
                         self.symbols.define(sym)
                         destructured_syms.append(sym)
                 else:
@@ -4857,10 +4450,6 @@ class PenguChecker:
                                 note="'let' bindings are immutable in PenguScript."
                             )
                         curr_chk_t = sym.type
-                        # Remember the binding for codegen: release-before-assign
-                        # only fires for a local the checker proved auto-banished
-                        # (never aliased/escaped).
-                        node._pengu_set_var_symbol = sym
                     else:
                         first_acc = target_node.children[1]
                         if isinstance(first_acc, Tree) and first_acc.data in ("dot_access", "at_access"):
@@ -5638,14 +5227,6 @@ class PenguChecker:
                 if (len(stmt_children) <= 3 or node_count <= 25) and not has_loop and not has_static:
                     fn_sym.is_inline = True
 
-            # Escape Analysis for local variables
-            for s_name, sym in list(self.symbols.current_scope.symbols.items()):
-                if sym.kind in ("var", "let") and not getattr(sym, "is_static", False):
-                    escaped = self._check_symbol_escape(s_name, stmt_children)
-                    sym.is_stack_alloc = not escaped
-                    if escaped:
-                        sym.is_auto_banished = False
-
             # Implicit return check for last expression
             if stmt_children:
                 last_stmt = stmt_children[-1]
@@ -5685,587 +5266,6 @@ class PenguChecker:
             self.block_stmts_stack.pop()
 
         self.symbols.pop_scope(end_line=span_end)
-
-    def _lookup_field_type_on(self, base_t: Optional[Type], field_name: str) -> Optional[Type]:
-        """Resolves the type of a field on ``base_t`` for the escape analysis.
-
-        Mirrors the code generator's helper of the same name: references and
-        aliases are looked through, and a primitive that names a user type is
-        resolved through the symbol table (``BaseType('Bag')`` -> ``RuneType``).
-        """
-        u = base_t
-        while isinstance(u, (RefType, AliasType, FrozenType, SealType)):
-            nxt = getattr(u, "target", None) or getattr(u, "underlying", None)
-            if nxt is None or nxt is u:
-                break
-            u = nxt
-        if isinstance(u, BaseType):
-            sym_t = self.symbols.lookup_type(u.name)
-            if sym_t is not None and sym_t is not u:
-                u = sym_t
-                while isinstance(u, (RefType, AliasType, FrozenType, SealType)):
-                    nxt = getattr(u, "target", None) or getattr(u, "underlying", None)
-                    if nxt is None or nxt is u:
-                        break
-                    u = nxt
-        if u is None:
-            return None
-        fields = getattr(u, "fields", None)
-        if isinstance(u, (RuneType, EchoType)) and isinstance(fields, dict):
-            return fields.get(field_name)
-        return None
-
-    def _resolve_chain_type(self, base_t: Optional[Type], accs: List[Any]) -> Optional[Type]:
-        """Applies ``dot_access``/``arrow_access``/``at_access`` steps onto ``base_t``.
-
-        Used by the escape analysis to find the *container* behind chains such as
-        ``self->items`` or ``bag.inner.items`` instead of stopping at the first
-        identifier.  Returns None as soon as a step cannot be resolved so the
-        caller stays conservative.
-        """
-        curr = base_t
-        for acc in accs:
-            if not isinstance(acc, Tree):
-                return None
-            if acc.data in ("dot_access", "arrow_access") and acc.children:
-                curr = self._lookup_field_type_on(curr, str(acc.children[0]))
-            elif acc.data == "at_access":
-                u = curr
-                while isinstance(u, (RefType, AliasType, FrozenType, SealType)):
-                    nxt = getattr(u, "target", None) or getattr(u, "underlying", None)
-                    if nxt is None or nxt is u:
-                        break
-                    u = nxt
-                if isinstance(u, (ListType, ArrayType, SliceType, ManyType)):
-                    curr = u.element
-                elif isinstance(u, MapType):
-                    curr = u.value
-                elif isinstance(u, BaseType) and u.name == "string":
-                    curr = STRING_TYPE  # indexing a string yields a character
-                else:
-                    return None
-            else:
-                return None
-            if curr is None:
-                return None
-        return curr
-
-    def _escape_receiver_type(self, target: Any,
-                              with_types: Optional[List[Optional[Type]]] = None) -> Optional[Type]:
-        """Best-effort type of the container a ``calling X.method`` targets.
-
-        Returns None when it cannot be resolved statically (callers must then
-        stay conservative and treat the store as an escape).
-        """
-        if not isinstance(target, Tree):
-            return None
-        if target.data == "with_target":
-            if with_types:
-                return with_types[-1]
-            getter = getattr(self.symbols, "current_with_type", None)
-            return getter() if callable(getter) else None
-        if target.data == "normal_target" and target.children:
-            first = target.children[0]
-            # The last access operator *is* the method name; everything before
-            # it is the receiver chain to resolve.
-            rest = list(target.children[1:])
-            if rest and isinstance(rest[-1], Tree) and rest[-1].data in ("dot_access", "arrow_access"):
-                rest = rest[:-1]
-
-            base_t: Optional[Type] = None
-            if isinstance(first, Token) and str(first) == "self":
-                getter = getattr(self.symbols, "current_enchanting_type", None)
-                ench = getter() if callable(getter) else None
-                # 'self' is always a pointer to the enchanted type.
-                base_t = RefType(ench) if ench is not None else None
-            elif isinstance(first, Token) and first.type == "NAME":
-                sym = self.symbols.lookup(str(first))
-                if sym is not None:
-                    base_t = sym.type
-                elif with_types and with_types[-1] is not None:
-                    # Bare field name inside 'with x:' (e.g. 'calling items.push').
-                    base_t = with_types[-1]
-            if base_t is None:
-                return None
-            return self._resolve_chain_type(base_t, rest)
-        return None
-
-    def _slot_type_for_target(self, target: Any) -> Optional[Type]:
-        """Type of the storage cell named by a `set` target (None when unknown).
-
-        Mirrors the code generator's resolver so the escape analysis only relaxes
-        when that storage really receives a deep copy.
-        """
-        if not isinstance(target, Tree):
-            return None
-        if target.data == "set_target" and target.children:
-            return self._slot_type_for_target(target.children[0])
-        if target.data == "with_target" and target.children:
-            base = self.symbols.current_with_type() or getattr(self, "_escape_with_type", None)
-            accs = [Tree("dot_access", [target.children[0]])]
-            accs += [c for c in target.children[1:] if isinstance(c, Tree)]
-            return self._resolve_chain_type(base, accs)
-        if target.data == "normal_target" and target.children:
-            first = target.children[0]
-            base: Optional[Type] = None
-            if isinstance(first, Token) and str(first) == "self":
-                ench = self.symbols.current_enchanting_type()
-                base = RefType(ench) if ench is not None else None
-            elif isinstance(first, Token) and first.type == "NAME":
-                sym = self.symbols.lookup(str(first))
-                base = sym.type if sym is not None else None
-            return self._resolve_chain_type(base, [c for c in target.children[1:] if isinstance(c, Tree)])
-        if target.data == "essence_target" and target.children:
-            try:
-                return getattr(self.inferrer.infer(target.children[0]), "target", None)
-            except SemanticError:
-                return None
-        return None
-
-    def _slot_owns_string_copy(self, target: Any, val_node: Any) -> bool:
-        """True when `target = val` deep-copies a string into its slot."""
-        inner = target
-        if isinstance(inner, Tree) and inner.data == "set_target" and inner.children:
-            inner = inner.children[0]
-        if not isinstance(inner, Tree):
-            return False
-        if not (inner.data == "with_target"
-                or (inner.data == "normal_target" and len(inner.children) > 1)
-                or inner.data == "essence_target"):
-            return False
-        slot_t = self._slot_type_for_target(inner)
-        u = slot_t
-        while isinstance(u, (AliasType, FrozenType, SealType)):
-            u = getattr(u, "target", None) or getattr(u, "underlying", None)
-        if not (isinstance(u, BaseType) and u.name == "string"):
-            return False
-        try:
-            val_t = self.inferrer.infer(val_node)
-        except SemanticError:
-            # The value can be the very variable being declared ('var s is …'
-            # is analysed before 's' exists in the scope): fall back to its
-            # declared type when the escape pass provides it.
-            info = getattr(self, "_escape_self_type", None)
-            if info and self._is_direct_var_ref(val_node, info[0]):
-                val_t = info[1]
-            else:
-                return False
-        v = val_t
-        while isinstance(v, (AliasType, FrozenType, SealType)):
-            v = getattr(v, "target", None) or getattr(v, "underlying", None)
-        if isinstance(v, BaseType) and v.name == "string":
-            return True
-        if isinstance(v, TypeParam):
-            return "Forma" in v.bounds
-        return isinstance(v, OmenType) and (v.is_string() or v.is_string_valued)
-
-    def _check_symbol_escape(self, sym_name: str, stmts: List[Tree]) -> bool:
-        """Determines if a local variable escapes its function scope via pointer, return, or assignment.
-
-        Uses conservative escape analysis:
-        - Escapes if returned directly or via pointer (sigil of x).
-        - Escapes if its address (sigil of x) is assigned to a struct field or outer/global variable.
-        - Escapes if its address is passed into a function call.
-        - Escapes if stored in a container or data structure.
-
-        Args:
-            sym_name: Identifier name to analyze.
-            stmts: List of function body statements.
-
-        Returns:
-            True if symbol escapes stack frame (requires heap allocation), False otherwise.
-        """
-        escaped = False
-        # Type of the innermost 'with <expr>:' target, so that a '.push'/'.put'
-        # inside the block can be classified without a live scope.
-        with_types: List[Optional[Type]] = []
-
-        def contains_sigil_of(node: Any) -> bool:
-            if not isinstance(node, Tree):
-                return False
-            if node.data == "sigil_of" and node.children:
-                target = node.children[0]
-                # 'sigil of x' *and* addresses of a sub-object ('sigil of x.field',
-                # 'sigil of x at 0', 'sigil of x.f.g') all keep x's storage alive:
-                # every one of them is a pointer into x that would dangle once x
-                # is released.  _contains_var_ref understands access chains.
-                if self._contains_var_ref(target, sym_name):
-                    return True
-            return any(contains_sigil_of(c) for c in node.children if isinstance(c, Tree))
-
-        def _struct_init_type(decl_or_field: Any) -> Optional[Type]:
-            """Type of a struct literal from its enclosing declaration/field."""
-            if not isinstance(decl_or_field, Tree):
-                return None
-            # 'var p as Player is with ...' -> the annotation child.
-            if decl_or_field.data in ("var_decl", "let_decl"):
-                for child in decl_or_field.children:
-                    if isinstance(child, Tree) and child.data in (
-                        "base_type", "custom_type", "ref_type", "alias_type",
-                    ):
-                        try:
-                            return ast_to_type(child, self.symbols.lookup_type)
-                        except Exception:
-                            return None
-                return None
-            return None
-
-        def _field_type_on(struct_t: Optional[Type], f_name: str) -> Optional[Type]:
-            u = struct_t
-            while isinstance(u, (AliasType, FrozenType, SealType, RefType)):
-                nxt = (getattr(u, "target", None) or getattr(u, "underlying", None))
-                if nxt is None or nxt is u:
-                    break
-                u = nxt
-            fields = getattr(u, "fields", None)
-            if isinstance(fields, dict):
-                return fields.get(f_name)
-            return None
-
-        def _is_string_t(t: Optional[Type]) -> bool:
-            u = t
-            while isinstance(u, (AliasType, FrozenType, SealType)):
-                nxt = (getattr(u, "target", None) or getattr(u, "underlying", None))
-                if nxt is None or nxt is u:
-                    break
-                u = nxt
-            return isinstance(u, BaseType) and u.name == "string"
-
-        # Expressions that yield a *view* into an existing buffer instead of a
-        # fresh/owned value: storing or returning one keeps the source alive.
-        _VIEW_RULES = (
-            "at_expr", "array_at_expr", "slice_at_expr", "bytes_expr",
-            "field_access", "arrow_access", "self_arrow", "essence_of",
-        )
-
-        def _unwrap(node: Any) -> Any:
-            un = node
-            while (isinstance(un, Tree) and un.data in ("paren_expr", "value_expr", "expr")
-                   and len(un.children) == 1):
-                un = un.children[0]
-            return un
-
-        def _is_view_into(node: Any) -> bool:
-            """True when ``node`` borrows into ``sym_name``'s storage."""
-            un = _unwrap(node)
-            if not isinstance(un, Tree):
-                return False
-            if un.data in _VIEW_RULES:
-                if self._is_scalar_member_access(un):
-                    return False
-                return self._contains_var_ref(un, sym_name)
-            return False
-
-        def _last_value_expr(stmts: List[Any]) -> Any:
-            """Value expression of a value-position statement list, if any."""
-            if not stmts:
-                return None
-            last = _unwrap(stmts[-1])
-            while (isinstance(last, Tree) and last.data in ("stmt", "simple_stmt", "block")
-                   and last.children):
-                nxt = _unwrap(last.children[-1])
-                if nxt is last:
-                    break
-                last = nxt
-            if not isinstance(last, Tree):
-                return None
-            if last.data == "expr_stmt" and last.children:
-                return last.children[0]
-            # A trailing value-position 'if'/'unless'/'do:'/loop *is* its own
-            # value (the node carries the type the checker inferred).
-            if getattr(last, "_pengu_value_type", None) is not None:
-                return last
-            return None
-
-        def _block_value_exprs(node: Any, _depth: int = 0) -> List[Any]:
-            """Value expressions produced by a 'do:' or a value-position 'if'.
-
-            Nested value blocks are flattened recursively ('do: do: y'), so the
-            escape analysis sees a local handed out through any depth.
-            """
-            un = _unwrap(node)
-            if not isinstance(un, Tree) or _depth > 16:
-                return []
-            out: List[Any] = []
-            if un.data == "do_expr":
-                stmts = [c for c in un.children if isinstance(c, Tree)]
-                v = _last_value_expr(stmts)
-                if v is not None:
-                    out.append(v)
-            elif un.data in ("if_stmt", "unless_stmt") and getattr(un, "_pengu_value_type", None) is not None:
-                for branch in un.children[1:]:
-                    if not isinstance(branch, Tree):
-                        continue
-                    if branch.data in ("block", "else_block", "when_else_plain", "when_else_when"):
-                        bstmts = [c for c in branch.children if isinstance(c, Tree)]
-                    else:
-                        bstmts = [branch]
-                    v = _last_value_expr(bstmts)
-                    if v is not None:
-                        out.append(v)
-            else:
-                return []
-            # Descend into nested *value blocks* (a loop value copies its
-            # elements, so it never hands a local's storage out).
-            for sub in list(out):
-                su = _unwrap(sub)
-                if (isinstance(su, Tree)
-                        and su.data in ("do_expr", "if_stmt", "unless_stmt")
-                        and getattr(su, "_pengu_value_type", None) is not None):
-                    out.extend(_block_value_exprs(su, _depth + 1))
-            return out
-
-        def _hands_out_storage(node: Any) -> bool:
-            """True when the expression *is* sym_name's value (or a sigil of it)."""
-            if node is None:
-                return False
-            un = _unwrap(node)
-            if isinstance(un, Tree) and un.data in ("do_expr", "if_stmt", "unless_stmt"):
-                return _block_value_hands_out(node)
-            return contains_sigil_of(node) or self._is_direct_var_ref(node, sym_name)
-
-        def _block_value_hands_out(node: Any) -> bool:
-            """True when a 'do:'/'if:' value is (or views into) sym_name.
-
-            A block value is consumed by the enclosing expression *after* the
-            block's own scope was released, so any borrowing value must keep the
-            local alive; the code generator cannot defer that release.
-            """
-            for sub in _block_value_exprs(node):
-                if (contains_sigil_of(sub) or self._is_direct_var_ref(sub, sym_name)
-                        or _is_view_into(sub)):
-                    return True
-            return False
-
-        def walk(n: Any, parent: Any = None, grandparent: Any = None):
-            nonlocal escaped
-            if escaped or not isinstance(n, Tree):
-                return
-
-            # 0. 'with <expr>:' — remember the target type for the nested calls.
-            if n.data == "with_stmt" and n.children:
-                wt: Optional[Type] = None
-                try:
-                    wt = self.inferrer.infer(n.children[0])
-                except Exception:
-                    wt = None
-                with_types.append(wt)
-                for child in n.children[1:]:
-                    walk(child)
-                with_types.pop()
-                return
-
-            # 1. Direct sigil_of taken on sym_name
-            if n.data == "sigil_of":
-                target = n.children[0]
-                if (isinstance(target, Tree) and target.data == "var_ref" and str(target.children[0]) == sym_name) or (isinstance(target, Token) and str(target) == sym_name):
-                    escaped = True
-                    return
-
-            # 2. Return statements
-            elif n.data == "return_stmt" and n.children:
-                ret_val = n.children[0]
-                if self._is_direct_var_ref(ret_val, sym_name):
-                    escaped = True
-                    return
-                if isinstance(ret_val, Tree):
-                    if ret_val.data == "some_expr":
-                        # 'return some s' deep-copies an owning payload into the
-                        # box, so nothing of s's storage leaves the scope.
-                        payload_t = self._some_payload_type(ret_val, parent, grandparent)
-                        if payload_t is not None and self._clone_capable_type(payload_t):
-                            return
-                    for sub in ret_val.iter_subtrees():
-                        if sub.data in _ESCAPE_COMPOUND_RULES:
-                            if sub.data == "some_expr":
-                                payload_t = self._some_payload_type(sub, n, parent)
-                                if payload_t is not None and self._clone_capable_type(payload_t):
-                                    continue
-                            if self._contains_var_ref(sub, sym_name):
-                                escaped = True
-                                return
-                    if ret_val.data in ("if_stmt", "unless_stmt", "do_expr",
-                                        "while_stmt", "for_range_stmt", "for_in_stmt"):
-                        if self._contains_var_ref(ret_val, sym_name):
-                            escaped = True
-                            return
-                if contains_sigil_of(ret_val):
-                    escaped = True
-                    return
-                # A view into the local ('return s at 0', 'return s.field',
-                # 'return bytes of s') stays valid only while the local's buffer
-                # lives: banishing the local would hand back a dangling pointer.
-                if (_hands_out_storage(ret_val) or _is_view_into(ret_val)
-                        or _block_value_hands_out(ret_val)):
-                    escaped = True
-                    return
-
-            # 3. Set statements (assigning address to fields, struct members, globals)
-            elif n.data == "set_stmt":
-                val_node = n.children[-1]
-                target_node = n.children[0]
-                if contains_sigil_of(val_node):
-                    escaped = True
-                    return
-                if self._contains_var_ref(val_node, sym_name):
-                    if not self._is_direct_var_ref(target_node, sym_name):
-                        # A string stored into an owned slot (struct field,
-                        # element, pointee) is deep-copied by the code generator,
-                        # so the local keeps ownership and stays auto-banished.
-                        # The slot deep-copies a string value, so the source
-                        # keeps ownership and stays auto-banished; only a
-                        # non-copying slot (a view target) makes it escape.
-                        if not self._slot_owns_string_copy(target_node, val_node):
-                            escaped = True
-                            return
-
-            # 4. Function call arguments
-            elif n.data == "calling_expr":
-                if contains_sigil_of(n):
-                    escaped = True
-                    return
-                target = n.children[0] if n.children else None
-                method_name = None
-                if isinstance(target, Tree):
-                    if target.data == "with_target" and target.children:
-                        method_name = str(target.children[0])
-                    else:
-                        for ch in reversed(target.children):
-                            if isinstance(ch, Tree) and ch.data in ("dot_access", "arrow_access") and ch.children:
-                                method_name = str(ch.children[0])
-                                break
-                if method_name in ("push", "append", "put", "insert", "set"):
-                    arg_list = next((c for c in n.children if isinstance(c, Tree) and c.data == "arg_list"), None)
-                    if arg_list and self._contains_var_ref(arg_list, sym_name):
-                        # A list/map built with the owning constructors registers
-                        # clone callbacks, so push/put deep-copies: the source
-                        # keeps ownership of its own buffer and may still be
-                        # auto-banished.  Only a shallow (aliasing) store makes
-                        # the value escape.
-                        recv_t = self._escape_receiver_type(target, with_types)
-                        if receiver_deep_copies_on_store(recv_t, self.symbols):
-                            pass
-                        else:
-                            escaped = True
-                            return
-
-            # 5. Compound data structures or container literals
-            elif n.data in _ESCAPE_COMPOUND_RULES:
-                if n.data in ("struct_init", "struct_init_expr", "with_init_expr"):
-                    # Recurse: each field value is classified on its own, since a
-                    # string stored into a string field is deep-copied.
-                    prev_with = getattr(self, "_escape_with_type", None)
-                    with_types.append(_struct_init_type(parent))
-                    self._escape_with_type = _struct_init_type(parent)
-                    try:
-                        for child in n.children:
-                            walk(child, n, parent)
-                    finally:
-                        with_types.pop()
-                        self._escape_with_type = prev_with
-                    return
-                if n.data in ("field_init", "field_entry") and isinstance(parent, Tree) and parent.data == "struct_init":
-                    # 'with name is s' stores a *copy* of a string into an owned
-                    # rune field (see _string_slot_value), so the local keeps
-                    # ownership and may still be auto-banished.
-                    struct_t = _struct_init_type(grandparent)
-                    f_name = str(n.children[0]) if n.children else ""
-                    f_t = _field_type_on(struct_t, f_name)
-                    val = n.children[-1] if len(n.children) > 1 else None
-                    if _is_string_t(f_t):
-                        if contains_sigil_of(val):
-                            escaped = True
-                            return
-                        for child in n.children:
-                            walk(child, n, parent)
-                        return
-                if n.data == "some_expr" and n.children:
-                    # The code generator *deep-copies* an owning payload into the
-                    # box ('some s' no longer shares s's buffer), so the source
-                    # keeps ownership and may still be auto-banished.  A payload
-                    # without a clone callback (slice/ref/POD) is still aliased.
-                    payload_t = self._some_payload_type(n, parent, grandparent)
-                    if payload_t is not None and self._clone_capable_type(payload_t):
-                        for child in n.children:
-                            walk(child, n, parent)
-                        return
-                if contains_sigil_of(n) or self._contains_var_ref(n, sym_name):
-                    escaped = True
-                    return
-
-
-            # 6. Variable declarations (aliasing / transferring ownership)
-            elif n.data in ("var_decl", "let_decl") and n.children:
-                val_node = n.children[-1]
-                # Binding a *view* is safe while every use precedes the
-                # scope-end banish, so only an identity hand-off escapes here;
-                # the view case is propagated below when the binding escapes.
-                if _hands_out_storage(val_node) or _block_value_hands_out(val_node):
-                    escaped = True
-                    return
-
-
-            for child in n.children:
-                walk(child, n, parent)
-
-        for stmt in stmts:
-            walk(stmt)
-        if escaped:
-            return True
-
-        # A local bound to a *view* of sym_name ('var v as string is xs at 0')
-        # borrows sym_name's buffer: if that local escapes, so must the source.
-        # Binding alone is safe (all uses precede the scope-end banish), so this
-        # only fires when the view itself is returned or stored away.
-        guard = getattr(self, "_escape_view_guard", None)
-        if guard is None:
-            guard = set()
-            self._escape_view_guard = guard
-        if sym_name in guard:
-            return False
-        guard.add(sym_name)
-        try:
-            for stmt in stmts:
-                if not isinstance(stmt, Tree):
-                    continue
-                for decl in stmt.iter_subtrees():
-                    if not (isinstance(decl, Tree) and decl.data in ("var_decl", "let_decl")):
-                        continue
-                    if len(decl.children) < 2:
-                        continue
-                    if not _is_view_into(decl.children[-1]):
-                        continue
-                    names = [str(t) for t in decl.children[1:]
-                             if isinstance(t, Token) and t.type == "NAME"]
-                    if not names or names[0] == sym_name:
-                        continue
-                    # A scalar element read ('lst at 0' of an int) is a copy, not
-                    # a borrowed buffer, so its escape does not affect the source.
-                    # The bound type comes from the declaration itself: this
-                    # analysis runs while the *source* is being declared, so a
-                    # later binding is not in the symbol table yet.
-                    bound_t = None
-                    for ch in decl.children[1:-1]:
-                        if isinstance(ch, Tree) and ch.data in self._TYPE_NODE_RULES:
-                            try:
-                                bound_t = ast_to_type(ch, self.symbols.lookup_type)
-                            except Exception:
-                                bound_t = None
-                            break
-                    if bound_t is None:
-                        bound_sym = self.symbols.lookup(names[0]) if self.symbols else None
-                        bound_t = getattr(bound_sym, "type", None)
-                    while isinstance(bound_t, (AliasType, FrozenType)) and getattr(bound_t, "target", None):
-                        bound_t = bound_t.target
-                    if isinstance(bound_t, BaseType) and bound_t.name in (
-                            "int", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64",
-                            "float", "f32", "f64", "bool", "char", "byte"):
-                        continue
-                    if self._check_symbol_escape(names[0], stmts):
-                        return True
-        finally:
-            guard.discard(sym_name)
-        return False
 
     def _check_enchanting_method(self, node: Tree, self_type: Type, type_params: Optional[List[str]] = None, type_bounds: Optional[Dict[str, List[str]]] = None) -> None:
         """Checks method definition within an enchanting block.
@@ -6567,8 +5567,7 @@ class PenguChecker:
         self.block_stmts_stack.append(b_stmts)
         try:
             if collect:
-                elem_t = self._check_value_block(list(block_node.children), expected_element,
-                                                  copies_value=True)
+                elem_t = self._check_value_block(list(block_node.children), expected_element)
             else:
                 self._check_node(block_node)
         finally:
@@ -6679,8 +5678,7 @@ class PenguChecker:
         self.block_stmts_stack.append(b_stmts)
         try:
             if collect:
-                elem_t = self._check_value_block(list(block_node.children), expected_element,
-                                                  copies_value=True)
+                elem_t = self._check_value_block(list(block_node.children), expected_element)
             else:
                 self._check_node(block_node)
         finally:
@@ -6780,8 +5778,7 @@ class PenguChecker:
         self.block_stmts_stack.append(b_stmts)
         try:
             if collect:
-                body_t = self._check_value_block(list(block_node.children), expected_element,
-                                                  copies_value=True)
+                body_t = self._check_value_block(list(block_node.children), expected_element)
             else:
                 self._check_node(block_node)
         finally:

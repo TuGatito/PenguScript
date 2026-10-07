@@ -247,8 +247,6 @@ def format_symbol_hover(
 
         if sym.is_defined_in_c:
             doc_lines.append("*(C header foreign symbol)*")
-        if sym.is_stack_alloc:
-            doc_lines.append("*(stack allocated)*")
 
     if method_lines:
         doc_lines.append("\n".join(method_lines))
