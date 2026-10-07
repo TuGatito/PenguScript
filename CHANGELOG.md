@@ -88,9 +88,10 @@ All notable changes to PenguScript will be documented in this file.
 - `release.yml` convierte la firma ad-hoc de macOS en un **gate real**
   (`codesign --verify --strict`); antes era `codesign … || true` seguido de un
   `::warning::` que no podía fallar (**F9-N3**).
-- `RELEASE_CHECKLIST.md` reescrito (9.11): 16 casillas automatizadas, **0 sin
-  gate** (antes 8 sin gate), y la sección manual marcada `manual:` casilla por
-  casilla. Verificado por partida doble: el test falla si se quita un gate.
+- `RELEASE_CHECKLIST.md` reescrito (9.11): **28** casillas automatizadas, **0 sin
+  gate** (antes: 16 automatizadas con 8 sin gate) y 14 casillas manuales marcadas
+  `manual:` una por una. Verificado por partida doble: el test falla si se quita un
+  gate.
 - `docs/FUZZING.md` y `RELEASE_CHECKLIST.md` dejan de prometer 72 h de fuzzing y
   documentan el presupuesto real (6 h por harness en 4 shards de 90 min), el
   techo de la plataforma y el reparto entre `fuzz.yml` y `nightly.yml`

@@ -990,7 +990,7 @@ Detalle item por item, con la verificación de cada premisa, en
 | 9.8 | ✅ **byte-idéntico** | Medido: dos `PyInstaller` sobre el mismo commit → `sha256=8bf8946097219725c5e6d2478bd3c35751f4a4dfe7dccdda5f273ab5807de738` (17 584 704 B) **idéntico**, incluso con `--distpath` distinto; el `.tar.gz` determinista → `86ec04102aad651b1aa0360a97ff7eb84e6de95a7bc98a1bb13730f88c64054b` en dos corridas |
 | 9.9 | ❌ **reivindicación retirada** | No hay cuenta de Apple: sin `notarytool`, `spctl --assess` **no** se afirma. `release.yml` firma ad-hoc y gatea `codesign --verify --strict`; `release-verify.yml` publica la salida de `spctl` para el registro. `docs/RELEASE.md` §macOS y `docs/PENGU_BUILD.md` lo dicen |
 | 9.10 | ✅ | `docs/RELEASE.md` con el proceso, los gates, la tabla de fallo, la reproducibilidad y macOS; enlaza el checklist sin duplicarlo |
-| 9.11 | ✅ | **0 casillas sin gate** (antes 8 de 16 automatizadas). `tests/test_release_claims.py` valida comando/`workflow:` y que cada ruta citada exista. C2: quitar un gate → el test falla |
+| 9.11 | ✅ | **0 casillas sin gate** (28 automatizadas; antes 16 con 8 sin gate). `tests/test_release_claims.py` valida comando/`workflow:` y que cada ruta citada exista. C2: quitar un gate → el test falla |
 | 9.12 | ✅ | `release-verify.yml` (matriz `portable` ×2 + `fhs` ×2 + Windows `portable`) **y** `ci.yml` en cada push; el portón FHS demuestra que el prefijo se usó (oculta `lib/pengu` y exige el fallo) |
 
 **Hallazgos nuevos de la fase:** F9-N1 (un tercer `extractall` sin endurecer en
