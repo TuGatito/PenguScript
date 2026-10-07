@@ -5,4 +5,8 @@ weave main into int:
     var n as int is 65
     var s as string is "letter: {(chr n)}"
     calling spark.println with s
+    # 's' owns the formatted buffer; the '(chr n)' interpolation temporary is
+    # released inside the expression.  Banishing the result is what makes the
+    # 'zero live allocations' verdict true rather than merely unobserved.
+    banish s
     return 0

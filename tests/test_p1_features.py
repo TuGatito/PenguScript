@@ -10,6 +10,7 @@ from tests.conftest import (
     requires_runtime,
     requires_lib,
     is_windows,
+    raylib_link_flags,
 )
 
 
@@ -367,7 +368,7 @@ class TestRaymath:
             "    calling spark.println with \"len={len} zx={zero_v.x} m0={m2.m0} qm0={qm.m0}\"\n"
             "    return 0\n"
         )
-        libs = ["-lpengu_raymath", "-lraylib", "-lopengl32", "-lgdi32", "-lwinmm"] if is_windows() else ["-lpengu_raymath", "-lraylib", "-lm"]
+        libs = ["-lpengu_raymath"] + raylib_link_flags()
         res = compile_run(src, tag="p1_raymath", extra_libs=libs)
         assert "len=5" in res.stdout
         assert "zx=0" in res.stdout

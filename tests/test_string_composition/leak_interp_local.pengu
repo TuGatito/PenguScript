@@ -5,4 +5,9 @@ weave main into int:
     var n as int is 42
     var s as string is "value: {(n to string)}"
     calling spark.println with s
+    # 's' owns the freshly formatted buffer (64 bytes); the interpolation
+    # temporary it was built from is already released inside the expression, so
+    # banishing the result is what leaves the program with zero live
+    # allocations of its own.
+    banish s
     return 0

@@ -1719,6 +1719,8 @@ class PenguBuilder:
                                 link_flags.append(tok)
             else:
                 link_flags.append(f"-l{link}")
+                if link == "raylib":
+                    link_flags.extend(raylib_platform_libs(is_win))
 
         if not is_win and all_links:
             # Platform tail: provider libraries must come AFTER every archive
@@ -2739,6 +2741,38 @@ def _report_dialect_mismatch(message: str, config: "ProjectConfig",
         raise SystemExit(1)
     emit(f"     Error {message}", file=sys.stderr, color="red", level="error")
     raise SystemExit(1)
+
+
+def raylib_platform_libs(is_win: bool = False) -> List[str]:
+    """Windowing/OpenGL providers a ``-lraylib`` link needs on this platform.
+
+    ``libraylib.a`` is not self-contained.  Its GLFW backend calls into Xlib,
+    Xrandr, Xinerama, Xcursor, Xi and Xext on X11, and into the AppKit / IOKit /
+    CoreVideo / OpenGL frameworks on Cocoa; the GL entry points always come from
+    the system loader.  Without these, *every* raylib program fails to link the
+    moment the archive exists -- with "undefined reference to `XCloseDisplay'"
+    on Linux -- which is why they are appended right after ``-lraylib``.
+
+    Windows returns nothing: the ``pengu_runtime`` block above already adds
+    ``-lopengl32 -lgdi32 -lwinmm`` (plus ole32/uuid/shell32 for the other UI
+    libraries), and a raylib build always links the runtime.
+    """
+    if is_win:
+        return []
+    if sys.platform.startswith("darwin"):
+        return [
+            "-framework", "Cocoa",
+            "-framework", "IOKit",
+            "-framework", "CoreVideo",
+            "-framework", "OpenGL",
+            "-framework", "CoreAudio",
+            "-framework", "AudioToolbox",
+            "-framework", "AVFoundation",
+            "-framework", "CoreMedia",
+        ]
+    return [
+        "-lGL", "-lX11", "-lXrandr", "-lXi", "-lXcursor", "-lXinerama", "-lXext",
+    ]
 
 
 def _msvc_link_flags(link_flags: List[str]) -> List[str]:

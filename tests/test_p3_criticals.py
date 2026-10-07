@@ -5,17 +5,15 @@ from tests.conftest import (
     bundle_project,
     compile_run,
     gen_bundle,
-    is_windows,
     requires_cc,
     requires_lib,
     requires_runtime,
+    raylib_link_flags,
 )
 
-RAYLIB_LIBS = (
-    ["-lraylib", "-lopengl32", "-lgdi32", "-lwinmm"]
-    if is_windows()
-    else ["-lraylib", "-lGL", "-lm", "-lpthread", "-ldl", "-lrt", "-lX11"]
-)
+# Complete platform link line, shared with conftest so the X11/GLFW providers
+# cannot drift away from the ones the archive actually references.
+RAYLIB_LIBS = raylib_link_flags()
 
 
 # ==========================================================================

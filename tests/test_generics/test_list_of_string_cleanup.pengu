@@ -9,6 +9,13 @@ weave main into int:
     var joined as string is "alphabeta"
     calling items.push with joined
     calling spark.println with (items at 0)
-    if calling items.len == 4:
+    # The container is the owner of its element buffer and nothing frees it
+    # implicitly: without this 'banish' the 128-byte array stays allocated.
+    # The elements themselves are not owned by the list ('push' stores the
+    # struct bytes; the literals and 'joined' are non-owning views), so
+    # banishing the list releases exactly the buffer.
+    var total as int is calling items.len
+    banish items
+    if total == 4:
         return 0
     return 1

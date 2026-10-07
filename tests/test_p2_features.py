@@ -14,6 +14,7 @@ from tests.conftest import (
     requires_runtime,
     requires_lib,
     is_windows,
+    raylib_link_flags,
     REPO,
     HAVE_CC,
     HAVE_RUNTIME,
@@ -384,7 +385,7 @@ class TestRlgl:
             "        return 0\n"
             "    return 1\n"
         )
-        libs = ["-lraylib", "-lopengl32", "-lgdi32", "-lwinmm"] if is_windows() else ["-lraylib", "-lm"]
+        libs = raylib_link_flags()
         c_code = bundle_project(src, tag="rlgl_coexist")
         assert "rlgl.h" in c_code
         assert "raylib.h" in c_code

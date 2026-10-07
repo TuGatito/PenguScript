@@ -92,6 +92,17 @@ int pengu_abi_version(void);
 #if !defined(_DEFAULT_SOURCE)
 #define _DEFAULT_SOURCE 1
 #endif
+/*
+ * Darwin: `_POSIX_C_SOURCE` puts the SDK's headers in strict POSIX mode, and
+ * that hides the non-standard extensions the runtime needs -- most visibly
+ * `pthread_threadid_np()`, which <pthread.h> only declares when
+ * `_DARWIN_C_SOURCE` is set.  Defining it opts back into the full Darwin
+ * namespace while keeping POSIX visible; without it Apple clang rejects the
+ * build with "call to undeclared function 'pthread_threadid_np'".
+ */
+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
+#define _DARWIN_C_SOURCE 1
+#endif
 #endif
 
 /* =========================================================================
@@ -560,6 +571,14 @@ extern "C"
   }
 #endif
 
+  /*
+   * POSIX-only: MinGW has neither `struct sigaction` nor `sigemptyset` /
+   * `sigaction` (it only ships the SysV `signal()`), so this pair is compiled
+   * out on Windows, where `SetUnhandledExceptionFilter` above covers the same
+   * ground. Leaving it unguarded broke every Windows build with
+   * "storage size of 'sa' isn't known".
+   */
+#if !PENGU_WINDOWS
   static void pengu_unix_signal_handler(int sig)
   {
     pengu_dump_frame_stack("fatal signal", sig);
@@ -592,6 +611,7 @@ extern "C"
      * handler runs, so a fault inside the dump cannot re-enter it. */
     (void)sigaction(signo, &sa, NULL);
   }
+#endif /* !PENGU_WINDOWS */
 
   /* Runs exactly once, whichever thread wins the once-guard. */
   static void pengu_install_crash_handler_body(void)

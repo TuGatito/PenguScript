@@ -120,6 +120,154 @@ def test_is_prunable_module_only_matches_std_and_lib(tmp_path):
     assert not pengu_dce.is_prunable_module(str(REPO / "std" / "sqlite3.d.pengu"))
 
 
+def test_is_prunable_module_rejects_an_empty_path():
+    """No path means no module to prune (the pass is called with optional data)."""
+    assert pengu_dce.is_prunable_module("") is False
+
+
+def test_is_prunable_module_survives_a_cross_drive_relative_path(monkeypatch):
+    """On Windows a path and a root can sit on different drives.
+
+    ``os.path.relpath`` raises ``ValueError`` for that pair instead of returning
+    a relative path; the pass must treat the root as "not a match" rather than
+    propagate the error out of the compiler.
+    """
+    import pengu_parser.pengu_dce as dce_impl
+    import os as _os
+
+    def boom(*_args, **_kwargs):
+        raise ValueError("path is on mount 'D:', start on mount 'C:'")
+
+    monkeypatch.setattr(_os.path, "relpath", boom)
+    assert dce_impl.is_prunable_module("C:/proj/std/m.pengu", "D:/proj") is False
+
+
+def test_module_stem_strips_only_the_pengu_suffixes():
+    """``std/spark.pengu`` -> ``spark``; an unknown path is returned untouched.
+
+    The stem is what ``_is_referenced`` strips as the module prefix, so getting
+    it wrong would either prune live weaves or keep dead ones.
+    """
+    from pengu_parser import pengu_dce as dce_impl
+
+    assert dce_impl._module_stem("std/spark.pengu") == "spark"
+    assert dce_impl._module_stem("sqlite3.d.pengu") == "sqlite3"
+    assert dce_impl._module_stem("lib/vendor/nodot") == "nodot"
+    assert dce_impl._module_stem("") == ""
+
+
+def test_prune_weaves_uses_the_stem_of_a_suffix_less_filepath(tmp_path):
+    """A prunable weave whose file carries no ``.pengu`` suffix still resolves.
+
+    ``is_prunable_module`` decides by directory, not by extension, so the
+    module-prefix stripping has to cope with a suffix-less path.
+    """
+    std = str(tmp_path / "std" / "nodot")
+    proj = str(tmp_path / "main.pengu")
+    weaves = [
+        {"name": "main", "c_name": "pengu_main", "filepath": proj,
+         "refs": {"helper"}},
+        {"name": "helper", "c_name": "helper", "filepath": std, "refs": set()},
+        {"name": "unused", "c_name": "unused", "filepath": std, "refs": set()},
+    ]
+    kept, dropped = pengu_dce.prune_weaves(weaves, base_dir=str(tmp_path))
+    assert {w["name"] for w in kept} == {"main", "helper"}
+    assert {w["name"] for w in dropped} == {"unused"}
+
+
+def test_prune_weaves_roots_a_main_declared_inside_a_prunable_module(tmp_path):
+    """``main`` is a root even when it lives in a prunable module.
+
+    The code generator accepts an entry point that a ``std``/``lib`` module
+    declares; pruning it would emit a bundle with no ``pengu_main``.
+    """
+    std = str(tmp_path / "std" / "entry.pengu")
+    weaves = [
+        {"name": "unused", "c_name": "unused", "filepath": std, "refs": set()},
+        {"name": "main", "c_name": "pengu_main", "filepath": std, "refs": set()},
+    ]
+    kept, dropped = pengu_dce.prune_weaves(weaves, base_dir=str(tmp_path))
+    assert [w["name"] for w in kept] == ["main"]
+    assert [w["name"] for w in dropped] == ["unused"]
+
+
+def test_prune_weaves_never_drops_generic_templates_or_instances(tmp_path):
+    """Generic templates and their monomorphizations survive the pass.
+
+    The instances are created *during* body generation -- after this pass has
+    already run -- so their substitution must stay exactly as the call sites
+    built it; dropping the template or an instance would lose the program.
+    """
+    std = str(tmp_path / "std" / "m.pengu")
+    weaves = [
+        {"name": "tpl", "c_name": "tpl", "filepath": std, "refs": set(),
+         "is_generic": True},
+        {"name": "inst", "c_name": "inst", "filepath": std, "refs": set(),
+         "subst_map": {"T": "int"}},
+        {"name": "dead", "c_name": "dead", "filepath": std, "refs": set()},
+    ]
+    kept, dropped = pengu_dce.prune_weaves(weaves, base_dir=str(tmp_path))
+    assert {w["name"] for w in kept} == {"tpl", "inst"}
+    assert {w["name"] for w in dropped} == {"dead"}
+
+
+# ---------------------------------------------------------------------------
+# DCE reference collection
+# ---------------------------------------------------------------------------
+
+def test_collect_references_ignores_non_tree_entries():
+    """The statement lists handed in may hold plain values (comments, markers)."""
+    assert pengu_dce.collect_references([42, "not a tree", None]) == set()
+
+
+def test_collect_references_survives_a_broken_scan(monkeypatch):
+    """A tree whose token scan fails must not abort the pass.
+
+    The reference set is deliberately best effort: an unexpected node shape
+    loses precision (something may be kept that could be dropped) but must never
+    break the build.
+    """
+    from lark import Tree
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("unexpected node shape")
+
+    monkeypatch.setattr(Tree, "scan_values", boom)
+    assert pengu_dce.collect_references([Tree("stmt", [])]) == set()
+
+
+def test_collect_references_survives_a_broken_walk(monkeypatch):
+    """Same contract for the subtree walk that looks for interpolated strings."""
+    from lark import Tree
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("cannot walk")
+
+    monkeypatch.setattr(Tree, "iter_subtrees", boom)
+    assert pengu_dce.collect_references([Tree("stmt", [])]) == set()
+
+
+def test_collect_references_reads_interpolated_expressions_by_text(monkeypatch):
+    """Identifiers inside ``"{…}"`` are collected from the literal's text.
+
+    The compiler re-parses those expressions later, so they are not part of the
+    AST; scanning the text is what keeps ``cb64_char`` alive when it is only
+    named inside an interpolation.  When the real string splitter cannot be
+    reached the raw text is scanned as the fallback.
+    """
+    from lark import Tree
+    import pengu_parser.pengu_parser as parser_mod
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("splitter unavailable")
+
+    monkeypatch.setattr(parser_mod, "extract_string_parts", boom)
+    tree = Tree("string_lit", ['"{calling cb64_char with v}"'])
+    refs = pengu_dce.collect_references([tree])
+    assert "cb64_char" in refs
+    assert "calling" in refs
+
+
 @requires_cc
 @requires_runtime
 def test_dce_shrinks_a_std_import(tmp_path):

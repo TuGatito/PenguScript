@@ -17,6 +17,13 @@ weave main into int:
     # 'banish' (the list holds its own independent copies).
     banish b
     banish c
-    if calling boxes.len == 2:
+    # The list buffer itself is an owner too, and only 'banish' releases it:
+    # 'pengu_banish_list' frees the element array and never touches the
+    # elements.  Without this line the 128-byte buffer stays allocated for the
+    # whole process -- invisible to the leak checker only while a dead stack
+    # slot still happens to point at it.
+    var total as int is calling boxes.len
+    banish boxes
+    if total == 2:
         return 0
     return 1

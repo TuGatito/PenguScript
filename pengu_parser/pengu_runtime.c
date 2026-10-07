@@ -120,8 +120,12 @@ int pengu_c_filum_goroutine_id(void) {
     long tid = syscall(SYS_gettid);
     return (int)((unsigned long)tid & 0x7fffffff);
 #elif defined(__APPLE__)
+    /* Darwin declares this only outside strict POSIX mode; pengu_runtime.h
+     * defines _DARWIN_C_SOURCE for that (see the feature-test macros there).
+     * pthread_self() is spelled out instead of passing NULL: it is the
+     * documented, always-valid way to ask for the calling thread. */
     unsigned long long tid = 0;
-    pthread_threadid_np(NULL, &tid);
+    pthread_threadid_np(pthread_self(), &tid);
     return (int)(tid & 0x7fffffff);
 #else
     return (int)((unsigned long)pthread_self() & 0x7fffffff);
@@ -2009,10 +2013,20 @@ PenguEntryArray pengu_map_to_entries(const PenguMap *map) {
                 if (dst->data) {
                     memcpy(dst->data, src->data, (size_t)src->len);
                     dst->data[src->len] = '\0';
+                    dst->len = src->len;
+                    dst->is_owned = 1;
+                } else {
+                    /* Allocation failed: fall back to the shared read-only
+                     * empty string, which must never be freed. Comparing
+                     * `dst->data == PENGU_EMPTY_CSTR` here would be a
+                     * comparison against a string literal's address -- the
+                     * standard leaves it unspecified whether that is the same
+                     * object (clang: -Wstring-compare), so track ownership
+                     * explicitly instead. */
+                    dst->len = 0;
+                    dst->data = (char *)PENGU_EMPTY_CSTR;
+                    dst->is_owned = 0;
                 }
-                dst->len = src->len;
-                if (!dst->data) { dst->len = 0; dst->data = (char *)PENGU_EMPTY_CSTR; }
-                dst->is_owned = (dst->data == (char *)PENGU_EMPTY_CSTR) ? 0 : 1;
             } else {
                 dst->data = (char *)PENGU_EMPTY_CSTR;
                 dst->len = 0;
@@ -2029,10 +2043,16 @@ PenguEntryArray pengu_map_to_entries(const PenguMap *map) {
                 if (dst->data) {
                     memcpy(dst->data, src->data, (size_t)src->len);
                     dst->data[src->len] = '\0';
+                    dst->len = src->len;
+                    dst->is_owned = 1;
+                } else {
+                    /* See the key branch above: ownership is tracked by the
+                     * success of the allocation, never by comparing against
+                     * the address of PENGU_EMPTY_CSTR. */
+                    dst->len = 0;
+                    dst->data = (char *)PENGU_EMPTY_CSTR;
+                    dst->is_owned = 0;
                 }
-                dst->len = src->len;
-                if (!dst->data) { dst->len = 0; dst->data = (char *)PENGU_EMPTY_CSTR; }
-                dst->is_owned = (dst->data == (char *)PENGU_EMPTY_CSTR) ? 0 : 1;
             } else {
                 dst->data = (char *)PENGU_EMPTY_CSTR;
                 dst->len = 0;

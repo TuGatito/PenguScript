@@ -2,6 +2,90 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [Unreleased] — compilación en las tres plataformas de CI
+
+> Repara lo que impedía que `ci.yml` llegara al final en **Windows, Linux y
+> macOS**. Los tres fallos de compilación eran independientes y cada uno se
+> reprodujo con el mensaje exacto del log antes de tocar nada: `struct
+> sigaction` en MinGW, `pthread_threadid_np` bajo `_POSIX_C_SOURCE` en Darwin y
+> el `dirent.h` de raylib tapando el `<dirent.h>` del sistema en Unix. Además se
+> arreglan los dos fallos deterministas de test (cuatro fixtures de fuga sin su
+> `banish`) y se acota el ratchet de cobertura a Linux, que es la plataforma que
+> `AUDIT_1.0_FASE8.md` midió.
+
+### Fixed
+
+- **Windows: `pengu_runtime.h` no compilaba.** `pengu_unix_signal_handler` /
+  `pengu_install_one_signal` usan `struct sigaction`, `sigemptyset` y
+  `sigaction`, que MinGW no tiene (sólo el `signal()` de SysV): el runtime moría
+  con *"storage size of 'sa' isn't known"* más dos declaraciones implícitas. El
+  par POSIX queda bajo `#if !PENGU_WINDOWS`; Windows ya instalaba su manejador
+  con `SetUnhandledExceptionFilter`. Verificado compilando
+  `pengu_parser/pengu_runtime.c` — la unidad que fallaba — con
+  `x86_64-w64-mingw32-clang`: produce un `.o` PE, y el flujo de
+  `cross-compile.yml` (bundle + shim ABI) enlaza un `.exe` PE32+ real.
+- **macOS: `pthread_threadid_np` no estaba declarada.** `pengu_runtime.h` define
+  `_POSIX_C_SOURCE`, y el SDK de Darwin sólo declara esa extensión fuera del modo
+  POSIX estricto. El header define ahora `_DARWIN_C_SOURCE` en Apple (antes de
+  cualquier header de libc, junto al resto de *feature-test macros*), que es el
+  remedio documentado. La llamada pasa además `pthread_self()` en lugar de
+  `NULL`.
+- **Linux y macOS: raylib no compilaba.** `build_runtime.py` ponía
+  `raylib/src/external` como `-I`, y ese directorio contiene el `dirent.h` de
+  Win32 (que hace `#include <io.h>` sin guarda). Tapaba el `<dirent.h>` real en
+  los targets POSIX y rcore.c moría con *"'io.h' file not found"*. Pasa a
+  `-idirafter`, que lo deja en la ruta de búsqueda por detrás de los headers del
+  sistema. Con eso `libraylib.a` se construye por fin en Linux (y en macOS llega
+  hasta el backend Cocoa, que sigue siendo *best-effort*), así que los tests de
+  raylib dejan de saltarse.
+- **La línea de enlace de raylib no nombraba sus proveedores.** Al existir el
+  archivo, cada programa con `-lraylib` fallaba en Linux con *"undefined
+  reference to `XCloseDisplay'"*: el backend GLFW no es autocontenido. Nuevo
+  `raylib_platform_libs()` en `pengu_project.py` (y `raylib_link_flags()` en
+  `tests/conftest.py`, usado por los tres sitios que enlazaban raylib con listas
+  incompletas y divergentes) añade `-lGL -lX11 -lXrandr -lXi -lXcursor
+  -lXinerama -lXext` en Linux y los frameworks de Cocoa en macOS.
+- **Windows: libuv no se construía.** GCC 14+ convirtió
+  `-Wincompatible-pointer-types` en error, y libuv 1.52.1 pasa
+  `&(cpu_info->model)` (un `const char **`) a un parámetro `char **`. El parche
+  idempotente que ya existía **nunca se aplicaba**: su comprobación buscaba
+  `"char **"` en todo el archivo, donde ya aparece en otras firmas. Ahora la
+  comprobación mira el sitio de la llamada (y no se re-aplica sobre su propia
+  salida), y CMake recibe además `-Wno-incompatible-pointer-types`.
+- **`-Wstring-compare` en `pengu_map_to_entries`.** Comparaba
+  `dst->data == (char *)PENGU_EMPTY_CSTR`, es decir la dirección de un literal de
+  cadena, que el estándar no garantiza que sea el mismo objeto. La propiedad se
+  deduce ahora del resultado de la asignación, sin comparación de punteros.
+- **Cuatro fixtures de fuga no liberaban nada.** `test_list_of_box.pengu`,
+  `test_list_of_string_cleanup.pengu`, `leak_interp_local.pengu` y
+  `leak_interp_chr_temp.pengu` nunca llamaban a `banish` sobre su contenedor o su
+  cadena interpolada, así que dejaban vivos 128 y 64 bytes. El verificador de
+  fugas sólo los ocultaba mientras una ranura de pila muerta apuntaba al bloque
+  (de ahí el fallo intermitente de CI). Auditados los **21** programas de fuga
+  del corpus con un volcado de bloques vivos: tras el arreglo los cuatro no
+  dejan ninguna reserva propia.
+
+### Changed
+
+- **El ratchet de cobertura se aplica en Linux; la suite completa sigue
+  corriendo en las tres plataformas.** `fail_under` es un único número pero la
+  *recolección* no es independiente de la plataforma (el interposador de fugas
+  es glibc/ELF, Windows no tiene señales POSIX, macOS usa librerías del sistema),
+  así que el mismo commit medía totales distintos por sistema operativo y un
+  umbral calibrado en Linux se volvía una moneda al aire. Linux —la plataforma
+  que midió la Fase 8— es la que posee el número.
+- **Cobertura de vuelta por encima del umbral** (79.02 % → 80 %+), con tests de
+  comportamiento para las áreas que no tenían ninguno: la entrada
+  `python -m pengu_lsp` (`tests/test_lsp_cli.py`), el hover de `echo`/`omen`/
+  `import` (`tests/test_lsp_hover_containers.py`), la emisión de `#line`
+  (`tests/test_codegen_line_markers.py`), el descenso de constantes globales
+  (`tests/test_codegen_constants.py`), los helpers de AST compartidos
+  (`tests/test_codegen_ast_utils.py`), el contrato de `pengu_dce`
+  (`tests/test_dce_tcc_pch.py`) y una fixture que deriva `Vinculum`, `Imago` y
+  `Nexus` sobre las **variantes** de un omen algebraico
+  (`tests/test_generics/test_derive_omen_full.pengu`), cuyas ramas etiquetadas
+  no compilaba ningún test.
+
 ## [1.0.0] — 2026-10-07
 
 > Primer release estable. Recoge el cierre de los **11 bloqueantes** de

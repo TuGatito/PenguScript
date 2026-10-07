@@ -137,11 +137,27 @@ jobs:
       # Phase 8 / item 8.6: the full suite runs *under coverage* so the ratchet in
       # .coveragerc is enforced by the same run. A reported number that is below
       # `fail_under` fails the step, which is what makes it non-decreasing.
-      - name: Phase 8 gates (F821/E9, corpora, properties, scale) under coverage
+      #
+      # The ratchet is enforced on Linux only, and the full suite still runs on
+      # all three platforms.  `fail_under` is a single number, but test
+      # *collection* is not platform independent: the leak-check interposer is
+      # glibc/ELF-only, Windows has no POSIX signals, and macOS uses system
+      # libs.  Those skips remove whole `compile_run` programs -- i.e. exactly
+      # the codegen paths coverage counts -- so the same commit measures
+      # different totals per OS and a floor calibrated on Linux turns into a
+      # coin flip elsewhere.  Linux is the platform AUDIT_1.0_FASE8.md measured,
+      # so it is the platform that owns the number; Windows and macOS run the
+      # identical suite without the measurement.
+      - name: Phase 8 gates (F821/E9, corpora, properties, scale)
+        shell: bash
         run: |
-          python -m pytest tests -q -p no:cacheprovider --timeout=1200 \
-            --cov --cov-config=.coveragerc --cov-report=term-missing \
-            --cov-report=xml:coverage.xml
+          set -euo pipefail
+          COV=""
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            COV="--cov --cov-config=.coveragerc --cov-report=term-missing --cov-report=xml:coverage.xml"
+          fi
+          # shellcheck disable=SC2086  # word splitting is how the flags are passed
+          python -m pytest tests -q -p no:cacheprovider --timeout=1200 $COV
 
       - name: Upload coverage report
         if: always()

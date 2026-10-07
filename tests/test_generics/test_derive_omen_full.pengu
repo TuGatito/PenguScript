@@ -1,0 +1,89 @@
+# Algebraic (tagged) omens derive every concept on their *variants*, not only on
+# plain runes.  This fixture pins the tagged-emission branches of the four
+# derived-concept families at once:
+#
+#   * `Vinculum` hashes the active tag and then the variant's fields, so every
+#     scalar spelling (string / int / float / bool) is exercised and each
+#     variant is usable as a map key;
+#   * `Imago` deep-copies the active variant, so the clone dispatch runs for the
+#     field kinds that own heap memory: string, list, map, maybe, result, a rune
+#     that carries its own `Nexus`, and a fixed-size array.  `Par` is not
+#     derived here on purpose: comparing a `maybe`/`result` field is a separate
+#     concern (and a separate bug), not part of the copy/release contract;
+#   * `Nexus` releases exactly those fields, one variant at a time.
+#
+# One omen family is enough: the concepts are emitted from the `derive` list, so
+# declaring them here is what compiles the tagged code paths.
+import std.spark
+
+rune Tag derive Par, Nexus:
+    label as string
+
+omen Scalar derive Par, Vinculum:
+    Textual with label as string
+    Counted with n as int
+    Measured with r as float
+    Toggled with b as bool
+    Absent
+
+omen Owned derive Imago, Nexus:
+    Called with label as string
+    Listed with items as list of string
+    Tabled with cols as map of string to int
+    Boxed with slot as maybe string
+    Risky with outcome as result of int to string
+    Nested with inner as Tag
+    Cells with grid as array of int with size 3
+    Emptyish
+
+weave main into int:
+    var a as Scalar is with Textual is with label is "alpha"
+    var b as Scalar is with Counted is with n is 7
+    var r as Scalar is with Measured is with r is 1.5
+    var f as Scalar is with Toggled is with b is true
+    var z as Scalar is Absent
+
+    # Vinculum: every variant is a legal map key, and equal values collide.
+    var m as map of Scalar to string is map of Scalar to string
+    calling m.put with a, "text"
+    calling m.put with b, "num"
+    calling m.put with r, "ratio"
+    calling m.put with f, "flag"
+    calling m.put with z, "absent"
+    var hashed as bool is (m at a) == "text"
+    set hashed is hashed and (m at b) == "num"
+    set hashed is hashed and (m at f) == "flag"
+    set hashed is hashed and (m at z) == "absent"
+
+    var one as Owned is with Called is with label is "one"
+    var items as list of string is ["a", "b"]
+    var two as Owned is with Listed is with items is items
+    var cols as map of string to int is map of string to int
+    calling cols.put with "k", 1
+    var three as Owned is with Tabled is with cols is cols
+    var four as Owned is with Boxed is with slot is (some "here")
+    var six as Owned is with Risky is with outcome is (calling ok_of with 5)
+    var tag as Tag with:
+        set .label is "nested"
+    var seven as Owned is with Nested is with inner is tag
+    var grid as array of int with size 3 is [1, 2, 3]
+    var eight as Owned is with Cells is with grid is grid
+    var five as Owned is Emptyish
+
+    # Manual memory, as everywhere else in this suite: 'Nexus' freed fields are
+    # released by banishing the owner.  The pushed/aliased locals ('items',
+    # 'cols', 'tag', 'grid') are not banished again -- their bytes live inside
+    # the omen that owns them, so a second release would be a double free.
+    banish one
+    banish two
+    banish three
+    banish four
+    banish five
+    banish six
+    banish seven
+    banish eight
+    banish m
+
+    if hashed:
+        return 0
+    return 1

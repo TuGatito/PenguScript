@@ -805,16 +805,25 @@ def build_libuv(cc, ar, rebuild=False):
         print(f"[LIBUV] {target_lib.name} is up to date.")
         return target_lib
 
-    # MinGW/GCC 15 const-correctness fix: uv__convert_utf16_to_utf8 expects
-    # `char**` but libuv passes `&(cpu_info->model)` (a `const char **`).
+    # MinGW/GCC 15+ const-correctness fix: uv__convert_utf16_to_utf8 expects
+    # `char**` but libuv passes `&(cpu_info->model)` (a `const char **`). GCC 14
+    # promoted `-Wincompatible-pointer-types` to an error, so the CMake build
+    # died with "passing argument 3 ... from incompatible pointer type".
     # extern/ is re-downloaded on every CI run, so this patch is applied here
     # (idempotently) instead of being hand-edited in the working tree.
     util_c = src_dir / "src" / "win" / "util.c"
     if util_c.exists() and IS_WINDOWS:
         text = util_c.read_text(encoding="utf-8", errors="replace")
-        already = "char **" in text or "char**" in text
-        if "&(cpu_info->model));" in text and not already:
-            patched = text.replace("&(cpu_info->model));", "(char **)&(cpu_info->model));")
+        # Idempotency must key on the *patched call site*, not on the presence
+        # of "char **" anywhere in the file: util.c already declares
+        # `char** utf8`-style parameters elsewhere, so the old check always
+        # reported "already patched" and the patch was never applied.  It must
+        # also not re-apply to its own output: the unpatched needle is a
+        # substring of the patched one, so the cast is tested separately.
+        if ("(char **)&(cpu_info->model)" not in text
+                and "&(cpu_info->model));" in text):
+            patched = text.replace("&(cpu_info->model));",
+                                   "(char **)&(cpu_info->model));")
             if patched != text:
                 util_c.write_text(patched, encoding="utf-8")
                 print("[LIBUV] Applied MinGW const-correctness patch to src/win/util.c")
@@ -825,6 +834,14 @@ def build_libuv(cc, ar, rebuild=False):
     cmake_cfg = ["cmake", "-S", str(src_dir), "-B", str(bd),
                  "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=OFF",
                  f"-DCMAKE_C_COMPILER={cc}"]
+    if IS_WINDOWS:
+        # Belt and braces: even with the source patch above, libuv 1.52.1 has
+        # other `const char **` / `char **` mismatches on Win32 that GCC 14+
+        # rejects outright. Demote the diagnostic instead of shipping a
+        # source-patch per occurrence.
+        cmake_cfg.append(
+            '-DCMAKE_C_FLAGS=-Wno-incompatible-pointer-types '
+            '-Wno-error=incompatible-pointer-types')
     cmake_cfg += _cmake_generator()
     try:
         run_cmd(cmake_cfg)
@@ -998,7 +1015,16 @@ def build_raylib(cc, ar, rebuild=False):
         f"-I{src_root}",
         f"-I{src_root / 'external' / 'glfw' / 'include'}",
         f"-I{src_root / 'external' / 'glad' / 'include'}",
-        f"-I{src_root / 'external' / 'miniaudio' / 'include'}" if (src_root / 'external' / 'miniaudio' / 'include').exists() else f"-I{src_root / 'external'}",
+        # `src/external/` must NOT outrank the system headers. It holds
+        # raylib's vendored single-header libraries, but it also holds
+        # `dirent.h`, a Win32-only opendir()/readdir() shim that does
+        # `#include <io.h>` unconditionally. As a plain `-I` it shadowed the
+        # real `<dirent.h>` on Linux and macOS -- rcore.c takes the POSIX
+        # branch there -- so every Unix raylib build died with
+        # "fatal error: 'io.h' file not found". `-idirafter` keeps the
+        # directory on the search path (after the system dirs), so the
+        # vendored headers still resolve while `<dirent.h>` does not.
+        f"-idirafter{src_root / 'external'}",
         "-Wno-implicit-function-declaration",
     ]
     if sys.platform.startswith("win"):

@@ -303,6 +303,40 @@ def runtime_tail_flags():
     return tail
 
 
+def raylib_link_flags():
+    """``-lraylib`` plus the windowing/OpenGL providers its backend needs.
+
+    ``libraylib.a`` is not self-contained: its GLFW backend calls into Xlib,
+    Xrandr, Xinerama, Xcursor, Xi and Xext on X11 (and into the AppKit/IOKit/
+    CoreVideo/OpenGL frameworks on Cocoa), and the GL entry points come from the
+    system loader.  The CI runner installs exactly those dev packages
+    (``.github/actions/setup-pengu``), so a raylib link line that omits them
+    fails as soon as the archive exists -- with "undefined reference to
+    `XCloseDisplay'" on Linux.  Windows passes the equivalents explicitly.
+
+    Callers append this *before* :func:`runtime_tail_flags`, like every other
+    extra library.
+    """
+    if os.name == "nt":
+        return ["-lraylib", "-lopengl32", "-lgdi32", "-lwinmm"]
+    if sys.platform.startswith("darwin"):
+        return [
+            "-lraylib",
+            "-framework", "Cocoa",
+            "-framework", "IOKit",
+            "-framework", "CoreVideo",
+            "-framework", "OpenGL",
+            "-framework", "CoreAudio",
+            "-framework", "AudioToolbox",
+            "-framework", "AVFoundation",
+            "-framework", "CoreMedia",
+        ]
+    return [
+        "-lraylib",
+        "-lGL", "-lX11", "-lXrandr", "-lXi", "-lXcursor", "-lXinerama", "-lXext",
+    ]
+
+
 def runtime_link_flags():
     """Core libraries the Pengu C runtime is built against (per platform).
 
