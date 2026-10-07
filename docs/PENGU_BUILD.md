@@ -99,17 +99,28 @@ gcc/clang):
   un `--prefix` relativo (como el `build/tcc-dist` del workflow) acababa dentro
   del árbol de fuentes.
 * Windows: descarga el binario precompilado de
-  `FitzRoyX/tinycc` (`PENGU_TCC_URL` permite usar un mirror) dentro de
-  `build/tcc-dist`, y `make_release.py` lo añade con `--add-binary` **conservando
-  el nombre original** (`tcc/tcc.exe` en Windows, `tcc/tcc` en Unix) para que
-  `find_tcc()` lo encuentre; antes el destino estaba fijo a `tcc/tcc` y el bundle
-  de Windows se quedaba sin compilador.
-* `.github/workflows/release.yml` hace el staging antes de `make_release.py`;
+  `FitzRoyX/tinycc` (`PENGU_TCC_URL` permite usar un mirror, `PENGU_TCC_SHA256`
+  el digest) dentro de `build/tcc-dist`, y `make_release.py` lo añade con
+  `--add-binary` **conservando el nombre original** (`tcc/tcc.exe` en Windows,
+  `tcc/tcc` en Unix) para que `find_tcc()` lo encuentre; antes el destino estaba
+  fijo a `tcc/tcc` y el bundle de Windows se quedaba sin compilador. El ZIP se
+  verifica contra `pengu_tcc.TCC_RELEASE_SHA256` **antes** de extraerlo (Fase 9,
+  items 9.2/9.3): un mismatch aborta el job, no lo convierte en un aviso.
+* `.github/workflows/release.yml` hace el staging antes de `make_release.py`
+  (`python pengu_tcc.py --stage build/tcc-dist --allow-missing`);
   `ensure_tcc()` detecta el TCC ya presente y no lo recompila en CI. El árbol de
   fuentes (`tinycc-src`, ~30 MB) se borra tras `make install` salvo que se defina
-  `PENGU_KEEP_TCC_SRC`. En macOS el workflow firma ad-hoc (`codesign --sign -
-  --force`) el binario `pengu` y cualquier `tcc` suelto antes de empaquetar
-  (Gatekeeper rechaza Mach-O sin firmar).
+  `PENGU_KEEP_TCC_SRC`.
+* **macOS (Fase 9, item 9.9): no hay notarización.** El workflow firma *ad-hoc*
+  (`codesign --sign - --force`) el binario `pengu` y cualquier `tcc` suelto antes
+  de empaquetar, y el gate real es `codesign --verify --strict` (la firma ad-hoc
+  tiene que ser válida). Lo que **no** se afirma: que el artefacto pase
+  `spctl --assess`. Sin una cuenta de desarrollador de Apple no hay
+  `notarytool`, y Gatekeeper rechaza cualquier binario descargado (con el
+  atributo de cuarentena) que no esté notarizado. La salida medida de
+  `spctl --assess -vv` se publica en el log de `release-verify.yml`; el camino
+  soportado es `xattr -d com.apple.quarantine pengu` o compilar desde fuentes.
+  Ver `docs/RELEASE.md` §macOS.
 
 En runtime `pengu_tcc.find_tcc()` busca en este orden:
 `<bundle>/tcc/tcc(.exe)` (PyInstaller `sys._MEIPASS`), el mismo sin sufijo (releases

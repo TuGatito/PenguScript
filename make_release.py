@@ -13,6 +13,22 @@ This script automates:
 
 Usage:
     python make_release.py [--rebuild] [--skip-tests] [--dist-dir DIR]
+    python make_release.py --archive pengu-linux-x64.tar.gz --dist-dir pengucc_build
+
+Reproducibility (Roadmap 2.0 / Phase 9, item 9.8)
+-------------------------------------------------
+Two runs of the same commit must produce the same bytes.  This script therefore
+
+1. pins ``SOURCE_DATE_EPOCH`` (from the environment, or from the commit time of
+   ``HEAD``, which is stable for a given commit),
+2. exports ``PYTHONHASHSEED=0`` and ``TZ=UTC`` for the PyInstaller run,
+3. writes the distribution archive itself with sorted entries, a constant
+   timestamp and normalized ownership/permissions -- the workflows used to call
+   ``tar -czf``/``Compress-Archive``, which embed the current mtime and gzip
+   timestamps and were therefore never reproducible.
+
+``--archive`` is what the release workflow calls; ``--archive-only`` skips the
+build so a single artifact can be re-created for comparison.
 """
 
 import os
@@ -21,8 +37,11 @@ import sys
 import shutil
 import subprocess
 import argparse
+import gzip
+import tarfile
+import zipfile
 from pathlib import Path
-from typing import List, Optional
+from typing import Iterable, List, Optional, Tuple
 
 ROOT_DIR = Path(__file__).resolve().parent
 BUILD_DIR = ROOT_DIR / "build"
@@ -31,10 +50,139 @@ DEFAULT_DIST_DIR = ROOT_DIR / "pengucc_build"
 
 IS_WINDOWS = sys.platform.startswith("win")
 
+#: Fallback epoch used when neither the environment nor git can supply one.
+#: It is the commit time of the repository bootstrap, not "now": a build must
+#: never depend on the wall clock.
+FALLBACK_SOURCE_DATE_EPOCH = 1700000000
+
 
 def log_step(step_num: int, total_steps: int, msg: str):
     print(f"\n[{step_num}/{total_steps}] {msg}")
     sys.stdout.flush()
+
+
+def resolve_source_date_epoch() -> int:
+    """The timestamp every produced artifact is pinned to.
+
+    Order: ``$SOURCE_DATE_EPOCH`` (the reproducible-builds convention), then the
+    commit time of ``HEAD`` (stable for a given commit, so two builds of the same
+    commit agree), then a constant.  Never the current time.
+    """
+    env = os.environ.get("SOURCE_DATE_EPOCH", "").strip()
+    if env.isdigit():
+        return int(env)
+    try:
+        res = subprocess.run(["git", "log", "-1", "--format=%ct"], cwd=str(ROOT_DIR),
+                             capture_output=True, text=True, timeout=10)
+        if res.returncode == 0 and res.stdout.strip().isdigit():
+            return int(res.stdout.strip())
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return FALLBACK_SOURCE_DATE_EPOCH
+
+
+def deterministic_build_env() -> dict:
+    """Environment for PyInstaller and every child process of a release build."""
+    epoch = resolve_source_date_epoch()
+    env = dict(os.environ)
+    env["SOURCE_DATE_EPOCH"] = str(epoch)
+    env.setdefault("TZ", "UTC")
+    env["PYTHONHASHSEED"] = "0"
+    # PyInstaller's own caches are keyed on mtime; a stale cache is the most
+    # common source of "the same commit built twice" differing.
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    os.environ.update({k: env[k] for k in ("SOURCE_DATE_EPOCH", "TZ", "PYTHONHASHSEED")})
+    return env
+
+
+def _normalized_mode(path: Path) -> int:
+    """0o755 for anything executable, 0o644 otherwise (platform independent)."""
+    if path.is_dir():
+        return 0o755
+    if os.name == "posix" and os.access(path, os.X_OK):
+        return 0o755
+    if os.name != "posix" and path.suffix.lower() in (".exe", ".dll", ".so"):
+        return 0o755
+    return 0o644
+
+
+def _iter_tree(root: Path) -> Iterable[Path]:
+    """Every file under ``root``, in a deterministic (sorted) order."""
+    return sorted((p for p in root.rglob("*") if p.is_file()),
+                  key=lambda p: p.relative_to(root).as_posix())
+
+
+def _write_tar_gz(root: Path, out_path: Path, epoch: int) -> None:
+    """Deterministic ``.tar.gz``: sorted names, constant mtime, no owner data."""
+    with open(out_path, "wb") as raw:
+        # mtime=0 in the gzip header: `tar -z` used to embed the build time,
+        # which alone made two identical trees hash differently.
+        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0,
+                           compresslevel=9) as gz:
+            with tarfile.open(fileobj=gz, mode="w", format=tarfile.GNU_FORMAT) as tar:
+                for path in _iter_tree(root):
+                    rel = path.relative_to(root).as_posix()
+                    info = tar.gettarinfo(str(path), arcname=rel)
+                    info.mtime = epoch
+                    info.uid = info.gid = 0
+                    info.uname = info.gname = ""
+                    info.mode = _normalized_mode(path)
+                    with open(path, "rb") as handle:
+                        tar.addfile(info, handle)
+
+
+def _write_zip(root: Path, out_path: Path, epoch: int) -> None:
+    """Deterministic ``.zip``: sorted names, constant date, normalized modes."""
+    import time
+
+    stamp = time.gmtime(max(epoch, 315532800))  # ZIP cannot represent < 1980
+    date_time = (stamp.tm_year, stamp.tm_mon, stamp.tm_mday,
+                 stamp.tm_hour, stamp.tm_min, stamp.tm_sec)
+    with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED,
+                         compresslevel=9) as zf:
+        for path in _iter_tree(root):
+            rel = path.relative_to(root).as_posix()
+            info = zipfile.ZipInfo(rel, date_time=date_time)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = _normalized_mode(path) << 16
+            info.create_system = 3  # Unix, so external_attr is meaningful
+            zf.writestr(info, path.read_bytes())
+
+
+def make_archive(dist_dir: Path, out_path: Path, epoch: Optional[int] = None) -> Path:
+    """Write the release archive for ``dist_dir`` deterministically.
+
+    Supports the two artifact kinds the release publishes: ``.tar.gz`` (Unix)
+    and ``.zip`` (Windows).
+    """
+    dist_dir = dist_dir.resolve()
+    if not dist_dir.is_dir():
+        print(f"[ERROR] distribution directory not found: {dist_dir}")
+        sys.exit(1)
+    epoch = resolve_source_date_epoch() if epoch is None else epoch
+    out_path = out_path.resolve()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    name = out_path.name.lower()
+    if name.endswith(".zip"):
+        _write_zip(dist_dir, out_path, epoch)
+    elif name.endswith((".tar.gz", ".tgz")):
+        _write_tar_gz(dist_dir, out_path, epoch)
+    else:
+        print(f"[ERROR] unsupported archive type: {out_path.name}")
+        sys.exit(1)
+    print(f"  [ARCHIVE] {out_path} ({out_path.stat().st_size} bytes, SOURCE_DATE_EPOCH={epoch})")
+    return out_path
+
+
+def artifact_hashes(dist_dir: Path) -> List[Tuple[str, str]]:
+    """``[(relative path, sha256)]`` for the files of a distribution directory."""
+    import hashlib
+
+    out = []
+    for path in _iter_tree(dist_dir):
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        out.append((path.relative_to(dist_dir).as_posix(), digest))
+    return out
 
 
 def run_cmd(cmd, cwd=None, check=True, env=None, capture=False):
@@ -94,9 +242,16 @@ def ensure_dependencies(py_exe: Path):
 
 
 def ensure_external_libraries():
-    """Downloads and unpacks external C libraries defined in extern_manifest.py."""
+    """Downloads and unpacks external C libraries defined in extern_manifest.py.
+
+    Phase 9 / item 9.1: the release path forces a (re-)download so every archive
+    is hashed against its pinned digest before extraction, instead of trusting a
+    directory that may predate the pin.  ``PENGU_EXTERN_FAST=1`` skips the forced
+    re-download for local iteration; it is never set in CI.
+    """
     from extern_manifest import download_and_extract_externs
-    download_and_extract_externs(ROOT_DIR / "extern")
+    force = os.environ.get("PENGU_EXTERN_FAST", "").strip() != "1"
+    download_and_extract_externs(ROOT_DIR / "extern", force=force)
 
 
 def build_runtime(py_exe: Path, rebuild: bool = True):
@@ -412,7 +567,9 @@ def package_with_pyinstaller(py_exe: Path, dist_dir: Path, bin_subdir: str = "")
         cmd.extend(["--collect-submodules", pkg])
 
     cmd.append(str(entry_point))
-    run_cmd(cmd)
+    # SOURCE_DATE_EPOCH/PYTHONHASHSEED travel to PyInstaller, which embeds
+    # timestamps in the CArchive and would otherwise stamp "now" into the binary.
+    run_cmd(cmd, env=deterministic_build_env())
 
 
 def verify_executable(dist_dir: Path, bin_subdir: str = ""):
@@ -765,7 +922,34 @@ def main():
         help="Distribution layout: 'portable' (default, self-contained bundle) "
              "or 'fhs' (Linux/macOS FHS: bin/ lib/pengu include/pengu share/pengu + install.sh)",
     )
+    parser.add_argument(
+        "--archive",
+        metavar="PATH",
+        default=None,
+        help="Distribution archive to write (.tar.gz or .zip), deterministically "
+             "(Roadmap 2.0 / item 9.8). This is what the release workflow calls.",
+    )
+    parser.add_argument(
+        "--archive-only",
+        action="store_true",
+        help="Only write --archive for --dist-dir and exit (no build, no packaging).",
+    )
+    parser.add_argument(
+        "--print-hashes",
+        action="store_true",
+        help="Print the SHA-256 of every file in --dist-dir (for reproducibility checks).",
+    )
     args = parser.parse_args()
+
+    if args.archive_only:
+        if not args.archive:
+            print("[ERROR] --archive-only requires --archive PATH")
+            sys.exit(2)
+        make_archive(Path(args.dist_dir), Path(args.archive))
+        if args.print_hashes:
+            for rel, digest in artifact_hashes(Path(args.dist_dir).resolve()):
+                print(f"  {digest}  {rel}")
+        return
 
     if args.layout == "fhs" and IS_WINDOWS:
         print("[ERROR] --layout fhs is only supported on Linux/macOS.")
@@ -779,6 +963,7 @@ def main():
     print("================================================================")
     print("  PenguScript Automated Release & PyInstaller Packaging Script")
     print("================================================================")
+    print(f"  SOURCE_DATE_EPOCH={resolve_source_date_epoch()} (reproducible packaging)")
 
     # Step 1: Virtual Environment
     log_step(1, total_steps, "Verifying virtual environment (.venv)...")
