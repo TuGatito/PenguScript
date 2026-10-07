@@ -82,6 +82,27 @@ gzip no lleve mtime y que el epoch salga del commit, nunca del reloj).
 
 ---
 
+## 3b. La extracción endurecida, probada contra los archivos reales
+
+Un validador que rechazara archivos legítimos sería un gate que rompe el build.
+Medido con tres de las dependencias reales (descarga + digest + extracción por
+`safe_extract_tar`, en `/tmp`, sin tocar `extern/`):
+
+| Dependencia | Formato | Symlinks en el árbol extraído | Resultado |
+|---|---|---|---|
+| `mbedtls` 4.2.0 | `.tar.bz2` | **147** | ✅ extrae, digest coincide |
+| `libmicrohttpd` 1.0.1 | `.tar.gz` | 0 | ✅ extrae, digest coincide |
+| `raylib` 6.0 | `.tar.gz` (archivo generado por GitHub) | 0 | ✅ extrae, digest coincide |
+
+Los symlinks de mbedtls son **relativos y quedan dentro** del destino
+(`../../../mldsa/mldsa_native.h`), que es el caso que `filter="data"` admite; el
+validador los rechaza si apuntan fuera (probado con un tar sintético en
+`tests/test_archive_extraction.py`). Además, estas tres descargas son una
+**segunda verificación independiente** de la tabla de digests: los bytes
+descargados otra vez hashean a los valores fijados en el commit.
+
+---
+
 ## 4. Hallazgos nuevos
 
 | ID | Hallazgo | Medición | Estado |
