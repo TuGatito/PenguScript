@@ -73,6 +73,7 @@ correr el comando de medición: un diferido sin medición es una excusa.
 | **U** | **Notarización macOS** (9.9, reivindicación **retirada**) | `notarytool` + cuenta de desarrollador de Apple | Sin cuenta, `spctl --assess` **no se cumple y no se afirma**. Lo gateado es `codesign --verify --strict`; `release-verify.yml` publica la salida real de `spctl` | 1.1 solo si hay cuenta |
 | **V** | **Cobertura `clang -Weverything`** (389 warnings) | Nada | 267 son `-Wunsafe-buffer-usage`, preferencia de estilo de una toolchain, no un bug. Se mantiene `-Wall -Wextra -Werror` | No planificado |
 | **W** | **Diferidos sin fecha de features mayores** | Async/await nativo (1.2+), closures con captura (1.2+), macros de AST (1.3+), dynamic dispatch/vtable (1.3+ solo con demanda), reflection/RTTI (no planificado), playground WASM (1.3+) | Cada uno rompe una decisión de diseño central (zero-overhead de los concepts, funciones C `static` de nivel superior, C puro) o requiere un target que no existe | — |
+| **X** | **Reproducibilidad de los 2 artefactos de herramienta** (F11-N9) | Que `pengus-*.vsix` y `pengu_runtime.h.gch` no cambien entre dos builds del mismo commit | Medido en el dry-run de 1.0: **227 de 229** ficheros idénticos entre dos corridas; difieren el `.vsix` (zip con marcas de tiempo de `vsce`) y el `.gch` (PCH de gcc). Lo que sí está gateado es re-archivar el mismo árbol byte a byte (`make_archive`) | S–M |
 
 ## Criterios de reapertura (los que exigen medición)
 
@@ -99,18 +100,22 @@ está en `AUDIT_1.0_FASE11.md`.
 | Código | Hallazgo | Estado |
 |--------|----------|--------|
 | **F11-N1** | `tests/compliance/README.md` **no existía**: el item 11.6 pedía "añadir cabecera normativa", pero el fichero no estaba. Se **creó** (lo que existe y se ejecuta es `corpus.json` + `run_all.py` + `EXPECTED.md`) | Cerrado en la fase |
-| **F11-N2** | `CONTRIBUTING.md` seguía afirmando **"Current version: 0.16.0, in beta"** y **ninguna** de las 12 afirmaciones gateadas lo cubría: la deriva real sobrevivió a la Fase 10, que declaró "0 deriva de versión" midiendo solo sus 6 ficheros | Cerrado + gate propuesto abajo |
+| **F11-N2** | `CONTRIBUTING.md` seguía afirmando **"Current version: 0.16.0, in beta"** y el badge del `README.md` seguía en `1.0.0-rc1`, y **ninguna** de las 12 afirmaciones gateadas los cubría: la deriva real sobrevivió a la Fase 10, que declaró "0 deriva de versión" midiendo solo sus 6 ficheros | Cerrado: corregidos y **añadidos a `CURRENT_VERSION_CLAIMS`** (2 gates nuevos) en la misma fase |
 | **F11-N3** | Promover el `CHANGELOG` a `[1.0.0]` rompe `tests/test_ci_workflows.py::test_release_version_skips_unreleased`, que fijaba `v0.16.0` a mano. No es un fallo del mecanismo: es un test que no seguía a `VERSION` | Cerrado (el test ahora deriva de `VERSION`) |
 | **F11-N4** | El **entorno no tiene clave GPG** (`git config user.signingkey` vacío): 11.3 no es automatizable aquí. No es un defecto del repo; se registra como ⏸️ humano | ⏸️ humano |
 | **F11-N5** | `SECURITY.md` mantenía una fila `0.16.x` descrita como "con fixes hasta que salga `1.0.0`" y una mención `1.0.0-rc1` como "current pre-release". Publicado 1.0.0, ambas frases eran falsas y el ratchet de tokens obsoletos no las cubría | Cerrado (tabla y `JUSTIFIED_TOKENS` actualizados) |
+| **F11-N6** | `RELEASE_CHECKLIST.md` §2 pedía "publish checksums **+ GPG signature**" mientras `SECURITY.md` §Release integrity dice que **no se firma con GPG** (no hay clave). Dos documentos de release afirmando lo contrario, y el gate de reivindicaciones refutadas no cubría esa caja | Cerrado: la caja publica `SHA256SUMS.txt` y declara que no hay firma GPG |
+| **F11-N7** | `make_release.py` copiaba **todos** los `*.vsix` de `vscode-extension/` al directorio de release. `*.vsix` está en `.gitignore` y `vsce` lo escribe junto al código, así que un árbol que ya cortó un release arrastra el anterior: medido en el dry-run, `pengucc_build/` quedó con `pengus-1.0.0.vsix` **y** `pengus-1.0.0-rc1.vsix` | Cerrado: `select_vsix_artifacts()` copia solo el de `VERSION` y avisa de los obsoletos; test nuevo que falla al revertir |
+| **F11-N8** | `--print-hashes` **solo se honraba con `--archive-only`**: el comando documentado `python make_release.py --layout portable --print-hashes` no imprimía **nada**, así que un "mismos hashes" podía pasar mirando una pantalla vacía (gate por apariencia, regla C1) | Cerrado: la ruta de empaquetado también imprime los SHA-256; test nuevo que falla al revertir |
+| **F11-N9** | Con `--print-hashes` ya funcionando, dos corridas del **mismo commit** dan **227 de 229** hashes idénticos: difieren `pengus-1.0.0.vsix` (zip con marcas de tiempo de `vsce`) y `runtime/include/pengu_runtime.h.gch` (PCH de gcc). El brief de la fase decía "mismos hashes" y el docstring de `tests/test_reproducible_release.py` decía "two builds of the same commit must produce the same bytes": ambas frases son **más anchas** que lo medido | Documentado; candidato **X** para 1.1 (el contrato gateado es re-archivar el mismo árbol) |
+| **F11-N10** | El brief cita **`F8-N11`** como el hallazgo que retiró MSVC. Ese código **no existe**: `AUDIT_1.0_FASE8.md` tiene F8-N1…N10 (sin N11) y la retirada de MSVC es el **item 8.11**; lo que arregló el dialecto es **F8-N3**. Citar un hallazgo inexistente es una afirmación sin gate | Cerrado: anuncio y CHANGELOG citan "Fase 8, item 8.11" |
+| **F11-N11** | Correr el release documentado (`python make_release.py`) dejaba `scratch/smoke_release_test/` en el árbol. Como `scratch/` está en `.gitignore`, no ensucia el commit, pero `tests/test_audit_regressions.py::test_historical_cleanup_targets_are_gone` exige que **no exista**: "corre el release y luego la suite" fallaba. Medido en la suite completa tras el dry-run | Cerrado: `cleanup_smoke_scratch()` en un `finally`; gate con C2 verificado |
+| **F11-N12** | Promover el `CHANGELOG` a `[1.0.0]` hizo fallar `test_migration_corpus.py::test_corpus_covers_every_documented_published_version`: la línea minor `1.0` no tenía programa de migración. Misma clase que F11-N3 — un corpus indexado por la lista de versiones del changelog | Cerrado: programa `tests/migration/1.0.0/frozen-surface.pengu` (+1 entrada en `EXPECTED.json`), que fija la superficie congelada de 1.0 |
 
-**Candidato nuevo para 1.1 (de F11-N2):** gate de versión para `CONTRIBUTING.md`
-y para el *badge* de `README.md`. Hoy `CURRENT_VERSION_CLAIMS` cubre 6 ficheros
-normativos; la afirmación de versión del `CONTRIBUTING.md` y del badge del README
-no están en la tabla, y por eso una de ellas llevaba **tres releases** de retraso.
-Añadirlas a `CURRENT_VERSION_CLAIMS` es barato y cierra la clase de bug — se deja
-como primer item de 1.1 para no tocar la tabla de gates el día del release
-(regla: ningún gate se estrena el día que se publica).
+**Candidato nuevo para 1.1 (de F11-N2):** cualquier otra afirmación de versión
+en prosa que no esté en `CURRENT_VERSION_CLAIMS` (tablas de estado, badges,
+docstrings de release) sigue sin gate. La tabla cubre ahora 8 ficheros; ampliarla
+es barato, pero conviene hacerlo en una fase normal y no el día de un release.
 
 ## Qué cerró 1.0 (índice, sin duplicar)
 
