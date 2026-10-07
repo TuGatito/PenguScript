@@ -289,6 +289,9 @@ jobs:
       # created with GITHUB_TOKEN does not start a workflow run either (the same
       # restriction as the tag handoff, item 9.6).  `actions: write` is what lets
       # this job start another run.
+      # `--ref` is the tag being released, so the release is verified by the
+      # verification script *of that release*; `workflow_dispatch` is registered
+      # because release-verify.yml also declares it on the default branch.
       - name: Dispatch release-verify for the published tag
         shell: bash
         env:
