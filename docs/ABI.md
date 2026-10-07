@@ -2,7 +2,7 @@
 
 > The versioning policy for `PENGU_ABI_VERSION`. The canonical layout table lives
 > in [`../pengu_runtime.h`](../pengu_runtime.h) (`ABI v1 — frozen at PenguScript
-> 0.16.0`), which is the normative artifact; this document defines *when the
+> 1.0.0-rc1`), which is the normative artifact; this document defines *when the
 > number moves*, the header defines *what the number currently means*.
 
 ## What it is

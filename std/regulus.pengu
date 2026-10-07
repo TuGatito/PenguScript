@@ -35,7 +35,7 @@ import std.oracle
 # ----------------------------------------------------------------------------
 
 ## Module version identifier for std.regulus (0.15.0 expansion).
-const REGULUS_VERSION as string is "0.16.0"
+const REGULUS_VERSION as string is "1.0.0-rc1"
 
 ## Standard regex pattern for validating email addresses.
 const REGEX_EMAIL as string is "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z][a-zA-Z]+$"

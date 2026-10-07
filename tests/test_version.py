@@ -15,19 +15,33 @@ Two gates here:
   justified historical mention.  A new ``0.14.x`` fails unless it is recorded in
   ``HISTORICAL`` with a reason, which is how the drift is kept from creeping
   back in.
+
+Phase 10 / item 10.7 hardened the second gate: it used to key on a hardcoded
+``0.10``-``0.15`` range, so the moment ``VERSION`` moved past ``0.16`` the detector
+would have gone **blind to the version just left** — a ``0.16.0`` claim could
+have appeared anywhere in the scanned set unnoticed.  It is now *relative to*
+``VERSION``: any token that parses as a semver older than the current one is
+stale, and a per-token allowlist (rather than a whole-file exemption) records the
+few mentions that are legitimate history.
 """
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import List, Optional
 
 import pytest
+
+from pengu_semver import Version
 
 REPO = Path(__file__).resolve().parent.parent
 
 VERSION_FILE = REPO / "VERSION"
 VERSION = VERSION_FILE.read_text(encoding="utf-8").strip()
+
+#: Matches any semver, including a pre-release suffix (`1.0.0-rc1`).
+SEMVER = r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.\-]+)?"
 
 
 # ---------------------------------------------------------------------------
@@ -86,8 +100,8 @@ def test_pengu_parser_names_the_current_version():
 CURRENT_VERSION_CLAIMS: tuple[tuple[str, str], ...] = (
     ("LANGUAGE.md", r"\*\*Version covered:\*\* PenguScript \*\*([0-9][^*]*)\*\*"),
     ("LANGUAGE_Spanish.md", r"\*\*Versión cubierta:\*\* PenguScript \*\*([0-9][^*]*)\*\*"),
-    ("LANGUAGE.md", r"^version: ([0-9]+\.[0-9]+\.[0-9]+)$"),
-    ("LANGUAGE_Spanish.md", r"^version: ([0-9]+\.[0-9]+\.[0-9]+)$"),
+    ("LANGUAGE.md", rf"^version: ({SEMVER})$"),
+    ("LANGUAGE_Spanish.md", rf"^version: ({SEMVER})$"),
     ("LANGUAGE.md", r"e\.g\. `PenguScript (v[0-9][^`]*)`"),
     ("LANGUAGE_Spanish.md", r"p\. ej\. `PenguScript (v[0-9][^`]*)`"),
     ("LANGUAGE.md", r"behavior at version ([0-9]+\.[0-9]+\.x)"),
@@ -95,7 +109,7 @@ CURRENT_VERSION_CLAIMS: tuple[tuple[str, str], ...] = (
     ("PenguScriptGuideEnglish.md", r"\*\*Covered version:\*\* PenguScript \*\*([0-9][^*]*)\*\*"),
     ("PenguScriptGuideSpanish.md", r"\*\*Versión cubierta:\*\* PenguScript \*\*([0-9][^*]*)\*\*"),
     ("docs/PENGU_BUILD.md", r"^# PenguScript (v[0-9][^\s]*) Build System"),
-    ("docs/README_RELEASE.md", r"pengus-([0-9]+\.[0-9]+\.[0-9]+)\.vsix"),
+    ("docs/README_RELEASE.md", rf"pengus-({SEMVER})\.vsix"),
 )
 
 
@@ -203,17 +217,51 @@ SCAN = (
     "pengu_version.py", "pengu_lsp/__init__.py",
 )
 
-#: Only tokens that really look like a version: a three-component version, an
-#: ``x``-series, or a ``v``-prefixed token.  Deliberately not "any 0.NN": bare
-#: ``0.15`` appears in the tree as a ``time.sleep`` argument and ``0.85`` as a
-#: benchmark timing.
-_STALE_RE = re.compile(r"\bv?0\.1[0-5](?:\.\d+|\.x)?\b|\bv0\.(?!16\b)\d+\b")
+#: A token that really looks like a release version: a three-component version
+#: (optionally with a pre-release suffix), an ``N.M.x`` series, or an ``N.x``
+#: series.  Deliberately not "any ``0.NN``": bare ``0.15`` appears in the tree as
+#: a ``time.sleep`` argument and ``0.85`` as a benchmark timing, and a gate that
+#: cries wolf is a gate people learn to ignore.
+_VERSION_TOKEN_RE = re.compile(
+    r"\bv?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.\-]+)?|\d+\.\d+\.x|\d+\.x)\b"
+)
+
+#: Tokens that legitimately name an older release **in a file that is otherwise
+#: current**, keyed by ``(file, token)``.  This is deliberately narrower than
+#: ``HISTORICAL`` (which exempts a whole file): a release document that names the
+#: series it still supports should not stop being checked for *other* drift.
+JUSTIFIED_TOKENS: dict[tuple[str, str], str] = {
+    ("SECURITY.md", "0.16.x"):
+        "the supported-version table names the series still receiving fixes "
+        "until 1.0.0 ships",
+    ("RELEASE_CHECKLIST.md", "0.16.0"):
+        "the measured `--strict-c99` gap is stated for the release it was "
+        "measured on, which is history",
+}
 
 
-def _stale_tokens(relpath: str) -> list[str]:
-    """Stale version tokens in ``relpath``."""
+def _as_version(token: str) -> Optional[Version]:
+    """Parses a token from `_VERSION_TOKEN_RE`, mapping an ``x`` series to 0."""
+    token = token.lstrip("v")
+    if token.endswith(".x"):
+        token = token[:-2] + (".0.0" if token.count(".") == 1 else ".0")
+    return Version.try_parse(token)
+
+
+def _stale_tokens(relpath: str) -> List[str]:
+    """Version tokens in ``relpath`` that are **older** than ``VERSION``.
+
+    Relative rather than a hardcoded range, so the ratchet cannot go blind when
+    ``VERSION`` moves into a new series (Phase 10 / item 10.7).
+    """
     text = (REPO / relpath).read_text(encoding="utf-8")
-    return sorted(set(_STALE_RE.findall(text)))
+    current = Version.parse(VERSION)
+    stale = set()
+    for raw in _VERSION_TOKEN_RE.findall(text):
+        parsed = _as_version(raw)
+        if parsed is not None and parsed < current:
+            stale.add(raw)
+    return sorted(stale)
 
 
 @pytest.mark.parametrize("relpath", SCAN)
@@ -225,11 +273,41 @@ def test_no_unjustified_stale_version_tokens(relpath):
     """
     if relpath in HISTORICAL:
         pytest.skip(f"justified history: {HISTORICAL[relpath]}")
-    stale = _stale_tokens(relpath)
+    stale = [token for token in _stale_tokens(relpath)
+             if (relpath, token) not in JUSTIFIED_TOKENS]
     assert stale == [], (
         f"{relpath} mentions stale version(s) {stale}; either fix them to "
-        f"{VERSION} or add the file to HISTORICAL with a reason"
+        f"{VERSION} or add the file to HISTORICAL/JUSTIFIED_TOKENS with a reason"
     )
+
+
+def test_the_stale_detector_is_relative_to_the_current_version():
+    """The gate must be able to see the series we just left (Phase 10 / 10.7).
+
+    The previous implementation keyed on a hardcoded ``0.10``-``0.15`` range; moving
+    ``VERSION`` to ``1.0.0-rc1`` would have made ``0.16.0`` invisible to it.
+    """
+    probe = REPO / "tests" / "_version_probe.tmp"
+    probe.write_text(
+        "current {v}\nolder 0.16.0\nmuch older 0.14.x\nfuture 9.9.9\n".format(v=VERSION),
+        encoding="utf-8",
+    )
+    try:
+        stale = _stale_tokens(probe.relative_to(REPO).as_posix())
+    finally:
+        probe.unlink()
+    assert stale == ["0.14.x", "0.16.0"], stale
+
+
+def test_justified_tokens_have_no_dead_entries():
+    """A per-token exemption must still point at a token that is really there."""
+    dead = []
+    for (relpath, token), reason in JUSTIFIED_TOKENS.items():
+        if not (REPO / relpath).is_file():
+            dead.append(f"{relpath}: file missing ({reason})")
+        elif token not in _stale_tokens(relpath):
+            dead.append(f"{relpath}: {token!r} is no longer a stale token ({reason})")
+    assert dead == [], "JUSTIFIED_TOKENS entries that no longer apply:\n  " + "\n  ".join(dead)
 
 
 def test_historical_allowlist_has_no_dead_entries():

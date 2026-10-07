@@ -36,7 +36,7 @@ Harness interno: panickea con `label` si `cond` es falso.
 
 ### `LOOM_VERSION`
 
-> const string` = 0.16.0`
+> const string` = 1.0.0-rc1`
 
 Versión del módulo loom.
 

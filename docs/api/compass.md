@@ -22,7 +22,7 @@ Joins path parts with the platform separator and normalizes the result.
 
 ### `COMPASS_VERSION`
 
-> const string` = 0.16.0`
+> const string` = 1.0.0-rc1`
 
 Module version identifier for std.compass.
 

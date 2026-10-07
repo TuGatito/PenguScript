@@ -42,7 +42,7 @@
 #   feed; input strings/lists are never retained, and no returned value is
 #   caller-owned - there is nothing for the caller to banish.
 
-const XLSX_VERSION as string is "0.16.0"
+const XLSX_VERSION as string is "1.0.0-rc1"
 
 import std.xlsxio
 

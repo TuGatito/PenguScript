@@ -1,6 +1,6 @@
 # Cross-compilation with PenguScript (`--target`)
 
-> **Status:** PenguScript 0.16.0. Expands [`LANGUAGE.md` §20.2.3](../LANGUAGE.md#L3325) with the
+> **Status:** PenguScript 1.0.0-rc1. Expands [`LANGUAGE.md` §20.2.3](../LANGUAGE.md#L3325) with the
 > behaviour of the implementation. Supplementary, not normative: when this text and the source
 > disagree, [`pengu_project.py`](../pengu_project.py) wins. The feature is real code but is **not
 > exercised by CI** — read [§9](#9-limitations-and-known-gaps) first.

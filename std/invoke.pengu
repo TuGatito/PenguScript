@@ -31,7 +31,7 @@ import std.rites
 # ----------------------------------------------------------------------------
 
 ## Standard library invoke module version.
-const INVOKE_VERSION as string is "0.16.0"
+const INVOKE_VERSION as string is "1.0.0-rc1"
 
 # ----------------------------------------------------------------------------
 # CLI Specification Types

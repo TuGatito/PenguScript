@@ -8,7 +8,7 @@
 
 ### `TALLY_VERSION`
 
-> const string` = 0.16.0`
+> const string` = 1.0.0-rc1`
 
 Versión del módulo tally.
 

@@ -18,7 +18,7 @@ import re
 from typing import Optional
 
 #: Version used when the ``VERSION`` file cannot be read (frozen/packaged runs).
-FALLBACK_VERSION = "0.16.0"
+FALLBACK_VERSION = "1.0.0-rc1"
 
 #: Root of the source checkout (the directory that holds ``VERSION``).
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -58,8 +58,8 @@ def _resolve_version() -> str:
     return read_version_file() or FALLBACK_VERSION
 
 
-#: The language/toolchain version, e.g. ``"0.16.0"``.
+#: The language/toolchain version, e.g. ``"1.0.0-rc1"``.
 __version__ = _resolve_version()
 
-#: Version with a leading ``v``, for banners: ``"v0.16.0"``.
+#: Version with a leading ``v``, for banners: ``"v1.0.0-rc1"``.
 __version_tag__ = f"v{__version__}"
