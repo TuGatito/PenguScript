@@ -455,3 +455,75 @@ def test_coverage_gate_is_wired_into_the_full_suite():
     assert "--cov" in raw and ".coveragerc" in raw
     assert "coverage.xml" in raw
     assert "pytest-cov" in (REPO / "requirements.txt").read_text(encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- #
+# Phase 9 / item 9.5 — the documentation cannot promise a budget the platform
+# will not honour.  GitHub kills a job after 6 h, so any "N hours per harness"
+# claim above 6 in the two documents that state the fuzzing budget is a lie.
+# --------------------------------------------------------------------------- #
+
+FUZZ_DOCS = ("docs/FUZZING.md", "RELEASE_CHECKLIST.md")
+HOURS_CLAIM = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(?:h\b|hours?\b)", re.IGNORECASE
+)
+NEGATIONS = ("not ", "never", "impossible", "cannot", "can't", "refuted", "no longer")
+
+
+def _hour_claims(path):
+    """Yield ``(lineno, hours, paragraph)`` for every hour figure in the file."""
+    lines = (REPO / path).read_text(encoding="utf-8").splitlines()
+    for index, line in enumerate(lines):
+        for match in HOURS_CLAIM.finditer(line):
+            lo = index
+            while lo > 0 and lines[lo - 1].strip():
+                lo -= 1
+            hi = index
+            while hi + 1 < len(lines) and lines[hi + 1].strip():
+                hi += 1
+            paragraph = " ".join(lines[lo:hi + 1])
+            yield index + 1, float(match.group(1)), paragraph
+
+
+@pytest.mark.parametrize("path", FUZZ_DOCS)
+def test_fuzz_docs_do_not_promise_more_than_github_allows(path):
+    """The refuted claim: `72 hours per harness` in a document, 6 h in reality."""
+    offenders = []
+    for lineno, hours, paragraph in _hour_claims(path):
+        if hours <= 6:
+            continue
+        lowered = paragraph.lower()
+        if any(negation in lowered for negation in NEGATIONS):
+            continue  # e.g. "a 72 h promise is *not* a budget"
+        offenders.append(f"{path}:{lineno}: {hours} h -- {paragraph[:120]}")
+    assert offenders == [], (
+        "a fuzz budget above GitHub's 6 h per-job ceiling:\n" + "\n".join(offenders)
+    )
+
+
+def test_the_fuzz_workflows_state_the_same_budget_as_the_docs():
+    """The documented numbers must match the YAML, not just each other."""
+    nightly_doc = _load("nightly.yml")
+    nightly = _jobs(nightly_doc)["fuzz"]
+    inputs = _triggers(nightly_doc)["workflow_dispatch"]["inputs"]
+    hours = float(inputs["hours_per_harness"]["default"])
+    shards = len(nightly["strategy"]["matrix"]["shard"])
+    assert hours == 6.0 and shards == 4
+    # The invariant is about the fuzz seconds a harness consumes, not wall clock:
+    # shards run in parallel (roadmap 8.16).
+    assert hours * 60 <= 360, "the total per harness must fit the 6 h ceiling"
+    per_shard = hours * 60 / shards
+    assert int(nightly["timeout-minutes"]) > per_shard, (
+        "a shard's timeout must leave room for checkout/build on top of its budget"
+    )
+
+    fuzz_doc = _load("fuzz.yml")
+    fuzz = _jobs(fuzz_doc)["fuzz"]
+    dispatch = _triggers(fuzz_doc)["workflow_dispatch"]["inputs"]
+    assert dispatch["seconds"]["default"] == "21600", "6 h, the platform ceiling"
+    assert int(fuzz["timeout-minutes"]) <= 360
+
+    fuzzing_doc = (REPO / "docs" / "FUZZING.md").read_text(encoding="utf-8")
+    assert "6 hours per harness across 4 shards" in fuzzing_doc
+    checklist = (REPO / "RELEASE_CHECKLIST.md").read_text(encoding="utf-8")
+    assert "6 h per harness (4 shards" in checklist

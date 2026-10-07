@@ -60,13 +60,30 @@ minimise it (`-minimize_crash=1`) before adding it to the corpus.
 
 ## CI schedule
 
-`.github/workflows/fuzz.yml` runs:
+Two workflows share the budget. GitHub kills a job after **6 h of execution**, so
+no single job can ever run longer: a "72 h per harness" promise is a number in a
+file, not a budget (audit §13.3, roadmap item 9.5).
+
+`.github/workflows/fuzz.yml` — short feedback loop:
 
 | Trigger | Budget |
 |---|---|
 | Pull request | 5 minutes per harness |
 | Nightly (`02:00` UTC) | 1 hour per harness |
-| Release branch / manual | 72 hours per harness |
+| `workflow_dispatch` | `seconds` input, **clamped to 21600 s (6 h)** |
+
+`.github/workflows/nightly.yml` — the long budget, split across parallel shards:
+
+| Trigger | Budget |
+|---|---|
+| Nightly (`23:00` UTC) | 6 hours per harness across 4 shards (90 min/job) |
+| `workflow_dispatch` | `hours_per_harness` (default 6) × `shards` (default 4), clamped to 6 h |
+
+Each shard is an independent libFuzzer run with its own `-seed`, so the total
+per harness is `shards × per-shard time`. Raising `hours_per_harness` is possible,
+but the workflow clamps it to the platform ceiling and every job declares a
+`timeout-minutes` below 6 h — enforced by
+`tests/test_ci_workflows.py::test_no_job_timeout_exceeds_the_platform_ceiling`.
 
 Failures upload the crash corpus and the atheris logs as workflow artifacts.
 
