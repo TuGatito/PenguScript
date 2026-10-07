@@ -1,0 +1,119 @@
+name: release-verify
+
+# Roadmap 2.0 / Phase 9, items 9.7 and 9.12.
+#
+# This is the last gate: it downloads the artifacts from the **published**
+# release, installs them (portable layout and a real FHS prefix) and runs them.
+# Nothing here inspects a file: `pengu -V`, `pengu build` and `pengu run` are
+# executed, and the FHS run also proves the prefix is what made the build work
+# by hiding `<prefix>/lib/pengu` and requiring the documented failure
+# (scripts/verify_release_artifact.py --layout fhs).
+#
+# Entry points:
+#   * `workflow_dispatch` — used by release.yml after it publishes, because a
+#     `release` event created with the repository's GITHUB_TOKEN does **not**
+#     start a workflow run (the same restriction item 9.6 fixed for the tag);
+#   * `release: published` — for releases a human publishes by hand;
+#   * manual dispatch from the Actions UI.
+#
+# A failure here is the signal to withdraw the release: see docs/RELEASE.md
+# "If release-verify fails".
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Published tag to verify (e.g. v1.0.0). Must already be published.'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-verify-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: pengu-linux-x64.tar.gz
+            layout: portable
+            label: linux-x64 portable
+          - os: ubuntu-latest
+            artifact: pengu-linux-x64.tar.gz
+            layout: fhs
+            label: linux-x64 fhs prefix
+          - os: macos-latest
+            artifact: pengu-macos.tar.gz
+            layout: portable
+            label: macos portable
+          - os: macos-latest
+            artifact: pengu-macos.tar.gz
+            layout: fhs
+            label: macos fhs prefix
+          - os: windows-latest
+            artifact: pengu-windows-x64.zip
+            layout: portable
+            label: windows-x64 portable
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.14'
+
+      # The tag comes from the event for a release, from the input for a
+      # dispatch. release.yml publishes; this workflow only reads.
+      - name: Resolve the published tag
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          case "$TAG" in
+            v*) ;;
+            *) echo "::error::not a release tag: '$TAG'"; exit 1 ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download the published artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "${{ steps.release.outputs.tag }}" \
+            --pattern "${{ matrix.artifact }}" --dir dist --clobber
+          ls -la dist/
+          test -s "dist/${{ matrix.artifact }}"
+
+      - name: Verify the artifact end-to-end (${{ matrix.layout }})
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/verify_release_artifact.py \
+            --artifact "dist/${{ matrix.artifact }}" \
+            --layout "${{ matrix.layout }}" \
+            --expected-version "${{ steps.release.outputs.version }}" \
+            --check-signature \
+            --workdir "$RUNNER_TEMP/pengu-verify-${{ matrix.layout }}"

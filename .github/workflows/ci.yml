@@ -9,7 +9,9 @@ name: CI (Windows / Linux / macOS)
 #    Windows runners).
 #  * the VSIX is built once instead of three times.
 #  * auto-tag only creates the tag: release.yml owns the GitHub Release, so two
-#    workflows cannot race to publish the same tag.
+#    workflows cannot race to publish the same tag.  Because a GITHUB_TOKEN push
+#    cannot trigger another workflow, auto-tag then *dispatches* release.yml
+#    explicitly (Phase 9, item 9.6).
 
 'on':
   push:
@@ -154,16 +156,33 @@ jobs:
         run: |
           python make_release.py
 
+      # Deterministic archive (Phase 9, item 9.8): sorted entries, constant
+      # mtime from SOURCE_DATE_EPOCH, so the same tree always hashes the same.
       - name: Archive distribution (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
         run: |
-          Compress-Archive -Path "pengucc_build/*" -DestinationPath "${{ matrix.artifact_name }}.zip"
+          python make_release.py --archive-only --dist-dir pengucc_build --archive "${{ matrix.artifact_name }}.zip"
 
       - name: Archive distribution (Unix)
         if: runner.os != 'Windows'
         run: |
-          tar -czf "${{ matrix.artifact_name }}.tar.gz" -C pengucc_build .
+          python make_release.py --archive-only --dist-dir pengucc_build --archive "${{ matrix.artifact_name }}.tar.gz"
+
+      # The same commit must produce the same bytes (item 9.8). Packing the same
+      # tree twice proves the archive layer; the binary's own determinism is
+      # measured in AUDIT_1.0_FASE9.md item 9.8.
+      - name: Reproducibility check (archive twice, compare)
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXT="zip"; [ "$RUNNER_OS" != "Windows" ] && EXT="tar.gz"
+          python make_release.py --archive-only --dist-dir pengucc_build --archive "repro-check.$EXT"
+          python make_release.py --archive-only --dist-dir pengucc_build --archive "repro-check-2.$EXT"
+          A=$(sha256sum "repro-check.$EXT" | cut -d' ' -f1)
+          B=$(sha256sum "repro-check-2.$EXT" | cut -d' ' -f1)
+          echo "run 1: $A"; echo "run 2: $B"
+          test "$A" = "$B" || { echo "::error::archive is not reproducible: $A != $B"; exit 1; }
+          rm -f "repro-check.$EXT" "repro-check-2.$EXT"
 
       - name: Upload standalone artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -174,6 +193,27 @@ jobs:
             ${{ matrix.artifact_name }}.tar.gz
           if-no-files-found: error
           retention-days: 30
+
+      # Phase 9, item 9.12: the *packaged artifact* must work, not just the tree
+      # it was built from. Run it in the portable layout and installed into a real
+      # FHS prefix (pengu_paths.fhs_prefixes discovers the prefix from
+      # <prefix>/bin/pengu; the FHS run also proves the prefix is what made the
+      # build link, by hiding <prefix>/lib/pengu and requiring the failure).
+      - name: Verify the artifact in the portable layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXT="zip"; [ "$RUNNER_OS" != "Windows" ] && EXT="tar.gz"
+          python scripts/verify_release_artifact.py \
+            --artifact "${{ matrix.artifact_name }}.$EXT" --layout portable
+
+      - name: Verify the artifact installed in an FHS prefix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/verify_release_artifact.py \
+            --artifact "${{ matrix.artifact_name }}.tar.gz" --layout fhs
 
   vscode-extension:
     name: VS Code Extension
@@ -216,6 +256,8 @@ jobs:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     permissions:
       contents: write
+      # Needed to dispatch release.yml: `contents: write` cannot start a run.
+      actions: write
     steps:
       - name: Checkout Repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -237,18 +279,38 @@ jobs:
           python scripts/release_version.py --github-output "$GITHUB_OUTPUT"
 
       - name: Create Git Tag if Not Exists
+        id: tag
         run: |
           TAG="${{ steps.changelog.outputs.tag_name }}"
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "Tag $TAG already exists."
+            echo "created=false" >> "$GITHUB_OUTPUT"
           else
             echo "Creating and pushing tag $TAG..."
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git tag -a "$TAG" -m "${{ steps.changelog.outputs.title }}"
             git push origin "$TAG"
+            echo "created=true" >> "$GITHUB_OUTPUT"
           fi
       # NOTE: this job deliberately does NOT create a GitHub Release.
-      # Pushing the tag triggers release.yml, which owns the release (build +
-      # checksums + publish).  Creating it here too raced release.yml for the
-      # same tag and produced duplicated/partial releases.
+      # release.yml owns the release (build + checksums + publish).  Creating it
+      # here too raced release.yml for the same tag and produced
+      # duplicated/partial releases.
+      #
+      # The handoff is an explicit dispatch, not the tag push.  GitHub documents
+      # that a push performed with the repository's GITHUB_TOKEN does **not**
+      # create a new workflow run (`workflow_dispatch` is the documented
+      # exception), so `release.yml`'s `push: tags` never fired for a tag created
+      # here: the "pushing the tag triggers the release" claim was a comment, not
+      # a mechanism (audit §18.1 #10, roadmap item 9.6).
+      - name: Dispatch the release workflow for the new tag
+        if: steps.tag.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.changelog.outputs.tag_name }}"
+          echo "dispatching release.yml for $TAG"
+          gh workflow run release.yml --ref "${GITHUB_REF_NAME}" -f version="$TAG"
+
