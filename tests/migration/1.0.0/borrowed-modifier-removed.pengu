@@ -1,0 +1,7 @@
+# MIGRATION.md §4.1 — the 'borrowed' modifier was removed in 1.0.0.
+# This is the *before* form of a program that compiled on 0.16.0: the modifier
+# no longer lexes, so the parser reads 'borrowed' as an ordinary name and then
+# does not expect the real identifier that follows it.
+weave main into int:
+    var borrowed x is 1
+    return x

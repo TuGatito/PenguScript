@@ -54,12 +54,11 @@ def test_weave_ritual_modifier():
     assert len(checker.errors) == 0
 
 
-def test_var_borrowed_modifier():
-    """Verify 'var borrowed x is 5' compiles as a valid borrowed variable."""
+def test_borrowed_is_an_ordinary_identifier():
+    """'borrowed' is no longer a soft keyword: it is a plain variable name."""
     code = (
-        "weave run into int:\n"
-        "  var borrowed x is 5\n"
-        "  return x\n"
+        "weave process with borrowed as int into int:\n"
+        "  return borrowed\n"
     )
     parser = PenguParser()
     tree = parser.parse(code)
@@ -68,9 +67,20 @@ def test_var_borrowed_modifier():
     checker.check(tree)
     assert len(checker.errors) == 0
 
+    code = (
+        "weave run into int:\n"
+        "  var borrowed is 5\n"
+        "  return borrowed\n"
+    )
+    tree = parser.parse(code)
+    assert tree is not None
+    checker = PenguChecker()
+    checker.check(tree)
+    assert len(checker.errors) == 0
 
-def test_borrowed_as_variable_name_rejected_by_grammar():
-    """'var borrowed is 5' is rejected as ParseError because borrowed is semi-reserved after var/let."""
+
+def test_borrowed_modifier_is_no_longer_a_token():
+    """'var borrowed x is 1' is a syntax error: the BORROWED modifier is gone."""
     parser = PenguParser()
     with pytest.raises(ParseError):
-        parser.parse("var borrowed is 5\n")
+        parser.parse("var borrowed x is 1\n")

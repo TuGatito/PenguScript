@@ -1,0 +1,14 @@
+# 'derive Nexus' is opt-in: the compiler emits _pengu_cleanup_<T> and
+# 'banish t' invokes it to release the rune's fields.
+rune Doc derive Nexus:
+    title as string
+    body as string
+
+weave main into int:
+    var d as Doc is with title is "t", body is "b"
+    banish d
+    if d.title.len != 0:
+        return 1
+    if d.body.len != 0:
+        return 1
+    return 0

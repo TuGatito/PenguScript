@@ -1,6 +1,11 @@
-# 'derive Imago' deep-copies owned fields so a list can store runes by value.
-# Imago implies Nexus, which also lets the local release its own fields.
-rune Tag derive Par, Imago:
+# 'derive Imago' emits the deep-copy helper for a rune's owned fields, and
+# 'derive Nexus' its destructor.  Both are opt-in: nothing is derived from the
+# fact that a field happens to own heap memory.
+#
+# Manual memory: 'tags.push' copies the Tag *value*, so the element and 't'
+# alias the same buffers.  The buffers are released exactly once, through the
+# element, and 't' is not banished (that would double-free).
+rune Tag derive Par, Imago, Nexus:
     name as string
     aliases as list of string
 
@@ -11,9 +16,19 @@ weave main into int:
         set .aliases is ["a", "b"]
     calling tags.push with t
     calling tags.push with t
-    banish t
     var first as Tag is tags at 0
-    if calling tags.len == 2 and first.name == "alpha!":
-        if calling first.aliases.len == 2 and (tags at 1).name == "alpha!":
-            return 0
+    var ok as bool is (calling tags.len == 2 and first.name == "alpha!")
+    if calling first.aliases.len == 2 and (tags at 1).name == "alpha!":
+        set ok is (ok and (first.aliases at 1) == "b")
+
+    var i as int is 0
+    while i < calling first.aliases.len:
+        banish (first.aliases at i)
+        set i is i + 1
+    banish first.name
+    banish first.aliases
+    banish tags
+
+    if ok:
+        return 0
     return 1

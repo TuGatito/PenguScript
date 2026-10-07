@@ -1236,7 +1236,7 @@ weave test with c as ref to Counter into void:
 
 
 # ---------------------------------------------------------------------------
-# Memory semantics: defer / banish / errdefer / size of / escape analysis
+# Memory semantics: defer / banish / errdefer / size of / manual release
 # ---------------------------------------------------------------------------
 
 

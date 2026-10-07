@@ -1,0 +1,58 @@
+# LANGUAGE.md §13.4 — What Is Not Automatic
+# Pins: the compiler never releases a local for you. The explicit forms are
+# 'banish' (release now) and 'defer banish' (release at scope exit, LIFO); a
+# returned value is owned by the caller; and 'banish' on a literal is a safe
+# no-op because a literal is a non-owning .rodata view (is_owned == 0).
+import std.spark
+
+weave build_name with n as int into string:
+    var acc as string is ""
+    var i as int is 0
+    while i < n:
+        var next as string is "{acc}{i}"
+        # Replacing a buffer does not release the old one: 'set' is an
+        # assignment, not a move. Releasing it by hand is what keeps this loop
+        # from leaking one buffer per iteration.
+        banish acc
+        set acc is next
+        set i is i + 1
+    # The returned string is owned by the caller: the callee releases nothing.
+    return acc
+
+weave main into int:
+    var created as string is calling build_name with 2
+    calling spark.assert with (created == "01")
+    defer banish created
+
+    var two as string is calling build_name with 3
+    var greeting as string is "hello {two}"
+    calling spark.assert with (greeting == "hello 012")
+    defer banish greeting
+    defer banish two
+
+    # 'defer banish' runs LIFO at scope exit; it releases the buffer 's' holds
+    # *then*, so the intermediate buffers are released as they are replaced.
+    var s as string is "a{1}"
+    defer banish s
+    var s2 as string is "{s}b"
+    banish s
+    var s3 as string is "{s2}c"
+    banish s2
+    set s is s3
+    calling spark.assert with (s == "a1bc")
+
+    # A literal is a non-owning .rodata view, so banishing it is a safe no-op
+    # instead of a free() of static storage.
+    var lit as string is "literal"
+    banish lit
+    calling spark.assert with (lit.len == 0)
+
+    # A container is released as a container, not element by element.
+    var items as list of int is [1, 2]
+    var table as map of string to int is map of string to int
+    calling table.put with "a", 1
+    calling spark.assert with ((items at 0) == 1)
+    calling spark.assert with ((table at "a") == 1)
+    banish items
+    banish table
+    return 0

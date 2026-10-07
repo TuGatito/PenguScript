@@ -1,7 +1,7 @@
 """Regression tests for PenguScript 0.13.9.
 
 Covers:
-- C1: let bindings subject to auto-banish emitted without C const qualifier
+- C1: let bindings of an owning type are emitted without C const qualifier (manual memory)
 - C2: local_vars preserved across nested scopes and blocks in codegen
 - A1: judge subject validated against unsupported types (maybe, result, list) with E0005
 - A2: omen with string values has is_int() == False, is_string() == True, and judge emits pengu_string_equal
@@ -37,17 +37,30 @@ def test_version_sync_0_13_9():
 
 
 @requires_cc
-def test_c1_let_autobanish_no_const_discard():
-    """C1: let + auto-banished string emits non-const C declaration so banish does not discard qualifiers."""
-    code = 'weave main into int:\n    let s as string is (1 to string)\n    if s == (1 to string):\n        return 0\n    return 1\n'
+def test_c1_let_owning_type_is_non_const_so_banish_compiles():
+    """C1: a 'let' whose type owns heap memory is emitted non-const so 'banish' can null it.
+
+    The old rule tied this to auto-banish; it is now a plain storage rule that
+    keeps explicit ``banish``/``defer banish`` legal on an owning ``let``.
+    """
+    code = ('weave main into int:\n'
+            '    let s as string is (1 to string)\n'
+            '    defer banish s\n'
+            '    if s == (1 to string):\n'
+            '        return 0\n'
+            '    return 1\n')
     check_ok(code)
     c = gen_bundle(code)
-    # The C declaration for auto-banished 's' should be 'PenguString s' without 'const'
+    # The C declaration for an owning 'let' must drop 'const' so banish can write NULL.
     assert "const PenguString s" not in c
-    assert "PenguString s" in c
-    assert "pengu_banish_string(&s)" in c
-    res = compile_run(code, tag="test_c1_autobanish")
+    assert "PenguString s =" in c
+    assert "pengu_banish_string(&s);" in c
+    res = compile_run(code, tag="test_c1_owning_let")
     assert res.returncode == 0
+
+    # A 'let' of a non-owning type is still C const.
+    c_int = gen_bundle('weave main into int:\n    let n as int is 41\n    return n + 1\n')
+    assert "const int32_t n = 41;" in c_int
 
 
 @requires_cc

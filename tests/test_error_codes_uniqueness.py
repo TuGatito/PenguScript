@@ -1,10 +1,12 @@
 """Phase 0 / item 0.6 + Phase 7 / item 7.2 — error codes are unique and unambiguous.
 
-The audit found codes shared between unrelated diagnostics (E0047 used for both
-"banish an auto-owned variable" and "duplicate concept binding"; E0035 used for
-both "reserved C keyword" and "redefinition in the same scope"; E0011 for both
-"conflicting constant" and "ambiguous struct init").  These tests pin the
-disambiguation so a future change cannot silently re-merge them.
+The audit found codes shared between unrelated diagnostics (E0047 was used for
+both the since-removed "banish an auto-owned variable" and "duplicate concept
+binding"; E0035 for both "reserved C keyword" and "redefinition in the same
+scope"; E0011 for both "conflicting constant" and "ambiguous struct init").
+These tests pin the disambiguation so a future change cannot silently re-merge
+them.  E0047/E0048 were retired with the implicit ownership model in 1.0 and are
+reserved, never reused.
 
 Phase 7 item 7.2 extends the file past ``kwargs.setdefault``: AUDIT_1.0.md §15.2
 lists this module as a gate that went green over broken code because it ignored
@@ -66,10 +68,13 @@ def test_error_class_default_codes_are_unique():
 
 
 def test_duplicate_concept_binding_has_its_own_code():
-    """E0047 stays for AutoOwnedBanishError; the binding collision is E0052."""
+    """The binding collision is E0052, and the retired E0047 was not reused."""
     codes = _class_default_codes()
-    assert codes.get("AutoOwnedBanishError") == "E0047"
     assert codes.get("DuplicateConceptBindingError") == "E0052"
+    # E0047/E0048 belonged to the removed implicit-ownership diagnostics.
+    # Retiring a code means *reserving* it: nothing may claim it again.
+    assert "E0047" not in set(codes.values())
+    assert "E0048" not in set(codes.values())
 
 
 def test_redefinition_is_not_the_c_keyword_code():
@@ -127,7 +132,7 @@ CONDITION_SHAPES = {
     "E0021": 1, "E0022": 1, "E0023": 2, "E0024": 2, "E0025": 2, "E0026": 1, "E0027": 1,
     "E0028": 1, "E0029": 3, "E0030": 3, "E0031": 1, "E0032": 4, "E0033": 1, "E0034": 2,
     "E0035": 4, "E0036": 2, "E0037": 1, "E0038": 1, "E0039": 3, "E0040": 1, "E0041": 9,
-    "E0042": 3, "E0043": 2, "E0044": 1, "E0045": 4, "E0046": 5, "E0047": 1, "E0048": 1,
+    "E0042": 3, "E0043": 2, "E0044": 1, "E0045": 4, "E0046": 5,
     "E0049": 8, "E0050": 1, "E0051": 1, "E0052": 2, "E0053": 2, "E0054": 1, "E0055": 1,
     "E0056": 5, "E0057": 2, "E0058": 1, "E0063": 1, "E0064": 1, "E0065": 1,
 }

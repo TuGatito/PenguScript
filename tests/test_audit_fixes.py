@@ -212,8 +212,8 @@ def test_keyword_method_name_is_still_allowed():
 # ---------------------------------------------------------------------------
 
 
-def test_struct_string_field_copy_keeps_source_ownership():
-    """#37: the field receives a copy, so the local may still be banished."""
+def test_struct_string_field_stores_without_copy():
+    """#37: the rune field receives the string value as written, with no deep copy."""
     c = gen_bundle(
         "rune Player:\n"
         "    name as string\n\n"
@@ -222,12 +222,24 @@ def test_struct_string_field_copy_keeps_source_ownership():
         "    var p as Player is with name is s\n"
         "    return\n"
     )
-    assert "pengu_string_copy(s)" in c
-    assert "pengu_banish_string(&s)" in c
+    assert "(Player){.name = s}" in c
+    assert "pengu_string_copy" not in c
+    # No escape analysis and no scope-exit release: only an explicit banish frees s.
+    assert "pengu_banish_string(&s)" not in c
+    explicit = (
+        "rune Player:\n"
+        "    name as string\n\n"
+        "weave f with x as int into void:\n"
+        "    var s as string is (x to string)\n"
+        "    var p as Player is with name is s\n"
+        "    banish s\n"
+        "    return\n"
+    )
+    assert "pengu_banish_string(&s);" in gen_bundle(explicit)
 
 
-def test_with_builder_string_field_copy_keeps_source_ownership():
-    """#37: same for the 'with:' builder form."""
+def test_with_builder_string_field_stores_without_copy():
+    """#37: same for the 'with:' builder form: the field aliases s, no copy."""
     c = gen_bundle(
         "rune Player:\n"
         "    name as string\n\n"
@@ -237,20 +249,24 @@ def test_with_builder_string_field_copy_keeps_source_ownership():
         "        set .name is s\n"
         "    return\n"
     )
-    assert "pengu_string_copy(s)" in c
-    assert "pengu_banish_string(&s)" in c
+    assert "_with_1.name = s;" in c
+    assert "pengu_string_copy" not in c
+    # No escape analysis and no scope-exit release.
+    assert "pengu_banish_string(&s)" not in c
 
 
-def test_some_deep_copies_the_payload_and_keeps_the_source_owned():
-    """Audit#5-#1: 'some s' boxes a *copy*, so s keeps ownership and is released."""
+def test_some_stores_the_payload_without_cloning():
+    """Audit#5-#1: 'some s' memcpy's the payload into the box; it does not clone it."""
     c = gen_bundle(
         "weave f with x as int into void:\n"
         "    var s as string is (x to string)\n"
         "    var m as maybe string is some s\n"
         "    return\n"
     )
-    assert "pengu_string_clone(" in c
-    assert "pengu_banish_string(&s)" in c
+    assert "memcpy(" in c
+    assert "pengu_string_clone" not in c
+    # The box aliases s's buffer, so nothing is released implicitly either.
+    assert "pengu_banish_string(&s)" not in c
 
 
 def test_banish_ref_to_nexus_rune_runs_field_destructor():
@@ -497,14 +513,23 @@ def test_return_field_of_local_does_not_banish():
     assert "pengu_banish_string(&h.name)" not in c
 
 
-def test_return_scalar_computed_from_local_still_banishes():
-    """#38 must not disable auto-banish for values that do not borrow."""
+def test_return_scalar_does_not_release_the_source():
+    """Manual memory: a computed scalar return leaves the local alone."""
     c = gen_bundle(
         "weave f with n as int into int:\n"
         "    var s as string is (n to string)\n"
         "    return (s length)\n"
     )
-    assert "pengu_banish_string(&s)" in c
+    assert "pengu_banish_string(&s)" not in c
+
+    # The manual release is still available and runs on the return path.
+    explicit = (
+        "weave f with n as int into int:\n"
+        "    var s as string is (n to string)\n"
+        "    defer banish s\n"
+        "    return (s length)\n"
+    )
+    assert "pengu_banish_string(&s);" in gen_bundle(explicit)
 
 
 @requires_cc
@@ -763,14 +788,14 @@ def test_view_of_field_bound_to_a_local_disables_banish():
     assert "pengu_banish_string(&h.name)" not in c
 
 
-def test_scalar_computed_from_local_still_banishes_after_view_fix():
-    """Audit#2-#7 must not over-escape: a computed scalar does not borrow."""
+def test_scalar_computed_from_local_does_not_release_after_view_fix():
+    """Manual memory: a computed scalar does not release its source local."""
     c = gen_bundle(
         "weave f with n as int into int:\n"
         "    var s as string is (n to string)\n"
         "    return (s length)\n"
     )
-    assert "pengu_banish_string(&s)" in c
+    assert "pengu_banish_string(&s)" not in c
 
 
 def test_for_comp_over_rvalue_binds_a_temporary():
@@ -890,15 +915,17 @@ def test_pengu_typo_is_still_rejected_in_a_file_with_includes():
     )
 
 
-def test_loop_value_releases_fresh_iteration_temporary():
-    """Audit#2-#19: the loop-value push deep-copies, so the temporary is freed."""
+def test_loop_value_does_not_release_fresh_iteration_temporary():
+    """Audit#2-#19: the loop-value push memcpy's the element; the temporary is not freed."""
     c = gen_bundle(
         "weave main into int:\n"
         "    var parts as list of string is for i from 0 to 3:\n"
         '        "n{(i to string)}"\n'
         "    return 0\n"
     )
-    assert "pengu_string_cleanup((void*)&_lv" in c
+    assert "_lv_" in c
+    assert "pengu_string_cleanup((void*)&_lv" not in c
+    assert "pengu_banish_string(&_lv" not in c
 
 
 def test_loop_value_does_not_free_borrowed_elements():
@@ -921,8 +948,8 @@ def test_loop_value_does_not_free_borrowed_elements():
 # ---------------------------------------------------------------------------
 
 
-def test_block_value_is_read_before_the_scope_is_released():
-    """Audit#3-#1: 'do: … y.length' used to read the nulled buffer."""
+def test_block_value_is_read_without_a_scope_exit_release():
+    """Audit#3-#1: 'do: … y.length' reads y and never releases it (manual memory)."""
     c = gen_bundle(
         "weave f into int:\n"
         "    let x is do:\n"
@@ -930,9 +957,10 @@ def test_block_value_is_read_before_the_scope_is_released():
         "        y.length\n"
         "    return x\n"
     )
-    snap = c.index("_val")
-    banish = c.index("pengu_banish_string(&y)")
-    assert snap < banish
+    # The block value is snapshotted and read; nothing goes out of its way to free y.
+    assert "_val_" in c
+    assert "y.len" in c
+    assert "pengu_banish_string(&y)" not in c
 
 
 @requires_cc
@@ -954,8 +982,8 @@ def test_block_value_read_runs():
     assert res.returncode == 0, res.stderr
 
 
-def test_if_value_block_snapshot_order():
-    """Audit#3-#1: the same ordering applies to value-position 'if'/'unless'."""
+def test_if_value_block_snapshot_without_release():
+    """Audit#3-#1: value-position 'if'/'unless' snapshots the value and never releases."""
     c = gen_bundle(
         "weave f with c as bool into int:\n"
         "    let x is if c:\n"
@@ -965,7 +993,9 @@ def test_if_value_block_snapshot_order():
         "        0\n"
         "    return x\n"
     )
-    assert c.index("_val") < c.index("pengu_banish_string(&y)")
+    assert "_val_" in c
+    assert "y.len" in c
+    assert "pengu_banish_string(&y)" not in c
 
 
 def test_function_pointer_alias_typedef():
@@ -1224,18 +1254,18 @@ def test_view_as_block_value_keeps_the_source_alive():
     assert "pengu_banish_list(&xs)" not in c
 
 
-def test_scalar_member_read_still_banishes_the_source():
-    """Audit#3-#14 must not treat 's.len' as a view into the buffer."""
+def test_scalar_member_read_does_not_release_the_source():
+    """Manual memory: reading 's.len' leaves s alone; nothing frees it implicitly."""
     c = gen_bundle(
         "weave f with n as int into int:\n"
         '    var s as string is "hi{(n to string)}"\n'
         "    return s.len\n"
     )
-    assert "pengu_banish_string(&s)" in c
+    assert "pengu_banish_string(&s)" not in c
 
 
-def test_view_bound_local_used_locally_still_banishes_the_source():
-    """Audit#3-#14: 'var v is m at "a"' followed by local use is not an escape."""
+def test_view_bound_local_used_locally_does_not_release_the_source():
+    """Manual memory: a local view ('m at "a"') does not make the map release itself."""
     c = gen_bundle(
         "weave f into int:\n"
         "    var m as map of string to list of int is map of string to list of int\n"
@@ -1245,7 +1275,7 @@ def test_view_bound_local_used_locally_still_banishes_the_source():
         '    var got as list of int is m at "a"\n'
         "    return calling got.len\n"
     )
-    assert "pengu_banish_map(&m)" in c
+    assert "pengu_banish_map(&m)" not in c
 
 
 @requires_cc
@@ -1343,8 +1373,8 @@ def test_void_value_block_runs():
     assert res.returncode == 0, res.stderr
 
 
-def test_loop_value_over_if_releases_the_fresh_element():
-    """Audit#4-#2: a loop-value fed by 'if'/'else' leaked one buffer per iteration."""
+def test_loop_value_over_if_does_not_release_the_element():
+    """Audit#4-#2: a loop-value fed by 'if'/'else' never frees the element implicitly."""
     c = gen_bundle(
         "weave main into int:\n"
         "    var lst as list of string is for i from 0 to 3:\n"
@@ -1354,7 +1384,9 @@ def test_loop_value_over_if_releases_the_fresh_element():
         '            "other{(i to string)}"\n'
         "    return 0\n"
     )
-    assert "pengu_string_cleanup((void*)&_lv" in c
+    assert "_lv_" in c
+    assert "pengu_string_cleanup((void*)&_lv" not in c
+    assert "pengu_banish_string(&_lv" not in c
 
 
 def test_loop_value_over_if_with_a_borrowed_branch_is_not_released():
@@ -1373,8 +1405,8 @@ def test_loop_value_over_if_with_a_borrowed_branch_is_not_released():
     assert "pengu_string_cleanup((void*)&_lv" not in c
 
 
-def test_nested_loop_value_releases_the_inner_list():
-    """Audit#4-#7: the inner 'list of string' was orphaned by the outer push."""
+def test_nested_loop_value_does_not_release_the_inner_list():
+    """Audit#4-#7: the inner 'list of string' is stored by memcpy and never freed implicitly."""
     c = gen_bundle(
         "weave main into int:\n"
         "    var rows as list of list of string is for i from 0 to 2:\n"
@@ -1382,7 +1414,9 @@ def test_nested_loop_value_releases_the_inner_list():
         '            "r{(i to string)}c{(j to string)}"\n'
         "    return 0\n"
     )
-    assert "pengu_list_cleanup((void*)&_lv" in c
+    assert "_lv_" in c
+    assert "pengu_list_cleanup((void*)&_lv" not in c
+    assert "pengu_banish_list(&_lv" not in c
 
 
 def test_nested_do_block_keeps_the_source_alive():
@@ -1398,9 +1432,9 @@ def test_nested_do_block_keeps_the_source_alive():
     assert "pengu_banish_string(&y)" not in c
 
 
-def test_else_branch_of_a_value_if_participates_in_escape_analysis():
-    """Audit#4-#4: 'else_block' was never inspected."""
-    c = gen_bundle(
+def test_value_if_branch_value_does_not_release_the_source():
+    """Manual memory: using y as a branch value never frees y implicitly."""
+    src = (
         "weave f with c as bool into string:\n"
         '    var y as string is "fresh{(1 to string)}"\n'
         "    var x as string is do:\n"
@@ -1410,12 +1444,17 @@ def test_else_branch_of_a_value_if_participates_in_escape_analysis():
         "            y\n"
         "    return x\n"
     )
+    c = gen_bundle(src)
     assert "pengu_banish_string(&y)" not in c
 
+    # The only release is the one the source asks for.
+    explicit = src.replace("    return x\n", "    banish y\n    return x\n")
+    assert "pengu_banish_string(&y);" in gen_bundle(explicit)
 
-def test_value_if_as_last_block_statement_participates_in_escape_analysis():
-    """Audit#4-#6: a trailing value-'if' was not recognised as the block value."""
-    c = gen_bundle(
+
+def test_trailing_value_if_does_not_release_the_source():
+    """Manual memory: a trailing value-'if' does not free its local implicitly."""
+    src = (
         "weave f with c as bool into string:\n"
         '    var y as string is "fresh{(1 to string)}"\n'
         "    var x as string is do:\n"
@@ -1425,11 +1464,15 @@ def test_value_if_as_last_block_statement_participates_in_escape_analysis():
         '            "lit"\n'
         "    return x\n"
     )
+    c = gen_bundle(src)
     assert "pengu_banish_string(&y)" not in c
 
+    explicit = src.replace("    return x\n", "    banish y\n    return x\n")
+    assert "pengu_banish_string(&y);" in gen_bundle(explicit)
 
-def test_scalar_value_block_still_banishes_after_nested_fixes():
-    """Audit#4-#3/#4/#6 must not over-escape a scalar read."""
+
+def test_scalar_value_block_does_not_release_after_nested_fixes():
+    """Manual memory: a scalar value block never releases its local implicitly."""
     c = gen_bundle(
         "weave f into int:\n"
         "    var n as int is do:\n"
@@ -1437,7 +1480,8 @@ def test_scalar_value_block_still_banishes_after_nested_fixes():
         "        y.len\n"
         "    return n\n"
     )
-    assert "pengu_banish_string(&y)" in c
+    assert "y.len" in c
+    assert "pengu_banish_string(&y)" not in c
 
 
 def test_declaration_omen_variants_do_not_collide_with_user_consts():
@@ -1478,19 +1522,23 @@ def test_omen_variant_collision_still_reported_for_pengu_omens():
     )
 
 
-def test_banish_of_a_collection_element_is_rejected():
-    """Audit#4-#8: 'banish xs at 0' cannot free the element's buffer."""
-    check_error(
+def test_banish_of_a_collection_element_requires_an_owning_element():
+    """Audit#4-#8: 'banish xs at 0' releases the element in place when it owns memory."""
+    owning = (
         "weave main into int:\n"
         "    var xs as list of string is list of string\n"
         "    banish xs at 0\n"
-        "    return 0\n",
-        contains="E0008",
+        "    return 0\n"
     )
+    c = gen_bundle(owning)
+    assert "pengu_banish_string(&((*(PenguString *)pengu_list_at(&(xs)" in c
+    # Grouping parentheses name the same storage cell.
+    assert "pengu_banish_string" in gen_bundle(owning.replace("banish xs at 0", "banish (xs at 0)"))
+    # An element whose type owns nothing is still rejected.
     check_error(
         "weave main into int:\n"
-        "    var xs as list of string is list of string\n"
-        "    banish (xs at 0)\n"
+        "    var xs as list of int is list of int\n"
+        "    banish xs at 0\n"
         "    return 0\n",
         contains="E0008",
     )
@@ -1501,42 +1549,56 @@ def test_banish_of_a_collection_element_is_rejected():
 # ---------------------------------------------------------------------------
 
 
-def test_some_deep_copies_an_owning_payload():
-    """Audit#5-#1: 'some s' used to share s's buffer (dangling box)."""
+def test_some_stores_an_owning_payload_without_cloning():
+    """Audit#5-#1: 'some s' shares s's buffer by memcpy; there is no deep copy."""
     c = gen_bundle(
         "weave f with x as int into void:\n"
         "    var s as string is (x to string)\n"
         "    var m as maybe string is some s\n"
         "    return\n"
     )
-    assert "pengu_string_clone(" in c
+    assert "pengu_string_clone" not in c
+    assert "memcpy(" in c
 
 
-def test_maybe_box_is_released_with_its_payload():
-    """Audit#5-#2: the box ('some') and its payload were never freed."""
-    c = gen_bundle(
+def test_maybe_box_is_released_with_its_payload_by_explicit_banish():
+    """Audit#5-#2: an explicit 'banish m' frees the payload first and the box after."""
+    src = (
         "weave f into int:\n"
-        "    var s as string is \"x{(1 to string)}\"\n"
+        '    var s as string is "x{(1 to string)}"\n'
         "    var m as maybe string is some s\n"
+        "    banish m\n"
         "    if m.is_present:\n"
         "        return m.value.len\n"
         "    return 0\n"
     )
-    assert "pengu_banish_string((PenguString *)(m.value))" in c
-    assert "free(m.value)" in c
-    assert "m.is_present = false" in c
+    c = gen_bundle(src)
+    assert "pengu_banish_string((PenguString *)((&m)->value))" in c
+    assert "free((&m)->value)" in c
+    assert "(&m)->is_present = false" in c
+
+    # Without the explicit banish the box is simply leaked (manual memory).
+    c_plain = gen_bundle(src.replace("    banish m\n", ""))
+    assert "free((&m)->value)" not in c_plain
+    assert "pengu_banish_string((PenguString *)((&m)->value))" not in c_plain
 
 
-def test_maybe_pod_payload_frees_only_the_box():
-    """Audit#5-#2: an 'int' payload owns nothing, but the box still leaks."""
-    c = gen_bundle(
+def test_maybe_pod_payload_frees_only_the_box_on_explicit_banish():
+    """Audit#5-#2: an 'int' payload owns nothing; explicit 'banish m' frees only the box."""
+    src = (
         "weave main into int:\n"
         "    var m as maybe int is some 42\n"
+        "    banish m\n"
         "    if m.is_present:\n"
         "        return 0\n"
         "    return 1\n"
     )
-    assert "free(m.value)" in c
+    c = gen_bundle(src)
+    assert "free((&m)->value)" in c
+    assert "pengu_banish_string" not in c
+
+    c_plain = gen_bundle(src.replace("    banish m\n", ""))
+    assert "free((&m)->value)" not in c_plain
 
 
 @requires_cc
@@ -1616,8 +1678,8 @@ def test_array_literal_argument_runs():
     assert res.returncode == 0, res.stderr
 
 
-def test_rune_with_heap_field_gets_implicit_lifetime_helpers():
-    """Audit#5-#5: 'list of Rune' leaked every element's own fields."""
+def test_rune_with_heap_field_gets_no_implicit_lifetime_helpers():
+    """Audit#5-#5: no implicit Nexus/Imago — a heap-owning rune gets no dtor or clone."""
     c = gen_bundle(
         "rune Tag:\n"
         "    name as string\n\n"
@@ -1625,10 +1687,22 @@ def test_rune_with_heap_field_gets_implicit_lifetime_helpers():
         "    var tags as list of Tag is list of Tag\n"
         "    return 0\n"
     )
-    assert "_pengu_auto_cleanup_Tag" in c
-    assert "_pengu_auto_clone_Tag" in c
+    assert "_pengu_auto_cleanup_Tag" not in c
+    assert "_pengu_auto_clone_Tag" not in c
+    assert "_pengu_cleanup_Tag" not in c
+    assert "_pengu_clone_Tag" not in c
+
+    # An explicit 'derive Nexus' is what generates the destructor.
+    derived = gen_bundle(
+        "rune Tag derive Nexus:\n"
+        "    name as string\n\n"
+        "weave main into int:\n"
+        "    var tags as list of Tag is list of Tag\n"
+        "    return 0\n"
+    )
+    assert "_pengu_cleanup_Tag" in derived
     # the generated destructor releases the rune's string field
-    assert "pengu_banish_string(&(pt->name))" in c
+    assert "pengu_banish_string(&(pt->name))" in derived
 
 
 def test_std_runes_do_not_get_implicit_lifetime_helpers():

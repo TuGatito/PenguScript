@@ -8,9 +8,7 @@ Covers residual fixes from 0.13.0:
 - R5: _translate_or_block rejects AnyType operand at codegen time with E0005
 - R6: _check_or_block continues body checking when left operand is invalid
 - R7: _check_static_var_decl uses decl_layout consistently
-- R8: let borrowed destructuring propagates is_borrowed to all bound symbols
 - R9: decl_layout is public in pengu_symbols
-- R10: _has_borrowed_modifier None-placeholder documented
 """
 import pytest
 from lark import Tree
@@ -145,59 +143,41 @@ weave main into int:
     assert "static int32_t count = 0;" in c
 
 
-def test_r8_destructured_borrowed_propagates_flag():
-    """R8: Destructuring with borrowed modifier sets is_borrowed=True on all bound symbols."""
-    code = """rune Pair:
-  a as int
-  b as int
-
-weave main into int:
-  let p as Pair with:
-    set a is 1
-    set b is 2
-  let borrowed x, y is p
-  return x + y
-"""
-    parser = PenguParser()
-    tree = parser.parse(code)
-    checker = PenguChecker()
-    checker.check(tree)
-    assert not checker.errors
-
-    let_nodes = list(tree.find_data("let_decl"))
-    destructured_node = next(n for n in let_nodes if hasattr(n, "_pengu_symbols"))
-    syms = destructured_node._pengu_symbols
-    assert len(syms) == 2
-    assert syms[0].name == "x" and syms[0].is_borrowed is True
-    assert syms[1].name == "y" and syms[1].is_borrowed is True
-
-    # Semantic verification: banishing a borrowed destructured local must fail with E0048
-    bad_code = """rune Pair:
-  a as int
-  b as int
-
-weave main into int:
-  let p as Pair with:
-    set a is 1
-    set b is 2
-  let borrowed x, y is p
-  banish x
-  return y
-"""
-    check_error(bad_code, contains="E0048")
-
-
-
-
 def test_r9_decl_layout_moved_to_symbols():
-    """R9: decl_layout is exposed from pengu_parser.pengu_symbols."""
+    """R9: decl_layout is exposed from pengu_parser.pengu_symbols.
+
+    The borrowed modifier is gone, so var_decl/let_decl/static_var_decl share a
+    single child layout: [name, type_or_None, value].  The type therefore lives
+    at index 1 and the value at index 2, with no leading placeholder slot.
+    """
     from pengu_parser.pengu_symbols import decl_layout as symbols_decl_layout
     from pengu_parser.pengu_checker import _decl_layout as checker_decl_layout
 
     parser = PenguParser()
-    tree = parser.parse("weave main into int:\n  var borrowed x as int is 5\n  return x\n")
+    tree = parser.parse(
+        "weave main into int:\n"
+        "  var x as int is 5\n"
+        "  let y as int is x\n"
+        "  static var z as int is 1\n"
+        "  return x\n"
+    )
+    seen = set()
+    for rule in ("var_decl", "let_decl", "static_var_decl"):
+        for n in tree.find_data(rule):
+            seen.add(rule)
+            t1, e1 = symbols_decl_layout(n)
+            t2, e2 = checker_decl_layout(n)
+            assert t1 is not None and t1 == t2
+            assert e1 is not None and e1 == e2
+            assert n.children[1] is t1
+            assert n.children[2] is e1
+    assert seen == {"var_decl", "let_decl", "static_var_decl"}
+
+    # An absent annotation is still an explicit None placeholder, so the value
+    # keeps living at index 2.
+    tree = parser.parse("weave main into int:\n  var x is 5\n  return x\n")
     for n in tree.find_data("var_decl"):
-        t1, e1 = symbols_decl_layout(n)
-        t2, e2 = checker_decl_layout(n)
-        assert t1 is not None and t1 == t2
-        assert e1 is not None and e1 == e2
+        assert n.children[1] is None
+        t, e = symbols_decl_layout(n)
+        assert t is None
+        assert e is n.children[2]

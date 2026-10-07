@@ -1,4 +1,7 @@
 # Gap 1: 'bag->items.push' where bag is a 'ref to Bag' parameter.
+#
+# Manual memory: the pushed element aliases the buffer of the fresh 'local', so
+# the element is released in place and the container buffer after it.
 rune Bag derive Nexus:
     items as list of string
 
@@ -9,8 +12,13 @@ weave fill with bag as ref to Bag, n as int into void:
 weave main into int:
     var b as Bag with:
         set .items is list of string
-    defer banish b
     calling fill with (sigil of b), 9
-    if calling b.items.len == 1 and (b.items at 0) == "9":
+    var ok as bool is (calling b.items.len == 1 and (b.items at 0) == "9")
+    var i as int is 0
+    while i < calling b.items.len:
+        banish (b.items at i)
+        set i is i + 1
+    banish b
+    if ok:
         return 0
     return 1

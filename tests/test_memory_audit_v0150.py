@@ -1,17 +1,20 @@
 """Regression tests for the v0.15.0 memory-subsystem audit repairs.
 
-Each test pins one confirmed bug so a future change cannot silently reintroduce
-it.  The audit's C1 (``PenguString.is_owned``) already landed at HEAD; the tests
-here cover the remaining confirmed items:
+Each test pins one confirmed property so a future change cannot silently
+reintroduce the original bug.  PenguScript now uses manual memory management:
+the compiler never releases a local at scope exit, never deep-copies on store
+and never derives a destructor, so the assertions here describe what the
+generator emits and what an explicit ``banish`` lowers to.
 
-* C2/C3 — ``x to string`` on a string/bool must not be auto-banished,
-* C4 — release-before-assign on ``set`` for provably-unaliased auto-owned locals
-  (M1 static / M2 struct-field reassignment are left conservative: a live view
-  of the old cell cannot be ruled out statically, so the release is skipped),
-* C5 — ``list of maybe``/``list of result`` deep-clone + element cleanup,
-* C6/C7 — ``_release_payload_stmts`` handles algebraic omens and nested maybe,
-* H1 — local algebraic omens are released at scope exit,
-* H4 — ``sigil of x.field``/``x at i`` counts as an escape,
+* C2/C3 — ``x to string`` on a string/bool must not allocate,
+* C4 — ``set`` overwrites; there is no release-before-assign (the previous
+  buffer leaks, which is documented and expected without an explicit banish),
+* C5 — ``list of maybe``/``list of result`` store elements by memcpy: no
+  element clone/cleanup callbacks are registered,
+* C6/C7 — ``_release_payload_stmts`` handles algebraic omens and nested maybe
+  when the programmer writes ``banish``,
+* H1 — a local algebraic omen is only released by an explicit ``banish``,
+* H4 — there is no escape analysis; a ``sigil of`` element never changes codegen,
 * H5 — returning a slice of a stack array is rejected (E0051).
 
 Bonus regressions found while fixing: the omen-variant payload used to be
@@ -45,21 +48,26 @@ from tests.conftest import (
 # ---------------------------------------------------------------------------
 
 
-def test_to_string_identity_is_not_auto_banished():
-    """'s1 to string' reuses s1's buffer: the binding must not release it."""
-    c = gen_bundle(
+def test_to_string_identity_aliases_without_release():
+    """'s1 to string' aliases s1's buffer: nothing is released implicitly."""
+    src = (
         'weave f into void:\n'
         '  var s1 as string is (1 to string)\n'
         '  var s2 as string is s1 to string\n'
         '  return\n'
     )
+    c = gen_bundle(src)
     assert "PenguString s2 = s1;" in c
     assert "pengu_banish_string(&s2)" not in c
-    # s1 still owns its own buffer and is released exactly once.
-    assert "pengu_banish_string(&s1);" in c
+    # s1 owns the buffer, but there is no scope-exit release any more.
+    assert "pengu_banish_string(&s1)" not in c
+
+    # Only an explicit banish releases, and it frees the aliased buffer once.
+    explicit = src.replace('  return\n', '  banish s1\n  return\n')
+    assert "pengu_banish_string(&s1);" in gen_bundle(explicit)
 
 
-def test_bool_to_string_is_not_auto_banished():
+def test_bool_to_string_emits_no_release():
     """'bool to string' yields the static "true"/"false" rodata view."""
     c = gen_bundle(
         'weave f into void:\n'
@@ -70,15 +78,20 @@ def test_bool_to_string_is_not_auto_banished():
     assert "pengu_banish_string(&s)" not in c
 
 
-def test_int_to_string_is_auto_banished():
-    """'int to string' allocates a fresh heap buffer and must be released."""
-    c = gen_bundle(
+def test_int_to_string_is_fresh_heap_released_only_explicitly():
+    """'int to string' allocates a fresh heap buffer; manual memory frees it only on 'banish'."""
+    src = (
         'weave f into void:\n'
         '  var n as int is 42\n'
         '  var s as string is n to string\n'
         '  return\n'
     )
-    assert "pengu_banish_string(&s);" in c
+    c = gen_bundle(src)
+    assert "pengu_string_from_int" in c
+    assert "pengu_banish_string(&s);" not in c
+
+    explicit = src.replace('  return\n', '  banish s\n  return\n')
+    assert "pengu_banish_string(&s);" in gen_bundle(explicit)
 
 
 @requires_cc
@@ -100,9 +113,9 @@ def test_to_string_identity_runs_clean():
 # ---------------------------------------------------------------------------
 
 
-def test_set_fresh_value_releases_previous_list():
-    """A loop reassigning a fresh list frees the previous buffer each round."""
-    c = gen_bundle(
+def test_set_fresh_value_overwrites_without_release():
+    """'set xs is [...]' overwrites the list; the previous buffer leaks (documented)."""
+    src = (
         'weave main into int:\n'
         '  var i as int is 0\n'
         '  var xs as list of int is list of int\n'
@@ -111,10 +124,16 @@ def test_set_fresh_value_releases_previous_list():
         '    set i is i + 1\n'
         '  return 0\n'
     )
-    # The old value is stashed and released around the assignment, and the final
-    # value is still auto-banished at scope exit.
-    assert "PenguList _old_" in c
-    assert c.count("pengu_banish_list") >= 2
+    c = gen_bundle(src)
+    # No release-before-assign: the old buffer is simply dropped.
+    assert "_old_" not in c
+    assert "pengu_banish_list" not in c
+    # The overwrite itself still happens.
+    assert "xs = " in c
+
+    # The manual replacement is an explicit banish before the overwrite.
+    manual = src.replace('    set xs is [i, i + 1]\n', '    banish xs\n    set xs is [i, i + 1]\n')
+    assert "pengu_banish_list(&xs);" in gen_bundle(manual)
 
 
 def test_set_borrowed_value_does_not_release():
@@ -129,7 +148,7 @@ def test_set_borrowed_value_does_not_release():
 
 
 def test_self_assignment_does_not_release():
-    """'set s is s' is a no-op; releasing the old value would dangle s."""
+    """'set s is s' is a no-op; nothing is released for it either."""
     c = gen_bundle(
         'weave f into void:\n'
         '  var s as string is (1 to string)\n'
@@ -137,13 +156,15 @@ def test_self_assignment_does_not_release():
         '  return\n'
     )
     assert "_old_" not in c
-    assert "pengu_banish_string(&s);" in c
+    assert "pengu_banish_string(&s);" not in c
 
 
-def test_string_field_reassign_keeps_old_cell_aliases_safe():
-    """A 'set d.field' deep-copies the new value but does *not* release the old
-    cell: another binding ('var v is d.title') may still view it, so releasing
-    would dangle.  The remaining leak is a documented M2 follow-up."""
+def test_string_field_reassign_does_not_deep_copy_or_release():
+    """A 'set d.field' stores the new string directly and does not free the old cell.
+
+    There is no implicit deep copy and no release-before-assign: the old cell
+    keeps pointing at its buffer and the new value is stored as written.
+    """
     c = gen_bundle(
         'rune Doc:\n'
         '  title as string\n'
@@ -152,7 +173,8 @@ def test_string_field_reassign_keeps_old_cell_aliases_safe():
         '  set d.title is "b"\n'
         '  return\n'
     )
-    assert "d.title = pengu_string_copy(pengu_string_from_cstr(\"b\"))" in c
+    assert 'd.title = pengu_string_from_cstr("b")' in c
+    assert "pengu_string_copy" not in c
     assert "_old_" not in c
 
 
@@ -223,25 +245,29 @@ def test_static_reassign_runs_clean():
 # ---------------------------------------------------------------------------
 
 
-def test_list_of_maybe_registers_element_callbacks():
+def test_list_of_maybe_does_not_register_element_callbacks():
+    """A list of maybe stores PenguMaybe by memcpy: no clone/cleanup callbacks."""
     c = gen_bundle(
         'weave main into int:\n'
         '  var l as list of maybe int is list of maybe int\n'
         '  return 0\n'
     )
-    assert "pengu_list_new_owned(sizeof(PenguMaybe)" in c
-    assert "_pengu_elem_cleanup_maybe_int" in c
-    assert "_pengu_elem_clone_maybe_int" in c
+    assert "pengu_list_new_owned" not in c
+    assert "pengu_list_new(sizeof(PenguMaybe)" in c
+    assert "_pengu_elem_cleanup_maybe_int" not in c
+    assert "_pengu_elem_clone_maybe_int" not in c
 
 
-def test_list_of_result_registers_element_callbacks():
+def test_list_of_result_does_not_register_element_callbacks():
+    """A list of result stores PenguResult by memcpy: no clone/cleanup callbacks."""
     c = gen_bundle(
         'weave main into int:\n'
         '  var l as list of result of int to string is list of result of int to string\n'
         '  return 0\n'
     )
-    assert "pengu_list_new_owned(sizeof(PenguResult)" in c
-    assert "_pengu_elem_clone_result_int_string" in c
+    assert "pengu_list_new_owned" not in c
+    assert "pengu_list_new(sizeof(PenguResult)" in c
+    assert "_pengu_elem_clone_result_int_string" not in c
 
 
 @requires_cc
@@ -325,12 +351,18 @@ def test_maybe_omen_runs_clean():
 
 
 # ---------------------------------------------------------------------------
-# H1 — algebraic omen auto-banish (+ omen list payload init)
+# H1 — algebraic omen explicit banish (+ omen list payload init)
 # ---------------------------------------------------------------------------
 
 
-def test_algebraic_omen_local_is_auto_banished():
-    c = gen_bundle(
+def test_algebraic_omen_local_has_no_implicit_cleanup():
+    """A local omen is never cleaned up implicitly; an explicit 'banish' releases it.
+
+    There is no ``_pengu_auto_cleanup_<Omen>`` and no scope-exit release any
+    more.  Writing ``banish e`` lowers to the omen's generated cleanup helper,
+    which walks the live variant's payload.
+    """
+    src = (
         'omen Event:\n'
         '  Msg with text as string\n'
         '  Tick\n'
@@ -338,7 +370,12 @@ def test_algebraic_omen_local_is_auto_banished():
         '  var e as Event is with Msg is "{1}"\n'
         '  return\n'
     )
-    assert "_pengu_auto_cleanup_Event" in c
+    c = gen_bundle(src)
+    assert "_pengu_auto_cleanup_Event" not in c
+    assert "_pengu_cleanup_Event(&e)" not in c
+
+    explicit = src.replace('  return\n', '  banish e\n  return\n')
+    assert "_pengu_cleanup_Event(&e);" in gen_bundle(explicit)
 
 
 @requires_cc
@@ -373,18 +410,30 @@ def test_parenthesised_or_block_frees_box():
 
 
 # ---------------------------------------------------------------------------
-# H4 — escape analysis sees sigil of x.field / x at i
+# H4 — no escape analysis (a sigil of an element changes nothing)
 # ---------------------------------------------------------------------------
 
 
-def test_sigil_of_element_disables_auto_banish():
-    """Taking the address of an element of a heap list lets the list escape."""
+def test_sigil_of_element_does_not_change_codegen():
+    """Taking the address of an element no longer suppresses a release.
+
+    There is no escape analysis any more: the release is emitted only when the
+    programmer writes ``banish``, sigil or not.
+    """
     c = gen_bundle(
         'weave f into ref to int:\n'
         '  var xs as list of int is [1, 2, 3]\n'
         '  return sigil of xs at 0\n'
     )
     assert "pengu_banish_list(&xs)" not in c
+
+    explicit = gen_bundle(
+        'weave f into ref to int:\n'
+        '  var xs as list of int is [1, 2, 3]\n'
+        '  banish xs\n'
+        '  return sigil of xs at 0\n'
+    )
+    assert "pengu_banish_list(&xs)" in explicit
 
 
 # ---------------------------------------------------------------------------
@@ -417,7 +466,10 @@ def test_return_slice_of_list_is_allowed():
 @requires_cc
 @requires_runtime
 def test_valgrind_reassign_loop_is_leak_free(tmp_path):
-    """Leak gate for the reassign loop: valgrind when present, else ASan.
+    """Leak gate for the manual reassign loop: valgrind when present, else ASan.
+
+    With manual memory the loop must free the previous list itself, so the
+    program banishes before every overwrite and once more at the end.
 
     ASan intercepts malloc/free globally, so it also tracks allocations made by
     the non-instrumented static runtime; ``-fsanitize=address`` is probed first
@@ -432,8 +484,10 @@ def test_valgrind_reassign_loop_is_leak_free(tmp_path):
         '  var i as int is 0\n'
         '  var xs as list of int is list of int\n'
         '  while i < 50:\n'
+        '    banish xs\n'
         '    set xs is [i, i + 1, i + 2]\n'
         '    set i is i + 1\n'
+        '  banish xs\n'
         '  return 0\n'
     )
     entry = tmp_path / "reassign.pengu"

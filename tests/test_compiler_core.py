@@ -836,9 +836,10 @@ weave load into maybe string:
         assert "or else" not in c
         assert "pengu_maybe_is_present" in c
         assert "pengu_string_from_cstr(\"guest\")" in c
-        # 'or return 1' releases the maybe box on the way out (audit #5) and
-        # returns 1 through the generated return temporary.
-        assert re.search(r"int32_t _ret_\d+ = \(1\);", c)
+        # 'or return 1' pops the runtime frame and returns directly: with manual
+        # memory there is nothing the compiler must release on the way out, so
+        # no return temporary is materialised for a constant.
+        assert re.search(r"pengu_frame_pop\(\);\s*return \(1\);", c)
         assert re.search(r"return _ret_\d+;", c)
 
     @requires_runtime
@@ -2750,8 +2751,9 @@ weave struct_test into void:
         assert "Vec2 v = (Vec2){.x = 10.0f, .y = 20.0f}" in c
         assert "Value val = (Value){.as_int = 42};" in c
         assert "Score sc = 100;" in c
-        # String payloads are deep-copied into the owned omen slot.
-        assert ".data.Connected = {.session_id = pengu_string_copy(pengu_string_from_cstr(\"sess_123\"))}" in c
+        # Manual memory: the omen slot stores the string bytes as written.
+        # Nothing is deep-copied into it, so a literal stays a .rodata view.
+        assert '.data.Connected = {.session_id = pengu_string_from_cstr("sess_123")}' in c
         assert "vp->x = 200.0f;" in c
         assert "/* stack */" in c
 
@@ -3214,8 +3216,9 @@ weave main into void:
         # Specialized generic omens use the mangled name for the variable and
         # a single `data` union member matching the generated layout.
         assert "Status_string s = (Status_string){ .tag = Status_string_Failure, .data.Failure = {.code = 404} };" in c
-        # String payloads are deep-copied into the owned omen slot.
-        assert ".data.Success = {.data = pengu_string_copy(pengu_string_from_cstr(\"hi\"))}" in c
+        # Manual memory: the payload slot stores the string bytes as written,
+        # so a literal remains a non-owning .rodata view.
+        assert '.data.Success = {.data = pengu_string_from_cstr("hi")}' in c
         assert "} data;" in c
         assert "} as;" not in c
         assert "Status_string_Status" not in c

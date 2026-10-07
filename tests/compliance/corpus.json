@@ -43,13 +43,6 @@
       "pins": "indentation-delimited lexical scopes and inner-name shadowing."
     },
     {
-      "file": "007-borrowed-modifier.pengu",
-      "section": "5.4",
-      "title": "The `borrowed` modifier",
-      "expects_rc": 0,
-      "pins": "`var borrowed` / `let borrowed` locals are non-owning (never auto-banished)."
-    },
-    {
       "file": "008-arithmetic-bitwise.pengu",
       "section": "6.2",
       "title": "Arithmetic & bitwise",
@@ -274,18 +267,18 @@
       "pins": "reads and writes through `ref to T` with `at`; fixed arrays decay to pointers."
     },
     {
-      "file": "040-auto-banish.pengu",
+      "file": "040-not-automatic.pengu",
       "section": "13.4",
-      "title": "Scope-Owned Locals (Auto-Banish)",
+      "title": "What Is Not Automatic",
       "expects_rc": 0,
-      "pins": "fresh heap locals (string/list/map) are released deterministically per scope."
+      "pins": "The compiler releases nothing at scope exit: `banish` frees now and `defer banish` schedules it (LIFO); a returned value belongs to the caller, and banishing a literal is a safe no-op (`is_owned == 0`)."
     },
     {
-      "file": "041-container-deep-copy.pengu",
+      "file": "041-container-store.pengu",
       "section": "13.5",
-      "title": "Container ownership & deep copy",
+      "title": "Containers: `memcpy` on Store, Explicit Release",
       "expects_rc": 0,
-      "pins": "owning containers deep-copy into their slots; the source keeps its own buffer."
+      "pins": "`push`/`put` copy the element bytes with `memcpy` and never clone a heap payload, so the store and the source alias one buffer — you release it once, by hand; a container only frees its own buffer."
     },
     {
       "file": "042-imports-modules.pengu",

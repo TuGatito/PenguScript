@@ -1,0 +1,8 @@
+# Manual memory: 'banish' on a maybe box releases the payload box and the
+# maybe box itself, because the box owns both.
+weave main into int:
+    var m as maybe string is some "boxed"
+    banish m
+    if m.is_present:
+        return 1
+    return 0

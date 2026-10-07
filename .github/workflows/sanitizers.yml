@@ -32,7 +32,7 @@ name: Sanitizers
 #        still fatal; `detect_leaks=0` is declared here, not smuggled in, and it is
 #        explicitly NOT a claim of leak-freedom.
 #      leak freedom (Step 2): `detect_leaks=1` over the subset that is verified
-#        clean - `tests/test_known_issues.py`, which contains the auto-banish
+#        clean - `tests/test_known_issues.py`, which contains the manual-release
 #        leak-free assertion and the tracked-leak xfail (measured: 4 passed, 1
 #        xfailed).
 #
@@ -126,9 +126,9 @@ jobs:
       # CONTRACT 2 - leak freedom on the declared-clean subset.  This is the strict
       # leak gate: detect_leaks=1 and no `--deselect` other than the tracked
       # legacy-compat suites (which are item 8.19).  `test_known_issues.py` holds
-      # the auto-banish leak-free assertion plus the reproducing test for the
+      # the manual-release leak-free assertion plus the reproducing test for the
       # tracked leak (xfail), so a regression in the ownership model fails here.
-      - name: Leak freedom on the auto-banish model (detect_leaks=1)
+      - name: Leak freedom on explicit `banish` (detect_leaks=1)
         env:
           ASAN_OPTIONS: 'detect_leaks=1:abort_on_error=1:halt_on_error=1:strict_string_checks=1:detect_stack_use_after_return=1'
         run: |
@@ -179,7 +179,7 @@ jobs:
       # select the legacy-compat files, which are item 8.19 and therefore fully
       # deselected - a step that ran zero tests.  NOT measured locally: this
       # machine has no valgrind (see AUDIT_1.0_FASE8.md item 8.2).
-      - name: Valgrind on the auto-banish model and known issues
+      - name: Valgrind on explicit `banish` and the known issues
         run: |
           PENGU_TEST_VALGRIND=1 python -m pytest \
             tests/test_known_issues.py \

@@ -68,14 +68,26 @@ def test_every_changelog_breaking_version_is_in_the_table(guide):
     )
 
 
-def test_the_guide_claims_no_break_between_the_known_one_and_now(guide):
-    """The "0.11.0 – 0.16.0: none" row must still be true."""
+def test_every_break_is_one_of_the_two_known_ones(guide):
+    """`0.10.0` and `1.0.0` are the only breaking releases, and the gap is documented.
+
+    This used to assert that the *only* break was `0.10.0`.  `1.0.0` added a
+    second one (the implicit ownership model was removed in favour of manual
+    memory), so the invariant is now: the set of breaking releases is exactly
+    these two, the table in §2 has a row for each, and the range between them is
+    explicitly declared empty by a "none" row.
+    """
     breaking = [v for v in _changelog_breaking_versions() if not v.startswith("Unreleased")]
-    assert breaking == ["0.10.0"], (
-        f"a new breaking release appeared: {breaking}; update MIGRATION.md §2 and §3"
+    assert sorted(breaking) == ["0.10.0", "1.0.0"], (
+        f"an unexpected breaking release appeared: {breaking}; "
+        f"update MIGRATION.md §2 and the section for it"
     )
-    version = (REPO / "VERSION").read_text(encoding="utf-8").strip()
-    assert f"`0.11.0` – `{version}`" in guide
+    # The gap between the two breaks must stay visibly empty.
+    assert re.search(r"\|\s*`0\.11\.0`\s*–\s*`0\.16\.0`\s*\|\s*\*\*none\*\*", guide), (
+        "MIGRATION.md no longer declares 0.11.0 – 0.16.0 free of breaking changes"
+    )
+    # And the manual-memory migration must actually be written down.
+    assert "## 4. `1.0.0`: from implicit ownership to manual memory" in guide
 
 
 # ---------------------------------------------------------------------------

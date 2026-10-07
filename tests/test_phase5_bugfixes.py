@@ -64,7 +64,7 @@ def test_lock_target_defaults_to_host():
 
 def test_bundle_static_asserts_abi_version():
     c = gen_bundle("weave main into int:\n  return 0\n")
-    assert "_Static_assert(PENGU_ABI_VERSION == 1" in c
+    assert "_Static_assert(PENGU_ABI_VERSION == 2" in c
     # Guarded so strict C99 (no _Static_assert) still compiles.
     assert "__STDC_VERSION__" in c
 

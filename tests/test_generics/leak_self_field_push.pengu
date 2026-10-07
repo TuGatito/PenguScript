@@ -1,10 +1,9 @@
 # Gap 1 (acceptance): a fresh string pushed through a field chain must not leak.
 #
-# Two ownership paths are exercised:
-#   * 'add_greeting' builds the string *inside* the method, so resolving
-#     'self->items' to 'list of string' is what enables its auto-banish;
-#   * 'add' receives a caller-owned local, which the caller auto-banishes
-#     ('first'/'second' are fresh, single-allocation strings).
+# Manual memory: 'items.push' copies the PenguString *header* of each pushed
+# value, so every element aliases a buffer.  The container's destructor
+# ('derive Nexus' -> Inner/Bag_nexus) frees the list buffer only; the strings it
+# held are released element by element, by hand, exactly once.
 import std.spark
 
 rune Bag derive Nexus:
@@ -21,18 +20,32 @@ enchanting Bag:
 weave main into int:
     var b as Bag with:
         set .items is list of string
-    defer banish b
 
+    # 'first'/'second' are plain literals: non-owning .rodata views (is_owned=0),
+    # so copying them into the list transfers nothing to release.
     var first as string is "abc"
     calling b.add with first
     var second as string is "xy"
     calling b.add with second
+    # 'add_greeting' pushes an owned 'n to string' buffer; the list element is
+    # the only remaining owner of it.
     calling b.add_greeting with 3
 
     var count as int is calling b.items.len
     var msg as string is count to string
     calling spark.println with msg
+    var ok as bool is false
     if count == 3 and (b.items at 0) == "abc":
         if (b.items at 2) == "3":
-            return 0
+            set ok is true
+
+    var i as int is 0
+    while i < count:
+        banish (b.items at i)
+        set i is i + 1
+    banish b
+    banish msg
+
+    if ok:
+        return 0
     return 1

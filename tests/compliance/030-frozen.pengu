@@ -19,7 +19,7 @@ weave main into int:
     set essence of q is 7
     calling spark.assert with (x == 7)
 
-    # a string's byte storage is borrowed read-only
+    # a string's byte storage is viewed read-only
     var s as string is "A"
     calling spark.assert with ((calling first_byte with (bytes of s)) == 65)
 

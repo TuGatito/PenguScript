@@ -1,7 +1,7 @@
 """Regression test suite for PenguScript 0.13.0 release.
 
 Covers bugfixes and improvements:
-- B1: Layout of var_decl/let_decl with borrowed and optional type annotations
+- B1: Layout of var_decl/let_decl with optional type annotations
 - B2: UAF elimination in loop body value collection
 - B3: UAF elimination in value blocks (if/do)
 - B4: Rejection of ordering comparisons (<, <=, >, >=) on strings (E0005)
@@ -19,7 +19,7 @@ from lark import Tree
 
 from pengu_parser.pengu_checker import PenguChecker, _decl_layout
 from pengu_parser.pengu_codegen import PenguCodegen
-from pengu_parser.pengu_errors import SemanticError, TypeMismatchError
+from pengu_parser.pengu_errors import ParseError, SemanticError, TypeMismatchError
 from pengu_parser.pengu_parser import PenguParser
 from tests.conftest import (
     check,
@@ -32,10 +32,10 @@ from tests.conftest import (
 )
 
 
-def test_p1_1_borrowed_var_no_type():
-    """B1: var borrowed x is 5 parses, checks, and generates C without IndexError."""
+def test_p1_1_var_decl_no_type():
+    """B1: 'var x is 5' (no annotation) parses, checks, and generates C without IndexError."""
     code = """weave main into int:
-  var borrowed x is 5
+  var x is 5
   return x
 """
     check_ok(code)
@@ -43,10 +43,10 @@ def test_p1_1_borrowed_var_no_type():
     assert "int32_t x = 5;" in c
 
 
-def test_p1_1_borrowed_var_with_type():
-    """B1: var borrowed x as int is 5 parses, checks, and generates C."""
+def test_p1_1_var_decl_with_type():
+    """B1: 'var x as int is 5' parses, checks, and generates C."""
     code = """weave main into int:
-  var borrowed x as int is 5
+  var x as int is 5
   return x
 """
     check_ok(code)
@@ -54,10 +54,10 @@ def test_p1_1_borrowed_var_with_type():
     assert "int32_t x = 5;" in c
 
 
-def test_p1_1_borrowed_let_no_type():
-    """B1: let borrowed x is 5 parses, checks, and generates C."""
+def test_p1_1_let_decl_no_type():
+    """B1: 'let x is 5' (no annotation) parses, checks, and generates const C."""
     code = """weave main into int:
-  let borrowed x is 5
+  let x is 5
   return x
 """
     check_ok(code)
@@ -65,10 +65,10 @@ def test_p1_1_borrowed_let_no_type():
     assert "const int32_t x = 5;" in c
 
 
-def test_p1_1_borrowed_let_with_type():
-    """B1: let borrowed x as int is 5 parses, checks, and generates C."""
+def test_p1_1_let_decl_with_type():
+    """B1: 'let x as int is 5' parses, checks, and generates const C."""
     code = """weave main into int:
-  let borrowed x as int is 5
+  let x as int is 5
   return x
 """
     check_ok(code)
@@ -76,14 +76,14 @@ def test_p1_1_borrowed_let_with_type():
     assert "const int32_t x = 5;" in c
 
 
-def test_p1_1_borrowed_with_init_expr():
-    """B1: var borrowed with with_init_expr parses, checks, and generates C."""
+def test_p1_1_var_with_init_expr():
+    """B1: 'var p as Point with:' parses, checks, and generates C."""
     code = """rune Point:
   x as int
   y as int
 
 weave main into int:
-  var borrowed p as Point with:
+  var p as Point with:
     set x is 10
     set y is 20
   return p.x + p.y
@@ -93,9 +93,19 @@ weave main into int:
     assert "Point p" in c
 
 
+def test_p1_1_borrowed_is_an_ordinary_identifier():
+    """B1: 'borrowed' is no longer a modifier; it is a plain name and 'var borrowed x' is a ParseError."""
+    check_ok("""weave main into int:
+  var borrowed is 5
+  return borrowed
+""")
+    with pytest.raises(ParseError):
+        PenguParser().parse("weave main into int:\n  var borrowed x is 1\n  return 0\n")
+
+
 @requires_runtime
 def test_p1_2_loop_value_fresh_local_runs():
-    """B2: Local with auto-banish used as loop value avoids use-after-free."""
+    """B2: A fresh local used as a loop value stays valid (no scope-exit release dangles it)."""
     code = 'weave main into int:\n  var words as list of string is for i from 0 to 3:\n    var s is "item-{(i to string)}"\n    s\n  var w0 as string is words at 0\n  var w1 as string is words at 1\n  var w2 as string is words at 2\n  if w0 == "item-0" and w1 == "item-1" and w2 == "item-2":\n    return 0\n  return 1\n'
     res = compile_run(code, tag="loop_uaf")
     assert res.returncode == 0
@@ -103,7 +113,7 @@ def test_p1_2_loop_value_fresh_local_runs():
 
 @requires_runtime
 def test_p1_3_value_if_fresh_local_runs():
-    """B3: Fresh local in if block used as value avoids use-after-free."""
+    """B3: A fresh local inside a value-'if' stays valid when the value is read."""
     code = 'weave main into int:\n  let x as string is if true:\n    var s is "hello world"\n    s\n  else:\n    "fallback"\n  if x == "hello world":\n    return 0\n  return 1\n'
     res = compile_run(code, tag="if_val_uaf")
     assert res.returncode == 0
@@ -111,7 +121,7 @@ def test_p1_3_value_if_fresh_local_runs():
 
 @requires_runtime
 def test_p1_3_do_expr_fresh_local_runs():
-    """B3: Fresh local in do: block used as value avoids use-after-free."""
+    """B3: A fresh local inside a 'do:' value block stays valid when the value is read."""
     code = 'weave main into int:\n  let y as string is do:\n    var t is "penguscript"\n    t\n  if y == "penguscript":\n    return 0\n  return 1\n'
     res = compile_run(code, tag="do_val_uaf")
     assert res.returncode == 0

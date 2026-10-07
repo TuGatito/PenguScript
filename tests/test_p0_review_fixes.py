@@ -206,7 +206,7 @@ def test_1_10_add_any_int_returns_numeric():
 
 
 def test_1_11_borrowed_contextual():
-    """Bug 1.11: 'borrowed' can be used as a parameter and rune field name."""
+    """Bug 1.11: 'borrowed' is an ordinary identifier usable as a parameter and field name."""
     parser = PenguParser()
     code1 = """
 weave process with borrowed as int into int:
@@ -435,16 +435,22 @@ weave main into int:
     assert "TypeParam" not in c_code
 
 
-def test_escape_with_target_push():
-    """Bug 1.3 (updated): a 'with' block push into an owning list deep-copies,
-    so the source keeps ownership and is still auto-banished."""
+def test_escape_with_target_push_aliases_without_copy():
+    """Bug 1.3 (manual memory): a 'with' push stores the element by memcpy, no clone."""
     from tests.conftest import gen_bundle
     src = '\nweave f into void:\n    var lst as list of string is list of string\n    var s as string is (1 to string)\n    with lst:\n        calling .push with s\n'
     c_code = gen_bundle(src)
-    # 'list of string' registers pengu_string_clone: push copies, so 's' must
-    # be released by the auto-banish (otherwise every pushed string leaks).
-    assert "pengu_banish_string(&s)" in c_code
-    assert "pengu_banish_list(&lst)" in c_code
+    # No container clone callback and no deep copy: the element aliases s's buffer.
+    assert "pengu_list_new_owned" not in c_code
+    assert "pengu_string_clone" not in c_code
+    assert "pengu_list_push(&lst, &_elem_1)" in c_code
+    # No scope-exit release for either the source or the container.
+    assert "pengu_banish_string(&s)" not in c_code
+    assert "pengu_banish_list(&lst)" not in c_code
+
+    # Releasing the container is the source's job now.
+    explicit = src + '    banish lst\n'
+    assert "pengu_banish_list(&lst)" in gen_bundle(explicit)
 
 
 def test_struct_init_alias_type():

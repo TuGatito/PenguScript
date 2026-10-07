@@ -1,0 +1,12 @@
+# Manual memory: storing a string into a rune field copies the header (data
+# pointer, length, is_owned) and never duplicates the buffer.  Two fields can
+# therefore alias the same storage; releasing it is the programmer's call.
+rune Holder:
+    name as string
+
+weave main into int:
+    var a as Holder is with name is "alpha"
+    var b as Holder is with name is a.name
+    if b.name == "alpha":
+        return 0
+    return 1

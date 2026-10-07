@@ -1,0 +1,8 @@
+# Manual memory: 'defer banish' releases an owned string at scope exit.
+weave main into int:
+    var s is "hello {1 + 1}"
+    defer banish s
+    calling print with s
+    if s.len == 7:
+        return 0
+    return 1

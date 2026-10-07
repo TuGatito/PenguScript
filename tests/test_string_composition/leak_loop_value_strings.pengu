@@ -1,5 +1,10 @@
-# Audit#2-#19: a loop-value collects deep copies, so the fresh iteration
-# temporary must be released (it used to leak one buffer per iteration).
+# Manual memory: a loop-value list stores each iteration value with memcpy, and
+# the container releases only its own buffer.  Which elements own a buffer — and
+# therefore have to be released by hand — depends on what the loop produced:
+#   * an interpolated literal ('"n{…}"') allocates a fresh buffer, so the
+#     element owns it;
+#   * a local produced inside the body ('var s is "x{…}"; s') likewise;
+#   * a field read ('h.name') is a non-owning view into h's buffer.
 import std.spark
 
 rune Holder derive Nexus:
@@ -17,12 +22,30 @@ weave main into int:
         set .name is "shared"
     var shared_vals as list of string is for i from 0 to 2:
         h.name
-    banish h
 
     var ints as list of int is for i from 0 to 4:
         i * 2
 
     calling spark.println with (fresh at 0)
-    if calling fresh.len == 3 and calling owned.len == 2 and calling shared_vals.len == 2 and calling ints.len == 4:
+    var ok as bool is (calling fresh.len == 3 and calling owned.len == 2
+                    and calling shared_vals.len == 2 and calling ints.len == 4)
+
+    var i as int is 0
+    while i < calling fresh.len:
+        banish (fresh at i)
+        set i is i + 1
+    set i is 0
+    while i < calling owned.len:
+        banish (owned at i)
+        set i is i + 1
+
+    # 'shared_vals' holds views into h.name, so only the containers and h are
+    # released here.
+    banish fresh
+    banish owned
+    banish shared_vals
+    banish ints
+    banish h
+    if ok:
         return 0
     return 1

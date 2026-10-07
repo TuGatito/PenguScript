@@ -1,8 +1,8 @@
 # 1.0.0-frozen surface: the constructs `docs/FREEZE.md` freezes for the whole 1.x
 # line — `shard` generics, `maybe`, `judge` over an `omen`, and `with:` builders.
-# No breaking change landed in 1.0.0, so this program is not a "before" form: it
-# is the version every project migrates *to*, and the coverage gate requires an
-# example for the 1.0 minor line just like for every other published line.
+# This program is not a "before" form: it is the version every project migrates
+# *to*. The failing counterpart of the 1.0.0 line (the removed `borrowed`
+# modifier) lives next to it in `borrowed-modifier-removed.pengu`.
 import std.spark
 
 rune Point:

@@ -144,13 +144,13 @@ def test_compliance_program_compiles_and_runs(entry):
 # --------------------------------------------------------------------------
 
 #: One program per language tier, so the matrix is not a hello-world only check.
-_MATRIX_SAMPLE = ("001-hello.pengu", "016-judge.pengu", "040-auto-banish.pengu")
+_MATRIX_SAMPLE = ("001-hello.pengu", "016-judge.pengu", "040-not-automatic.pengu")
 
 
 def test_the_runner_forwards_the_compiler_override():
     """`--cc` must reach the *build* stage, or the CI matrix would be a fiction.
 
-    The full matrix (gcc and clang over all 54 programs) runs in
+    The full matrix (gcc and clang over all 53 programs) runs in
     `.github/workflows/compliance.yml`; rebuilding it inside the default suite
     would double a 5-minute job. What is pinned here is the mechanism plus one
     end-to-end run per compiler, measured — a `--cc` that is parsed and dropped

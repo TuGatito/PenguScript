@@ -1,7 +1,7 @@
 """Regression test suite for PenguScript 0.13.3 release.
 
 Covers:
-- N1: break and continue within loops flush loop-scoped auto-banished variables
+- N1: break and continue emit no cleanup for loop-scoped locals (manual memory)
 - N2: or: block with FnType or RefType generates valid C declarators and casts
 - N3: some <FnType> generates valid C temporary declarator and heap allocation
 - N4: Scoped binding with FnType (if f as weave ... is opt:) generates valid C
@@ -23,21 +23,24 @@ from tests.conftest import (
 )
 
 
-def test_n1_break_continue_flushes_loop_auto_banish():
-    """N1: break and continue flush auto-banished variables declared directly in the loop body."""
+def test_n1_break_continue_emit_no_cleanup():
+    """N1: break and continue emit no cleanup for loop-body locals (manual memory)."""
     code = 'weave main into int:\n  for i from 0 to 5:\n    var s is "hello {(i to string)}"\n    if i == 2:\n      continue\n    if i == 4:\n      break\n    calling print with s\n  return 0\n'
     c = gen_bundle(code)
-    # Both break and continue must be preceded by pengu_banish_string(&s);
-    # Verify s is cleaned up at least 3 times (continue path, break path, normal end of loop)
-    assert c.count("pengu_banish_string(&s);") >= 3
-    # Check that continue is directly preceded by pengu_banish_string(&s);
+    # Only an explicit 'banish' releases memory now; neither break nor continue
+    # flushes a loop-body local, and the normal end of the body does not either.
+    assert "pengu_banish_string(&s);" not in c
     idx_cont = c.find("continue;")
     assert idx_cont != -1
-    assert "pengu_banish_string(&s);" in c[max(0, idx_cont - 80):idx_cont]
-    # Check that break is directly preceded by pengu_banish_string(&s);
+    assert "pengu_banish_string" not in c[max(0, idx_cont - 80):idx_cont]
     idx_brk = c.find("break;")
     assert idx_brk != -1
-    assert "pengu_banish_string(&s);" in c[max(0, idx_brk - 80):idx_brk]
+    assert "pengu_banish_string" not in c[max(0, idx_brk - 80):idx_brk]
+
+    # The manual replacement: an explicit banish still emits exactly one release.
+    explicit = code.replace('    calling print with s\n', '    banish s\n    calling print with s\n')
+    c_explicit = gen_bundle(explicit)
+    assert c_explicit.count("pengu_banish_string(&s);") == 1
 
 
 @requires_cc

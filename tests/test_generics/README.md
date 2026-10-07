@@ -76,10 +76,11 @@ uses it instead; the run fails when any allocation is *definitely lost*.
 
 ## Gap regression sets
 
-* `gap1_self_field_push/` — the escape analysis must resolve **access chains**
-  to the container type, so a fresh local string pushed through a rune field is
-  still auto-banished. Without the fix `pengu_banish_string(&local)` disappears
-  from the generated C and every program leaks the local's buffer.
+* `gap1_self_field_push/` — `push` through an access chain (`self->items`,
+  `bag->items`, `outer->inner.items`, `with bag->items:`) must resolve the
+  *container* behind the chain, because the element it stores only aliases the
+  pushed value's buffer. The programs release the elements and the containers by
+  hand, which is what keeps them leak-free under manual memory management.
 * `gap2_set_typeparam_bounds/` — `set` into a `T`-typed target enforces T's
   bounds: `err_*.pengu` documents the rejected cases (`string`/`maybe` → `Num`,
   `float` → `Integrum`, list elements) and `ok_*.pengu` the accepted ones
@@ -90,19 +91,15 @@ uses it instead; the run fails when any allocation is *definitely lost*.
 
 An inline freshly allocated argument (`calling f with "a{b}"`) is not released
 by the caller, and a call result stored in a local (`var s as string is calling
-f`) is not auto-banished. The programs above therefore build fresh strings in
-**locals** and release them explicitly where it matters (or rely on the
-auto-banish of `"…{expr}…"` initializers). Fixing the argument case requires a
-*fresh-return contract* (a string-returning weave must return an owned buffer,
-copying borrowed views), call-result ownership, and copies when a borrowed string
-is stored into a static variable — otherwise `weave identity with s as string
-into string: return s` hands back a buffer the caller then frees. Naively
-banishing the temporary after the call produced `free(): invalid pointer` in
-`std.invoke`, so it is intentionally left alone.
+f`) is not auto-released either — nothing is, since 1.0.0: memory is manual. The
+programs above therefore build the strings they hand to `push` in **locals** and
+release them explicitly, which is exactly the contract the language now asks for.
 
-Note that owning slots are safe now: a string written into a struct field /
-element / pointee is deep-copied (`pengu_string_copy`) unless it is a fresh
-temporary being moved in, and interpolation temporaries are released. A rune
-local that owns string fields must be `banish`ed (or stored in an owning
-container) to release them — auto-banish only covers `string`, `list` and `map`
-locals.
+The one cleanup the compiler still performs on its own is the interpolation
+temporary: `_expr_allocates_string` decides whether the value interpolated into a
+`"…{expr}…"` literal is a *fresh* buffer nobody else owns (so it is released once
+the formatter has copied its bytes) or a view into someone else's storage (so it
+is left alone). Teaching the compiler the same trick for a call argument would
+need a *fresh-return contract* on `weave`/`declare`; naively banishing the
+temporary produced `free(): invalid pointer` in `std.invoke`, so it is
+intentionally left alone.

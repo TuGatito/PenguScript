@@ -3,7 +3,7 @@
 Covers:
 - #1: User type names colliding with C reserved keywords/macros are rejected with E0035.
 - #2: judge_expr on int/enum evaluates else_val lazily only if no when clause matches.
-- #3: chr_expr is marked as fresh heap expr enabling auto-banish on scope exit.
+- #3: chr_expr yields a fresh heap string, released only by an explicit 'banish'.
 - #4: SealType(string) += rejects string operand to enforce nominal typing.
 - #5: _check_const_decl accepts static non-heap composite types (including algebraic omens).
 - #6: _check_const_decl recognizes ref to frozen char and aliased char pointers.
@@ -108,8 +108,8 @@ weave main into int:
     assert res.returncode == 0
 
 
-def test_item3_chr_auto_banish_fresh_heap():
-    """#3: chr_expr is marked as fresh heap expression so its variable is auto-banished."""
+def test_item3_chr_is_fresh_heap_and_released_only_explicitly():
+    """#3: 'chr' yields a fresh heap string; with manual memory only 'banish' frees it."""
     code = """weave main into int:
     var s as string is chr 65
     return 0
@@ -121,12 +121,22 @@ def test_item3_chr_auto_banish_fresh_heap():
     main_scope = next(s for s in checker.symbols.all_scopes if s.kind == "weave")
     s_sym = main_scope.lookup("s")
     assert s_sym is not None
-    assert s_sym.is_auto_banished is True
+    # No escape analysis any more: nothing is released at scope exit...
+    c = gen_bundle(code)
+    assert "pengu_banish_string(&s);" not in c
+
+    # ...but an explicit banish lowers to exactly one release.
+    c_explicit = gen_bundle("""weave main into int:
+    var s as string is chr 65
+    banish s
+    return 0
+""")
+    assert c_explicit.count("pengu_banish_string(&s);") == 1
 
 
 @requires_cc
 def test_item3_chr_compilation_and_execution():
-    """#3: Code using chr runs, properly compares, and manages heap memory via auto-banish."""
+    """#3: Code using chr runs and compares correctly (manual memory: no implicit free)."""
     code = """weave main into int:
     var s as string is chr 65
     if s == "A":

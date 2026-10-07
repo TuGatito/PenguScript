@@ -1,0 +1,6 @@
+# EXPECTED: E0000
+# 'borrowed' was removed from the language: it is no longer a modifier, so
+# 'var borrowed x is 1' is a syntax error ('x' becomes an unexpected token).
+weave main into int:
+    var borrowed x is 1
+    return 0

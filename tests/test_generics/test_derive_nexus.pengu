@@ -8,8 +8,8 @@ weave make_doc into Doc:
     var d as Doc with:
         set .title is "beta!"
         set .tags is ["x", "y", "z"]
-    # 'd' is returned: its fields move to the caller (escape analysis keeps
-    # the callee from banishing it), so no release here.
+    # 'd' is returned: the caller owns it now, so nothing is released here.
+    # Manual memory: the callee never frees a value it hands back.
     return d
 
 weave main into int:

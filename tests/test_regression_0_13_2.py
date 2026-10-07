@@ -27,13 +27,17 @@ from tests.conftest import (
 )
 
 
-def test_c1_compound_set_string_no_auto_banish_leak():
-    """C1: set s += ... marks variable as set target, preventing erroneous auto-banish."""
+def test_c1_compound_set_string_emits_no_implicit_release():
+    """C1: 'set s is ...' overwrites the string with no implicit release (manual memory)."""
     code = 'weave main into int:\n  var s as string is "hello world"\n  set s is "{s}!"\n  return 0\n'
-    checker = check_ok(code)
-    # The variable 's' must not be auto-banished because it is mutated via compound_set_stmt
+    check_ok(code)
+    # No auto-banish exists: the overwrite leaks the previous buffer and nothing frees it.
     c = gen_bundle(code)
     assert "pengu_banish_string(&s)" not in c
+
+    # A release happens only when the source asks for one.
+    explicit = code.replace('  return 0\n', '  banish s\n  return 0\n')
+    assert "pengu_banish_string(&s)" in gen_bundle(explicit)
 
 
 @requires_cc

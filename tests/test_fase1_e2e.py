@@ -58,10 +58,10 @@ def test_1_2_dedent_and_bom():
 # 1.3 Soft Keywords
 # ─────────────────────────────────────────────────────────────────────────────
 def test_1_3_soft_keywords():
-    """'inline', 'ritual', and 'borrowed' act as modifiers and identifiers without collision."""
+    """'inline' and 'ritual' act as modifiers; 'borrowed' is an ordinary identifier."""
     src = """weave inline helper into int:
-    var borrowed x as int is 10
-    return x
+    var borrowed as int is 10
+    return borrowed
 
 weave ritual make into int:
     return calling helper

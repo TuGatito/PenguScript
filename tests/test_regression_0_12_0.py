@@ -329,40 +329,39 @@ from pengu_parser.pengu_types import ArrayType, INT_TYPE
 from pengu_parser.pengu_symbols import SymbolTable
 
 
-def test_p3_f1a_value_if_auto_banish_scoped():
-    """T-F1a — value-if auto-banish stays inside branch block and before statement-expression end."""
+def test_p3_f1a_value_if_does_not_release_at_scope_exit():
+    """T-F1a — a value-if branch never releases its locals: manual memory, no scope-exit banish."""
     src = 'declare print with s as string into void\n\nweave helper into void:\n    let x is if true:\n        var s as string is (1 to string)\n        s length\n    else:\n        0\n    calling print with (x to string)\n'
     c = gen_bundle(src)
-    assert "pengu_banish_string(&s);" in c
-    idx_banish = c.find("pengu_banish_string(&s);")
-    idx_stmt_expr_end = c.find("})))")
-    assert idx_banish != -1
-    assert idx_banish < idx_stmt_expr_end
-    idx_if = c.find("if (true)")
-    assert idx_if != -1
-    assert idx_if < idx_banish
+    assert "pengu_banish_string(&s);" not in c
+    # The branch still runs and its value is read (s.len) before being consumed.
+    assert "if (true)" in c
+    assert "s.len" in c
+    assert "printf(" in c
 
 
-def test_p3_f1b_do_expr_auto_banish_scoped():
-    """T-F1b — do_expr auto-banish stays inside GNU statement expression block."""
+def test_p3_f1b_do_expr_does_not_release_at_scope_exit():
+    """T-F1b — a do: expression never releases its locals: manual memory, no scope-exit banish."""
     src = 'weave helper into void:\n    let x is do:\n        var s as string is (1 to string)\n        s length\n    return\n'
     c = gen_bundle(src)
-    assert "pengu_banish_string(&s);" in c
-    idx_banish = c.find("pengu_banish_string(&s);")
-    idx_stmt_expr_end = c.find("})))")
-    assert idx_banish != -1
-    assert idx_banish < idx_stmt_expr_end
+    assert "pengu_banish_string(&s);" not in c
+    assert "s.len" in c or "s).len" in c
 
 
-def test_p3_f1c_binding_if_auto_banish_scoped():
-    """T-F1c — statement-position if NAME as T is <maybe> banishes inside branch."""
+def test_p3_f1c_binding_if_does_not_release_at_scope_exit():
+    """T-F1c — a statement-position binding-if never releases its locals at scope exit."""
     src = 'declare print with s as string into void\n\nweave helper with u as maybe int into void:\n    if x as int is u:\n        var s as string is (1 to string)\n        calling print with s\n    return\n'
     c = gen_bundle(src)
-    assert "pengu_banish_string(&s);" in c
-    idx_banish = c.find("pengu_banish_string(&s);")
-    idx_ret = c.find("return;")
-    assert idx_banish != -1
-    assert idx_banish < idx_ret
+    assert "pengu_banish_string(&s);" not in c
+    # The local is still used by the print call inside the branch.
+    assert "printf(\"%s\\n\", (s).data)" in c
+
+
+def test_p3_f1d_explicit_banish_in_do_expr_is_scheduled_once():
+    """T-F1d — the manual replacement for the removed scope-exit release."""
+    src = 'weave helper into void:\n    let x is do:\n        var s as string is (1 to string)\n        defer banish s\n        s length\n    return\n'
+    c = gen_bundle(src)
+    assert c.count("pengu_banish_string(&s);") == 1
 
 
 def test_p3_f2_for_comp_preserves_outer_binding():

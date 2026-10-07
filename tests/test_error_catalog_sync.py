@@ -67,7 +67,7 @@ def test_catalog_is_not_empty(catalog):
     assert conditions >= 300, f"only {conditions} conditions extracted"
 
 
-@pytest.mark.parametrize("code", ["E0000", "E0035", "E0047", "E0051", "E0058"])
+@pytest.mark.parametrize("code", ["E0000", "E0035", "E0051", "E0053", "E0058"])
 def test_known_codes_have_a_class_attribution(catalog, code):
     """Every documented code names the class(es) that really raise it."""
     assert code in catalog["errors"]

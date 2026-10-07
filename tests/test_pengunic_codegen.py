@@ -10,7 +10,7 @@ idiomatic generic stdlib code:
 2. **Generic `if v as T is <maybe>`**: inside a monomorphized generic
    enchanting the unwrapping cast was emitted with the *erased* type
    (`int32_t v = *(void* *)m.value`), producing C that does not compile.
-3. **`bool to string` is a borrowed view**: `pengu_string_from_bool` returns a
+3. **`bool to string` is a non-owning view**: `pengu_string_from_bool` returns a
    `.rodata` view, so releasing an interpolation temporary built from it called
    `free()` on static memory ("free(): invalid pointer").
 

@@ -3,7 +3,7 @@
 One canonical program per section of [`LANGUAGE.md`](../../LANGUAGE.md),
 driven through the real toolchain (`pengu check` -> `pengu build` -> execute).
 
-**54 programs**, each pinning a distinct LANGUAGE.md section. Every program exits with the code below (`expects_rc`).
+**53 programs**, each pinning a distinct LANGUAGE.md section. Every program exits with the code below (`expects_rc`).
 
 The machine-readable source of truth is [`corpus.json`](corpus.json); this
 file is the human-readable rendering of the same mapping.
@@ -30,7 +30,6 @@ build, or exits with a code different from `expects_rc`.
 | [`004-runtime-containers.pengu`](004-runtime-containers.pengu) | §4.2 | Runtime containers | 0 | string / slice / list / map / maybe / result / range runtime containers. |
 | [`005-declarations.pengu`](005-declarations.pengu) | §5.1 | Declarations | 0 | explicit/inferred bindings, zero-init arrays, destructuring, const and static var. |
 | [`006-scope.pengu`](006-scope.pengu) | §5.2 | Scope | 0 | indentation-delimited lexical scopes and inner-name shadowing. |
-| [`007-borrowed-modifier.pengu`](007-borrowed-modifier.pengu) | §5.4 | The `borrowed` modifier | 0 | `var borrowed` / `let borrowed` locals are non-owning (never auto-banished). |
 | [`008-arithmetic-bitwise.pengu`](008-arithmetic-bitwise.pengu) | §6.2 | Arithmetic & bitwise | 0 | operator precedence, integer bitwise ops, short-circuit and/or, compound `set`. |
 | [`009-comparison-membership.pengu`](009-comparison-membership.pengu) | §6.3 | Comparison, membership & word tests | 0 | `in`/`not in` on char, string, map and range; `is present`/`is true`; `null`. |
 | [`010-address-deref-size.pengu`](010-address-deref-size.pengu) | §6.4 | Address, dereference & size | 0 | `sigil of`, `essence of` (read and `set` target), `size of`, `transmute`. |
@@ -63,8 +62,8 @@ build, or exits with a code different from `expects_rc`.
 | [`037-derive-generic.pengu`](037-derive-generic.pengu) | §11.6 | `derive` on generic types | 0 | `derive Par, Ordo` on a generic rune; substitution site checks the bound. |
 | [`038-optionals-errors.pengu`](038-optionals-errors.pengu) | §12 | Optionals & errors | 0 | maybe/result containers, `or else`, `or return`, `or:` + `error`, `try`. |
 | [`039-pointer-indexing.pengu`](039-pointer-indexing.pengu) | §13.1 | Indexing through pointers and borrowing C buffers | 0 | reads and writes through `ref to T` with `at`; fixed arrays decay to pointers. |
-| [`040-auto-banish.pengu`](040-auto-banish.pengu) | §13.4 | Scope-Owned Locals (Auto-Banish) | 0 | fresh heap locals (string/list/map) are released deterministically per scope. |
-| [`041-container-deep-copy.pengu`](041-container-deep-copy.pengu) | §13.5 | Container ownership & deep copy | 0 | owning containers deep-copy into their slots; the source keeps its own buffer. |
+| [`040-not-automatic.pengu`](040-not-automatic.pengu) | §13.4 | What Is Not Automatic | 0 | The compiler releases nothing at scope exit: `banish` frees now and `defer banish` schedules it (LIFO); a returned value belongs to the caller, and banishing a literal is a safe no-op (`is_owned == 0`). |
+| [`041-container-store.pengu`](041-container-store.pengu) | §13.5 | Containers: `memcpy` on Store, Explicit Release | 0 | `push`/`put` copy the element bytes with `memcpy` and never clone a heap payload, so the store and the source alias one buffer — you release it once, by hand; a container only frees its own buffer. |
 | [`042-imports-modules.pengu`](042-imports-modules.pengu) | §14.1 | Imports & modules | 0 | `import std.<module>`, an aliased import (`as`), and cross-module calls. |
 | [`043-include-link-insignia.pengu`](043-include-link-insignia.pengu) | §14.2 | `include`, `link`, `insignia`, `declare` | 0 | `include` a C header, `link` its library, `declare` symbols, `insignia` prefixing. |
 | [`044-char-opaque-bytes.pengu`](044-char-opaque-bytes.pengu) | §14.3 | `ref to char`, `opaque`, `.d.pengu`, and `bytes of` | 0 | C-string interop via `ref to char`, opaque handles behind `ref to`, `bytes of`. |

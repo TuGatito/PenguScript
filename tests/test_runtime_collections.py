@@ -235,8 +235,10 @@ int main(void) {
             PenguString k = pengu_string_new(kbuf);
             PenguString v = pengu_string_new(vbuf);
             pengu_map_put(&smap, &k, &v);
-            pengu_banish_string(&k);
-            pengu_banish_string(&v);
+            /* Manual memory: 'put' stores a byte copy of the PenguString header,
+             * so the map's entry now aliases the buffer. Releasing k/v here would
+             * leave every entry dangling; the buffers are released below, through
+             * the key/value lists, exactly once. */
         }
         CHECK(smap.len == 200, "200 string pairs inserted across rehashes");
 
@@ -254,11 +256,18 @@ int main(void) {
         }
         CHECK(verified == 200, "all 200 string pairs verified");
 
-        /* Test map_keys_string */
+        /* Test map_keys_string / pengu_map_values */
         PenguList klist = pengu_map_keys_string(&smap);
         CHECK(klist.len == 200, "map_keys_string returned 200 keys");
-        pengu_banish_string_list(&klist);
+        PenguList vlist = pengu_map_values(&smap);
+        CHECK(vlist.len == 200, "map_values returned 200 values");
 
+        /* The lists hold copies of the entry headers, so they are also the only
+         * owners of the heap buffers the entries point at: releasing the lists
+         * frees each buffer once, and 'banish_map' then frees only the entry
+         * cells and the table. */
+        pengu_banish_string_list(&klist);
+        pengu_banish_string_list(&vlist);
         pengu_banish_map(&smap);
     }
 

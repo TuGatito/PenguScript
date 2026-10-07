@@ -14,16 +14,18 @@ concept                 derivable  what it produces
 `Par`                   yes        `==` / `!=` between the rune's values
 `Ordo`                  yes        `<` `<=` `>` `>=`
 `Vinculum`              yes        a hash, so the rune works as a `map` key
-`Imago`                 yes        `_pengu_clone_<T>` -- deep-copy callback for containers
-`Nexus`                 yes        `_pengu_cleanup_<T>` -- destructor, used by auto-banish
+`Imago`                 yes        `_pengu_clone_<T>` -- deep-copy helper, called explicitly
+`Nexus`                 yes        `_pengu_cleanup_<T>` -- destructor, used by explicit `banish`
 `Forma`                 no         `E0005`
 `Iterabilis`            no         `E0005`
 `Donum`                 no         `E0005`
 ======================  =========  ==================================================
 
 `Imago` deliberately does **not** add a `.clone()` method to the rune: it emits
-the C-level clone callback that the runtime's containers call. That distinction
-tripped up the first attempt at this matrix, which is why it is written down.
+a C-level clone helper. Containers never call it implicitly (they store
+elements by memcpy), nor does anything else unless the user asks for it. That
+distinction tripped up the first attempt at this matrix, which is why it is
+written down.
 """
 
 import os
@@ -117,13 +119,13 @@ def test_derive_vinculum_makes_a_usable_map_key(tmp_path):
 
 
 def test_derive_imago_emits_a_clone_callback(tmp_path):
-    """`derive Imago` emits `_pengu_clone_<T>` for the runtime's containers.
+    """`derive Imago` emits `_pengu_clone_<T>`, a C-level clone helper.
 
     Note it does NOT add a `.clone()` method to the rune: calling
-    `a.clone` on a `derive Imago` rune is an E0004 ('has no method'). What it
-    produces is the C-level callback, so the observable check is that the symbol
-    appears in the emitted bundle -- that is a compiler *output*, not a doc
-    claim, so asserting on it is legitimate here.
+    `a.clone` on a `derive Imago` rune is an E0004 ('has no method'). Nothing
+    calls the helper implicitly (containers store by memcpy), so the observable
+    check is that the symbol appears in the emitted bundle -- that is a compiler
+    *output*, not a doc claim, so asserting on it is legitimate here.
     """
     rc, out = run_pengu(tmp_path, "imago", (
         "rune I derive Imago:\n"
@@ -146,7 +148,7 @@ def test_derive_imago_emits_a_clone_callback(tmp_path):
 
 
 def test_derive_nexus_emits_a_destructor(tmp_path):
-    """`derive Nexus` emits `_pengu_cleanup_<T>`, which auto-banish uses."""
+    """`derive Nexus` emits `_pengu_cleanup_<T>`, which explicit `banish` uses."""
     rc, out = run_pengu(tmp_path, "nexus", (
         "rune N derive Nexus:\n"
         "  x as string\n"
@@ -156,7 +158,7 @@ def test_derive_nexus_emits_a_destructor(tmp_path):
 
 
 def test_derive_imago_implies_nexus(tmp_path):
-    """A container that clones must also release: `Imago` implies `Nexus`.
+    """A type that clones must also release: `Imago` implies `Nexus`.
 
     Both symbols must appear when only `Imago` is written.
     """

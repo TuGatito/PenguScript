@@ -1,6 +1,11 @@
+# Manual memory: a list never clones on push and never releases its elements, so
+# each owner is banished by hand, exactly once.
 weave test_list_string into int:
     var words as list of string is ["alpha", "beta", "gamma", "delta"]
     var count as int is calling words.len
+    # The elements are literal .rodata views (is_owned == 0): nothing to release
+    # per element, only the container's own buffer.
+    banish words
     return count
 
 weave test_nested_lists into int:
@@ -10,6 +15,10 @@ weave test_nested_lists into int:
     calling matrix.push with row1
     calling matrix.push with row2
     var total as int is calling matrix.len
+    # The pushed elements alias row1/row2's buffers, so the rows are the owners.
+    banish row1
+    banish row2
+    banish matrix
     return total
 
 weave main into int:

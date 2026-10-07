@@ -1,0 +1,13 @@
+# A rune with a heap-owning field gets NO destructor unless it derives Nexus.
+# 'banish doc' on such a rune releases nothing of its own; this program proves
+# the generated helper is absent by releasing the field by hand, which is what
+# manual memory management requires.
+rune Doc:
+    title as string
+
+weave main into int:
+    var d as Doc is with title is "title"
+    banish d.title
+    if d.title.len != 0:
+        return 1
+    return 0

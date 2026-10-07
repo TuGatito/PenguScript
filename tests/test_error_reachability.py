@@ -392,18 +392,6 @@ REACHABLE: Dict[str, Tuple[str, str]] = {
         "    ONE\n",
         "Same variant name declared by two different omens.",
     ),
-    "E0047": (
-        "weave f into void:\n"
-        "    var s as string is (1 to string)\n"
-        "    banish s\n",
-        "'banish' on an auto-owned local (would double-free).",
-    ),
-    "E0048": (
-        "weave f with src as string into void:\n"
-        "    let borrowed v is src\n"
-        "    banish v\n",
-        "'banish' on a borrowed local.",
-    ),
     "E0049": (
         "weave bad shard T with a as T, b as T into T:\n"
         "    return a + b\n",

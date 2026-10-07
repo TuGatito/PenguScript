@@ -1,0 +1,10 @@
+# Manual memory: a string literal is a non-owning .rodata view (is_owned == 0),
+# so 'banish' on it is a safe no-op instead of a double free.
+weave main into int:
+    var s is "literal"
+    banish s
+    if s.len != 0:
+        return 1
+    # Banishing twice is still safe: the first call left the view empty.
+    banish s
+    return 0

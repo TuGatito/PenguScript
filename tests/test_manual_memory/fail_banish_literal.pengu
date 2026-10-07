@@ -1,0 +1,6 @@
+# EXPECTED: E0008
+# 'banish' still rejects a bare temporary/literal: there is no storage cell to
+# release, and that diagnostic is unrelated to the removed ownership model.
+weave main into int:
+    banish "literal"
+    return 0

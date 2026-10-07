@@ -38,7 +38,10 @@ def test_grammar_lalr_builds_cleanly():
 #: to produce correct left-associativity and precedence for this expression
 #: grammar -- but that is a property of the dependency's default heuristic, not
 #: a guarantee of the language. The budget may only decrease.
-_KNOWN_SHIFT_REDUCE_CONFLICTS = 188
+_KNOWN_SHIFT_REDUCE_CONFLICTS = 184
+#: Lowered from 188 when the soft keyword in `var_decl` / `let_decl` was removed:
+#: dropping the optional token removed four shift/reduce conflicts.
+#: The budget only ever moves down.
 
 
 def _count_shift_reduce_conflicts():

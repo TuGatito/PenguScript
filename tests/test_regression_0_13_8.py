@@ -1,7 +1,7 @@
 """Regression tests for PenguScript 0.13.8.
 
 Covers:
-- C1: defer / errdefer / auto-banish executed on 'or return' and 'try' early returns
+- C1: defer / errdefer executed on 'or return' and 'try' early returns (manual memory)
 - C2: const declaration validates against C reserved words and macros with E0035
 - C3: var_ref for mutable var does not substitute stale folded const_val after mutation
 - A1: insignia before weave main correctly calls prefixed entry point in generated C wrapper
@@ -22,19 +22,21 @@ from pengu_parser.pengu_errors import SemanticError, MutabilityError
 
 
 @requires_cc
-def test_c1_defer_and_autobanish_on_or_return():
-    """C1: defer and auto-banish run when 'or return' exits early."""
-    code = 'rune Tracker:\n    cleaned as int\n\nweave compute with should_fail as bool, t as ref to Tracker into maybe int:\n    defer:\n        set t->cleaned += 10\n    var s as string is (1 to string)\n    var opt as maybe int is maybe none\n    if not should_fail:\n        set opt is some 42\n    let val is opt or return maybe none\n    return some val\n\nweave main into int:\n    var tr as Tracker with:\n        set .cleaned is 0\n    let r1 is calling compute with true, sigil of tr\n    if tr.cleaned != 10:\n        return 1\n    let r2 is calling compute with false, sigil of tr\n    if tr.cleaned != 20:\n        return 2\n    return 0\n'
+def test_c1_defer_on_or_return():
+    """C1: an explicit 'defer banish' runs when 'or return' exits early."""
+    code = 'rune Tracker:\n    cleaned as int\n\nweave compute with should_fail as bool, t as ref to Tracker into maybe int:\n    defer:\n        set t->cleaned += 10\n    var s as string is (1 to string)\n    defer banish s\n    var opt as maybe int is maybe none\n    if not should_fail:\n        set opt is some 42\n    let val is opt or return maybe none\n    return some val\n\nweave main into int:\n    var tr as Tracker with:\n        set .cleaned is 0\n    let r1 is calling compute with true, sigil of tr\n    if tr.cleaned != 10:\n        return 1\n    let r2 is calling compute with false, sigil of tr\n    if tr.cleaned != 20:\n        return 2\n    return 0\n'
     check_ok(code)
+    assert "pengu_banish_string(&s);" in gen_bundle(code)
     res = compile_run(code, tag="test_c1_or_return")
     assert res.returncode == 0
 
 
 @requires_cc
-def test_c1_defer_and_autobanish_on_try():
-    """C1: defer and auto-banish run when 'try' exits early."""
-    code = 'rune Counter:\n    count as int\n\nweave step1 with fail as bool into maybe int:\n    if fail:\n        return maybe none\n    return some 100\n\nweave run_flow with fail as bool, c as ref to Counter into maybe int:\n    defer:\n        set c->count += 5\n    var temp as string is "heap_str"\n    let val is try calling step1 with fail\n    return some val\n\nweave main into int:\n    var ctr as Counter with:\n        set .count is 0\n    let res_err is calling run_flow with true, sigil of ctr\n    if ctr.count != 5:\n        return 1\n    let res_ok is calling run_flow with false, sigil of ctr\n    if ctr.count != 10:\n        return 2\n    return 0\n'
+def test_c1_defer_on_try():
+    """C1: an explicit 'defer banish' runs when 'try' exits early."""
+    code = 'rune Counter:\n    count as int\n\nweave step1 with fail as bool into maybe int:\n    if fail:\n        return maybe none\n    return some 100\n\nweave run_flow with fail as bool, c as ref to Counter into maybe int:\n    defer:\n        set c->count += 5\n    var temp as string is (1 to string)\n    defer banish temp\n    let val is try calling step1 with fail\n    return some val\n\nweave main into int:\n    var ctr as Counter with:\n        set .count is 0\n    let res_err is calling run_flow with true, sigil of ctr\n    if ctr.count != 5:\n        return 1\n    let res_ok is calling run_flow with false, sigil of ctr\n    if ctr.count != 10:\n        return 2\n    return 0\n'
     check_ok(code)
+    assert "pengu_banish_string(&temp);" in gen_bundle(code)
     res = compile_run(code, tag="test_c1_try")
     assert res.returncode == 0
 

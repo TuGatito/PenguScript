@@ -376,7 +376,7 @@ class TestI6_DeadCodeInterpolatedString:
         assert cg._is_string_expr(token) is True
 
 
-# ─── I7: Struct init escape analysis cleans dead type rules ───────────
+# ─── I7: Struct init no longer consults the removed escape analysis ────
 class TestI7_DeadCodeStructInitRules:
     def test_struct_init_type_extracts_correct_type(self):
         """Escape analysis correctly finds struct type on custom_type annotation."""
@@ -603,10 +603,16 @@ class TestM4_TypeOwnsHeapConsolidation:
         assert not type_owns_heap(r, symbols=syms_int)
 
 
-# ─── M5: Omen file paths tracking for implicit lifetimes ──────────────
+# ─── M5: Omen file paths tracking ─────────────────────────────────────
 class TestM5_OmenFilePathTracking:
     def test_omen_filepath_recorded(self):
-        """Omens record their definition file path in _rune_file_paths."""
+        """Omens record their definition file path in _rune_file_paths.
+
+        The path is still tracked (it feeds diagnostics and the derived-concept
+        helpers).  What is gone is `_implicit_lifetime_allowed`: an omen used to
+        get an implicit destructor because of where it was declared, and under
+        manual memory management only an explicit `derive Nexus` produces one.
+        """
         from pengu_parser.pengu_parser import PenguParser
         from pengu_parser.pengu_codegen import PenguCodegen
 
@@ -620,7 +626,11 @@ omen Status:
         codegen = PenguCodegen()
         codegen.collect_declarations([("/app/status.pengu", ast)])
         assert codegen._rune_file_paths.get("Status") == "/app/status.pengu"
-        assert codegen._implicit_lifetime_allowed(codegen._rune_file_paths.get("Status", "")) is True
+        assert not hasattr(codegen, "_implicit_lifetime_allowed")
+        # An algebraic omen with a heap-owning payload gets no implicit helpers.
+        bundle = codegen.generate_derived_implementations()
+        assert "_pengu_cleanup_Status" not in bundle
+        assert "_pengu_auto_cleanup_Status" not in bundle
 
 
 # ─── M6: Builtin list/map method defensive guards for empty arguments ─

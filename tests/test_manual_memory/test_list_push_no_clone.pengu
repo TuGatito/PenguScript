@@ -1,0 +1,10 @@
+# Manual memory: 'list.push' copies the element bytes and never clones a
+# payload, so the pushed value and the list slot share the same buffer.
+# Reading the slot while the source is alive sees the shared bytes.
+weave main into int:
+    var l as list of string is list of string with capacity 2
+    var x as string is "shared"
+    calling l.push with x
+    if (l at 0) == "shared":
+        return 0
+    return 1

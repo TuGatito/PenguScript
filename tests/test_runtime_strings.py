@@ -232,9 +232,11 @@ int main(void) {
                 PenguString *p0 = (PenguString *)pengu_list_at(&parts, 0);
                 PenguString *p1 = (PenguString *)pengu_list_at(&parts, 1);
                 PenguString *p2 = (PenguString *)pengu_list_at(&parts, 2);
-                CHECK(p0->len == 1 && strcmp(p0->data, "a") == 0, "part 0 is 'a'");
+                /* Each part is a length-carrying view into s (no clone on store),
+                 * so compare with memcmp instead of assuming NUL termination. */
+                CHECK(p0->len == 1 && memcmp(p0->data, "a", 1) == 0, "part 0 is 'a'");
                 CHECK(p1->len == 0 && p1->data[0] == '\0', "part 1 is empty");
-                CHECK(p2->len == 1 && strcmp(p2->data, "b") == 2 || strcmp(p2->data, "b") == 0, "part 2 is 'b'");
+                CHECK(p2->len == 1 && memcmp(p2->data, "b", 1) == 0, "part 2 is 'b'");
             }
             pengu_banish_string_list(&parts);
 

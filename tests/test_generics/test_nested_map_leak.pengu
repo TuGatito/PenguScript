@@ -1,3 +1,5 @@
+# Manual memory: 'map.put' copies the key/value bytes and the map owns only those
+# byte blocks.  A 'list of int' value keeps owning its own element buffer.
 weave main into int:
     var cache as map of string to list of int is map of string to list of int
     var l1 as list of int is [2, 3, 5, 7]
@@ -7,7 +9,14 @@ weave main into int:
 
     var primes as list of int is cache at "primes"
     var p_len as int is calling primes.len
+    var ok as bool is (p_len == 4)
 
-    if p_len == 4:
+    # l1/l2 stay the owners of the two element buffers; the map is released
+    # separately and owns only its entries.  'primes' aliases l1 and is not
+    # banished: that would be a double free.
+    banish l1
+    banish l2
+    banish cache
+    if ok:
         return 0
     return 1

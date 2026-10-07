@@ -10,8 +10,13 @@ weave fill with bag as ref to Bag, n as int into void:
 weave main into int:
     var b as Bag with:
         set .items is list of string
-    defer banish b
     calling fill with (sigil of b), 4
-    if calling b.items.len == 1 and (b.items at 0) == "4":
+    var ok as bool is (calling b.items.len == 1 and (b.items at 0) == "4")
+    var i as int is 0
+    while i < calling b.items.len:
+        banish (b.items at i)
+        set i is i + 1
+    banish b
+    if ok:
         return 0
     return 1

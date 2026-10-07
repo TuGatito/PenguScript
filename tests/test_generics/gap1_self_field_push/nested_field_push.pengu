@@ -1,4 +1,8 @@
 # Gap 1: longer chains ('outer->inner.items.push').
+#
+# Manual memory: 'derive Nexus' frees the containers ('inner', then its 'items'
+# buffer) but never the strings they hold, so those are released element by
+# element first.
 rune Inner derive Nexus:
     items as list of string
 
@@ -13,8 +17,13 @@ weave main into int:
     var o as Outer with:
         set .inner is with:
             set .items is list of string
-    defer banish o
     calling fill with (sigil of o), 5
-    if calling o.inner.items.len == 1 and (o.inner.items at 0) == "5":
+    var ok as bool is (calling o.inner.items.len == 1 and (o.inner.items at 0) == "5")
+    var i as int is 0
+    while i < calling o.inner.items.len:
+        banish (o.inner.items at i)
+        set i is i + 1
+    banish o
+    if ok:
         return 0
     return 1
