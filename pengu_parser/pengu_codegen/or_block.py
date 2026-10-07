@@ -131,7 +131,7 @@ class OrBlockMixin:
             # The payload is *moved* into the result by the assignment above
             # ('x = *(PenguString*)box.value' shares the buffer), so only the
             # box allocation may be released here: releasing the payload would
-            # free memory the result now owns.  Releasing the result itself is
+            # free memory the result now owns.  The result's own auto-banish is
             # responsible for the moved value.
             ok_free = (f"  free({tmp_res}.value); {tmp_res}.value = NULL;\n"
                        f"  {tmp_res}.is_present = false;\n")

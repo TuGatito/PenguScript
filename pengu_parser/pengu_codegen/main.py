@@ -13,11 +13,15 @@ from .types_gen import TypesMixin
 from .derived_gen import DerivedGenMixin
 from .constants import ConstMixin
 from .prototypes import ProtoMixin
-from .stmts import StmtMixin
 from .exprs import ExprMixin
+from .interpolate import InterpMixin
+from .slicing import SlicingMixin
 from .calls import CallMixin
-from .or_block import OrBlockMixin
+from .stmts import StmtMixin
+from .loops import LoopMixin
+from .value_if import ValueIfMixin
 from .bindings import BindingMixin
+from .or_block import OrBlockMixin
 from .runtime_helpers import RuntimeMixin
 from .line_markers import LineMarkerMixin
 from .tests_gen import TestsMixin
@@ -68,11 +72,17 @@ from .entry import (
 from .exprs import (
     ExprMixin,
 )
+from .interpolate import (
+    InterpMixin,
+)
 from .lambdas import (
     LambdaMixin,
 )
 from .line_markers import (
     LineMarkerMixin,
+)
+from .loops import (
+    LoopMixin,
 )
 from .or_block import (
     OrBlockMixin,
@@ -82,6 +92,9 @@ from .prototypes import (
 )
 from .runtime_helpers import (
     RuntimeMixin,
+)
+from .slicing import (
+    SlicingMixin,
 )
 from .stmts import (
     StmtMixin,
@@ -95,6 +108,9 @@ from .tests_gen import (
 from .types_gen import (
     TypesMixin,
 )
+from .value_if import (
+    ValueIfMixin,
+)
 
 class PenguCodegen(
     SymbolMixin,
@@ -104,11 +120,15 @@ class PenguCodegen(
     DerivedGenMixin,
     ConstMixin,
     ProtoMixin,
-    StmtMixin,
     ExprMixin,
+    InterpMixin,
+    SlicingMixin,
     CallMixin,
-    OrBlockMixin,
+    StmtMixin,
+    LoopMixin,
+    ValueIfMixin,
     BindingMixin,
+    OrBlockMixin,
     RuntimeMixin,
     LineMarkerMixin,
     TestsMixin,
