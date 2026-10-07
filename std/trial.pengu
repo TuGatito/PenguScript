@@ -19,7 +19,7 @@
 #   value with normal PenguScript lifetimes - no returned value is
 #   caller-owned and there is nothing extra to banish.
 
-const TRIAL_VERSION as string is "1.0.0-rc1"
+const TRIAL_VERSION as string is "1.0.0"
 
 import std.spark
 import std.oracle

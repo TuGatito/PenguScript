@@ -29,7 +29,7 @@ Devuelve `true` cuando `map of string to int` no tiene entradas.
 
 ### `ATLAS_VERSION`
 
-> const string` = 1.0.0-rc1`
+> const string` = 1.0.0`
 
 Versión del módulo `std.atlas`.
 

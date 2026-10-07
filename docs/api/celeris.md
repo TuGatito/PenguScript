@@ -8,7 +8,7 @@
 
 ### `CELERIS_VERSION`
 
-> const string` = 1.0.0-rc1`
+> const string` = 1.0.0`
 
 _Undocumented constant._
 

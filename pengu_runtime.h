@@ -18,7 +18,7 @@
 #define PENGU_RUNTIME_ORGANIZED_H
 
 /* =========================================================================
- * ABI v1 — frozen at PenguScript 1.0.0-rc1
+ * ABI v1 — frozen at PenguScript 1.0.0
  *
  * PENGU_ABI_VERSION is bumped only by a breaking change to any layout below.
  * The generated C (`bundle.c`) and every prebuilt `libpengu_*.a` must agree on

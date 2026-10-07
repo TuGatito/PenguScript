@@ -110,6 +110,11 @@ CURRENT_VERSION_CLAIMS: tuple[tuple[str, str], ...] = (
     ("PenguScriptGuideSpanish.md", r"\*\*Versión cubierta:\*\* PenguScript \*\*([0-9][^*]*)\*\*"),
     ("docs/PENGU_BUILD.md", r"^# PenguScript (v[0-9][^\s]*) Build System"),
     ("docs/README_RELEASE.md", rf"pengus-({SEMVER})\.vsix"),
+    # Phase 11 / F11-N2: these two were *not* in the table and drifted for three
+    # releases. `CONTRIBUTING.md` still claimed `0.16.0` and the README badge still
+    # said `1.0.0-rc1` when 1.0.0 shipped; neither was covered by any gate.
+    ("CONTRIBUTING.md", r"Current version: \*\*([0-9][^*]*)\*\*"),
+    ("README.md", rf"badge/version-({SEMVER})-blue"),
 )
 
 
@@ -232,11 +237,17 @@ _VERSION_TOKEN_RE = re.compile(
 #: series it still supports should not stop being checked for *other* drift.
 JUSTIFIED_TOKENS: dict[tuple[str, str], str] = {
     ("SECURITY.md", "0.16.x"):
-        "the supported-version table names the series still receiving fixes "
-        "until 1.0.0 ships",
+        "the supported-version table records the series that reached end of "
+        "support when 1.0.0 shipped; a support matrix has to name the series it "
+        "drops",
     ("RELEASE_CHECKLIST.md", "0.16.0"):
         "the measured `--strict-c99` gap is stated for the release it was "
         "measured on, which is history",
+    ("BENCHMARKS.md", "1.0.0-rc1"):
+        "the published numbers are attributed to the tree they were measured on "
+        "(`c8e07d9`, `1.0.0-rc1`); re-labelling them `1.0.0` without re-running "
+        "the harness would be exactly the edited-number failure the page exists "
+        "to prevent",
 }
 
 

@@ -46,7 +46,7 @@ import std.rites
 # ----------------------------------------------------------------------------
 
 ## Version constant for std.whisper module.
-const WHISPER_VERSION as string is "1.0.0-rc1"
+const WHISPER_VERSION as string is "1.0.0"
 
 ## Severity 0: most verbose level, used for fine-grained tracing.
 const LOG_TRACE as int is 0

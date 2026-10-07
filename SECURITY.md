@@ -9,8 +9,8 @@ to report a problem, and what to expect afterwards.
 
 | Version | Supported |
 |---|---|
-| `1.x` (from `1.0.0`; `1.0.0-rc1` is the current pre-release) | ✅ security fixes |
-| `0.16.x` | ✅ security fixes until `1.0.0` is released |
+| `1.x` (from `1.0.0`) | ✅ security fixes |
+| `0.16.x` | ⛔ end of support — superseded by `1.0.0` |
 | `< 0.16` | ❌ |
 
 ## Scope

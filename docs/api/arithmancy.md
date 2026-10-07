@@ -8,7 +8,7 @@
 
 ### `ARITHMANCY_VERSION`
 
-> const string` = 1.0.0-rc1`
+> const string` = 1.0.0`
 
 Arithmancy module version.
 

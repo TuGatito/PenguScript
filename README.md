@@ -1,6 +1,6 @@
 # PenguScript
 
-![Version](https://img.shields.io/badge/version-1.0.0-rc1-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+![Version](https://img.shields.io/badge/version-1.0.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 
 **🌍 Languages / Idiomas:** [🇬🇧 English](#-english) · [🇪🇸 Español](#-español)
 
@@ -15,17 +15,21 @@
 
 > [!WARNING]
 >
-> ### Beta — usable, not yet production-ready
+> ### 1.0.0 — released, with a declared scope
 >
-> PenguScript today is a **beta**: the language core is stable enough to write real
-> programs and to drive C libraries, and the compiler has a green test suite, but
-> several language and tooling gaps are still open. The full assessment — with the
-> evidence behind every claim, the prioritised roadmap, and the porting
-> conventions that work today — is in [`AUDIT_1.0.md`](AUDIT_1.0.md) (verified
-> findings, with the evidence and the refutations) and
-> [`ROADMAP_1.1.md`](ROADMAP_1.1.md) (the live plan; formerly `ROADMAP_2.0.md`). The older
-> readiness snapshot, which describes an earlier release, is kept as a historical
-> document in [`docs/archive/`](docs/archive/).
+> PenguScript **1.0.0** is published. The public surface is frozen for 1.x in
+> [`docs/FREEZE.md`](docs/FREEZE.md), and the compatibility contract is pinned by
+> programs that **compile and execute** (`tests/compliance/` for the current
+> language, `tests/migration/` for every published version line). That is what
+> "1.0" means here — it does **not** mean "everything": borrow checking,
+> async/await, closures with capture, AST macros, dynamic dispatch, reflection, a
+> `Result`-only stdlib and `pengu repl` are **not** in 1.0, each with the
+> measurement that deferred it in [`ROADMAP_1.1.md`](ROADMAP_1.1.md). The exact
+> scope, the compiler matrix and the sanitizer/fuzzing coverage actually measured
+> are stated in [`docs/ANNOUNCEMENT_1.0.md`](docs/ANNOUNCEMENT_1.0.md); the
+> verified assessment behind every claim is [`AUDIT_1.0.md`](AUDIT_1.0.md). The
+> older readiness snapshot, which describes an earlier release, is kept as a
+> historical document in [`docs/archive/`](docs/archive/).
 >
 > **What you can do today (all verified against the real toolchain)**
 >

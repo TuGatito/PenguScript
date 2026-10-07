@@ -4,7 +4,7 @@ This document maps the **implementation** of the PenguScript toolchain: which
 Python file owns each stage of `parse → collect → check → infer → codegen →
 cache`, which symbol is the entry point, what flows in and out, and where a
 failure surfaces. It is descriptive, not normative, and is written against the
-sources as of **v1.0.0-rc1**.
+sources as of **v1.0.0**.
 
 For the *language* read [`../LANGUAGE.md`](../LANGUAGE.md); for the runtime
 contract, [`ABI.md`](ABI.md); for the dependency/runtime build,
@@ -16,7 +16,7 @@ front end and back end; `pengu_cache.py`, `pengu_bind.py`, `pengu_paths.py` and
 `build_runtime.py` provide the surrounding services.
 
 > Line numbers below are anchors into the tree as it stood when this was written
-> (`v1.0.0-rc1`). The three largest files (`pengu_project.py`,
+> (`v1.0.0`). The three largest files (`pengu_project.py`,
 > `pengu_parser/pengu_checker.py`, `pengu_parser/pengu_codegen.py`) change often,
 > so re-grep the symbol name if a cited line looks wrong — the symbol, not the
 > number, is the contract.

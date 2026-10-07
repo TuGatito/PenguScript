@@ -1,6 +1,6 @@
 # PenguScript 1.0 — Public API Freeze
 
-> Frozen at **1.0.0-rc1** (2026-10-07). Nothing on this surface changes without a MAJOR.
+> Frozen at **1.0.0** (2026-10-07). Nothing on this surface changes without a MAJOR.
 > Every `<!-- freeze:… -->` block below is read back by
 > [`tests/test_freeze_manifest.py`](tests/test_freeze_manifest.py) and compared against the
 > tree itself (parser introspection, files on disk, the error catalog, the LSP feature

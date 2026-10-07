@@ -20,7 +20,7 @@ import std.rites
 # ----------------------------------------------------------------------------
 
 ## Module version identifier for std.archivum.
-const ARCHIVUM_VERSION as string is "1.0.0-rc1"
+const ARCHIVUM_VERSION as string is "1.0.0"
 
 # ----------------------------------------------------------------------------
 # External C Runtime Declarations

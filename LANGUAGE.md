@@ -1,6 +1,6 @@
 # PenguScript Language Reference
 
-> **Version covered:** PenguScript **1.0.0-rc1** (synchronized with `VERSION` and `pengu_version.py`; C99/C11 code generator; runtime headers under `pengu_runtime.h`).
+> **Version covered:** PenguScript **1.0.0** (synchronized with `VERSION` and `pengu_version.py`; C99/C11 code generator; runtime headers under `pengu_runtime.h`).
 > **Language policy.** English is the canonical language of the PenguScript
 > documentation, so **this document is the normative one**. A Spanish translation is
 > maintained at [`LANGUAGE_Spanish.md`](LANGUAGE_Spanish.md); it is **non-normative**,
@@ -2357,7 +2357,7 @@ PenguScript projects are configured via `pengu.yaml` or `pengu.toml` located at 
 
 ```yaml
 name: my_app
-version: 1.0.0-rc1
+version: 1.0.0
 output: exe                  # exe | c | obj | static | shared
 entry: src/main.pengu        # main entry module (defaults to src/main.pengu)
 src_dirs: [src]              # source lookup roots (default: [src])
@@ -3559,7 +3559,7 @@ pengu -V
 pengu --version
 ```
 
-- Outputs the version string (e.g. `PenguScript v1.0.0-rc1`). The compiler version is tracked in `VERSION` and mirrored in `pengu_version.py`.
+- Outputs the version string (e.g. `PenguScript v1.0.0`). The compiler version is tracked in `VERSION` and mirrored in `pengu_version.py`.
 
 ### 20.14 Runtime Infrastructure & Diagnostics
 

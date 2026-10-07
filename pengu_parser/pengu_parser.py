@@ -92,7 +92,7 @@ class PenguIndenter(Indenter):
 
 
 class PenguParser:
-    """LALR(1) parser for PenguScript v1.0.0-rc1 using embedded grammar."""
+    """LALR(1) parser for PenguScript v1.0.0 using embedded grammar."""
     _shared_parser = None
 
     def __init__(self):

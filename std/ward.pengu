@@ -23,7 +23,7 @@ import std.scrolls
 # ----------------------------------------------------------------------------
 
 ## Standard library ward module version.
-const WARD_VERSION as string is "1.0.0-rc1"
+const WARD_VERSION as string is "1.0.0"
 
 # ----------------------------------------------------------------------------
 # Core Internal Formatting Helpers

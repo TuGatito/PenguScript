@@ -24,7 +24,7 @@ import std.scrolls
 # ----------------------------------------------------------------------------
 
 ## Version constant for std.ledger module.
-const LEDGER_VERSION as string is "1.0.0-rc1"
+const LEDGER_VERSION as string is "1.0.0"
 
 # ----------------------------------------------------------------------------
 # Map key enumeration (runtime primitive)

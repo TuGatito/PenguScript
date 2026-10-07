@@ -26,7 +26,7 @@ from lark import Tree, Token
 try:  # The toolchain root (which holds VERSION) is the parent package directory.
     from pengu_version import __version__ as PENGU_VERSION
 except ImportError:  # pragma: no cover - vendored/frozen fallback, guarded by tests
-    PENGU_VERSION = "1.0.0-rc1"
+    PENGU_VERSION = "1.0.0"
 
 # Runtime ABI version this code generator targets (see pengu_runtime.h).
 PENGU_EXPECTED_ABI_VERSION = 1

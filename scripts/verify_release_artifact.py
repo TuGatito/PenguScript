@@ -32,7 +32,7 @@ Usage::
         --layout fhs --expected-version 1.0.0
     # local run against a source checkout (no packaging needed):
     python scripts/verify_release_artifact.py --pengu "python pengu_project.py" \\
-        --expected-version 1.0.0-rc1
+        --expected-version 1.0.0
 """
 
 from __future__ import annotations

@@ -36,7 +36,7 @@ Returns the system temporary directory path as a string.
 
 ### `ARCHIVUM_VERSION`
 
-> const string` = 1.0.0-rc1`
+> const string` = 1.0.0`
 
 Module version identifier for std.archivum.
 
