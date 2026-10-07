@@ -195,16 +195,24 @@ def _artifact_from_stdout(stdout: str, workdir: Path) -> Path:
 
 def run_program(entry: Path, expects_rc: int = DEFAULT_EXPECTS_RC,
                 timeout: int = DEFAULT_TIMEOUT,
-                workdir: Optional[Path] = None) -> RunResult:
+                workdir: Optional[Path] = None,
+                cc: Optional[str] = None) -> RunResult:
     """Checks, builds and executes one corpus program.
 
     ``entry`` is the ``.pengu`` file.  The build happens in a private temporary
     directory (or ``workdir`` when given) so nothing in the repository changes.
+    ``cc`` overrides the C compiler for the *build* stage (roadmap 10.3: the
+    compliance corpus is the compiler matrix's workload; ``check`` is
+    compiler-independent, so it is not re-run per compiler).
     """
     entry = Path(entry).resolve()
     header = program_file_header(entry)
     result = RunResult(file=entry.name, section=header["section"],
                        title=header["title"], expects_rc=expects_rc)
+
+    build_argv = [_python(), str(CLI), "build", "--entry", str(entry)]
+    if cc:
+        build_argv += ["--cc", cc]
 
     own_dir = workdir is None
     cwd = Path(workdir) if workdir is not None else Path(
@@ -212,7 +220,7 @@ def run_program(entry: Path, expects_rc: int = DEFAULT_EXPECTS_RC,
     try:
         for stage, argv in (
             ("check", [_python(), str(CLI), "check", "--entry", str(entry)]),
-            ("build", [_python(), str(CLI), "build", "--entry", str(entry)]),
+            ("build", build_argv),
         ):
             result.stage = stage
             result.commands.append(argv)
@@ -275,6 +283,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="stream each program's stdout/stderr")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT,
                         help=f"per-command timeout in seconds (default {DEFAULT_TIMEOUT})")
+    parser.add_argument("--cc", metavar="COMPILER",
+                        help="C compiler for the build stage (roadmap 10.3: run the whole "
+                             "corpus once per compiler, e.g. --cc gcc then --cc clang)")
     args = parser.parse_args(argv)
 
     if args.check_corpus:
@@ -301,7 +312,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     for entry in selected:
         result = run_program(COMPLIANCE_DIR / entry["file"],
                              expects_rc=int(entry.get("expects_rc", DEFAULT_EXPECTS_RC)),
-                             timeout=args.timeout)
+                             timeout=args.timeout, cc=args.cc)
         results.append(result)
         if args.json:
             continue

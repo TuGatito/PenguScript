@@ -137,3 +137,37 @@ def test_compliance_program_compiles_and_runs(entry):
         "--- stderr ---", result.stderr.strip()[:4000],
     ])
     assert result.ok, detail
+
+
+# --------------------------------------------------------------------------
+# Roadmap 10.3 — the corpus is also the compiler matrix's workload
+# --------------------------------------------------------------------------
+
+#: One program per language tier, so the matrix is not a hello-world only check.
+_MATRIX_SAMPLE = ("001-hello.pengu", "016-judge.pengu", "040-auto-banish.pengu")
+
+
+def test_the_runner_forwards_the_compiler_override():
+    """`--cc` must reach the *build* stage, or the CI matrix would be a fiction.
+
+    The full matrix (gcc and clang over all 54 programs) runs in
+    `.github/workflows/compliance.yml`; rebuilding it inside the default suite
+    would double a 5-minute job. What is pinned here is the mechanism plus one
+    end-to-end run per compiler, measured — a `--cc` that is parsed and dropped
+    would make the workflow green while compiling with the default compiler.
+    """
+    import shutil
+
+    available = [cc for cc in ("gcc", "clang") if shutil.which(cc)]
+    if not available:
+        pytest.skip("neither gcc nor clang is installed")
+    for compiler in available:
+        for name in _MATRIX_SAMPLE:
+            entry = next(e for e in CORPUS if e["file"] == name)
+            result = run_all.run_program(
+                COMPLIANCE_DIR / name, expects_rc=int(entry["expects_rc"]),
+                timeout=600, cc=compiler)
+            assert any("--cc" in cmd and compiler in cmd for cmd in result.commands), (
+                f"--cc {compiler} never reached the build: {result.commands}")
+            assert result.ok, (
+                f"{compiler} failed {name}: {result.detail()}\n{result.stderr[:2000]}")

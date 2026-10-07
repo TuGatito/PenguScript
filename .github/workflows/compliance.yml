@@ -32,11 +32,18 @@ concurrency:
 
 jobs:
   compliance:
-    name: Compliance corpus (LANGUAGE.md)
+    name: Compliance corpus (${{ matrix.cc }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # Roadmap 10.3: the corpus is the compiler matrix's workload. `check` is
+        # compiler-independent, so the matrix only changes the `build` stage
+        # (`run_all.py --cc`); each leg compiles and *executes* all 54 programs.
+        cc: [gcc, clang]
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -46,9 +53,13 @@ jobs:
 
       - name: Run the corpus runner end to end
         run: |
-          python tests/compliance/run_all.py
+          python tests/compliance/run_all.py --cc ${{ matrix.cc }}
 
+      # The pytest wrapper does not vary by compiler (it drives the default one),
+      # so running it twice would buy nothing: the matrix legs above are what
+      # prove the corpus under each compiler.
       - name: Run the corpus under pytest
+        if: matrix.cc == 'gcc'
         run: |
           python -m pytest tests/test_compliance_corpus.py -q -p no:cacheprovider --timeout=1800
 

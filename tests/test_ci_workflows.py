@@ -527,3 +527,22 @@ def test_the_fuzz_workflows_state_the_same_budget_as_the_docs():
     assert "6 hours per harness across 4 shards" in fuzzing_doc
     checklist = (REPO / "RELEASE_CHECKLIST.md").read_text(encoding="utf-8")
     assert "6 h per harness (4 shards" in checklist
+
+
+def test_the_compliance_corpus_runs_under_more_than_one_compiler():
+    """Roadmap 10.3: the compiler matrix has to be a matrix *in CI*, not prose.
+
+    Measured locally during Phase 10 (2026-10-07): gcc 54/54, clang 54/54, tcc
+    not installed. A workflow that compiles every program with the default
+    compiler and calls it a "matrix" is the failure mode this pins.
+    """
+    raw = _raw("compliance.yml")
+    assert "matrix:" in raw, "compliance.yml declares no matrix"
+    assert "cc: [gcc, clang]" in raw, "the matrix must name the compilers"
+    assert "--cc ${{ matrix.cc }}" in raw, (
+        "the matrix leg must pass the compiler to the runner, or every leg "
+        "compiles with the default one"
+    )
+    assert "fail-fast: false" in raw, (
+        "one compiler failing must not hide the other's result"
+    )
