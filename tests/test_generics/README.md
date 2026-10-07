@@ -1,20 +1,20 @@
 # Generics test suite
 
 End-to-end programs exercising PenguScript's generics: `shard` type parameters,
-`where` bounds, `derive`, `cyclus`, `donum T` and the container ownership model
-(`PenguElemCleanup` / `PenguElemClone`).
+`where` bounds, `derive`, `cyclus`, `donum T` and the manual-memory container
+contract (`memcpy` on store, explicit release of elements and containers).
 
 ## Layout
 
 | Pattern | Meaning |
 |---|---|
 | `test_*.pengu` | Compiles, links and must exit with status `0`. |
-| `leak_*.pengu` | Runnable **and** leak-checked (the acceptance program for the escape-chain fix). |
+| `leak_*.pengu` | Runnable **and** leak-checked (the acceptance program for the access-chain resolution). |
 | `ok_*.pengu` | Runnable positive cases (used by `gap2_set_typeparam_bounds/`). |
-| `gap1_*/*.pengu` | Runnable + leak-checked regression set for the escape-analysis chain fix. |
+| `gap1_*/*.pengu` | Runnable + leak-checked regression set for the access-chain resolution. |
 | `fail_*.pengu` / `err_*.pengu` | Must be **rejected** by the checker. The first line carries `# EXPECTED: EXXXX` with the diagnostic code. |
 | `run_all.sh` | Builds and runs every runnable program (recursively). |
-| `run_valgrind.sh` | Leak-checks the ownership programs. |
+| `run_valgrind.sh` | Leak-checks the programs that release memory explicitly. |
 
 Discovery is recursive, so the `gap1_*` / `gap2_*` directories are picked up
 automatically by both the pytest suite and the shell runners.

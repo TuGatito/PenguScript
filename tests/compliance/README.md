@@ -44,11 +44,11 @@ the document does not have is a failure — an empty corpus cannot pass.
 
 ## Coverage and its boundary
 
-**54 programs**, each pinning a distinct `LANGUAGE.md` section. The boundary is
+**53 programs**, each pinning a distinct `LANGUAGE.md` section. The boundary is
 declared rather than implied:
 
 - the corpus covers the **language surface** (§2–§19): syntax, semantics, types,
-  generics, ownership, FFI, literals, `when`, `test`, `with`, stdlib basics;
+  generics, manual memory, FFI, literals, `when`, `test`, `with`, stdlib basics;
 - it does **not** try to be a section-per-paragraph mirror of the reference, and
   it does not cover the toolchain chapters (§20 cross-compilation, §21 build &
   packages) — those are exercised by their own suites;
