@@ -1,8 +1,11 @@
 name: Build and Publish Releases
 
-# Triggered by a tag push. ci.yml's `auto-tag` job creates the tag and nothing
-# else; this workflow is the only place that publishes a GitHub Release, which
-# removes the double-release race the two workflows used to have.
+# Triggered by a tag push **or** by an explicit `workflow_dispatch` from ci.yml's
+# `auto-tag` job.  The dispatch exists because GitHub does not start a workflow
+# run for a push made with the repository's GITHUB_TOKEN, so the tag push alone
+# never handed over (Phase 9, item 9.6).  ci.yml's `auto-tag` job creates the tag
+# and nothing else; this workflow is the only place that publishes a GitHub
+# Release, which removes the double-release race the two workflows used to have.
 #
 # The release is published with the first-party `gh` CLI (preinstalled on
 # runners) instead of a third-party action: nothing to SHA-pin, and full control
@@ -62,65 +65,19 @@ jobs:
       - name: Stage TinyCC (Linux/macOS, from source)
         if: runner.os != 'Windows'
         run: |
-          python - <<'PY'
-          import sys
-          sys.path.insert(0, ".")
-          from pengu_tcc import ensure_tcc
-          path = ensure_tcc("build/tcc-dist", verbose=True)
-          print("tcc:", path)
-          if not path:
-              print("::warning::TinyCC could not be built; the release will fall back to gcc/clang")
-          PY
+          python pengu_tcc.py --stage build/tcc-dist --allow-missing
 
-      # TinyCC ships no official Windows binary.  The download is best-effort but
-      # *verified*: PENGU_TCC_SHA256 (or the default digest below) must match, so
-      # a compromised mirror cannot inject a binary into the release.
-      - name: Stage TinyCC (Windows, prebuilt)
+      # TinyCC ships no official Windows binary.  The download is best-effort
+      # about *availability* and strict about *integrity*: the archive must hash
+      # to `pengu_tcc.TCC_RELEASE_SHA256` (override with PENGU_TCC_SHA256 only
+      # together with PENGU_TCC_URL) or the job fails.  The digest and the check
+      # live in pengu_tcc.py, not here, so every caller verifies the same bytes
+      # (Phase 9, items 9.2/9.3): a workflow-local `::notice::` was exactly the
+      # "no gate at all" the audit refuted.
+      - name: Stage TinyCC (Windows, prebuilt, digest verified)
         if: runner.os == 'Windows'
-        shell: pwsh
         run: |
-          $dest = "build/tcc-dist"
-          New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          $url = if ($env:PENGU_TCC_URL) { $env:PENGU_TCC_URL } else { "https://github.com/FitzRoyX/tinycc/releases/download/tcc_20221020/tcc_20221020.zip" }
-          $expected = $env:PENGU_TCC_SHA256
-          try {
-            Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\tcc.zip"
-          } catch {
-            Write-Host "::warning::TinyCC download failed ($url); the Windows release will use the system compiler"
-            exit 0
-          }
-          $actual = (Get-FileHash -Algorithm SHA256 "$env:TEMP\tcc.zip").Hash.ToLower()
-          if ($expected -and ($actual -ne $expected.ToLower())) {
-            Write-Host "::error::TinyCC SHA-256 mismatch ($actual != $expected); refusing to bundle it"
-            exit 1
-          }
-          if (-not $expected) {
-            Write-Host "::notice::TinyCC digest $actual (set PENGU_TCC_SHA256 to enforce it)"
-          }
-          Expand-Archive -Path "$env:TEMP\tcc.zip" -DestinationPath $dest -Force
-          $exe = Get-ChildItem -Path $dest -Recurse -Filter tcc.exe | Select-Object -First 1
-          if ($exe) {
-            Copy-Item $exe.FullName "$dest\tcc.exe" -Force
-            Write-Host "staged $($exe.FullName)"
-            # TCC looks for its own headers next to the executable: without this
-            # the bundled 'tcc/tcc.exe' cannot compile anything (the toolchain
-            # would silently fall back to the system compiler).
-            $inc = Get-ChildItem -Path $exe.Directory -Recurse -Filter stdarg.h -ErrorAction SilentlyContinue |
-                   Where-Object { $_.Directory.Name -eq 'include' } | Select-Object -First 1
-            if (-not $inc) {
-              $inc = Get-ChildItem -Path $dest -Recurse -Filter stdarg.h -ErrorAction SilentlyContinue |
-                     Where-Object { $_.Directory.Name -eq 'include' } | Select-Object -First 1
-            }
-            if ($inc) {
-              if (Test-Path "$dest\include") { Remove-Item "$dest\include" -Recurse -Force }
-              Copy-Item $inc.Directory.FullName "$dest\include" -Recurse -Force
-              Write-Host "staged include tree from $($inc.Directory.FullName)"
-            } else {
-              Write-Host "::warning::TCC headers (stdarg.h) not found; the bundled tcc may not compile"
-            }
-          } else {
-            Write-Host "::warning::tcc.exe not found in the downloaded archive"
-          }
+          python pengu_tcc.py --stage build/tcc-dist --allow-missing
 
       - name: Toolchain smoke test (run + cache + doctor)
         run: |
@@ -134,31 +91,58 @@ jobs:
         run: |
           python make_release.py
 
-      - name: Ad-hoc code sign (macOS)
+      # macOS, item 9.9: ad-hoc signing only. There is no Apple developer
+      # account, so there is no `notarytool` step and this release does NOT claim
+      # to pass `spctl --assess` (Gatekeeper still refuses a quarantined,
+      # un-notarized download). What is gated here is that the signature is
+      # *valid*: it used to be `|| true`, i.e. a warning that could not fail.
+      - name: Ad-hoc code sign and verify (macOS)
         if: runner.os == 'macOS'
+        shell: bash
         run: |
-          # Gatekeeper refuses to execute unsigned Mach-O binaries. PyInstaller
-          # ad-hoc signs the files it embeds; sign the produced entry point (and
-          # any loose TCC binary) too so the archive runs out of the box.
+          set -euo pipefail
+          # PyInstaller ad-hoc signs the files it embeds; sign the produced entry
+          # point (and any loose TCC binary) too. No --deep, no timestamp, no
+          # entitlements: an ad-hoc signature is the strongest thing available.
           find pengucc_build -type f \( -name pengu -o -name tcc \) -print0 2>/dev/null \
             | while IFS= read -r -d '' t; do
                 echo "codesign --sign - --force $t"
-                codesign --sign - --force "$t" || true
+                codesign --sign - --force "$t"
               done
-          { codesign --verify --verbose pengucc_build/bin/pengu \
-            || codesign --verify --verbose pengucc_build/pengu; } 2>/dev/null \
-            || echo "::warning::could not verify the signature (release still published)"
+          BIN="pengucc_build/pengu"
+          [ -f "$BIN" ] || BIN="pengucc_build/bin/pengu"
+          test -f "$BIN" || { echo "::error::no pengu binary to sign"; exit 1; }
+          codesign --verify --strict --verbose=2 "$BIN"
+          echo "ad-hoc signature valid: $BIN"
+          # Recorded, not gated: this is expected to fail without notarization.
+          echo "--- spctl --assess (expected to fail: not notarized) ---"
+          spctl --assess --type execute -vv "$BIN" || true
 
-      - name: Archive Distribution (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
+      # Deterministic archive (Phase 9, item 9.8): make_release.py writes sorted
+      # entries with a constant mtime from SOURCE_DATE_EPOCH. `tar -czf` and
+      # `Compress-Archive` embedded the build time, so two builds of the same
+      # commit never hashed the same.
+      - name: Archive Distribution
         run: |
-          Compress-Archive -Path "pengucc_build/*" -DestinationPath "${{ matrix.artifact_name }}"
+          python make_release.py --archive-only \
+            --dist-dir pengucc_build --archive "${{ matrix.artifact_name }}"
 
-      - name: Archive Distribution (Unix)
-        if: runner.os != 'Windows'
+      - name: Reproducibility check (same commit, same bytes)
+        shell: bash
         run: |
-          tar -czvf "${{ matrix.artifact_name }}" -C pengucc_build .
+          set -euo pipefail
+          python make_release.py --archive-only \
+            --dist-dir pengucc_build --archive "reproducibility-check${{ matrix.artifact_name }}"
+          A=$(sha256sum "${{ matrix.artifact_name }}" | cut -d' ' -f1)
+          B=$(sha256sum "reproducibility-check${{ matrix.artifact_name }}" | cut -d' ' -f1)
+          echo "run 1: $A"
+          echo "run 2: $B"
+          if [ "$A" != "$B" ]; then
+            echo "::error::make_release.py is not reproducible: $A != $B"
+            exit 1
+          fi
+          rm -f "reproducibility-check${{ matrix.artifact_name }}"
+          echo "reproducible archive: $A"
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -209,6 +193,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: write
+      # Dispatching release-verify.yml (item 9.7) needs actions: write.
+      actions: write
     steps:
       - name: Checkout Repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -297,3 +283,18 @@ jobs:
           fi
           # shellcheck disable=SC2086
           gh release create "$TAG" final-assets/* "${ARGS[@]}"
+
+      # The last gate (Phase 9, item 9.7): download what was just published and
+      # execute it.  It is dispatched explicitly because a `release` event
+      # created with GITHUB_TOKEN does not start a workflow run either (the same
+      # restriction as the tag handoff, item 9.6).  `actions: write` is what lets
+      # this job start another run.
+      - name: Dispatch release-verify for the published tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.release.outputs.tag }}"
+          echo "dispatching release-verify.yml for $TAG"
+          gh workflow run release-verify.yml --ref "${GITHUB_REF_NAME}" -f tag="$TAG"

@@ -16,6 +16,10 @@ The runtime header uses GNU extensions (``__extension__`` statement
 expressions, ``__attribute__((always_inline))``) that TCC supports, but a
 failure is expected to be handled by the caller: rebuild with the configured
 ``cc`` and report it (see ``PenguBuilder.compile``).
+
+The prebuilt Windows archive is downloaded only from a pinned URL and only when
+its SHA-256 matches :data:`TCC_RELEASE_SHA256` (Phase 9, items 9.2/9.3): a
+compromised mirror must not be able to put a binary inside a release.
 """
 
 from __future__ import annotations
@@ -24,7 +28,32 @@ import os
 import shutil
 import subprocess
 import sys
+import zipfile
 from typing import List, Optional
+
+from pengu_archive import UnsafeArchiveError, safe_extract_zip, sha256_file
+
+#: Where the prebuilt Windows TinyCC comes from (TinyCC publishes no official
+#: Windows binary; this is the widely packaged ``tcc_20221020`` build).
+TCC_RELEASE_URL = (
+    "https://github.com/FitzRoyX/tinycc/releases/download/"
+    "tcc_20221020/tcc_20221020.zip"
+)
+
+#: SHA-256 of that archive, pinned in the *code* (not only in a workflow) so the
+#: verification travels with every caller: ``make_release.py``, the CI staging
+#: step and any local build.  Derived once with::
+#:
+#:     python -c "import hashlib,urllib.request as u; \
+#:         print(hashlib.sha256(u.urlopen(u.Request(TCC_RELEASE_URL)).read()).hexdigest())"
+#:
+#: ``PENGU_TCC_SHA256`` overrides it (only useful together with a mirror URL,
+#: and the override still has to match or the download is refused).
+TCC_RELEASE_SHA256 = "bba017566c78f6fbd350708957248c470920477fe42c990a72fff3de0c111fb5"
+
+
+class TccIntegrityError(RuntimeError):
+    """The downloaded TinyCC archive does not match the pinned SHA-256."""
 
 
 def _exe(name: str) -> str:
@@ -115,29 +144,64 @@ def tcc_version(tcc_path: Optional[str] = None) -> Optional[str]:
         return None
 
 
-def _download_windows_tcc(dest_dir: str) -> Optional[str]:
-    """Downloads a prebuilt TCC for Windows into ``dest_dir`` (best effort).
+def _download_windows_tcc(
+    dest_dir: str,
+    url: Optional[str] = None,
+    expected_sha256: Optional[str] = None,
+) -> Optional[str]:
+    """Downloads a prebuilt TCC for Windows into ``dest_dir``.
 
     TinyCC has no official Windows binary release, so the release pipeline uses
     the widely packaged ``tcc_20221020`` build.  ``PENGU_TCC_URL`` overrides the
-    URL (mirrors, pinned internal builds).  Returns the ``tcc.exe`` path or None.
+    URL (mirrors, pinned internal builds) and ``PENGU_TCC_SHA256`` the digest;
+    the default digest lives in :data:`TCC_RELEASE_SHA256`, so verification does
+    not depend on a workflow remembering to pass it.
+
+    A **mismatch raises** :class:`TccIntegrityError` and nothing is extracted.
+    A network failure still returns None (TCC is optional: the release falls back
+    to gcc/clang), because "could not download" is not "downloaded something
+    else".  Returns the ``tcc.exe`` path or None.
     """
     import urllib.request
-    import zipfile
 
-    url = os.environ.get(
-        "PENGU_TCC_URL",
-        "https://github.com/FitzRoyX/tinycc/releases/download/tcc_20221020/tcc_20221020.zip",
-    )
+    url = url or os.environ.get("PENGU_TCC_URL") or TCC_RELEASE_URL
+    if expected_sha256 is None:
+        expected = os.environ.get("PENGU_TCC_SHA256") or TCC_RELEASE_SHA256
+    else:
+        expected = expected_sha256
+    expected = expected.strip().lower()
+    if len(expected) != 64:
+        raise TccIntegrityError(
+            f"refusing an unpinned TinyCC download: {expected!r} is not a SHA-256"
+        )
     print(f"  [TCC] downloading prebuilt TCC from {url}")
     archive = os.path.join(dest_dir, "tcc.zip")
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "PenguScript-Release/1"})
         with urllib.request.urlopen(req, timeout=180) as resp, open(archive, "wb") as out:
-            out.write(resp.read())
+            while True:
+                buf = resp.read(1024 * 1024)
+                if not buf:
+                    break
+                out.write(buf)
+
+        actual = sha256_file(archive)
+        if actual != expected:
+            raise TccIntegrityError(
+                f"TinyCC archive SHA-256 mismatch for {url}\n"
+                f"  expected {expected}\n"
+                f"  actual   {actual}\n"
+                f"  Refusing to extract or bundle it."
+            )
+        print(f"  [TCC] sha256 verified: {actual}")
+
         with zipfile.ZipFile(archive) as zf:
-            zf.extractall(dest_dir)
-    except Exception as e:  # noqa: BLE001 - TCC is optional
+            safe_extract_zip(zf, dest_dir)
+    except (TccIntegrityError, UnsafeArchiveError):
+        # Integrity is not negotiable: never degrade to "no TCC" silently, and
+        # never treat a hostile member ("../evil") as a failed download.
+        raise
+    except Exception as e:  # noqa: BLE001 - a failed download is not a corrupt one
         print(f"  [TCC] download failed: {e}", file=sys.stderr)
         return None
     finally:
@@ -163,6 +227,11 @@ def ensure_tcc(dest_dir: str, verbose: bool = False) -> Optional[str]:
 
     Returns the path of the produced ``tcc`` binary, or None when unavailable
     (the release then ships without TCC and falls back to gcc/clang).
+
+    Raises:
+        TccIntegrityError: on Windows, when the downloaded archive does not hash
+            to the pinned digest.  That is deliberately *not* a "no TCC" result:
+            a release must not bundle bytes that failed verification.
     """
     # Absolute: 'make install' runs with cwd=<src>, so a relative --prefix would
     # silently land inside the source tree instead of dest_dir.
@@ -250,3 +319,44 @@ def ensure_tcc(dest_dir: str, verbose: bool = False) -> Optional[str]:
         if os.path.isfile(cand):
             return os.path.abspath(cand)
     return None
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    """CLI used by the release workflow: ``python pengu_tcc.py --stage DIR``.
+
+    Exit codes are the gate:
+
+    * 0 — TCC staged (or, with ``--allow-missing``, simply unavailable),
+    * 1 — the downloaded archive failed verification, or TCC was required and
+      could not be produced.
+
+    A digest mismatch is **never** downgraded to ``--allow-missing``: that is the
+    difference between "no TCC" and "a TCC that is not the one we pinned".
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Stage TinyCC for a release build.")
+    parser.add_argument("--stage", metavar="DIR", default="build/tcc-dist",
+                        help="destination directory (default: build/tcc-dist)")
+    parser.add_argument("--allow-missing", action="store_true",
+                        help="exit 0 when TCC is unavailable (digest failures still exit 1)")
+    args = parser.parse_args(argv)
+
+    try:
+        path = ensure_tcc(args.stage, verbose=True)
+    except (TccIntegrityError, UnsafeArchiveError) as exc:
+        print(f"::error::{exc}", file=sys.stderr)
+        return 1
+    if not path:
+        message = "TinyCC unavailable; the release will fall back to gcc/clang"
+        if args.allow_missing:
+            print(f"::warning::{message}")
+            return 0
+        print(f"::error::{message}", file=sys.stderr)
+        return 1
+    print(f"tcc: {path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

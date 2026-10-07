@@ -929,7 +929,10 @@ def build_webui(cc, ar, rebuild=False):
         with urllib.request.urlopen(req, timeout=300) as resp, open(tmp_zip, "wb") as out:
             out.write(resp.read())
         with zipfile.ZipFile(tmp_zip) as zf:
-            zf.extractall(EXTERN_DIR)
+            # Phase 9 / item 9.4: refuse any member that would escape extern/
+            # (zipfile's own guard is documented as "attempts to prevent").
+            from pengu_archive import safe_extract_zip
+            safe_extract_zip(zf, str(EXTERN_DIR))
         tmp_zip.unlink(missing_ok=True)
 
     if not cache_dir.exists():
