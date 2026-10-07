@@ -973,6 +973,52 @@ Hacer que la cadena de release **verifique lo que descarga**, **produzca artefac
   **Mitigación:** si no está disponible, **retirar la reivindicación** de notarización en vez de
   dejarla sin verificar.
 
+### Estado de ejecución — Fase 9
+
+Detalle item por item, con la verificación de cada premisa, en
+[`AUDIT_1.0_FASE9.md`](AUDIT_1.0_FASE9.md). Resumen:
+
+| # | Estado | Evidencia de una línea |
+|---|--------|------------------------|
+| 9.1 | ✅ | `MANIFEST` con `{url, sha256}` para los **16** archivos; hash calculado sobre el stream antes de `extractall`; `DigestMismatchError` deja `extern/` intacto. Digests derivados una vez con `python scripts/extern_digests.py --download` (329 MB de `extern/`, no se recalculan en cada build) y guardados por un sello `.pengu_verified.json` |
+| 9.2 | ✅ | `TCC_RELEASE_SHA256 = bba017566c78f6fbd350708957248c470920477fe42c990a72fff3de0c111fb5` en `pengu_tcc.py`; `TccIntegrityError` aborta el staging. Medido: el ZIP real (814 898 B) coincide |
+| 9.3 | ✅ | El digest vive en el código y `release.yml` llama a `python pengu_tcc.py --stage build/tcc-dist`; el `::notice::` que la auditoría refutó desaparece (`grep` → 0) |
+| 9.4 | ✅ | `pengu_archive.safe_extract_zip`/`safe_extract_tar`; los **3** `extractall` del repo están endurecidos (el roadmap listaba 2: **F9-N1** es `build_runtime.py:932`) |
+| 9.5 | ✅ | `docs/FUZZING.md` y `RELEASE_CHECKLIST.md` documentan 6 h por harness en 4 shards de 90 min; test que falla si aparece una promesa > 6 h |
+| 9.6 | ✅ | `ci.yml` despacha `release.yml` con `gh workflow run` + `actions: write` cuando crea el tag; la premisa ("el tag dispara el release") queda refutada y arreglada. **No reproducible end-to-end aquí** (sin fork/credenciales): documentado como limitación con el mecanismo explícito |
+| 9.7 | ✅ | `release-verify.yml` descarga cada uno de los 3 artefactos publicados y ejecuta `pengu -V` (contra el tag), `pengu new exe` + `pengu build` (rc=0) y `pengu run hello.pengu` → `Hello, world!` |
+| 9.8 | ✅ **byte-idéntico** | Medido: dos `PyInstaller` sobre el mismo commit → `sha256=8bf8946097219725c5e6d2478bd3c35751f4a4dfe7dccdda5f273ab5807de738` (17 584 704 B) **idéntico**, incluso con `--distpath` distinto; el `.tar.gz` determinista → `86ec04102aad651b1aa0360a97ff7eb84e6de95a7bc98a1bb13730f88c64054b` en dos corridas |
+| 9.9 | ❌ **reivindicación retirada** | No hay cuenta de Apple: sin `notarytool`, `spctl --assess` **no** se afirma. `release.yml` firma ad-hoc y gatea `codesign --verify --strict`; `release-verify.yml` publica la salida de `spctl` para el registro. `docs/RELEASE.md` §macOS y `docs/PENGU_BUILD.md` lo dicen |
+| 9.10 | ✅ | `docs/RELEASE.md` con el proceso, los gates, la tabla de fallo, la reproducibilidad y macOS; enlaza el checklist sin duplicarlo |
+| 9.11 | ✅ | **0 casillas sin gate** (antes 8 de 16 automatizadas). `tests/test_release_claims.py` valida comando/`workflow:` y que cada ruta citada exista. C2: quitar un gate → el test falla |
+| 9.12 | ✅ | `release-verify.yml` (matriz `portable` ×2 + `fhs` ×2 + Windows `portable`) **y** `ci.yml` en cada push; el portón FHS demuestra que el prefijo se usó (oculta `lib/pengu` y exige el fallo) |
+
+**Hallazgos nuevos de la fase:** F9-N1 (un tercer `extractall` sin endurecer en
+`build_runtime.py`, no listado en el roadmap), F9-N2 (el evento `release:
+published` sufre la misma restricción de `GITHUB_TOKEN` que el tag: el despacho a
+`release-verify.yml` también tiene que ser explícito), F9-N3 (la firma de macOS
+era `codesign … || true`: un artefacto con firma inválida se publicaba con el job
+en verde), F9-N4 (un fallo de integridad de la extracción del TCC se degradaba a
+"TCC no disponible", indistinguible de un fallo de red), F9-N5 (7 de los 16
+digests son de tarballs generados por GitHub — `/archive/refs/tags/…` —, que no
+son estables por contrato: el gate convierte un cambio upstream en un fallo duro
+y la ruta de re-pin está documentada), F9-N6 (la Fase 8 arregló `fuzz.yml` pero
+`docs/FUZZING.md` y `RELEASE_CHECKLIST.md` siguieron prometiendo 72 h).
+
+### Criterio de "done" de la fase — estado medido
+
+- [x] `grep -c hashlib extern_manifest.py` = **2** y cada una de las **16** entradas tiene digest verificado antes de extraer.
+- [x] El TCC descargado se verifica con un digest que **existe por defecto** (`pengu_tcc.TCC_RELEASE_SHA256`, también presente en `pengu_tcc.py` y usado por `release.yml`).
+- [x] Ningún `extractall` sin `filter`/validación: 3 sitios, 3 endurecidos, con test estructural que lo vigila.
+- [x] `docs/FUZZING.md` y `RELEASE_CHECKLIST.md` sin afirmaciones de duración imposibles (test sobre las dos).
+- [x] El tag dispara el release por **dispatch explícito**; la verificación end-to-end en un fork **no** se pudo reproducir aquí y queda registrada como limitación con el mecanismo explícito en su lugar.
+- [x] `release-verify.yml` descarga y ejecuta los artefactos publicados (los 3) en los dos layouts.
+- [x] Dos builds del mismo commit son **byte-idénticos**: binario (2 corridas + 2 rutas) y archivo de distribución (2 corridas).
+- [x] El artefacto macOS **no** pasa `spctl --assess` y la reivindicación está **retirada** por escrito (no queda sin verificar).
+- [x] `RELEASE_CHECKLIST.md`: cada casilla automatizada tiene un comando o un `workflow:` (0 de 16 sin gate); `tests/test_release_claims.py` es el gate.
+- [x] `docs/RELEASE.md` existe y describe el proceso completo.
+- [x] Instalación FHS y portable verificadas **ejecutando el artefacto empaquetado** en CI (no con tests unitarios).
+
 ---
 
 ## Fase 10 — Congelación y RC
@@ -1088,6 +1134,9 @@ Publicar 1.0.0.
 | **8.24 — array a función C variádica: referencia colgante de pila** (nuevo, F8-N10) | Medido con AddressSanitizer: `stack-use-after-scope ... in sum_args` al pasar un array a una variádica (`tests/compliance/020-declare-extern-c.pengu:17`). Sin instrumentación el programa devuelve el valor correcto, así que el suite normal no podía verlo: es exactamente el tipo de bug que el job de sanitizers existe para encontrar (8.2). Pin `xfail(strict=True)` en `tests/test_phase8_findings.py`, que sólo corre bajo ASan | 1.1 |
 | **8.23 — `compute_config_hash()` ignora `PENGU_NO_DCE`** (nuevo, F8-N9) | Medido: mismo origen, 3254 bytes con DCE y 16047 sin DCE, **misma clave** `8c5f7a759af9810d`; el rebuild en el mismo directorio devuelve `is_cached=True` con el bundle obsoleto. Pin `xfail(strict=True)` en `tests/test_properties.py` | 1.1 |
 | **Idioma único en la documentación** | La cobertura bilingüe real es un activo (72 bloques sincronizados en cada guía). Se formaliza la política (item 7.14) en vez de eliminar un idioma | N/A |
+| **9.9 — Notarización macOS** (retirada, no diferida) | Sin cuenta de desarrollador de Apple no hay `notarytool`, así que `spctl --assess` **no se cumple y no se afirma**: la reivindicación se retira de todos los documentos (regla del Anexo D). Lo que sí se gatea es `codesign --verify --strict` (firma ad-hoc válida), y `release-verify.yml` publica la salida real de `spctl` para el registro. Si algún día hay cuenta, el cambio es local a `release.yml` + `release-verify.yml` y está descrito en `docs/RELEASE.md` §macOS | 1.1 (si hay cuenta) |
+| **F9-N5 — estabilidad de los tarballs de GitHub** | 7 de los 16 `sha256` fijan `/archive/refs/tags/…`, que GitHub puede regenerar (ya cambió el envoltorio gzip una vez). Un cambio upstream ahora **aborta** el build en vez de pasar desapercibido; la mitigación es `python scripts/extern_digests.py --update` tras verificar el archivo a mano. Alternativa para 1.1: migrar esas 7 a assets de release o a un espejo propio | 1.1 |
+| **F9-N1 — un `extractall` más de los que listaba el roadmap** | Cerrado en la fase (no diferido): `build_runtime.py:932` extraía el ZIP del WebUI sin validar rutas. Se documenta porque el roadmap decía "ningún `extractall` sin `filter`" contando sólo dos sitios; el inventario real era tres | Cerrado |
 
 ---
 

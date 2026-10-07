@@ -2,6 +2,126 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [Unreleased] — FASE 9 (ROADMAP 2.0): Herramientas de release
+
+> Hace que el release **verifique lo que descarga**, **produzca artefactos
+> reproducibles** y **publique solo lo que pasó los gates**. Cada dependencia
+> externa y el TinyCC precompilado llevan un SHA-256 fijado en el código que se
+> comprueba **mientras se descarga**, antes de extraer nada; la extracción pasa
+> por un validador de rutas compartido; el tag que crea CI **dispara** el release
+> con `workflow_dispatch` (un push con `GITHUB_TOKEN` no arranca workflows); un
+> `release-verify.yml` nuevo descarga los artefactos publicados y los **ejecuta**
+> en el layout portable y en un prefijo FHS; los archivos de distribución se
+> empaquetan de forma determinista (`SOURCE_DATE_EPOCH`); la reivindicación de
+> notarización de macOS se **retira** por escrito; y `RELEASE_CHECKLIST.md` pasa de
+> 8 casillas sin gate a 0, con un test que lo vigila.
+> Detalle item por item, con la verificación de cada premisa, en
+> `AUDIT_1.0_FASE9.md`.
+
+### Added
+
+- **`extern_manifest.py` con SHA-256 por dependencia** (9.1): `MANIFEST` pasa de
+  `{nombre: url}` a `{nombre: {url, sha256}}` con los **16** digests calculados una
+  vez con `python scripts/extern_digests.py --download` y versionados. El hash se
+  calcula **sobre el stream** mientras se escribe a disco y se compara antes de
+  `extractall`; un mismatch lanza `DigestMismatchError` y `extern/` queda intacto.
+  Un sello (`extern/.pengu_verified.json`) impide que "la carpeta ya existe"
+  signifique "nunca se verificó un digest". Evidencia: `python extern_manifest.py
+  --verify` con un `.tar.gz` corrupto → rc≠0 (test
+  `test_verify_mode_returns_non_zero_and_leaves_extern_empty`).
+  ⚠️ **F9-N5:** 7 de las 16 entradas son tarballs generados por GitHub
+  (`/archive/refs/tags/…`), que **no son estables por contrato**; el gate convierte
+  un cambio upstream en un fallo duro y `scripts/extern_digests.py --update` es la
+  ruta de re-pin, en su propio commit.
+- **`scripts/extern_digests.py`** — `--check` (offline, es el gate),
+  `--download` (recalcula, reanudable) y `--update` (reescribe la tabla). Los
+  digests son datos, no un paso de build: no se recalculan en cada compilación.
+- **Digest del TinyCC precompilado en `pengu_tcc.TCC_RELEASE_SHA256`** (9.2/9.3):
+  `bba017566c78f6fbd350708957248c470920477fe42c990a72fff3de0c111fb5`
+  (814 898 bytes, medido). Un mismatch lanza `TccIntegrityError` y **aborta** el
+  job; antes `release.yml` leía un `PENGU_TCC_SHA256` que no existía en el repo y
+  sólo imprimía un `::notice::`. El chequeo vive en un solo sitio
+  (`python pengu_tcc.py --stage build/tcc-dist`) y el workflow lo invoca.
+- **`pengu_archive.py`** (9.4): `safe_extract_zip` / `safe_extract_tar` rechazan
+  rutas absolutas, `..`, letras de unidad y symlinks **antes** de escribir, y
+  `sha256_file`. Lo usan `extern_manifest.py`, `pengu_tcc.py` y
+  `build_runtime.py` (que tenía un **tercer** `extractall` sin endurecer, no
+  listado en el roadmap: **F9-N1**).
+- **`.github/workflows/release-verify.yml`** (9.7/9.12): descarga **cada** artefacto
+  publicado (`gh release download`) y lo ejecuta. Matriz: Linux y macOS en
+  `portable` y `fhs`, Windows sólo `portable`. El portón FHS **prueba que el
+  prefijo se usó**: oculta `<prefix>/lib/pengu` y exige el fallo documentado con
+  `libpengu_runtime.a`, porque el archivo estático no viaja dentro del binario.
+- **`scripts/verify_release_artifact.py`** — el ejecutor: `pengu -V` contra el
+  `VERSION` del artefacto y contra el tag, `pengu new exe` + `pengu build` (rc=0),
+  `pengu run hello.pengu` → `Hello, world!`, instalación FHS real desde el
+  artefacto portable y `codesign --verify --strict` en macOS.
+- **`docs/RELEASE.md`** (9.10) — el proceso completo, los gates, la
+  reproducibilidad, la sección macOS (notarización **no** realizada) y la tabla de
+  "si un gate falla".
+- **`tests/test_release_claims.py`** (9.11) — el gate del gate: cada casilla
+  automatizada de `RELEASE_CHECKLIST.md` debe citar un comando reproducible o un
+  `workflow:`, cada ruta citada debe existir, y las 5 afirmaciones refutadas de
+  AUDIT §13.3 no pueden volver sin su marca `❌`.
+- **`tests/test_extern_manifest_digests.py`**, **`tests/test_tcc_integrity.py`**,
+  **`tests/test_archive_extraction.py`**, **`tests/test_release_handoff.py`**,
+  **`tests/test_release_verify.py`**, **`tests/test_reproducible_release.py`**.
+- **`make_release.py --archive-only --archive PATH`** (9.8): escribe el `.tar.gz`
+  o `.zip` de la distribución de forma determinista (entradas ordenadas, mtime
+  constante, uid/gid 0, gzip con mtime 0) y `--print-hashes` lista los SHA-256.
+
+### Changed
+
+- `ci.yml` y `release.yml` dejan de archivar con `tar -czf` / `Compress-Archive`
+  (que incrustan la hora del build) y llaman a `make_release.py --archive-only`;
+  ambos verifican la reproducibilidad empaquetando **dos veces** y comparando.
+- `ci.yml` (`auto-tag`) **despacha** `release.yml` con `gh workflow run` cuando es
+  él quien crea el tag, y `release.yml` despacha `release-verify.yml` tras
+  publicar; ambos jobs pasan a tener `actions: write` (F9-N2: el evento
+  `release: published` sufre la misma restricción de `GITHUB_TOKEN`).
+- `make_release.py` exporta `SOURCE_DATE_EPOCH` (del entorno, o del commit de
+  `HEAD`), `PYTHONHASHSEED=0` y `TZ=UTC` a PyInstaller; la ruta de release fuerza
+  la re-descarga y verificación de los archivos externos
+  (`PENGU_EXTERN_FAST=1` la evita al iterar en local).
+- `release.yml` convierte la firma ad-hoc de macOS en un **gate real**
+  (`codesign --verify --strict`); antes era `codesign … || true` seguido de un
+  `::warning::` que no podía fallar (**F9-N3**).
+- `RELEASE_CHECKLIST.md` reescrito (9.11): 16 casillas automatizadas, **0 sin
+  gate** (antes 8 sin gate), y la sección manual marcada `manual:` casilla por
+  casilla. Verificado por partida doble: el test falla si se quita un gate.
+- `docs/FUZZING.md` y `RELEASE_CHECKLIST.md` dejan de prometer 72 h de fuzzing y
+  documentan el presupuesto real (6 h por harness en 4 shards de 90 min), el
+  techo de la plataforma y el reparto entre `fuzz.yml` y `nightly.yml`
+  (**F9-N6**: la Fase 8 arregló los workflows, no los documentos).
+- `docs/PENGU_BUILD.md` documenta los digests y la ausencia de notarización.
+
+### Fixed
+
+- `extern_manifest.py` ya no imprime "All external C libraries verified" mirando
+  sólo si existe el directorio (afirmación refutada en AUDIT §13.3): ahora lo
+  imprime después de verificar los 16 digests.
+- `build_runtime.py` valida el ZIP del WebUI precompilado antes de extraerlo.
+- Un fallo de integridad de la extracción del TCC ya no se degrada a "TCC no
+  disponible" (que era indistinguible de un fallo de red) (**F9-N4**).
+
+### Diferido
+
+- Nada de la fase 9 se difiere. La única reivindicación **retirada** es la
+  notarización de macOS (9.9): sin cuenta de desarrollador de Apple no hay
+  `notarytool`, así que `spctl --assess` **no** se afirma y el camino soportado
+  (`xattr -d com.apple.quarantine`) queda escrito en `docs/RELEASE.md` §macOS.
+
+### Refutado
+
+- **"El tag dispara el release"** (AUDIT §18.1 #10): un push hecho con
+  `GITHUB_TOKEN` no arranca otro workflow. Medición indirecta: el job `auto-tag`
+  no tenía ningún `workflow_dispatch` ni `actions: write`, así que `release.yml`
+  no podía ejecutarse nunca por esa vía. Arreglado con un dispatch explícito.
+- **"72 h de fuzzing"** (AUDIT §13.3 #8/#9): GitHub mata un job a las 6 h; el
+  techo real es `timeout-minutes: 350` y 4 shards × 90 min por harness.
+- **"`PENGU_TCC_SHA256` (or the default digest below) must match"**
+  (AUDIT §13.3 #4): no había digest por defecto ni en el workflow ni en el código.
+
 ## [Unreleased] — FASE 8 (ROADMAP 2.0): Completar tests
 
 > Convierte los gates que aprobaban una propiedad **inspeccionando texto** en gates
