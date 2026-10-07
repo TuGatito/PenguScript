@@ -14,11 +14,11 @@ from tests.conftest import REPO, compile_run, requires_cc, requires_runtime
 pytestmark = [requires_cc, requires_runtime]
 
 
-def test_auto_banish_container_model_is_leak_free():
-    """The core ownership model: a plain container must not leak.
+def test_manual_release_container_model_is_leak_free():
+    """The core manual-memory path: a container released with `banish` must not leak.
 
     This is the case the sanitizers workflow asserts with ASan/LeakSanitizer; it
-    passes, which is what lets us claim the auto-banish model itself is sound.
+    passes, which is what lets us claim that explicit release is sufficient.
     """
     res = compile_run(
         "weave main into int:\n"
@@ -44,8 +44,8 @@ Observed with `-fsanitize=address` on this machine:
     SUMMARY: AddressSanitizer: 1033 byte(s) leaked in 5 allocation(s).
 
 Scope:
-  * a minimal `list of int` (push + iterate + auto-banish) is CLEAN, so the
-    ownership/auto-banish model is not the cause;
+  * a minimal `list of int` (push + iterate + explicit `banish`) is CLEAN, so
+    explicit release is not the cause;
   * the leak appears in the legacy paths exercised by
     `tests/test_std_backward_compat.py` (`coven.SetString` and
     `map of string to int`).

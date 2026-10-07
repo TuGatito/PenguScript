@@ -161,7 +161,7 @@ class TestBanishCollections:
     def test_banish_list_and_map_codegen_and_run(self):
         """banish on list and map emits pengu_banish_list and pengu_banish_map and runs cleanly.
 
-        Uses 'defer banish' instead of a reassignment to opt out of auto-banish:
+        Uses 'defer banish' so the release is scheduled exactly once:
         since the release-before-assign work a 'set' with a fresh value keeps the
         local auto-owned (a manual 'banish' on it is E0047 by design).
         """

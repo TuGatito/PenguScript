@@ -277,7 +277,7 @@ class ValueIfMixin:
 
         Returning the node (instead of post-processing the emitted C) lets the
         caller route it through the real ``return_stmt`` path, so ``defer``,
-        ``errdefer`` and scope auto-banishes run exactly once and the returned
+        ``errdefer`` and every scheduled release run exactly once and the returned
         value is excluded from the banish set.
         """
         if not stmts or return_type is None:

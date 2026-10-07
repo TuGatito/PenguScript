@@ -287,8 +287,8 @@ class InterpMixin:
         """True when an interpolated expression allocates a fresh PenguString.
 
         Only fresh producers may be released by the interpolation temporary:
-        a field access, parameter or call result may be a borrowed view whose
-        buffer belongs to someone else.
+        a field access, parameter or call result may be a view whose buffer
+        belongs to someone else.
         """
         if not isinstance(node, Tree):
             return False
@@ -329,7 +329,7 @@ class InterpMixin:
             if not is_string_target:
                 return False
             # 'x to string' with 'x' already a string is the identity: the value
-            # reuses x's buffer, so releasing it would free borrowed memory.
+            # reuses x's buffer, so releasing it would free memory it does not own.
             # 'bool to string' is also NOT owned: pengu_string_from_bool returns
             # a static '.rodata' view ("true"/"false") and the runtime header
             # documents banishing it as undefined behaviour.
@@ -344,8 +344,8 @@ class InterpMixin:
             return True
         if node.data in ("if_stmt", "unless_stmt", "do_expr"):
             # A value block is fresh only when *every* branch produces a fresh
-            # string: a branch yielding a parameter or a field view is borrowed
-            # and must never be released.
+            # string: a branch yielding a parameter or a field view aliases
+            # storage that another name owns and must never be released.
             return self._block_value_is_fresh_string(node)
         if node.data == "string_lit" and node.children:
             from pengu_parser.pengu_parser import extract_string_parts
@@ -358,7 +358,7 @@ class InterpMixin:
     def _block_value_is_fresh_string(self, node: Any, _depth: int = 0) -> bool:
         """True when every value of a 'do:'/'if' block is a fresh string.
 
-        Used by loop-value and interpolation cleanups: a single borrowed branch
+        Used by the interpolation temporary cleanup: a single non-fresh branch
         (a parameter, a field view) makes the whole expression non-owned.
         """
         if not isinstance(node, Tree) or _depth > 16:

@@ -1,5 +1,5 @@
 # #37: a string local stored into a rune's string field is deep-copied, so the
-# local keeps ownership and is still auto-banished (no leak, no aliasing).
+# local keeps ownership and is released explicitly (no leak, no aliasing).
 import std.spark
 
 rune Player derive Nexus:

@@ -484,7 +484,7 @@ class StmtMixin:
                     # The helper list is a temporary copy of the PenguList header
                     # pointing at the same storage.  It is only released when the
                     # source expression owns that storage (rvalue) and the
-                    # elements own nothing themselves: with a borrowed source the
+                    # elements own nothing themselves: with a viewed source the
                     # buffer belongs to the original list, and with owning
                     # elements the extracted locals are views into it.
                     if (not self._type_owns_heap(elem_t)
