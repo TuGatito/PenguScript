@@ -44,8 +44,8 @@ from ._base import (
     default_env,
     os,
 )
+from . import attributes as _attributes
 from .attributes import (
-    _RELEASE_UNSAFE,
     set_restrict_keyword,
 )
 from .bindings import (
@@ -169,8 +169,8 @@ class PenguCodegen(
         self.debug_mode: bool = bool(getattr(self.compile_env, "is_debug", False))
         # Bounds/overflow checking is on by default in every profile; an
         # `unsafe:` block (or --release-unsafe) is the only way out.
-        self.bounds_check_enabled: bool = not _RELEASE_UNSAFE
-        self.overflow_check_enabled: bool = not _RELEASE_UNSAFE
+        self.bounds_check_enabled: bool = not _attributes._RELEASE_UNSAFE
+        self.overflow_check_enabled: bool = not _attributes._RELEASE_UNSAFE
         self._unsafe_depth: int = 0
         # Entry-as-main mode: only the *entry* module compiles with the
         # compile-time 'main' flag true (see _apply_main_flag). Defaults keep

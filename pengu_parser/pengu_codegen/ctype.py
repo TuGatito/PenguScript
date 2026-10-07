@@ -33,9 +33,9 @@ from ._base import (
     Tuple,
     Type,
 )
-from .attributes import (
-    _RESTRICT_KW,
-)
+# `restrict` spelling is a mutable process-wide setting: read it through the
+# module so `set_restrict_keyword()` takes effect after this module is imported.
+from . import attributes as _attributes
 
 class CTypeMapper:
     """Maps PenguScript semantic types to C99 type representations."""
@@ -206,11 +206,11 @@ class CTypeMapper:
             dims, base_c = get_array_dims_and_base(t.target)
             dims_str = "".join(f"[{d}]" for d in dims)
             const_prefix = "const " if const else ""
-            ptr_qual = f" {_RESTRICT_KW} " if restrict else " "
+            ptr_qual = f" {_attributes._RESTRICT_KW} " if restrict else " "
             return f"{const_prefix}{base_c} (*{ptr_qual}{ident}){dims_str}".strip() if ident else f"{const_prefix}{base_c} (*){dims_str}"
         if isinstance(t, RefType) and restrict and ident:
             target_str = CTypeMapper.to_c_type(t.target)
-            return f"{target_str}* {_RESTRICT_KW} {ident}"
+            return f"{target_str}* {_attributes._RESTRICT_KW} {ident}"
         if isinstance(t, ArrayType):
             curr = t
             dims = []
@@ -228,11 +228,11 @@ class CTypeMapper:
             dims, base_c = get_array_dims_and_base(t)
             const_prefix = "const " if const else ""
             if len(dims) == 1:
-                ptr_qual = f" {_RESTRICT_KW}" if restrict else ""
+                ptr_qual = f" {_attributes._RESTRICT_KW}" if restrict else ""
                 return f"{const_prefix}{base_c}*{ptr_qual} {ident}".strip() if ident else f"{const_prefix}{base_c}*"
             else:
                 inner_dims_str = "".join(f"[{d}]" for d in dims[1:])
-                ptr_qual = f" {_RESTRICT_KW} " if restrict else " "
+                ptr_qual = f" {_attributes._RESTRICT_KW} " if restrict else " "
                 return f"{const_prefix}{base_c} (*{ptr_qual}{ident}){inner_dims_str}".strip() if ident else f"{const_prefix}{base_c} (*){inner_dims_str}"
         base = CTypeMapper.to_c_type(t, const=const)
         return f"{base} {ident}".strip() if ident else base
