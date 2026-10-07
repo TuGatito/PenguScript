@@ -111,6 +111,9 @@ All notable changes to PenguScript will be documented in this file.
   portable pone los archivos estáticos (**F9-N7**). Cubierto por un artefacto
   sintético con el layout real (`tests/fixtures/fake_pengu.py`): revertir el mapeo
   hace fallar los 2 tests de FHS y el portable sigue verde.
+- `docs/README_RELEASE.md` (generado por `make_release.py`) ya no incrusta rutas absolutas
+  de la máquina de build ni describe el layout FHS cuando el que se publica es el portable
+  (**F9-N8**): el generador escribe rutas relativas y el árbol del layout real.
 
 ### Diferido
 

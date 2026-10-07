@@ -1007,7 +1007,9 @@ y la ruta de re-pin está documentada), F9-N6 (la Fase 8 arregló `fuzz.yml` per
 portón de artefactos no creaba el scratch y confundía el prefijo FHS con el binario,
 buscando `runtime/lib/*.a` donde el layout portable pone los `.a` en `runtime/`: dos
 fallos que sólo aparecen al ejecutarlo **contra un artefacto real**, ahora cubiertos
-por un artefacto sintético con el layout real).
+por un artefacto sintético con el layout real), F9-N8 (el README de release generado
+incrustaba rutas absolutas del build y describía el layout FHS mientras el publicado es el
+portable).
 
 ### Criterio de "done" de la fase — estado medido
 

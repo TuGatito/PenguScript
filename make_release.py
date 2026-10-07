@@ -850,7 +850,10 @@ DESTDIR=/tmp/stage PREFIX=/usr ./install.sh   # package-manager staging
     └── include/"""
         quickstart = f"""\\
 ### 1. Add to PATH
-Add `{dist_dir.resolve()}` to your system `PATH` environment variable.
+Add this directory (the one holding the `pengu` binary) to your system `PATH`
+environment variable. It is the `{dist_dir.name}/` directory of the unpacked
+archive; the path is relative on purpose so the generated guide does not embed
+the build machine's absolute layout (Phase 9, finding F9-N8).
 """
 
     readme_content = f"""# PenguScript Standalone Release Package
@@ -875,7 +878,7 @@ This directory contains the standalone distribution of the **PenguScript Compile
 1. Open Visual Studio Code.
 2. Go to **Extensions** (`Ctrl+Shift+X`).
 3. Click the `...` menu (Views and More Actions) in the top-right corner.
-4. Select **Install from VSIX...** and choose `{dist_dir.resolve() / vsix_name}`.
+4. Select **Install from VSIX...** and choose `{dist_dir.name}/{vsix_name}` (relative to the unpacked archive).
 
 ### 3. Create a new project
 ```bash
