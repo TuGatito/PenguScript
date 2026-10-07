@@ -1334,8 +1334,14 @@ chk "0 xpassed"                           "! $PY -m pytest tests/ -q 2>&1 | grep
 chk "corpus de compliance"                "[ \$(ls tests/compliance/*.pengu | wc -l) -ge 50 ]"
 
 echo "== Fase 9: release =="
-chk "manifest con SHA-256"                "grep -q hashlib extern_manifest.py && grep -q sha256 extern_manifest.py"
-chk "TCC con digest por defecto"          "grep -qP 'PENGU_TCC_SHA256\s*=\s*\"[0-9a-f]{64}\"' pengu_tcc.py .github/workflows/release.yml"
+# Los gates de la fase 9 ejecutan o miden (regla C1); ninguno inspecciona texto.
+chk "dependencias con digest (offline)"    "$PY scripts/extern_digests.py --check"
+chk "TCC con digest por defecto"           "$PY -m pytest tests/test_tcc_integrity.py -q -k default_digest"
+chk "digest verificado antes de extraer"   "$PY -m pytest tests/test_extern_manifest_digests.py -q"
+chk "extraccion endurecida (3 sitios)"     "$PY -m pytest tests/test_archive_extraction.py -q"
+chk "el tag dispara el release"            "$PY -m pytest tests/test_release_handoff.py -q"
+chk "los artefactos se descargan y corren" "$PY -m pytest tests/test_release_verify.py -q"
+chk "empaquetado reproducible"             "$PY -m pytest tests/test_reproducible_release.py -q"
 
 echo "== Fase 10: afirmaciones =="
 chk "RELEASE_CHECKLIST sin afirmaciones sin gate" "$PY -m pytest tests/test_release_claims.py -q"
