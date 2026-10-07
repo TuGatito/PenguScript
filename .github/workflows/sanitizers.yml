@@ -54,7 +54,7 @@ name: Sanitizers
 #        finding named, so the sanitizer job stops being red for it without the bug
 #        becoming invisible.
 #
-#    The leak surface itself is tracked as **item 8.19** in ROADMAP_2.0.md with the
+#    The leak surface itself is tracked as **item 8.19** in ROADMAP_1.1.md with the
 #    traces above; the reopening criterion is a sanitizer run with no
 #    `detect_leaks=0` and no deselect.
 

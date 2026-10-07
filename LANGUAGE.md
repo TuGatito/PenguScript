@@ -928,7 +928,7 @@ knowing, because each is enforced at a different stage:
 
 **Call-site spread (`f(...xs)`) is not implemented.** Listing the arguments is the
 only form; there is no way to expand a runtime container into N arguments. Spread
-is ⏸️ deferred (see `ROADMAP_2.0.md`).
+is ⏸️ deferred (see `ROADMAP_1.1.md`).
 
 ### 8.3 Function pointers & callbacks
 
@@ -1959,7 +1959,7 @@ error[E0000]: Syntax error: unexpected 'alias'
 because the `concept_method` production in `pengu_grammar.py` accepts only
 `weave` signatures. Declaring an associated type, and resolving `Self.Item` to a
 concrete C type during monomorphization, are both **deferred to 1.1** (see the
-`⏸️ DIFERIDO` table in `ROADMAP_2.0.md`). Until then:
+`⏸️ DIFERIDO` table in `ROADMAP_1.1.md`). Until then:
 
 * use `list of T` / `slice of T` for generic iteration (§11.5);
 * `for x in xs` over a bare `T: Iterabilis` is a compile error;

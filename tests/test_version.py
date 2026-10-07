@@ -166,7 +166,7 @@ def test_the_claim_table_covers_the_drifted_files():
 HISTORICAL: dict[str, str] = {
     "CHANGELOG.md": "the release history itself",
     "ROADMAP_1.0.0.md": "the historical 1.0.0 roadmap",
-    "ROADMAP_2.0.md": "records which phase fixed or measured what",
+    "ROADMAP_1.1.md": "the live roadmap; records which phase fixed or measured what",
     "CLEANUP_PLAN.md": "historical cleanup plan",
     "AUDIT_1.0.md": "the audit's own measurements name the versions it found",
     "AUDIT_1.0_FASE3.md": "phase audit, historical measurements",

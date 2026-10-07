@@ -5,7 +5,7 @@
 # default differs, and so generators/editor integrations that read the nearest
 # config agree with the shipped sources.
 #
-# See LANGUAGE.md §20.2.4 and ROADMAP_2.0.md §4.3.
+# See LANGUAGE.md §20.2.4 and ROADMAP_1.1.md (§4.3 of the 1.0 plan).
 
 [formatting]
 tab_size = 4

@@ -19,7 +19,7 @@ these documents have all drifted since they were written.
 | What is the syntax? | [`../../CHEATSHEET.md`](../../CHEATSHEET.md) |
 | How should code be written? | [`../../PenguScriptGuideEnglish.md`](../../PenguScriptGuideEnglish.md) |
 | What is the version and its history? | [`../../VERSION`](../../VERSION), [`../../CHANGELOG.md`](../../CHANGELOG.md) |
-| What is left to do? | [`../../ROADMAP_2.0.md`](../../ROADMAP_2.0.md) |
+| What is left to do? | [`../../ROADMAP_1.1.md`](../../ROADMAP_1.1.md) |
 | What was found broken, with evidence? | [`../../AUDIT_1.0.md`](../../AUDIT_1.0.md) |
 | How is it built and released? | [`../PENGU_BUILD.md`](../PENGU_BUILD.md), [`../README_RELEASE.md`](../README_RELEASE.md) |
 
@@ -32,8 +32,8 @@ these documents have all drifted since they were written.
 | `P1_PROGRESS.md` | Progress log for phase P1 | `CHANGELOG.md` |
 | `P2_PROGRESS.md` | Progress log for phase P2 | `CHANGELOG.md` |
 | `CRITICALS_PROGRESS.md` | Tracker for the critical/optional findings of an earlier audit | [`../../AUDIT_1.0.md`](../../AUDIT_1.0.md) |
-| `Plan.md` | An early development plan | [`../../ROADMAP_2.0.md`](../../ROADMAP_2.0.md) |
-| `roadmap.md` | An early, short roadmap | [`../../ROADMAP_1.0.0.md`](../../ROADMAP_1.0.0.md), [`../../ROADMAP_2.0.md`](../../ROADMAP_2.0.md) |
+| `Plan.md` | An early development plan | [`../../ROADMAP_1.1.md`](../../ROADMAP_1.1.md) |
+| `roadmap.md` | An early, short roadmap | [`../../ROADMAP_1.0.0.md`](../../ROADMAP_1.0.0.md), [`../../ROADMAP_1.1.md`](../../ROADMAP_1.1.md) |
 
 ## Why keep them instead of deleting
 

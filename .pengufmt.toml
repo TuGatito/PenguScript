@@ -5,7 +5,7 @@
 # This file makes that convention explicit and independent of the CLI default:
 # the formatter walks up from each file and honours the nearest config.
 #
-# See LANGUAGE.md §20.2.4 and ROADMAP_2.0.md §4.3.
+# See LANGUAGE.md §20.2.4 and ROADMAP_1.1.md (§4.3 of the 1.0 plan).
 
 [formatting]
 tab_size = 4

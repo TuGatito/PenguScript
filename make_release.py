@@ -905,7 +905,7 @@ pengu run
 """
     # The generated release guide lives under docs/ (a tracked, regenerated copy)
     # and is also written into the distribution as its own README.md. It is no
-    # longer written to the repository root (Phase 0 of ROADMAP_2.0.md).
+    # longer written to the repository root (Phase 0 of the 1.0 roadmap (`ROADMAP_1.1.md`)).
     docs_readme = ROOT_DIR / "docs" / "README_RELEASE.md"
     docs_readme.parent.mkdir(parents=True, exist_ok=True)
     docs_readme.write_text(readme_content, encoding="utf-8")

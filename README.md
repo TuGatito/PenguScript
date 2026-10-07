@@ -23,7 +23,7 @@
 > evidence behind every claim, the prioritised roadmap, and the porting
 > conventions that work today — is in [`AUDIT_1.0.md`](AUDIT_1.0.md) (verified
 > findings, with the evidence and the refutations) and
-> [`ROADMAP_2.0.md`](ROADMAP_2.0.md) (the prioritised path to 1.0). The older
+> [`ROADMAP_1.1.md`](ROADMAP_1.1.md) (the live plan; formerly `ROADMAP_2.0.md`). The older
 > readiness snapshot, which describes an earlier release, is kept as a historical
 > document in [`docs/archive/`](docs/archive/).
 >

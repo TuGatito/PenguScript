@@ -836,7 +836,7 @@ conviene conocer, porque cada una se aplica en una fase distinta:
 
 **La expansión en el sitio de llamada (`f(...xs)`) no está implementada.** Listar los
 argumentos es la única forma; no hay manera de expandir un contenedor de runtime en N
-argumentos. Está ⏸️ diferido (véase `ROADMAP_2.0.md`).
+argumentos. Está ⏸️ diferido (véase `ROADMAP_1.1.md`).
 
 ### 8.3 Punteros a función y callbacks
 
@@ -1824,7 +1824,7 @@ error[E0000]: Syntax error: unexpected 'alias'
 porque la producción `concept_method` de `pengu_grammar.py` solo acepta firmas `weave`.
 Tanto declarar el tipo asociado como resolver `Self.Item` a un tipo C concreto durante
 la monomorfización están **diferidos a 1.1** (véase la tabla `⏸️ DIFERIDO` de
-`ROADMAP_2.0.md`). Hasta entonces:
+`ROADMAP_1.1.md`). Hasta entonces:
 
 * usa `list of T` / `slice of T` para la iteración genérica (§11.5);
 * `for x in xs` sobre un `T: Iterabilis` desnudo es un error de compilación;

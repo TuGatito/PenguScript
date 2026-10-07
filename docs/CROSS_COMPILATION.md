@@ -302,7 +302,7 @@ No test produces a `.exe`, and none runs it under Wine.
   `windows-latest`/`ubuntu-latest`/`macos-latest` natively
   ([`.github/workflows/ci.yml:40-50`](../.github/workflows/ci.yml#L40)). Recorded as open in
   [`AUDIT_1.0.md:1120`](../AUDIT_1.0.md#L1120), [`AUDIT_1.0.md:2922`](../AUDIT_1.0.md#L2922) and
-  `ROADMAP_2.0.md` item 8.12.
+  `ROADMAP_1.1.md` (item 8.12 of the 1.0 plan).
 * **The MinGW test is opt-in and compile-only** — a stub `.c`, not a PenguScript program
   ([`tests/test_cross_compile.py:119-130`](../tests/test_cross_compile.py#L119)).
 * **No MSVC.** The real matrix is gcc (Linux) / clang-or-gcc (macOS) / MinGW (Windows):

@@ -7,7 +7,7 @@ the review rules a change must satisfy.
 
 Current version: **0.16.0**, in **beta** — usable, not yet production-ready. Read
 [`AUDIT_1.0.md`](AUDIT_1.0.md) (the verified assessment) and
-[`ROADMAP_2.0.md`](ROADMAP_2.0.md) (the live plan) before proposing large changes.
+[`ROADMAP_1.1.md`](ROADMAP_1.1.md) (the live plan) before proposing large changes.
 
 ## Contents
 
@@ -158,7 +158,7 @@ numbers are the audit's and may have drifted. Reproduced in English:
 The four historical offenders are `tests/test_cli_strict_c99.py:50`,
 `tests/test_c99_portability.py`, `tests/test_error_codes_uniqueness.py` and
 `tests/test_attributes_msvc.py:39`. **Phase 8 / item 8.1 (B10)** in
-[`ROADMAP_2.0.md`](ROADMAP_2.0.md) converts them so each compiles, analyses or
+[`ROADMAP_1.1.md`](ROADMAP_1.1.md) converts them so each compiles, analyses or
 measures (item 8.18 shares the harness via `tests/conftest.py`). The Phase 8 exit
 criterion: **no test verifies a property by inspecting text.**
 
@@ -266,7 +266,7 @@ class VarLetTopLevelError(SemanticError):
 [`docs/README.md`](docs/README.md) is the index and the rule book. Normative
 documents live in the repository root: `LANGUAGE.md`/`LANGUAGE_Spanish.md`,
 `CHEATSHEET.md`, the English/Spanish style guides, `README.md`, `CHANGELOG.md`,
-`SECURITY.md`, `BENCHMARKS.md`, `RELEASE_CHECKLIST.md`, `ROADMAP_2.0.md` and
+`SECURITY.md`, `BENCHMARKS.md`, `RELEASE_CHECKLIST.md`, `ROADMAP_1.1.md` and
 `AUDIT_1.0.md` — each linked from [`docs/README.md`](docs/README.md).
 **Non-normative, supplementary** documents go under `docs/`: build/release guides,
 performance and fuzzing methodology, ABI policy, deprecations, and the archived

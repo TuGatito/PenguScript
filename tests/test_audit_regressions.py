@@ -299,7 +299,7 @@ def test_alias_in_concept_is_not_implemented(tmp_path):
     accepts only ``weave`` signatures.
 
     This is an intentional tripwire. Implementing associated types is a 1.1
-    feature (see the ⏸️ table in ROADMAP_2.0.md). If someone adds the grammar
+    feature (see the ⏸️ table in ROADMAP_1.1.md). If someone adds the grammar
     production, this test starts failing, which is the signal to also implement
     `Self.Item` resolution in monomorphization, update the docs, and add the
     positive test -- rather than shipping half of the feature.
