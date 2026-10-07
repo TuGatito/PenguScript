@@ -572,6 +572,27 @@ def package_with_pyinstaller(py_exe: Path, dist_dir: Path, bin_subdir: str = "")
     run_cmd(cmd, env=deterministic_build_env())
 
 
+def cleanup_smoke_scratch() -> None:
+    """Removes what the smoke tests wrote, so the tree is left as it was found.
+
+    F11-N11: the smoke tests run in ``<repo>/scratch/smoke_release_test``.  That
+    path is ``.gitignore``d, so it does not pollute a commit — but
+    ``tests/test_audit_regressions.py::test_historical_cleanup_targets_are_gone``
+    asserts that ``scratch/`` is **absent**, so "run the documented release
+    command, then run the test suite" failed.  ``scratch/`` is removed only when
+    it is empty, so anything else the user keeps there survives.
+    """
+    test_scratch = ROOT_DIR / "scratch" / "smoke_release_test"
+    if test_scratch.exists():
+        shutil.rmtree(test_scratch, ignore_errors=True)
+    scratch = ROOT_DIR / "scratch"
+    if scratch.exists():
+        try:
+            scratch.rmdir()          # only succeeds when empty, on purpose
+        except OSError:
+            pass
+
+
 def verify_executable(dist_dir: Path, bin_subdir: str = ""):
     """Runs smoke tests against the generated standalone binary."""
     exe_name = "pengu.exe" if IS_WINDOWS else "pengu"
@@ -1028,7 +1049,11 @@ def main():
     # Step 7: Smoke Tests
     if not args.skip_tests:
         log_step(7, total_steps, "Running release verification & smoke tests...")
-        verify_executable(dist_dir, bin_subdir=bin_subdir)
+        try:
+            verify_executable(dist_dir, bin_subdir=bin_subdir)
+        finally:
+            # F11-N11: do not leave `scratch/` behind; a test asserts it is gone.
+            cleanup_smoke_scratch()
 
     exe_name = "pengu.exe" if IS_WINDOWS else "pengu"
     vsix_name = f"pengus-{get_version()}.vsix"

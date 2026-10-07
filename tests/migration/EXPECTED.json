@@ -80,6 +80,13 @@
       "expects": "ok",
       "rc": 0,
       "why": "0.16.0 surface: `@deprecated` (W0006) with its replacement plus attribute annotations; a warning, not an error."
+    },
+    {
+      "file": "1.0.0/frozen-surface.pengu",
+      "version": "1.0.0",
+      "expects": "ok",
+      "rc": 0,
+      "why": "The 1.0.0-frozen surface (`docs/FREEZE.md`): `shard` generics, `maybe`, `judge` over an `omen` and `with:` builders. Not a 'before' form — no breaking change landed in 1.0.0 — but the line every project migrates *to* needs an executable example, and the coverage gate does not exempt it."
     }
   ]
 }

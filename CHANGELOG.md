@@ -19,12 +19,14 @@ All notable changes to PenguScript will be documented in this file.
   de verdad y `run_all.py` como runner. La regla C1 se cumple por construcción:
   cada programa se **checkea, construye y ejecuta**, y su código de salida se
   compara con el declarado. Gate: `pytest tests/test_compliance_corpus.py -q`.
-- **`tests/migration/` — 10 programas de migración** (Fase 8, item 8.5): uno por
-  línea de versión publicada desde `0.10.0`, con el resultado que `MIGRATION.md`
-  documenta en `EXPECTED.json`. **8 de los 10 pasan por diseño; los otros 2
-  fallan a propósito**, porque son la sintaxis pre-`0.10.0` de `and` como
-  separador y el compilador debe rechazarlos con `E0000`/`E0005` (**F10-N10**).
-  Gate: `pytest tests/test_migration_corpus.py -q`.
+- **`tests/migration/` — 11 programas de migración** (Fase 8, item 8.5; el
+  undécimo se añade en la Fase 11 al publicar `1.0.0`): uno por línea de versión
+  publicada desde `0.10.0`, con el resultado que `MIGRATION.md` documenta en
+  `EXPECTED.json`. **9 pasan por diseño; los otros 2 fallan a propósito**,
+  porque son la sintaxis pre-`0.10.0` de `and` como separador y el compilador
+  debe rechazarlos con `E0000`/`E0005` (**F10-N10**). El programa de `1.0.0` fija
+  la superficie que congela `docs/FREEZE.md`, que es la versión a la que migra
+  todo el mundo. Gate: `pytest tests/test_migration_corpus.py -q`.
 - **`docs/FREEZE.md` — manifiesto de la superficie congelada** (Fase 10, item
   10.1) y su gate `tests/test_freeze_manifest.py`, que compara cada lista
   contra el árbol y **ejecuta** el CLI en vez de contra una segunda copia del
@@ -62,12 +64,22 @@ All notable changes to PenguScript will be documented in this file.
   afirmación "`tests/migration/` no existe" era falsa desde la Fase 8. Ambos
   corpus quedan depositados como referencia pública de compatibilidad 1.x, con
   README normativo y enlace desde `LANGUAGE.md` §22.5.
+- **El empaquetador de release, auditado ejecutándolo** (Fase 11, item 11.3):
+  `--print-hashes` solo se honraba con `--archive-only`, así que el comando
+  documentado no imprimía **nada** (**F11-N8**); se copiaban **todos** los
+  `*.vsix` de `vscode-extension/`, de modo que un árbol que ya cortó un release
+  arrastraba el anterior al directorio de release (**F11-N7**); y el smoke test
+  dejaba `scratch/` en el árbol, lo que hacía fallar la suite después de correr
+  el release documentado (**F11-N11**). Los tres con test que falla al revertir.
+  La caja del checklist que prometía una firma GPG inexistente también se
+  corrige (**F11-N6**, **F11-N10**).
 
 ### Verified — what the release actually measured
 
 - **Matriz de compiladores real**: gcc **54/54** y clang **54/54** sobre el
   corpus de compliance. **tcc** no está instalado en esta máquina (⏸️, no se
-  afirma). **MSVC queda retirado** como compilador soportado (F8-N11/8.11): el
+  afirma). **MSVC queda retirado** como compilador soportado (Fase 8, item 8.11,
+  no `F8-N11`: ese código no existe — F11-N10): el
   *dialecto* se comprueba con `clang -fdeclspec`, pero ningún job enlaza un
   binario MSVC, porque el stack (PCRE2/libxml2/zlib/mbedTLS/libcurl/
   libmicrohttpd) no tiene build MSVC.
@@ -79,9 +91,13 @@ All notable changes to PenguScript will be documented in this file.
   Apple no hay `notarytool` y `spctl --assess` no se cumple; lo que se gatea es
   `codesign --verify --strict` y `release-verify.yml` publica la salida real de
   `spctl`.
-- **Reproducibilidad**: `python make_release.py --layout portable --print-hashes`
-  produce los mismos hashes en dos corridas del mismo commit, con los 3
-  artefactos (compilador, runtime/`.a` en `runtime/`, `.vsix`) construidos.
+- **Reproducibilidad, medida**: `python make_release.py --layout portable
+  --print-hashes` imprime los SHA-256 de los 229 ficheros del árbol de release y
+  construye los 3 artefactos (compilador, runtime/`.a` en `runtime/`, `.vsix`).
+  Dos corridas del mismo commit dan **227 de 229 hashes idénticos**: difieren el
+  `.vsix` (zip con marcas de tiempo de `vsce`) y el PCH de gcc (**F11-N9**,
+  candidato X de 1.1). Lo que sí está gateado es re-archivar el mismo árbol byte
+  a byte.
 - **Sin tracebacks en entrada de usuario** (regla C4): `pengu check --bogus`
   sale `2`, `pengu check no_existe.pengu` sale `1`, ambos con diagnóstico
   Rust-style y sin `Traceback`.

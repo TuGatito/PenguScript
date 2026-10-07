@@ -7,8 +7,8 @@ regression suite for the *current* language: it is the input a future breaking
 change (and the deferred `pengu migrate` rewriter, roadmap 4.14b) will be judged
 against.  That is why two of the programs are expected to FAIL.
 
-Coverage scope, measured rather than assumed: `CHANGELOG.md` lists 35 published
-versions (0.3.0 … 0.16.0), but `MIGRATION.md` §2 — the normative migration table —
+Coverage scope, measured rather than assumed: `CHANGELOG.md` lists 36 published
+versions (0.3.0 … 1.0.0), but `MIGRATION.md` §2 — the normative migration table —
 starts at 0.10.0, because that is the only release with a breaking change and the
 pre-0.10 syntax is not documented in any current normative document.  Inventing
 "historical" programs for 0.3.0–0.9.1 that nothing can verify would be worse than

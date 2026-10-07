@@ -21,8 +21,8 @@ with the documented codes (`E0000`, `E0005`).
 
 ## Coverage and its boundary
 
-`CHANGELOG.md` lists 35 published versions (`0.3.0` … `0.16.0`). Coverage here is
-asserted per **minor line** from `0.10.0` and for every version that
+`CHANGELOG.md` lists **36** published versions (`0.3.0` … `1.0.0`). Coverage here
+is asserted per **minor line** from `0.10.0` and for every version that
 `MIGRATION.md` §2 marks as breaking, because:
 
 * `MIGRATION.md` — the normative migration table — starts at `0.10.0`;

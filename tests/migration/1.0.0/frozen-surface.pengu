@@ -1,0 +1,46 @@
+# 1.0.0-frozen surface: the constructs `docs/FREEZE.md` freezes for the whole 1.x
+# line — `shard` generics, `maybe`, `judge` over an `omen`, and `with:` builders.
+# No breaking change landed in 1.0.0, so this program is not a "before" form: it
+# is the version every project migrates *to*, and the coverage gate requires an
+# example for the 1.0 minor line just like for every other published line.
+import std.spark
+
+rune Point:
+    x as int
+    y as int
+
+omen Shape:
+    Dot
+    Circle with r as int
+
+weave identity shard T with value as T into T:
+    return value
+
+weave area with s as Shape into int:
+    return judge s:
+        when Shape.Dot -> 0
+        when Shape.Circle with r -> r * r * 3
+
+weave unwrap_or with value as maybe int, fallback as int into int:
+    if value is present:
+        return value.value
+    return fallback
+
+weave main into int:
+    var p as Point is with x is 1, y is 2
+    calling spark.assert with (p.x == 1)
+    calling spark.assert with (p.y == 2)
+
+    var n as int is calling identity of int with 7
+    calling spark.assert with (n == 7)
+
+    var c as Shape is with Circle is with r is 2
+    var d as Shape is Dot
+    calling spark.assert with ((calling area with c) == 12)
+    calling spark.assert with ((calling area with d) == 0)
+
+    var some_value as maybe int is some 5
+    var none_value as maybe int is maybe none
+    calling spark.assert with ((calling unwrap_or with some_value, -1) == 5)
+    calling spark.assert with ((calling unwrap_or with none_value, -1) == -1)
+    return 0

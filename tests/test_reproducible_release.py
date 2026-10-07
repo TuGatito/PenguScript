@@ -247,3 +247,55 @@ def test_a_stale_vsix_is_not_shipped(tmp_path, monkeypatch):
 
     shipped = sorted(p.name for p in dist.glob("*.vsix"))
     assert shipped == ["pengus-1.0.0.vsix"], shipped
+
+
+def test_the_smoke_test_scratch_is_cleaned_up(tmp_path, monkeypatch):
+    """F11-N11: the release command must not leave `scratch/` behind.
+
+    `scratch/` is git-ignored, but
+    `tests/test_audit_regressions.py::test_historical_cleanup_targets_are_gone`
+    asserts it is **absent**, so "run `python make_release.py`, then run the test
+    suite" failed with a leftover `scratch/smoke_release_test/`.  This drives
+    `main()` end to end with the heavy steps mocked: the mocked
+    `verify_executable` creates the scratch directory the real smoke tests use,
+    and the run must remove it.
+
+    C2: drop the `finally: cleanup_smoke_scratch()` in `main()` and this fails.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "VERSION").write_text("1.0.0\n", encoding="utf-8")
+    dist = tmp_path / "dist"
+    scratch = root / "scratch" / "smoke_release_test"
+
+    def fake_assemble(dist_dir, layout="portable"):
+        dist_dir.mkdir(parents=True, exist_ok=True)
+        return dist_dir
+
+    def fake_verify(dist_dir, bin_subdir=""):
+        scratch.mkdir(parents=True, exist_ok=True)
+        (scratch / "leftover.txt").write_text("x", encoding="utf-8")
+
+    monkeypatch.setattr(make_release, "ROOT_DIR", root)
+    monkeypatch.setattr(make_release, "get_venv_python", lambda: sys.executable)
+    monkeypatch.setattr(make_release, "ensure_dependencies", lambda py_exe: None)
+    monkeypatch.setattr(make_release, "build_runtime", lambda py_exe, rebuild=False: None)
+    monkeypatch.setattr(make_release, "assemble_distribution", fake_assemble)
+    monkeypatch.setattr(make_release, "build_vscode_extension", lambda dist_dir: None)
+    monkeypatch.setattr(
+        make_release, "package_with_pyinstaller",
+        lambda py_exe, dist_dir, bin_subdir="": None,
+    )
+    monkeypatch.setattr(
+        make_release, "generate_release_readme",
+        lambda dist_dir, layout="portable": None,
+    )
+    monkeypatch.setattr(make_release, "verify_executable", fake_verify)
+    monkeypatch.setattr(sys, "argv", [
+        "make_release.py", "--layout", "portable", "--dist-dir", str(dist),
+    ])
+
+    make_release.main()
+
+    assert not scratch.exists(), "the smoke-test scratch directory was left behind"
+    assert not (root / "scratch").exists(), "an empty scratch/ was left behind"

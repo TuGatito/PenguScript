@@ -78,10 +78,14 @@ be inspected there ([`ABI.md`](ABI.md)).
 
 ## Sanitizers and fuzzing: the measured scope, not the promise
 
-- **ASan/UBSan** run as a CI matrix (`workflow: .github/workflows/sanitizers.yml`)
-  with the scope declared in that workflow: the leaks listed above are pinned as
-  expected failures, not silently excluded. "No leaks" is **not** claimed for the
-  full stdlib suite.
+- **ASan/UBSan** run as a CI matrix (`workflow: .github/workflows/sanitizers.yml`).
+  Phase 8 split it into the two contracts it can actually keep, and that split is
+  the honest scope: **memory safety** over the whole suite with the leak verdict
+  **off** (`detect_leaks=0`, declared in the workflow — use-after-free, overflow,
+  misaligned access and UB stay fatal, but this is *not* a claim of leak-freedom),
+  and **leak freedom** (`detect_leaks=1`) over the subset that is verified clean.
+  "No leaks across the whole stdlib" is **not** claimed: the measured leak surface
+  is 164 failure marks at 92 % of the suite, with traces in `std/invoke.pengu`.
 - **Fuzzing** runs nightly in shards of **90 minutes × 4 = 6 hours** per harness
   (`workflow: .github/workflows/nightly.yml`). A single 72-hour job is impossible —
   GitHub kills a job at 6 hours — and the documents that promised it were corrected
@@ -138,13 +142,13 @@ embeds interpreter paths); on this machine it was identical run to run. See
 
 ```console
 $ pytest tests/test_compliance_corpus.py -q   # 54 programs: check, build, execute
-$ pytest tests/test_migration_corpus.py -q    # 10 programs, one per version line
+$ pytest tests/test_migration_corpus.py -q    # 11 programs, one per version line
 $ pytest tests/test_freeze_manifest.py -q     # the frozen surface vs the tree
 $ pytest tests/test_release_claims.py -q      # every release claim has a gate
 $ pengu -V                                    # pengu 1.0.0
 ```
 
-The migration corpus contains **8 programs that pass and 2 that fail on
+The migration corpus contains **9 programs that pass and 2 that fail on
 purpose**: the pre-`0.10.0` `and`-as-separator forms, which the compiler must
 reject with `E0000`/`E0005`. "All programs pass" would be the wrong claim, and the
 release does not make it ([`MIGRATION.md`](../MIGRATION.md) §2).
