@@ -5,14 +5,17 @@
 > Regla que gobierna la fase (Anexo C, C1): **ningún gate aprueba una propiedad
 > inspeccionando texto**. Un gate compila, ejecuta o mide.
 
-- **Estado de la fase:** **15 items cerrados** (uno de ellos, 8.11, cerrado
-  *retirando* la afirmación en vez de dejarla sin gate), **2 parciales con
-  medición** (8.2: el job de sanitizers no puede estar verde porque las fugas son
-  de la stdlib; 8.12: el `.exe` real no es verificable sin MinGW) y **ninguna
-  premisa del roadmap sobrevivió intacta**: las de 8.1, 8.2, 8.4, 8.6, 8.8, 8.9 y
-  8.16 estaban obsoletas o incompletas, y cada refutación está medida abajo.
-- **Items nuevos abiertos durante la fase:** 8.19–8.23 (hallazgos F8-N2, F8-N4,
-  F8-N6, F8-N7, F8-N9), todos con programa de reproducción.
+- **Estado de la fase:** **17 items cerrados** — dos de ellos con el alcance
+  declarado por escrito en vez de maquillado: 8.11 se cierra *retirando* la
+  afirmación MSVC y 8.2 se cierra partiendo el job en los dos contratos que puede
+  sostener. **1 parcial con medición** (8.12: el `.exe` real no es verificable sin
+  MinGW). **Ninguna premisa del roadmap sobrevivió intacta**: las de 8.1, 8.2,
+  8.4, 8.6, 8.8, 8.9 y 8.16 estaban obsoletas o incompletas, y cada refutación
+  está medida abajo.
+- **Items nuevos abiertos durante la fase:** 8.19–8.24 (hallazgos F8-N2, F8-N4,
+  F8-N6, F8-N7, F8-N9, F8-N10), todos con programa de reproducción. El más
+  importante es **F8-N10**, un error real de memoria que sólo aparece bajo ASan y
+  que el suite normal no podía ver.
 - **Commit base de la fase:** `32e10fa` (cierre de Fase 7).
 - **Máquina de medición:** Linux x86_64, GCC 15, 36 núcleos, `gcc`/`clang`
   presentes, **sin** `x86_64-w64-mingw32-gcc` (hay `wine`), sin `valgrind`.
@@ -22,7 +25,7 @@
 | # | Item | Estado | Evidencia |
 |---|------|--------|-----------|
 | 8.1 | Convertir los 4 gates de texto (B10) | ✅ premisa refutada; F8-N3/N4/N4a | commits `49cb5ba`, `1a27357`, `7dd19a8`; clasificación medida de los 56 programas de std |
-| 8.2 | Job de sanitizers verde (B9) | ⏸️ **parcial, premisa refutada** | commit `df2ffc0`; medido: 6/6 fallos en los 3 archivos legacy y **164 marcas de fallo al 92 %** del suite bajo ASan |
+| 8.2 | Job de sanitizers verde (B9) | ✅ **verde con alcance declarado**; premisa del roadmap refutada | commits `df2ffc0`, `0b6d9e7`, `1b4500e`; medición final: contrato de memoria **3255 passed, 0 failed, 0 xpassed** (36:53) |
 | 8.3 | `ruff` con `F821,E9` como error (A11) | ✅ | commit `68a5f5b`; `ruff check --select F821,E9 .` → 0 |
 | 8.4 | Corpus de compliance (A13) | ✅ **54 programas** (pedido: 50) | commit `eff1288`; `pytest tests/test_compliance_corpus.py` → 60 passed |
 | 8.5 | Corpus de migración (A13) | ✅ (alcance medido: ≥0.10.0) | commits `66d35e3`, `d3b0b19`; `pytest tests/test_migration_corpus.py` → 21 passed |
@@ -32,7 +35,7 @@
 | 8.9 | Cada `code="Exxxx"` alcanzable | ✅ 73/73 (69 con programa + 4 exentos) | commit `0595f07`; 133 passed, 4 xfailed |
 | 8.10 | Estrés a 10 000 líneas | ✅ | commit `7ae14c8`; check 6.51 s, build 7.15 s sobre 10 003 líneas |
 | 8.11 | Job real de MSVC **o** retirar la afirmación | ✅ **retirada** (opción B) | commit `960cc19` |
-| 8.12 | `cross-compile.yml` | ⏸️ workflow entregado; `.exe` real no verificable aquí | commit `dca109f` |
+| 8.12 | `cross-compile.yml` | ⏸️ **único parcial**: workflow entregado, `.exe` real no verificable aquí | commit `dca109f` |
 | 8.13 | Workflows de los corpus | ✅ | commit `dca109f` |
 | 8.14 | `codeql.yml` | ✅ | commit `dca109f` |
 | 8.15 | Actions fijadas a SHA | ✅ | commit `dca109f`; `grep -rn 'uses:.*@v[0-9]' .github/` → 0 |
@@ -126,7 +129,7 @@ y `pengu_codegen.py`: es un item propio, no un ajuste de CI. Se abre como
 
 | Paso | Contrato | `detect_leaks` | Medición |
 |---|---|---|---|
-| `Memory safety across the suite (ASan + UBSan)` | Use-after-free, overflow, UB en todo el suite | **0** (declarado) | Primera corrida: **16 failed, 3253 passed, 46 xfailed, 1 xpassed**. Los 16 se resolvieron en dos clases (13 no pueden sostener su premisa bajo instrumentación y ahora llevan `requires_no_sanitizer_reason(...)`; **3 son el hallazgo real F8-N10**). Verificación final en §"Mediciones finales" |
+| `Memory safety across the suite (ASan + UBSan)` | Use-after-free, overflow, UB en todo el suite | **0** (declarado) | ✅ **3255 passed, 40 skipped, 6 deselected, 47 xfailed, 0 failed, 0 xpassed** (36:53). La primera corrida dio **16 failed**; se resolvieron en dos clases: 13 no pueden sostener su premisa bajo instrumentación (`requires_no_sanitizer_reason(...)` con el motivo) y **3 eran el hallazgo real F8-N10** |
 | `Leak freedom on the auto-banish model` | Cero fugas en el subconjunto verificado | **1** | **4 passed, 1 xfailed** (el xfail es el leak rastreado) |
 | `Memory safety on the std legacy-compat programs` | Sin errores de memoria en los programas cuyo leak está rastreado | **0** | **6 passed** |
 | valgrind job | El mismo subconjunto con el segundo detector | — | **no medido aquí** (no hay valgrind en la máquina); el paso ya no selecciona ficheros totalmente deseleccionados |
@@ -584,6 +587,13 @@ python -m pytest tests/test_std_backward_compat.py tests/test_std_data_backward_
                  tests/test_std_util_backward_compat.py -q
 # → 6 failed in 96.92s   (no 1)
 
+# 8.2 — contrato de memoria del job, verificacion final (EXIT=0):
+PENGU_CFLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all' \
+PENGU_LDFLAGS='-fsanitize=address,undefined' \
+ASAN_OPTIONS='detect_leaks=0:abort_on_error=1:halt_on_error=1:strict_string_checks=1:detect_stack_use_after_return=1' \
+python -m pytest tests -q --deselect <los 3 node ids>
+# → 3255 passed, 40 skipped, 6 deselected, 47 xfailed in 36:53
+
 # 8.1 — clasificación de los 56 programas de std con --strict-c99 (paralelizable):
 for p in tests/std_programs/test_*.pengu; do
   python -m pengu_project build --entry "$p" --output "/tmp/$(basename $p .pengu).c" --strict-c99
@@ -608,7 +618,7 @@ for i in $(seq 1 5);  do pytest tests/test_run_cache.py -q; done
 
 | Item | Por qué se difiere | Medición que lo justifica | Criterio de reapertura |
 |------|--------------------|---------------------------|------------------------|
-| **8.2 (job verde)** | Las fugas están en la stdlib, no en un test | 6/6 fallos en los 3 archivos con fugas y **164 marcas de fallo al 92 %** del suite completo bajo ASan | Cerrar 8.19 (fugas de stdlib); entonces el `--deselect` se vacía y el test de propagación obliga a tocar el workflow |
+| **8.2 (contrato de fugas)** | El job **sí está verde**, pero el veredicto de fuga sólo cubre el subconjunto verificado: las fugas están en la stdlib (8.19) y deselectarlas por nombre sería una lista más larga que el gate | 6/6 fallos en los 3 archivos con fugas y **164 marcas de fallo al 92 %** del suite completo con `detect_leaks=1` | Cerrar 8.19: entonces el `--deselect` se vacía y la rama `detect_leaks=0` desaparece; los dos tests de `test_known_issues.py` obligan a tocar el workflow |
 | **8.12 (`.exe` real)** | No hay `x86_64-w64-mingw32-gcc` aquí y la runtime no es cross-buildable (`pengu_runtime.c` incluye PCRE2/libxml2/zlib/mbedTLS/curl/microhttpd) | `which x86_64-w64-mingw32-gcc` → no existe; el bundle mínimo falla al enlazar solo por `pengu_abi_version` | Un runner con MinGW + runtime cross-built; el shim del workflow desaparece |
 | **8.1 (los 32 programas bloqueados)** | B5 (roadmap 3.3) y F8-N4 están diferidos a 1.1 | 14 con statement-expressions, 18 con C inválido, 1 miscompilado | `xfail(strict=True)`: al arreglarlos pasan a `xpass` y el archivo falla |
 | **8.5 (versiones <0.10.0)** | La sintaxis no está documentada en ningún documento normativo | `CHANGELOG.md` lista 35 versiones; `MIGRATION.md` §2 empieza en 0.10.0 | Aparece documentación normativa de la sintaxis pre-0.10 |
