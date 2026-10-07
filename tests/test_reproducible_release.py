@@ -1,10 +1,17 @@
-"""Phase 9, item 9.8 — two builds of the same commit must produce the same bytes.
+"""Phase 9, item 9.8 — archiving the same tree must produce the same bytes.
 
 The trap this pins: the release workflows used to archive with `tar -czf` and
 `Compress-Archive`, both of which embed the *current* time (gzip header mtime /
 ZIP entry dates) and the directory walk order.  ``make_release.py`` now writes the
 archive itself: sorted entries, a timestamp from ``SOURCE_DATE_EPOCH``, normalized
 ownership and permissions.
+
+Scope, measured in Phase 11 (F11-N9): what is gated here is that *the same tree*
+archives byte-for-byte identically.  It is **not** a claim that two independent
+builds of a commit produce an identical distribution tree — they do not: of the
+229 files the 1.0.0 dry run hashes, 227 matched run to run and two did not
+(`pengus-*.vsix`, written by ``vsce``, and ``pengu_runtime.h.gch``, written by
+gcc).  Closing those is roadmap 1.1 candidate X.
 """
 
 from __future__ import annotations
@@ -158,3 +165,85 @@ def test_archive_rejects_an_unknown_extension(tmp_path):
 def test_archive_of_a_missing_directory_fails(tmp_path):
     with pytest.raises(SystemExit):
         make_release.make_archive(tmp_path / "nope", tmp_path / "a.tar.gz")
+
+
+# ---------------------------------------------------------------------------
+# Phase 11 (F11-N7 / F11-N8) — the dry run found two holes in the packager
+# ---------------------------------------------------------------------------
+
+
+def test_print_hashes_is_not_a_no_op_on_the_packaging_path(tmp_path, monkeypatch, capsys):
+    """F11-N8: `--print-hashes` only worked with `--archive-only`.
+
+    The documented command — `python make_release.py --layout portable
+    --print-hashes` — passed the flag to the packaging path, which ignored it
+    and printed no digest at all.  A "run it twice, same hashes" check could
+    therefore pass by looking at an empty screen.
+
+    C2: drop the `if args.print_hashes:` block after the SUCCESS banner and this
+    fails (no 64-hex digest naming `VERSION`).
+    """
+    dist = tmp_path / "dist"
+
+    def fake_assemble(dist_dir, layout="portable"):
+        dist_dir.mkdir(parents=True, exist_ok=True)
+        (dist_dir / "VERSION").write_text("1.0.0\n", encoding="utf-8")
+        return dist_dir
+
+    monkeypatch.setattr(make_release, "get_venv_python", lambda: sys.executable)
+    monkeypatch.setattr(make_release, "ensure_dependencies", lambda py_exe: None)
+    monkeypatch.setattr(make_release, "build_runtime", lambda py_exe, rebuild=False: None)
+    monkeypatch.setattr(make_release, "assemble_distribution", fake_assemble)
+    monkeypatch.setattr(make_release, "build_vscode_extension", lambda dist_dir: None)
+    monkeypatch.setattr(
+        make_release, "package_with_pyinstaller",
+        lambda py_exe, dist_dir, bin_subdir="": None,
+    )
+    monkeypatch.setattr(
+        make_release, "generate_release_readme",
+        lambda dist_dir, layout="portable": None,
+    )
+
+    monkeypatch.setattr(sys, "argv", [
+        "make_release.py", "--layout", "portable", "--skip-tests",
+        "--dist-dir", str(dist), "--print-hashes",
+    ])
+    make_release.main()
+
+    out = capsys.readouterr().out
+    digests = [
+        line for line in out.splitlines()
+        if len(line.split()) == 2 and len(line.split()[0]) == 64
+    ]
+    assert digests, f"the packaging path printed no hashes:\n{out}"
+    assert any(line.endswith("VERSION") for line in digests), digests
+
+
+def test_a_stale_vsix_is_not_shipped(tmp_path, monkeypatch):
+    """F11-N7: a previous release's `.vsix` must not ride along.
+
+    `*.vsix` is git-ignored and `vsce` writes it next to the sources, so a tree
+    that has cut a release before keeps the old artifact.  Measured on the 1.0.0
+    dry run: `pengucc_build/` contained both `pengus-1.0.0.vsix` and the stale
+    `pengus-1.0.0-rc1.vsix`, because the packager copied every `*.vsix` it found.
+
+    C2: revert `select_vsix_artifacts` to a plain `glob("*.vsix")` copy-all and
+    this fails (the stale file lands in `dist_dir`).
+    """
+    root = tmp_path / "root"
+    ext = root / "vscode-extension"
+    ext.mkdir(parents=True)
+    (root / "VERSION").write_text("1.0.0\n", encoding="utf-8")
+    (ext / "pengus-1.0.0.vsix").write_bytes(b"current release")
+    (ext / "pengus-1.0.0-rc1.vsix").write_bytes(b"stale release")
+    dist = tmp_path / "dist"
+    dist.mkdir()
+
+    monkeypatch.setattr(make_release, "ROOT_DIR", root)
+    monkeypatch.setattr(make_release, "sync_extension_version", lambda: None)
+    monkeypatch.setattr(make_release, "run_cmd", lambda *a, **k: None)
+
+    make_release.build_vscode_extension(dist)
+
+    shipped = sorted(p.name for p in dist.glob("*.vsix"))
+    assert shipped == ["pengus-1.0.0.vsix"], shipped

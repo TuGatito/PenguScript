@@ -690,6 +690,23 @@ def sync_extension_version() -> None:
         print(f"  [VSCODE] Synced extension version -> {get_version()}")
 
 
+def select_vsix_artifacts(ext_dir: Path, version: str) -> Tuple[List[Path], List[Path]]:
+    """``(expected, stale)`` .vsix files in ``ext_dir`` for ``version``.
+
+    ``vsce`` writes ``pengus-<version>.vsix`` next to the extension sources, and
+    ``*.vsix`` is git-ignored, so a checkout that has cut a release before keeps
+    the previous artifact on disk.  Copying *every* match into the distribution
+    directory therefore ships an obsolete extension alongside the current one
+    (F11-N7, measured on the 1.0.0 dry run: ``pengucc_build/`` contained both
+    ``pengus-1.0.0.vsix`` and the stale ``pengus-1.0.0-rc1.vsix``).
+    """
+    expected_name = f"pengus-{version}.vsix"
+    found = sorted(ext_dir.glob("*.vsix"))
+    expected = [p for p in found if p.name == expected_name]
+    stale = [p for p in found if p.name != expected_name]
+    return expected, stale
+
+
 def build_vscode_extension(dist_dir: Path):
     """Builds and packages the VS Code extension into a .vsix artifact."""
     ext_dir = ROOT_DIR / "vscode-extension"
@@ -721,11 +738,21 @@ def build_vscode_extension(dist_dir: Path):
     run_cmd([npx_cmd, "-y", "@vscode/vsce", "package"], cwd=str(ext_dir))
 
     # 3. Copy .vsix to dist_dir
-    vsix_files = list(ext_dir.glob("*.vsix"))
-    for vf in vsix_files:
+    expected, stale = select_vsix_artifacts(ext_dir, get_version())
+    for vf in expected:
         dest_vsix = dist_dir / vf.name
         shutil.copy2(vf, dest_vsix)
         print(f"  [VSCODE] Copied {vf.name} -> {dest_vsix}")
+    if not expected:
+        print(
+            f"  [WARN] {ext_dir / f'pengus-{get_version()}.vsix'} was not produced; "
+            "the release directory has no extension artifact"
+        )
+    for vf in stale:
+        print(
+            f"  [WARN] not shipping stale extension artifact {vf.name} "
+            "(it does not match VERSION)"
+        )
 
 
 def generate_install_script(dist_dir: Path) -> None:
@@ -1011,6 +1038,17 @@ def main():
     print(f"  Executable: {dist_dir / exe_rel}")
     print(f"  VS Code Extension: {dist_dir / vsix_name}")
     print("================================================================\n")
+
+    # F11-N8: `--print-hashes` used to be honoured only in the `--archive-only`
+    # branch, so the documented reproducibility command
+    # (`python make_release.py --layout portable --print-hashes`) printed
+    # **nothing** and a "same hashes" check could pass by looking at an empty
+    # screen. The full packaging path prints them too.
+    if args.print_hashes:
+        print(f"  SHA-256 of every file in {dist_dir}:")
+        for rel, digest in artifact_hashes(dist_dir):
+            print(f"  {digest}  {rel}")
+        print()
 
 
 if __name__ == "__main__":

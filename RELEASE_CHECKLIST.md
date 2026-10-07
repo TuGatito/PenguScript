@@ -129,11 +129,13 @@ construction and is marked `manual:`.
 - [ ] `manual:` Tag `v1.0.0` and sign it — `git tag -s v1.0.0` (CI creates and
       pushes an unsigned tag when the changelog is promoted; a signed tag is a
       manual choice).
-- [ ] `manual:` Build the release artifacts and publish checksums + GPG
-      signature — see `SECURITY.md` §Release integrity.
+- [ ] `manual:` Build the release artifacts and publish `SHA256SUMS.txt` — see
+      `SECURITY.md` §Release integrity. **No GPG signature is produced**: no
+      release key exists (`SECURITY.md`), so a box promising one would be a
+      claim with no gate.
 - [ ] `manual:` Publish the GitHub release with the changelog excerpt.
-- [ ] `manual:` Create `1.0.0-rc1` first if the tag has not been through a bake
-      period.
+- [ ] `manual:` Create an `x.y.z-rc1` first if the tag has not been through a
+      bake period.
 
 ### Announcements (only after the final release)
 

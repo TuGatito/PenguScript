@@ -92,6 +92,14 @@ What is *not* claimed: the PyInstaller binary itself is not certified
 byte-reproducible across machines. The measurement and its cause are recorded in
 `AUDIT_1.0_FASE9.md` item 9.8.
 
+Also **not** claimed, and measured in Phase 11 (F11-N9): two independent builds of
+the same commit do not produce an identical distribution *tree*. Of the 229 files
+`--print-hashes` lists for the 1.0.0 portable layout, 227 matched run to run; the
+two that did not are `pengus-<version>.vsix` (a zip, whose entry times `vsce`
+writes) and `runtime/include/pengu_runtime.h.gch` (a gcc precompiled header).
+Everything derived from the sources — the frozen compiler, the runtime archives,
+`std/`, `VERSION` — matched. Closing those two is roadmap 1.1 candidate X.
+
 ## 4. Verify by hand (optional, 2 minutes)
 
 ```bash
