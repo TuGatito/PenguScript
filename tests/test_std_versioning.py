@@ -53,3 +53,50 @@ def test_module_versions_are_valid_versions():
     for path in _hand_written_modules():
         for name, value in _VERSION_RE.findall(path.read_text(encoding="utf-8")):
             assert Version.try_parse(value) is not None, f"{path.name}: bad {name} = {value!r}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 10 / F10-N13 — the in-language test programs pin the same constants
+# ---------------------------------------------------------------------------
+
+#: `calling spark.assert with (loom.LOOM_VERSION == "1.0.0-rc1")`
+_PROGRAM_ASSERTION_RE = re.compile(r'(\w+_VERSION)\s*==\s*"([^"]*)"')
+
+STD_PROGRAMS = REPO / "tests" / "std_programs"
+
+
+def test_the_in_language_std_programs_assert_the_current_version():
+    """`tests/std_programs/test_<mod>_extended.pengu` asserts `<MOD>_VERSION`.
+
+    Measured during Phase 10: bumping `VERSION` to `1.0.0-rc1` updated the 26
+    modules but not the 14 programs that assert their constants, so **28**
+    `test_std_*_extended` runs died with `[PANIC] Assertion failed` plus two more
+    in `test_cli_strict_c99.py` — a version bump that reported 42 failures in
+    five different suites, none of which named the real cause (F10-N13). This
+    gate makes the next bump fail **once**, here, with the file and the constant.
+    """
+    mismatched = []
+    for path in sorted(STD_PROGRAMS.glob("*.pengu")):
+        for name, value in _PROGRAM_ASSERTION_RE.findall(path.read_text(encoding="utf-8")):
+            if name in _API_VERSION_ALLOWLIST:
+                continue
+            if value != PENGU_VERSION:
+                mismatched.append(f"{path.name}: {name} == {value!r} != {PENGU_VERSION!r}")
+    assert not mismatched, (
+        "std test programs pin a version that is not the toolchain's:\n  "
+        + "\n  ".join(mismatched)
+    )
+
+
+def test_the_program_gate_is_not_vacuous():
+    """At least one program must really assert a toolchain-tracking constant."""
+    found = [
+        path.name
+        for path in sorted(STD_PROGRAMS.glob("*.pengu"))
+        for name, _value in _PROGRAM_ASSERTION_RE.findall(path.read_text(encoding="utf-8"))
+        if name not in _API_VERSION_ALLOWLIST
+    ]
+    assert len(found) >= 10, (
+        f"only {len(found)} program version assertions found; the gate would pass "
+        "for the wrong reason"
+    )

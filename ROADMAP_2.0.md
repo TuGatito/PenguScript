@@ -1074,6 +1074,50 @@ la documentación a un gate antes de declarar 1.0.
   (p. ej. la notarización macOS sin cuenta Apple). **Mitigación:** **retirar la afirmación**; una
   promesa sin gate es peor que una promesa ausente.
 
+### Estado de ejecución — Fase 10
+
+Detalle item por item, con la verificación de cada premisa, en
+[`AUDIT_1.0_FASE10.md`](AUDIT_1.0_FASE10.md). Resumen:
+
+| # | Estado | Commit | Evidencia de una línea |
+|---|--------|--------|------------------------|
+| 10.1 | ✅ | `854ebf3` | `docs/FREEZE.md` es un manifiesto con bloques `<!-- freeze:KEY -->` (69 palabras reservadas, `PENGU_ABI_VERSION = 1`, 27 subcomandos, 4 flags globales, contrato rc, 27+25+3 módulos, 21 features LSP, 64 `E` + 9 `W`) y `tests/test_freeze_manifest.py` compara cada uno con **el árbol** (introspección del parser, ficheros, catálogo, registro LSP, `pengu_runtime.h`): **19 passed**. C2: quitar `add` y `E0065` → **3 failed**. Refuta dos premisas: las capacidades LSP son **21**, no 13 (**F10-N1**), y `--verbose`/`-D` **no** son globales (**F10-N2**) |
+| 10.2 | ✅ | `8f6f571`, `c8e07d9` | Los 3 documentos auditados. `BENCHMARKS.md` publicaba **98.4 KiB** para hello world y mide **659.5 KiB** (**6.7×**, **F10-N4**); re-medido, fechado (`Measured on **2026-10-07**`) y con los 10 casos del harness. El comando de "1.8× C" **no compilaba** (**F10-N3**, arreglado en `c8e07d9` y gateado). `SECURITY.md` retira la firma GPG y la huella PGP inexistentes (**F10-N7**) y da gate a las 6 mitigaciones. `tests/test_release_claims.py` cubre 3 documentos: **22 passed**. C2: quitar fecha + un gate + una refutación → **3 failed** |
+| 10.3 | ✅ | `b94814d` | `run_all.py --cc` + matriz `[gcc, clang]` con `fail-fast: false` en `compliance.yml`. Medido: **gcc 54/54**, **clang 54/54**, tcc no instalado. El gate mide que `--cc` llega al build, no que el YAML lo diga. C2: quitar la matriz → **1 failed** |
+| 10.4 | ⏸️ CI | — | ASan+UBSan reproducidos en el alcance posible: contrato 2 (`detect_leaks=1`) **5 passed, 1 xfailed**; contrato 1 (`detect_leaks=0`) **49 passed, 2 skipped, 2 xfailed**. La suite completa instrumentada y valgrind (no instalado) quedan en `workflow: sanitizers.yml`. **`PENGU_ASAN` no existe** (**F10-N8**): el mecanismo real es `PENGU_CFLAGS`/`PENGU_LDFLAGS` + `ASAN_OPTIONS` |
+| 10.5 | ⏸️ CI | — | Smoke de los 5 harnesses: **3674 casos, 0 crashes**. Las **6 h/harness** son de `workflow: nightly.yml` (4 shards × 90 min), no de `fuzz.yml` (300 s en PR / 1 h nightly), y no caben en una sesión. Los harnesses son `scripts/fuzz/fuzz_*.py`: `scripts/fuzz/parser.py` no existe (**F10-N9**) |
+| 10.6 | ✅ | — | `pytest tests/test_migration_doc.py tests/test_migration_corpus.py -q` → **31 passed**. Corpus completo: **10** programas (0.10.0–0.16.0), 8 con rc=0 y **2 con el error que `EXPECTED.json` documenta** (`E0000`, `E0005`); el "todos pasan" del roadmap es falso (**F10-N10**) |
+| 10.7 | ✅ | `9a33e65` | `VERSION` y `FALLBACK_VERSION` → `1.0.0-rc1`; todas las afirmaciones de versión actual, los **26** `<MOD>_VERSION` (**F10-N5**: el roadmap decía "no tocar", y §19.0 exige lo contrario) y `docs/api/*.md` regenerados. `tests/test_version.py` → **30 passed, 6 skipped**. El ratchet de tokens obsoletos pasa a ser **relativo a `VERSION`** con excepciones por `(fichero, token)`, porque el rango fijo 0.10–0.15 quedaba ciego a `0.16.0` (**F10-N6**). `pengu -V` → `pengu 1.0.0-rc1` (no `PenguScript v1.0.0-rc1`, **F10-N11**) |
+| 10.8 | ⏸️ | — | Publicar el RC exige credenciales y push de tag. El mecanismo está fijado por `tests/test_release_handoff.py` (**17 passed**, dispatch explícito con `actions: write`) |
+| 10.9 | ⏸️ | — | ≥1 semana de validación: no es trabajo de agente. Criterio: 0 bloqueantes nuevos y 0 cambios en los 3 documentos de release (los 3 con gate desde 10.2) |
+| 10.10 | ⏸️ | — | Ensayo end-to-end en un fork: sin fork ni credenciales. Misma limitación que registró la Fase 9 |
+| 10.11 | 🟡 | — | Instalación desde cero: **Linux medido** con el artefacto portable real (§3e del audit); macOS ⏸️ sin máquina (`release-verify.yml` en `macos-latest`) y Windows ⏸️ (`windows-latest`) |
+
+**Hallazgos nuevos de la fase:** F10-N1 (13 capacidades LSP → **21**), F10-N2 (`--verbose`/`-D` no son
+globales), F10-N3 (`-DPENGU_FRAME_TRACE=0` no compilaba el bundle generado: la medición "1.8× C" que
+publica `BENCHMARKS.md` era irreproducible), F10-N4 (`BENCHMARKS.md` 6.7× equivocado en tamaño y sin
+fecha: 98.4 KiB publicados vs 659.5 KiB medidos, porque el item 4.17 enlaza PCRE2/libxml2/libcurl/
+mbedTLS/libmicrohttpd/zlib en cada binario), F10-N5 («no tocar `<MOD>_VERSION`» es al revés: §19.0 y
+`test_std_versioning.py` exigen que lleven la versión del toolchain; 26 módulos), F10-N6 (el gate de
+versiones no sabía expresar `1.0.0-rc1` y su ratchet usaba un rango fijo que quedaba ciego a `0.16.0`),
+F10-N7 (`SECURITY.md` prometía firma GPG y huella PGP inexistentes), F10-N8 (`PENGU_ASAN` no existe),
+F10-N9 (el smoke de fuzz del encargo apunta a un fichero inexistente y el presupuesto de 6 h vive en
+`nightly.yml`), F10-N10 (en migración "todos pasan" es falso: 2 de 10 fallan a propósito), F10-N11
+(`pengu -V` imprime `pengu 1.0.0-rc1`), F10-N12 (la "matriz de compiladores" no existía como matriz
+en CI).
+
+### Criterio de "done" de la fase — estado medido
+
+- [x] `docs/FREEZE.md` publicado y la superficie pública declarada congelada, con gate que falla al divergir.
+- [x] **Cero** afirmaciones sin gate en `RELEASE_CHECKLIST.md`, `BENCHMARKS.md` y `SECURITY.md`; 3 refutadas **retiradas** por escrito.
+- [ ] La matriz **completa** de compiladores verde sobre el RC: gcc y clang sí (54/54 cada uno); tcc no está instalado y MSVC está retirado.
+- [ ] Sanitizers y valgrind verdes; fuzzing ≥6 h/harness: reproducido el alcance posible; el resto `⏸️ CI` con el job enlazado.
+- [x] El corpus de migración verde (8 rc=0 + los 2 errores documentados).
+- [x] `pengu -V` → `1.0.0-rc1` y todas las versiones sincronizadas.
+- [ ] ≥1 semana de RC sin bloqueantes nuevos (10.9).
+- [ ] Ensayo de release completo reproducible en un fork (10.10).
+- [ ] Instalación desde cero verificada en Linux, macOS y Windows (Linux ✅, macOS/Windows ⏸️).
+
 ---
 
 ## Fase 11 — 1.0.0

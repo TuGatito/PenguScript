@@ -5,7 +5,7 @@ weave main into int:
     calling spark.println with "=== Test Rites Extended ==="
 
     # 1. Version
-    calling spark.assert with rites.RITES_VERSION == "0.16.0"
+    calling spark.assert with rites.RITES_VERSION == "1.0.0-rc1"
     calling spark.println with "version: OK"
 
     # 2. Environment Accessors

@@ -5,7 +5,7 @@ release to another, and how to verify the move. It is deliberately short: the
 language has exactly **one** breaking change in its history so far, and it landed
 in `0.10.0`.
 
-> **Current version: 0.16.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 1.0.0-rc1** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
 
@@ -27,7 +27,7 @@ in `0.10.0`.
 | Version | Breaking change | Action |
 |---|---|---|
 | `0.10.0` | `and` stops being a list separator next to expressions | replace it with `,` — see §3 |
-| `0.11.0` – `0.16.0` | **none** | nothing to do |
+| `0.11.0` – `1.0.0-rc1` | **none** | nothing to do |
 
 There are no other breaking entries in the changelog. If you find one that is not
 in this table, that is a documentation bug — see §6.

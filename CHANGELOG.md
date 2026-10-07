@@ -2,6 +2,115 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [Unreleased] — FASE 10 (ROADMAP 2.0): Congelación y RC
+
+> Congela la superficie pública en `docs/FREEZE.md` con un test que la compara
+> contra **el árbol** (no contra una segunda copia de la lista), somete a los
+> **tres** documentos de release a un gate (no sólo al checklist) y corta el
+> `1.0.0-rc1`. La auditoría refutó **10 de las premisas** del roadmap: midió que
+> las capacidades LSP son 21 y no 13, que `--verbose`/`-D` no son flags globales,
+> que `BENCHMARKS.md` publicaba un tamaño de binario **6.7× menor** que el real y
+> sin fecha, que el comando documentado para apagar la traza de frames **no
+> compilaba**, que `SECURITY.md` prometía una firma GPG inexistente y que los
+> `<MOD>_VERSION` de `std/` **sí** llevan la versión del toolchain (al contrario
+> de lo que decía el encargo).
+> Detalle item por item, con la verificación de cada premisa, en
+> `AUDIT_1.0_FASE10.md`.
+
+### Added
+
+- **`docs/FREEZE.md` — la superficie pública de 1.0, como manifiesto** (10.1):
+  lenguaje (69 palabras reservadas + 4 soft keywords), ABI (`PENGU_ABI_VERSION =
+  1`), CLI (27 subcomandos, 4 flags globales, contrato de rc `0/1/2`), stdlib (27
+  módulos puros + 25 bindings + los 3 opt-in), LSP (21 features) y diagnóstico (64
+  códigos `E` + 9 `W`), más una sección explícita de **qué queda fuera** de la
+  congelación (orden de iteración de `map`, heurística de inlining, texto de los
+  diagnósticos, formato de `pengu benchmark`). Cada lista vive en un bloque
+  `<!-- freeze:KEY -->`.
+- **`tests/test_freeze_manifest.py`** — el gate del manifiesto: lee los bloques y
+  los compara con la fuente real de cada dato (introspección de
+  `create_cli_parser()`, ficheros de `std/`, `docs/error_catalog.json`, el registro
+  de features del servidor LSP, `pengu_runtime.h`, `LANGUAGE.md` §3.4) y **ejecuta**
+  el CLI para medir el contrato de rc. Incluye control negativo: quitar una entrada
+  de cualquier bloque falla (**F10-N1**, **F10-N2**).
+
+### Changed
+
+- **Versión `1.0.0-rc1` en todo el árbol** (10.7): `VERSION`,
+  `pengu_version.py:FALLBACK_VERSION`, las dos referencias del lenguaje y las dos
+  guías, `docs/PENGU_BUILD.md`, `docs/README_RELEASE.md`
+  (`pengus-1.0.0-rc1.vsix`), `docs/ARCHITECTURE.md`, `docs/CROSS_COMPILATION.md`,
+  `docs/ABI.md`, la nota de congelación de la ABI en `pengu_runtime.h`, el
+  docstring del parser, el fallback de `pengu_codegen`, el ejemplo de
+  `verify_release_artifact`, `vscode-extension/package{,-lock}.json` y los **26**
+  `<MOD>_VERSION` de `std/*.pengu` (política §19.0; `spark` queda fuera porque
+  `SPARK_VERSION`/`STD_VERSION` sí son revisiones de API). `docs/api/*.md`
+  regenerados. `pengu -V` → `pengu 1.0.0-rc1` (**F10-N5**, **F10-N6**, **F10-N11**).
+- **El ratchet de versiones obsoletas pasa a ser relativo a `VERSION`** (10.7):
+  antes usaba un rango fijo `0.10`–`0.15`, así que al subir a `1.0.0-rc1` un
+  `0.16.0` colado en cualquier documento escaneado habría pasado inadvertido. Las
+  excepciones son ahora por `(fichero, token)` y no eximiendo ficheros enteros
+  (**F10-N6**).
+- **`BENCHMARKS.md` re-medido y fechado** (10.2): publicaba **98.4 KiB** para hello
+  world y mide **659.5 KiB** — cada build enlaza el runtime más PCRE2, libxml2,
+  libcurl, mbedTLS, libmicrohttpd y zlib desde el item 4.17, y `nm` lo demuestra en
+  el binario. La página publica los **10** casos del harness (faltaban los 6 de
+  `std/`), lleva `Measured on **2026-10-07**` y los objetivos revisados declaran su
+  veredicto. `RELEASE_CHECKLIST.md` §3 se actualiza (3.7×–9.5× vs C, 1.5× con la
+  traza apagada; 659–668 KiB; cache hit 0.381 s). (**F10-N4**)
+- **`SECURITY.md` retira las promesas sin gate** (10.2): los artefactos **no** se
+  firman con GPG y **no** hay huella de clave PGP publicada (`release.yml` produce
+  `SHA256SUMS.txt`, y eso sí está gateado); ambas afirmaciones se retiran por
+  escrito. Las 6 mitigaciones pasan a una tabla que nombra el test que las gatea, y
+  la tabla de versiones soportadas tiene que cubrir el `VERSION` real (**F10-N7**).
+- **`tests/test_release_claims.py` cubre los 3 documentos de release** (10.2), no
+  sólo el checklist: fecha de la medición, que todo caso del harness esté
+  publicado, que las rutas citadas existan, que cada objetivo diga si se cumple,
+  que cada mitigación de seguridad nombre su gate y que las refutaciones sigan
+  refutadas. 12 gates nuevos.
+- **La matriz de compiladores existe como matriz** (10.3):
+  `tests/compliance/run_all.py` acepta `--cc` (sólo el stage `build`; `check` es
+  independiente del compilador) y `compliance.yml` pasa a `[gcc, clang]` con
+  `fail-fast: false` (**F10-N12**). Medido: gcc **54/54**, clang **54/54**, tcc no
+  instalado.
+
+### Fixed
+
+- **`-DPENGU_FRAME_TRACE=0` no compilaba el bundle generado** (**F10-N3**):
+  `pengu_install_crash_handler` vivía sólo dentro de `#if PENGU_FRAME_TRACE` en
+  `pengu_runtime.h`, mientras el envoltorio de entrada que emite `pengu_codegen` lo
+  llama incondicionalmente, así que el comando que `BENCHMARKS.md` publica para
+  medir "1.8× C" moría con `implicit declaration of function
+  'pengu_install_crash_handler'`. No-op explícito en la rama `#else` (sin pila de
+  frames que volcar; la ABI no cambia) y gate nuevo
+  (`test_the_generated_bundle_compiles_with_the_frame_trace_off`) que conduce el CLI
+  real, porque ni el test de snippet ni `compile_run` podían verlo.
+
+### Diferido
+
+- **10.4 — sanitizers sobre la suite completa y valgrind**: reproducido el alcance
+  posible (contrato de fugas `detect_leaks=1` → 5 passed + 1 xfailed; contrato de
+  memoria `detect_leaks=0` → 49 passed, 2 skipped, 2 xfailed); la suite completa
+  instrumentada y `valgrind` (no instalado) quedan en
+  `workflow: .github/workflows/sanitizers.yml`. Los leaks conocidos siguen siendo el
+  item 8.19. **Nota:** `PENGU_ASAN` no existe en el repo; el mecanismo real es
+  `PENGU_CFLAGS`/`PENGU_LDFLAGS` + `ASAN_OPTIONS` (**F10-N8**).
+- **10.5 — fuzzing con el presupuesto real**: smoke de los 5 harnesses con **3674
+  casos y 0 crashes**; las **6 h/harness** (4 shards × 90 min) son de
+  `workflow: .github/workflows/nightly.yml` y no caben en una sesión de agente. Los
+  harnesses son `scripts/fuzz/fuzz_*.py`; `scripts/fuzz/parser.py` no existe
+  (**F10-N9**).
+- **10.8 — publicar el RC**: exige credenciales y push de tag. El mecanismo está
+  fijado por `tests/test_release_handoff.py` (dispatch explícito con
+  `actions: write`, porque un push con `GITHUB_TOKEN` no dispara workflows).
+- **10.9 — periodo de validación ≥1 semana**: no es trabajo de agente. Criterio de
+  cierre: 0 bloqueantes nuevos y 0 cambios en los 3 documentos de release.
+- **10.10 — ensayo de release en un fork**: sin fork ni credenciales no hay ensayo
+  end-to-end; misma limitación que registró la Fase 9.
+- **10.11 — instalación desde cero en 3 plataformas**: Linux medido con el artefacto
+  portable real; macOS y Windows quedan en `release-verify.yml`
+  (`macos-latest`/`windows-latest`), sin máquina en esta sesión.
+
 ## [Unreleased] — FASE 9 (ROADMAP 2.0): Herramientas de release
 
 > Hace que el release **verifique lo que descarga**, **produzca artefactos

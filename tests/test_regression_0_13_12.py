@@ -30,7 +30,10 @@ import pengu_version
 
 def test_version_sync_0_13_12():
     """Verify that version 0.13.12+ is synced across toolchain."""
-    assert tuple(map(int, pengu_version.__version__.split("."))) >= (0, 13, 12)
+    # Phase 10 / F10-N13: parse with pengu_semver, not `split(".")`, so a
+    # pre-release like `1.0.0-rc1` does not raise ValueError.
+    from pengu_semver import Version
+    assert Version.parse(pengu_version.__version__) >= Version.parse("0.13.12")
     assert pengu_version.FALLBACK_VERSION == pengu_version.__version__
     assert PENGU_VERSION == pengu_version.__version__
     assert pengu_version.read_version_file() == pengu_version.__version__
