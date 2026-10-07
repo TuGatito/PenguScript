@@ -32,6 +32,11 @@ in `0.10.0`.
 There are no other breaking entries in the changelog. If you find one that is not
 in this table, that is a documentation bug — see §6.
 
+Every row here has an executable counterpart in
+[`tests/migration/`](tests/migration/README.md) (`EXPECTED.json`), which runs the
+before-form and asserts it fails with the documented code; the current surface is
+pinned separately by [`tests/compliance/`](tests/compliance/README.md).
+
 ## 3. `0.10.0`: `and` → `,` in expression lists
 
 `and` (and `or`) used to separate elements wherever a comma was allowed. Since
@@ -89,14 +94,20 @@ so a dependency that moved cannot slip in unnoticed.
 An automated rewriter — `pengu migrate --from <v> --to <v>` — is **not** part of
 1.0. It is deferred to 1.1 (roadmap item 4.14b) for a measured reason: the only
 candidate rewrite is the `and` separator above, and the ambiguous `E0005` case
-cannot be resolved without full type information, while a *safe* rewriter has no
-corpus to be validated against (`tests/migration/` does not exist). Shipping a
-rewriter that silently turns a boolean conjunction into a comma would be worse
-than no rewriter.
+cannot be resolved without full type information. Shipping a rewriter that
+silently turns a boolean conjunction into a comma would be worse than no
+rewriter.
 
-This document is the input that item needs. When `pengu migrate` lands, each
-section above becomes one rule it applies, and the table in §2 becomes its
-supported version range.
+What it *did* need is now in the tree: [`tests/migration/`](tests/migration/README.md)
+holds one program per published version line with the outcome this guide
+documents for it (`EXPECTED.json`), so a rewriter can be validated the day it is
+written, and [`tests/compliance/`](tests/compliance/README.md) holds the
+canonical program per section of `LANGUAGE.md`. Both are normative for
+compatibility: a change that breaks one of them needs a MAJOR release and an
+entry in §2 of this guide, not a quiet edit to the corpus.
+
+Each section above becomes one rule `pengu migrate` applies, and the table in §2
+becomes its supported version range.
 
 ## 6. Reporting a migration problem
 

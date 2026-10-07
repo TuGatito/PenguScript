@@ -3861,6 +3861,29 @@ set acc is "{acc}b"
 
 ---
 
+### 22.5 The executable compatibility corpus
+
+The catalogue above describes the diagnostics; the behaviour they protect is
+pinned by two corpora that **compile and execute** real programs, never by
+inspecting text (project rule C1):
+
+- [`tests/compliance/README.md`](tests/compliance/README.md) — one canonical
+  program per section of this document, checked, built and run by the real
+  toolchain (`pytest tests/test_compliance_corpus.py -q`). It pins the language
+  **as it is today**.
+- [`tests/migration/README.md`](tests/migration/README.md) — one program per
+  published version line from `0.10.0` on, with the outcome `MIGRATION.md`
+  documents for it (`pytest tests/test_migration_corpus.py -q`). It pins the
+  syntax of every version the project has **shipped**, including the two
+  pre-`0.10.0` forms the compiler now refuses with `E0000`/`E0005`.
+
+Together they are what a 1.x compatibility claim is checked against: a change
+that makes a compliance program stop passing, or that contradicts a migration
+entry, is a break under §23 and needs a MAJOR release and a `MIGRATION.md`
+update — not a quiet edit to the corpus.
+
+---
+
 ## 23. Deprecation & Stability Policy
 
 PenguScript follows strict [Semantic Versioning](https://semver.org): a version

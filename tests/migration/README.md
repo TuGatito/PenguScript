@@ -1,8 +1,14 @@
 # Migration corpus
 
-Roadmap 2.0, Phase 8 item 8.5. One program per published version **line** from
-`0.10.0` on, written in that version's syntax, with the outcome `MIGRATION.md`
-documents for it in `EXPECTED.json`.
+> **This corpus defines the compatibility of PenguScript 1.x**, together with
+> [`../compliance/README.md`](../compliance/README.md). The compliance corpus pins
+> the language as it is **today**; this one pins the syntax of every version the
+> project has **published**, so a future breaking change cannot land without an
+> example of what it breaks and the migration step it needs.
+
+The 1.0 roadmap (Phase 8, item 8.5). One program per published version **line**
+from `0.10.0` on, written in that version's syntax, with the outcome
+`MIGRATION.md` documents for it in `EXPECTED.json`.
 
 ## What it is for
 
