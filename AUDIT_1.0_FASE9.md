@@ -198,13 +198,14 @@ estables), que está en el Anexo "⏸️ Diferido a 1.1+" con su justificación.
 
 ## 7. Cierre
 
-- `pytest tests -q -p no:cacheprovider --timeout=1800` tras la fase:
-  **3366 passed, 27 skipped, 46 xfailed, 0 failed en 35:56**.
+- `pytest tests -q -p no:cacheprovider --timeout=1800` sobre el estado de cierre
+  (`3e59492`): **3385 passed, 29 skipped, 46 xfailed, 0 failed en 36:59**.
   Referencia de la Fase 8 en el mismo comando: **3275 passed, 25 skipped, 46
-  xfailed, 0 failed**. La fase añade **+91 pasados / +2 skipped / 0 xfailed**: 7
-  módulos de test nuevos con **79 funciones** (96 casos contando
-  parametrizaciones) y **ningún `xfail` tocado**: los pines de la
-  Fase 8 siguen intactos.
+  xfailed, 0 failed**. La fase añade **+110 pasados / +4 skipped / 0 xfailed**: 7
+  módulos de test nuevos con **79 funciones** (102 casos contando
+  parametrizaciones) y **ningún `xfail` tocado**: los pines de la Fase 8 siguen
+  intactos. Una corrida intermedia (antes de F9-N7, `a334ec8`) dio
+  **3366 / 27 / 46 / 0 en 35:56**.
 - `python make_release.py`: el packager sigue funcionando y ahora **verifica**
   cada archivo externo antes de extraerlo.
 - Los tres documentos de cierre: este audit, `CHANGELOG.md`
