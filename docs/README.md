@@ -37,6 +37,7 @@ documents from earlier phases.
 | [`../BENCHMARKS.md`](../BENCHMARKS.md) | Published benchmark results |
 | [`../RELEASE_CHECKLIST.md`](../RELEASE_CHECKLIST.md) | The gates a release must pass |
 | [`../ROADMAP_1.1.md`](../ROADMAP_1.1.md) | The live roadmap |
+| [`ANNOUNCEMENT_1.0.md`](ANNOUNCEMENT_1.0.md) | What 1.0 is, what it is not, and how to verify it |
 | [`../AUDIT_1.0.md`](../AUDIT_1.0.md) | The verified 1.0 audit that produced the roadmap |
 | [`../CLEANUP_PLAN.md`](../CLEANUP_PLAN.md) | Repository cleanup plan |
 
