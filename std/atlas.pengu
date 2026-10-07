@@ -21,10 +21,11 @@
 ##     return 0
 ## ```
 ##
-## ## Ownership
+## ## Memory
 ## - Los mutadores (`update`, `rename_key`, `remove`, `clear`, `put_all`) cambian
 ##   el mapa **en el lugar**; los métodos que devuelven `list`/`map` crean
-##   contenedores nuevos auto-banishables y nunca consumen el receptor.
+##   contenedores nuevos que el llamante debe liberar con `banish`; el receptor
+##   nunca se consume.
 ## - `keys`, `values` y `entries` recorren el orden interno del hash; usa
 ##   `keys_sorted`/`values_sorted` para un orden determinista.
 ##

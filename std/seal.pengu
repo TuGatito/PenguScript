@@ -2,7 +2,7 @@
 # CRC32 checksums, MD5 / SHA-1 / SHA-256 / SHA-512 digests, HMAC, gzip and raw zlib
 # deflate / inflate, file helpers, string enchantments and hash verification (zlib + mbedTLS).
 #
-# Ownership model:
+# Memory model:
 #   * Every digest helper (crc32, md5, sha1, sha256, sha512 and their *_file
 #     variants) returns an OWNED result: a u32 checksum for CRC-32, a lowercase
 #     hex string for the cryptographic digests, or a `maybe` wrapper for the
@@ -70,7 +70,7 @@ declare pengu_c_seal_hash_file with path as string , hash_type as string into ma
 # Computes the CRC-32 checksum of `data` (IEEE 802.3 polynomial, as used by
 # zlib / PNG) and returns it as an unsigned 32-bit value. Values >= 0x80000000
 # are positive, so the result compares equal to `zlib.crc32()` in Python, to
-# `cksum` output, and to the CRC column of PNG chunks. Pure value: no ownership
+# `cksum` output, and to the CRC column of PNG chunks. Pure value: owns nothing
 # concerns.
 weave crc32 with data as string into u32:
     return calling pengu_c_seal_crc32 with data

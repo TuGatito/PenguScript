@@ -48,8 +48,7 @@
 >   text (`TextFormat`), textures, colours, timing, 3D vector/matrix math
 >   via `std.raymath`, and OpenGL immediate-mode rendering via `std.rlgl`. Six raylib examples are ported and verified in `scratch/port/`.
 > - **Multidimensional 2D arrays** (`array of array of T with size M with size N`),
->   **memory deallocation** (`banish` on `string`, `list`, `map`, and `ref to T`),
->   **scope-owned locals** (automatic deterministic cleanup on block exit with `borrowed` opt-out),
+>   **manual memory deallocation** (`banish` now, or `defer banish` / `errdefer banish` at scope exit),
 >   **module state idioms** (`static var` accessors and context structs),
 >   **C variadic declarations** (`declare ... with fmt as ref to frozen char, ... into int`),
 >   **struct literals in array literals**, **pointer indexing** (`p at i`), generic
@@ -91,9 +90,9 @@
 - **Expressive type system** — fixed-width integers (`u8`…`u64`, `i8`…`i64`), `f32`/`f64`, `char`, `byte`, `string`, `bool`; fixed-size 1D/2D arrays, non-owning slices, dynamic lists, and hash maps with compile-time layout estimation ([§4](LANGUAGE.md#4-type-system)).
 - **User types** — `rune` structs with private `_` fields and `enchanting` method blocks (`self->`), `echo` (C-compatible unions), `omen` (simple enums and algebraic data types with payloads), and `maybe T` / `result of T to E` with statement-expression unwrapping (`or else`, `or return`, `try`) ([§9](LANGUAGE.md#9-composite-types), [§12](LANGUAGE.md#12-optionals--errors)).
 - **Methods & compile-time concepts** — `enchanting` attaches methods to structs; `concept` defines compile-time interfaces checked statically with `bind` exhaustiveness, zero runtime overhead, and no vtables ([§10](LANGUAGE.md#10-methods-concepts--binding); see [§10.6 Explicit limitations](LANGUAGE.md#106-limitaciones-explícitas-de-los-concepts)).
-- **Strings built one way** — dynamic strings are composed **only** with `"{expr}"` interpolation; `+`/`+=` on strings raise `E0005` (no implicit `to string` promotion, no hidden temporaries), and a `string` stored into a struct field or collection element is deep-copied so ownership stays unambiguous ([§15.2](LANGUAGE.md#152-strings)).
+- **Strings built one way** — dynamic strings are composed **only** with `"{expr}"` interpolation; `+`/`+=` on strings raise `E0005` (no implicit `to string` promotion, no hidden temporaries), and storing a `string` into a struct field or collection element copies its bytes with `memcpy` — releasing the original stays your call ([§15.2](LANGUAGE.md#152-strings)).
 - **Zero-overhead generics** — `shard` declarations specialized with `of`; each instantiation is monomorphized to plain C with concept bounds validation (`where T: Printable`) ([§11](LANGUAGE.md#11-generics)).
-- **Deterministic cleanup** — `defer` (LIFO on scope exit), `errdefer` (on error return), scope-owned locals (automatic `banish` at block exit unless marked `borrowed`), and explicit heap release with `banish` ([§13](LANGUAGE.md#13-memory--pointers)).
+- **Deterministic, manual cleanup** — `banish` frees a value now; `defer banish` / `errdefer banish` defer the release to scope exit or to an error return (LIFO). Nothing is released behind your back ([§13](LANGUAGE.md#13-manual-memory-management)).
 - **First-class C FFI** — `include`/`link`/`declare`, opaque types (`alias … as opaque`), `sigil of` (address-of) / `essence of` (deref), zero-copy `bytes of <string>` borrows, and `weave`s that decay to C function pointers ([§14](LANGUAGE.md#14-modules-imports--c-interop)).
 - **`pengu bind`** — auto-generates a `.d.pengu` declaration file from any C header (structs → `rune`, unions → `echo`, enums → `omen`, functions → `declare`, callbacks → `alias … as ref to weave`, doc comments preserved) with preprocessor extension blanking, sibling auto-imports, and flags (`--define`, `--cpp-flags`, `--system-includes`, `--preprocessed`) ([§20.6](LANGUAGE.md#206-c-header-binding-generator-pengu-bind)).
 - **Rich standard library** — `std/` ships **52 modules**: 27 implemented in pure PenguScript (I/O, strings, files, math, time, regex, HTTP client/server, concurrency, logging, unit testing, …) plus 25 curated C declaration bindings (`*.d.pengu`) for bundled native libraries (including **raylib**, **raymath**, **rlgl**, **sqlite3**, **webui**, **miniaudio**, and **stb**) ([§19](LANGUAGE.md#19-standard-library)).
@@ -342,6 +341,27 @@ weave main into int:
 
   Real-world C headers can be turned into such bindings automatically with `pengu bind`.
 
+#### Why not ownership?
+
+Rust makes the compiler track every loan and decide when a value dies. PenguScript
+does not: it takes the Zig / Odin / Nelua route and makes memory management
+**manual**. The compiler refuses to guess, because a wrong guess is either a silent
+leak or a use-after-free — both worse than saying what you meant. You allocate with a
+constructor or `sigil of`, and you release with `banish`:
+
+```pengu
+weave main into int:
+    var s is "hello"
+    defer banish s          # release at scope exit (LIFO); `banish s` releases now
+    calling print with s
+    return 0
+```
+
+`banish x` frees what `x` owns according to its static type and is a safe no-op on
+string literals and non-owning views. `defer banish` / `errdefer banish` schedule the
+release at scope exit. When you want a destructor written for you, opt in per type with
+`derive Nexus`.
+
 #### Generics in practice
 
 Type parameters (`shard`), concept bounds (`where`), automatic concept
@@ -385,9 +405,10 @@ Key rules:
 - `+ - * /` need `where T: Num`; `% & | ^ << >>` need `where T: Integrum`
   (which also satisfies `Num`); `==` needs `Par`; `< <= > >=` need `Ordo`.
   Missing bounds are reported with the exact clause to add (`E0049`).
-- Containers deep-copy on `push`/`put` and release recursively on banish
-  (`list of string`, `map of string to list of int`), so nested ownership is
-  leak-free without manual `banish`; see [LANGUAGE.md §13.5](LANGUAGE.md#135-container-ownership--deep-copy).
+- `push`/`put` copy the element bytes with `memcpy` and banish releases only the
+  container's own buffer, so a `list of string` needs an explicit
+  `pengu_banish_string_list` (or one `banish` per element); see
+  [LANGUAGE.md §13.5](LANGUAGE.md#135-containers-memcpy-on-store-explicit-release).
 - `derive` works on runes, algebraic omens and generic instantiations; `Imago`
   (deep copy) and `Nexus` (drop) are implied by each other. `echo` unions reject
   `derive` because they are untagged.
@@ -602,9 +623,9 @@ PenguScript is released under the **[MIT License](LICENSE)** — © 2026 TuGatit
 - **Sistema de tipos expresivo** — enteros de ancho fijo (`u8`…`u64`, `i8`…`i64`), `f32`/`f64`, `char`, `byte`, `string`, `bool`; arrays 1D/2D de tamaño fijo, slices sin propiedad, listas dinámicas y mapas hash con estimación de diseño en tiempo de compilación ([§4](LANGUAGE.md#4-type-system)).
 - **Tipos de usuario** — `rune` (structs) con campos privados `_` y bloques de métodos `enchanting` (`self->`), `echo` (uniones compatibles con C), `omen` (enumeraciones simples y tipos algebraicos con carga útil), y `maybe T` / `result of T to E` con desenvoltura mediante expresiones de sentencia (`or else`, `or return`, `try`) ([§9](LANGUAGE.md#9-composite-types), [§12](LANGUAGE.md#12-optionals--errors)).
 - **Métodos y conceptos en tiempo de compilación** — `enchanting` asocia métodos a los structs; `concept` define interfaces en tiempo de compilación verificadas estáticamente con exhaustividad de `bind`, sin coste en tiempo de ejecución y sin tablas virtuales ([§10](LANGUAGE.md#10-methods-concepts--binding); consulta [§10.6 Limitaciones explícitas](LANGUAGE.md#106-limitaciones-explícitas-de-los-concepts)).
-- **Cadenas construidas de una sola forma** — las cadenas dinámicas se componen **solo** con interpolación `"{expr}"`; `+`/`+=` sobre cadenas producen `E0005` (sin promoción implícita `to string` y sin temporales ocultos), y una `string` almacenada en un campo de struct o en un elemento de colección se copia en profundidad para que la propiedad quede inequívoca ([§15.2](LANGUAGE.md#152-strings)).
+- **Cadenas construidas de una sola forma** — las cadenas dinámicas se componen **solo** con interpolación `"{expr}"`; `+`/`+=` sobre cadenas producen `E0005` (sin promoción implícita `to string` y sin temporales ocultos), y almacenar una `string` en un campo de struct o en un elemento de colección copia sus bytes con `memcpy` — liberar el original sigue siendo decisión tuya ([§15.2](LANGUAGE.md#152-strings)).
 - **Genéricos sin coste** — declaraciones `shard` especializadas con `of`; cada instanciación se monomorfiza a C plano con validación de cotas de conceptos (`where T: Printable`) ([§11](LANGUAGE.md#11-generics)).
-- **Limpieza determinista** — `defer` (LIFO al salir del ámbito), `errdefer` (al retornar un error), locales propiedad del ámbito (`banish` automático al salir del bloque salvo que se marquen como `borrowed`) y liberación explícita del heap con `banish` ([§13](LANGUAGE.md#13-memory--pointers)).
+- **Limpieza determinista y manual** — `banish` libera un valor ahora; `defer banish` / `errdefer banish` difieren la liberación al salir del ámbito o a un retorno de error (LIFO). Nada se libera a tus espaldas ([§13](LANGUAGE.md#13-manual-memory-management)).
 - **FFI de C de primera clase** — `include`/`link`/`declare`, tipos opacos (`alias … as opaque`), `sigil of` (dirección de) / `essence of` (desreferencia), préstamos sin copia con `bytes of <string>` y `weave`s que decaen a punteros a función de C ([§14](LANGUAGE.md#14-modules-imports--c-interop)).
 - **`pengu bind`** — genera automáticamente un archivo de declaraciones `.d.pengu` a partir de cualquier cabecera de C (structs → `rune`, uniones → `echo`, enumeraciones → `omen`, funciones → `declare`, callbacks → `alias … as ref to weave`, conservando los comentarios de documentación) con blanqueo de extensiones del preprocesador, autoimportación de hermanos y opciones (`--define`, `--cpp-flags`, `--system-includes`, `--preprocessed`) ([§20.6](LANGUAGE.md#206-c-header-binding-generator-pengu-bind)).
 - **Biblioteca estándar completa** — `std/` incluye **52 módulos**: 27 implementados en PenguScript puro (E/S, cadenas, archivos, matemáticas, tiempo, regex, cliente/servidor HTTP, concurrencia, registro de logs, pruebas unitarias, …) más 25 enlaces de declaraciones de C (`*.d.pengu`) para bibliotecas nativas incluidas (entre ellas **raylib**, **raymath**, **rlgl**, **sqlite3**, **webui**, **miniaudio** y **stb**) ([§19](LANGUAGE.md#19-standard-library)).
@@ -853,6 +874,27 @@ weave main into int:
 
   Las cabeceras de C del mundo real se pueden convertir en enlaces así de forma automática con `pengu bind`.
 
+#### ¿Por qué no ownership?
+
+Rust hace que el compilador rastree cada préstamo y decida cuándo muere un valor.
+PenguScript no: toma la ruta de Zig / Odin / Nelua y hace que la gestión de memoria sea
+**manual**. El compilador se niega a adivinar, porque una suposición equivocada es o una
+fuga silenciosa o un use-after-free — ambas peores que decir lo que querías. Asignas con
+un constructor o `sigil of`, y liberas con `banish`:
+
+```pengu
+weave main into int:
+    var s is "hello"
+    defer banish s          # libera al salir del ámbito (LIFO); `banish s` libera ahora
+    calling print with s
+    return 0
+```
+
+`banish x` libera lo que `x` posee según su tipo estático y es una operación segura que
+no hace nada sobre literales de cadena y vistas sin posesión. `defer banish` /
+`errdefer banish` programan la liberación al salir del ámbito. Cuando quieras que un
+destructor se escriba por ti, opta por ello por tipo con `derive Nexus`.
+
 #### Genéricos en la práctica
 
 Los parámetros de tipo (`shard`), las cotas de conceptos (`where`), las
@@ -897,10 +939,10 @@ Reglas clave:
 - `+ - * /` necesitan `where T: Num`; `% & | ^ << >>` necesitan `where T: Integrum`
   (que también satisface `Num`); `==` necesita `Par`; `< <= > >=` necesitan `Ordo`.
   Cuando faltan cotas, se informa de la cláusula exacta que hay que añadir (`E0049`).
-- Los contenedores copian en profundidad en `push`/`put` y liberan de forma
-  recursiva al hacer banish (`list of string`, `map of string to list of int`),
-  así que la propiedad anidada no tiene fugas sin `banish` manual; consulta
-  [LANGUAGE.md §13.5](LANGUAGE.md#135-container-ownership--deep-copy).
+- `push`/`put` copian los bytes del elemento con `memcpy` y banish libera solo el
+  búfer propio del contenedor, así que una `list of string` necesita un
+  `pengu_banish_string_list` explícito (o un `banish` por elemento); consulta
+  [LANGUAGE.md §13.5](LANGUAGE.md#135-containers-memcpy-on-store-explicit-release).
 - `derive` funciona en runes, omens algebraicos e instanciaciones genéricas;
   `Imago` (copia en profundidad) y `Nexus` (drop) se implican mutuamente. Las
   uniones `echo` rechazan `derive` porque no llevan etiqueta.

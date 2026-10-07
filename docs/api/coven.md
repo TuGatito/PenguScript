@@ -59,7 +59,7 @@ Builds a new, empty SetInt ready to receive `add` calls.
 
 Creates an empty SetString. Alias of `new_set_string`.
 Signature: empty_set_string() into SetString
-Ownership: Returns an owned fresh SetString.
+Memory: Returns an owned fresh SetString.
 
 
 ### `empty_set_int`
@@ -68,7 +68,7 @@ Ownership: Returns an owned fresh SetString.
 
 Creates an empty SetInt. Alias of `new_set_int`.
 Signature: empty_set_int() into SetInt
-Ownership: Returns an owned fresh SetInt.
+Memory: Returns an owned fresh SetInt.
 
 
 ### `from_list_string`
@@ -77,7 +77,7 @@ Ownership: Returns an owned fresh SetInt.
 
 Builds a SetString from a list of strings, automatically deduplicating items.
 Signature: from_list_string(items as list of string) into SetString
-Ownership: Returns an owned fresh SetString.
+Memory: Returns an owned fresh SetString.
 
 
 ### `from_list_int`
@@ -86,5 +86,5 @@ Ownership: Returns an owned fresh SetString.
 
 Builds a SetInt from a list of ints, automatically deduplicating items.
 Signature: from_list_int(items as list of int) into SetInt
-Ownership: Returns an owned fresh SetInt.
+Memory: Returns an owned fresh SetInt.
 

@@ -14,7 +14,7 @@
     { "include": "#numbers" },
     { "include": "#constants" },
     { "include": "#self_reference" },
-    { "include": "#ownership_modifiers" },
+    { "include": "#memory_modifiers" },
     { "include": "#comptime_vars" },
     { "include": "#function_definition" },
     { "include": "#type_definition" },
@@ -245,16 +245,12 @@
       "patterns": [
         {
           "name": "keyword.other.declaration.pengus",
-          "match": "\\b(var|let|const|set|declare|import|include|link|insignia|sigil|essence|shard|many|of|is|as|into|and|capacity|size|length|at|transmute|present|not\\s+present|concept|bind|seal|ritual|inline|where|derive|cyclus|static|test|borrowed|frozen)\\b"
+          "match": "\\b(var|let|const|set|declare|import|include|link|insignia|sigil|essence|shard|many|of|is|as|into|and|capacity|size|length|at|transmute|present|not\\s+present|concept|bind|seal|ritual|inline|where|derive|cyclus|static|test|frozen)\\b"
         }
       ]
     },
-    "ownership_modifiers": {
+    "memory_modifiers": {
       "patterns": [
-        {
-          "name": "storage.modifier.borrowed.pengus",
-          "match": "\\bborrowed\\b(?=\\s+[a-zA-Z_])"
-        },
         {
           "name": "storage.modifier.frozen.pengus",
           "match": "\\bfrozen\\b(?=\\s+[a-zA-Z_])"

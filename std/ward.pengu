@@ -11,7 +11,7 @@
 #     or err with the caller message) so the caller can react to failure.
 #   * fail / panic abort directly and unreachable marks code that must never run.
 #
-# Ownership model: every helper takes plain values and keeps no handles, so
+# Memory model: every helper takes plain values and keeps no handles, so
 # there is nothing to free.
 
 import std.spark
@@ -41,7 +41,7 @@ weave _w_fmt_string with s as string into string:
 ## Panics with "assertion failed" when `cond` is false.
 ##
 ## Signature: assert(cond as bool) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert with x > 0
 weave assert with cond as bool into void:
     if cond == false:
@@ -50,7 +50,7 @@ weave assert with cond as bool into void:
 ## Panics with `msg` when `cond` is false.
 ##
 ## Signature: assert_msg(cond as bool, msg as string) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_msg with x > 0, "x must be positive"
 weave assert_msg with cond as bool , msg as string into void:
     if cond == false:
@@ -59,7 +59,7 @@ weave assert_msg with cond as bool , msg as string into void:
 ## Panics with "assertion failed: expected true, got false" when `cond` is false.
 ##
 ## Signature: assert_true(cond as bool) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Message: "assertion failed: expected true, got false"
 ## Example: calling ward.assert_true with is_valid
 weave assert_true with cond as bool into void:
@@ -69,7 +69,7 @@ weave assert_true with cond as bool into void:
 ## Panics with "assertion failed: expected false, got true" when `cond` is true.
 ##
 ## Signature: assert_false(cond as bool) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Message: "assertion failed: expected false, got true"
 ## Example: calling ward.assert_false with is_closed
 weave assert_false with cond as bool into void:
@@ -79,7 +79,7 @@ weave assert_false with cond as bool into void:
 ## Panics when `a` differs from `b`, reporting both values.
 ##
 ## Signature: assert_eq_int(a as int, b as int) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Message: "assertion failed: left != right: expected <b>, got <a>"
 ## Example: calling ward.assert_eq_int with 2 + 2, 4
 weave assert_eq_int with a as int , b as int into void:
@@ -89,7 +89,7 @@ weave assert_eq_int with a as int , b as int into void:
 ## Panics when string `a` differs from string `b` (exact equality).
 ##
 ## Signature: assert_eq_string(a as string, b as string) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Message: "assertion failed: left != right: expected \"<b>\", got \"<a>\""
 ## Example: calling ward.assert_eq_string with name, "Alice"
 weave assert_eq_string with a as string , b as string into void:
@@ -99,7 +99,7 @@ weave assert_eq_string with a as string , b as string into void:
 ## Panics when boolean `a` differs from boolean `b`.
 ##
 ## Signature: assert_eq_bool(a as bool, b as bool) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Message: "assertion failed: left != right: expected <b>, got <a>"
 ## Example: calling ward.assert_eq_bool with flag, true
 weave assert_eq_bool with a as bool , b as bool into void:
@@ -109,7 +109,7 @@ weave assert_eq_bool with a as bool , b as bool into void:
 ## Panics when integer `a` equals integer `b`.
 ##
 ## Signature: assert_ne_int(a as int, b as int) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Message: "assertion failed: left == right: unexpected <a>"
 ## Example: calling ward.assert_ne_int with status, 0
 weave assert_ne_int with a as int , b as int into void:
@@ -119,7 +119,7 @@ weave assert_ne_int with a as int , b as int into void:
 ## Panics when string `a` equals string `b`.
 ##
 ## Signature: assert_ne_string(a as string, b as string) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Message: "assertion failed: left == right: unexpected \"<a>\""
 ## Example: calling ward.assert_ne_string with token, ""
 weave assert_ne_string with a as string , b as string into void:
@@ -129,7 +129,7 @@ weave assert_ne_string with a as string , b as string into void:
 ## Panics when boolean `a` equals boolean `b`.
 ##
 ## Signature: assert_ne_bool(a as bool, b as bool) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Message: "assertion failed: left == right: unexpected <a>"
 ## Example: calling ward.assert_ne_bool with flag, false
 weave assert_ne_bool with a as bool , b as bool into void:
@@ -143,7 +143,7 @@ weave assert_ne_bool with a as bool , b as bool into void:
 ## Panics when the absolute difference between `a` and `b` exceeds `epsilon`.
 ##
 ## Signature: assert_eq_float(a as float, b as float, epsilon as float is 0.000001) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Message: "assertion failed: left != right: expected <b>, got <a> (diff <d> > <eps>)"
 ## Example: calling ward.assert_eq_float with 1.000001, 1.0, 0.0001
 weave assert_eq_float with a as float , b as float , epsilon as float is 0.000001 into void:
@@ -156,7 +156,7 @@ weave assert_eq_float with a as float , b as float , epsilon as float is 0.00000
 ## Panics when the absolute difference between `a` and `b` is within `epsilon`.
 ##
 ## Signature: assert_ne_float(a as float, b as float, epsilon as float is 0.000001) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_ne_float with 1.5, 1.0, 0.0001
 weave assert_ne_float with a as float , b as float , epsilon as float is 0.000001 into void:
     var diff as float is a - b
@@ -168,7 +168,7 @@ weave assert_ne_float with a as float , b as float , epsilon as float is 0.00000
 ## Alias of assert_eq_float with tolerance comparison.
 ##
 ## Signature: assert_almost_eq(a as float, b as float, epsilon as float is 0.000001) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_almost_eq with pi_calc, 3.14159, 0.001
 weave assert_almost_eq with a as float , b as float , epsilon as float is 0.000001 into void:
     calling assert_eq_float with a , b , epsilon
@@ -180,7 +180,7 @@ weave assert_almost_eq with a as float , b as float , epsilon as float is 0.0000
 ## Panics unless integer `a` is strictly greater than `b`.
 ##
 ## Signature: assert_gt_int(a as int, b as int) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_gt_int with count, 0
 weave assert_gt_int with a as int , b as int into void:
     if a <= b:
@@ -189,7 +189,7 @@ weave assert_gt_int with a as int , b as int into void:
 ## Panics unless integer `a` is greater than or equal to `b`.
 ##
 ## Signature: assert_ge_int(a as int, b as int) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_ge_int with age, 18
 weave assert_ge_int with a as int , b as int into void:
     if a < b:
@@ -198,7 +198,7 @@ weave assert_ge_int with a as int , b as int into void:
 ## Panics unless integer `a` is strictly less than `b`.
 ##
 ## Signature: assert_lt_int(a as int, b as int) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_lt_int with index, max_len
 weave assert_lt_int with a as int , b as int into void:
     if a >= b:
@@ -207,7 +207,7 @@ weave assert_lt_int with a as int , b as int into void:
 ## Panics unless integer `a` is less than or equal to `b`.
 ##
 ## Signature: assert_le_int(a as int, b as int) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_le_int with used, total
 weave assert_le_int with a as int , b as int into void:
     if a > b:
@@ -216,7 +216,7 @@ weave assert_le_int with a as int , b as int into void:
 ## Panics unless float `a` is strictly greater than `b`.
 ##
 ## Signature: assert_gt_float(a as float, b as float) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_gt_float with score, 0.0
 weave assert_gt_float with a as float , b as float into void:
     if a <= b:
@@ -225,7 +225,7 @@ weave assert_gt_float with a as float , b as float into void:
 ## Panics unless float `a` is greater than or equal to `b`.
 ##
 ## Signature: assert_ge_float(a as float, b as float) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_ge_float with score, 0.0
 weave assert_ge_float with a as float , b as float into void:
     if a < b:
@@ -234,7 +234,7 @@ weave assert_ge_float with a as float , b as float into void:
 ## Panics unless float `a` is strictly less than `b`.
 ##
 ## Signature: assert_lt_float(a as float, b as float) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_lt_float with temp, 100.0
 weave assert_lt_float with a as float , b as float into void:
     if a >= b:
@@ -243,7 +243,7 @@ weave assert_lt_float with a as float , b as float into void:
 ## Panics unless float `a` is less than or equal to `b`.
 ##
 ## Signature: assert_le_float(a as float, b as float) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_le_float with ratio, 1.0
 weave assert_le_float with a as float , b as float into void:
     if a > b:
@@ -252,7 +252,7 @@ weave assert_le_float with a as float , b as float into void:
 ## Panics when integer `v` is outside inclusive range `[lo, hi]`.
 ##
 ## Signature: assert_in_range_int(v as int, lo as int, hi as int) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_in_range_int with month, 1, 12
 weave assert_in_range_int with v as int , lo as int , hi as int into void:
     if v < lo or v > hi:
@@ -261,7 +261,7 @@ weave assert_in_range_int with v as int , lo as int , hi as int into void:
 ## Panics when float `v` is outside inclusive range `[lo, hi]`.
 ##
 ## Signature: assert_in_range_float(v as float, lo as float, hi as float) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_in_range_float with prob, 0.0, 1.0
 weave assert_in_range_float with v as float , lo as float , hi as float into void:
     if v < lo or v > hi:
@@ -274,7 +274,7 @@ weave assert_in_range_float with v as float , lo as float , hi as float into voi
 ## Panics unless `haystack` contains substring `needle`.
 ##
 ## Signature: assert_string_contains(haystack as string, needle as string) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_string_contains with log_line, "ERROR"
 weave assert_string_contains with haystack as string , needle as string into void:
     if not (calling haystack.contains with needle):
@@ -283,7 +283,7 @@ weave assert_string_contains with haystack as string , needle as string into voi
 ## Panics unless string `s` starts with prefix `prefix`.
 ##
 ## Signature: assert_string_starts_with(s as string, prefix as string) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_string_starts_with with url, "https://"
 weave assert_string_starts_with with s as string , prefix as string into void:
     if not (calling s.starts_with with prefix):
@@ -292,7 +292,7 @@ weave assert_string_starts_with with s as string , prefix as string into void:
 ## Panics unless string `s` ends with suffix `suffix`.
 ##
 ## Signature: assert_string_ends_with(s as string, suffix as string) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_string_ends_with with path, ".pengu"
 weave assert_string_ends_with with s as string , suffix as string into void:
     if not (calling s.ends_with with suffix):
@@ -301,7 +301,7 @@ weave assert_string_ends_with with s as string , suffix as string into void:
 ## Panics unless string `s` is empty (length 0).
 ##
 ## Signature: assert_string_empty(s as string) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_string_empty with err_msg
 weave assert_string_empty with s as string into void:
     if s.len > 0:
@@ -310,7 +310,7 @@ weave assert_string_empty with s as string into void:
 ## Panics when string `s` is empty (length 0).
 ##
 ## Signature: assert_string_not_empty(s as string) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_string_not_empty with name
 weave assert_string_not_empty with s as string into void:
     if s.len == 0:
@@ -323,7 +323,7 @@ weave assert_string_not_empty with s as string into void:
 ## Panics unless integer lists `a` and `b` have identical length and elements.
 ##
 ## Signature: assert_eq_int_list(a as list of int, b as list of int) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_eq_int_list with xs, ys
 weave assert_eq_int_list with a as list of int , b as list of int into void:
     var na as int is a.len
@@ -341,7 +341,7 @@ weave assert_eq_int_list with a as list of int , b as list of int into void:
 ## Panics unless string lists `a` and `b` have identical length and elements.
 ##
 ## Signature: assert_eq_string_list(a as list of string, b as list of string) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_eq_string_list with words, expected_words
 weave assert_eq_string_list with a as list of string , b as list of string into void:
     var na as int is a.len
@@ -359,7 +359,7 @@ weave assert_eq_string_list with a as list of string , b as list of string into 
 ## Panics unless integer list `l` is empty.
 ##
 ## Signature: assert_list_empty_int(l as list of int) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_list_empty_int with queue
 weave assert_list_empty_int with l as list of int into void:
     if l.len > 0:
@@ -368,7 +368,7 @@ weave assert_list_empty_int with l as list of int into void:
 ## Panics when integer list `l` is empty.
 ##
 ## Signature: assert_list_not_empty_int(l as list of int) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_list_not_empty_int with results
 weave assert_list_not_empty_int with l as list of int into void:
     if l.len == 0:
@@ -377,7 +377,7 @@ weave assert_list_not_empty_int with l as list of int into void:
 ## Panics unless integer list `l` has exact length `expected`.
 ##
 ## Signature: assert_list_len_int(l as list of int, expected as int) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_list_len_int with items, 3
 weave assert_list_len_int with l as list of int , expected as int into void:
     if l.len != expected:
@@ -386,7 +386,7 @@ weave assert_list_len_int with l as list of int , expected as int into void:
 ## Panics unless string map `m` contains key `key`.
 ##
 ## Signature: assert_map_has_key(m as map of string to string, key as string) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_map_has_key with config, "host"
 weave assert_map_has_key with m as map of string to string , key as string into void:
     if not (calling m.contains with key):
@@ -395,7 +395,7 @@ weave assert_map_has_key with m as map of string to string , key as string into 
 ## Panics when string map `m` contains key `key`.
 ##
 ## Signature: assert_map_not_has_key(m as map of string to string, key as string) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_map_not_has_key with config, "secret"
 weave assert_map_not_has_key with m as map of string to string , key as string into void:
     if calling m.contains with key:
@@ -408,7 +408,7 @@ weave assert_map_not_has_key with m as map of string to string , key as string i
 ## Panics unless native maybe container `m` holds a value.
 ##
 ## Signature: assert_maybe_present shard T(m as maybe T) into void
-## Ownership: Generic value unwrap; no extra allocation.
+## Memory: Generic value unwrap; no extra allocation.
 ## Example: calling ward.assert_maybe_present with user_opt
 weave assert_maybe_present shard T with m as maybe T into void:
     if m is not present:
@@ -417,7 +417,7 @@ weave assert_maybe_present shard T with m as maybe T into void:
 ## Panics when native maybe container `m` holds a value.
 ##
 ## Signature: assert_maybe_none shard T(m as maybe T) into void
-## Ownership: Generic inspection; no extra allocation.
+## Memory: Generic inspection; no extra allocation.
 ## Example: calling ward.assert_maybe_none with missing_opt
 weave assert_maybe_none shard T with m as maybe T into void:
     if m is present:
@@ -426,7 +426,7 @@ weave assert_maybe_none shard T with m as maybe T into void:
 ## Panics unless native result container `r` is successful (is_ok).
 ##
 ## Signature: assert_result_ok shard T and E(r as result of T to E) into void
-## Ownership: Generic inspection; no extra allocation.
+## Memory: Generic inspection; no extra allocation.
 ## Example: calling ward.assert_result_ok with op_result
 weave assert_result_ok shard T and E with r as result of T to E into void:
     if r.is_ok == false:
@@ -435,7 +435,7 @@ weave assert_result_ok shard T and E with r as result of T to E into void:
 ## Panics when native result container `r` is successful (is_ok).
 ##
 ## Signature: assert_result_err shard T and E(r as result of T to E) into void
-## Ownership: Generic inspection; no extra allocation.
+## Memory: Generic inspection; no extra allocation.
 ## Example: calling ward.assert_result_err with failed_result
 weave assert_result_err shard T and E with r as result of T to E into void:
     if r.is_ok:
@@ -444,7 +444,7 @@ weave assert_result_err shard T and E with r as result of T to E into void:
 ## Panics unless native result of int to string is ok, reporting the error string.
 ##
 ## Signature: assert_result_ok_int(r as result of int to string) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_result_ok_int with res
 weave assert_result_ok_int with r as result of int to string into void:
     if r.is_ok == false:
@@ -453,7 +453,7 @@ weave assert_result_ok_int with r as result of int to string into void:
 ## Panics when native result of int to string is ok, reporting the unexpected value.
 ##
 ## Signature: assert_result_err_int(r as result of int to string) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.assert_result_err_int with res
 weave assert_result_err_int with r as result of int to string into void:
     if r.is_ok:
@@ -596,7 +596,7 @@ weave panic with msg as string into void:
 ## Aborts the program with `msg`. Ergonomic alias of panic.
 ##
 ## Signature: fail(msg as string) into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.fail with "invalid state"
 weave fail with msg as string into void:
     calling spark.panic with msg
@@ -608,7 +608,7 @@ weave unreachable with msg as string is "internal error: unreachable code" into 
 ## Explicit alias of unreachable with failure prefix.
 ##
 ## Signature: fail_unreachable(msg as string is "unreachable") into void
-## Ownership: No allocation.
+## Memory: No allocation.
 ## Example: calling ward.fail_unreachable with "unhandled judge branch"
 weave fail_unreachable with msg as string is "unreachable" into void:
     calling spark.panic with "internal error: {msg}"

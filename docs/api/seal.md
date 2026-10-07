@@ -98,7 +98,7 @@ present result is an owned lowercase hex string.
 Computes the CRC-32 checksum of `data` (IEEE 802.3 polynomial, as used by
 zlib / PNG) and returns it as an unsigned 32-bit value. Values >= 0x80000000
 are positive, so the result compares equal to `zlib.crc32()` in Python, to
-`cksum` output, and to the CRC column of PNG chunks. Pure value: no ownership
+`cksum` output, and to the CRC column of PNG chunks. Pure value: owns nothing
 concerns.
 
 

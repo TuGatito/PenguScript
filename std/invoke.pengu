@@ -11,8 +11,8 @@
 #   if res.is_err:
 #       calling spark.println with (res.errors at 0)
 #
-# Ownership model:
-#   * All arguments are plain strings/lists borrowed for the call; nothing is
+# Memory model:
+#   * All arguments are plain strings/lists viewed for the call; nothing is
 #     retained by the parser.
 #   * parse() builds and returns a freshly allocated ParseResult (maps + error
 #     list) owned by the caller.
@@ -98,7 +98,7 @@ rune ParseResult:
 ## Creates a new empty Parser for a program called `name` with `description`.
 ##
 ## Signature: new_parser(name as string, description as string) into Parser
-## Ownership: Allocates and returns a fresh Parser struct.
+## Memory: Allocates and returns a fresh Parser struct.
 ## Example: var p as Parser is calling invoke.new_parser with "git", "VCS tool"
 weave new_parser with name as string , description as string into Parser:
     var p as list of Positional is list of Positional

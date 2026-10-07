@@ -30,7 +30,7 @@
 #   * Asynchronous lock-free ring-buffer logging
 #   * File log rotation (size or daily interval)
 #
-# Ownership model:
+# Memory model:
 #   Helpers take and return plain values. Logger runes own their name and configuration
 #   strings. Returned strings (level names, colors, formatted lines) follow standard
 #   value lifetimes and require no manual cleanup.

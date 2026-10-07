@@ -229,7 +229,7 @@ projects are configured with the host compiler. Options:
 2. **Build natively on Windows and copy the prefix.** On Windows `python build_runtime.py` uses MinGW
    gcc — exactly what CI does ([`.github/workflows/ci.yml:105-118`](../.github/workflows/ci.yml#L105)).
    Copy `build/include` and `build/lib` to a prefix on the Linux side and use it as
-   `PENGU_RUNTIME_CROSS`. It must be built against the same `pengu_runtime.h` (ABI v1); it is the same
+   `PENGU_RUNTIME_CROSS`. It must be built against the same `pengu_runtime.h` (ABI v2); it is the same
    file shipped in the repo.
 3. **Do not** substitute distro MinGW libraries for the bundled static stack: the ABI/version pairing
    is what makes the link work.

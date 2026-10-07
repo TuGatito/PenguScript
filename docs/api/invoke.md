@@ -122,7 +122,7 @@ The outcome of an argument parse run.
 
 Creates a new empty Parser for a program called `name` with `description`.
 Signature: new_parser(name as string, description as string) into Parser
-Ownership: Allocates and returns a fresh Parser struct.
+Memory: Allocates and returns a fresh Parser struct.
 Example: var p as Parser is calling invoke.new_parser with "git", "VCS tool"
 
 

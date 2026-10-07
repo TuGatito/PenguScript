@@ -151,7 +151,7 @@ External file check declaration to avoid circular import with std.archivum.
 
 Looks up environment variable `name`.
 Signature: getenv(name as string) into maybe string
-Ownership: Returns a fresh copy of the environment variable value.
+Memory: Returns a fresh copy of the environment variable value.
 Edge cases: Returns maybe none when the variable is not set (or name is empty). If the variable is set to an empty string, returns some "".
 Cross-platform: Supported uniformly across Windows (GetEnvironmentVariableA) and POSIX (getenv).
 
@@ -162,7 +162,7 @@ Cross-platform: Supported uniformly across Windows (GetEnvironmentVariableA) and
 
 Sets environment variable `name` to `value`.
 Signature: setenv(name as string, value as string, overwrite as bool is true) into bool
-Ownership: Value string is copied by the runtime; caller retains ownership of arguments.
+Memory: the value string is copied by the runtime; the caller keeps whatever it owned.
 Edge cases: When `overwrite` is false and `name` already exists, returns true without modifying value.
 Cross-platform: Uses SetEnvironmentVariableA on Windows and setenv on POSIX.
 
@@ -173,7 +173,7 @@ Cross-platform: Uses SetEnvironmentVariableA on Windows and setenv on POSIX.
 
 Removes environment variable `name` from the process environment.
 Signature: unsetenv(name as string) into bool
-Ownership: Arguments are not retained.
+Memory: Arguments are not retained.
 Edge cases: Returns true on success or if variable was already unset; false on invalid names.
 Cross-platform: Uses SetEnvironmentVariableA(name, NULL) on Windows and unsetenv on POSIX.
 
@@ -184,7 +184,7 @@ Cross-platform: Uses SetEnvironmentVariableA(name, NULL) on Windows and unsetenv
 
 Returns the names of all currently set environment variables.
 Signature: get_env_keys() into list of string
-Ownership: Returns a new list of owned strings.
+Memory: Returns a new list of owned strings.
 Edge cases: Returns an empty list when no environment variables are defined.
 Cross-platform: Iterates environ on POSIX and GetEnvironmentStringsA on Windows.
 
@@ -195,7 +195,7 @@ Cross-platform: Iterates environ on POSIX and GetEnvironmentStringsA on Windows.
 
 Looks up environment variable `name`, returning `default` if unset.
 Signature: getenv_or(name as string, default as string is "") into string
-Ownership: Returns a fresh string copy.
+Memory: Returns a fresh string copy.
 Edge cases: Returns `default` when `name` is not present in the environment.
 Cross-platform: Works across all platforms.
 
@@ -206,7 +206,7 @@ Cross-platform: Works across all platforms.
 
 Checks whether environment variable `name` is currently set.
 Signature: has_env(name as string) into bool
-Ownership: No persistent allocations.
+Memory: No persistent allocations.
 Edge cases: Returns true even if the variable is set to an empty string.
 Cross-platform: Works across all platforms.
 
@@ -217,7 +217,7 @@ Cross-platform: Works across all platforms.
 
 Looks up environment variable `name` and parses it as an integer.
 Signature: getenv_int(name as string) into maybe int
-Ownership: No persistent allocations.
+Memory: No persistent allocations.
 Edge cases: Returns maybe none if unset or if value cannot be parsed as an int.
 Cross-platform: Works across all platforms.
 
@@ -228,7 +228,7 @@ Cross-platform: Works across all platforms.
 
 Looks up environment variable `name` and parses it as a float.
 Signature: getenv_float(name as string) into maybe float
-Ownership: No persistent allocations.
+Memory: No persistent allocations.
 Edge cases: Returns maybe none if unset or if value cannot be parsed as a float.
 Cross-platform: Works across all platforms.
 
@@ -239,7 +239,7 @@ Cross-platform: Works across all platforms.
 
 Looks up environment variable `name` and parses it as a boolean.
 Signature: getenv_bool(name as string) into maybe bool
-Ownership: No persistent allocations.
+Memory: No persistent allocations.
 Edge cases: Accepts "1", "true", "TRUE", "yes", "YES" -> some true.
 Accepts "0", "false", "FALSE", "no", "NO" -> some false.
 Unset or unrecognized values return maybe none.
@@ -252,7 +252,7 @@ Cross-platform: Works across all platforms.
 
 Returns a snapshot map of all environment variables and their values.
 Signature: get_env_map() into map of string to string
-Ownership: Returns a newly allocated map owning its keys and values.
+Memory: Returns a newly allocated map. Keys and values are copied with `memcpy`, so release any heap buffers they reference yourself.
 Edge cases: Returns empty map if no environment variables are defined.
 Cross-platform: Works across all platforms.
 
@@ -263,7 +263,7 @@ Cross-platform: Works across all platforms.
 
 Sets multiple environment variables from a key-value map.
 Signature: set_env_map(m as map of string to string) into int
-Ownership: Does not consume the input map.
+Memory: Does not consume the input map.
 Edge cases: Returns the count of variables successfully set.
 Cross-platform: Works across all platforms.
 
@@ -274,7 +274,7 @@ Cross-platform: Works across all platforms.
 
 Clears all environment variables in the current process.
 Signature: clear_env() into int
-Ownership: Mutates process environment. No persistent allocations returned.
+Memory: Mutates process environment. No persistent allocations returned.
 Edge cases: Returns count of variables successfully removed.
 Cross-platform: On all platforms, variables are removed via platform unsetenv / SetEnvironmentVariableA.
 WARNING: Only removes variables from the current process environment, does not affect the OS or parent processes.
@@ -287,7 +287,7 @@ WARNING: Only removes variables from the current process environment, does not a
 Expands environment variable placeholders in string `s`.
 Supports `$VAR`, `${VAR}`, `%VAR%` syntax, and `$$` / `%%` escape -> `$` / `%`.
 Signature: expand_env(s as string) into string
-Ownership: Returns a newly allocated string with variables substituted.
+Memory: Returns a newly allocated string with variables substituted.
 Edge cases: Unset variables expand to empty strings. Unterminated braces `${...}` or `%...%` are preserved verbatim.
 Cross-platform: Cross-platform support for Unix and Windows placeholders. Single-pass non-recursive expansion.
 
@@ -298,7 +298,7 @@ Cross-platform: Cross-platform support for Unix and Windows placeholders. Single
 
 Alias of `expand_env`.
 Signature: env_substitute(s as string) into string
-Ownership: Returns a new string with environment variables replaced.
+Memory: Returns a new string with environment variables replaced.
 
 
 ### `get_argc`
@@ -307,7 +307,7 @@ Ownership: Returns a new string with environment variables replaced.
 
 Returns the program's argument count, including the program name at index 0.
 Signature: get_argc() into int
-Ownership: No allocations.
+Memory: No allocations.
 Cross-platform: Returns argc across all platforms.
 
 
@@ -317,7 +317,7 @@ Cross-platform: Returns argc across all platforms.
 
 Returns a copy of the program argument at index `idx` (0 = program name).
 Signature: get_argv(idx as int) into string
-Ownership: Returns a fresh string copy.
+Memory: Returns a fresh string copy.
 Edge cases: Out-of-range `idx` yields an empty string.
 
 
@@ -327,7 +327,7 @@ Edge cases: Out-of-range `idx` yields an empty string.
 
 Returns a new list of string holding one copy per program argument.
 Signature: get_args() into list of string
-Ownership: The returned list owns its string elements.
+Memory: The returned list owns its element buffer, but each string element owns its own bytes: free them with `pengu_banish_string_list` (or banish each element) before the list.
 
 
 ### `arg_at_or`
@@ -336,7 +336,7 @@ Ownership: The returned list owns its string elements.
 
 Returns the argument at index `idx`, or `default` if `idx` is out of range.
 Signature: arg_at_or(idx as int, default as string is "") into string
-Ownership: Returns a fresh string copy.
+Memory: Returns a fresh string copy.
 Edge cases: Returns `default` when `idx < 0` or `idx >= get_argc()`.
 
 
@@ -347,7 +347,7 @@ Edge cases: Returns `default` when `idx < 0` or `idx >= get_argc()`.
 Parses command-line flags from `get_args()` (skipping argv[0]).
 Handles `--key=value` -> map["key"] = "value" and `--flag` -> map["flag"] = "true".
 Signature: parse_flags() into map of string to string
-Ownership: Returns a newly allocated map.
+Memory: Returns a newly allocated map.
 Edge cases: Positional arguments (not starting with `--`) are ignored.
 
 
@@ -357,7 +357,7 @@ Edge cases: Positional arguments (not starting with `--`) are ignored.
 
 Checks if flag `--name` was passed on the command line.
 Signature: has_flag(name as string) into bool
-Ownership: No persistent allocations.
+Memory: No persistent allocations.
 
 
 ### `get_flag_value`
@@ -366,7 +366,7 @@ Ownership: No persistent allocations.
 
 Returns the value of flag `--name` if passed, or maybe none.
 Signature: get_flag_value(name as string) into maybe string
-Ownership: Returns a fresh maybe string.
+Memory: Returns a fresh maybe string.
 
 
 ### `getpid`
@@ -375,7 +375,7 @@ Ownership: Returns a fresh maybe string.
 
 Returns the current process id (int).
 Signature: getpid() into int
-Ownership: No allocations.
+Memory: No allocations.
 
 
 ### `getppid`
@@ -384,7 +384,7 @@ Ownership: No allocations.
 
 Returns the parent process id (int). Always 0 on Windows.
 Signature: getppid() into int
-Ownership: No allocations.
+Memory: No allocations.
 
 
 ### `getcwd`
@@ -393,7 +393,7 @@ Ownership: No allocations.
 
 Returns the current working directory as a maybe string.
 Signature: getcwd() into maybe string
-Ownership: Returns a fresh string copy.
+Memory: Returns a fresh string copy.
 Edge cases: Returns maybe none when current directory cannot be determined.
 
 
@@ -403,7 +403,7 @@ Edge cases: Returns maybe none when current directory cannot be determined.
 
 Changes the current working directory to `path`.
 Signature: chdir(path as string) into bool
-Ownership: Arguments are not retained.
+Memory: Arguments are not retained.
 Edge cases: Returns true on success, false when path does not exist or access is denied.
 
 
@@ -413,7 +413,7 @@ Edge cases: Returns true on success, false when path does not exist or access is
 
 Returns the current user's home directory.
 Signature: home_dir() into maybe string
-Ownership: Returns an owned maybe string.
+Memory: Returns an owned maybe string.
 Cross-platform: On Windows, inspects USERPROFILE or HOMEDRIVE+HOMEPATH.
 On POSIX, inspects HOME.
 
@@ -424,7 +424,7 @@ On POSIX, inspects HOME.
 
 Returns the system temporary directory path.
 Signature: temp_dir() into maybe string
-Ownership: Returns an owned maybe string.
+Memory: Returns an owned maybe string.
 Cross-platform: On Windows, inspects TEMP/TMP with fallback "C:\\Temp".
 On POSIX, inspects TMPDIR/TEMP/TMP with fallback "/tmp".
 
@@ -435,7 +435,7 @@ On POSIX, inspects TMPDIR/TEMP/TMP with fallback "/tmp".
 
 Returns the user configuration directory path.
 Signature: config_dir() into maybe string
-Ownership: Returns an owned maybe string.
+Memory: Returns an owned maybe string.
 Cross-platform: On Windows, returns %APPDATA%.
 On POSIX, returns $XDG_CONFIG_HOME or ~/.config.
 
@@ -446,7 +446,7 @@ On POSIX, returns $XDG_CONFIG_HOME or ~/.config.
 
 Returns the user cache directory path.
 Signature: cache_dir() into maybe string
-Ownership: Returns an owned maybe string.
+Memory: Returns an owned maybe string.
 Cross-platform: On Windows, returns %LOCALAPPDATA%.
 On POSIX, returns $XDG_CACHE_HOME or ~/.cache.
 
@@ -457,7 +457,7 @@ On POSIX, returns $XDG_CACHE_HOME or ~/.cache.
 
 Returns the user local data directory path.
 Signature: data_dir() into maybe string
-Ownership: Returns an owned maybe string.
+Memory: Returns an owned maybe string.
 Cross-platform: On Windows, returns %APPDATA%.
 On POSIX, returns $XDG_DATA_HOME or ~/.local/share.
 
@@ -468,7 +468,7 @@ On POSIX, returns $XDG_DATA_HOME or ~/.local/share.
 
 Returns the operating-system family name: "Windows", "Darwin", "Linux" or "Unknown".
 Signature: uname() into string
-Ownership: Returns a fresh string copy.
+Memory: Returns a fresh string copy.
 
 
 ### `hostname`
@@ -477,7 +477,7 @@ Ownership: Returns a fresh string copy.
 
 Returns the machine's host name.
 Signature: hostname() into string
-Ownership: Returns a fresh string copy.
+Memory: Returns a fresh string copy.
 
 
 ### `os_arch`
@@ -486,7 +486,7 @@ Ownership: Returns a fresh string copy.
 
 Returns the host CPU architecture string ("x64", "arm64", "x86", "arm", or "unknown").
 Signature: os_arch() into string
-Ownership: Returns a static string copy evaluated at compile time.
+Memory: Returns a static string copy evaluated at compile time.
 
 
 ### `os_family`
@@ -495,7 +495,7 @@ Ownership: Returns a static string copy evaluated at compile time.
 
 Returns the operating-system family name. Alias of `uname()`.
 Signature: os_family() into string
-Ownership: Returns a fresh string copy.
+Memory: Returns a fresh string copy.
 
 
 ### `is_windows`
@@ -504,7 +504,7 @@ Ownership: Returns a fresh string copy.
 
 Checks if the current target operating system is Windows.
 Signature: is_windows() into bool
-Ownership: Compile-time constant result.
+Memory: Compile-time constant result.
 
 
 ### `is_unix`
@@ -513,7 +513,7 @@ Ownership: Compile-time constant result.
 
 Checks if the current target operating system is Unix-like (Linux, macOS, BSD).
 Signature: is_unix() into bool
-Ownership: Compile-time constant result.
+Memory: Compile-time constant result.
 
 
 ### `is_macos`
@@ -522,7 +522,7 @@ Ownership: Compile-time constant result.
 
 Checks if the current target operating system is macOS (Darwin).
 Signature: is_macos() into bool
-Ownership: Compile-time constant result.
+Memory: Compile-time constant result.
 
 
 ### `is_linux`
@@ -531,7 +531,7 @@ Ownership: Compile-time constant result.
 
 Checks if the current target operating system is Linux.
 Signature: is_linux() into bool
-Ownership: Compile-time constant result.
+Memory: Compile-time constant result.
 
 
 ### `which_all`
@@ -540,7 +540,7 @@ Ownership: Compile-time constant result.
 
 Searches the system PATH for all executable candidates matching `cmd`.
 Signature: which_all(cmd as string) into list of string
-Ownership: Returns a new list of absolute/relative path strings.
+Memory: Returns a new list of absolute/relative path strings.
 Cross-platform: On Windows, uses ';' delimiter and tests .exe, .bat, .cmd extensions.
 On POSIX, uses ':' delimiter.
 NOTE: On POSIX systems, `which_all` checks for regular file existence in PATH directories
@@ -554,7 +554,7 @@ NOTE: On POSIX systems, `which_all` checks for regular file existence in PATH di
 
 Locates the first executable matching `cmd` on the system PATH.
 Signature: which(cmd as string) into maybe string
-Ownership: Returns an owned maybe string.
+Memory: Returns an owned maybe string.
 Edge cases: Returns maybe none if `cmd` is not found on PATH.
 
 
@@ -564,7 +564,7 @@ Edge cases: Returns maybe none if `cmd` is not found on PATH.
 
 Terminates the process immediately with exit code `code` (never returns).
 Signature: exit(code as int) into void
-Ownership: Process exit.
+Memory: Process exit.
 
 
 ### `exec`
@@ -574,7 +574,7 @@ Ownership: Process exit.
 Runs `cmd` plus `args` through the platform shell and blocks until completion.
 Returns the raw status code reported by the shell (-1 on error).
 Signature: exec(cmd as string, args as list of string) into int
-Ownership: Caller owns arguments.
+Memory: Caller owns arguments.
 WARNING: Uses system() internally; do NOT pass untrusted user input without sanitization.
 
 
@@ -584,7 +584,7 @@ WARNING: Uses system() internally; do NOT pass untrusted user input without sani
 
 Launches `cmd` with `args` and blocks until it finishes. Shares exec's implementation.
 Signature: spawn(cmd as string, args as list of string) into int
-Ownership: Caller owns arguments.
+Memory: Caller owns arguments.
 
 
 ### `exec_ok`
@@ -593,7 +593,7 @@ Ownership: Caller owns arguments.
 
 Runs `cmd` with `args` and returns true if the command succeeded (exit code == 0).
 Signature: exec_ok(cmd as string, args as list of string) into bool
-Ownership: Arguments are not retained.
+Memory: Arguments are not retained.
 
 
 ### `exec_or_panic`
@@ -602,7 +602,7 @@ Ownership: Arguments are not retained.
 
 Runs `cmd` with `args` and panics if the command fails (exit code != 0).
 Signature: exec_or_panic(cmd as string, args as list of string) into void
-Ownership: Arguments are not retained.
+Memory: Arguments are not retained.
 
 
 ### `run_shell`
@@ -611,7 +611,7 @@ Ownership: Arguments are not retained.
 
 Executes a raw command line string directly through the platform shell.
 Signature: run_shell(cmdline as string) into int
-Ownership: Returns raw return status from platform shell.
+Memory: Returns raw return status from platform shell.
 WARNING: Uses system() internally; do NOT pass untrusted user input without sanitization.
 
 
@@ -621,7 +621,7 @@ WARNING: Uses system() internally; do NOT pass untrusted user input without sani
 
 Escapes string `s` for safe inclusion as a command line argument.
 Signature: shell_escape(s as string) into string
-Ownership: Returns a newly allocated escaped string.
+Memory: Returns a newly allocated escaped string.
 Cross-platform: Uses double-quote escaping on Windows and single-quote escaping on POSIX.
 
 
@@ -631,7 +631,7 @@ Cross-platform: Uses double-quote escaping on Windows and single-quote escaping 
 
 Returns the username of the current logged-in user.
 Signature: current_user() into maybe string
-Ownership: Returns an owned maybe string.
+Memory: Returns an owned maybe string.
 Cross-platform: On Windows, inspects USERNAME.
 On POSIX, inspects USER with fallback to LOGNAME.
 

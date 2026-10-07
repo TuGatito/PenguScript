@@ -10,7 +10,7 @@
 #   var js as maybe string is calling cipher.stringify_json with my_map
 #   var m as maybe map of string to string is calling cipher.parse_json with js.value
 #
-# Ownership model:
+# Memory model:
 #   Results are owned strings, maps and lists that may be banished or dropped
 #   normally; no function returns a view into its input.
 #
@@ -53,7 +53,7 @@ omen JsonKind:
 ## Classifies a raw JSON value into its corresponding JsonKind variant.
 ##
 ## Signature: json_kind_of(v as string) into JsonKind
-## Ownership: Returns an omen value.
+## Memory: Returns an omen value.
 ## Edge cases: Returns JsonNull for empty string or "null".
 weave json_kind_of with v as string into JsonKind:
     var vl as int is v length
@@ -111,7 +111,7 @@ weave cb64_val with c as string into int:
 ## Encodes data into a standard RFC 4648 Base64 string with padding.
 ##
 ## Signature: encode_base64(data as string) into string
-## Ownership: Returns a newly allocated string.
+## Memory: Returns a newly allocated string.
 ## Edge cases: Empty input returns "".
 weave encode_base64 with data as string into string:
     var dl as int is data length
@@ -157,7 +157,7 @@ weave encode_base64_bytes with data as string into string:
 ## Decodes a Base64 string back into bytes as a string; whitespace in input is ignored.
 ##
 ## Signature: decode_base64(data as string) into maybe string
-## Ownership: Returns an owned maybe string.
+## Memory: Returns an owned maybe string.
 ## Edge cases: Returns maybe none when input is malformed, when `=` appears
 ## anywhere but at the very end, or when padding is excessive (`"QQ==="`,
 ## `"QQ==QQ=="`) or short (`"Q==="`). Unpadded input decodes normally.
@@ -245,7 +245,7 @@ weave is_base64 with data as string into bool:
 ## Encodes data into URL-safe Base64 (using '-' and '_' instead of '+' and '/', unpadded).
 ##
 ## Signature: encode_base64_url(data as string) into string
-## Ownership: Returns a newly allocated string.
+## Memory: Returns a newly allocated string.
 weave encode_base64_url with data as string into string:
     var b64 as string is calling encode_base64 with data
     var s1 as string is calling b64.replace_all with "+" , "-"
@@ -256,7 +256,7 @@ weave encode_base64_url with data as string into string:
 ## Decodes a URL-safe Base64 string (accepts both URL-safe and standard alphabet, padded or unpadded).
 ##
 ## Signature: decode_base64_url(data as string) into maybe string
-## Ownership: Returns an owned maybe string.
+## Memory: Returns an owned maybe string.
 weave decode_base64_url with data as string into maybe string:
     var s1 as string is calling data.replace_all with "-" , "+"
     var s2 as string is calling s1.replace_all with "_" , "/"
@@ -270,7 +270,7 @@ weave decode_base64_url with data as string into maybe string:
 ## Encodes data into unpadded standard Base64 (strips trailing '=' characters).
 ##
 ## Signature: encode_base64_nopad(data as string) into string
-## Ownership: Returns a newly allocated string.
+## Memory: Returns a newly allocated string.
 weave encode_base64_nopad with data as string into string:
     var b64 as string is calling encode_base64 with data
     return calling b64.replace_all with "=" , ""
@@ -278,7 +278,7 @@ weave encode_base64_nopad with data as string into string:
 ## Decodes an unpadded Base64 string (automatically restores required '=' padding).
 ##
 ## Signature: decode_base64_nopad(data as string) into maybe string
-## Ownership: Returns an owned maybe string.
+## Memory: Returns an owned maybe string.
 weave decode_base64_nopad with data as string into maybe string:
     var rem as int is (data length) % 4
     var s as string is data
@@ -321,7 +321,7 @@ weave _hex_val with c as string into int:
 ## Encodes raw bytes in `data` into a lowercase hexadecimal (Base16) string.
 ##
 ## Signature: encode_hex(data as string) into string
-## Ownership: Returns a newly allocated string.
+## Memory: Returns a newly allocated string.
 weave encode_hex with data as string into string:
     var dl as int is data length
     if dl == 0:
@@ -340,7 +340,7 @@ weave encode_hex with data as string into string:
 ## Decodes a hexadecimal string back into bytes.
 ##
 ## Signature: decode_hex(data as string) into maybe string
-## Ownership: Returns an owned maybe string.
+## Memory: Returns an owned maybe string.
 ## Edge cases: Rejects odd-length strings and non-hexadecimal characters with `maybe none`.
 weave decode_hex with data as string into maybe string:
     var dl as int is data length
@@ -387,7 +387,7 @@ weave _b32_val with c as string into int:
 ## Encodes raw bytes in `data` into an uppercase Base32 string with '=' padding (RFC 4648).
 ##
 ## Signature: encode_base32(data as string) into string
-## Ownership: Returns a newly allocated string.
+## Memory: Returns a newly allocated string.
 weave encode_base32 with data as string into string:
     var dl as int is data length
     if dl == 0:
@@ -462,7 +462,7 @@ weave encode_base32 with data as string into string:
 ## Decodes a Base32 string back into bytes (RFC 4648). Case-insensitive.
 ##
 ## Signature: decode_base32(data as string) into maybe string
-## Ownership: Returns an owned maybe string.
+## Memory: Returns an owned maybe string.
 weave decode_base32 with data as string into maybe string:
     var dl as int is data length
     if dl == 0:
@@ -544,7 +544,7 @@ enchanting string:
 ## Escapes double-quotes, backslashes, and control characters for JSON RFC 8259 compliance.
 ##
 ## Signature: json_escape(s as string) into string
-## Ownership: Returns a newly allocated escaped string.
+## Memory: Returns a newly allocated escaped string.
 weave json_escape with s as string into string:
     var sl as int is s length
     if sl == 0:
@@ -577,7 +577,7 @@ weave json_escape with s as string into string:
 ## Unescapes a JSON-encoded string (translates \", \\, \n, \r, \t, \/ back to literals).
 ##
 ## Signature: json_unescape(s as string) into string
-## Ownership: Returns a newly allocated unescaped string.
+## Memory: Returns a newly allocated unescaped string.
 weave json_unescape with s as string into string:
     var sl as int is s length
     if sl == 0:
@@ -842,7 +842,7 @@ weave json_is_literal with v as string into bool:
 ## Parses a JSON object into a map of string to string.
 ##
 ## Signature: parse_json(json as string) into maybe map of string to string
-## Ownership: Returns a newly allocated map.
+## Memory: Returns a newly allocated map.
 ## Edge cases: Returns maybe none on malformed or non-object input.
 weave parse_json with json as string into maybe map of string to string:
     var m as map of string to string is map of string to string
@@ -892,7 +892,7 @@ weave parse_json with json as string into maybe map of string to string:
 ## Properly escapes quotes and control characters in keys and string values (RFC 8259).
 ##
 ## Signature: stringify_json(data as map of string to string) into maybe string
-## Ownership: Returns a newly allocated JSON string.
+## Memory: Returns a newly allocated JSON string.
 weave stringify_json with data as map of string to string into maybe string:
     var out as string is "{"
     var keys as list of string is calling pengu_map_keys_string with sigil of data
@@ -964,7 +964,7 @@ weave stringify_value with value as string into maybe string:
 ## Parses a JSON array string `[v1, v2, ...]` into a list of raw string values.
 ##
 ## Signature: parse_json_array(json as string) into maybe list of string
-## Ownership: Returns a newly allocated list of strings.
+## Memory: Returns a newly allocated list of strings.
 ## Edge cases: Returns maybe none on malformed or non-array input.
 weave parse_json_array with json as string into maybe list of string:
     var items as list of string is list of string
@@ -1005,7 +1005,7 @@ weave parse_json_array with json as string into maybe list of string:
 ## Serializes a list of strings into a compact JSON array.
 ##
 ## Signature: stringify_json_array(items as list of string) into maybe string
-## Ownership: Returns a newly allocated JSON array string.
+## Memory: Returns a newly allocated JSON array string.
 weave stringify_json_array with items as list of string into maybe string:
     var out as string is "["
     var i as int is 0

@@ -3,7 +3,7 @@
 # PenguScript containers (string, slice, list, map), pointer inspection,
 # and size constants for low-level interoperability.
 #
-# Ownership model:
+# Memory model:
 #   * Views (*_from_ptr, cstr_from_string, bytes_from_string) do NOT copy and
 #     must not be banished: they alias memory owned by the caller or by the
 #     PenguScript value they were built from.
@@ -192,7 +192,7 @@ declare pengu_ffi_list_f64 with data as ref to void , count as int into list of 
 # Generic owning map creation from parallel key/value arrays.
 declare pengu_map_from_entries with keys as ref to void , values as ref to void , key_size as int , val_size as int , count as int into map of void to void
 
-# Deep-copies parallel string/int slices into a new map of string to int.
+# Copies parallel string/int slices into a new map of string to int; the keys are copied with memcpy, not deep-copied.
 declare pengu_ffi_map_si with keys as slice of string , vals as slice of int into map of string to int
 
 # ----------------------------------------------------------------------------
@@ -330,7 +330,7 @@ weave list_of_string_from_ptr with data as ref to void , count as int into list 
 weave map_from_ptr shard K , V with keys as ref to void , values as ref to void , count as int into map of K to V:
     return calling pengu_map_from_entries with keys , values , (size of K) , (size of V) , count
 
-## Builds a map of string to int from two parallel slices. Keys are deeply
-## copied; the returned map owns its entries.
+## Builds a map of string to int from two parallel slices. Keys are copied
+## with memcpy; the returned map owns its entries table, not the string buffers.
 weave map_of_string_to_int_from_slices with keys as slice of string , vals as slice of int into map of string to int:
     return calling pengu_ffi_map_si with keys , vals

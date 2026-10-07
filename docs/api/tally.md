@@ -46,8 +46,8 @@ Menor elemento; la lista vacía devuelve 0.
 > **concat**(a: list of int, b: list of int) -> list of int
 
 Concatenación de `a` y `b` en una lista nueva.
-Ownership
-Devuelve una lista nueva auto-banishable; no muta `a` ni `b`.
+Memoria
+Devuelve una lista nueva (libérala con `banish`); no muta `a` ni `b`.
 
 
 ### `zip_sum`
@@ -444,7 +444,7 @@ Copia con `delta` sumado a cada elemento.
 > **zip_with**(xs: list of T, ys: list of U, f: weave with a: T, b: U into V) -> list of V
 
 Combina `xs` e `ys` con `f` hasta la lista más corta.
-Ownership
+Memory
 `xs` e `ys` solo se leen; el resultado es una lista nueva.
 Ejemplo
 ```pengu

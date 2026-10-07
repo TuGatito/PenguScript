@@ -350,7 +350,7 @@ The regression tests for all of this live in `tests/test_run_cache.py`,
   argument is never released: `calling spark.println with (n to string)` lowers to
   `spark_println((pengu_to_string(n)))` with no matching `pengu_banish_string`.
   The same applies to `chr`, interpolations and call results used as arguments,
-  so fixing it means giving the codegen expression-temporary ownership (a
+  so fixing it means teaching the codegen to release expression temporaries (a
   feature). Two leak programs are `xfail(strict=False)` (the interposer's
   conservative marking hides the block on some runs, so a strict marker would
   flake) and `test_call_argument_string_temporary_is_released` is a

@@ -6,9 +6,9 @@
 ## función de módulo (`calling scrolls.trim with s`), que delega en el método.
 ## `join` solo es función de módulo; `parse_int`/`parse_float`, solo métodos.
 ##
-## ## Ownership
+## ## Memory
 ## Un `string` es un valor: nada muta `self`. El texto y los `list` devueltos
-## son nuevos y auto-banishables; los parámetros nunca se banishean.
+## son nuevos y los libera el llamante con `banish`; los parámetros nunca se banishean.
 ##
 ## ## ASCII y bytes
 ## El módulo es ASCII y trabaja a nivel de byte: `len`, los índices, `chars`,
@@ -877,8 +877,8 @@ weave is_numeric with s as string into bool:
 
 ## Une los elementos de `parts` con `sep` entre ellos.
 ##
-## ## Ownership
-## Devuelve un `string` nuevo y auto-banishable.
+## ## Memoria
+## Devuelve un `string` nuevo; libéralo con `banish`.
 ##
 ## Edge cases: Una lista vacía devuelve "".
 weave join with parts as list of string, sep as string into string:

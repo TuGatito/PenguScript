@@ -11,7 +11,7 @@
 #       if r.status_code == 200:
 #           calling spark.println with r.body.value
 #
-# Ownership model:
+# Memory model:
 #   * HTTP client calls return maybe ClientResponse. A present response is owned
 #     by the caller: release it (including its headers map and body payload)
 #     when done. A none result means the request could not be performed
@@ -195,23 +195,23 @@ weave get with url as string , headers as map of string to string into maybe Cli
     return calling pengu_c_precis_http_get with url , headers
 
 # Sends an HTTP POST of `body` to `url` with the given request `headers`.
-# Ownership and none semantics are identical to get.
+# Memory and none semantics are identical to get.
 weave post with url as string , headers as map of string to string , body as string into maybe ClientResponse:
     return calling pengu_c_precis_http_post with url , headers , body
 
 # Sends an HTTP PUT of `body` to `url` with the given request `headers`.
-# Ownership and none semantics are identical to get.
+# Memory and none semantics are identical to get.
 weave put with url as string , headers as map of string to string , body as string into maybe ClientResponse:
     return calling pengu_c_precis_http_put with url , headers , body
 
-# Sends an HTTP DELETE to `url` with the given request `headers`. Ownership and
+# Sends an HTTP DELETE to `url` with the given request `headers`. Memory and
 # none semantics are identical to get.
 weave delete with url as string , headers as map of string to string into maybe ClientResponse:
     return calling pengu_c_precis_http_delete with url , headers
 
 # Sends an HTTP request using an arbitrary `method` (e.g. "PATCH", "HEAD") to
 # `url` with the given request `headers`. `body` is the payload when present
-# (some) or none to send no body. Ownership and none semantics are identical
+# (some) or none to send no body. Memory and none semantics are identical
 # to get.
 weave request with method as string , url as string , headers as map of string to string , body as maybe string into maybe ClientResponse:
     return calling pengu_c_precis_http_request with method , url , headers , body

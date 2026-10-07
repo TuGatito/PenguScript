@@ -10,7 +10,7 @@
 #   var rows_opt as maybe list of list of string is calling ledger.parse_csv with "a,b\n1,2"
 #   var tbl_opt as maybe ledger.CsvTable is calling ledger.parse_csv_with_header with "name,age\nAlice,30"
 #
-# Ownership:
+# Memory:
 #   All results are owned lists, strings, maps or maybe values that can be
 #   banished or dropped normally; no result aliases the input text. Malformed
 #   input or failed file I/O is reported as maybe none, not raised.

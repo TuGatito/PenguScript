@@ -7,10 +7,11 @@
 ## (`calling m.map with f`) y como función de módulo
 ## (`calling oracle.map_maybe with m, f`).
 ##
-## ## Ownership
+## ## Memory
 ## `maybe T` y `result of T to E` poseen su carga. Ninguna función devuelve
 ## `self` ni un parámetro contenedor tal cual: se reconstruye el contenedor
-## (`some v`, `ok v`, `err e`, `maybe none`). Los `list` son auto-banishables.
+## (`some v`, `ok v`, `err e`, `maybe none`). Los `list` devueltos los libera el
+## llamante con `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
@@ -87,7 +88,7 @@ enchanting maybe shard T:
 
     ## Devuelve el valor guardado.
     ##
-    ## ## Ownership
+    ## ## Memoria
     ## Devuelve una copia de la carga; el contenedor sigue siendo válido.
     ##
     ## Panickea si el contenedor está vacío (precondición: `is_some`).
@@ -995,8 +996,8 @@ weave collect_err shard T and E with rs as list of result of T to E into list of
 
 ## Separa `rs` en un `Pair` de éxitos y errores.
 ##
-## ## Ownership
-## Ambas listas del `Pair` son auto-banishables.
+## ## Memory
+## Ambas listas del `Pair` las libera el llamante con `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu

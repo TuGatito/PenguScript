@@ -7,7 +7,7 @@
 #   var h32 as u32 is calling celeris.hash32 with "PenguScript", 11
 #   var h64 as u64 is calling celeris.hash64 with "PenguScript", 11
 #
-# Ownership / memory model:
+# Memory model:
 #   * `data` is a `ref to char` view that is BORROWED for the duration of the
 #     call only: the C hash reads `length` bytes synchronously and never
 #     keeps the pointer, so the buffer only has to stay valid until the call

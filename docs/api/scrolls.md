@@ -565,8 +565,8 @@ True cuando el string es un literal numérico exacto: signo y `.` opcionales.
 > **pengu_join**(parts: list of string, sep: string) -> string
 
 Une los elementos de `parts` con `sep` entre ellos.
-Ownership
-Devuelve un `string` nuevo y auto-banishable.
+Memoria
+Devuelve un `string` nuevo; libéralo con `banish`.
 Edge cases: Una lista vacía devuelve "".
 
 

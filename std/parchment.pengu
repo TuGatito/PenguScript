@@ -2,7 +2,7 @@
 # Parses XML and HTML text into a Document, then queries, mutates and
 # serializes element trees through Node values (backed by libxml2).
 #
-# Ownership model:
+# Memory model:
 #   * A Document returned by parse_xml / parse_html OWNS the whole parsed
 #     libxml2 tree plus the wrapper strings of its root node. Release it with
 #     free_document (or doc.free) when done; freeing it invalidates every node
@@ -357,8 +357,9 @@ weave strip_html_tags with html as string into string:
 # ----------------------------------------------------------------------------
 
 # Node methods: mirror the module-level functional API with `self` as the
-# target node. The ownership notes of the functional API apply to their
-# results (find / find_all / attr / text / to_string return owned values).
+# target node. The memory notes of the functional API apply to their results
+# (find / find_all / attr / text / to_string return owning values that you
+# release with `banish`).
 enchanting Node:
     # Finds the first direct child element of `self` named `query`; release
     # the returned wrapper with free when done (see find).

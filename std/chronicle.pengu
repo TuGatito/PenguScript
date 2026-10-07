@@ -17,7 +17,7 @@
 #   var dt as chronicle.DateTime is calling chronicle.datetime_utc with now
 #   calling spark.println with calling dt.to_iso
 #
-# Ownership model:
+# Memory model:
 #   Clocks, delays and calendar-field getters are plain scalar bridges that
 #   own nothing. `format`/`format_now` return freshly formatted strings and
 #   `parse` returns a maybe float (none on failure): results are fresh owned

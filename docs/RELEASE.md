@@ -79,7 +79,7 @@ verified `extern/` while iterating; never in CI).
 
 `make_release.py` pins `SOURCE_DATE_EPOCH` (from the environment, else the commit
 time of `HEAD`), exports `PYTHONHASHSEED=0` and writes the archives itself with
-sorted entries, a constant mtime and normalized ownership. `tar -czf` and
+sorted entries, a constant mtime and normalized uid/gid and permissions. `tar -czf` and
 `Compress-Archive` are no longer used: they embedded the build time.
 
 ```bash

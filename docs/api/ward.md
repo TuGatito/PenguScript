@@ -12,7 +12,7 @@
 
 Panics with "assertion failed" when `cond` is false.
 Signature: assert(cond as bool) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert with x > 0
 
 
@@ -22,7 +22,7 @@ Example: calling ward.assert with x > 0
 
 Panics with `msg` when `cond` is false.
 Signature: assert_msg(cond as bool, msg as string) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_msg with x > 0, "x must be positive"
 
 
@@ -53,7 +53,7 @@ _Undocumented function._
 
 Panics with "assertion failed: expected true, got false" when `cond` is false.
 Signature: assert_true(cond as bool) into void
-Ownership: No allocation.
+Memory: No allocation.
 Message: "assertion failed: expected true, got false"
 Example: calling ward.assert_true with is_valid
 
@@ -64,7 +64,7 @@ Example: calling ward.assert_true with is_valid
 
 Panics with "assertion failed: expected false, got true" when `cond` is true.
 Signature: assert_false(cond as bool) into void
-Ownership: No allocation.
+Memory: No allocation.
 Message: "assertion failed: expected false, got true"
 Example: calling ward.assert_false with is_closed
 
@@ -75,7 +75,7 @@ Example: calling ward.assert_false with is_closed
 
 Panics when `a` differs from `b`, reporting both values.
 Signature: assert_eq_int(a as int, b as int) into void
-Ownership: No allocation.
+Memory: No allocation.
 Message: "assertion failed: left != right: expected <b>, got <a>"
 Example: calling ward.assert_eq_int with 2 + 2, 4
 
@@ -86,7 +86,7 @@ Example: calling ward.assert_eq_int with 2 + 2, 4
 
 Panics when string `a` differs from string `b` (exact equality).
 Signature: assert_eq_string(a as string, b as string) into void
-Ownership: No allocation.
+Memory: No allocation.
 Message: "assertion failed: left != right: expected \"<b>\", got \"<a>\""
 Example: calling ward.assert_eq_string with name, "Alice"
 
@@ -97,7 +97,7 @@ Example: calling ward.assert_eq_string with name, "Alice"
 
 Panics when boolean `a` differs from boolean `b`.
 Signature: assert_eq_bool(a as bool, b as bool) into void
-Ownership: No allocation.
+Memory: No allocation.
 Message: "assertion failed: left != right: expected <b>, got <a>"
 Example: calling ward.assert_eq_bool with flag, true
 
@@ -108,7 +108,7 @@ Example: calling ward.assert_eq_bool with flag, true
 
 Panics when integer `a` equals integer `b`.
 Signature: assert_ne_int(a as int, b as int) into void
-Ownership: No allocation.
+Memory: No allocation.
 Message: "assertion failed: left == right: unexpected <a>"
 Example: calling ward.assert_ne_int with status, 0
 
@@ -119,7 +119,7 @@ Example: calling ward.assert_ne_int with status, 0
 
 Panics when string `a` equals string `b`.
 Signature: assert_ne_string(a as string, b as string) into void
-Ownership: No allocation.
+Memory: No allocation.
 Message: "assertion failed: left == right: unexpected \"<a>\""
 Example: calling ward.assert_ne_string with token, ""
 
@@ -130,7 +130,7 @@ Example: calling ward.assert_ne_string with token, ""
 
 Panics when boolean `a` equals boolean `b`.
 Signature: assert_ne_bool(a as bool, b as bool) into void
-Ownership: No allocation.
+Memory: No allocation.
 Message: "assertion failed: left == right: unexpected <a>"
 Example: calling ward.assert_ne_bool with flag, false
 
@@ -141,7 +141,7 @@ Example: calling ward.assert_ne_bool with flag, false
 
 Panics when the absolute difference between `a` and `b` exceeds `epsilon`.
 Signature: assert_eq_float(a as float, b as float, epsilon as float is 0.000001) into void
-Ownership: No allocation.
+Memory: No allocation.
 Message: "assertion failed: left != right: expected <b>, got <a> (diff <d> > <eps>)"
 Example: calling ward.assert_eq_float with 1.000001, 1.0, 0.0001
 
@@ -152,7 +152,7 @@ Example: calling ward.assert_eq_float with 1.000001, 1.0, 0.0001
 
 Panics when the absolute difference between `a` and `b` is within `epsilon`.
 Signature: assert_ne_float(a as float, b as float, epsilon as float is 0.000001) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_ne_float with 1.5, 1.0, 0.0001
 
 
@@ -162,7 +162,7 @@ Example: calling ward.assert_ne_float with 1.5, 1.0, 0.0001
 
 Alias of assert_eq_float with tolerance comparison.
 Signature: assert_almost_eq(a as float, b as float, epsilon as float is 0.000001) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_almost_eq with pi_calc, 3.14159, 0.001
 
 
@@ -172,7 +172,7 @@ Example: calling ward.assert_almost_eq with pi_calc, 3.14159, 0.001
 
 Panics unless integer `a` is strictly greater than `b`.
 Signature: assert_gt_int(a as int, b as int) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_gt_int with count, 0
 
 
@@ -182,7 +182,7 @@ Example: calling ward.assert_gt_int with count, 0
 
 Panics unless integer `a` is greater than or equal to `b`.
 Signature: assert_ge_int(a as int, b as int) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_ge_int with age, 18
 
 
@@ -192,7 +192,7 @@ Example: calling ward.assert_ge_int with age, 18
 
 Panics unless integer `a` is strictly less than `b`.
 Signature: assert_lt_int(a as int, b as int) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_lt_int with index, max_len
 
 
@@ -202,7 +202,7 @@ Example: calling ward.assert_lt_int with index, max_len
 
 Panics unless integer `a` is less than or equal to `b`.
 Signature: assert_le_int(a as int, b as int) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_le_int with used, total
 
 
@@ -212,7 +212,7 @@ Example: calling ward.assert_le_int with used, total
 
 Panics unless float `a` is strictly greater than `b`.
 Signature: assert_gt_float(a as float, b as float) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_gt_float with score, 0.0
 
 
@@ -222,7 +222,7 @@ Example: calling ward.assert_gt_float with score, 0.0
 
 Panics unless float `a` is greater than or equal to `b`.
 Signature: assert_ge_float(a as float, b as float) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_ge_float with score, 0.0
 
 
@@ -232,7 +232,7 @@ Example: calling ward.assert_ge_float with score, 0.0
 
 Panics unless float `a` is strictly less than `b`.
 Signature: assert_lt_float(a as float, b as float) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_lt_float with temp, 100.0
 
 
@@ -242,7 +242,7 @@ Example: calling ward.assert_lt_float with temp, 100.0
 
 Panics unless float `a` is less than or equal to `b`.
 Signature: assert_le_float(a as float, b as float) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_le_float with ratio, 1.0
 
 
@@ -252,7 +252,7 @@ Example: calling ward.assert_le_float with ratio, 1.0
 
 Panics when integer `v` is outside inclusive range `[lo, hi]`.
 Signature: assert_in_range_int(v as int, lo as int, hi as int) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_in_range_int with month, 1, 12
 
 
@@ -262,7 +262,7 @@ Example: calling ward.assert_in_range_int with month, 1, 12
 
 Panics when float `v` is outside inclusive range `[lo, hi]`.
 Signature: assert_in_range_float(v as float, lo as float, hi as float) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_in_range_float with prob, 0.0, 1.0
 
 
@@ -272,7 +272,7 @@ Example: calling ward.assert_in_range_float with prob, 0.0, 1.0
 
 Panics unless `haystack` contains substring `needle`.
 Signature: assert_string_contains(haystack as string, needle as string) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_string_contains with log_line, "ERROR"
 
 
@@ -282,7 +282,7 @@ Example: calling ward.assert_string_contains with log_line, "ERROR"
 
 Panics unless string `s` starts with prefix `prefix`.
 Signature: assert_string_starts_with(s as string, prefix as string) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_string_starts_with with url, "https://"
 
 
@@ -292,7 +292,7 @@ Example: calling ward.assert_string_starts_with with url, "https://"
 
 Panics unless string `s` ends with suffix `suffix`.
 Signature: assert_string_ends_with(s as string, suffix as string) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_string_ends_with with path, ".pengu"
 
 
@@ -302,7 +302,7 @@ Example: calling ward.assert_string_ends_with with path, ".pengu"
 
 Panics unless string `s` is empty (length 0).
 Signature: assert_string_empty(s as string) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_string_empty with err_msg
 
 
@@ -312,7 +312,7 @@ Example: calling ward.assert_string_empty with err_msg
 
 Panics when string `s` is empty (length 0).
 Signature: assert_string_not_empty(s as string) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_string_not_empty with name
 
 
@@ -322,7 +322,7 @@ Example: calling ward.assert_string_not_empty with name
 
 Panics unless integer lists `a` and `b` have identical length and elements.
 Signature: assert_eq_int_list(a as list of int, b as list of int) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_eq_int_list with xs, ys
 
 
@@ -332,7 +332,7 @@ Example: calling ward.assert_eq_int_list with xs, ys
 
 Panics unless string lists `a` and `b` have identical length and elements.
 Signature: assert_eq_string_list(a as list of string, b as list of string) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_eq_string_list with words, expected_words
 
 
@@ -342,7 +342,7 @@ Example: calling ward.assert_eq_string_list with words, expected_words
 
 Panics unless integer list `l` is empty.
 Signature: assert_list_empty_int(l as list of int) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_list_empty_int with queue
 
 
@@ -352,7 +352,7 @@ Example: calling ward.assert_list_empty_int with queue
 
 Panics when integer list `l` is empty.
 Signature: assert_list_not_empty_int(l as list of int) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_list_not_empty_int with results
 
 
@@ -362,7 +362,7 @@ Example: calling ward.assert_list_not_empty_int with results
 
 Panics unless integer list `l` has exact length `expected`.
 Signature: assert_list_len_int(l as list of int, expected as int) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_list_len_int with items, 3
 
 
@@ -372,7 +372,7 @@ Example: calling ward.assert_list_len_int with items, 3
 
 Panics unless string map `m` contains key `key`.
 Signature: assert_map_has_key(m as map of string to string, key as string) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_map_has_key with config, "host"
 
 
@@ -382,7 +382,7 @@ Example: calling ward.assert_map_has_key with config, "host"
 
 Panics when string map `m` contains key `key`.
 Signature: assert_map_not_has_key(m as map of string to string, key as string) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_map_not_has_key with config, "secret"
 
 
@@ -392,7 +392,7 @@ Example: calling ward.assert_map_not_has_key with config, "secret"
 
 Panics unless native maybe container `m` holds a value.
 Signature: assert_maybe_present shard T(m as maybe T) into void
-Ownership: Generic value unwrap; no extra allocation.
+Memory: Generic value unwrap; no extra allocation.
 Example: calling ward.assert_maybe_present with user_opt
 
 
@@ -402,7 +402,7 @@ Example: calling ward.assert_maybe_present with user_opt
 
 Panics when native maybe container `m` holds a value.
 Signature: assert_maybe_none shard T(m as maybe T) into void
-Ownership: Generic inspection; no extra allocation.
+Memory: Generic inspection; no extra allocation.
 Example: calling ward.assert_maybe_none with missing_opt
 
 
@@ -412,7 +412,7 @@ Example: calling ward.assert_maybe_none with missing_opt
 
 Panics unless native result container `r` is successful (is_ok).
 Signature: assert_result_ok shard T and E(r as result of T to E) into void
-Ownership: Generic inspection; no extra allocation.
+Memory: Generic inspection; no extra allocation.
 Example: calling ward.assert_result_ok with op_result
 
 
@@ -422,7 +422,7 @@ Example: calling ward.assert_result_ok with op_result
 
 Panics when native result container `r` is successful (is_ok).
 Signature: assert_result_err shard T and E(r as result of T to E) into void
-Ownership: Generic inspection; no extra allocation.
+Memory: Generic inspection; no extra allocation.
 Example: calling ward.assert_result_err with failed_result
 
 
@@ -432,7 +432,7 @@ Example: calling ward.assert_result_err with failed_result
 
 Panics unless native result of int to string is ok, reporting the error string.
 Signature: assert_result_ok_int(r as result of int to string) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_result_ok_int with res
 
 
@@ -442,7 +442,7 @@ Example: calling ward.assert_result_ok_int with res
 
 Panics when native result of int to string is ok, reporting the unexpected value.
 Signature: assert_result_err_int(r as result of int to string) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.assert_result_err_int with res
 
 
@@ -613,7 +613,7 @@ Panics with `msg` when ResultString is error.
 
 Aborts the program with `msg`. Ergonomic alias of panic.
 Signature: fail(msg as string) into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.fail with "invalid state"
 
 
@@ -630,7 +630,7 @@ Marks code that must never execute: panics with `msg` when reached.
 
 Explicit alias of unreachable with failure prefix.
 Signature: fail_unreachable(msg as string is "unreachable") into void
-Ownership: No allocation.
+Memory: No allocation.
 Example: calling ward.fail_unreachable with "unhandled judge branch"
 
 

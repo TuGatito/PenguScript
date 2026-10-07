@@ -880,8 +880,8 @@ Errores de `rs`, en orden.
 > **partition_results**(rs: list of result of T to E) -> Pair_list_T_list_E
 
 Separa `rs` en un `Pair` de éxitos y errores.
-Ownership
-Ambas listas del `Pair` son auto-banishables.
+Memory
+Ambas listas del `Pair` las libera el llamante con `banish`.
 Ejemplo
 ```pengu
 var p as Pair of list of int and list of string is calling oracle.partition_results with rs

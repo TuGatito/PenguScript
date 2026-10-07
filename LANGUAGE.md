@@ -29,7 +29,7 @@
 10. [Methods, concepts & binding](#10-methods-concepts--binding)
 11. [Generics](#11-generics)
 12. [Optionals & errors](#12-optionals--errors)
-13. [Memory & pointers](#13-memory--pointers)
+13. [Manual Memory Management](#13-manual-memory-management)
 14. [Modules, imports & C interop](#14-modules-imports--c-interop)
 15. [Literals: strings, arrays, maps, indent blocks & ranges](#15-literals-strings-arrays-maps-indent-blocks--ranges)
 16. [Conditional compilation (`when`)](#16-conditional-compilation-when)
@@ -55,8 +55,8 @@ compiles directly to C99/C11. Its design rules:
   functions, `rune` for structs, `omen` for enums/sum types, `calling` for
   calls, `set` for assignment, `banish` for explicit free, …).
 - **Explicit over hidden.** Memory is *not* garbage collected: heap values are
-  freed explicitly with `banish`, deferred with `defer`/`errdefer`. Ownership
-  of every runtime helper is documented in `pengu_runtime.h`.
+  freed explicitly with `banish`, deferred with `defer`/`errdefer`. Who releases
+  every runtime helper's result is documented in `pengu_runtime.h`.
 - **Compile-time friendly.** `const`, generic monomorphization (`shard`),
   `when` compile-time branching and constant folding happen before C is
   emitted.
@@ -164,7 +164,6 @@ derive cyclus donum
 
 **Soft Keywords:**
 - `frozen`: Active only in type expression positions (`frozen int`, `ref to frozen T`). Identifiers named `frozen` in variable, field, or function names are valid. See [§9.5](#95-frozen--read-only-qualification).
-- `borrowed`: Active only immediately after `var` or `let` (`var borrowed x is …`, `let borrowed x is …`). Everywhere else (struct fields, parameters, function names), `borrowed` is treated as a regular identifier. Note that `var borrowed is 5` is a syntax error because `borrowed` in that position is parsed as the modifier. See [§5.4](#54-the-borrowed-modifier) and [§13.4](#134-scope-owned-locals-auto-banish).
 - `inline`, `ritual`: Active only as weave modifiers (`weave inline f into void:`, `inline weave f into void:`, `weave ritual make into T:`). Everywhere else, they are treated as ordinary identifiers.
 
 **C Identifier Protection (`E0035`):**
@@ -282,11 +281,11 @@ PenguScript defines clean, C-compatible container structs in `pengu_runtime.h`:
 | `range` (`a to b`) | `PenguRange` | `typedef struct { int64_t start; int64_t end; } PenguRange;` |
 | Call Frame | `PenguFrame` | `typedef struct { const char *fn_name; const char *file; int line; } PenguFrame;` |
 
-#### Container Semantics & Memory Ownership:
-- **`PenguString`:** Represents an immutable string view. String literals in runtime expressions allocate heap memory via `pengu_string_new` (or reference `.rodata`), while `pengu_string_from_cstr` creates a non-owning borrowed view over a C string. Dynamic strings created via concatenation (`+`), format `{expr}`, or conversions are heap-allocated and automatically cleaned up by auto-banish (§13.4).
+#### Container Semantics & Memory:
+- **`PenguString`:** Represents an immutable string view. String literals in runtime expressions reference `.rodata` and are non-owning (`is_owned == 0`), while dynamic strings created from format `{expr}` or conversions are heap-allocated (`is_owned == 1`). `pengu_string_from_cstr` creates a non-owning view over a C string. Nothing is released automatically: call `banish` (or `defer banish`) on a string you allocated when you are done with it (§13).
 - **`PenguSlice`:** Represents a non-owning window over contiguous elements. Created via slicing (`nums at 1 to 3`) or through `std.ffi.slice_from_ptr`. Never owns heap memory; do not `banish` a slice.
 - **`PenguList`:** Growable dynamic vector. Manages an internal heap array of size `cap * elem_size`, expanding with 2x amortized growth upon `push`/`append`.
-- **`PenguMap`:** Hash table using open addressing and linear probing. Entries are stored in `PenguMapEntry { void *key; void *val; bool occupied; }`. Keys and values are deep-copied into entry cells. Iteration order is **hash order**, not insertion order.
+- **`PenguMap`:** Hash table using open addressing and linear probing. Entries are stored in `PenguMapEntry { void *key; void *val; bool occupied; }`. Keys and values are copied into entry cells with `memcpy`; the map does not clone the payloads they reference. Iteration order is **hash order**, not insertion order.
 - **`PenguMaybe`:** Value container for optional values. If `is_present` is `true`, `value` points to a heap copy allocated via `pengu_sigil_alloc(sizeof(T))`. If `is_present` is `false`, `value` is `NULL`.
 - **`PenguResult`:** Represents either a success (`is_ok = true`, payload at `ok_val`) or failure (`is_ok = false`, payload at `err_val`).
 - **`PenguFrame`:** Circular ring buffer of 64 frames. Tracks active function calls (`pengu_frame_push` / `pengu_frame_pop`) to emit human-readable source backtraces on fatal crashes.
@@ -496,22 +495,6 @@ Scopes are delimited by indentation: weave bodies, `if`/`while`/`for` branches, 
 ### 5.3 Visibility recap
 
 Symbols are public across modules by default. Any top-level symbol or rune field starting with a leading underscore (`_`) is strictly private (`E0043`). There is no `pub` keyword; leading underscores provide the sole encapsulation mechanism.
-
-### 5.4 The `borrowed` modifier
-
-Locals can be explicitly declared with the soft keyword `borrowed`, with or without an explicit type annotation:
-
-```pengu-fragment
-var borrowed view is existing_string
-var borrowed count as int is 5
-let borrowed slice_view is container_ref
-let borrowed tagged as TaggedRef is node_ref
-```
-
-- **Non-Owning Reference:** A variable marked as `borrowed` indicates that it does not own the underlying heap resource.
-- **Disables Auto-Banish:** The compiler will never emit automatic cleanup (`pengu_banish_*`) for a borrowed variable upon scope exit.
-- **Forbids Manual Banish:** Calling `banish` on a `borrowed` variable is a compile-time semantic error (`E0048: BorrowedBanishError`), ensuring borrowed references cannot accidentally deallocate someone else's memory.
-- See [§13.4](#134-scope-owned-locals-auto-banish) for full details on the ownership and escape analysis model.
 
 ---
 
@@ -820,7 +803,6 @@ let squares as list of int is for i from 0 to 5:
   4. `with_init_expr`: Trailing builder block, inferring its type from the enclosing value slot.
   5. Any standard expression or call statement.
 - **Checker Protocol (`_pengu_value_type`):** The semantic checker attaches `_pengu_value_type` to AST nodes sitting in value slots. The codegen inspects this metadata to select statement-expression emission.
-- **Escape Analysis Protection (`_exclude_escaping_val_from_banish`):** Values yielding from a block expression are explicitly excluded from auto-banish to prevent use-after-free bugs.
 
 > [!NOTE]
 > CHEATSHEET §6.1.4 has the definitive list of what is and is not an expression. Statement-level control operations (like bare `break` without value or declarations) cannot serve as block tail values.
@@ -1060,8 +1042,8 @@ rune Point derive Par, Ordo, Vinculum, Imago:
 | `Par` | `<Rune>_eq`, `<Rune>_eq_val`, `<Rune>_Par` | `==`, `!=` |
 | `Ordo` | `<Rune>_cmp`, `<Rune>_cmp_val`, `<Rune>_Ordo` | `<`, `<=`, `>`, `>=` |
 | `Vinculum` | `<Rune>_Vinculum`, `<Rune>_hash` | rune as a `map` key |
-| `Imago` | `<Rune>_clone`, `_pengu_clone_<Rune>` | deep copy into containers |
-| `Nexus` | `<Rune>_nexus`, `_pengu_cleanup_<Rune>` | recursive release |
+| `Imago` | `<Rune>_clone`, `_pengu_clone_<Rune>` | a deep-copy helper you call before storing a rune |
+| `Nexus` | `<Rune>_nexus`, `_pengu_cleanup_<Rune>` | a destructor you invoke with `banish` |
 
 Rules:
 
@@ -1072,9 +1054,9 @@ Rules:
 * On a generic rune the derived concepts become **bounds on the type
   parameters**: `rune Point shard T derive Par` implies `T: Par` in the
   generated helpers.
-* `Imago` and `Nexus` are implied by each other: a container that deep-copies
-  its elements must also be able to release them, so `derive Imago` also
-  generates (and registers) `Nexus` and vice versa.
+* `Imago` and `Nexus` are implied by each other: a type that can deep-copy its
+  fields can also release them, so `derive Imago` also generates `Nexus` and
+  vice versa. Neither is applied automatically to a container store.
 * Comparison on a rune without the matching `derive` is `E0049`; without it the
   generated C would call a helper that does not exist.
 * `derive` is rejected with `E0005` on `echo` declarations: an `echo` is an
@@ -1088,9 +1070,8 @@ Rules:
 * A value with a derived `Nexus` can be released explicitly — `banish doc`
   lowers to `_pengu_cleanup_Doc(&doc)` (idempotent: the runtime banish helpers
   null the buffers they free), so `defer banish doc` is the idiom for a local
-  whose fields own heap memory. Local *rune* values are **not** auto-banished
-  (that would need a move/alias analysis to avoid double frees), so release them
-  explicitly or store them in an owning container.
+  whose fields hold heap memory. Nothing releases a local *rune* for you; write
+  `derive Nexus` when you want a destructor and call `banish` yourself.
 
 ### 9.2 `echo` — unions
 
@@ -1657,8 +1638,8 @@ ones marked *derivable* may also appear in a `derive` clause.
 | `Par` | *par* | `==`, `!=` |
 | `Ordo` | *ordo* | `<`, `<=`, `>`, `>=` |
 | `Vinculum` | *vinculum* | usable as a `map` key (hashing) |
-| `Imago` | *imago* | deep copy (`clone` callback for owned containers) |
-| `Nexus` | *nexus* | destruction (`cleanup` callback for owned containers) |
+| `Imago` | *imago* | deep copy (a `clone` helper for the rune) |
+| `Nexus` | *nexus* | destruction (a `cleanup` helper invoked by `banish`) |
 | `Forma` | *forma* | string interpolation / formatting (`"{x}"`) |
 | `Iterabilis` | *iterabilis* | `for x in col` iteration |
 | `Donum` | *donum* | default value via the `donum T` expression |
@@ -1921,8 +1902,8 @@ Exactly five, and each one produces something different:
 | `Par` | ✅ | `==` / `!=` between values of the rune |
 | `Ordo` | ✅ | `<` `<=` `>` `>=` |
 | `Vinculum` | ✅ | a hash, so the rune works as a `map` key |
-| `Imago` | ✅ | `_pengu_clone_<T>`, the C-level deep-copy callback containers call |
-| `Nexus` | ✅ | `_pengu_cleanup_<T>`, the destructor auto-banish calls |
+| `Imago` | ✅ | `_pengu_clone_<T>`, the C-level deep-copy helper |
+| `Nexus` | ✅ | `_pengu_cleanup_<T>`, the destructor `banish` calls |
 | `Forma` | ❌ | `E0005 Concept 'Forma' cannot be automatically derived` |
 | `Iterabilis` | ❌ | `E0005` |
 | `Donum` | ❌ | `E0005` |
@@ -1979,7 +1960,7 @@ the current behaviour so the feature cannot be reintroduced silently.
 * Built-in concept table: §10.9.
 * Coherence rules for `bind`: §10.10.
 * Derived concept implementations: §9.1.2.
-* Container ownership (`Imago`/`Nexus`): §13.5.
+* Container element semantics (`Imago`/`Nexus`): §13.5.
 
 ---
 
@@ -2053,7 +2034,7 @@ deliberately last because it touches public APIs.
     _m.is_present ? (*(string*)_m.value) : ("Guest");
   }))
   ```
-- **`or return <expr>` (Early Return):** Checks presence/success. If absent or failed, it automatically runs all registered cleanup handlers (`defer`, `errdefer`, scope auto-banish) and returns `<expr>` from the enclosing weave.
+- **`or return <expr>` (Early Return):** Checks presence/success. If absent or failed, it automatically runs all registered cleanup handlers (`defer`, `errdefer`) and returns `<expr>` from the enclosing weave.
 - **`try <expr>` (Propagation):** Unwraps the value or immediately returns an empty/error result from the enclosing function:
   - Requires the enclosing function to return `maybe T` (for a `maybe` operand) or a compatible `result` type (`E0045: TypeMismatchError` if mismatched).
   - On failure, cleans up active scopes and executes `pengu_frame_pop(); return pengu_maybe_none();` (or returns the error result).
@@ -2070,27 +2051,47 @@ deliberately last because it touches public APIs.
 
 ---
 
-## 13. Memory & pointers
+## 13. Manual Memory Management
 
-```pengu-fragment
-var raw as ref to int is sigil of value   # &value
-var copy as int is essence of raw         # *raw
-defer banish ptr                          # run on scope exit
-errdefer banish ptr                       # run only on error return
-banish ptr                                # explicit free now
-banish str_var                            # free dynamic string (pengu_banish_string)
-banish list_var                           # free list allocation (pengu_banish_list)
-banish map_var                            # free map allocation and string keys/values (pengu_banish_map)
+PenguScript has no garbage collector, no borrow checker and no automatic release
+at scope exit. Memory is managed by hand, like C, Zig, Odin and Nelua: **you
+allocate, you release.** The compiler checks types; it does not track lifetimes,
+with the single syntactic exception in §13.4.
+
+```pengu
+weave main into int:
+    var s is "hello"
+    defer banish s
+    calling print with s
+    return 0
 ```
 
 Rules:
-- `banish target` accepts a mutable lvalue of type `ref to T`, `string`, `list of T`, or `map of K to V`.
+- `banish target` accepts a mutable lvalue of type `ref to T`, `string`, `list of T`, `map of K to V`, `maybe T`, `result of T to E`, or a rune with `derive Nexus`. An element access (`banish xs at 0`, `banish m at "k"`) is an lvalue too, and releases the owned element in place.
 - `banish ptr` (where `ptr as ref to T`): emits `pengu_banish((void*)(ptr))` to release heap-allocated memory.
-- `banish s` (where `s as string`): emits `pengu_banish_string(&s)`. Frees dynamically allocated string heap buffers (`free(s.data)`), sets `s.data = NULL` and `s.len = 0`, emptying the string. Do not access after banishing.
-- `banish l` (where `l as list of T`): emits `pengu_banish_list(&l)`. Frees the internal items buffer and resets capacity and length to 0.
-- `banish m` (where `m as map of K to V`): emits `pengu_banish_map(&m)`. Frees hash buckets and entries, and automatically frees all `string` keys and `string` values (`pengu_banish_string`), avoiding leaks in dynamic dictionaries.
-- `defer`/`errdefer` statements work with `banish` (e.g. `defer banish s`) as well as blocks; execution is LIFO on scope exit (or only on error paths for `errdefer`).
+- `banish s` (where `s as string`): emits `pengu_banish_string(&s)`. When the string owns its buffer (`is_owned == 1`) this frees it, sets `s.data = NULL` and `s.len = 0`. String literals and other non-owning views carry `is_owned == 0`, so banishing them is a safe no-op. Do not access the string after banishing.
+- `banish l` (where `l as list of T`): emits `pengu_banish_list(&l)`. Frees the list's own element buffer and resets length and capacity to 0. It does **not** release the elements (see §13.5).
+- `banish m` (where `m as map of K to V`): emits `pengu_banish_map(&m)`. Frees the map's own entries table and per-entry key/value cells and resets length and capacity. It does **not** release heap buffers referenced by string keys or values (see §13.5).
+- `banish d` (where `d` is a rune with `derive Nexus`): emits `_pengu_cleanup_D(&d)`, the destructor the rune opted into (§9.1.2).
+- `banish m` (where `m as maybe T` / `result of T to E`): releases the payload the box owns and then the box itself. Nothing calls this implicitly; it is the lowering of the `banish` you wrote.
+- `defer banish x` / `errdefer banish x` schedule the release instead of running it now: `defer` runs it at scope exit, `errdefer` only on an error return, both in LIFO order.
 - `ref to T` is passed as a pointer: enables mutation from C and efficient `self` receivers.
+
+Where heap values come from:
+- `sigil of x` takes a raw address; `pengu_sigil_alloc` is the runtime allocator behind `some`.
+- `some x`, `ok x`, `err x` box the payload in a `PenguMaybe`/`PenguResult` with `memcpy`. They do **not** clone a heap payload: the box holds a copy of the value, and if that value references a heap buffer, releasing the original stays your decision.
+- Container constructors (`list of T`, `map of K to V`, `[...]`, map literals) allocate the container's own buffer; format `{expr}` and `(x to string)` allocate a fresh string buffer.
+- `pengu_string_copy` and `pengu_banish_string` are the explicit copy/release pair for strings.
+
+#### Why not ownership?
+
+Rust infers when to free through its borrow checker; PenguScript does not. The
+compiler refuses to guess, because a wrong guess is either a silent leak or a
+use-after-free. Allocation and release are therefore explicit — a constructor or
+`sigil of` to allocate, `banish` now or via `defer banish` to release — exactly
+as in C, Zig, Odin and Nelua. When you want the release written for you, ask for
+it per type with `derive Nexus`. The trade is deliberate: the compiler never
+frees something you still need, and never keeps something you wanted gone.
 
 #### Validation & Prohibitions (`_check_banish_stmt` & `banish_expr`):
 - **Literals & Non-Lvalues (`E0008`):** Attempting to banish a literal (`banish "str"`, `banish 10`) raises `E0008: InvalidMemoryOpError`.
@@ -2098,8 +2099,6 @@ Rules:
 - **Nominal `seal` Types (`E0008`):** Strong newtypes cannot be banished directly even if their underlying type is a string or pointer. An explicit conversion is required: `banish (v to string)`.
 - **`frozen` (Read-Only) Targets (`E0008`):** Banish modifies and deallocates target memory; banishing a `frozen` variable or value raises `E0008`.
 - **Constants (`E0008`):** Constants cannot be banished.
-- **Auto-Owned Locals (`E0047`):** Explicitly banishing a scope-owned local variable raises `E0047: AutoOwnedBanishError` to prevent double-free bugs, as the compiler automatically injects cleanup at the end of the enclosing block.
-- **Borrowed Locals (`E0048`):** Banishing a variable marked `borrowed` raises `E0048: BorrowedBanishError`, because borrowed references do not hold ownership over the underlying memory.
 
 ### 13.1 Indexing through pointers and borrowing C buffers
 
@@ -2140,125 +2139,107 @@ PenguScript enforces strict pointee typing for `ref to T` to prevent silent buff
 | `array of i32 with size N` | `ref to char` | ❌ No (`E0005`) | Pointee mismatch during decay |
 | `ref to f32` | `ref to f64` | ❌ No (`E0005`) | Float pointees must match strictly |
 
-### 13.3 C Buffer Ownership & Lifetime Conventions
+### 13.3 C Buffer Lifetime & Cleanup Conventions
 
 C bindings declare functions that return heap buffers allocated by underlying libraries (`malloc`, `strdup`, `LoadAudioStream`, `sqlite3_open`, etc.):
 1. **Binding Documentation:** The `##` docstrings specify the library's designated cleanup function.
 2. **Library Cleanup vs Banish:** Memory allocated by an external C library must be released with that library's own cleanup routine (e.g. `defer calling raylib.UnloadTexture with tex`), **not** with `banish`. `banish` is reserved for memory managed by the PenguScript runtime (`pengu_sigil_alloc`, dynamic strings, lists, maps).
 
-### 13.4 Scope-Owned Locals (Auto-Banish)
+### 13.4 What Is Not Automatic
 
-PenguScript implements deterministic automatic memory management for locally allocated heap values (*scope-owned locals*). Local variables holding heap containers (`string`, `list of T`, `map of K to V`) initialized with fresh, non-aliasing expressions are tracked by the compiler (`is_auto_banished`).
+The compiler allocates and releases nothing on its own. In particular:
 
-When execution exits the lexical block where the variable was declared, the compiler emits deterministic, LIFO-ordered cleanup calls (`pengu_banish_string`, `pengu_banish_list`, `pengu_banish_map`).
+- **No release at scope exit.** A local goes out of scope when its block ends, but its heap buffer does not: only `defer banish x` / `errdefer banish x` schedule a release, and they run in LIFO order.
+- **No stack/heap inference.** No pass decides whether a local lives on the stack or the heap; a value is wherever its declaration and type put it.
+- **No deep copy on store.** `list.push` / `map.put` copy the element bytes with `memcpy` and never clone the payload; writing a `string` into a struct field or a container element is the same copy. The container does not take over releasing what the copy points at.
+- **No implicit `Imago` / `Nexus`.** A rune gets a clone callback or a destructor only when it declares `derive Imago` / `derive Nexus` (§11.6). Nothing derives them from the fields.
+- **No hidden boxing clone.** `some x`, `ok x` and `err x` store a `memcpy` of the payload in a `PenguMaybe`/`PenguResult`; they do not duplicate a heap buffer it references.
 
-#### Conditions for Auto-Ownership (`_compute_auto_banished`):
+The runtime helpers that made the old automatic model possible — `PenguElemCleanup`, `PenguElemClone`, `pengu_list_new_owned`, `pengu_map_new_owned`, `pengu_list_cleanup`, `pengu_list_clone`, `pengu_map_cleanup`, `pengu_map_clone`, `pengu_string_cleanup` and `pengu_string_clone` — no longer exist. `pengu_string_copy` and `pengu_banish_string` remain.
 
-A local variable `x` is marked auto-owned if and only if **all six** conditions are satisfied simultaneously:
-1. **Container Type:** Its type is `string`, `list of T`, or `map of K to V` (not nominal `seal S as string`, not pointers, not primitives).
-2. **Not Borrowed:** It is declared **without** the `borrowed` soft modifier.
-3. **Fresh Heap Expression:** Its initializer expression is a fresh allocation:
-   - String interpolation format `"{x} and {y}"`
-   - Character conversion `chr(n)` or conversion `(x to string)`
-   - Collection constructors: `list of T with capacity N` or literals with elements `[a, b]`
-   - Map constructors: `map of K to V` or map literals with entries
-   *(String literals `"hello"` referencing static memory, empty collections `[]`, and aliased variables do NOT trigger auto-banish. `+` is numeric-only, so it can no longer produce a fresh string.)*
-4. **Fresh Reassignment Only:** Every `set x is …` in the scope moves in a *fresh* value (an interpolated literal, a constructor, or a call result). The previous value is released just before the new assignment, so a reassignment loop stays O(1). Assigning a borrowed rvalue (`set x is y`, where `y` is another binding) disables auto-banish, because the local would then alias `y`'s buffer instead of owning one.
-5. **No Explicit Banish / Defer:** It does not appear in `banish x`, `defer banish x`, or `errdefer banish x`.
-6. **No Scope Escape:** It does not escape its lexical scope according to escape analysis.
+#### The one lifetime rule the compiler enforces
 
-#### Static Escape Analysis Triggers:
+Returning a `slice of` a **stack** array is rejected with `E0051`, because the
+array's storage dies when the weave returns and the slice would dangle:
 
-A variable is marked as **escaped** (which automatically turns off auto-banish to prevent use-after-free) if:
-- **Returned:** Returned directly (`return x`), via pointer (`sigil of x`), or from within a block expression (`return if c: x else: y`, `return do: x`).
-- **Pushed into Containers _without_ deep copy:** Passed as an argument to container mutating methods (`calling lst.push with x`, `append`, `map.put`, `insert`, `set`) whose element type has **no clone callback**. Owning containers (`list of string`, `list of list of T`, `map of string to V`, runes with `derive Imago`, …) deep-copy on `push`/`put`, so the local keeps ownership and is still auto-banished (§13.5); only shallow/aliasing stores mark the value as escaped. The receiver type is resolved through **access chains** — `self->items`, `self.items`, `o->inner.items`, `bag.items`, `bag->items` and indexed forms all reach the underlying container, so a `push` through a rune field is classified by that field's element type, not by the enclosing rune.
-- **Embedded in Compound Literals:** Embedded in struct literals (`with f is x`), arrays `[x]`, maps, `tuple_lit`, `some x`, `ok x`, `err x`, or indented block literals (`indent_entries`, `indent_array`, `map_entry`).
-- **Aliased:** Assigned to another variable (`var b is x`, `let b is x`).
-- **Address-of:** Explicit pointer taken via `sigil of x`.
-- **Field of Escaping Container:** Setting field of an escaping container `set container.item is x`.
-- **Not an escape (owned string slots):** a `string` written into a resolvable string slot — a struct/omen field (`set p.name is x`, `.name` inside a `with:` builder, `with name is x`), a `list`/array element (`set xs at 0 is x`) or a pointee (`set essence of p is x`) — is **deep-copied** into that slot, so the local keeps its buffer and is still auto-banished. Non-string slots (lists, maps, runes) and targets whose type cannot be resolved keep the conservative behaviour above.
+```pengu-fragment
+weave bad into slice of int:
+    var xs as array of int with size 4 is [1, 2, 3, 4]
+    return xs at 0 to 2       # E0051: the slice would dangle
+```
 
-#### Diagnostics & Safety Invariants:
-- **`AutoOwnedBanishError` (`E0047`):** Calling manual `banish x` on an auto-owned variable is rejected at compile time to prevent double-free bugs.
-- **`BorrowedBanishError` (`E0048`):** Calling `banish x` on a variable declared with `borrowed` is rejected at compile time because borrowed references do not own memory.
+Copy the array into a `list of T` (heap) before slicing, or return the array by
+value. Module-level arrays are static storage and are allowed.
 
 #### Runtime Heap Functions Summary:
 
-| Function | Signature / Operation | Behavior | Ownership Semantics |
-|----------|-----------------------|----------|---------------------|
-| `pengu_sigil_alloc` | `void* pengu_sigil_alloc(size_t sz)` | Allocates zero-initialized heap memory for `some` optionals. | Caller owns returned pointer. |
-| `pengu_string_new` | `PenguString pengu_string_new(const char *s, int len)` | Allocates an owned string buffer on the heap. | Caller owns returned `PenguString.data`. |
-| `pengu_string_from_cstr` | `PenguString pengu_string_from_cstr(const char *s)` | Creates a non-owning borrowed view over a C string. | Borrowed; non-owning (do not banish static literals). |
-| `pengu_string_format_ex` | `PenguString pengu_string_format_ex(const char *fmt, ...)` | Byte-exact `"{expr}"` formatter: `%.*s` copies `len` bytes (NULs included). | Allocates new buffer; caller owns result. |
-| `pengu_string_concat` | `PenguString pengu_string_concat(PenguString a, PenguString b)` | Allocates and returns concatenated string. | Allocates new buffer; caller owns result. Inputs `a`, `b` unchanged. |
-| `pengu_string_equal` | `bool pengu_string_equal(PenguString a, PenguString b)` | Compares byte content and length for equality. | Non-allocating; inputs borrowed by value. |
-| `pengu_to_string` | `pengu_to_string(x)` | Generic macro converting primitive `x` to `PenguString`. | Returns owned heap string for formatted values, or borrowed view. |
-| `pengu_string_format` | `PenguString pengu_string_format(const char *fmt, ...)` | Allocates formatted string via `vsnprintf`. | Caller owns returned `PenguString.data`. |
-| `pengu_banish_string`| `void pengu_banish_string(PenguString *s)` | Frees heap string buffer and nullifies data pointer. | Releases owned heap string buffer. |
-| `pengu_banish_list`  | `void pengu_banish_list(PenguList *l)` | Frees dynamic list items buffer and resets length/capacity. | Releases list buffer. |
-| `pengu_banish_map`   | `void pengu_banish_map(PenguMap *m)` | Frees map entries and recursively banishes string keys/values. | Releases hash table and heap keys. |
-| `pengu_banish`       | `void pengu_banish(void *ptr)` | Calls standard heap `free(ptr)`. | Releases raw pointer allocation. |
+| Function | Signature / Operation | Behavior | Release semantics |
+|----------|-----------------------|----------|-------------------|
+| `pengu_sigil_alloc` | `void* pengu_sigil_alloc(size_t sz)` | Allocates zero-initialized heap memory for `some` optionals. | The caller must `banish` the returned pointer. |
+| `pengu_string_new` | `PenguString pengu_string_new(const char *s, int len)` | Allocates an owned string buffer on the heap. | The caller must `banish` the returned `PenguString.data`. |
+| `pengu_string_from_cstr` | `PenguString pengu_string_from_cstr(const char *s)` | Creates a non-owning view over a C string (`is_owned == 0`). | Non-owning; `banish` is a no-op. |
+| `pengu_string_format_ex` | `PenguString pengu_string_format_ex(const char *fmt, ...)` | Byte-exact `"{expr}"` formatter: `%.*s` copies `len` bytes (NULs included). | Allocates a new buffer; the caller must `banish` it. |
+| `pengu_string_concat` | `PenguString pengu_string_concat(PenguString a, PenguString b)` | Allocates and returns concatenated string. | Allocates a new buffer; the caller must `banish` it. Inputs `a`, `b` unchanged. |
+| `pengu_string_equal` | `bool pengu_string_equal(PenguString a, PenguString b)` | Compares byte content and length for equality. | Non-allocating; inputs passed by value. |
+| `pengu_to_string` | `pengu_to_string(x)` | Generic macro converting primitive `x` to `PenguString`. | Returns an owned heap string for formatted values, or a non-owning view. |
+| `pengu_string_format` | `PenguString pengu_string_format(const char *fmt, ...)` | Allocates formatted string via `vsnprintf`. | The caller must `banish` the returned `PenguString.data`. |
+| `pengu_string_copy` | `PenguString pengu_string_copy(PenguString s)` | Allocates an independent copy of `s`. | The caller must `banish` the copy. |
+| `pengu_banish_string`| `void pengu_banish_string(PenguString *s)` | Frees the heap buffer when `is_owned`, then nullifies data/len/is_owned. | Safe no-op on a non-owning view. |
+| `pengu_banish_list`  | `void pengu_banish_list(PenguList *l)` | Frees the list's element buffer and resets length/capacity. | Does not touch the elements. |
+| `pengu_banish_string_list` | `void pengu_banish_string_list(PenguList *l)` | Banishes each `PenguString` element, then the list. | The opt-in helper for `list of string`. |
+| `pengu_banish_map`   | `void pengu_banish_map(PenguMap *m)` | Frees the map's entries table and per-entry key/value cells. | Does not release heap buffers referenced by keys/values. |
+| `pengu_banish`       | `void pengu_banish(void *ptr)` | Calls standard heap `free(ptr)`. | Releases a raw pointer allocation. |
 
-### 13.5 Container ownership & deep copy
+### 13.5 Containers: `memcpy` on Store, Explicit Release
 
-A `PenguList` / `PenguMap` may carry two ownership callbacks:
-
-```c
-typedef void (*PenguElemCleanup)(void *elem);              /* drop   */
-typedef void (*PenguElemClone)(void *dst, const void *src); /* clone  */
-```
+`PenguList` and `PenguMap` store element bytes; they never clone and never
+recursively release. The runtime ABI is **v2** (`PENGU_ABI_VERSION == 2`):
 
 ```c
 typedef struct {
-    void *data; int len; int cap; size_t elem_size;
-    PenguElemCleanup elem_cleanup;   /* called per element by pengu_banish_list */
-    PenguElemClone   elem_clone;     /* called by pengu_list_push              */
+    void *data; int len; int cap; size_t elem_size;   /* 24 bytes */
 } PenguList;
 
 typedef struct {
     PenguMapEntry *entries; int len; int cap;
-    size_t key_size, val_size;
-    PenguElemCleanup key_cleanup, val_cleanup;
-    PenguElemClone   key_clone,   val_clone;
+    size_t key_size, val_size;                        /* 32 bytes */
 } PenguMap;
 ```
 
-* `pengu_list_new_owned(elem_size, cap, cleanup, clone)` and
-  `pengu_map_new_owned(…)` register the callbacks; the code generator emits them
-  automatically whenever the element/key/value type owns memory (`string`,
-  `list`, `map`, a rune with `derive Imago`, …).
-* `pengu_list_push` **deep-copies** when `elem_clone` is set (`memcpy`
-  otherwise); `pengu_map_alloc_slot`/`pengu_map_put` do the same per key and
-  value.
-* `pengu_banish_list` / `pengu_banish_map` invoke `*_cleanup` for every live
-  element before freeing the buffer, so nested containers are released
-  recursively (`list of string`, `map of string to list of int`, …).
-* Helpers `pengu_list_cleanup` / `pengu_list_clone` / `pengu_map_cleanup` /
-  `pengu_map_clone` / `pengu_string_cleanup` / `pengu_string_clone` adapt a
-  container or string for use as an element callback.
-* **Invariant:** `elem_size` / `key_size` / `val_size` and the callbacks are
-  immutable once the container exists — the stride and the destructor must stay
-  consistent with the elements already stored.
+* `pengu_list_push` / `pengu_map_put` copy `elem_size` (or `key_size` /
+  `val_size`) bytes with `memcpy`. There are no `elem_cleanup` / `elem_clone`
+  callbacks: the v1 fields and `pengu_list_new_owned` / `pengu_map_new_owned`
+  are gone.
+* `pengu_banish_list` frees the element buffer and nothing else;
+  `pengu_banish_map` frees the entries table and the per-entry key/value cells.
+  Neither recurses into the elements.
+* **Invariant:** `elem_size` / `key_size` / `val_size` are immutable once the
+  container exists — changing the stride would desynchronise it from the slots
+  already stored. Mutate elements in place instead of re-typing a container.
 * FFI helpers `pengu_list_of_string_from_cstrs(arr, count)` and
-  `pengu_list_of_string_from_cstrv(arr)` build an owned `list of string` from a C
-  array, copying each string so the caller keeps ownership of the input.
+  `pengu_list_of_string_from_cstrv(arr)` build a `list of string` from a C array,
+  copying each string; the list owns its element buffer but each `PenguString`
+  owns its own bytes, so use `pengu_banish_string_list` to release both.
 
-Because `push`/`put` copy, the source variable is still released by the
-auto-banish (§13.4) and there is no aliasing between the container and the
-original:
+Because store copies bytes, the container and the source are separate values —
+but if the element references a heap buffer, both now reference the same buffer,
+and releasing it exactly once is your responsibility:
 
-```pengu-fragment
-var rows as list of list of string is list of list of string
-var row as list of string is ["a", "b"]     # owned
-calling rows.push with row                  # deep copy into rows
-# both 'row' and 'rows' own disjoint buffers; both are banished at scope exit
+```pengu
+weave main into int:
+    var rows as list of list of string is list of list of string
+    var row as list of string is ["a", "b"]     # row owns its element buffer
+    calling rows.push with row                  # memcpy of the PenguList struct
+    # 'rows at 0' and 'row' now alias the same buffer:
+    banish row                                  # free it once, through either name
+    banish rows                                 # frees only rows' own buffer
+    return 0
 ```
 
-Rune values are different: a local `rune` that owns heap fields is **not**
-auto-banished, so release it explicitly with `banish` (which requires
-`derive Nexus`, §9.1.2) or keep it inside an owning container:
+A rune with heap fields gets a destructor only if it asks for one. `derive
+Nexus` emits `_pengu_cleanup_D`, and `banish d` calls it:
 
-```pengu-fragment
+```pengu
 rune Doc derive Par, Nexus:
     title as string
     tags as list of string
@@ -2268,7 +2249,7 @@ weave main into int:
         set .title is "spec!"
         set .tags is ["a", "b"]
     defer banish d          # -> _pengu_cleanup_Doc(&d) at scope exit
-    ...
+    return 0
 ```
 
 ---
@@ -2331,7 +2312,7 @@ All three forms are supported: bare module-qualified (`raylib.KEY_RIGHT`, `rayli
 C strings: pass `ref to char` parameters; PenguScript string literals convert
 automatically to C string pointers where a `ref to char` is expected. Use
 `bytes of s` for byte views, `std.ffi.string_from_cstr` / `cstr_from_string`
-for explicit round trips (owning vs. borrowed semantics documented in the
+for explicit round trips (who releases the result is documented in the
 module). Opaque handles are declared `alias X as opaque` and handled through
 `ref to X`.
 
@@ -2940,7 +2921,7 @@ These declaration bindings expose native C libraries with zero abstraction overh
 ### 19.3 Core Standard Library Examples
 
 #### Memory & C Interop (`std.ffi`)
-Provides bridge routines between C pointers and PenguScript types. Memory views do **not** copy and must **not** be banished; conversions returning owned containers deep-copy their source:
+Provides bridge routines between C pointers and PenguScript types. Memory views do **not** copy and must **not** be banished; conversions that return a container allocate a new one and copy the source bytes (the elements themselves are copied with `memcpy`, not cloned):
 
 ```pengu
 import std.ffi
@@ -3124,7 +3105,7 @@ All functions are pure, null-safe, and self-contained:
 | `string` | `weave string with name as string into string` | Content as an **owned string** (`PenguString` copy, safe to `banish` or store). |
 
 > [!NOTE]
-> **Memory Ownership Model:**
+> **Memory Model:**
 > - `arca.string(name)` returns an **owned copy** of the asset as a `string` (via `pengu_string_new`). It is safe to store in structs, pass across threads, or release with `banish`.
 > - `arca.bytes(name)` and `arca.ptr(name)` return **read-only views** directly referencing the embedded binary section (`.rodata`) in `embed: true` mode, or the internal memory cache in `embed: false` mode. They do not allocate heap memory and must **never** be banished or freed.
 
@@ -3740,8 +3721,6 @@ Generated from the compiler sources by `tools/gen_error_catalog.py` (error class
 | `E0044` | `NonExhaustiveJudgeError` | 1 | Non-exhaustive judge expression without default else clause. | 1 help / 1 note |
 | `E0045` | `SemanticError`, `TypeMismatchError` | 4 | — | — |
 | `E0046` | `SemanticError` | 5 | — | — |
-| `E0047` | `AutoOwnedBanishError` | 1 | Attempt to manually banish an auto-owned variable. | 1 help / 1 note |
-| `E0048` | `BorrowedBanishError` | 1 | Attempt to banish a borrowed variable. | 1 help / 1 note |
 | `E0049` | `SemanticError` | 8 | — | — |
 | `E0050` | `InfiniteTypeSizeError` | 1 | recursive type without indirection (infinite size). | 1 help / 1 note |
 | `E0051` | `SemanticError` | 1 | — | — |
@@ -3824,20 +3803,7 @@ let name is judge current_phase:
     else -> "Unknown"
 ```
 
-#### Scenario 4: Scope-Owned Banish (`E0047`)
-```pengu-invalid
-# Invalid:
-var words as list of string is list of string
-calling words.push with "hello"
-banish words  # E0047: words is locally allocated and scope-owned
-
-# Fix: Remove manual banish; the compiler frees 'words' at scope exit:
-var words as list of string is list of string
-calling words.push with "hello"
-# Compiler automatically frees 'words' here
-```
-
-#### Scenario 5: String Composition (`E0005`)
+#### Scenario 4: String Composition (`E0005`)
 ```pengu-invalid
 # Invalid: '+' never concatenates strings.
 var name as string is "world"

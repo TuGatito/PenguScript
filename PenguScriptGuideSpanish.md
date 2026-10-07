@@ -20,7 +20,7 @@
 5. [Optionals, resultados y errores](#5-optionals-resultados-y-errores)
 6. [Enchantments, rituals y concepts](#6-enchantments-rituals-y-concepts)
 7. [Genéricos y bounds](#7-genéricos-y-bounds)
-8. [Memoria y ownership](#8-memoria-y-ownership)
+8. [Gestión manual de memoria](#8-gestión-manual-de-memoria)
 9. [Interoperabilidad con C](#9-interoperabilidad-con-c)
 10. [Diseño de APIs](#10-diseño-de-apis)
 11. [Documentación (`##`)](#11-documentación-)
@@ -209,7 +209,7 @@ Cuando un genérico tiene rol semántico claro y no colisiona, se permite `Pasca
 ## Descripción de una línea del módulo.
 ##
 ## Documentación extendida: qué resuelve, qué NO resuelve, invariantes,
-## notas de ownership, ejemplos de uso.
+## notas de memoria, ejemplos de uso.
 ##
 ## ## Ejemplo
 ## ```pengu
@@ -676,7 +676,7 @@ weave print_all shard T where T: Formatter with items as list of T into void:
 
 ### 6.4 `derive` cuando corresponde
 
-Si tu `rune` va a usarse como **clave de mapa**, en **comparaciones**, o dentro de **contenedores con ownership**:
+Si tu `rune` va a usarse como **clave de mapa**, en **comparaciones**, o cuando necesitas una copia en profundidad explícita:
 
 ```pengu
 rune Point derive Par, Ordo, Vinculum, Imago, Nexus:
@@ -689,7 +689,7 @@ rune Point derive Par, Ordo, Vinculum, Imago, Nexus:
 | `Par` | Siempre que `==` tenga sentido semántico |
 | `Ordo` | Cuando tiene orden total natural (números, strings, fechas) |
 | `Vinculum` | Cuando va a usarse como **clave de `map`** |
-| `Imago` | Cuando va a meterse en `list`/`map` como valor con ownership |
+| `Imago` | Cuando quieras copiar la rune en profundidad explícitamente antes de almacenarla |
 | `Nexus` | Junto con `Imago` (el compilador los implica mutuamente) |
 
 ### 6.5 Cuándo **no** derivar `Par`/`Ordo`
@@ -743,7 +743,7 @@ weave first_or shard T where T: Par with xs as list of T, fallback as T into T:
 | `a < b`, `a <= b`, `a > b`, `a >= b` | `T: Ordo` |
 | `donum T` | `T: Num`, `Integrum`, `Par`, `Ordo`, `Forma` o `Donum` |
 | `map of T to U` (T como clave) | `T: Vinculum` |
-| Meter `T` en `list` con ownership | `T: Imago` (y `Nexus`) |
+| Copiar en profundidad un `T` con un clon explícito | `T: Imago` (que implica `Nexus`) |
 | Iterar `for x in xs` con `xs as list of T` | Ninguno (la lista ya da el elemento) |
 | Imprimir con `"{x}"` | `T: Forma` |
 
@@ -787,24 +787,28 @@ concept Container shard T:
 
 ---
 
-## 8. Memoria y ownership
+## 8. Gestión manual de memoria
 
-### 8.1 Propietarios vs vistas
+### 8.1 Qué libera `banish`
 
-| Tipo | ¿Ownership? | ¿Auto-banish? | ¿`banish` manual? |
-|---|---|---|---|
-| `string` (de interpolación, `chr`, `to string`) | Sí | Sí | ❌ E0047 |
-| `string` (literal `"x"`, `from_cstr`) | No (static) | No | ❌ E0008 |
-| `list of T` con elementos | Sí | Sí | ❌ E0047 |
-| `map of K to V` | Sí | Sí | ❌ E0047 |
-| `slice of T` | **No** (siempre vista) | No | ❌ E0008 (nunca) |
-| `maybe T` / `result of T to E` | Sí (payload) | Depende | |
-| `ref to T` | No | No | Depende |
-| `rune` con campos heap | **Sí** pero **NO auto-banish** | No | ✅ con `derive Nexus` |
+PenguScript no tiene recolector de basura ni liberación automática: tú asignas, tú liberas.
+`banish x` libera lo que `x` posee según su tipo estático, y es una operación segura que
+no hace nada sobre literales y vistas sin posesión.
+
+| Tipo | Qué libera `banish x` | Notas |
+|---|---|---|
+| `string` (interpolación, `chr`, `to string`) | su búfer del heap | `is_owned == 1` |
+| `string` (literal `"x"`, `from_cstr`) | nada | `is_owned == 0`, no-op seguro |
+| `list of T` | el búfer de elementos propio de la lista | nunca los elementos |
+| `map of K to V` | la tabla de entradas y las celdas por entrada | nunca los búferes de claves/valores |
+| `slice of T` | nada (siempre una vista) | rechazado con `E0008` |
+| `ref to T` | la asignación apuntada (`free`) | gestionada por el llamador |
+| `rune` con campos heap | `_pengu_cleanup_T` | solo con `derive Nexus` |
+| elementos de `list of string` | nada | usa `pengu_banish_string_list` para esos |
 
 ### 8.2 Regla de oro
 
-> **Auto-banish gestiona lo local y fresco. `defer banish` gestiona lo que cruza scope. `borrowed` marca lo que no posees.**
+> **`banish x` libera ahora. `defer banish x` libera al salir del ámbito (LIFO). `errdefer banish x` libera solo en un retorno de error. Nada se libera a tus espaldas.**
 
 ### 8.3 Estado de módulo (patrón canónico)
 
@@ -827,29 +831,31 @@ weave registry_add with r as ref to Registry, item as string into void:
     calling r->items.push with item
 ```
 
-### 8.4 `borrowed` siempre que no posees
+### 8.4 Vistas sin posesión (nunca aplicarles banish)
 
-Cuando una variable es una **vista sobre memoria de otro**:
+Un valor que solo **ve** memoria de otro no debe recibir `banish`: un `slice of T`, un
+`ref to T`, `bytes of s`, o cualquier cadena con `is_owned == 0`.
 
 ```pengu
-let borrowed slice_view is container_ref
-var borrowed name is source_string       # NO se banish-ea al salir
+let view is nums at 1 to 3        # un slice es solo una ventana sobre 'nums'
+let raw is bytes of s             # una vista de bytes sin posesión sobre 's'
+# Ninguna posee almacenamiento: libera 'nums' / 's', nunca las vistas.
 ```
 
-Olvidar `borrowed` en una vista es un leak (o peor, doble-free). **Regla:** si no asignaste memoria directamente, marca `borrowed`.
+### 8.5 `defer banish` para recursos que cruzan ámbitos
 
-### 8.5 `defer banish` para recursos cruzando scopes
-
-**No puedes banir un auto-owned local (E0047).** Pero si necesitas liberar en un momento específico, o el recurso viene de C:
+**No hay liberación automática al salir del ámbito.** Usa `defer banish` para liberar
+cuando termina el ámbito, o `banish` para liberar en un momento concreto. Los recursos
+que vienen de C siguen la rutina de limpieza de su biblioteca, no `banish`:
 
 ```pengu
 weave process into result of int to string:
     var buf as ref to byte is calling c_alloc_buffer with 1024
-    defer banish buf                       # explícito, no auto-owned (es ref)
+    defer banish buf                       # libera cuando retorna 'process'
     ...
 ```
 
-Para `rune` con campos heap:
+Para un `rune` con campos heap, opta por `derive Nexus` y libéralo explícitamente:
 
 ```pengu
 var doc as Doc with:
@@ -858,18 +864,17 @@ var doc as Doc with:
 defer banish doc                           # invoca _pengu_cleanup_Doc
 ```
 
-### 8.6 Nombres para ownership
+### 8.6 Nombres para el tiempo de vida
 
 | Prefijo | Significado |
 |---|---|
-| sin prefijo | Propietario (auto-banish) |
-| `borrowed_*` | Vista, no libera |
-| `_view` sufijo | Vista, no libera (alternativo a `borrowed`) |
-| `_owned` sufijo | Explícitamente propietario, no auto (raro) |
+| sin prefijo | Lo asignaste tú: libéralo con `banish` / `defer banish` |
+| sufijo `_view` | Una vista: nunca le apliques banish |
+| sufijo `_owned` | Posee explícitamente un búfer del heap: libéralo explícitamente |
 
 ### 8.7 Nunca `banish` un `slice`
 
-Un `slice of T` es **siempre** una ventana. Nunca libera. El docstring del módulo debe decirlo explícitamente cuando devuelve slices.
+Un `slice of T` es **siempre** una ventana. Nunca libera. El docstring del módulo debe decirlo explícitamente cuando devuelve slices. Devolver un `slice of` de un array de pila se rechaza (`E0051`) porque el slice quedaría colgando al retornar el weave.
 
 ---
 
@@ -917,9 +922,9 @@ Usa `frozen` siempre que el C header tenga `const`.
 
 | Necesitas | Función |
 |---|---|
-| `PenguString` → `char*` | `ffi.cstr_from_string` (borrowed) |
-| `char*` → `PenguString` | `ffi.string_from_cstr` (owned) |
-| Buffer C como bytes | `ffi.slice_from_ptr` (borrowed, no banish) |
+| `PenguString` → `char*` | `ffi.cstr_from_string` (sin posesión) |
+| `char*` → `PenguString` | `ffi.string_from_cstr` (asignada en el heap; libérala con `banish`) |
+| Buffer C como bytes | `ffi.slice_from_ptr` (sin posesión, no aplicar banish) |
 | `T*` → `void*` | `transmute p to ref to void` |
 | Reinterpretar `T*` como `U*` | `transmute p to ref to U` (advertencia W0001) |
 
@@ -1042,11 +1047,11 @@ Obligatorio. Va **antes de cualquier directiva**:
 
 ```pengu
 ## std/example.pengu
-## Operaciones sobre cadenas con ownership explícito.
+## Operaciones sobre cadenas con gestión manual de memoria.
 ##
-## Este módulo NO libera memoria por ti: todas las funciones devuelven
-## valores auto-banishables. Las vistas (slices, `ref to`) deben marcarse
-## `borrowed` por el caller.
+## Este módulo NO libera memoria por ti: cada función devuelve un valor nuevo
+## que tú liberas con `banish` (o `defer banish`). Las vistas (slices, `ref to`)
+## no poseen memoria y nunca deben recibir `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
@@ -1067,7 +1072,7 @@ Estructura fija:
 ## - `width`: ancho mínimo. Si el resultado es más corto, se rellena con `0`.
 ##
 ## ## Retorno
-## Un `string` **auto-banishable** con la representación `0x…` (o `-0x…`).
+## Un `string` nuevo con la representación `0x…` (o `-0x…`); libéralo con `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
@@ -1083,8 +1088,8 @@ weave to_hex with n as int, width as int is 0 into string:
 - **Una línea de resumen**, seguida de línea en blanco y detalles.
 - Secciones en `## ## Nombre` (H2 dentro del docstring).
 - Ejemplos en bloques ` ```pengu `.
-- Los invariantes y ownership se documentan **explícitamente**:
-  - "El `list` retornado es auto-banishable."
+- Los invariantes y la semántica de liberación se documentan **explícitamente**:
+  - "El `list` retornado es nuevo; libéralo con `banish`."
   - "El `slice` retornado apunta a `self`; no lo banishes."
   - "Panickea si `n < 0`."
 - Los `##` **preceden inmediatamente** al símbolo, sin línea en blanco intermedia.
@@ -1099,7 +1104,7 @@ weave to_hex with n as int, width as int is 0 into string:
 ## - `retries >= 0`.
 ## - `timeout_ms > 0`.
 ##
-## ## Ownership
+## ## Memoria
 ## Los campos `headers` y `body` son propiedad del `rune`; usar
 ## `defer banish cfg` para liberarlos (requiere `derive Nexus`).
 rune HttpConfig derive Par, Nexus:
@@ -1169,7 +1174,7 @@ test "split handles consecutive separators":
 | `struct P p; p.x=1; p.y=2;` | `var p is with x is 0, y is 0; set p.x is 1; set p.y is 2` | `var p as P with: set .x is 1; set .y is 2` |
 | `int* out; if (!try(&out)) return;` | (bool + out-param) | `let v is f() or return` |
 | `if (p == NULL) return -1;` | `if p == null: return -1` | `let v is f() or else fallback` |
-| `malloc` + `free` | `var p as ref to T is ...; banish p` | `defer banish p` si cruza scope, si no auto-banish |
+| `malloc` + `free` | `var p as ref to T is ...; banish p` | `defer banish p` si cruza un ámbito, si no `banish p` en el momento adecuado |
 | `T** vtable` | (vtable manual) | `concept` + `shard T where T: C` |
 | `void* user_data` | `ref to void` | `ref to frozen void` con `frozen` cuando aplique |
 | `#define MAX 100` | `const MAX as int is 100` | igual |
@@ -1308,21 +1313,23 @@ weave sum shard T where T: Num with xs as list of T into T: ...
 banish "literal"
 banish (calling ffi.slice_from_ptr with p, n)
 
-# ✅ (nada: los slices son no-owning)
+# ✅ (nada: los slices no poseen memoria)
 ```
 
-### 14.12 `borrowed` olvidado en parámetros
+### 14.12 Liberar un parámetro que no posees
 
 ```pengu
-# ❌ el caller cree que el callee es dueño del string
-weave log with s as string into void: ...
+# ❌ el callee libera un string que el caller todavía posee
+weave log with s as string into void:
+    banish s
 
-# ✅ si solo lo lees, el contrato natural lo deja al caller
+# ✅ un parámetro no posee memoria: documéntalo y deja la liberación al caller
 weave log with s as string into void: ...
-# (basta con documentarlo: no lo banisheas dentro)
 ```
 
-En PenguScript `borrowed` es un modificador de **variables locales**, no de parámetros. La regla es: **no banish-ees parámetros**; si necesitas poseer, `clone` primero (para `rune`, `derive Imago`).
+Los parámetros no poseen memoria en PenguScript. La regla es: **no apliques banish a un
+parámetro**; si necesitas poseer una copia, cópiala explícitamente (`pengu_string_copy`,
+o `derive Imago` en una rune y clónala).
 
 ### 14.13 `while` con acumulador cuando hay comprehension
 

@@ -23,7 +23,7 @@
 #   * pipe(): unidirectional IPC channel between processes
 #   * exec_capture() / run_capture(): process spawning with stdout/stderr capture
 #
-# Ownership model:
+# Memory model:
 #   Every returned string or list of string (getenv, get_argv, get_args,
 #   getcwd, get_env_keys, uname, hostname, standard directories) is a fresh copy
 #   made by the C runtime or standard library, so results follow normal
@@ -116,7 +116,7 @@ declare pengu_c_archivum_is_file with path as string into bool
 ## Looks up environment variable `name`.
 ##
 ## Signature: getenv(name as string) into maybe string
-## Ownership: Returns a fresh copy of the environment variable value.
+## Memory: Returns a fresh copy of the environment variable value.
 ## Edge cases: Returns maybe none when the variable is not set (or name is empty). If the variable is set to an empty string, returns some "".
 ## Cross-platform: Supported uniformly across Windows (GetEnvironmentVariableA) and POSIX (getenv).
 weave getenv with name as string into maybe string:
@@ -125,7 +125,7 @@ weave getenv with name as string into maybe string:
 ## Sets environment variable `name` to `value`.
 ##
 ## Signature: setenv(name as string, value as string, overwrite as bool is true) into bool
-## Ownership: Value string is copied by the runtime; caller retains ownership of arguments.
+## Memory: the value string is copied by the runtime; the caller keeps whatever it owned.
 ## Edge cases: When `overwrite` is false and `name` already exists, returns true without modifying value.
 ## Cross-platform: Uses SetEnvironmentVariableA on Windows and setenv on POSIX.
 weave setenv with name as string , value as string , overwrite as bool is true into bool:
@@ -134,7 +134,7 @@ weave setenv with name as string , value as string , overwrite as bool is true i
 ## Removes environment variable `name` from the process environment.
 ##
 ## Signature: unsetenv(name as string) into bool
-## Ownership: Arguments are not retained.
+## Memory: Arguments are not retained.
 ## Edge cases: Returns true on success or if variable was already unset; false on invalid names.
 ## Cross-platform: Uses SetEnvironmentVariableA(name, NULL) on Windows and unsetenv on POSIX.
 weave unsetenv with name as string into bool:
@@ -143,7 +143,7 @@ weave unsetenv with name as string into bool:
 ## Returns the names of all currently set environment variables.
 ##
 ## Signature: get_env_keys() into list of string
-## Ownership: Returns a new list of owned strings.
+## Memory: Returns a new list of owned strings.
 ## Edge cases: Returns an empty list when no environment variables are defined.
 ## Cross-platform: Iterates environ on POSIX and GetEnvironmentStringsA on Windows.
 weave get_env_keys into list of string:
@@ -156,7 +156,7 @@ weave get_env_keys into list of string:
 ## Looks up environment variable `name`, returning `default` if unset.
 ##
 ## Signature: getenv_or(name as string, default as string is "") into string
-## Ownership: Returns a fresh string copy.
+## Memory: Returns a fresh string copy.
 ## Edge cases: Returns `default` when `name` is not present in the environment.
 ## Cross-platform: Works across all platforms.
 weave getenv_or with name as string , default as string is "" into string:
@@ -168,7 +168,7 @@ weave getenv_or with name as string , default as string is "" into string:
 ## Checks whether environment variable `name` is currently set.
 ##
 ## Signature: has_env(name as string) into bool
-## Ownership: No persistent allocations.
+## Memory: No persistent allocations.
 ## Edge cases: Returns true even if the variable is set to an empty string.
 ## Cross-platform: Works across all platforms.
 weave has_env with name as string into bool:
@@ -178,7 +178,7 @@ weave has_env with name as string into bool:
 ## Looks up environment variable `name` and parses it as an integer.
 ##
 ## Signature: getenv_int(name as string) into maybe int
-## Ownership: No persistent allocations.
+## Memory: No persistent allocations.
 ## Edge cases: Returns maybe none if unset or if value cannot be parsed as an int.
 ## Cross-platform: Works across all platforms.
 weave getenv_int with name as string into maybe int:
@@ -190,7 +190,7 @@ weave getenv_int with name as string into maybe int:
 ## Looks up environment variable `name` and parses it as a float.
 ##
 ## Signature: getenv_float(name as string) into maybe float
-## Ownership: No persistent allocations.
+## Memory: No persistent allocations.
 ## Edge cases: Returns maybe none if unset or if value cannot be parsed as a float.
 ## Cross-platform: Works across all platforms.
 weave getenv_float with name as string into maybe float:
@@ -202,7 +202,7 @@ weave getenv_float with name as string into maybe float:
 ## Looks up environment variable `name` and parses it as a boolean.
 ##
 ## Signature: getenv_bool(name as string) into maybe bool
-## Ownership: No persistent allocations.
+## Memory: No persistent allocations.
 ## Edge cases: Accepts "1", "true", "TRUE", "yes", "YES" -> some true.
 ##             Accepts "0", "false", "FALSE", "no", "NO" -> some false.
 ##             Unset or unrecognized values return maybe none.
@@ -221,7 +221,7 @@ weave getenv_bool with name as string into maybe bool:
 ## Returns a snapshot map of all environment variables and their values.
 ##
 ## Signature: get_env_map() into map of string to string
-## Ownership: Returns a newly allocated map owning its keys and values.
+## Memory: Returns a newly allocated map. Keys and values are copied with `memcpy`, so release any heap buffers they reference yourself.
 ## Edge cases: Returns empty map if no environment variables are defined.
 ## Cross-platform: Works across all platforms.
 weave get_env_map into map of string to string:
@@ -236,7 +236,7 @@ weave get_env_map into map of string to string:
 ## Sets multiple environment variables from a key-value map.
 ##
 ## Signature: set_env_map(m as map of string to string) into int
-## Ownership: Does not consume the input map.
+## Memory: Does not consume the input map.
 ## Edge cases: Returns the count of variables successfully set.
 ## Cross-platform: Works across all platforms.
 weave set_env_map with m as map of string to string into int:
@@ -251,7 +251,7 @@ weave set_env_map with m as map of string to string into int:
 ## Clears all environment variables in the current process.
 ##
 ## Signature: clear_env() into int
-## Ownership: Mutates process environment. No persistent allocations returned.
+## Memory: Mutates process environment. No persistent allocations returned.
 ## Edge cases: Returns count of variables successfully removed.
 ## Cross-platform: On all platforms, variables are removed via platform unsetenv / SetEnvironmentVariableA.
 ## WARNING: Only removes variables from the current process environment, does not affect the OS or parent processes.
@@ -268,7 +268,7 @@ weave clear_env into int:
 ## Supports `$VAR`, `${VAR}`, `%VAR%` syntax, and `$$` / `%%` escape -> `$` / `%`.
 ##
 ## Signature: expand_env(s as string) into string
-## Ownership: Returns a newly allocated string with variables substituted.
+## Memory: Returns a newly allocated string with variables substituted.
 ## Edge cases: Unset variables expand to empty strings. Unterminated braces `${...}` or `%...%` are preserved verbatim.
 ## Cross-platform: Cross-platform support for Unix and Windows placeholders. Single-pass non-recursive expansion.
 weave expand_env with s as string into string:
@@ -331,7 +331,7 @@ weave expand_env with s as string into string:
 ## Alias of `expand_env`.
 ##
 ## Signature: env_substitute(s as string) into string
-## Ownership: Returns a new string with environment variables replaced.
+## Memory: Returns a new string with environment variables replaced.
 weave env_substitute with s as string into string:
     return calling expand_env with s
 
@@ -342,7 +342,7 @@ weave env_substitute with s as string into string:
 ## Returns the program's argument count, including the program name at index 0.
 ##
 ## Signature: get_argc() into int
-## Ownership: No allocations.
+## Memory: No allocations.
 ## Cross-platform: Returns argc across all platforms.
 weave get_argc into int:
     return calling pengu_c_get_argc
@@ -350,7 +350,7 @@ weave get_argc into int:
 ## Returns a copy of the program argument at index `idx` (0 = program name).
 ##
 ## Signature: get_argv(idx as int) into string
-## Ownership: Returns a fresh string copy.
+## Memory: Returns a fresh string copy.
 ## Edge cases: Out-of-range `idx` yields an empty string.
 weave get_argv with idx as int into string:
     return calling pengu_c_get_argv with idx
@@ -358,14 +358,14 @@ weave get_argv with idx as int into string:
 ## Returns a new list of string holding one copy per program argument.
 ##
 ## Signature: get_args() into list of string
-## Ownership: The returned list owns its string elements.
+## Memory: The returned list owns its element buffer, but each string element owns its own bytes: free them with `pengu_banish_string_list` (or banish each element) before the list.
 weave get_args into list of string:
     return calling pengu_c_get_args
 
 ## Returns the argument at index `idx`, or `default` if `idx` is out of range.
 ##
 ## Signature: arg_at_or(idx as int, default as string is "") into string
-## Ownership: Returns a fresh string copy.
+## Memory: Returns a fresh string copy.
 ## Edge cases: Returns `default` when `idx < 0` or `idx >= get_argc()`.
 weave arg_at_or with idx as int , default as string is "" into string:
     var argc as int is calling get_argc
@@ -377,7 +377,7 @@ weave arg_at_or with idx as int , default as string is "" into string:
 ## Handles `--key=value` -> map["key"] = "value" and `--flag` -> map["flag"] = "true".
 ##
 ## Signature: parse_flags() into map of string to string
-## Ownership: Returns a newly allocated map.
+## Memory: Returns a newly allocated map.
 ## Edge cases: Positional arguments (not starting with `--`) are ignored.
 weave parse_flags into map of string to string:
     var res as map of string to string is map of string to string
@@ -408,7 +408,7 @@ weave parse_flags into map of string to string:
 ## Checks if flag `--name` was passed on the command line.
 ##
 ## Signature: has_flag(name as string) into bool
-## Ownership: No persistent allocations.
+## Memory: No persistent allocations.
 weave has_flag with name as string into bool:
     var flags as map of string to string is calling parse_flags
     return calling flags.contains with name
@@ -416,7 +416,7 @@ weave has_flag with name as string into bool:
 ## Returns the value of flag `--name` if passed, or maybe none.
 ##
 ## Signature: get_flag_value(name as string) into maybe string
-## Ownership: Returns a fresh maybe string.
+## Memory: Returns a fresh maybe string.
 weave get_flag_value with name as string into maybe string:
     var flags as map of string to string is calling parse_flags
     if calling flags.contains with name:
@@ -430,14 +430,14 @@ weave get_flag_value with name as string into maybe string:
 ## Returns the current process id (int).
 ##
 ## Signature: getpid() into int
-## Ownership: No allocations.
+## Memory: No allocations.
 weave getpid into int:
     return calling pengu_c_getpid
 
 ## Returns the parent process id (int). Always 0 on Windows.
 ##
 ## Signature: getppid() into int
-## Ownership: No allocations.
+## Memory: No allocations.
 weave getppid into int:
     return calling pengu_c_getppid
 
@@ -448,7 +448,7 @@ weave getppid into int:
 ## Returns the current working directory as a maybe string.
 ##
 ## Signature: getcwd() into maybe string
-## Ownership: Returns a fresh string copy.
+## Memory: Returns a fresh string copy.
 ## Edge cases: Returns maybe none when current directory cannot be determined.
 weave getcwd into maybe string:
     return calling pengu_c_getcwd
@@ -456,7 +456,7 @@ weave getcwd into maybe string:
 ## Changes the current working directory to `path`.
 ##
 ## Signature: chdir(path as string) into bool
-## Ownership: Arguments are not retained.
+## Memory: Arguments are not retained.
 ## Edge cases: Returns true on success, false when path does not exist or access is denied.
 weave chdir with path as string into bool:
     return calling pengu_c_chdir with path
@@ -468,7 +468,7 @@ weave chdir with path as string into bool:
 ## Returns the current user's home directory.
 ##
 ## Signature: home_dir() into maybe string
-## Ownership: Returns an owned maybe string.
+## Memory: Returns an owned maybe string.
 ## Cross-platform: On Windows, inspects USERPROFILE or HOMEDRIVE+HOMEPATH.
 ##                 On POSIX, inspects HOME.
 weave home_dir into maybe string:
@@ -490,7 +490,7 @@ weave home_dir into maybe string:
 ## Returns the system temporary directory path.
 ##
 ## Signature: temp_dir() into maybe string
-## Ownership: Returns an owned maybe string.
+## Memory: Returns an owned maybe string.
 ## Cross-platform: On Windows, inspects TEMP/TMP with fallback "C:\\Temp".
 ##                 On POSIX, inspects TMPDIR/TEMP/TMP with fallback "/tmp".
 weave temp_dir into maybe string:
@@ -517,7 +517,7 @@ weave temp_dir into maybe string:
 ## Returns the user configuration directory path.
 ##
 ## Signature: config_dir() into maybe string
-## Ownership: Returns an owned maybe string.
+## Memory: Returns an owned maybe string.
 ## Cross-platform: On Windows, returns %APPDATA%.
 ##                 On POSIX, returns $XDG_CONFIG_HOME or ~/.config.
 weave config_dir into maybe string:
@@ -538,7 +538,7 @@ weave config_dir into maybe string:
 ## Returns the user cache directory path.
 ##
 ## Signature: cache_dir() into maybe string
-## Ownership: Returns an owned maybe string.
+## Memory: Returns an owned maybe string.
 ## Cross-platform: On Windows, returns %LOCALAPPDATA%.
 ##                 On POSIX, returns $XDG_CACHE_HOME or ~/.cache.
 weave cache_dir into maybe string:
@@ -559,7 +559,7 @@ weave cache_dir into maybe string:
 ## Returns the user local data directory path.
 ##
 ## Signature: data_dir() into maybe string
-## Ownership: Returns an owned maybe string.
+## Memory: Returns an owned maybe string.
 ## Cross-platform: On Windows, returns %APPDATA%.
 ##                 On POSIX, returns $XDG_DATA_HOME or ~/.local/share.
 weave data_dir into maybe string:
@@ -584,21 +584,21 @@ weave data_dir into maybe string:
 ## Returns the operating-system family name: "Windows", "Darwin", "Linux" or "Unknown".
 ##
 ## Signature: uname() into string
-## Ownership: Returns a fresh string copy.
+## Memory: Returns a fresh string copy.
 weave uname into string:
     return calling pengu_c_uname
 
 ## Returns the machine's host name.
 ##
 ## Signature: hostname() into string
-## Ownership: Returns a fresh string copy.
+## Memory: Returns a fresh string copy.
 weave hostname into string:
     return calling pengu_c_hostname
 
 ## Returns the host CPU architecture string ("x64", "arm64", "x86", "arm", or "unknown").
 ##
 ## Signature: os_arch() into string
-## Ownership: Returns a static string copy evaluated at compile time.
+## Memory: Returns a static string copy evaluated at compile time.
 weave os_arch into string:
     when arch == "x64":
         return "x64"
@@ -613,14 +613,14 @@ weave os_arch into string:
 ## Returns the operating-system family name. Alias of `uname()`.
 ##
 ## Signature: os_family() into string
-## Ownership: Returns a fresh string copy.
+## Memory: Returns a fresh string copy.
 weave os_family into string:
     return calling pengu_c_uname
 
 ## Checks if the current target operating system is Windows.
 ##
 ## Signature: is_windows() into bool
-## Ownership: Compile-time constant result.
+## Memory: Compile-time constant result.
 weave is_windows into bool:
     when os == "windows":
         return true
@@ -630,7 +630,7 @@ weave is_windows into bool:
 ## Checks if the current target operating system is Unix-like (Linux, macOS, BSD).
 ##
 ## Signature: is_unix() into bool
-## Ownership: Compile-time constant result.
+## Memory: Compile-time constant result.
 weave is_unix into bool:
     when os == "windows":
         return false
@@ -640,7 +640,7 @@ weave is_unix into bool:
 ## Checks if the current target operating system is macOS (Darwin).
 ##
 ## Signature: is_macos() into bool
-## Ownership: Compile-time constant result.
+## Memory: Compile-time constant result.
 weave is_macos into bool:
     when os == "macos":
         return true
@@ -650,7 +650,7 @@ weave is_macos into bool:
 ## Checks if the current target operating system is Linux.
 ##
 ## Signature: is_linux() into bool
-## Ownership: Compile-time constant result.
+## Memory: Compile-time constant result.
 weave is_linux into bool:
     when os == "linux":
         return true
@@ -664,7 +664,7 @@ weave is_linux into bool:
 ## Searches the system PATH for all executable candidates matching `cmd`.
 ##
 ## Signature: which_all(cmd as string) into list of string
-## Ownership: Returns a new list of absolute/relative path strings.
+## Memory: Returns a new list of absolute/relative path strings.
 ## Cross-platform: On Windows, uses ';' delimiter and tests .exe, .bat, .cmd extensions.
 ##                 On POSIX, uses ':' delimiter.
 ## NOTE: On POSIX systems, `which_all` checks for regular file existence in PATH directories
@@ -717,7 +717,7 @@ weave which_all with cmd as string into list of string:
 ## Locates the first executable matching `cmd` on the system PATH.
 ##
 ## Signature: which(cmd as string) into maybe string
-## Ownership: Returns an owned maybe string.
+## Memory: Returns an owned maybe string.
 ## Edge cases: Returns maybe none if `cmd` is not found on PATH.
 weave which with cmd as string into maybe string:
     var matches_list as list of string is calling which_all with cmd
@@ -732,7 +732,7 @@ weave which with cmd as string into maybe string:
 ## Terminates the process immediately with exit code `code` (never returns).
 ##
 ## Signature: exit(code as int) into void
-## Ownership: Process exit.
+## Memory: Process exit.
 weave exit with code as int into void:
     calling pengu_c_exit with code
 
@@ -740,7 +740,7 @@ weave exit with code as int into void:
 ## Returns the raw status code reported by the shell (-1 on error).
 ##
 ## Signature: exec(cmd as string, args as list of string) into int
-## Ownership: Caller owns arguments.
+## Memory: Caller owns arguments.
 ## WARNING: Uses system() internally; do NOT pass untrusted user input without sanitization.
 weave exec with cmd as string , args as list of string into int:
     return calling pengu_c_exec with cmd , args
@@ -748,21 +748,21 @@ weave exec with cmd as string , args as list of string into int:
 ## Launches `cmd` with `args` and blocks until it finishes. Shares exec's implementation.
 ##
 ## Signature: spawn(cmd as string, args as list of string) into int
-## Ownership: Caller owns arguments.
+## Memory: Caller owns arguments.
 weave spawn with cmd as string , args as list of string into int:
     return calling pengu_c_spawn with cmd , args
 
 ## Runs `cmd` with `args` and returns true if the command succeeded (exit code == 0).
 ##
 ## Signature: exec_ok(cmd as string, args as list of string) into bool
-## Ownership: Arguments are not retained.
+## Memory: Arguments are not retained.
 weave exec_ok with cmd as string , args as list of string into bool:
     return (calling exec with cmd , args) == 0
 
 ## Runs `cmd` with `args` and panics if the command fails (exit code != 0).
 ##
 ## Signature: exec_or_panic(cmd as string, args as list of string) into void
-## Ownership: Arguments are not retained.
+## Memory: Arguments are not retained.
 weave exec_or_panic with cmd as string , args as list of string into void:
     var status as int is calling exec with cmd , args
     if status != 0:
@@ -771,7 +771,7 @@ weave exec_or_panic with cmd as string , args as list of string into void:
 ## Executes a raw command line string directly through the platform shell.
 ##
 ## Signature: run_shell(cmdline as string) into int
-## Ownership: Returns raw return status from platform shell.
+## Memory: Returns raw return status from platform shell.
 ## WARNING: Uses system() internally; do NOT pass untrusted user input without sanitization.
 weave run_shell with cmdline as string into int:
     var empty_args as list of string is list of string
@@ -780,7 +780,7 @@ weave run_shell with cmdline as string into int:
 ## Escapes string `s` for safe inclusion as a command line argument.
 ##
 ## Signature: shell_escape(s as string) into string
-## Ownership: Returns a newly allocated escaped string.
+## Memory: Returns a newly allocated escaped string.
 ## Cross-platform: Uses double-quote escaping on Windows and single-quote escaping on POSIX.
 weave shell_escape with s as string into string:
     var slen as int is s length
@@ -817,7 +817,7 @@ weave shell_escape with s as string into string:
 ## Returns the username of the current logged-in user.
 ##
 ## Signature: current_user() into maybe string
-## Ownership: Returns an owned maybe string.
+## Memory: Returns an owned maybe string.
 ## Cross-platform: On Windows, inspects USERNAME.
 ##                 On POSIX, inspects USER with fallback to LOGNAME.
 weave current_user into maybe string:

@@ -331,7 +331,8 @@ compile is always valid; this is false only when a null reference is passed.
 
 Convenience one-shot: compiles `pattern` (with `flags`) and returns the
 first match anywhere inside `text`. None when the pattern fails to compile
-or nothing matches. Same ownership as search for a returned Match.
+or nothing matches. A returned Match owns its buffers, exactly as in search;
+release it with `banish`.
 
 
 ### `quick_replace`

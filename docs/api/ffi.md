@@ -241,7 +241,7 @@ Generic owning map creation from parallel key/value arrays.
 
 > **pengu_ffi_map_si**(keys: slice of string, vals: slice of int) -> map of string to int
 
-Deep-copies parallel string/int slices into a new map of string to int.
+Copies parallel string/int slices into a new map of string to int; the keys are copied with memcpy, not deep-copied.
 
 
 ### `string_from_cstr`
@@ -413,6 +413,6 @@ Copies `count` key/value pairs from parallel arrays into a new owned map of K to
 
 > **map_of_string_to_int_from_slices**(keys: slice of string, vals: slice of int) -> map of string to int
 
-Builds a map of string to int from two parallel slices. Keys are deeply
-copied; the returned map owns its entries.
+Builds a map of string to int from two parallel slices. Keys are copied
+with memcpy; the returned map owns its entries table, not the string buffers.
 

@@ -19,7 +19,7 @@ decisions, not omissions ([`AUDIT_1.0.md`](../AUDIT_1.0.md) §20.6,
 | Not in 1.0 | Why it waits |
 |---|---|
 | Borrow checking (lifetimes) | An analysis change, not a syntax change; doing it before 1.0 would have invalidated code that is valid today |
-| `async` / `await` | With deterministic ownership and no GC, an async runtime is months of work and the stdlib has no demand for it |
+| `async` / `await` | With deterministic manual memory management and no GC, an async runtime is months of work and the stdlib has no demand for it |
 | Closures with capture | Breaks the design decision to emit top-level `static` C functions; needs struct + function, a whole language feature |
 | AST macros | Huge surface, incompatibility risk; `when` / `comptime` / `shard` cover the common cases |
 | Dynamic dispatch / vtables | Contradicts the "zero runtime overhead" claim of `concept`; needs its own document |

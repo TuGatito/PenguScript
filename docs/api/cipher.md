@@ -43,7 +43,7 @@ Represents the syntactic category of a raw JSON value.
 
 Classifies a raw JSON value into its corresponding JsonKind variant.
 Signature: json_kind_of(v as string) into JsonKind
-Ownership: Returns an omen value.
+Memory: Returns an omen value.
 Edge cases: Returns JsonNull for empty string or "null".
 
 
@@ -67,7 +67,7 @@ Decodes a single Base64 character to its 6-bit value (-2 invalid, -1 '=').
 
 Encodes data into a standard RFC 4648 Base64 string with padding.
 Signature: encode_base64(data as string) into string
-Ownership: Returns a newly allocated string.
+Memory: Returns a newly allocated string.
 Edge cases: Empty input returns "".
 
 
@@ -84,7 +84,7 @@ Explicit alias of `encode_base64` for API consistency.
 
 Decodes a Base64 string back into bytes as a string; whitespace in input is ignored.
 Signature: decode_base64(data as string) into maybe string
-Ownership: Returns an owned maybe string.
+Memory: Returns an owned maybe string.
 Edge cases: Returns maybe none when input is malformed, when `=` appears
 anywhere but at the very end, or when padding is excessive (`"QQ==="`,
 `"QQ==QQ=="`) or short (`"Q==="`). Unpadded input decodes normally.
@@ -103,7 +103,7 @@ True when data is well-formed Base64, i.e. decode_base64 succeeds.
 
 Encodes data into URL-safe Base64 (using '-' and '_' instead of '+' and '/', unpadded).
 Signature: encode_base64_url(data as string) into string
-Ownership: Returns a newly allocated string.
+Memory: Returns a newly allocated string.
 
 
 ### `decode_base64_url`
@@ -112,7 +112,7 @@ Ownership: Returns a newly allocated string.
 
 Decodes a URL-safe Base64 string (accepts both URL-safe and standard alphabet, padded or unpadded).
 Signature: decode_base64_url(data as string) into maybe string
-Ownership: Returns an owned maybe string.
+Memory: Returns an owned maybe string.
 
 
 ### `encode_base64_nopad`
@@ -121,7 +121,7 @@ Ownership: Returns an owned maybe string.
 
 Encodes data into unpadded standard Base64 (strips trailing '=' characters).
 Signature: encode_base64_nopad(data as string) into string
-Ownership: Returns a newly allocated string.
+Memory: Returns a newly allocated string.
 
 
 ### `decode_base64_nopad`
@@ -130,7 +130,7 @@ Ownership: Returns a newly allocated string.
 
 Decodes an unpadded Base64 string (automatically restores required '=' padding).
 Signature: decode_base64_nopad(data as string) into maybe string
-Ownership: Returns an owned maybe string.
+Memory: Returns an owned maybe string.
 
 
 ### `encode_base64_unpadded`
@@ -168,7 +168,7 @@ _Undocumented function._
 
 Encodes raw bytes in `data` into a lowercase hexadecimal (Base16) string.
 Signature: encode_hex(data as string) into string
-Ownership: Returns a newly allocated string.
+Memory: Returns a newly allocated string.
 
 
 ### `decode_hex`
@@ -177,7 +177,7 @@ Ownership: Returns a newly allocated string.
 
 Decodes a hexadecimal string back into bytes.
 Signature: decode_hex(data as string) into maybe string
-Ownership: Returns an owned maybe string.
+Memory: Returns an owned maybe string.
 Edge cases: Rejects odd-length strings and non-hexadecimal characters with `maybe none`.
 
 
@@ -201,7 +201,7 @@ _Undocumented function._
 
 Encodes raw bytes in `data` into an uppercase Base32 string with '=' padding (RFC 4648).
 Signature: encode_base32(data as string) into string
-Ownership: Returns a newly allocated string.
+Memory: Returns a newly allocated string.
 
 
 ### `decode_base32`
@@ -210,7 +210,7 @@ Ownership: Returns a newly allocated string.
 
 Decodes a Base32 string back into bytes (RFC 4648). Case-insensitive.
 Signature: decode_base32(data as string) into maybe string
-Ownership: Returns an owned maybe string.
+Memory: Returns an owned maybe string.
 
 
 ### `json_escape`
@@ -219,7 +219,7 @@ Ownership: Returns an owned maybe string.
 
 Escapes double-quotes, backslashes, and control characters for JSON RFC 8259 compliance.
 Signature: json_escape(s as string) into string
-Ownership: Returns a newly allocated escaped string.
+Memory: Returns a newly allocated escaped string.
 
 
 ### `json_unescape`
@@ -228,7 +228,7 @@ Ownership: Returns a newly allocated escaped string.
 
 Unescapes a JSON-encoded string (translates \", \\, \n, \r, \t, \/ back to literals).
 Signature: json_unescape(s as string) into string
-Ownership: Returns a newly allocated unescaped string.
+Memory: Returns a newly allocated unescaped string.
 
 
 ### `json_skip_ws`
@@ -265,7 +265,7 @@ True when a value is a raw JSON literal (object/array/number/bool/null).
 
 Parses a JSON object into a map of string to string.
 Signature: parse_json(json as string) into maybe map of string to string
-Ownership: Returns a newly allocated map.
+Memory: Returns a newly allocated map.
 Edge cases: Returns maybe none on malformed or non-object input.
 
 
@@ -276,7 +276,7 @@ Edge cases: Returns maybe none on malformed or non-object input.
 Serializes a map into a compact single-line JSON object.
 Properly escapes quotes and control characters in keys and string values (RFC 8259).
 Signature: stringify_json(data as map of string to string) into maybe string
-Ownership: Returns a newly allocated JSON string.
+Memory: Returns a newly allocated JSON string.
 
 
 ### `pretty_json`
@@ -307,7 +307,7 @@ Identity passthrough returning `some value`.
 
 Parses a JSON array string `[v1, v2, ...]` into a list of raw string values.
 Signature: parse_json_array(json as string) into maybe list of string
-Ownership: Returns a newly allocated list of strings.
+Memory: Returns a newly allocated list of strings.
 Edge cases: Returns maybe none on malformed or non-array input.
 
 
@@ -317,7 +317,7 @@ Edge cases: Returns maybe none on malformed or non-array input.
 
 Serializes a list of strings into a compact JSON array.
 Signature: stringify_json_array(items as list of string) into maybe string
-Ownership: Returns a newly allocated JSON array string.
+Memory: Returns a newly allocated JSON array string.
 
 
 ### `read_json_array_file`

@@ -338,7 +338,7 @@ error statuses still arrive as a present response with the status code set.
 > **post**(url: string, headers: map of string to string, body: string) -> maybe ClientResponse
 
 Sends an HTTP POST of `body` to `url` with the given request `headers`.
-Ownership and none semantics are identical to get.
+Memory and none semantics are identical to get.
 
 
 ### `put`
@@ -346,14 +346,14 @@ Ownership and none semantics are identical to get.
 > **put**(url: string, headers: map of string to string, body: string) -> maybe ClientResponse
 
 Sends an HTTP PUT of `body` to `url` with the given request `headers`.
-Ownership and none semantics are identical to get.
+Memory and none semantics are identical to get.
 
 
 ### `delete`
 
 > **delete**(url: string, headers: map of string to string) -> maybe ClientResponse
 
-Sends an HTTP DELETE to `url` with the given request `headers`. Ownership and
+Sends an HTTP DELETE to `url` with the given request `headers`. Memory and
 none semantics are identical to get.
 
 
@@ -363,7 +363,7 @@ none semantics are identical to get.
 
 Sends an HTTP request using an arbitrary `method` (e.g. "PATCH", "HEAD") to
 `url` with the given request `headers`. `body` is the payload when present
-(some) or none to send no body. Ownership and none semantics are identical
+(some) or none to send no body. Memory and none semantics are identical
 to get.
 
 

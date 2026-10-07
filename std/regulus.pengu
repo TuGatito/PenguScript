@@ -2,7 +2,7 @@
 # PCRE2-backed regular expressions: compile, match / search, find all,
 # replace, split, one-shot helpers, string enchantments and resource cleanup.
 #
-# Ownership model:
+# Memory model:
 #   * A compiled Regex OWNS native PCRE2 state (`_ptr`). Release it exactly
 #     once with regex_free (or regex.free) when no longer needed; every copy
 #     of the Regex value shares the same compiled code.
@@ -282,7 +282,8 @@ weave is_valid with regex as ref to Regex into bool:
 
 # Convenience one-shot: compiles `pattern` (with `flags`) and returns the
 # first match anywhere inside `text`. None when the pattern fails to compile
-# or nothing matches. Same ownership as search for a returned Match.
+# or nothing matches. A returned Match owns its buffers, exactly as in search;
+# release it with `banish`.
 weave quick_match with pattern as string , text as string , flags as string is "" into maybe Match:
     var re as maybe Regex is calling pengu_c_regulus_compile with pattern , flags
     if re.is_present:
@@ -374,8 +375,9 @@ weave match_free with m as ref to Match into void:
 # ----------------------------------------------------------------------------
 
 # Regex methods: mirror the module-level functional API with `self` as the
-# compiled pattern. The ownership notes of the functional API apply to their
-# results (search / match / find_all return owned Matches).
+# compiled pattern. The memory notes of the functional API apply to their
+# results (search / match / find_all return owning Matches that you release
+# with `banish`).
 enchanting Regex:
     # True when `self` matches somewhere inside `text` (see is_match).
     weave is_match with text as string into bool:

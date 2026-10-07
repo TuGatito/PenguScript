@@ -848,36 +848,6 @@
         "Top-level symbol '{}' collides with the full name of the '{}' omen variant"
       ]
     },
-    "E0047": {
-      "classes": [
-        "AutoOwnedBanishError"
-      ],
-      "conditions": [
-        "'banish' on auto-owned local '{}' would double-free"
-      ],
-      "explanation": "Attempt to manually banish an auto-owned variable.",
-      "guidance": [
-        {
-          "help": "Remove 'banish' — the compiler frees this variable automatically at the end of its scope.",
-          "note": "Variables allocated locally with fresh ownership are scope-owned and cleaned up automatically."
-        }
-      ]
-    },
-    "E0048": {
-      "classes": [
-        "BorrowedBanishError"
-      ],
-      "conditions": [
-        "'banish' on borrowed local '{}'"
-      ],
-      "explanation": "Attempt to banish a borrowed variable.",
-      "guidance": [
-        {
-          "help": "Remove 'banish' — borrowed references do not own the underlying memory.",
-          "note": "Only the owner of a resource is allowed to banish it."
-        }
-      ]
-    },
     "E0049": {
       "classes": [
         "SemanticError"

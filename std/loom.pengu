@@ -22,9 +22,10 @@
 ## compartidos **no tienen la misma firma**: no son duplicados, son dos contratos
 ## distintos. Ver `LANGUAGE.md` §19.1.1 y `docs/DEPRECATIONS.md`.
 ##
-## ## Ownership
+## ## Memory
 ## Ninguna función muta ni libera sus entradas: solo las lee y devuelve listas
-## nuevas auto-banishables (o escalares), incluidas las internas de `chunks`.
+## nuevas que el llamante libera con `banish` (o son escalares), incluidas las
+## internas de `chunks`.
 ##
 ## ## Ejemplo
 ## ```pengu

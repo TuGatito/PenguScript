@@ -1954,7 +1954,7 @@ PenguScript enforces strict pointee typing for `ref to T`:
   - `ref to T`: deallocates the pointer via `pengu_banish((void*)(p))`.
   - `string`: deallocates dynamic string buffer via `pengu_banish_string(&s)`, resetting `.data` to `NULL` and `.len` to 0. Do not use after banishing.
   - `list of T`: deallocates contiguous buffer via `pengu_banish_list(&l)`, resetting capacity and length to 0.
-  - `map of K to V`: deallocates map entries via `pengu_banish_map(&m)`, and recursively deallocates any `string` keys and `string` values.
+  - `map of K to V`: deallocates the map's own entries table and per-entry cells via `pengu_banish_map(&m)`. It does **not** free heap buffers referenced by string keys or values — release those yourself first.
   - Rejects literals, temporaries, `const`, and `frozen` values with `E0008`.
 
 ```pengu
@@ -2005,12 +2005,14 @@ int32_t memory_demo(void) {
 }
 ```
 
-### 12.3 Ownership & lifetime notes
+### 12.3 Lifetime & release notes
 
-- `maybe`/`result` present values are heap copies (`pengu_sigil_alloc` + `memcpy`), so they outlive the expression that created them; `maybe none` and error results carry no allocation. Treat the value reached through `.value` as data owned by the container.
-- `bytes of <string>` returns a **borrowed** read-only pointer to the string's internal buffer — do not store it beyond the operand's lifetime (see [14.6](#146-passing-strings-to-c)).
+- Memory is managed **manually** (like Zig / Odin / Nelua): `banish x` frees now, `defer banish x` frees at scope exit, `errdefer banish x` only on an error return. Nothing is released at scope exit unless you ask for it.
+- `push`/`put` copy the element bytes with `memcpy` and never clone; `pengu_banish_list` / `pengu_banish_map` free only the container's own buffer/entries, never the elements (`pengu_banish_string_list` is the opt-in helper that also frees string elements).
+- `maybe`/`result` present values are boxed with `pengu_sigil_alloc` + `memcpy`; the box neither clones nor frees any heap buffer the payload references. `maybe none` and error results carry no allocation.
+- `bytes of <string>` returns a **non-owning** read-only pointer to the string's internal buffer — do not store it beyond the operand's lifetime (see [14.6](#146-passing-strings-to-c)).
 - `static var` with non-constant initializers is guarded so it initializes exactly once.
-- The checker runs escape-analysis passes over local references (see `tests/test_escape_analysis.py`), and mutable globals are impossible by construction, which keeps lifetimes local and deterministic.
+- The compiler enforces one lifetime rule: returning a `slice of` a stack array is rejected (`E0051`), because the slice would dangle. Mutable globals are impossible by construction, which keeps lifetimes local and deterministic.
 
 ---
 
@@ -2281,7 +2283,7 @@ int64_t digest(PenguString msg) {
 
 - On a `string` yields a **read-only** `ref to byte` pointing at the string's internal character storage — no copy.
 - On an `array of byte` variable yields a **writable** `ref to byte` to the first element (e.g. an output buffer filled by C).
-- Accepts string literals, string variables, and `array of byte` variables; any other operand is rejected at compile time. The pointer is **borrowed** — do not store it beyond the operand's lifetime.
+- Accepts string literals, string variables, and `array of byte` variables; any other operand is rejected at compile time. The pointer is **non-owning** — do not store it beyond the operand's lifetime.
 
 ### 14.5 Struct-to-C `ref` parameters & callbacks
 

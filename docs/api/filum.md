@@ -150,7 +150,7 @@ Runtime: launches f on a new goroutine and returns immediately.
 > **pengu_c_filum_chan_new**(elem_size: usize, cap: int) -> opaque
 
 Runtime: creates a channel for elements of size elem_size with capacity cap
-(0 = unbuffered). Ownership: the caller owns the returned handle and must
+(0 = unbuffered). Memory: the caller owns the returned handle and must
 release it with pengu_c_filum_chan_free.
 
 
@@ -195,7 +195,7 @@ Runtime: capacity of channel c (0 when unbuffered).
 
 > **pengu_c_filum_mutex_new**() -> opaque
 
-Runtime: allocates a native mutex. Ownership: the caller owns the returned
+Runtime: allocates a native mutex. Memory: the caller owns the returned
 handle and must release it with pengu_c_filum_mutex_free.
 
 
@@ -224,7 +224,7 @@ Runtime: attempts a non-blocking lock on the mutex; true when acquired.
 
 > **pengu_c_filum_wait_group_new**() -> opaque
 
-Runtime: allocates a wait group. Ownership: the caller owns the returned
+Runtime: allocates a wait group. Memory: the caller owns the returned
 handle and must release it with pengu_c_filum_wait_group_free.
 
 
@@ -253,7 +253,7 @@ Runtime: blocks until the wait-group counter reaches zero.
 
 > **pengu_c_filum_once_new**() -> opaque
 
-Runtime: allocates a once-guard. Ownership: the caller owns the returned
+Runtime: allocates a once-guard. Memory: the caller owns the returned
 handle and must release it with pengu_c_filum_once_free.
 
 
@@ -268,7 +268,7 @@ Runtime: runs callback f exactly once across all callers of the same guard.
 
 > **pengu_c_filum_cond_new**() -> opaque
 
-Runtime: allocates a condition variable. Ownership: the caller owns the
+Runtime: allocates a condition variable. Memory: the caller owns the
 returned handle and must release it with pengu_c_filum_cond_free.
 
 
@@ -298,7 +298,7 @@ Runtime: wakes every goroutine waiting on c.
 
 > **pengu_c_filum_atomic_int_new**(initial: int) -> opaque
 
-Runtime: allocates an atomic integer initialized to initial. Ownership: the
+Runtime: allocates an atomic integer initialized to initial. Memory: the
 caller owns the returned handle and must release it with
 pengu_c_filum_atomic_int_free.
 
@@ -415,7 +415,7 @@ Runtime: creates an owned deep copy of s with its own heap buffer.
 > **mutex**() -> Mutex
 
 Allocates a new native mutex and returns the owning Mutex rune.
-Ownership: Caller owns the returned Mutex; release it with free_mutex or m.free.
+Memory: Caller owns the returned Mutex; release it with free_mutex or m.free.
 
 
 ### `lock`
@@ -423,7 +423,7 @@ Ownership: Caller owns the returned Mutex; release it with free_mutex or m.free.
 > **lock**(m: ref to Mutex) -> void
 
 Locks the mutex, blocking until it is available.
-Ownership: Takes ref to Mutex.
+Memory: Takes ref to Mutex.
 
 
 ### `unlock`
@@ -431,7 +431,7 @@ Ownership: Takes ref to Mutex.
 > **unlock**(m: ref to Mutex) -> void
 
 Unlocks the mutex; the caller must currently hold the lock.
-Ownership: Takes ref to Mutex.
+Memory: Takes ref to Mutex.
 
 
 ### `try_lock`
@@ -439,7 +439,7 @@ Ownership: Takes ref to Mutex.
 > **try_lock**(m: ref to Mutex) -> bool
 
 Attempts a non-blocking lock on the mutex; returns true when acquired.
-Ownership: Takes ref to Mutex.
+Memory: Takes ref to Mutex.
 
 
 ### `wait_group`
@@ -447,7 +447,7 @@ Ownership: Takes ref to Mutex.
 > **wait_group**() -> WaitGroup
 
 Allocates a new native wait group and returns the owning WaitGroup rune.
-Ownership: Caller owns returned WaitGroup; release it with free_wait_group or wg.free.
+Memory: Caller owns returned WaitGroup; release it with free_wait_group or wg.free.
 
 
 ### `add`
@@ -476,7 +476,7 @@ Blocks until the wait-group counter reaches zero.
 > **once**() -> Once
 
 Allocates a new native once-guard and returns the owning Once rune.
-Ownership: Caller owns returned Once; release it with free_once or o.free.
+Memory: Caller owns returned Once; release it with free_once or o.free.
 
 
 ### `do_once`
@@ -491,7 +491,7 @@ Runs callback f exactly once across every goroutine sharing this Once.
 > **cond**() -> Cond
 
 Allocates a new native condition variable and returns the owning Cond rune.
-Ownership: Caller owns returned Cond; release it with free_cond or c.free.
+Memory: Caller owns returned Cond; release it with free_cond or c.free.
 
 
 ### `cond_wait`
@@ -521,7 +521,7 @@ Wakes every goroutine currently waiting on this condition variable.
 > **atomic_int**(initial: int) -> AtomicInt
 
 Allocates a native atomic integer with the given initial value (default 0)
-and returns the owning AtomicInt rune. Ownership: free it with free_atomic_int or a.free.
+and returns the owning AtomicInt rune. Memory: free it with free_atomic_int or a.free.
 
 
 ### `load`
@@ -623,7 +623,7 @@ NOTE: Named 'reset_atomic' at module level to avoid collision with other reset o
 > **chan_int**(cap: int) -> ChanInt
 
 Allocates an unbuffered or buffered channel for `int` values.
-Ownership: Caller owns returned ChanInt; release with free_chan_int or c.free.
+Memory: Caller owns returned ChanInt; release with free_chan_int or c.free.
 
 
 ### `free_chan_int`
@@ -638,7 +638,7 @@ Releases the native handle of a ChanInt; do not use the rune afterwards.
 > **chan_string**(cap: int) -> ChanString
 
 Allocates an unbuffered or buffered channel for `string` values.
-Ownership: Caller owns returned ChanString; release with free_chan_string or c.free.
+Memory: Caller owns returned ChanString; release with free_chan_string or c.free.
 
 
 ### `free_chan_string`
@@ -653,7 +653,7 @@ Releases the native handle of a ChanString; do not use the rune afterwards.
 > **chan_float**(cap: int) -> ChanFloat
 
 Allocates an unbuffered or buffered channel for `float` values.
-Ownership: Caller owns returned ChanFloat; release with free_chan_float or c.free.
+Memory: Caller owns returned ChanFloat; release with free_chan_float or c.free.
 
 
 ### `free_chan_float`
@@ -668,7 +668,7 @@ Releases the native handle of a ChanFloat; do not use the rune afterwards.
 > **chan_bool**(cap: int) -> ChanBool
 
 Allocates an unbuffered or buffered channel for `bool` values.
-Ownership: Caller owns returned ChanBool; release with free_chan_bool or c.free.
+Memory: Caller owns returned ChanBool; release with free_chan_bool or c.free.
 
 
 ### `free_chan_bool`
@@ -733,7 +733,7 @@ Suspends the calling goroutine for ms milliseconds.
 
 Suspends the calling goroutine/thread for sec seconds (millisecond resolution).
 Signature: sleep_sec(sec as float) into void
-Ownership: No allocations.
+Memory: No allocations.
 Edge cases: If `sec <= 0.0`, returns immediately without sleeping.
 
 

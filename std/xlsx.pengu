@@ -34,7 +34,7 @@
 #   var ok as bool is calling xlsx.write_sheet with "out.xlsx", "Sheet1",
 #       header, rows   # header: list of string
 #
-# Ownership model:
+# Memory model:
 #   Each call opens an opaque xlsxio write handle (`ref to void`) that is
 #   closed (and its memory released by the C library) inside the same
 #   function, so no handle escapes to the caller. The `bytes of <string>`

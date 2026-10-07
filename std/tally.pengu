@@ -24,10 +24,10 @@
 ## tenga respuesta y devolver un centinela ocultaría un bug.
 ## Ver `LANGUAGE.md` §19.1.1 y `docs/DEPRECATIONS.md`.
 ##
-## ## Ownership
+## ## Memory
 ## Ninguna operación muta ni libera la lista de entrada: solo se lee
 ## (`essence of self`) y se devuelve un valor escalar o una **lista nueva**
-## auto-banishable. Las listas de entrada pertenecen al llamador.
+## que el llamante libera con `banish`. Las listas de entrada pertenecen al llamador.
 ##
 ## ## Ejemplo
 ## ```pengu
@@ -595,8 +595,8 @@ weave min_val with l as list of int into int:
 
 ## Concatenación de `a` y `b` en una lista nueva.
 ##
-## ## Ownership
-## Devuelve una lista nueva auto-banishable; no muta `a` ni `b`.
+## ## Memoria
+## Devuelve una lista nueva (libérala con `banish`); no muta `a` ni `b`.
 weave concat with a as list of int, b as list of int into list of int:
     var result as list of int is list of int
     for x in a:
@@ -852,7 +852,7 @@ weave map_increment with l as list of int, delta as int is 1 into list of int:
 
 ## Combina `xs` e `ys` con `f` hasta la lista más corta.
 ##
-## ## Ownership
+## ## Memory
 ## `xs` e `ys` solo se leen; el resultado es una lista nueva.
 ##
 ## ## Ejemplo

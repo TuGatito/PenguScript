@@ -89,7 +89,7 @@ C bridge: Poisson count draw. Exposed through rand_poisson.
 
 Seeds the process-global C PRNG with `s`.
 Signature: seed(s as int) into void
-Ownership: No allocation.
+Memory: No allocation.
 Edge cases: Deterministic per platform; re-seeding with the same integer reproduces the sequence.
 Example: calling lot.seed with 42
 
@@ -100,7 +100,7 @@ Example: calling lot.seed with 42
 
 Returns one raw uniform draw from the C rand() generator.
 Signature: rand_int() into int
-Ownership: No allocation.
+Memory: No allocation.
 Edge cases: Value lies in [0, RAND_MAX] (at least 32767).
 Example: var n as int is calling lot.rand_int
 
@@ -111,7 +111,7 @@ Example: var n as int is calling lot.rand_int
 
 Returns the maximum integer value produced by rand_int (C RAND_MAX).
 Signature: rand_max() into int
-Ownership: No allocation.
+Memory: No allocation.
 Example: var max_val as int is calling lot.rand_max
 
 
@@ -121,7 +121,7 @@ Example: var max_val as int is calling lot.rand_max
 
 Returns a uniform float in [0.0, 1.0).
 Signature: rand_float() into float
-Ownership: No allocation.
+Memory: No allocation.
 Edge cases: 0.0 is inclusive, 1.0 is exclusive.
 Example: var f as float is calling lot.rand_float
 
@@ -132,7 +132,7 @@ Example: var f as float is calling lot.rand_float
 
 Returns a uniform int in [min_val, max_val], both bounds inclusive.
 Signature: rand_range(min_val as int, max_val as int) into int
-Ownership: No allocation.
+Memory: No allocation.
 Edge cases: When min_val >= max_val, returns min_val unchanged.
 Example: var roll as int is calling lot.rand_range with 1, 6
 
@@ -143,7 +143,7 @@ Example: var roll as int is calling lot.rand_range with 1, 6
 
 Returns a uniform float in [min_val, max_val).
 Signature: rand_range_float(min_val as float, max_val as float) into float
-Ownership: No allocation.
+Memory: No allocation.
 Edge cases: When min_val >= max_val, returns min_val unchanged.
 Example: var val as float is calling lot.rand_range_float with 0.0, 10.0
 
@@ -155,7 +155,7 @@ Example: var val as float is calling lot.rand_range_float with 0.0, 10.0
 Returns a normal (Gaussian) draw with the given `mean` and standard
 deviation `stddev`, generated with the Box-Muller transform.
 Signature: rand_normal(mean as float, stddev as float) into float
-Ownership: No allocation.
+Memory: No allocation.
 Example: var g as float is calling lot.rand_normal with 0.0, 1.0
 
 
@@ -165,7 +165,7 @@ Example: var g as float is calling lot.rand_normal with 0.0, 1.0
 
 Returns an exponentially distributed draw with rate `lambda` (mean 1 / lambda).
 Signature: rand_exp(rate as float) into float
-Ownership: No allocation.
+Memory: No allocation.
 Edge cases: When rate <= 0 the function returns 0.0.
 Example: var interval as float is calling lot.rand_exp with 1.5
 
@@ -176,7 +176,7 @@ Example: var interval as float is calling lot.rand_exp with 1.5
 
 Returns true with `probability` and false otherwise.
 Signature: rand_bool(probability as float is 0.5) into bool
-Ownership: No allocation.
+Memory: No allocation.
 Edge cases: Clamps naturally (>= 1.0 always true, <= 0.0 always false).
 Example: var b as bool is calling lot.rand_bool with 0.8
 
@@ -187,7 +187,7 @@ Example: var b as bool is calling lot.rand_bool with 0.8
 
 Returns a Poisson-distributed non-negative int with mean `lambda`.
 Signature: rand_poisson(rate as float) into int
-Ownership: No allocation.
+Memory: No allocation.
 Edge cases: When rate <= 0 the function returns 0.
 Example: var k as int is calling lot.rand_poisson with 3.0
 
@@ -198,7 +198,7 @@ Example: var k as int is calling lot.rand_poisson with 3.0
 
 Alias of rand_range for readability.
 Signature: rand_between(lo as int, hi as int) into int
-Ownership: No allocation.
+Memory: No allocation.
 Example: var roll as int is calling lot.rand_between with 1, 6
 
 
@@ -208,7 +208,7 @@ Example: var roll as int is calling lot.rand_between with 1, 6
 
 Alias of rand_range_float for uniform continuous distributions.
 Signature: rand_uniform(lo as float, hi as float) into float
-Ownership: No allocation.
+Memory: No allocation.
 Example: var u as float is calling lot.rand_uniform with 0.0, 10.0
 
 
@@ -218,7 +218,7 @@ Example: var u as float is calling lot.rand_uniform with 0.0, 10.0
 
 Alias of rand_normal for Gaussian distributions.
 Signature: rand_gauss(mean as float, stddev as float) into float
-Ownership: No allocation.
+Memory: No allocation.
 Example: var g as float is calling lot.rand_gauss with 10.0, 2.0
 
 
@@ -228,7 +228,7 @@ Example: var g as float is calling lot.rand_gauss with 10.0, 2.0
 
 Alias of rand_bool with explicit probability parameter name.
 Signature: rand_bool_with(p as float) into bool
-Ownership: No allocation.
+Memory: No allocation.
 Example: var ok as bool is calling lot.rand_bool_with with 0.75
 
 
@@ -238,7 +238,7 @@ Example: var ok as bool is calling lot.rand_bool_with with 0.75
 
 Simulates a fair coin toss returning true (heads) or false (tails).
 Signature: rand_coin() into bool
-Ownership: No allocation.
+Memory: No allocation.
 Example: if calling lot.rand_coin: ...
 
 
@@ -248,7 +248,7 @@ Example: if calling lot.rand_coin: ...
 
 Returns a random single bit: 0 or 1.
 Signature: rand_bit() into int
-Ownership: No allocation.
+Memory: No allocation.
 Example: var bit as int is calling lot.rand_bit
 
 
@@ -258,7 +258,7 @@ Example: var bit as int is calling lot.rand_bit
 
 Returns a random sign: -1 or 1.
 Signature: rand_sign() into int
-Ownership: No allocation.
+Memory: No allocation.
 Example: var s as int is calling lot.rand_sign
 
 
@@ -268,7 +268,7 @@ Example: var s as int is calling lot.rand_sign
 
 Shuffles a list of integers using the Fisher-Yates algorithm into a new list.
 Signature: shuffle(items as list of int) into list of int
-Ownership: Allocates and returns a new list of integers.
+Memory: Allocates and returns a new list of integers.
 Edge cases: Empty or single-element list returns an identical copy.
 Example: var shuffled as list of int is calling lot.shuffle with nums
 
@@ -279,7 +279,7 @@ Example: var shuffled as list of int is calling lot.shuffle with nums
 
 Shuffles a list of strings using the Fisher-Yates algorithm into a new list.
 Signature: shuffle_string(items as list of string) into list of string
-Ownership: Allocates and returns a new list of strings.
+Memory: Allocates and returns a new list of strings.
 Edge cases: Empty or single-element list returns an identical copy.
 Example: var shuffled as list of string is calling lot.shuffle_string with words
 
@@ -290,7 +290,7 @@ Example: var shuffled as list of string is calling lot.shuffle_string with words
 
 Selects a random integer element from `items`.
 Signature: choice(items as list of int) into maybe int
-Ownership: Returns a scalar value inside maybe container.
+Memory: Returns a scalar value inside maybe container.
 Edge cases: Returns maybe none when `items` is empty.
 Example: var x as maybe int is calling lot.choice with nums
 
@@ -301,7 +301,7 @@ Example: var x as maybe int is calling lot.choice with nums
 
 Selects a random string element from `items`.
 Signature: choice_string(items as list of string) into maybe string
-Ownership: Returns a string copy inside maybe container.
+Memory: Returns a string copy inside maybe container.
 Edge cases: Returns maybe none when `items` is empty.
 Example: var s as maybe string is calling lot.choice_string with words
 
@@ -312,7 +312,7 @@ Example: var s as maybe string is calling lot.choice_string with words
 
 Selects a random integer element from `items` according to positive `weights`.
 Signature: choice_weighted(items as list of int, weights as list of int) into maybe int
-Ownership: Returns a scalar value inside maybe container.
+Memory: Returns a scalar value inside maybe container.
 Edge cases: Returns maybe none if `items` is empty, lengths differ, or total weight <= 0.
 Example: var pick as maybe int is calling lot.choice_weighted with items, weights
 
@@ -323,7 +323,7 @@ Example: var pick as maybe int is calling lot.choice_weighted with items, weight
 
 Selects a random string element from `items` according to positive `weights`.
 Signature: choice_weighted_string(items as list of string, weights as list of int) into maybe string
-Ownership: Returns a string copy inside maybe container.
+Memory: Returns a string copy inside maybe container.
 Edge cases: Returns maybe none if `items` is empty, lengths differ, or total weight <= 0.
 Example: var pick as maybe string is calling lot.choice_weighted_string with items, weights
 
@@ -334,7 +334,7 @@ Example: var pick as maybe string is calling lot.choice_weighted_string with ite
 
 Samples `k` unique integers from `items` without replacement.
 Signature: sample(items as list of int, k as int) into list of int
-Ownership: Allocates and returns a new list of integers.
+Memory: Allocates and returns a new list of integers.
 Edge cases: Returns empty list if k <= 0 or k > items.len.
 Example: var sample_items as list of int is calling lot.sample with nums, 3
 
@@ -345,7 +345,7 @@ Example: var sample_items as list of int is calling lot.sample with nums, 3
 
 Samples `k` integers from `items` with replacement.
 Signature: sample_with_replacement(items as list of int, k as int) into list of int
-Ownership: Allocates and returns a new list of integers.
+Memory: Allocates and returns a new list of integers.
 Edge cases: Returns empty list if k <= 0 or items is empty.
 Example: var res as list of int is calling lot.sample_with_replacement with nums, 5
 
@@ -356,7 +356,7 @@ Example: var res as list of int is calling lot.sample_with_replacement with nums
 
 Samples `k` unique strings from `items` without replacement.
 Signature: sample_string(items as list of string, k as int) into list of string
-Ownership: Allocates and returns a new list of strings.
+Memory: Allocates and returns a new list of strings.
 Edge cases: Returns empty list if k <= 0 or k > items.len.
 Example: var sub as list of string is calling lot.sample_string with words, 2
 
@@ -367,7 +367,7 @@ Example: var sub as list of string is calling lot.sample_string with words, 2
 
 Returns a random permutation of integers in [0, n - 1].
 Signature: permutation(n as int) into list of int
-Ownership: Allocates and returns a new list of integers.
+Memory: Allocates and returns a new list of integers.
 Edge cases: Returns empty list if n <= 0.
 Example: var p as list of int is calling lot.permutation with 10
 
@@ -378,7 +378,7 @@ Example: var p as list of int is calling lot.permutation with 10
 
 Generates a random string of length `n` by sampling characters from `charset`.
 Signature: rand_from_charset(charset as string, n as int) into string
-Ownership: Allocates and returns a new string.
+Memory: Allocates and returns a new string.
 Edge cases: Returns "" if n <= 0 or charset is empty.
 Example: var s as string is calling lot.rand_from_charset with "ABC", 5
 
@@ -389,7 +389,7 @@ Example: var s as string is calling lot.rand_from_charset with "ABC", 5
 
 Generates a random string of `n` ASCII alphabetic letters (a-z, A-Z).
 Signature: rand_alpha(n as int) into string
-Ownership: Allocates and returns a new string.
+Memory: Allocates and returns a new string.
 Example: var token as string is calling lot.rand_alpha with 8
 
 
@@ -399,7 +399,7 @@ Example: var token as string is calling lot.rand_alpha with 8
 
 Generates a random string of `n` decimal digits (0-9).
 Signature: rand_digit_string(n as int) into string
-Ownership: Allocates and returns a new string.
+Memory: Allocates and returns a new string.
 Example: var pin as string is calling lot.rand_digit_string with 4
 
 
@@ -409,7 +409,7 @@ Example: var pin as string is calling lot.rand_digit_string with 4
 
 Generates a random alphanumeric string of length `n` (a-z, A-Z, 0-9).
 Signature: rand_alnum_string(n as int) into string
-Ownership: Allocates and returns a new string.
+Memory: Allocates and returns a new string.
 Example: var id as string is calling lot.rand_alnum_string with 12
 
 
@@ -419,7 +419,7 @@ Example: var id as string is calling lot.rand_alnum_string with 12
 
 Generates a random lowercase hexadecimal string of length `n`.
 Signature: rand_hex_string(n as int) into string
-Ownership: Allocates and returns a new string.
+Memory: Allocates and returns a new string.
 Example: var hex_token as string is calling lot.rand_hex_string with 16
 
 
@@ -429,7 +429,7 @@ Example: var hex_token as string is calling lot.rand_hex_string with 16
 
 Generates random bytes formatted as a hexadecimal string of length `2 * n`.
 Signature: rand_bytes_hex(n as int) into string
-Ownership: Allocates and returns a new string.
+Memory: Allocates and returns a new string.
 Example: var nonce as string is calling lot.rand_bytes_hex with 8
 
 
@@ -439,7 +439,7 @@ Example: var nonce as string is calling lot.rand_bytes_hex with 8
 
 Generates a random password of length `n`, optionally including ASCII symbols.
 Signature: rand_password(n as int, include_symbols as bool is false) into string
-Ownership: Allocates and returns a new string.
+Memory: Allocates and returns a new string.
 Example: var pass as string is calling lot.rand_password with 16, true
 
 
@@ -449,7 +449,7 @@ Example: var pass as string is calling lot.rand_password with 16, true
 
 Returns a log-normally distributed float with log-scale parameters `mu` and `sigma`.
 Signature: rand_lognormal(mu as float, sigma as float) into float
-Ownership: No allocation.
+Memory: No allocation.
 Example: var v as float is calling lot.rand_lognormal with 0.0, 1.0
 
 
@@ -459,7 +459,7 @@ Example: var v as float is calling lot.rand_lognormal with 0.0, 1.0
 
 Returns a Weibull-distributed float with `shape` (k) and `scale` (lambda).
 Signature: rand_weibull(shape as float, scale as float) into float
-Ownership: No allocation.
+Memory: No allocation.
 Edge cases: Returns 0.0 when shape <= 0 or scale <= 0.
 Example: var w as float is calling lot.rand_weibull with 1.5, 2.0
 
@@ -470,7 +470,7 @@ Example: var w as float is calling lot.rand_weibull with 1.5, 2.0
 
 Returns a triangularly distributed float between `lo` and `hi` with peak `mode`.
 Signature: rand_triangular(lo as float, mode as float, hi as float) into float
-Ownership: No allocation.
+Memory: No allocation.
 Edge cases: Returns lo if hi <= lo or mode is outside [lo, hi].
 Example: var t as float is calling lot.rand_triangular with 0.0, 5.0, 10.0
 
@@ -481,7 +481,7 @@ Example: var t as float is calling lot.rand_triangular with 0.0, 5.0, 10.0
 
 Returns a Gamma-distributed float with `shape` (alpha) and `scale` (theta).
 Signature: rand_gamma(shape as float, scale as float) into float
-Ownership: No allocation.
+Memory: No allocation.
 Edge cases: Returns 0.0 when shape <= 0 or scale <= 0.
 Algorithm: Marsaglia-Tsang (shape >= 1) with Ahrens-Dieter boost for shape < 1.
 Example: var g as float is calling lot.rand_gamma with 2.0, 1.0
@@ -493,7 +493,7 @@ Example: var g as float is calling lot.rand_gamma with 2.0, 1.0
 
 Returns a Beta-distributed float with parameters `a` (alpha) and `b` (beta).
 Signature: rand_beta(a as float, b as float) into float
-Ownership: No allocation.
+Memory: No allocation.
 Edge cases: Returns 0.0 when a <= 0 or b <= 0.
 Example: var b as float is calling lot.rand_beta with 2.0, 5.0
 

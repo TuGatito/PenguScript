@@ -128,7 +128,7 @@ currently routes through println, so it writes to stdout rather than stderr.
 
 Writes integer `value` to stdout without a trailing newline.
 Signature: print_int(value as int) into void
-Ownership: Takes scalar integer by value; does not allocate heap memory.
+Memory: Takes scalar integer by value; does not allocate heap memory.
 
 
 ### `println_int`
@@ -137,7 +137,7 @@ Ownership: Takes scalar integer by value; does not allocate heap memory.
 
 Writes integer `value` to stdout followed by a newline.
 Signature: println_int(value as int) into void
-Ownership: Takes scalar integer by value; does not allocate heap memory.
+Memory: Takes scalar integer by value; does not allocate heap memory.
 
 
 ### `print_float`
@@ -146,7 +146,7 @@ Ownership: Takes scalar integer by value; does not allocate heap memory.
 
 Writes float `value` to stdout without a trailing newline.
 Signature: print_float(value as float) into void
-Ownership: Takes scalar float by value; does not allocate heap memory.
+Memory: Takes scalar float by value; does not allocate heap memory.
 
 
 ### `println_float`
@@ -155,7 +155,7 @@ Ownership: Takes scalar float by value; does not allocate heap memory.
 
 Writes float `value` to stdout followed by a newline.
 Signature: println_float(value as float) into void
-Ownership: Takes scalar float by value; does not allocate heap memory.
+Memory: Takes scalar float by value; does not allocate heap memory.
 
 
 ### `print_bool`
@@ -164,7 +164,7 @@ Ownership: Takes scalar float by value; does not allocate heap memory.
 
 Writes boolean `value` ("true" or "false") to stdout without a trailing newline.
 Signature: print_bool(value as bool) into void
-Ownership: Takes scalar bool by value; does not allocate heap memory.
+Memory: Takes scalar bool by value; does not allocate heap memory.
 
 
 ### `println_bool`
@@ -173,7 +173,7 @@ Ownership: Takes scalar bool by value; does not allocate heap memory.
 
 Writes boolean `value` ("true" or "false") to stdout followed by a newline.
 Signature: println_bool(value as bool) into void
-Ownership: Takes scalar bool by value; does not allocate heap memory.
+Memory: Takes scalar bool by value; does not allocate heap memory.
 
 
 ### `eprintln`
@@ -182,7 +182,7 @@ Ownership: Takes scalar bool by value; does not allocate heap memory.
 
 Writes string `s` followed by a newline.
 Signature: eprintln(s as string) into void
-Ownership: Reads borrowed string `s`; does not retain or free the buffer.
+Memory: reads a non-owning view of `s`; never retains or frees the buffer.
 NOTE: Legacy wrapper. Native stderr redirection is pending runtime C support;
 this currently routes to stdout via pengu_println.
 
@@ -218,7 +218,7 @@ on end-of-input (EOF) or an empty line.
 
 Reads one line from stdin without displaying a prompt.
 Signature: read_line() into string
-Ownership: Returns a freshly allocated owned string.
+Memory: Returns a freshly allocated owned string.
 Edge cases: Trailing newline is stripped; returns an empty string on EOF.
 
 
@@ -272,7 +272,7 @@ success, none when `s` is empty or not entirely numeric.
 
 Prints `prompt` and reads a line from stdin, parsing it as a base-10 integer.
 Signature: read_int(prompt as string) into maybe int
-Ownership: Returns a value `maybe int` container.
+Memory: Returns a value `maybe int` container.
 Edge cases: Returns maybe none if input is empty, non-numeric, or contains trailing characters.
 
 
@@ -282,7 +282,7 @@ Edge cases: Returns maybe none if input is empty, non-numeric, or contains trail
 
 Prints `prompt` and reads a line from stdin, parsing it as a floating-point number.
 Signature: read_float(prompt as string) into maybe float
-Ownership: Returns a value `maybe float` container.
+Memory: Returns a value `maybe float` container.
 Edge cases: Returns maybe none if input is empty or contains non-numeric characters.
 
 
@@ -303,7 +303,7 @@ would loop forever.
 
 Builds and returns a new list of integers from 0 up to `end_val` (exclusive) with step 1.
 Signature: range_to(end_val as int) into list of int
-Ownership: Returns a newly allocated scope-owned list of integers.
+Memory: Allocates and returns a new list; release it with `banish`.
 Edge cases: Returns an empty list when end_val <= 0.
 
 
@@ -313,7 +313,7 @@ Edge cases: Returns an empty list when end_val <= 0.
 
 Builds and returns a new list of integers from `start` through `end_val` (inclusive) with step 1.
 Signature: range_inclusive(start as int, end_val as int) into list of int
-Ownership: Returns a newly allocated scope-owned list of integers.
+Memory: Allocates and returns a new list; release it with `banish`.
 Edge cases: Returns an empty list when start > end_val.
 
 
@@ -323,7 +323,7 @@ Edge cases: Returns an empty list when start > end_val.
 
 Returns the smaller of two integers `a` and `b`.
 Signature: min_int(a as int, b as int) into int
-Ownership: Operates purely on scalar integers by value.
+Memory: Operates purely on scalar integers by value.
 Edge cases: Returns either value when a == b.
 
 
@@ -333,7 +333,7 @@ Edge cases: Returns either value when a == b.
 
 Returns the greater of two integers `a` and `b`.
 Signature: max_int(a as int, b as int) into int
-Ownership: Operates purely on scalar integers by value.
+Memory: Operates purely on scalar integers by value.
 Edge cases: Returns either value when a == b.
 
 
@@ -343,7 +343,7 @@ Edge cases: Returns either value when a == b.
 
 Returns the absolute value of integer `v`.
 Signature: abs_int(v as int) into int
-Ownership: Operates purely on scalar integers by value.
+Memory: Operates purely on scalar integers by value.
 Edge cases: Returns 0 for 0; returns positive negation for negative integers.
 
 
@@ -353,7 +353,7 @@ Edge cases: Returns 0 for 0; returns positive negation for negative integers.
 
 Clamps integer `v` to the closed interval [`lo`, `hi`].
 Signature: clamp_int(v as int, lo as int, hi as int) into int
-Ownership: Operates purely on scalar integers by value.
+Memory: Operates purely on scalar integers by value.
 Edge cases: Returns lo if v < lo; returns hi if v > hi; assumes lo <= hi.
 
 

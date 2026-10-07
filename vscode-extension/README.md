@@ -74,9 +74,9 @@ The grammar, syntax highlighter, and snippet collection cover the modern PenguSc
   - Highlighted built-in concepts: `Imago`, `Nexus`, `Donum`, `Equitas`, `Ordo`, `Index`, `IndexSet`, `Iter`, `Len`, `Display`, `Debug`, `Copy`, `Clone`, `Drop`, `Num`, `Integrum`, `Par`, `Vinculum`, `Forma`.
 - **Recursive Types & Cycles**:
   - `cyclus` keyword on runes, echos, and omens (`rune Node cyclus shard T:`).
-- **Ownership, Immutability & Memory Safety**:
+- **Immutability & Manual Memory**:
   - `frozen` modifier for immutable views (`var s as frozen string`, `ref to frozen char`, `frozen int`).
-  - `borrowed` modifier for non-owning references (`var borrowed x`, `let borrowed y`).
+  - `banish x` frees what `x` owns; `defer banish x` schedules the free at scope exit. Nothing is released for you.
   - `donum T` default-value expression for defaultable types.
   - `defer:` and `errdefer:` blocks with proper indentation rules and snippets.
 - **Literals & Expressions**:

@@ -12,7 +12,7 @@
 #   calling trial.test_case with sigil of s, "direct check", true, ""
 #   var ok as bool is calling trial.summary with sigil of s
 #
-# Ownership model:
+# Memory model:
 #   TestSuite is a plain rune value; the runner functions take it by
 #   reference (`ref to TestSuite`, so pass `sigil of` your variable) in order
 #   to mutate the counters in place. Everything else is passed/returned by
