@@ -136,7 +136,7 @@ def test_set_fresh_value_overwrites_without_release():
     assert "pengu_banish_list(&xs);" in gen_bundle(manual)
 
 
-def test_set_borrowed_value_does_not_release():
+def test_set_non_owning_value_does_not_release():
     """'set s is other' aliases another local: no release may be emitted."""
     c = gen_bundle(
         'weave f with a as string into void:\n'

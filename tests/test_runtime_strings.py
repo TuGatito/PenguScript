@@ -578,7 +578,7 @@ int main(void) {
         PenguString from_ptr = pengu_to_string((const char *)"hi");
         CHECK(from_ptr.len == 2 && strcmp(from_ptr.data, "hi") == 0,
               "pengu_to_string(const char*)");
-        /* borrowed view: do not banish */
+        /* non-owning view: do not banish */
     }
 
     if (failures == 0) {

@@ -4568,7 +4568,7 @@ PenguString pengu_c_regulus_replace(void *regex, PenguString text, PenguString r
   /** Releases the PCRE2 code compiled by pengu_c_regulus_compile(). The
  * wrapper struct is normally a PenguScript value copy, so this helper frees
  * only the native code object and nulls `_ptr`; it does not free() the struct
- * or the borrowed pattern/flags strings. Direct C callers holding the heap
+ * or the non-owning pattern/flags strings. Direct C callers holding the heap
  * struct returned inside the PenguMaybe may free() it afterwards. */
   void pengu_c_regulus_regex_free(void *regex);
   /** Frees the owned `matched` buffer of a PenguRegulusMatch (search/match/
