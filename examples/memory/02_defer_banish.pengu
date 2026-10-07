@@ -1,0 +1,14 @@
+# `defer banish x` schedules the release at scope exit, LIFO.
+#
+# This is the direct replacement for the old auto-banish: the compiler still
+# does not decide anything, you just wrote down when the release happens.
+weave main into int:
+    var a is "first {1}"
+    defer banish a
+    var b is "second {2}"
+    defer banish b
+
+    # LIFO: 'b' is released before 'a'.
+    calling print with a
+    calling print with b
+    return 0

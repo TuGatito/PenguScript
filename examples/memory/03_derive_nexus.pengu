@@ -1,0 +1,20 @@
+# `derive Nexus` is the opt-in destructor for a rune.
+#
+# Nothing is derived from the fact that a field owns memory: ask for it.
+rune Doc derive Nexus:
+    title as string
+    body as string
+
+weave make_doc into Doc:
+    var d as Doc with:
+        set .title is "spec {1}"
+        set .body is "body {2}"
+    # Returned to the caller, which owns it now.
+    return d
+
+weave main into int:
+    var doc as Doc is calling make_doc
+    calling print with doc.title
+    # Runs the generated destructor: releases 'title' and 'body'.
+    banish doc
+    return 0
