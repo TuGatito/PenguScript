@@ -76,6 +76,16 @@ All notable changes to PenguScript will be documented in this file.
 
 ### Fixed
 
+- **Los 42 fallos que destapó el bump de versión** (**F10-N13**): subir `VERSION` a
+  `1.0.0-rc1` rompió 28 tests de `tests/test_std_*_extended.py` (14 módulos × 2
+  perfiles) y 2 de `test_cli_strict_c99.py` porque los programas de
+  `tests/std_programs/*.pengu` afirman la constante **en el propio lenguaje**
+  (`calling spark.assert with (loom.LOOM_VERSION == "0.16.0")`); 6 `ValueError` en
+  `tests/test_regression_0_13_{9..14}.py` por parsear la versión con `split(".")`;
+  2 en `test_migration_doc.py` (`MIGRATION.md`) y 1 en `test_p0_toolchain.py` (el
+  badge de `README.md`). `tests/test_std_versioning.py` sólo miraba `std/`, así que
+  el próximo bump habría repetido el problema: ahora hay un gate que falla **una
+  vez**, nombrando fichero y constante.
 - **`-DPENGU_FRAME_TRACE=0` no compilaba el bundle generado** (**F10-N3**):
   `pengu_install_crash_handler` vivía sólo dentro de `#if PENGU_FRAME_TRACE` en
   `pengu_runtime.h`, mientras el envoltorio de entrada que emite `pengu_codegen` lo

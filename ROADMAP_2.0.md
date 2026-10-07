@@ -1087,11 +1087,11 @@ Detalle item por item, con la verificación de cada premisa, en
 | 10.4 | ⏸️ CI | — | ASan+UBSan reproducidos en el alcance posible: contrato 2 (`detect_leaks=1`) **5 passed, 1 xfailed**; contrato 1 (`detect_leaks=0`) **49 passed, 2 skipped, 2 xfailed**. La suite completa instrumentada y valgrind (no instalado) quedan en `workflow: sanitizers.yml`. **`PENGU_ASAN` no existe** (**F10-N8**): el mecanismo real es `PENGU_CFLAGS`/`PENGU_LDFLAGS` + `ASAN_OPTIONS` |
 | 10.5 | ⏸️ CI | — | Smoke de los 5 harnesses: **3674 casos, 0 crashes**. Las **6 h/harness** son de `workflow: nightly.yml` (4 shards × 90 min), no de `fuzz.yml` (300 s en PR / 1 h nightly), y no caben en una sesión. Los harnesses son `scripts/fuzz/fuzz_*.py`: `scripts/fuzz/parser.py` no existe (**F10-N9**) |
 | 10.6 | ✅ | — | `pytest tests/test_migration_doc.py tests/test_migration_corpus.py -q` → **31 passed**. Corpus completo: **10** programas (0.10.0–0.16.0), 8 con rc=0 y **2 con el error que `EXPECTED.json` documenta** (`E0000`, `E0005`); el "todos pasan" del roadmap es falso (**F10-N10**) |
-| 10.7 | ✅ | `9a33e65` | `VERSION` y `FALLBACK_VERSION` → `1.0.0-rc1`; todas las afirmaciones de versión actual, los **26** `<MOD>_VERSION` (**F10-N5**: el roadmap decía "no tocar", y §19.0 exige lo contrario) y `docs/api/*.md` regenerados. `tests/test_version.py` → **30 passed, 6 skipped**. El ratchet de tokens obsoletos pasa a ser **relativo a `VERSION`** con excepciones por `(fichero, token)`, porque el rango fijo 0.10–0.15 quedaba ciego a `0.16.0` (**F10-N6**). `pengu -V` → `pengu 1.0.0-rc1` (no `PenguScript v1.0.0-rc1`, **F10-N11**) |
+| 10.7 | ✅ | `9a33e65`, `cc1f32b` | `VERSION` y `FALLBACK_VERSION` → `1.0.0-rc1`; todas las afirmaciones de versión actual, los **26** `<MOD>_VERSION` (**F10-N5**: el roadmap decía "no tocar", y §19.0 exige lo contrario) y `docs/api/*.md` regenerados. `tests/test_version.py` → **30 passed, 6 skipped**. El ratchet de tokens obsoletos pasa a ser **relativo a `VERSION`** con excepciones por `(fichero, token)`, porque el rango fijo 0.10–0.15 quedaba ciego a `0.16.0` (**F10-N6**). `pengu -V` → `pengu 1.0.0-rc1` (no `PenguScript v1.0.0-rc1`, **F10-N11**). La suite completa destapó **42** fallos en sitios que la lista del encargo no incluía — `tests/std_programs/*.pengu` afirma `<MOD>_VERSION` en el lenguaje, y `tests/test_std_versioning.py` sólo miraba `std/` (**F10-N13**) —, arreglados en `cc1f32b` con el gate que faltaba |
 | 10.8 | ⏸️ | — | Publicar el RC exige credenciales y push de tag. El mecanismo está fijado por `tests/test_release_handoff.py` (**17 passed**, dispatch explícito con `actions: write`) |
 | 10.9 | ⏸️ | — | ≥1 semana de validación: no es trabajo de agente. Criterio: 0 bloqueantes nuevos y 0 cambios en los 3 documentos de release (los 3 con gate desde 10.2) |
 | 10.10 | ⏸️ | — | Ensayo end-to-end en un fork: sin fork ni credenciales. Misma limitación que registró la Fase 9 |
-| 10.11 | 🟡 | — | Instalación desde cero: **Linux medido** con el artefacto portable real (§3e del audit); macOS ⏸️ sin máquina (`release-verify.yml` en `macos-latest`) y Windows ⏸️ (`windows-latest`) |
+| 10.11 | 🟡 | — | Instalación desde cero **medida en Linux** con el artefacto portable real de PyInstaller: `pengu -V` → `pengu 1.0.0-rc1`, `pengu new exe demo` + `pengu build` + `./build/demo` → `Hello from demo!`, todo rc=0; el `.vsix` sale como `pengus-1.0.0-rc1.vsix`. macOS ⏸️ sin máquina (`release-verify.yml` en `macos-latest`) y Windows ⏸️ (`windows-latest`) |
 
 **Hallazgos nuevos de la fase:** F10-N1 (13 capacidades LSP → **21**), F10-N2 (`--verbose`/`-D` no son
 globales), F10-N3 (`-DPENGU_FRAME_TRACE=0` no compilaba el bundle generado: la medición "1.8× C" que
@@ -1104,7 +1104,7 @@ F10-N7 (`SECURITY.md` prometía firma GPG y huella PGP inexistentes), F10-N8 (`P
 F10-N9 (el smoke de fuzz del encargo apunta a un fichero inexistente y el presupuesto de 6 h vive en
 `nightly.yml`), F10-N10 (en migración "todos pasan" es falso: 2 de 10 fallan a propósito), F10-N11
 (`pengu -V` imprime `pengu 1.0.0-rc1`), F10-N12 (la "matriz de compiladores" no existía como matriz
-en CI).
+en CI), F10-N13 (el bump de versión rompió 42 tests en 5 suites: los programas de `tests/std_programs/` afirman `<MOD>_VERSION` en el lenguaje, `test_std_versioning.py` sólo miraba `std/`, y seis suites de regresión parseaban la versión con `split(".")`).
 
 ### Criterio de "done" de la fase — estado medido
 
