@@ -55,7 +55,9 @@ All notable changes to PenguScript will be documented in this file.
 - **`scripts/verify_release_artifact.py`** — el ejecutor: `pengu -V` contra el
   `VERSION` del artefacto y contra el tag, `pengu new exe` + `pengu build` (rc=0),
   `pengu run hello.pengu` → `Hello, world!`, instalación FHS real desde el
-  artefacto portable y `codesign --verify --strict` en macOS.
+  artefacto portable y `codesign --verify --strict` en macOS. Medido contra el
+  artefacto real de `make_release.py` en los dos layouts, con el control negativo del
+  prefijo (F9-N7).
 - **`docs/RELEASE.md`** (9.10) — el proceso completo, los gates, la
   reproducibilidad, la sección macOS (notarización **no** realizada) y la tabla de
   "si un gate falla".
@@ -103,6 +105,12 @@ All notable changes to PenguScript will be documented in this file.
 - `build_runtime.py` valida el ZIP del WebUI precompilado antes de extraerlo.
 - Un fallo de integridad de la extracción del TCC ya no se degrada a "TCC no
   disponible" (que era indistinguible de un fallo de red) (**F9-N4**).
+- `scripts/verify_release_artifact.py`: el directorio de trabajo se crea antes de
+  ejecutar (antes moría con un `FileNotFoundError` en vez de fallar un check) y la
+  instalación FHS mapea `runtime/*.a` → `lib/pengu/*.a`, que es donde el layout
+  portable pone los archivos estáticos (**F9-N7**). Cubierto por un artefacto
+  sintético con el layout real (`tests/fixtures/fake_pengu.py`): revertir el mapeo
+  hace fallar los 2 tests de FHS y el portable sigue verde.
 
 ### Diferido
 

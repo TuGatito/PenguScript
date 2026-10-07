@@ -39,12 +39,12 @@
 | 9.4 | ✅ cerrado | `4efb693 fase9(9.1,9.2,9.3,9.4)` | `pengu_archive.py` (`safe_extract_zip`/`safe_extract_tar`); los 3 sitios validan los miembros antes de escribir (el único `extractall(` sin `filter=` es el interno del validador); test estructural | `pytest tests/test_archive_extraction.py -q` → **11 passed** (tar `../`, absoluto, anidado; zip `../`, absoluto, unidad `C:`, symlink; control positivo) |
 | 9.5 | ✅ cerrado | `18f3b7b fase9(9.5,9.10,9.11)` | `docs/FUZZING.md` §CI schedule y `RELEASE_CHECKLIST.md` con el presupuesto real; test que falla si aparece una promesa > 6 h | `pytest tests/test_ci_workflows.py -q -k fuzz_docs` → **2 passed**. `grep -rn "72 h" docs/FUZZING.md RELEASE_CHECKLIST.md` → sólo en la frase que lo **refuta** |
 | 9.6 | ✅ cerrado (con limitación registrada) | `2a8469a fase9(9.6,9.7,9.12)` | `auto-tag` marca `created=true/false`, y si **él** creó el tag hace `gh workflow run release.yml --ref main -f version=$TAG`; `actions: write` | `pytest tests/test_release_handoff.py -q` → **17 passed**. **Limitación:** no verificable end-to-end aquí (sin fork/credenciales) → §5 |
-| 9.7 | ✅ cerrado | `2a8469a fase9(9.6,9.7,9.12)` | `release-verify.yml` + `scripts/verify_release_artifact.py`; matriz de 5 entradas; `release.yml` lo despacha tras publicar | `pytest tests/test_release_verify.py -q` → **13 passed**, incluido el **e2e real** contra el toolchain local: `pengu -V → 0.16.0`, `build rc=0`, `run hello.pengu → Hello, world!` |
+| 9.7 | ✅ cerrado | `2a8469a fase9(9.6,9.7,9.12)` | `release-verify.yml` + `scripts/verify_release_artifact.py`; matriz de 5 entradas; `release.yml` lo despacha tras publicar | `pytest tests/test_release_verify.py -q` → **13 passed**, **19 passed** y, además, medido contra el artefacto real de `make_release.py` en los dos layouts (§3c): `pengu -V → 0.16.0`, `build rc=0`, `run hello.pengu → Hello, world!` |
 | 9.8 | ✅ cerrado, **medido** | `9720da7 fase9(9.8,9.9)` | `SOURCE_DATE_EPOCH` (o commit de `HEAD`), `PYTHONHASHSEED=0`, `TZ=UTC`; `--archive-only` determinista; workflows dejan de usar `tar -czf`/`Compress-Archive` | §3 (dos builds del binario y dos del archivo → **hash idéntico**) |
 | 9.9 | ❌ **reivindicación retirada** | `9720da7 fase9(9.8,9.9)` | No hay cuenta Apple → no hay notarización. `release.yml` gatea `codesign --verify --strict` (antes `\|\| true`); `spctl` se registra en `release-verify.yml`; `docs/RELEASE.md` §macOS y `docs/PENGU_BUILD.md` lo dicen | `grep -rn "notariz" --include=*.md .` → todas las apariciones afirman que **no** se hace. `grep -c "codesign --verify --strict" .github/workflows/release.yml` → 1 |
 | 9.10 | ✅ cerrado | `18f3b7b fase9(9.5,9.10,9.11)` | `docs/RELEASE.md`: pipeline de 4 workflows, gates, reproducibilidad, sección macOS, tabla "si un gate falla" | `pytest tests/test_release_claims.py -q` → 13 passed, incluye `test_release_documents_cross_reference_each_other` |
 | 9.11 | ✅ cerrado | `18f3b7b fase9(9.5,9.10,9.11)` | Checklist reescrito: **16** casillas automatizadas, **0 sin gate**; §2 marcada `manual:`; test que lo vigila y que comprueba que cada ruta citada existe | Parser sobre la versión anterior (`git show 833766c:RELEASE_CHECKLIST.md`): **8 de 16 sin gate → 0 de 16**. C2: quitar un gate → `AssertionError` |
-| 9.12 | ✅ cerrado | `2a8469a fase9(9.6,9.7,9.12)` | Matriz portable/FHS en `release-verify.yml` **y** en `ci.yml`; el portón FHS prueba que el prefijo se usó | `pytest tests/test_release_verify.py -q -k layout` → 3 passed; `grep -c "verify_release_artifact" .github/workflows/ci.yml` → 2 (portable + fhs) |
+| 9.12 | ✅ cerrado | `2a8469a fase9(9.6,9.7,9.12)` | Matriz portable/FHS en `release-verify.yml` **y** en `ci.yml`; el portón FHS prueba que el prefijo se usó | §3c: `--layout portable` y `--layout fhs` sobre el artefacto real, éste con el control negativo; `grep -c "verify_release_artifact" .github/workflows/ci.yml` → 2 (portable + fhs) |
 
 ---
 
@@ -109,6 +109,45 @@ por el sello en vez de re-descargar.
 
 ---
 
+## 3c. El gate de artefactos, medido contra un artefacto de verdad
+
+`python make_release.py --skip-tests` terminó con **rc=0** (16/16 dependencias
+verificadas y extraídas, runtime recompilado, VSIX y binario empaquetados). Con
+ese artefacto real, el mismo comando que corre CI:
+
+```bash
+python make_release.py --archive-only --dist-dir pengucc_build --archive /tmp/pengu-linux-x64.tar.gz
+python scripts/verify_release_artifact.py --artifact /tmp/pengu-linux-x64.tar.gz \
+    --layout portable --expected-version 0.16.0
+python scripts/verify_release_artifact.py --artifact /tmp/pengu-linux-x64.tar.gz \
+    --layout fhs --expected-version 0.16.0
+```
+
+| Layout | `pengu -V` | `pengu new exe` + `build` | `pengu run hello.pengu` | Control negativo |
+|---|---|---|---|---|
+| `portable` | 0.16.0 | rc=0 | `Hello, world!` | — |
+| `fhs` | 0.16.0 | rc=0 | `Hello, world!` | ✅ ocultar `<prefix>/lib/pengu` rompe el build con `libpengu_runtime.a not found` |
+
+El binario real de esa corrida hashea a
+`8bf8946097219725c5e6d2478bd3c35751f4a4dfe7dccdda5f273ab5807de738` — **el mismo
+valor** de las dos corridas de §3, ahora a través del script completo: tres
+mediciones independientes del mismo commit.
+
+**Y el gate tenía dos defectos que sólo aparecen al ejecutarlo contra el
+artefacto real (F9-N7):** (a) el directorio de trabajo se pasaba como
+`<workdir>/scratch` sin crearlo, así que el primer subproceso moría con un
+`FileNotFoundError` en vez de fallar un check; (b) `install_fhs` buscaba
+`runtime/lib/*.a` cuando el layout portable deja los `.a` **directamente** en
+`runtime/`, y `main()` confundía la ruta del binario con la del prefijo. El test
+que existía usaba un árbol sintético con la suposición equivocada, así que no
+podía verlo: ahora hay un artefacto sintético con el layout **real**
+(`tests/fixtures/fake_pengu.py` + `test_script_verifies_a_whole_artifact_end_to_end`
+en las dos variantes) y está medido que revertir (b) hace fallar 2 tests (los de
+FHS) mientras el portable sigue verde.
+
+
+---
+
 ## 4. Hallazgos nuevos
 
 | ID | Hallazgo | Medición | Estado |
@@ -119,6 +158,7 @@ por el sello en vez de re-descargar.
 | **F9-N4** | `_download_windows_tcc` envolvía descarga **y extracción** en un `except Exception → return None`: un fallo de integridad (ZIP con `../evil`) se degradaba a "TCC no disponible", indistinguible de un fallo de red, y el release seguía sin TCC | El test `test_a_hostile_zip_is_refused_by_the_shared_validator` falló con `return None` en vez de excepción antes del arreglo | ✅ corregido en 9.2 (`UnsafeArchiveError` propaga) |
 | **F9-N5** | **7 de los 16** digests fijan tarballs generados por GitHub (`/archive/refs/tags/…`), que **no son estables por contrato** (GitHub ya cambió el envoltorio gzip una vez). Antes esto habría pasado desapercibido; ahora un cambio upstream **aborta** el build | `grep -o "archive/refs/tags" extern_manifest.py \| wc -l` → 7 | ⚠️ documentado + ruta de re-pin (`--update`); migrar a assets de release queda para 1.1 |
 | **F9-N6** | La Fase 8 cerró F8-N5 en los **workflows** (`dca109f`, `nightly.yml`) pero los **documentos** siguieron prometiendo 72 h: el arreglo era parcial porque nadie gateaba los `.md` | `grep -rn "72 h" docs/FUZZING.md RELEASE_CHECKLIST.md` → 2 coincidencias **después** de la Fase 8 | ✅ corregido en 9.5, con test que falla si vuelve |
+| **F9-N7** | El portón de artefactos (9.7/9.12) tenía dos defectos que sólo aparecen al ejecutarlo contra un artefacto real: el scratch no se creaba y `install_fhs`/`main` confundían el prefijo con el binario y buscaban `runtime/lib/*.a` (el layout portable pone los `.a` en `runtime/`). El test previo usaba un árbol sintético con la suposición equivocada | Medido: revertir el mapeo `runtime/*.a` → 2 tests fallan (FHS) y el portable pasa; revertir el scratch → 2 tests fallan | ✅ corregido en 9.7/9.12 + test hermético con el layout real |
 
 ---
 

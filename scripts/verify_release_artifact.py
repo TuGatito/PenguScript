@@ -127,11 +127,18 @@ def install_fhs(unpacked: Path, prefix: Path) -> Path:
             else:
                 shutil.copy2(entry, target)
 
-    # Portable layout.
-    _copy_tree(unpacked / "runtime" / "lib", prefix / "lib" / "pengu")
-    _copy_tree(unpacked / "runtime" / "include", prefix / "include" / "pengu")
+    # Portable layout: `make_release.py` writes <dist>/runtime/{*.a, *.lib,
+    # pengu_runtime.h, include/} -- note the archives sit *directly* in runtime/,
+    # which is why `pengu_paths.runtime_lib_dirs()` probes `runtime` as well as
+    # `runtime/lib`.
+    runtime = unpacked / "runtime"
+    for pattern in ("*.a", "*.lib"):
+        for archive in sorted(runtime.glob(pattern)):
+            shutil.copy2(archive, prefix / "lib" / "pengu" / archive.name)
+    _copy_tree(runtime / "lib", prefix / "lib" / "pengu")
+    _copy_tree(runtime / "include", prefix / "include" / "pengu")
     for header in ("pengu_runtime.h",):
-        cand = unpacked / "runtime" / header
+        cand = runtime / header
         if cand.is_file():
             shutil.copy2(cand, prefix / "include" / "pengu" / header)
     _copy_tree(unpacked / "std", prefix / "share" / "pengu" / "std")
@@ -289,6 +296,10 @@ def verify(
     binary: Optional[Path] = None,
 ) -> None:
     """Run every check; raise :class:`VerificationError` on the first failure."""
+    # Every caller gets a usable scratch directory: the checks run with
+    # cwd=<workdir>, and a missing one used to surface as a bare
+    # FileNotFoundError from subprocess instead of a check failing.
+    workdir.mkdir(parents=True, exist_ok=True)
     if expect_version_file:
         shipped = artifact_version(Path(prefix or workdir), layout)
         if shipped is None:
@@ -343,15 +354,16 @@ def main(argv: Optional[List[str]] = None) -> int:
                 raise VerificationError(f"artifact not found: {artifact}")
             unpacked = unpack(artifact, workdir / "unpacked")
             if args.layout == "fhs":
-                prefix = install_fhs(unpacked, workdir / "prefix")
+                prefix_dir = workdir / "prefix"
+                binary = install_fhs(unpacked, prefix_dir)
                 # A real installation: no PENGU_PREFIX, discovery must come from
                 # <prefix>/bin/pengu itself.
                 os.environ.pop("PENGU_PREFIX", None)
-                pengu = [str(prefix)]
+                pengu = [str(binary)]
                 verify(pengu, workdir / "scratch", "fhs", args.expected_version,
-                       prefix=prefix, expect_version_file=True,
+                       prefix=prefix_dir, expect_version_file=True,
                        prove_layout=not args.no_prove_layout,
-                       check_signature=args.check_signature, binary=prefix)
+                       check_signature=args.check_signature, binary=binary)
             else:
                 binary = _find_binary(unpacked)
                 pengu = [str(binary)]

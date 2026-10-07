@@ -1003,7 +1003,11 @@ en verde), F9-N4 (un fallo de integridad de la extracción del TCC se degradaba 
 digests son de tarballs generados por GitHub — `/archive/refs/tags/…` —, que no
 son estables por contrato: el gate convierte un cambio upstream en un fallo duro
 y la ruta de re-pin está documentada), F9-N6 (la Fase 8 arregló `fuzz.yml` pero
-`docs/FUZZING.md` y `RELEASE_CHECKLIST.md` siguieron prometiendo 72 h).
+`docs/FUZZING.md` y `RELEASE_CHECKLIST.md` siguieron prometiendo 72 h), F9-N7 (el
+portón de artefactos no creaba el scratch y confundía el prefijo FHS con el binario,
+buscando `runtime/lib/*.a` donde el layout portable pone los `.a` en `runtime/`: dos
+fallos que sólo aparecen al ejecutarlo **contra un artefacto real**, ahora cubiertos
+por un artefacto sintético con el layout real).
 
 ### Criterio de "done" de la fase — estado medido
 
