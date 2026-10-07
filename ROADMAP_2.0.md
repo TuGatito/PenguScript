@@ -881,13 +881,15 @@ de la stdlib bajo LeakSanitizer.
       memoria sobre todo el suite (`detect_leaks=0`, medido **3255 passed / 0 failed**) y contrato de
       fugas (`detect_leaks=1`) sobre el subconjunto verificado limpio. **La premisa del roadmap era
       falsa**: las fugas de la stdlib son 164 fallos medidos, no un test conocido → item 8.19.
-- [x] `pytest -q` reporta **0 xpassed** (medido en las dos corridas finales; el único `xpass`
-      venía del detector de fugas, item 8.17①).
+- [x] `pytest -q` reporta **0 xpassed**, y la suite es **reproducible**: `C ≡ D`
+      `(0, 3275, 25, 46, 0)` y `E ≡ F` `(0, 3276, 26, 46, 0)` en dos pares de corridas
+      consecutivas de ~35 min (el único `xpass` que existía venía del detector de fugas, 8.17①).
 - [x] Los **54** programas canónicos compilan y ejecutan en CI (`eff1288`, `compliance.yml`).
 - [x] El corpus de migración cubre cada versión publicada **documentada** (≥0.10.0; el hueco
       <0.10.0 está medido y justificado en `tests/migration/README.md`).
-- [ ] Cobertura medida con umbral no decreciente. ⏸️ la medición existe y el gate está cableado;
-      el valor final se fija en el commit de cierre.
+- [x] Cobertura medida con umbral no decreciente: **80.20 %** medido (19 235 statements, 3 808 sin
+      cubrir), `fail_under = 80` en `.coveragerc` y `RECORDED_FLOOR = 80` en
+      `tests/test_ci_workflows.py`, con el suite completo corriendo bajo `--cov` en CI (`bf9e782`).
 - [x] Las 7 propiedades de property-based testing activas, incluidas las 2 del formateador (`647bca2`).
 - [x] Los **27** subcomandos (el roadmap decía 25) tienen test de contrato de rc (`1bf99a9`).
 - [x] Cada uno de los **73** códigos del catálogo (el roadmap decía 58) tiene un programa que lo

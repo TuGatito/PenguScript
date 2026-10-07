@@ -635,9 +635,31 @@ Corrida de cobertura (run B) y corrida limpia (run C) sobre el estado final del
 | C (limpia) | `pytest tests -q -p no:cacheprovider --timeout=1200` | **0 failed**, 3275 passed, 25 skipped, 46 xfailed, **0 xpassed** | 34:29 |
 | D (limpia, repetición) | idéntico a C | **0 failed**, 3275 passed, 25 skipped, 46 xfailed, **0 xpassed** | 34:34 |
 
+> Nota de solape: el item **1.14** (Fase 1) pedía exactamente esta
+> reproducibilidad ("dos ejecuciones consecutivas de la suite completa reportan la
+> misma tupla") y quedó sin cerrar cuando la Fase 1 se dio por terminada. 8.17 lo
+> cumple aquí, medido: `C ≡ D` y `E ≡ F`. No se toca la fila de 1.14 en el roadmap
+> (la Fase 1 está cerrada); queda como referencia cruzada.
+
 **C y D son la misma tupla** `(0, 3275, 25, 46, 0)`, corridas consecutivas sobre
-el mismo árbol congelado: el criterio de reproducibilidad del item 8.17 queda
-medido, no argumentado.
+el mismo árbol: el criterio de reproducibilidad del item 8.17 queda medido, no
+argumentado.
+
+Después de C/D quedaron dos cambios de la fase que añaden tests (el pin de F8-N10
+en `test_phase8_findings.py`, que sólo corre bajo ASan, y
+`test_the_leak_verdict_is_only_disabled_when_it_is_declared` en
+`test_known_issues.py`), así que el árbol final tiene **3348** tests en vez de
+3346. Sobre ese árbol final:
+
+| Corrida | Comando | Tupla | Tiempo |
+|---|---|---|---|
+| E | `pytest tests -q -p no:cacheprovider --timeout=1200` | **0 failed**, 3276 passed, 26 skipped, 46 xfailed, **0 xpassed** | 34:34 |
+| F | idéntico a E | **0 failed**, 3276 passed, 26 skipped, 46 xfailed, **0 xpassed** | 34:43 |
+
+**E y F son la misma tupla sobre el árbol final**, y el delta E−D está contado, no
+supuesto: **+1 passed** (`test_the_leak_verdict_is_only_disabled_when_it_is_declared`)
+y **+1 skipped** (el pin de F8-N10, que se salta fuera de ASan). Es decir: la
+reproducibilidad está medida dos veces, antes y después de los cambios de 8.2.
 
 El único fallo de la corrida B lo produjo el propio gate de formato del repo
 (`test_fmt_config_precedence.py::test_repository_sources_are_clean_under_pengu_fmt`
