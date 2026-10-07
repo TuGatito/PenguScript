@@ -56,7 +56,9 @@ REPO = Path(__file__).resolve().parent.parent
 ERRORS_MODULE = REPO / "pengu_parser" / "pengu_errors.py"
 
 #: Every module that may emit a diagnostic.
-SOURCE_GLOBS = ("pengu_parser/*.py", "*.py", "pengu_lsp/*.py")
+# '**' so the recursively-nested modules of `pengu_parser.pengu_codegen` are
+# scanned too: a diagnostic emitted in a mixin must reach the catalogue.
+SOURCE_GLOBS = ("pengu_parser/**/*.py", "*.py", "pengu_lsp/*.py")
 
 #: Generated artefacts.
 CATALOG_JSON = REPO / "docs" / "error_catalog.json"

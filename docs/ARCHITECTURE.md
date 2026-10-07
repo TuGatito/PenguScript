@@ -17,7 +17,7 @@ front end and back end; `pengu_cache.py`, `pengu_bind.py`, `pengu_paths.py` and
 
 > Line numbers below are anchors into the tree as it stood when this was written
 > (`v1.0.0`). The three largest files (`pengu_project.py`,
-> `pengu_parser/pengu_checker.py`, `pengu_parser/pengu_codegen.py`) change often,
+> `pengu_parser/pengu_checker.py`, `pengu_parser/pengu_codegen/`) change often,
 > so re-grep the symbol name if a cited line looks wrong — the symbol, not the
 > number, is the contract.
 
@@ -51,7 +51,7 @@ front end and back end; `pengu_cache.py`, `pengu_bind.py`, `pengu_paths.py` and
                    calls _record_error, joining the errors list
                                 v
   5 codegen  PenguCodegen.collect_declarations()/generate_bundle()
-             [pengu_parser/pengu_codegen.py]
+             [pengu_parser/pengu_codegen/]
              + DCE: pengu_parser/pengu_dce.prune_weaves()
                out build/bundle.c | err raises SemanticError
                                 v
@@ -77,7 +77,7 @@ module is the entry module and the only one that may reset the symbol table
 | **collect (symbols)** | `pengu_parser/pengu_checker.py`, `pengu_parser/pengu_symbols.py` | `PenguChecker._collect_top_level()` → `SymbolTable` | `Tree`, `import_order` | populated `SymbolTable` (`checker.symbols`) | accumulated in `errors`: `E0004`/`E0026`/`E0035`/`E0036`/`E0040`/`E0046`/`E0050`/`E0053`/`E0055`/`E0056` |
 | **check** | `pengu_parser/pengu_checker.py` | `PenguChecker.check()` → `_validate_declared_types()`, `_check_node()` | `Tree`, source text, filename | `errors: List[PenguError]` (+ `warnings: List[str]`) | accumulates; raises `errors[0]` with `.all_errors`, `.rendered_all` |
 | **infer** | `pengu_parser/pengu_infer.py`, `pengu_parser/pengu_types.py` | `TypeInferrer.infer()` | AST node, optional expected `Type` | `pengu_types.Type` | raises `SemanticError`; `_check_node` calls `_record_error()` |
-| **codegen** | `pengu_parser/pengu_codegen.py`, `pengu_parser/pengu_dce.py` | `PenguCodegen.collect_declarations()`, `PenguCodegen.generate_bundle()` | `SymbolTable`, `[(path, Tree)]`, `CompileTimeEnv`, options | `build/bundle.c` | raises `SemanticError` |
+| **codegen** | `pengu_parser/pengu_codegen/`, `pengu_parser/pengu_dce.py` | `PenguCodegen.collect_declarations()`, `PenguCodegen.generate_bundle()` | `SymbolTable`, `[(path, Tree)]`, `CompileTimeEnv`, options | `build/bundle.c` | raises `SemanticError` |
 | **cache** | `pengu_cache.py`, `build/.bundle_hash` | `script_cache_key()`, `PenguBuilder.is_bundle_up_to_date()` | content digests, flags, toolchain version | cache hit/miss, cached binary path | never fatal; degrades to "no cache" |
 | **C toolchain** | `pengu_project.py`, `pengu_paths.py` | `PenguBuilder.compile()`, `build_compile_commands()` | `bundle.c`, flags, `libpengu_runtime.a` | exe / `.o` / `.a` / `.so` / `.c` | `CompileFailedError`; `remap_c_diagnostics()` re-points gcc/clang output at `.pengu` files |
 
@@ -139,7 +139,7 @@ problem is reported at once.
 then runs `_collect_top_level()` (pass 1), `_check_omen_variant_collisions()`
 (line 7071), `_validate_declared_types()` (pass 1b, line 5176, now that every type
 name is known) and `_check_node()` (pass 2, line 2208) — the recursive body walk
-covering mutability, ownership (`banish`, `borrowed`), control flow, `with:`
+covering mutability, explicit releases (`banish`, `defer banish`), control flow, `with:`
 builders, `judge` exhaustiveness, concept bounds, deprecation (`[W0006]`) and
 `unsafe:` blocks (`[W0007]`). It then folds in `self.inferrer.warnings` and, if
 anything was recorded, renders every error with an `ErrorReporter`, attaches
@@ -171,7 +171,7 @@ raises, the checker accumulates.** Warnings go through `_warn()` (line 449) —
 `[W0001]` transmute, `[W0002]` echo union access, `[W0006]` deprecation,
 `[W0013]` `..` ranges.
 
-### 3.5 codegen — `pengu_parser/pengu_codegen.py`
+### 3.5 codegen — `pengu_parser/pengu_codegen/`
 
 `PenguBuilder.bundle()` constructs `PenguCodegen(checker.symbols, module_order,
 base_dir, compile_env=..., use_gnu_extensions=..., target_compiler=...)` (class
@@ -430,7 +430,7 @@ translation unit.
 The runtime ships as a header plus a static archive:
 
 * **`pengu_runtime.h`** (repository root) is the public contract: container
-  layouts, helper declarations, `#define PENGU_ABI_VERSION 1` (line 58) and
+  layouts, helper declarations, `#define PENGU_ABI_VERSION 2` (line 58) and
   `int pengu_abi_version(void);` (line 77).
   `PenguBuilder.locate_and_copy_runtime()` (line 851) copies it next to
   `bundle.c` — a project-local vendored copy wins, otherwise
@@ -448,12 +448,12 @@ The runtime ships as a header plus a static archive:
   (`pengu_project.py`, line 2655).
 
 The two-way pin is generated into every bundle by `generate_bundle()`
-(`pengu_parser/pengu_codegen.py`, lines 9906–9921):
+(`pengu_parser/pengu_codegen/bundle.py`):
 
 ```c
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
-_Static_assert(PENGU_ABI_VERSION == 1,
-    "pengu_runtime.h ABI mismatch: bundle expects v1");
+_Static_assert(PENGU_ABI_VERSION == 2,
+    "pengu_runtime.h ABI mismatch: bundle expects v2");
 #endif
 extern int pengu_abi_version(void);
 #if defined(__GNUC__) || defined(__clang__)
@@ -463,8 +463,8 @@ static int (*const _pengu_abi_pin)(void) = pengu_abi_version;
 ```
 
 The expected number is `PENGU_EXPECTED_ABI_VERSION`
-(`pengu_parser/pengu_codegen.py`, line 32), consumed by
-`PenguCodegen.expected_abi_version` (line 461). The `_Static_assert` catches a
+(`pengu_parser/pengu_codegen/_base.py`), consumed by
+`PenguCodegen.expected_abi_version`. The `_Static_assert` catches a
 bundle compiled against a mismatched header; the forced `_pengu_abi_pin`
 reference guarantees the archive is actually pulled in, so a stale
 `libpengu_runtime.a` fails at **link** time instead of silently reinterpreting
@@ -483,13 +483,13 @@ Order matters: each row assumes the previous ones are done.
 
 | Change | Touch, in order |
 |---|---|
-| **New syntax form** | 1. `pengu_parser/pengu_grammar.py` — add the rule to `GRAMMAR` (and to `SIMPLE_STMT_ALIASES` if it is a simple statement). 2. `pengu_parser/pengu_parser.py` — only if it needs preprocessing/indentation handling. 3. `pengu_parser/pengu_checker.py` — handle the new `node.data` in `_collect_top_level()` and/or `_check_node()`. 4. `pengu_parser/pengu_infer.py` — teach `infer()` its type. 5. `pengu_parser/pengu_codegen.py` — emit C in `_translate_stmt_impl()` or `_translate_expr_impl()`. 6. `LANGUAGE.md`, `CHEATSHEET.md`, tests under `tests/`. |
+| **New syntax form** | 1. `pengu_parser/pengu_grammar.py` — add the rule to `GRAMMAR` (and to `SIMPLE_STMT_ALIASES` if it is a simple statement). 2. `pengu_parser/pengu_parser.py` — only if it needs preprocessing/indentation handling. 3. `pengu_parser/pengu_checker.py` — handle the new `node.data` in `_collect_top_level()` and/or `_check_node()`. 4. `pengu_parser/pengu_infer.py` — teach `infer()` its type. 5. `pengu_parser/pengu_codegen/` — emit C in `stmts.py::_translate_stmt_impl()` or `exprs.py::_translate_expr_impl()`. 6. `LANGUAGE.md`, `CHEATSHEET.md`, tests under `tests/`. |
 | **New diagnostic** | 1. `pengu_parser/pengu_errors.py` — add the `PenguError` subclass (or reuse `SemanticError`) with a default `code`. 2. Take the next free code and add it to `LANGUAGE.md` §22. 3. Raise it at the site: `self._record_error(self._make_error(...))` in the checker, or `raise self._make_error(...)` in the inferrer/codegen. 4. Add a test asserting the code reaches `checker.errors` / CLI output. |
 | **New warning** | 1. `LANGUAGE.md` §22.3 table. 2. Emit `"[Wxxxx] message"`; from the inferrer use `TypeInferrer._warn()` (`pengu_parser/pengu_infer.py`, line 449) so the `on line L col C` suffix is attached — otherwise it renders as `file:0:0`. 3. From the checker append to `self.warnings` with the same suffix convention. 4. To make it deniable, follow the `W0006` path: `deny_deprecated` handling in `check_sources_diagnostics()` + `_report_denied_deprecations()`. |
-| **New codegen construct** | 1. `pengu_parser/pengu_codegen.py` — extend `collect_declarations()` if it introduces a declaration, and the relevant `generate_*` section or `_translate_*_impl()` if it is a statement/expression. 2. `pengu_parser/pengu_types.py` — add the `Type` subclass plus `mangle_type()`/`estimate_size()` handling if it has a new type. 3. `pengu_parser/pengu_dce.py` — update `collect_references()` if it can reference a std weave. 4. `pengu_parser/pengu_symbols.py` — only if it needs a new symbol kind. |
+| **New codegen construct** | 1. `pengu_parser/pengu_codegen/` — extend `declarations.py::collect_declarations()` if it introduces a declaration, and the relevant `generate_*` section or `_translate_*_impl()` if it is a statement/expression. 2. `pengu_parser/pengu_types.py` — add the `Type` subclass plus `mangle_type()`/`estimate_size()` handling if it has a new type. 3. `pengu_parser/pengu_dce.py` — update `collect_references()` if it can reference a std weave. 4. `pengu_parser/pengu_symbols.py` — only if it needs a new symbol kind. |
 | **New `when` predicate / compile-time variable** | 1. `pengu_parser/pengu_comptime.py` — extend `CompileTimeEnv`, `default_env()`, `parse_cli_defines()` and `eval_comptime()`. 2. `pengu_project.py` — thread the value through `PenguBuilder.__init__` (the `compiler=`/`debug`/`main` handling there is the model). 3. Document it in `LANGUAGE.md`. |
 | **New cache input** | 1. `pengu_project.py::compute_config_hash()` (project builds) and/or the `extra_digests` list in `run_script()` (script builds). 2. `pengu_cache.py::script_cache_key()` only if the input is global rather than per-invocation. |
-| **Change the emitted C ABI** | 1. `pengu_runtime.h` — the layout and `PENGU_ABI_VERSION` (bump it for a breaking change). 2. `pengu_parser/pengu_runtime.c`. 3. `pengu_parser/pengu_codegen.py::PENGU_EXPECTED_ABI_VERSION`. 4. `docs/ABI.md`. 5. `build_runtime.py` if the build flags change. |
+| **Change the emitted C ABI** | 1. `pengu_runtime.h` — the layout and `PENGU_ABI_VERSION` (bump it for a breaking change). 2. `pengu_parser/pengu_runtime.c`. 3. `pengu_parser/pengu_codegen/_base.py::PENGU_EXPECTED_ABI_VERSION`. 4. `docs/ABI.md`. 5. `build_runtime.py` if the build flags change. |
 | **New C binding for `std/`** | 1. `pengu bind <header> --prefix <insignia>` to produce the `.d.pengu` (`pengu_bind.generate_bind_file()`), or run `regen_std_bindings.py` for the standard set. 2. Add the archive to `link` and the headers to `include_dirs` where the module is used. |
 
 Repository-wide checks that catch drift between these files: the suites under

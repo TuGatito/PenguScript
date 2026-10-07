@@ -94,11 +94,16 @@ def test_no_compiler_module_leaks_into_the_root():
     compiler_modules = [
         "pengu_infer.py", "pengu_checker.py", "pengu_parser.py",
         "pengu_symbols.py", "pengu_types.py", "pengu_errors.py",
-        "pengu_comptime.py", "pengu_grammar.py", "pengu_codegen.py",
+        "pengu_comptime.py", "pengu_grammar.py",
     ]
     for name in compiler_modules:
         assert (REPO / "pengu_parser" / name).is_file(), f"missing pengu_parser/{name}"
         assert not (REPO / name).exists(), f"leaked to the repository root: {name}"
+    # The code generator is a package since 1.0.0; it must not leak to the root
+    # as either a module or a directory.
+    assert (REPO / "pengu_parser" / "pengu_codegen").is_dir()
+    assert not (REPO / "pengu_codegen.py").exists()
+    assert not (REPO / "pengu_codegen").exists()
 
 
 def test_pengu_folder_module_does_not_exist():

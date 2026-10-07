@@ -26,7 +26,9 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 PY = sys.executable
 MODULE = "pengu_project"
-CODEGEN = REPO / "pengu_parser" / "pengu_codegen.py"
+# `CTypeMapper` lives in the `pengu_codegen` package, in the module that owns
+# the C type mapping.
+CODEGEN = REPO / "pengu_parser" / "pengu_codegen" / "ctype.py"
 
 _BLOCK_RE = re.compile(r"```text prim-c-map\n(?P<body>.*?)```", re.DOTALL)
 

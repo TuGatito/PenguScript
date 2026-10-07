@@ -540,6 +540,9 @@ def package_with_pyinstaller(py_exe: Path, dist_dir: Path, bin_subdir: str = "")
         "pygls",
         "cattrs",
         "attrs",
+        # `pengu_codegen` is a package: PyInstaller must be told to walk it, or
+        # the mixin submodules would be missing from the frozen binary.
+        "pengu_parser.pengu_codegen",
     ]
 
     cmd = [
