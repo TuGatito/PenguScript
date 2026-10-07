@@ -22,6 +22,7 @@ documents from earlier phases.
 | [`error_catalog.json`](error_catalog.json) | The machine-readable diagnostic catalogue: every `Exxxx`, the classes that emit it, its message shapes and its `help:`/`note:` guidance | **Yes** — written by `tools/gen_error_catalog.py` |
 | [`api/`](api/README.md) | The per-module API reference for the hand-written standard library: every public declaration with its signature and doc summary, plus a coverage table (`index.json` is the machine-readable form) | **Yes** — written by `tools/gen_api_docs.py` |
 | [`DEPRECATIONS.md`](DEPRECATIONS.md) | Every `@deprecated` symbol in `std/` with its replacement and retirement status; the tables are cross-checked against the sources by `tests/test_std_deprecations_doc.py` | No — authored |
+| [`FREEZE.md`](FREEZE.md) | The frozen public surface of 1.0 — language, ABI, CLI, stdlib, LSP and diagnostics; every list is read back and compared against the tree by `tests/test_freeze_manifest.py` | No — authored |
 
 ## Normative documents (repository root)
 
