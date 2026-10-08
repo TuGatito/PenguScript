@@ -12,7 +12,7 @@ pytest-timeout>=2.2.0
 # `pytest -n auto` is the cheap half of the speed budget; the batch conformance
 # runner is the other half. See tests/_inventory.md §10.
 pytest-xdist>=3.5
-tomli>=2.0.0; python_version < '3.11'
+tomli>=2.4.1; python_version < '3.11'
 
 # Static analysis for the F821/E9 gate (undefined names are errors).
 # An undefined name can be a compiler crash, not a style issue: blocker B6 was
