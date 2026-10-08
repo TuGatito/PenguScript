@@ -119,8 +119,12 @@ jobs:
           spctl --assess --type execute -vv "$BIN" || true
 
       # Deterministic archive (Phase 9, item 9.8): make_release.py writes sorted
-      # entries with a constant mtime from SOURCE_DATE_EPOCH.
+      # entries with a constant mtime from SOURCE_DATE_EPOCH. The step is
+      # `shell: bash` because this job also runs on Windows, where the default
+      # PowerShell would read the trailing `\` as a literal and fail with
+      # "Missing expression after unary operator '--'".
       - name: Archive Distribution
+        shell: bash
         run: |
           python make_release.py --archive-only \
             --dist-dir pengucc_build --archive "${{ matrix.artifact_name }}"

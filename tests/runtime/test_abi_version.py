@@ -50,6 +50,8 @@ from tests.conftest import (
     compile_run,
     gen_bundle,
     have_tool,
+    nm_symbol_name,
+    nm_symbol_regex,
     runtime_link_flags,
     runtime_tail_flags,
 )
@@ -86,7 +88,9 @@ def _nm_defined_symbols(archive: Path) -> dict:
     for line in res.stdout.splitlines():
         parts = line.split()
         if len(parts) >= 2 and parts[-2] in {"T", "t", "D", "d", "R", "r", "B", "b", "W", "V"}:
-            defined[parts[-1]] = parts[-2]
+            # Mach-O prints `_pengu_abi_version`; normalize so the keys are the
+            # names the C source uses on every platform.
+            defined[nm_symbol_name(parts[-1])] = parts[-2]
     return defined
 
 
@@ -195,7 +199,7 @@ def test_bundle_references_the_runtime_abi(tmp_path):
     nm = shutil.which("nm")
     assert nm, "nm is required for this measurement"
     symbols = subprocess.run([nm, str(exe)], capture_output=True, text=True, timeout=120)
-    assert re.search(rf"\b{ABI_SYMBOL}\b", symbols.stdout), (
+    assert re.search(nm_symbol_regex(ABI_SYMBOL), symbols.stdout), (
         "the linked binary does not reference the runtime ABI symbol:\n"
         + symbols.stdout
     )
@@ -222,7 +226,7 @@ def test_bundle_references_the_runtime_abi_release_profile(tmp_path):
     assert build.returncode == 0, build.stderr
     nm = shutil.which("nm")
     symbols = subprocess.run([nm, str(exe)], capture_output=True, text=True, timeout=120)
-    assert re.search(rf"\b{ABI_SYMBOL}\b", symbols.stdout), symbols.stdout
+    assert re.search(nm_symbol_regex(ABI_SYMBOL), symbols.stdout), symbols.stdout
 
 
 def test_stale_archive_fails_to_link(tmp_path):

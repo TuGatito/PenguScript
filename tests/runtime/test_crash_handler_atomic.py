@@ -31,8 +31,22 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 HEADER = REPO / "pengu_runtime.h"
-TCC = REPO / "build" / "tcc-dist" / "tcc-dist" / "bin" / "tcc"
 INCLUDE = REPO / "build" / "include"
+
+
+def _tcc_available() -> bool:
+    """True when the development compiler the end-to-end test needs exists.
+
+    Asked through `pengu_tcc.find_tcc()` instead of a hardcoded
+    `build/tcc-dist/tcc-dist/bin/tcc`: on Windows the staged binary is `tcc.exe`,
+    so the literal path never existed there and the only end-to-end run of the
+    changed header was silently skipped.
+    """
+    try:
+        from pengu_tcc import find_tcc
+    except Exception:  # noqa: BLE001 - no tcc module means no tcc
+        return False
+    return find_tcc() is not None
 
 
 def _pengu(*args, timeout=600):
@@ -150,7 +164,7 @@ def test_program_compiles_and_runs_after_the_change(tmp_path):
     tcc is used because it is the project's development compiler and the header
     change adds a `<pthread.h>` include that tcc must also accept.
     """
-    if not TCC.exists():
+    if not _tcc_available():
         pytest.skip("the bundled tcc is not present")
     src = tmp_path / "run.pengu"
     src.write_text(

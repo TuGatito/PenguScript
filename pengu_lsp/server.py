@@ -123,6 +123,7 @@ from .code_actions import (
     organize_imports_action,
     declaration_locations,
     declaration_details,
+    unscannable_root,
     word_occurrences_in_roots,
 )
 
@@ -973,7 +974,14 @@ def _workspace_roots() -> List[str]:
     if not roots:
         for doc_uri in list(server._docs.keys()):
             doc_path = uri_to_path(doc_uri)
-            _add(_project_scan_root(doc_path) or (os.path.dirname(doc_path) or None))
+            # Only real projects.  The fallback used to be the document's own
+            # directory, which for a loose buffer (`file:///nav.pengu`, left in
+            # `server._docs` by an earlier request) is `/`: `declaration_details`
+            # then walked the whole filesystem and `workspace/symbol` took 103 s
+            # on Linux and 208 s on macOS in CI.  `_project_scan_root` already
+            # returns the document's directory for anything that is not `/` or
+            # `~`, so only the pathological case is dropped here.
+            _add(_project_scan_root(doc_path))
     return roots
 
 
@@ -1205,13 +1213,8 @@ def _project_scan_root(file_path: str) -> Optional[str]:
     if not root:
         return None
     root_abs = os.path.abspath(root)
-    if root_abs == os.path.abspath(os.sep):
+    if unscannable_root(root_abs):
         return None
-    try:
-        if root_abs == os.path.abspath(os.path.expanduser("~")):
-            return None
-    except Exception:
-        pass
     return root_abs
 
 

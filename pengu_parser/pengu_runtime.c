@@ -1715,16 +1715,21 @@ void pengu_c_precis_serve_http(int port, void* handler) {
 }
 
 /* Sockets & DNS */
-static int pengu_sockets_inited = 0;
 static void pengu_ensure_sockets(void) {
 #if PENGU_WINDOWS
+    /* The flag exists only for WSAStartup, so it is declared in the Windows
+     * branch: off Windows nothing reads it and clang reports "variable
+     * 'pengu_sockets_inited' set but not used [-Wunused-but-set-global]",
+     * which `test_runtime_compiles_with_zero_diagnostics` rejects (gcc has no
+     * equivalent warning, so the gate was silently Linux-only). */
+    static int pengu_sockets_inited = 0;
     if (!pengu_sockets_inited) {
         WSADATA wsa;
         WSAStartup(MAKEWORD(2, 2), &wsa);
         pengu_sockets_inited = 1;
     }
 #else
-    pengu_sockets_inited = 1;
+    /* No WSAStartup off Windows: nothing to initialise. */
 #endif
 }
 

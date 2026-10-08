@@ -446,22 +446,26 @@ weave main into int:
             with open(bundle_path, "w", encoding="utf-8") as f:
                 f.write(bundle_c)
 
-            exe_path = os.path.join(str(d), "test_app.exe")
+            exe_path = os.path.join(str(d), "test_app" + (".exe" if os.name == "nt" else ""))
             # Since item 4.17 every bundle references pengu_abi_version, so the
             # runtime archive must be on the link line even for this hand-built
-            # command.
-            from tests.conftest import BUILD_INCLUDE, BUILD_LIB, runtime_link_flags
+            # command. The platform tail (and its `-ldl`, which MinGW does not
+            # have) comes from `runtime_tail_flags()` instead of being written
+            # out here, and the compiler is picked the way the rest of the suite
+            # picks it.
+            from tests.conftest import BUILD_INCLUDE, BUILD_LIB, runtime_link_flags, runtime_tail_flags
+            cc = next((c for c in ("gcc", "clang", "cc") if shutil.which(c)), "cc")
             comp = subprocess.run(
-                ["gcc", "-std=c99",
+                [cc, "-std=c99",
                  "-Wno-error=implicit-function-declaration",
                  "-Wno-error=implicit-int", "-Wno-error=int-conversion",
                  "-I", str(REPO), "-I", str(BUILD_INCLUDE), "-I", str(d),
                  "-L", str(BUILD_LIB),
-                 bundle_path, c_impl, *runtime_link_flags(), "-lm", "-ldl",
+                 bundle_path, c_impl, *runtime_link_flags(), *runtime_tail_flags(),
                  "-o", exe_path],
                 capture_output=True, text=True, timeout=240,
             )
-            assert comp.returncode == 0, f"GCC Compilation failed: {comp.stderr}\nBundle:\n{bundle_c}"
+            assert comp.returncode == 0, f"C compilation failed:\n{comp.stderr}\nBundle:\n{bundle_c}"
 
             run_res = subprocess.run([exe_path], capture_output=True, text=True, timeout=120)
             assert run_res.returncode == 0, f"Run failed: {run_res.stderr}"

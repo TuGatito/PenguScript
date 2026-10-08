@@ -30,6 +30,7 @@ from tests.conftest import (
     REPO,
     compile_run,
     have_tool,
+    nm_symbol_name,
     requires_cc,
     requires_runtime,
 )
@@ -82,7 +83,9 @@ def _crash_closure_undefined_symbols(tmp_path: Path) -> list:
     assert nm, "nm is required for this measurement"
     res = subprocess.run([nm, "-u", str(obj)], capture_output=True, text=True, timeout=120)
     assert res.returncode == 0, f"nm failed:\n{res.stderr}"
-    return [line.split()[-1] for line in res.stdout.splitlines() if line.strip()]
+    # `nm_symbol_name` strips Mach-O's leading underscore, so the offender check
+    # below is a real gate on macOS too instead of silently matching nothing.
+    return [nm_symbol_name(line.split()[-1]) for line in res.stdout.splitlines() if line.strip()]
 
 
 def test_crash_path_calls_no_async_signal_unsafe_function(tmp_path):

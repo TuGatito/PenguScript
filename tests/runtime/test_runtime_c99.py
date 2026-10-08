@@ -21,6 +21,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,11 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 RUNTIME_C = REPO / "pengu_parser" / "pengu_runtime.c"
 INCLUDE = REPO / "build" / "include"
+
+#: Object files go to the platform's temp directory: `/tmp` does not exist on
+#: Windows, and MinGW resolves a hardcoded `/tmp/foo.o` to `C:\tmp\foo.o`, which
+#: then fails to open — a red test that says nothing about the compiler.
+OBJ_DIR = Path(tempfile.gettempdir())
 
 pytestmark = pytest.mark.skipif(
     shutil.which("gcc") is None, reason="gcc is required to compile the runtime"
@@ -78,7 +84,7 @@ def _compile_runtime(extra_flags=(), std="c11"):
     cmd = [
         "gcc", f"-std={std}", "-Wall", "-Wextra",
         *_runtime_flags(), *extra_flags,
-        "-c", str(RUNTIME_C), "-o", "/tmp/_pengu_runtime_probe.o",
+        "-c", str(RUNTIME_C), "-o", str(OBJ_DIR / "_pengu_runtime_probe.o"),
     ]
     r = subprocess.run(cmd, cwd=str(REPO), capture_output=True, text=True, timeout=600)
     return r.returncode, r.stdout + r.stderr
@@ -124,7 +130,7 @@ def test_runtime_compiles_without_the_private_access_define():
     """
     flags = [f for f in _runtime_flags() if f != "-DMBEDTLS_ALLOW_PRIVATE_ACCESS"]
     cmd = ["gcc", "-std=c11", "-Wall", "-Wextra", *flags,
-           "-c", str(RUNTIME_C), "-o", "/tmp/_pengu_runtime_nodefine.o"]
+           "-c", str(RUNTIME_C), "-o", str(OBJ_DIR / "_pengu_runtime_nodefine.o")]
     r = subprocess.run(cmd, cwd=str(REPO), capture_output=True, text=True, timeout=600)
     # Without the define, mbedtls hides the private declarations, so implicit
     # declaration errors are EXPECTED here; what must not appear is a macro

@@ -484,6 +484,31 @@ _DECL_LINE = re.compile(
 )
 
 
+def unscannable_root(path: str) -> bool:
+    """True for a directory that must never be indexed as a project root.
+
+    ``_project_root_for_path`` falls back to a document's own directory, which
+    for a loose buffer (``file:///nav.pengu``) is ``/`` and for a file in the
+    home directory is ``~``.  Indexing either is a full filesystem sweep:
+    ``workspace/symbol`` took 103 s on Linux and 208 s on macOS in CI once a
+    buffer left over from an earlier request put ``/`` into the workspace roots
+    (each pytest-xdist worker keeps its own process-wide ``server._docs``).
+    Such a document contributes no project symbols, so it is skipped.
+    """
+    try:
+        ap = os.path.abspath(path)
+    except Exception:  # noqa: BLE001 - a path we cannot resolve is not scannable
+        return False
+    if not ap or ap == os.path.abspath(os.sep):
+        return True
+    try:
+        if ap == os.path.abspath(os.path.expanduser("~")):
+            return True
+    except Exception:  # noqa: BLE001 - no home directory to compare against
+        pass
+    return False
+
+
 def declaration_details(
     extra_roots: Optional[List[str]] = None,
     std_dir: Optional[str] = None,
@@ -507,7 +532,9 @@ def declaration_details(
     std_root = os.path.abspath(std_dir or STD_DIR)
     roots = [std_root]
     for r in extra_roots or []:
-        if r:
+        # Defence in depth: never walk `/` or the user's home, whatever the
+        # caller passes (see `unscannable_root`).
+        if r and not unscannable_root(r):
             roots.append(os.path.abspath(r))
     key = tuple(roots)
     cached = _DECL_CACHE.get(key)

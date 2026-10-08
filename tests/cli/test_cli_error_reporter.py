@@ -11,12 +11,17 @@ error carries them) and exits non-zero.
 """
 
 import os
+import signal
 import subprocess
 import sys
 
 import pytest
 
-from tests.conftest import REPO
+from tests.conftest import (
+    DIVISION_BY_ZERO_TRAPS,
+    requires_posix_signal_exit,
+    REPO,
+)
 
 PENGU = [sys.executable, str(REPO / "pengu_project.py")]
 
@@ -145,12 +150,21 @@ def test_report_pengu_error_json_lines(capsys):
     assert summary == {"type": "summary", "ok": False, "errors": 1, "warnings": 0}
 
 
+@requires_posix_signal_exit
+@pytest.mark.skipif(
+    not DIVISION_BY_ZERO_TRAPS,
+    reason="AArch64's SDIV returns 0 for a zero divisor instead of raising "
+           "SIGFPE, so `eval \"1/0\"` does not die by signal there (measured on "
+           "the macOS arm64 runner)",
+)
 def test_signal_termination_is_not_swallowed():
     """A process killed by a signal is 4.9's contract, not 4.8's.
 
     The reporter must not turn it into a generic user-input error: `eval "1/0"`
-    still reports the crash and exits 136 (measured pre-4.8).
+    still reports the crash and exits with `128 + SIGFPE` (136 on Linux, where
+    the number comes from the `signal` module, never from a literal).
     """
     res = _run(["eval", "1/0"])
-    assert res.returncode == 136, (res.returncode, res.stdout, res.stderr)
+    expected = 128 + signal.SIGFPE
+    assert res.returncode == expected, (res.returncode, res.stdout, res.stderr)
     assert "Traceback" not in res.stderr, res.stderr

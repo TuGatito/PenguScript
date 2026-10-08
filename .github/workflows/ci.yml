@@ -108,10 +108,14 @@ jobs:
       # Undefined names are compiler crashes, not style. F821 as an ERROR would
       # have caught blocker B6 (`node` instead of `target_node` in
       # pengu_infer.py) automatically. E9 covers syntax-level breakage.
+      #
+      # Written on a single line on purpose: this step has no `shell:`, so on
+      # Windows it runs under PowerShell, where a trailing `\` is NOT a line
+      # continuation (ParserError: "Missing expression after unary operator
+      # '--'"). A single line is portable to bash and PowerShell alike, so the
+      # gate cannot be skipped by the runner's default shell.
       - name: Lint gate (F821/E9, undefined names are errors)
-        run: |
-          python -m ruff check --select F821,E9 \
-            --exclude extern,build,vscode-extension .
+        run: python -m ruff check --select F821,E9 --exclude extern,build,vscode-extension .
 
       # Portable ABI layout check: Windows runners have no `cc`, so decide the
       # compiler from the environment (MinGW gcc on Windows, cc elsewhere).
@@ -152,6 +156,13 @@ jobs:
       - name: Test suite
         shell: bash
         timeout-minutes: 45
+        env:
+          # The LSP stability test's per-request ceilings (60 s, 120 s for
+          # didOpen) are calibrated on a developer machine. A shared runner is
+          # an order of magnitude slower, so the ceiling is lifted to 300 s here;
+          # the test still catches a hang or an O(n^2). See
+          # tests/lsp/test_lsp_stability.py.
+          PENGU_LSP_STABILITY_TIMEOUT: '300'
         run: |
           set -euo pipefail
           COV=""

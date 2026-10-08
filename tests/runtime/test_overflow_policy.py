@@ -21,6 +21,7 @@ from pengu_project import ProjectConfig, PenguBuilder
 from tests.conftest import (
     compile_run,
     have_tool,
+    host_cc_is_clang,
     requires_cc,
     requires_runtime,
 )
@@ -93,6 +94,14 @@ def test_debug_traps_overflow():
 
 
 @pytest.mark.skipif(not have_tool("gcc"), reason="gcc not available")
+@pytest.mark.skipif(
+    host_cc_is_clang(),
+    reason="clang's UBSan still reports `-fwrapv` wrapping as "
+           "signed-integer-overflow (GCC treats the wrapping as defined and "
+           "stays silent), so 'UBSan-clean' is a GCC property, not a product "
+           "one. The wrapping *contract* is still asserted on every platform by "
+           "test_release_wraps_defined and test_release_uses_fwrapv",
+)
 @requires_cc
 @requires_runtime
 def test_release_wrapping_is_ubsan_clean():
@@ -103,3 +112,33 @@ def test_release_wrapping_is_ubsan_clean():
     )
     assert res.returncode == 0, f"rc={res.returncode}\n{res.stderr}"
     assert "runtime error" not in (res.stderr or ""), res.stderr
+
+
+@requires_cc
+@requires_runtime
+def test_sanitizer_and_profile_flags_do_not_conflict(tmp_path, monkeypatch):
+    """A sanitizer must never be combined with the *opposite* overflow policy.
+
+    `-ftrapv` (debug) and `-fsanitize=signed-integer-overflow` both trap, so they
+    coexist; `-fwrapv` (release) asks for defined wrapping instead.  What must
+    never reach the compiler is both overflow policies at once -- the shapes the
+    profile switch can produce is what is checked here, with the sanitizer flags
+    *and* the environment-injected flags in play.
+    """
+    monkeypatch.setenv(
+        "PENGU_CFLAGS", "-fsanitize=signed-integer-overflow -fno-sanitize-recover=all"
+    )
+    for profile, wanted, unwanted in (
+        ("debug", "-ftrapv", "-fwrapv"),
+        ("release", "-fwrapv", "-ftrapv"),
+    ):
+        flags = _flags(profile, False, tmp_path)
+        assert wanted in flags, f"{profile} lost {wanted}: {flags}"
+        assert unwanted not in flags, f"{profile} also got {unwanted}: {flags}"
+        assert "-fsanitize=signed-integer-overflow" in flags, (
+            f"PENGU_CFLAGS sanitizer dropped from the {profile} command: {flags}"
+        )
+    # `--release-unsafe` opts out of both policies, sanitizer or not.
+    unsafe = _flags("release", True, tmp_path)
+    assert "-fwrapv" not in unsafe and "-ftrapv" not in unsafe
+    assert "-DPENGU_OVERFLOW_CHECK=0" in unsafe

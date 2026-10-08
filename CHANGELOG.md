@@ -2,6 +2,174 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [Unreleased] — reparación de CI en Windows, Linux y macOS
+
+> Deja `ci.yml` en verde en las tres plataformas. Windows fallaba **antes de
+> ejecutar un solo test** (PowerShell no interpreta `\` como continuación de
+> línea); Linux fallaba por una carrera en la caché de build y por el índice de
+> `workspace/symbol`; macOS fallaba además por números de señal, por el `nm` de
+> Mach-O y por sanitizers que no existen en Darwin. Cada síntoma se reprodujo
+> localmente antes de tocar nada, y en cada caso queda escrito si lo que estaba
+> mal era el **test** (una suposición de plataforma) o el **producto**.
+
+### Fixed
+
+- **Windows: el gate de ruff nunca llegaba a ejecutarse.** El step
+  «Lint gate (F821/E9)» usaba `\` para continuar la línea y no declaraba
+  `shell:`, así que en `windows-latest` lo interpretaba PowerShell, donde la
+  barra invertida no continúa nada: `ParserError: Missing expression after unary
+  operator '--'`, job rojo sin haber analizado una sola línea. El comando pasa a
+  una **sola línea** (portable en bash y PowerShell). El mismo patrón estaba en
+  `release.yml` → «Archive Distribution», que corre en la matriz de Windows: ese
+  lleva ahora `shell: bash`. `python -m ruff check --select F821,E9 --exclude
+  extern,build,vscode-extension .` pasa en local (0 hallazgos), así que el gate
+  no estaba tapando ningún nombre indefinido.
+- **Linux/macOS: la caché de build se invalidaba por la sincronización del
+  header del runtime.** `is_bundle_up_to_date()` pasea los `include_dirs`
+  buscando `.h` más nuevos que el bundle, y `pengu_runtime.h` **se refresca fuera
+  de banda**: `build_runtime.py` (y el instalador) lo copian a un include root
+  compartido —`build/include`— y `tests/runtime/test_bounds_flag_independence.py`
+  lo resincroniza. Aunque los bytes sean idénticos, la copia tiene mtime nuevo, y
+  cualquier proyecto cuyo bundle se acabara de escribir veía *"mi entrada ya no
+  vale"*: `TestBuildCache::test_unchanged_sources_are_cached` pasaba en
+  aislamiento y fallaba con `-n auto`. Reproducido con un script
+  (`write_bytes(read_bytes())` sobre `build/include/pengu_runtime.h` ⇒
+  `is_bundle_up_to_date()` pasaba de `True` a `False`). El paseo **salta las
+  copias de `pengu_runtime.h`** (son artefactos derivados del toolchain); el
+  header canónico sigue siendo una entrada y se comprueba por ruta explícita,
+  ahora incluida la copia vendorizada `include/pengu_runtime.h`, así que un
+  cambio real del runtime sigue invalidando la caché. Verificado en los dos
+  sentidos: refresco con bytes idénticos ⇒ `True`; header canónico tocado ⇒
+  `False`. No se toca `compute_sources_fingerprint` ni `compute_config_hash`, así
+  que la reproducibilidad no cambia.
+- **Linux (103 s) y macOS (208 s): `workspace/symbol` recorría el sistema de
+  archivos entero.** `server._docs` es estado de proceso y sobrevive a la
+  petición que abrió el buffer: un documento suelto (`file:///nav.pengu`, que
+  dejan los tests anteriores en el mismo worker de xdist) no tiene proyecto,
+  `_project_root_for_path` devuelve `/` y `_workspace_roots()` **volvía a añadir
+  ese `/`** con su fallback `or os.path.dirname(doc_path)`; a partir de ahí
+  `declaration_details()` hacía `os.walk('/')`. Medido con el propio servidor:
+  `_workspace_roots()` devolvía `['/', '/tmp/pytest-of-…']` y un índice
+  construido sobre `/` daba 4 633 símbolos. Arreglado en la raíz:
+  `_workspace_roots()` ya no cae al directorio del documento cuando no hay
+  proyecto (el caso `/`/`~`), y el nuevo `code_actions.unscannable_root()`
+  —compartido con `_project_scan_root` y aplicado también dentro de
+  `declaration_details()` como segunda barrera— descarta esos roots venga de
+  donde venga la ruta. La petición vuelve a costar ~30 ms. Se añade un test de
+  regresión (`test_loose_buffer_never_indexes_the_filesystem_root`) que abre el
+  buffer suelto y exige que `/` no aparezca y que la consulta no recorra el
+  disco. Como válvula de seguridad para runners lentos, el techo por petición es
+  configurable con `PENGU_LSP_STABILITY_TIMEOUT` (segundos); `ci.yml` usa 300 s
+  y sin la variable se mantienen los 60 s/120 s del test.
+- **macOS: `SIGBUS` no es 7.** `test_fault_signal_is_installed_by_the_crash_handler`
+  esperaba `135` literal (128+7, el `SIGBUS` de Linux) mientras en Darwin es 10
+  ⇒ 138. Los cuatro códigos se calculan ahora con `128 + signal.SIGxxx` desde
+  `tests/conftest.py` (`FAULT_SIGNALS`), que además omite los nombres que la
+  plataforma no define (`signal.SIGBUS` no existe en Windows).
+- **macOS arm64: la división entera por cero no trapea.** `SDIV` de AArch64
+  devuelve 0 con divisor cero, así que el programa termina con 0 y el manejador
+  de crash nunca se alcanza (el test pedía 136). El programa de
+  `test_integer_division_by_zero_dumps_frames_and_exits_136` pasa a calcular la
+  división en runtime (parámetros de un `weave`, no constantes plegables) y el
+  test se **salta en AArch64** con la razón medida (`DIVISION_BY_ZERO_TRAPS`).
+  El mismo límite físico afecta a `pengu eval "1/0"`, que
+  `tests/cli/test_cli_error_reporter.py` comprueba con el mismo criterio.
+- **macOS: `-ftrapv` no llega al manejador.** Apple clang baja `-ftrapv` a una
+  instrucción de trap que levanta `SIGTRAP`, señal que el manejador no instala
+  (medido: `rc=-5` y sin `[PENGU CRASH]`); la implementación de GCC llama a
+  `abort()` y sí lo alcanza. `test_debug_signed_overflow_trap_is_reported` se
+  salta en Darwin con esa razón explícita; `test_debug_traps_overflow` sigue
+  exigiendo en todas las plataformas que el overflow trape.
+- **macOS: ASan no lleva LeakSanitizer.** Con `detect_leaks=1` el proceso aborta
+  con *"detect_leaks is not supported on this platform"* (exit -6), así que
+  `test_valgrind_reassign_loop_is_leak_free` fallaba por una limitación del
+  runtime, no por el programa. Se salta en Darwin vía
+  `ASAN_DETECT_LEAKS_SUPPORTED` (el branch de valgrind, si está instalado,
+  sigue usándose antes de llegar ahí).
+- **macOS: `-fwrapv` no silencia el UBSan de clang.** `test_release_wrapping_is_ubsan_clean`
+  pedía «cero informes de UB» con `-fsanitize=signed-integer-overflow`; GCC
+  considera el wrapping definido y calla, clang lo sigue instrumentando (el log
+  de macOS trae el `runtime error: signed integer overflow` exacto). El test se
+  salta cuando el compilador del suite es clang (`host_cc_is_clang()`, que
+  pregunta al binario porque en macOS `/usr/bin/gcc` es un shim de clang); el
+  contrato de wrapping se sigue midiendo en todas las plataformas con
+  `test_release_wraps_defined` y `test_release_uses_fwrapv`.
+- **macOS: `nm` prefija los símbolos con `_`.** Los dos `re.search(r"\bpengu_abi_version\b", nm.stdout)`
+  de `tests/runtime/test_abi_version.py` no podían casar nunca con
+  `_pengu_abi_version`, porque `_` es carácter de palabra y no hay frontera
+  `\b` entre `_` y `p` (de ahí el `assert None` del log). Se centralizan dos
+  helpers en `tests/conftest.py`: `nm_symbol_regex()` (regex portable, con
+  lookbehind para no casar `foo_pengu_abi_version`) y `nm_symbol_name()`
+  (normaliza el nombre al de la fuente C, usado por `_nm_defined_symbols()`,
+  que si no dejaría de encontrar el símbolo en los archivos `.a` de Mach-O). El
+  símbolo real no cambia. El mismo helper hace **real** el gate de
+  `test_crash_dump_async_safe.py`: su lista de funciones no async-signal-safe
+  comparaba contra símbolos Mach-O con `_` y no podía encontrar nunca a un
+  infractor en macOS.
+- **macOS: el runtime avisaba con clang (`set but not used`).** `-Wall -Wextra`
+  con clang 23 marca `pengu_sockets_inited` —declarada a nivel de fichero y sólo
+  *leída* dentro del `#if PENGU_WINDOWS`— con
+  `[-Wunused-but-set-global]`, un aviso que gcc no tiene. Por eso
+  `test_runtime_compiles_with_zero_diagnostics` (que exige **cero** diagnósticos)
+  era en la práctica un gate sólo-Linux. Arreglado en la raíz: el flag se declara
+  dentro de la rama de Windows que lo usa, así que el TU compila sin
+  diagnósticos con gcc **y** con clang (medido con los dos) sin relajar la
+  aserción.
+- **macOS: `script(1)` es el de BSD.** `tests/cli/test_cli_color.py` lanzaba
+  `script -qec "cmd" /dev/null` para conseguir un pty; `-e`/`-c` son de
+  util-linux y el `script` de Apple muere con *"illegal option -- e"*, así que
+  los dos tests de color en terminal fallaban. `_pty_argv()` construye el argv
+  por plataforma (`script -q /dev/null cmd…` en BSD) y en Linux sigue usando
+  `-qec` con `shlex.join`.
+- **macOS: `"stripped"` es vocabulario de ELF.** `test_build_runtime_link.py`
+  confirmaba con `file` que la salida de tcc va *stripped*; el `file` de BSD
+  describe un Mach-O como `Mach-O 64-bit executable arm64`, sin esa palabra. La
+  propiedad se comprueba ahora donde está de verdad —`nm` no reporta ningún
+  símbolo `pengu_*`— y el needle de `file` queda como segunda opinión sólo en
+  Linux.
+- **macOS arm64: cinco tests más morían en la misma física.** Además de
+  `test_crash_signals.py`, `tests/cli/test_cli_signal_exit.py` (cinco tests que
+  lanzan `pengu test`/`run` con `1/0`) esperaba `SIGFPE_EXIT = 128 + 8` literal.
+  Pasa a `128 + signal.SIGFPE` y los cinco se saltan en AArch64 con la razón
+  medida; `test_exit_code_helper_unit` (puro) sigue corriendo en todas partes.
+- **Windows: rutas `/tmp` hardcodeadas.** `tests/runtime/test_result_io_api.py`
+  metía `"/tmp"`, `"/tmp/pengu_result_io.txt"` y `"/tmp/pengu_legacy_io.txt"`
+  dentro de programas Pengu (en Windows no existe `/tmp`, y MinGW resuelve
+  `/tmp/x` a `C:\tmp\x`, que no se puede abrir) y `tests/runtime/test_runtime_c99.py`
+  escribía el objeto en `/tmp/_pengu_runtime_probe.o`. Los dos usan ahora la
+  ruta temporal de la plataforma (`tmp_path` / `tempfile.gettempdir()`), con
+  separadores `/` en el literal Pengu para no chocar con los escapes.
+- **Windows: el contrato `128 + señal` es POSIX.** Un hijo que falla en Windows
+  termina con un NTSTATUS (`0xC0000094` = 3221225620), no con `128 + signo`:
+  `pengu_win_exception_handler` devuelve `EXCEPTION_EXECUTE_HANDLER` a propósito.
+  Los tests que dependen de esa convención (`test_cli_signal_exit.py`,
+  `test_cli_error_reporter.py::test_signal_termination_is_not_swallowed`,
+  `test_crash_signals.py`) se saltan en Windows con `requires_posix_signal_exit`;
+  los que sólo comprueban el mapeo puro siguen corriendo.
+- **Windows: el enlace a mano usaba banderas de POSIX.**
+  `tests/features/test_modules_bindings.py` enlazaba con `gcc … -lm -ldl` y
+  nombraba el artefacto `test_app.exe`; MinGW no tiene `libdl` ni falta que le
+  hace. Usa la escalera de compiladores del suite, `runtime_tail_flags()` (que ya
+  devuelve la cola correcta por plataforma) y el sufijo `.exe` sólo en Windows.
+- **Windows: el único end-to-end de `pengu_runtime.h` se saltaba en silencio.**
+  `tests/runtime/test_crash_handler_atomic.py` comprobaba
+  `build/tcc-dist/tcc-dist/bin/tcc`, que en Windows es `tcc.exe`; nunca existía y
+  el test se saltaba. Ahora pregunta a `pengu_tcc.find_tcc()`, que es la misma
+  búsqueda que usa el producto (y también honra `PENGU_TCC`).
+
+### Added
+
+- **`test_sanitizer_and_profile_flags_do_not_conflict`** (`tests/runtime/test_overflow_policy.py`):
+  fija que un perfil y un sanitizer nunca pidan **las dos políticas de overflow a
+  la vez** (`-ftrapv` de debug y `-fwrapv` de release son excluyentes), con
+  `PENGU_CFLAGS` inyectando `-fsanitize=signed-integer-overflow` y con
+  `--release-unsafe` como vía de escape.
+- **`tests/conftest.py`** centraliza los hechos de plataforma que los tests
+  dependientes del sistema compartían por copia: `FAULT_SIGNALS`,
+  `DIVISION_BY_ZERO_TRAPS`, `ASAN_DETECT_LEAKS_SUPPORTED`,
+  `POSIX_SIGNAL_EXIT_CODES` / `requires_posix_signal_exit`, `nm_symbol_regex()`,
+  `nm_symbol_name()` y `host_cc_is_clang()`.
+
 ## [Unreleased] — CI: de 10 workflows a 3
 
 > Cada PR disparaba unas **6 ejecuciones completas** de la suite (ci + compliance

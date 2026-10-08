@@ -30,6 +30,7 @@ import subprocess
 import pytest
 
 from tests.conftest import (
+    ASAN_DETECT_LEAKS_SUPPORTED,
     BUILD_DIR,
     BUILD_INCLUDE,
     BUILD_LIB,
@@ -518,6 +519,15 @@ def test_valgrind_reassign_loop_is_leak_free(tmp_path):
         )
         return
 
+    if not ASAN_DETECT_LEAKS_SUPPORTED:
+        # macOS ships libclang_rt.asan without LeakSanitizer: with
+        # `detect_leaks=1` the process aborts with "detect_leaks is not
+        # supported on this platform" (exit -6) and the failure says nothing
+        # about the program.  Use valgrind there (the branch above) or skip.
+        pytest.skip(
+            "AddressSanitizer's detect_leaks is not supported on this platform "
+            "(macOS); install valgrind to run this leak gate here"
+        )
     # Probe for a working ASan runtime before relying on it.
     probe_src = tmp_path / "probe.c"
     probe_src.write_text("int main(void){return 0;}", encoding="utf-8")

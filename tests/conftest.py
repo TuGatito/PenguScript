@@ -13,9 +13,12 @@ Archives under ``build/lib`` are optional: tests that need a specific C
 library use :func:`have_lib` / the ``requires_*`` skip markers so the suite
 stays green on a fresh checkout that has not run ``build_runtime.py`` yet.
 """
+import functools
 import os
+import platform
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -124,6 +127,120 @@ requires_no_sanitizer = pytest.mark.skipif(
 def requires_no_sanitizer_reason(reason: str):
     """`requires_no_sanitizer`, with a reason specific to the test it decorates."""
     return pytest.mark.skipif(SANITIZERS_ACTIVE, reason=reason)
+
+
+# --------------------------------------------------------------------------
+# Platform facts the platform-dependent tests share
+#
+# Signal *numbers* and their `nm` spelling are the two things that differ most
+# between the three CI runners (macOS SIGBUS is 10, Linux is 7; Mach-O prefixes
+# C symbols with `_`).  Both are derived from the running interpreter instead of
+# being written down as literals.
+# --------------------------------------------------------------------------
+
+#: True when a child killed by a fault is reported as a POSIX signalled process,
+#: i.e. when the `128 + signo` contract exists at all.
+#:
+#: POSIX has it (`subprocess` reports a negative status, and the CLI remaps it).
+#: Windows does not: an integer division by zero raises an SEH exception, and
+#: `pengu_win_exception_handler` deliberately returns `EXCEPTION_EXECUTE_HANDLER`
+#: so the process dies with the NTSTATUS (0xC0000094 = 3221225620), never 136.
+POSIX_SIGNAL_EXIT_CODES = os.name != "nt"
+
+requires_posix_signal_exit = pytest.mark.skipif(
+    not POSIX_SIGNAL_EXIT_CODES,
+    reason="POSIX-only contract: on Windows a faulting child exits with an "
+           "NTSTATUS (0xC0000094), not 128 + signo",
+)
+
+
+def _fault_signal(name: str) -> Optional["tuple[str, int]"]:
+    """`(name, 128 + signo)` for a fault signal, or None when it has no number.
+
+    The exit status the crash handler produces is `128 + signo` on every POSIX
+    system, but the *number* is platform-specific, and Windows does not define
+    every name (`signal.SIGBUS` is absent there), so this must not be a literal.
+    """
+    signo = getattr(signal, name, None)
+    if signo is None:
+        return None
+    return (name, 128 + int(signo))
+
+
+#: Fault signals `pengu_install_crash_handler()` installs, with the exit status
+#: the handler produces for each.  Built from the `signal` module, never from
+#: literals: macOS `SIGBUS` is 10 (138), Linux `SIGBUS` is 7 (135).
+FAULT_SIGNALS = [
+    pair
+    for pair in (_fault_signal(n) for n in ("SIGFPE", "SIGILL", "SIGBUS", "SIGSEGV"))
+    if pair is not None
+]
+
+#: True when an integer division by zero actually raises `SIGFPE`.
+#:
+#: x86 traps; AArch64's `SDIV` returns 0 for a zero divisor, so the program runs
+#: to completion and the crash handler is never reached (measured on the macOS
+#: arm64 runner: the program printed `0` and exited 0).
+DIVISION_BY_ZERO_TRAPS = platform.machine().lower() not in ("arm64", "aarch64")
+
+#: True when AddressSanitizer's LeakSanitizer can actually run.
+#:
+#: macOS ships libclang_rt.asan without LeakSanitizer: `detect_leaks=1` aborts
+#: the process with "detect_leaks is not supported on this platform" (exit -6),
+#: so a leak gate there has to use valgrind or skip.
+ASAN_DETECT_LEAKS_SUPPORTED = sys.platform != "darwin"
+
+
+def nm_symbol_regex(name: str) -> str:
+    """Regex matching `name` in `nm` output on ELF *and* Mach-O.
+
+    Mach-O (macOS) prefixes C symbols with an underscore (`_pengu_abi_version`),
+    and `_` is a word character, so a plain ``\\bname\\b`` can never match there:
+    ``\\b`` does not exist between `_` and `p`.  The leading underscore is
+    optional here, and the lookbehind keeps `not_name` from matching.
+    """
+    return rf"(?<![A-Za-z0-9_])_?{re.escape(name)}\b"
+
+
+def nm_symbol_name(symbol: str) -> str:
+    """Normalizes one `nm` symbol to the name the C source used.
+
+    Mach-O prefixes every C symbol with `_` (`_pengu_abi_version`); ELF does not.
+    Stripping exactly one underscore on Darwin maps both spellings onto the
+    source name, including a symbol that legitimately begins with `_` (which
+    Mach-O prints as `__name`).  Windows/COFF `nm` output is not affected.
+    """
+    if sys.platform == "darwin" and symbol.startswith("_"):
+        return symbol[1:]
+    return symbol
+
+
+def _host_cc() -> str:
+    """The compiler `compile_run` prefers (same order, so both agree)."""
+    for cand in ("gcc", "clang", "cc"):
+        if have_tool(cand):
+            return cand
+    return ""
+
+
+@functools.lru_cache(maxsize=1)
+def host_cc_is_clang() -> bool:
+    """True when the suite's compiler is clang, whatever it is called.
+
+    macOS ships `/usr/bin/gcc` as a shim for clang, so the *name* is not enough:
+    the question is answered by asking the compiler.  Used to skip (with a
+    reason) assertions that are GCC semantics, e.g. `-fwrapv` silencing UBSan's
+    signed-overflow report.
+    """
+    cc = _host_cc()
+    if not cc:
+        return False
+    try:
+        res = subprocess.run([cc, "--version"], capture_output=True, text=True,
+                             timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "clang" in (res.stdout + res.stderr).lower()
 
 
 def build_leakcheck(tmp_path: Path) -> Path:

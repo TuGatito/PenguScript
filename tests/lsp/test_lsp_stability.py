@@ -11,6 +11,7 @@ didOpen/validate dominates; the largest per-request cost is
 separately (roadmap 5.9, deferred to 1.1 with measurement).
 """
 
+import os
 import time
 
 from lsprotocol.types import (
@@ -19,6 +20,7 @@ from lsprotocol.types import (
     CodeActionParams,
     CompletionParams,
     DefinitionParams,
+    DidOpenTextDocumentParams,
     DocumentFormattingParams,
     DocumentSymbolParams,
     HoverParams,
@@ -31,6 +33,7 @@ from lsprotocol.types import (
     RenameParams,
     SemanticTokensParams,
     TextDocumentIdentifier,
+    TextDocumentItem,
     WorkspaceSymbolParams,
 )
 
@@ -58,6 +61,17 @@ BASELINE_MS = {
 CEILING_MS = {name: 60000 for name in BASELINE_MS}
 CEILING_MS["semanticTokens"] = 30000
 CEILING_MS["didOpen"] = 120000
+
+#: Every per-request ceiling above can be replaced by a single value, in
+#: seconds, through ``PENGU_LSP_STABILITY_TIMEOUT``. CI sets 300 because a
+#: shared runner is an order of magnitude slower than the reference machine, and
+#: a *timeout* here should mean "the server hung", not "the runner was busy".
+#: The 103 s Linux / 208 s macOS `workspaceSymbol` measurements that motivated
+#: the knob were a real bug -- a leaked loose buffer (``file:///nav.pengu``) put
+#: `/` in the workspace roots and `declaration_details` walked the whole
+#: filesystem -- and it is fixed in `pengu_lsp.code_actions.unscannable_root`
+#: (regression test below). The override stays as a safety valve, not as cover.
+CEILING_OVERRIDE_S = float(os.environ.get("PENGU_LSP_STABILITY_TIMEOUT", "0") or 0)
 
 LINE_TARGET = 10000
 
@@ -166,10 +180,13 @@ def test_stability_13_requests_on_10k_lines(tmp_path, monkeypatch):
         f"  {name:16} {timings[name]:9.1f} ms (baseline {BASELINE_MS[name]} ms)"
         for name in BASELINE_MS
     )
-    print(f"[LSP stability @ {len(source.splitlines())} lines]\n{report}")
+    suffix = f" [ceiling override {CEILING_OVERRIDE_S:.0f} s]" if CEILING_OVERRIDE_S else ""
+    print(f"[LSP stability @ {len(source.splitlines())} lines]{suffix}\n{report}")
 
     assert not failures, f"requests failed at 10k lines: {failures}"
     for name, ceiling in CEILING_MS.items():
+        if CEILING_OVERRIDE_S > 0:
+            ceiling = CEILING_OVERRIDE_S * 1000
         assert timings[name] < ceiling, (
             f"{name} took {timings[name]:.0f} ms (ceiling {ceiling} ms)"
         )
@@ -183,3 +200,37 @@ def test_stability_13_requests_on_10k_lines(tmp_path, monkeypatch):
     # The corpus is real code: checking it must publish no diagnostics at all.
     assert published and published[-1][0] == uri
     assert published[-1][1] == [], f"10k corpus is not clean: {published[-1][1][:1]}"
+
+
+def test_loose_buffer_never_indexes_the_filesystem_root(tmp_path):
+    """A root-level buffer must not make `workspace/symbol` walk `/`.
+
+    `server._docs` is process-wide and outlives the request that opened a
+    buffer: `file:///nav.pengu` (a scratch buffer an earlier test opened) has no
+    project of its own, so `_project_root_for_path` returns `/`. The old
+    fallback kept that `/`, `declaration_details` ran `os.walk('/')` and
+    `workspaceSymbol` measured 103 s on Linux and 208 s on macOS in CI — the
+    failure this module exists to catch, reproduced in isolation.
+    """
+    from pengu_lsp import server as S
+    from pengu_lsp.server import server
+
+    saved = dict(server._docs)
+    try:
+        S.did_open(DidOpenTextDocumentParams(text_document=TextDocumentItem(
+            uri="file:///nav.pengu", language_id="pengus", version=1,
+            text="weave main into int:\n    return 0\n")))
+        roots = S._workspace_roots()
+        assert os.path.abspath(os.sep) not in roots, (
+            f"a loose buffer put the filesystem root in the workspace roots: {roots}"
+        )
+        # And the index really is bounded: a query returns fast instead of
+        # sweeping the disk (the ceiling is the 10k-line test's own budget).
+        start = time.perf_counter()
+        S.workspace_symbols(WorkspaceSymbolParams(query="main"))
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        assert elapsed_ms < 5000, f"workspace/symbol indexed the filesystem: {elapsed_ms:.0f} ms"
+    finally:
+        server._docs.clear()
+        server._docs.update(saved)
+        S.clear_symbol_caches()

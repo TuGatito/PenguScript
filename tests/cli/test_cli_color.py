@@ -14,6 +14,7 @@ plain runs differ *only* by ANSI sequences.
 
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -24,6 +25,19 @@ from tests.conftest import REPO
 
 PENGU = [sys.executable, str(REPO / "pengu_project.py")]
 ANSI_RE = re.compile(rb"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _pty_argv(command):
+    """`script(1)` argv that runs `command` on a pseudo-terminal, portably.
+
+    util-linux (Linux) takes the command as one `-c` *string* and has its own
+    `-e` flag; BSD (macOS) takes it as trailing argv and has neither option, so
+    `script -qec ...` dies there with "illegal option -- e". Windows has no
+    `script`, which the callers already guard with `shutil.which`.
+    """
+    if sys.platform == "darwin" or "bsd" in sys.platform:
+        return ["script", "-q", os.devnull, *command]
+    return ["script", "-qec", shlex.join(command), os.devnull]
 
 
 def _run(args, cwd=None, env=None, text=False):
@@ -75,7 +89,7 @@ def test_no_color_only_changes_the_ansi_sequences(project):
     """Coloured (pty) and plain runs must be identical once escapes are stripped."""
     env = {k: v for k, v in os.environ.items() if k != "NO_COLOR"}
     coloured = subprocess.run(
-        ["script", "-qec", " ".join(PENGU) + " check", "/dev/null"],
+        _pty_argv([*PENGU, "check"]),
         capture_output=True, timeout=180, cwd=str(project), env=env,
     )
     assert coloured.returncode == 0, coloured.stderr
@@ -125,7 +139,7 @@ def test_tty_output_has_ansi(project):
     """On a real terminal the banner is coloured, which is the point of the flag."""
     env = {k: v for k, v in os.environ.items() if k != "NO_COLOR"}
     res = subprocess.run(
-        ["script", "-qec", " ".join(PENGU) + " check", "/dev/null"],
+        _pty_argv([*PENGU, "check"]),
         capture_output=True, timeout=180, cwd=str(project), env=env,
     )
     assert res.returncode == 0, res.stderr

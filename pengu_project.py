@@ -1166,10 +1166,27 @@ class PenguBuilder:
                         dirs[:] = []
                         continue
                     for f in files:
-                        if f.endswith(".h"):
-                            hp = os.path.join(root, f)
-                            if os.path.getmtime(hp) > bundle_mtime:
-                                return False
+                        if not f.endswith(".h"):
+                            continue
+                        # `pengu_runtime.h` is the *toolchain's* header, and the
+                        # copies that live in a shared include root
+                        # (`build/include/...`, written by build_runtime.py, or
+                        # the installer's `$PREFIX/include/pengu/...`) are
+                        # derived artifacts refreshed out of band. They are
+                        # byte-identical to the canonical header in the
+                        # checkout, yet the refresh gives them a fresh mtime, so
+                        # walking them made one project's header sync throw away
+                        # every other project's still-valid cache entry -- the
+                        # race that `-n auto` turned into
+                        # `test_unchanged_sources_are_cached` failing on Linux
+                        # and macOS while it passed in isolation. The canonical
+                        # header is tracked by explicit path below, so a real
+                        # runtime change still invalidates the bundle.
+                        if f == "pengu_runtime.h":
+                            continue
+                        hp = os.path.join(root, f)
+                        if os.path.getmtime(hp) > bundle_mtime:
+                            return False
             except Exception:
                 pass
 
@@ -1179,9 +1196,15 @@ class PenguBuilder:
             if os.path.isfile(cfp) and os.path.getmtime(cfp) > bundle_mtime:
                 return False
 
+        # The include-dir walk above deliberately skips `pengu_runtime.h` copies:
+        # they are the toolchain's own derived headers and are refreshed in
+        # place. The *canonical* header is an input, so it is checked here, by
+        # path, including a project-vendored copy under the project's include
+        # directory.
         runtime_candidates = [
             os.path.join(self.config.base_dir, "pengu_parser", "pengu_runtime.h"),
             os.path.join(self.config.base_dir, "pengu_runtime.h"),
+            os.path.join(self.config.base_dir, "include", "pengu_runtime.h"),
             os.path.join(os.path.dirname(os.path.abspath(__file__)), "pengu_parser", "pengu_runtime.h"),
             os.path.join(os.path.dirname(os.path.abspath(__file__)), "pengu_runtime.h"),
         ]

@@ -20,7 +20,7 @@ import sys
 
 import pytest
 
-from tests.conftest import BUILD_LIB, REPO, requires_cc, requires_runtime
+from tests.conftest import BUILD_LIB, REPO, nm_symbol_name, requires_cc, requires_runtime
 
 PENGU = [sys.executable, str(REPO / "pengu_project.py")]
 
@@ -144,10 +144,21 @@ def test_tcc_output_is_stripped_so_nm_cannot_verify_the_pin(tmp_path):
     if res.returncode != 0:
         pytest.skip(f"bundled tcc cannot link a minimal program: {res.stderr.strip()}")
 
-    file_out = subprocess.run(["file", str(exe)], capture_output=True, text=True, timeout=60)
-    assert "stripped" in file_out.stdout, (
-        "tcc no longer strips its output; the ABI pin can now be verified under "
-        f"tcc and docs/ABI.md should say so: {file_out.stdout}"
-    )
+    # The observable property is "the output carries no runtime symbols". `nm`
+    # proves it on every platform (a stripped Mach-O prints "no symbols" on
+    # stderr, so stdout is empty). The `file` needle is only a second opinion and
+    # is Linux-only: "stripped"/"not stripped" is ELF vocabulary that BSD `file`
+    # never prints for a Mach-O image.
     nm = subprocess.run(["nm", str(exe)], capture_output=True, text=True, timeout=60)
-    assert "pengu_abi_version" not in nm.stdout
+    symbols = [nm_symbol_name(line.split()[-1])
+               for line in nm.stdout.splitlines() if line.strip()]
+    assert not [s for s in symbols if "pengu_" in s], (
+        "tcc no longer strips its output; the ABI pin can now be verified under "
+        f"tcc and docs/ABI.md should say so: {nm.stdout}{nm.stderr}"
+    )
+    if sys.platform.startswith("linux"):
+        file_out = subprocess.run(["file", str(exe)], capture_output=True, text=True, timeout=60)
+        assert "stripped" in file_out.stdout, (
+            "tcc no longer strips its output; the ABI pin can now be verified under "
+            f"tcc and docs/ABI.md should say so: {file_out.stdout}"
+        )
