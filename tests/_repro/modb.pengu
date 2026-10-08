@@ -1,0 +1,3 @@
+## A *generic* `f` in module B: same simple name, different module.
+weave f shard T where T: Num with x as T into T:
+    return x

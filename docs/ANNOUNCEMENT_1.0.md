@@ -129,7 +129,7 @@ the whole tree is bit-reproducible, because it is not: the VS Code extension is
 packaged by `vsce` (a zip, which records entry times) and the shipped
 precompiled header is written by gcc. What *is* gated is that re-archiving the
 same tree is byte-identical (`make_archive`, sorted entries + constant mtime,
-`tests/test_reproducible_release.py`), and that everything derived from the
+`tests/tooling/test_reproducible_release.py`), and that everything derived from the
 sources — the frozen compiler, the runtime archives, `std/`, `VERSION` — matches
 run to run. Closing those last two is tracked as a 1.1 candidate in
 [`ROADMAP_1.1.md`](../ROADMAP_1.1.md).
@@ -143,7 +143,7 @@ embeds interpreter paths); on this machine it was identical run to run. See
 ```console
 $ pytest tests/test_compliance_corpus.py -q   # 54 programs: check, build, execute
 $ pytest tests/test_migration_corpus.py -q    # 11 programs, one per version line
-$ pytest tests/test_freeze_manifest.py -q     # the frozen surface vs the tree
+$ pytest tests/tooling/test_freeze_manifest.py -q     # the frozen surface vs the tree
 $ pytest tests/test_release_claims.py -q      # every release claim has a gate
 $ pengu -V                                    # pengu 1.0.0
 ```
@@ -179,7 +179,7 @@ explicit and needs `actions: write`). A signed, human-pushed tag already trigger
 the two cannot publish twice. `release.yml` then dispatches
 `release-verify.yml`, which downloads the published artifacts and runs them
 (`pengu -V` must match the tag). The invariants are gated by
-`tests/test_release_handoff.py`; the full sequence is in [`RELEASE.md`](RELEASE.md)
+`tests/tooling/test_release_handoff.py`; the full sequence is in [`RELEASE.md`](RELEASE.md)
 §2.
 
 No GPG signature is produced for the artifacts: no release key exists

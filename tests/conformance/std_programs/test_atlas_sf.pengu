@@ -1,0 +1,130 @@
+import std.spark
+import std.atlas
+
+test "std_programs/test_atlas_sf":
+    calling spark.println with "=== Test Atlas (String -> Float) ==="
+
+    var m as map of string to float is map of string to float
+    calling spark.assert with (calling m.is_empty)
+    calling spark.assert with (calling m.size == 0)
+
+    # 1. Insertion & basic access
+    calling m.put with "alpha", 1.5
+    calling m.put with "beta", -2.5
+    calling m.put with "gamma", 10.0
+    calling spark.assert with (not (calling m.is_empty))
+    calling spark.assert with (calling m.size == 3)
+    calling spark.assert with (calling m.has_key with "beta")
+    calling spark.assert with (not (calling m.has_key with "delta"))
+
+    # 2. get_or and get_safe
+    calling spark.assert with ((calling m.get_or with "alpha", 0.0) == 1.5)
+    calling spark.assert with ((calling m.get_or with "missing", 99.9) == 99.9)
+
+    var opt1 as maybe float is calling m.get_safe with "beta"
+    calling spark.assert with (opt1.is_present)
+    if opt1.is_present:
+        calling spark.assert with (opt1.value == -2.5)
+
+    var opt2 as maybe float is calling m.get_safe with "missing"
+    calling spark.assert with (not opt2.is_present)
+
+    # 3. Predicates & reductions
+    calling spark.assert with (not (calling m.all_values_positive))
+    calling spark.assert with (calling m.any_value_negative)
+    calling spark.assert with (calling m.values_in_range with -3.0, 15.0)
+    calling spark.assert with (not (calling m.values_in_range with 0.0, 15.0))
+    calling spark.assert with (calling m.count_if_value_positive == 2)
+    calling spark.assert with (calling m.count_if_value_negative == 1)
+
+    calling spark.assert with ((calling m.sum_values) == 9.0)
+    calling spark.assert with ((calling m.max_value) == 10.0)
+    calling spark.assert with ((calling m.min_value) == -2.5)
+
+    # 4. Update & rename
+    var up_ok as bool is calling m.update with "beta", 5.0
+    calling spark.assert with up_ok
+    calling spark.assert with ((calling m.get_or with "beta", 0.0) == 5.0)
+    calling spark.assert with (calling m.all_values_positive)
+    var up_fail as bool is calling m.update with "nonexistent", 1.0
+    calling spark.assert with (not up_fail)
+
+    var ren_ok as bool is calling m.rename_key with "beta", "beta_new"
+    calling spark.assert with ren_ok
+    calling spark.assert with (not (calling m.has_key with "beta"))
+    calling spark.assert with (calling m.has_key with "beta_new")
+    calling spark.assert with ((calling m.get_or with "beta_new", 0.0) == 5.0)
+
+    # 5. Keys, values and sorted keys
+    var ks as list of string is calling m.keys
+    calling spark.assert with (ks.len == 3)
+    var vs as list of float is calling m.values
+    calling spark.assert with (vs.len == 3)
+    var sorted_ks as list of string is calling m.keys_sorted
+    calling spark.assert with (sorted_ks.len == 3)
+    # Alphabetical order: alpha, beta_new, gamma
+    calling spark.assert with ((sorted_ks at 0) == "alpha")
+    calling spark.assert with ((sorted_ks at 1) == "beta_new")
+    calling spark.assert with ((sorted_ks at 2) == "gamma")
+
+    # 6. Transformations and filters
+    var scaled as map of string to float is calling m.map_values_scale with 2.0
+    calling spark.assert with ((calling scaled.get_or with "alpha", 0.0) == 3.0)
+    calling spark.assert with ((calling scaled.get_or with "gamma", 0.0) == 20.0)
+
+    var negated as map of string to float is calling m.map_values_negate
+    calling spark.assert with ((calling negated.get_or with "alpha", 0.0) == -1.5)
+
+    var f_sub as map of string to float is calling m.filter_keys_contains with "beta"
+    calling spark.assert with (calling f_sub.size == 1)
+    calling spark.assert with (calling f_sub.has_key with "beta_new")
+
+    var f_rng as map of string to float is calling m.filter_values_range with 2.0, 6.0
+    calling spark.assert with (calling f_rng.size == 1)
+    calling spark.assert with (calling f_rng.has_key with "beta_new")
+
+    # 7. remove & remove_all & clear
+    var rem_one as bool is calling m.remove with "alpha"
+    calling spark.assert with rem_one
+    calling spark.assert with (calling m.size == 2)
+
+    var to_rem as list of string is list of string
+    calling to_rem.push with "beta_new"
+    calling to_rem.push with "gamma"
+    var rem_count as int is calling m.remove_all with to_rem
+    calling spark.assert with (rem_count == 2)
+    calling spark.assert with (calling m.size == 0)
+
+    # 8. Binary ops (merge, from_lists)
+    var a as map of string to float is map of string to float
+    calling a.put with "k1", 1.0
+    calling a.put with "common", 10.0
+
+    var b as map of string to float is map of string to float
+    calling b.put with "k2", 2.0
+    calling b.put with "common", 20.0
+
+    var merged as map of string to float is calling atlas.merge_sf with a, b
+    calling spark.assert with (calling merged.size == 3)
+    calling spark.assert with ((calling merged.get_or with "common", 0.0) == 20.0)
+
+    var merged_l as map of string to float is calling atlas.merge_keep_left_sf with a, b
+    calling spark.assert with (calling merged_l.size == 3)
+    calling spark.assert with ((calling merged_l.get_or with "common", 0.0) == 10.0)
+
+    var lk as list of string is list of string
+    calling lk.push with "rate1"
+    calling lk.push with "rate2"
+    var lv as list of float is list of float
+    calling lv.push with 0.05
+    calling lv.push with 0.12
+    var fl as map of string to float is calling atlas.from_lists_sf with lk, lv
+    calling spark.assert with (calling fl.size == 2)
+    calling spark.assert with ((calling fl.get_or with "rate2", 0.0) == 0.12)
+
+    # 9. Generic module utilities
+    calling spark.assert with ((calling atlas.map_size of string, float with fl) == 2)
+    calling spark.assert with (calling atlas.map_has_key of string, float with fl, "rate1")
+    calling spark.assert with ((calling atlas.map_get_or of string, float with fl, "rate1", 0.0) == 0.05)
+
+    calling spark.println with "atlas_sf: OK"

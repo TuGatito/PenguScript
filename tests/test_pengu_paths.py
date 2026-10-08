@@ -9,6 +9,11 @@ import pengu_version
 from pengu_project import PENGU_VERSION
 from pengu_parser.pengu_symbols import get_stdlib_dirs
 
+# Fast, subprocess-free unit tests: part of the `smoke` tier that
+# `pengu selftest --smoke` runs. Keep it that way -- a smoke test that
+# compiles C is not a smoke test.
+pytestmark = pytest.mark.smoke
+
 
 def test_version_sync():
     """Verify the toolchain version is synchronized across all modules.

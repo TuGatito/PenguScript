@@ -1,0 +1,104 @@
+import std.spark
+import std.ffi
+
+test "std_programs/test_ffi_extended":
+    calling spark.println with "=== Test FFI Extended ==="
+
+    # 1. Version and size constants
+    calling spark.assert with (ffi.FFI_VERSION == "1.0.0")
+    calling spark.assert with (ffi.SIZEOF_INT == 4)
+    calling spark.assert with (ffi.SIZEOF_FLOAT == 8)
+    calling spark.assert with (ffi.SIZEOF_BYTE == 1)
+    calling spark.assert with (ffi.SIZEOF_POINTER == 8)
+    calling spark.assert with ((calling ffi.pointer_size) == 8 or (calling ffi.pointer_size) == 4)
+    calling spark.assert with ((calling ffi.pointer_size_bytes) == (calling ffi.pointer_size))
+
+    # size_of and alignment_of
+    calling spark.assert with ((calling ffi.size_of of int) == 4)
+    calling spark.assert with ((calling ffi.size_of of float) == 4)
+    calling spark.assert with ((calling ffi.size_of of byte) == 1)
+    calling spark.assert with ((calling ffi.alignment_of of float) == 4)
+    calling spark.println with "constants: OK"
+
+    # 2. String <-> C string bridges & bounded helpers
+    var s as string is "hello world"
+    var c as ref to char is calling ffi.cstr_from_string with s
+    var back as string is calling ffi.string_from_cstr with c
+    calling spark.assert with (back == s)
+
+    var bounded as string is calling ffi.string_from_cstr_n with c, 5
+    calling spark.assert with (bounded == "hello")
+
+    var bytes_ptr as ref to byte is calling ffi.bytes_from_string with s
+    var from_b as string is calling ffi.string_from_bytes with bytes_ptr, 5
+    calling spark.assert with (from_b == "hello")
+    calling spark.println with "string bridges: OK"
+
+    # 3. Pointer and null utilities
+    var nv as ref to void is calling ffi.null_void
+    calling spark.assert with (calling ffi.is_null with nv)
+    calling spark.assert with (not (calling ffi.is_valid with nv))
+    calling spark.assert with (not (calling ffi.ptr_is_valid with nv))
+
+    var nc as ref to char is calling ffi.null_char
+    calling spark.assert with (calling ffi.is_null with (transmute nc to ref to void))
+
+    var nb as ref to byte is calling ffi.null_byte
+    calling spark.assert with (calling ffi.is_null with (transmute nb to ref to void))
+
+    var valid_ptr as ref to void is transmute c to ref to void
+    calling spark.assert with (calling ffi.is_valid with valid_ptr)
+    calling spark.assert with (not (calling ffi.is_null with valid_ptr))
+    calling spark.assert with (calling ffi.ptr_eq with valid_ptr, valid_ptr)
+    calling spark.assert with (not (calling ffi.ptr_eq with valid_ptr, nv))
+    calling spark.println with "null utils: OK"
+
+    # 4. Slices from raw buffer
+    var arr as array of int with size 3 is [10, 20, 30]
+    var sl_gen as slice of int is calling ffi.slice_from_ptr of int with (transmute (sigil of arr) to ref to void), 3
+    calling spark.assert with ((sl_gen at 0) == 10)
+    calling spark.assert with ((sl_gen at 1) == 20)
+    calling spark.assert with ((sl_gen at 2) == 30)
+
+    var sl_int as slice of int is calling ffi.slice_of_int_from_ptr with (transmute (sigil of arr) to ref to void), 3
+    calling spark.assert with ((sl_int at 0) == 10)
+    calling spark.assert with ((sl_int at 2) == 30)
+
+    var arr_b as array of byte with size 2 is [65, 66]
+    var sl_b as slice of byte is calling ffi.slice_of_bytes_from_ptr with (transmute (sigil of arr_b) to ref to void), 2
+    calling spark.assert with ((sl_b at 0) == 65)
+    calling spark.assert with ((sl_b at 1) == 66)
+
+    var sl_b_alias as slice of byte is calling ffi.slice_of_byte_from_ptr with (transmute (sigil of arr_b) to ref to void), 2
+    calling spark.assert with ((sl_b_alias at 0) == 65)
+    calling spark.println with "slices: OK"
+
+    # 5. Lists from raw buffer (generic & typed)
+    var lst_gen as list of int is calling ffi.list_from_ptr of int with (transmute (sigil of arr) to ref to void), 3
+    calling spark.assert with ((calling lst_gen.len) == 3)
+    calling spark.assert with ((lst_gen at 0) == 10)
+    calling spark.assert with ((lst_gen at 1) == 20)
+    calling spark.assert with ((lst_gen at 2) == 30)
+
+    var farr as array of float with size 2 is [1.5, 2.5]
+    var flst as list of float is calling ffi.list_from_ptr of float with (transmute (sigil of farr) to ref to void), 2
+    calling spark.assert with ((calling flst.len) == 2)
+    calling spark.assert with ((flst at 0) == 1.5)
+    calling spark.assert with ((flst at 1) == 2.5)
+
+    var lst_int as list of int is calling ffi.list_of_int_from_ptr with (transmute (sigil of arr) to ref to void), 3
+    calling spark.assert with ((calling lst_int.len) == 3)
+    calling spark.assert with ((lst_int at 2) == 30)
+    calling spark.println with "lists: OK"
+
+    # 6. Maps from raw buffers (generic)
+    var ks as array of string with size 2 is ["first", "second"]
+    var vs as array of int with size 2 is [100, 200]
+    var m as map of string to int is calling ffi.map_from_ptr of string, int with (transmute (sigil of ks) to ref to void), (transmute (sigil of vs) to ref to void), 2
+    calling spark.assert with ((calling m.len) == 2)
+    calling spark.assert with (calling m.contains with "first")
+    calling spark.assert with ((calling m.get with "first") == 100)
+    calling spark.assert with ((calling m.get with "second") == 200)
+    calling spark.println with "maps: OK"
+
+    calling spark.println with "ffi extended: OK"

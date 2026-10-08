@@ -1,0 +1,13 @@
+=== Test Tally Extended ===
+length & access: OK
+search: OK
+reductions: OK
+statistics: OK
+transformations: OK
+selection: OK
+combination: OK
+predicates: OK
+filters: OK
+mappings: OK
+enchanting methods: OK
+tally extended: OK

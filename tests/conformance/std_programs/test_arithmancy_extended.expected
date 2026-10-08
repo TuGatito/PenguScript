@@ -1,0 +1,9 @@
+=== Test Arithmancy Extended ===
+constants: OK
+scalar helpers: OK
+Vec2: OK
+Vec3: OK
+Vec4: OK
+Mat4: OK
+Quat: OK
+arithmancy extended: OK

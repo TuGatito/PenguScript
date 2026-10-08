@@ -40,9 +40,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Roadmap 10.3: the corpus is the compiler matrix's workload. `check` is
-        # compiler-independent, so the matrix only changes the `build` stage
-        # (`run_all.py --cc`); each leg compiles and *executes* all 54 programs.
+        # Roadmap 10.3: the corpus is the compiler matrix's workload. The corpus
+        # is compiler-independent now -- one bundle per collision-free group,
+        # executed by the batch runner -- so the matrix only changes which compiler
+        # links that bundle, through PENGU_TEST_CC.
         cc: [gcc, clang]
     steps:
       - name: Checkout
@@ -51,14 +52,20 @@ jobs:
       - name: Set up build environment
         uses: ./.github/actions/setup-pengu
 
-      - name: Run the corpus runner end to end
+      # The 53 programs that tests/compliance/run_all.py used to drive one at a
+      # time are conformance cases now (tests/conformance/compliance/): one build
+      # per collision-free group plus one spawn per case, instead of 53
+      # check+build+run cycles. Measured at ~9 s for the 56-case corpus.
+      - name: Run the migrated corpus under the batch runner
+        env:
+          PENGU_TEST_CC: ${{ matrix.cc }}
         run: |
-          python tests/compliance/run_all.py --cc ${{ matrix.cc }}
+          python -m pytest tests/test_conformance.py -m conformance \
+            -q -p no:cacheprovider --timeout=1800
 
-      # The pytest wrapper does not vary by compiler (it drives the default one),
-      # so running it twice would buy nothing: the matrix legs above are what
-      # prove the corpus under each compiler.
-      - name: Run the corpus under pytest
+      # Documentation-coverage gate: every migrated case still pins a real,
+      # numbered LANGUAGE.md section. Compiler-independent, so one leg runs it.
+      - name: Check the corpus still pins LANGUAGE.md
         if: matrix.cc == 'gcc'
         run: |
           python -m pytest tests/test_compliance_corpus.py -q -p no:cacheprovider --timeout=1800

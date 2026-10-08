@@ -1,0 +1,13 @@
+=== Test Compass Extended ===
+version: OK
+aliases and basenames: OK
+extension manipulations: OK
+filename replacement: OK
+hidden files: OK
+unc paths: OK
+wildcards and glob: OK
+components: OK
+cwd and absolute: OK
+path rune methods: OK
+path filesystem methods: OK
+compass extended: OK

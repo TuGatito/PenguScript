@@ -1,0 +1,115 @@
+import std.lot
+import std.spark
+
+test "std_programs/test_lot_extended":
+    # Seed for determinism
+    calling lot.seed with 42
+
+    # Basics in range
+    var r as int is calling lot.rand_range with 1 , 6
+    calling spark.assert with (r >= 1 and r <= 6)
+
+    var r_bet as int is calling lot.rand_between with 10 , 20
+    calling spark.assert with (r_bet >= 10 and r_bet <= 20)
+
+    var f as float is calling lot.rand_float
+    calling spark.assert with (f >= 0.0 and f < 1.0)
+
+    var f_uni as float is calling lot.rand_uniform with 5.0 , 15.0
+    calling spark.assert with (f_uni >= 5.0 and f_uni <= 15.0)
+
+    # rand_bit, rand_sign
+    var b as int is calling lot.rand_bit
+    calling spark.assert with (b == 0 or b == 1)
+    var s as int is calling lot.rand_sign
+    calling spark.assert with (s == -1 or s == 1)
+
+    var coin as bool is calling lot.rand_coin
+    calling spark.assert with (coin == true or coin == false)
+
+    var bw as bool is calling lot.rand_bool_with with 1.0
+    calling spark.assert with (bw == true)
+
+    # Choice
+    var xs as list of int is list of int
+    calling xs.push with 10
+    calling xs.push with 20
+    calling xs.push with 30
+    var ch as maybe int is calling lot.choice with xs
+    calling spark.assert with (ch is present) == true
+
+    # Choice string
+    var words as list of string is list of string
+    calling words.push with "alpha"
+    calling words.push with "beta"
+    var chs as maybe string is calling lot.choice_string with words
+    calling spark.assert with (chs is present) == true
+
+    # Choice weighted
+    var w as list of int is list of int
+    calling w.push with 1
+    calling w.push with 99
+    var chw as maybe string is calling lot.choice_weighted_string with words , w
+    calling spark.assert with (chw is present) == true
+
+    var chwi as maybe int is calling lot.choice_weighted with xs , (list of int)
+    calling spark.assert with (chwi is not present) == true
+
+    # Shuffle
+    var sh as list of int is calling lot.shuffle with xs
+    calling spark.assert with (sh.len == 3)
+
+    var shs as list of string is calling lot.shuffle_string with words
+    calling spark.assert with (shs.len == 2)
+
+    # Sample
+    var sa as list of int is calling lot.sample with xs , 2
+    calling spark.assert with (sa.len == 2)
+
+    var sas as list of string is calling lot.sample_string with words , 1
+    calling spark.assert with (sas.len == 1)
+
+    # Sample with replacement
+    var sr as list of int is calling lot.sample_with_replacement with xs , 5
+    calling spark.assert with (sr.len == 5)
+
+    # Permutation
+    var perm as list of int is calling lot.permutation with 4
+    calling spark.assert with (perm.len == 4)
+
+    # Strings
+    var astr as string is calling lot.rand_alpha with 8
+    calling spark.assert with (astr.len == 8)
+
+    var dstr as string is calling lot.rand_digit_string with 6
+    calling spark.assert with (dstr.len == 6)
+
+    var alnum as string is calling lot.rand_alnum_string with 10
+    calling spark.assert with (alnum.len == 10)
+
+    var h as string is calling lot.rand_hex_string with 16
+    calling spark.assert with (h.len == 16)
+
+    var pwd as string is calling lot.rand_password with 12 , true
+    calling spark.assert with (pwd.len == 12)
+
+    var bhex as string is calling lot.rand_bytes_hex with 4
+    calling spark.assert with (bhex.len == 8)
+
+    # Distributions
+    var g as float is calling lot.rand_normal with 0.0 , 1.0
+    var gs as float is calling lot.rand_gauss with 10.0 , 1.0
+    var lg as float is calling lot.rand_lognormal with 0.0 , 1.0
+    var wb as float is calling lot.rand_weibull with 1.0 , 1.0
+    calling spark.assert with (wb >= 0.0)
+
+    var tr as float is calling lot.rand_triangular with 0.0 , 5.0 , 10.0
+    calling spark.assert with (tr >= 0.0 and tr <= 10.0)
+
+    var gm as float is calling lot.rand_gamma with 2.0 , 1.0
+    calling spark.assert with (gm >= 0.0)
+
+    var bt as float is calling lot.rand_beta with 2.0 , 2.0
+    calling spark.assert with (bt >= 0.0 and bt <= 1.0)
+
+    calling spark.println with "lot extended: OK"

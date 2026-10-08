@@ -1,0 +1,8 @@
+=== Test Coven Extended ===
+constructors & basic: OK
+string set algebra: OK
+string filters: OK
+int set basic: OK
+int set algebra: OK
+int reductions: OK
+coven extended: OK

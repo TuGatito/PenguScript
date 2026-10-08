@@ -1,0 +1,74 @@
+import std.ffi
+import std.arithmancy
+import std.seal
+import std.regulus
+import std.precis
+import std.parchment
+import std.spark
+
+test "std_programs/backward_compat_integration":
+    # 1. Baseline arithmancy
+    var a1 as int is calling arithmancy.abs_i with -42
+    calling spark.assert with (a1 == 42)
+
+    var a2 as int is calling arithmancy.min_i with 10 , 20
+    calling spark.assert with (a2 == 10)
+
+    var a3 as int is calling arithmancy.max_i with 10 , 20
+    calling spark.assert with (a3 == 20)
+
+    var a4 as int is calling arithmancy.clamp_i with 15 , 0 , 10
+    calling spark.assert with (a4 == 10)
+
+    var a5 as int is calling arithmancy.clamp_i with -5 , 0 , 10
+    calling spark.assert with (a5 == 0)
+
+    var a6 as float is calling arithmancy.deg_to_rad with 180.0
+    calling spark.assert with (a6 > 3.14)
+
+    var a7 as float is calling arithmancy.rad_to_deg with 3.14159265
+    calling spark.assert with (a7 > 179.0)
+
+    # 2. Baseline seal
+    var s_sha as string is calling seal.sha256 with "hello"
+    calling spark.assert with (s_sha == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
+
+    var s_md5 as string is calling seal.md5 with "hello"
+    calling spark.assert with (s_md5 == "5d41402abc4b2a76b9719d911017c592")
+
+    var s_c32 as int is calling seal.crc32 with "hello"
+    calling spark.assert with (s_c32 == 907060870)
+
+    # 3. Baseline regulus
+    var re_opt as maybe regulus.Regex is calling regulus.compile with "[0-9]+"
+    calling spark.assert with (re_opt.is_present)
+    if re_opt.is_present:
+        var re as regulus.Regex is re_opt.value
+        var m_reg as bool is calling regulus.is_match with (sigil of re) , "hello 123"
+        calling spark.assert with m_reg
+        calling regulus.regex_free with (sigil of re)
+
+    # 4. Baseline precis
+    var enc as string is calling precis.url_encode with "a b+c"
+    var dec as string is calling precis.url_decode with enc
+    calling spark.assert with (dec == "a b+c")
+
+    # 5. Baseline parchment
+    var doc_opt as maybe parchment.Document is calling parchment.parse_xml with "<root id=\"main\"><item>first</item></root>"
+    calling spark.assert with (doc_opt.is_present)
+    if doc_opt.is_present:
+        var doc as parchment.Document is doc_opt.value
+        var root_node as parchment.Node is doc.root
+        var a_opt as maybe string is calling parchment.attr with (sigil of root_node) , "id"
+        calling spark.assert with (a_opt.is_present)
+        if a_opt.is_present:
+            calling spark.assert with (a_opt.value == "main")
+        calling parchment.free_document with (sigil of doc)
+
+    # 6. Baseline ffi
+    var null_p as ref to void is calling ffi.null_void
+    calling spark.assert with (calling ffi.is_null with null_p)
+    var ps as int is calling ffi.pointer_size
+    calling spark.assert with (ps == 8 or ps == 4)
+
+    calling spark.println with "integration backward compat: OK"

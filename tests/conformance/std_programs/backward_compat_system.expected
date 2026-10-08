@@ -1,0 +1,5 @@
+=== Testing System Tier Backward Compatibility ===
+chronicle 0.14.x backward compat: OK
+compass 0.14.x backward compat: OK
+archivum 0.14.x backward compat: OK
+system backward compat: OK

@@ -1,0 +1,8 @@
+=== Test Regulus Extended ===
+constants: OK
+presets: OK
+compile utils: OK
+match utils: OK
+regex methods: OK
+string enchantments: OK
+regulus extended: OK

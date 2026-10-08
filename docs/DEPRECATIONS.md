@@ -2,7 +2,7 @@
 
 Every `@deprecated` marker in `std/` is listed here with its replacement and the
 release it is scheduled to disappear in. The format of the tables is checked by
-`tests/test_std_deprecations_doc.py`: the **symbol column must match the
+`tests/docs/test_std_deprecations_doc.py`: the **symbol column must match the
 `@deprecated` markers actually present in the sources**, so this file cannot
 silently drift from the code.
 
@@ -13,8 +13,8 @@ The toolchain has a **real** `@deprecated` attribute with the syntax
 (`attribute: "@" NAME ["(" attribute_args ")"]`), stored on the symbol, and emits
 `W0006` at the *use* site. `pengu check --deny-deprecated` and
 `pengu test --deny-deprecated` promote `W0006` to an error. Tests:
-`tests/test_deprecation.py` (the mechanism, Phase 2) and
-`tests/test_deprecation_policy.py` (surfacing + CI denial, Phase 5).
+`tests/compiler/test_deprecation.py` (the mechanism, Phase 2) and
+`tests/compiler/test_deprecation_policy.py` (surfacing + CI denial, Phase 5).
 
 **The stdlib uses only the docstring convention today, not that attribute.**
 Every marker in `std/` is a `## @deprecated Use X instead.` doc comment, and the

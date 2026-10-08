@@ -1,0 +1,12 @@
+=== Test Loom Extended ===
+constants: OK
+baseline: OK
+reductions: OK
+predicates: OK
+transforms: OK
+set-like: OK
+search: OK
+structural: OK
+statistics: OK
+generics: OK
+loom extended: OK

@@ -1,0 +1,89 @@
+import std.rites
+import std.filum
+import std.whisper
+import std.spark
+
+test "std_programs/backward_compat_batch3":
+    calling spark.println with "=== Testing Batch 3 Backward Compatibility ==="
+
+    # --- 1. Rites 0.14.x legacy API ---
+    var h as maybe string is calling rites.getenv with "PATH"
+    calling spark.assert with (h is present)
+
+    var argc as int is calling rites.get_argc
+    calling spark.assert with argc >= 1
+
+    var arg0 as string is calling rites.get_argv with 0
+    calling spark.assert with (arg0 length) > 0
+
+    var args as list of string is calling rites.get_args
+    calling spark.assert with (calling args.len) >= 1
+
+    var pid as int is calling rites.getpid
+    calling spark.assert with pid > 0
+
+    var cwd as maybe string is calling rites.getcwd
+    calling spark.assert with (cwd is present)
+
+    var u as string is calling rites.uname
+    calling spark.assert with (u length) > 0
+
+    var hn as string is calling rites.hostname
+    calling spark.assert with (hn length) > 0
+
+    var env_keys as list of string is calling rites.get_env_keys
+    calling spark.assert with (calling env_keys.len) > 0
+
+    calling spark.println with "rites 0.14.x backward compat: OK"
+
+    # --- 2. Filum 0.14.x legacy API ---
+    var m as filum.Mutex is calling filum.mutex
+    calling filum.lock with (sigil of m)
+    calling filum.unlock with (sigil of m)
+    var locked as bool is calling filum.try_lock with (sigil of m)
+    calling spark.assert with locked
+    calling filum.unlock with (sigil of m)
+    calling filum.free_mutex with (sigil of m)
+
+    var wg as filum.WaitGroup is calling filum.wait_group
+    calling filum.add with (sigil of wg), 1
+    calling filum.done with (sigil of wg)
+    calling filum.wait with (sigil of wg)
+    calling filum.free_wait_group with (sigil of wg)
+
+    var o as filum.Once is calling filum.once
+    calling filum.free_once with (sigil of o)
+
+    var c as filum.Cond is calling filum.cond
+    calling filum.free_cond with (sigil of c)
+
+    var a as filum.AtomicInt is calling filum.atomic_int with 42
+    calling spark.assert with (calling filum.load with (sigil of a)) == 42
+    calling filum.store with (sigil of a), 100
+    calling spark.assert with (calling filum.load with (sigil of a)) == 100
+    calling spark.assert with (calling filum.add_atomic with (sigil of a), 5) == 100
+    calling spark.assert with (calling filum.load with (sigil of a)) == 105
+    calling spark.assert with (calling filum.swap with (sigil of a), 200) == 105
+    calling spark.assert with (calling filum.compare_swap with (sigil of a), 200, 300)
+    calling spark.assert with (calling filum.inc with (sigil of a)) == 301
+    calling spark.assert with (calling filum.dec with (sigil of a)) == 300
+    calling filum.free_atomic_int with (sigil of a)
+
+    var ncpu as int is calling filum.num_cpu
+    calling spark.assert with ncpu > 0
+    calling filum.sleep with 1
+
+    calling spark.println with "filum 0.14.x backward compat: OK"
+
+    # --- 3. Whisper 0.14.x legacy API ---
+    calling whisper.set_level with whisper.LOG_INFO
+    calling spark.assert with (calling whisper.get_level) == whisper.LOG_INFO
+    calling spark.assert with (calling whisper.get_level_name with whisper.LOG_INFO) == "INFO"
+    calling spark.assert with (calling whisper.get_level_color with whisper.LOG_INFO) == whisper.COLOR_GREEN
+
+    calling whisper.info with "compat check info"
+    calling whisper.debug with "compat check debug (suppressed)"
+
+    calling spark.println with "whisper 0.14.x backward compat: OK"
+
+    calling spark.println with "batch3 backward compat: OK"

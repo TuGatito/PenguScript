@@ -32,7 +32,7 @@ distinct tiers of the library:
 | `loom_ops` | `std.loom` | generic sequence algorithms |
 | `arithmancy_ops` | `std.arithmancy` | C math bridge + pure number theory |
 
-`tests/test_benchmarks.py` enforces that at least six cases import `std`, that
+`tests/gates/test_benchmarks.py` enforces that at least six cases import `std`, that
 they cover at least six distinct modules, and that every bench file on disk is
 registered in the harness.
 

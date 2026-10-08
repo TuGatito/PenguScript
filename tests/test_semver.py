@@ -11,6 +11,11 @@ from pengu_semver import (
     select_version,
 )
 
+# Fast, subprocess-free unit tests: part of the `smoke` tier that
+# `pengu selftest --smoke` runs. Keep it that way -- a smoke test that
+# compiles C is not a smoke test.
+pytestmark = pytest.mark.smoke
+
 
 def test_parse_version_forms():
     assert Version.parse("1.2.3") == Version(1, 2, 3)

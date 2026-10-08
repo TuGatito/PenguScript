@@ -1,0 +1,32 @@
+# LANGUAGE.md §18.2 — `with` scopes on collections (`list` and `map`)
+# Pins: leading-dot built-in methods inside `with list:` / `with map:` scopes.
+import std.spark
+
+test "compliance/s053_with_collections":
+    var scores as list of int is list of int
+    with scores:
+        calling .push with 10
+        calling .push with 20
+        calling .push with 30
+    calling spark.assert with ((calling scores.len) == 3)
+    calling spark.assert with (calling scores.contains with 20)
+    calling spark.assert with ((calling scores.index_of with 20) == 1)
+    calling spark.assert with ((scores at 2) == 30)
+
+    var popped as int is 0
+    with scores:
+        set popped is calling .pop
+    calling spark.assert with (popped == 30)
+    calling spark.assert with ((calling scores.len) == 2)
+
+    var registry as map of string to int is map of string to int
+    with registry:
+        calling .put with "alpha", 1
+        calling .put with "beta", 2
+    calling spark.assert with ((registry at "alpha") == 1)
+    calling spark.assert with (calling registry.contains with "beta")
+    calling spark.assert with ((calling registry.len) == 2)
+    with registry:
+        calling .remove with "alpha"
+    calling spark.assert with ((calling registry.len) == 1)
+    calling spark.assert with (not (calling registry.contains with "alpha"))

@@ -1,0 +1,11 @@
+=== Test Scrolls Extended ===
+case: OK
+search: OK
+whitespace: OK
+padding: OK
+modification: OK
+predicates: OK
+comparison: OK
+iteration: OK
+join: OK
+scrolls extended: OK

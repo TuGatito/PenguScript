@@ -1,0 +1,28 @@
+# LANGUAGE.md §7.2 — `while`
+# Pins: indentation-scoped while loops and single-line `while c: stmt`.
+import std.spark
+
+weave count_down with n as int into int:
+    var total as int is 0
+    var i as int is n
+    while i > 0:
+        set total is total + i
+        set i is i - 1
+    return total
+
+test "compliance/s014_while":
+    calling spark.assert with ((calling count_down with 4) == 10)
+
+    var i as int is 0
+    while i < 5: set i is i + 1
+    calling spark.assert with (i == 5)
+
+    var n as int is 0
+    var fib_a as int is 0
+    var fib_b as int is 1
+    while n < 8:
+        var next is fib_a + fib_b
+        set fib_a is fib_b
+        set fib_b is next
+        set n is n + 1
+    calling spark.assert with (fib_a == 21)

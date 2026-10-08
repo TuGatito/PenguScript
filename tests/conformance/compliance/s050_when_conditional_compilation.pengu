@@ -1,0 +1,43 @@
+# LANGUAGE.md §16 — Conditional compilation (`when`)
+# Pins: top-level when/else-when, statement when, expression when, and `defined`.
+import std.spark
+
+when os == "linux":
+    const PLAT as string is "linux"
+else when os == "windows":
+    const PLAT as string is "windows"
+else:
+    const PLAT as string is "other"
+
+weave platform_len into int:
+    when defined(PENGU_NEVER_DEFINED):
+        return -1
+    else:
+        return (calling spark.len_string with PLAT)
+
+test "compliance/s050_when_conditional_compilation":
+    # both branches are valid; only one is emitted
+    when debug:
+        calling spark.assert with true
+    else:
+        calling spark.assert with true
+
+    # expression form: a compile-time ternary
+    let buffer_size as int is when arch == "x64" then 8192 else 4096
+    calling spark.assert with (buffer_size > 0)
+
+    var chosen as int is 0
+    when os == "linux":
+        set chosen is 1
+    else when os == "windows":
+        set chosen is 2
+    else:
+        set chosen is 3
+    calling spark.assert with (chosen >= 1)
+
+    calling spark.assert with ((calling platform_len) > 0)
+
+    when compiler == "gcc" or compiler == "clang" or compiler == "msvc":
+        calling spark.assert with true
+    else:
+        calling spark.assert with true

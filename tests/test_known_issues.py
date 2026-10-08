@@ -104,7 +104,9 @@ def test_known_issue_is_documented_in_the_changelog():
 def test_sanitizer_workflow_deselects_by_name_not_by_disabling_detection():
     workflow = (REPO / ".github" / "workflows" / "sanitizers.yml").read_text(encoding="utf-8")
     assert "--deselect" in workflow
-    assert "test_std_backward_compat" in workflow
+    # The leaking program is a corpus case now, so its node id names the batch
+    # runner's parametrisation rather than a per-program test file.
+    assert "test_conformance_case[std_programs/backward_compat]" in workflow
     # detect_leaks must stay on for the sanitizer job.
     assert "detect_leaks=1" in workflow
 
@@ -124,7 +126,7 @@ def test_every_sanitizer_pytest_step_deselects_the_known_leak():
         (REPO / ".github" / "workflows" / "sanitizers.yml").read_text(encoding="utf-8")
     )
     shared = (workflow.get("env") or {}).get("PENGU_SANITIZER_DESELECT", "")
-    assert "test_std_backward_compat.py::test_std_backward_compat" in shared, (
+    assert "test_conformance_case[std_programs/backward_compat]" in shared, (
         "the known-leak node id must be declared once, at workflow level"
     )
 

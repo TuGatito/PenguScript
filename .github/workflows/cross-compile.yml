@@ -68,7 +68,7 @@ jobs:
       # because no runner had a MinGW compiler. Here it stops skipping.
       - name: Cross-compilation suite with a real MinGW toolchain
         run: |
-          python -m pytest tests/test_cross_compile.py -q -p no:cacheprovider --timeout=600 \
+          python -m pytest tests/cli/test_cross_compile.py -q -p no:cacheprovider --timeout=600 \
             -rs
 
       - name: Generate the Windows bundle

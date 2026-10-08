@@ -87,6 +87,21 @@ requires_leakcheck = pytest.mark.skipif(
            "install valgrind or run on Linux)",
 )
 
+#: Hang guard for the "build one whole std program, in debug *and* release"
+#: family (``tests/test_std_*``). Use it as ``@pytest.mark.timeout(...)``.
+#:
+#: These tests used a literal ``30``. That number was calibrated on a serial run,
+#: where the heaviest of them takes ~13 s. Under ``pytest -n auto`` the same work
+#: shares the machine with N-1 other C compilations, and
+#: ``test_std_invoke_extended[release]`` was observed past 30 s -- a failure that
+#: says nothing about the code under test and everything about how many compilers
+#: were running.
+#:
+#: This is a **hang guard, not a performance assertion**: none of these tests
+#: asserts on elapsed time, so the bound only has to sit comfortably above the
+#: slowest honest run while still failing long before the CI job timeout.
+STD_PROGRAM_BUILD_TIMEOUT = 120
+
 #: True when the suite is running under PENGU_CFLAGS with a sanitizer
 #: (`-fsanitize=...`), i.e. inside `.github/workflows/sanitizers.yml`.
 #:
@@ -221,13 +236,25 @@ def gen_bundle(source: str, filename: str = "t.pengu", extra_files=None,
         tree = parser.parse(code)
         checker.check(tree, source=code, filename=fname)
         trees[fname] = tree
-    cg = PenguCodegen(checker.symbols, [fname for fname, _ in files],
-                      str(REPO), compile_env=checker.compile_env,
-                      use_gnu_extensions=not strict_c99,
-                      target_compiler=target_compiler)
-    for fname, _ in files:
-        cg.collect_declarations([(fname, trees[fname])])
-    return cg.generate_bundle()
+    # `gen_bundle` builds the codegen directly, so it must state the
+    # bounds/overflow switch itself: otherwise it inherits whatever an earlier
+    # test in the same process left in the `_RELEASE_UNSAFE` global, and a test
+    # asserting on emitted `pengu_assert_bounds` depends on test order.
+    from pengu_parser.pengu_codegen import set_release_unsafe as _gen_set_ru
+    from pengu_parser.pengu_codegen import is_release_unsafe as _gen_is_ru
+
+    _gen_previous_ru = _gen_is_ru()
+    _gen_set_ru(False)
+    try:
+        cg = PenguCodegen(checker.symbols, [fname for fname, _ in files],
+                          str(REPO), compile_env=checker.compile_env,
+                          use_gnu_extensions=not strict_c99,
+                          target_compiler=target_compiler)
+        for fname, _ in files:
+            cg.collect_declarations([(fname, trees[fname])])
+        return cg.generate_bundle()
+    finally:
+        _gen_set_ru(_gen_previous_ru)
 
 
 def check_c_syntax(c_code: str) -> None:
@@ -400,6 +427,13 @@ def compile_run(source: str, tag: str = "t", extra_libs=None, cwd=None,
 
     from pengu_project import PenguBuilder, ProjectConfig
     from pengu_parser.pengu_codegen import set_release_unsafe as _set_ru
+    from pengu_parser.pengu_codegen import is_release_unsafe as _is_ru
+
+    # `_RELEASE_UNSAFE` is a process global. Save it and put it back: a test that
+    # leaves it set changes what *later* tests in the same process generate, which
+    # is invisible while tests run in their historical order and breaks as soon as
+    # they are distributed differently (pytest-xdist).
+    _previous_release_unsafe = _is_ru()
 
     d = Path(tempfile.mkdtemp(prefix=f"pengu_{tag}_", dir=BUILD_DIR))
     try:
@@ -475,6 +509,7 @@ def compile_run(source: str, tag: str = "t", extra_libs=None, cwd=None,
             )
         return run_res
     finally:
+        _set_ru(_previous_release_unsafe)
         shutil.rmtree(d, ignore_errors=True)
 
 # --------------------------------------------------------------------------- #

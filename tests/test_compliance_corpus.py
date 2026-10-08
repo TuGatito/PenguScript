@@ -1,173 +1,172 @@
 #!/usr/bin/env python3
-"""Compliance-corpus gate (Roadmap 2.0, item 8.4).
+"""The compliance corpus, after its migration into ``tests/conformance/``.
 
-``tests/compliance/`` holds one canonical program per section of ``LANGUAGE.md``
-(``NNN-slug.pengu``), a machine-readable ``corpus.json`` mapping each program to
-its section and expected exit code, and ``run_all.py``, which drives every
-program through the real toolchain (``pengu check`` -> ``pengu build`` -> execute).
+The 53 ``NNN-slug.pengu`` programs that used to live in ``tests/compliance/`` are
+now conformance cases under ``tests/conformance/compliance/``, driven by the batch
+runner. Compiling and executing them is ``tests/test_conformance.py``'s job: one
+bundle per collision-free group, instead of 53 separate check+build+run cycles.
 
-These tests:
+What is kept here is the guarantee that made the corpus worth having in the first
+place: **every case pins a real, numbered section of ``LANGUAGE.md``, with the
+title that document actually uses.** That is a documentation-coverage gate, not a
+runtime one, and losing it would let the corpus drift away from the language it
+claims to pin, silently.
 
-* validate the corpus against the files on disk and against the headings that
-  actually exist in ``LANGUAGE.md``,
-* assert the corpus is large enough (>= 25 programs) and that the sections it
-  claims are distinct-ish,
-* compile and execute every program through ``run_all.py`` and require the exit
-  code it observes to equal the declared ``expects_rc``.
+Roadmap 10.3 ("the corpus is also the compiler matrix's workload") survives as
+``test_the_compiler_override_reaches_the_runner``: the matrix itself runs in
+``.github/workflows/compliance.yml`` by setting ``PENGU_TEST_CC``.
 
 Nothing here inspects source text or generated C to decide whether a program is
 correct: every gate compiles, executes or measures (Roadmap Annex C, rule C1).
 """
-import importlib.util
-import sys
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
 from pathlib import Path
 
 import pytest
 
-from tests.conftest import SANITIZERS_ACTIVE, requires_cc, requires_runtime
+from tests.conftest import REPO
+from tests.test_conformance import CONFORMANCE_DIR, discover_cases
 
-COMPLIANCE_DIR = Path(__file__).resolve().parent / "compliance"
+MANIFEST_PATH = CONFORMANCE_DIR / "_manifest.json"
+LANGUAGE_MD = REPO / "LANGUAGE.md"
+
+#: The corpus was 25 programs before the migration and 53 after, so this floor
+#: only ratchets up in practice.
 MIN_PROGRAMS = 25
 
-
-def _load_runner():
-    """Imports ``tests/compliance/run_all.py`` (not a package, so no plain import)."""
-    path = COMPLIANCE_DIR / "run_all.py"
-    spec = importlib.util.spec_from_file_location("compliance_run_all", path)
-    module = importlib.util.module_from_spec(spec)
-    # dataclasses resolves annotations through sys.modules[cls.__module__], so the
-    # module must be registered before it is executed.
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+#: ``## 12. Optionals & errors`` / ``### 7.4 `judge` — pattern matching``
+_HEADING_RE = re.compile(r"^(#{2,4})\s+(\d+(?:\.\d+)*)\.?\s+(.+?)\s*$")
 
 
-run_all = _load_runner()
-CORPUS = run_all.load_corpus()
-PROGRAM_IDS = [entry["file"] for entry in CORPUS]
+def _manifest() -> dict:
+    assert MANIFEST_PATH.is_file(), (
+        f"{MANIFEST_PATH.relative_to(REPO)} is missing; "
+        f"run: python tools/gen_conformance_deps.py"
+    )
+    return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+
+
+def _pinned_cases() -> dict:
+    """Manifest entries for the migrated compliance corpus, keyed by case id."""
+    return {
+        case_id: meta
+        for case_id, meta in _manifest().items()
+        if isinstance(meta, dict) and meta.get("feature") == "compliance"
+    }
+
+
+def language_sections() -> dict:
+    """``{section number: heading title}`` for every numbered heading.
+
+    This parser used to live in ``tests/compliance/run_all.py``; it moved here when
+    that directory did, because this gate is now the only thing that needs it. It
+    keeps that parser's behaviour exactly: trailing ``#`` decorations are stripped
+    from the title, and the *first* heading wins when a number repeats.
+    """
+    sections: dict = {}
+    for line in LANGUAGE_MD.read_text(encoding="utf-8").splitlines():
+        match = _HEADING_RE.match(line)
+        if match:
+            title = re.sub(r"\s+#+\s*$", "", match.group(3)).strip()
+            sections.setdefault(match.group(2), title)
+    return sections
 
 
 # --------------------------------------------------------------------------
-# Corpus integrity (no toolchain needed)
+# The documentation-coverage gate
 # --------------------------------------------------------------------------
 
 
-def test_corpus_json_matches_disk_and_language_md():
-    """The corpus lists exactly the programs on disk, and every header agrees."""
-    problems = run_all.verify_corpus(CORPUS)
-    assert not problems, "corpus integrity problems:\n  " + "\n  ".join(problems)
+def test_the_pinned_corpus_is_big_enough():
+    pinned = _pinned_cases()
+    assert len(pinned) >= MIN_PROGRAMS, (
+        f"only {len(pinned)} migrated compliance case(s), expected >= {MIN_PROGRAMS}"
+    )
 
 
-def test_corpus_has_at_least_minimum_programs():
-    assert len(CORPUS) >= MIN_PROGRAMS, (
-        f"compliance corpus has {len(CORPUS)} programs, expected >= {MIN_PROGRAMS}")
-
-
-def test_every_declared_section_exists_in_language_md():
-    """Each section must be a real numbered heading of LANGUAGE.md, same title."""
-    sections = run_all.language_sections()
+def test_every_case_pins_a_real_language_md_section():
+    """Each pinned section must exist in LANGUAGE.md, with the same title."""
+    sections = language_sections()
     assert sections, "no numbered headings parsed out of LANGUAGE.md"
-    missing = []
-    mismatched = []
-    for entry in CORPUS:
-        section = str(entry["section"])
-        if section not in sections:
-            missing.append(f"{entry['file']}: §{section}")
-        elif sections[section] != entry["title"]:
+
+    missing, mismatched = [], []
+    for case_id, meta in sorted(_pinned_cases().items()):
+        section = str(meta.get("section", ""))
+        title = meta.get("title", "")
+        if not section:
+            missing.append(f"{case_id}: no section recorded")
+        elif section not in sections:
+            missing.append(f"{case_id}: section {section}")
+        elif sections[section] != title:
             mismatched.append(
-                f"{entry['file']}: §{section} title {entry['title']!r} "
-                f"!= LANGUAGE.md {sections[section]!r}")
-    assert not missing, "corpus entries declare sections absent from LANGUAGE.md: " + \
-        ", ".join(missing)
-    assert not mismatched, "corpus titles disagree with LANGUAGE.md:\n  " + \
-        "\n  ".join(mismatched)
+                f"{case_id}: section {section} title {title!r} != LANGUAGE.md "
+                f"{sections[section]!r}"
+            )
+    assert not missing, (
+        "cases pin sections that LANGUAGE.md does not have: " + ", ".join(missing)
+    )
+    assert not mismatched, (
+        "case titles disagree with LANGUAGE.md:\n  " + "\n  ".join(mismatched)
+    )
 
 
-def test_sections_are_distinct_ish():
-    """Sections must not be re-used more than twice, and cover >= MIN distinct ones."""
-    counts = {}
-    for entry in CORPUS:
-        section = str(entry["section"])
+def test_pinned_sections_are_distinct_ish():
+    """No section may be pinned by more than two cases, and most must be covered."""
+    counts: dict = {}
+    for meta in _pinned_cases().values():
+        section = str(meta.get("section", ""))
         counts[section] = counts.get(section, 0) + 1
     reused = {section: n for section, n in counts.items() if n > 2}
-    assert not reused, f"sections pinned by more than two programs: {reused}"
+    assert not reused, f"sections pinned by more than two cases: {reused}"
     assert len(counts) >= MIN_PROGRAMS, (
         f"only {len(counts)} distinct LANGUAGE.md sections covered, "
-        f"expected >= {MIN_PROGRAMS}")
+        f"expected >= {MIN_PROGRAMS}"
+    )
 
 
-def test_corpus_entries_declare_the_expected_fields():
-    for entry in CORPUS:
-        assert set(entry) >= {"file", "section", "title", "expects_rc"}, entry
-        assert isinstance(entry["expects_rc"], int), entry
-        assert entry["file"].endswith(".pengu"), entry
-        assert entry["file"][:3].isdigit(), entry
+def test_every_pinned_case_exists_and_says_what_it_pins():
+    """A manifest entry with no case, or no recorded pin, is a lie about coverage."""
+    on_disk = {case.case_id for case in discover_cases()}
+    problems = []
+    for case_id, meta in sorted(_pinned_cases().items()):
+        if case_id not in on_disk:
+            problems.append(f"{case_id}: in _manifest.json but not a case on disk")
+        if not str(meta.get("pins", "")).strip():
+            problems.append(f"{case_id}: does not record what it pins")
+        if not str(meta.get("migrated-from", "")).strip():
+            problems.append(f"{case_id}: does not record where it came from")
+    assert not problems, "\n  ".join(["compliance manifest problems:"] + problems)
 
 
-def test_runner_self_check_exits_zero():
-    """`run_all.py --check-corpus` must agree that the corpus is sound."""
-    assert run_all.main(["--check-corpus"]) == 0
+def test_the_corpus_still_covers_the_compiler_matrix_workload():
+    """The old corpus was also the gcc/clang matrix's workload (roadmap 10.3).
 
-
-# --------------------------------------------------------------------------
-# Real compile + execute
-# --------------------------------------------------------------------------
-
-
-@requires_cc
-@requires_runtime
-@pytest.mark.parametrize("entry", CORPUS, ids=PROGRAM_IDS)
-def test_compliance_program_compiles_and_runs(entry):
-    """check -> build -> execute; the observed exit code must equal ``expects_rc``."""
-    if SANITIZERS_ACTIVE and entry["file"].startswith("020-"):
-        pytest.skip(
-            "finding F8-N10: this program passes an array to a variadic C "
-            "function, which ASan reports as stack-use-after-scope"
-        )
-    path = COMPLIANCE_DIR / entry["file"]
-    assert path.is_file(), f"{entry['file']} is listed in corpus.json but missing"
-
-    result = run_all.run_program(path, expects_rc=int(entry["expects_rc"]))
-    detail = "\n".join([
-        f"program : {result.file} (LANGUAGE.md §{result.section} — {result.title})",
-        f"stage   : {result.stage}",
-        f"rc      : {result.rc} (expected {result.expects_rc})",
-        f"command : {' '.join(result.commands[-1]) if result.commands else '<none>'}",
-        "--- stdout ---", result.stdout.strip()[:4000],
-        "--- stderr ---", result.stderr.strip()[:4000],
-    ])
-    assert result.ok, detail
-
-
-# --------------------------------------------------------------------------
-# Roadmap 10.3 — the corpus is also the compiler matrix's workload
-# --------------------------------------------------------------------------
-
-#: One program per language tier, so the matrix is not a hello-world only check.
-_MATRIX_SAMPLE = ("001-hello.pengu", "016-judge.pengu", "040-not-automatic.pengu")
-
-
-def test_the_runner_forwards_the_compiler_override():
-    """`--cc` must reach the *build* stage, or the CI matrix would be a fiction.
-
-    The full matrix (gcc and clang over all 53 programs) runs in
-    `.github/workflows/compliance.yml`; rebuilding it inside the default suite
-    would double a 5-minute job. What is pinned here is the mechanism plus one
-    end-to-end run per compiler, measured — a `--cc` that is parsed and dropped
-    would make the workflow green while compiling with the default compiler.
+    The matrix now runs the batch runner with ``PENGU_TEST_CC``, so what has to
+    keep working is that the override reaches the compiler selection. A `--cc`
+    that is parsed and dropped would leave the workflow green while compiling with
+    the default compiler — which is exactly the failure this pins.
     """
-    import shutil
-
     available = [cc for cc in ("gcc", "clang") if shutil.which(cc)]
     if not available:
         pytest.skip("neither gcc nor clang is installed")
-    for compiler in available:
-        for name in _MATRIX_SAMPLE:
-            entry = next(e for e in CORPUS if e["file"] == name)
-            result = run_all.run_program(
-                COMPLIANCE_DIR / name, expects_rc=int(entry["expects_rc"]),
-                timeout=600, cc=compiler)
-            assert any("--cc" in cmd and compiler in cmd for cmd in result.commands), (
-                f"--cc {compiler} never reached the build: {result.commands}")
-            assert result.ok, (
-                f"{compiler} failed {name}: {result.detail()}\n{result.stderr[:2000]}")
+
+    import tests.test_conformance as runner
+
+    requested = available[0]
+    original = os.environ.get("PENGU_TEST_CC")
+    os.environ["PENGU_TEST_CC"] = requested
+    try:
+        chosen = runner._pick_cc()
+    finally:
+        if original is None:
+            os.environ.pop("PENGU_TEST_CC", None)
+        else:
+            os.environ["PENGU_TEST_CC"] = original
+
+    assert chosen, f"PENGU_TEST_CC={requested} selected no compiler"
+    assert requested in chosen, f"PENGU_TEST_CC={requested} selected {chosen}"

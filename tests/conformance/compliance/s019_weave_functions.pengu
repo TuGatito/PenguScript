@@ -1,0 +1,26 @@
+# LANGUAGE.md §8.1 — `weave` — functions
+# Pins: default parameter values, named arguments, implicit return, `inline` weave.
+import std.spark
+
+inline weave triple with x as int into int:
+    x * 3
+
+weave greet with name as string, times as int is 1 into string:
+    var out as string is ""
+    var i as int is 0
+    while i < times:
+        set out is "{out}Hi {name}! "
+        set i is i + 1
+    return out
+
+weave add with a as int, b as int into int:
+    return a + b
+
+test "compliance/s019_weave_functions":
+    calling spark.assert with ((calling triple with 4) == 12)
+    calling spark.assert with ((calling greet with "Ada") == "Hi Ada! ")
+    calling spark.assert with ((calling greet with "Ada", 2) == "Hi Ada! Hi Ada! ")
+    calling spark.assert with ((calling greet with name is "Bob", times is 1) == "Hi Bob! ")
+    calling spark.assert with ((calling add with 20, 22) == 42)
+    # a call used as an operand needs parentheses
+    calling spark.assert with (((calling add with 1, 2) + 3) == 6)

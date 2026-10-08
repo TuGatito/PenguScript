@@ -64,7 +64,10 @@ class TestsMixin:
         names_c = ", ".join(f'"{_c_escape(t["name"])}"' for t in self.tests)
         fns_c = ", ".join(f"pengu_test_{i}" for i in range(len(self.tests)))
         n_tests = len(self.tests)
-        runner = (
+        # Emitted before the registry/selector: the selector calls
+        # ``pengu_json_escape_print`` for ``--list``, so the helper has to be
+        # defined first (C has no implicit static promotion).
+        helpers = (
             "static int pengu_test_json_mode(void) {\n"
             '    const char *v = getenv("PENGU_TEST_JSON");\n'
             "    return v && *v;\n"
@@ -79,10 +82,83 @@ class TestsMixin:
             '        else if (*s == \'\\t\') printf("\\\\t");\n'
             "        else putchar(*s);\n"
             "    }\n"
-            "}\n\n"
+            "}\n"
+        )
+        # The registry lives at file scope rather than inside ``pengu_run_tests``
+        # so the single-test selector below can share it.
+        #
+        # Why a selector exists at all: a batch runner compiles ONE binary
+        # holding every case and then spawns that binary once per case.  A
+        # process yields exactly one stdout and one exit code, so per-case
+        # judgement is only possible when each case gets its own process -- and
+        # re-spawning an already-linked binary costs milliseconds where
+        # recompiling costs seconds.  See tests/_inventory.md §9.2.
+        registry = (
+            f"static const char* pengu_test_names[{n_tests}] = {{ {names_c} }};\n"
+            f"static void (*const pengu_test_fns[{n_tests}])(void) = {{ {fns_c} }};\n"
+        )
+        selector = (
+            "/*\n"
+            " * Single-test selection, for batch runners.\n"
+            " *\n"
+            " *   --list          one {\"index\":N,\"name\":\"...\"} JSON object per test\n"
+            " *   --only-index N  run test N and exit (0 ok, 1 index out of range)\n"
+            " *   --only NAME     run the first test called NAME\n"
+            " *\n"
+            " * Returns -1 when no selection flag was given, and main then falls\n"
+            " * through to the ordinary full-suite run; otherwise the return value IS\n"
+            " * this process's exit status.  --only-index is the form a runner should\n"
+            " * use: test names repeat across a corpus, indices do not.\n"
+            " *\n"
+            " * The exit code is whatever the test body produced: 0 on success, and\n"
+            " * the runtime's crash path (128+signal) when the body aborts.  That is\n"
+            " * what lets one failing case be judged without hiding the others.\n"
+            " */\n"
+            "static int pengu_run_test_selection(int argc, char **argv) {\n"
+            "  int i, a, want_list = 0;\n"
+            "  const char *only_name = NULL;\n"
+            "  long only_index = -1;\n"
+            "  for (a = 1; a < argc; a++) {\n"
+            '    if (strcmp(argv[a], "--list") == 0) {\n'
+            "      want_list = 1;\n"
+            '    } else if (strcmp(argv[a], "--only-index") == 0 && a + 1 < argc) {\n'
+            "      only_index = strtol(argv[++a], NULL, 10);\n"
+            '    } else if (strcmp(argv[a], "--only") == 0 && a + 1 < argc) {\n'
+            "      only_name = argv[++a];\n"
+            "    }\n"
+            "  }\n"
+            "  if (want_list) {\n"
+            f"    for (i = 0; i < {n_tests}; i++) {{\n"
+            '      printf("{\\"index\\":%d,\\"name\\":\\"", i);\n'
+            "      pengu_json_escape_print(pengu_test_names[i]);\n"
+            '      printf("\\"}\\n");\n'
+            "    }\n"
+            "    return 0;\n"
+            "  }\n"
+            "  if (only_index >= 0) {\n"
+            f"    if (only_index >= {n_tests}) {{\n"
+            '      fprintf(stderr, "pengu: test index %ld out of range (0..%d)\\n",\n'
+            f"              only_index, {n_tests} - 1);\n"
+            "      return 1;\n"
+            "    }\n"
+            "    pengu_test_fns[only_index]();\n"
+            "    return 0;\n"
+            "  }\n"
+            "  if (only_name) {\n"
+            f"    for (i = 0; i < {n_tests}; i++) {{\n"
+            "      if (strcmp(pengu_test_names[i], only_name) == 0) {\n"
+            "        pengu_test_fns[i]();\n"
+            "        return 0;\n"
+            "      }\n"
+            "    }\n"
+            "    fprintf(stderr, \"pengu: no test named '%s'\\n\", only_name);\n"
+            "    return 1;\n"
+            "  }\n"
+            "  return -1;\n"
+            "}\n"
+        )
+        runner = (
             "int pengu_run_tests(void) {\n"
-            f"  static const char* pengu_test_names[{n_tests}] = {{ {names_c} }};\n"
-            f"  static void (*const pengu_test_fns[{n_tests}])(void) = {{ {fns_c} }};\n"
             "  int i;\n"
             "  if (pengu_test_json_mode()) {\n"
             f'    printf("{{\\"event\\":\\"start\\",\\"total\\":{n_tests}}}\\n");\n'
@@ -116,6 +192,9 @@ class TestsMixin:
             "  return 0;\n"
             "}\n"
         )
+        blocks.append(helpers)
+        blocks.append(registry)
+        blocks.append(selector)
         blocks.append(runner)
         return "\n\n".join(blocks) + "\n"
     def generate_test_entry_point(self) -> str:
@@ -135,6 +214,15 @@ class TestsMixin:
             "  int pengu_failed = 0;",
         ]
         if self.tests:
+            # A batch runner spawns this binary once per case with
+            # ``--only-index N``; without that flag the selector returns -1 and
+            # the ordinary full-suite run happens exactly as before.
+            lines.append("  int pengu_selected = pengu_run_test_selection(argc, argv);")
+            lines.append("  if (pengu_selected >= 0) {")
+            lines.append("    fflush(stdout);")
+            lines.append("    fflush(stderr);")
+            lines.append("    return pengu_selected;")
+            lines.append("  }")
             lines.append("  pengu_failed = pengu_run_tests();")
         else:
             lines.append('  printf("No tests to run.\\n");')

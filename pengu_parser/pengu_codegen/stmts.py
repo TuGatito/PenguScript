@@ -401,10 +401,17 @@ class StmtMixin:
                     fields = list(f_dict.keys())
                     for i, name in enumerate(names):
                         c_name = self._c_ident(name)
+                        # These names are brand-new locals, so their type is the
+                        # rune's field type at this position. A global name lookup
+                        # must NOT take precedence over it: `n` is a common name, and
+                        # when another module happens to declare one (`var n as int`
+                        # inside a generic `weave`), the lookup won and emitted
+                        # `const int32_t n = _destruct.name;` for a *string* field --
+                        # C that does not compile. Reproducible with `pengu test` on a
+                        # three-module project; see tests/_inventory.md §15.
+                        field_t = f_dict.get(fields[i]) if i < len(fields) else None
                         sym = self.symbols.lookup(name) if self.symbols else None
-                        var_t = sym.type if sym else None
-                        if var_t is None and i < len(fields):
-                            var_t = f_dict.get(fields[i])
+                        var_t = field_t if field_t is not None else (sym.type if sym else None)
                         if var_t is not None:
                             self.local_vars[name] = var_t
                             self.local_vars[c_name] = var_t

@@ -1,0 +1,6 @@
+=== Test Parchment Extended ===
+constants: OK
+tag utils: OK
+strip tags: OK
+dom queries: OK
+parchment extended: OK

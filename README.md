@@ -6,7 +6,7 @@
 
 > **Language policy.** English is the canonical language of this repository's
 > documentation; the Spanish sections are **non-normative** translations of the same
-> content, kept structurally in step by `tests/test_language_policy.py`.
+> content, kept structurally in step by `tests/compiler/test_language_policy.py`.
 > **Política de idioma.** El inglés es el idioma canónico de la documentación de este
 > repositorio; las secciones en español son traducciones **no normativas** del mismo
 > contenido.
@@ -163,9 +163,15 @@ pip install -r requirements.txt
 # Build the C runtime and bundled static libraries into build/lib
 python build_runtime.py
 
-# Run the test-suite
-pytest tests/
+# Run the test-suite (parallel; see AGENT_TESTING.md before adding tests)
+pengu selftest
+pytest tests/ -n auto
 ```
+
+`pengu selftest --smoke` runs the fast tier (<3 s, no C compiler needed);
+`pengu selftest --affected` runs only what your changes can affect. The full suite
+is ~4 min 37 s parallel against 34 min 19 s serial. `pengu test` is a different
+command: it compiles *your* project and runs its integrated `test` blocks.
 
 #### Hello, world
 
@@ -416,7 +422,7 @@ Key rules:
   use `list of T` / `slice of T` (associated types are future work).
 
 The `tests/test_generics/` directory contains one runnable program per feature
-plus leak checks; run them with `python -m pytest tests/test_generics_suite.py`.
+plus leak checks; run them with `python -m pytest tests/codegen/test_generics_suite.py`.
 
 #### Standard library
 
@@ -433,7 +439,7 @@ With the completion of **Batch 6 (FINAL)** (`regulus`, `precis`, `parchment`, `s
 5. **Testing, CLI & Utilities:** `lot`, `ward`, `invoke`
 6. **Advanced Integration & Math Tier:** `regulus` (PCRE2 regex), `precis` (HTTP client/server), `parchment` (libxml2 XML/HTML DOM), `seal` (HMAC, SHA/MD5 hashing & compression), `ffi` (null-safe generic C bridge), `arithmancy` (game-ready linear algebra: Vec2/3/4, Mat4, Quat)
 
-All 52 modules ship comprehensive documentation (`#`/`##` doc comments, audited by `tests/test_std_docs_completeness.py`), full test coverage across `debug` and `release` compilation profiles, 100% backward compatibility with the previous release, and zero C compiler warnings.
+All 52 modules ship comprehensive documentation (`#`/`##` doc comments, audited by `tests/docs/test_std_docs_completeness.py`), full test coverage across `debug` and `release` compilation profiles, 100% backward compatibility with the previous release, and zero C compiler warnings.
 
 ---
 
@@ -465,7 +471,7 @@ PenguScript/
 ├── tests/                  # Python test-suite (pytest tests/): compiler, LSP, CLI,
 │                           #   bindings, std library & bundled C libraries
 ├── tests/std_programs/     # One PenguScript exercise program per std module
-│                           #   (compiled & run by tests/test_stdlib.py)
+│                           #   (compiled & run by tests/stdlib/test_stdlib.py)
 ├── vscode-extension/       # VS Code extension (grammar, LSP client, project commands)
 ├── CHANGELOG.md            # Version history & feature log
 ├── CHEATSHEET.md           # Full language syntax & C-translation reference
@@ -552,7 +558,12 @@ Declared in [requirements.txt](requirements.txt):
 | [lsprotocol](https://github.com/microsoft/lsprotocol)                         | LSP protocol types (with pygls)                             | MIT                            |
 | [pycparser](https://github.com/eliben/pycparser)                              | C-header parsing in `pengu bind`                            | BSD-3-Clause                   |
 | [PyInstaller](https://pyinstaller.org/)                                       | Packaging the standalone `pengu` executable (release step)  | GPL-2.0-or-later (with bootloader exception) |
-| [pytest](https://pytest.org/)                                                 | Test runner (`pytest tests/`)                               | MIT                            |
+| [pytest](https://pytest.org/)                                                 | Test runner (`pengu selftest`, `pytest tests/`)             | MIT                            |
+| [pytest-xdist](https://github.com/pytest-dev/pytest-xdist)                    | Parallel test execution (`-n auto`; 34 min -> 4 min 37 s)   | MIT                            |
+| [pytest-timeout](https://github.com/pytest-dev/pytest-timeout)                | Per-test hang guard (`--timeout=`, `@pytest.mark.timeout`)  | MIT                            |
+| [pytest-cov](https://github.com/pytest-dev/pytest-cov) / [coverage](https://coverage.readthedocs.io/) | Coverage ratchet (`fail_under` in `.coveragerc`) | MIT / Apache-2.0 |
+| [Hypothesis](https://hypothesis.readthedocs.io/)                              | Property-based tests (formatter idempotency, semantics)     | MPL-2.0                        |
+| [ruff](https://docs.astral.sh/ruff/)                                          | The `F821`/`E9` gate (an undefined name is a compiler crash)| MIT                           |
 | [tomli](https://github.com/hukkin/tomli)                                      | `tomllib` backport for `pengu.toml` on Python < 3.11        | MIT                            |
 
 #### C runtime & standard library
@@ -696,9 +707,15 @@ pip install -r requirements.txt
 # Build the C runtime and bundled static libraries into build/lib
 python build_runtime.py
 
-# Run the test-suite
-pytest tests/
+# Run the test-suite (en paralelo; lee AGENT_TESTING.md antes de añadir tests)
+pengu selftest
+pytest tests/ -n auto
 ```
+
+`pengu selftest --smoke` ejecuta el tier rápido (<3 s, sin compilador de C);
+`pengu selftest --affected` ejecuta sólo lo que tus cambios pueden afectar. La
+suite completa tarda ~4 min 37 s en paralelo frente a 34 min 19 s en serie.
+`pengu test` es otro comando: compila *tu* proyecto y ejecuta sus bloques `test`.
 
 #### Hola, mundo
 
@@ -951,7 +968,7 @@ Reglas clave:
 
 El directorio `tests/test_generics/` contiene un programa ejecutable por
 característica más comprobaciones de fugas; ejecútalos con
-`python -m pytest tests/test_generics_suite.py`.
+`python -m pytest tests/codegen/test_generics_suite.py`.
 
 #### Biblioteca estándar
 
@@ -1000,7 +1017,7 @@ PenguScript/
 ├── tests/                  # Python test-suite (pytest tests/): compiler, LSP, CLI,
 │                           #   bindings, std library & bundled C libraries
 ├── tests/std_programs/     # One PenguScript exercise program per std module
-│                           #   (compiled & run by tests/test_stdlib.py)
+│                           #   (compiled & run by tests/stdlib/test_stdlib.py)
 ├── vscode-extension/       # VS Code extension (grammar, LSP client, project commands)
 ├── CHANGELOG.md            # Version history & feature log
 ├── CHEATSHEET.md           # Full language syntax & C-translation reference

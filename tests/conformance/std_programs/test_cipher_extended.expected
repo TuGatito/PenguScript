@@ -1,0 +1,15 @@
+=== Test Cipher Extended ===
+constants: OK
+base64 standard: OK
+base64 variants: OK
+hex: OK
+base32: OK
+enchanting string: OK
+json escaping & bug fix: OK
+json array: OK
+typed getters: OK
+navigation & merge: OK
+kind obj: OK
+kind arr: OK
+kind num: OK
+cipher extended: OK

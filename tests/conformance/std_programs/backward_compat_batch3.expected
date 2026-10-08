@@ -1,0 +1,6 @@
+=== Testing Batch 3 Backward Compatibility ===
+rites 0.14.x backward compat: OK
+filum 0.14.x backward compat: OK
+[32m[INFO] compat check info[0m
+whisper 0.14.x backward compat: OK
+batch3 backward compat: OK

@@ -1,0 +1,3 @@
+## A non-generic `f` in module A.
+weave f with x as int into int:
+    return x + 1

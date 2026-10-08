@@ -1,0 +1,355 @@
+import std.spark
+import std.loom
+
+test "std_programs/test_loom_extended":
+    calling spark.println with "=== Test Loom Extended ==="
+
+    # 1. Version constant
+    calling spark.assert with (loom.LOOM_VERSION == "1.0.0")
+    calling spark.println with "constants: OK"
+
+    # 2. Baseline functions
+    var r as list of int is calling loom.range with 1, 5, 1
+    calling spark.assert with (r.len == 4)
+    calling spark.assert with ((r at 0) == 1)
+    calling spark.assert with ((r at 3) == 4)
+
+    var rep as list of int is calling loom.repeat with 42, 3
+    calling spark.assert with (rep.len == 3)
+    calling spark.assert with ((rep at 0) == 42)
+    calling spark.assert with ((rep at 2) == 42)
+
+    var tk as list of int is calling loom.take with r, 2
+    calling spark.assert with (tk.len == 2)
+    calling spark.assert with ((tk at 1) == 2)
+
+    var sk as list of int is calling loom.skip with r, 2
+    calling spark.assert with (sk.len == 2)
+    calling spark.assert with ((sk at 0) == 3)
+
+    var ch as list of int is calling loom.chain with tk, sk
+    calling spark.assert with (ch.len == 4)
+
+    var s as int is calling loom.sum with r
+    calling spark.assert with (s == 10)
+
+    var p as int is calling loom.product_num with r
+    calling spark.assert with (p == 24)
+
+    var mx as int is calling loom.max_int with r
+    calling spark.assert with (mx == 4)
+
+    var mn as int is calling loom.min_int with r
+    calling spark.assert with (mn == 1)
+
+    var chunks_res as list of list of int is calling loom.chunks with r, 2
+    calling spark.assert with (chunks_res.len == 2)
+
+    var win_res as list of list of int is calling loom.windows with r, 2
+    calling spark.assert with (win_res.len == 3)
+    calling spark.println with "baseline: OK"
+
+    # 3. Reductions & Running Aggregates
+    var m as float is calling loom.mean with r
+    calling spark.assert with (m == 2.5)
+
+    var sq as int is calling loom.sum_squares with r
+    calling spark.assert with (sq == 30)
+
+    var rsum as list of int is calling loom.running_sum with r
+    calling spark.assert with ((rsum at 0) == 1)
+    calling spark.assert with ((rsum at 1) == 3)
+    calling spark.assert with ((rsum at 2) == 6)
+    calling spark.assert with ((rsum at 3) == 10)
+
+    var rmax as list of int is calling loom.running_max with r
+    calling spark.assert with ((rmax at 3) == 4)
+
+    var rmin as list of int is calling loom.running_min with r
+    calling spark.assert with ((rmin at 3) == 1)
+
+    var diffs as list of int is calling loom.differences with r
+    calling spark.assert with (diffs.len == 3)
+    calling spark.assert with ((diffs at 0) == 1)
+    calling spark.assert with ((diffs at 1) == 1)
+    calling spark.assert with ((diffs at 2) == 1)
+    calling spark.println with "reductions: OK"
+
+    # 4. Predicates
+    var with_zero as list of int is list of int
+    calling with_zero.push with 1
+    calling with_zero.push with 0
+    calling with_zero.push with 3
+    calling spark.assert with (calling loom.any_zero with with_zero)
+    calling spark.assert with (not (calling loom.any_zero with r))
+
+    var all_same as list of int is list of int
+    calling all_same.push with 7
+    calling all_same.push with 7
+    calling all_same.push with 7
+    calling spark.assert with (calling loom.all_equal with all_same)
+    calling spark.assert with (not (calling loom.all_equal with r))
+
+    calling spark.assert with (calling loom.is_strictly_asc with r)
+    calling spark.assert with (not (calling loom.is_strictly_asc with all_same))
+    calling spark.assert with (calling loom.is_sorted_asc with r)
+    calling spark.assert with (calling loom.is_sorted_asc with all_same)
+
+    var rev_r as list of int is list of int
+    calling rev_r.push with 4
+    calling rev_r.push with 3
+    calling rev_r.push with 2
+    calling rev_r.push with 1
+    calling spark.assert with (calling loom.is_strictly_desc with rev_r)
+    calling spark.assert with (calling loom.is_sorted_desc with rev_r)
+    calling spark.println with "predicates: OK"
+
+    # 5. Transforms & Combinations
+    var a_list as list of int is list of int
+    calling a_list.push with 10
+    calling a_list.push with 20
+    calling a_list.push with 30
+    var b_list as list of int is list of int
+    calling b_list.push with 1
+    calling b_list.push with 2
+    calling b_list.push with 3
+
+    var z_add as list of int is calling loom.zip_with with a_list, b_list, 0
+    calling spark.assert with ((z_add at 0) == 11)
+    calling spark.assert with ((z_add at 1) == 22)
+    calling spark.assert with ((z_add at 2) == 33)
+
+    var z_sub as list of int is calling loom.zip_with with a_list, b_list, 1
+    calling spark.assert with ((z_sub at 0) == 9)
+
+    var z_mul as list of int is calling loom.zip_with with a_list, b_list, 2
+    calling spark.assert with ((z_mul at 0) == 10)
+
+    var short_b as list of int is list of int
+    calling short_b.push with 1
+    var z_long as list of list of int is calling loom.zip_longest with a_list, short_b, 99
+    calling spark.assert with (z_long.len == 3)
+    var p2 as list of int is z_long at 2
+    calling spark.assert with ((p2 at 0) == 30)
+    calling spark.assert with ((p2 at 1) == 99)
+
+    var enum_res as list of list of int is calling loom.enumerate with a_list
+    calling spark.assert with (enum_res.len == 3)
+    var e0 as list of int is enum_res at 0
+    calling spark.assert with ((e0 at 0) == 0)
+    calling spark.assert with ((e0 at 1) == 10)
+
+    var intrlv as list of int is calling loom.interleave with a_list, b_list
+    calling spark.assert with (intrlv.len == 6)
+    calling spark.assert with ((intrlv at 0) == 10)
+    calling spark.assert with ((intrlv at 1) == 1)
+
+    var l_nested as list of list of int is list of list of int
+    calling l_nested.push with a_list
+    calling l_nested.push with b_list
+    var rr as list of int is calling loom.round_robin with l_nested
+    calling spark.assert with (rr.len == 6)
+    calling spark.assert with ((rr at 0) == 10)
+    calling spark.assert with ((rr at 1) == 1)
+
+    var rot_l as list of int is calling loom.rotate_left with a_list, 1
+    calling spark.assert with ((rot_l at 0) == 20)
+    calling spark.assert with ((rot_l at 2) == 10)
+
+    var rot_r as list of int is calling loom.rotate_right with a_list, 1
+    calling spark.assert with ((rot_r at 0) == 30)
+    calling spark.assert with ((rot_r at 1) == 10)
+
+    var empty_int_list as list of int is list of int
+    var rot_empty as list of int is calling loom.rotate_right with empty_int_list, 5
+    calling spark.assert with (rot_empty.len == 0)
+
+    var inter as list of int is calling loom.intersperse with a_list, 0
+    calling spark.assert with (inter.len == 5)
+    calling spark.assert with ((inter at 1) == 0)
+
+    var pw as list of list of int is calling loom.pairwise with a_list
+    calling spark.assert with (pw.len == 2)
+    var pw0 as list of int is pw at 0
+    calling spark.assert with ((pw0 at 0) == 10)
+    calling spark.assert with ((pw0 at 1) == 20)
+
+    var flat as list of int is calling loom.flat_map_identity with l_nested
+    calling spark.assert with (flat.len == 6)
+    var flat2 as list of int is calling loom.flatten with l_nested
+    calling spark.assert with (flat2.len == 6)
+    calling spark.println with "transforms: OK"
+
+    # 6. Set-like operations on sorted lists
+    var set_a as list of int is list of int
+    calling set_a.push with 1
+    calling set_a.push with 2
+    calling set_a.push with 4
+    calling set_a.push with 5
+
+    var set_b as list of int is list of int
+    calling set_b.push with 2
+    calling set_b.push with 3
+    calling set_b.push with 5
+    calling set_b.push with 6
+
+    var u as list of int is calling loom.union_sorted with set_a, set_b
+    calling spark.assert with (u.len == 6)
+    calling spark.assert with ((u at 0) == 1)
+    calling spark.assert with ((u at 2) == 3)
+
+    var inter_res as list of int is calling loom.intersect_sorted with set_a, set_b
+    calling spark.assert with (inter_res.len == 2)
+    calling spark.assert with ((inter_res at 0) == 2)
+    calling spark.assert with ((inter_res at 1) == 5)
+
+    var diff_res as list of int is calling loom.difference_sorted with set_a, set_b
+    calling spark.assert with (diff_res.len == 2)
+    calling spark.assert with ((diff_res at 0) == 1)
+    calling spark.assert with ((diff_res at 1) == 4)
+
+    var sym_res as list of int is calling loom.symmetric_difference_sorted with set_a, set_b
+    calling spark.assert with (sym_res.len == 4)
+    calling spark.println with "set-like: OK"
+
+    # 7. Search & Indexing
+    var search_list as list of int is list of int
+    calling search_list.push with 10
+    calling search_list.push with 20
+    calling search_list.push with 30
+    calling search_list.push with 20
+    calling search_list.push with 10
+
+    var ff as maybe int is calling loom.find_first with search_list, 20
+    calling spark.assert with (ff.is_present)
+    calling spark.assert with (ff.value == 1)
+
+    var fl as maybe int is calling loom.find_last with search_list, 20
+    calling spark.assert with (fl.is_present)
+    calling spark.assert with (fl.value == 3)
+
+    var bs as maybe int is calling loom.binary_search with set_a, 4
+    calling spark.assert with (bs.is_present)
+    calling spark.assert with (bs.value == 2)
+
+    var bs_miss as maybe int is calling loom.binary_search with set_a, 99
+    calling spark.assert with (not bs_miss.is_present)
+
+    calling spark.assert with ((calling loom.count_if_even with search_list) == 5)
+    calling spark.assert with ((calling loom.count_if_positive with search_list) == 5)
+
+    var imin as maybe int is calling loom.index_min with search_list
+    calling spark.assert with (imin.is_present)
+    calling spark.assert with (imin.value == 0)
+
+    var imax as maybe int is calling loom.index_max with search_list
+    calling spark.assert with (imax.is_present)
+    calling spark.assert with (imax.value == 2)
+    calling spark.println with "search: OK"
+
+    # 8. Structural Updates
+    var upd as list of int is calling loom.insert_at with search_list, 2, 99
+    calling spark.assert with (upd.len == 6)
+    calling spark.assert with ((upd at 2) == 99)
+
+    var rem as list of int is calling loom.remove_at with upd, 2
+    calling spark.assert with (rem.len == 5)
+    calling spark.assert with ((rem at 2) == 30)
+
+    var rep_item as list of int is calling loom.replace_at with rem, 2, 77
+    calling spark.assert with ((rep_item at 2) == 77)
+
+    var sw as list of int is calling loom.swap_at with rem, 0, 4
+    calling spark.assert with ((sw at 0) == 10)
+    calling spark.assert with ((sw at 4) == 10)
+
+    var padl as list of int is calling loom.pad_left with rem, 7, -1
+    calling spark.assert with (padl.len == 7)
+    calling spark.assert with ((padl at 0) == -1)
+    calling spark.assert with ((padl at 1) == -1)
+    calling spark.assert with ((padl at 2) == 10)
+
+    var padr as list of int is calling loom.pad_right with rem, 7, -1
+    calling spark.assert with (padr.len == 7)
+    calling spark.assert with ((padr at 5) == -1)
+    calling spark.assert with ((padr at 6) == -1)
+    calling spark.println with "structural: OK"
+
+    # 9. Statistics
+    var stat_list as list of int is list of int
+    calling stat_list.push with 1
+    calling stat_list.push with 2
+    calling stat_list.push with 3
+    calling stat_list.push with 4
+    calling stat_list.push with 5
+
+    var med as maybe float is calling loom.median with stat_list
+    calling spark.assert with (med.is_present)
+    calling spark.assert with (med.value == 3.0)
+
+    var mode_list as list of int is list of int
+    calling mode_list.push with 1
+    calling mode_list.push with 2
+    calling mode_list.push with 2
+    calling mode_list.push with 3
+    var mo as maybe int is calling loom.mode with mode_list
+    calling spark.assert with (mo.is_present)
+    calling spark.assert with (mo.value == 2)
+
+    var v_opt as maybe float is calling loom.variance with stat_list
+    calling spark.assert with (v_opt.is_present)
+    calling spark.assert with (v_opt.value == 2.0)
+
+    var sd_opt as maybe float is calling loom.stddev with stat_list
+    calling spark.assert with (sd_opt.is_present)
+    calling spark.assert with (sd_opt.value > 1.4 and sd_opt.value < 1.5)
+
+    var p50 as maybe float is calling loom.percentile with stat_list, 50.0
+    calling spark.assert with (p50.is_present)
+    calling spark.assert with (p50.value == 3.0)
+    calling spark.println with "statistics: OK"
+
+    # 10. Generic Algorithms (shard T)
+    var g_empty as list of int is list of int
+    var fo1 as int is calling loom.first_or of int with g_empty, 100
+    calling spark.assert with (fo1 == 100)
+    var fo2 as int is calling loom.first_or of int with stat_list, 100
+    calling spark.assert with (fo2 == 1)
+
+    var g_strs as list of string is list of string
+    calling g_strs.push with "alpha"
+    calling g_strs.push with "beta"
+    calling g_strs.push with "gamma"
+
+    var f_str as string is calling loom.first_or of string with g_strs, "default"
+    calling spark.assert with (f_str == "alpha")
+
+    var g_tk as list of string is calling loom.generic_take of string with g_strs, 2
+    calling spark.assert with (g_tk.len == 2)
+    calling spark.assert with ((g_tk at 0) == "alpha")
+    calling spark.assert with ((g_tk at 1) == "beta")
+
+    var g_tkl as list of string is calling loom.generic_take_last of string with g_strs, 2
+    calling spark.assert with (g_tkl.len == 2)
+    calling spark.assert with ((g_tkl at 0) == "beta")
+    calling spark.assert with ((g_tkl at 1) == "gamma")
+
+    var g_rev as list of string is calling loom.generic_reverse of string with g_strs
+    calling spark.assert with (g_rev.len == 3)
+    calling spark.assert with ((g_rev at 0) == "gamma")
+    calling spark.assert with ((g_rev at 1) == "beta")
+    calling spark.assert with ((g_rev at 2) == "alpha")
+
+    var g_extra as list of string is list of string
+    calling g_extra.push with "delta"
+    var g_joined as list of string is calling loom.generic_chain of string with g_strs, g_extra
+    calling spark.assert with (g_joined.len == 4)
+    calling spark.assert with ((g_joined at 3) == "delta")
+
+    var g_idx as int is calling loom.generic_index_of of string with g_joined, "gamma"
+    calling spark.assert with (g_idx == 2)
+    var g_miss as int is calling loom.generic_index_of of string with g_joined, "omega"
+    calling spark.assert with (g_miss == -1)
+    calling spark.println with "generics: OK"
+
+    calling spark.println with "loom extended: OK"

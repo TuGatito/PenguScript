@@ -1,0 +1,12 @@
+=== Test Chronicle Extended ===
+utc getters: OK
+local getters: OK
+datetime rune: OK
+formatting and iso: OK
+day boundaries: OK
+arithmetic: OK
+calendar helpers: OK
+comparisons: OK
+durations: OK
+stopwatch: OK
+chronicle extended: OK

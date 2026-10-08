@@ -1,0 +1,13 @@
+=== Test Atlas Extended ===
+length & predicates: OK
+access: OK
+mutation: OK
+bulk accessors: OK
+reductions: OK
+combination: OK
+filters: OK
+transformations: OK
+conversions: OK
+clear: OK
+direct enchanting methods: OK
+atlas extended: OK

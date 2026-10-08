@@ -1,0 +1,87 @@
+import std.spark
+import std.oracle
+
+declare pengu_result_ok with ok_val as ref to void into result of int to string
+declare pengu_result_err with err_val as ref to void into result of int to string
+
+test "std_programs/test_oracle_extended":
+    calling spark.println with "=== Test Oracle Extended ==="
+
+    # 1. Native Maybe constructors and unwrappers (int)
+    var m_i as maybe int is calling oracle.some_int with 42
+    var n_i as maybe int is calling oracle.none_int
+    calling spark.assert with ((calling oracle.unwrap_int with m_i) == 42)
+    calling spark.assert with ((calling oracle.unwrap_or_int with m_i, 0) == 42)
+    calling spark.assert with ((calling oracle.unwrap_or_int with n_i, 99) == 99)
+    calling spark.println with "native maybe int: OK"
+
+    # 2. Native Maybe constructors and unwrappers (string)
+    var m_s as maybe string is calling oracle.some_string with "hello"
+    var n_s as maybe string is calling oracle.none_string
+    calling spark.assert with ((calling oracle.unwrap_string with m_s) == "hello")
+    calling spark.assert with ((calling oracle.unwrap_or_string with m_s, "default") == "hello")
+    calling spark.assert with ((calling oracle.unwrap_or_string with n_s, "default") == "default")
+    calling spark.println with "native maybe string: OK"
+
+    # 3. Native Maybe constructors and unwrappers (float)
+    var m_f as maybe float is calling oracle.some_float with 3.14
+    var n_f as maybe float is calling oracle.none_float
+    calling spark.assert with ((calling oracle.unwrap_float with m_f) > 3.0)
+    calling spark.assert with ((calling oracle.unwrap_or_float with n_f, 1.0) == 1.0)
+    calling spark.println with "native maybe float: OK"
+
+    # 4. Native Maybe constructors and unwrappers (bool)
+    var m_b as maybe bool is calling oracle.some_bool with true
+    var n_b as maybe bool is calling oracle.none_bool
+    calling spark.assert with (calling oracle.unwrap_bool with m_b)
+    calling spark.assert with (not (calling oracle.unwrap_or_bool with n_b, false))
+    calling spark.println with "native maybe bool: OK"
+
+    # 5. Native bridge functions
+    var val_opt_i as MaybeInt is calling oracle.maybe_some_int with 123
+    var nat_i as maybe int is calling oracle.to_native_int with val_opt_i
+    calling spark.assert with ((calling oracle.unwrap_int with nat_i) == 123)
+    var back_opt_i as MaybeInt is calling oracle.from_native_int with nat_i
+    calling spark.assert with ((calling back_opt_i.unwrap_or with 0) == 123)
+
+    var val_opt_s as MaybeString is calling oracle.maybe_some_string with "bridged"
+    var nat_s as maybe string is calling oracle.to_native_string with val_opt_s
+    calling spark.assert with ((calling oracle.unwrap_string with nat_s) == "bridged")
+    var back_opt_s as MaybeString is calling oracle.from_native_string with nat_s
+    calling spark.assert with ((calling back_opt_s.unwrap_or with "") == "bridged")
+    calling spark.println with "bridge: OK"
+
+    # 6. Description formatters
+    var desc_some_i as string is calling oracle.describe_maybe_int with m_i
+    var desc_none_i as string is calling oracle.describe_maybe_int with n_i
+    calling spark.assert with (desc_some_i == "some(42)")
+    calling spark.assert with (desc_none_i == "none")
+
+    var desc_some_s as string is calling oracle.describe_maybe_string with m_s
+    var desc_none_s as string is calling oracle.describe_maybe_string with n_s
+    calling spark.assert with (desc_some_s == "some(\"hello\")")
+    calling spark.assert with (desc_none_s == "none")
+    calling spark.println with "describe: OK"
+
+    # 7. Native Result of int to string helpers
+    var ro as result of int to string is calling pengu_result_ok with null
+    calling spark.assert with (calling oracle.is_ok_int_result with ro)
+    calling spark.assert with (not (calling oracle.is_err_int_result with ro))
+
+    var re as result of int to string is calling pengu_result_err with null
+    calling spark.assert with (calling oracle.is_err_int_result with re)
+    calling spark.assert with (not (calling oracle.is_ok_int_result with re))
+    calling spark.assert with ((calling oracle.unwrap_or_int_result with re, 77) == 77)
+    calling spark.println with "result: OK"
+
+    # 8. Reimplemented is_none, is_err, unwrap_or on runes
+    var rune_none as MaybeInt is calling oracle.maybe_none_int
+    calling spark.assert with (calling rune_none.is_none)
+    calling spark.assert with ((calling rune_none.unwrap_or with 55) == 55)
+
+    var rune_err as ResultInt is calling oracle.result_err_int with "failed"
+    calling spark.assert with (calling rune_err.is_err)
+    calling spark.assert with ((calling rune_err.unwrap_or with 88) == 88)
+    calling spark.println with "judge reimplementations: OK"
+
+    calling spark.println with "oracle extended: OK"

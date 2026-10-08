@@ -1,0 +1,108 @@
+import std.cipher
+import std.loom
+import std.ledger
+import std.spark
+
+test "std_programs/compat_data":
+    # --- Legacy std.cipher ---
+    var b64 as string is calling cipher.encode_base64 with "Hello Pengu World!"
+    calling spark.assert with (b64 == "SGVsbG8gUGVuZ3UgV29ybGQh")
+    var dec_opt as maybe string is calling cipher.decode_base64 with b64
+    calling spark.assert with dec_opt.is_present
+    calling spark.assert with (dec_opt.value == "Hello Pengu World!")
+    calling spark.assert with calling cipher.is_base64 with b64
+
+    var jm as map of string to string is map of string to string
+    calling jm.put with "user", "pengu"
+    calling jm.put with "role", "admin"
+    var jstr_opt as maybe string is calling cipher.stringify_json with jm
+    calling spark.assert with jstr_opt.is_present
+    var pjstr_opt as maybe string is calling cipher.pretty_json with jm, 2
+    calling spark.assert with pjstr_opt.is_present
+    var parsed_opt as maybe map of string to string is calling cipher.parse_json with jstr_opt.value
+    calling spark.assert with parsed_opt.is_present
+    calling spark.assert with ((parsed_opt.value at "user") == "pengu")
+    var pv_opt as maybe string is calling cipher.parse_value with "  \"pengu\"  "
+    calling spark.assert with pv_opt.is_present
+    calling spark.assert with (pv_opt.value == "pengu")
+
+    # --- Legacy std.loom ---
+    var nums as list of int is calling loom.range with 1, 6, 1
+    calling spark.assert with (nums.len == 5)
+    calling spark.assert with ((nums at 0) == 1)
+    calling spark.assert with ((nums at 4) == 5)
+
+    var sum_val as int is calling loom.sum with nums
+    calling spark.assert with (sum_val == 15)
+
+    var prod_val as int is calling loom.product_num with nums
+    calling spark.assert with (prod_val == 120)
+
+    var max_val as int is calling loom.max_int with nums
+    var min_val as int is calling loom.min_int with nums
+    calling spark.assert with (max_val == 5)
+    calling spark.assert with (min_val == 1)
+
+    var first_two as list of int is calling loom.take with nums, 2
+    calling spark.assert with (first_two.len == 2)
+    calling spark.assert with ((first_two at 0) == 1)
+    calling spark.assert with ((first_two at 1) == 2)
+
+    var skipped as list of int is calling loom.skip with nums, 2
+    calling spark.assert with (skipped.len == 3)
+    calling spark.assert with ((skipped at 0) == 3)
+
+    var chained as list of int is calling loom.chain with first_two, skipped
+    calling spark.assert with (chained.len == 5)
+
+    var repeated as list of int is calling loom.repeat with 42, 3
+    calling spark.assert with (repeated.len == 3)
+    calling spark.assert with ((repeated at 0) == 42)
+
+    var chunk_list as list of list of int is calling loom.chunks with nums, 2
+    calling spark.assert with (chunk_list.len == 3)
+
+    var win_list as list of list of int is calling loom.windows with nums, 3
+    calling spark.assert with (win_list.len == 3)
+
+    # --- Legacy std.ledger ---
+    var esc as string is calling ledger.escape_field with "Hello, World!", ","
+    calling spark.assert with (esc == "\"Hello, World!\"")
+
+    var delim_opt as maybe string is calling ledger.detect_delimiter with "a;b;c\n1;2;3"
+    calling spark.assert with delim_opt.is_present
+    calling spark.assert with (delim_opt.value == ";")
+
+    var pl_opt as maybe list of string is calling ledger.parse_line with "a,b,c", ","
+    calling spark.assert with pl_opt.is_present
+    calling spark.assert with (pl_opt.value.len == 3)
+
+    var csv_payload as string is "name,age\nAlice,30\nBob,25\n"
+    var pcsv_opt as maybe list of list of string is calling ledger.parse_csv with csv_payload, ",", false
+    calling spark.assert with pcsv_opt.is_present
+    var pcsv as list of list of string is pcsv_opt.value
+    calling spark.assert with (pcsv.len == 3)
+
+    var tsv_payload as string is "col1\tcol2\nv1\tv2\n"
+    var ptsv_opt as maybe list of list of string is calling ledger.parse_tsv with tsv_payload, false
+    calling spark.assert with ptsv_opt.is_present
+
+    var gen_csv_opt as maybe string is calling ledger.to_csv_string with pcsv, ","
+    calling spark.assert with gen_csv_opt.is_present
+
+    var gen_tsv_opt as maybe string is calling ledger.to_tsv_string with pcsv
+    calling spark.assert with gen_tsv_opt.is_present
+
+    var tmp_csv as string is "/tmp/pengu_test_legacy_ledger.csv"
+    var ok_w as bool is calling ledger.write_csv with tmp_csv, pcsv, ","
+    calling spark.assert with ok_w
+    var r_csv_opt as maybe list of list of string is calling ledger.read_csv with tmp_csv, false, ","
+    calling spark.assert with r_csv_opt.is_present
+
+    var tmp_tsv as string is "/tmp/pengu_test_legacy_ledger.tsv"
+    var ok_wt as bool is calling ledger.write_tsv with tmp_tsv, pcsv
+    calling spark.assert with ok_wt
+    var r_tsv_opt as maybe list of list of string is calling ledger.read_tsv with tmp_tsv, false
+    calling spark.assert with r_tsv_opt.is_present
+
+    calling spark.println with "data backward compat: OK"

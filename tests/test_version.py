@@ -35,6 +35,11 @@ import pytest
 
 from pengu_semver import Version
 
+# Fast, subprocess-free unit tests: part of the `smoke` tier that
+# `pengu selftest --smoke` runs. Keep it that way -- a smoke test that
+# compiles C is not a smoke test.
+pytestmark = pytest.mark.smoke
+
 REPO = Path(__file__).resolve().parent.parent
 
 VERSION_FILE = REPO / "VERSION"
@@ -187,24 +192,24 @@ HISTORICAL: dict[str, str] = {
     "pengu_parser/pengu_infer.py":
         "diagnostic hints name the release (0.10.0) that changed 'and'/'or'",
     "pengu_bind.py": "binding templates reference upstream versions",
-    "tests/test_audit_v0150_fixes.py": "the 0.15.0 audit regression suite",
+    "tests/regression/test_audit_v0150_fixes.py": "the 0.15.0 audit regression suite",
     "tests/test_pengu_paths.py": "the 0.15.0 multi-layout tests",
-    "tests/test_regression_0_12_0.py": "regression suite for that release",
-    "tests/test_regression_0_13_0.py": "regression suite for that release",
-    "tests/test_regression_0_13_1.py": "regression suite for that release",
-    "tests/test_regression_0_13_2.py": "regression suite for that release",
-    "tests/test_regression_0_13_3.py": "regression suite for that release",
-    "tests/test_regression_0_13_4.py": "regression suite for that release",
-    "tests/test_regression_0_13_5.py": "regression suite for that release",
-    "tests/test_regression_0_13_6.py": "regression suite for that release",
-    "tests/test_regression_0_13_7.py": "regression suite for that release",
-    "tests/test_regression_0_13_8.py": "regression suite for that release",
-    "tests/test_regression_0_13_9.py": "regression suite for that release",
-    "tests/test_regression_0_13_10.py": "regression suite for that release",
-    "tests/test_regression_0_13_11.py": "regression suite for that release",
-    "tests/test_regression_0_13_12.py": "regression suite for that release",
-    "tests/test_regression_0_13_13.py": "regression suite for that release",
-    "tests/test_regression_0_13_14.py": "regression suite for that release",
+    "tests/regression/test_regression_0_12_0.py": "regression suite for that release",
+    "tests/regression/test_regression_0_13_0.py": "regression suite for that release",
+    "tests/regression/test_regression_0_13_1.py": "regression suite for that release",
+    "tests/regression/test_regression_0_13_2.py": "regression suite for that release",
+    "tests/regression/test_regression_0_13_3.py": "regression suite for that release",
+    "tests/regression/test_regression_0_13_4.py": "regression suite for that release",
+    "tests/regression/test_regression_0_13_5.py": "regression suite for that release",
+    "tests/regression/test_regression_0_13_6.py": "regression suite for that release",
+    "tests/regression/test_regression_0_13_7.py": "regression suite for that release",
+    "tests/regression/test_regression_0_13_8.py": "regression suite for that release",
+    "tests/regression/test_regression_0_13_9.py": "regression suite for that release",
+    "tests/regression/test_regression_0_13_10.py": "regression suite for that release",
+    "tests/regression/test_regression_0_13_11.py": "regression suite for that release",
+    "tests/regression/test_regression_0_13_12.py": "regression suite for that release",
+    "tests/regression/test_regression_0_13_13.py": "regression suite for that release",
+    "tests/regression/test_regression_0_13_14.py": "regression suite for that release",
 }
 
 #: Files scanned for stale tokens: the normative documents, the guides, the

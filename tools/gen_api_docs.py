@@ -119,13 +119,43 @@ def _render_one(path: Path) -> tuple[str, list[dict]]:
     return "\n".join(lines), public
 
 
-def build() -> dict[str, str]:
-    """``{relative output path: content}`` for every generated file."""
+def _render_modules(modules: list[Path], workers: int) -> list[tuple[str, list[dict]]]:
+    """Renders every module, in parallel when asked.
+
+    ``_render_one`` is a pure function of its path and each module needs its own
+    import graph, so the 27 renders are independent and CPU-bound -- the textbook
+    case for processes rather than threads. Serially the whole build takes ~2.5
+    minutes, which is longer than the *entire* rest of the test suite is allowed to
+    take; it became the suite's critical path the moment the documentation-block
+    gates were split, because a single test cannot be divided across
+    ``pytest-xdist`` workers.
+
+    Defaults to 1 so every existing caller (``cmd_write``, ``cmd_check``,
+    ``coverage``) keeps its behaviour and its deterministic ordering.
+    """
+    if workers <= 1 or len(modules) <= 1:
+        return [_render_one(path) for path in modules]
+
+    from concurrent.futures import ProcessPoolExecutor
+
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        # `map` preserves the input order, so the generated files do not depend on
+        # which worker finished first.
+        return list(pool.map(_render_one, modules))
+
+
+def build(workers: int = 1) -> dict[str, str]:
+    """``{relative output path: content}`` for every generated file.
+
+    Args:
+        workers: Render this many modules concurrently (default 1, see
+            :func:`_render_modules`).
+    """
     pages: dict[str, str] = {}
     index: list[dict] = []
     coverage: list[tuple[str, int, int]] = []
-    for path in _modules():
-        content, public = _render_one(path)
+    modules = _modules()
+    for path, (content, public) in zip(modules, _render_modules(modules, workers)):
         name = path.stem
         pages[f"{name}.md"] = content
         documented = sum(1 for e in public if (e.get("summary") or "").strip())
@@ -164,7 +194,7 @@ def build() -> dict[str, str]:
     lines += [
         "",
         "The machine-readable form of this index is "
-        "[`index.json`](index.json); `tests/test_api_docs.py` fails if it drifts "
+        "[`index.json`](index.json); `tests/docs/test_api_docs.py` fails if it drifts "
         "from the compiler, or if a module documents fewer declarations than the "
         "recorded floor.",
         "",

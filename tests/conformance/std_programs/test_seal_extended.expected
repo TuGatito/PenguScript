@@ -1,0 +1,9 @@
+=== Test Seal Extended ===
+constants: OK
+hash metadata: OK
+digests: OK
+const time eq: OK
+hmac: OK
+compression: OK
+string enchantments: OK
+seal extended: OK

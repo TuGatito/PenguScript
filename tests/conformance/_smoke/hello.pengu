@@ -1,0 +1,13 @@
+# tests/conformance/_smoke/hello.pengu
+#
+# The smallest possible conformance case.
+#
+# Contract: the `test` block name IS the case id -- the path of this file
+# relative to `tests/conformance/`, without the `.pengu` extension. The batch
+# runner compiles every case into one binary, asks that binary for its test
+# list, and uses this name to map a compiled index back to this file. A name
+# that does not match the path is a loud failure, never a silent mix-up.
+import std.spark
+
+test "_smoke/hello":
+    calling spark.println with "hello, world"

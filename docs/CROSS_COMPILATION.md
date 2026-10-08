@@ -32,7 +32,7 @@ The parser recognizes more triple families than the toolchain can serve:
 
 **The one path needing no toolchain:** the C bundle. `pengu build --target <recognized-triple> -o
 bundle.c` writes it and never calls a compiler (tested:
-[`tests/test_cross_compile.py:93-108`](../tests/test_cross_compile.py#L93)).
+[`tests/cli/test_cross_compile.py:93-108`](../tests/cli/test_cross_compile.py#L93)).
 
 ## 2. Required toolchains
 
@@ -283,10 +283,10 @@ If the program uses `when os == "windows"` blocks, add `-D os=windows`
 ([§7.4](#74-target-does-not-change-the-when-os-environment)).
 
 **Honesty note:** there is no automated end-to-end run of this example.
-`tests/test_cross_compile.py` covers triple parsing, artifact naming, compiler auto-detection and its
+`tests/cli/test_cross_compile.py` covers triple parsing, artifact naming, compiler auto-detection and its
 error, `PENGU_RUNTIME_CROSS` flag generation, and the C-bundle-only Windows build. The only test
 touching a real MinGW compiler is compile-only and skipped when the toolchain is absent
-([`tests/test_cross_compile.py:119-130`](../tests/test_cross_compile.py#L119)):
+([`tests/cli/test_cross_compile.py:119-130`](../tests/cli/test_cross_compile.py#L119)):
 
 ```python
 @pytest.mark.skipif(not shutil.which("x86_64-w64-mingw32-gcc"),
@@ -304,7 +304,7 @@ No test produces a `.exe`, and none runs it under Wine.
   [`AUDIT_1.0.md:1120`](../AUDIT_1.0.md#L1120), [`AUDIT_1.0.md:2922`](../AUDIT_1.0.md#L2922) and
   `ROADMAP_1.1.md` (item 8.12 of the 1.0 plan).
 * **The MinGW test is opt-in and compile-only** — a stub `.c`, not a PenguScript program
-  ([`tests/test_cross_compile.py:119-130`](../tests/test_cross_compile.py#L119)).
+  ([`tests/cli/test_cross_compile.py:119-130`](../tests/cli/test_cross_compile.py#L119)).
 * **No MSVC.** The real matrix is gcc (Linux) / clang-or-gcc (macOS) / MinGW (Windows):
   `build_runtime.py` has no `cl.exe` branch and `ci.yml` hardcodes `gcc` on Windows —
   [`AUDIT_1.0.md` §15.3](../AUDIT_1.0.md#L2960). An `msvc` triple buys no MSVC build.
@@ -393,4 +393,4 @@ cache. If you still suspect a stale artifact, use `pengu clean` (project) or `pe
 | Lockfile target; cache keys | [`2061-2079`](../pengu_project.py#L2061), [:686](../pengu_project.py#L686), [:4849](../pengu_project.py#L4849) |
 | `when os` from host, not `--target` | [`pengu_comptime.py:25-36`](../pengu_parser/pengu_comptime.py#L25), [:169-176](../pengu_parser/pengu_comptime.py#L169) |
 | Runtime search layouts; no cross mode in `build_runtime.py` | [`pengu_paths.py:162-207`](../pengu_paths.py#L162), [`build_runtime.py:89-96`](../build_runtime.py#L89), [:1293-1297](../build_runtime.py#L1293) |
-| Tests; CI matrix | [`tests/test_cross_compile.py`](../tests/test_cross_compile.py), [`.github/workflows/ci.yml:40-50`](../.github/workflows/ci.yml#L40) |
+| Tests; CI matrix | [`tests/cli/test_cross_compile.py`](../tests/cli/test_cross_compile.py), [`.github/workflows/ci.yml:40-50`](../.github/workflows/ci.yml#L40) |

@@ -1,0 +1,6 @@
+import moda
+import modb
+
+test "both modules declare f":
+    calling moda.f with 1
+    calling modb.f with 2

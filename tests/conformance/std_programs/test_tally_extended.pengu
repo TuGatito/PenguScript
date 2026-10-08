@@ -1,0 +1,173 @@
+import std.tally
+import std.spark
+
+test "std_programs/test_tally_extended":
+    calling spark.println with "=== Test Tally Extended ==="
+
+    # --- Setup fixture ---
+    var xs as list of int is list of int
+    calling xs.push with 3
+    calling xs.push with 1
+    calling xs.push with 4
+    calling xs.push with 1
+    calling xs.push with 5
+
+    # --- Length & access ---
+    calling spark.assert with (calling tally.len with xs) == 5
+    calling spark.assert with (calling tally.first with xs) == 3
+    calling spark.assert with (calling tally.last with xs) == 5
+    calling spark.assert with (calling tally.at_or with xs, 0) == 3
+    calling spark.assert with (calling tally.at_or with xs, 99) == 0
+    calling spark.assert with (calling tally.at_or with xs, 99, -1) == -1
+    calling spark.println with "length & access: OK"
+
+    # --- Search ---
+    calling spark.assert with calling tally.contains with xs, 4
+    calling spark.assert with (calling tally.contains with xs, 99) == false
+    calling spark.assert with (calling tally.index_of with xs, 4) == 2
+    calling spark.assert with (calling tally.index_of with xs, 99) == -1
+    calling spark.assert with (calling tally.last_index_of with xs, 1) == 3
+    calling spark.assert with (calling tally.last_index_of with xs, 99) == -1
+    calling spark.assert with (calling tally.count_of with xs, 1) == 2
+    calling spark.println with "search: OK"
+
+    # --- Reductions ---
+    calling spark.assert with (calling tally.sum with xs) == 14
+    calling spark.assert with (calling tally.max_val with xs) == 5
+    calling spark.assert with (calling tally.min_val with xs) == 1
+    calling spark.assert with (calling tally.product with xs) == 60
+    var empty_xs as list of int is list of int
+    calling spark.assert with (calling tally.product with empty_xs) == 1
+    calling spark.assert with (calling empty_xs.product) == 1
+    calling spark.assert with (calling tally.average with xs) == 2
+    calling spark.assert with (calling tally.sum_of_squares with xs) == 52
+    calling spark.println with "reductions: OK"
+
+    # --- Statistics ---
+    calling spark.assert with (calling tally.min_index with xs) == 1
+    calling spark.assert with (calling tally.max_index with xs) == 4
+    calling spark.assert with (calling tally.argmin with xs) == 1
+    calling spark.assert with (calling tally.argmax with xs) == 4
+    calling spark.assert with (calling tally.median with xs) == 3
+    calling spark.assert with (calling tally.mode with xs) == 1
+    calling spark.println with "statistics: OK"
+
+    # --- Transformations ---
+    var rev as list of int is calling tally.reverse with xs
+    calling spark.assert with (rev at 0) == 5
+    calling spark.assert with (rev at 4) == 3
+
+    var s_asc as list of int is calling tally.sort_asc with xs
+    calling spark.assert with (s_asc at 0) == 1
+    calling spark.assert with (s_asc at 1) == 1
+    calling spark.assert with (s_asc at 4) == 5
+
+    var s_desc as list of int is calling tally.sort_desc with xs
+    calling spark.assert with (s_desc at 0) == 5
+    calling spark.assert with (s_desc at 4) == 1
+
+    var uniq as list of int is calling tally.unique with xs
+    calling spark.assert with (calling tally.len with uniq) == 4
+
+    var neg_list as list of int is list of int
+    calling neg_list.push with -10
+    calling neg_list.push with 20
+    var abs_list as list of int is calling tally.abs_all with neg_list
+    calling spark.assert with (abs_list at 0) == 10
+    calling spark.assert with (abs_list at 1) == 20
+
+    var clamped as list of int is calling tally.clamp_all with xs, 2, 4
+    calling spark.assert with (clamped at 0) == 3
+    calling spark.assert with (clamped at 1) == 2
+    calling spark.assert with (clamped at 4) == 4
+    calling spark.println with "transformations: OK"
+
+    # --- Selection ---
+    var t2 as list of int is calling tally.take with xs, 2
+    calling spark.assert with (calling tally.len with t2) == 2
+    calling spark.assert with (t2 at 0) == 3
+    calling spark.assert with (t2 at 1) == 1
+
+    var d2 as list of int is calling tally.drop with xs, 2
+    calling spark.assert with (calling tally.len with d2) == 3
+    calling spark.assert with (d2 at 0) == 4
+
+    var sl as list of int is calling tally.slice_list with xs, 1, 3
+    calling spark.assert with (calling tally.len with sl) == 2
+    calling spark.assert with (sl at 0) == 1
+    calling spark.assert with (sl at 1) == 4
+    calling spark.println with "selection: OK"
+
+    # --- Combination ---
+    var cat as list of int is calling tally.concat with t2, d2
+    calling spark.assert with (calling tally.len with cat) == 5
+    calling spark.assert with (cat at 0) == 3
+    calling spark.assert with (cat at 4) == 5
+
+    var z as list of int is calling tally.zip_sum with t2, d2
+    calling spark.assert with (calling tally.len with z) == 2
+    calling spark.assert with (z at 0) == 7
+    calling spark.assert with (z at 1) == 2
+
+    var d as int is calling tally.dot with t2, sl
+    calling spark.assert with d == 7
+    calling spark.println with "combination: OK"
+
+    # --- Predicates ---
+    calling spark.assert with calling tally.all_positive with xs
+    calling spark.assert with (calling tally.all_zero with xs) == false
+    calling spark.assert with (calling tally.any_negative with xs) == false
+    calling spark.assert with (calling tally.is_sorted_asc with xs) == false
+    calling spark.assert with calling tally.is_sorted_asc with s_asc
+    calling spark.assert with calling tally.is_sorted_desc with s_desc
+    calling spark.println with "predicates: OK"
+
+    # --- Filters ---
+    var evens as list of int is calling tally.filter_even with xs
+    calling spark.assert with (calling tally.len with evens) == 1
+    calling spark.assert with (evens at 0) == 4
+
+    var odds as list of int is calling tally.filter_odd with xs
+    calling spark.assert with (calling tally.len with odds) == 4
+
+    var pos as list of int is calling tally.filter_positive with xs
+    calling spark.assert with (calling tally.len with pos) == 5
+
+    var rng as list of int is calling tally.filter_range with xs, 2, 4
+    calling spark.assert with (calling tally.len with rng) == 2
+    calling spark.println with "filters: OK"
+
+    # --- Mappings ---
+    var doubled as list of int is calling tally.map_double with xs
+    calling spark.assert with (doubled at 0) == 6
+    calling spark.assert with (doubled at 1) == 2
+
+    var squared as list of int is calling tally.map_square with xs
+    calling spark.assert with (squared at 0) == 9
+
+    var negated as list of int is calling tally.map_negate with xs
+    calling spark.assert with (negated at 0) == -3
+
+    var inc as list of int is calling tally.map_increment with xs, 10
+    calling spark.assert with (inc at 0) == 13
+    calling spark.println with "mappings: OK"
+
+    # --- Direct enchanting method syntax ---
+    calling spark.assert with (calling xs.first) == 3
+    calling spark.assert with (calling xs.last) == 5
+    calling spark.assert with (calling xs.sum) == 14
+    calling spark.assert with (calling xs.product) == 60
+    calling spark.assert with (calling xs.mean) == 2
+    calling spark.assert with (calling xs.max_val) == 5
+    calling spark.assert with (calling xs.min_val) == 1
+    var m_rev as list of int is calling xs.reverse
+    calling spark.assert with (m_rev at 0) == 5
+    var m_sorted as list of int is calling xs.sort_asc
+    calling spark.assert with (m_sorted at 0) == 1
+    var m_evens as list of int is calling xs.filter_even
+    calling spark.assert with (calling m_evens.sum) == 4
+    var m_dbl as list of int is calling xs.map_double
+    calling spark.assert with (calling m_dbl.sum) == 28
+    calling spark.println with "enchanting methods: OK"
+
+    calling spark.println with "tally extended: OK"

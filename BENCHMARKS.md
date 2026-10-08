@@ -111,7 +111,7 @@ or replace the per-call push with a cheaper ring buffer.
 > generated bundle (`implicit declaration of function
 > 'pengu_install_crash_handler'`), which made the table above irreproducible. The
 > fix is in `pengu_runtime.h` and
-> `tests/test_bounds_flag_independence.py::test_the_generated_bundle_compiles_with_the_frame_trace_off`
+> `tests/runtime/test_bounds_flag_independence.py::test_the_generated_bundle_compiles_with_the_frame_trace_off`
 > is the gate.
 
 ## Toolchain timings

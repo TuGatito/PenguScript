@@ -1,0 +1,11 @@
+
+=== Test Rites Extended ===
+version: OK
+env accessors: OK
+bulk env: OK
+expand env: OK
+arguments: OK
+process & directories: OK
+platform info: OK
+which search: OK
+rites extended: OK

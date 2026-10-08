@@ -1,0 +1,26 @@
+# LANGUAGE.md §10.3 — `bind` — implementación del contrato
+# Pins: exhaustive `bind` of a concept (instance + ritual method) and a `where` bound.
+import std.spark
+
+concept Speaker:
+    weave greet with target as string into string
+    weave ritual default_greeting into string
+
+rune Dog:
+    name as string
+
+bind Dog with Speaker:
+    weave greet with target as string into string:
+        return "Woof, {target}!"
+
+    weave ritual default_greeting into string:
+        return "Woof!"
+
+weave greet_anyone shard T where T: Speaker with s as T into string:
+    return calling s.greet with "world"
+
+test "compliance/s032_concept_bind":
+    var d as Dog is with name is "Rex"
+    calling spark.assert with ((calling d.greet with "Ada") == "Woof, Ada!")
+    calling spark.assert with ((calling Dog.default_greeting) == "Woof!")
+    calling spark.assert with ((calling greet_anyone with d) == "Woof, world!")

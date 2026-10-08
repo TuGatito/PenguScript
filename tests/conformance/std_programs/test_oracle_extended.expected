@@ -1,0 +1,10 @@
+=== Test Oracle Extended ===
+native maybe int: OK
+native maybe string: OK
+native maybe float: OK
+native maybe bool: OK
+bridge: OK
+describe: OK
+result: OK
+judge reimplementations: OK
+oracle extended: OK

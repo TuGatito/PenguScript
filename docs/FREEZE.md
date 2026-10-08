@@ -2,7 +2,7 @@
 
 > Frozen at **1.0.0** (2026-10-07). Nothing on this surface changes without a MAJOR.
 > Every `<!-- freeze:… -->` block below is read back by
-> [`tests/test_freeze_manifest.py`](tests/test_freeze_manifest.py) and compared against the
+> [`tests/tooling/test_freeze_manifest.py`](tests/tooling/test_freeze_manifest.py) and compared against the
 > tree itself (parser introspection, files on disk, the error catalog, the LSP feature
 > registry), so this file is a manifest rather than an essay: if the code drifts from it,
 > the build fails.
@@ -119,7 +119,7 @@ longer carry element cleanup/clone callbacks, and containers never clone on stor
 | `PENGU_ABI_VERSION` | 🔒 Frozen at 2 | A bump means a binary-incompatible layout change |
 | Struct layouts in `pengu_runtime.h` | 🔒 Frozen | Same reason |
 | The `_Static_assert` + `pengu_abi_version()` link gate | 🔒 Frozen | It is how a mismatched archive fails loudly |
-| Adding a **new** exported runtime symbol | 🟡 Permitted in 1.x | Additive; guarded by `tests/test_abi_version.py` |
+| Adding a **new** exported runtime symbol | 🟡 Permitted in 1.x | Additive; guarded by `tests/runtime/test_abi_version.py` |
 
 <!-- freeze:abi-version -->
 ```text
@@ -171,6 +171,7 @@ metadata
 new
 remove
 run
+selftest
 test
 time
 tree

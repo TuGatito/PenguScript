@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The fake `pengu` binary used by tests/test_release_verify.py.
+"""The fake `pengu` binary used by tests/tooling/test_release_verify.py.
 
 It emulates exactly the four commands `scripts/verify_release_artifact.py`
 executes, including the *layout discovery* the FHS gate depends on: `build`

@@ -1,0 +1,45 @@
+# LANGUAGE.md §4.2 — Runtime containers
+# Pins: string / slice / list / map / maybe / result / range runtime containers.
+import std.spark
+import std.oracle
+
+test "compliance/s004_runtime_containers":
+    var s as string is "hello"
+    calling spark.assert with ((calling spark.len_string with s) == 5)
+
+    # slice: a non-owning window over a fixed array
+    var nums as array of int with size 5 is [0, 1, 2, 3, 4]
+    var window as slice of int is nums at 1 to 4
+    calling spark.assert with ((window at 0) == 1)
+    calling spark.assert with ((window at 2) == 3)
+
+    # list: growable vector with amortised growth
+    var dyn as list of int is list of int
+    with dyn:
+        calling .push with 10
+        calling .push with 20
+    calling spark.assert with ((calling dyn.len) == 2)
+    calling spark.assert with ((dyn at 1) == 20)
+
+    # map: open-addressed hash table
+    var table as map of string to int is map of string to int
+    with table:
+        calling .put with "one", 1
+    calling spark.assert with ((table at "one") == 1)
+
+    # maybe and result value containers
+    var present as maybe int is some 42
+    var absent as maybe int is maybe none
+    calling spark.assert with (present is present)
+    calling spark.assert with (absent is not present)
+
+    var ok_r as result of int to string is calling ok_of with 5
+    var err_r as result of int to string is calling oracle.err_of with "boom"
+    calling spark.assert with (ok_r.is_ok)
+    calling spark.assert with (not err_r.is_ok)
+
+    # range: half-open [start, end)
+    var hits as int is 0
+    for i in 2 to 7:
+        set hits is hits + 1
+    calling spark.assert with (hits == 5)

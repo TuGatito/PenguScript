@@ -1,0 +1,29 @@
+# LANGUAGE.md §5.2 — Scope
+# Pins: indentation-delimited lexical scopes and inner-name shadowing.
+import std.spark
+
+weave outer_value into int:
+    var x as int is 10
+    if x == 10:
+        var x as int is 20
+        calling spark.assert with (x == 20)
+        if x == 20:
+            var x as int is 30
+            calling spark.assert with (x == 30)
+        calling spark.assert with (x == 20)
+    # the inner declarations never escaped their blocks
+    calling spark.assert with (x == 10)
+
+    var i as int is 0
+    while i < 3:
+        var y as int is i * 2
+        calling spark.assert with (y == i * 2)
+        set i is i + 1
+    return x
+
+test "compliance/s006_scope":
+    calling spark.assert with ((calling outer_value) == 10)
+    var x as int is 1
+    for x in 5 to 7:
+        calling spark.assert with (x >= 5)
+    calling spark.assert with (x == 1)

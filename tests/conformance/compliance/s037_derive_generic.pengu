@@ -1,0 +1,23 @@
+# LANGUAGE.md §11.6 — `derive` on generic types
+# Pins: `derive Par, Ordo` on a generic rune; substitution site checks the bound.
+import std.spark
+
+rune Point shard T derive Par, Ordo:
+    x as T
+    y as T
+
+test "compliance/s037_derive_generic":
+    var a as Point of int is with x is 1, y is 2
+    var b as Point of int is with x is 1, y is 2
+    var c as Point of int is with x is 3, y is 0
+    calling spark.assert with (a == b)
+    calling spark.assert with (a != c)
+    calling spark.assert with (a < c)
+    calling spark.assert with (c > a)
+
+    # the same derived helpers exist for every substitution that satisfies Par/Ordo
+    var sa as Point of string is with x is "a", y is "b"
+    var sb as Point of string is with x is "a", y is "b"
+    var sc as Point of string is with x is "a", y is "c"
+    calling spark.assert with (sa == sb)
+    calling spark.assert with (sa != sc)

@@ -1,0 +1,18 @@
+import std.spark
+
+# Function with a generic parameter used in a local container constructor
+weave wrap_in_list shard T with x as T into list of T:
+    var r as list of T is list of T
+    calling r.push with x
+    return r
+
+test "std_programs/codegen_generic_subst":
+    var xs as list of string is calling wrap_in_list of string with "hello"
+    calling spark.assert with (xs.len == 1)
+    calling spark.assert with ((xs at 0) == "hello")
+
+    var ints as list of int is calling wrap_in_list of int with 42
+    calling spark.assert with (ints.len == 1)
+    calling spark.assert with ((ints at 0) == 42)
+
+    calling spark.println with "generic subst: OK"

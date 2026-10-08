@@ -15,6 +15,12 @@ from pengu_project import (
     _update_config_dependency,
     init_project,
 )
+import pytest
+
+# Fast, subprocess-free unit tests: part of the `smoke` tier that
+# `pengu selftest --smoke` runs. Keep it that way -- a smoke test that
+# compiles C is not a smoke test.
+pytestmark = pytest.mark.smoke
 
 
 def test_dump_toml_round_trips():

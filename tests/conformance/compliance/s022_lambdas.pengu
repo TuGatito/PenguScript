@@ -1,0 +1,18 @@
+# LANGUAGE.md §8.4 — Lambdas
+# Pins: `lambda` syntax with typed params, inferred return, lambdas as fn values.
+import std.spark
+
+weave apply_twice with f as ref to weave with x as int into int, v as int into int:
+    return calling f with (calling f with v)
+
+test "compliance/s022_lambdas":
+    let dbl as weave with x as int into int is lambda x as int into x * 2
+    let add as weave with a as int, b as int into int is lambda a as int, b as int into a + b
+    let no_args as weave into int is lambda into 42
+    let shout as weave with s as string into string is lambda s as string into "{s}!"
+
+    calling spark.assert with ((calling dbl with 21) == 42)
+    calling spark.assert with ((calling add with 2, 3) == 5)
+    calling spark.assert with ((calling no_args) == 42)
+    calling spark.assert with ((calling shout with "hi") == "hi!")
+    calling spark.assert with ((calling apply_twice with dbl, 3) == 12)

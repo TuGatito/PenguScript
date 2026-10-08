@@ -97,16 +97,75 @@ def extract_blocks(path: Path) -> list[Block]:
     return blocks
 
 
-def check_block(block: Block, timeout: int = 120) -> tuple[bool, str]:
-    """Returns ``(compiles, output)`` for one block, compiled in isolation."""
+def block_diagnostics(block: Block) -> tuple[bool, list[dict]]:
+    """Returns ``(ok, diagnostics)`` for one block, checked in isolation.
+
+    The isolation that matters is that each block is its own *file* -- a block is
+    not a program and must not see its neighbours -- not that it is its own
+    process. This used to spawn ``python pengu_project.py check --entry`` per
+    block; across ~200 blocks that cost ~0.36 s of interpreter start-up and
+    compiler import each, which was the second largest item in the test suite.
+    The diagnostics are returned rather than printed so that a caller can tell a
+    real rejection from a swallowed interpreter error: the latter reaches
+    `_diagnostic_message` without a ``code`` and comes out with an empty one, while
+    every language diagnostic carries a code (calibrated over all 286 documented
+    blocks in `tests/compiler/test_frontend_no_crash.py`).
+    """
+    from dataclasses import replace
+
+    # This module is both imported (as `tools.check_doc_blocks`) and run as a
+    # script. As a script the repository root is not on `sys.path` -- the previous
+    # subprocess implementation got it from `cwd=REPO` -- so it is added here.
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+
+    from pengu_project import PenguBuilder, ProjectConfig
+
     with tempfile.TemporaryDirectory() as tmp:
         entry = Path(tmp) / "blk.pengu"
         entry.write_text(block.code + "\n", encoding="utf-8")
-        proc = subprocess.run(
-            [sys.executable, str(REPO / "pengu_project.py"), "check", "--entry", str(entry)],
-            capture_output=True, text=True, timeout=timeout, cwd=str(REPO),
+        absolute = entry.resolve()
+        config = replace(
+            ProjectConfig.load(None),
+            base_dir=str(absolute.parent),
+            entry=absolute.name,
+            name=absolute.stem,
         )
-        return proc.returncode == 0, proc.stdout + proc.stderr
+        builder = PenguBuilder(config)
+        builder.verbose = False
+        ok, diagnostics = builder.check_sources_diagnostics()
+        return bool(ok), [dict(d) for d in diagnostics]
+
+
+def _format_diagnostics(diagnostics: list[dict]) -> str:
+    """The textual form of the diagnostics, shaped like the CLI's output."""
+    return "".join(
+        f"{d.get('file', '')}:{d.get('line', 0)}:{d.get('col', 0)} "
+        f"{('[' + str(d['code']) + '] ') if d.get('code') else ''}"
+        f"{d.get('message', '')}\n"
+        for d in diagnostics
+    )
+
+
+def check_block_detail(block: Block) -> tuple[bool, str, list[dict]]:
+    """``(compiles, output, diagnostics)`` for one block, from a single check.
+
+    Callers that need both the verdict and the structured diagnostics use this
+    rather than calling :func:`check_block` and :func:`block_diagnostics` in turn,
+    which would check the block twice.
+    """
+    ok, diagnostics = block_diagnostics(block)
+    return ok, _format_diagnostics(diagnostics), diagnostics
+
+
+def check_block(block: Block, timeout: int = 120) -> tuple[bool, str]:
+    """Returns ``(compiles, output)`` for one block, checked in isolation.
+
+    ``timeout`` is accepted for compatibility with the previous subprocess
+    implementation and is no longer enforced: there is no child process to kill.
+    """
+    ok, output, _diagnostics = check_block_detail(block)
+    return ok, output
 
 
 def _looks_invalid(block: Block, text_lines: list[str]) -> bool:
@@ -166,23 +225,37 @@ def relabel(verbose: bool = True) -> int:
     return changed
 
 
+def classify_failure(document: str, block: Block, compiles: bool,
+                     output: str) -> str | None:
+    """The problem this block represents, or None when its marker matches reality.
+
+    The single implementation of the two-sided rule, shared by :func:`cmd_check`
+    and by the tests. It lives here rather than in the tests because there are two
+    callers now: the CLI, which walks every block, and the pytest suite, which
+    checks **one block per test** so ``pytest-xdist`` can spread the work. Some 200
+    blocks take ~2.5 minutes serially and every block is independent, so the
+    per-test split is what keeps that off the suite's critical path -- whereas
+    duplicating the rule in the test would let the two drift apart.
+    """
+    if block.marker == "pengu" and not compiles:
+        first = next((ln.strip() for ln in output.splitlines()
+                      if re.search(r"\[[EW]\d{4}\]", ln)), "")
+        return f"{document}:{block.line}: a `pengu` block does not compile. {first}"
+    if block.marker != "pengu" and compiles:
+        return (f"{document}:{block.line}: marked `{block.marker}` but it compiles — "
+                f"promote it to `pengu`")
+    return None
+
+
 def cmd_check(timeout: int = 120) -> tuple[int, list[str]]:
     """Returns ``(exit_code, problems)``."""
     problems: list[str] = []
     for name in DOCUMENTS:
         for block in extract_blocks(DOC_DIR / name):
             compiles, output = check_block(block, timeout=timeout)
-            if block.marker == "pengu" and not compiles:
-                first = next((ln.strip() for ln in output.splitlines()
-                              if re.search(r"\[[EW]\d{4}\]", ln)), "")
-                problems.append(
-                    f"{name}:{block.line}: a `pengu` block does not compile. {first}"
-                )
-            elif block.marker != "pengu" and compiles:
-                problems.append(
-                    f"{name}:{block.line}: marked `{block.marker}` but it compiles — "
-                    f"promote it to `pengu`"
-                )
+            problem = classify_failure(name, block, compiles, output)
+            if problem:
+                problems.append(problem)
     return (1 if problems else 0), problems
 
 

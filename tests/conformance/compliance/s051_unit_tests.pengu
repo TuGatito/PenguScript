@@ -1,0 +1,20 @@
+# LANGUAGE.md §17 — Unit tests (`test`)
+# Pins: `test` blocks are semantically checked in every build mode (not only `--test`).
+import std.spark
+
+weave add with a as int, b as int into int:
+    return a + b
+
+test "arithmetic is correct":
+    var r as int is calling add with 1, 2
+    calling spark.assert with (r == 3)
+
+test add_zero:
+    calling spark.assert with ((calling add with 0, 0) == 0)
+
+test string_forms:
+    calling spark.assert with ("abc" == "abc")
+
+test "compliance/s051_unit_tests":
+    # a normal build still validates the test bodies above and keeps the entry point
+    calling spark.assert with ((calling add with 20, 22) == 42)

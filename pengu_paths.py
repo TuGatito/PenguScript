@@ -160,14 +160,28 @@ def runtime_include_dirs() -> List[Path]:
 
 
 def runtime_lib_dirs() -> List[Path]:
-    """Directories that may contain the runtime's static libraries."""
+    """Directories that may contain the runtime's static libraries.
+
+    ``PENGU_LIB_DIR`` is an **override**, not one more search path: when it is
+    set to an existing directory, that directory is the only one searched.
+
+    That distinction matters beyond deployment. The built-in candidates always
+    include the source checkout's ``build/lib``, so an additive variable could
+    never express "there is no runtime here" -- and
+    ``tests/test_build_runtime_link.py`` needs exactly that to exercise the
+    missing-archive pre-flight. Because it could not, that test renamed the real
+    ``libpengu_runtime.a`` out of the checkout for the duration of one build.
+    Every other build running at that moment then failed with
+    ``cannot find -lpengu_runtime``: invisible in a serial run, and the single
+    largest source of failures under pytest-xdist.
+    """
     dirs: List[Path] = []
 
     env = os.environ.get("PENGU_LIB_DIR")
     if env:
         p = Path(env).expanduser()
         if p.is_dir():
-            dirs.append(p)
+            return [p]
 
     env_prefix = os.environ.get("PENGU_PREFIX")
     if env_prefix:

@@ -20,7 +20,7 @@ language has exactly **two** breaking changes in its history, and they landed in
 - Every `@deprecated` symbol in the standard library, with its replacement and
   its retirement version, is listed in [`docs/DEPRECATIONS.md`](docs/DEPRECATIONS.md).
   That table is cross-checked against the sources by
-  `tests/test_std_deprecations_doc.py`, so it cannot silently go stale.
+  `tests/docs/test_std_deprecations_doc.py`, so it cannot silently go stale.
 
 ## 2. Breaking changes by version
 
@@ -210,5 +210,5 @@ becomes its supported version range.
 If an upgrade breaks code in a way this guide does not describe, that is a
 documentation bug: open an issue with the failing snippet and the release you came
 from. A breaking change that is not in §2 means the changelog and this guide have
-diverged — `tests/test_migration_doc.py` exists to catch exactly that, and it is
+diverged — `tests/docs/test_migration_doc.py` exists to catch exactly that, and it is
 cheaper to fix it here than in your project.

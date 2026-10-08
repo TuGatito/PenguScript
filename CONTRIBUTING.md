@@ -77,23 +77,51 @@ portable/FHS release layouts. In a source checkout the CLI is
 
 Run from the repository root — the tests import `tests.conftest`.
 
+> **Adding or changing tests? Read [`AGENT_TESTING.md`](AGENT_TESTING.md) first.**
+> It is the contract for the test suite, and `tests/test_test_policy.py` enforces
+> it. The short version: a new case is a file in `tests/conformance/`, not a new
+> `tests/test_*.py`.
+
 ```bash
-# The full suite exactly as CI runs it
-python -m pytest tests -q -p no:cacheprovider --timeout=600
+# Fast tier (<3 s): pure unit tests, no C compiler, no subprocess
+pengu selftest --smoke
 
-# The shorter form quoted by the release checklist
-python -m pytest tests -q
+# Only the conformance cases your changes can affect
+pengu selftest --affected
+pengu selftest --affected origin/main
 
-# One file, one test by node id, or a keyword filter
-python -m pytest tests/test_error_codes_uniqueness.py -q -p no:cacheprovider
-python -m pytest tests/test_error_codes_uniqueness.py::test_error_class_default_codes_are_unique -q
-python -m pytest tests -q -k "strict_c99 or msvc"
+# One conformance case
+pengu selftest --test 'basics/hello'
+
+# The full suite, parallel — CI runs exactly this
+pengu selftest
+python -m pytest tests -q -n auto -p no:cacheprovider --timeout=600
+
+# Serial, when you are chasing a flake
+pengu selftest -n 0
 ```
+
+`pengu selftest` runs *this repository's* suite. `pengu test` is a language
+feature — it compiles your own project and runs its integrated `test` blocks — so
+the two are deliberately different verbs.
 
 `--timeout` comes from `pytest-timeout`. CI is stricter: each phase job runs its
 subset with `-x` (stop at the first failure), e.g.
-`python -m pytest tests/test_grammar_strict.py tests/test_audit_regressions.py -q -p no:cacheprovider --timeout=600 -x`
+`python -m pytest tests/grammar/test_grammar_strict.py tests/regression/test_audit_regressions.py -q -n auto -p no:cacheprovider --timeout=600 -x`
 — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml) for the exact file lists.
+
+Machine-readable results, for tooling:
+
+```bash
+pengu selftest --json > results.jsonl       # one JSON object per test
+```
+
+The generated artifacts under `tests/` are regenerated, never hand-edited:
+
+```bash
+python tools/gen_conformance_deps.py           # tests/conformance/_deps.json
+python tools/gen_test_policy_baseline.py       # tests/_test_policy_baseline.json
+```
 
 Before pushing, also run the cheap gates CI runs:
 
@@ -150,16 +178,16 @@ numbers are the audit's and may have drifted. Reproduced in English:
 
 | Gate | What it believed it proved | What it really proved | Bug it let through |
 |---|---|---|---|
-| `tests/test_cli_strict_c99.py:50` | "strict C is portable" | Absence of two strings (`__extension__`, `__auto_type`) in a text | §4.1 — 13 hard `gcc` errors |
-| `tests/test_c99_portability.py` (5 tests) | Same | Compiles a 20-line program with **no imports** | §4.1 |
-| `tests/test_error_codes_uniqueness.py` | "the error codes are unique" | Only `kwargs.setdefault` defaults; ignores 24 raw emissions | §2.3 — `E0035` with 4 meanings |
+| `tests/cli/test_cli_strict_c99.py:50` | "strict C is portable" | Absence of two strings (`__extension__`, `__auto_type`) in a text | §4.1 — 13 hard `gcc` errors |
+| `tests/codegen/test_c99_portability.py` (5 tests) | Same | Compiles a 20-line program with **no imports** | §4.1 |
+| `tests/tooling/test_error_codes_uniqueness.py` | "the error codes are unique" | Only `kwargs.setdefault` defaults; ignores 24 raw emissions | §2.3 — `E0035` with 4 meanings |
 | `tests/test_attributes_msvc.py:39` | "MSVC works" | Compares **generated text** | §5.1 — the runtime does not compile with MSVC |
 | `.github/workflows/ci.yml` (`CC_BIN="gcc"`) | "Windows = MSVC" | MinGW `gcc` | §5.1 |
 | `.github/workflows/sanitizers.yml` (ASan step) | "the leak stays visible without breaking CI" | Runs the suite twice, the second time **without** the `--deselect` | §11.3 — red job |
 | `tests/test_ci_workflows.py` (tag→release invariant) | "the tag→release handoff works" | The literal `v*` exists in the triggers | §14.6 |
 
-The four historical offenders are `tests/test_cli_strict_c99.py:50`,
-`tests/test_c99_portability.py`, `tests/test_error_codes_uniqueness.py` and
+The four historical offenders are `tests/cli/test_cli_strict_c99.py:50`,
+`tests/codegen/test_c99_portability.py`, `tests/tooling/test_error_codes_uniqueness.py` and
 `tests/test_attributes_msvc.py:39`. **Phase 8 / item 8.1 (B10)** in
 [`ROADMAP_1.1.md`](ROADMAP_1.1.md) converts them so each compiles, analyses or
 measures (item 8.18 shares the harness via `tests/conftest.py`). The Phase 8 exit
@@ -257,10 +285,10 @@ class VarLetTopLevelError(SemanticError):
    code is user-facing.
 4. **Let the cross-checks run:** `tests/test_error_catalog_sync.py` fails when the
    JSON, the Markdown tables or the code drift apart (and guards against the five
-   phantom classes returning); `tests/test_error_codes_uniqueness.py` fails if two
+   phantom classes returning); `tests/tooling/test_error_codes_uniqueness.py` fails if two
    error classes default to the same code (the one documented exception is `E0000`,
    shared by `SemanticError` and `ParseError`);
-   `tests/test_runtime_hardening.py::test_every_raised_code_is_documented` fails
+   `tests/runtime/test_runtime_hardening.py::test_every_raised_code_is_documented` fails
    when any `code="Exxxx"` emitted in `pengu_parser/` is missing from `LANGUAGE.md`,
    and `::test_warning_codes_are_documented` does the same for warnings.
 
@@ -280,8 +308,8 @@ plan belongs in `docs/archive/`.
 
 When behaviour changes, update every document that claims otherwise, and prefer a
 test that cross-checks the claim — the project already has several
-(`tests/test_cheatsheet_catalog.py`, `tests/test_std_deprecations_doc.py`,
-`tests/test_runtime_hardening.py`).
+(`tests/docs/test_cheatsheet_catalog.py`, `tests/docs/test_std_deprecations_doc.py`,
+`tests/runtime/test_runtime_hardening.py`).
 
 **Changelog.** Every user-visible change gets an entry in
 [`CHANGELOG.md`](CHANGELOG.md) under the current **`## [Unreleased] …`** section, in
@@ -316,7 +344,7 @@ and the nightly fuzz/bench jobs. Two caveats from the checklist itself:
   author-only, not agent work.
 
 Release mechanics touch version constants that tests cross-check (e.g.
-`tests/test_std_versioning.py`), and `scripts/release_version.py` is the single source
+`tests/stdlib/test_std_versioning.py`), and `scripts/release_version.py` is the single source
 of truth that both `ci.yml` (tagging) and `release.yml` (publishing) call.
 
 ## 10. Commit and PR conventions

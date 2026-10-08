@@ -172,6 +172,12 @@ class SymbolTable:
         self.generic_aliases: Dict[str, Tuple[List[str], Any]] = {}
         self.generic_concepts: Dict[str, Tuple[List[str], Any]] = {}
         self.generic_functions: Dict[str, Tuple[List[str], Any]] = {}
+        #: generic function name -> source file that *defines* it. The
+        #: generic table is keyed by both the bare name and module-qualified
+        #: names, so a bare key is ambiguous once two modules declare the same
+        #: name; this records which module an entry actually came from, which
+        #: is what stops one module's generic being attributed to another.
+        self.generic_function_owner: Dict[str, str] = {}
         # (receiver_type_params, method_type_params, method_ast).  Older
         # 2-tuples (concatenated params, ast) are still accepted by readers.
         self.generic_methods: Dict[Tuple[str, str], Tuple[List[str], ...]] = {}

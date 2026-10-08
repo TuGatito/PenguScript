@@ -1,0 +1,44 @@
+{
+  "_meta": [
+    "Frozen snapshot of the test suite's shape, enforced by tests/test_test_policy.py.",
+    "Regenerate with: python tools/gen_test_policy_baseline.py",
+    "",
+    "root_test_files           -- adding one FAILS: put the case in tests/conformance/ instead.",
+    "                             deleting one also fails until this file is shrunk: that is the ratchet.",
+    "may_read_generated_c      -- may only shrink. Rule 1: an end-to-end test judges behaviour, not emitted C.",
+    "may_sleep                 -- may only shrink. Rule 7: no test may sleep (mtime ordering is the one exception).",
+    "smoke_files_with_subprocess -- must stay empty. The smoke tier promises no C compilation."
+  ],
+  "root_test_files": [
+    "test_ci_workflows.py",
+    "test_compliance_corpus.py",
+    "test_conformance.py",
+    "test_error_catalog_sync.py",
+    "test_known_issues.py",
+    "test_manifest_toml.py",
+    "test_migration_corpus.py",
+    "test_pengu_paths.py",
+    "test_release_claims.py",
+    "test_semver.py",
+    "test_test_policy.py",
+    "test_version.py"
+  ],
+  "may_read_generated_c": [
+    "test_abi_version.py",
+    "test_bounds_flag_independence.py",
+    "test_cli_strict_c99.py",
+    "test_cli_tools.py",
+    "test_codegen_line_markers.py",
+    "test_init_templates.py",
+    "test_modules_bindings.py",
+    "test_no_generic.py",
+    "test_run_cleanup.py",
+    "test_std_seal_crc32.py"
+  ],
+  "may_sleep": [
+    "test_p0_toolchain.py",
+    "test_pch.py",
+    "test_version.py"
+  ],
+  "smoke_files_with_subprocess": []
+}

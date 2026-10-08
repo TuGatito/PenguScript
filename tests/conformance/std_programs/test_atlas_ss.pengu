@@ -1,0 +1,129 @@
+import std.spark
+import std.atlas
+
+test "std_programs/test_atlas_ss":
+    calling spark.println with "=== Test Atlas (String -> String) ==="
+
+    var m as map of string to string is map of string to string
+    calling spark.assert with (calling m.is_empty)
+    calling spark.assert with (calling m.size == 0)
+
+    # 1. Insertion & basic access
+    calling m.put with "env", "production"
+    calling m.put with "host", "localhost"
+    calling m.put with "port", "8080"
+    calling spark.assert with (not (calling m.is_empty))
+    calling spark.assert with (calling m.size == 3)
+    calling spark.assert with (calling m.has_key with "host")
+    calling spark.assert with (not (calling m.has_key with "ssl"))
+
+    # 2. get_or and get_safe
+    calling spark.assert with ((calling m.get_or with "host", "none") == "localhost")
+    calling spark.assert with ((calling m.get_or with "missing", "fallback") == "fallback")
+
+    var opt1 as maybe string is calling m.get_safe with "env"
+    calling spark.assert with (opt1.is_present)
+    if opt1.is_present:
+        calling spark.assert with (opt1.value == "production")
+
+    var opt2 as maybe string is calling m.get_safe with "missing"
+    calling spark.assert with (not opt2.is_present)
+
+    # 3. Keys check & search
+    var k_sub as list of string is list of string
+    calling k_sub.push with "host"
+    calling k_sub.push with "port"
+    calling spark.assert with (calling m.has_all_keys with k_sub)
+
+    var k_any as list of string is list of string
+    calling k_any.push with "ssl"
+    calling k_any.push with "port"
+    calling spark.assert with (calling m.has_any_key with k_any)
+
+    var k_miss as list of string is list of string
+    calling k_miss.push with "x"
+    calling k_miss.push with "y"
+    calling spark.assert with (not (calling m.has_any_key with k_miss))
+
+    var fk as maybe string is calling m.find_key_by_value with "production"
+    calling spark.assert with (fk.is_present)
+    if fk.is_present:
+        calling spark.assert with (fk.value == "env")
+
+    # 4. Update & rename
+    var up_ok as bool is calling m.update with "port", "9090"
+    calling spark.assert with up_ok
+    calling spark.assert with ((calling m.get_or with "port", "") == "9090")
+    var up_fail as bool is calling m.update with "nonexistent", "val"
+    calling spark.assert with (not up_fail)
+
+    var ren_ok as bool is calling m.rename_key with "port", "port_num"
+    calling spark.assert with ren_ok
+    calling spark.assert with (not (calling m.has_key with "port"))
+    calling spark.assert with (calling m.has_key with "port_num")
+    calling spark.assert with ((calling m.get_or with "port_num", "") == "9090")
+
+    # 5. Bulk keys and sorted
+    var ks as list of string is calling m.keys
+    calling spark.assert with (ks.len == 3)
+    var sorted_ks as list of string is calling m.keys_sorted
+    calling spark.assert with (sorted_ks.len == 3)
+    # Alphabetical order: env, host, port_num
+    calling spark.assert with ((sorted_ks at 0) == "env")
+    calling spark.assert with ((sorted_ks at 1) == "host")
+    calling spark.assert with ((sorted_ks at 2) == "port_num")
+
+    # 6. Filters & clone
+    var c as map of string to string is calling m.clone
+    calling spark.assert with (calling c.size == 3)
+    calling spark.assert with (calling c.has_key with "host")
+
+    var f_sub as map of string to string is calling m.filter_keys_contains with "port"
+    calling spark.assert with (calling f_sub.size == 1)
+    calling spark.assert with (calling f_sub.has_key with "port_num")
+
+    var f_pre as map of string to string is calling m.filter_keys_startswith with "en"
+    calling spark.assert with (calling f_pre.size == 1)
+    calling spark.assert with (calling f_pre.has_key with "env")
+
+    # 7. remove_all
+    var to_rem as list of string is list of string
+    calling to_rem.push with "env"
+    calling to_rem.push with "host"
+    var rem_count as int is calling m.remove_all with to_rem
+    calling spark.assert with (rem_count == 2)
+    calling spark.assert with (calling m.size == 1)
+
+    # 8. Binary operations (merge, from_lists)
+    var a as map of string to string is map of string to string
+    calling a.put with "k1", "v1"
+    calling a.put with "common", "a_val"
+
+    var b as map of string to string is map of string to string
+    calling b.put with "k2", "v2"
+    calling b.put with "common", "b_val"
+
+    var merged as map of string to string is calling atlas.merge_ss with a, b
+    calling spark.assert with (calling merged.size == 3)
+    calling spark.assert with ((calling merged.get_or with "common", "") == "b_val")
+
+    var merged_left as map of string to string is calling atlas.merge_keep_left_ss with a, b
+    calling spark.assert with (calling merged_left.size == 3)
+    calling spark.assert with ((calling merged_left.get_or with "common", "") == "a_val")
+
+    var list_k as list of string is list of string
+    calling list_k.push with "hdr1"
+    calling list_k.push with "hdr2"
+    var list_v as list of string is list of string
+    calling list_v.push with "val1"
+    calling list_v.push with "val2"
+    var fl as map of string to string is calling atlas.from_lists_ss with list_k, list_v
+    calling spark.assert with (calling fl.size == 2)
+    calling spark.assert with ((calling fl.get_or with "hdr1", "") == "val1")
+
+    # 9. Generic module utilities
+    calling spark.assert with ((calling atlas.map_size of string, string with fl) == 2)
+    calling spark.assert with (calling atlas.map_has_key of string, string with fl, "hdr2")
+    calling spark.assert with ((calling atlas.map_get_or of string, string with fl, "hdr2", "") == "val2")
+
+    calling spark.println with "atlas_ss: OK"

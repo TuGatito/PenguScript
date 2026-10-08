@@ -1,0 +1,73 @@
+# LANGUAGE.md §12 — Optionals & errors
+# Pins: maybe/result containers, `or else`, `or return`, `or:` + `error`, `try`.
+import std.spark
+import std.oracle
+
+weave find_user with id as int into maybe string:
+    if id == 1:
+        return some "Admin"
+    return maybe none
+
+weave risky with x as int into result of int to string:
+    if x < 0:
+        return calling oracle.err_of with "negative"
+    return calling ok_of with (x * 2)
+
+weave plus_one with x as int into result of int to string:
+    let v is try calling risky with x
+    return calling ok_of with (v + 1)
+
+weave describe with m as maybe string into string:
+    return m or else "Guest"
+
+weave count_or_none with m as maybe int into int:
+    let v is m or return -1
+    return v
+
+test "compliance/s038_optionals_errors":
+    var u as maybe string is calling find_user with 1
+    calling spark.assert with (u is present)
+    if name as string is u:
+        calling spark.assert with (name == "Admin")
+
+    var miss as maybe string is calling find_user with 2
+    calling spark.assert with (miss is not present)
+    calling spark.assert with ((calling describe with miss) == "Guest")
+    calling spark.assert with ((calling describe with u) == "Admin")
+
+    calling spark.assert with ((calling count_or_none with (some 3)) == 3)
+    calling spark.assert with ((calling count_or_none with (maybe none)) == -1)
+
+    var ok1 as result of int to string is calling risky with 5
+    calling spark.assert with (ok1.is_ok)
+    calling spark.assert with (ok1.value == 10)
+    var err1 as result of int to string is calling risky with -1
+    calling spark.assert with (not err1.is_ok)
+    calling spark.assert with (err1.error == "negative")
+
+    # `try` unwraps or propagates the failure out of `plus_one`
+    var prop as result of int to string is calling plus_one with 4
+    calling spark.assert with (prop.is_ok)
+    calling spark.assert with (prop.value == 9)
+    var failed as result of int to string is calling plus_one with -2
+    calling spark.assert with (not failed.is_ok)
+    calling spark.assert with (failed.error == "negative")
+
+    # `or:` block: the failure payload is bound to the scoped `error`
+    var handled as int is 0
+    var got as int is (calling risky with 4) or:
+        set handled is 1
+        0
+    calling spark.assert with (got == 8)
+    calling spark.assert with (handled == 0)
+
+    var bad as int is (calling risky with -5) or:
+        # NOTE: comparing the scoped `error` directly inside an `or:` block hits a
+        # codegen bug (`pengu_string_from_int((int64_t)(error))`); copying it into a
+        # local first is the working form, and is what is exercised here.
+        var e is error
+        set handled is 2
+        calling spark.assert with (e == "negative")
+        0
+    calling spark.assert with (bad == 0)
+    calling spark.assert with (handled == 2)

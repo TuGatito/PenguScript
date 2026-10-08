@@ -1,0 +1,12 @@
+=== Test Filum Extended ===
+version: OK
+mutex: OK
+waitgroup: OK
+once & cond: OK
+atomic_int: OK
+chan_int: OK
+chan_string: OK
+chan_float: OK
+chan_bool: OK
+system helpers: OK
+filum extended: OK

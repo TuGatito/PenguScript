@@ -1,0 +1,37 @@
+# LANGUAGE.md §15.3 — Arrays, lists, slices, maps
+# Pins: const-sized arrays, bracket literals, multidimensional arrays, slices, maps.
+import std.spark
+
+const COLS as int is 3
+
+test "compliance/s047_arrays_lists_slices_maps":
+    # fixed array sized by a constant identifier
+    var nums as array of int with size COLS is [10, 20, 30]
+    calling spark.assert with ((nums at 0) == 10)
+    calling spark.assert with ((nums at 2) == 30)
+
+    # slice: a non-owning window `[1, 3)`
+    var sl as slice of int is nums at 1 to 3
+    calling spark.assert with ((sl at 0) == 20)
+    calling spark.assert with ((sl at 1) == 30)
+
+    # growable list built with bracket elements
+    var dyn as list of int is [1, 2]
+    with dyn:
+        calling .push with 3
+    calling spark.assert with ((calling dyn.len) == 3)
+
+    # multidimensional array: outer dimension first -> grid[2][3]
+    var grid as array of array of int with size 2 with size 3 is [[1, 2, 3], [4, 5, 6]]
+    calling spark.assert with (((grid at 0) at 2) == 3)
+    calling spark.assert with (((grid at 1) at 0) == 4)
+
+    var m as map of string to int is map of string to int
+    with m:
+        calling .put with "a", 1
+        calling .put with "b", 2
+    calling spark.assert with ((m at "b") == 2)
+    calling spark.assert with ((calling m.len) == 2)
+
+    var inferred as list of string is ["x", "y"]
+    calling spark.assert with ((inferred at 0) == "x")

@@ -317,9 +317,9 @@ PENGU_NO_DCE=1 .venv/bin/python pengu_project.py expand hello.pengu -o /tmp/with
 wc -l /tmp/with_dce.c /tmp/without_dce.c
 ```
 
-The regression tests for all of this live in `tests/test_run_cache.py`,
-`tests/test_run_cleanup.py`, `tests/test_dce.py`, `tests/test_pch.py`,
-`tests/test_tcc_integration.py` and `tests/test_dce_tcc_pch.py`.
+The regression tests for all of this live in `tests/compiler/test_run_cache.py`,
+`tests/compiler/test_run_cleanup.py`, `tests/compiler/test_dce.py`, `tests/compiler/test_pch.py`,
+`tests/codegen/test_tcc_integration.py` and `tests/compiler/test_dce_tcc_pch.py`.
 
 ## 12. Known limitations
 
@@ -358,9 +358,9 @@ The regression tests for all of this live in `tests/test_run_cache.py`,
   and CI asks for the markers to be removed.
 * **Pre-existing leak-test flakiness.** Two leak tests fail on the reference
   machine *without* any of this work:
-  `tests/test_generics_suite.py::test_generics_no_memory_leaks[test_map_of_string_to_list]`
+  `tests/codegen/test_generics_suite.py::test_generics_no_memory_leaks[test_map_of_string_to_list]`
   (deterministic, 2 bytes) and
-  `tests/test_string_composition_suite.py::test_string_composition_no_memory_leaks[leak_binary_interp]`
+  `tests/compiler/test_string_composition_suite.py::test_string_composition_no_memory_leaks[leak_binary_interp]`
   (intermittent: 7/20 failures on the pristine `[0.15.0]` tree, 11/20 with this
   work — within binomial noise at n=20). Both are 2-byte losses reported by the
   `LD_PRELOAD` leakcheck harness (valgrind was not installed here), so they are

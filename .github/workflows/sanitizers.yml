@@ -17,7 +17,7 @@ name: Sanitizers
 #
 # 2. The roadmap assumed the leak surface was that one test.  It is not.
 #    Measured with the flags below:
-#      * `tests/test_std_backward_compat.py`, `..._data_...` and `..._util_...` all
+#      * the std legacy-compat programs (`std_programs/backward_compat*`) all
 #        fail under LeakSanitizer - **6 of 6** parametrisations, not 1 - with
 #        traces inside the stdlib (`std/invoke.pengu:105` `pengu_list_new`,
 #        `:292` `pengu_map_new_owned`);
@@ -50,7 +50,7 @@ name: Sanitizers
 #        dangling reference to a stack temporary.  ASan says
 #        `stack-use-after-scope ... in sum_args`; the uninstrumented run returns the
 #        right value, which is why the suite never noticed.  Recorded as **F8-N10**
-#        (pinned by `tests/test_phase8_findings.py`) and skipped here with the
+#        (pinned by `tests/compiler/test_phase8_findings.py`) and skipped here with the
 #        finding named, so the sanitizer job stops being red for it without the bug
 #        becoming invisible.
 #
@@ -83,8 +83,13 @@ env:
   # One line on purpose, and expanded UNQUOTED at each call site so the shell
   # word-splits it into one `--deselect <nodeid>` per entry.  Quoting it would pass
   # the three node ids as a single (unmatched) argument.
+  # The three std legacy-compat programs are conformance cases now
+  # (tests/conformance/std_programs/backward_compat*), so the node id points at the
+  # batch runner's parametrisation. Only `backward_compat` carries the tracked leak;
+  # the other two are deselected here because they used to be in the same list and
+  # the dedicated step below is what runs them with the leak verdict off.
   PENGU_SANITIZER_DESELECT: >-
-    tests/test_std_backward_compat.py::test_std_backward_compat tests/test_std_data_backward_compat.py::test_std_data_backward_compat tests/test_std_util_backward_compat.py::test_std_util_backward_compat
+    tests/test_conformance.py::test_conformance_case[std_programs/backward_compat] tests/test_conformance.py::test_conformance_case[std_programs/compat_data] tests/test_conformance.py::test_conformance_case[std_programs/backward_compat_util]
 
 jobs:
   asan-ubsan:
@@ -137,14 +142,20 @@ jobs:
 
       # CONTRACT 1 again, on the std legacy-compat programs: they are the ones
       # whose leak is tracked, and they must still be free of memory *errors*.
-      # Measured: 6 passed under ASan + UBSan with the leak verdict off.
+      # Measured: 2 passed, 1 deselected under ASan with the leak verdict off
+      # (each case runs debug *and* release inside one node id). The bundle is
+      # linked with gcc here, not TCC: TCC ignores -fsanitize silently, so an
+      # instrumented run through it would be green and uninstrumented.
       - name: Memory safety on the std legacy-compat programs
         env:
           ASAN_OPTIONS: 'detect_leaks=0:abort_on_error=1:halt_on_error=1'
         run: |
-          python -m pytest tests/test_std_backward_compat.py tests/test_std_data_backward_compat.py \
-                           tests/test_std_util_backward_compat.py -q -p no:cacheprovider --timeout=900 \
-                           --deselect $PENGU_SANITIZER_DESELECT
+          python -m pytest \
+            'tests/test_conformance.py::test_conformance_case[std_programs/backward_compat]' \
+            'tests/test_conformance.py::test_conformance_case[std_programs/compat_data]' \
+            'tests/test_conformance.py::test_conformance_case[std_programs/backward_compat_util]' \
+            -q -p no:cacheprovider --timeout=900 \
+            --deselect $PENGU_SANITIZER_DESELECT
 
       - name: Upload sanitizer logs
         if: always()

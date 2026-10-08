@@ -1006,7 +1006,20 @@ class PenguChecker:
                                 self.symbols.global_scope.define(sym)
                         for gname, ginfo in sub_checker.symbols.generic_functions.items():
                             self.symbols.generic_functions[gname] = ginfo
-                            self.symbols.generic_functions[f"{bind_name}_{gname}"] = ginfo
+                            owner = sub_checker.symbols.generic_function_owner.get(gname)
+                            if owner:
+                                self.symbols.generic_function_owner[gname] = owner
+                            # Only the *imported module's own* generics get the
+                            # `{bind_name}_` alias. A sub-checker's table also
+                            # holds generics it pulled in transitively, and those
+                            # belong to their own module: aliasing them invented
+                            # functions that do not exist (`loom_running_sum` for a
+                            # generic defined in `std/tally`), which then made an
+                            # unrelated non-generic `loom.running_sum` resolve as
+                            # generic and fail with E0005.
+                            if owner == mod_file:
+                                self.symbols.generic_functions[f"{bind_name}_{gname}"] = ginfo
+                                self.symbols.generic_function_owner[f"{bind_name}_{gname}"] = owner
                 except PenguError as mod_err:
                     # Surface the imported module's own diagnostic instead of
                     # swallowing it and reporting a confusing 'undefined
@@ -2117,8 +2130,12 @@ class PenguChecker:
 
                 if type_params:
                     self.symbols.generic_functions[fn_name] = (type_params, stmt)
+                    # This is the module that *defines* the generic, so it owns the
+                    # entry -- bare and qualified alike. See the import loop below.
+                    self.symbols.generic_function_owner[fn_name] = self.filename or ""
                     if c_fn_name != fn_name:
                         self.symbols.generic_functions[c_fn_name] = (type_params, stmt)
+                        self.symbols.generic_function_owner[c_fn_name] = self.filename or ""
                     fn_t = FnType(params=params, return_type=ret_type, default_count=default_count, is_ritual=is_ritual, type_params=type_params, attributes=w_attrs)
                 else:
                     fn_t = FnType(params=params, return_type=ret_type, default_count=default_count, is_ritual=is_ritual, attributes=w_attrs)

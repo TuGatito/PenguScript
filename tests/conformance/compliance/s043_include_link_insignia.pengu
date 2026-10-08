@@ -1,0 +1,28 @@
+# LANGUAGE.md §14.2 — `include`, `link`, `insignia`, `declare`
+# Pins: `include` a C header, `link` its library, `declare` symbols, `insignia` prefixing.
+import std.spark
+
+include "math.h"
+link "m"
+declare sqrt with x as f64 into f64
+declare pow with base as f64, exponent as f64 into f64
+
+include "string.h"
+declare strchr with s as ref to char, c as int into ref to char
+
+# `insignia` prefixes subsequent declarations/types emitted in C (the declares above
+# keep their exact C names, which is what lets them resolve against libc).
+insignia demo_
+
+weave helper with x as int into int:
+    return x + 1
+
+test "compliance/s043_include_link_insignia":
+    calling spark.assert with ((calling sqrt with 16.0) == 4.0)
+    calling spark.assert with ((calling pow with 2.0, 10.0) == 1024.0)
+    calling spark.assert with ((calling helper with 41) == 42)
+
+    var hit as ref to char is calling strchr with "pengu", (ord "g")
+    calling spark.assert with (hit != null)
+    var miss as ref to char is calling strchr with "pengu", (ord "z")
+    calling spark.assert with (miss == null)

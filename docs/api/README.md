@@ -34,4 +34,4 @@
 | [`whisper`](whisper.md) | 36 | 36 | 100 % |
 | [`xlsx`](xlsx.md) | 3 | 2 | 67 % |
 
-The machine-readable form of this index is [`index.json`](index.json); `tests/test_api_docs.py` fails if it drifts from the compiler, or if a module documents fewer declarations than the recorded floor.
+The machine-readable form of this index is [`index.json`](index.json); `tests/docs/test_api_docs.py` fails if it drifts from the compiler, or if a module documents fewer declarations than the recorded floor.

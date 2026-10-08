@@ -163,8 +163,8 @@ en lugar de fallar):
 | Test / helper | Motivo | Comportamiento |
 | ------------- | ------ | -------------- |
 | `tests/leakcheck.c` (interponedor `LD_PRELOAD`) | Usa `<link.h>`/`dl_iterate_phdr`, `__libc_malloc` y `LD_PRELOAD`: solo glibc/ELF | `@requires_leakcheck` (marcador en `tests/conftest.py`); se ejecuta en Linux o donde haya `valgrind`, se salta en macOS/Windows. `PENGU_NO_LEAKCHECK=1` fuerza el salto |
-| `tests/test_tcc_integration.py` | Necesita un TCC utilizable | `pytest.skip` a nivel de módulo si no hay TCC; el test "TCC compila el bundle" degrada a *skip* si el TCC empaquetado no compila en esa plataforma (el fallback a gcc ya está asertado) |
-| `tests/test_tcc_integration.py::test_fallback_*` | Usan un stub `#!/bin/sh` | `skipif(os.name == "nt")`; el caso "compilador inexistente" (`PENGU_DEV_CC=pengu-no-such-compiler-xyz`) sí corre en Windows porque `subprocess` lanza `OSError` y el fallback lo captura |
+| `tests/codegen/test_tcc_integration.py` | Necesita un TCC utilizable | `pytest.skip` a nivel de módulo si no hay TCC; el test "TCC compila el bundle" degrada a *skip* si el TCC empaquetado no compila en esa plataforma (el fallback a gcc ya está asertado) |
+| `tests/codegen/test_tcc_integration.py::test_fallback_*` | Usan un stub `#!/bin/sh` | `skipif(os.name == "nt")`; el caso "compilador inexistente" (`PENGU_DEV_CC=pengu-no-such-compiler-xyz`) sí corre en Windows porque `subprocess` lanza `OSError` y el fallback lo captura |
 
 **Fuga conocida del codegen (xfail).** Las suites de *leaks* destaparon un fallo
 real: una temporal de string con dueño pasada como argumento a una llamada nunca

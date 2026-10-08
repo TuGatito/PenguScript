@@ -1,0 +1,43 @@
+# LANGUAGE.md §7.5 — `break` / `continue` / `return`
+# Pins: break/continue inside loops, early `return`, and bare `return` in `void`.
+import std.spark
+
+weave first_even with xs as list of int into int:
+    for x in xs:
+        if x % 2 != 0:
+            continue
+        return x
+    return -1
+
+weave sum_until with xs as list of int, stop as int into int:
+    var total as int is 0
+    for x in xs:
+        if x == stop:
+            break
+        set total is total + x
+    return total
+
+weave early_out with n as int into int:
+    if n < 0:
+        return 0
+    return n * 2
+
+weave noop into void:
+    return
+
+test "compliance/s017_break_continue_return":
+    var xs as list of int is [1, 3, 4, 5]
+    calling spark.assert with ((calling first_even with xs) == 4)
+    var odds as list of int is [1, 3, 5]
+    calling spark.assert with ((calling first_even with odds) == -1)
+    calling spark.assert with ((calling sum_until with xs, 5) == 8)
+    calling spark.assert with ((calling early_out with -1) == 0)
+    calling spark.assert with ((calling early_out with 21) == 42)
+    calling noop
+
+    var i as int is 0
+    while true:
+        set i is i + 1
+        if i == 4:
+            break
+    calling spark.assert with (i == 4)

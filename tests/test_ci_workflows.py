@@ -541,17 +541,28 @@ def test_the_fuzz_workflows_state_the_same_budget_as_the_docs():
 def test_the_compliance_corpus_runs_under_more_than_one_compiler():
     """Roadmap 10.3: the compiler matrix has to be a matrix *in CI*, not prose.
 
-    Measured locally during Phase 10 (2026-10-07): gcc 54/54, clang 54/54, tcc
-    not installed. A workflow that compiles every program with the default
-    compiler and calls it a "matrix" is the failure mode this pins.
+    Measured locally during Phase 10 (2026-10-07): gcc 54/54, clang 54/54, tcc not
+    installed. A workflow that compiles every program with the default compiler and
+    calls it a "matrix" is the failure mode this pins.
+
+    The corpus moved from 53 per-program builds driven by
+    ``tests/compliance/run_all.py --cc`` to conformance cases executed by the batch
+    runner, which selects its compiler from ``PENGU_TEST_CC``. The spelling of the
+    hand-off changed; what is pinned did not -- a leg that parses a compiler and
+    then compiles with the default one would still be green.
     """
     raw = _raw("compliance.yml")
     assert "matrix:" in raw, "compliance.yml declares no matrix"
     assert "cc: [gcc, clang]" in raw, "the matrix must name the compilers"
-    assert "--cc ${{ matrix.cc }}" in raw, (
+    assert "PENGU_TEST_CC: ${{ matrix.cc }}" in raw, (
         "the matrix leg must pass the compiler to the runner, or every leg "
         "compiles with the default one"
     )
     assert "fail-fast: false" in raw, (
         "one compiler failing must not hide the other's result"
+    )
+    # ...and the runner has to actually read it, or the workflow is a fiction.
+    runner = (REPO / "tests" / "test_conformance.py").read_text(encoding="utf-8")
+    assert "PENGU_TEST_CC" in runner, (
+        "the batch runner ignores PENGU_TEST_CC, so the CI matrix cannot work"
     )

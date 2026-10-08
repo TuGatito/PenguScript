@@ -13,6 +13,7 @@ import sys
 import time
 import json
 import shutil
+import shlex
 import hashlib
 import argparse
 import subprocess
@@ -1142,16 +1143,35 @@ class PenguBuilder:
 
         inc_dirs = self.collect_include_dirs()
         for inc_d in inc_dirs:
-            if os.path.isdir(inc_d):
-                try:
-                    for root, _, files in os.walk(inc_d):
-                        for f in files:
-                            if f.endswith(".h"):
-                                hp = os.path.join(root, f)
-                                if os.path.getmtime(hp) > bundle_mtime:
-                                    return False
-                except Exception:
-                    pass
+            if not os.path.isdir(inc_d):
+                continue
+            try:
+                for root, dirs, files in os.walk(inc_d):
+                    # A directory holding `.bundle_hash` is some project's build
+                    # OUTPUT directory: every header inside it was copied there by
+                    # a build, so it is a derived artifact, not an input, and
+                    # hashing it back into the cache key is wrong in both
+                    # directions.
+                    #
+                    # It also made the cache unusable whenever a declared include
+                    # directory is shared between projects -- which is what the
+                    # test suite does, since its scratch projects all put
+                    # `build/` on the include path. Each project then saw the
+                    # others' freshly copied `pengu_runtime.h` as "newer than my
+                    # bundle" and abandoned its own valid cache entry. That only
+                    # shows up when projects are built concurrently (pytest-xdist),
+                    # and it is why `pengu test` was not parallel-safe. Pruning
+                    # here fixes it and skips the walk entirely.
+                    if ".bundle_hash" in files:
+                        dirs[:] = []
+                        continue
+                    for f in files:
+                        if f.endswith(".h"):
+                            hp = os.path.join(root, f)
+                            if os.path.getmtime(hp) > bundle_mtime:
+                                return False
+            except Exception:
+                pass
 
         config_files = ["pengu.toml", "pengu.yaml", "pengu.yml", "pengu.json", "Pengu.toml"]
         for cf in config_files:
@@ -1244,6 +1264,14 @@ class PenguBuilder:
 
         # 5. Generate bundle.c via PenguCodegen
         from pengu_parser.pengu_codegen import PenguCodegen, set_release_unsafe
+        # `compile()` already does this; `bundle()` did not, and the codegen reads
+        # the switch from a process global. A builder with
+        # `release_unsafe = False` therefore emitted unchecked code whenever any
+        # earlier build in the same process had left the global set -- two
+        # builders in one process interfered, and the only visible symptom was a
+        # bundle missing `pengu_assert_bounds`. Setting it from *this* builder's
+        # own configuration makes the call self-consistent.
+        set_release_unsafe(self.release_unsafe)
         codegen = PenguCodegen(self.checker.symbols, module_order, self.config.base_dir,
                                compile_env=self.compile_env,
                                use_gnu_extensions=not getattr(self.config, "strict_c99", False),
@@ -5193,6 +5221,284 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
 
 
 # ---------------------------------------------------------------------------
+# `pengu selftest` — the compiler's OWN test suite
+# ---------------------------------------------------------------------------
+#
+# Deliberately a separate verb from `pengu test`, which is a *language* feature:
+# it compiles the user's project in --test mode and runs its integrated `test`
+# blocks. `pengu selftest` runs the repository's Python/pytest suite instead.
+# Overloading one verb with both meanings would have been a collision, not a
+# feature (tests/_inventory.md §6.1).
+
+SELFTEST_CONFORMANCE = os.path.join("tests", "conformance")
+
+
+def _selftest_repo_root() -> Optional[str]:
+    """The source checkout that owns this ``pengu_project.py``, or None.
+
+    The suite lives next to the compiler in a source checkout and nowhere else,
+    so `selftest` is only meaningful there. Returning None lets the caller say
+    that plainly instead of running pytest against a path that does not exist.
+    """
+    root = os.path.dirname(os.path.abspath(__file__))
+    return root if os.path.isdir(os.path.join(root, "tests")) else None
+
+
+def _selftest_affected_cases(changed: List[str]) -> Optional[List[str]]:
+    """Conformance cases a change can affect, per ``tests/conformance/_deps.json``.
+
+    Returns None when the graph is missing, so the caller can say "run the
+    generator" rather than silently selecting nothing (which would look exactly
+    like "no tests needed").
+
+    A dependency ending in ``/`` is a directory prefix: every case depends on
+    ``pengu_parser/`` as a prefix, so adding a new codegen file is covered without
+    regenerating anything.
+    """
+    root = _selftest_repo_root() or "."
+    deps_path = os.path.join(root, SELFTEST_CONFORMANCE, "_deps.json")
+    if not os.path.isfile(deps_path):
+        return None
+    with open(deps_path, "r", encoding="utf-8") as fh:
+        graph = json.load(fh)
+
+    normalised = {os.path.normpath(p).replace("\\", "/") for p in changed}
+    selected: List[str] = []
+    for case_id, deps in sorted(graph.items()):
+        # Only the one reserved key is metadata. Do NOT skip every `_`-prefixed
+        # key: the corpus's own smoke tier lives under `_smoke/`, so that rule
+        # silently selects nothing for exactly the cases most likely to be
+        # affected. (The same footgun already had to be fixed in
+        # tests/test_conformance.py's manifest reader.)
+        if case_id == "_meta":
+            continue
+        for dep in deps:
+            dep_posix = str(dep).replace("\\", "/")
+            # Check the trailing slash on the RAW dependency: `os.path.normpath`
+            # removes it, which would quietly turn a directory prefix into a file
+            # name that never matches a changed path.
+            if dep_posix.endswith("/"):
+                prefix = dep_posix.rstrip("/") + "/"
+                if any(p.startswith(prefix) for p in normalised):
+                    selected.append(case_id)
+                    break
+            elif os.path.normpath(dep_posix) in normalised:
+                selected.append(case_id)
+                break
+    return selected
+
+
+def _selftest_smoke_targets(root: str) -> List[str]:
+    """The test files that carry the ``smoke`` marker, plus the corpus runner.
+
+    Passing these paths instead of collecting ``tests/`` and filtering by marker is
+    the difference between a ~6 s and a ~3 s smoke run: pytest has to *import* every
+    test module to read its markers, which is ~2.8 s of pure collection across 234
+    files and cannot be avoided by deselecting. The scan here reads the same
+    marker the policy test enforces (``@pytest.mark.smoke`` or a module-level
+    ``pytestmark``), and ``tests/test_conformance.py`` is always included because
+    its ``_smoke/`` cases carry the marker per *parameter*.
+    """
+    import ast
+
+    tests_dir = os.path.join(root, "tests")
+
+    def marked(path: str) -> bool:
+        try:
+            tree = ast.parse(Path(path).read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            return False
+        for node in ast.walk(tree):
+            for dec in getattr(node, "decorator_list", None) or []:
+                if (isinstance(dec, ast.Attribute) and dec.attr == "smoke"
+                        and isinstance(dec.value, ast.Attribute) and dec.value.attr == "mark"):
+                    return True
+        for stmt in tree.body:
+            if isinstance(stmt, ast.Assign):
+                value = stmt.value
+            elif isinstance(stmt, ast.AnnAssign):
+                value = stmt.value
+            else:
+                continue
+            if value is None or "pytestmark" not in ast.dump(stmt):
+                continue
+            if any(isinstance(n, ast.Attribute) and n.attr == "smoke"
+                   for n in ast.walk(value)):
+                return True
+        return False
+
+    # Recursive: the suite is organised in area packages under tests/, so a
+    # root-only listing would silently find no smoke files and run nothing.
+    targets = []
+    for dirpath, dirnames, filenames in os.walk(tests_dir):
+        dirnames[:] = [d for d in sorted(dirnames) if d != "__pycache__"]
+        for name in sorted(filenames):
+            if not (name.startswith("test_") and name.endswith(".py")):
+                continue
+            full = os.path.join(dirpath, name)
+            if marked(full):
+                targets.append(os.path.relpath(full, root))
+    targets.sort()
+    corpus = os.path.join("tests", "test_conformance.py")
+    if corpus not in targets:
+        targets.append(corpus)
+    return targets
+
+
+def _selftest_changed_files(base_ref: str) -> List[str]:
+    """Paths changed between ``base_ref`` and the working tree.
+
+    ``git diff --name-only <ref>`` (no second revision) is used on purpose: it
+    includes uncommitted work, which is what a developer running `--affected`
+    locally actually has. In CI, ``--affected origin/main`` compares the branch.
+    """
+    try:
+        res = subprocess.run(
+            ["git", "diff", "--name-only", base_ref],
+            cwd=_selftest_repo_root() or ".", capture_output=True, text=True, timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        raise RuntimeError(f"git diff against {base_ref!r} failed: {e}") from e
+    if res.returncode != 0:
+        raise RuntimeError(
+            f"git diff against {base_ref!r} failed: {res.stderr.strip() or res.returncode}"
+        )
+    return [line.strip() for line in res.stdout.splitlines() if line.strip()]
+
+
+def selftest_project(base_ref: Optional[str] = None, smoke: bool = False,
+                     test: str = "", json_output: bool = False,
+                     jobs: str = "auto", extra_args: Optional[List[str]] = None) -> int:
+    """Runs the compiler's own test suite.
+
+    Args:
+        base_ref: When set, run only the conformance cases the changes since this
+            git revision can affect (``--affected [BASE_REF]``).
+        smoke: Run only tests marked ``smoke`` (fast, no compiles).
+        test: Run only the conformance case whose id matches this regex.
+        json_output: Emit one JSON object per test on stdout (JSONL).
+        jobs: Value for pytest's ``-n``; ``auto`` uses every core.
+        extra_args: Extra arguments appended to the pytest command line.
+
+    Returns:
+        pytest's exit code (0 when everything passed).
+    """
+    root = _selftest_repo_root()
+    if root is None:
+        emit("   Error `pengu selftest` needs a source checkout with tests/",
+             color="red", level="error")
+        return 1
+
+    env = dict(os.environ)
+    env.pop("PENGU_TEST_FILTER", None)
+
+    targets = ["tests"]
+
+    if base_ref:
+        try:
+            changed = _selftest_changed_files(base_ref)
+        except RuntimeError as e:
+            emit(f"   Error {e}", color="red", level="error")
+            return 1
+        cases = _selftest_affected_cases(changed)
+        if cases is None:
+            emit("   Error tests/conformance/_deps.json is missing; run "
+                 "`python tools/gen_conformance_deps.py`", color="red", level="error")
+            return 1
+        if not cases:
+            emit(f"   No conformance case is affected by {len(changed)} changed "
+                 f"file(s) since {base_ref}", color="yellow", level="progress")
+            return 0
+        # A regex over case ids; conformance case ids never contain regex
+        # metacharacters beyond '/', but escape anyway so an id with a '.' or a
+        # '(' cannot turn into a different selection.
+        env["PENGU_TEST_FILTER"] = "^(?:" + "|".join(re.escape(c) for c in cases) + ")$"
+        targets = [os.path.join("tests", "test_conformance.py")]
+        emit(f"   {len(cases)} conformance case(s) affected by {len(changed)} "
+             f"changed file(s) since {base_ref}", color="cyan", level="progress")
+
+    if test:
+        # A filter that matches nothing must not look like success. Without this,
+        # `pengu selftest --test <typo>` reports "8 passed" for the corpus
+        # meta-tests and a typo'd case name silently never runs.
+        rx = re.compile(test)
+        corpus = Path(root) / SELFTEST_CONFORMANCE
+        case_ids = [
+            p.relative_to(corpus).with_suffix("").as_posix()
+            for p in sorted(corpus.rglob("*.pengu"))
+            if p.with_suffix(".expected").is_file()
+        ] if corpus.is_dir() else []
+        if case_ids and not any(rx.search(cid) for cid in case_ids):
+            emit(f"   Error no conformance case matches {test!r} "
+                 f"({len(case_ids)} case(s) exist)", color="red", level="error")
+            return 1
+        env["PENGU_TEST_FILTER"] = test
+        targets = [os.path.join("tests", "test_conformance.py")]
+
+    cmd = [sys.executable, "-m", "pytest", *targets, "-p", "no:cacheprovider"]
+    # Fanning out is only worth it for a big selection. `-n auto` for one case or
+    # for the smoke tier costs more in worker startup (~0.25 s each) than the
+    # tests themselves, so a narrowed run defaults to serial; `--affected` keeps
+    # `auto` because it can legitimately select thousands of cases.
+    if jobs == "auto" and (test or smoke):
+        jobs = "0"
+    if jobs and jobs != "0":
+        cmd += ["-n", jobs]
+    if smoke:
+        # Narrow the *collection* too, not just the selection: see
+        # _selftest_smoke_targets.
+        cmd = [sys.executable, "-m", "pytest", *_selftest_smoke_targets(root),
+               "-p", "no:cacheprovider"]
+        if jobs and jobs != "0":
+            cmd += ["-n", jobs]
+        cmd += ["-m", "smoke"]
+
+    jsonl_path = None
+    if json_output:
+        fd, jsonl_path = tempfile.mkstemp(prefix="pengu_selftest_", suffix=".jsonl")
+        os.close(fd)
+        env["PENGU_SELFTEST_JSONL"] = jsonl_path
+        env["PYTHONPATH"] = os.pathsep.join(
+            [os.path.join(root, "tools")] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])
+        )
+        cmd += ["-p", "pytest_jsonl", "-q", "--no-header"]
+
+    if extra_args:
+        cmd += list(extra_args)
+
+    rc = 1
+    try:
+        if json_output:
+            # stdout belongs to the JSONL in this mode: pytest's own progress and
+            # summary go to stderr, so `pengu selftest --json > results.jsonl`
+            # produces a file that parses. Without this the dots and the
+            # "N passed" line land in the same stream and corrupt it.
+            try:
+                rc = _exit_code_from_child(
+                    subprocess.run(cmd, cwd=root, env=env, stdout=sys.stderr).returncode)
+            except (AttributeError, ValueError, OSError):
+                captured = subprocess.run(cmd, cwd=root, env=env,
+                                          capture_output=True, text=True)
+                if captured.stdout:
+                    sys.stderr.write(captured.stdout)
+                rc = _exit_code_from_child(captured.returncode)
+        else:
+            rc = _exit_code_from_child(subprocess.run(cmd, cwd=root, env=env).returncode)
+    finally:
+        if jsonl_path:
+            try:
+                with open(jsonl_path, "r", encoding="utf-8") as fh:
+                    sys.stdout.write(fh.read())
+                sys.stdout.flush()
+            finally:
+                try:
+                    os.remove(jsonl_path)
+                except OSError:
+                    pass
+    return rc
+
+
+# ---------------------------------------------------------------------------
 # CLI output (items 4.4 and 4.5)
 #
 # Every user-facing line the CLI writes goes through `emit()`, so that colour
@@ -5358,6 +5664,11 @@ _SUBCOMMAND_DOCS: Dict[str, Dict[str, str]] = {
         "description": "Compile and run the integrated `test` blocks.",
         "epilog": "Exit codes: 0 all passed, 1 a test failed or compilation error, 2 bad usage.\n"
                   "Example:\n  pengu test --json",
+    },
+    "selftest": {
+        "description": "Run the compiler's own test suite (source checkout only).",
+        "epilog": "Exit codes: 0 all passed, 1 a test failed, 2 bad usage.\n"
+                  "Example:\n  pengu selftest --smoke",
     },
     "check": {
         "description": "Parse and type-check every module without generating C (fast CI gate).",
@@ -5672,6 +5983,29 @@ def create_cli_parser() -> argparse.ArgumentParser:
                         help="Disable bounds and integer-overflow checks (unsafe)")
     test_p.add_argument("--deny-deprecated", dest="deny_deprecated", action="store_true",
                         help="Fail when a @deprecated symbol (W0006) is used")
+
+    # selftest — the compiler's OWN suite (tests/), not the project's `test`
+    # blocks. A separate verb on purpose: `pengu test` is a language feature and
+    # already owns `--json` with a different contract (tests/_inventory.md §6.1).
+    selftest_p = subparsers.add_parser(
+        "selftest",
+        help="Run the compiler's own test suite (source checkout only)")
+    selftest_p.add_argument("--smoke", action="store_true",
+                            help="Only tests marked 'smoke': fast, no C compilation")
+    selftest_p.add_argument("--test", default="", metavar="REGEX",
+                            help="Only the conformance case whose id matches this regex")
+    selftest_p.add_argument("--affected", nargs="?", const="HEAD", default=None,
+                            metavar="BASE_REF",
+                            help="Only the conformance cases the changes since BASE_REF "
+                                 "(default HEAD) can affect; needs tests/conformance/_deps.json")
+    selftest_p.add_argument("--json", action="store_true",
+                            help="Emit one JSON object per test (JSONL) on stdout")
+    selftest_p.add_argument("-n", "--jobs", default="auto",
+                            help="pytest-xdist workers (default 'auto'; '0' runs serially)")
+    selftest_p.add_argument("--pytest-args", default="", metavar="ARGS",
+                            help="Extra pytest arguments as one shell-quoted string. "
+                                 "A value starting with '-' needs the '=' form: "
+                                 "--pytest-args=\"-q --tb=line\"")
 
     # check
     check_p = subparsers.add_parser("check", help="Parse and type-check every module without generating code (CI)")
@@ -6081,6 +6415,21 @@ def main():
             # Script mode (`pengu run x.pengu`) reaches the compiler directly, so
             # a syntax error or a missing file used to surface as a traceback.
             sys.exit(report_pengu_error(e, source=getattr(args, "script", None)))
+    elif args.command == "selftest":
+        try:
+            extra = shlex.split(getattr(args, "pytest_args", "") or "")
+        except ValueError as e:
+            emit(f"   Error --pytest-args is not shell-quotable: {e}",
+                 color="red", level="error")
+            sys.exit(1)
+        sys.exit(selftest_project(
+            base_ref=getattr(args, "affected", None),
+            smoke=getattr(args, "smoke", False),
+            test=getattr(args, "test", "") or "",
+            json_output=getattr(args, "json", False),
+            jobs=getattr(args, "jobs", "auto"),
+            extra_args=extra,
+        ))
     elif args.command == "test":
         try:
             if getattr(args, "watch", False):

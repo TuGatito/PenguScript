@@ -90,7 +90,7 @@ Failures upload the crash corpus and the atheris logs as workflow artifacts.
 ## Adding a regression
 
 Every minimised finding is committed to `tests/fuzz_corpus/` and exercised by
-`tests/test_fuzz_harnesses.py`, so a fixed crash cannot come back unnoticed.
+`tests/gates/test_fuzz_harnesses.py`, so a fixed crash cannot come back unnoticed.
 
 ## Disclosure
 

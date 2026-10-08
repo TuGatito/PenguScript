@@ -2663,7 +2663,18 @@ class TypeInferrer:
                     if first_sym and first_sym.kind == "import" and len(target_node.children) == 2:
                         fn_name = f"{first_name}_{m_name}"
                         if fn_name not in self.symbols.generic_functions and m_name in self.symbols.generic_functions:
-                            self.symbols.generic_functions[fn_name] = self.symbols.generic_functions[m_name]
+                            # The bare entry is a convenience for calling an imported
+                            # module's generic unqualified, but the bare name is
+                            # shared: adopting it unconditionally gave `moda.f` the
+                            # generic defined in `modb` (`moda_f`), so a perfectly
+                            # inferable call was rejected with "could not infer type
+                            # parameter(s) T". Only adopt it when the generic really
+                            # belongs to the module being called.
+                            owner = self.symbols.generic_function_owner.get(m_name)
+                            if owner is None or getattr(first_sym, "file_path", None) in (None, owner):
+                                self.symbols.generic_functions[fn_name] = self.symbols.generic_functions[m_name]
+                                if owner:
+                                    self.symbols.generic_function_owner[fn_name] = owner
                     elif f"{first_name}_{m_name}" in self.symbols.functions or f"{first_name}_{m_name}" in self.symbols.generic_functions:
                         fn_name = f"{first_name}_{m_name}"
                     elif (first_name, m_name) in self.symbols.generic_methods and method_self_type is None:

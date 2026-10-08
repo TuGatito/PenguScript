@@ -1,0 +1,90 @@
+import std.lot
+import std.ward
+import std.invoke
+import std.spark
+import std.oracle
+
+test "std_programs/backward_compat_util":
+    # 1. Baseline lot (all 9 functions)
+    calling lot.seed with 12345
+    var ri as int is calling lot.rand_int
+    calling spark.assert with (ri >= 0)
+    var rf as float is calling lot.rand_float
+    calling spark.assert with (rf >= 0.0 and rf < 1.0)
+    var rr as int is calling lot.rand_range with 1 , 10
+    calling spark.assert with (rr >= 1 and rr <= 10)
+    var rrf as float is calling lot.rand_range_float with 1.0 , 5.0
+    calling spark.assert with (rrf >= 1.0 and rrf <= 5.0)
+    var rn as float is calling lot.rand_normal with 0.0 , 1.0
+    var re as float is calling lot.rand_exp with 1.0
+    calling spark.assert with (re >= 0.0)
+    var rb as bool is calling lot.rand_bool with 0.5
+    var rp as int is calling lot.rand_poisson with 2.0
+    calling spark.assert with (rp >= 0)
+
+    # 2. Baseline ward asserts (all original forms)
+    calling ward.assert with true
+    calling ward.assert_msg with true , "ok"
+    calling ward.assert_true with true
+    calling ward.assert_false with false
+    calling ward.assert_eq_int with 42 , 42
+    calling ward.assert_eq_string with "pengu" , "pengu"
+    calling ward.assert_eq_bool with false , false
+    calling ward.assert_ne_int with 10 , 20
+    calling ward.assert_ne_string with "a" , "b"
+    calling ward.assert_ne_bool with true , false
+
+    var m_val as oracle.MaybeInt is with is_present is true , value is 7
+    var m_empty as oracle.MaybeInt is with is_present is false , value is 0
+    calling ward.assert_present_int with m_val
+    calling ward.assert_none_int with m_empty
+
+    var ms_val as oracle.MaybeString is with is_present is true , value is "val"
+    var ms_empty as oracle.MaybeString is with is_present is false , value is ""
+    calling ward.assert_present_string with ms_val
+    calling ward.assert_none_string with ms_empty
+
+    var r_ok as oracle.ResultInt is with is_ok is true , value is 100 , error_msg is ""
+    var r_err as oracle.ResultInt is with is_ok is false , value is 0 , error_msg is "fail"
+    calling ward.assert_ok_int with r_ok
+    calling ward.assert_err_int with r_err
+
+    var rs_ok as oracle.ResultString is with is_ok is true , value is "ok" , error_msg is ""
+    var rs_err as oracle.ResultString is with is_ok is false , value is "" , error_msg is "err"
+    calling ward.assert_ok_string with rs_ok
+    calling ward.assert_err_string with rs_err
+
+    calling ward.expect with true , "expect ok"
+    calling ward.expect_eq_int with 1 , 1 , "expect eq"
+    calling ward.expect_eq_string with "x" , "x" , "expect eq"
+
+    var chk1 as oracle.ResultString is calling ward.check with true , "err"
+    calling spark.assert with chk1.is_ok
+    var chk2 as oracle.ResultString is calling ward.check_eq_int with 7 , 7 , "err"
+    calling spark.assert with chk2.is_ok
+    var chk3 as oracle.ResultString is calling ward.check_eq_string with "a" , "a" , "err"
+    calling spark.assert with chk3.is_ok
+
+    # 3. Baseline invoke (original parser and accessors)
+    var parser as invoke.Parser is calling invoke.new_parser with "app" , "demo"
+    calling parser.add_positional with "src" , "Source path" , true , ""
+    calling parser.add_option with "dest" , "d" , "Destination" , false , "out.bin"
+    calling parser.add_flag with "verbose" , "v" , "Verbose flag" , false
+
+    var argv as list of string is list of string
+    calling argv.push with "app"
+    calling argv.push with "-v"
+    calling argv.push with "--dest"
+    calling argv.push with "target.bin"
+    calling argv.push with "input.txt"
+
+    var res as invoke.ParseResult is calling parser.parse with argv
+    calling spark.assert with calling res.is_ok
+    calling spark.assert with (calling res.is_err) == false
+    calling spark.assert with calling res.is_set with "verbose"
+    calling spark.assert with (calling res.get with "dest") == "target.bin"
+    calling spark.assert with (calling res.get_or with "dest" , "def") == "target.bin"
+    calling spark.assert with (calling res.get with "src") == "input.txt"
+    calling spark.assert with (calling res.get_or with "missing" , "fallback") == "fallback"
+
+    calling spark.println with "util backward compat: OK"

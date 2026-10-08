@@ -1,0 +1,8 @@
+=== Test FFI Extended ===
+constants: OK
+string bridges: OK
+null utils: OK
+slices: OK
+lists: OK
+maps: OK
+ffi extended: OK

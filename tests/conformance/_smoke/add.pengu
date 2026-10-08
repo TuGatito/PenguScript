@@ -1,0 +1,12 @@
+# tests/conformance/_smoke/add.pengu
+#
+# A case that needs a helper *and* interpolates a computed value, which is the
+# smallest thing that proves a bundled case is not just a `print` of a literal.
+import std.spark
+
+weave add with a as int, b as int into int:
+    return a + b
+
+test "_smoke/add":
+    var total as int is calling add with 2, 3
+    calling spark.println with "sum={total}"

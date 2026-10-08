@@ -1,0 +1,11 @@
+=== Test Whisper Extended ===
+constants: OK
+level parsing: OK
+[32m[INFO] hello global info[0m
+{"level":"INFO","msg":"json message","env":"test","run":"1"}
+global logger: OK
+[32m[INFO] [my_app] info from instance logger[0m
+[32m[INFO] [my_app.worker] child logger operational[0m
+instance logger: OK
+file target: OK
+whisper extended: OK

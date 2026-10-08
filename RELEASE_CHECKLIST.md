@@ -24,11 +24,11 @@ re-runs the whole suite on the tag before publishing anything.
       here**: `pengu_parser/pengu_runtime.c` includes PCRE2/libxml2/zlib/mbedTLS/
       libcurl/libmicrohttpd, whose MSVC build does not exist, and no job links an
       MSVC binary. The MSVC *dialect* of the generated C is syntax-checked by
-      `pytest tests/test_attributes_msvc_native.py -q`. See
+      `pytest tests/codegen/test_attributes_msvc_native.py -q`. See
       `docs/CROSS_COMPILATION.md` §9 and `AUDIT_1.0_FASE8.md` item 8.11.
 - [ ] Strict grammar gate: Lark parses the corpus with `strict=True` and no LALR
-      conflicts — `pytest tests/test_grammar_strict.py -q`.
-- [ ] ABI layout matrix — `pytest tests/test_abi_layout.py -q` and the C
+      conflicts — `pytest tests/grammar/test_grammar_strict.py -q`.
+- [ ] ABI layout matrix — `pytest tests/runtime/test_abi_layout.py -q` and the C
       `_Static_assert` check `workflow: .github/workflows/ci.yml`
       ("ABI layout matrix").
 - [ ] Cross-compilation produces and **executes** a Windows `.exe` —
@@ -38,25 +38,25 @@ re-runs the whole suite on the tag before publishing anything.
       34 of 61 programs in `tests/std_programs/` fail
       `gcc -std=c99 -pedantic-errors` (16 index-hoisting, 15 statement
       expressions, 3 qualifiers/casts). ⏸️ **Deferred to 1.1** (item 3.2/B5). Re-measure with
-      `pytest tests/test_cli_strict_c99.py -q` — see `AUDIT_1.0_FASE3.md` §6–§7.
+      `pytest tests/cli/test_cli_strict_c99.py -q` — see `AUDIT_1.0_FASE3.md` §6–§7.
 - [ ] FASE 2 gate: `_Static_assert(PENGU_ABI_VERSION)` present in the generated
-      `bundle.c` — `pytest tests/test_abi_version.py -q`.
+      `bundle.c` — `pytest tests/runtime/test_abi_version.py -q`.
 - [ ] FASE 3 tooling gate (bind, assets, JSON diagnostics, LSP semantics, fmt,
-      docs, cross-compilation) — `pytest tests/test_bind_phase3.py
-      tests/test_assets.py tests/test_json_diagnostics.py
-      tests/test_lsp_semantic_rename.py tests/test_fmt_phase3.py
-      tests/test_doc_phase3.py tests/test_cross_compile.py -q`.
+      docs, cross-compilation) — `pytest tests/cli/test_bind_phase3.py
+      tests/cli/test_assets.py tests/cli/test_json_diagnostics.py
+      tests/lsp/test_lsp_semantic_rename.py tests/tooling/test_fmt_phase3.py
+      tests/docs/test_doc_phase3.py tests/cli/test_cross_compile.py -q`.
 - [ ] FASE 4 ecosystem gate (SemVer, lockfile, transitive deps, remove/upgrade,
       vendor/cache, TOML, templates, stdlib versioning) —
-      `pytest tests/test_semver.py tests/test_lockfile.py
-      tests/test_transitive_deps.py tests/test_manifest_toml.py
-      tests/test_std_versioning.py -q`.
+      `pytest tests/test_semver.py tests/cli/test_lockfile.py
+      tests/cli/test_transitive_deps.py tests/test_manifest_toml.py
+      tests/stdlib/test_std_versioning.py -q`.
 - [ ] FASE 5 safety gate (bugs, bounds policy, overflow policy, deprecation,
       supply chain, runtime hardening, fuzz harnesses) —
-      `pytest tests/test_phase5_bugfixes.py tests/test_bounds_policy.py
-      tests/test_overflow_policy.py tests/test_deprecation_policy.py
-      tests/test_supply_chain.py tests/test_runtime_hardening.py
-      tests/test_fuzz_harnesses.py -q`.
+      `pytest tests/regression/test_phase5_bugfixes.py tests/runtime/test_bounds_policy.py
+      tests/runtime/test_overflow_policy.py tests/compiler/test_deprecation_policy.py
+      tests/tooling/test_supply_chain.py tests/runtime/test_runtime_hardening.py
+      tests/gates/test_fuzz_harnesses.py -q`.
 - [ ] Compliance and migration corpora — `pytest
       tests/test_compliance_corpus.py tests/test_migration_corpus.py -q`, also
       `workflow: .github/workflows/compliance.yml`.
@@ -125,7 +125,7 @@ construction and is marked `manual:`.
       of `[Unreleased]` (the mechanical checks are `pytest tests/test_version.py
       -q` and `python scripts/release_version.py`).
 - [ ] `manual:` Regenerate the stdlib version constants — `pytest
-      tests/test_std_versioning.py -q` enforces the sync.
+      tests/stdlib/test_std_versioning.py -q` enforces the sync.
 - [ ] `manual:` Tag `v1.0.0` and sign it — `git tag -s v1.0.0` (CI creates and
       pushes an unsigned tag when the changelog is promoted; a signed tag is a
       manual choice).

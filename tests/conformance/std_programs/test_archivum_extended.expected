@@ -1,0 +1,10 @@
+=== Test Archivum Extended ===
+version: OK
+temp helpers: OK
+binary bytes and file size: OK
+emptiness checks: OK
+dir size and timestamps: OK
+search and find helpers: OK
+line helpers: OK
+cleanup: OK
+archivum extended: OK

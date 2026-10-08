@@ -1,0 +1,26 @@
+# LANGUAGE.md §11.4 — `donum T` — default values
+# Pins: `donum T` lowers to the zero/default value of a defaultable type.
+import std.spark
+
+weave total shard T where T: Num with xs as list of T into T:
+    var acc as T is donum T
+    for x in xs:
+        set acc is acc + x
+    return acc
+
+test "compliance/s035_donum_defaults":
+    var zero as int is donum int
+    var fzero as float is donum float
+    var szero as string is donum string
+    var bzero as bool is donum bool
+    calling spark.assert with (zero == 0)
+    calling spark.assert with (fzero == 0.0)
+    calling spark.assert with ((calling spark.len_string with szero) == 0)
+    calling spark.assert with (bzero is false)
+
+    var xs as list of int is [1, 2, 3, 4]
+    calling spark.assert with ((calling total with xs) == 10)
+    var fs as list of float is [0.5, 0.25]
+    calling spark.assert with ((calling total with fs) == 0.75)
+    var empty as list of int is list of int
+    calling spark.assert with ((calling total with empty) == 0)

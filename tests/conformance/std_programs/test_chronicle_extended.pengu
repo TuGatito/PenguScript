@@ -1,0 +1,138 @@
+import std.chronicle
+import std.spark
+
+test "std_programs/test_chronicle_extended":
+    calling spark.println with "=== Test Chronicle Extended ==="
+
+    # Known fixed timestamp: 2026-09-25T14:30:24Z
+    var ts as float is 1790346624.0
+
+    # --- UTC Calendar Getters ---
+    calling spark.assert with (calling chronicle.utc_year with ts) == 2026
+    calling spark.assert with (calling chronicle.utc_month with ts) == 9
+    calling spark.assert with (calling chronicle.utc_day with ts) == 25
+    calling spark.assert with (calling chronicle.utc_hour with ts) == 14
+    calling spark.assert with (calling chronicle.utc_minute with ts) == 30
+    calling spark.assert with (calling chronicle.utc_second with ts) == 24
+    calling spark.assert with (calling chronicle.utc_weekday with ts) == 5
+    calling spark.assert with (calling chronicle.utc_yearday with ts) > 0
+    calling spark.assert with (calling chronicle.utc_is_dst with ts) == false
+    calling spark.println with "utc getters: OK"
+
+    # --- Local Calendar Getters ---
+    calling spark.assert with (calling chronicle.local_year with ts) == 2026
+    calling spark.assert with (calling chronicle.local_month with ts) == 9
+    calling spark.println with "local getters: OK"
+
+    # --- DateTime Rune ---
+    var dt as chronicle.DateTime is calling chronicle.datetime_utc with ts
+    calling spark.assert with (dt.year == 2026)
+    calling spark.assert with (dt.month == 9)
+    calling spark.assert with (dt.day == 25)
+    calling spark.assert with (dt.hour == 14)
+    calling spark.assert with (dt.minute == 30)
+    calling spark.assert with (dt.second == 24)
+    calling spark.assert with (dt.weekday == 5)
+    calling spark.assert with (calling dt.to_date) == "2026-09-25"
+    calling spark.assert with (calling dt.to_time) == "14:30:24"
+    calling spark.assert with (calling dt.to_iso) == "2026-09-25T14:30:24Z"
+    calling spark.println with "datetime rune: OK"
+
+    # --- Formatting & ISO ---
+    calling spark.assert with (calling chronicle.to_date_string with ts) == "2026-09-25"
+    calling spark.assert with (calling chronicle.to_time_string with ts) == "14:30:24"
+    calling spark.assert with (calling chronicle.to_datetime_string with ts) == "2026-09-25 14:30:24"
+    var iso_utc as string is calling chronicle.to_iso with ts
+    calling spark.assert with iso_utc == "2026-09-25T14:30:24Z"
+    var parsed_opt as maybe float is calling chronicle.from_iso with "2026-09-25T14:30:24"
+    calling spark.assert with (parsed_opt is present)
+    calling spark.assert with (parsed_opt.value == ts)
+    var parsed_round as maybe float is calling chronicle.from_iso with iso_utc
+    calling spark.assert with (parsed_round is present)
+    calling spark.assert with (parsed_round.value == ts)
+    var nli as string is calling chronicle.now_local_iso
+    calling spark.assert with (calling nli.len) == 19
+    var nd as string is calling chronicle.now_date
+    calling spark.assert with (calling nd.len) == 10
+    var nt as string is calling chronicle.now_time
+    calling spark.assert with (calling nt.len) == 8
+    calling spark.println with "formatting and iso: OK"
+
+    # --- Day Boundaries & Relatives ---
+    var t_day as float is 8692245.0
+    var s_day as float is calling chronicle.start_of_day with t_day
+    var e_day as float is calling chronicle.end_of_day with t_day
+    calling spark.assert with (calling chronicle.utc_hour with s_day) == 0
+    calling spark.assert with (calling chronicle.utc_minute with s_day) == 0
+    calling spark.assert with (calling chronicle.utc_second with s_day) == 0
+    calling spark.assert with (calling chronicle.utc_hour with e_day) == 23
+    calling spark.assert with (calling chronicle.utc_minute with e_day) == 59
+    calling spark.assert with (calling chronicle.utc_second with e_day) == 59
+    var s_mo as float is calling chronicle.start_of_month with t_day
+    calling spark.assert with (calling chronicle.utc_day with s_mo) == 1
+    var s_yr as float is calling chronicle.start_of_year with t_day
+    calling spark.assert with (calling chronicle.utc_month with s_yr) == 1
+    calling spark.assert with (calling chronicle.utc_day with s_yr) == 1
+    calling spark.println with "day boundaries: OK"
+
+    # --- Arithmetic ---
+    var t0 as float is 1000.0
+    calling spark.assert with (calling chronicle.add_seconds with t0, 15) == 1015.0
+    calling spark.assert with (calling chronicle.add_minutes with t0, 2) == 1120.0
+    calling spark.assert with (calling chronicle.add_hours with t0, 1) == 4600.0
+    calling spark.assert with (calling chronicle.add_days with t0, 1) == 87400.0
+    calling spark.assert with (calling chronicle.add_weeks with t0, 1) == 605800.0
+    calling spark.assert with (calling chronicle.diff_seconds with 1050.0, 1000.0) == 50.0
+    calling spark.assert with (calling chronicle.diff_days with 172800.0, 0.0) == 2
+    calling spark.println with "arithmetic: OK"
+
+    # --- Calendar Helpers ---
+    calling spark.assert with calling chronicle.is_leap_year with 2024
+    calling spark.assert with (calling chronicle.is_leap_year with 2025) == false
+    calling spark.assert with (calling chronicle.is_leap_year with 1900) == false
+    calling spark.assert with calling chronicle.is_leap_year with 2000
+    calling spark.assert with (calling chronicle.days_in_month with 2024, 2) == 29
+    calling spark.assert with (calling chronicle.days_in_month with 2025, 2) == 28
+    calling spark.assert with (calling chronicle.days_in_month with 2025, 4) == 30
+    calling spark.assert with (calling chronicle.days_in_month with 2025, 1) == 31
+    calling spark.assert with (calling chronicle.days_in_year with 2024) == 366
+    calling spark.assert with (calling chronicle.days_in_year with 2025) == 365
+    calling spark.println with "calendar helpers: OK"
+
+    # --- Comparisons ---
+    calling spark.assert with calling chronicle.is_before with 100.0, 200.0
+    calling spark.assert with (calling chronicle.is_before with 200.0, 100.0) == false
+    calling spark.assert with calling chronicle.is_after with 200.0, 100.0
+    calling spark.assert with (calling chronicle.is_after with 100.0, 200.0) == false
+    calling spark.assert with calling chronicle.is_between with 150.0, 100.0, 200.0
+    calling spark.assert with (calling chronicle.is_between with 50.0, 100.0, 200.0) == false
+    calling spark.println with "comparisons: OK"
+
+    # --- Durations ---
+    calling spark.assert with (calling chronicle.format_duration with 45.0) == "45s"
+    calling spark.assert with (calling chronicle.format_duration with 125.0) == "2m 5s"
+    calling spark.assert with (calling chronicle.format_duration with 3665.0) == "1h 1m 5s"
+    var d_sec as maybe float is calling chronicle.parse_duration with "45s"
+    calling spark.assert with (d_sec is present)
+    calling spark.assert with (d_sec.value == 45.0)
+    var d_min as maybe float is calling chronicle.parse_duration with "2m"
+    calling spark.assert with (d_min is present)
+    calling spark.assert with (d_min.value == 120.0)
+    var d_hr as maybe float is calling chronicle.parse_duration with "1h"
+    calling spark.assert with (d_hr is present)
+    calling spark.assert with (d_hr.value == 3600.0)
+    var d_raw as maybe float is calling chronicle.parse_duration with "45"
+    calling spark.assert with (d_raw is present)
+    calling spark.assert with (d_raw.value == 45.0)
+    calling spark.println with "durations: OK"
+
+    # --- Stopwatch Ritual ---
+    var sw as chronicle.Stopwatch is calling chronicle.new_stopwatch
+    calling chronicle.sleep_ms with 10
+    calling spark.assert with (calling sw.elapsed_sec) >= 0.0
+    calling spark.assert with (calling sw.elapsed_ms) >= 0
+    calling sw.reset
+    calling spark.assert with (calling sw.elapsed_sec) >= 0.0
+    calling spark.println with "stopwatch: OK"
+
+    calling spark.println with "chronicle extended: OK"

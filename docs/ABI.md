@@ -109,10 +109,10 @@ nm build/lib/libpengu_runtime.a | grep pengu_abi_version
 # → T pengu_abi_version
 
 # the exported value agrees with the header
-python -m pytest tests/test_abi_version.py -q
+python -m pytest tests/runtime/test_abi_version.py -q
 ```
 
-`tests/test_abi_version.py` measures the archive with `nm`, links and runs a C
+`tests/runtime/test_abi_version.py` measures the archive with `nm`, links and runs a C
 harness that compares the symbol's value against `PENGU_ABI_VERSION`, and checks
 that a consumer referencing the symbol cannot link against a simulated pre-3.5
 archive.
@@ -155,7 +155,7 @@ The "a stale `.a` fails at link" property is verified under **gcc** and
 tcc writes a **stripped** executable, so `nm` reports no runtime symbols at all
 — not even for a program whose `main` calls runtime functions (measured with tcc
 0.9.28rc). tcc is the fast development compiler, not a release compiler. If a
-future tcc stops stripping, `tests/test_build_runtime_link.py::test_tcc_output_is_stripped_so_nm_cannot_verify_the_pin`
+future tcc stops stripping, `tests/compiler/test_build_runtime_link.py::test_tcc_output_is_stripped_so_nm_cannot_verify_the_pin`
 fails and this section has to be revisited.
 
 ## See also
@@ -164,5 +164,5 @@ fails and this section has to be revisited.
 - [`../pengu_runtime.h`](../pengu_runtime.h) — the authoritative layout table.
 - [`../tests/abi/test_abi_layout.c`](../tests/abi/test_abi_layout.c) — the
   `sizeof`/`offsetof` gate.
-- [`../tests/test_abi_version.py`](../tests/test_abi_version.py) — the
+- [`../tests/runtime/test_abi_version.py`](../tests/runtime/test_abi_version.py) — the
   symbol/version gate.

@@ -1,0 +1,133 @@
+import std.spark
+import std.atlas
+
+test "std_programs/test_atlas_is":
+    calling spark.println with "=== Test Atlas (Int -> String) ==="
+
+    var m as map of int to string is map of int to string
+    calling spark.assert with (calling m.is_empty)
+    calling spark.assert with (calling m.size == 0)
+
+    # 1. Insertion & basic access
+    calling m.put with 200, "OK"
+    calling m.put with 404, "Not Found"
+    calling m.put with 500, "Internal Server Error"
+    calling spark.assert with (not (calling m.is_empty))
+    calling spark.assert with (calling m.size == 3)
+    calling spark.assert with (calling m.has_key with 404)
+    calling spark.assert with (not (calling m.has_key with 403))
+
+    # 2. get_or and get_safe
+    calling spark.assert with ((calling m.get_or with 200, "Unknown") == "OK")
+    calling spark.assert with ((calling m.get_or with 301, "Redirect") == "Redirect")
+
+    var opt1 as maybe string is calling m.get_safe with 404
+    calling spark.assert with (opt1.is_present)
+    if opt1.is_present:
+        calling spark.assert with (opt1.value == "Not Found")
+
+    var opt2 as maybe string is calling m.get_safe with 403
+    calling spark.assert with (not opt2.is_present)
+
+    # 3. Keys check & search
+    var k_sub as list of int is list of int
+    calling k_sub.push with 200
+    calling k_sub.push with 500
+    calling spark.assert with (calling m.has_all_keys with k_sub)
+
+    var k_any as list of int is list of int
+    calling k_any.push with 999
+    calling k_any.push with 404
+    calling spark.assert with (calling m.has_any_key with k_any)
+
+    var fk as maybe int is calling m.find_key_by_value with "Not Found"
+    calling spark.assert with (fk.is_present)
+    if fk.is_present:
+        calling spark.assert with (fk.value == 404)
+
+    # 4. Update & rename
+    var up_ok as bool is calling m.update with 500, "Server Error"
+    calling spark.assert with up_ok
+    calling spark.assert with ((calling m.get_or with 500, "") == "Server Error")
+    var up_fail as bool is calling m.update with 999, "None"
+    calling spark.assert with (not up_fail)
+
+    var ren_ok as bool is calling m.rename_key with 500, 503
+    calling spark.assert with ren_ok
+    calling spark.assert with (not (calling m.has_key with 500))
+    calling spark.assert with (calling m.has_key with 503)
+    calling spark.assert with ((calling m.get_or with 503, "") == "Server Error")
+
+    # 5. Keys, values and sorted keys/values
+    var ks as list of int is calling m.keys
+    calling spark.assert with (ks.len == 3)
+    var vs as list of string is calling m.values
+    calling spark.assert with (vs.len == 3)
+
+    var sorted_ks as list of int is calling m.keys_sorted
+    calling spark.assert with (sorted_ks.len == 3)
+    calling spark.assert with ((sorted_ks at 0) == 200)
+    calling spark.assert with ((sorted_ks at 1) == 404)
+    calling spark.assert with ((sorted_ks at 2) == 503)
+
+    var sorted_vs as list of string is calling m.values_sorted
+    calling spark.assert with (sorted_vs.len == 3)
+    # Alphabetical order: "Not Found", "OK", "Server Error"
+    calling spark.assert with ((sorted_vs at 0) == "Not Found")
+    calling spark.assert with ((sorted_vs at 1) == "OK")
+    calling spark.assert with ((sorted_vs at 2) == "Server Error")
+
+    # 6. Filter & clone
+    var f_sub as map of int to string is calling m.filter_values_contains with "Found"
+    calling spark.assert with (calling f_sub.size == 1)
+    calling spark.assert with (calling f_sub.has_key with 404)
+
+    var cloned as map of int to string is calling m.clone
+    calling spark.assert with (calling cloned.size == 3)
+    calling spark.assert with (calling cloned.has_key with 200)
+
+    # 7. remove & remove_all & clear
+    var rem_one as bool is calling m.remove with 200
+    calling spark.assert with rem_one
+    calling spark.assert with (calling m.size == 2)
+
+    var to_rem as list of int is list of int
+    calling to_rem.push with 404
+    calling to_rem.push with 503
+    var rem_count as int is calling m.remove_all with to_rem
+    calling spark.assert with (rem_count == 2)
+    calling spark.assert with (calling m.size == 0)
+
+    # 8. Binary ops (merge, from_lists)
+    var a as map of int to string is map of int to string
+    calling a.put with 1, "one"
+    calling a.put with 2, "two_a"
+
+    var b as map of int to string is map of int to string
+    calling b.put with 3, "three"
+    calling b.put with 2, "two_b"
+
+    var merged as map of int to string is calling atlas.merge_is with a, b
+    calling spark.assert with (calling merged.size == 3)
+    calling spark.assert with ((calling merged.get_or with 2, "") == "two_b")
+
+    var merged_l as map of int to string is calling atlas.merge_keep_left_is with a, b
+    calling spark.assert with (calling merged_l.size == 3)
+    calling spark.assert with ((calling merged_l.get_or with 2, "") == "two_a")
+
+    var lk as list of int is list of int
+    calling lk.push with 10
+    calling lk.push with 20
+    var lv as list of string is list of string
+    calling lv.push with "ten"
+    calling lv.push with "twenty"
+    var fl as map of int to string is calling atlas.from_lists_is with lk, lv
+    calling spark.assert with (calling fl.size == 2)
+    calling spark.assert with ((calling fl.get_or with 20, "") == "twenty")
+
+    # 9. Generic module utilities
+    calling spark.assert with ((calling atlas.map_size of int, string with fl) == 2)
+    calling spark.assert with (calling atlas.map_has_key of int, string with fl, 10)
+    calling spark.assert with ((calling atlas.map_get_or of int, string with fl, 10, "") == "ten")
+
+    calling spark.println with "atlas_is: OK"

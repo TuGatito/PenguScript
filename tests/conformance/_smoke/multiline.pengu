@@ -1,0 +1,12 @@
+# tests/conformance/_smoke/multiline.pengu
+#
+# More than one line of output, and a loop that mutates state. A case with a
+# single `print` would still pass if the runner leaked state between cases;
+# three ordered lines and a counter make that visible.
+import std.spark
+
+test "_smoke/multiline":
+    var i as int is 0
+    while i < 3:
+        calling spark.println with "line {i}"
+        set i is i + 1

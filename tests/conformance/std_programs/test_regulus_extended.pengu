@@ -1,0 +1,106 @@
+import std.spark
+import std.regulus
+
+test "std_programs/test_regulus_extended":
+    calling spark.println with "=== Test Regulus Extended ==="
+
+    # 1. Version constant
+    calling spark.assert with (regulus.REGULUS_VERSION == "1.0.0")
+    calling spark.println with "constants: OK"
+
+    # 2. Presets and validation predicates
+    calling spark.assert with (calling regulus.is_email with "alice@example.com")
+    calling spark.assert with (calling regulus.is_email with "bob.smith+tag@sub.domain.co")
+    calling spark.assert with (not (calling regulus.is_email with "bad_email@"))
+    calling spark.assert with (not (calling regulus.is_email with "no_at_sign.com"))
+
+    calling spark.assert with (calling regulus.is_url with "https://penguscript.org/docs")
+    calling spark.assert with (calling regulus.is_url with "http://localhost:8080/api/v1")
+    calling spark.assert with (not (calling regulus.is_url with "ftp://not-supported"))
+
+    calling spark.assert with (calling regulus.is_ipv4 with "192.168.1.1")
+    calling spark.assert with (calling regulus.is_ipv4 with "127.0.0.1")
+    calling spark.assert with (not (calling regulus.is_ipv4 with "999.1.1.1"))
+    calling spark.assert with (not (calling regulus.is_ipv4 with "1.2.3"))
+
+    calling spark.assert with (calling regulus.is_uuid with "12345678-1234-1234-1234-123456789abc")
+    calling spark.assert with (not (calling regulus.is_uuid with "12345678-1234-1234-1234-zzzzzzzzzzzz"))
+
+    calling spark.assert with (calling regulus.is_hex_color with "#ff00aa")
+    calling spark.assert with (calling regulus.is_hex_color with "#ABC")
+    calling spark.assert with (not (calling regulus.is_hex_color with "blue"))
+    calling spark.println with "presets: OK"
+
+    # 3. Compilation utilities
+    calling spark.assert with (calling regulus.is_valid_pattern with "[0-9]+")
+    calling spark.assert with (not (calling regulus.is_valid_pattern with "["))
+
+    var q as string is calling regulus.quote_meta with "a.b*c?"
+    calling spark.assert with (q == "a\\.b\\*c\\?")
+
+    var flags as string is calling regulus.combine_flags with "im", "x"
+    calling spark.assert with (flags == "imx")
+
+    var r_ci as maybe regulus.Regex is calling regulus.compile_ci with "hello"
+    calling spark.assert with (r_ci.is_present)
+    if r_ci.is_present:
+        var re as regulus.Regex is r_ci.value
+        calling spark.assert with (calling regulus.is_match with sigil of re, "HELLO world")
+        calling regulus.regex_free with sigil of re
+    calling spark.println with "compile utils: OK"
+
+    # 4. Match utilities
+    var r_num as maybe regulus.Regex is calling regulus.compile with "[0-9]+", ""
+    calling spark.assert with (r_num.is_present)
+    if r_num.is_present:
+        var re2 as regulus.Regex is r_num.value
+        var text as string is "abc 123 def 456 ghi 789"
+
+        var cnt as int is calling regulus.match_count with sigil of re2, text
+        calling spark.assert with (cnt == 3)
+
+        var m1 as maybe regulus.Match is calling regulus.match_at with sigil of re2, text, 1
+        calling spark.assert with (m1.is_present)
+        if m1.is_present:
+            var m_val as regulus.Match is m1.value
+            calling spark.assert with (m_val.matched == "456")
+            calling regulus.match_free with sigil of m_val
+
+        var offs as list of int is calling regulus.match_offsets with sigil of re2, text
+        calling spark.assert with (offs.len == 6)
+        # First match is "123" at [4, 7]
+        calling spark.assert with ((offs at 0) == 4)
+        calling spark.assert with ((offs at 1) == 7)
+
+        calling regulus.regex_free with sigil of re2
+    calling spark.println with "match utils: OK"
+
+    # 5. Enchanting Regex methods
+    var r_meth as maybe regulus.Regex is calling regulus.compile with "[a-z]+", "i"
+    calling spark.assert with (r_meth.is_present)
+    if r_meth.is_present:
+        var re_obj as regulus.Regex is r_meth.value
+        calling spark.assert with (calling re_obj.is_valid)
+        calling spark.assert with (calling re_obj.is_match with "123 ABC 456")
+        calling spark.assert with (calling re_obj.match_count with "one TWO three") == 3
+        var rep_out as string is calling re_obj.replace with "one TWO three", "word"
+        calling spark.assert with (rep_out == "word word word")
+        calling re_obj.free
+    calling spark.println with "regex methods: OK"
+
+    # 6. Enchanting string methods
+    var sample as string is "item1, item2; item3"
+    calling spark.assert with (calling sample.matches_regex with "[0-9]+")
+    calling spark.assert with (not (calling sample.full_matches_regex with "[0-9]+"))
+
+    var replaced as string is calling sample.regex_replace with "[0-9]+", "X"
+    calling spark.assert with (replaced == "itemX, itemX; itemX")
+
+    var count_digits as int is calling sample.regex_count with "[0-9]+"
+    calling spark.assert with (count_digits == 3)
+
+    var str_offsets as list of int is calling sample.regex_offsets with "[0-9]+"
+    calling spark.assert with (str_offsets.len == 6)
+    calling spark.println with "string enchantments: OK"
+
+    calling spark.println with "regulus extended: OK"
