@@ -39,6 +39,9 @@ from ._base import (
     ast_to_type,
     eval_comptime,
 )
+from .ast_utils import (
+    is_failure_return_expr,
+)
 from .ctype import (
     CTypeMapper,
     get_array_base_type,
@@ -876,12 +879,12 @@ class StmtMixin:
             ret_expr = node.children[0] if node.children else None
             ret_val_str = self._translate_expr(ret_expr, expected_type=self.current_return_type) if ret_expr is not None else ""
 
-            is_err_ret = False
-            if isinstance(ret_expr, Tree):
-                if ret_expr.data in ("err_expr", "error_lit"):
-                    is_err_ret = True
-                elif ret_expr.data == "or_block" and len(ret_expr.children) > 1:
-                    is_err_ret = True
+            is_err_ret = is_failure_return_expr(ret_expr)
+            if (not is_err_ret and isinstance(ret_expr, Tree)
+                    and ret_expr.data == "or_block" and len(ret_expr.children) > 1):
+                # An `or:` block that does not handle the failure re-raises it,
+                # which is an error return too.
+                is_err_ret = True
 
             cleanup_lines = self._get_return_cleanup_lines(is_err_ret=is_err_ret, ind=ind)
             cleanup_str = "\n".join(cleanup_lines) + ("\n" if cleanup_lines else "")

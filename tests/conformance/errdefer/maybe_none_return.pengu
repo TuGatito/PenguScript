@@ -1,0 +1,23 @@
+# tests/conformance/errdefer/maybe_none_return.pengu
+#
+# `errdefer` must run on a failure return and must NOT run on a success return.
+#
+# `return maybe none` is the `maybe` counterpart of `error` for `result`, but it
+# was missing from the code generator's set of recognised failure returns, so
+# every errdefer in a `maybe` weave emitted `/* errdefer */` and then dropped the
+# cleanup body. The success path below proves the fix did not over-correct: only
+# `fail_path` may print.
+import std.spark
+
+weave ok_path into maybe int:
+    errdefer calling spark.println with "cleanup:ok-path"
+    return some 1
+
+weave fail_path into maybe int:
+    errdefer calling spark.println with "cleanup:fail-path"
+    return maybe none
+
+test "errdefer/maybe_none_return":
+    let a is (calling ok_path) or else -1
+    let b is (calling fail_path) or else -2
+    calling spark.println with "a={a} b={b}"

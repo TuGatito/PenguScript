@@ -22,6 +22,9 @@ from ._base import (
     Type,
     VOID_TYPE,
 )
+from .ast_utils import (
+    is_failure_return_expr,
+)
 from .ctype import (
     CTypeMapper,
 )
@@ -233,9 +236,7 @@ class OrBlockMixin:
             right_node = node.children[1]
             right_c = self._translate_expr(right_node,
                                            expected_type=self.current_return_type)
-            is_err_ret = False
-            if isinstance(right_node, Tree) and right_node.data in ("err_expr", "error_lit"):
-                is_err_ret = True
+            is_err_ret = is_failure_return_expr(right_node)
             cleanup_stmts = self._get_return_cleanup_lines(is_err_ret=is_err_ret)
             if cleanup_stmts:
                 cleanup_code = " " + " ".join(cleanup_stmts)
@@ -287,7 +288,11 @@ class OrBlockMixin:
                     f"'{fn_ret if fn_ret is not None else 'void'}'",
                     code="E0045",
                 )
-            cleanup_stmts = self._get_return_cleanup_lines(is_err_ret=False)
+            # A `none` propagating out of `try` IS a failure return, exactly
+            # like the `result` error branch above: `errdefer` must run before
+            # the function leaves.  This used to pass `is_err_ret=False`, which
+            # silently dropped every errdefer on the `try`-over-maybe path.
+            cleanup_stmts = self._get_return_cleanup_lines(is_err_ret=True)
             cleanup_code = (" " + " ".join(cleanup_stmts)) if cleanup_stmts else ""
             fail_stmt = f"{{ {cleanup_code} pengu_frame_pop(); return pengu_maybe_none(); }}"
         if not self.use_gnu_extensions:

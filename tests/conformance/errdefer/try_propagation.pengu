@@ -1,0 +1,20 @@
+# tests/conformance/errdefer/try_propagation.pengu
+#
+# `errdefer` must run when `try` propagates a `maybe none` to the caller.
+#
+# The `try` lowering passed `is_err_ret=False` on the `maybe` branch (while the
+# `result` branch correctly passed `True`), so cleanup was skipped precisely on
+# the propagation path that makes `try` useful.
+import std.spark
+
+weave inner into maybe int:
+    return maybe none
+
+weave outer into maybe int:
+    errdefer calling spark.println with "cleanup:try"
+    let v is try (calling inner)
+    return some v
+
+test "errdefer/try_propagation":
+    let r is (calling outer) or else -1
+    calling spark.println with "r={r}"

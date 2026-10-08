@@ -933,6 +933,7 @@
       ],
       "conditions": [
         "Attribute '@align' requires 1 integer argument, got {}",
+        "Attribute '@align({})' must be a power of 2 between 1 and 128",
         "Attribute '@deprecated' takes at most 1 string argument, got {}",
         "Attribute '@{}' is not supported on {} declarations",
         "Attribute '@{}' takes 0 arguments, got {}",

@@ -119,3 +119,48 @@ def flatten_at_chain(node: Any) -> List[Any]:
     if isinstance(right, Tree) and right.data == "at_expr":
         return [left] + flatten_at_chain(right)
     return [left, right]
+#: AST node kinds that carry a *failure* value out of a function.  `errdefer`
+#: cleanup runs on these and only these, so a kind missing here silently
+#: disables every `errdefer` on that path.
+_FAILURE_RETURN_NODES = frozenset({
+    "err_expr",    # error value produced by an `or:` block
+    "error_lit",   # the `error` literal (only valid inside an `or:` block)
+    "maybe_none",  # `return maybe none`
+})
+def is_failure_return_expr(node: Any) -> bool:
+    """True when a return expression signals a failure return.
+
+    A `maybe none` return is the `maybe` counterpart of `error` for
+    `result`, but it was absent from the ad-hoc checks that used to live in
+    :mod:`~pengu_parser.pengu_codegen.stmts` and
+    :mod:`~pengu_parser.pengu_codegen.or_block`, so every ``errdefer`` in a
+    ``maybe`` weave was skipped: the generated C emitted ``/* errdefer */``
+    and then dropped the cleanup body entirely.  The ``err_of`` constructor
+    was missing from those checks for the same reason.
+    """
+    if not isinstance(node, Tree):
+        return False
+    return node.data in _FAILURE_RETURN_NODES or _is_err_of_call(node)
+def _is_err_of_call(node: Any) -> bool:
+    """True for the `err_of` result constructor spelled as a call.
+
+    ``calling err_of with e`` and ``calling oracle.err_of with e`` build a
+    ``Result`` failure in one expression and never mention the ``error``
+    literal, so returning one is a failure return.
+
+    The accepted shapes deliberately mirror ``OrBlockMixin._result_ctor_name``
+    -- the method that decides whether a call is really lowered as the
+    intrinsic.  Recognising a spelling the lowering does not would run cleanup
+    for an ordinary method call; missing one would drop it on a real failure.
+    """
+    if not (isinstance(node, Tree) and node.data == "calling_expr" and node.children):
+        return False
+    target = node.children[0]
+    if not (isinstance(target, Tree) and target.data == "normal_target" and target.children):
+        return False
+    last = target.children[-1]
+    if isinstance(last, Tree) and last.data in ("dot_access", "arrow_access") and last.children:
+        return str(target.children[0]) == "oracle" and str(last.children[0]) == "err_of"
+    if len(target.children) == 1:
+        return str(target.children[0]) == "err_of"
+    return False

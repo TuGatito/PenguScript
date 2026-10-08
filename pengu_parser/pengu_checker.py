@@ -524,6 +524,19 @@ class PenguChecker:
                         code="E0056"
                     )
                     self._record_error(err)
+                elif args[0] not in (1, 2, 4, 8, 16, 32, 64, 128):
+                    # GCC/Clang and MSVC both require a power-of-2 alignment;
+                    # anything else emits C the compiler rejects, so it is
+                    # caught here instead of at `gcc` time.
+                    err = self._make_error(
+                        UnknownAttributeError,
+                        f"Attribute '@align({args[0]})' must be a power of 2 between 1 and 128",
+                        node,
+                        code="E0056",
+                        help="Use 1, 2, 4, 8, 16, 32, 64, or 128.",
+                        note="C alignment must be a power of 2."
+                    )
+                    self._record_error(err)
             elif name == "deprecated":
                 if len(args) > 1 or (len(args) == 1 and not isinstance(args[0], str)):
                     err = self._make_error(

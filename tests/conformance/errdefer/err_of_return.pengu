@@ -1,0 +1,22 @@
+# tests/conformance/errdefer/err_of_return.pengu
+#
+# `errdefer` must run when the failure value is built with the `err_of` result
+# constructor, which spells a failure as an ordinary call and never mentions the
+# `error` literal.
+#
+# The success case is here on purpose: `ok_of` must NOT run errdefer, so this
+# pins both directions and fails if the predicate is widened too far.
+import std.spark
+
+weave fail_path into result of int to string:
+    errdefer calling spark.println with "cleanup:err-of"
+    return calling err_of with "boom"
+
+weave ok_path into result of int to string:
+    errdefer calling spark.println with "cleanup:ok-of-must-not-run"
+    return calling ok_of with 7
+
+test "errdefer/err_of_return":
+    let a is calling ok_path
+    let b is calling fail_path
+    calling spark.println with "done"

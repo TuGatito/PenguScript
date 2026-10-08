@@ -1,0 +1,15 @@
+# tests/conformance/errdefer/lifo_order.pengu
+#
+# Several `errdefer`s on one failure path run in LIFO order (last registered
+# first), the order every cleanup mechanism in the language uses. This pins the
+# order so a future change to the cleanup list cannot silently reverse it.
+import std.spark
+
+weave outer into maybe int:
+    errdefer calling spark.println with "cleanup:first-registered"
+    errdefer calling spark.println with "cleanup:second-registered"
+    return maybe none
+
+test "errdefer/lifo_order":
+    let r is (calling outer) or else -1
+    calling spark.println with "r={r}"

@@ -1,0 +1,20 @@
+# tests/conformance/errdefer/or_return_maybe_none.pengu
+#
+# `errdefer` must run when `or return` propagates a failure out of the function.
+#
+# The `or return` lowering only injected cleanup when the fallback operand was
+# `err`/`error`; a `maybe none` fallback was treated as a normal return, so the
+# errdefer body was dropped from the generated C.
+import std.spark
+
+weave inner into maybe int:
+    return maybe none
+
+weave outer into maybe int:
+    errdefer calling spark.println with "cleanup:or-return"
+    let v is (calling inner) or return maybe none
+    return some v
+
+test "errdefer/or_return_maybe_none":
+    let r is (calling outer) or else -1
+    calling spark.println with "r={r}"

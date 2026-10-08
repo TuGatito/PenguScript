@@ -1,0 +1,14 @@
+# tests/conformance/errdefer/err_of_return_qualified.pengu
+#
+# Same as `err_of_return`, for the qualified spelling `oracle.err_of` that
+# `std.oracle` documents. The predicate must accept exactly the spellings the
+# `err_of` lowering accepts, so this case and its bare sibling move together.
+import std.spark
+
+weave fail_path into result of int to string:
+    errdefer calling spark.println with "cleanup:oracle-err-of"
+    return calling oracle.err_of with "boom"
+
+test "errdefer/err_of_return_qualified":
+    let a is calling fail_path
+    calling spark.println with "done"

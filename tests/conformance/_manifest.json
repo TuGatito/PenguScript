@@ -679,6 +679,60 @@
     "title": "Standard library",
     "migrated-from": "tests/compliance/054-standard-library.pengu"
   },
+  "errdefer/err_of_return": {
+    "feature": "errdefer",
+    "platforms": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "pins": "`return calling err_of with e` runs errdefer; `ok_of` does not."
+  },
+  "errdefer/err_of_return_qualified": {
+    "feature": "errdefer",
+    "platforms": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "pins": "the qualified `calling oracle.err_of with e` spelling runs errdefer."
+  },
+  "errdefer/lifo_order": {
+    "feature": "errdefer",
+    "platforms": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "pins": "several errdefers on one failure path run in LIFO order."
+  },
+  "errdefer/maybe_none_return": {
+    "feature": "errdefer",
+    "platforms": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "pins": "`return maybe none` runs errdefer; a `some` return does not."
+  },
+  "errdefer/or_return_maybe_none": {
+    "feature": "errdefer",
+    "platforms": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "pins": "`or return maybe none` runs errdefer before leaving the function."
+  },
+  "errdefer/try_propagation": {
+    "feature": "errdefer",
+    "platforms": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "pins": "`try` over `maybe T` runs errdefer on the propagated failure."
+  },
   "std_programs/backward_compat": {
     "feature": "std_programs",
     "platforms": [

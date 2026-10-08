@@ -174,6 +174,46 @@ weave main:
     assert "@align" in str(exc_info.value)
 
 
+@pytest.mark.parametrize("value", [0, 3, 12, 48, 256, 1024])
+def test_align_must_be_a_power_of_two_in_range(value):
+    """`@align(N)` outside 1..128, or not a power of 2, is rejected with E0056.
+
+    Both GCC/Clang (`aligned(N)`) and MSVC (`__declspec(align(N))`) require a
+    power of 2, so emitting anything else produces C the C compiler rejects.
+    Catching it in the checker keeps the diagnostic attached to the `.pengu`
+    line instead of surfacing as a `gcc` error in generated code.
+    """
+    source = f"""
+@align({value})
+rune BadAlign:
+    x as int
+
+weave main:
+    var b as BadAlign is with x is 0
+"""
+    parser = PenguParser()
+    tree = parser.parse(source)
+    checker = PenguChecker()
+    with pytest.raises(UnknownAttributeError) as exc_info:
+        checker.check(tree, source=source, filename="main.pengu")
+    assert exc_info.value.code == "E0056"
+    assert "power of 2 between 1 and 128" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("value", [1, 2, 4, 8, 16, 32, 64, 128])
+def test_align_accepts_every_power_of_two_in_range(value):
+    """The range check must not reject a legal alignment."""
+    source = f"""
+@align({value})
+rune Aligned:
+    x as int
+
+weave main:
+    var b as Aligned is with x is 0
+"""
+    assert f"aligned({value})" in gen_bundle(source)
+
+
 def test_deprecated_field_warning():
     source = """
 rune Config:

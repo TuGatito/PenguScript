@@ -1,7 +1,7 @@
 {
   "_meta": [
     "generated-by: tools/gen_conformance_deps.py",
-    "cases: 93"
+    "cases: 99"
   ],
   "_smoke/add": [
     "build_runtime.py",
@@ -621,6 +621,72 @@
     "std/spark.pengu",
     "tests/conformance/_manifest.json",
     "tests/conformance/compliance/s054_standard_library.pengu",
+    "tests/test_conformance.py",
+    "tools/gen_conformance_deps.py"
+  ],
+  "errdefer/err_of_return": [
+    "build_runtime.py",
+    "pengu_parser/",
+    "pengu_project.py",
+    "pengu_runtime.h",
+    "std/spark.pengu",
+    "tests/conformance/_manifest.json",
+    "tests/conformance/errdefer/err_of_return.pengu",
+    "tests/test_conformance.py",
+    "tools/gen_conformance_deps.py"
+  ],
+  "errdefer/err_of_return_qualified": [
+    "build_runtime.py",
+    "pengu_parser/",
+    "pengu_project.py",
+    "pengu_runtime.h",
+    "std/spark.pengu",
+    "tests/conformance/_manifest.json",
+    "tests/conformance/errdefer/err_of_return_qualified.pengu",
+    "tests/test_conformance.py",
+    "tools/gen_conformance_deps.py"
+  ],
+  "errdefer/lifo_order": [
+    "build_runtime.py",
+    "pengu_parser/",
+    "pengu_project.py",
+    "pengu_runtime.h",
+    "std/spark.pengu",
+    "tests/conformance/_manifest.json",
+    "tests/conformance/errdefer/lifo_order.pengu",
+    "tests/test_conformance.py",
+    "tools/gen_conformance_deps.py"
+  ],
+  "errdefer/maybe_none_return": [
+    "build_runtime.py",
+    "pengu_parser/",
+    "pengu_project.py",
+    "pengu_runtime.h",
+    "std/spark.pengu",
+    "tests/conformance/_manifest.json",
+    "tests/conformance/errdefer/maybe_none_return.pengu",
+    "tests/test_conformance.py",
+    "tools/gen_conformance_deps.py"
+  ],
+  "errdefer/or_return_maybe_none": [
+    "build_runtime.py",
+    "pengu_parser/",
+    "pengu_project.py",
+    "pengu_runtime.h",
+    "std/spark.pengu",
+    "tests/conformance/_manifest.json",
+    "tests/conformance/errdefer/or_return_maybe_none.pengu",
+    "tests/test_conformance.py",
+    "tools/gen_conformance_deps.py"
+  ],
+  "errdefer/try_propagation": [
+    "build_runtime.py",
+    "pengu_parser/",
+    "pengu_project.py",
+    "pengu_runtime.h",
+    "std/spark.pengu",
+    "tests/conformance/_manifest.json",
+    "tests/conformance/errdefer/try_propagation.pengu",
     "tests/test_conformance.py",
     "tools/gen_conformance_deps.py"
   ],
