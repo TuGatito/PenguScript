@@ -29,7 +29,7 @@ directly:
 |---|---|
 | Every case pins a real, numbered `LANGUAGE.md` section, with that document's own title | `tests/test_compliance_corpus.py` |
 | Every case compiles and exits with its recorded code | `tests/test_conformance.py` (the batch runner) |
-| The corpus runs under gcc and under clang (roadmap 10.3) | `.github/workflows/compliance.yml`, via `PENGU_TEST_CC` |
+| The corpus runs under gcc and under clang (roadmap 10.3) | the `compliance` job of `.github/workflows/ci.yml`, via `PENGU_TEST_CC` |
 
 The case ids were sanitised — a case's path *is* a module path, so
 `compliance/001-hello` (leading digit, hyphen) is not importable and became

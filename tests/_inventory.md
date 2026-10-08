@@ -368,10 +368,12 @@ Fase 3/4 espera encontrar los "60 % triviales o duplicados".
   `tests/test_ci_workflows.py:446-458` (`RECORDED_FLOOR = 80.0`) falla si baja.
   La Fase 4 ("60 % → borrar") **romperá CI por cobertura**: borrar no es gratis.
   Requiere decisión antes de la Fase 4.
-- **CI no ejecuta la suite como un comando.** `ci.yml` tiene ~9 pasos-gate que listan
+- **CI no ejecutaba la suite como un comando.** `ci.yml` tenía ~9 pasos-gate que listaban
   **47 archivos** con `-x`, más el run completo con `--cov`; y `compliance.yml`,
-  `sanitizers.yml`, `release.yml` y `release-verify.yml` también invocan pytest.
-  Reescribir CI a 3 jobs absorbe o elimina esos gates.
+  `sanitizers.yml`, `release.yml` y `release-verify.yml` también invocaban pytest.
+  **Hecho (Fase 12):** CI son ahora 3 workflows — `ci.yml` corre la suite completa una
+  vez por OS más el job `compliance` (gcc/clang); `release.yml` publica y verifica;
+  `nightly.yml` absorbe fuzz, sanitizers, CodeQL, cross-compile y bench.
 - **"CI full <90 s" mide lo que no toca.** El wall-clock de CI lo dominan
   `scripts/smoke.py`, `build_runtime.py` (minutos), `make_release.py`, la
   reproducibilidad del archivo y el job del VSIX, no pytest.
@@ -971,8 +973,8 @@ El arreglo de §15 desbloqueó la migración. Estado: **56 casos pasan en ~9 s**
    - la **declaración normativa de compatibilidad 1.x** ("un cambio que rompa uno
      de estos programas es una ruptura de compatibilidad, no un bug del corpus")
      se trasladó a `tests/conformance/compliance/README.md`;
-   - la **matriz de compiladores** (gcc/clang, roadmap 10.3) pasó a
-     `.github/workflows/compliance.yml` vía `PENGU_TEST_CC`.
+   - la **matriz de compiladores** (gcc/clang, roadmap 10.3) pasó al job
+     `compliance` de `.github/workflows/ci.yml` vía `PENGU_TEST_CC`.
 4. `_manifest.json` es ahora la fuente de verdad legible por máquina que eran
    `corpus.json` + `EXPECTED.md`, con `section`, `title`, `pins` y
    `migrated-from` por caso.
@@ -1569,7 +1571,8 @@ script) y conviene arreglar el patrón, no el caso.
 
 ### 23.1 El que yo mismo abrí
 
-Al borrar los 7 ficheros backward-compat (§22) rompí `sanitizers.yml`, que los
+Al borrar los 7 ficheros backward-compat (§22) rompí el workflow de sanitizers (hoy
+el job `sanitizers` de `.github/workflows/nightly.yml`), que los
 invocaba por ruta en dos sitios (`PENGU_SANITIZER_DESELECT` y un paso dedicado). CI
 habría fallado. Se detectó revisando las referencias ejecutables **antes** de dar la
 ronda por buena, y se retargeteó a los ids del corpus:

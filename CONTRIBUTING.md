@@ -153,8 +153,8 @@ Useful environment variables: `PENGU_CFLAGS` / `PENGU_LDFLAGS` (injected into
 every compiled test program — this is how the sanitizer job works),
 `PENGU_TEST_VALGRIND=1`, `PENGU_NO_LEAKCHECK=1`, `PENGU_CACHE=0`. Reuse
 `compile_run`/`gen_bundle` instead of shelling out yourself: the sanitizer job
-([`.github/workflows/sanitizers.yml`](.github/workflows/sanitizers.yml)) relies on
-every test inheriting those flags through `conftest.py`.
+([`.github/workflows/nightly.yml`](.github/workflows/nightly.yml), job
+`sanitizers`) relies on every test inheriting those flags through `conftest.py`.
 
 ## 4. The "no text gates" rule
 
@@ -183,7 +183,7 @@ numbers are the audit's and may have drifted. Reproduced in English:
 | `tests/tooling/test_error_codes_uniqueness.py` | "the error codes are unique" | Only `kwargs.setdefault` defaults; ignores 24 raw emissions | §2.3 — `E0035` with 4 meanings |
 | `tests/test_attributes_msvc.py:39` | "MSVC works" | Compares **generated text** | §5.1 — the runtime does not compile with MSVC |
 | `.github/workflows/ci.yml` (`CC_BIN="gcc"`) | "Windows = MSVC" | MinGW `gcc` | §5.1 |
-| `.github/workflows/sanitizers.yml` (ASan step) | "the leak stays visible without breaking CI" | Runs the suite twice, the second time **without** the `--deselect` | §11.3 — red job |
+| `.github/workflows/nightly.yml` (job `sanitizers`, ASan step) | "the leak stays visible without breaking CI" | Runs the suite twice, the second time **without** the `--deselect` | §11.3 — red job |
 | `tests/test_ci_workflows.py` (tag→release invariant) | "the tag→release handoff works" | The literal `v*` exists in the triggers | §14.6 |
 
 The four historical offenders are `tests/cli/test_cli_strict_c99.py:50`,
@@ -333,8 +333,9 @@ python make_release.py                     # package the standalone distribution
 
 Each has a job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) or a
 sibling workflow, alongside the strict-grammar/LALR gate, the ABI layout matrix,
-the per-phase gates (FASE 1–7), the sanitizer matrix (ASan/UBSan/Valgrind in
-[`.github/workflows/sanitizers.yml`](.github/workflows/sanitizers.yml)), `pengu verify`
+the per-phase gates (FASE 1–7), the sanitizer matrix (ASan/UBSan/Valgrind in the
+`sanitizers` job of
+[`.github/workflows/nightly.yml`](.github/workflows/nightly.yml)), `pengu verify`
 and the nightly fuzz/bench jobs. Two caveats from the checklist itself:
 
 - **`--strict-c99` is *not* a portability release gate in 0.16.0.** Measured: 34 of

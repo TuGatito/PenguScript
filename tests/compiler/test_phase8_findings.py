@@ -136,7 +136,7 @@ _VARIADIC_REPRO = REPO / "tests" / "compliance" / "020-declare-extern-c.pengu"
 
 @pytest.mark.skipif(
     "sanitize" not in os.environ.get("PENGU_CFLAGS", ""),
-    reason="F8-N10 is only observable under AddressSanitizer (see sanitizers.yml)",
+    reason="F8-N10 is only observable under AddressSanitizer (see the nightly sanitizers job)",
 )
 @pytest.mark.xfail(
     strict=True,

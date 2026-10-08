@@ -60,30 +60,26 @@ minimise it (`-minimize_crash=1`) before adding it to the corpus.
 
 ## CI schedule
 
-Two workflows share the budget. GitHub kills a job after **6 h of execution**, so
-no single job can ever run longer: a "72 h per harness" promise is a number in a
-file, not a budget (audit §13.3, roadmap item 9.5).
-
-`.github/workflows/fuzz.yml` — short feedback loop:
+One workflow owns the fuzz budget: `.github/workflows/nightly.yml`. GitHub kills
+a job after **6 h of execution**, so no single job can ever run longer: a
+"72 h per harness" promise is a number in a file, not a budget (audit §13.3,
+roadmap item 9.5).
 
 | Trigger | Budget |
 |---|---|
-| Pull request | 5 minutes per harness |
 | Nightly (`02:00` UTC) | 1 hour per harness |
-| `workflow_dispatch` | `seconds` input, **clamped to 21600 s (6 h)** |
+| `workflow_dispatch` | `fuzz_seconds` input, **clamped to 21600 s (6 h)** |
 
-`.github/workflows/nightly.yml` — the long budget, split across parallel shards:
-
-| Trigger | Budget |
-|---|---|
-| Nightly (`23:00` UTC) | 6 hours per harness across 4 shards (90 min/job) |
-| `workflow_dispatch` | `hours_per_harness` (default 6) × `shards` (default 4), clamped to 6 h |
-
-Each shard is an independent libFuzzer run with its own `-seed`, so the total
-per harness is `shards × per-shard time`. Raising `hours_per_harness` is possible,
-but the workflow clamps it to the platform ceiling and every job declares a
-`timeout-minutes` below 6 h — enforced by
+That is **6 h per harness** at the very most, and the job declares a
+`timeout-minutes` below the platform ceiling. Raising the budget is possible, but
+the workflow clamps it rather than trusting the input — enforced by
 `tests/test_ci_workflows.py::test_no_job_timeout_exceeds_the_platform_ceiling`.
+
+Fuzzing is not part of the pull-request gate: it is heavy and non-deterministic,
+so a finding must not block unrelated work. The deterministic smoke pass runs
+whenever atheris is unavailable.
+
+Failures upload the crash corpus and the atheris logs as workflow artifacts.
 
 Failures upload the crash corpus and the atheris logs as workflow artifacts.
 

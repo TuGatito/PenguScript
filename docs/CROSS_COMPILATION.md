@@ -298,11 +298,13 @@ No test produces a `.exe`, and none runs it under Wine.
 
 ## 9. Limitations and known gaps
 
-* **No CI coverage.** There is no `cross-compile.yml`; CI runs
+* **Non-blocking CI coverage.** The `cross-compile` job of
+  `.github/workflows/nightly.yml` does the Linux → Windows flow end to end
+  (bundle, MinGW object, PE32+ `.exe`, execution under Wine). It runs nightly and
+  on demand rather than on every push, so a Windows-only breakage is found the
+  next day rather than blocking unrelated work; `ci.yml` still runs
   `windows-latest`/`ubuntu-latest`/`macos-latest` natively
-  ([`.github/workflows/ci.yml:40-50`](../.github/workflows/ci.yml#L40)). Recorded as open in
-  [`AUDIT_1.0.md:1120`](../AUDIT_1.0.md#L1120), [`AUDIT_1.0.md:2922`](../AUDIT_1.0.md#L2922) and
-  `ROADMAP_1.1.md` (item 8.12 of the 1.0 plan).
+  ([`.github/workflows/ci.yml:80`](../.github/workflows/ci.yml#L80)).
 * **The MinGW test is opt-in and compile-only** — a stub `.c`, not a PenguScript program
   ([`tests/cli/test_cross_compile.py:119-130`](../tests/cli/test_cross_compile.py#L119)).
 * **No MSVC.** The real matrix is gcc (Linux) / clang-or-gcc (macOS) / MinGW (Windows):

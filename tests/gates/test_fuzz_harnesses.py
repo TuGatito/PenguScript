@@ -101,7 +101,8 @@ def test_harness_helpers():
 
 def test_fuzzing_docs_and_ci_exist():
     assert (REPO / "docs" / "FUZZING.md").is_file()
-    workflow = (REPO / ".github" / "workflows" / "fuzz.yml").read_text(encoding="utf-8")
+    # Phase 12 merged fuzz.yml into the nightly workflow's `fuzz` job.
+    workflow = (REPO / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
     for needle in ("scripts/fuzz/fuzz_", "schedule", "PENGU_FUZZ_SMOKE"):
         assert needle in workflow, needle
 

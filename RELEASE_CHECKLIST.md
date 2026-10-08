@@ -19,8 +19,9 @@ re-runs the whole suite on the tag before publishing anything.
 - [ ] Full test suite, 0 failures — `pytest tests -q`. On the tag this is
       `workflow: .github/workflows/release.yml` ("Run Test Suite").
 - [ ] Compilers confirmed: gcc and clang on Linux/macOS, **MinGW** on Windows —
-      `workflow: .github/workflows/ci.yml` (matrix `Windows x64` / `Linux x64` /
-      `macOS (arm64)`). ❌ **MSVC is not a supported compiler and is not claimed
+      `workflow: .github/workflows/ci.yml` (test matrix `Windows x64` / `Linux x64`
+      / `macOS (arm64)`, plus the `compliance` job's `cc: [gcc, clang]` matrix).
+      ❌ **MSVC is not a supported compiler and is not claimed
       here**: `pengu_parser/pengu_runtime.c` includes PCRE2/libxml2/zlib/mbedTLS/
       libcurl/libmicrohttpd, whose MSVC build does not exist, and no job links an
       MSVC binary. The MSVC *dialect* of the generated C is syntax-checked by
@@ -32,7 +33,7 @@ re-runs the whole suite on the tag before publishing anything.
       `_Static_assert` check `workflow: .github/workflows/ci.yml`
       ("ABI layout matrix").
 - [ ] Cross-compilation produces and **executes** a Windows `.exe` —
-      `workflow: .github/workflows/cross-compile.yml`.
+      `workflow: .github/workflows/nightly.yml` (job `cross-compile`).
 - [ ] ❌ **`--strict-c99` is NOT a portability gate** and is not claimed as one:
       it is not functional for programs that import `std` in 0.16.0. Measured:
       34 of 61 programs in `tests/std_programs/` fail
@@ -59,7 +60,7 @@ re-runs the whole suite on the tag before publishing anything.
       tests/gates/test_fuzz_harnesses.py -q`.
 - [ ] Compliance and migration corpora — `pytest
       tests/test_compliance_corpus.py tests/test_migration_corpus.py -q`, also
-      `workflow: .github/workflows/compliance.yml`.
+      `workflow: .github/workflows/ci.yml` (job `compliance`, gcc **and** clang).
 - [ ] Standard library formatting: 0 files to reformat —
       `python pengu_project.py fmt --check std/`.
 - [ ] Toolchain smoke test (`run` + cache + `doctor`) —
@@ -67,20 +68,22 @@ re-runs the whole suite on the tag before publishing anything.
 - [ ] Coverage ratchet not lowered — `pytest tests -q --cov
       --cov-config=.coveragerc` (floor in `.coveragerc`; enforced by
       `workflow: .github/workflows/ci.yml`).
-- [ ] Nightly fuzz: 6 h per harness (4 shards × 90 min) with no crash —
-      `workflow: .github/workflows/nightly.yml`. GitHub kills a job after 6 h, so
-      "72 h in one job" is impossible and is not claimed (`docs/FUZZING.md`
-      §CI schedule, audit §13.3, roadmap 9.5).
-- [ ] Fuzz harnesses also run on pull requests — `python
-      scripts/fuzz/fuzz_parser.py` (smoke mode), `workflow:
-      .github/workflows/fuzz.yml`.
+- [ ] Nightly fuzz: 6 h per harness with no crash —
+      `workflow: .github/workflows/nightly.yml` (job `fuzz`). GitHub kills a job
+      after 6 h, so "72 h in one job" is impossible and is not claimed
+      (`docs/FUZZING.md` §CI schedule, audit §13.3, roadmap 9.5).
+- [ ] Fuzz harnesses run nightly (deterministic smoke mode without atheris) —
+      `python scripts/fuzz/fuzz_parser.py` (smoke mode), `workflow:
+      .github/workflows/nightly.yml` (job `fuzz`). They deliberately do **not**
+      block a pull request.
 - [ ] Nightly benchmark CSV uploaded; informational only, never blocking —
-      `workflow: .github/workflows/bench.yml`.
+      `workflow: .github/workflows/nightly.yml` (job `bench`).
 - [ ] Benchmarks reproduced on the release machine and `BENCHMARKS.md` refreshed —
       `bash scripts/bench.sh --repeat 5`.
 - [ ] ASan/UBSan matrix: no leaks, no undefined behaviour —
-      `workflow: .github/workflows/sanitizers.yml`.
-- [ ] Static analysis clean — `workflow: .github/workflows/codeql.yml`.
+      `workflow: .github/workflows/nightly.yml` (job `sanitizers`).
+- [ ] Static analysis clean — `workflow: .github/workflows/nightly.yml`
+      (job `codeql`).
 - [ ] Lint gate: no undefined names — `python -m ruff check --select F821,E9
       --exclude extern,build,vscode-extension .`.
 - [ ] Every external C library verified against its pinned SHA-256 before
@@ -96,8 +99,8 @@ re-runs the whole suite on the tag before publishing anything.
       `python pengu_project.py verify --help` then `pengu verify` inside a
       `pengu new exe` template.
 - [ ] The tag triggers the release and the release is verified — `workflow:
-      .github/workflows/release.yml` (dispatch step) and `workflow:
-      .github/workflows/release-verify.yml` (roadmap 9.6/9.7).
+      .github/workflows/release.yml` (the `auto-tag` dispatch from `ci.yml`, then
+      the in-workflow `verify` job; roadmap 9.6/9.7).
 - [ ] Published artifacts run in both the portable and FHS layouts —
       `python scripts/verify_release_artifact.py --artifact <asset> --layout
       portable` and `--layout fhs` (roadmap 9.12).

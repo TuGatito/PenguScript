@@ -103,7 +103,8 @@ requires_leakcheck = pytest.mark.skipif(
 STD_PROGRAM_BUILD_TIMEOUT = 120
 
 #: True when the suite is running under PENGU_CFLAGS with a sanitizer
-#: (`-fsanitize=...`), i.e. inside `.github/workflows/sanitizers.yml`.
+#: (`-fsanitize=...`), i.e. inside the `sanitizers` job of
+#: `.github/workflows/nightly.yml`.
 #:
 #: Phase 8 item 8.2 measured which tests cannot hold their premise under
 #: instrumentation: UBSan's own report replaces the crash handler's `[PENGU CRASH]`
@@ -461,7 +462,7 @@ def compile_run(source: str, tag: str = "t", extra_libs=None, cwd=None,
         if extra_cflags:
             cmd += list(extra_cflags)
         # Honour PENGU_CFLAGS / PENGU_LDFLAGS so the whole suite can be run under
-        # sanitizers in CI (see .github/workflows/sanitizers.yml).
+        # sanitizers in CI (see the `sanitizers` job of nightly.yml).
         import shlex as _shlex
 
         _env_cflags = os.environ.get("PENGU_CFLAGS", "").strip()

@@ -3,14 +3,14 @@
 The process, the gates that must be green, and what to do when one fails.
 [`RELEASE_CHECKLIST.md`](../RELEASE_CHECKLIST.md) is the short, tickable form of
 this document; this one explains the mechanism behind each line. The pipeline is
-four workflows:
+three workflows (Phase 12 consolidated ten into three; a future need is added as a
+**job** inside the file that owns it, never as a fourth workflow):
 
 | Workflow | Role |
 |---|---|
-| `ci.yml` | Builds, tests and packages on Linux/macOS/Windows; `auto-tag` creates the tag and **dispatches** the release |
-| `release.yml` | The **only** publisher: builds the artifacts, writes `SHA256SUMS.txt`, creates the GitHub Release |
-| `release-verify.yml` | Downloads the *published* artifacts and executes them in the portable and FHS layouts |
-| `nightly.yml`, `fuzz.yml`, `bench.yml`, `sanitizers.yml`, `compliance.yml`, `cross-compile.yml`, `codeql.yml` | The quality gates CI runs on every push |
+| `ci.yml` | Builds, tests and packages on Linux/macOS/Windows; the `compliance` job runs the corpora under gcc **and** clang; `auto-tag` creates the tag and **dispatches** the release |
+| `release.yml` | The **only** publisher: builds the artifacts, writes `SHA256SUMS.txt`, creates the GitHub Release and verifies the published artifact in its `verify` job |
+| `nightly.yml` | The non-blocking quality gates: fuzz, ASan/UBSan/valgrind, CodeQL, the Linux→Windows cross-compile and the benchmarks |
 
 ## 0. One-time setup (not per release)
 
@@ -58,9 +58,12 @@ verified `extern/` while iterating; never in CI).
    assets, writes `SHA256SUMS.txt` and runs
    `gh release create --verify-tag`. Nothing else in the repository may publish a
    release.
-5. **`release.yml` dispatches `release-verify.yml`** for the tag it just
-   published (`release` events created with `GITHUB_TOKEN` do not start a run
-   either).
+5. **`release.yml` verifies what it published.** Its `verify` job runs after
+   `publish-release` in the same workflow, downloads each published asset and
+   executes it in the portable and FHS layouts. Verification used to be a
+   separate `release-verify.yml` started by an explicit dispatch (a `release`
+   event created with `GITHUB_TOKEN` does not start a run either); folding it in
+   removes the dispatch and keeps the ordering guarantee through `needs:`.
 
 ## 3. What each gate proves
 
@@ -71,8 +74,8 @@ verified `extern/` while iterating; never in CI).
 | Dependency integrity | `python scripts/extern_digests.py --check`, `python extern_manifest.py --verify` | every archive hashes to the pinned SHA-256 before extraction |
 | TCC integrity | `python pengu_tcc.py --stage build/tcc-dist` | the downloaded compiler matches `pengu_tcc.TCC_RELEASE_SHA256` |
 | Reproducibility | `python make_release.py --archive-only --dist-dir pengucc_build --archive a.tar.gz` (twice) | the same tree produces the same archive bytes |
-| Artifact execution | `workflow: .github/workflows/release-verify.yml` | the published artifact runs: `pengu -V` matches the tag, a project builds, `run` prints the greeting |
-| Layouts | `workflow: .github/workflows/release-verify.yml` (`layout: portable` and `layout: fhs`) | `pengu_paths` finds the runtime from the unpacked dir and from an installed FHS prefix |
+| Artifact execution | `workflow: .github/workflows/release.yml` (job `verify`) | the published artifact runs: `pengu -V` matches the tag, a project builds, `run` prints the greeting |
+| Layouts | `workflow: .github/workflows/release.yml` (job `verify`; `layout: portable` and `layout: fhs`) | `pengu_paths` finds the runtime from the unpacked dir and from an installed FHS prefix |
 | macOS signature | `codesign --verify --strict` (in `release.yml`) | the artifact carries a valid ad-hoc signature |
 
 ### Reproducibility
@@ -109,7 +112,7 @@ tar xzf pengu-linux-x64.tar.gz
 ./pengu run hello.pengu    # Hello, world!
 ```
 
-That is exactly what `release-verify.yml` automates.
+That is exactly what `release.yml`'s `verify` job automates.
 
 ## 5. If a gate fails
 
@@ -119,7 +122,7 @@ That is exactly what `release-verify.yml` automates.
 | `auto-tag` fails to push the tag | branch protection or a permissions change | check `permissions: contents: write` on the job; the tag must be pushed by CI or by hand |
 | `release.yml` fails before publishing | a build or a test failed | nothing was published; fix and re-run the workflow (`workflow_dispatch` with an existing tag) |
 | `gh release create` fails with "already exists" | that tag was published before | delete the release (`gh release delete <tag>`) or publish the next version |
-| **`release-verify.yml` fails** | an artifact is published but does not run | **withdraw the release**: `gh release delete <tag> --yes`, `git push --delete origin <tag>`, fix, and re-tag. The verification exists precisely so this decision is not made blind |
+| **`release.yml`'s `verify` job fails** | an artifact is published but does not run | **withdraw the release**: `gh release delete <tag> --yes`, `git push --delete origin <tag>`, fix, and re-tag. The verification exists precisely so this decision is not made blind |
 | A digest mismatch (extern or TCC) | upstream changed, or a mirror is compromised | stop. Verify the new archive by hand, then re-pin with `python scripts/extern_digests.py --update` (extern) or a code change (TCC) in its own commit |
 
 ## 6. macOS
@@ -132,7 +135,7 @@ an account.
 
 Consequence, stated plainly: a `pengu` downloaded through a browser carries the
 `com.apple.quarantine` attribute and Gatekeeper refuses to run it, because an
-ad-hoc signature cannot satisfy notarization. `release-verify.yml` runs
+ad-hoc signature cannot satisfy notarization. `release.yml`'s `verify` job runs
 `spctl --assess -vv` and publishes the output for the record; a rejection there is
 expected and documented, not a bug.
 
@@ -147,7 +150,7 @@ or build from source (see `docs/PENGU_BUILD.md`), which is not quarantined.
 If an Apple developer account ever becomes available, the change is local: add
 `codesign --sign "Developer ID Application: …" --options runtime --timestamp`,
 a `notarytool submit --wait` step and `xcrun stapler staple`, then promote the
-`spctl` check in `release-verify.yml` from "recorded" to "required".
+`spctl` check in `release.yml`'s `verify` job from "recorded" to "required".
 
 ## 7. After the release
 

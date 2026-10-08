@@ -145,6 +145,6 @@ known, measured, documented trade-offs rather than surprises.
 
 ## Continuous measurement
 
-[`.github/workflows/bench.yml`](.github/workflows/bench.yml) runs the harness
-nightly and on demand, uploading the CSV as an artifact. Benchmarks never block
-a pull request: they are noisy on shared CI runners.
+[`.github/workflows/nightly.yml`](.github/workflows/nightly.yml) (job `bench`) runs
+the harness nightly and on demand, uploading the CSV as an artifact. Benchmarks
+never block a pull request: they are noisy on shared CI runners.

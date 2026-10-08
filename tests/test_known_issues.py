@@ -61,7 +61,7 @@ leak detection, so the finding stays visible.
 
 @pytest.mark.skipif(
     "sanitize" not in os.environ.get("PENGU_CFLAGS", ""),
-    reason="needs PENGU_CFLAGS with -fsanitize=address (see sanitizers.yml)",
+    reason="needs PENGU_CFLAGS with -fsanitize=address (see nightly.yml)",
 )
 @pytest.mark.xfail(
     # The xfail is only meaningful while LeakSanitizer is actually looking: with
@@ -102,7 +102,7 @@ def test_known_issue_is_documented_in_the_changelog():
 
 
 def test_sanitizer_workflow_deselects_by_name_not_by_disabling_detection():
-    workflow = (REPO / ".github" / "workflows" / "sanitizers.yml").read_text(encoding="utf-8")
+    workflow = (REPO / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
     assert "--deselect" in workflow
     # The leaking program is a corpus case now, so its node id names the batch
     # runner's parametrisation rather than a per-program test file.
@@ -119,19 +119,26 @@ def test_every_sanitizer_pytest_step_deselects_the_known_leak():
     the valgrind step re-ran the leaking ``test_std_backward_compat`` and the job
     was red over a finding that was already documented as a known issue.  Putting
     the literal back into a single step (i.e. reverting the fix) fails here.
+
+    Phase 12 merged the sanitizers workflow into `nightly.yml`, which also holds
+    unrelated pytest steps (the cross-compile job).  The invariant is about the
+    sanitizer job's own steps, so it is read from `jobs.sanitizers` rather than
+    from the whole file: a file-wide scan would demand a deselect the
+    cross-compile step must not have.
     """
     import yaml
 
     workflow = yaml.safe_load(
-        (REPO / ".github" / "workflows" / "sanitizers.yml").read_text(encoding="utf-8")
+        (REPO / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
     )
-    shared = (workflow.get("env") or {}).get("PENGU_SANITIZER_DESELECT", "")
+    job = (workflow.get("jobs") or {})["sanitizers"]
+    shared = (job.get("env") or {}).get("PENGU_SANITIZER_DESELECT", "")
     assert "test_conformance_case[std_programs/backward_compat]" in shared, (
-        "the known-leak node id must be declared once, at workflow level"
+        "the known-leak node id must be declared once, at job level"
     )
 
-    steps = [step for job in (workflow.get("jobs") or {}).values()
-             for step in (job.get("steps") or []) if "pytest" in (step.get("run") or "")]
+    steps = [step for step in (job.get("steps") or [])
+             if "pytest" in (step.get("run") or "")]
     assert len(steps) >= 4, f"expected the four sanitizer pytest steps, found {len(steps)}"
     missing = [step.get("name") for step in steps
                if "--deselect" not in step["run"] or "PENGU_SANITIZER_DESELECT" not in step["run"]]
@@ -153,9 +160,8 @@ def test_the_leak_verdict_is_only_disabled_when_it_is_declared():
     """
     import yaml
 
-    doc = yaml.safe_load(
-        (REPO / ".github" / "workflows" / "sanitizers.yml").read_text(encoding="utf-8")
-    )
+    nightly = (REPO / ".github" / "workflows" / "nightly.yml")
+    doc = yaml.safe_load(nightly.read_text(encoding="utf-8"))
 
     def _asan(step):
         return (step.get("env") or {}).get("ASAN_OPTIONS", "")
@@ -171,6 +177,6 @@ def test_the_leak_verdict_is_only_disabled_when_it_is_declared():
         assert "detect_leaks=0" not in ((job.get("env") or {}).get("ASAN_OPTIONS") or ""), (
             f"{job_name} disables the leak verdict for every step through the job env"
         )
-    assert "8.19" in (REPO / ".github" / "workflows" / "sanitizers.yml").read_text(encoding="utf-8"), (
+    assert "8.19" in nightly.read_text(encoding="utf-8"), (
         "the workflow must name the tracked leak item that justifies the split"
     )

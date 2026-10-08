@@ -21,8 +21,13 @@ COMPOSITE = REPO / ".github" / "actions" / "setup-pengu" / "action.yml"
 RELEASE_VERSION = REPO / "scripts" / "release_version.py"
 
 #: Every workflow file, read from disk rather than listed by hand (Phase 8 /
-#: item 8.16): a hand-written list is how `fuzz.yml` kept a 13 h timeout that
-#: GitHub kills after 6 h — the invariant simply never ran against it.
+#: item 8.16): a hand-written list is how the old `fuzz.yml` kept a 13 h timeout
+#: that GitHub kills after 6 h — the invariant simply never ran against it.
+#:
+#: Phase 12 consolidated ten workflows into three (ci / release / nightly), so
+#: the safety nets that used to live in `fuzz.yml`, `bench.yml`, `sanitizers.yml`,
+#: `codeql.yml`, `cross-compile.yml` and `compliance.yml` are now jobs inside the
+#: file that owns them.  The tests below name the *job* as well as the file.
 ALL_WORKFLOWS = sorted(p.name for p in WORKFLOWS.glob("*.yml"))
 
 
@@ -131,8 +136,9 @@ def test_release_never_cancels_in_progress():
             assert "cancel-in-progress: false" in raw, name
 
 
-def test_bench_and_release_do_not_cancel_in_progress():
-    for name in ("bench.yml", "release.yml"):
+def test_nightly_and_release_do_not_cancel_in_progress():
+    """A half-finished benchmark series (or release) is worse than a superseded one."""
+    for name in ("nightly.yml", "release.yml"):
         assert "cancel-in-progress: false" in _raw(name), name
 
 
@@ -215,8 +221,8 @@ def test_abi_layout_step_is_not_hardcoded_to_cc():
 
 
 def test_bench_posix_steps_declare_bash():
-    """bench.yml used date/tee/[ which do not exist in pwsh."""
-    doc = _load("bench.yml")
+    """The bench job uses date/tee/[ which do not exist in pwsh."""
+    doc = _load("nightly.yml")
     steps = _jobs(doc)["bench"]["steps"]
     for step in steps:
         run = step.get("run", "")
@@ -225,7 +231,7 @@ def test_bench_posix_steps_declare_bash():
 
 
 def test_no_blanket_true_on_dependency_installs():
-    for name in ("ci.yml", "release.yml", "bench.yml", "fuzz.yml", "sanitizers.yml"):
+    for name in ("ci.yml", "release.yml", "nightly.yml"):
         raw = _raw(name)
         assert "pip install -r requirements.txt || true" not in raw, name
         assert "brew install" not in raw or "|| true" not in raw.split("brew install")[1][:200], name
@@ -233,7 +239,7 @@ def test_no_blanket_true_on_dependency_installs():
 
 def test_workflows_use_the_shared_composite_action():
     assert COMPOSITE.is_file()
-    for name in ("ci.yml", "release.yml", "bench.yml", "sanitizers.yml"):
+    for name in ("ci.yml", "release.yml", "nightly.yml"):
         assert "./.github/actions/setup-pengu" in _raw(name), name
 
 
@@ -264,7 +270,7 @@ def test_release_validates_assets_are_not_empty():
 
 
 def test_bench_artifact_failure_is_not_swallowed():
-    raw = _raw("bench.yml")
+    raw = _raw("nightly.yml")
     assert "if-no-files-found: error" in raw
 
 
@@ -301,8 +307,8 @@ def test_dependabot_covers_actions_pip_and_npm():
 
 
 def test_sanitizer_workflow_sets_the_flag_environment():
-    doc = _load("sanitizers.yml")
-    env = _jobs(doc)["asan-ubsan"]["env"]
+    doc = _load("nightly.yml")
+    env = _jobs(doc)["sanitizers"]["env"]
     assert "address" in env["PENGU_CFLAGS"] and "undefined" in env["PENGU_CFLAGS"]
     assert "address" in env["PENGU_LDFLAGS"]
 
@@ -319,7 +325,7 @@ def test_env_flags_reach_the_compiler_and_the_cache_key():
 
 
 def test_fuzz_upload_runs_always():
-    raw = _raw("fuzz.yml")
+    raw = _raw("nightly.yml")
     assert "if: always()" in raw
     assert "if-no-files-found: ignore" in raw
 
@@ -380,47 +386,45 @@ def test_no_job_timeout_exceeds_the_platform_ceiling(name):
         )
 
 
-def test_nightly_fuzz_budget_is_sharded_within_the_ceiling():
-    """Roadmap 8.16: a 72 h-per-harness budget can only exist as shards.
+def test_nightly_fuzz_budget_stays_below_the_platform_ceiling():
+    """Roadmap 8.16, after the Phase 12 consolidation.
 
-    Shards are parallel *jobs*, so the invariant is about the fuzz seconds each
-    harness consumes (``shards x per-shard budget <= 6 h``), not about wall clock:
-    the default total must fit the platform ceiling and the workflow must divide it
-    rather than trusting the input.
+    The long budget used to be split across 4 shards in a separate workflow.  It
+    is now one job per harness in `nightly.yml`, so the invariant is no longer
+    "shards x per-shard budget" but the simpler pair: the dispatchable default
+    is clamped to GitHub's 6 h ceiling and the job declares a timeout underneath
+    that ceiling.
     """
     doc = _load("nightly.yml")
     job = _jobs(doc)["fuzz"]
     matrix = job["strategy"]["matrix"]
     assert set(matrix["harness"]) == {"parser", "bind", "semver", "lock", "lsp"}
-    shards = len(matrix["shard"])
-    assert shards >= 2, "a single shard cannot fit inside the 6 h ceiling"
 
     inputs = _triggers(doc)["workflow_dispatch"]["inputs"]
-    hours = float(inputs["hours_per_harness"]["default"])
-    assert hours <= 6, f"the default budget of {hours} h exceeds the platform ceiling"
+    assert inputs["fuzz_seconds"]["default"] == "21600", "6 h, the platform ceiling"
 
     raw = _raw("nightly.yml")
     assert "21600" in raw, "nightly.yml must clamp to GitHub's 6 h ceiling"
-    assert "total / SHARDS" in raw, "the budget must be divided across the shards"
+    assert "PENGU_FUZZ_SMOKE" in raw, "the deterministic smoke fallback must survive"
     assert int(job["timeout-minutes"]) <= 360
 
 
-def test_codeql_workflow_analyses_both_languages():
+def test_codeql_job_analyses_both_languages():
     """Roadmap 8.14: Python *and* the C runtime."""
-    job = _jobs(_load("codeql.yml"))["analyze"]
+    job = _jobs(_load("nightly.yml"))["codeql"]
     entries = job["strategy"]["matrix"]["include"]
     languages = {entry["language"] for entry in entries}
     assert {"python", "c-cpp"} <= languages, languages
-    raw = _raw("codeql.yml")
+    raw = _raw("nightly.yml")
     assert "github/codeql-action/init@" in raw
     assert "github/codeql-action/analyze@" in raw
     assert "security-extended" in raw, "the default query suite misses the memory-safety queries"
     assert all(entry["build-mode"] == "none" for entry in entries), entries
 
 
-def test_cross_compile_workflow_produces_and_runs_a_pe():
+def test_cross_compile_job_produces_and_runs_a_pe():
     """Roadmap 8.12: a real `.exe`, validated by `file` and executed."""
-    raw = _raw("cross-compile.yml")
+    raw = _raw("nightly.yml")
     assert "gcc-mingw-w64-x86-64" in raw
     assert "x86_64-w64-mingw32-gcc" in raw
     assert "PE32+" in raw, "the .exe must be validated as a PE image, not assumed"
@@ -428,9 +432,9 @@ def test_cross_compile_workflow_produces_and_runs_a_pe():
     assert "--target x86_64-w64-mingw32" in raw
 
 
-def test_corpora_run_in_their_own_workflow():
-    """Roadmap 8.13: both corpora are wired into CI."""
-    raw = _raw("compliance.yml")
+def test_corpora_are_wired_into_ci():
+    """Roadmap 8.13: both corpora keep a gate in CI after the consolidation."""
+    raw = _raw("ci.yml")
     assert "tests/test_compliance_corpus.py" in raw
     assert "tests/test_migration_corpus.py" in raw
     assert (REPO / "tests" / "migration" / "EXPECTED.json").is_file()
@@ -510,32 +514,28 @@ def test_fuzz_docs_do_not_promise_more_than_github_allows(path):
     )
 
 
-def test_the_fuzz_workflows_state_the_same_budget_as_the_docs():
-    """The documented numbers must match the YAML, not just each other."""
+def test_the_fuzz_workflow_states_the_same_budget_as_the_docs():
+    """The documented numbers must match the YAML, not just each other.
+
+    Phase 12 folded `fuzz.yml` into `nightly.yml`'s `fuzz` job, so there is one
+    budget again instead of two.  The documented figure is still 6 h per
+    harness, clamped in the YAML to GitHub's ceiling in seconds.
+    """
     nightly_doc = _load("nightly.yml")
     nightly = _jobs(nightly_doc)["fuzz"]
     inputs = _triggers(nightly_doc)["workflow_dispatch"]["inputs"]
-    hours = float(inputs["hours_per_harness"]["default"])
-    shards = len(nightly["strategy"]["matrix"]["shard"])
-    assert hours == 6.0 and shards == 4
-    # The invariant is about the fuzz seconds a harness consumes, not wall clock:
-    # shards run in parallel (roadmap 8.16).
-    assert hours * 60 <= 360, "the total per harness must fit the 6 h ceiling"
-    per_shard = hours * 60 / shards
-    assert int(nightly["timeout-minutes"]) > per_shard, (
-        "a shard's timeout must leave room for checkout/build on top of its budget"
-    )
+    assert inputs["fuzz_seconds"]["default"] == "21600", "6 h, the platform ceiling"
+    assert int(nightly["timeout-minutes"]) <= 360
 
-    fuzz_doc = _load("fuzz.yml")
-    fuzz = _jobs(fuzz_doc)["fuzz"]
-    dispatch = _triggers(fuzz_doc)["workflow_dispatch"]["inputs"]
-    assert dispatch["seconds"]["default"] == "21600", "6 h, the platform ceiling"
-    assert int(fuzz["timeout-minutes"]) <= 360
+    raw = _raw("nightly.yml")
+    assert "21600" in raw, "nightly.yml must clamp to GitHub's 6 h ceiling"
+    # The one number the document and the YAML must agree on.
+    assert 6 * 3600 == int(inputs["fuzz_seconds"]["default"])
 
     fuzzing_doc = (REPO / "docs" / "FUZZING.md").read_text(encoding="utf-8")
-    assert "6 hours per harness across 4 shards" in fuzzing_doc
+    assert "6 h per harness" in fuzzing_doc
     checklist = (REPO / "RELEASE_CHECKLIST.md").read_text(encoding="utf-8")
-    assert "6 h per harness (4 shards" in checklist
+    assert "6 h per harness" in checklist
 
 
 def test_the_compliance_corpus_runs_under_more_than_one_compiler():
@@ -547,22 +547,37 @@ def test_the_compliance_corpus_runs_under_more_than_one_compiler():
 
     The corpus moved from 53 per-program builds driven by
     ``tests/compliance/run_all.py --cc`` to conformance cases executed by the batch
-    runner, which selects its compiler from ``PENGU_TEST_CC``. The spelling of the
-    hand-off changed; what is pinned did not -- a leg that parses a compiler and
-    then compiles with the default one would still be green.
+    runner, which selects its compiler from ``PENGU_TEST_CC``.  Phase 12 moved the
+    matrix from its own `compliance.yml` into a `compliance` job of `ci.yml`; the
+    spelling of the hand-off is unchanged, and it is asserted against the job
+    rather than the whole file (a substring match over `ci.yml` would pass on some
+    other job's matrix).
     """
-    raw = _raw("compliance.yml")
-    assert "matrix:" in raw, "compliance.yml declares no matrix"
-    assert "cc: [gcc, clang]" in raw, "the matrix must name the compilers"
-    assert "PENGU_TEST_CC: ${{ matrix.cc }}" in raw, (
+    job = _jobs(_load("ci.yml"))["compliance"]
+    assert job["strategy"]["fail-fast"] is False, (
+        "one compiler failing must not hide the other's result"
+    )
+    assert job["strategy"]["matrix"]["cc"] == ["gcc", "clang"], (
+        "the matrix must name the compilers"
+    )
+    legs = [step for step in job["steps"]
+            if (step.get("env") or {}).get("PENGU_TEST_CC") == "${{ matrix.cc }}"]
+    assert legs, (
         "the matrix leg must pass the compiler to the runner, or every leg "
         "compiles with the default one"
     )
-    assert "fail-fast: false" in raw, (
-        "one compiler failing must not hide the other's result"
-    )
+    assert "tests/test_conformance.py" in legs[0]["run"], legs[0]["run"]
     # ...and the runner has to actually read it, or the workflow is a fiction.
     runner = (REPO / "tests" / "test_conformance.py").read_text(encoding="utf-8")
     assert "PENGU_TEST_CC" in runner, (
         "the batch runner ignores PENGU_TEST_CC, so the CI matrix cannot work"
     )
+
+
+def test_only_three_workflows_exist():
+    """Phase 12: ten workflows collapsed into three, and no fourth may creep in.
+
+    The rule is stated in `docs/RELEASE.md`: a future need is added as a *job*
+    inside the file that owns it, never as a new workflow file.
+    """
+    assert ALL_WORKFLOWS == ["ci.yml", "nightly.yml", "release.yml"], ALL_WORKFLOWS

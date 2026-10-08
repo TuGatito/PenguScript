@@ -1,19 +1,18 @@
-name: CI (Windows / Linux / macOS)
+name: CI
 
-# CI audit fixes:
-#  * permissions are read-only by default; only the tag job may write.
-#  * concurrency cancels superseded PR runs but never a push to main.
-#  * every job has a timeout (the GitHub default is 6 h).
-#  * the shared setup (deps + runtime cache) lives in .github/actions/setup-pengu.
-#  * the ABI layout check is portable (no hardcoded `cc`, which does not exist on
-#    Windows runners).
-#  * the VSIX is built once instead of three times.
-#  * auto-tag only creates the tag: release.yml owns the GitHub Release, so two
-#    workflows cannot race to publish the same tag.  Because a GITHUB_TOKEN push
-#    cannot trigger another workflow, auto-tag then *dispatches* release.yml
-#    explicitly (Phase 9, item 9.6).
+# One workflow for push/PR.  Responsibilities:
+#   * fast feedback (smoke, no runtime build)
+#   * compile + test on Linux / Windows / macOS
+#   * a compiler matrix (gcc + clang) for the compliance and migration corpora
+#   * package the release, archive it reproducibly and verify the artifact
+#   * auto-tag when a commit to main carries a new CHANGELOG.md section
+#
+# The heavy, non-blocking work (fuzz, sanitizers, CodeQL, the Linux -> Windows
+# cross-compile and the benchmarks) lives in `.github/workflows/nightly.yml` and
+# is deliberately not duplicated here.  `release.yml` owns publishing a Release;
+# this workflow only creates a tag.
 
-'on':
+on:
   push:
     branches: [ main, master ]
   pull_request:
@@ -31,16 +30,12 @@ env:
   NODE_VERSION: '20'
 
 jobs:
-  # Fast feedback. Everything here is a pure unit test: no C compiler, no
-  # subprocess, and -- because of `build-runtime: false` -- no runtime build. That
-  # is what makes it worth running on every push rather than waiting ~10 minutes
-  # for the matrix below.
-  #
-  # The `smoke` marker also covers the `_smoke/` corpus cases, because
-  # `pengu selftest --smoke` is meant to run both locally. Those need the runtime
-  # archive and a C compiler, so they are excluded here: `and not conformance`
-  # keeps this job on the half that genuinely cannot fail for environmental
-  # reasons. The corpus half is covered by the matrix job below.
+  # ----------------------------------------------------------------------
+  # Fast feedback: unit tests only, no C compiler and no runtime build.
+  # The `_smoke/` corpus cases are collected on purpose and skip here, because
+  # `build-runtime: false` means the runtime archive is absent and the runner
+  # skips instead of failing for an environmental reason.  Measured: ~3 s.
+  # ----------------------------------------------------------------------
   smoke:
     name: Smoke (fast feedback)
     runs-on: ubuntu-latest
@@ -57,21 +52,20 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           build-runtime: 'false'
 
-      # `pengu selftest --smoke` narrows *collection* to the files that carry the
-      # marker (plus the corpus runner), which matters more than the test time:
-      # collecting all 4000 tests just to deselect them costs ~2.7 s of imports
-      # across 234 files. Measured: 3.16 s as a marker filter over `tests/`,
-      # 1.38 s with the narrowed paths.
-      #
-      # The `_smoke/` corpus cases are included on purpose and skip here: this job
-      # runs with `build-runtime: false`, and the runner skips when
-      # `libpengu_runtime.a` is absent rather than failing for an environmental
-      # reason.
       - name: Smoke tests
         run: |
           python pengu_project.py selftest --smoke
 
-  build:
+  # ----------------------------------------------------------------------
+  # The real matrix: Linux / Windows / macOS.
+  #   * setup-pengu builds the runtime (cached).
+  #   * fmt and ruff gate the standard library and undefined names.
+  #   * the C `_Static_assert` ABI check is compiled with the runner's compiler.
+  #   * the full suite runs with `-n auto`; coverage is enforced on Linux only.
+  #   * the release is packaged, archived deterministically and verified in the
+  #     portable and FHS layouts before the artifact is uploaded.
+  # ----------------------------------------------------------------------
+  test:
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
@@ -84,13 +78,15 @@ jobs:
           - os: windows-latest
             label: Windows x64
             artifact_name: pengu-windows-x64
+            archive_ext: zip
           - os: ubuntu-latest
             label: Linux x64
             artifact_name: pengu-linux-x64
+            archive_ext: tar.gz
           - os: macos-latest
             label: macOS (arm64)
             artifact_name: pengu-macos
-
+            archive_ext: tar.gz
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -112,37 +108,10 @@ jobs:
       # Undefined names are compiler crashes, not style. F821 as an ERROR would
       # have caught blocker B6 (`node` instead of `target_node` in
       # pengu_infer.py) automatically. E9 covers syntax-level breakage.
-      - name: Lint gate (F821 undefined names are errors)
+      - name: Lint gate (F821/E9, undefined names are errors)
         run: |
-          python -m ruff check --select F821,E9 --exclude extern,build,vscode-extension .
-
-      # FASE 1 (compiler correctness). The new suites are the regression tests for
-      # blockers B1/B2/B3/B6/B7 plus the front-end crash sweep; each one was
-      # verified to fail when its fix is reverted.
-      - name: Strict grammar & parser validation (FASE 1)
-        run: |
-          python -m pytest tests/grammar/test_grammar_strict.py tests/grammar/test_fase1_e2e.py \
-            tests/cli/test_cli_contract.py tests/compiler/test_module_qualified_types.py \
-            tests/compiler/test_return_analysis.py tests/regression/test_audit_regressions.py \
-            -q -n auto -p no:cacheprovider --timeout=600 -x
-
-      - name: C99 portability & ABI gate (FASE 2)
-        run: |
-          python -m pytest tests/codegen/test_c99_portability.py tests/codegen/test_attributes_msvc_text.py \
-            tests/codegen/test_attributes_msvc_native.py tests/runtime/test_abi_layout.py \
-            tests/runtime/test_bounds_flag_independence.py -q -n auto -p no:cacheprovider --timeout=600 -x
-
-      - name: Tooling gate (FASE 3)
-        run: |
-          python -m pytest tests/cli/test_bind_phase3.py tests/cli/test_assets.py tests/cli/test_json_diagnostics.py tests/lsp/test_lsp_semantic_rename.py tests/lsp/test_lsp_semantic_tokens.py tests/lsp/test_lsp_navigation_extra.py tests/tooling/test_fmt_phase3.py tests/docs/test_doc_phase3.py tests/cli/test_cross_compile.py -q -n auto -p no:cacheprovider --timeout=600 -x
-
-      - name: Ecosystem gate (FASE 4)
-        run: |
-          python -m pytest tests/test_semver.py tests/cli/test_lockfile.py tests/cli/test_transitive_deps.py tests/cli/test_deps_commands.py tests/cli/test_vendor_cache.py tests/test_manifest_toml.py tests/tooling/test_init_templates.py tests/stdlib/test_std_versioning.py tests/docs/test_std_docs_completeness.py -q -n auto -p no:cacheprovider --timeout=600 -x
-
-      - name: Safety & supply-chain gate (FASE 5)
-        run: |
-          python -m pytest tests/regression/test_phase5_bugfixes.py tests/runtime/test_bounds_policy.py tests/runtime/test_overflow_policy.py tests/compiler/test_deprecation_policy.py tests/tooling/test_supply_chain.py tests/runtime/test_runtime_hardening.py tests/gates/test_fuzz_harnesses.py -q -n auto -p no:cacheprovider --timeout=600 -x
+          python -m ruff check --select F821,E9 \
+            --exclude extern,build,vscode-extension .
 
       # Portable ABI layout check: Windows runners have no `cc`, so decide the
       # compiler from the environment (MinGW gcc on Windows, cc elsewhere).
@@ -161,43 +130,11 @@ jobs:
             -o "$OUT" tests/abi/test_abi_layout.c
           "./$OUT"
 
-      - name: DX gate (FASE 6)
-        run: |
-          python -m pytest tests/regression/test_phase6_bugfixes.py tests/gates/test_benchmarks.py tests/compiler/test_phase6_scope.py tests/tooling/test_init_templates.py -q -n auto -p no:cacheprovider --timeout=900 -x
-
-      # CI/CD invariants (no double release, timeouts, permissions, portable
-      # steps, release checksums).  Runs here so a broken workflow is caught by
-      # the same pipeline it configures.
-      - name: CI/CD gate (FASE 7)
-        run: |
-          python -m pytest tests/test_ci_workflows.py -q -n auto -p no:cacheprovider --timeout=120 -x
-
-      # Superset of the old "fast fail on core reviews" step: that one ran the
-      # same files as the full suite below, so it only ever duplicated work.
-      # Phase 8 / item 8.6: the full suite runs *under coverage* so the ratchet in
-      # .coveragerc is enforced by the same run. A reported number that is below
-      # `fail_under` fails the step, which is what makes it non-decreasing.
-      #
-      # The ratchet is enforced on Linux only, and the full suite still runs on
-      # all three platforms.  `fail_under` is a single number, but test
-      # *collection* is not platform independent: the leak-check interposer is
-      # glibc/ELF-only, Windows has no POSIX signals, and macOS uses system
-      # libs.  Those skips remove whole `compile_run` programs -- i.e. exactly
-      # the codegen paths coverage counts -- so the same commit measures
-      # different totals per OS and a floor calibrated on Linux turns into a
-      # coin flip elsewhere.  Linux is the platform AUDIT_1.0_FASE8.md measured,
-      # so it is the platform that owns the number; Windows and macOS run the
-      # identical suite without the measurement.
-      # Compiled conformance bundles. One rolling key per OS is enough because the
-      # cache's own keys are content digests *inside* the directory: a restored but
-      # stale entry is simply not used, and the corpus is recompiled. Measured: the
-      # 85-case corpus takes 85 s from cold and 2 s when every group is already
-      # built, so this turns a repeat run's largest cost into a copy.
-      #
-      # It does not help the *first* run of a PR, and it does not fix a cold xdist
-      # run: the workers start together and each builds the groups it needs before
-      # any of them has published the result. That is recorded in
-      # tests/_inventory.md §21 rather than papered over.
+      # Compiled conformance bundles. One rolling key per OS is enough because
+      # the cache's own keys are content digests *inside* the directory: a
+      # restored but stale entry is simply not used and the corpus is
+      # recompiled. Measured: the 85-case corpus takes 85 s from cold and 2 s
+      # when every group is already built.
       - name: Restore compiled conformance bundles
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -206,42 +143,30 @@ jobs:
           restore-keys: |
             conformance-bundles-${{ runner.os }}-
 
-      - name: Phase 8 gates (F821/E9, corpora, properties, scale)
+      # The full suite. Coverage is applied on Linux only: test *collection* is
+      # not platform independent (the leak-check interposer is glibc/ELF-only,
+      # Windows has no POSIX signals, macOS uses system libs) and `fail_under`
+      # is a single number. Linux is the platform AUDIT_1.0_FASE8.md measured,
+      # so Linux owns the ratchet; Windows and macOS run the identical suite
+      # without the measurement.
+      - name: Test suite
         shell: bash
+        timeout-minutes: 45
         run: |
           set -euo pipefail
           COV=""
           if [ "$RUNNER_OS" = "Linux" ]; then
             COV="--cov --cov-config=.coveragerc --cov-report=term-missing --cov-report=xml:coverage.xml"
           fi
-          # `-n auto` is the single biggest win in this workflow. Measured on a
-          # 36-core box: 34 min 19 s serial -> 4 min 37 s parallel, with no test
-          # changed. On a 4-core runner the same suite takes roughly a quarter of
-          # serial, so this step is the difference between ~37 min and ~10 min.
-          #
-          # Coverage is safe under xdist: pytest-cov aggregates the workers, and
-          # the measured Linux total is 80.50% against the 80.0% floor in
-          # .coveragerc (the value recorded in AUDIT_1.0_FASE8.md was 80.20%), so
-          # parallelising does not move the number down across the ratchet.
-          #
-          # The suite was made xdist-safe first: tests/_inventory.md §11.3 records
-          # the 19 failures parallel execution exposed (a test renaming the shared
-          # libpengu_runtime.a away, a process-global release_unsafe leak, a test
-          # asserting on the shared /tmp) and how each was fixed.
           # shellcheck disable=SC2086  # word splitting is how the flags are passed
-          python -m pytest tests -q -n auto -p no:cacheprovider --timeout=1200 $COV
+          python -m pytest tests -q -n auto -p no:cacheprovider \
+            --timeout=1200 $COV
 
-      # The cross-platform half of the corpus needs no extra job: `tests/` includes
-      # tests/test_conformance.py, so both the batch runner and the `_smoke/` cases
-      # already run on Windows and macOS in this matrix. A case that is only
-      # meaningful on one OS is declared in tests/conformance/_manifest.json
-      # ("platforms"), never with a scattered pytest.skip.
-
-      - name: Upload coverage report
-        if: always()
+      - name: Upload coverage report (Linux)
+        if: always() && runner.os == 'Linux'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: coverage-${{ matrix.artifact_name }}
+          name: coverage-linux
           path: coverage.xml
           if-no-files-found: warn
           retention-days: 14
@@ -250,56 +175,52 @@ jobs:
         run: |
           python make_release.py
 
-      # Deterministic archive (Phase 9, item 9.8): sorted entries, constant
-      # mtime from SOURCE_DATE_EPOCH, so the same tree always hashes the same.
-      - name: Archive distribution (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          python make_release.py --archive-only --dist-dir pengucc_build --archive "${{ matrix.artifact_name }}.zip"
-
-      - name: Archive distribution (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          python make_release.py --archive-only --dist-dir pengucc_build --archive "${{ matrix.artifact_name }}.tar.gz"
-
-      # The same commit must produce the same bytes (item 9.8). Packing the same
-      # tree twice proves the archive layer; the binary's own determinism is
-      # measured in AUDIT_1.0_FASE9.md item 9.8.
-      - name: Reproducibility check (archive twice, compare)
+      # Deterministic archive (Phase 9, item 9.8): sorted entries with a
+      # constant mtime from SOURCE_DATE_EPOCH, so the same tree always hashes
+      # the same bytes.
+      - name: Archive distribution
         shell: bash
         run: |
           set -euo pipefail
-          EXT="zip"; [ "$RUNNER_OS" != "Windows" ] && EXT="tar.gz"
-          python make_release.py --archive-only --dist-dir pengucc_build --archive "repro-check.$EXT"
-          python make_release.py --archive-only --dist-dir pengucc_build --archive "repro-check-2.$EXT"
-          A=$(sha256sum "repro-check.$EXT" | cut -d' ' -f1)
-          B=$(sha256sum "repro-check-2.$EXT" | cut -d' ' -f1)
+          python make_release.py --archive-only \
+            --dist-dir pengucc_build \
+            --archive "${{ matrix.artifact_name }}.${{ matrix.archive_ext }}"
+
+      # The same commit must produce the same bytes (item 9.8). Packing the same
+      # tree twice proves the archive layer.
+      - name: Reproducibility check (same commit, same bytes)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python make_release.py --archive-only \
+            --dist-dir pengucc_build \
+            --archive "repro-check-${{ matrix.artifact_name }}.${{ matrix.archive_ext }}"
+          A=$(sha256sum "${{ matrix.artifact_name }}.${{ matrix.archive_ext }}" | cut -d' ' -f1)
+          B=$(sha256sum "repro-check-${{ matrix.artifact_name }}.${{ matrix.archive_ext }}" | cut -d' ' -f1)
           echo "run 1: $A"; echo "run 2: $B"
           test "$A" = "$B" || { echo "::error::archive is not reproducible: $A != $B"; exit 1; }
-          rm -f "repro-check.$EXT" "repro-check-2.$EXT"
+          rm -f "repro-check-${{ matrix.artifact_name }}.${{ matrix.archive_ext }}"
 
       - name: Upload standalone artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.artifact_name }}
-          path: |
-            ${{ matrix.artifact_name }}.zip
-            ${{ matrix.artifact_name }}.tar.gz
+          path: ${{ matrix.artifact_name }}.${{ matrix.archive_ext }}
           if-no-files-found: error
           retention-days: 30
 
       # Phase 9, item 9.12: the *packaged artifact* must work, not just the tree
-      # it was built from. Run it in the portable layout and installed into a real
-      # FHS prefix (pengu_paths.fhs_prefixes discovers the prefix from
-      # <prefix>/bin/pengu; the FHS run also proves the prefix is what made the
-      # build link, by hiding <prefix>/lib/pengu and requiring the failure).
+      # it was built from. It is run in the portable layout and installed into a
+      # real FHS prefix; the FHS run also proves the prefix is what made the
+      # build link, by hiding <prefix>/lib/pengu and requiring the documented
+      # failure.
       - name: Verify the artifact in the portable layout
         shell: bash
         run: |
           set -euo pipefail
-          EXT="zip"; [ "$RUNNER_OS" != "Windows" ] && EXT="tar.gz"
           python scripts/verify_release_artifact.py \
-            --artifact "${{ matrix.artifact_name }}.$EXT" --layout portable
+            --artifact "${{ matrix.artifact_name }}.${{ matrix.archive_ext }}" \
+            --layout portable
 
       - name: Verify the artifact installed in an FHS prefix
         if: runner.os != 'Windows'
@@ -307,8 +228,53 @@ jobs:
         run: |
           set -euo pipefail
           python scripts/verify_release_artifact.py \
-            --artifact "${{ matrix.artifact_name }}.tar.gz" --layout fhs
+            --artifact "${{ matrix.artifact_name }}.tar.gz" \
+            --layout fhs
 
+  # ----------------------------------------------------------------------
+  # Compiler matrix (roadmap 10.3): the compliance corpus is the workload that
+  # proves the generated C links under both gcc and clang, and the migration
+  # corpus answers the MIGRATION.md question.  The full suite above compiles
+  # with the runner's *default* compiler, so this job is what keeps the matrix
+  # a matrix in CI rather than prose.  Measured: ~9 s for the 56-case corpus
+  # once the runtime is cached.
+  # ----------------------------------------------------------------------
+  compliance:
+    name: Compliance (${{ matrix.cc }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-pengu
+
+      - name: Run the compliance corpus under ${{ matrix.cc }}
+        env:
+          PENGU_TEST_CC: ${{ matrix.cc }}
+        run: |
+          python -m pytest tests/test_conformance.py -m conformance \
+            -q -p no:cacheprovider --timeout=1800
+
+      # Compiler-independent, so one leg runs it: the documentation-coverage
+      # gate (every migrated case pins a numbered LANGUAGE.md section) and the
+      # migration corpus.
+      - name: Corpus documentation gate and migration corpus
+        if: matrix.cc == 'gcc'
+        run: |
+          python -m pytest tests/test_compliance_corpus.py tests/test_migration_corpus.py \
+            -q -p no:cacheprovider --timeout=1800
+
+  # ----------------------------------------------------------------------
+  # VSIX: platform-independent, so it is built ONCE (not 3x).
+  # ----------------------------------------------------------------------
   vscode-extension:
     name: VS Code Extension
     runs-on: ubuntu-latest
@@ -319,8 +285,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      # The VSIX is platform independent: building it once avoids three identical
-      # artifacts and a per-OS npm install.
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -342,18 +306,24 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  # ----------------------------------------------------------------------
+  # Auto-tag: reads CHANGELOG.md, creates the tag if it does not exist and
+  # DISPATCHES `release.yml` (a push made with GITHUB_TOKEN does not start a
+  # workflow; `workflow_dispatch` is the documented exception).  It only creates
+  # the tag and never publishes anything: `release.yml` is the sole publisher.
+  # ----------------------------------------------------------------------
   auto-tag:
     name: Auto Tag
-    needs: [ smoke, build, vscode-extension ]
+    needs: [ smoke, test, compliance, vscode-extension ]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     permissions:
       contents: write
-      # Needed to dispatch release.yml: `contents: write` cannot start a run.
+      # Needed to start `release.yml`: `contents: write` cannot do it.
       actions: write
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
@@ -380,31 +350,20 @@ jobs:
             echo "Tag $TAG already exists."
             echo "created=false" >> "$GITHUB_OUTPUT"
           else
-            echo "Creating and pushing tag $TAG..."
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git tag -a "$TAG" -m "${{ steps.changelog.outputs.title }}"
             git push origin "$TAG"
             echo "created=true" >> "$GITHUB_OUTPUT"
           fi
-      # NOTE: this job deliberately does NOT create a GitHub Release.
-      # release.yml owns the release (build + checksums + publish).  Creating it
-      # here too raced release.yml for the same tag and produced
-      # duplicated/partial releases.
-      #
-      # The handoff is an explicit dispatch, not the tag push.  GitHub documents
-      # that a push performed with the repository's GITHUB_TOKEN does **not**
-      # create a new workflow run (`workflow_dispatch` is the documented
-      # exception), so `release.yml`'s `push: tags` never fired for a tag created
-      # here: the "pushing the tag triggers the release" claim was a comment, not
-      # a mechanism (audit §18.1 #10, roadmap item 9.6).
-      - name: Dispatch the release workflow for the new tag
+
+      - name: Dispatch the publishing workflow for the new tag
         if: steps.tag.outputs.created == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          TAG="${{ steps.changelog.outputs.tag_name }}"
-          echo "dispatching release.yml for $TAG"
-          gh workflow run release.yml --ref "${GITHUB_REF_NAME}" -f version="$TAG"
-
+          echo "dispatching for ${{ steps.changelog.outputs.tag_name }}"
+          gh workflow run release.yml \
+            --ref "${GITHUB_REF_NAME}" \
+            -f version="${{ steps.changelog.outputs.tag_name }}"

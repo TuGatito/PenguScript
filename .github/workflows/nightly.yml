@@ -1,60 +1,56 @@
-name: Nightly fuzz
+name: Nightly
 
-# Roadmap 2.0 / Phase 8, item 8.16 — a fuzz budget GitHub can actually run.
+# All the heavy, non-blocking work lives here.  It never runs on a branch push
+# or on a pull request:
+#   * fuzz          — the 5 harnesses, budget clamped to the platform ceiling
+#   * sanitizers    — ASan + UBSan + valgrind (Linux)
+#   * codeql        — SAST of Python and C/C++
+#   * cross-compile — Linux -> Windows bundle and a real PE `.exe` under Wine
+#   * bench         — benchmarks (shared runners are noisy)
 #
-# The roadmap originally asked for 72 h per harness. That is not a policy choice:
-# GitHub kills a job after **6 h** of execution, so a single 72 h job cannot
-# exist, and `fuzz.yml`'s 12 h default with a 13 h `timeout-minutes` could never
-# have completed either — it was a number in a file, not a budget.
-#
-# This workflow replaces "one long job" with **shards**: `HOURS_PER_HARNESS`
-# (default 6) is divided across `SHARDS` (default 4) parallel jobs of equal
-# length, each with a hard `timeout-minutes` below the platform ceiling. Every
-# shard is an independent libFuzzer run with its own `-seed`, and its crash
-# corpus is uploaded even when the harness exits 0.
-#
-# `tests/test_ci_workflows.py::test_no_ci_budget_exceeds_githubs_job_limit`
-# enforces the ceiling over every workflow, so the mistake this file fixes cannot
-# come back in another workflow.
+# No job here blocks a pull request; `ci.yml` owns that.  GitHub kills a job
+# after 6 h of execution, so every `timeout-minutes` below stays underneath that
+# ceiling (enforced by tests/test_ci_workflows.py for every workflow file).
 
 on:
   schedule:
-    # Nightly, after the sanitizers job (04:00) has finished.
-    - cron: '0 23 * * *'
+    - cron: '0 2 * * *'   # 02:00 UTC — fuzz, sanitizers and CodeQL in parallel
   workflow_dispatch:
     inputs:
-      hours_per_harness:
-        description: 'Total fuzz hours per harness (split across the shards)'
+      fuzz_seconds:
+        description: 'Seconds per fuzz harness'
         required: false
-        default: '6'
-        type: string
-      shards:
-        description: 'Parallel shards per harness'
-        required: false
-        default: '4'
+        default: '21600'
         type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: nightly-fuzz
+  group: nightly
   cancel-in-progress: false
 
+env:
+  PYTHON_VERSION: '3.14'
+
 jobs:
+  # ----------------------------------------------------------------------
+  # Fuzz: 5 harnesses, each with its own budget.  atheris is Linux x86_64 only,
+  # and the deterministic smoke pass is the documented fallback (it warns
+  # explicitly instead of failing silently).
+  # ----------------------------------------------------------------------
   fuzz:
-    name: fuzz (${{ matrix.harness }} shard ${{ matrix.shard }})
+    name: fuzz (${{ matrix.harness }})
     runs-on: ubuntu-latest
-    # Hard ceiling below GitHub's 6 h job limit: 6 h / 4 shards = 90 min per
-    # shard, plus margin for the checkout, the runtime build and the upload.
-    timeout-minutes: 150
+    # GitHub kills a job after 6 h; the budget is clamped to fit rather than
+    # claimed.  (fuzz.yml used to declare 13 h — finding F8-N5.)
+    timeout-minutes: 350
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
         harness: [parser, bind, semver, lock, lsp]
-        shard: [0, 1, 2, 3]
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -62,7 +58,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          python-version: '3.14'
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
           cache-dependency-path: requirements.txt
 
@@ -72,8 +68,6 @@ jobs:
           set -euo pipefail
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          # atheris is Linux x86_64 only; the deterministic smoke pass is the
-          # documented fallback and warns explicitly instead of failing silently.
           if ! pip install atheris; then
             echo "::warning::atheris unavailable; the deterministic smoke pass will run"
           fi
@@ -90,33 +84,30 @@ jobs:
       - name: Build runtime headers (needed by fuzz_bind)
         run: python build_runtime.py --headers-only || true
 
-      - name: Compute this shard's budget
+      - name: Determine budget
         id: budget
         shell: bash
         run: |
           set -euo pipefail
-          HOURS="${{ github.event.inputs.hours_per_harness || '6' }}"
-          SHARDS="${{ github.event.inputs.shards || '4' }}"
-          # total seconds per harness / shards, never above the 6 h platform cap.
-          total=$(( HOURS * 3600 ))
-          if [ "$total" -gt 21600 ]; then
-            echo "::warning::clamping the budget to GitHub's 6 h per-harness limit"
-            total=21600
+          SECONDS=3600
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            SECONDS="${{ github.event.inputs.fuzz_seconds }}"
           fi
-          per=$(( total / SHARDS ))
-          echo "seconds=$per" >> "$GITHUB_OUTPUT"
-          echo "Shard ${{ matrix.shard }} of $SHARDS runs ${per}s"
+          # Never claim more than the platform will allow a single job to run.
+          if [ "$SECONDS" -gt 21600 ]; then
+            echo "::warning::clamping the fuzz budget to GitHub's 6 h job limit"
+            SECONDS=21600
+          fi
+          echo "seconds=$SECONDS" >> "$GITHUB_OUTPUT"
 
-      - name: Run ${{ matrix.harness }} harness (shard ${{ matrix.shard }})
+      - name: Run ${{ matrix.harness }} harness
         shell: bash
         run: |
           set -euo pipefail
           BUDGET="${{ steps.budget.outputs.seconds }}"
-          SEED=$(( 1000 + ${{ matrix.shard }} * 7919 ))
           if python -c "import atheris" 2>/dev/null; then
             python "scripts/fuzz/fuzz_${{ matrix.harness }}.py" \
-              -max_total_time="$BUDGET" -seed="$SEED" \
-              -rss_limit_mb=4096 -print_final_stats=1
+              -max_total_time="$BUDGET" -rss_limit_mb=4096 -print_final_stats=1
           else
             echo "::warning::atheris is not installed; running the deterministic smoke pass"
             PENGU_FUZZ_SMOKE=1 python "scripts/fuzz/fuzz_${{ matrix.harness }}.py"
@@ -127,7 +118,300 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: nightly-findings-${{ matrix.harness }}-${{ matrix.shard }}-${{ github.run_id }}
+          name: nightly-fuzz-${{ matrix.harness }}-${{ github.run_id }}
           path: build/fuzz_crashes/
           if-no-files-found: ignore
+          retention-days: 90
+
+  # ----------------------------------------------------------------------
+  # Sanitizers: the project emits C, so the sanitizers are applied to the
+  # *generated* code and the runtime through PENGU_CFLAGS / PENGU_LDFLAGS
+  # (pengu_project.py and tests/conftest.py both honour them, and they are part
+  # of the cache key, so a sanitized binary can never be confused with a plain
+  # one).
+  #
+  # Two explicit contracts instead of one, because the stdlib leak surface is a
+  # tracked product finding (item 8.19): memory safety with the leak verdict OFF
+  # and leak freedom with it ON.  A third step keeps the memory-safety coverage
+  # of the std legacy-compat programs, whose leak is the tracked one.  The three
+  # ASan steps and the valgrind step all consume PENGU_SANITIZER_DESELECT, so a
+  # step can never re-run the known leak by accident (Phase 8 / item 8.2, B9).
+  # ----------------------------------------------------------------------
+  sanitizers:
+    name: ASan + UBSan + Valgrind
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      # One line on purpose, expanded UNQUOTED at each call site so the shell
+      # word-splits it into one `--deselect <nodeid>` per entry.  The leaking
+      # program is a corpus case now, so the node id names the batch runner's
+      # parametrisation.
+      PENGU_SANITIZER_DESELECT: >-
+        tests/test_conformance.py::test_conformance_case[std_programs/backward_compat] tests/test_conformance.py::test_conformance_case[std_programs/compat_data] tests/test_conformance.py::test_conformance_case[std_programs/backward_compat_util]
+      PENGU_CFLAGS: '-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all'
+      PENGU_LDFLAGS: '-fsanitize=address,undefined'
+      UBSAN_OPTIONS: 'print_stacktrace=1:halt_on_error=1'
+      # ASAN_OPTIONS is set per step on purpose: the leak verdict is the
+      # difference between the contracts, and a job-level value would hide which
+      # step claims what.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # runtime-cache-scope keeps sanitized runtime objects away from the plain
+      # ones.
+      - name: Set up build environment
+        uses: ./.github/actions/setup-pengu
+        with:
+          runtime-cache-scope: asan
+
+      # CONTRACT 1 - memory safety.  Every test that compiles a program inherits
+      # PENGU_CFLAGS through tests/conftest.py, so a use-after-free, a heap
+      # overflow or UB anywhere in the generated code is fatal here.  The leak
+      # verdict is off because the stdlib leak surface is item 8.19; Contract 2
+      # below keeps the leak gate alive.
+      - name: Memory safety across the suite (ASan + UBSan)
+        env:
+          ASAN_OPTIONS: 'detect_leaks=0:abort_on_error=1:halt_on_error=1:strict_string_checks=1:detect_stack_use_after_return=1'
+        run: |
+          python -m pytest tests -q -p no:cacheprovider --timeout=900 \
+            --deselect $PENGU_SANITIZER_DESELECT
+
+      # CONTRACT 2 - leak freedom on the declared-clean subset.  detect_leaks=1
+      # and no deselect other than the tracked legacy-compat suites.
+      - name: Leak freedom on explicit `banish` (detect_leaks=1)
+        env:
+          ASAN_OPTIONS: 'detect_leaks=1:abort_on_error=1:halt_on_error=1:strict_string_checks=1:detect_stack_use_after_return=1'
+        run: |
+          python -m pytest tests/test_known_issues.py -q -p no:cacheprovider --timeout=300 \
+            --deselect $PENGU_SANITIZER_DESELECT
+
+      # CONTRACT 1 again, on the std legacy-compat programs: they are the ones
+      # whose leak is tracked, and they must still be free of memory *errors*.
+      # Some tests carry a real sanitizer-only finding and are skipped with the
+      # finding named (F8-N10, `stack-use-after-scope` in a variadic call), plus
+      # the crash-handler/MSVC-flag tests that cannot hold their premise under
+      # instrumentation; `requires_no_sanitizer_reason(...)` attaches the reason.
+      - name: Memory safety on the std legacy-compat programs
+        env:
+          ASAN_OPTIONS: 'detect_leaks=0:abort_on_error=1:halt_on_error=1'
+        run: |
+          python -m pytest \
+            'tests/test_conformance.py::test_conformance_case[std_programs/backward_compat]' \
+            'tests/test_conformance.py::test_conformance_case[std_programs/compat_data]' \
+            'tests/test_conformance.py::test_conformance_case[std_programs/backward_compat_util]' \
+            -q -p no:cacheprovider --timeout=900 \
+            --deselect $PENGU_SANITIZER_DESELECT
+
+      - name: Install valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends valgrind
+
+      # The same declared-clean subset as Contract 2, with a second leak
+      # detector (valgrind's definite-leak analysis instead of LeakSanitizer).
+      - name: Valgrind on the declared-clean subset
+        run: |
+          PENGU_TEST_VALGRIND=1 python -m pytest tests/test_known_issues.py \
+            -q -p no:cacheprovider --timeout=1800 \
+            --deselect $PENGU_SANITIZER_DESELECT
+
+      - name: Upload sanitizer logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: nightly-sanitizer-logs-${{ github.run_id }}
+          path: |
+            build/**/*.log
+            **/asan*.txt
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # ----------------------------------------------------------------------
+  # CodeQL: SAST over both halves of the project.
+  #   * `python`  — the compiler, the LSP and the tooling (nothing to build).
+  #   * `c-cpp`   — the hand-written runtime and shims.  The *generated* bundles
+  #     are test output and are deliberately not analysed (`build-mode: none`).
+  # `security-extended` adds the taint-tracking and memory-safety queries the
+  # default suite omits.
+  # ----------------------------------------------------------------------
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      # Only the analysis job may upload results.
+      security-events: write
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: python
+            build-mode: none
+          - language: c-cpp
+            build-mode: none
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3.38.2
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-extended
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3.38.2
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  # ----------------------------------------------------------------------
+  # Cross-compile Linux -> Windows: the *generated* C is compiled to a real
+  # Windows object with MinGW, linked into a PE32+ `.exe` against a tiny
+  # MinGW-built ABI shim, validated with `file` and executed under Wine.
+  # What is NOT claimed: that a program using the runtime archive cross-compiles
+  # — that needs the cross-built dependency stack (docs/CROSS_COMPILATION.md §9).
+  # ----------------------------------------------------------------------
+  cross-compile:
+    name: Cross-compile (Linux -> Windows)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-pengu
+
+      - name: Install MinGW-w64 and Wine
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64 wine64 file
+
+      # The opt-in cross test has been skipped everywhere since it was written
+      # because no runner had a MinGW compiler. Here it stops skipping.
+      - name: Cross-compilation suite with a real MinGW toolchain
+        run: |
+          python -m pytest tests/cli/test_cross_compile.py -q -p no:cacheprovider --timeout=600 \
+            -rs
+
+      - name: Generate the Windows bundle
+        run: |
+          set -euo pipefail
+          mkdir -p cross
+          cat > cross/hello.pengu <<'EOF'
+          weave main into int:
+            var xs as list of int is [1, 2, 3]
+            var total as int is 0
+            for x in xs:
+              set total is total + x
+            return total
+          EOF
+          python pengu_project.py build --entry cross/hello.pengu \
+            --target x86_64-w64-mingw32 --output cross/hello.c
+          test -f cross/hello.c
+          grep -q "pengu_main" cross/hello.c
+
+      - name: Cross-compile the generated bundle to a Windows object
+        run: |
+          set -euo pipefail
+          x86_64-w64-mingw32-gcc -c cross/hello.c -o cross/hello.o \
+            -I. -Ibuild -Ibuild/include \
+            -Wno-error=implicit-function-declaration
+          file cross/hello.o | tee cross/hello.o.info
+          grep -q "PE32+" cross/hello.o.info
+
+      - name: Link a real PE executable with a MinGW-built ABI shim
+        run: |
+          set -euo pipefail
+          cat > cross/abi_shim.c <<'EOF'
+          /* The only runtime symbol a header-only PenguScript program needs.
+           * The rest of the runtime is header-only (`static inline`); the
+           * archive exists for strings, containers and FFI, whose cross-build is
+           * the documented gap. */
+          #include "pengu_runtime.h"
+          int pengu_abi_version(void) { return PENGU_ABI_VERSION; }
+          EOF
+          x86_64-w64-mingw32-gcc cross/abi_shim.c cross/hello.o -o cross/hello.exe \
+            -I. -Ibuild -Ibuild/include
+          file cross/hello.exe | tee cross/hello.exe.info
+          grep -q "PE32+" cross/hello.exe.info
+
+      - name: Execute the .exe under Wine
+        run: |
+          set -euo pipefail
+          # The program sums [1,2,3] and returns it, so the exit code is the
+          # observable: 6 means the generated code ran on the target platform.
+          set +e
+          wine64 cross/hello.exe
+          rc=$?
+          set -e
+          echo "wine64 exit code: $rc"
+          if [ "$rc" != "6" ]; then
+            echo "::error::cross-compiled .exe returned $rc, expected 6"
+            exit 1
+          fi
+
+      - name: Upload cross artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: nightly-cross-${{ github.run_id }}
+          path: |
+            cross/hello.c
+            cross/hello.o
+            cross/hello.exe
+            cross/*.info
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ----------------------------------------------------------------------
+  # Benchmarks: nightly only, never a blocker.  Windows is intentionally
+  # excluded — there the numbers are dominated by Defender/AV scanning.
+  # ----------------------------------------------------------------------
+  bench:
+    name: Benchmarks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-pengu
+
+      - name: Run benchmarks
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAMP="$(date -u +%Y%m%d)"
+          mkdir -p benches/results
+          python benches/run_bench.py \
+            --repeat 5 \
+            --csv "benches/results/${{ matrix.os }}-${STAMP}.csv" \
+            | tee bench-report.txt
+
+      - name: Upload results
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: nightly-bench-${{ matrix.os }}-${{ github.run_id }}
+          path: |
+            benches/results/
+            bench-report.txt
+          # An empty artifact means the harness produced nothing: fail loudly.
+          if-no-files-found: error
           retention-days: 90

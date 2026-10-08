@@ -2,7 +2,7 @@ name: Setup PenguScript build environment
 description: >
   Single source of truth for the CI environment: Python/Node setup, per-OS native
   dependencies, Python packages, the runtime build cache and build_runtime.py.
-  Used by ci.yml, release.yml, bench.yml, fuzz.yml and sanitizers.yml so a change
+  Used by ci.yml, release.yml and nightly.yml so a change
   here reaches every workflow (roadmap Fase 7 / CI audit).
 
 inputs:

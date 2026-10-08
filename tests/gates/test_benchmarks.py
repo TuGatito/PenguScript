@@ -90,8 +90,10 @@ def test_benchmarks_doc_publishes_measured_numbers():
     assert "98.4 KiB" in doc or "KiB" in doc
 
 
-def test_benchmark_workflow_is_nightly_only():
-    workflow = (REPO / ".github" / "workflows" / "bench.yml").read_text(encoding="utf-8")
+def test_benchmark_job_is_nightly_only():
+    # Phase 12 merged bench.yml into the nightly workflow's `bench` job; the
+    # invariant is unchanged: night + on demand, never on a pull request.
+    workflow = (REPO / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
     assert "schedule" in workflow and "workflow_dispatch" in workflow
     assert "pull_request" not in workflow, "benchmarks must not block PRs"
     assert "run_bench.py" in workflow

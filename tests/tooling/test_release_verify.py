@@ -1,10 +1,13 @@
 """Phase 9, items 9.7 and 9.12 — verify the *published* artifact by running it.
 
-`release-verify.yml` is the last gate of a release: it downloads each published
-artifact and executes `pengu -V`, `pengu build` and `pengu run` in both the
-portable layout and a real FHS prefix.  The job cannot run here (no published
-release), so these tests pin the wiring and execute the checking script itself
-against the local toolchain, which is the part that can be run.
+`release.yml`'s `verify` job is the last gate of a release: it downloads each
+published artifact and executes `pengu -V`, `pengu build` and `pengu run` in both
+the portable layout and a real FHS prefix.  Phase 12 folded the old
+`release-verify.yml` into that job, so the ordering guarantee is now
+`needs: [publish-release]` instead of an explicit `gh workflow run` dispatch.
+The job cannot run here (no published release), so these tests pin the wiring and
+execute the checking script itself against the local toolchain, which is the part
+that can be run.
 """
 
 from __future__ import annotations
@@ -30,15 +33,21 @@ PUBLISHED_ASSETS = {"pengu-linux-x64.tar.gz", "pengu-macos.tar.gz", "pengu-windo
 
 
 def _verify_doc() -> dict:
-    return yaml.safe_load(_raw("release-verify.yml"))
+    """The workflow that owns verification: `release.yml`, job `verify`."""
+    return yaml.safe_load(_raw("release.yml"))
 
 
-def test_release_verify_is_a_workflow_with_both_entry_points():
+def test_verification_is_a_job_of_the_release_workflow():
     doc = _verify_doc()
     triggers = _triggers(doc)
-    assert "workflow_dispatch" in triggers, "release.yml dispatches it explicitly"
-    assert triggers["workflow_dispatch"]["inputs"]["tag"]["required"] is True
-    assert "release" in triggers, "a hand-published release must be verified too"
+    assert "workflow_dispatch" in triggers, "ci.yml's auto-tag dispatches the release"
+    assert triggers["workflow_dispatch"]["inputs"]["version"]["required"] is True
+    assert "push" in triggers and "v*" in triggers["push"]["tags"], (
+        "a hand-pushed tag must release — and therefore verify — too"
+    )
+    # The dispatch that used to start release-verify.yml is gone: ordering is a
+    # `needs:` edge inside the workflow now, which cannot be forgotten.
+    assert _jobs(doc)["verify"]["needs"] == ["publish-release"]
 
 
 def test_every_published_asset_is_downloaded_and_executed():
@@ -47,7 +56,7 @@ def test_every_published_asset_is_downloaded_and_executed():
     covered = {entry["artifact"] for entry in matrix}
     assert covered == PUBLISHED_ASSETS, covered
 
-    raw = _raw("release-verify.yml")
+    raw = _raw("release.yml")
     assert "gh release download" in raw
     assert '--pattern "${{ matrix.artifact }}"' in raw
     assert "scripts/verify_release_artifact.py" in raw
@@ -66,28 +75,30 @@ def test_both_layouts_are_exercised_and_fhs_is_not_claimed_on_windows():
     assert {e["os"] for e in posix_fhs} == {"ubuntu-latest", "macos-latest"}
 
 
-def test_release_dispatches_the_verification_after_publishing():
+def test_verification_runs_in_the_same_workflow_after_publishing():
+    """`needs:` replaces the old dispatch, so the order cannot drift."""
     raw = _raw("release.yml")
-    assert "gh workflow run release-verify.yml" in raw
-    assert "-f tag=" in raw
-    job = _jobs(yaml.safe_load(raw))["create-release"]
-    assert job["permissions"].get("actions") == "write"
-    # Ordering: the dispatch must come after the release exists.
-    assert raw.index("gh release create") < raw.index("gh workflow run release-verify.yml")
+    assert "gh workflow run release-verify.yml" not in raw, (
+        "the separate verification workflow went away in Phase 12"
+    )
+    job = _jobs(yaml.safe_load(raw))["verify"]
+    assert job["needs"] == ["publish-release"]
+    assert "gh release create" in raw, "this workflow is the publisher"
+    assert "gh release download" in raw, "and it verifies the *published* artifact"
 
 
 def test_the_verify_job_cannot_write_to_the_repository():
     job = _jobs(_verify_doc())["verify"]
     assert job["permissions"] == {"contents": "read"}, job["permissions"]
-    assert "gh release delete" not in _raw("release-verify.yml"), (
-        "the verifying workflow must not be able to unpublish by itself"
+    assert "gh release delete" not in _raw("release.yml"), (
+        "the verifying job must not be able to unpublish by itself"
     )
 
 
-def test_new_workflow_keeps_the_repo_invariants():
+def test_release_workflow_keeps_the_repo_invariants():
     """It is picked up by the generic invariants (timeout, concurrency, pins)."""
-    assert "release-verify.yml" in ALL_WORKFLOWS
-    raw = _raw("release-verify.yml")
+    assert "release.yml" in ALL_WORKFLOWS
+    raw = _raw("release.yml")
     assert "concurrency:" in raw
     assert "cancel-in-progress: false" in raw
     assert "@11d5960a326750d5838078e36cf38b85af677262" in raw  # pinned checkout

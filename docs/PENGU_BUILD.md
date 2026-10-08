@@ -118,7 +118,7 @@ gcc/clang):
   `spctl --assess`. Sin una cuenta de desarrollador de Apple no hay
   `notarytool`, y Gatekeeper rechaza cualquier binario descargado (con el
   atributo de cuarentena) que no esté notarizado. La salida medida de
-  `spctl --assess -vv` se publica en el log de `release-verify.yml`; el camino
+  `spctl --assess -vv` se publica en el log del job `verify` de `release.yml`; el camino
   soportado es `xattr -d com.apple.quarantine pengu` o compilar desde fuentes.
   Ver `docs/RELEASE.md` §macOS.
 

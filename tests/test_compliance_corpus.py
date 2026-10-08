@@ -13,8 +13,8 @@ runtime one, and losing it would let the corpus drift away from the language it
 claims to pin, silently.
 
 Roadmap 10.3 ("the corpus is also the compiler matrix's workload") survives as
-``test_the_compiler_override_reaches_the_runner``: the matrix itself runs in
-``.github/workflows/compliance.yml`` by setting ``PENGU_TEST_CC``.
+``test_the_compiler_override_reaches_the_runner``: the matrix itself runs in the
+``compliance`` job of ``.github/workflows/ci.yml`` by setting ``PENGU_TEST_CC``.
 
 Nothing here inspects source text or generated C to decide whether a program is
 correct: every gate compiles, executes or measures (Roadmap Annex C, rule C1).

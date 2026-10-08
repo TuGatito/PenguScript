@@ -2,6 +2,47 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [Unreleased] — CI: de 10 workflows a 3
+
+> Cada PR disparaba unas **6 ejecuciones completas** de la suite (ci + compliance
+> + sanitizers + cross-compile + fuzz + codeql). Ahora dispara **una**, en la
+> matriz de tres sistemas, más un job `compliance` barato para la matriz de
+> compiladores. Ningún gate se ha perdido: los pesados y no bloqueantes se han
+> **movido** a un job de `nightly.yml`, no borrado.
+
+### Changed
+
+- **`ci.yml`** queda con cuatro jobs de trabajo: `smoke` (feedback rápido),
+  `test` (Linux/Windows/macOS: suite completa con `-n auto` y cobertura sólo en
+  Linux, más `fmt --check std/`, ruff F821/E9, la matriz ABI compilada con el
+  compilador del runner, empaquetado, archivo determinista, comprobación de
+  reproducibilidad y verificación del artefacto en portable y FHS), `compliance`
+  (matriz `[gcc, clang]` sobre el corpus, roadmap 10.3) y `vscode-extension`. Los
+  subconjuntos «FASE 1–6» se eliminan porque la suite completa es su
+  superconjunto: eran ejecuciones duplicadas del mismo código.
+- **`release.yml`** fusiona el antiguo `release-verify.yml`: la verificación del
+  artefacto **publicado** es el job `verify` (`needs: [publish-release]`) del
+  mismo workflow, en vez de un `gh workflow run` a un segundo archivo. El job que
+  publica pasa a llamarse `publish-release`.
+- **`nightly.yml`** agrupa fuzz, sanitizers (ASan/UBSan + valgrind), CodeQL,
+  cross-compile y benchmarks. Sólo `schedule` y `workflow_dispatch`: nada de esto
+  bloquea un push ni un PR. Los tres pasos ASan y el de valgrind siguen leyendo
+  `PENGU_SANITIZER_DESELECT`, con los dos contratos declarados
+  (`detect_leaks=0` para seguridad de memoria, `detect_leaks=1` para fugas) y el
+  item 8.19 nombrado en el propio workflow.
+- **Eliminados**: `bench.yml`, `codeql.yml`, `compliance.yml`, `cross-compile.yml`,
+  `fuzz.yml`, `nightly.yml` (el antiguo), `release-verify.yml` y
+  `sanitizers.yml`. Ningún workflow adicional: una necesidad futura se añade como
+  **job** dentro del workflow que la posee.
+- `tests/test_ci_workflows.py` gana el invariante `test_only_three_workflows_exist`
+  y apunta cada comprobación al **job** que la posee; `test_known_issues.py`,
+  `test_release_verify.py`, `test_release_handoff.py`, `tests/gates/*` y
+  `tests/conftest.py` se actualizan a la nueva topología.
+- Documentación alineada: `RELEASE_CHECKLIST.md`, `docs/RELEASE.md`,
+  `docs/FUZZING.md`, `BENCHMARKS.md`, `CONTRIBUTING.md`,
+  `docs/CROSS_COMPILATION.md`, `docs/PENGU_BUILD.md`, `docs/ANNOUNCEMENT_1.0.md`,
+  `ROADMAP_1.1.md` y `tests/_inventory.md`.
+
 ## [Unreleased] — compilación en las tres plataformas de CI
 
 > Repara lo que impedía que `ci.yml` llegara al final en **Windows, Linux y

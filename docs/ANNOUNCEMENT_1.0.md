@@ -78,7 +78,8 @@ be inspected there ([`ABI.md`](ABI.md)).
 
 ## Sanitizers and fuzzing: the measured scope, not the promise
 
-- **ASan/UBSan** run as a CI matrix (`workflow: .github/workflows/sanitizers.yml`).
+- **ASan/UBSan** run as a CI matrix (`workflow: .github/workflows/nightly.yml`,
+  job `sanitizers`).
   Phase 8 split it into the two contracts it can actually keep, and that split is
   the honest scope: **memory safety** over the whole suite with the leak verdict
   **off** (`detect_leaks=0`, declared in the workflow — use-after-free, overflow,
@@ -86,18 +87,18 @@ be inspected there ([`ABI.md`](ABI.md)).
   and **leak freedom** (`detect_leaks=1`) over the subset that is verified clean.
   "No leaks across the whole stdlib" is **not** claimed: the measured leak surface
   is 164 failure marks at 92 % of the suite, with traces in `std/invoke.pengu`.
-- **Fuzzing** runs nightly in shards of **90 minutes × 4 = 6 hours** per harness
-  (`workflow: .github/workflows/nightly.yml`). A single 72-hour job is impossible —
-  GitHub kills a job at 6 hours — and the documents that promised it were corrected
-  in Phase 9 (F9-N6). No unbounded-duration claim is made.
+- **Fuzzing** runs nightly, up to **6 hours per harness** in a single job
+  (`workflow: .github/workflows/nightly.yml`, job `fuzz`). A single 72-hour job is
+  impossible — GitHub kills a job at 6 hours — and the documents that promised it
+  were corrected in Phase 9 (F9-N6). No unbounded-duration claim is made.
 
 ## macOS: signature yes, notarization no
 
 The macOS artifact is **ad-hoc signed** and `codesign --verify --strict` is a gate.
 It is **not notarized** and the project does **not** claim `spctl --assess` passes:
 there is no Apple developer account, so there is no `notarytool`
-(F9-N8/F9-N9). `release-verify.yml` publishes the real `spctl` output for the
-record instead of asserting it. Details in [`RELEASE.md`](RELEASE.md) §macOS.
+(F9-N8/F9-N9). `release.yml`'s `verify` job publishes the real `spctl` output for
+the record instead of asserting it. Details in [`RELEASE.md`](RELEASE.md) §macOS.
 
 ## Reproducibility
 
@@ -176,8 +177,8 @@ promoted, and dispatches `release.yml` **only when it created the tag itself** (
 push made with `GITHUB_TOKEN` does not start a workflow run, so the dispatch is
 explicit and needs `actions: write`). A signed, human-pushed tag already triggers
 `release.yml` through its `push: tags` trigger — the dispatch is an addition, and
-the two cannot publish twice. `release.yml` then dispatches
-`release-verify.yml`, which downloads the published artifacts and runs them
+the two cannot publish twice. `release.yml`'s `verify` job then downloads the
+published artifacts and runs them
 (`pengu -V` must match the tag). The invariants are gated by
 `tests/tooling/test_release_handoff.py`; the full sequence is in [`RELEASE.md`](RELEASE.md)
 §2.
