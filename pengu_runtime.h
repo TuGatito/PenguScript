@@ -135,6 +135,72 @@ int pengu_abi_version(void);
 #include <direct.h>
 #include <io.h>
 #include <sys/utime.h>
+
+/* MSVC (and clang in MS mode) has no POSIX `S_ISREG`/`S_ISDIR`; MinGW does.
+ * Define them from the CRT's `_S_IFMT` bits so this header compiles with every
+ * Windows toolchain, not only the MinGW one the release links. */
+#if !defined(S_ISREG) || !defined(S_ISDIR)
+#ifndef _S_IFMT
+#define _S_IFMT 0xF000
+#endif
+#ifndef _S_IFREG
+#define _S_IFREG 0x8000
+#endif
+#ifndef _S_IFDIR
+#define _S_IFDIR 0x4000
+#endif
+#ifndef S_ISREG
+#define S_ISREG(m) (((m) & _S_IFMT) == _S_IFREG)
+#endif
+#ifndef S_ISDIR
+#define S_ISDIR(m) (((m) & _S_IFMT) == _S_IFDIR)
+#endif
+#endif
+
+/* The legacy Windows headers define 16-bit-era macros that are ordinary
+ * identifiers in generated user code: `pascal` is `__stdcall`, `near`/`far`/
+ * `huge`/`small` are memory models, and `interface` is COM's keyword.  Built
+ * PenguScript code is allowed to name a variable `pascal`, so drop them once
+ * the system headers have been read; nothing in this runtime uses them. */
+#ifdef pascal
+#undef pascal
+#endif
+#ifdef _pascal
+#undef _pascal
+#endif
+#ifdef cdecl
+#undef cdecl
+#endif
+#ifdef _cdecl
+#undef _cdecl
+#endif
+#ifdef stdcall
+#undef stdcall
+#endif
+#ifdef _stdcall
+#undef _stdcall
+#endif
+#ifdef fastcall
+#undef fastcall
+#endif
+#ifdef _fastcall
+#undef _fastcall
+#endif
+#ifdef near
+#undef near
+#endif
+#ifdef far
+#undef far
+#endif
+#ifdef huge
+#undef huge
+#endif
+#ifdef small
+#undef small
+#endif
+#ifdef interface
+#undef interface
+#endif
 #else
 #define PENGU_WINDOWS 0
 #include <unistd.h>

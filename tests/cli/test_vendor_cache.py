@@ -18,7 +18,7 @@ from pengu_project import (
     vendor_dependencies,
 )
 from pengu_lock import read_lock
-from tests.conftest import have_tool
+from tests.conftest import have_tool, remove_tree
 
 requires_git = pytest.mark.skipif(not have_tool("git"), reason="git not available")
 
@@ -79,8 +79,7 @@ def test_dependency_is_cached_and_restored(tmp_path, monkeypatch):
     assert os.path.isdir(cache / key), "cache was not populated"
 
     # Removing lib/ and re-adding must restore from the cache, not the network.
-    import shutil
-    shutil.rmtree(os.path.join(proj, "lib", "dep"))
+    remove_tree(os.path.join(proj, "lib", "dep"))
     add_dependency(source=repo, name="dep", config_path=proj, run_build=False)
     assert os.path.isdir(os.path.join(proj, "lib", "dep"))
 
@@ -159,8 +158,7 @@ def test_vendor_and_offline_frozen_build(tmp_path, monkeypatch):
     assert not os.path.isdir(os.path.join(vendor, "dep", "build"))
 
     # Fresh-clone simulation: no lib/, no network, --frozen must restore+verify.
-    import shutil
-    shutil.rmtree(os.path.join(proj, "lib"))
+    remove_tree(os.path.join(proj, "lib"))
     build_project(config_path=proj, output=os.path.join(proj, "b.c"), frozen=True)
     assert os.path.isdir(os.path.join(proj, "lib", "dep"))
 

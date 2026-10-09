@@ -24,6 +24,7 @@ built with `--strict-c99` (command and counts in AUDIT_1.0_FASE8.md):
 rows become `xpass` and this file fails until they are promoted to assertions.
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -101,6 +102,22 @@ _CODEGEN_REASON = ("F8-N4: --strict-c99 emits undeclared comprehension variables
 _MISCOMPILE_REASON = ("F8-N4a: the strict bundle compiles clean and then crashes at "
                       "runtime (bounds check in std.loom's zip_longest), while the "
                       "default build of the same program exits 0")
+
+#: F8-N4a was measured with Linux GCC.  MinGW's GCC and Apple's clang run the same
+#: strict bundle cleanly, so there the marker would turn a pass into a failure.
+_MISCOMPILE_MEASURED_HERE = os.name != "nt" and sys.platform != "darwin"
+
+#: The B5 class is a *measurement* of the C compiler, not of PenguScript: the
+#: Linux CI GCC rejects `({ ... })` statement expressions under
+#: `-std=c99 -pedantic-errors`, but MinGW's GCC accepts them, so every row of
+#: `test_strict_c99_std_program_blocked_by_b5` XPASSes there and
+#: `xfail(strict=True)` turns the classification into a failure.  The class is
+#: still enforced where it was measured (Linux and macOS).
+_MEASURED_WITH_LINUX_GCC = pytest.mark.skipif(
+    os.name == "nt",
+    reason="the --strict-c99 classification was measured with Linux GCC; MinGW's "
+           "GCC accepts statement expressions under -pedantic-errors",
+)
 
 
 def _write_project(tmp_path):
@@ -188,9 +205,17 @@ def test_strict_mode_is_measurably_stricter_than_the_default(tmp_path, compile_c
     _write_project(tmp_path)
     assert _run_build(tmp_path).returncode == 0
     default_bundle = (tmp_path / "build" / "bundle.c").read_text(encoding="utf-8")
-    with pytest.raises(AssertionError, match="C compilation failed"):
+    try:
         compile_c(default_bundle, name="default_bundle", std="c99", pedantic=True,
                   syntax_only=True, extra=["-D__extension__=", "-fmax-errors=1"])
+    except AssertionError:
+        return
+    # The premise is compiler-specific: MinGW's GCC and Apple's clang do not turn
+    # the neutralised `__extension__` into a hard `-pedantic` error, so the
+    # observable this test needs does not exist there.  The check was measured
+    # with Linux GCC and stays enforced wherever it holds.
+    pytest.skip("this C compiler still accepts the statement expression with "
+                "-D__extension__=; the non-vacuity check was measured with Linux GCC")
 
 
 def test_every_std_program_is_classified():
@@ -221,10 +246,16 @@ def test_strict_c99_std_program_is_pedantically_clean(name, tmp_path, compile_c)
     assert run.returncode == 0, f"{name} failed at runtime: rc={run.returncode}\n{run.stderr}"
 
 
-@pytest.mark.xfail(strict=True, reason=_MISCOMPILE_REASON)
+@pytest.mark.xfail(strict=True, condition=_MISCOMPILE_MEASURED_HERE,
+                   reason=_MISCOMPILE_REASON)
 @pytest.mark.parametrize("name", STRICT_MISCOMPILES)
 def test_strict_c99_std_program_does_not_miscompile(name, tmp_path, compile_c):
-    """Finding F8-N4a: strict mode compiles cleanly but changes behaviour."""
+    """Finding F8-N4a: strict mode compiles cleanly but changes behaviour.
+
+    The bug was measured with Linux GCC; where the toolchain does not reproduce
+    it, the same assertion is a plain expectation and the test must pass rather
+    than XPASS into a failure.
+    """
     bundle = _bundle(tmp_path, _STD_PROGRAMS / name)
     exe = compile_c(bundle, name=Path(name).stem, std="c99", pedantic=True,
                     extra=_IMPLICIT_DECL_FLAGS)
@@ -232,6 +263,7 @@ def test_strict_c99_std_program_does_not_miscompile(name, tmp_path, compile_c):
     assert run.returncode == 0, f"{name} failed at runtime: rc={run.returncode}\n{run.stderr}"
 
 
+@_MEASURED_WITH_LINUX_GCC
 @pytest.mark.xfail(strict=True, reason=_B5_REASON)
 @pytest.mark.parametrize("name", B5_STATEMENT_EXPRESSIONS)
 def test_strict_c99_std_program_blocked_by_b5(name, tmp_path, compile_c):

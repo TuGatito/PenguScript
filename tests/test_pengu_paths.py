@@ -135,3 +135,37 @@ def test_pkg_config_graceful_missing():
     assert cflags == []
     libs = pengu_paths.pkg_config_libs("nonexistent_package_xyz123")
     assert libs == []
+
+
+def test_display_relpath_tolerates_a_different_windows_drive(monkeypatch):
+    """A path on another Windows drive must not break a diagnostic.
+
+    ``os.path.relpath('C:\\\\work\\\\x.pengu', 'D:\\\\repo')`` raises
+    ``ValueError: path is on mount 'C:', start on mount 'D:'``.  That leaked out
+    of `pengu run`/`eval`/`watch` as a codeless "error" instead of running the
+    program, so the helper falls back to the absolute path.
+    """
+    import pengu_project
+
+    def _cross_drive(path, start=None):
+        raise ValueError("path is on mount 'C:', start on mount 'D:'")
+
+    monkeypatch.setattr(os.path, "relpath", _cross_drive)
+    assert pengu_project._display_relpath(r"C:\work\x.pengu", r"D:\repo") == \
+        os.path.abspath(r"C:\work\x.pengu")
+
+
+def test_env_flag_list_keeps_windows_backslash_paths(monkeypatch):
+    """`PENGU_CFLAGS`-style env lists must not eat Windows path separators.
+
+    POSIX-mode ``shlex.split`` would turn ``-IC:\\sdk\\include`` into
+    ``-IC:sdkinclude``; ``_split_flag_string`` keeps the path on Windows.
+    """
+    import pengu_project
+
+    assert pengu_project._split_flag_string("-O2 -Wall") == ["-O2", "-Wall"]
+    # The Windows branch is exercised from any host.
+    assert pengu_project._split_flag_string(r"-IC:\sdk\include -DWIN", windows=True) == \
+        [r"-IC:\sdk\include", "-DWIN"]
+    monkeypatch.setenv("PENGU_CFLAGS", "-O2 -Wall")
+    assert pengu_project._env_flag_list("PENGU_CFLAGS") == ["-O2", "-Wall"]

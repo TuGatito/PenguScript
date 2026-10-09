@@ -85,7 +85,18 @@ def _crash_closure_undefined_symbols(tmp_path: Path) -> list:
     assert res.returncode == 0, f"nm failed:\n{res.stderr}"
     # `nm_symbol_name` strips Mach-O's leading underscore, so the offender check
     # below is a real gate on macOS too instead of silently matching nothing.
-    return [nm_symbol_name(line.split()[-1]) for line in res.stdout.splitlines() if line.strip()]
+    # MinGW reports a DLL import as `__imp__name`, and the Windows CRT exports
+    # `write` as `_write`: strip both so the comparison is against the C name.
+    return [_base_symbol(line.split()[-1])
+            for line in res.stdout.splitlines() if line.strip()]
+
+
+def _base_symbol(symbol: str) -> str:
+    """`nm` spelling -> the C identifier the source used, on every platform."""
+    symbol = nm_symbol_name(symbol)
+    if symbol.startswith("__imp_"):
+        symbol = symbol[len("__imp_"):]
+    return symbol.lstrip("_")
 
 
 def test_crash_path_calls_no_async_signal_unsafe_function(tmp_path):
@@ -96,7 +107,7 @@ def test_crash_path_calls_no_async_signal_unsafe_function(tmp_path):
     """
     symbols = _crash_closure_undefined_symbols(tmp_path)
     # Sanity: the probe really did compile the crash path, not an empty stub.
-    assert "write" in symbols or "_write" in symbols, (
+    assert "write" in symbols, (
         f"the probe does not reference write(); it did not build the crash path: {symbols}"
     )
     offenders = [s for s in symbols if s in UNSAFE_IN_SIGNAL]

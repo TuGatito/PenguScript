@@ -72,7 +72,7 @@ def test_cc_tcc_builds_with_the_shipped_compiler(project):
     if os.path.basename(find_tcc()).lower().startswith("tcc"):
         assert find_tcc() in combined or "tcc" in combined, combined
 
-    artifact = project / "build" / "ok"
+    artifact = project / "build" / ("ok.exe" if os.name == "nt" else "ok")
     assert artifact.is_file(), sorted(os.listdir(project / "build"))
     run = subprocess.run([str(artifact)], capture_output=True, text=True, timeout=60)
     assert run.returncode == 0, run.stderr

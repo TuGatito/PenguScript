@@ -1,5 +1,6 @@
 import std.spark
 import std.cipher
+import std.archivum
 
 weave main into int:
     calling spark.println with "=== Test Cipher Extended ==="
@@ -241,7 +242,7 @@ weave main into int:
     calling spark.println with "kind num: OK"
 
     # 12. File operations
-    var tmp_json_path as string is "/tmp/pengu_test_cipher.json"
+    var tmp_json_path as string is calling archivum.temp_file with "pengu_test_cipher"
     var ok_write as bool is calling cipher.write_json_file with tmp_json_path, doc
     calling spark.assert with ok_write
     var read_back as maybe map of string to string is calling cipher.read_json_file with tmp_json_path

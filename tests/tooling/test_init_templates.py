@@ -87,6 +87,17 @@ def test_templates_are_buildable_end_to_end(tmp_path):
 # --------------------------------------------------------------------------- #
 
 
+def _toml_path(path) -> str:
+    """Spells a filesystem path for a TOML basic string.
+
+    On Windows ``str(BUILD_LIB)`` is ``D:\\a\\...\\build\\lib`` and interpolating
+    it raw into the manifest produced
+    ``TOMLDecodeError: Unescaped '\\' in a string``. A forward slash is accepted
+    by MinGW gcc, clang and cl.exe alike, so no escaping is needed.
+    """
+    return str(path).replace("\\", "/")
+
+
 def _manifest(proj: str) -> dict:
     import tomllib
 
@@ -139,9 +150,9 @@ def test_cli_template_parses_and_help_work(tmp_path):
     proj = _init(tmp_path, "cli_e2e", template="cli")
     manifest = os.path.join(proj, "pengu.toml")
     text = open(manifest, encoding="utf-8").read()
-    text = text.replace('lib_dirs = []', f'lib_dirs = ["{BUILD_LIB}"]')
+    text = text.replace('lib_dirs = []', f'lib_dirs = ["{_toml_path(BUILD_LIB)}"]')
     text = text.replace('include_dirs = []',
-                        f'include_dirs = ["{BUILD_INCLUDE}", "{BUILD_LIB.parent}"]')
+                        f'include_dirs = ["{_toml_path(BUILD_INCLUDE)}", "{_toml_path(BUILD_LIB.parent)}"]')
     text = text.replace('links = []', 'links = ["pengu_runtime"]')
     with open(manifest, "w", encoding="utf-8") as f:
         f.write(text)
@@ -180,9 +191,9 @@ def test_lib_template_tests_pass(tmp_path):
     proj = _init(tmp_path, "lib_run", template="lib")
     manifest = os.path.join(proj, "pengu.toml")
     text = open(manifest, encoding="utf-8").read()
-    text = text.replace('lib_dirs = []', f'lib_dirs = ["{BUILD_LIB}"]')
+    text = text.replace('lib_dirs = []', f'lib_dirs = ["{_toml_path(BUILD_LIB)}"]')
     text = text.replace('include_dirs = []',
-                        f'include_dirs = ["{BUILD_INCLUDE}", "{BUILD_LIB.parent}"]')
+                        f'include_dirs = ["{_toml_path(BUILD_INCLUDE)}", "{_toml_path(BUILD_LIB.parent)}"]')
     text = text.replace('links = []', 'links = ["pengu_runtime"]')
     with open(manifest, "w", encoding="utf-8") as f:
         f.write(text)

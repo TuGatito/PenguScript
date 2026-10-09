@@ -64,9 +64,25 @@ _PROGRAM_ASSERTION_RE = re.compile(r'(\w+_VERSION)\s*==\s*"([^"]*)"')
 
 STD_PROGRAMS = REPO / "tests" / "std_programs"
 
+#: The conformance corpus keeps a second copy of the same programs, and that is
+#: the one `tests/test_conformance.py` actually executes.  The 1.1.0 bump updated
+#: only `tests/std_programs/`, so the conformance copies stayed at "1.0.0" and
+#: every one of them died with `[PANIC] Assertion failed` on all three platforms
+#: (14 red tests that named nothing).  Scanning both directories makes the next
+#: bump fail once, here, with the file and the constant.
+PROGRAM_DIRS = (STD_PROGRAMS, REPO / "tests" / "conformance" / "std_programs")
+
+
+def _program_assertions():
+    """Yields ``(relative path, constant, value)`` for every program assertion."""
+    for directory in PROGRAM_DIRS:
+        for path in sorted(directory.glob("*.pengu")):
+            for name, value in _PROGRAM_ASSERTION_RE.findall(path.read_text(encoding="utf-8")):
+                yield path.relative_to(REPO), name, value
+
 
 def test_the_in_language_std_programs_assert_the_current_version():
-    """`tests/std_programs/test_<mod>_extended.pengu` asserts `<MOD>_VERSION`.
+    """`tests/**/std_programs/test_<mod>_extended.pengu` asserts `<MOD>_VERSION`.
 
     Measured during Phase 10: bumping `VERSION` to `1.0.0-rc1` updated the 26
     modules but not the 14 programs that assert their constants, so **28**
@@ -75,13 +91,11 @@ def test_the_in_language_std_programs_assert_the_current_version():
     five different suites, none of which named the real cause (F10-N13). This
     gate makes the next bump fail **once**, here, with the file and the constant.
     """
-    mismatched = []
-    for path in sorted(STD_PROGRAMS.glob("*.pengu")):
-        for name, value in _PROGRAM_ASSERTION_RE.findall(path.read_text(encoding="utf-8")):
-            if name in _API_VERSION_ALLOWLIST:
-                continue
-            if value != PENGU_VERSION:
-                mismatched.append(f"{path.name}: {name} == {value!r} != {PENGU_VERSION!r}")
+    mismatched = [
+        f"{path}: {name} == {value!r} != {PENGU_VERSION!r}"
+        for path, name, value in _program_assertions()
+        if name not in _API_VERSION_ALLOWLIST and value != PENGU_VERSION
+    ]
     assert not mismatched, (
         "std test programs pin a version that is not the toolchain's:\n  "
         + "\n  ".join(mismatched)
@@ -91,9 +105,8 @@ def test_the_in_language_std_programs_assert_the_current_version():
 def test_the_program_gate_is_not_vacuous():
     """At least one program must really assert a toolchain-tracking constant."""
     found = [
-        path.name
-        for path in sorted(STD_PROGRAMS.glob("*.pengu"))
-        for name, _value in _PROGRAM_ASSERTION_RE.findall(path.read_text(encoding="utf-8"))
+        str(path)
+        for path, name, _value in _program_assertions()
         if name not in _API_VERSION_ALLOWLIST
     ]
     assert len(found) >= 10, (

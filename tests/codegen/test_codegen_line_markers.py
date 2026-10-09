@@ -110,9 +110,10 @@ class TestDisplayPath:
         monkeypatch.setattr(os.path, "relpath", boom)
         src = tmp_path / "main.pengu"
         src.write_text("", encoding="utf-8")
-        assert _mixin(base_dir="C:/other")._display_path(str(src)) == str(
-            os.path.abspath(src)
-        )
+        # `_display_path` always spells separators as `/`, so the expectation is
+        # normalised the same way (on Windows `abspath` returns backslashes).
+        assert _mixin(base_dir="C:/other")._display_path(str(src)) == \
+            os.path.abspath(src).replace("\\", "/")
 
 
 class TestLineMarker:

@@ -2,6 +2,7 @@ import std.cipher
 import std.loom
 import std.ledger
 import std.spark
+import std.archivum
 
 test "std_programs/compat_data":
     # --- Legacy std.cipher ---
@@ -93,13 +94,13 @@ test "std_programs/compat_data":
     var gen_tsv_opt as maybe string is calling ledger.to_tsv_string with pcsv
     calling spark.assert with gen_tsv_opt.is_present
 
-    var tmp_csv as string is "/tmp/pengu_test_legacy_ledger.csv"
+    var tmp_csv as string is calling archivum.temp_file with "pengu_legacy_ledger_csv"
     var ok_w as bool is calling ledger.write_csv with tmp_csv, pcsv, ","
     calling spark.assert with ok_w
     var r_csv_opt as maybe list of list of string is calling ledger.read_csv with tmp_csv, false, ","
     calling spark.assert with r_csv_opt.is_present
 
-    var tmp_tsv as string is "/tmp/pengu_test_legacy_ledger.tsv"
+    var tmp_tsv as string is calling archivum.temp_file with "pengu_legacy_ledger_tsv"
     var ok_wt as bool is calling ledger.write_tsv with tmp_tsv, pcsv
     calling spark.assert with ok_wt
     var r_tsv_opt as maybe list of list of string is calling ledger.read_tsv with tmp_tsv, false

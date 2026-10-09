@@ -89,7 +89,7 @@ weave main into int:
     calling spark.println with "instance logger: OK"
 
     # 5. File Redirection & JSON escaping
-    var tmp_log_file as string is "/tmp/test_whisper_output.log"
+    var tmp_log_file as string is calling archivum.temp_file with "pengu_test_whisper_log"
     calling lg.to_file with tmp_log_file
     calling lg.info with "logged directly into file"
     var esc_map as map of string to string is map of string to string

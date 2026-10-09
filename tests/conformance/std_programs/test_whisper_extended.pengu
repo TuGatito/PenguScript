@@ -6,7 +6,7 @@ test "std_programs/test_whisper_extended":
     calling spark.println with "=== Test Whisper Extended ==="
 
     # 1. Version & Constants
-    calling spark.assert with whisper.WHISPER_VERSION == "1.0.0"
+    calling spark.assert with whisper.WHISPER_VERSION == "1.1.0"
     calling spark.assert with whisper.LOG_TRACE == 0
     calling spark.assert with whisper.LOG_DEBUG == 1
     calling spark.assert with whisper.LOG_INFO == 2
@@ -89,7 +89,7 @@ test "std_programs/test_whisper_extended":
     calling spark.println with "instance logger: OK"
 
     # 5. File Redirection & JSON escaping
-    var tmp_log_file as string is "/tmp/test_whisper_output.log"
+    var tmp_log_file as string is calling archivum.temp_file with "pengu_test_whisper_log"
     calling lg.to_file with tmp_log_file
     calling lg.info with "logged directly into file"
     var esc_map as map of string to string is map of string to string

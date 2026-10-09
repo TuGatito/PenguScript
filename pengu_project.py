@@ -16,6 +16,7 @@ import shutil
 import shlex
 import hashlib
 import argparse
+import stat
 import subprocess
 import tempfile
 import re
@@ -1391,7 +1392,7 @@ class PenguBuilder:
             # in any directory without src/main.pengu (blocker B2).
             exc = EntryPointNotFoundError(
                 f"entry point not found: {entry_abs}",
-                help=f"Create '{os.path.relpath(entry_abs, self.config.base_dir)}', "
+                help=f"Create '{_display_relpath(entry_abs, self.config.base_dir)}', "
                      "or pass --entry <path> to point at a different file.",
             )
             return False, [_diag(exc, entry_abs)]
@@ -1773,15 +1774,22 @@ class PenguBuilder:
                 if link == "raylib":
                     link_flags.extend(raylib_platform_libs(is_win))
 
-        if not is_win and all_links:
+        if not is_win and not is_msvc and all_links:
             # Platform tail: provider libraries must come AFTER every archive
             # (single-pass linkers resolve only later libraries). Math for the
             # stb/sqlite/xlsxio objects, OpenSSL for libzip's crypto backend on
             # Linux, and CoreFoundation for std.uuid on macOS. Only emitted
             # when the project actually links libraries (all_links non-empty).
-            if sys.platform.startswith("linux"):
+            #
+            # The tail follows the *target* OS, not the build host: a cross
+            # build must not receive the host's libraries. `is_msvc` is excluded
+            # outright because `cl.exe` accepts neither `-framework` nor `-lrt`
+            # (item 4.11), and an explicit `--cc cl` on a Darwin host used to
+            # leave `-framework CoreFoundation` stranded on an MSVC command line.
+            target_os = self.target_os
+            if target_os == "linux":
                 link_flags += ["-lrt", "-lcrypto", "-lssl"]
-            elif sys.platform.startswith("darwin"):
+            elif target_os == "darwin":
                 link_flags += ["-framework", "CoreFoundation"]
             link_flags += ["-pthread", "-lm", "-ldl"]
 
@@ -2090,19 +2098,54 @@ class PenguBuilder:
         return out_path, False
 
 
+def _display_relpath(path: str, start: str) -> str:
+    """A path relative to ``start`` for messages, tolerating a different drive.
+
+    ``os.path.relpath`` raises ``ValueError`` when the two paths live on different
+    Windows drives ("path is on mount 'C:', start on mount 'D:'").  Rendering a
+    path is never worth failing a command over, so the absolute path is the
+    fallback -- which is also what the user needs to see in that situation.
+    """
+    try:
+        return os.path.relpath(path, start)
+    except ValueError:
+        return os.path.abspath(path)
+
+
+def _split_flag_string(raw: str, windows: Optional[bool] = None) -> List[str]:
+    """Splits an env flag list, keeping Windows paths intact.
+
+    ``shlex.split`` defaults to POSIX mode, where ``\\`` escapes the next
+    character: on Windows ``PENGU_CFLAGS="-IC:\\sdk\\include"`` came back as
+    ``-IC:sdkinclude``.  POSIX hosts keep the POSIX splitter; on Windows the
+    non-POSIX one preserves backslashes and only needs its quotes stripped.
+
+    ``windows`` is inferred from the host and exists so the Windows branch can be
+    regression-tested from any platform.
+    """
+    if windows is None:
+        windows = os.name == "nt"
+    if not windows:
+        return shlex.split(raw)
+    tokens = []
+    for token in shlex.split(raw, posix=False):
+        if len(token) >= 2 and token[0] == token[-1] and token[0] in ("'", '"'):
+            token = token[1:-1]
+        tokens.append(token)
+    return tokens
+
+
 def _env_flag_list(name: str) -> List[str]:
     """Reads a space-separated flag list from an environment variable.
 
     Mirrors the CFLAGS/LDFLAGS convention so CI (and users) can inject extra
     flags without editing the manifest.  Quotes are honoured.
     """
-    import shlex
-
     raw = os.environ.get(name, "").strip()
     if not raw:
         return []
     try:
-        return shlex.split(raw)
+        return _split_flag_string(raw)
     except ValueError:
         return raw.split()
 
@@ -2527,7 +2570,7 @@ def _require_entry_file(config: ProjectConfig) -> None:
     entry_abs = config.resolve_entry()
     if os.path.isfile(entry_abs):
         return
-    rel = os.path.relpath(entry_abs, config.base_dir)
+    rel = _display_relpath(entry_abs, config.base_dir)
     raise EntryPointNotFoundError(
         f"entry point not found: {entry_abs}",
         help=f"Create '{rel}', or pass --entry <path> to point at a different file.",
@@ -3440,6 +3483,33 @@ def vendor_dependencies(config: "ProjectConfig", verbose: bool = False) -> str:
     return out_dir
 
 
+def _remove_readonly(func, target, exc_info) -> None:
+    """Clears the read-only bit and retries the failed removal.
+
+    Used for both ``shutil.rmtree`` callbacks (``onexc`` and the older
+    ``onerror``), which only differ in the third argument: the exception itself
+    vs ``sys.exc_info()``.  Both are ignored here.
+    """
+    os.chmod(target, stat.S_IWRITE)
+    func(target)
+
+
+def _rmtree(path: str) -> None:
+    """Removes a directory tree, clearing Windows' read-only git attributes.
+
+    ``git clone`` writes ``.git/objects`` read-only.  POSIX unlinks them anyway,
+    but Windows raises ``PermissionError [WinError 5]``, which made
+    `pengu remove <git-dep>` fail on a checkout it had just installed.
+    """
+    if os.name != "nt":
+        shutil.rmtree(path)
+        return
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=_remove_readonly)
+    else:  # pragma: no cover - Python 3.11 still supports `onerror`
+        shutil.rmtree(path, onerror=_remove_readonly)
+
+
 def add_dependency(
     source: str,
     branch: Optional[str] = None,
@@ -3666,7 +3736,7 @@ def remove_dependency(name: str, config_path: Optional[str] = None,
     existed_entry = _remove_config_dependency(config.base_dir, dep_name)
     removed_dir = os.path.isdir(target_dir)
     if removed_dir and not keep_files:
-        shutil.rmtree(target_dir)
+        _rmtree(target_dir)
     if not existed_entry and not removed_dir:
         raise FileNotFoundError(
             f"dependency '{dep_name}' is not installed (no {target_dir} and no manifest entry)"
@@ -4876,7 +4946,7 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         say(f"    Cleared {removed} cached script(s)", color="cyan")
 
     base_dir = os.getcwd()
-    rel = os.path.relpath(script_abs, base_dir)
+    rel = _display_relpath(script_abs, base_dir)
     entry = rel if not rel.startswith("..") else script_abs
     out_name = os.path.splitext(os.path.basename(script_abs))[0]
 
@@ -5305,7 +5375,7 @@ def _selftest_affected_cases(changed: List[str]) -> Optional[List[str]]:
                 if any(p.startswith(prefix) for p in normalised):
                     selected.append(case_id)
                     break
-            elif os.path.normpath(dep_posix) in normalised:
+            elif os.path.normpath(dep_posix).replace("\\", "/") in normalised:
                 selected.append(case_id)
                 break
     return selected

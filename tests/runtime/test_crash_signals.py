@@ -25,6 +25,7 @@ signal). The two cases are distinguishable, so the test cannot pass vacuously.
 Rule C1: every test compiles, links and executes a real program.
 """
 
+import os
 import re
 import shutil
 import signal
@@ -160,13 +161,14 @@ def test_integer_division_by_zero_dumps_frames_and_exits_136():
     "UBSan reports the overflow instead of the trap the test asserts",
 )
 @pytest.mark.skipif(
-    sys.platform == "darwin",
+    sys.platform == "darwin" or os.name == "nt",
     reason="Apple clang lowers -ftrapv to a trap instruction that raises "
-           "SIGTRAP, which is not one of the signals the crash handler installs "
-           "(measured: rc=-5 and no '[PENGU CRASH]'); the GCC implementation "
-           "calls abort() and reaches the handler. test_debug_traps_overflow "
-           "still asserts that the overflow is trapped, without requiring the "
-           "GCC-specific signal",
+           "SIGTRAP, and MinGW's gcc turns it into a fast-fail "
+           "(0xC0000409) that never reaches a POSIX-signal handler; neither is "
+           "one of the signals the crash handler installs (measured: rc=-5 on "
+           "macOS, rc=3221226505 on Windows, no '[PENGU CRASH]'). "
+           "test_debug_traps_overflow still asserts that the overflow is "
+           "trapped, without requiring the GCC-specific signal",
 )
 def test_debug_signed_overflow_trap_is_reported():
     """`-ftrapv` (debug builds) turns signed overflow into a trap; it is dumped.

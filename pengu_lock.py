@@ -29,6 +29,7 @@ same checkout on another machine hashes identically.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import tomllib
 from dataclasses import dataclass, field
@@ -125,6 +126,18 @@ def build_lock_from_graph(graph: Dict[str, object], target: str = "",
     return lock
 
 
+def _toml_string(value: object) -> str:
+    """Quotes a value as a TOML basic string.
+
+    ``json.dumps`` output is a subset of TOML's basic-string syntax (both use
+    ``\\"``/``\\\\`` and the same short escapes), which matters because a Windows
+    ``source`` path is full of backslashes: written raw it produced a lockfile
+    that ``tomllib`` refused to parse, so ``verify_project`` reported "no
+    pengu.lock found" while the file sat right there.
+    """
+    return json.dumps(str(value), ensure_ascii=False)
+
+
 def dumps(lock: LockFile) -> str:
     """Serializes a lockfile to TOML text (deterministic key order)."""
     lines = [
@@ -132,19 +145,21 @@ def dumps(lock: LockFile) -> str:
         f"version = {lock.version}",
     ]
     if lock.targets:
-        rendered = ", ".join('"' + t + '"' for t in lock.targets)
+        rendered = ", ".join(_toml_string(t) for t in lock.targets)
         lines.append(f"targets = [{rendered}]")
     for pkg in lock.packages:
         lines.append("")
         lines.append("[[package]]")
-        lines.append(f'name = "{pkg.name}"')
-        lines.append(f'source = "{pkg.source}"')
-        lines.append(f'constraint = "{pkg.constraint}"')
-        lines.append(f'version = "{pkg.version}"')
-        lines.append(f'commit = "{pkg.commit}"')
-        lines.append(f'sha256 = "{pkg.sha256}"')
-        lines.append("required_by = [" + ", ".join(f'"{r}"' for r in pkg.required_by) + "]")
-        lines.append("children = [" + ", ".join(f'"{c}"' for c in pkg.children) + "]")
+        lines.append(f"name = {_toml_string(pkg.name)}")
+        lines.append(f"source = {_toml_string(pkg.source)}")
+        lines.append(f"constraint = {_toml_string(pkg.constraint)}")
+        lines.append(f"version = {_toml_string(pkg.version)}")
+        lines.append(f"commit = {_toml_string(pkg.commit)}")
+        lines.append(f"sha256 = {_toml_string(pkg.sha256)}")
+        lines.append("required_by = ["
+                     + ", ".join(_toml_string(r) for r in pkg.required_by) + "]")
+        lines.append("children = ["
+                     + ", ".join(_toml_string(c) for c in pkg.children) + "]")
     return "\n".join(lines) + "\n"
 
 

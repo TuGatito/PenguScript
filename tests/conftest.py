@@ -19,6 +19,7 @@ import platform
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -48,6 +49,26 @@ def have_lib(name: str) -> bool:
 def have_tool(name: str) -> bool:
     """True when `name` is available on PATH."""
     return shutil.which(name) is not None
+
+
+def remove_tree(path) -> None:
+    """``shutil.rmtree`` that also deletes Windows' read-only git objects.
+
+    A git clone writes ``.git/objects`` (and its pack files) read-only.  POSIX
+    lets the owner unlink them anyway, but Windows refuses with
+    ``PermissionError [WinError 5]``, so the read-only attribute is cleared and
+    the failing operation retried.
+    """
+    def _clear_readonly(func, target, exc_info):
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+
+    if os.name != "nt":
+        shutil.rmtree(path)
+    elif sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=_clear_readonly)
+    else:  # pragma: no cover - Python 3.11 uses the older `onerror`
+        shutil.rmtree(path, onerror=_clear_readonly)
 
 
 def have_std_module(name: str) -> bool:

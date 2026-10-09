@@ -481,7 +481,8 @@ def _effect_vendor_dir(ctx, r):
 
 
 def _effect_build_artifact(ctx, r):
-    assert (Path(ctx["proj"]) / "build" / "proj").is_file()
+    exe = "proj.exe" if os.name == "nt" else "proj"
+    assert (Path(ctx["proj"]) / "build" / exe).is_file()
 
 
 def _effect_doctor_json(ctx, r):

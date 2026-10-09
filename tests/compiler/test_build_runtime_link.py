@@ -53,7 +53,7 @@ def test_new_project_links_the_runtime_archive(fresh_project):
     res = _run(["build", "--verbose"], cwd=fresh_project)
     assert res.returncode == 0, res.stderr
     assert "-lpengu_runtime" in (res.stdout + res.stderr), res.stdout + res.stderr
-    binary = fresh_project / "build" / "ok"
+    binary = fresh_project / "build" / ("ok.exe" if os.name == "nt" else "ok")
     assert binary.is_file(), binary
     run = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
     assert run.returncode == 0, run.stderr

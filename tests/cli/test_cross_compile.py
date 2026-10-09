@@ -39,6 +39,15 @@ def _builder(tmp_path, out_type, name="app", target=""):
     return PenguBuilder(cfg)
 
 
+#: These tests describe the Linux/macOS -> Windows cross path.  On a Windows
+#: host `x86_64-w64-mingw32` *is* the host, so `is_cross` is False and the cross
+#: code is (correctly) never reached; the premise only exists elsewhere.
+requires_cross_host = pytest.mark.skipif(
+    host_os() == "windows",
+    reason="the mingw target is the host here, so there is nothing to cross",
+)
+
+
 def test_artifact_names_follow_target_not_host(tmp_path):
     win = _builder(tmp_path, OutputType.EXE, target="x86_64-w64-mingw32")
     assert win.get_output_artifact_name() == "app.exe"
@@ -57,6 +66,7 @@ def test_artifact_names_follow_target_not_host(tmp_path):
     assert host_exe.is_cross is False
 
 
+@requires_cross_host
 def test_resolve_compiler_missing_cross_is_actionable(tmp_path, monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda name: None)
     b = _builder(tmp_path, OutputType.EXE, target="x86_64-w64-mingw32")
@@ -67,6 +77,7 @@ def test_resolve_compiler_missing_cross_is_actionable(tmp_path, monkeypatch):
     assert "PENGU_RUNTIME_CROSS" in msg
 
 
+@requires_cross_host
 def test_resolve_compiler_prefers_triple_gcc(tmp_path, monkeypatch):
     monkeypatch.setattr(
         shutil, "which",
@@ -82,6 +93,7 @@ def test_resolve_compiler_honours_explicit_cc(tmp_path):
     assert b.resolve_compiler() == "my-cross-gcc"
 
 
+@requires_cross_host
 def test_cross_runtime_flags(tmp_path, monkeypatch):
     b = _builder(tmp_path, OutputType.EXE, target="x86_64-w64-mingw32")
     assert b.cross_runtime_flags() == []

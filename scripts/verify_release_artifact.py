@@ -69,6 +69,31 @@ class VerificationError(RuntimeError):
     """One of the artifact checks failed."""
 
 
+def _split_command(command: str, windows: Optional[bool] = None) -> List[str]:
+    """Splits a ``--pengu`` command line, keeping Windows paths intact.
+
+    ``shlex.split`` defaults to POSIX mode, where ``\\`` is an escape character:
+    on Windows the interpreter path ``C:\\...\\python.exe`` came back as
+    ``C:...python.exe`` and the checks failed with ``WinError 2`` (the file does
+    not exist). POSIX quoting is still the right splitter on POSIX hosts; on
+    Windows the non-POSIX splitter preserves backslashes, so the only cleanup
+    needed is stripping the quotes it leaves behind.
+
+    ``windows`` is inferred from the host and exists so the Windows branch can be
+    regression-tested from any platform.
+    """
+    if windows is None:
+        windows = os.name == "nt"
+    if not windows:
+        return shlex.split(command)
+    tokens = []
+    for token in shlex.split(command, posix=False):
+        if len(token) >= 2 and token[0] == token[-1] and token[0] in ("'", '"'):
+            token = token[1:-1]
+        tokens.append(token)
+    return tokens
+
+
 def _run(cmd: Sequence[str], cwd: Optional[Path] = None) -> subprocess.CompletedProcess:
     print(f"  $ {' '.join(str(c) for c in cmd)}")
     return subprocess.run(
@@ -375,7 +400,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             # the checks run with cwd=<scratch>, where they would not exist.
             invocation_cwd = Path.cwd()
             resolved = []
-            for token in shlex.split(args.pengu):
+            for token in _split_command(args.pengu):
                 candidate = os.path.join(str(invocation_cwd), token)
                 looks_like_path = "/" in token or "\\" in token
                 if not os.path.isabs(token) and (looks_like_path or os.path.exists(candidate)):

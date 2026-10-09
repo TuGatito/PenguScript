@@ -95,6 +95,13 @@ def test_debug_traps_overflow():
 
 @pytest.mark.skipif(not have_tool("gcc"), reason="gcc not available")
 @pytest.mark.skipif(
+    os.name == "nt",
+    reason="MinGW's gcc ships no libubsan (`cannot find -lubsan`), so the "
+           "-fsanitize=signed-integer-overflow link cannot succeed there. The "
+           "wrapping contract is still asserted by test_release_wraps_defined "
+           "and test_release_uses_fwrapv on every platform",
+)
+@pytest.mark.skipif(
     host_cc_is_clang(),
     reason="clang's UBSan still reports `-fwrapv` wrapping as "
            "signed-integer-overflow (GCC treats the wrapping as defined and "

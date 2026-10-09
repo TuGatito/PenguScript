@@ -57,7 +57,7 @@ def _project(tmp_path, name="app"):
 def test_transitive_dependency_is_installed(tmp_path):
     leaf = _make_repo(tmp_path, "leaf.git")
     parent = _make_repo(tmp_path, "parent.git", deps=(
-        f'[dependencies.leaf]\nurl = "{leaf}"\nversion = "^1.0.0"\n'
+        f'[dependencies.leaf]\nurl = {json.dumps(leaf)}\nversion = "^1.0.0"\n'
     ))
     cfg = _project(tmp_path)
     add_dependency(source=parent, name="parent", config_path=cfg.base_dir, run_build=False)
@@ -75,7 +75,7 @@ def test_transitive_dependency_is_installed(tmp_path):
 def test_resolve_graph_shape(tmp_path):
     leaf = _make_repo(tmp_path, "leaf.git")
     parent = _make_repo(tmp_path, "parent.git", deps=(
-        f'[dependencies.leaf]\nurl = "{leaf}"\nversion = "^1.0.0"\n'
+        f'[dependencies.leaf]\nurl = {json.dumps(leaf)}\nversion = "^1.0.0"\n'
     ))
     cfg = _project(tmp_path)
     add_dependency(source=parent, name="parent", config_path=cfg.base_dir, run_build=False)
@@ -93,10 +93,10 @@ def test_resolve_graph_shape(tmp_path):
 def test_version_conflict_rolls_back(tmp_path):
     leaf = _make_repo(tmp_path, "leaf.git")  # only v1.0.0 exists
     parent = _make_repo(tmp_path, "parent.git", deps=(
-        f'[dependencies.leaf]\nurl = "{leaf}"\nversion = "^1.0.0"\n'
+        f'[dependencies.leaf]\nurl = {json.dumps(leaf)}\nversion = "^1.0.0"\n'
     ))
     other = _make_repo(tmp_path, "other.git", deps=(
-        f'[dependencies.leaf]\nurl = "{leaf}"\nversion = "^2.0.0"\n'
+        f'[dependencies.leaf]\nurl = {json.dumps(leaf)}\nversion = "^2.0.0"\n'
     ))
     cfg = _project(tmp_path)
     add_dependency(source=parent, name="parent", config_path=cfg.base_dir, run_build=False)
@@ -117,10 +117,10 @@ def test_cycle_terminates(tmp_path):
     a = os.path.join(str(tmp_path), "cyc_a.git")
     b = os.path.join(str(tmp_path), "cyc_b.git")
     _make_repo(tmp_path, "cyc_a.git", deps=(
-        f'[dependencies.cyc_b]\nurl = "{b}"\n'
+        f'[dependencies.cyc_b]\nurl = {json.dumps(b)}\n'
     ))
     _make_repo(tmp_path, "cyc_b.git", deps=(
-        f'[dependencies.cyc_a]\nurl = "{a}"\n'
+        f'[dependencies.cyc_a]\nurl = {json.dumps(a)}\n'
     ))
     cfg = _project(tmp_path)
     add_dependency(source=a, name="cyc_a", config_path=cfg.base_dir, run_build=False)
@@ -132,7 +132,7 @@ def test_cycle_terminates(tmp_path):
 def test_print_tree_and_metadata(tmp_path, capsys):
     leaf = _make_repo(tmp_path, "leaf.git")
     parent = _make_repo(tmp_path, "parent.git", deps=(
-        f'[dependencies.leaf]\nurl = "{leaf}"\nversion = "^1.0.0"\n'
+        f'[dependencies.leaf]\nurl = {json.dumps(leaf)}\nversion = "^1.0.0"\n'
     ))
     cfg = _project(tmp_path)
     add_dependency(source=parent, name="parent", config_path=cfg.base_dir, run_build=False)

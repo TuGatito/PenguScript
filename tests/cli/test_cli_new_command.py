@@ -82,7 +82,7 @@ def test_new_exe_builds_and_runs(tmp_path):
     project = tmp_path / "runnable"
     build = _run(["build"], cwd=project)
     assert build.returncode == 0, build.stderr
-    artifact = project / "build" / "runnable"
+    artifact = project / "build" / ("runnable.exe" if os.name == "nt" else "runnable")
     assert artifact.is_file(), sorted(os.listdir(project / "build"))
     run = subprocess.run([str(artifact)], capture_output=True, text=True, timeout=60)
     assert run.returncode == 0, run.stderr

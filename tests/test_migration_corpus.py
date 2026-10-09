@@ -92,7 +92,8 @@ def test_corpus_covers_every_documented_published_version():
 
 def test_every_corpus_file_is_declared_and_vice_versa():
     """An undeclared program would never run; a stale entry would never fail."""
-    on_disk = {str(p.relative_to(MIGRATION_DIR)) for p in MIGRATION_DIR.rglob("*.pengu")}
+    on_disk = {p.relative_to(MIGRATION_DIR).as_posix()
+               for p in MIGRATION_DIR.rglob("*.pengu")}
     declared = {entry["file"] for entry in _programs()}
     assert on_disk - declared == set(), f"undeclared corpus programs: {sorted(on_disk - declared)}"
     assert declared - on_disk == set(), f"EXPECTED.json lists missing files: {sorted(declared - on_disk)}"

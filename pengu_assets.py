@@ -192,7 +192,12 @@ def _emit_asset_blob(
             f'  ".globl {ident}\\n"',
             f'  "{ident}:\\n"',
             f'  ".incbin \\"{rel}\\"\\n"',
-            '  ".previous\\n"',
+            # `.previous` is not understood by every assembler that GNU-style
+            # compilers ship (MinGW's `as` reports `unknown pseudo-op:
+            # '.previous'`), so restore `.text` explicitly -- exactly what the
+            # Mach-O branch above does.  The `__asm__` block is emitted at file
+            # scope, where `.text` is the section GCC is emitting into.
+            '  ".text\\n"',
             ");",
             "#  endif",
             f"extern const unsigned char {ident}[];",

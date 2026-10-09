@@ -6,7 +6,6 @@ tests/regression/test_phase5_bugfixes.py).
 """
 
 import os
-import shutil
 import subprocess
 import tomllib
 
@@ -19,7 +18,7 @@ from pengu_project import (
     init_project,
     verify_project,
 )
-from tests.conftest import REPO, have_tool
+from tests.conftest import REPO, have_tool, remove_tree
 
 requires_git = pytest.mark.skipif(not have_tool("git"), reason="git not available")
 
@@ -93,7 +92,7 @@ def test_verify_detects_a_missing_dependency(tmp_path, capsys):
     add_dependency(source=repo, name="dep", config_path=proj, run_build=False)
     build_project(config_path=proj, output=os.path.join(proj, "b.c"))
 
-    shutil.rmtree(os.path.join(proj, "lib", "dep"))
+    remove_tree(os.path.join(proj, "lib", "dep"))
     assert verify_project(config_path=proj) == 1
     assert "not installed" in capsys.readouterr().err
 

@@ -1,5 +1,6 @@
 import std.spark
 import std.ledger
+import std.archivum
 
 weave main into int:
     calling spark.println with "=== Test Ledger Extended ==="
@@ -160,7 +161,7 @@ weave main into int:
     calling spark.assert with ((kv_map at "port") == "8080")
     calling spark.assert with ((kv_map at "env") == "prod")
 
-    var tmp_kv_file as string is "/tmp/pengu_test_kv.csv"
+    var tmp_kv_file as string is calling archivum.temp_file with "pengu_test_kv"
     var ok_write_kv as bool is calling ledger.write_key_value_map with tmp_kv_file, kv_map
     var tmp_content_opt as maybe string is calling archivum.read_file with tmp_kv_file
     calling spark.assert with (tmp_content_opt.is_present)
@@ -193,7 +194,7 @@ weave main into int:
     calling spark.assert with ((no_crlf at (no_crlf_len - 1)) != "\n")
     calling spark.assert with ((no_crlf at (no_crlf_len - 1)) != "\r")
 
-    var tmp_safe_file as string is "/tmp/pengu_test_safe.csv"
+    var tmp_safe_file as string is calling archivum.temp_file with "pengu_test_safe"
     var ok_safe as bool is calling ledger.write_csv_safe with tmp_safe_file, rows
     calling spark.assert with ok_safe
     calling spark.println with "generators & safe write: OK"

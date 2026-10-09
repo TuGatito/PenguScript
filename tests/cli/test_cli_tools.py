@@ -510,8 +510,11 @@ class TestBuildCommands:
         library_flags = [t for t in tokens if t.startswith("-l")]
         assert library_flags, "the runtime must always be linked"
         assert library_flags.count("-lpengu_runtime") == 1
+        # `-lopengl32` is the Windows *system* GL loader, part of the runtime's
+        # fixed platform set (see `runtime_link_flags`), not a hardcoded game
+        # library; the forbidden names are the UI/game wrappers.
         forbidden = [f for f in library_flags
-                     if any(k in f for k in ("raylib", "raygui", "glfw", "SDL", "opengl"))]
+                     if any(k in f for k in ("raylib", "raygui", "glfw", "SDL"))]
         assert not forbidden, f"unexpected hardcoded library: {forbidden}\n{cmd_str}"
 
     def test_profiles_apply_flags(self, proj_dir):

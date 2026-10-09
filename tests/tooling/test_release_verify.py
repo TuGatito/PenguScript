@@ -12,6 +12,7 @@ that can be run.
 
 from __future__ import annotations
 
+import os
 import shutil
 import tarfile
 import subprocess
@@ -23,6 +24,17 @@ import yaml
 
 from tests.conftest import REPO
 from tests.test_ci_workflows import ALL_WORKFLOWS, _jobs, _raw, _triggers
+
+#: The fake artifact's "binary" is `tests/fixtures/fake_pengu.py` written to a
+#: file named `pengu` and executed through its `#!` shebang -- a POSIX mechanism.
+#: Windows cannot run it (measured: `OSError [WinError 193]`), and release.yml
+#: verifies the *real* `pengu.exe` in the portable layout, so the fake-binary
+#: executions are POSIX-only.
+_FAKE_BINARY_IS_POSIX = pytest.mark.skipif(
+    os.name == "nt",
+    reason="the fake artifact binary is a POSIX shebang script; Windows verifies "
+           "the real pengu.exe in release.yml",
+)
 
 SCRIPT = REPO / "scripts" / "verify_release_artifact.py"
 RUNTIME_ARCHIVE = REPO / "build" / "lib" / "libpengu_runtime.a"
@@ -109,6 +121,35 @@ def test_release_workflow_keeps_the_repo_invariants():
 # --------------------------------------------------------------------------- #
 
 
+def test_windows_pengu_command_keeps_backslash_paths():
+    """Regression: Windows paths were shredded by ``shlex.split``.
+
+    ``--pengu "C:\\...\\python.exe D:\\a\\...\\pengu_project.py"`` was split in
+    POSIX mode, where ``\\`` escapes the next character, so the interpreter
+    became ``C:...python.exe`` and every check died with ``WinError 2`` before
+    it could run. ``_split_command(windows=True)`` is exercised from any host.
+    """
+    sys.path.insert(0, str(REPO / "scripts"))
+    try:
+        import verify_release_artifact as tool
+    finally:
+        sys.path.pop(0)
+
+    cmd = (r"C:\hostedtoolcache\windows\Python\3.14.7\x64\python.exe "
+           r"D:\a\PenguScript\PenguScript\pengu_project.py")
+    assert tool._split_command(cmd, windows=True) == [
+        r"C:\hostedtoolcache\windows\Python\3.14.7\x64\python.exe",
+        r"D:\a\PenguScript\PenguScript\pengu_project.py",
+    ]
+    # A quoted interpreter path with spaces keeps both its spaces and its slashes.
+    quoted = (r'"C:\Program Files\Python\python.exe" '
+              r"D:\a\PenguScript\PenguScript\pengu_project.py")
+    assert tool._split_command(quoted, windows=True) == [
+        r"C:\Program Files\Python\python.exe",
+        r"D:\a\PenguScript\PenguScript\pengu_project.py",
+    ]
+
+
 def _build_fake_artifact(tmp_path, *, name="pengu-linux-x64.tar.gz", version="1.2.3"):
     """A hermetic release artifact: the real portable layout, fake binary.
 
@@ -164,6 +205,7 @@ def test_install_fhs_installs_the_real_portable_layout(tmp_path):
     assert tool.artifact_version(unpacked, "portable") == "1.2.3"
 
 
+@_FAKE_BINARY_IS_POSIX
 @pytest.mark.parametrize("layout", ["portable", "fhs"])
 def test_script_verifies_a_whole_artifact_end_to_end(tmp_path, layout):
     """The gate the workflow runs, with a real archive and a real extraction.
@@ -187,6 +229,7 @@ def test_script_verifies_a_whole_artifact_end_to_end(tmp_path, layout):
         assert "hiding <prefix>/lib/pengu breaks the build" in output
 
 
+@_FAKE_BINARY_IS_POSIX
 def test_the_artifact_binary_is_execed_where_it_was_unpacked(tmp_path):
     artifact = _build_fake_artifact(tmp_path)
     result = subprocess.run(

@@ -12,6 +12,7 @@ ephemeral build output), so ``pengu fmt --check .`` is a usable gate: it must be
 clean over the repository.
 """
 
+import os
 import subprocess
 import sys
 
@@ -136,8 +137,8 @@ def test_walker_skips_build_and_caches(tmp_path):
     from pengu_project import _collect_pengu_files
 
     found = _collect_pengu_files([str(tmp_path)])
-    assert [p.split("/")[-1] for p in found] == ["main.pengu"], found
-    assert not any("/build/" in p for p in found)
+    assert [os.path.basename(p) for p in found] == ["main.pengu"], found
+    assert not any(os.sep + "build" + os.sep in p for p in found)
 
 
 def test_explicit_file_inside_skipped_dir_is_honoured(tmp_path):

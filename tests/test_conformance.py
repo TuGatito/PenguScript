@@ -1083,6 +1083,12 @@ def test_a_std_change_selects_only_the_cases_that_import_it() -> None:
     selected = _selftest_affected_cases([imported[0]])
     assert selected, f"{imported[0]} is referenced by the graph but selected nothing"
 
+    # A Windows-style sep in the *changed* path must select the same cases: the
+    # graph is posix-spelled, and `os.path.normpath` turns the forward slashes of
+    # the dependency into backslashes on Windows, which used to make the two
+    # sides unequal and select nothing (item F-Win).
+    assert _selftest_affected_cases([imported[0].replace("/", "\\")]) == selected
+
     # ...and a std module no case imports must select nothing. Derived from the
     # tree rather than hardcoded: the corpus is expected to grow, and a literal
     # module name here would silently stop testing anything the moment a migrated

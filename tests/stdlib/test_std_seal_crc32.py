@@ -139,7 +139,9 @@ def test_crc32_file_is_unsigned(tmp_path):
         "import std.seal\n"
         "\n"
         "weave main into void:\n"
-        f'    var m as maybe u32 is calling seal.crc32_file with "{target}"\n'
+        # `as_posix()`: a raw Windows path would put `\U`/`\A` inside the
+        # generated PenguScript *string literal*, which is not a valid escape.
+        f'    var m as maybe u32 is calling seal.crc32_file with "{target.as_posix()}"\n'
         "    if m is present:\n"
         f"        calling spark.assert with (m.value == {CRC_A})\n"
         "    else:\n"

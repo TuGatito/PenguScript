@@ -73,6 +73,38 @@ def test_zip_windows_drive_path_is_refused(tmp_path):
             safe_extract_zip(zf, str(dest))
 
 
+#: Windows accepts ``\`` as a separator, so a member that is benign to a POSIX
+#: path check (`..\evil.txt` has no ``/`` in it) is a traversal on Windows. The
+#: validator normalises backslashes before looking for ``..`` and drive letters;
+#: these rows are what keeps that normalisation from being removed.
+_BACKSLASH_ESCAPES = [
+    r"..\evil.txt",
+    r"a\..\..\evil.txt",
+    r"\absolute\evil.txt",
+    r"C:\Windows\evil.txt",
+]
+
+
+@pytest.mark.parametrize("member", _BACKSLASH_ESCAPES)
+def test_tar_backslash_traversal_is_refused(tmp_path, member):
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    with _hostile_tar(member) as tar:
+        with pytest.raises(UnsafeArchiveError):
+            safe_extract_tar(tar, str(dest))
+    assert list(dest.iterdir()) == []
+
+
+@pytest.mark.parametrize("member", _BACKSLASH_ESCAPES)
+def test_zip_backslash_traversal_is_refused(tmp_path, member):
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    with _hostile_zip(member) as zf:
+        with pytest.raises(UnsafeArchiveError):
+            safe_extract_zip(zf, str(dest))
+    assert list(dest.iterdir()) == []
+
+
 def test_zip_symlink_member_is_refused(tmp_path):
     dest = tmp_path / "dest"
     dest.mkdir()

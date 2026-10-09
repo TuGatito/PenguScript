@@ -98,6 +98,25 @@ def test_lock_round_trip(tmp_path):
     assert back.packages[0].children == ["b"]
 
 
+def test_lock_escapes_windows_backslash_paths(tmp_path):
+    """Regression: a Windows ``source`` made the lockfile unparseable TOML.
+
+    ``source = "C:\\Users\\..."`` was interpolated raw, so ``tomllib`` raised
+    "Unescaped '\\' in a string"; ``read_lock`` swallowed that and returned
+    None, and `pengu verify` reported "no pengu.lock found" for a file that was
+    right there. The round trip must survive any Windows path.
+    """
+    windows_source = r"C:\Users\runneradmin\AppData\Local\Temp\dep.git"
+    lock = LockFile(targets=[], packages=[
+        LockedPackage(name="dep", source=windows_source, version="1.0.0",
+                      commit="abc", sha256="dead"),
+    ])
+    write_lock(str(tmp_path), lock)
+    back = read_lock(str(tmp_path))
+    assert back is not None, "the escaped lockfile must stay readable"
+    assert back.packages[0].source == windows_source
+
+
 def test_diff_locks_reports_every_kind(tmp_path):
     base = LockFile(packages=[
         LockedPackage(name="a", commit="aaa", version="1.0.0", sha256="h1"),

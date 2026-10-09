@@ -99,10 +99,20 @@ def test_no_color_only_changes_the_ansi_sequences(project):
     assert plain.returncode == 0, plain.stderr
 
     def _normalise(raw):
-        # script(1) echoes a CR before LF; that is the pty, not the CLI. The
-        # elapsed time is not part of the contract, so it is masked out too.
-        plain_text = ANSI_RE.sub(b"", raw).replace(b"\r\n", b"\n")
-        return re.sub(rb"in \d+\.\d+s", b"in X.XXs", plain_text).strip()
+        # `script(1)` echoes the pty's own control bytes: a CR before every LF,
+        # and BSD/macOS additionally echoes the end-of-input as the literal
+        # `^D` erased by two backspaces.  Resolve the backspaces the way a
+        # terminal would, drop the CRs, and mask the elapsed time (not part of
+        # the contract) as before.
+        plain_text = ANSI_RE.sub(b"", raw)
+        resolved = bytearray()
+        for ch in plain_text:
+            if ch == 0x08:          # backspace: erase the previous byte
+                if resolved:
+                    resolved.pop()
+            elif ch != 0x0D:        # CR: the pty's line-ending echo
+                resolved.append(ch)
+        return re.sub(rb"in \d+\.\d+s", b"in X.XXs", bytes(resolved)).strip()
 
     assert _normalise(coloured.stdout) == _normalise(plain.stdout)
 
