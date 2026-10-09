@@ -27,6 +27,7 @@ from ._base import (
     Tree,
     Tuple,
     Type,
+    TupleType,
     TypeParam,
     VOID_TYPE,
     _dce_collect_refs,
@@ -662,6 +663,13 @@ class CollectMixin:
                 if mod_ident and not name.startswith(f"{mod_ident}_"):
                     c_name = f"{mod_ident}_{self._c_ident(name)}"
 
+        # @export("name") pins the emitted C symbol for a top-level weave, after
+        # the insignia/module prefixes above have had their say: it *is* the FFI
+        # entry point, so nothing may mangle it further.  DCE reads the same
+        # attribute and keeps the weave (see pengu_dce.prune_weaves).
+        if enchanted_type is None and attrs.get("export"):
+            c_name = str(attrs["export"][0])
+
         if name == "main" and enchanted_type is None:
             self.has_main = True
             # Remembered so the entry wrapper can forward it as the exit status.
@@ -695,6 +703,20 @@ class CollectMixin:
             # '#line' marker emitted before the C definition.
             "line": self._node_line(node),
         })
+        # A multi-value return needs a C struct for its product type.  Register
+        # it as a synthetic rune so the ordinary rune emitter defines it; the
+        # name CTypeMapper produces for a TupleType is the same c_name().
+        self._register_tuple_type(ret_type)
+    def _register_tuple_type(self, t) -> None:
+        """Registers a TupleType (and its nested tuples) as a synthetic rune."""
+        if not isinstance(t, TupleType):
+            return
+        for element in t.elements:
+            self._register_tuple_type(element)
+        name = t.c_name()
+        if name not in self.runes:
+            self.runes[name] = {f"v{i}": e for i, e in enumerate(t.elements)}
+
     def _expand_when_top_stmts(self, top_stmts: List[Tuple[Tree, str]]) -> List[Tuple[Tree, str]]:
         """Filters compile-time 'when' blocks down to their active branch at top level.
 

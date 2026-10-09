@@ -20,6 +20,7 @@ from ._base import (
     ManyType,
     MapType,
     MaybeType,
+    TupleType,
     NullType,
     OmenType,
     Optional,
@@ -157,6 +158,10 @@ class CTypeMapper:
         elif isinstance(t, MapType):
             return "PenguMap"
 
+        elif isinstance(t, TupleType):
+            # Synthetic rune registered by the code generator; the struct
+            # definition itself is emitted by the ordinary rune emitter.
+            return t.c_name()
         elif isinstance(t, MaybeType):
             return "PenguMaybe"
 

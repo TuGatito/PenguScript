@@ -92,7 +92,7 @@ class PenguIndenter(Indenter):
 
 
 class PenguParser:
-    """LALR(1) parser for PenguScript v1.0.0 using embedded grammar."""
+    """LALR(1) parser for PenguScript v1.1.0 using embedded grammar."""
     _shared_parser = None
 
     def __init__(self):
@@ -388,6 +388,146 @@ class PenguParser:
             i += 1
         return ''.join(out)
 
+    #: Tokens after which a `with` introduces a struct literal instead of a
+    #: call's argument list.  `calling f with a, b` is by far the most common
+    #: form in the corpus (~3400 uses against ~320 struct literals), so the
+    #: rewrite below only fires on these predecessors.
+    _STRUCT_INIT_WITH_PREDECESSORS = frozenset({"is", "return", "(", "with"})
+
+    #: One token of a source line: string literals first (so a comma or `with`
+    #: inside a string is never mistaken for syntax), then identifiers/numbers,
+    #: then any single character.
+    _STRUCT_INIT_TOKEN_RE = re.compile(
+        r'r?"""(?:.|\n)*?"""'
+        r'|r?"(?:[^"\\]|\\.)*"'
+        r"|'(?:[^'\\]|\\.)*'"
+        r'|[A-Za-z_][A-Za-z0-9_]*'
+        r'|[0-9][0-9_]*'
+        r'|\S'
+    )
+
+    @staticmethod
+    def _merge_chain_continuations(code: str) -> str:
+        """Folds lines that start with `.` or `->` into the previous line.
+
+        A method chain reads better split over several lines::
+
+            let clean is calling players
+                .filter_alive()
+                .sort_asc()
+
+        The grammar has no line-continuation token, so the fold happens here.
+        The number of lines is preserved by padding the merged-away lines with
+        empty ones, which keeps ``#line`` directives and diagnostic positions
+        exact (a folded line reports the position where the chain started).
+
+        Lines inside a triple-quoted string are left alone: a string body may
+        legitimately begin with `.`, and folding it would corrupt the literal.
+        """
+        lines = code.split("\n")
+        out: List[str] = []
+        index = 0
+        total = len(lines)
+        in_triple = False
+        while index < total:
+            start = index
+            line = lines[index]
+            if line.count('"""') % 2 == 1:
+                in_triple = not in_triple
+            if in_triple:
+                out.append(line)
+                index += 1
+                continue
+            merged = line
+            cursor = index + 1
+            while (cursor < total
+                   and lines[cursor].lstrip().startswith((".", "->"))
+                   and lines[cursor].count('"""') % 2 == 0):
+                merged += " " + lines[cursor].strip()
+                cursor += 1
+            out.append(merged)
+            out.extend([""] * (cursor - start - 1))
+            index = cursor
+        return "\n".join(out)
+
+    @classmethod
+    def _expand_short_struct_inits(cls, code: str) -> str:
+        """Rewrites `with a, b` into `with a is a, b is b`.
+
+        The short form cannot be expressed as a grammar rule: a rule that
+        reduces a bare ``NAME`` to a field collides **Reduce/Reduce** against
+        ``primary: NAME`` (the state is shared with general expression parsing),
+        and Lark refuses to build the LALR tables at all rather than resolving
+        it.  Expanding the text before parsing keeps the grammar conflict-free
+        and, because the rewrite never adds or removes a line, keeps ``#line``
+        directives and error positions exact.
+
+        Only *struct literal* `with` clauses are touched: the rewrite keys on
+        the token before `with` (`is`, `return`, `(`, `with`), which is what
+        separates `var p as P is with a, b` from `calling f with a, b`.
+        """
+        if "with" not in code:
+            return code
+        return "\n".join(
+            cls._expand_short_struct_inits_in_line(line) for line in code.split("\n")
+        )
+
+    @classmethod
+    def _expand_short_struct_inits_in_line(cls, line: str) -> str:
+        stripped = line.lstrip()
+        if not stripped or stripped.startswith("#"):
+            return line
+        tokens = [
+            (m.start(), m.end(), m.group(0))
+            for m in cls._STRUCT_INIT_TOKEN_RE.finditer(line)
+        ]
+        insertions: List[Tuple[int, str]] = []
+        for index, (_start, _end, text) in enumerate(tokens):
+            if text != "with":
+                continue
+            predecessor = tokens[index - 1][2] if index else None
+            if predecessor not in cls._STRUCT_INIT_WITH_PREDECESSORS:
+                continue
+            item_start = index + 1
+            depth = 0
+            cursor = index + 1
+            while cursor < len(tokens):
+                token = tokens[cursor][2]
+                if token in "([{":
+                    depth += 1
+                elif token in ")]}":
+                    if depth == 0:
+                        break
+                    depth -= 1
+                elif depth == 0 and token in (",", ":"):
+                    if token == ",":
+                        cls._collect_shorthand_field(tokens, item_start, cursor, insertions)
+                        item_start = cursor + 1
+                    else:
+                        break
+                cursor += 1
+            cls._collect_shorthand_field(tokens, item_start, cursor, insertions)
+        if not insertions:
+            return line
+        expanded = line
+        for position, text in sorted(insertions, reverse=True):
+            expanded = expanded[:position] + text + expanded[position:]
+        return expanded
+
+    @staticmethod
+    def _collect_shorthand_field(tokens, start: int, end: int,
+                                 insertions: List[Tuple[int, str]]) -> None:
+        """Records `is <name>` after a field slot holding exactly one NAME."""
+        item = tokens[start:end]
+        if len(item) != 1:
+            return
+        _s, item_end, text = item[0]
+        if not text[:1].isalpha() and text[:1] != "_":
+            return
+        if not text.replace("_", "a").isalnum():
+            return
+        insertions.append((item_end, f" is {text}"))
+
     def parse(self, code: str) -> Tree:
         """Parses PenguScript source code into a Lark AST Tree.
 
@@ -406,6 +546,8 @@ class PenguParser:
         code = code.replace("\r\n", "\n")
         self._check_indentation_consistency(code)
         clean_code = self._strip_comments(code).rstrip() + '\n'
+        clean_code = self._merge_chain_continuations(clean_code)
+        clean_code = self._expand_short_struct_inits(clean_code)
         try:
             return self.parser.parse(clean_code, start='start')
         except LarkUnexpectedInput as exc:

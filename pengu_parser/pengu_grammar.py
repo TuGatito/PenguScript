@@ -45,6 +45,11 @@ var_decl: "var" NAME ["as" type] ("is" (value_expr [_NEWLINE] | indent_literal) 
 static_var_decl: "static" "var" NAME ["as" type] ("is" (value_expr [_NEWLINE] | indent_literal) | with_init_expr)
 let_decl: "let" var_name_list ["as" type] ("is" (value_expr [_NEWLINE] | indent_literal) | with_init_expr)
 var_name_list: NAME ("," NAME)*
+             # Parenthesised destructuring, as LANGUAGE.md §5.1 documents it:
+             # `let (x, y) is p`.  Both alternatives produce the same
+             # `var_name_list` of NAMEs, so the checker and codegen that already
+             # handle `let x, y is p` handle this unchanged.
+             | "(" NAME ("," NAME)* ")"
 
 indent_literal: [":"] _NEWLINE _INDENT (indent_array | indent_entries) _DEDENT
 indent_array: indent_row+
@@ -151,7 +156,7 @@ banish_stmt: "banish" unary _NEWLINE
 # The trailing _NEWLINE is optional: a block-expression value anywhere in the
 # returned expression ('return if c: …', 'return calling f with if c: …') already
 # consumed the line break, exactly like 'expr_stmt' and 'var_decl'.
-return_stmt: "return" [value_expr] [_NEWLINE]
+return_stmt: "return" [value_expr ("," value_expr)*] [_NEWLINE]
 break_stmt: "break" _NEWLINE
 continue_stmt: "continue" _NEWLINE
 expr_stmt: expr [_NEWLINE]
@@ -257,7 +262,13 @@ bool_lit: "true" -> true_lit
      | opaque_type
      | base_type
      | custom_type
+     | tuple_type
      | "(" type ")"
+
+# A multi-value return type: `into (int, bool)`.  Two or more elements, so a
+# single parenthesised type stays the grouping form above; the parser decides
+# on `,` versus `)`, which needs exactly one token of lookahead.
+tuple_type: "(" type ("," type)+ ")"
 
 !base_type: "int" | "i32" | "i64" | "float" | "f32" | "f64" | "bool" | "string" | "void" | "char" | "byte" | "u8" | "i8" | "u16" | "i16" | "u32" | "u64" | "int8" | "uint8" | "int16" | "uint16" | "int32" | "uint32" | "int64" | "uint64" | "usize" | "isize" | "size_t" | "short" | "ushort" | "long" | "ulong" | "double" | "int8_t" | "uint8_t" | "int16_t" | "uint16_t" | "int32_t" | "uint32_t" | "int64_t" | "uint64_t" | "uint"
 custom_type: dotted_path ["of" type (("," | _AND_SEP) type)*]

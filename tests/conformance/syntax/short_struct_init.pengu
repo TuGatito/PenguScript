@@ -1,0 +1,26 @@
+# tests/conformance/syntax/short_struct_init.pengu
+#
+# `with name, hp` is the short form of `with name is name, hp is hp`.
+#
+# The short form cannot be a grammar rule: a rule reducing a bare `NAME` to a
+# field collides Reduce/Reduce against `primary: NAME` and Lark refuses to build
+# the LALR tables. It is expanded before parsing instead, so both the short and
+# the long form must keep working, and the (far more common) call argument list
+# `calling f with a, b` must be left completely alone.
+import std.spark
+
+rune Player:
+    name as string
+    hp as int
+
+weave combine with a as int, b as int into int:
+    return a + b
+
+test "syntax/short_struct_init":
+    let name is "Ada"
+    var hp is 100
+    var hero as Player is with name, hp
+    var explicit as Player is with name is "Bob", hp is 7
+    # Argument lists also start with `with`; they must NOT be expanded.
+    let total is calling combine with hp, explicit.hp
+    calling spark.println with "{hero.name} {explicit.name} {total}"

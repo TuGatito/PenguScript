@@ -1018,6 +1018,52 @@ class MaybeType(Type):
 
 
 @dataclass
+class TupleType(Type):
+    """A heterogeneous product of two or more types: ``(int, bool)``.
+
+    Produced by a multi-value ``return a, b`` and consumed by destructuring.
+    It lowers to a C struct ``_pengu_tup_<mangled>``, registered as a synthetic
+    rune so the ordinary struct emitter defines the type.
+    """
+    elements: List[Type] = field(default_factory=list)
+
+    @property
+    def name(self) -> str:
+        return "(" + ", ".join(str(e) for e in self.elements) + ")"
+
+    @property
+    def type_args(self) -> List[Type]:
+        return list(self.elements)
+
+    def substitute(self, type_map: Dict[str, Type]) -> Type:
+        return TupleType(elements=[e.substitute(type_map) for e in self.elements])
+
+    def get_mangled_name(self) -> str:
+        return "tup_" + "_".join(e.get_mangled_name() for e in self.elements)
+
+    def c_name(self) -> str:
+        """The generated C struct name."""
+        return f"_pengu_tup_{self.get_mangled_name()}"
+
+    def is_compatible(self, other: Type) -> bool:
+        if isinstance(other, FrozenType):
+            return self.is_compatible(other.target)
+        if isinstance(other, (AnyType, TypeParam)):
+            return True
+        if isinstance(other, TupleType):
+            return (len(self.elements) == len(other.elements)
+                    and all(a.is_compatible(b)
+                            for a, b in zip(self.elements, other.elements)))
+        return False
+
+    def __eq__(self, other: Any) -> bool:
+        return isinstance(other, TupleType) and self.elements == other.elements
+
+    def __hash__(self) -> int:
+        return hash(("tuple", tuple(self.elements)))
+
+
+@dataclass
 class ResultType(Type):
     """Result union type for error handling (result of T to E)."""
     ok_type: Type
@@ -2304,6 +2350,12 @@ def ast_to_type(type_node: Any, symbol_lookup_fn: Optional[Any] = None) -> Type:
         err_type = ast_to_type(type_node.children[1], symbol_lookup_fn) if len(type_node.children) > 1 else ERROR_TYPE
         return ResultType(ok_type=ok_type, err_type=err_type)
 
+    elif rule == "tuple_type":
+        return TupleType(elements=[
+            ast_to_type(child, symbol_lookup_fn)
+            for child in type_node.children if child is not None
+        ])
+
     elif rule == "fn_type":
         params: List[Tuple[Optional[str], Type]] = []
         ret_type: Type = VOID_TYPE
@@ -2319,7 +2371,7 @@ def ast_to_type(type_node: Any, symbol_lookup_fn: Optional[Any] = None) -> Type:
                         elif len(p_child.children) == 1:
                             p_type = ast_to_type(p_child.children[0], symbol_lookup_fn)
                         params.append((p_name, p_type))
-            elif isinstance(child, Tree) and child.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "opaque_type", "fn_type"):
+            elif isinstance(child, Tree) and child.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "tuple_type", "opaque_type", "fn_type"):
                 ret_type = ast_to_type(child, symbol_lookup_fn)
             elif isinstance(child, Token) and child.type == "NAME":
                 ret_type = ast_to_type(child, symbol_lookup_fn)

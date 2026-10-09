@@ -1,0 +1,20 @@
+# tests/conformance/syntax/method_chain_multiline.pengu
+#
+# The same chain split over several lines, each continuation starting with `.`:
+#
+#     let part is calling raw
+#         .trim
+#         .substring with 0, 2
+#
+# The grammar has no line-continuation token, so the parser folds a `.`/`->`
+# line into the previous one before lexing, padding the merged-away lines with
+# empty ones so `#line` directives and diagnostic positions stay exact.
+import std.spark
+import std.scrolls
+
+test "syntax/method_chain_multiline":
+    var raw as string is "  hi  "
+    let part is calling raw
+        .trim
+        .substring with 0, 2
+    calling spark.println with "[{part}]"

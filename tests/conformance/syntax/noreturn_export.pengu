@@ -1,0 +1,24 @@
+# tests/conformance/syntax/noreturn_export.pengu
+#
+# `@noreturn` marks a weave that never returns: the checker requires it to be
+# `void`, and codegen emits `_Noreturn` on both the prototype and the definition.
+#
+# `@export("c_name")` renames the emitted C symbol (the FFI entry point) while
+# the PenguScript name stays `add`. The value is printed so the case fails if the
+# exported weave is ever dropped by dead-code elimination: an exported weave that
+# nothing calls is still a root.
+import std.spark
+
+@noreturn
+weave stop with msg as string into void:
+    calling spark.println with "stop: {msg}"
+
+@export("pengu_exported_add")
+weave add with a as int, b as int into int:
+    return a + b
+
+test "syntax/noreturn_export":
+    let total is calling add with 20, 22
+    if false:
+        calling stop with "not reached"
+    calling spark.println with "total={total}"

@@ -2991,3 +2991,63 @@ var v as int is grid at 0 at 0   # grid[0][0]
 `a at b at c` is treated as the left-associative chain `(a at b) at c`.
 
 ---
+
+## Method chaining (1.1.0)
+
+```pengu
+# One line: `with` binds to the LAST link only.
+let part is calling raw.trim.substring with 0, 2
+
+# Several lines: a `.`-prefixed line continues the chain.
+let part is calling raw
+    .trim
+    .substring with 0, 2
+```
+
+## Multiple return values (1.1.0)
+
+```pengu
+weave divide with a as int, b as int into (int, bool):
+    if b == 0:
+        return 0, false
+    return (a / b), true
+
+let (quotient, ok) is calling divide with 10, 2
+let q2, ok2 is calling divide with 1, 0      # both spellings are equivalent
+```
+
+## Shorthand struct initializers (1.1.0)
+
+```pengu
+let name is "Ada"
+var hp is 100
+var hero as Player is with name, hp          # = with name is name, hp is hp
+```
+
+## Function attributes (1.1.0)
+
+```pengu
+@noreturn
+weave stop with msg as string into void:
+    calling spark.println with "stop: {msg}"
+
+@export("pengu_c_name")                       # pins the emitted C symbol
+weave add with a as int, b as int into int:
+    return a + b
+```
+
+## Layout attributes
+
+```pengu
+@packed
+rune NetHeader:
+    magic as u16
+    version as u8
+    flags as u8
+    length as u32
+
+@align(16)                                    # power of two, 1..128
+rune Aligned4:
+    x as f32
+    y as f32
+```

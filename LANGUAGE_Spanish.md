@@ -1,6 +1,6 @@
 # Referencia del Lenguaje PenguScript
 
-> **Versión cubierta:** PenguScript **1.0.0** (sincronizada con `VERSION` y `pengu_version.py`; generador de código C99/C11; cabeceras de runtime en `pengu_runtime.h`).
+> **Versión cubierta:** PenguScript **1.1.0** (sincronizada con `VERSION` y `pengu_version.py`; generador de código C99/C11; cabeceras de runtime en `pengu_runtime.h`).
 > **Política de idioma.** El inglés es el idioma canónico de la documentación de
 > PenguScript, así que el documento **normativo** es [`LANGUAGE.md`](LANGUAGE.md).
 > Esta traducción al español es **no normativa**: puede ir por detrás y, donde los dos
@@ -2294,7 +2294,7 @@ prioridad.
 
 ```yaml
 name: my_app
-version: 1.0.0
+version: 1.1.0
 output: exe                  # exe | c | obj | static | shared
 entry: src/main.pengu        # main entry module (defaults to src/main.pengu)
 src_dirs: [src]              # source lookup roots (default: [src])
@@ -3319,7 +3319,7 @@ pengu -V
 pengu --version
 ```
 
-- Muestra la cadena de versión (p. ej. `PenguScript v1.0.0`). La versión del compilador se registra en `VERSION` y se replica en `pengu_version.py`.
+- Muestra la cadena de versión (p. ej. `PenguScript v1.1.0`). La versión del compilador se registra en `VERSION` y se replica en `pengu_version.py`.
 
 ### 20.14 Infraestructura del runtime y diagnósticos
 
@@ -3470,10 +3470,10 @@ La columna `Conditions` es el número de formas de mensaje distintas que el cód
 | `E0014` | `InvalidBuilderStatementError`, `SemanticError`, `TypeMismatchError` | 10 | invalid statement inside with: builder block. | 1 help / 1 note |
 | `E0015` | `SemanticError`, `UnknownArrayDimensionError` | 4 | Array dimension size is unknown and cannot be inferred. | 1 help / 1 note |
 | `E0016` | `UndefinedIdentifierError` | 1 | — | — |
-| `E0017` | `SemanticError` | 4 | — | — |
+| `E0017` | `SemanticError` | 5 | — | — |
 | `E0018` | `TypeMismatchError` | 1 | — | — |
 | `E0019` | `SemanticError`, `UndefinedIdentifierError` | 3 | — | — |
-| `E0020` | `SemanticError`, `TypeMismatchError` | 7 | — | — |
+| `E0020` | `SemanticError`, `TypeMismatchError` | 9 | — | — |
 | `E0021` | `GenericTypeMissingArgsError` | 1 | Generic type used without required type arguments. | 1 help / 1 note |
 | `E0022` | `TypeParamOutsideGenericError` | 1 | Type parameter used outside generic declaration context. | 1 help / 1 note |
 | `E0023` | `MultipleManyParamsError` | 2 | Multiple many parameters in a function. | 1 help / 1 note |
@@ -3507,7 +3507,7 @@ La columna `Conditions` es el número de formas de mensaje distintas que el cód
 | `E0053` | `SemanticError` | 2 | — | — |
 | `E0054` | `SemanticError` | 1 | — | — |
 | `E0055` | `SemanticError` | 1 | — | — |
-| `E0056` | `UnknownAttributeError` | 6 | unknown attribute or invalid attribute usage. | 1 help / 1 note |
+| `E0056` | `SemanticError`, `UnknownAttributeError` | 8 | unknown attribute or invalid attribute usage. | 1 help / 1 note |
 | `E0057` | `InvalidCharLiteralError` | 2 | char literal cannot hold codepoint > 0x7F. | 1 help / 1 note |
 | `E0058` | `SemanticError` | 1 | — | — |
 | `E0063` | `StaticVarPlacementError` | 1 | 'static var' declared outside a function body.  A function-static variable is C's ``static`` local: it belongs to one weave and is created once.  Declaring it in a ``test`` block, at module top level, or nested inside a conditional has no coherent C translation, so it is rejected on placement rather than on type.  This used to share ``E0035`` with the "name collides with a C reserved word" diagnostic -- two conditions with nothing in common, which made a code-based quick-fix impossible (roadmap Phase 7, item 7.2). | 1 help / 1 note |
@@ -3604,4 +3604,170 @@ set acc is "{acc}b"
 
 ---
 
-*Fin de la referencia. Se agradecen las correcciones — este documento refleja el comportamiento del compilador en la versión 1.0.x; ejecuta `pengu check` sobre cualquier fragmento para confirmar la semántica en tu toolchain.*
+## 24. Encadenamiento de métodos
+
+Un único `calling` puede encadenar varias llamadas a método. Cada eslabón `.nombre`
+se resuelve contra el tipo que produce el eslabón anterior:
+
+```pengu
+import std.scrolls
+
+weave acortar with raw as string into string:
+    return calling raw.trim.substring with 0, 2
+```
+
+No es la sintaxis de llamada con paréntesis de los lenguajes tipo C: en PenguScript
+las llamadas a método reciben sus argumentos con `with`, y una cadena no añade
+paréntesis. La lista de argumentos `with` se aplica **solo al último** eslabón.
+
+### 24.1 Cadenas multilínea
+
+Una cadena puede repartirse en varias líneas. La línea de continuación empieza por
+`.` (o `->`) y se pliega en la línea anterior antes del lexer:
+
+```pengu
+import std.scrolls
+
+weave acortar with raw as string into string:
+    return calling raw
+        .trim
+        .substring with 0, 2
+```
+
+El plegado preserva la numeración de líneas, así que un diagnóstico sobre una
+expresión encadenada señala la línea en la que *empieza* la cadena. Las líneas que
+están dentro de una cadena con comillas triples nunca se pliegan.
+
+### 24.2 Bajada a C y restricciones
+
+Cada eslabón que es realmente un método se evalúa en un temporal dentro de una
+expresión de sentencia de GNU, y el valor de la cadena es el último temporal. Una
+cadena solo se trata como tal cuando **todos** los eslabones intermedios resuelven a
+un método: una sucesión de lecturas de *campo* no es una cadena, y una lectura de
+campo sobre el resultado de un método debe escribirse como una expresión aparte.
+
+> [!NOTE]
+> Una cadena requiere al menos dos eslabones. `calling x.metodo` es la forma
+> canónica de una sola llamada y no cambia.
+
+## 25. Retornos múltiples
+
+Un weave puede devolver un producto de dos o más valores declarando un tipo
+**tupla** y devolviendo los valores separados por comas:
+
+```pengu
+weave divide with a as int, b as int into (int, bool):
+    if b == 0:
+        return 0, false
+    return (a / b), true
+```
+
+`(int, bool)` es un `TupleType`. Se emite como un struct de C
+(`_pengu_tup_tup_int_bool`) cuyos campos son `v0`, `v1`, … en orden de declaración,
+así que su ABI es por valor exactamente igual que la de cualquier otro rune.
+
+### 25.1 Desestructurar el resultado
+
+```pengu-fragment
+weave usar_division into int:
+    let (cociente, ok) is calling divide with 10, 2
+    if not ok:
+        return 0
+    return cociente
+```
+
+El número de nombres debe coincidir con el número de elementos de la tupla
+(`E0017`), y cada valor devuelto se comprueba contra el tipo de su elemento en
+orden (`E0020`).
+
+### 25.2 Desestructuración con paréntesis
+
+`let (x, y) is p` y `let x, y is p` son equivalentes; las dos formas producen la
+misma lista de bindings. La forma con paréntesis es la que documenta esta
+referencia.
+
+> [!WARNING]
+> Las tuplas componen con la desestructuración y con nada más. **No** componen con
+> `try`, `or else` ni la propagación de `or:`; para retornos falibles usa
+> `maybe`/`result`.
+
+## 26. Inicializadores cortos de struct
+
+Un campo de un literal `with` puede omitir `is <valor>` y tomar en su lugar el
+binding del mismo nombre:
+
+```pengu
+rune Player:
+    name as string
+    hp as int
+
+weave make into Player:
+    let name is "Ada"
+    var hp is 100
+    return with name, hp
+```
+
+`with name, hp` es exactamente `with name is name, hp is hp`. Las dos formas pueden
+mezclarse en un mismo literal, y un campo cuya posición contenga algo distinto de
+un único nombre desnudo debe usar la forma explícita con `is`.
+
+> [!NOTE]
+> Esta reescritura ocurre antes del parseo y nunca añade ni quita líneas, así que
+> las directivas `#line` y las posiciones de los diagnósticos siguen siendo
+> exactas. Un `with` que introduce la lista de *argumentos* de una llamada
+> (`calling f with a, b`) nunca se reescribe.
+
+## 27. Atributos de función: `@noreturn` y `@export`
+
+Ambos atributos se aplican a declaraciones `weave`.
+
+`@noreturn` afirma que el weave nunca vuelve a quien lo llamó. El weave debe
+declararse `into void` (`E0056`); el C generado lleva `_Noreturn` tanto en el
+prototipo como en la definición (`__declspec(noreturn)` en MSVC):
+
+```pengu
+import std.spark
+
+@noreturn
+weave stop with msg as string into void:
+    calling spark.println with "stop: {msg}"
+```
+
+`@export("nombre_c")` fija el símbolo C emitido, que es contra lo que enlaza un
+llamador externo. El nombre en PenguScript no cambia: solo lo hace el nombre en C:
+
+```pengu
+@export("pengu_exported_add")
+weave add with a as int, b as int into int:
+    return a + b
+```
+
+Al weave anterior se le sigue llamando `calling add with 1, 2` desde PenguScript, y
+se emite como `int pengu_exported_add(int32_t a, int32_t b)`. Un weave exportado es
+raíz de la eliminación de código muerto aunque nada en el programa lo referencie.
+
+## 28. Atributos de layout: `@packed` y `@align(N)`
+
+`@packed` elimina el relleno entre campos de un `rune`, y `@align(N)` fija su
+alineación. `N` debe ser una potencia de dos entre 1 y 128 (`E0056`), porque tanto
+GCC/Clang como MSVC lo exigen:
+
+```pengu
+@packed
+rune NetHeader:
+    magic as u16
+    version as u8
+    flags as u8
+    length as u32
+```
+
+Con `@packed` este rune ocupa 8 bytes en lugar de los 12 que exigiría el relleno.
+`@align(N)` también puede aplicarse a un campo concreto para alinearlo dentro de su
+struct.
+
+> [!NOTE]
+> `@packed` y `@align` se aplican a declaraciones `rune` y a sus campos. Una
+> declaración `echo` no tiene posición de atributo en la gramática, así que no
+> pueden escribirse ahí; una unión de C tiene sus propias reglas de layout.
+
+*Fin de la referencia. Se agradecen las correcciones — este documento refleja el comportamiento del compilador en la versión 1.1.x; ejecuta `pengu check` sobre cualquier fragmento para confirmar la semántica en tu toolchain.*

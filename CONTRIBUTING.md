@@ -5,7 +5,7 @@ compiler for the PenguScript language that emits C99/C11 and links a C runtime.
 This guide covers how the project is built, tested, documented and released, and
 the review rules a change must satisfy.
 
-Current version: **1.0.0** — released, with the scope it covers and the features
+Current version: **1.1.0** — released, with the scope it covers and the features
 it explicitly does **not** cover declared in
 [`docs/ANNOUNCEMENT_1.0.md`](docs/ANNOUNCEMENT_1.0.md) and
 [`docs/FREEZE.md`](docs/FREEZE.md). Read [`AUDIT_1.0.md`](AUDIT_1.0.md) (the

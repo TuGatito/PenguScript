@@ -33,6 +33,7 @@ from ._base import (
     Tree,
     Tuple,
     Type,
+    TupleType,
     TypeInferrer,
     VOID_TYPE,
     _decl_layout,
@@ -300,6 +301,22 @@ class StmtMixin:
                 names = [str(var_names_node)]
 
             type_node, expr_node = _decl_layout(node)
+
+            # Tuple destructuring: unpack the product struct into its elements.
+            tuple_t = getattr(node, "_pengu_tuple_type", None)
+            if tuple_t is not None and len(names) > 1 and expr_node is not None:
+                tuple_tmp = self.get_temp_name("_tup")
+                tuple_c = CTypeMapper.to_c_type(tuple_t)
+                value_c = self._translate_expr(expr_node)
+                unpack_lines = [f"{ind}{tuple_c} {tuple_tmp} = {value_c};"]
+                for index, v_name in enumerate(names):
+                    elem_t = tuple_t.elements[index]
+                    c_v = self._c_ident(v_name)
+                    unpack_lines.append(
+                        f"{ind}{CTypeMapper.to_c_decl(elem_t, c_v)} = {tuple_tmp}.v{index};")
+                    self.local_vars[v_name] = elem_t
+                    self.local_vars[c_v] = elem_t
+                return "\n".join(unpack_lines)
 
             if len(names) == 1:
                 name = names[0]
@@ -876,6 +893,21 @@ class StmtMixin:
             return f"{ind}{b_code};"
 
         elif rule == "return_stmt":
+            # Multi-value return: `return a, b` builds the product struct.  This
+            # must come first: the single-value path below reads children[0] and
+            # would silently drop every further value.
+            if len(node.children) > 1 and isinstance(self.current_return_type, TupleType):
+                elements = self.current_return_type.elements
+                parts = []
+                for index, (child, element_t) in enumerate(zip(node.children, elements)):
+                    value_c = self._translate_expr(child, expected_type=element_t)
+                    parts.append(f".v{index} = {value_c}")
+                compound = (f"({self.current_return_type.c_name()}){{ "
+                            + ", ".join(parts) + " }")
+                tuple_tmp = self.get_temp_name("_ret")
+                tuple_decl = CTypeMapper.to_c_decl(self.current_return_type, tuple_tmp)
+                return (f"{ind}{tuple_decl} = {compound};\n"
+                        f"{ind}pengu_frame_pop();\n{ind}return {tuple_tmp};")
             ret_expr = node.children[0] if node.children else None
             ret_val_str = self._translate_expr(ret_expr, expected_type=self.current_return_type) if ret_expr is not None else ""
 

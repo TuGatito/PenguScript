@@ -56,7 +56,7 @@
 ##   `spark.panic`) porque `import std.ward` crearía un ciclo (E0004).
 
 # --- Imports ------------------------------------------------------------
-const ORACLE_VERSION as string is "1.0.0"
+const ORACLE_VERSION as string is "1.1.0"
 
 import std.spark
 

@@ -52,6 +52,91 @@ from .ctype import (
 class ExprMixin:
     """Expression dispatch: the per-rule translation of `_translate_expr_impl`."""
 
+    def _method_return_type(self, recv_type, name):
+        """Return type of `name` resolved as a method on `recv_type`, else None.
+
+        Deliberately conservative: an unknown receiver or an unresolved method
+        returns None, which makes the caller fall back to the pre-existing
+        single-step path instead of guessing.
+        """
+        t_name = getattr(recv_type, "name", None)
+        if not t_name:
+            return None
+        candidates = [t_name]
+        if " of " in t_name:
+            candidates.append(t_name.split(" of ", 1)[0])
+        methods = getattr(self.symbols, "methods", None) or {}
+        for cand in candidates:
+            entry = methods.get((cand, name))
+            if entry is not None:
+                return getattr(entry, "return_type", None)
+        return None
+
+    def _translate_method_chain(self, target_node, args_node, explicit_type_args):
+        """Lowers `calling a.m1.m2 [with args]`; None when it is not a chain.
+
+        `normal_target` already parses `a.m1.m2` (there is no chain grammar), but
+        the single-step path below renders the intermediate `a.m1` as a C member
+        access, which is invalid C for a method.  Each genuine method link is
+        instead evaluated into a temporary inside a GNU statement-expression,
+        reusing the single-step emitter by synthesising `calling <tmp>.<m>` and
+        registering `<tmp>`'s type in `local_vars` so the receiver resolves.
+
+        Only links that are really *methods* are treated this way: a chain of
+        field reads (`calling hero.pos.x`) must keep lowering to C member
+        accesses exactly as before, so anything unresolved returns None.
+        """
+        if explicit_type_args:
+            return None
+        if not (isinstance(target_node, Tree) and target_node.data == "normal_target"):
+            return None
+        children = list(target_node.children)
+        if len(children) < 3:
+            return None                      # base + one access = a plain call
+        base = children[0]
+        steps = children[1:]
+        if not isinstance(base, Token):
+            return None
+        if any(not (isinstance(s, Tree)
+                    and s.data in ("dot_access", "arrow_access")
+                    and len(s.children) == 1) for s in steps):
+            return None
+
+        recv_type = self._infer_node_type(base)
+        if recv_type is None:
+            return None
+        step_rets = []
+        for step in steps:
+            ret_t = self._method_return_type(recv_type, str(step.children[0]))
+            if ret_t is None:
+                return None                  # a field read, or unknown: leave it
+            step_rets.append(ret_t)
+            recv_type = ret_t
+
+        lines = []
+        added = []
+        prev_name = str(base)
+        last_name = prev_name
+        for index, step in enumerate(steps):
+            tmp = self.get_temp_name("_chain")
+            synth_target = Tree("normal_target", [Token("NAME", prev_name), step])
+            synth_children = [synth_target]
+            if index == len(steps) - 1 and args_node is not None:
+                synth_children.append(args_node)
+            call_c = self._translate_expr(Tree("calling_expr", synth_children))
+            c_t = CTypeMapper.to_c_type(step_rets[index])
+            lines.append(f"{c_t} {tmp} = {call_c};")
+            if tmp not in self.local_vars:
+                added.append(tmp)
+            self.local_vars[tmp] = step_rets[index]
+            prev_name = tmp
+            last_name = tmp
+        for tmp in added:
+            self.local_vars.pop(tmp, None)
+
+        body = "\n".join("    " + line for line in lines)
+        return f"(__extension__(({{\n{body}\n    {last_name};\n}})))"
+
     def _translate_expr(self, node: Any, expected_type: Optional[Type] = None) -> str:
         """Translates an expression node, tracking that we are in expression context.
 
@@ -647,6 +732,13 @@ class ExprMixin:
                         elif arg.data == "named_arg":
                             raw_arg_nodes.append(arg.children[1])
                             args.append(self._translate_expr(arg.children[1]))
+
+            # 0. Method chaining: `calling a.m1.m2 [with args]`.  Must run before
+            #    the single-step path, which would render `a.m1` as a C member
+            #    access and emit invalid C.
+            chained = self._translate_method_chain(target_node, args_node, explicit_type_args)
+            if chained is not None:
+                return chained
 
             # 1. Normal target method call: obj.method(...) or self->items.method(...)
             if target_node.data == "normal_target" and len(target_node.children) >= 2 and target_node.children[-1].data in ("dot_access", "arrow_access"):

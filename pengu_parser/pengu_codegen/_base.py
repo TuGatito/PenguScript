@@ -20,6 +20,7 @@ PENGU_EXPECTED_ABI_VERSION = 2
 from pengu_parser.pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ManyType, ListType, MapType, MaybeType,
     RuneType, EchoType, OmenType, ResultType, FnType, AliasType, AnyType, FrozenType,
+    TupleType,
     ConceptType, SealType, RangeType,
     TypeParam, NullType, INT_TYPE, I32_TYPE, I64_TYPE, FLOAT_TYPE, F32_TYPE, F64_TYPE, BOOL_TYPE,
     STRING_TYPE, VOID_TYPE, ERROR_TYPE, OPAQUE_TYPE, CVarArgsType, ast_to_type, get_type_base_name,

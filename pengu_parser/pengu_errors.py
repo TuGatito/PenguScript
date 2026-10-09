@@ -408,7 +408,7 @@ class UnknownAttributeError(SemanticError):
     """E0056: unknown attribute or invalid attribute usage."""
     def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
         kwargs.setdefault("code", "E0056")
-        kwargs.setdefault("help", "Supported attributes are @inline, @cold, @deprecated, @packed, and @align(N).")
+        kwargs.setdefault("help", "Supported attributes are @inline, @cold, @deprecated, @packed, @align(N), @noreturn, and @export(\"name\").")
         kwargs.setdefault("note", "Attributes configure compilation semantics, code generation, and diagnostics.")
         super().__init__(message, line=line, col=col, column=column, **kwargs)
 

@@ -27,7 +27,7 @@ import std.scrolls
 # ----------------------------------------------------------------------------
 
 ## Version constant for std.cipher module.
-const CIPHER_VERSION as string is "1.0.0"
+const CIPHER_VERSION as string is "1.1.0"
 
 # ----------------------------------------------------------------------------
 # Map key enumeration (runtime primitive)

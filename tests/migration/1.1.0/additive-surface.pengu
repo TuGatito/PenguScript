@@ -1,0 +1,51 @@
+# tests/migration/1.1.0/additive-surface.pengu
+#
+# The 1.1.0 line is additive: nothing is removed and no signature changes, so
+# (like `1.0.0/frozen-surface.pengu`) this program pins the surface every project
+# migrates *to* rather than a "before" form that must fail. It exercises all five
+# syntax additions of 1.1.0 in one compilable unit:
+#
+#   * `@noreturn` / `@export("c_name")`
+#   * `into (int, bool)` tuple return + `let (q, ok) is …` destructuring
+#   * parenthesised and parenthesis-free destructuring
+#   * `with name, hp` shorthand struct initialisers
+#   * single-line and `.`-continued method chains
+import std.spark
+import std.scrolls
+
+rune Player:
+    name as string
+    hp as int
+
+@noreturn
+weave stop with msg as string into void:
+    calling spark.println with "stop: {msg}"
+
+@export("pengu_mig_add")
+weave add with a as int, b as int into int:
+    return a + b
+
+weave divide with a as int, b as int into (int, bool):
+    if b == 0:
+        return 0, false
+    return (a / b), true
+
+weave main into int:
+    let name is "Ada"
+    var hp is 100
+    var hero as Player is with name, hp
+    var explicit as Player is with name is "Bob", hp is 7
+
+    let (quotient, ok) is calling divide with hero.hp, 10
+    let other, ok2 is calling divide with explicit.hp, 0
+    if not ok:
+        return 1
+
+    var raw as string is "  hi  "
+    let part is calling raw
+        .trim
+        .substring with 0, 2
+    let total is calling add with quotient, explicit.hp
+
+    calling spark.println with "{hero.name} {quotient} {ok2} {other} {part} {total}"
+    return 0

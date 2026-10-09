@@ -2,6 +2,48 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [1.1.0] - 2026-10-08
+
+Aditivo: ningún cambio rompe código existente. No se añade ninguna palabra
+reservada — la gramática mantiene exactamente sus 164 terminales y sus 184
+conflictos shift/reduce preexistentes.
+
+### Added
+
+- **Encadenamiento de métodos.** Un único `calling` puede encadenar varias
+  llamadas (`calling raw.trim.substring with 0, 2`). Cada eslabón que resuelve a
+  un método se evalúa en un temporal dentro de una statement-expression de GNU.
+  Las cadenas pueden repartirse en varias líneas con continuaciones que empiezan
+  por `.` o `->`, plegadas antes del lexer preservando la numeración de líneas.
+- **Retornos múltiples.** Un weave puede declarar un tipo tupla y devolver varios
+  valores (`into (int, bool)` + `return a, b`), consumidos por destructuring
+  (`let (res, ok) is calling f`). El producto se emite como un struct C
+  `_pengu_tup_<mangled>` pasado por valor.
+- **Destructuring con paréntesis.** `let (x, y) is p` funcionaba en la
+  documentación (§5.1) pero no en la gramática; ahora ambas formas, con y sin
+  paréntesis, son equivalentes.
+- **Inicializadores cortos de struct.** `with name, hp` es equivalente a
+  `with name is name, hp is hp`.
+- **`@noreturn`** en `weave`: exige retorno `void` y emite `_Noreturn` en el
+  prototipo y en la definición (`__declspec(noreturn)` en MSVC).
+- **`@export("c_name")`** en `weave`: fija el símbolo C emitido y hace del weave
+  una raíz de la eliminación de código muerto.
+
+### Changed
+
+- `@align(N)` valida ahora que `N` sea una potencia de dos entre 1 y 128; antes
+  se aceptaba cualquier entero y el error aparecía en `gcc` sobre C generado.
+- `errdefer` se ejecuta en **todas** las rutas de fallo. Antes se omitía en
+  `return maybe none`, en `or return maybe none`, en la propagación de `try`
+  sobre `maybe T` y en `return calling err_of with …`.
+
+### Documentation
+
+- `LANGUAGE.md` §24–§28: encadenamiento de métodos, retornos múltiples,
+  inicializadores cortos, atributos de función y atributos de layout. Los 203
+  bloques de código de la referencia se verifican con
+  `python tools/check_doc_blocks.py --check`.
+
 ## [Unreleased] — reparación de CI en Windows, Linux y macOS
 
 > Deja `ci.yml` en verde en las tres plataformas. Windows fallaba **antes de

@@ -1,0 +1,25 @@
+# tests/conformance/syntax/multiple_returns.pengu
+#
+# Multi-value returns and tuple destructuring:
+#
+#     weave divide with a as int, b as int into (int, bool):
+#         return (a / b), true
+#
+#     let (res, ok) is calling divide with 10, 2
+#
+# `into (int, bool)` is a TupleType. It lowers to a C struct
+# `_pengu_tup_tup_int_bool`, registered as a synthetic rune so the ordinary
+# struct emitter defines it; a multi-value `return a, b` builds it as a
+# compound literal and destructuring unpacks `.v0`, `.v1`. The failure branch
+# is exercised too, so the case fails if only the happy path is wired.
+import std.spark
+
+weave divide with a as int, b as int into (int, bool):
+    if b == 0:
+        return 0, false
+    return (a / b), true
+
+test "syntax/multiple_returns":
+    let (quotient, ok) is calling divide with 10, 2
+    let (zero, ok2) is calling divide with 1, 0
+    calling spark.println with "{quotient} {ok} {zero} {ok2}"

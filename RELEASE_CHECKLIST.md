@@ -1,4 +1,4 @@
-# Release Checklist — PenguScript 1.0.0
+# Release Checklist — PenguScript 1.1.0
 
 Two lists: what the **toolchain** must prove (automatable, gated in CI) and what
 the **author** must do by hand (accounts, announcements). Keeping them apart
@@ -129,7 +129,7 @@ construction and is marked `manual:`.
       -q` and `python scripts/release_version.py`).
 - [ ] `manual:` Regenerate the stdlib version constants — `pytest
       tests/stdlib/test_std_versioning.py -q` enforces the sync.
-- [ ] `manual:` Tag `v1.0.0` and sign it — `git tag -s v1.0.0` (CI creates and
+- [ ] `manual:` Tag `v1.1.0` and sign it — `git tag -s v1.1.0` (CI creates and
       pushes an unsigned tag when the changelog is promoted; a signed tag is a
       manual choice).
 - [ ] `manual:` Build the release artifacts and publish `SHA256SUMS.txt` — see
@@ -142,7 +142,7 @@ construction and is marked `manual:`.
 
 ### Announcements (only after the final release)
 
-- [ ] `manual:` Update the `README.md` badge to `v1.0.0`.
+- [ ] `manual:` Update the `README.md` badge to `v1.1.0`.
 - [ ] `manual:` Add a `SECURITY.md` link to the `README.md` header.
 - [ ] `manual:` Post to r/ProgrammingLanguages, r/Zig, r/rust and the Discord.
 - [ ] `manual:` Post to Hacker News (final release only).

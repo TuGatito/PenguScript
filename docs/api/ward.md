@@ -35,7 +35,7 @@ Aborts the program with `msg` (delegates to spark.panic). Never returns.
 
 ### `WARD_VERSION`
 
-> const string` = 1.0.0`
+> const string` = 1.1.0`
 
 Standard library ward module version.
 

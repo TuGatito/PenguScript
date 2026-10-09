@@ -1,0 +1,19 @@
+# tests/conformance/syntax/method_chain.pengu
+#
+# Method chaining on one line: `calling raw.trim.substring with 0, 2`.
+#
+# There is no chain grammar. `normal_target` already parses `a.m1.m2`, but the
+# single-step path rendered the intermediate `a.m1` as a C member access, which
+# is invalid C for a method ('PenguString has no member named trim'). Each
+# method link is now evaluated into a temporary inside a GNU
+# statement-expression, with the final `with` arguments applying to the last
+# link only.
+import std.spark
+import std.scrolls
+
+test "syntax/method_chain":
+    var raw as string is "  hi  "
+    # Single step (unchanged behaviour) next to the chained form.
+    let trimmed is calling raw.trim
+    let part is calling raw.trim.substring with 0, 2
+    calling spark.println with "[{trimmed}] [{part}]"

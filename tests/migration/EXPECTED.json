@@ -94,6 +94,13 @@
       "expects": "ok",
       "rc": 0,
       "why": "The 1.0.0-frozen surface (`docs/FREEZE.md`): `shard` generics, `maybe`, `judge` over an `omen` and `with:` builders. Not a 'before' form — it is the line every project migrates *to*. Its failing counterpart is `1.0.0/borrowed-modifier-removed.pengu` (MIGRATION.md §4.1)."
+    },
+    {
+      "file": "1.1.0/additive-surface.pengu",
+      "version": "1.1.0",
+      "expects": "ok",
+      "rc": 0,
+      "why": "The 1.1.0 line is additive (MIGRATION.md §2: no breaking entry), so this pins the surface projects migrate *to*: `@noreturn`/`@export`, tuple returns with `into (int, bool)` and destructuring, `with a, b` shorthand initialisers, and single-line plus `.`-continued method chains. Required by the coverage gate, which asserts one program per published minor line."
     }
   ]
 }

@@ -1213,5 +1213,59 @@
       "release"
     ],
     "migrated-from": "tests/std_programs/test_whisper_extended.pengu"
+  },
+  "syntax/method_chain": {
+    "feature": "syntax",
+    "platforms": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "pins": "single-line method chaining lowers each link to a temporary; `with` args bind to the last link."
+  },
+  "syntax/method_chain_multiline": {
+    "feature": "syntax",
+    "platforms": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "pins": "`.`-prefixed continuation lines fold into the chain line, preserving line count."
+  },
+  "syntax/multiple_returns": {
+    "feature": "syntax",
+    "platforms": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "pins": "`into (int, bool)` tuple returns, compound-literal emission and destructuring unpack."
+  },
+  "syntax/noreturn_export": {
+    "feature": "syntax",
+    "platforms": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "pins": "@noreturn emits _Noreturn and requires void; @export pins the C symbol and survives DCE."
+  },
+  "syntax/parenthesised_destructuring": {
+    "feature": "syntax",
+    "platforms": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "pins": "the LANGUAGE.md §5.1 form `let (x, y) is p` parses like `let x, y is p`."
+  },
+  "syntax/short_struct_init": {
+    "feature": "syntax",
+    "platforms": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "pins": "`with a, b` shorthand, with the long form and call argument lists unaffected."
   }
 }

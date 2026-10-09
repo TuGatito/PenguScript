@@ -1,0 +1,17 @@
+# tests/conformance/syntax/parenthesised_destructuring.pengu
+#
+# LANGUAGE.md §5.1 documents `let (x, y) is point_value`, but the grammar only
+# accepted the parenthesis-free `let x, y is point_value` — the documented form
+# was a syntax error. Both spellings now produce the same `var_name_list`, so the
+# existing destructuring path handles them identically.
+import std.spark
+
+rune Point:
+    x as int
+    y as int
+
+test "syntax/parenthesised_destructuring":
+    var p as Point is with x is 3, y is 4
+    let (px, py) is p
+    let qx, qy is p
+    calling spark.println with "{px},{py} {qx},{qy}"

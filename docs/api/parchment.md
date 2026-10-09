@@ -18,7 +18,7 @@ owned by its document.
 
 ### `PARCHMENT_VERSION`
 
-> const string` = 1.0.0`
+> const string` = 1.1.0`
 
 Module version identifier for std.parchment (0.15.0 expansion).
 

@@ -8,7 +8,7 @@
 
 ### `SCROLLS_VERSION`
 
-> const string` = 1.0.0`
+> const string` = 1.1.0`
 
 --- Directivas de módulo ------------------------------------------------
 

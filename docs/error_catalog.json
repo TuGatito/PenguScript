@@ -444,6 +444,7 @@
         "Cannot destructure expression of type '{}'",
         "Destructuring mismatch: Array has size {}, but {} variables were provided",
         "Destructuring mismatch: Rune '{}' has {} fields, but {} variables were provided",
+        "Destructuring mismatch: Tuple has {} elements, but {} variables were provided",
         "Type '{}' does not support destructuring"
       ]
     },
@@ -475,9 +476,11 @@
         "'or return' value type '{}' incompatible with function return type '{}'",
         "Entry point 'main' must return an integer or 'void', got '{}'",
         "Function '{}' declared into '{}' does not return a value (ends with '{}')",
+        "Function returns {} values, but 'return' provides {}",
         "Implicit return type '{}' does not match weave return type '{}'",
         "Method '{}' declared into '{}' does not return a value (ends with '{}')",
         "Return statement with no value in function returning '{}'",
+        "Return value {} expects '{}', got '{}'",
         "Returned value of type '{}' does not match weave return type '{}'"
       ]
     },
@@ -929,12 +932,15 @@
     },
     "E0056": {
       "classes": [
+        "SemanticError",
         "UnknownAttributeError"
       ],
       "conditions": [
+        "@noreturn weave '{}' must return 'void', got '{}'",
         "Attribute '@align' requires 1 integer argument, got {}",
         "Attribute '@align({})' must be a power of 2 between 1 and 128",
         "Attribute '@deprecated' takes at most 1 string argument, got {}",
+        "Attribute '@export' requires exactly 1 string argument (the C symbol name), got {}",
         "Attribute '@{}' is not supported on {} declarations",
         "Attribute '@{}' takes 0 arguments, got {}",
         "Unknown attribute '@{}'"
@@ -942,7 +948,7 @@
       "explanation": "unknown attribute or invalid attribute usage.",
       "guidance": [
         {
-          "help": "Supported attributes are @inline, @cold, @deprecated, @packed, and @align(N).",
+          "help": "Supported attributes are @inline, @cold, @deprecated, @packed, @align(N), @noreturn, and @export(\"name\").",
           "note": "Attributes configure compilation semantics, code generation, and diagnostics."
         }
       ]

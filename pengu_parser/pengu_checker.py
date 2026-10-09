@@ -5,6 +5,7 @@ from lark import Tree, Token
 
 from .pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ManyType, ListType, MapType, MaybeType,
+    TupleType,
     RuneType, EchoType, OmenType, ResultType, FnType, OPAQUE_TYPE, AliasType, AnyType, FrozenType,
     TypeParam, NullType, NULL_TYPE, INT_TYPE, I32_TYPE, I64_TYPE, U32_TYPE, U64_TYPE, CHAR_TYPE, BYTE_TYPE,
     U8_TYPE, I8_TYPE, U16_TYPE, I16_TYPE, USIZE_TYPE, ISIZE_TYPE, FLOAT_TYPE, F32_TYPE,
@@ -479,20 +480,22 @@ class PenguChecker:
     def _validate_attributes(self, attrs: Dict[str, List[Any]], target: str, node: Any) -> None:
         """Validates attributes against target declaration kind ('weave', 'declare', 'rune', 'field')."""
         valid_attrs = {
-            "weave": {"inline", "cold", "deprecated"},
+            "weave": {"inline", "cold", "deprecated", "noreturn", "export"},
             "declare": {"inline", "cold", "deprecated"},
             "rune": {"packed", "align", "deprecated"},
             "field": {"align", "deprecated"},
         }
         allowed = valid_attrs.get(target, set())
         for name, args in attrs.items():
-            if name not in ("inline", "cold", "deprecated", "packed", "align"):
+            if name not in ("inline", "cold", "deprecated", "packed", "align",
+                            "noreturn", "export"):
                 err = self._make_error(
                     UnknownAttributeError,
                     f"Unknown attribute '@{name}'",
                     node,
                     code="E0056",
-                    help="Supported attributes are @inline, @cold, @deprecated, @packed, and @align(N)."
+                    help=("Supported attributes are @inline, @cold, @deprecated, "
+                          "@packed, @align(N), @noreturn, and @export(\"name\").")
                 )
                 self._record_error(err)
                 continue
@@ -506,13 +509,26 @@ class PenguChecker:
                 )
                 self._record_error(err)
                 continue
-            if name in ("inline", "cold", "packed"):
+            if name in ("inline", "cold", "packed", "noreturn"):
                 if len(args) != 0:
                     err = self._make_error(
                         UnknownAttributeError,
                         f"Attribute '@{name}' takes 0 arguments, got {len(args)}",
                         node,
                         code="E0056"
+                    )
+                    self._record_error(err)
+            elif name == "export":
+                if len(args) != 1 or not isinstance(args[0], str):
+                    err = self._make_error(
+                        UnknownAttributeError,
+                        f"Attribute '@export' requires exactly 1 string argument "
+                        f"(the C symbol name), got {args}",
+                        node,
+                        code="E0056",
+                        help='Write @export("my_c_name") above the weave.',
+                        note="The string becomes the exported C identifier "
+                             "and keeps the weave alive through dead-code elimination."
                     )
                     self._record_error(err)
             elif name == "align":
@@ -1667,7 +1683,7 @@ class PenguChecker:
                                         pn = str(p.children[0])
                                         pt = ast_to_type(p.children[1], lookup_m_tp) if len(p.children) >= 2 else AnyType()
                                         m_params.append((pn, pt))
-                            elif isinstance(cn, Tree) and cn.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "opaque_type", "fn_type"):
+                            elif isinstance(cn, Tree) and cn.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "tuple_type", "opaque_type", "fn_type"):
                                 m_ret = ast_to_type(cn, lookup_m_tp)
                             elif isinstance(cn, Token) and cn.type == "NAME":
                                 m_ret = ast_to_type(cn, lookup_m_tp)
@@ -1783,7 +1799,7 @@ class PenguChecker:
                                         if len(p.children) >= 3 and p.children[2] is not None:
                                             default_count += 1
                                         m_params.append((pn, pt))
-                            elif isinstance(cn, Tree) and cn.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "opaque_type", "fn_type"):
+                            elif isinstance(cn, Tree) and cn.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "tuple_type", "opaque_type", "fn_type"):
                                 m_ret = ast_to_type(cn, lookup_m_tp)
                             elif isinstance(cn, Token) and cn.type == "NAME":
                                 m_ret = ast_to_type(cn, lookup_m_tp)
@@ -1980,7 +1996,7 @@ class PenguChecker:
                                         if len(p.children) >= 3 and p.children[2] is not None:
                                             default_count += 1
                                         m_params.append((pn, pt))
-                            elif isinstance(cn, Tree) and cn.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "opaque_type", "fn_type"):
+                            elif isinstance(cn, Tree) and cn.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "tuple_type", "opaque_type", "fn_type"):
                                 m_ret = ast_to_type(cn, lookup_m_tp)
                             elif isinstance(cn, Token) and cn.type == "NAME":
                                 m_ret = ast_to_type(cn, lookup_m_tp)
@@ -2045,7 +2061,7 @@ class PenguChecker:
                                 params.append((pn, pt))
                             elif (isinstance(p, Token) and (p.type in ("VARARGS", "_VARARGS") or str(p) == "...")) or (isinstance(p, Tree) and p.data in ("varargs", "_varargs")):
                                 params.append(("_varargs", CVarArgsType()))
-                    elif isinstance(child_n, Tree) and child_n.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "opaque_type", "fn_type"):
+                    elif isinstance(child_n, Tree) and child_n.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "tuple_type", "opaque_type", "fn_type"):
                         ret_type = ast_to_type(child_n, lookup_tp)
                     elif isinstance(child_n, Token) and child_n.type == "NAME":
                         ret_type = ast_to_type(child_n, lookup_tp)
@@ -2099,6 +2115,10 @@ class PenguChecker:
                     )
                     self._record_error(err)
                 c_fn_name = f"{current_insignia}{fn_name}" if current_insignia else fn_name
+                # @export("name") pins the emitted C symbol. It is the FFI
+                # entry point, so it deliberately bypasses the insignia prefix.
+                if w_attrs.get("export"):
+                    c_fn_name = w_attrs["export"][0]
                 type_params = []
                 bounds = {}
                 rem_children = [c for c in stmt.children[idx+1:] if c is not None]
@@ -2136,10 +2156,21 @@ class PenguChecker:
                                     )
                                     self._record_error(err)
                                 params.append((pn, pt))
-                    elif isinstance(child_n, Tree) and child_n.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "opaque_type", "fn_type"):
+                    elif isinstance(child_n, Tree) and child_n.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "tuple_type", "opaque_type", "fn_type"):
                         ret_type = ast_to_type(child_n, lookup_tp)
                     elif isinstance(child_n, Token) and child_n.type == "NAME":
                         ret_type = ast_to_type(child_n, lookup_tp)
+
+                if "noreturn" in w_attrs and getattr(ret_type, "name", "void") != "void":
+                    err = self._make_error(
+                        SemanticError,
+                        f"@noreturn weave '{fn_name}' must return 'void', got '{ret_type}'",
+                        stmt,
+                        code="E0056",
+                        help="Change the return type to 'void' or remove @noreturn.",
+                        note="A noreturn function never returns a value."
+                    )
+                    self._record_error(err)
 
                 if type_params:
                     self.symbols.generic_functions[fn_name] = (type_params, stmt)
@@ -4087,7 +4118,23 @@ class PenguChecker:
             else:
                 # Destructuring: let x, y is my_vec or let a, b is arr
                 destructured_syms = []
-                if isinstance(inferred, RuneType):
+                if isinstance(inferred, TupleType):
+                    if len(names) != len(inferred.elements):
+                        raise self._make_error(
+                            SemanticError,
+                            f"Destructuring mismatch: Tuple has {len(inferred.elements)} elements, but {len(names)} variables were provided",
+                            node,
+                            code="E0017",
+                            help=f"Provide exactly {len(inferred.elements)} variable names.",
+                            note="Destructuring requires an exact match in the number of targets."
+                        )
+                    for v_name, elem_t in zip(names, inferred.elements):
+                        sym = Symbol(name=v_name, type=elem_t, kind="let", is_mutable=False,
+                                     line=line, column=col, doc=doc, file_path=self.filename)
+                        self.symbols.define(sym)
+                        destructured_syms.append(sym)
+                    node._pengu_tuple_type = inferred
+                elif isinstance(inferred, RuneType):
                     fields_list = list(inferred.fields.items())
                     if len(names) != len(fields_list):
                         raise self._make_error(
@@ -4788,7 +4835,7 @@ class PenguChecker:
     # Type node rules that name a concrete/parameterised type.
     _TYPE_NODE_RULES = frozenset({
         "base_type", "custom_type", "ref_type", "array_type", "slice_type",
-        "list_type", "map_type", "maybe_type", "result_type", "opaque_type",
+        "list_type", "map_type", "maybe_type", "result_type", "tuple_type", "opaque_type",
         "fn_type", "frozen_type", "alias_type",
     })
 
@@ -5205,7 +5252,7 @@ class PenguChecker:
                             )
                             self._record_error(err)
                         params.append((pn, pt))
-            elif isinstance(child, Tree) and child.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "opaque_type", "fn_type"):
+            elif isinstance(child, Tree) and child.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "tuple_type", "opaque_type", "fn_type"):
                 ret_type = ast_to_type(child, lookup_tp)
             elif isinstance(child, Token) and child.type == "NAME":
                 ret_type = ast_to_type(child, lookup_tp)
@@ -5395,7 +5442,7 @@ class PenguChecker:
                             )
                             self._record_error(err)
                         params.append((pn, pt))
-            elif isinstance(child, Tree) and child.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "opaque_type", "fn_type"):
+            elif isinstance(child, Tree) and child.data in ("base_type", "custom_type", "ref_type", "array_type", "slice_type", "list_type", "map_type", "maybe_type", "result_type", "tuple_type", "opaque_type", "fn_type"):
                 ret_type = ast_to_type(child, lookup_m_tp)
             elif isinstance(child, Token) and child.type == "NAME":
                 ret_type = ast_to_type(child, lookup_m_tp)
@@ -6060,6 +6107,36 @@ class PenguChecker:
             return
 
         expr_node = node.children[0]
+        # Multi-value return: `return a, b`.  Validate element-wise against the
+        # tuple's elements; the single-value path below would compare the first
+        # value against the whole tuple type and report a spurious E0020.
+        if len(node.children) > 1 and isinstance(curr_ret, TupleType):
+            if len(node.children) != len(curr_ret.elements):
+                self._record_error(self._make_error(
+                    TypeMismatchError,
+                    f"Function returns {len(curr_ret.elements)} values, but 'return' provides {len(node.children)}",
+                    node,
+                    code="E0020",
+                    help=f"Return exactly {len(curr_ret.elements)} values.",
+                    note="A tuple return supplies one value per element."
+                ))
+                return
+            for index, (child, expected_t) in enumerate(zip(node.children, curr_ret.elements)):
+                self._check_value_exprs(child, expected_t)
+                try:
+                    got_t = self.inferrer.infer(child, expected_type=expected_t)
+                except Exception:
+                    continue
+                if not got_t.is_compatible(expected_t):
+                    self._record_error(self._make_error(
+                        TypeMismatchError,
+                        f"Return value {index + 1} expects '{expected_t}', got '{got_t}'",
+                        child,
+                        code="E0020",
+                        help=f"Value {index + 1} must be '{expected_t}'.",
+                        note="A tuple return checks every element in order."
+                    ))
+            return
         self._check_slice_stack_return(expr_node)
         self._check_value_exprs(expr_node, curr_ret)
         try:

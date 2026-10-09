@@ -35,7 +35,7 @@ import std.scrolls
 # ----------------------------------------------------------------------------
 
 ## Module version identifier for std.parchment (0.15.0 expansion).
-const PARCHMENT_VERSION as string is "1.0.0"
+const PARCHMENT_VERSION as string is "1.1.0"
 
 # ----------------------------------------------------------------------------
 # Type Definitions

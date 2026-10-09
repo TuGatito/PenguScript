@@ -198,6 +198,16 @@ def prune_weaves(weaves: Sequence[Dict[str, Any]],
             alive.add(str(weave.get("c_name", "")))
             alive |= set(weave.get("refs") or ())
             continue
+        # `@export("name")` publishes a weave as an FFI entry point under a
+        # caller-chosen C symbol.  Nothing in the PenguScript sources has to
+        # reference it for that to be true, so it is a root wherever it lives
+        # -- otherwise DCE would delete the very symbol the attribute promises.
+        if weave.get("attributes", {}).get("export"):
+            kept.append(weave)
+            alive.add(str(weave.get("name", "")))
+            alive.add(str(weave.get("c_name", "")))
+            alive |= set(weave.get("refs") or ())
+            continue
         if is_prunable_module(weave.get("filepath", ""), base_dir):
             std_weaves.append(weave)
         else:

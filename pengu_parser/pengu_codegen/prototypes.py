@@ -40,12 +40,26 @@ class ProtoMixin:
 
             params_formatted = ", ".join(param_strs) if param_strs else "void"
             inline_pfx = self._attributes_prefix(w)
+            noreturn_pfx = self._noreturn_prefix(w)
             fn_actual_name = "pengu_main" if c_name == "main" else c_name
             decl = CTypeMapper.to_c_decl(w["return_type"], f"{fn_actual_name}({params_formatted})")
-            lines.append(f"{inline_pfx}{decl};")
+            lines.append(f"{inline_pfx}{noreturn_pfx}{decl};")
 
         lines.append("")
         return "\n".join(lines)
+    def _noreturn_prefix(self, w: dict) -> str:
+        """C prefix for a `@noreturn` weave.
+
+        A function specifier must precede the return type, so it cannot ride in
+        ``_format_attributes`` (which appends after the declarator).  MSVC spells
+        it ``__declspec(noreturn)``; GCC/Clang/TCC accept C11's ``_Noreturn``.
+        """
+        if "noreturn" not in w.get("attributes", {}):
+            return ""
+        if self.target_compiler == "msvc":
+            return "__declspec(noreturn) "
+        return "_Noreturn "
+
     def _attributes_prefix(self, w: dict) -> str:
         """C prefix and attribute modifiers for a weave, per target compiler.
 
@@ -124,13 +138,14 @@ class ProtoMixin:
 
             params_formatted = ", ".join(param_strs) if param_strs else "void"
             inline_pfx = self._attributes_prefix(w)
+            noreturn_pfx = self._noreturn_prefix(w)
             fn_actual_name = "pengu_main" if c_name == "main" else c_name
             decl = CTypeMapper.to_c_decl(w["return_type"], f"{fn_actual_name}({params_formatted})")
 
             marker = self._line_marker(w.get("line"), w.get("filepath"))
             if marker:
                 lines.append(marker)
-            lines.append(f"{inline_pfx}{decl} {{")
+            lines.append(f"{inline_pfx}{noreturn_pfx}{decl} {{")
             self.indent_level += 1
             push_path = self._display_path(w.get("filepath")) or ""
             push_line = w.get("line") or 0

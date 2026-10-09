@@ -1,7 +1,7 @@
 {
   "_meta": [
     "generated-by: tools/gen_conformance_deps.py",
-    "cases: 99"
+    "cases: 105"
   ],
   "_smoke/add": [
     "build_runtime.py",
@@ -1152,6 +1152,74 @@
     "std/whisper.pengu",
     "tests/conformance/_manifest.json",
     "tests/conformance/std_programs/test_whisper_extended.pengu",
+    "tests/test_conformance.py",
+    "tools/gen_conformance_deps.py"
+  ],
+  "syntax/method_chain": [
+    "build_runtime.py",
+    "pengu_parser/",
+    "pengu_project.py",
+    "pengu_runtime.h",
+    "std/scrolls.pengu",
+    "std/spark.pengu",
+    "tests/conformance/_manifest.json",
+    "tests/conformance/syntax/method_chain.pengu",
+    "tests/test_conformance.py",
+    "tools/gen_conformance_deps.py"
+  ],
+  "syntax/method_chain_multiline": [
+    "build_runtime.py",
+    "pengu_parser/",
+    "pengu_project.py",
+    "pengu_runtime.h",
+    "std/scrolls.pengu",
+    "std/spark.pengu",
+    "tests/conformance/_manifest.json",
+    "tests/conformance/syntax/method_chain_multiline.pengu",
+    "tests/test_conformance.py",
+    "tools/gen_conformance_deps.py"
+  ],
+  "syntax/multiple_returns": [
+    "build_runtime.py",
+    "pengu_parser/",
+    "pengu_project.py",
+    "pengu_runtime.h",
+    "std/spark.pengu",
+    "tests/conformance/_manifest.json",
+    "tests/conformance/syntax/multiple_returns.pengu",
+    "tests/test_conformance.py",
+    "tools/gen_conformance_deps.py"
+  ],
+  "syntax/noreturn_export": [
+    "build_runtime.py",
+    "pengu_parser/",
+    "pengu_project.py",
+    "pengu_runtime.h",
+    "std/spark.pengu",
+    "tests/conformance/_manifest.json",
+    "tests/conformance/syntax/noreturn_export.pengu",
+    "tests/test_conformance.py",
+    "tools/gen_conformance_deps.py"
+  ],
+  "syntax/parenthesised_destructuring": [
+    "build_runtime.py",
+    "pengu_parser/",
+    "pengu_project.py",
+    "pengu_runtime.h",
+    "std/spark.pengu",
+    "tests/conformance/_manifest.json",
+    "tests/conformance/syntax/parenthesised_destructuring.pengu",
+    "tests/test_conformance.py",
+    "tools/gen_conformance_deps.py"
+  ],
+  "syntax/short_struct_init": [
+    "build_runtime.py",
+    "pengu_parser/",
+    "pengu_project.py",
+    "pengu_runtime.h",
+    "std/spark.pengu",
+    "tests/conformance/_manifest.json",
+    "tests/conformance/syntax/short_struct_init.pengu",
     "tests/test_conformance.py",
     "tools/gen_conformance_deps.py"
   ]
