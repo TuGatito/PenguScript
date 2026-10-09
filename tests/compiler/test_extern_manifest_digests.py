@@ -101,6 +101,65 @@ def test_cached_directory_without_a_verified_stamp_is_not_trusted(tmp_path, caps
     assert extern_manifest._read_stamp(target)["cached-lib"] == digest
 
 
+def test_forced_reextraction_replaces_the_tree(tmp_path):
+    """A forced re-extract must start from a clean destination.
+
+    ``make_release.py`` forces a re-download/re-extract.  Unpacking *over* the
+    previous tree made Windows fail on the mbedtls relative symlinks
+    (``mldsa_native/src``): ``tarfile``'s ``data`` filter calls
+    ``os.path.realpath(..., strict=ALLOW_MISSING)`` on every member, which
+    raises ``WinError 5`` for a symlink already on disk.  It also let a stale
+    file survive, which this asserts directly.
+    """
+    archive = _make_tar_gz(tmp_path, "reextract-lib", payload="int fresh;\n")
+    digest = _sha256(archive)
+    target = tmp_path / "extern"
+    manifest = {"reextract-lib": {"url": archive.as_uri(), "sha256": digest}}
+    dirs = {"reextract-lib": "reextract-lib"}
+
+    download_and_extract_externs(target, manifest=manifest, expected_dirs=dirs)
+    lib = target / "reextract-lib"
+    (lib / "file.c").write_text("int tampered;\n", encoding="utf-8")
+    (lib / "stale.c").write_text("int stale;\n", encoding="utf-8")
+
+    download_and_extract_externs(target, manifest=manifest, expected_dirs=dirs,
+                                 force=True)
+
+    assert (lib / "file.c").read_text(encoding="utf-8") == "int fresh;\n"
+    assert not (lib / "stale.c").exists(), "a stale file survived the re-extract"
+
+
+def test_forced_reextraction_handles_relative_symlinks(tmp_path):
+    """The mbedtls shape: a relative symlink inside the tree, re-extracted.
+
+    Regression for the Windows release failure: the second, forced extraction
+    hit ``PermissionError [WinError 5]`` from ``tarfile``'s ``data`` filter
+    while resolving a symlink left behind by the first extraction.
+    """
+    archive = tmp_path / "symlink-lib.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        data = b"int x;\n"
+        info = tarfile.TarInfo("symlink-lib/real/file.c")
+        info.size = len(data)
+        tar.addfile(info, io.BytesIO(data))
+        link = tarfile.TarInfo("symlink-lib/alias")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "real"
+        tar.addfile(link)
+    digest = _sha256(archive)
+    target = tmp_path / "extern"
+    manifest = {"symlink-lib": {"url": archive.as_uri(), "sha256": digest}}
+    dirs = {"symlink-lib": "symlink-lib"}
+
+    for _ in range(2):
+        download_and_extract_externs(target, manifest=manifest, expected_dirs=dirs,
+                                     force=True)
+
+    alias = target / "symlink-lib" / "alias"
+    assert alias.is_symlink(), "the relative symlink was not restored"
+    assert (alias / "file.c").read_text(encoding="utf-8") == "int x;\n"
+
+
 def test_stamped_directory_is_reused_without_downloading(tmp_path):
     """A verified cache is reused; a broken URL proves no download happened."""
     archive = _make_tar_gz(tmp_path, "reused-lib")

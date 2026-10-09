@@ -36,6 +36,8 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
+import stat
 import sys
 import tarfile
 import tempfile
@@ -239,6 +241,37 @@ def _extract_archive(archive_path: Path, target_dir: Path) -> None:
         safe_extract_tar(tar, str(target_dir))
 
 
+def _remove_tree(path: Path) -> None:
+    """Removes a previous extraction, clearing Windows' read-only attributes.
+
+    A forced re-extraction used to unpack *over* the existing tree.  The mbedtls
+    tarball contains relative symlinks (``mldsa_native/src``), and Python's tar
+    ``data`` filter calls ``os.path.realpath(..., strict=ALLOW_MISSING)`` on
+    every member path; on Windows that raises ``PermissionError [WinError 5]``
+    when the member is a symlink that is already on disk, so the release build
+    died re-extracting a tree it had created itself one step earlier.  Removing
+    the destination first makes the forced extraction identical to the first.
+    """
+    if path.is_symlink() or not path.exists():
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        return
+
+    def _clear_readonly(func, target, exc_info):
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+
+    if os.name == "nt":
+        if sys.version_info >= (3, 12):
+            shutil.rmtree(path, onexc=_clear_readonly)
+        else:  # pragma: no cover - Python 3.11 still supports `onerror`
+            shutil.rmtree(path, onerror=_clear_readonly)
+    else:
+        shutil.rmtree(path)
+
+
 def download_and_extract_externs(
     extern_dir: Optional[Path] = None,
     force: bool = False,
@@ -300,6 +333,9 @@ def download_and_extract_externs(
             actual = _download_verified(name, url, expected, archive_path)
 
             print(f"\n  [EXTRACTING] {archive_name}...")
+            # Extract into a clean destination: a forced re-extraction over the
+            # previous tree is what broke on Windows (see `_remove_tree`).
+            _remove_tree(extracted_path)
             _extract_archive(archive_path, target_dir)
 
             # Only now is the extracted tree's provenance known.
