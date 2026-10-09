@@ -159,8 +159,11 @@ test "std_programs/test_rites_extended":
     calling spark.println with "which search: OK"
 
     # 9. Shell Execution & Helpers
-    var empty_args as list of string is list of string
-    var ok_exec as bool is calling rites.exec_ok with "echo" , empty_args
+    # A fixed argument, not a bare `echo`: POSIX prints an empty line, but
+    # `cmd /c echo` prints "ECHO is on.", so the case would not be portable.
+    var echo_args as list of string is list of string
+    calling echo_args.push with "rites-exec-ok"
+    var ok_exec as bool is calling rites.exec_ok with "echo" , echo_args
     calling spark.assert with ok_exec
 
     var esc as string is calling rites.shell_escape with "hello world"

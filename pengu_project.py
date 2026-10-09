@@ -3510,6 +3510,20 @@ def _rmtree(path: str) -> None:
         shutil.rmtree(path, onerror=_remove_readonly)
 
 
+def _rmtree_ignore_errors(path: str) -> None:
+    """`_rmtree`, but never raising -- the historical ``ignore_errors=True``.
+
+    Used where a stale directory is only being cleared before a clone or a copy:
+    the read-only `.git/objects` a Windows checkout leaves must not make the
+    removal silently fail, or the next `copytree`/`git clone` dies with "already
+    exists" instead of replacing it.
+    """
+    try:
+        _rmtree(path)
+    except OSError:
+        pass
+
+
 def add_dependency(
     source: str,
     branch: Optional[str] = None,
@@ -3565,7 +3579,7 @@ def add_dependency(
                 cmd_fetch = ["git", "-C", target_dir, "pull"]
                 subprocess.run(cmd_fetch, check=False)
             else:
-                shutil.rmtree(target_dir, ignore_errors=True)
+                _rmtree_ignore_errors(target_dir)
         if not os.path.isdir(target_dir):
             # Offline/vendor and global-cache hits avoid the network entirely.
             restored = (_restore_from_vendor(config, dep_name, target_dir)
@@ -3585,7 +3599,7 @@ def add_dependency(
             raise FileNotFoundError(f"Dependency source path '{dep_source}' does not exist.")
         if os.path.abspath(src_path) != os.path.abspath(target_dir):
             if os.path.exists(target_dir):
-                shutil.rmtree(target_dir, ignore_errors=True)
+                _rmtree_ignore_errors(target_dir)
             if os.path.isdir(src_path):
                 shutil.copytree(src_path, target_dir)
             else:
@@ -3630,7 +3644,10 @@ def add_dependency(
         except DependencyConflictError:
             if _record_in_manifest:
                 _remove_config_dependency(config.base_dir, dep_name)
-            shutil.rmtree(target_dir, ignore_errors=True)
+            # `_rmtree`, not `shutil.rmtree(..., ignore_errors=True)`: a git
+            # checkout leaves `.git/objects` read-only, which Windows refuses to
+            # delete, and the rollback must leave no `lib/<name>/` behind.
+            _rmtree_ignore_errors(target_dir)
             raise
     return target_dir
 

@@ -174,14 +174,19 @@ def _emit_asset_blob(
     n = len(data)
     if incbin_threshold > 0 and n >= incbin_threshold and project_root is not None:
         rel = _incbin_relpath(path, project_root)
+        # Mach-O prefixes every C symbol with `_`, and an assembler label is not
+        # a C name, so the Apple branch must spell that underscore itself:
+        # `extern ... ident[]` becomes `_ident` in the object, and the label has
+        # to match or the link fails with "Undefined symbols ... _ident".
+        mach_ident = "_" + ident
         lines = [
             "#if defined(__GNUC__) && !defined(_MSC_VER) && !defined(__TINYC__)",
             "#  if defined(__APPLE__)",
             "__asm__(",
             '  ".section __TEXT,__const\\n"',
             '  ".p2align 4\\n"',
-            f'  ".globl {ident}\\n"',
-            f'  "{ident}:\\n"',
+            f'  ".globl {mach_ident}\\n"',
+            f'  "{mach_ident}:\\n"',
             f'  ".incbin \\"{rel}\\"\\n"',
             '  ".text\\n"',
             ");",

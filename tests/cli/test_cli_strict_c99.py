@@ -103,10 +103,6 @@ _MISCOMPILE_REASON = ("F8-N4a: the strict bundle compiles clean and then crashes
                       "runtime (bounds check in std.loom's zip_longest), while the "
                       "default build of the same program exits 0")
 
-#: F8-N4a was measured with Linux GCC.  MinGW's GCC and Apple's clang run the same
-#: strict bundle cleanly, so there the marker would turn a pass into a failure.
-_MISCOMPILE_MEASURED_HERE = os.name != "nt" and sys.platform != "darwin"
-
 #: The B5 class is a *measurement* of the C compiler, not of PenguScript: the
 #: Linux CI GCC rejects `({ ... })` statement expressions under
 #: `-std=c99 -pedantic-errors`, but MinGW's GCC accepts them, so every row of
@@ -246,15 +242,14 @@ def test_strict_c99_std_program_is_pedantically_clean(name, tmp_path, compile_c)
     assert run.returncode == 0, f"{name} failed at runtime: rc={run.returncode}\n{run.stderr}"
 
 
-@pytest.mark.xfail(strict=True, condition=_MISCOMPILE_MEASURED_HERE,
-                   reason=_MISCOMPILE_REASON)
+@pytest.mark.xfail(strict=True, reason=_MISCOMPILE_REASON)
 @pytest.mark.parametrize("name", STRICT_MISCOMPILES)
 def test_strict_c99_std_program_does_not_miscompile(name, tmp_path, compile_c):
     """Finding F8-N4a: strict mode compiles cleanly but changes behaviour.
 
-    The bug was measured with Linux GCC; where the toolchain does not reproduce
-    it, the same assertion is a plain expectation and the test must pass rather
-    than XPASS into a failure.
+    Measured on all three CI toolchains: the strict bundle compiles, then the
+    `std.loom` bounds check aborts with the same "Index out of bounds" on Linux
+    GCC, MinGW and Apple clang, so the marker is strict everywhere.
     """
     bundle = _bundle(tmp_path, _STD_PROGRAMS / name)
     exe = compile_c(bundle, name=Path(name).stem, std="c99", pedantic=True,

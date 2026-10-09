@@ -347,7 +347,7 @@ def test_empty_assets_dir_does_not_walk_project_root(tmp_path):
 # Phase 3 / 3.4 — large assets (.incbin), NUL-safe arca.string(), long paths
 # ---------------------------------------------------------------------------
 
-from pengu_assets import _emit_embedded_c, _emit_disk_c, _incbin_threshold
+from pengu_assets import _c_ident, _emit_embedded_c, _emit_disk_c, _incbin_threshold
 
 
 def test_incbin_threshold_used_for_large_assets(tmp_path):
@@ -362,6 +362,12 @@ def test_incbin_threshold_used_for_large_assets(tmp_path):
     assert ".incbin" in c_large
     assert "big.bin" in c_large
     assert "(size_t)2048" in c_large
+    # Mach-O prefixes every C symbol with `_`, and an assembler label is not a C
+    # name, so the Apple branch must spell that underscore itself or the link
+    # fails with "Undefined symbols ... _asset_big_bin_...".
+    ident = _c_ident("big.bin")
+    assert f'".globl _{ident}' in c_large, c_large
+    assert f'"_{ident}:' in c_large, c_large
 
     c_small = _emit_embedded_c(
         "arca", [("big.bin", blob)], project_root=tmp_path, incbin_threshold=0
