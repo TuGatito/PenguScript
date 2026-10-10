@@ -59,6 +59,16 @@
 #endif
 #endif
 
+/* `build_runtime.py` compiles this unit once per subsystem so the archive has
+ * one member per subsystem, and the linker then pulls only what a program
+ * references.  The ABI pin and the FFI bridges are non-static, so they must
+ * exist in exactly one member: the core compile passes the flag as 0 and the
+ * subsystem compiles as 1.  The default here keeps a plain single-TU compile
+ * (tests, a manual `gcc -c`) working unchanged. */
+#ifndef PENGU_RUNTIME_SUBSYSTEM_ONLY
+#define PENGU_RUNTIME_SUBSYSTEM_ONLY 0
+#endif
+#if !PENGU_RUNTIME_SUBSYSTEM_ONLY
 /* =========================================================================
  * 0. Runtime ABI version (Phase 3 item 3.5)
  *
@@ -69,7 +79,9 @@
 int pengu_abi_version(void) {
     return PENGU_ABI_VERSION;
 }
+#endif /* !PENGU_RUNTIME_SUBSYSTEM_ONLY */
 
+#if PENGU_ENABLE_THREADS
 /* =========================================================================
  * 1. Filum (Concurrency Real Implementation)
  * ========================================================================= */
@@ -648,6 +660,8 @@ void pengu_c_filum_chan_free(void* c) {
     free(c);
 }
 
+#endif /* PENGU_ENABLE_THREADS */
+#if PENGU_ENABLE_REGEX
 /* =========================================================================
  * 2. Regulus (PCRE2 Real Implementation)
  * ========================================================================= */
@@ -951,6 +965,8 @@ void pengu_c_regulus_match_free(void* m) {
     pm->matched.is_owned = 0;
 }
 
+#endif /* PENGU_ENABLE_REGEX */
+#if PENGU_ENABLE_XML
 /* =========================================================================
  * 3. Parchment (libxml2 Real Implementation)
  * ========================================================================= */
@@ -1282,6 +1298,8 @@ void pengu_c_parchment_document_free(void* doc) {
     if (xdoc) xmlFreeDoc(xdoc);
 }
 
+#endif /* PENGU_ENABLE_XML */
+#if PENGU_ENABLE_CRYPTO
 /* =========================================================================
  * 4. Seal (Compression & Hashing Real Implementation)
  * ========================================================================= */
@@ -1509,6 +1527,8 @@ PenguMaybe pengu_c_seal_hash_file(PenguString path, PenguString hash_type) {
     return pengu_maybe_some(res);
 }
 
+#endif /* PENGU_ENABLE_CRYPTO */
+#if PENGU_ENABLE_NET
 /* =========================================================================
  * 5. Precis (Networking & HTTP Real Implementation)
  * ========================================================================= */
@@ -1962,6 +1982,9 @@ PenguMap pengu_c_precis_parse_query(PenguString s) {
 
 
 
+#endif /* PENGU_ENABLE_NET */
+
+#if !PENGU_RUNTIME_SUBSYSTEM_ONLY
 /* =========================================================================
  * 25. C <-> Pengu Conversion Bridges (FFI)
  * ========================================================================= */
@@ -2219,3 +2242,5 @@ PenguMap pengu_ffi_map_si(PenguSlice keys, PenguSlice vals) {
     }
     return map;
 }
+
+#endif /* !PENGU_RUNTIME_SUBSYSTEM_ONLY */

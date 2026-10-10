@@ -27,6 +27,7 @@ the link line are the observable contract.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -150,6 +151,51 @@ def test_section_splitting_flags_are_the_same_constant_everywhere():
 
     assert SECTION_FLAGS == ["-ffunction-sections", "-fdata-sections"]
     assert build_runtime.SECTION_FLAGS == SECTION_FLAGS
+
+
+def _ar_members(archive: Path) -> set:
+    ar = shutil.which("ar")
+    if not ar:
+        pytest.skip("ar is required to inspect the archive")
+    res = subprocess.run([ar, "t", str(archive)], capture_output=True, text=True,
+                         timeout=120)
+    assert res.returncode == 0, res.stderr
+    return {line.strip() for line in res.stdout.splitlines() if line.strip()}
+
+
+def test_the_runtime_archive_has_one_member_per_subsystem():
+    """Pruning happens per archive *member*; `--gc-sections` is not enough.
+
+    PE's linker keeps the unreferenced sections of a member, so the decision
+    "does this program need libxml2?" has to be made by the linker's own
+    member-pulling rule, not by section GC.  That requires one member per
+    subsystem; a single-member archive is what made `hello_world` fail to link
+    on Windows with `undefined reference to 'MHD_start_daemon'`.
+    """
+    import build_runtime
+
+    on_gates = dict(build_runtime.RUNTIME_OBJECTS)
+    assert on_gates.pop("pengu_runtime.o") is None, "the core object has no gate"
+    assert sorted(on_gates.values()) == sorted(build_runtime.RUNTIME_GATES), (
+        "exactly one object per gate, and no gate twice"
+    )
+
+    archive = REPO / "build" / "lib" / "libpengu_runtime.a"
+    if not archive.exists():
+        pytest.skip("runtime archive not built (run build_runtime.py)")
+    names = _ar_members(archive)
+    missing = (set(on_gates) | {"pengu_runtime.o"}) - names
+    assert not missing, f"archive is missing {sorted(missing)}; members: {sorted(names)}"
+
+
+def test_every_subsystem_is_gated_in_the_runtime_translation_unit():
+    """An ungated subsystem would land in the core member and defeat the split."""
+    import build_runtime
+
+    src = (REPO / "pengu_parser" / "pengu_runtime.c").read_text(encoding="utf-8")
+    for gate in build_runtime.RUNTIME_GATES:
+        assert f"#if {gate}\n" in src, f"{gate} guards no region"
+        assert f"#endif /* {gate} */" in src, f"{gate} is not closed"
 
 
 def test_default_profiles_split_sections_and_expose_small():

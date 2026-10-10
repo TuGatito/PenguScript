@@ -54,6 +54,36 @@ IS_POSIX = not IS_WINDOWS
 # pengu_project.py (release/small profiles) and BENCHMARKS.md §Binary size.
 SECTION_FLAGS = ["-ffunction-sections", "-fdata-sections"]
 
+#: The optional-subsystem gates `pengu_runtime.h` defines.  `pengu_runtime.c`
+#: wraps each subsystem in `#if <gate>`, so one translation-unit compile per
+#: gate produces one object per subsystem.
+RUNTIME_GATES = (
+    "PENGU_ENABLE_THREADS",
+    "PENGU_ENABLE_REGEX",
+    "PENGU_ENABLE_XML",
+    "PENGU_ENABLE_CRYPTO",
+    "PENGU_ENABLE_NET",
+)
+
+#: (object file name, the one gate that is ON) -- `None` for the core object.
+#:
+#: The archive used to hold a single member, so any reference to the runtime
+#: dragged in the whole unit and, with it, PCRE2/libxml2/libcurl/mbedtls/
+#: libmicrohttpd.  Section GC recovers that on ELF and Mach-O, but **PE's
+#: `--gc-sections` keeps the unreferenced sections of an archive member**:
+#: Windows failed to link `hello_world` with `undefined reference to
+#: 'MHD_start_daemon'` in `.text$pengu_c_precis_serve_http`.  One member per
+#: subsystem makes the linker's usual "pull a member only for a symbol it
+#: defines" rule do the pruning, on every platform, with no GC required.
+RUNTIME_OBJECTS = (
+    ("pengu_runtime.o", None),
+    ("pengu_runtime_filum.o", "PENGU_ENABLE_THREADS"),
+    ("pengu_runtime_regulus.o", "PENGU_ENABLE_REGEX"),
+    ("pengu_runtime_parchment.o", "PENGU_ENABLE_XML"),
+    ("pengu_runtime_seal.o", "PENGU_ENABLE_CRYPTO"),
+    ("pengu_runtime_precis.o", "PENGU_ENABLE_NET"),
+)
+
 _venv_bin = Path(sys.executable).resolve().parent
 if str(_venv_bin) not in os.environ.get("PATH", ""):
     os.environ["PATH"] = str(_venv_bin) + os.pathsep + os.environ.get("PATH", "")
@@ -1239,10 +1269,9 @@ def build_pengu_runtime(cc, ar, rebuild=False):
             print(f"[RUNTIME] {target_lib.name} is up to date.")
             return target_lib
 
-    print("[RUNTIME] Compiling pengu_runtime.c...")
+    print("[RUNTIME] Compiling pengu_runtime.c (one object per subsystem)...")
     obj_dir = BUILD_DIR / "obj_runtime"
     obj_dir.mkdir(parents=True, exist_ok=True)
-    obj_path = obj_dir / "pengu_runtime.o"
 
     flags = [
         "-O2",
@@ -1275,12 +1304,27 @@ def build_pengu_runtime(cc, ar, rebuild=False):
         for brew_inc in ("/opt/homebrew/include", "/usr/local/include"):
             if os.path.isdir(brew_inc) and f"-I{brew_inc}" not in flags:
                 flags.append(f"-I{brew_inc}")
-    cmd = [cc] + flags + ["-c", str(runtime_c), "-o", str(obj_path)]
-    run_cmd(cmd)
+    objects = []
+    for obj_name, on_gate in RUNTIME_OBJECTS:
+        obj_path = obj_dir / obj_name
+        gates = [f"-D{gate}=1" if gate == on_gate else f"-D{gate}=0"
+                 for gate in RUNTIME_GATES]
+        # The ABI pin and the FFI bridges are non-static: they belong to the core
+        # object only, or their definitions would collide once the linker pulls
+        # two members.
+        core = "-DPENGU_RUNTIME_SUBSYSTEM_ONLY=0" if on_gate is None \
+            else "-DPENGU_RUNTIME_SUBSYSTEM_ONLY=1"
+        cmd = [cc] + flags + gates + [core, "-c", str(runtime_c), "-o", str(obj_path)]
+        run_cmd(cmd)
+        objects.append(str(obj_path))
 
     LIB_DIR.mkdir(parents=True, exist_ok=True)
-    run_cmd([ar, "rcs", str(target_lib), str(obj_path)])
-    print(f"[RUNTIME] Created {target_lib}")
+    # A stale archive may hold members from an older partition (`ar rcs` only
+    # replaces the names it is given), so start clean.
+    if target_lib.exists():
+        target_lib.unlink()
+    run_cmd([ar, "rcs", str(target_lib)] + objects)
+    print(f"[RUNTIME] Created {target_lib} ({len(objects)} objects)")
     return target_lib
 
 

@@ -148,6 +148,40 @@ def test_runtime_does_not_reference_the_libxml2_xmlFree_variable():
     )
 
 
+def test_the_core_object_references_no_optional_library():
+    """The member a plain program pulls must need nothing but libc.
+
+    PE's `--gc-sections` keeps the unreferenced sections of an archive member,
+    so a single-member runtime made `hello_world` demand `-lxml2`/`-lmicrohttpd`
+    on Windows.  Every optional subsystem now lives in its own member
+    (`build_runtime.RUNTIME_OBJECTS`); this compiles the core exactly the way
+    that build does and proves it has no optional-library reference.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "build_runtime_probe_core", REPO / "build_runtime.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    gates = [f"-D{gate}=0" for gate in mod.RUNTIME_GATES]
+    obj = OBJ_DIR / "_pengu_runtime_core.o"
+    cmd = ["gcc", "-std=c11", "-Wall", "-Wextra", *_runtime_flags(), *gates,
+           "-DPENGU_RUNTIME_SUBSYSTEM_ONLY=0",
+           "-c", str(RUNTIME_C), "-o", str(obj)]
+    r = subprocess.run(cmd, cwd=str(REPO), capture_output=True, text=True, timeout=600)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+    undefined = _undefined_symbols(obj)
+    optional = sorted(s for s in undefined
+                      if s.startswith(("MHD_", "curl_", "pcre2_", "mbedtls_", "xml")))
+    assert not optional, (
+        f"the core runtime object references an optional library: {optional}; "
+        "its implementation belongs in its own archive member"
+    )
+    assert "pengu_abi_version" not in undefined, "the core must define the ABI pin"
+
+
 def test_runtime_has_no_implicit_function_declarations():
     """The specific defect B8 hid: 24 implicit declarations for mbedtls hashes.
 
