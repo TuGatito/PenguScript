@@ -39,6 +39,44 @@ vez que un fuente `.pengu` puede emitir C que el compilador **no** comprueba.
 - Los parámetros de un `antiquus` se emiten con su nombre C exacto: un nombre
   que `_c_ident` tuviera que escapar (`if`, `int`, `while`, …) es `E0035` en
   lugar de renombrarse en silencio, porque el cuerpo C no podría nombrarlo.
+- **Reducción drástica del tamaño del binario.** `hello_world` (release,
+  `strip`) pasa de **659.5 KiB a ~14.3 KiB** (≈46×), y el caso stdlib más
+  pesado (`cipher_ops`, que usa `std.cipher` + `std.seal`) de 671.5 KiB a
+  114.5 KiB. Tres causas se atacaron por separado:
+  - **Section GC.** Todos los objetos de `libpengu_runtime.a` y de cada
+    dependencia nativa se compilan ahora con `-ffunction-sections
+    -fdata-sections` (`build_runtime.py`), y `release`/`small` enlazan con
+    `-Wl,--gc-sections` (GNU ld/lld) o `-Wl,-dead_strip` (ld64 de macOS). Sin
+    las dos mitades el enlazador no puede podar nada: un archivo estático se
+    resuelve por *miembro*, y el runtime era un único `.o` que arrastraba
+    PCRE2, libxml2, libcurl, mbedtls, libmicrohttpd y zlib enteros.
+  - **Enlace condicional.** Las dependencias nativas solo se enlazan cuando el
+    módulo `std` que las necesita fue importado: `std.regulus` → PCRE2,
+    `std.parchment` → libxml2, `std.precis` → libcurl + libmicrohttpd,
+    `std.seal` → zlib + mbedcrypto. Un programa sin importaciones nativas
+    enlaza únicamente `libpengu_runtime.a`. La decisión se lee del `bundle.c`
+    ya generado (prefijos de símbolos `pengu_c_regulus_*`, …), así que no puede
+    discrepar del C que ve el enlazador, y `pengu build --verbose` la imprime.
+    `-lz` sigue siendo incondicional: cuesta 0 bytes bajo el GC de secciones y
+    libxml2/libcurl/libcrypto dependen de ella. TCC y MSVC —que no pueden podar
+    secciones— conservan la línea de enlace completa.
+  - **Feature gates en el runtime.** La cabecera `pengu_runtime.h` envuelve
+    cada subsistema opcional en `PENGU_ENABLE_{REGEX,XML,NET,CRYPTO,THREADS}`
+    (por defecto 1, para un consumidor C directo), y el generador de código
+    emite los `#define` que corresponden a los módulos `std.*` importados.
+  - **Perfil `small`** (`-Os`, sin tablas de unwind, `-fno-ident`, `-fno-plt`)
+    para builds donde el tamaño manda.
+- **`BENCHMARKS.md` reescrito en su sección de tamaño.** La comparación
+  honesta es contra C **estático** (`gcc -O3 -static -s`, ~770 KiB), no contra
+  el C dinámico de 14.1 KiB que enlaza `libc.so`; contra ese baseline
+  `hello_world` queda en **~0.02×**. Se añade una tabla de atribución por
+  archive medida por `benches/binary_size_breakdown.py` (con modo `--legacy`
+  que reproduce la línea de enlace previa a 2.0). La afirmación anterior de que
+  PenguScript era «~2.0× más pequeño que Rust» se midió contra un binario Rust
+  enlazado dinámicamente y queda corregida. `benches/run_bench.py` deja de
+  declarar `lib_dirs` en su manifiesto temporal: apuntar a `build/lib`
+  convertía cada archive del toolchain en un enlace automático, que es lo
+  contrario de lo que mide un benchmark.
 
 ### Notes
 

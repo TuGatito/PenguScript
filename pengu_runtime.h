@@ -106,6 +106,52 @@ int pengu_abi_version(void);
 #endif
 
 /* =========================================================================
+ * Subsystem feature gates (PenguScript 2.0 binary-size reduction)
+ *
+ * Every subsystem whose *implementation* depends on an external native library
+ * is gated by one of these macros. Setting one to 0 compiles its declarations
+ * and `static inline` helpers out of the translation unit:
+ *
+ *   PENGU_ENABLE_REGEX   -> PCRE2        (std.regulus)
+ *   PENGU_ENABLE_XML     -> libxml2      (std.parchment)
+ *   PENGU_ENABLE_NET     -> libcurl + libmicrohttpd (std.precis)
+ *   PENGU_ENABLE_CRYPTO  -> zlib + mbedtls (std.seal)
+ *   PENGU_ENABLE_THREADS -> pthread      (std.filum)
+ *
+ * The defaults are conservative: a plain C consumer that includes this header
+ * gets the whole API. The generated `bundle.c` defines each one to 0 or 1
+ * before this include, from the `std.*` modules the program imports, and
+ * `pengu_project.py` links only the matching native archives.
+ *
+ * The archive `libpengu_runtime.a` is always compiled with every gate at its
+ * default of 1: its symbols have to exist for the linker to choose from. The
+ * size win comes from the link step's section GC, not from this archive.
+ *
+ * No macro gates the core (strings, slices, lists, maps, maybe/result, memory,
+ * print/input, filesystem, time, math): it has no external dependency beyond
+ * libc and libm.
+ *
+ * A gate that hides a declaration while `pengu_runtime.c` still defines the
+ * function is safe. The reverse is not, which is why declarations and
+ * definitions are gated together.
+ * ========================================================================= */
+#ifndef PENGU_ENABLE_REGEX
+#define PENGU_ENABLE_REGEX 1
+#endif
+#ifndef PENGU_ENABLE_XML
+#define PENGU_ENABLE_XML 1
+#endif
+#ifndef PENGU_ENABLE_NET
+#define PENGU_ENABLE_NET 1
+#endif
+#ifndef PENGU_ENABLE_CRYPTO
+#define PENGU_ENABLE_CRYPTO 1
+#endif
+#ifndef PENGU_ENABLE_THREADS
+#define PENGU_ENABLE_THREADS 1
+#endif
+
+/* =========================================================================
  * 1. Standard C & Platform Headers
  * ========================================================================= */
 #include <ctype.h>
@@ -4567,6 +4613,8 @@ extern "C"
    * 20. Concurrency & Threading Primitives (Filum)
    * ========================================================================= */
 
+#if PENGU_ENABLE_THREADS
+
   void pengu_c_filum_go(void *f);
   void *pengu_c_filum_chan_new(size_t elem_size, int cap);
   bool pengu_c_filum_chan_send(void *c, void *value);
@@ -4618,10 +4666,13 @@ extern "C"
   void pengu_c_filum_sleep(int ms);
   int pengu_c_filum_num_cpu(void);
   int pengu_c_filum_goroutine_id(void);
+#endif /* PENGU_ENABLE_THREADS -- Filum */
 
   /* =========================================================================
    * 21. Regular Expressions (Regulus)
    * ========================================================================= */
+
+#if PENGU_ENABLE_REGEX
 
   typedef struct
   {
@@ -4663,10 +4714,13 @@ PenguString pengu_c_regulus_replace(void *regex, PenguString text, PenguString r
   void pengu_c_regulus_match_free(void *m);
   static inline PenguString pengu_c_regulus_escape(PenguString text) { return text; }
   static inline bool pengu_c_regulus_is_valid(void *regex) { return regex != NULL; }
+#endif /* PENGU_ENABLE_REGEX -- Regulus */
 
   /* =========================================================================
    * 22. XML & HTML DOM Processing (Parchment)
    * ========================================================================= */
+
+#if PENGU_ENABLE_XML
 
   typedef struct
   {
@@ -4717,10 +4771,13 @@ PenguString pengu_c_regulus_replace(void *regex, PenguString text, PenguString r
   void pengu_c_parchment_document_free(void *doc);
   static inline PenguString pengu_c_parchment_escape_text(PenguString text) { return text; }
   static inline PenguString pengu_c_parchment_unescape_text(PenguString text) { return text; }
+#endif /* PENGU_ENABLE_XML -- Parchment */
 
   /* =========================================================================
    * 23. Compression & Cryptographic Hashing (Seal)
    * ========================================================================= */
+
+#if PENGU_ENABLE_CRYPTO
 
   /* CRC-32 (IEEE 802.3) of `data`, as the full unsigned 32-bit checksum:
    * values >= 0x80000000 stay positive, matching zlib's crc32(). */
@@ -4736,10 +4793,13 @@ PenguMaybe pengu_c_seal_gzip(PenguString data);
   PenguMaybe pengu_c_seal_zlib_compress(PenguString data);
   PenguMaybe pengu_c_seal_zlib_decompress(PenguString data);
   PenguMaybe pengu_c_seal_hash_file(PenguString path, PenguString hash_type);
+#endif /* PENGU_ENABLE_CRYPTO -- Seal */
 
   /* =========================================================================
    * 24. Networking & HTTP Client/Server (Precis)
    * ========================================================================= */
+
+#if PENGU_ENABLE_NET
 
   typedef struct
   {
@@ -4803,6 +4863,7 @@ PenguMaybe pengu_c_precis_tcp_connect(PenguString host, int port);
   /** Parses a query string. The returned PenguMap owns its keys/values:
  * release with pengu_banish_map() (or banish from PenguScript). */
   PenguMap pengu_c_precis_parse_query(PenguString s);
+#endif /* PENGU_ENABLE_NET -- Precis */
 
   /* =========================================================================
    * 25. C <-> Pengu Conversion Bridges (FFI)

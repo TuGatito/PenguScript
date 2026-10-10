@@ -7,12 +7,28 @@ python benches/run_bench.py                 # best of 3, human table
 python benches/run_bench.py --repeat 5 --csv benches/results/local.csv
 python benches/run_bench.py --only fib_40   # a single case
 benches/run_bench.sh                        # POSIX wrapper for the above
+python benches/binary_size_breakdown.py --legacy   # per-archive size attribution
 ```
 
 * `*.pengu` — the PenguScript programs under test.
 * `c/`, `rust/`, `zig/` — the same programs in C (`-O3`), Rust (`-O`) and Zig
   (`-OReleaseFast`). Baselines are skipped when the toolchain is missing.
-* `results/` — CSV output (git-ignored except for `.gitkeep`).
+* `results/` — CSV output (git-ignored) plus the committed JSON report written by
+  `binary_size_breakdown.py`.
+
+`run_bench.py` writes its throw-away project manifest with **no `lib_dirs`**, on
+purpose. Adding the runtime's `build/lib` there turns every archive in it into an
+auto-detected link (`-lraylib`, `-lsqlite3`, `-lmicrohttpd`, …), which measures a
+build no `pengu init` project ever produces. The archive list has to come from
+the program's imports alone.
+
+`binary_size_breakdown.py` measures where the bytes of a stripped `hello_world`
+come from: it reads the linker's `-Map` for the per-archive contribution, then
+re-links once per archive to get the delta when that archive is dropped.
+`--legacy` rewrites the captured link command into its pre-2.0 shape (all six
+native archives, no section GC) so the "before" numbers in
+[`BENCHMARKS.md`](../BENCHMARKS.md) stay reproducible on a tree whose archives are
+now compiled with `-ffunction-sections`.
 
 ## Bare-language vs stdlib cases
 

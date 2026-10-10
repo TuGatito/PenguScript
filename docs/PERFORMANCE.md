@@ -245,6 +245,41 @@ pengu run x.pengu --pch
 
 It is skipped entirely for TCC/MSVC, and a failed PCH never fails the build.
 
+### 7.1 PCH and the `PENGU_ENABLE_*` feature gates
+
+Since 2.0 the generated `bundle.c` defines
+`PENGU_ENABLE_{REGEX,XML,NET,CRYPTO,THREADS}` before it includes
+`pengu_runtime.h`, narrowing the header to the subsystems the program actually
+imports (see `BENCHMARKS.md` §Binary size). gcc validates the preprocessor state
+at the point of inclusion, so a `.gch` compiled with every gate at its default of
+`1` is **found but not usable** for such a bundle:
+
+```
+$ gcc -H -c build/bundle.c
+x /…/build/include/pengu_runtime.h.gch
+. bundle.c
+$ gcc -Winvalid-pch -H -c build/bundle.c
+warning: /…/pengu_runtime.h.gch: not used because 'PENGU_ENABLE_REGEX' is defined
+```
+
+Without `-Winvalid-pch` the warning is silent and gcc simply reparses the header —
+the same "found but not used" behaviour §7 already documents for `-DDEBUG` and
+`-I/usr/include/libxml2`. `PenguBuilder` therefore does not offer the shared PCH
+to a bundle whose gates differ from the header's defaults, and says so under
+`--verbose`:
+
+```
+[pengu] runtime PCH skipped: the bundle's PENGU_ENABLE_* gates differ from
+the precompiled header's defaults
+```
+
+The rule is exact rather than a threshold: the PCH is reusable only by a program
+that imports all five gated `std` modules (`regulus`, `parchment`, `precis`,
+`seal`, `filum`). Below that, `--pch` writes a file nobody reads. That is one
+more reason it stays off by default, on top of the two in §7 — a build with no
+generated bundle to inspect (a caller that only wants a command line) is left
+alone, and gcc decides.
+
 ## 8. pkg-config memoisation (`pengu_paths.py`)
 
 A single build asked `pkg-config` for the same four packages (libxml-2.0,
@@ -256,6 +291,12 @@ probe per (pkg-config path, args) for the life of the process:
 |---|---:|---:|
 | `PenguBuilder.build_compile_commands()` (first call) | 320 ms | **201 ms** |
 | same call repeated in-process (TCC → gcc fallback) | 320 ms | **3 ms** |
+
+Since 2.0 the set is also *conditional*: only the packages the imported `std`
+modules need are probed at all, so a program that imports no native `std`
+wrapper (the `hello_world` case) asks `pkg-config` nothing and never receives
+libxml2's `-I/usr/include/libxml2` on its command line. `--verbose` prints the
+archive list the decision produced.
 
 The resolved `pkg-config` path is part of the cache key, so a different
 toolchain cannot read another one's results. `PKG_CONFIG_PATH` changes within a
@@ -292,6 +333,7 @@ Linux x86_64, Python 3.14.7, gcc 16.2.1, TCC 0.9.28rc, best of 5.
 | `compute.pengu` — compiled binary, 10M-iteration loop (`pengu time`, run phase) | ~33 ms | 33.4 ms | 0% |
 | `compute.pengu` — compile + run (forced each time) | ~1.2 s | 0.62 s | -48% |
 | `bundle.c` lines (`hello.pengu`, only `println`) | 432 | **65** | **-84%** |
+| Stripped `hello_world` binary (`pengu build --profile release`) | 659.5 KiB | **14.3 KiB** | **-98%** |
 | LALR table construction per process | 3.9 s | **~0.25 s** | **-94%** |
 | `build_compile_commands()` (pkg-config probes) | 320 ms | 201 ms | -37% |
 | C compile + link of the bundle (TCC vs gcc) | ~400 ms (gcc) | **19 ms** (TCC) | **-95%** |

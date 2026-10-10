@@ -6,6 +6,7 @@ Part of :class:`~pengu_parser.pengu_codegen.main.PenguCodegen`; see
 from __future__ import annotations
 
 from ._base import (
+    Dict,
     List,
     Optional,
     PENGU_VERSION,
@@ -16,6 +17,40 @@ from ._base import (
     os,
     prune_weaves,
 )
+
+#: ``PENGU_ENABLE_*`` runtime gate -> the ``std`` module that switches it on.
+#: Mirrors ``pengu_project.py``'s ``_FEATURE_GATE_MODULES`` (which also decides
+#: which native ``-l`` archives get linked). The two tables are duplicated
+#: rather than shared because the code generator must not import the build
+#: manager; ``tests/compiler/test_binary_size_reduction.py`` asserts they agree.
+FEATURE_GATE_MODULES: "Dict[str, str]" = {
+    "PENGU_ENABLE_REGEX": "regulus",
+    "PENGU_ENABLE_XML": "parchment",
+    "PENGU_ENABLE_NET": "precis",
+    "PENGU_ENABLE_CRYPTO": "seal",
+    "PENGU_ENABLE_THREADS": "filum",
+}
+
+#: Runtime C symbol prefix -> the gate that must stay on for it. Consulted
+#: against the generated body so a hand-written ``declare pengu_c_regulus_*``
+#: keeps compiling even without ``import std.regulus``.
+FEATURE_GATE_PREFIXES: "Dict[str, str]" = {
+    "pengu_c_regulus_": "PENGU_ENABLE_REGEX",
+    "pengu_c_parchment_": "PENGU_ENABLE_XML",
+    "pengu_c_precis_": "PENGU_ENABLE_NET",
+    "pengu_c_seal_": "PENGU_ENABLE_CRYPTO",
+    "pengu_c_filum_": "PENGU_ENABLE_THREADS",
+}
+
+
+def _std_module_stem(path: str) -> Optional[str]:
+    """``/repo/std/regulus.pengu`` -> ``"regulus"``; anything else -> None."""
+    norm = str(path).replace("\\", "/")
+    idx = norm.rfind("/std/")
+    if idx < 0:
+        return None
+    return os.path.splitext(norm[idx + len("/std/"):])[0]
+
 
 class BundleMixin:
     """The final orchestrator that assembles `bundle.c`."""
@@ -173,13 +208,56 @@ class BundleMixin:
         if entry_code:
             sections.append(entry_code)
 
-        bundle_code = "\n".join(sections)
+        bundle_code = self._inject_feature_gates("\n".join(sections))
 
         if output_path:
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write(bundle_code)
 
         return bundle_code
+
+    def _std_feature_gates(self, bundle_code: str) -> "Dict[str, int]":
+        """Value of every ``PENGU_ENABLE_*`` gate for this program.
+
+        A gate is 1 when the matching ``std`` module was imported *or* when the
+        generated body mentions one of the subsystem's C symbols. The second
+        condition matters: a program can ``declare pengu_c_regulus_compile``
+        and call it without ever importing ``std.regulus``, and compiling that
+        against a header with the declarations gated out would be a regression.
+        """
+        imported: Set[str] = set()
+        for module in (self.import_order or []):
+            stem = _std_module_stem(module)
+            if stem:
+                imported.add(stem)
+
+        gates = {gate: 0 for gate in FEATURE_GATE_MODULES}
+        for gate, module in FEATURE_GATE_MODULES.items():
+            if module in imported:
+                gates[gate] = 1
+        for prefix, gate in FEATURE_GATE_PREFIXES.items():
+            if prefix in bundle_code:
+                gates[gate] = 1
+        return gates
+
+    def _inject_feature_gates(self, bundle_code: str) -> str:
+        """Emits the ``#define PENGU_ENABLE_*`` preamble above the runtime include.
+
+        The runtime header defaults every gate to 1 so a plain C consumer sees
+        the whole API; the bundle narrows that to what the program actually
+        uses. ``pengu_project.py`` links the matching native archives from the
+        same information (see BENCHMARKS.md §Binary size).
+        """
+        marker = '#include "pengu_runtime.h"'
+        if marker not in bundle_code:
+            return bundle_code
+        gates = self._std_feature_gates(bundle_code)
+        lines = ["/* --- PenguScript 2.0 subsystem feature gates (size reduction) --- */"]
+        for gate in FEATURE_GATE_MODULES:
+            lines.append(f"#define {gate} {gates[gate]}")
+        lines.append("/* ----------------------------------------------------------------- */")
+        return bundle_code.replace(marker, "\n".join(lines) + "\n" + marker, 1)
+
     def _resolve_weave_refs_in_stmts(self, stmts: List[Tree]) -> None:
         """Pre-pass: injects c_name into var_ref nodes when pointing to a weave."""
         for stmt in stmts:

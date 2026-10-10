@@ -1,0 +1,195 @@
+{
+  "measured_on": "2026-10-09",
+  "current": {
+    "link_shape": "2.0 (conditional archives, section GC)",
+    "baseline_bytes": 14664,
+    "baseline_kiB": 14.3,
+    "linked_libs": [
+      "z"
+    ],
+    "link_command": "gcc <scratch>/hello/build/bundle.c <scratch>/hello/build/arca_assets.c -o <scratch>/hello/build/hello -Wall -std=c11 -O3 -DNDEBUG -ffunction-sections -fdata-sections -DNDEBUG -fwrapv -I<scratch>/hello/build -I<scratch>/hello/include -I<repo>/build/include -I<repo> -L<scratch>/hello/lib -L<repo>/build/lib -Wl,--start-group -lpengu_runtime -lz -lrt -pthread -lm -ldl -Wl,--gc-sections -Wl,--end-group",
+    "map_attribution": [
+      {
+        "archive": "cc1dEzPU.o",
+        "bytes": 3792,
+        "kiB": 3.7
+      },
+      {
+        "archive": "Scrt1.o",
+        "bytes": 2298,
+        "kiB": 2.2
+      },
+      {
+        "archive": "crtbeginS.o",
+        "bytes": 226,
+        "kiB": 0.2
+      },
+      {
+        "archive": "crti.o",
+        "bytes": 30,
+        "kiB": 0.0
+      },
+      {
+        "archive": "crtn.o",
+        "bytes": 10,
+        "kiB": 0.0
+      },
+      {
+        "archive": "crtendS.o",
+        "bytes": 4,
+        "kiB": 0.0
+      },
+      {
+        "archive": "cc1PWWxm.o",
+        "bytes": 0,
+        "kiB": 0.0
+      },
+      {
+        "archive": "libpengu_runtime.a",
+        "bytes": 0,
+        "kiB": 0.0
+      },
+      {
+        "archive": "libz.a",
+        "bytes": 0,
+        "kiB": 0.0
+      }
+    ],
+    "exclusion_delta": [
+      {
+        "lib": "z",
+        "static_archive": "build/lib/libz.a",
+        "excluded_bytes": 14664,
+        "excluded_kiB": 14.3,
+        "delta_bytes": 0,
+        "delta_kiB": 0.0
+      }
+    ]
+  },
+  "legacy": {
+    "link_shape": "legacy (pre-2.0: all archives, no section GC)",
+    "baseline_bytes": 679440,
+    "baseline_kiB": 663.5,
+    "linked_libs": [
+      "pcre2-8",
+      "xml2",
+      "curl",
+      "mbedcrypto",
+      "microhttpd",
+      "z"
+    ],
+    "link_command": "gcc <scratch>/hello/build/bundle.c <scratch>/hello/build/arca_assets.c -o <scratch>/hello/build/hello -Wall -std=c11 -O3 -DNDEBUG -DNDEBUG -fwrapv -I<scratch>/hello/build -I<scratch>/hello/include -I<repo>/build/include -I<repo> -L<scratch>/hello/lib -L<repo>/build/lib -Wl,--start-group -lpengu_runtime -lpcre2-8 -lxml2 -lcurl -lmbedcrypto -lmicrohttpd -lz -lrt -pthread -lm -ldl -Wl,--end-group",
+    "map_attribution": [
+      {
+        "archive": "libpcre2-8.a",
+        "bytes": 363962,
+        "kiB": 355.4
+      },
+      {
+        "archive": "libmicrohttpd.a",
+        "bytes": 107264,
+        "kiB": 104.8
+      },
+      {
+        "archive": "libz.a",
+        "bytes": 77632,
+        "kiB": 75.8
+      },
+      {
+        "archive": "libpengu_runtime.a",
+        "bytes": 43509,
+        "kiB": 42.5
+      },
+      {
+        "archive": "libmbedcrypto.a",
+        "bytes": 27622,
+        "kiB": 27.0
+      },
+      {
+        "archive": "cctjFbHO.o",
+        "bytes": 26584,
+        "kiB": 26.0
+      },
+      {
+        "archive": "Scrt1.o",
+        "bytes": 22440,
+        "kiB": 21.9
+      },
+      {
+        "archive": "crtbeginS.o",
+        "bytes": 226,
+        "kiB": 0.2
+      },
+      {
+        "archive": "ccdHxvrd.o",
+        "bytes": 178,
+        "kiB": 0.2
+      },
+      {
+        "archive": "crti.o",
+        "bytes": 30,
+        "kiB": 0.0
+      },
+      {
+        "archive": "crtn.o",
+        "bytes": 10,
+        "kiB": 0.0
+      },
+      {
+        "archive": "crtendS.o",
+        "bytes": 4,
+        "kiB": 0.0
+      }
+    ],
+    "exclusion_delta": [
+      {
+        "lib": "pcre2-8",
+        "static_archive": "build/lib/libpcre2-8.a",
+        "excluded_bytes": 314704,
+        "excluded_kiB": 307.3,
+        "delta_bytes": 364736,
+        "delta_kiB": 356.2
+      },
+      {
+        "lib": "xml2",
+        "static_archive": null,
+        "excluded_bytes": 671216,
+        "excluded_kiB": 655.5,
+        "delta_bytes": 8224,
+        "delta_kiB": 8.0
+      },
+      {
+        "lib": "curl",
+        "static_archive": null,
+        "excluded_bytes": 679440,
+        "excluded_kiB": 663.5,
+        "delta_bytes": 0,
+        "delta_kiB": 0.0
+      },
+      {
+        "lib": "mbedcrypto",
+        "static_archive": "build/lib/libmbedcrypto.a",
+        "excluded_bytes": 655016,
+        "excluded_kiB": 639.7,
+        "delta_bytes": 24424,
+        "delta_kiB": 23.9
+      },
+      {
+        "lib": "microhttpd",
+        "static_archive": "build/lib/libmicrohttpd.a",
+        "excluded_bytes": 548072,
+        "excluded_kiB": 535.2,
+        "delta_bytes": 131368,
+        "delta_kiB": 128.3
+      },
+      {
+        "lib": "z",
+        "static_archive": "build/lib/libz.a",
+        "excluded_bytes": 601680,
+        "excluded_kiB": 587.6,
+        "delta_bytes": 77760,
+        "delta_kiB": 75.9
+      }
+    ]
+  }
+}

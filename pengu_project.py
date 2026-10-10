@@ -300,9 +300,24 @@ class ProjectConfig:
             "defines": ["DEBUG"],
         },
         "release": {
-            "cflags": ["-O3", "-flto", "-DNDEBUG"],
+            "cflags": ["-O3", "-flto", "-DNDEBUG",
+                       "-ffunction-sections", "-fdata-sections"],
             "defines": ["NDEBUG"],
-        }
+        },
+        # Size-critical builds: optimise for size, drop the unwind tables and
+        # PLT indirection that nothing in the runtime needs, and hide the
+        # compiler identification string. `-Wl,--gc-sections` is added by
+        # PenguBuilder for every non-TCC/non-MSVC build regardless of profile.
+        # The trade is explicit: without `.eh_frame` the crash handler can no
+        # longer unwind the stack, so its report is shallower. That is the only
+        # reason `small` is not the default.
+        "small": {
+            "cflags": ["-Os", "-DNDEBUG",
+                       "-ffunction-sections", "-fdata-sections",
+                       "-fno-asynchronous-unwind-tables", "-fno-unwind-tables",
+                       "-fno-ident", "-fno-plt"],
+            "defines": ["NDEBUG", "PENGU_SIZE_OPT"],
+        },
     })
     profile: str = "debug"
     base_dir: str = field(default_factory=lambda: os.path.abspath(os.getcwd()))
@@ -498,7 +513,18 @@ class ProjectConfig:
 
         resolved_profiles = {
             "debug": {"cflags": ["-g", "-O0", "-Wall"], "defines": ["DEBUG"]},
-            "release": {"cflags": ["-O3", "-flto", "-DNDEBUG"], "defines": ["NDEBUG"]},
+            "release": {
+                "cflags": ["-O3", "-flto", "-DNDEBUG",
+                           "-ffunction-sections", "-fdata-sections"],
+                "defines": ["NDEBUG"],
+            },
+            "small": {
+                "cflags": ["-Os", "-DNDEBUG",
+                           "-ffunction-sections", "-fdata-sections",
+                           "-fno-asynchronous-unwind-tables", "-fno-unwind-tables",
+                           "-fno-ident", "-fno-plt"],
+                "defines": ["NDEBUG", "PENGU_SIZE_OPT"],
+            },
         }
 
         if isinstance(profiles_sec, dict):
@@ -638,6 +664,84 @@ class PenguBuilder:
         """Prints a verbose debug line when verbose mode is enabled."""
         if getattr(self, "verbose", False):
             print(message, file=sys.stderr)
+
+    # ------------------------------------------- conditional link resolution
+
+    def _imported_std_modules(self, bundle_path: Optional[str] = None,
+                              bundle_text: Optional[str] = None) -> Set[str]:
+        """Names (after ``std/``) of every standard-library module the build pulls in.
+
+        Two independent sources, unioned because neither is complete on its own:
+
+        * ``self.checker.symbols.import_order`` — the checker's resolved import
+          graph. It names modules that were imported even when dead-code
+          elimination later removed every weave, which is the conservative
+          answer the linker wants.
+        * the ``#line N "<path>/std/<name>.pengu"`` markers of the already
+          written ``bundle.c``. It survives a checker that does not expose an
+          import order, and it also catches a bundle produced by an older
+          toolchain.
+
+        A module name is only ever used to *enable* a subsystem, so an
+        over-approximation costs bytes, never correctness.
+        """
+        found: Set[str] = set()
+
+        symbols = getattr(self.checker, "symbols", None)
+        for attr in ("import_order", "module_paths"):
+            for path in (getattr(symbols, attr, None) or []):
+                stem = _std_module_stem(path)
+                if stem:
+                    found.add(stem)
+
+        text = self._bundle_text(bundle_path) if bundle_text is None else bundle_text
+        for raw in text.splitlines():
+            if not raw.startswith("#line") or '"' not in raw:
+                continue
+            try:
+                path = raw.split('"', 2)[1]
+            except IndexError:
+                continue
+            stem = _std_module_stem(path)
+            if stem:
+                found.add(stem)
+        return found
+
+    def _bundle_text(self, bundle_path: Optional[str]) -> str:
+        """Content of ``bundle.c`` (empty string when it is not on disk yet)."""
+        if not bundle_path or not os.path.isfile(bundle_path):
+            return ""
+        try:
+            with open(bundle_path, "r", encoding="utf-8", errors="replace") as fh:
+                return fh.read()
+        except OSError:
+            return ""
+
+    def _native_archives_for_bundle(self, bundle_path: Optional[str],
+                                    bundle_text: Optional[str] = None) -> Set[str]:
+        """Native archives the generated bundle actually references.
+
+        The primary signal is the C symbol prefix each optional subsystem
+        exports (``pengu_c_regulus_`` -> PCRE2, ...): that is exactly what the
+        linker will look for, so it cannot be fooled by an imported-but-unused
+        module or by a hand-written ``declare``. The imported ``std`` modules
+        are unioned in as a belt-and-braces fallback.
+
+        When there is no generated bundle to read — a caller that only wants a
+        command line for inspection, or a bundle from an older toolchain — the
+        full pre-2.0 archive set is returned instead. Under-linking is a link
+        error; over-linking is merely the size this work removed.
+        """
+        text = self._bundle_text(bundle_path) if bundle_text is None else bundle_text
+        if _BUNDLE_MARKER not in text:
+            return set(_LEGACY_RUNTIME_ARCHIVES)
+        archives: Set[str] = set()
+        for std_name in self._imported_std_modules(bundle_path, text):
+            archives.update(_STD_LINK_DEPS.get(std_name, ()))
+        for prefix, deps in _SUBSYSTEM_PREFIX_DEPS.items():
+            if prefix in text:
+                archives.update(deps)
+        return archives
 
     def get_build_directory(self) -> str:
         """Returns absolute path to the designated build directory."""
@@ -1623,6 +1727,7 @@ class PenguBuilder:
             # initializers / compound literals (roadmap 2.2.f).
             remap = {
                 "-O0": "/Od", "-O1": "/O1", "-O2": "/O2", "-O3": "/O2",
+                "-Os": "/O1",
                 "-g": "/Zi", "-Wall": "/W3", "-Wextra": "/W4",
                 "-std=c11": "/std:c11", "-std=c99": "/std:c11",
             }
@@ -1636,7 +1741,8 @@ class PenguBuilder:
                     new_flags.append("/I" + f[2:])
                 elif f.startswith("-flto") or f in (
                         "-fno-plt", "-pipe", "-fno-ident", "-g0", "-O0",
-                        "-fno-asynchronous-unwind-tables"):
+                        "-fno-unwind-tables", "-fno-asynchronous-unwind-tables",
+                        "-ffunction-sections", "-fdata-sections"):
                     continue
                 else:
                     new_flags.append(f)
@@ -1661,13 +1767,64 @@ class PenguBuilder:
                 # signature) clean.
                 common_flags = [f for f in common_flags if f != "-g"]
 
+        # Section GC, step 1 of 2: every object the link sees must be split into
+        # one section per function, or `--gc-sections` has nothing to drop. The
+        # release/small profiles also carry these flags for clarity, but they are
+        # enforced here so that a project with an older manifest -- or a `debug`
+        # build -- still gets a prunable binary. TCC's driver and cl.exe reject
+        # the flags outright.
+        if not is_msvc and not is_tcc:
+            for flag in SECTION_FLAGS:
+                if flag not in common_flags:
+                    common_flags.append(flag)
+
+        # What the program actually uses decides what gets linked. The answer is
+        # read back out of the already-written bundle, so the link line cannot
+        # disagree with the C the linker is about to see.
+        bundle_text = self._bundle_text(bundle_path)
+        native_archives = self._native_archives_for_bundle(bundle_path, bundle_text)
+        # Conditional linking is only sound when the link step can actually drop
+        # what the program does not use. TCC's linker has no section GC at all,
+        # and cl.exe only prunes COMDATs (`/Gy`, which this toolchain does not
+        # emit), so under either of them the whole runtime object survives and
+        # every archive it references has to be present. Fall back to the
+        # pre-2.0 link line rather than fail with unresolved externals.
+        if is_tcc or is_msvc:
+            native_archives = set(_LEGACY_RUNTIME_ARCHIVES)
+        needed_std = self._imported_std_modules(bundle_path, bundle_text)
+        needed_pkgs = {_PKG_CONFIG_NAME.get(a, a) for a in native_archives}
+        self._vlog(f"[pengu] std modules imported: {sorted(needed_std) or '(none)'}")
+        self._vlog(f"[pengu] native archives linked: "
+                   f"{sorted(native_archives) or '(none)'}")
+
         build_dir = self.get_build_directory()
 
         # A precompiled header of pengu_runtime.h saves the front-end work of
         # parsing the (large) runtime on every compile.  It must be generated
         # with the same -I/-D/-std set the build uses, otherwise gcc silently
         # ignores it.
-        if self.use_pch and not is_tcc and not is_msvc:
+        #
+        # It must also agree with the PENGU_ENABLE_* feature gates the bundle
+        # defines before including the header. GCC validates the preprocessor
+        # state at the point of inclusion and refuses a PCH whose macro state
+        # differs -- with `-Winvalid-pch` it says so, by default it just
+        # recompiles the header. So a bundle whose gates differ from the
+        # header's defaults silently loses the PCH; skipping it here makes
+        # that visible instead of paying for a precompiled header that is
+        # never read. `--pch` is opt-in, and the saving only materialises for
+        # programs that import every gated subsystem (see docs/PERFORMANCE.md).
+        #
+        # A caller that passes no generated bundle has no gates to disagree
+        # with, so the PCH is left alone and the compiler decides.
+        gates_known = _BUNDLE_MARKER in bundle_text
+        pch_matches_gates = (
+            not gates_known
+            or len(_gated_std_modules(needed_std)) == len(_FEATURE_GATE_MODULES)
+        )
+        if self.use_pch and not is_tcc and not is_msvc and not pch_matches_gates:
+            self._vlog("[pengu] runtime PCH skipped: the bundle's PENGU_ENABLE_* "
+                       "gates differ from the precompiled header's defaults")
+        if self.use_pch and not is_tcc and not is_msvc and pch_matches_gates:
             prebuilt = self._runtime_pch_exists()
             if prebuilt:
                 # build_runtime.py (and the release archive) ship a shared
@@ -1692,15 +1849,21 @@ class PenguBuilder:
         # builds there), so we must ask pkg-config where their headers live.
         # Plain clang on macOS does not search the Homebrew prefix by
         # default, so we also add it explicitly.
+        #
+        # Only the packages the imported std modules need: pulling in
+        # libxml2's `-I/usr/include/libxml2` for a program that never parses
+        # XML used to add a system include path (and libxml2's own defines) to
+        # every build.
         if not is_win:
-            for pkg in ("libxml-2.0", "libcurl", "libmicrohttpd", "mbedtls"):
+            for pkg in sorted(needed_pkgs):
                 for tok in pkg_config_cflags(pkg):
                     if tok not in common_flags:
                         common_flags.append(tok)
-            for brew_inc in ("/opt/homebrew/include", "/usr/local/include"):
-                flag = f"-I{brew_inc}"
-                if os.path.isdir(brew_inc) and flag not in common_flags:
-                    common_flags.append(flag)
+            if needed_pkgs:
+                for brew_inc in ("/opt/homebrew/include", "/usr/local/include"):
+                    flag = f"-I{brew_inc}"
+                    if os.path.isdir(brew_inc) and flag not in common_flags:
+                        common_flags.append(flag)
 
         # Include directories (-I)
         include_dirs = self.collect_include_dirs()
@@ -1717,11 +1880,12 @@ class PenguBuilder:
                 common_flags.append(ldir_flag)
 
         if not is_win:
-            for brew_lib in ("/opt/homebrew/lib", "/usr/local/lib"):
-                ldir_flag = f"-L{brew_lib}"
-                if os.path.isdir(brew_lib) and ldir_flag not in common_flags:
-                    common_flags.append(ldir_flag)
-            for pkg in ("libxml-2.0", "libcurl", "libmicrohttpd", "mbedtls"):
+            if needed_pkgs:
+                for brew_lib in ("/opt/homebrew/lib", "/usr/local/lib"):
+                    ldir_flag = f"-L{brew_lib}"
+                    if os.path.isdir(brew_lib) and ldir_flag not in common_flags:
+                        common_flags.append(ldir_flag)
+            for pkg in sorted(needed_pkgs):
                 for tok in pkg_config_libs(pkg):
                     if tok.startswith("-L") and tok not in common_flags:
                         common_flags.append(tok)
@@ -1752,20 +1916,41 @@ class PenguBuilder:
         link_flags: List[str] = []
         for link in all_links:
             if link in ("pengu_runtime", "libpengu_runtime"):
-                link_flags.extend([
-                    "-lpengu_runtime", "-lpcre2-8", "-lxml2", "-lcurl",
-                    "-lmbedcrypto", "-lmicrohttpd", "-lz"
-                ])
+                # The runtime's core (strings, lists, maps, maybe/result,
+                # memory, print/input, fs, time, math) needs nothing beyond
+                # libc and libm. The optional subsystems live in the same
+                # archive but are only pulled in when the bundle references
+                # their symbols -- which it only does when the matching std
+                # module was imported. Linking their native archives
+                # unconditionally used to cost ~660 KiB for `hello_world`
+                # (see BENCHMARKS.md §Binary size).
+                link_flags.append("-lpengu_runtime")
+                # zlib stays unconditional, and it is free: measured on
+                # `hello_world`, adding `-lz` to a link that never calls into
+                # it changes the stripped binary by 0 bytes, because section GC
+                # discards every zlib section the runtime does not reach. It
+                # cannot be made conditional, though: libxml2, libcurl and
+                # libcrypto all depend on `libz.so.1`, so the moment one of
+                # them is on the command line the linker searches libz
+                # transitively for the runtime's (about to be discarded)
+                # `compressBound`/`deflate` references and aborts with "DSO
+                # missing from command line".
+                if "-lz" not in link_flags:
+                    link_flags.append("-lz")
+                for archive in sorted(native_archives):
+                    flag = f"-l{archive}"
+                    if flag not in link_flags:
+                        link_flags.append(flag)
                 if is_win:
-                    link_flags.extend([
-                        "-lws2_32", "-lwinmm", "-ladvapi32", "-lcrypt32", "-lbcrypt",
-                        # windowing / UI platform libraries (raylib, webui, ...)
-                        "-lopengl32", "-lgdi32", "-lole32", "-luuid", "-lshell32",
-                        # libuv platform libraries (psapi/userenv/iphlpapi)
-                        "-lpsapi", "-luserenv", "-liphlpapi",
-                    ])
+                    for lib in _PENGU_WIN_PLATFORM_LIBS:
+                        if lib not in link_flags:
+                            link_flags.append(lib)
                 else:
-                    for pkg in ("libxml-2.0", "libcurl", "libmicrohttpd", "mbedtls"):
+                    # pkg-config may know a provider library the archive name
+                    # does not spell out (mbedtls splits into
+                    # mbedcrypto/mbedtls/mbedx509). Only asked for the
+                    # packages actually linked.
+                    for pkg in sorted(needed_pkgs):
                         for tok in pkg_config_libs(pkg):
                             if tok.startswith("-l") and tok not in link_flags:
                                 link_flags.append(tok)
@@ -1786,12 +1971,31 @@ class PenguBuilder:
             # outright because `cl.exe` accepts neither `-framework` nor `-lrt`
             # (item 4.11), and an explicit `--cc cl` on a Darwin host used to
             # leave `-framework CoreFoundation` stranded on an MSVC command line.
+            #
+            # `-lcrypto -lssl` are only reached by `libzip` -- directly, or
+            # through `xlsxio_read`/`xlsxio_write` which depend on it -- never
+            # by the runtime, so they are emitted only when one of those is
+            # linked. Nothing else in `build/lib` references an OpenSSL symbol.
             target_os = self.target_os
             if target_os == "linux":
-                link_flags += ["-lrt", "-lcrypto", "-lssl"]
+                link_flags.append("-lrt")
+                if any(lib in all_links for lib in ("zip", "xlsxio_read", "xlsxio_write")):
+                    for extra in ("-lcrypto", "-lssl"):
+                        if extra not in link_flags:
+                            link_flags.append(extra)
             elif target_os == "darwin":
                 link_flags += ["-framework", "CoreFoundation"]
             link_flags += ["-pthread", "-lm", "-ldl"]
+
+        # Section GC, step 2 of 2: drop every section no reachable symbol refers
+        # to. This is what actually removes the runtime functions a program does
+        # not call (and, transitively, the archive members only they referenced).
+        # GNU ld / lld spell it `--gc-sections`, Apple's ld64 `-dead_strip`; TCC
+        # answers "unsupported linker option" and cl.exe prunes via /OPT:REF
+        # already, so neither gets a flag. Added before the --start-group wrap so
+        # the option stays outside the group.
+        if not is_msvc and not is_tcc and _GC_SECTIONS_FLAG not in link_flags:
+            link_flags.append(_GC_SECTIONS_FLAG)
 
         # GNU ld: wrap static archives in a group so inter-archive dependencies
         # resolve regardless of -l order (libzip needs zlib's crc32/zError, the
@@ -2835,6 +3039,107 @@ def _report_dialect_mismatch(message: str, config: "ProjectConfig",
         raise SystemExit(1)
     emit(f"     Error {message}", file=sys.stderr, color="red", level="error")
     raise SystemExit(1)
+
+
+#: Split every translation unit into one section per function/variable so the
+#: linker can drop what a program never calls.  Applied to the generated bundle
+#: and to every archive ``build_runtime.py`` produces; ``-Wl,--gc-sections``
+#: (GNU ld / lld) or ``-Wl,-dead_strip`` (Apple ld64) then does the pruning.
+#: See BENCHMARKS.md §Binary size.
+SECTION_FLAGS = ["-ffunction-sections", "-fdata-sections"]
+
+#: Linker flag that garbage-collects unreferenced sections, per toolchain.
+#: TCC's own linker rejects both spellings and MSVC's ``link.exe`` has no
+#: equivalent (it does the pruning itself with ``/OPT:REF``, on by default), so
+#: callers must skip this for those two compilers.
+_GC_SECTIONS_FLAG = "-Wl,-dead_strip" if sys.platform.startswith("darwin") \
+    else "-Wl,--gc-sections"
+
+#: Runtime entry-point *prefix* -> the native archives its implementation
+#: actually needs. ``hello_world`` uses none of them; importing ``std.regulus``
+#: pulls PCRE2 and nothing else. Keyed by the C symbol prefix the generated
+#: bundle contains, not by module name, because a bundle may reference a
+#: runtime helper without the matching ``std`` module being imported (a
+#: hand-written ``declare``), and over-linking is always safe while
+#: under-linking is a link error.
+_SUBSYSTEM_PREFIX_DEPS: Dict[str, List[str]] = {
+    "pengu_c_regulus_": ["pcre2-8"],
+    "pengu_c_parchment_": ["xml2"],
+    "pengu_c_precis_": ["curl", "microhttpd"],
+    "pengu_c_seal_": ["z", "mbedcrypto"],
+}
+
+#: ``std/<name>.pengu`` -> the native archives its wrappers need. Used as a
+#: cross-check / enrichment of ``_SUBSYSTEM_PREFIX_DEPS`` (a module can be
+#: imported without any of its weaves surviving dead-code elimination).
+_STD_LINK_DEPS: Dict[str, List[str]] = {
+    "regulus": ["pcre2-8"],
+    "parchment": ["xml2"],
+    "precis": ["curl", "microhttpd"],
+    "seal": ["z", "mbedcrypto"],
+}
+
+#: ``-l`` name -> ``pkg-config`` module, for the two names that differ.
+_PKG_CONFIG_NAME: Dict[str, str] = {
+    "xml2": "libxml-2.0",
+    "curl": "libcurl",
+    "microhttpd": "libmicrohttpd",
+    "mbedcrypto": "mbedtls",
+}
+
+#: The first line of every generated bundle. Its presence is how the builder
+#: knows it is looking at real output rather than at a path a caller passed for
+#: inspection.
+_BUNDLE_MARKER = '#include "pengu_runtime.h"'
+
+#: The archives every build linked before conditional linking existed. Used only
+#: when there is no readable bundle: an unknown program is linked the old way,
+#: because under-linking is an error and over-linking is only size.
+_LEGACY_RUNTIME_ARCHIVES: List[str] = [
+    "pcre2-8", "xml2", "curl", "mbedcrypto", "microhttpd",
+]
+
+#: Native platform libraries the runtime itself needs on Windows. On POSIX the
+#: C library and ``libpthread``/``libdl``/``libm`` cover the same ground; the
+#: POSIX tail is appended later, after every archive.
+_PENGU_WIN_PLATFORM_LIBS: List[str] = [
+    "-lws2_32", "-lwinmm", "-ladvapi32", "-lcrypt32", "-lbcrypt",
+    # windowing / UI platform libraries (raylib, webui, ...)
+    "-lopengl32", "-lgdi32", "-lole32", "-luuid", "-lshell32",
+    # libuv platform libraries (psapi/userenv/iphlpapi)
+    "-lpsapi", "-luserenv", "-liphlpapi",
+]
+
+#: Subsystem gates the code generator emits into ``bundle.c`` together with the
+#: ``std`` module that switches each one on. Kept next to the link map above so
+#: the C macro and the ``-l`` flag can never disagree.
+_FEATURE_GATE_MODULES: Dict[str, str] = {
+    "PENGU_ENABLE_REGEX": "regulus",
+    "PENGU_ENABLE_XML": "parchment",
+    "PENGU_ENABLE_NET": "precis",
+    "PENGU_ENABLE_CRYPTO": "seal",
+    "PENGU_ENABLE_THREADS": "filum",
+}
+
+
+def _std_module_stem(path: str) -> Optional[str]:
+    """Returns the ``std`` module name a source path belongs to, else None.
+
+    ``/repo/std/regulus.pengu`` -> ``"regulus"``; project files return None so
+    a user file that happens to live in a ``std/`` directory is not mistaken
+    for a standard-library module.
+    """
+    norm = str(path).replace("\\", "/")
+    idx = norm.rfind("/std/")
+    if idx < 0:
+        return None
+    return os.path.splitext(norm[idx + len("/std/"):])[0]
+
+
+def _gated_std_modules(std_modules) -> Set[str]:
+    """The imported ``std`` modules that switch a ``PENGU_ENABLE_*`` gate on."""
+    gated = set(_FEATURE_GATE_MODULES.values())
+    return {name for name in std_modules if name in gated}
 
 
 def raylib_platform_libs(is_win: bool = False) -> List[str]:
@@ -4304,8 +4609,13 @@ profiles:
     cflags: ["-g", "-O0", "-Wall"]
     defines: ["DEBUG"]
   release:
-    cflags: ["-O3", "-DNDEBUG"]
+    cflags: ["-O3", "-DNDEBUG", "-ffunction-sections", "-fdata-sections"]
     defines: ["NDEBUG"]
+  small:
+    cflags: ["-Os", "-DNDEBUG", "-ffunction-sections", "-fdata-sections",
+             "-fno-asynchronous-unwind-tables", "-fno-unwind-tables",
+             "-fno-ident", "-fno-plt"]
+    defines: ["NDEBUG", "PENGU_SIZE_OPT"]
 """
 
     # TOML is the canonical manifest (roadmap 4.11); YAML stays available with
@@ -4346,8 +4656,14 @@ cflags = ["-g", "-O0", "-Wall"]
 defines = ["DEBUG"]
 
 [profiles.release]
-cflags = ["-O3", "-DNDEBUG"]
+cflags = ["-O3", "-DNDEBUG", "-ffunction-sections", "-fdata-sections"]
 defines = ["NDEBUG"]
+
+[profiles.small]
+cflags = ["-Os", "-DNDEBUG", "-ffunction-sections", "-fdata-sections",
+          "-fno-asynchronous-unwind-tables", "-fno-unwind-tables",
+          "-fno-ident", "-fno-plt"]
+defines = ["NDEBUG", "PENGU_SIZE_OPT"]
 """
 
     if out_t == OutputType.EXE:

@@ -3292,12 +3292,49 @@ pengu build [--profile PROFILE] [--config CONFIG] [--entry ENTRY] [--output OUTP
 - `--profile, -p`: Selecciona los perfiles de optimización y diagnóstico:
   - `debug` (por defecto): Incluye símbolos de depuración (`-g`), comprobación de límites en runtime (`pengu_assert_bounds`), seguimiento de la pila de llamadas en runtime (`pengu_frame_push`/`pop`) y aserciones.
   - `release`: Maximiza el rendimiento (`-O3`), omite las comprobaciones de límites y desactiva el seguimiento de la pila de llamadas en runtime para lograr cero sobrecarga.
+  - `small`: Maximiza la reducción de tamaño (`-Os`, sin tablas de unwind, `-fno-ident`, `-fno-plt`) manteniendo el mismo *garbage collection* de secciones que `release`. Pensado para binarios embebidos o para distribución en muchas plataformas.
 - `--test`: Incluye y compila todos los bloques `test` de nivel superior en el bundle del ejecutable.
 - `-D, --define`: Define variables de tiempo de compilación para las condiciones `when` (p. ej. `-D os=linux`, `-D arch=x64`, `-D compiler=clang`, `-D debug`, `-D main`). Se puede repetir.
-- `--verbose`: Emite tiempos detallados por fase, el orden de resolución de módulos y los comandos invocados del compilador de C.
+- `--verbose`: Emite tiempos detallados por fase, el orden de resolución de módulos y los comandos invocados del compilador de C. Desde 2.0 imprime además, como líneas `std modules imported:` y `native archives linked:`, exactamente qué módulos `std` entraron en el bundle y qué archives nativos se pasaron al enlazador.
 - `--config, -c`: Ruta a un `pengu.yaml` personalizado o a la raíz del proyecto.
 - `--entry, -e`: Sobrescribe el archivo de punto de entrada raíz (por defecto: `src/main.pengu`).
 - `--output, -o`: Ruta de salida personalizada del destino (p. ej. `build/bundle.c` o `build/game.exe`).
+
+**Tamaño del binario y enlace condicional (2.0).** Los perfiles `release` y
+`small` compilan cada objeto con `-ffunction-sections -fdata-sections` y enlazan
+con `-Wl,--gc-sections` (GNU ld / lld) o `-Wl,-dead_strip` (ld64 de macOS), de
+modo que el enlazador descarta toda función que el programa no alcanza.
+`build_runtime.py` compila `libpengu_runtime.a` y cada dependencia nativa con
+los mismos flags — sin esa mitad el *section GC* no puede podar nada, porque un
+archivo estático se resuelve por *miembro* (`.o`) y no por símbolo.
+
+Además, las dependencias nativas **solo se enlazan cuando el módulo `std`
+correspondiente fue importado**:
+
+| Módulo importado | Archives enlazados |
+| ---------------- | ------------------ |
+| `std.regulus` | PCRE2 (`-lpcre2-8`) |
+| `std.parchment` | libxml2 (`-lxml2`) |
+| `std.precis` | libcurl + libmicrohttpd |
+| `std.seal` | zlib + mbedcrypto |
+
+Un programa que no importe ninguno de ellos enlaza únicamente
+`libpengu_runtime.a`. `libz` es la excepción: se enlaza siempre, cuesta 0 bytes
+cuando no se usa (el GC de secciones descarta todas sus secciones) y no puede
+omitirse porque libxml2, libcurl y libcrypto dependen de `libz.so.1`, de modo
+que el enlazador la busca de forma transitiva en cuanto una de ellas está en la
+línea de órdenes. La decisión se toma leyendo el `bundle.c` ya generado (los
+prefijos `pengu_c_regulus_*`, `pengu_c_parchment_*`, …), así que no puede
+discrepar del C que ve el enlazador. Con TCC o MSVC —que no pueden podar
+secciones— se enlaza todo, como antes de 2.0.
+
+La cabecera `pengu_runtime.h` acompaña el cambio con los *feature gates*
+`PENGU_ENABLE_{REGEX,XML,NET,CRYPTO,THREADS}` (por defecto `1`, para que un
+consumidor C directo siga viendo la API completa); el generador de código emite
+los `#define` que corresponden a los módulos `std.*` importados. Ejemplo medido:
+`hello_world` (release, `strip`) pasa de 659.5 KiB a ~14.3 KiB, y el caso
+`cipher_ops` (`std.cipher` + `std.seal`) de 671.5 KiB a 30.4 KiB. Las cifras y
+la atribución por archive están en `BENCHMARKS.md`.
 
 ### 20.3 Ejecución y modo script (`pengu run`)
 

@@ -43,6 +43,17 @@ IS_WINDOWS = sys.platform.startswith("win")
 IS_DARWIN = sys.platform.startswith("darwin")
 IS_POSIX = not IS_WINDOWS
 
+# Section splitting. The linker resolves a static archive at *member* (.o)
+# granularity, and every object here is a whole translation unit. Any
+# reference to `libpengu_runtime.a` therefore dragged in its entire object,
+# which in turn referenced PCRE2, libxml2, libcurl, mbedtls, libmicrohttpd and
+# zlib -- ~660 KiB for `hello_world`. Compiling every object with one section
+# per function lets the link step's `--gc-sections` (Linux/BSD) /
+# `-dead_strip` (macOS) drop what the program never calls, at which point an
+# archive member nothing references is not pulled in at all. See
+# pengu_project.py (release/small profiles) and BENCHMARKS.md §Binary size.
+SECTION_FLAGS = ["-ffunction-sections", "-fdata-sections"]
+
 _venv_bin = Path(sys.executable).resolve().parent
 if str(_venv_bin) not in os.environ.get("PATH", ""):
     os.environ["PATH"] = str(_venv_bin) + os.pathsep + os.environ.get("PATH", "")
@@ -144,7 +155,7 @@ def build_zlib(cc, ar, rebuild=False):
     obj_dir = BUILD_DIR / "obj_zlib"
     obj_dir.mkdir(parents=True, exist_ok=True)
 
-    base_flags = ["-O2", "-I" + str(zlib_dir)] + _posix_unistd_flags()
+    base_flags = ["-O2", "-I" + str(zlib_dir)] + _posix_unistd_flags() + SECTION_FLAGS
 
     for src in sources:
         src_path = zlib_dir / src
@@ -198,7 +209,7 @@ def build_pcre2(cc, ar, rebuild=False):
     flags = [
         "-O2", "-DHAVE_CONFIG_H", "-DPCRE2_CODE_UNIT_WIDTH=8",
         "-DPCRE2_STATIC", "-DSUPPORT_UNICODE", "-I" + str(src_dir)
-    ]
+    ] + SECTION_FLAGS
 
     for src in sources:
         src_path = src_dir / src
@@ -274,7 +285,7 @@ def build_libxml2(cc, ar, rebuild=False):
         "-I" + str(xml_dir),
         "-I" + str(xml_dir / "include"),
         "-I" + str(INCLUDE_DIR)
-    ]
+    ] + SECTION_FLAGS
 
     for src in sources:
         src_path = xml_dir / src
@@ -353,7 +364,7 @@ def build_mbedtls(cc, ar, rebuild=False):
         "-I" + str(mbedtls_dir / "tf-psa-crypto" / "drivers" / "builtin" / "include"),
         "-I" + str(mbedtls_dir / "tf-psa-crypto" / "core"),
         "-I" + str(mbedtls_dir / "tf-psa-crypto" / "platform")
-    ]
+    ] + SECTION_FLAGS
 
     for src_path in sources:
         if src_path.exists():
@@ -437,7 +448,7 @@ def build_curl(cc, ar, rebuild=False):
         "-I" + str(curl_dir / "include"),
         "-I" + str(lib_dir),
         "-I" + str(curl_dir)
-    ]
+    ] + SECTION_FLAGS
 
     for src in sources:
         src_path = lib_dir / src
@@ -522,7 +533,7 @@ def build_microhttpd(cc, ar, rebuild=False):
         "-I" + str(mhd_dir / "src" / "include"),
         "-I" + str(src_dir),
         "-I" + str(mhd_dir)
-    ]
+    ] + SECTION_FLAGS
 
     for src in sources:
         src_path = src_dir / src
@@ -567,7 +578,7 @@ def build_sqlite3(cc, ar, rebuild=False):
         "-DSQLITE_ENABLE_FTS5",
         "-Wno-unused-but-set-variable",
         "-I" + str(src_dir)
-    ]
+    ] + SECTION_FLAGS
     cmd = [cc] + flags + ["-c", str(src_dir / "sqlite3.c"), "-o", str(obj_path)]
     run_cmd(cmd)
     LIB_DIR.mkdir(parents=True, exist_ok=True)
@@ -596,7 +607,10 @@ def _cmake_static_lib(label, src_dir, lib_name, build_sub, extra_cmake, target=N
     bd.mkdir(parents=True, exist_ok=True)
     cc = shutil.which("gcc") or "gcc"
     cfg = ["cmake", "-S", str(src_dir), "-B", str(bd),
-           "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_C_COMPILER=" + cc]
+           "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_C_COMPILER=" + cc,
+           # CMake does its own compiler invocation: the section-splitting
+           # flags have to be handed over, not appended to a command line.
+           "-DCMAKE_C_FLAGS=" + " ".join(SECTION_FLAGS)]
     cfg += _cmake_generator()
     cfg += list(extra_cmake)
     try:
@@ -708,7 +722,7 @@ def build_xlsxio(cc, ar, rebuild=False):
     objs = []
     for fn in ("xlsxio_read.c", "xlsxio_read_sharedstrings.c", "xlsxio_write.c"):
         o = objdir / (Path(fn).stem + ".o")
-        cmd = [cc, "-O2", "-DSTATIC"] + inc + ["-c", str(libdir / fn), "-o", str(o)]
+        cmd = [cc, "-O2", "-DSTATIC"] + inc + SECTION_FLAGS + ["-c", str(libdir / fn), "-o", str(o)]
         run_cmd(cmd)
         objs.append((fn, str(o)))
     LIB_DIR.mkdir(parents=True, exist_ok=True)
@@ -748,7 +762,7 @@ def build_libyaml(cc, ar, rebuild=False):
     objs = []
     for fn in ("api.c","dumper.c","emitter.c","loader.c","parser.c","reader.c","scanner.c","writer.c"):
         o = obj_dir / (fn[:-2] + ".o")
-        run_cmd([cc, "-O2", "-DHAVE_CONFIG_H"] + [f"-I{x}" for x in incs] + ["-c", str(src_dir / "src" / fn), "-o", str(o)])
+        run_cmd([cc, "-O2", "-DHAVE_CONFIG_H"] + [f"-I{x}" for x in incs] + SECTION_FLAGS + ["-c", str(src_dir / "src" / fn), "-o", str(o)])
         objs.append(str(o))
     LIB_DIR.mkdir(parents=True, exist_ok=True)
     run_cmd([ar, "rcs", str(target_lib)] + objs)
@@ -779,7 +793,7 @@ def build_libcyaml(cc, ar, rebuild=False):
     for p in sorted((src_dir / "src").glob("*.c")):
         o = obj_dir / (p.stem + ".o")
         cmd = [cc, "-O2", "-DVERSION_MAJOR=1", "-DVERSION_MINOR=4", "-DVERSION_PATCH=2",
-               "-DVERSION_DEVEL=0"] + [f"-I{x}" for x in incs] + ["-c", str(p), "-o", str(o)]
+               "-DVERSION_DEVEL=0"] + [f"-I{x}" for x in incs] + SECTION_FLAGS + ["-c", str(p), "-o", str(o)]
         run_cmd(cmd)
         objs.append(str(o))
     LIB_DIR.mkdir(parents=True, exist_ok=True)
@@ -831,16 +845,19 @@ def build_libuv(cc, ar, rebuild=False):
     print("[LIBUV] Building libuv with CMake...")
     bd = BUILD_DIR / "libuv_cmake"
     bd.mkdir(parents=True, exist_ok=True)
+    uv_cflags = " ".join(SECTION_FLAGS)
     cmake_cfg = ["cmake", "-S", str(src_dir), "-B", str(bd),
                  "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=OFF",
-                 f"-DCMAKE_C_COMPILER={cc}"]
+                 f"-DCMAKE_C_COMPILER={cc}",
+                 f"-DCMAKE_C_FLAGS={uv_cflags}"]
     if IS_WINDOWS:
         # Belt and braces: even with the source patch above, libuv 1.52.1 has
         # other `const char **` / `char **` mismatches on Win32 that GCC 14+
         # rejects outright. Demote the diagnostic instead of shipping a
         # source-patch per occurrence.
-        cmake_cfg.append(
-            '-DCMAKE_C_FLAGS=-Wno-incompatible-pointer-types '
+        cmake_cfg[-1] = (
+            f"-DCMAKE_C_FLAGS={uv_cflags} "
+            '-Wno-incompatible-pointer-types '
             '-Wno-error=incompatible-pointer-types')
     cmake_cfg += _cmake_generator()
     try:
@@ -890,7 +907,8 @@ def build_tomlc17(cc, ar, rebuild=False):
     obj_dir = BUILD_DIR / "obj_tomlc17"
     obj_dir.mkdir(parents=True, exist_ok=True)
     obj_path = obj_dir / "tomlc17.o"
-    flags = ["-O2", "-I" + str(src_dir), "-Wno-array-bounds", "-Wno-stringop-overflow"]
+    flags = ["-O2", "-I" + str(src_dir), "-Wno-array-bounds",
+             "-Wno-stringop-overflow"] + SECTION_FLAGS
     run_cmd([cc] + flags + ["-c", str(src_dir / "tomlc17.c"), "-o", str(obj_path)])
     objs = [str(obj_path)]
     if shim_c.exists():
@@ -1026,7 +1044,7 @@ def build_raylib(cc, ar, rebuild=False):
         # vendored headers still resolve while `<dirent.h>` does not.
         f"-idirafter{src_root / 'external'}",
         "-Wno-implicit-function-declaration",
-    ]
+    ] + SECTION_FLAGS
     if sys.platform.startswith("win"):
         flags.append("-D_GLFW_WIN32")
     elif sys.platform.startswith("linux"):
@@ -1096,7 +1114,7 @@ def build_raymath(cc, ar, rebuild=False):
     obj_dir = BUILD_DIR / "obj_raymath"
     obj_dir.mkdir(parents=True, exist_ok=True)
     obj_path = obj_dir / "wrappers_raymath.o"
-    flags = ["-O2", f"-I{shim_dir}", f"-I{INCLUDE_DIR}"]
+    flags = ["-O2", f"-I{shim_dir}", f"-I{INCLUDE_DIR}"] + SECTION_FLAGS
     run_cmd([cc] + flags + ["-c", str(shim_c), "-o", str(obj_path)])
 
     LIB_DIR.mkdir(parents=True, exist_ok=True)
@@ -1182,7 +1200,7 @@ def build_pengu_stb(cc, ar, rebuild=False):
         "-Wno-incompatible-pointer-types",
         "-I" + str(std_c_dir),
         "-I" + str(INCLUDE_DIR),
-    ]
+    ] + SECTION_FLAGS
     obj_files = []
     for src_name, obj_name, extra_flags in _PENGU_STB_SOURCES:
         src_path = std_c_dir / src_name
@@ -1241,7 +1259,7 @@ def build_pengu_runtime(cc, ar, rebuild=False):
         # sit here suppressed all 24 completely -- they never reached the log --
         # and cl.exe rejects them, which made any MSVC build impossible.
         "-DMBEDTLS_ALLOW_PRIVATE_ACCESS",
-    ]
+    ] + SECTION_FLAGS
     # POSIX hosts use the system libxml2/libcurl/libmicrohttpd (build_runtime
     # skips their Windows-tuned static builds there), so their headers come
     # POSIX hosts use the system libxml2/libcurl/libmicrohttpd (build_runtime
@@ -1305,7 +1323,7 @@ def build_runtime_pch(cc, rebuild=False):
         "-I" + str(ROOT_DIR),
         "-DPCRE2_STATIC", "-DPCRE2_CODE_UNIT_WIDTH=8",
         "-DLIBXML_STATIC", "-DCURL_STATICLIB",
-    ]
+    ] + SECTION_FLAGS
     cmd = [cc] + flags + [str(header), "-o", str(gch)]
     print(f"[PCH] compiling {gch.name}...")
     try:
