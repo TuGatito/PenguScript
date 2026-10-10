@@ -90,6 +90,13 @@ def test_tcc_on_macos_does_not_get_the_framework_tail(tmp_path):
     assert "CoreFoundation" in clang_cmd, clang_cmd
 
 
+#: The command the "TCC unusable here" skip proves the project with.  It must be
+#: a plain `build`: `--no-cache` belongs to `run`/`eval` only, and passing it
+#: made argparse fail, so the fallback never succeeded and the skip never fired
+#: -- which kept the macOS job red even though the policy was right.
+_TCC_FALLBACK_BUILD = ["build"]
+
+
 @requires_cc
 @requires_runtime
 @pytest.mark.skipif(find_tcc() is None, reason="no packaged tcc available")
@@ -103,7 +110,7 @@ def test_cc_tcc_builds_with_the_shipped_compiler(project):
         # (it was asked for explicitly), so prove the project itself is fine
         # with the default compiler and skip; a TCC failure the configured
         # compiler shares stays fatal.
-        fallback = _run(["build", "--no-cache"], cwd=project)
+        fallback = _run(_TCC_FALLBACK_BUILD, cwd=project)
         if fallback.returncode == 0:
             pytest.skip("the staged TCC cannot link the bundle on this platform; "
                         "the configured compiler can: " + combined.strip()[-200:])
@@ -115,6 +122,39 @@ def test_cc_tcc_builds_with_the_shipped_compiler(project):
     assert artifact.is_file(), sorted(os.listdir(project / "build"))
     run = subprocess.run([str(artifact)], capture_output=True, text=True, timeout=60)
     assert run.returncode == 0, run.stderr
+
+
+@requires_cc
+@requires_runtime
+def test_the_tcc_fallback_build_command_is_accepted(project):
+    """The skip's fallback must be a command `build` actually accepts.
+
+    Regression: the fallback used `--no-cache`, which only `run`/`eval` define,
+    so it exited on an argparse error, the skip never fired, and the macOS job
+    stayed red although the TCC-unusable policy was correct.
+    """
+    res = _run(_TCC_FALLBACK_BUILD, cwd=project)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "unrecognized arguments" not in (res.stdout + res.stderr)
+
+
+def test_the_skip_fires_when_only_the_tcc_build_fails(project, monkeypatch):
+    """The macOS policy, unit-tested: a TCC-only failure skips, it does not fail.
+
+    Only the `--cc tcc` call gets a non-zero exit; the fallback build succeeds,
+    which is what turns the limitation into a skip.
+    """
+    seen = []
+
+    def fake_run(args, cwd=None):
+        seen.append(list(args))
+        rc = 1 if "--cc" in args else 0
+        return subprocess.CompletedProcess(args, rc, "", "tcc: error: unusable")
+
+    monkeypatch.setattr("tests.cli.test_cli_tcc_cc._run", fake_run)
+    with pytest.raises(pytest.skip.Exception):
+        test_cc_tcc_builds_with_the_shipped_compiler(project)
+    assert seen[1] == _TCC_FALLBACK_BUILD, seen
 
 
 @requires_cc
