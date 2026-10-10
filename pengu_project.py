@@ -1984,7 +1984,14 @@ class PenguBuilder:
                         if extra not in link_flags:
                             link_flags.append(extra)
             elif target_os == "darwin":
-                link_flags += ["-framework", "CoreFoundation"]
+                # TCC's driver has no `-framework`: it treats the argument as an
+                # input file, so every `pengu build --cc tcc` on macOS died with
+                # "tcc: error: file 'CoreFoundation' not found".  CoreFoundation
+                # is only reached through std.uuid's wrappers, which a TCC build
+                # that actually needs them can get from the configured compiler;
+                # gcc/clang keep the flag.
+                if not is_tcc:
+                    link_flags += ["-framework", "CoreFoundation"]
             link_flags += ["-pthread", "-lm", "-ldl"]
 
         # Section GC, step 2 of 2: drop every section no reachable symbol refers

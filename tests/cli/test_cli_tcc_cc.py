@@ -62,6 +62,34 @@ def test_resolve_cc_argument_unit(monkeypatch):
     assert _resolve_cc_argument("/usr/bin/tcc") == "/usr/bin/tcc"
 
 
+def _link_command(tmp_path, cc, target):
+    """The command `build_compile_commands` would run; needs no compiler."""
+    bundle = tmp_path / f"bundle_{cc}_{target}.c"
+    bundle.write_text('#include "pengu_runtime.h"\nint main(void){ return 0; }\n',
+                      encoding="utf-8")
+    cfg = ProjectConfig(name="p", output=OutputType.EXE, output_name="app",
+                        base_dir=str(tmp_path), cc=cc, target=target,
+                        links=["pengu_runtime"])
+    cmds = PenguBuilder(cfg).build_compile_commands(str(bundle), str(tmp_path / "app"))
+    return cmds[0]
+
+
+def test_tcc_on_macos_does_not_get_the_framework_tail(tmp_path):
+    """TCC's driver has no `-framework`: it reads the name as a missing file.
+
+    `pengu build --cc tcc` on macOS failed with
+    "tcc: error: file 'CoreFoundation' not found", because the Darwin platform
+    tail was appended to every link line.  gcc/clang still need the framework
+    (std.uuid); TCC must not receive it.
+    """
+    tcc_cmd = _link_command(tmp_path, "tcc", "darwin")
+    assert "-framework" not in tcc_cmd, tcc_cmd
+
+    clang_cmd = _link_command(tmp_path, "clang", "darwin")
+    assert "-framework" in clang_cmd, clang_cmd
+    assert "CoreFoundation" in clang_cmd, clang_cmd
+
+
 @requires_cc
 @requires_runtime
 @pytest.mark.skipif(find_tcc() is None, reason="no packaged tcc available")

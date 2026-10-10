@@ -955,6 +955,28 @@ void pengu_c_regulus_match_free(void* m) {
  * 3. Parchment (libxml2 Real Implementation)
  * ========================================================================= */
 
+/* libxml2's `xmlFree` is a *variable* (an `xmlFreeFunc`), not a function.  GCC
+ * on MinGW reaches an external data symbol through a `.rdata$.refptr.<sym>`
+ * section, and the PE linker's `--gc-sections` does not discard it, so a
+ * program that never touches parchment still failed to link with an
+ * "undefined reference to `xmlFree'".  Ask libxml2 for its current free
+ * function through `xmlMemGet()` -- an ordinary function, so the reference
+ * disappears together with the parchment code it belongs to -- and free through
+ * the returned pointer.  The behaviour is identical: `xmlMemGet` reports
+ * whatever `xmlFree` holds, custom allocator included. */
+static void pengu_xml_free(void* ptr) {
+    xmlFreeFunc free_fn = NULL;
+    xmlMallocFunc malloc_fn = NULL;
+    xmlReallocFunc realloc_fn = NULL;
+    xmlStrdupFunc strdup_fn = NULL;
+    if (ptr == NULL) return;
+    if (xmlMemGet(&free_fn, &malloc_fn, &realloc_fn, &strdup_fn) == 0 && free_fn != NULL) {
+        free_fn(ptr);
+    } else {
+        free(ptr);
+    }
+}
+
 PenguMaybe pengu_c_parchment_parse_xml(PenguString data) {
     if (!data.data || data.len == 0) return pengu_maybe_none();
     xmlDocPtr doc = xmlReadMemory(data.data, data.len, "noname.xml", NULL, XML_PARSE_NOBLANKS | XML_PARSE_NONET);
@@ -975,7 +997,7 @@ PenguMaybe pengu_c_parchment_parse_xml(PenguString data) {
     pdoc->root.tag = root->name ? pengu_string_new((const char*)root->name) : pengu_string_new("");
     xmlChar* text_content = xmlNodeGetContent(root);
     pdoc->root.text = text_content ? pengu_string_new((const char*)text_content) : pengu_string_new("");
-    if (text_content) xmlFree(text_content);
+    if (text_content) pengu_xml_free(text_content);
     pdoc->root._ptr = root;
 
     pdoc->version = doc->version ? pengu_string_new((const char*)doc->version) : pengu_string_new("1.0");
@@ -1004,7 +1026,7 @@ PenguMaybe pengu_c_parchment_parse_html(PenguString data) {
     pdoc->root.tag = root->name ? pengu_string_new((const char*)root->name) : pengu_string_new("");
     xmlChar* text_content = xmlNodeGetContent(root);
     pdoc->root.text = text_content ? pengu_string_new((const char*)text_content) : pengu_string_new("");
-    if (text_content) xmlFree(text_content);
+    if (text_content) pengu_xml_free(text_content);
     pdoc->root._ptr = root;
 
     pdoc->version = pengu_string_new("HTML");
@@ -1059,7 +1081,7 @@ PenguMaybe pengu_c_parchment_find(void* node, PenguString query) {
             found->tag = pengu_string_new((const char*)cur->name);
             xmlChar* content = xmlNodeGetContent(cur);
             found->text = content ? pengu_string_new((const char*)content) : pengu_string_new("");
-            if (content) xmlFree(content);
+            if (content) pengu_xml_free(content);
             found->_ptr = cur;
             return pengu_maybe_some(found);
         }
@@ -1080,7 +1102,7 @@ PenguList pengu_c_parchment_find_all(void* node, PenguString query) {
             item.tag = pengu_string_new((const char*)cur->name);
             xmlChar* content = xmlNodeGetContent(cur);
             item.text = content ? pengu_string_new((const char*)content) : pengu_string_new("");
-            if (content) xmlFree(content);
+            if (content) pengu_xml_free(content);
             item._ptr = cur;
             pengu_list_push(&list, &item);
         }
@@ -1103,9 +1125,9 @@ PenguMaybe pengu_c_parchment_attr(void* node, PenguString name) {
     if (!val) return pengu_maybe_none();
 
     PenguString* res = (PenguString*)malloc(sizeof(PenguString));
-    if (!res) { xmlFree(val); return pengu_maybe_none(); }
+    if (!res) { pengu_xml_free(val); return pengu_maybe_none(); }
     *res = pengu_string_new((const char*)val);
-    xmlFree(val);
+    pengu_xml_free(val);
     return pengu_maybe_some(res);
 }
 
@@ -1138,9 +1160,9 @@ PenguMaybe pengu_c_parchment_text(void* node) {
     if (!content) return pengu_maybe_none();
 
     PenguString* res = (PenguString*)malloc(sizeof(PenguString));
-    if (!res) { xmlFree(content); return pengu_maybe_none(); }
+    if (!res) { pengu_xml_free(content); return pengu_maybe_none(); }
     *res = pengu_string_new((const char*)content);
-    xmlFree(content);
+    pengu_xml_free(content);
     return pengu_maybe_some(res);
 }
 

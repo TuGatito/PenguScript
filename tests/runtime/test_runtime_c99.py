@@ -108,6 +108,46 @@ def test_runtime_compiles_with_zero_diagnostics():
     assert not diagnostics, "runtime.c produced diagnostics:\n" + "\n".join(diagnostics)
 
 
+def _undefined_symbols(obj: Path) -> set:
+    """`nm -u` names normalised to the C identifier, on every toolchain."""
+    nm = shutil.which("nm")
+    if not nm:
+        pytest.skip("nm is required to inspect the object's symbols")
+    res = subprocess.run([nm, "-u", str(obj)], capture_output=True, text=True, timeout=120)
+    assert res.returncode == 0, res.stderr
+    names = set()
+    for line in res.stdout.splitlines():
+        if not line.strip():
+            continue
+        name = line.split()[-1]
+        if name.startswith("__imp_"):   # MinGW DLL import thunk
+            name = name[len("__imp_"):]
+        names.add(name.lstrip("_"))
+    return names
+
+
+def test_runtime_does_not_reference_the_libxml2_xmlFree_variable():
+    """MinGW cannot garbage-collect `.rdata$.refptr.<sym>` under --gc-sections.
+
+    `xmlFree` is libxml2's free-function *variable*, not a function.  Calling it
+    directly leaves a data reference that PE's `--gc-sections` keeps, so every
+    program that linked the runtime demanded `-lxml2` -- even one that only
+    imported std.spark -- and `pengu run` failed with "undefined reference to
+    `xmlFree'".  The runtime must ask for it through `xmlMemGet()`, an ordinary
+    function that disappears with the parchment code.
+    """
+    rc, out = _compile_runtime()
+    assert rc == 0, out
+    undefined = _undefined_symbols(OBJ_DIR / "_pengu_runtime_probe.o")
+    assert "xmlFree" not in undefined, (
+        "the runtime still references libxml2's `xmlFree` variable; free through "
+        "`xmlMemGet()` instead so MinGW's --gc-sections drops the parchment code"
+    )
+    assert "xmlMemGet" in undefined, (
+        "the parchment code should obtain the free function via xmlMemGet()"
+    )
+
+
 def test_runtime_has_no_implicit_function_declarations():
     """The specific defect B8 hid: 24 implicit declarations for mbedtls hashes.
 
