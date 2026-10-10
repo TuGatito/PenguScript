@@ -93,8 +93,14 @@ def skip_weave_modifiers(children, start: int = 0):
             break
     return is_inline, is_ritual, idx
 def get_generic_ast_name(node: Any) -> Optional[str]:
-    """Extracts the declared function name from a weave_decl AST node."""
-    if not isinstance(node, Tree) or node.data != "weave_decl":
+    """Extracts the declared function name from a weave_decl AST node.
+
+    ``antiquus_decl`` shares the header shape of ``weave_decl`` (attributes,
+    name, optional shard list), so generic call resolution must recognise it
+    too -- otherwise a generic ``antiquus`` is emitted per instantiation but
+    the call sites never reach the instantiated name.
+    """
+    if not isinstance(node, Tree) or node.data not in ("weave_decl", "antiquus_decl"):
         return None
     _, _, idx = skip_weave_modifiers(node.children)
     if idx < len(node.children):

@@ -1,0 +1,14 @@
+# tests/conformance/antiquus/basic.pengu
+#
+# `antiquus` — a declaration whose body is literal C, emitted verbatim into the
+# generated translation unit and called exactly like a `weave`.
+#
+# This case also pins the runtime contract: the C body sees the whole
+# `pengu_*` API, because every bundle includes `pengu_runtime.h` first.
+antiquus antiquus_say_hello into void:
+    """
+    pengu_println(pengu_string_from_cstr("hello from C"));
+    """
+
+test "antiquus/basic":
+    calling antiquus_say_hello

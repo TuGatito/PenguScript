@@ -1,7 +1,7 @@
 {
   "_meta": [
     "generated-by: tools/gen_conformance_deps.py",
-    "cases: 105"
+    "cases: 111"
   ],
   "_smoke/add": [
     "build_runtime.py",
@@ -33,6 +33,71 @@
     "std/spark.pengu",
     "tests/conformance/_manifest.json",
     "tests/conformance/_smoke/multiline.pengu",
+    "tests/test_conformance.py",
+    "tools/gen_conformance_deps.py"
+  ],
+  "antiquus/attributes": [
+    "build_runtime.py",
+    "pengu_parser/",
+    "pengu_project.py",
+    "pengu_runtime.h",
+    "std/spark.pengu",
+    "tests/conformance/_manifest.json",
+    "tests/conformance/antiquus/attributes.pengu",
+    "tests/test_conformance.py",
+    "tools/gen_conformance_deps.py"
+  ],
+  "antiquus/basic": [
+    "build_runtime.py",
+    "pengu_parser/",
+    "pengu_project.py",
+    "pengu_runtime.h",
+    "tests/conformance/_manifest.json",
+    "tests/conformance/antiquus/basic.pengu",
+    "tests/test_conformance.py",
+    "tools/gen_conformance_deps.py"
+  ],
+  "antiquus/c_preprocessing": [
+    "build_runtime.py",
+    "pengu_parser/",
+    "pengu_project.py",
+    "pengu_runtime.h",
+    "std/spark.pengu",
+    "tests/conformance/_manifest.json",
+    "tests/conformance/antiquus/c_preprocessing.pengu",
+    "tests/test_conformance.py",
+    "tools/gen_conformance_deps.py"
+  ],
+  "antiquus/generic": [
+    "build_runtime.py",
+    "pengu_parser/",
+    "pengu_project.py",
+    "pengu_runtime.h",
+    "std/spark.pengu",
+    "tests/conformance/_manifest.json",
+    "tests/conformance/antiquus/generic.pengu",
+    "tests/test_conformance.py",
+    "tools/gen_conformance_deps.py"
+  ],
+  "antiquus/return_value": [
+    "build_runtime.py",
+    "pengu_parser/",
+    "pengu_project.py",
+    "pengu_runtime.h",
+    "std/spark.pengu",
+    "tests/conformance/_manifest.json",
+    "tests/conformance/antiquus/return_value.pengu",
+    "tests/test_conformance.py",
+    "tools/gen_conformance_deps.py"
+  ],
+  "antiquus/with_when": [
+    "build_runtime.py",
+    "pengu_parser/",
+    "pengu_project.py",
+    "pengu_runtime.h",
+    "std/spark.pengu",
+    "tests/conformance/_manifest.json",
+    "tests/conformance/antiquus/with_when.pengu",
     "tests/test_conformance.py",
     "tools/gen_conformance_deps.py"
   ],

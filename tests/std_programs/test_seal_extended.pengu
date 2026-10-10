@@ -5,7 +5,7 @@ weave main into int:
     calling spark.println with "=== Test Seal Extended ==="
 
     # 1. Version & constants
-    calling spark.assert with (seal.SEAL_VERSION == "1.1.0")
+    calling spark.assert with (seal.SEAL_VERSION == "2.0.0")
     calling spark.assert with (seal.CRC32_POLYNOMIAL == 3988292384)
     calling spark.println with "constants: OK"
 

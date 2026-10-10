@@ -1,0 +1,18 @@
+# tests/conformance/antiquus/generic.pengu
+#
+# A generic `antiquus` (`shard T`) is monomorphized like a generic weave: the
+# declaration itself is never emitted, one specialization per instantiation is.
+# The body is *not* rewritten by the substitution -- it only sees the parameter
+# names -- so instantiate it with two different types to prove the call sites
+# reach the right specialization.
+import std.spark
+
+antiquus antiquus_ident shard T with v as T into T:
+    """
+    return v;
+    """
+
+test "antiquus/generic":
+    let number is calling antiquus_ident with 42
+    let text is calling antiquus_ident with "hola"
+    calling spark.println with "{number} {text}"

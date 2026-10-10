@@ -3036,6 +3036,32 @@ weave add with a as int, b as int into int:
     return a + b
 ```
 
+## Embedded C blocks (2.0.0)
+
+```pengu
+antiquus fast_abs with x as int into int:
+    """
+    return x < 0 ? -x : x;
+    """
+
+@export("pengu_rdtsc")            # pins the emitted C symbol, survives DCE
+antiquus read_tsc into u64:
+    r"""
+    unsigned lo, hi;
+    __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
+    return ((unsigned long long)hi << 32) | lo;
+    """
+
+weave main into int:
+    return calling fast_abs with -3
+```
+
+The body is **literal C**, emitted verbatim into the bundle: it is not
+type-checked, it sees the parameter names exactly as written, and the compiler
+attributes its diagnostics to `antiquus:<name>:<line>`. Use `r"""…"""` when the C
+contains backslashes. Rejected in `.d.pengu` (`E0025`), with `many T` (`E0005`)
+and as `main` (`E0040`).
+
 ## Layout attributes
 
 ```pengu

@@ -33,6 +33,7 @@ from .pengu_errors import (
     UnknownArrayDimensionError, InvalidBuilderStatementError,
     DuplicateConceptBindingError, InfiniteTypeSizeError, UnknownAttributeError,
     StaticVarPlacementError, InvalidTestNameError, CFieldCollisionError,
+    AntiquusBodyError,
     suggest_similar_identifier
 )
 
@@ -78,6 +79,11 @@ C_KEYWORDS = {
     "unsigned", "void", "volatile", "while",
     "_Alignas", "_Alignof", "_Atomic", "_Bool", "_Complex", "_Generic",
     "_Imaginary", "_Noreturn", "_Static_assert", "_Thread_local", "asm",
+    # 'antiquus' is a PenguScript keyword, not a C one, but it is listed here
+    # so a `declare antiquus ...` binding -- which would claim the very name
+    # the compiler reserves for embedded C blocks -- is rejected with E0035
+    # instead of silently shadowing the construct.
+    "antiquus",
 }
 
 C_RESERVED_FN_NAMES = {
@@ -481,6 +487,7 @@ class PenguChecker:
         """Validates attributes against target declaration kind ('weave', 'declare', 'rune', 'field')."""
         valid_attrs = {
             "weave": {"inline", "cold", "deprecated", "noreturn", "export"},
+            "antiquus": {"inline", "cold", "deprecated", "noreturn", "export"},
             "declare": {"inline", "cold", "deprecated"},
             "rune": {"packed", "align", "deprecated"},
             "field": {"align", "deprecated"},
@@ -2074,6 +2081,213 @@ class PenguChecker:
                     name=fn_name, type=fn_t, kind="declare", is_mutable=False, is_ritual=is_ritual, line=line, column=col, doc=doc, file_path=self.filename, c_name=c_fn_name, attributes=d_attrs
                 ))
 
+            elif rule == "antiquus_decl":
+                # Literal C embedded in PenguScript.  The C body is opaque
+                # (never walked, never type-checked), but the *signature* is a
+                # normal PenguScript one and takes part in overload
+                # resolution, DCE and code generation exactly like a weave.
+                if is_d_pengu:
+                    err = self._make_error(
+                        SemanticError,
+                        "Implementation body not allowed in declaration file (.d.pengu)",
+                        stmt,
+                        code="E0025",
+                        help="Use 'declare' instead of 'antiquus' in declaration files (.d.pengu).",
+                        note="Declaration files (.d.pengu) cannot contain function implementation bodies."
+                    )
+                    self._record_error(err)
+
+                a_attrs, a_idx = _extract_attributes(stmt.children)
+                self._validate_attributes(a_attrs, "antiquus", stmt)
+                fn_name = str(stmt.children[a_idx])
+
+                if fn_name == "main":
+                    # 'main' is the entry-point weave; an antiquus must not
+                    # shadow it.
+                    err = self._make_error(
+                        SemanticError,
+                        "'main' cannot be an 'antiquus' declaration; use a regular 'weave main' for the entry point",
+                        stmt,
+                        code="E0040",
+                        help="Rename this antiquus to something else, or use 'weave main'.",
+                        note="The entry point is reserved for a PenguScript weave."
+                    )
+                    self._record_error(err)
+
+                if fn_name in C_RESERVED_FN_NAMES and not a_attrs.get("export"):
+                    err = self._make_error(
+                        SemanticError,
+                        f"Function name '{fn_name}' is a reserved standard C function or identifier",
+                        stmt,
+                        code="E0035",
+                        help=f'Rename the antiquus, or pin a different C symbol with @export("my_{fn_name}").',
+                        note="Antiquus names emit C function symbols, so they cannot shadow libc."
+                    )
+                    self._record_error(err)
+
+                c_fn_name = f"{current_insignia}{fn_name}" if current_insignia else fn_name
+                if a_attrs.get("export"):
+                    c_fn_name = a_attrs["export"][0]
+
+                type_params: List[str] = []
+                bounds: Dict[str, List[str]] = {}
+                rem_children = [c for c in stmt.children[a_idx + 1:] if c is not None]
+                if rem_children and isinstance(rem_children[0], Tree) and rem_children[0].data == "shard_params":
+                    type_params, bounds = extract_shard_params(rem_children[0])
+                    rem_children = rem_children[1:]
+
+                def lookup_tp(tname: str):
+                    if tname in type_params:
+                        return TypeParam(tname, bounds=bounds.get(tname, []))
+                    return self.symbols.lookup_type(tname)
+
+                params: List[Tuple[Optional[str], Type]] = []
+                ret_type: Type = VOID_TYPE
+                default_count = 0
+                has_seen_default = False
+                seen_param_names: Dict[str, Any] = {}
+
+                for child_n in rem_children:
+                    if isinstance(child_n, Tree) and child_n.data == "param_list":
+                        for p in child_n.children:
+                            if not (isinstance(p, Tree) and p.data == "param"):
+                                continue
+                            pn = str(p.children[0])
+                            pt = ast_to_type(p.children[1], lookup_tp) if len(p.children) >= 2 else AnyType()
+                            has_default = len(p.children) >= 3 and p.children[2] is not None
+
+                            if pn in seen_param_names:
+                                self._record_error(self._make_error(
+                                    SemanticError,
+                                    f"Duplicate parameter name '{pn}' in function '{fn_name}'",
+                                    p, code="E0005",
+                                    help="Rename one of the parameters."
+                                ))
+                            else:
+                                seen_param_names[pn] = p
+
+                            # The C body sees the parameter name verbatim, so a
+                            # name that _c_ident would mangle (`if` -> `_if`)
+                            # would be invisible to the body.  Reject it instead.
+                            if _c_ident(pn) != pn:
+                                self._record_error(self._make_error(
+                                    SemanticError,
+                                    f"Antiquus parameter '{pn}' collides with a C reserved word",
+                                    p, code="E0035",
+                                    help=f"Rename the parameter so the C body sees it as written "
+                                         f"(e.g. '{pn}_' or '_{pn}').",
+                                    note="The C body refers to parameters by their exact "
+                                         "PenguScript name; keyword-escaped names would be "
+                                         "invisible to the body."
+                                ))
+
+                            if isinstance(pt, ManyType):
+                                self._record_error(self._make_error(
+                                    SemanticError,
+                                    f"'many' parameters are not allowed in 'antiquus' declarations",
+                                    p, code="E0005",
+                                    help="Use a 'slice of T' parameter and pass slice.data / slice.len "
+                                         "to the C body.  'antiquus' does not accept C varargs: "
+                                         "'...' is only valid on a 'declare' binding.",
+                                    note="'antiquus' is closer to 'declare' than to 'weave'."
+                                ))
+
+                            if has_default:
+                                has_seen_default = True
+                                default_count += 1
+                            elif has_seen_default and not isinstance(pt, ManyType):
+                                self._record_error(self._make_error(
+                                    SemanticError,
+                                    f"Non-default parameter '{pn}' follows default parameter in function '{fn_name}'",
+                                    p, code="E0005",
+                                    help="Default parameters must be the trailing ones."
+                                ))
+                            params.append((pn, pt))
+                    elif isinstance(child_n, Tree) and child_n.data in (
+                        "base_type", "custom_type", "ref_type", "array_type", "slice_type",
+                        "list_type", "map_type", "maybe_type", "result_type", "tuple_type",
+                        "opaque_type", "fn_type"
+                    ):
+                        ret_type = ast_to_type(child_n, lookup_tp)
+                    elif isinstance(child_n, Token) and child_n.type == "NAME":
+                        ret_type = ast_to_type(child_n, lookup_tp)
+
+                if "noreturn" in a_attrs and getattr(ret_type, "name", "void") != "void":
+                    err = self._make_error(
+                        SemanticError,
+                        f"@noreturn antiquus '{fn_name}' must return 'void', got '{ret_type}'",
+                        stmt,
+                        code="E0056",
+                        help="Change the return type to 'void' or remove @noreturn.",
+                        note="A noreturn function never returns a value."
+                    )
+                    self._record_error(err)
+
+                fn_t = FnType(
+                    params=params,
+                    return_type=ret_type,
+                    default_count=default_count,
+                    type_params=type_params,
+                    attributes=a_attrs,
+                )
+
+                self.symbols.functions[fn_name] = fn_t
+                if c_fn_name != fn_name:
+                    self.symbols.functions[c_fn_name] = fn_t
+                if type_params:
+                    # Generics are monomorphized at the call site; registering
+                    # them here is what lets the inferencer build the
+                    # specialization (see pengu_infer: monomorphized_functions).
+                    self.symbols.generic_functions[fn_name] = (type_params, stmt)
+                    self.symbols.generic_function_owner[fn_name] = self.filename or ""
+                    if c_fn_name != fn_name:
+                        self.symbols.generic_functions[c_fn_name] = (type_params, stmt)
+                        self.symbols.generic_function_owner[c_fn_name] = self.filename or ""
+
+                # Keep the C body on the AST node: the code generator reads it
+                # from there (and from the ANTIQUUS_BODY token that sits in
+                # `stmt.children`).
+                c_body_tok = next(
+                    (c for c in stmt.children if isinstance(c, Token) and c.type == "ANTIQUUS_BODY"),
+                    None,
+                )
+                if c_body_tok is None:
+                    # The extractor only substitutes a placeholder when it
+                    # recognised a triple-quoted body; a raw TRIPLE_STRING here
+                    # means the header line was not recognised (or the body was
+                    # written with a plain "...").
+                    self._record_error(self._make_error(
+                        AntiquusBodyError,
+                        f"Antiquus '{fn_name}' has no triple-quoted C body",
+                        stmt,
+                        code="E0059",
+                    ))
+                    stmt._pengu_c_body = ""
+                elif not str(c_body_tok).strip():
+                    self._record_error(self._make_error(
+                        AntiquusBodyError,
+                        f"Antiquus '{fn_name}' has an empty C body",
+                        stmt,
+                        code="E0059",
+                    ))
+                    stmt._pengu_c_body = ""
+                else:
+                    stmt._pengu_c_body = str(c_body_tok)
+
+                doc = self._extract_preceding_doc(line)
+                self.symbols.global_scope.define(Symbol(
+                    name=fn_name,
+                    type=fn_t,
+                    kind="weave",   # treated as a callable, same dispatch
+                    is_mutable=False,
+                    is_inline=("inline" in a_attrs),
+                    line=line, column=col, doc=doc,
+                    file_path=self.filename,
+                    c_name=c_fn_name,
+                    attributes=a_attrs,
+                    is_antiquus=True,
+                ))
+
             elif rule == "weave_decl":
                 if self.filename and self.filename.endswith(".d.pengu"):
                     err = self._make_error(
@@ -2401,6 +2615,12 @@ class PenguChecker:
         # 3. Weave Function Bodies
         elif rule == "weave_decl":
             self._check_weave_decl(node)
+            return
+
+        elif rule == "antiquus_decl":
+            # Registered and fully validated in pass 1 (_collect_top_level).
+            # The body is literal C, so there is nothing to type-check and
+            # nothing to recurse into.
             return
 
         # 4. Set Statements and Mutability
@@ -4851,7 +5071,7 @@ class PenguChecker:
         if self.filename and self.filename.endswith(".d.pengu"):
             return
         has_includes = bool(getattr(self.symbols, "includes", None))
-        decl_rules = ("rune_decl", "echo_decl", "omen_decl", "declare_stmt", "weave_decl", "concept_decl")
+        decl_rules = ("rune_decl", "echo_decl", "omen_decl", "declare_stmt", "weave_decl", "antiquus_decl", "concept_decl")
         field_rules = ("field_decl", "param", "omen_field")
         generic_rules = decl_rules + ("enchanting_decl", "enchanting_stmt", "bind_decl")
 

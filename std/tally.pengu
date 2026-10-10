@@ -84,7 +84,7 @@ import std.spark
 # --- Constantes públicas ------------------------------------------------
 
 ## Versión del módulo tally.
-const TALLY_VERSION as string is "1.1.0"
+const TALLY_VERSION as string is "2.0.0"
 
 # --- Enchantings --------------------------------------------------------
 
@@ -1020,8 +1020,8 @@ weave _expect_eq_bool with actual as bool, expected as bool, label as string int
 
 
 # --- Tests --------------------------------------------------------------
-test "TALLY_VERSION conserva la versión publicada":
-    calling _expect with TALLY_VERSION == "0.15.0", "version"
+test "TALLY_VERSION es la versión 2.0.0":
+    calling _expect with TALLY_VERSION == "2.0.0", "version"
 
 # --- Longitud y acceso ---
 test "is_empty es true para la lista vacía":

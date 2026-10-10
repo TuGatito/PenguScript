@@ -472,6 +472,32 @@ class CFieldCollisionError(SemanticError):
         super().__init__(message, line=line, col=col, column=column, **kwargs)
 
 
+class AntiquusBodyError(SemanticError):
+    """E0059: an `antiquus` body is missing, empty, or not a triple-quoted string.
+
+    The C body of an ``antiquus`` declaration is literal text emitted into the
+    generated ``bundle.c``; it must be delimited by ``\"\"\"…\"\"\"`` or
+    ``r\"\"\"…\"\"\"`` so the extractor can lift it out before the textual
+    preprocessing passes run.  A single-line ``"…"`` string cannot hold C line
+    structure and is rejected here rather than silently compiling to an empty
+    function body.
+    """
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0059")
+        kwargs.setdefault(
+            "help",
+            "Write the C body as \"\"\"...\"\"\" or r\"\"\"...\"\"\".  The body is "
+            "emitted literally into the generated C, so it must be delimited by "
+            "the triple-quote form."
+        )
+        kwargs.setdefault(
+            "note",
+            "Antiquus bodies are literal C.  Single-line \"...\" strings are not "
+            "supported because they cannot hold C line structure."
+        )
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
 
 
 

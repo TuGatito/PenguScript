@@ -24,6 +24,7 @@ top_stmt: import_stmt
         | bind_decl
         | seal_decl
         | weave_decl
+        | antiquus_decl
         | enchanting_decl
         | declare_stmt
         | var_decl
@@ -107,6 +108,19 @@ omen_field: NAME "as" type
 enchanting_decl: "enchanting" type (shard_params | where_clause)? ":" _NEWLINE _INDENT weave_decl+ _DEDENT
 
 weave_decl: attributes weave_modifier* "weave" weave_modifier* NAME [shard_params] ["with" param_list] ["into" type] ":" _NEWLINE _INDENT stmt+ _DEDENT
+
+# Literal C code embedded in PenguScript.  The body is a triple-quoted
+# string (regular or raw) and is extracted before the preprocessor pass
+# runs, so `#include`, `->field` and `with` inside the C body are never
+# mangled by _strip_comments / _merge_chain_continuations /
+# _expand_short_struct_inits.  See pengu_parser.py `_extract_antiquus_bodies`.
+antiquus_decl: attributes "antiquus" NAME [shard_params] ["with" param_list] ["into" type] ":" _NEWLINE _INDENT c_body_lit _NEWLINE _DEDENT
+# The raw body is a triple-quoted string; the parser normally sees it after
+# PenguParser._extract_antiquus_bodies has swapped it for an
+# ANTIQUUS_BODY_PLACEHOLDER (see pengu_parser.py).  The placeholder terminal
+# exists so that the contextual lexer accepts it in this state instead of
+# trying to lex the inert string as a TRIPLE_STRING.
+?c_body_lit: TRIPLE_STRING | RAW_TRIPLE_STRING | ANTIQUUS_BODY_PLACEHOLDER
 
 param_list: param ("," param)*
 param: NAME "as" type ["is" list_expr]
@@ -563,6 +577,10 @@ _NEWLINE: /(\r?\n[\t ]*)+/
 %ignore /##[\s\S]*?##/
 
 NAME: /[a-zA-Z_][a-zA-Z0-9_]*/
+# Inert marker substituted for an ``antiquus`` C body before parsing; it is
+# restored to an ANTIQUUS_BODY token right after the parse.  See
+# PenguParser._extract_antiquus_bodies / _restitch_antiquus_bodies.
+ANTIQUUS_BODY_PLACEHOLDER.3: /"  __PENGU_ANTIQUUS_BODY_[0-9]+__  "/
 TRIPLE_STRING.2: /\"\"\"[\s\S]*?\"\"\"/
 RAW_TRIPLE_STRING.2: /r\"\"\"[\s\S]*?\"\"\"/
 RAW_STRING.2: /r\"[^\"]*\"/

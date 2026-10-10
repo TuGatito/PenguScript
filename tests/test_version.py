@@ -241,6 +241,10 @@ _VERSION_TOKEN_RE = re.compile(
 #: ``HISTORICAL`` (which exempts a whole file): a release document that names the
 #: series it still supports should not stop being checked for *other* drift.
 JUSTIFIED_TOKENS: dict[tuple[str, str], str] = {
+    ("SECURITY.md", "1.1.x"):
+        "the supported-version table records the series that reached end of "
+        "support when 2.0.0 shipped; a support matrix has to name the series it "
+        "drops",
     ("SECURITY.md", "0.16.x"):
         "the supported-version table records the series that reached end of "
         "support when 1.0.0 shipped; a support matrix has to name the series it "
@@ -253,6 +257,9 @@ JUSTIFIED_TOKENS: dict[tuple[str, str], str] = {
         "(`c8e07d9`, `1.0.0-rc1`); re-labelling them `1.0.0` without re-running "
         "the harness would be exactly the edited-number failure the page exists "
         "to prevent",
+    ("BENCHMARKS.md", "1.99.0"):
+        "the measurement-environment table names the Rust compiler it ran "
+        "(`rustc 1.99.0`), which is not a PenguScript release at all",
 }
 
 

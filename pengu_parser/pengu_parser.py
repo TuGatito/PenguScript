@@ -92,7 +92,7 @@ class PenguIndenter(Indenter):
 
 
 class PenguParser:
-    """LALR(1) parser for PenguScript v1.1.0 using embedded grammar."""
+    """LALR(1) parser for PenguScript v2.0.0 using embedded grammar."""
     _shared_parser = None
 
     def __init__(self):
@@ -528,6 +528,173 @@ class PenguParser:
             return
         insertions.append((item_end, f" is {text}"))
 
+    # ------------------------------------------------------------------
+    # `antiquus` C bodies
+    #
+    # An `antiquus` declaration embeds literal C.  That text must never be
+    # touched by the textual passes below: `#include` looks like a PenguScript
+    # comment to _strip_comments, a leading `->` looks like a chain
+    # continuation to _merge_chain_continuations, and `with` looks like a
+    # struct initialiser to _expand_short_struct_inits.  So the body is
+    # extracted *before* any of them runs, replaced by an inert quoted
+    # placeholder, and swapped back for an ANTIQUUS_BODY token after the
+    # LALR parse.  Every other line of the file keeps its exact source
+    # position because the consumed body lines are padded back with blanks.
+    # ------------------------------------------------------------------
+
+    #: Placeholder shape.  The double quotes and the surrounding spaces make
+    #: it match ANTIQUUS_BODY_PLACEHOLDER (and only it) in the grammar; there
+    #: is no '#', no leading '.'/'->' and no 'with' inside, so every textual
+    #: preprocessing step treats it as opaque data.
+    _ANTIQUUS_PLACEHOLDER_FMT = '"  __PENGU_ANTIQUUS_BODY_{n}__  "'
+    _ANTIQUUS_PLACEHOLDER_RE = re.compile(r'^"  __PENGU_ANTIQUUS_BODY_(\d+)__  "$')
+
+    #: A line whose first non-space token is the `antiquus` keyword and whose
+    #: last non-space token is the ':' that opens the body.  A same-line
+    #: attribute prefix ('@export("x") antiquus f ...') and a trailing '#'
+    #: comment are accepted.  Anchoring on the whitespace after the keyword
+    #: keeps identifiers such as 'antiquus_result' from being mistaken for it.
+    _ANTIQUUS_START_RE = re.compile(
+        r'^\s*(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s*)*'
+        r'antiquus\s+([A-Za-z_][A-Za-z0-9_]*)\b.*:\s*(?:#[^\n]*)?$'
+    )
+
+    @staticmethod
+    def _extract_antiquus_bodies(code: str) -> Tuple[str, dict]:
+        """Extracts each `antiquus` C body, leaving a placeholder behind.
+
+        Recognised body shapes (the opening triple quote must be the first
+        non-space content of the line that follows the declaration header,
+        blank lines aside)::
+
+            antiquus f ...:              antiquus f ...:
+                \"\"\"                         r\"\"\"
+                C code                           C code
+                \"\"\"                         \"\"\"
+
+            antiquus f ...:
+                \"\"\"single-line C\"\"\"
+
+        A multiline body ends at the first line whose stripped content is
+        exactly ``\"\"\"``.  Surrounding indentation is removed (the common
+        leading whitespace of the non-blank lines) and one trailing blank line
+        is dropped, so the C that reaches the compiler is exactly what the
+        author wrote, unindented.
+
+        Args:
+            code: PenguScript source, already BOM/CRLF normalised.
+
+        Returns:
+            ``(code_with_placeholders, bodies)`` where ``bodies`` maps the
+            placeholder's inner text to the original C body.
+        """
+        lines = code.split("\n")
+        out: List[str] = []
+        bodies: dict = {}
+        i = 0
+        n = len(lines)
+        in_triple = False
+
+        while i < n:
+            line = lines[i]
+
+            # An `antiquus` spelled inside a normal triple-quoted string is
+            # data, not a declaration.
+            if not in_triple and PenguParser._ANTIQUUS_START_RE.match(line):
+                out.append(line)
+                i += 1
+
+                # Blank lines between the header and the opening quote belong
+                # to neither the header nor the body; keep them verbatim.
+                while i < n and not lines[i].strip():
+                    out.append(lines[i])
+                    i += 1
+
+                if i >= n:
+                    break
+
+                open_line = lines[i]
+                stripped = open_line.lstrip()
+                indent = open_line[:len(open_line) - len(stripped)]
+
+                if stripped.startswith('r"""'):
+                    opening = 'r"""'
+                elif stripped.startswith('"""'):
+                    opening = '"""'
+                else:
+                    # Not a triple-quoted body: leave it alone so the parser
+                    # reports the usual syntax error.
+                    out.append(open_line)
+                    i += 1
+                    continue
+
+                body_start = i
+                after_open = stripped[len(opening):]
+                body_lines: List[str] = []
+
+                if after_open.rstrip().endswith('"""') and '"""' in after_open:
+                    # Single-line body: """C code"""
+                    body_lines.append(after_open[:after_open.rfind('"""')])
+                    i += 1
+                else:
+                    if after_open:
+                        body_lines.append(after_open)
+                    i += 1
+                    while i < n:
+                        if lines[i].strip() == '"""':
+                            i += 1
+                            break
+                        body_lines.append(lines[i])
+                        i += 1
+
+                consumed = i - body_start
+
+                non_empty = [b for b in body_lines if b.strip()]
+                if non_empty:
+                    min_indent = min(len(b) - len(b.lstrip(' \t')) for b in non_empty)
+                    body_lines = [b[min_indent:] if b.strip() else '' for b in body_lines]
+                while body_lines and not body_lines[-1].strip():
+                    body_lines.pop()
+
+                placeholder = PenguParser._ANTIQUUS_PLACEHOLDER_FMT.format(n=len(bodies))
+                bodies[placeholder[1:-1]] = "\n".join(body_lines)
+                out.append(f"{indent}{placeholder}")
+                # Preserve the line count: every source line the C body
+                # occupied is padded back with a blank one, so `#line` markers
+                # and diagnostics for everything *after* the declaration stay
+                # exact.
+                out.extend([""] * (consumed - 1))
+                continue
+
+            if line.count('"""') % 2 == 1:
+                in_triple = not in_triple
+            out.append(line)
+            i += 1
+
+        return "\n".join(out), bodies
+
+    @staticmethod
+    def _restitch_antiquus_bodies(tree: Tree, bodies: dict) -> None:
+        """Swaps placeholder tokens for ANTIQUUS_BODY tokens carrying the C.
+
+        Runs after the LALR parse.  The tree structure is untouched: only the
+        token value and type change.  Positions are borrowed from the
+        placeholder token so diagnostics keep pointing at the right line.
+        """
+        if not bodies:
+            return
+        for subtree in tree.iter_subtrees():
+            for idx, child in enumerate(subtree.children):
+                if not (isinstance(child, Token) and child.type == "ANTIQUUS_BODY_PLACEHOLDER"):
+                    continue
+                match = PenguParser._ANTIQUUS_PLACEHOLDER_RE.match(str(child))
+                if match is None:
+                    continue
+                inner = str(child)[1:-1]
+                if inner not in bodies:
+                    continue
+                subtree.children[idx] = Token.new_borrow_pos("ANTIQUUS_BODY", bodies[inner], child)
+
     def parse(self, code: str) -> Tree:
         """Parses PenguScript source code into a Lark AST Tree.
 
@@ -544,16 +711,24 @@ class PenguParser:
         """
         code = strip_bom(code)
         code = code.replace("\r\n", "\n")
+        # Extract antiquus C bodies BEFORE any textual preprocessing: otherwise
+        # _strip_comments eats #include, _merge_chain_continuations glues lines
+        # that start with '->', and _expand_short_struct_inits rewrites 'with'
+        # inside the C code.  The body is replaced by a normal placeholder
+        # token that survives every preprocessing step intact.
+        code, antiquus_bodies = self._extract_antiquus_bodies(code)
         self._check_indentation_consistency(code)
         clean_code = self._strip_comments(code).rstrip() + '\n'
         clean_code = self._merge_chain_continuations(clean_code)
         clean_code = self._expand_short_struct_inits(clean_code)
         try:
-            return self.parser.parse(clean_code, start='start')
+            tree = self.parser.parse(clean_code, start='start')
         except LarkUnexpectedInput as exc:
             raise self._parse_error(code, exc) from None
         except LarkBaseError as exc:
             raise self._parse_error(code, exc) from None
+        self._restitch_antiquus_bodies(tree, antiquus_bodies)
+        return tree
 
     def parse_expr(self, code: str) -> Tree:
         """Parses a PenguScript expression string into a Lark AST Tree.

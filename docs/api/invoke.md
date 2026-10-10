@@ -8,7 +8,7 @@
 
 ### `INVOKE_VERSION`
 
-> const string` = 1.1.0`
+> const string` = 2.0.0`
 
 Standard library invoke module version.
 

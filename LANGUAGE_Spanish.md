@@ -1,6 +1,6 @@
 # Referencia del Lenguaje PenguScript
 
-> **Versión cubierta:** PenguScript **1.1.0** (sincronizada con `VERSION` y `pengu_version.py`; generador de código C99/C11; cabeceras de runtime en `pengu_runtime.h`).
+> **Versión cubierta:** PenguScript **2.0.0** (sincronizada con `VERSION` y `pengu_version.py`; generador de código C99/C11; cabeceras de runtime en `pengu_runtime.h`).
 > **Política de idioma.** El inglés es el idioma canónico de la documentación de
 > PenguScript, así que el documento **normativo** es [`LANGUAGE.md`](LANGUAGE.md).
 > Esta traducción al español es **no normativa**: puede ir por detrás y, donde los dos
@@ -147,7 +147,7 @@ Esto es deliberadamente más estrecho que el resto del toolchain, que sí es lim
 Las siguientes palabras clave están reservadas por PenguScript:
 
 ```text
-import include link insignia const var let set static weave declare enchanting
+import include link insignia const var let set static weave antiquus declare enchanting
 rune echo omen alias seal concept bind shard where when test if
 unless else while for in from to step judge calling with into as is many return
 break continue defer errdefer banish some ord chr bytes of essence of sigil of
@@ -1145,6 +1145,134 @@ Lejos de `void`, el cualificador sigue decayendo en una sola dirección: `ref to
 - Dentro de las expresiones, un `frozen int` se comporta como un `int` (aritmética, comparaciones, indexación); solo la escritura está restringida. El resultado de una operación es un valor simple, así que `return a + 0` es un `int`.
 - `frozen` nunca aparece en literales, solo en anotaciones de tipo.
 - La asignabilidad se comprueba allí donde se escribe un valor (inicializadores, argumentos, `return`, `set`); no hay un análisis más profundo de propagación de const. Un valor frozen que deba acabar en una posición mutable se convierte explícitamente: `var n as int is (a to int)`.
+
+### 9.6 `antiquus` — bloques de C embebido
+
+Un `antiquus` declara una función cuyo cuerpo es **código C literal**, delimitado por comillas triples. Es la vía de escape del lenguaje: sirve para primitivas del sistema, código crítico para el rendimiento y glue de FFI que PenguScript todavía no expresa directamente, sin salir del `.pengu` ni mantener un `.c` aparte.
+
+La forma general es la de un `weave`:
+
+```pengu
+antiquus nombre shard T with p1 as T, p2 as int is 3 into int:
+    """
+    /* cuerpo C */
+    return p1;
+    """
+```
+
+#### Reglas
+
+- **El cuerpo debe ser un string de comillas triples**, `"""…"""` o `r"""…"""`. Se recomienda la forma `r"""…"""` cuando el C contiene barras invertidas (`printf("a\n")`), porque no interpreta escapes. Un cuerpo vacío o ausente es `E0059`.
+- La cabecera es exactamente la de un `weave`: `shard_params`, `where`, parámetros con valor por defecto y cualquier tipo (`string`, `list of T`, runes, `ref to T`, …) son válidos, y el tipo de retorno se escribe con `into`.
+- Los nombres de parámetro **deben ser identificadores C válidos**. El cuerpo los ve tal cual, así que un parámetro llamado `if`, `int` o `while` es `E0035`: no se le aplica el escape `_nombre` de `_c_ident`, porque entonces el cuerpo no podría nombrarlo.
+- `many T` **no** está permitido (`E0005`). Para varargs crudos de C usa un `declare` aparte con `...`; `antiquus` sólo acepta parámetros normales. Para pasar un número variable de elementos, usa un `slice of T` y accede a `s.data` / `s.len`.
+- **No está permitido en un `.d.pengu`** (`E0025`): un fichero de declaración no puede contener cuerpos.
+- `main` no puede ser un `antiquus` (`E0040`); el punto de entrada es un `weave`.
+- Atributos admitidos: `@inline`, `@cold`, `@deprecated`, `@noreturn` y `@export("símbolo")`.
+
+Un `antiquus` se llama como cualquier `weave`:
+
+```pengu
+import std.spark
+
+antiquus add with a as int, b as int into int:
+    """
+    return a + b;
+    """
+
+weave main into int:
+    var total as int is calling add with 20, 22
+    calling spark.println with "{total}"
+    return 0
+```
+
+#### `@export` y eliminación de código muerto
+
+El nombre C del `antiquus` respeta el `insignia` del módulo igual que un `weave`. `@export("símbolo")` fija el símbolo C emitido y convierte la declaración en una **raíz del DCE**: sobrevive aunque ningún código PenguScript la llame, porque es el punto de entrada de FFI que el atributo promete.
+
+```pengu
+@export("pengu_fast_double")
+antiquus fast_double with x as int into int:
+    """
+    return x * 2;
+    """
+```
+
+Sin `@export`, un `antiquus` declarado en un módulo `std/` o `lib/` se poda cuando nadie lo referencia, exactamente igual que un `weave` sin usar.
+
+#### Qué puede hacer el cuerpo C
+
+- Leer y escribir sus **parámetros**, con sus nombres C exactos.
+- Llamar a todo el **runtime de PenguScript** (`pengu_string_from_cstr`, `pengu_println`, `pengu_list_push`, `pengu_map_put`, …): todo bundle incluye `pengu_runtime.h` al principio.
+- Usar `#include` —los que ya hiciera el módulo y los que escribas dentro del cuerpo— y cualquier declaración previa (`rune`, `declare`, `include`, `link`) del módulo.
+
+#### Qué **no** puede hacer
+
+- **No se comprueba el C.** Si escribes `return "a";` en un `antiquus into int`, el diagnóstico lo dará el compilador de C, no PenguScript.
+- **No se rastrea el ownership.** Si devuelves un `string` con buffer propio, es responsabilidad tuya documentar quién lo libera con `banish`.
+- **No captura variables locales.** El cuerpo sólo ve sus parámetros y los símbolos globales del módulo; no hay cierre sobre el ámbito PenguScript que lo rodea.
+- **No puede vivir en `.d.pengu`.**
+
+#### Errores de compilación dentro del cuerpo C
+
+Cada cuerpo se emite detrás de un `#line 1 "antiquus:<nombre>"`, así que un error de sintaxis o de tipos en el C apunta al `antiquus` y a la línea del **cuerpo**, contando desde 1:
+
+```text
+antiquus:fast_abs:3:12: error: expected ';' before 'return'
+```
+
+#### Ejemplos
+
+Un primitivo de arquitectura, elegido en tiempo de compilación:
+
+```pengu
+when arch == "x64" and os == "linux":
+    antiquus read_tsc into u64:
+        """
+        unsigned int lo, hi;
+        __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
+        return ((unsigned long long)hi << 32) | lo;
+        """
+else:
+    antiquus read_tsc into u64:
+        """
+        return 0;
+        """
+```
+
+Devolver un valor del runtime:
+
+```pengu
+antiquus make_hello into string:
+    """
+    return pengu_string_from_cstr("hello from C");
+    """
+```
+
+Ayudas pequeñas que el `pengu_runtime.h` monolítico no debería tener que alojar:
+
+```pengu
+antiquus fast_abs with x as int into int:
+    """
+    return x < 0 ? -x : x;
+    """
+
+antiquus fast_min with a as int, b as int into int:
+    """
+    return a < b ? a : b;
+    """
+```
+
+#### Cuándo usar `antiquus`
+
+- Para bajar al C del sistema (syscalls, primitivas de hilos, SIMD, contadores de hardware).
+- Para envolver una biblioteca C que no se puede expresar como `declare`.
+- Para reimplementar ayudas del `pengu_runtime.h` en el módulo `std/` que las usa, de modo que el DCE las pode cuando nadie lo importa.
+
+#### Cuándo **no** usar `antiquus`
+
+- Para lógica que PenguScript ya expresa. Bucles, condiciones, manejo de errores y colecciones se escriben en PenguScript puro; reescribirlos en C pierde el chequeo de tipos y el rastreo de ownership sin ganar nada.
+- Para FFI a una biblioteca existente. Para eso están `declare` + `include` + `link`, que enlazan la función real y **no** emiten C embebido.
 
 ---
 
@@ -2294,7 +2422,7 @@ prioridad.
 
 ```yaml
 name: my_app
-version: 1.1.0
+version: 2.0.0
 output: exe                  # exe | c | obj | static | shared
 entry: src/main.pengu        # main entry module (defaults to src/main.pengu)
 src_dirs: [src]              # source lookup roots (default: [src])
@@ -3319,7 +3447,7 @@ pengu -V
 pengu --version
 ```
 
-- Muestra la cadena de versión (p. ej. `PenguScript v1.1.0`). La versión del compilador se registra en `VERSION` y se replica en `pengu_version.py`.
+- Muestra la cadena de versión (p. ej. `PenguScript v2.0.0`). La versión del compilador se registra en `VERSION` y se replica en `pengu_version.py`.
 
 ### 20.14 Infraestructura del runtime y diagnósticos
 
@@ -3458,7 +3586,7 @@ La columna `Conditions` es el número de formas de mensaje distintas que el cód
 | `E0002` | `VarLetTopLevelError` | 3 | var/let declared at top-level. | 1 help / 1 note |
 | `E0003` | `SelfDotAccessError`, `SemanticError` | 6 | self accessed with dot instead of arrow. | 1 help / 1 note |
 | `E0004` | `SemanticError`, `UndefinedIdentifierError` | 15 | identifier not defined in symbol table. | 1 help / 1 note |
-| `E0005` | `SemanticError`, `TypeMismatchError` | 137 | types incompatible. | 1 help / 1 note |
+| `E0005` | `SemanticError`, `TypeMismatchError` | 138 | types incompatible. | 1 help / 1 note |
 | `E0006` | `InvalidMemoryOpError`, `MutabilityError` | 11 | assignment to immutable let binding or constant. | 1 help / 1 note |
 | `E0007` | `InvalidControlFlowError` | 1 | break/continue outside loop. | 1 help / 1 note |
 | `E0008` | `InvalidMemoryOpError`, `SemanticError`, `TypeMismatchError` | 15 | invalid sigil/banish on literal/const. | 1 help / 1 note |
@@ -3488,12 +3616,12 @@ La columna `Conditions` es el número de formas de mensaje distintas que el cód
 | `E0032` | `ConceptBoundNotSatisfiedError`, `SemanticError` | 4 | Generic type argument does not implement required concept bound. | 1 help / 1 note |
 | `E0033` | `InvalidRitualSelfAccessError` | 1 | Using 'self' inside a ritual (static) method. | 1 help / 1 note |
 | `E0034` | `InvalidRitualCallError` | 2 | Calling instance method statically or ritual method on instance. | 1 help / 1 note |
-| `E0035` | `SemanticError` | 4 | — | — |
+| `E0035` | `SemanticError` | 5 | — | — |
 | `E0036` | `SemanticError` | 2 | — | — |
 | `E0037` | `SemanticError` | 1 | — | — |
 | `E0038` | `SemanticError` | 1 | — | — |
 | `E0039` | `SemanticError`, `TypeMismatchError` | 3 | — | — |
-| `E0040` | `SemanticError` | 1 | — | — |
+| `E0040` | `SemanticError` | 2 | — | — |
 | `E0041` | `ArraySizeMismatchError`, `SemanticError` | 9 | Array literal dimensions or row length do not match declared size. | 1 help / 1 note |
 | `E0042` | `InvalidRangeError` | 3 | Invalid range expression bounds. | 1 help / 1 note |
 | `E0043` | `PrivateSymbolAccessError` | 2 | Attempted access to private symbol from another module. | 1 help / 1 note |
@@ -3507,9 +3635,10 @@ La columna `Conditions` es el número de formas de mensaje distintas que el cód
 | `E0053` | `SemanticError` | 2 | — | — |
 | `E0054` | `SemanticError` | 1 | — | — |
 | `E0055` | `SemanticError` | 1 | — | — |
-| `E0056` | `SemanticError`, `UnknownAttributeError` | 8 | unknown attribute or invalid attribute usage. | 1 help / 1 note |
+| `E0056` | `SemanticError`, `UnknownAttributeError` | 9 | unknown attribute or invalid attribute usage. | 1 help / 1 note |
 | `E0057` | `InvalidCharLiteralError` | 2 | char literal cannot hold codepoint > 0x7F. | 1 help / 1 note |
 | `E0058` | `SemanticError` | 1 | — | — |
+| `E0059` | `AntiquusBodyError` | 2 | an `antiquus` body is missing, empty, or not a triple-quoted string.  The C body of an ``antiquus`` declaration is literal text emitted into the generated ``bundle.c``; it must be delimited by ``"""…"""`` or ``r"""…"""`` so the extractor can lift it out before the textual preprocessing passes run.  A single-line ``"…"`` string cannot hold C line structure and is rejected here rather than silently compiling to an empty function body. | 1 help / 1 note |
 | `E0063` | `StaticVarPlacementError` | 1 | 'static var' declared outside a function body.  A function-static variable is C's ``static`` local: it belongs to one weave and is created once.  Declaring it in a ``test`` block, at module top level, or nested inside a conditional has no coherent C translation, so it is rejected on placement rather than on type.  This used to share ``E0035`` with the "name collides with a C reserved word" diagnostic -- two conditions with nothing in common, which made a code-based quick-fix impossible (roadmap Phase 7, item 7.2). | 1 help / 1 note |
 | `E0064` | `InvalidTestNameError` | 1 | a ``test`` block has no usable name.  Unit tests are reported by name, so ``test`` with an empty or ``_``-only name cannot be identified in the runner output.  This used to share ``E0035`` (roadmap Phase 7, item 7.2). | 1 help / 1 note |
 | `E0065` | `CFieldCollisionError` | 1 | two PenguScript fields map to the same C field name.  ``_c_ident`` escapes C keywords by prefixing an underscore, so ``x`` and ``_x`` both emit the C field ``_x``.  The collision is between two *user* fields, not with a C reserved word, which is why it is not ``E0035``.  This used to share ``E0035`` (roadmap Phase 7, item 7.2). | 1 help / 1 note |
@@ -3770,4 +3899,4 @@ struct.
 > declaración `echo` no tiene posición de atributo en la gramática, así que no
 > pueden escribirse ahí; una unión de C tiene sus propias reglas de layout.
 
-*Fin de la referencia. Se agradecen las correcciones — este documento refleja el comportamiento del compilador en la versión 1.1.x; ejecuta `pengu check` sobre cualquier fragmento para confirmar la semántica en tu toolchain.*
+*Fin de la referencia. Se agradecen las correcciones — este documento refleja el comportamiento del compilador en la versión 2.0.x; ejecuta `pengu check` sobre cualquier fragmento para confirmar la semántica en tu toolchain.*

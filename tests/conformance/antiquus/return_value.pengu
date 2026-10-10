@@ -1,0 +1,22 @@
+# tests/conformance/antiquus/return_value.pengu
+#
+# `antiquus` parameters and return types use the ordinary `weave` signature
+# syntax, and the value produced by the C `return` is the value the caller sees.
+# Integer and floating-point types are both exercised so a signature that is
+# only correct for one of them fails here.
+import std.spark
+
+antiquus antiquus_add with a as int, b as int into int:
+    """
+    return a + b;
+    """
+
+antiquus antiquus_multiply with a as f64, b as f64 into f64:
+    """
+    return a * b;
+    """
+
+test "antiquus/return_value":
+    let total is calling antiquus_add with 2, 3
+    let product is calling antiquus_multiply with 2.5, 4.0
+    calling spark.println with "{total} {product}"

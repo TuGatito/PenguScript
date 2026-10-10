@@ -1,6 +1,6 @@
 # Guía de Estilo Pengunic
 
-> **Versión cubierta:** PenguScript **1.1.0**
+> **Versión cubierta:** PenguScript **2.0.0**
 > **Política de idioma.** El inglés es canónico: la guía normativa es
 > [`PenguScriptGuideEnglish.md`](PenguScriptGuideEnglish.md). Esta traducción al
 > español es **no normativa**; donde discrepen, gana la guía inglesa.

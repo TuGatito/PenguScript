@@ -25,7 +25,7 @@ import std.spark
 # ----------------------------------------------------------------------------
 
 ## Arithmancy module version.
-const ARITHMANCY_VERSION as string is "1.1.0"
+const ARITHMANCY_VERSION as string is "2.0.0"
 
 ## Pi: ratio of a circle's circumference to its diameter.
 const PI as float is 3.141592653589793

@@ -43,6 +43,60 @@
       "windows"
     ]
   },
+  "antiquus/attributes": {
+    "feature": "antiquus",
+    "platforms": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "pins": "@export/@inline/@cold on an antiquus; the PenguScript name still calls the emitted symbol."
+  },
+  "antiquus/basic": {
+    "feature": "antiquus",
+    "platforms": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "pins": "A `antiquus` C body is emitted verbatim and the runtime API (pengu_*) is in scope."
+  },
+  "antiquus/c_preprocessing": {
+    "feature": "antiquus",
+    "platforms": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "pins": "`#include`, a leading `->` and `with` inside a C body survive the textual preprocessing passes."
+  },
+  "antiquus/generic": {
+    "feature": "antiquus",
+    "platforms": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "pins": "`shard T` monomorphization of a generic antiquus, one specialization per instantiation."
+  },
+  "antiquus/return_value": {
+    "feature": "antiquus",
+    "platforms": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "pins": "Weave-style parameters/return types; the C `return` value reaches the caller (int and f64)."
+  },
+  "antiquus/with_when": {
+    "feature": "antiquus",
+    "platforms": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "pins": "Only the active compile-time `when` branch declares/emits the antiquus."
+  },
   "compliance/s001_hello": {
     "feature": "compliance",
     "platforms": [

@@ -1,0 +1,47 @@
+# tests/migration/2.0.0/antiquus-surface.pengu
+#
+# The 2.0.0 line is additive: nothing is removed and no signature changes, so
+# (like `1.0.0/frozen-surface.pengu` and `1.1.0/additive-surface.pengu`) this
+# program pins the surface every project migrates *to* rather than a "before"
+# form that must fail. It exercises the single addition of 2.0.0:
+#
+#   * `antiquus` declarations — a function whose body is literal C, emitted
+#     verbatim into the bundle and called exactly like a `weave`;
+#   * `@export("c_name")` on an `antiquus`;
+#   * a generic `antiquus` (`shard T`), monomorphized per instantiation.
+#
+# It also pins the *non*-breaking half of the release: `antiquus` is a soft
+# keyword, so a field named `antiquus` still compiles. A project that used the
+# word as an identifier before 2.0.0 needs no migration at all, which is why
+# this file has no failing counterpart (MIGRATION.md §2 records the line as
+# "none").
+import std.spark
+
+rune AntiquusSurface:
+    antiquus as int          # the keyword is positional: still a valid field name
+    label as string
+
+antiquus fast_abs with x as int into int:
+    """
+    return x < 0 ? -x : x;
+    """
+
+@export("pengu_mig_double")
+antiquus fast_double with x as int into int:
+    """
+    return x * 2;
+    """
+
+antiquus at_least shard T where T: Num with value as T, low as T into T:
+    """
+    return value < low ? low : value;
+    """
+
+weave main into int:
+    var surface as AntiquusSurface is with antiquus is -7, label is "probe"
+    var magnitude as int is calling fast_abs with surface.antiquus
+    var doubled as int is calling fast_double with magnitude
+    var clamped as int is calling at_least of int with doubled, 10
+
+    calling spark.println with "{surface.label} {magnitude} {clamped}"
+    return 0

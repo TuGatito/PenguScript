@@ -27,6 +27,7 @@
 ```text
 alias
 and
+antiquus
 as
 banish
 bind
@@ -388,6 +389,7 @@ E0055
 E0056
 E0057
 E0058
+E0059
 E0061
 E0062
 E0063

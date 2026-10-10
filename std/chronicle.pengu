@@ -32,7 +32,7 @@ import std.scrolls
 # ----------------------------------------------------------------------------
 
 ## Chronicle module version constant.
-const CHRONICLE_VERSION as string is "1.1.0"
+const CHRONICLE_VERSION as string is "2.0.0"
 
 # ----------------------------------------------------------------------------
 # External C Runtime Declarations (time, sleep, formatting, calendar fields)

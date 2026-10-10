@@ -5,7 +5,7 @@ test "std_programs/test_rites_extended":
     calling spark.println with "=== Test Rites Extended ==="
 
     # 1. Version
-    calling spark.assert with rites.RITES_VERSION == "1.1.0"
+    calling spark.assert with rites.RITES_VERSION == "2.0.0"
     calling spark.println with "version: OK"
 
     # 2. Environment Accessors

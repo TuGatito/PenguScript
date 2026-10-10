@@ -2,6 +2,59 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.0.0] - 2026-10-09
+
+Aditivo: ningún programa existente deja de compilar. `antiquus` es una palabra
+clave **blanda** — solo se reconoce donde puede empezar una declaración —, así
+que el identificador `antiquus` sigue siendo válido en variables, campos,
+runes y weaves. El salto a 2.0 es de contrato, no de sintaxis: es la primera
+vez que un fuente `.pengu` puede emitir C que el compilador **no** comprueba.
+
+### Added
+
+- **Declaraciones `antiquus`** — bloques de C embebidos directamente en los
+  fuentes PenguScript. Su cuerpo es un string de comillas triples con código C
+  literal que se emite tal cual en el `bundle.c` generado. Se llaman como
+  cualquier `weave` (`calling mi_antiquus with 1, 2`) y son la vía de escape del
+  lenguaje para primitivas del sistema, código crítico para el rendimiento y
+  glue de FFI que la expresividad propia de PenguScript todavía no cubre.
+- **Podables por DCE**: un `antiquus` declarado en un módulo `std/` o `lib/` se
+  elimina cuando no se referencia, exactamente igual que un `weave` sin usar.
+- **`@export("nombre")` sobre `antiquus`**: fija el símbolo C emitido y
+  convierte la declaración en raíz de la eliminación de código muerto.
+- **`#line 1 "antiquus:<nombre>"`** delante de cada cuerpo, para que un error
+  del compilador de C apunte al cuerpo del `antiquus` y a su número de línea
+  contando desde 1, en lugar de a una línea arbitraria del bundle.
+- **`LANGUAGE.md` §9.6 / `LANGUAGE_Spanish.md` §9.6** — referencia completa del
+  constructo, su contrato de seguridad y ejemplos compilables.
+- **`E0059` (`AntiquusBodyError`)** — el cuerpo falta, está vacío o no es un
+  string de comillas triples.
+
+### Changed
+
+- `antiquus` pasa a ser palabra clave en posición de declaración. Al ser
+  **blanda** (como `frozen`, `inline` o `ritual`), **no rompe código existente**:
+  un `weave antiquus`, un `var antiquus` o un campo `antiquus` siguen
+  compilando.
+- Los parámetros de un `antiquus` se emiten con su nombre C exacto: un nombre
+  que `_c_ident` tuviera que escapar (`if`, `int`, `while`, …) es `E0035` en
+  lugar de renombrarse en silencio, porque el cuerpo C no podría nombrarlo.
+
+### Notes
+
+- El cuerpo de un `antiquus` **no** se comprueba de tipos. Es intencional: el
+  constructo existe precisamente para saltarse las comprobaciones de
+  PenguScript. Los errores del cuerpo afloran como diagnósticos del compilador
+  de C apuntando a `antiquus:<nombre>:<línea>`.
+- `antiquus` se rechaza en ficheros `.d.pengu` (`E0025`) y no acepta
+  parámetros `many T` (`E0005`). Para varargs crudos de C hace falta un
+  `declare` aparte con `...`; para un número variable de elementos, un
+  `slice of T` y `s.data` / `s.len`.
+- `main` no puede ser un `antiquus` (`E0040`): el punto de entrada sigue siendo
+  un `weave`.
+- El cuerpo no captura variables locales del ámbito PenguScript que lo rodea:
+  solo ve sus parámetros y los símbolos globales del módulo.
+
 ## [1.1.0] - 2026-10-08
 
 Aditivo: ningún cambio rompe código existente. No se añade ninguna palabra
