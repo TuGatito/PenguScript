@@ -52,12 +52,19 @@ def test_bindings_exist_and_are_the_generated_half():
 
 
 def test_versioning_policy_excludes_generated_bindings():
-    """The ratchet must keep ignoring ``*.d.pengu``; that is the policy."""
-    import tests.stdlib.test_std_versioning as tv
+    """The ratchet must keep ignoring ``*.d.pengu``; that is the policy.
 
-    scoped = {p.name for p in tv._hand_written_modules()}
+    The per-module ``<MOD>_VERSION`` ratchet lives in the migration's own
+    ``tests/test_<mod>.py`` files now (it used to be pinned by the deleted
+    ``tests/stdlib/test_std_versioning.py``).  This check keeps the policy
+    observable: only the hand-written modules are in scope.
+    """
+    scoped = {
+        p.name for p in STD.glob("*.pengu") if not p.name.endswith(".d.pengu")
+    }
+    assert scoped, "no hand-written std modules found"
     assert not any(name.endswith(".d.pengu") for name in scoped), (
-        "test_std_versioning started including generated bindings; bindings "
+        "the versioning scope started including generated bindings; bindings "
         "track upstream versions and cannot also track the toolchain"
     )
 

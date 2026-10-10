@@ -130,42 +130,12 @@ int main(void) {
         g_fail_malloc = 0;
     }
 
-    /* 5. parse_int / parse_float with range & simulated malloc failure */
-    {
-        /* In-range */
-        PenguString ok_int = pengu_string_from_cstr("12345");
-        PenguMaybe m_ok = pengu_parse_int(ok_int);
-        CHECK(m_ok.is_present && m_ok.value != NULL && *(int32_t *)m_ok.value == 12345, "parse_int 12345");
-        free(m_ok.value);
-
-        /* Out-of-range (> INT32_MAX) */
-        PenguString ovf_int = pengu_string_from_cstr("9999999999999999");
-        PenguMaybe m_ovf = pengu_parse_int(ovf_int);
-        CHECK(!m_ovf.is_present, "parse_int overflow returns none");
-
-        /* Out-of-range (< INT32_MIN) */
-        PenguString unf_int = pengu_string_from_cstr("-9999999999999999");
-        PenguMaybe m_unf = pengu_parse_int(unf_int);
-        CHECK(!m_unf.is_present, "parse_int underflow returns none");
-
-        /* Simulated malloc failure for parse_int */
-        g_fail_malloc = 1;
-        PenguMaybe m_int_fail = pengu_parse_int(ok_int);
-        CHECK(!m_int_fail.is_present, "parse_int malloc fail returns none");
-        g_fail_malloc = 0;
-
-        /* In-range float */
-        PenguString ok_flt = pengu_string_from_cstr("3.1415");
-        PenguMaybe m_flt = pengu_parse_float(ok_flt);
-        CHECK(m_flt.is_present && m_flt.value != NULL, "parse_float ok");
-        free(m_flt.value);
-
-        /* Simulated malloc failure for parse_float */
-        g_fail_malloc = 1;
-        PenguMaybe m_flt_fail = pengu_parse_float(ok_flt);
-        CHECK(!m_flt_fail.is_present, "parse_float malloc fail returns none");
-        g_fail_malloc = 0;
-    }
+    /* 5. parse_int / parse_float moved to std/spark.pengu (Chunk 1 of the 2.0
+     * migration): the header no longer defines them, so a driver that only
+     * includes pengu_runtime.h cannot call them.  The range, malloc-failure,
+     * ERANGE, whitespace and embedded-NUL cases they used to assert are covered
+     * end-to-end by tests/test_spark.py (parse_int / parse_int_hex / parse_bin /
+     * parse_oct / parse_float). */
 
     /* 6. copy preserves exact binary length including embedded NUL */
     {
@@ -286,36 +256,9 @@ int main(void) {
         pengu_banish_string(&res_nomatch);
     }
 
-    /* 12. parse_float checks errno for ERANGE (B22) */
-    {
-        PenguString ovf = pengu_string_from_cstr("1e999");
-        PenguMaybe m_ovf = pengu_parse_float(ovf);
-        CHECK(!m_ovf.is_present, "parse_float('1e999') returns none due to ERANGE");
-    }
-
-    /* 13. parse_int / parse_float reject pure whitespace and accept valid surrounding whitespace (B23) */
-    {
-        PenguString ws1 = pengu_string_from_cstr("   ");
-        PenguString ws2 = pengu_string_from_cstr("\t\n");
-        CHECK(!pengu_parse_int(ws1).is_present, "parse_int('   ') is none");
-        CHECK(!pengu_parse_int(ws2).is_present, "parse_int('\\t\\n') is none");
-        CHECK(!pengu_parse_float(ws1).is_present, "parse_float('   ') is none");
-
-        PenguString ok42 = pengu_string_from_cstr("42");
-        PenguMaybe m42 = pengu_parse_int(ok42);
-        CHECK(m42.is_present && m42.value && *(int32_t *)m42.value == 42, "parse_int('42') == 42");
-        free(m42.value);
-
-        PenguString ok_padded = pengu_string_from_cstr("  42  ");
-        PenguMaybe m_padded = pengu_parse_int(ok_padded);
-        CHECK(m_padded.is_present && m_padded.value && *(int32_t *)m_padded.value == 42, "parse_int('  42  ') == 42");
-        free(m_padded.value);
-
-        PenguString ok_flt_padded = pengu_string_from_cstr("  3.14  ");
-        PenguMaybe m_flt = pengu_parse_float(ok_flt_padded);
-        CHECK(m_flt.is_present && m_flt.value && *(double *)m_flt.value > 3.13 && *(double *)m_flt.value < 3.15, "parse_float('  3.14  ') == 3.14");
-        free(m_flt.value);
-    }
+    /* 12-13. parse_float ERANGE (B22) and parse_int/parse_float whitespace
+     * trimming (B23) moved to std/spark.pengu with the functions themselves; see
+     * tests/test_spark.py. */
 
     /* 14. pengu_string_contains with embedded NULs (B24) */
     {
@@ -405,29 +348,8 @@ int main(void) {
         pengu_banish_string_list(&parts);
     }
 
-    /* 21. pengu_parse_int / pengu_parse_float reject embedded NUL / trailing bytes (B28) */
-    {
-        char raw_num[8] = {'4', '2', '\0', 'x', 'y', 'z', '\0'};
-        PenguString s_num = {raw_num, 6};
-        PenguMaybe mi = pengu_parse_int(s_num);
-        CHECK(!mi.is_present, "parse_int rejects embedded NUL and trailing chars");
-
-        char raw_flt[10] = {'4', '2', '.', '5', '\0', 'x', 'y', 'z', '\0'};
-        PenguString s_flt = {raw_flt, 8};
-        PenguMaybe mf = pengu_parse_float(s_flt);
-        CHECK(!mf.is_present, "parse_float rejects embedded NUL and trailing chars");
-
-        /* Valid cases still work */
-        PenguString s_ok_int = pengu_string_from_cstr("  42  ");
-        PenguMaybe mi_ok = pengu_parse_int(s_ok_int);
-        CHECK(mi_ok.is_present && *(int32_t *)mi_ok.value == 42, "parse_int accepts valid whitespace-padded int");
-        if (mi_ok.is_present) free(mi_ok.value);
-
-        PenguString s_ok_flt = pengu_string_from_cstr("  3.14  ");
-        PenguMaybe mf_ok = pengu_parse_float(s_ok_flt);
-        CHECK(mf_ok.is_present && *(double *)mf_ok.value > 3.13 && *(double *)mf_ok.value < 3.15, "parse_float accepts valid float");
-        if (mf_ok.is_present) free(mf_ok.value);
-    }
+    /* 21. parse_int / parse_float embedded-NUL and trailing-byte rejection (B28)
+     * moved to std/spark.pengu; see tests/test_spark.py. */
 
     /* 22. char_at and from_char with '\0' byte-level accuracy (S1) */
     {
@@ -476,60 +398,8 @@ int main(void) {
         pengu_banish_string(&res);
     }
 
-    /* 16. pengu_parse_int and pengu_parse_float NUL-awareness and non-NUL views (N1a, N1b) */
-    {
-        /* Embedded NUL in integer string */
-        char raw_int_nul[8] = "42\0xyz";
-        PenguString s_int_nul = {raw_int_nul, 6};
-        PenguMaybe m_int_nul = pengu_parse_int(s_int_nul);
-        CHECK(!m_int_nul.is_present, "parse_int('42\\0xyz') returns none");
-
-        /* Non-NUL-terminated view for integer */
-        char raw_int_partial[8] = "42999";
-        PenguString s_int_slice = {raw_int_partial, 2}; /* only "42" */
-        PenguMaybe m_int = pengu_parse_int(s_int_slice);
-        CHECK(m_int.is_present && m_int.value != NULL, "parse_int on partial slice is present");
-        if (m_int.is_present && m_int.value) {
-            CHECK(*(int32_t *)m_int.value == 42, "parse_int('42999', len=2) == 42");
-            free(m_int.value);
-        }
-
-        /* Whitespace trimmed integer regression */
-        PenguString s_int_ws = pengu_string_from_cstr(" 42 ");
-        PenguMaybe m_int_ws = pengu_parse_int(s_int_ws);
-        CHECK(m_int_ws.is_present && m_int_ws.value != NULL, "parse_int(' 42 ') is present");
-        if (m_int_ws.is_present && m_int_ws.value) {
-            CHECK(*(int32_t *)m_int_ws.value == 42, "parse_int(' 42 ') == 42");
-            free(m_int_ws.value);
-        }
-
-        /* Embedded NUL in float string */
-        char raw_flt_nul[9] = "3.14\0xyz";
-        PenguString s_flt_nul = {raw_flt_nul, 8};
-        PenguMaybe m_flt_nul = pengu_parse_float(s_flt_nul);
-        CHECK(!m_flt_nul.is_present, "parse_float('3.14\\0xyz') returns none");
-
-        /* Non-NUL-terminated view for float */
-        char raw_flt_partial[8] = "3.1499";
-        PenguString s_flt_slice = {raw_flt_partial, 4}; /* only "3.14" */
-        PenguMaybe m_flt = pengu_parse_float(s_flt_slice);
-        CHECK(m_flt.is_present && m_flt.value != NULL, "parse_float on partial slice is present");
-        if (m_flt.is_present && m_flt.value) {
-            double v = *(double *)m_flt.value;
-            CHECK(v >= 3.139 && v <= 3.141, "parse_float('3.1499', len=4) == 3.14");
-            free(m_flt.value);
-        }
-
-        /* Whitespace trimmed float regression */
-        PenguString s_flt_ws = pengu_string_from_cstr(" 3.14 ");
-        PenguMaybe m_flt_ws = pengu_parse_float(s_flt_ws);
-        CHECK(m_flt_ws.is_present && m_flt_ws.value != NULL, "parse_float(' 3.14 ') is present");
-        if (m_flt_ws.is_present && m_flt_ws.value) {
-            double v = *(double *)m_flt_ws.value;
-            CHECK(v >= 3.139 && v <= 3.141, "parse_float(' 3.14 ') == 3.14");
-            free(m_flt_ws.value);
-        }
-    }
+    /* 16. parse_int / parse_float NUL-awareness and non-NUL views (N1a, N1b)
+     * moved to std/spark.pengu; see tests/test_spark.py. */
 
     /* 17. pengu_string_from_bool rodata view (N6) */
     {

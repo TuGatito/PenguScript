@@ -6,6 +6,15 @@
 
 ---
 
+### `exit`
+
+> **exit**(code: int) -> void
+
+Terminates the process immediately with exit code `code` (never returns).
+Signature: exit(code as int) into void
+Memory: Process exit.
+
+
 ### `RITES_VERSION`
 
 > const string` = 2.0.0`
@@ -556,15 +565,6 @@ Locates the first executable matching `cmd` on the system PATH.
 Signature: which(cmd as string) into maybe string
 Memory: Returns an owned maybe string.
 Edge cases: Returns maybe none if `cmd` is not found on PATH.
-
-
-### `exit`
-
-> **exit**(code: int) -> void
-
-Terminates the process immediately with exit code `code` (never returns).
-Signature: exit(code as int) into void
-Memory: Process exit.
 
 
 ### `exec`

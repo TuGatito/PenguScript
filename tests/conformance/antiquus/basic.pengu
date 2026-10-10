@@ -3,11 +3,17 @@
 # `antiquus` — a declaration whose body is literal C, emitted verbatim into the
 # generated translation unit and called exactly like a `weave`.
 #
-# This case also pins the runtime contract: the C body sees the whole
-# `pengu_*` API, because every bundle includes `pengu_runtime.h` first.
+# This case also pins the runtime contract: the C body sees the `pengu_*` API
+# that `pengu_runtime.h` still defines, because every bundle includes the header
+# first.  It deliberately no longer calls `pengu_println`: the std 2.0 migration
+# (Chunk 1) moved the I/O helpers into `std/spark.pengu` as `antiquus` blocks, so
+# they are no longer header-level symbols.  `pengu_string_from_cstr` stays.
 antiquus antiquus_say_hello into void:
     """
-    pengu_println(pengu_string_from_cstr("hello from C"));
+    PenguString msg = pengu_string_from_cstr("hello from C");
+    if (msg.data && msg.len > 0)
+        fwrite(msg.data, 1, (size_t)msg.len, stdout);
+    fputc('\n', stdout);
     """
 
 test "antiquus/basic":

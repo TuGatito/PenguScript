@@ -128,14 +128,15 @@ def _stdlib_bindings() -> List[str]:
 
 
 def _opt_in_modules() -> List[str]:
-    """The modules `tests/stdlib/test_std_orphan_modules.py` pins as opt-in.
+    """The modules the frozen manifest declares as opt-in.
 
-    Reusing that table means the freeze cannot disagree with the test that
-    owns the property.
+    The table used to be imported from ``tests/stdlib/test_std_orphan_modules.py``
+    so the freeze could not disagree with the test that owned the property.  That
+    test was removed with the rest of the std-only suite by the 2.0 migration
+    (Chunk 1), so the list is inlined here; ``docs/FREEZE.md`` still owns the
+    contract and this function is only its reader.
     """
-    from tests.stdlib.test_std_orphan_modules import _EXPECTED_IMPORTERS
-
-    return sorted(f"{name}.pengu" for name in _EXPECTED_IMPORTERS)
+    return ["celeris.pengu", "trial.pengu", "xlsx.pengu"]
 
 
 def _lsp_features() -> List[str]:

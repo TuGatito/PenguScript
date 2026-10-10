@@ -20,6 +20,7 @@
     "test_pengu_paths.py",
     "test_release_claims.py",
     "test_semver.py",
+    "test_spark.py",
     "test_test_policy.py",
     "test_version.py"
   ],
@@ -32,8 +33,7 @@
     "test_init_templates.py",
     "test_modules_bindings.py",
     "test_no_generic.py",
-    "test_run_cleanup.py",
-    "test_std_seal_crc32.py"
+    "test_run_cleanup.py"
   ],
   "may_sleep": [
     "test_p0_toolchain.py",

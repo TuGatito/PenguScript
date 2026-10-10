@@ -1,8 +1,0 @@
-=== Test Precis Extended ===
-constants: OK
-status utils: OK
-host utils: OK
-url utils: OK
-header utils: OK
-response builders: OK
-precis extended: OK

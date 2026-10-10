@@ -104,21 +104,26 @@ def test_known_issue_is_documented_in_the_changelog():
 def test_sanitizer_workflow_deselects_by_name_not_by_disabling_detection():
     workflow = (REPO / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
     assert "--deselect" in workflow
-    # The leaking program is a corpus case now, so its node id names the batch
-    # runner's parametrisation rather than a per-program test file.
-    assert "test_conformance_case[std_programs/backward_compat]" in workflow
+    # The tracked leak is a per-test node id now: the std legacy-compat
+    # conformance programs that used to carry it were removed by the std 2.0
+    # migration (Chunk 1), and tests/test_known_issues.py reproduces the path.
+    assert "test_known_issues.py::test_known_leak_legacy_containers" in workflow
     # detect_leaks must stay on for the sanitizer job.
     assert "detect_leaks=1" in workflow
 
 
 def test_every_sanitizer_pytest_step_deselects_the_known_leak():
-    """Roadmap 8.2 (B9): one variable, consumed by *every* pytest step.
+    """Roadmap 8.2 (B9): one variable, consumed by *every* whole-suite pytest step.
 
     Regression guard for the bug this item fixes.  The deselect node id used to be
     inlined in the first ``pytest tests`` invocation, so the third ASan step and
-    the valgrind step re-ran the leaking ``test_std_backward_compat`` and the job
-    was red over a finding that was already documented as a known issue.  Putting
-    the literal back into a single step (i.e. reverting the fix) fails here.
+    the valgrind step re-ran the leaking test and the job was red over a finding
+    that was already documented as a known issue.  Putting the literal back into a
+    single step (i.e. reverting the fix) fails here.
+
+    The one deliberate exception is the step whose *job* is to exercise the
+    tracked leak with ``detect_leaks=0``: it names the test and must NOT deselect
+    it.  Every other sanitizer step must consume the shared variable.
 
     Phase 12 merged the sanitizers workflow into `nightly.yml`, which also holds
     unrelated pytest steps (the cross-compile job).  The invariant is about the
@@ -133,18 +138,26 @@ def test_every_sanitizer_pytest_step_deselects_the_known_leak():
     )
     job = (workflow.get("jobs") or {})["sanitizers"]
     shared = (job.get("env") or {}).get("PENGU_SANITIZER_DESELECT", "")
-    assert "test_conformance_case[std_programs/backward_compat]" in shared, (
+    assert "test_known_issues.py::test_known_leak_legacy_containers" in shared, (
         "the known-leak node id must be declared once, at job level"
     )
 
     steps = [step for step in (job.get("steps") or [])
              if "pytest" in (step.get("run") or "")]
     assert len(steps) >= 4, f"expected the four sanitizer pytest steps, found {len(steps)}"
+    targeted = [step for step in steps
+                if "test_known_leak_legacy_containers" in step["run"]]
+    assert targeted, "no sanitizer step exercises the tracked leak directly"
     missing = [step.get("name") for step in steps
-               if "--deselect" not in step["run"] or "PENGU_SANITIZER_DESELECT" not in step["run"]]
+               if step not in targeted
+               and ("--deselect" not in step["run"] or "PENGU_SANITIZER_DESELECT" not in step["run"])]
     assert missing == [], (
         f"these sanitizer steps would re-run the known leak: {missing}"
     )
+    for step in targeted:
+        assert "PENGU_SANITIZER_DESELECT" not in step["run"], (
+            f"the targeted step {step.get('name')!r} deselects the test it exists to run"
+        )
 
 
 def test_the_leak_verdict_is_only_disabled_when_it_is_declared():

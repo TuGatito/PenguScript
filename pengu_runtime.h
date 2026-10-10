@@ -1730,86 +1730,10 @@ extern "C"
     return s;
   }
 
-  /**
-   * @brief Parses integer from string into a Maybe container.
-   * @note Copia s a un búfer temporal NUL-terminado para evitar lecturas fuera de rango
-   *       si s es una vista no NUL-terminada (p.ej. pengu_string_as_slice).
-   * @param s Input string.
-   * @return PenguMaybe holding pointer to int32_t on success, or None.
-   */
-  static inline PenguMaybe pengu_parse_int(PenguString s)
-  {
-    if (!s.data || s.len <= 0)
-      return pengu_maybe_none();
-    char *tmp = (char *)malloc((size_t)s.len + 1);
-    if (!tmp)
-      return pengu_maybe_none();
-    memcpy(tmp, s.data, (size_t)s.len);
-    tmp[s.len] = '\0';
-    const char *p = tmp;
-    while (*p && isspace((unsigned char)*p))
-      p++;
-    char *endptr = NULL;
-    errno = 0;
-    long long val = strtoll(tmp, &endptr, 10);
-    const char *end_limit = tmp + s.len;
-    while (endptr < end_limit && isspace((unsigned char)*endptr))
-      endptr++;
-    if (p == endptr || endptr == tmp || endptr != end_limit || errno == ERANGE)
-    {
-      free(tmp);
-      return pengu_maybe_none();
-    }
-    if (val > INT32_MAX || val < INT32_MIN)
-    {
-      free(tmp);
-      return pengu_maybe_none();
-    }
-    free(tmp);
-    int32_t *res = (int32_t *)malloc(sizeof(int32_t));
-    if (!res)
-      return pengu_maybe_none();
-    *res = (int32_t)val;
-    return pengu_maybe_some(res);
-  }
-
-  /**
-   * @brief Parses double from string into a Maybe container.
-   * @note Copia s a un búfer temporal NUL-terminado para evitar lecturas fuera de rango
-   *       si s es una vista no NUL-terminada (p.ej. pengu_string_as_slice).
-   * @param s Input string.
-   * @return PenguMaybe holding pointer to double on success, or None.
-   */
-  static inline PenguMaybe pengu_parse_float(PenguString s)
-  {
-    if (!s.data || s.len <= 0)
-      return pengu_maybe_none();
-    char *tmp = (char *)malloc((size_t)s.len + 1);
-    if (!tmp)
-      return pengu_maybe_none();
-    memcpy(tmp, s.data, (size_t)s.len);
-    tmp[s.len] = '\0';
-    const char *p = tmp;
-    while (*p && isspace((unsigned char)*p))
-      p++;
-    char *endptr = NULL;
-    errno = 0;
-    double val = strtod(tmp, &endptr);
-    const char *end_limit = tmp + s.len;
-    while (endptr < end_limit && isspace((unsigned char)*endptr))
-      endptr++;
-    if (p == endptr || endptr == tmp || endptr != end_limit || errno == ERANGE)
-    {
-      free(tmp);
-      return pengu_maybe_none();
-    }
-    free(tmp);
-    double *res = (double *)malloc(sizeof(double));
-    if (!res)
-      return pengu_maybe_none();
-    *res = val;
-    return pengu_maybe_some(res);
-  }
+  /* pengu_parse_int and pengu_parse_float moved to std/spark.pengu (Chunk 1,
+   * 2.0 migration), together with pengu_print, pengu_println, pengu_input and
+   * pengu_panic. The radix parser and the stderr/flush/exit helpers are new and
+   * live there too. */
 
 /**
  * @brief Generic macro converting any primitive type or PenguString to PenguString.
@@ -2877,57 +2801,10 @@ extern "C"
     g_pengu_argv = argv;
   }
 
-  /**
-   * @brief Prints string to standard output without newline.
-   * @param s String to print.
-   */
-  static inline void pengu_print(PenguString s)
-  {
-    if (s.data && s.len > 0)
-      fwrite(s.data, 1, (size_t)s.len, stdout);
-  }
-
-  /**
-   * @brief Prints string to standard output followed by a newline.
-   * @param s String to print.
-   */
-  static inline void pengu_println(PenguString s)
-  {
-    if (s.data && s.len > 0)
-      fwrite(s.data, 1, (size_t)s.len, stdout);
-    fputc('\n', stdout);
-  }
-
-  /**
-   * @brief Reads a line of text from standard input with an optional prompt.
-   * @param prompt Prompt string printed to stdout.
-   * @return User input line as PenguString.
-   */
-  static inline PenguString pengu_input(PenguString prompt)
-  {
-    if (prompt.data && prompt.len > 0)
-    {
-      fwrite(prompt.data, 1, (size_t)prompt.len, stdout);
-      fflush(stdout);
-    }
-    char buf[4096];
-    if (!fgets(buf, sizeof(buf), stdin))
-      return pengu_string_from_cstr("");
-    size_t l = strlen(buf);
-    while (l > 0 && (buf[l - 1] == '\r' || buf[l - 1] == '\n'))
-      buf[--l] = '\0';
-    return pengu_string_new(buf);
-  }
-
-  /**
-   * @brief Prints panic message to standard error and aborts process execution.
-   * @param msg Error message.
-   */
-  static inline void pengu_panic(PenguString msg)
-  {
-    fprintf(stderr, "[PANIC] %.*s\n", msg.len, msg.data ? msg.data : "");
-    exit(1);
-  }
+  /* pengu_print, pengu_println, pengu_input and pengu_panic moved to
+   * std/spark.pengu (Chunk 1, 2.0 migration). See that module for the fd-2
+   * stderr helpers, the flushing helpers, pengu_read_char, pengu_parse_int_radix
+   * and pengu_exit, which are new. */
 
   /**
    * @brief Sets active global logging level.

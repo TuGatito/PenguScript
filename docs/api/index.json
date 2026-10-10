@@ -10684,58 +10684,10 @@
     {
       "deprecated": false,
       "documented": true,
-      "kind": "declare",
-      "module": "spark",
-      "name": "pengu_input",
-      "signature": "**pengu_input**(prompt: string) -> string"
-    },
-    {
-      "deprecated": false,
-      "documented": true,
-      "kind": "declare",
-      "module": "spark",
-      "name": "pengu_panic",
-      "signature": "**pengu_panic**(msg: string) -> void"
-    },
-    {
-      "deprecated": false,
-      "documented": true,
-      "kind": "declare",
-      "module": "spark",
-      "name": "pengu_parse_float",
-      "signature": "**pengu_parse_float**(s: string) -> maybe float"
-    },
-    {
-      "deprecated": false,
-      "documented": true,
-      "kind": "declare",
-      "module": "spark",
-      "name": "pengu_parse_int",
-      "signature": "**pengu_parse_int**(s: string) -> maybe int"
-    },
-    {
-      "deprecated": false,
-      "documented": true,
-      "kind": "declare",
-      "module": "spark",
-      "name": "pengu_print",
-      "signature": "**pengu_print**(s: string) -> void"
-    },
-    {
-      "deprecated": false,
-      "documented": true,
-      "kind": "declare",
-      "module": "spark",
-      "name": "pengu_println",
-      "signature": "**pengu_println**(s: string) -> void"
-    },
-    {
-      "deprecated": false,
-      "documented": true,
       "kind": "weave",
       "module": "spark",
       "name": "abs_int",
-      "signature": "**abs_int**(v: int) -> int"
+      "signature": "**spark_abs_int**(v: int) -> int"
     },
     {
       "deprecated": false,
@@ -10743,7 +10695,15 @@
       "kind": "weave",
       "module": "spark",
       "name": "assert",
-      "signature": "**assert**(cond: bool) -> void"
+      "signature": "**spark_assert**(cond: bool) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "assert_debug",
+      "signature": "**spark_assert_debug**(cond: bool) -> void"
     },
     {
       "deprecated": false,
@@ -10751,7 +10711,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "assert_msg",
-      "signature": "**assert_msg**(cond: bool, msg: string) -> void"
+      "signature": "**spark_assert_msg**(cond: bool, msg: string) -> void"
     },
     {
       "deprecated": false,
@@ -10759,7 +10719,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "bool_to_string",
-      "signature": "**bool_to_string**(b: bool) -> string"
+      "signature": "**spark_bool_to_string**(b: bool) -> string"
     },
     {
       "deprecated": false,
@@ -10767,7 +10727,23 @@
       "kind": "weave",
       "module": "spark",
       "name": "clamp_int",
-      "signature": "**clamp_int**(v: int, lo: int, hi: int) -> int"
+      "signature": "**spark_clamp_int**(v: int, lo: int, hi: int) -> int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "eflush",
+      "signature": "**spark_eflush**() -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "eprint",
+      "signature": "**spark_eprint**(s: string) -> void"
     },
     {
       "deprecated": false,
@@ -10775,7 +10751,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "eprint_line",
-      "signature": "**eprint_line**(s: string) -> void"
+      "signature": "**spark_eprint_line**(s: string) -> void"
     },
     {
       "deprecated": false,
@@ -10783,7 +10759,47 @@
       "kind": "weave",
       "module": "spark",
       "name": "eprintln",
-      "signature": "**eprintln**(s: string) -> void"
+      "signature": "**spark_eprintln**(s: string) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "exit",
+      "signature": "**spark_exit**(code: int) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "exit_failure",
+      "signature": "**spark_exit_failure**() -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "exit_success",
+      "signature": "**spark_exit_success**() -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "flush",
+      "signature": "**spark_flush**() -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "gcd_int",
+      "signature": "**spark_gcd_int**(a: int, b: int) -> int"
     },
     {
       "deprecated": false,
@@ -10791,7 +10807,15 @@
       "kind": "weave",
       "module": "spark",
       "name": "input",
-      "signature": "**input**(prompt: string) -> string"
+      "signature": "**spark_input**(prompt: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "lcm_int",
+      "signature": "**spark_lcm_int**(a: int, b: int) -> int"
     },
     {
       "deprecated": false,
@@ -10799,7 +10823,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "len_string",
-      "signature": "**len_string**(s: string) -> int"
+      "signature": "**spark_len_string**(s: string) -> int"
     },
     {
       "deprecated": false,
@@ -10807,7 +10831,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "max_int",
-      "signature": "**max_int**(a: int, b: int) -> int"
+      "signature": "**spark_max_int**(a: int, b: int) -> int"
     },
     {
       "deprecated": false,
@@ -10815,7 +10839,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "min_int",
-      "signature": "**min_int**(a: int, b: int) -> int"
+      "signature": "**spark_min_int**(a: int, b: int) -> int"
     },
     {
       "deprecated": false,
@@ -10823,7 +10847,15 @@
       "kind": "weave",
       "module": "spark",
       "name": "panic",
-      "signature": "**panic**(msg: string) -> void"
+      "signature": "**spark_panic**(msg: string) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "parse_bool",
+      "signature": "**spark_parse_bool**(s: string) -> maybe bool"
     },
     {
       "deprecated": false,
@@ -10831,7 +10863,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "parse_float",
-      "signature": "**parse_float**(s: string) -> maybe float"
+      "signature": "**spark_parse_float**(s: string) -> maybe float"
     },
     {
       "deprecated": false,
@@ -10839,7 +10871,143 @@
       "kind": "weave",
       "module": "spark",
       "name": "parse_int",
-      "signature": "**parse_int**(s: string) -> maybe int"
+      "signature": "**spark_parse_int**(s: string) -> maybe int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "parse_int_bin",
+      "signature": "**spark_parse_int_bin**(s: string) -> maybe int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "parse_int_hex",
+      "signature": "**spark_parse_int_hex**(s: string) -> maybe int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "parse_int_oct",
+      "signature": "**spark_parse_int_oct**(s: string) -> maybe int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "pengu_eprint",
+      "signature": "**spark_pengu_eprint**(s: string) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "pengu_eprintln",
+      "signature": "**spark_pengu_eprintln**(s: string) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "pengu_exit",
+      "signature": "**spark_pengu_exit**(code: int) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "pengu_flush_stderr",
+      "signature": "**spark_pengu_flush_stderr**() -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "pengu_flush_stdout",
+      "signature": "**spark_pengu_flush_stdout**() -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "pengu_input",
+      "signature": "**spark_pengu_input**(prompt: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "pengu_panic",
+      "signature": "**spark_pengu_panic**(msg: string) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "pengu_parse_float",
+      "signature": "**spark_pengu_parse_float**(s: string) -> maybe float"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "pengu_parse_int",
+      "signature": "**spark_pengu_parse_int**(s: string) -> maybe int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "pengu_parse_int_radix",
+      "signature": "**spark_pengu_parse_int_radix**(s: string, radix: int) -> maybe int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "pengu_print",
+      "signature": "**spark_pengu_print**(s: string) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "pengu_println",
+      "signature": "**spark_pengu_println**(s: string) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "pengu_read_char",
+      "signature": "**spark_pengu_read_char**() -> maybe int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "pow_int",
+      "signature": "**spark_pow_int**(base: int, exp: int) -> int"
     },
     {
       "deprecated": false,
@@ -10847,7 +11015,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "print",
-      "signature": "**print**(s: string) -> void"
+      "signature": "**spark_print**(s: string) -> void"
     },
     {
       "deprecated": false,
@@ -10855,7 +11023,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "print_bool",
-      "signature": "**print_bool**(value: bool) -> void"
+      "signature": "**spark_print_bool**(value: bool) -> void"
     },
     {
       "deprecated": false,
@@ -10863,7 +11031,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "print_float",
-      "signature": "**print_float**(value: float) -> void"
+      "signature": "**spark_print_float**(value: float) -> void"
     },
     {
       "deprecated": false,
@@ -10871,7 +11039,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "print_int",
-      "signature": "**print_int**(value: int) -> void"
+      "signature": "**spark_print_int**(value: int) -> void"
     },
     {
       "deprecated": false,
@@ -10879,7 +11047,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "print_line",
-      "signature": "**print_line**(s: string) -> void"
+      "signature": "**spark_print_line**(s: string) -> void"
     },
     {
       "deprecated": false,
@@ -10887,7 +11055,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "println",
-      "signature": "**println**(s: string) -> void"
+      "signature": "**spark_println**(s: string) -> void"
     },
     {
       "deprecated": false,
@@ -10895,7 +11063,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "println_bool",
-      "signature": "**println_bool**(value: bool) -> void"
+      "signature": "**spark_println_bool**(value: bool) -> void"
     },
     {
       "deprecated": false,
@@ -10903,7 +11071,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "println_float",
-      "signature": "**println_float**(value: float) -> void"
+      "signature": "**spark_println_float**(value: float) -> void"
     },
     {
       "deprecated": false,
@@ -10911,7 +11079,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "println_int",
-      "signature": "**println_int**(value: int) -> void"
+      "signature": "**spark_println_int**(value: int) -> void"
     },
     {
       "deprecated": false,
@@ -10919,7 +11087,15 @@
       "kind": "weave",
       "module": "spark",
       "name": "range",
-      "signature": "**range**(start: int, end_val: int, step: int) -> list of int"
+      "signature": "**spark_range**(start: int, end_val: int, step: int) -> list of int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "range_down",
+      "signature": "**spark_range_down**(start: int, end_val: int, step: int) -> list of int"
     },
     {
       "deprecated": false,
@@ -10927,7 +11103,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "range_inclusive",
-      "signature": "**range_inclusive**(start: int, end_val: int) -> list of int"
+      "signature": "**spark_range_inclusive**(start: int, end_val: int) -> list of int"
     },
     {
       "deprecated": false,
@@ -10935,7 +11111,23 @@
       "kind": "weave",
       "module": "spark",
       "name": "range_to",
-      "signature": "**range_to**(end_val: int) -> list of int"
+      "signature": "**spark_range_to**(end_val: int) -> list of int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "read_bool",
+      "signature": "**spark_read_bool**(prompt: string) -> maybe bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "read_char",
+      "signature": "**spark_read_char**() -> maybe int"
     },
     {
       "deprecated": false,
@@ -10943,7 +11135,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "read_float",
-      "signature": "**read_float**(prompt: string) -> maybe float"
+      "signature": "**spark_read_float**(prompt: string) -> maybe float"
     },
     {
       "deprecated": false,
@@ -10951,7 +11143,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "read_int",
-      "signature": "**read_int**(prompt: string) -> maybe int"
+      "signature": "**spark_read_int**(prompt: string) -> maybe int"
     },
     {
       "deprecated": false,
@@ -10959,7 +11151,15 @@
       "kind": "weave",
       "module": "spark",
       "name": "read_line",
-      "signature": "**read_line**() -> string"
+      "signature": "**spark_read_line**() -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "spark",
+      "name": "sign_int",
+      "signature": "**spark_sign_int**(v: int) -> int"
     },
     {
       "deprecated": false,
@@ -10967,7 +11167,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "spark_version",
-      "signature": "**spark_version**() -> string"
+      "signature": "**spark_spark_version**() -> string"
     },
     {
       "deprecated": false,
@@ -10975,7 +11175,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "str",
-      "signature": "**str**(value: string) -> string"
+      "signature": "**spark_str**(value: string) -> string"
     },
     {
       "deprecated": false,
@@ -10983,7 +11183,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "str_bool",
-      "signature": "**str_bool**(value: bool) -> string"
+      "signature": "**spark_str_bool**(value: bool) -> string"
     },
     {
       "deprecated": false,
@@ -10991,7 +11191,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "str_float",
-      "signature": "**str_float**(value: float) -> string"
+      "signature": "**spark_str_float**(value: float) -> string"
     },
     {
       "deprecated": false,
@@ -10999,7 +11199,7 @@
       "kind": "weave",
       "module": "spark",
       "name": "str_int",
-      "signature": "**str_int**(value: int) -> string"
+      "signature": "**spark_str_int**(value: int) -> string"
     },
     {
       "deprecated": false,

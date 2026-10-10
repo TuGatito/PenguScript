@@ -1,242 +1,1037 @@
-# std/spark.pengu - The Spark (Core)
-# Provides fundamental functions for printing, input, conversions, range generation, and panic.
+## std/spark.pengu — the Spark: the core module of the PenguScript standard library.
+##
+## `spark` is the foundation every other `std.*` module is built on. It owns the
+## process-level I/O surface (stdout, stderr, stdin and flushing), the scalar
+## conversions, the base-10 and radix parsers, integer range builders, integer
+## math helpers, the panicking assertion family and the process exit controls.
+##
+## The module is deliberately small and dependency-free: it imports nothing, so
+## it can be imported by the other 26 modules without creating a cycle. Its C
+## bridges live here as `antiquus` blocks instead of in `pengu_runtime.h`, so the
+## runtime header stays focused on the ABI-critical data structures.
+##
+## ## Ejemplo
+## ```pengu
+## import std.spark
+##
+## calling spark.println with "what is your name?"
+## let name as string is calling spark.input with ""
+## defer banish name
+## calling spark.println with "hello, {name}"
+## ```
+##
+## ## Memoria
+## `input` and `read_line` return a freshly allocated **owned** string: release
+## it with `banish` (or `defer banish`) when done. The `print*`, `eprint*` and
+## `assert*` helpers borrow a non-owning view and never free it. The `parse_*`
+## helpers return a `maybe T` whose payload is a heap box; `banish` releases the
+## whole `maybe`. `range*` return a new owned `list of int`.
 
-# This is the low-level core module most other std modules build on: stdout
-# printing, stdin line input, string/bool/int/float conversions, integer range
-# generation, assertion helpers and an aborting panic. It also exports the
-# SPARK_VERSION and STD_VERSION version constants.
-#
-# Typical usage:
-#   import std.spark
-#   calling spark.println with "hello"
-#   var line as string is calling spark.input with "name: "
-#   var n as maybe int is calling spark.parse_int with line
-#   calling spark.println with calling spark.str_int with 42
-#
-# Memory model:
-#   `input` and every str_*/conversion helper return a freshly built owned
-#   string: the C runtime copies or formats into new buffers, so the returned
-#   value follows normal PenguScript string value lifetime - it does not alias
-#   an internal or caller buffer and is safe to store, concatenate or return.
-#   parse_int/parse_float return MaybeInt/MaybeFloat values and `range`
-#   returns a new list of int that owns its elements. Nothing returned is a
-#   caller-owned heap pointer, so no explicit banish is required by callers.
+## The C symbol prefix for this module. `exit` and `assert` would otherwise
+## shadow the C standard library `exit()` and the `assert` macro when `spark` is
+## compiled as the entry file (for example by `pengu test --entry std/spark.pengu`),
+## because the entry translation unit emits unprefixed symbol names.
+insignia spark_
 
 # ----------------------------------------------------------------------------
-# Version Constants
+# Version constants
 # ----------------------------------------------------------------------------
 
-# Revision of the spark core API. Deliberately NOT the toolchain version: it
-# only moves when a spark signature changes. `spark_version()` returns this.
-const SPARK_VERSION as string is "0.7.0-spark"
+## Revision of the `spark` core API.
+##
+## Deliberately not the toolchain version: it only moves when a `spark` signature
+## changes. `spark_version()` returns this constant.
+const SPARK_VERSION as string is "0.8.0-spark"
 
-# Legacy stdlib tag frozen at the 0.14.x line. Superseded by the per-module
-# `<MOD>_VERSION` constants (see tests/test_std_versioning.py); kept only
-# because it is part of spark's published surface. NOT the toolchain VERSION.
+## Legacy stdlib tag frozen at the 0.14.x line.
+##
+## Superseded by the per-module `<MOD>_VERSION` constants; kept only because it is
+## part of the published `spark` surface. Not the toolchain `VERSION`.
 const STD_VERSION as string is "0.14.1"
 
 # ----------------------------------------------------------------------------
-# External C Runtime Declarations (console I/O, parsing, panic)
+# Embedded C bridges (`antiquus`)
+#
+# These 13 helpers used to be `static inline` definitions inside
+# `pengu_runtime.h`. They moved here so the header can shed its I/O layer and so
+# dead-code elimination can drop the ones a program never calls. The bodies are
+# `.data`/`.len`-level string plumbing, `stdio` calls and `strtoll`/`strtod`;
+# expressing them in PenguScript would require a byte-level view of `PenguString`
+# that the language does not expose.
 # ----------------------------------------------------------------------------
 
-# C bridge that writes `s` to stdout without a trailing newline.
-declare pengu_print with s as string into void
+## Writes `s` to stdout without a trailing newline.
+##
+## ## Motivo
+## `stdio` buffering is a C contract (`fwrite`/`stdout`) with no PenguScript
+## equivalent. Keeping the helper in the module that prints lets DCE remove it
+## from programs that never print.
+##
+## ## Memoria
+## Allocates nothing. `s` is a caller-owned view and is never freed here.
+antiquus pengu_print with s as string into void:
+    r"""
+if (s.data && s.len > 0) fwrite(s.data, 1, (size_t)s.len, stdout);
+"""
 
-# C bridge that writes `s` to stdout followed by a newline.
-declare pengu_println with s as string into void
+## Writes `s` to stdout followed by a newline.
+##
+## ## Motivo
+## Same `stdio` contract as `pengu_print`; the newline is a second `fputc`.
+##
+## ## Memoria
+## Allocates nothing. `s` is a caller-owned view.
+antiquus pengu_println with s as string into void:
+    r"""
+if (s.data && s.len > 0) fwrite(s.data, 1, (size_t)s.len, stdout);
+fputc('\n', stdout);
+"""
 
-# C bridge that prints `prompt` to stdout (no newline) and reads one line from
-# stdin; the trailing newline is stripped and EOF yields an empty string.
-# Returns a fresh owned string.
-declare pengu_input with prompt as string into string
+## Writes `s` to stderr (file descriptor 2) without a trailing newline.
+##
+## ## Motivo
+## Before 2.0 `spark` routed stderr output through stdout, which silently broke
+## `2> file` redirection. A real fd-2 write is a `stdio` contract.
+##
+## ## Memoria
+## Allocates nothing. `s` is a caller-owned view.
+antiquus pengu_eprint with s as string into void:
+    r"""
+if (s.data && s.len > 0) fwrite(s.data, 1, (size_t)s.len, stderr);
+"""
 
-# C bridge that parses `s` as a base-10 integer; some int on success, none
-# when the whole string is not a valid integer.
-declare pengu_parse_int with s as string into maybe int
+## Writes `s` to stderr (file descriptor 2) followed by a newline.
+##
+## ## Motivo
+## Same fd-2 contract as `pengu_eprint`, plus the newline.
+##
+## ## Memoria
+## Allocates nothing. `s` is a caller-owned view.
+antiquus pengu_eprintln with s as string into void:
+    r"""
+if (s.data && s.len > 0) fwrite(s.data, 1, (size_t)s.len, stderr);
+fputc('\n', stderr);
+"""
 
-# C bridge that parses `s` as a floating-point number; some float on success,
-# none when the whole string is not a valid number.
-declare pengu_parse_float with s as string into maybe float
+## Flushes the stdout buffer.
+##
+## ## Motivo
+## `fflush(stdout)` is the only way to guarantee that buffered output reaches the
+## descriptor before a crash, a fork or an interactive prompt.
+##
+## ## Memoria
+## Allocates nothing.
+antiquus pengu_flush_stdout into void:
+    r"""
+fflush(stdout);
+"""
 
-# C bridge that prints "[PANIC] <msg>" to stderr and terminates the process
-# with exit code 1 (it never returns).
-declare pengu_panic with msg as string into void
+## Flushes the stderr buffer.
+##
+## ## Motivo
+## `fflush(stderr)` mirrors `pengu_flush_stdout` for the error stream.
+##
+## ## Memoria
+## Allocates nothing.
+antiquus pengu_flush_stderr into void:
+    r"""
+fflush(stderr);
+"""
+
+## Prints `prompt` to stdout (flushing first) and reads one line from stdin.
+##
+## ## Motivo
+## Line input needs `fgets`, `stdin` and a NUL-terminated stack buffer, none of
+## which are expressible in PenguScript. The trailing `\r`/`\n` strip is kept in C
+## because it inspects raw bytes.
+##
+## ## Memoria
+## Returns a freshly allocated owned `PenguString` (empty on EOF). Release it with
+## `banish`. `prompt` is borrowed and never freed.
+##
+## ## Precondiciones
+## A single line is limited to 4095 bytes; longer input is split across reads.
+antiquus pengu_input with prompt as string into string:
+    r"""
+if (prompt.data && prompt.len > 0)
+{
+fwrite(prompt.data, 1, (size_t)prompt.len, stdout);
+fflush(stdout);
+}
+char buf[4096];
+if (!fgets(buf, sizeof(buf), stdin))
+return pengu_string_from_cstr("");
+size_t l = strlen(buf);
+while (l > 0 && (buf[l - 1] == '\r' || buf[l - 1] == '\n'))
+buf[--l] = '\0';
+return pengu_string_new(buf);
+"""
+
+## Reads a single byte from stdin, or `none` at end of input.
+##
+## ## Motivo
+## `fgetc` and the `EOF` sentinel are `stdio` details; the byte value must be
+## boxed into a `PenguMaybe` from C.
+##
+## ## Memoria
+## Allocates one boxed `int32` inside the returned `maybe` on success. Release the
+## whole `maybe` with `banish`.
+antiquus pengu_read_char into maybe int:
+    r"""
+int c = fgetc(stdin);
+if (c == EOF) return pengu_maybe_none();
+int32_t *res = (int32_t *)malloc(sizeof(int32_t));
+if (!res) return pengu_maybe_none();
+*res = (int32_t)c;
+return pengu_maybe_some(res);
+"""
+
+## Parses the whole string `s` as a base-10 int32, or `none`.
+##
+## ## Motivo
+## `strtoll` plus `errno`/`ERANGE` range checking is the standard, overflow-safe
+## way to parse an integer; the surrounding whitespace tolerance mirrors the
+## pre-2.0 contract. Reimplementing it digit by digit would lose the overflow
+## detection that C gives for free.
+##
+## ## Memoria
+## Allocates a temporary NUL-terminated copy of `s` (freed before returning) and,
+## on success, one boxed `int32` inside the returned `maybe`. Release the `maybe`
+## with `banish`.
+antiquus pengu_parse_int with s as string into maybe int:
+    r"""
+if (!s.data || s.len <= 0)
+return pengu_maybe_none();
+char *tmp = (char *)malloc((size_t)s.len + 1);
+if (!tmp)
+return pengu_maybe_none();
+memcpy(tmp, s.data, (size_t)s.len);
+tmp[s.len] = '\0';
+const char *p = tmp;
+while (*p && isspace((unsigned char)*p))
+p++;
+char *endptr = NULL;
+errno = 0;
+long long val = strtoll(tmp, &endptr, 10);
+const char *end_limit = tmp + s.len;
+while (endptr < end_limit && isspace((unsigned char)*endptr))
+endptr++;
+if (p == endptr || endptr == tmp || endptr != end_limit || errno == ERANGE)
+{
+free(tmp);
+return pengu_maybe_none();
+}
+if (val > INT32_MAX || val < INT32_MIN)
+{
+free(tmp);
+return pengu_maybe_none();
+}
+free(tmp);
+int32_t *res = (int32_t *)malloc(sizeof(int32_t));
+if (!res)
+return pengu_maybe_none();
+*res = (int32_t)val;
+return pengu_maybe_some(res);
+"""
+
+## Parses the whole string `s` as a double, or `none`.
+##
+## ## Motivo
+## `strtod` plus `errno`/`ERANGE` checking is the only correct way to accept the
+## full C float grammar (`1e9`, `inf`, `nan`, hex floats) with overflow detection.
+##
+## ## Memoria
+## Allocates a temporary NUL-terminated copy of `s` (freed before returning) and,
+## on success, one boxed `double` inside the returned `maybe`. Release the `maybe`
+## with `banish`.
+antiquus pengu_parse_float with s as string into maybe float:
+    r"""
+if (!s.data || s.len <= 0)
+return pengu_maybe_none();
+char *tmp = (char *)malloc((size_t)s.len + 1);
+if (!tmp)
+return pengu_maybe_none();
+memcpy(tmp, s.data, (size_t)s.len);
+tmp[s.len] = '\0';
+const char *p = tmp;
+while (*p && isspace((unsigned char)*p))
+p++;
+char *endptr = NULL;
+errno = 0;
+double val = strtod(tmp, &endptr);
+const char *end_limit = tmp + s.len;
+while (endptr < end_limit && isspace((unsigned char)*endptr))
+endptr++;
+if (p == endptr || endptr == tmp || endptr != end_limit || errno == ERANGE)
+{
+free(tmp);
+return pengu_maybe_none();
+}
+free(tmp);
+double *res = (double *)malloc(sizeof(double));
+if (!res)
+return pengu_maybe_none();
+*res = val;
+return pengu_maybe_some(res);
+"""
+
+## Parses the whole string `s` as an int32 in the given radix (2–36), or `none`.
+##
+## ## Motivo
+## Radix parsing needs `strtoll` with a base argument and `errno` range checking.
+## The pre-2.0 parser was base-10 only; generalising it in C keeps the PenguScript
+## bodies of `parse_int_hex`, `parse_int_bin` and `parse_int_oct` one-liners.
+##
+## ## Memoria
+## Allocates a temporary NUL-terminated copy of `s` (freed before returning) and,
+## on success, one boxed `int32` inside the returned `maybe`. Release the `maybe`
+## with `banish`.
+##
+## ## Precondiciones
+## `radix` outside 2–36 yields `none`. Unlike `pengu_parse_int`, the whole string
+## must be consumed with no surrounding whitespace.
+antiquus pengu_parse_int_radix with s as string, radix as int into maybe int:
+    r"""
+if (!s.data || s.len <= 0) return pengu_maybe_none();
+if (radix < 2 || radix > 36) return pengu_maybe_none();
+char *tmp = (char *)malloc((size_t)s.len + 1);
+if (!tmp) return pengu_maybe_none();
+memcpy(tmp, s.data, (size_t)s.len);
+tmp[s.len] = '\0';
+errno = 0;
+char *endptr = NULL;
+long long val = strtoll(tmp, &endptr, radix);
+bool ok = (endptr == tmp + s.len) && (errno != ERANGE)
+&& val >= INT32_MIN && val <= INT32_MAX;
+free(tmp);
+if (!ok) return pengu_maybe_none();
+int32_t *res = (int32_t *)malloc(sizeof(int32_t));
+if (!res) return pengu_maybe_none();
+*res = (int32_t)val;
+return pengu_maybe_some(res);
+"""
+
+## Prints `[PANIC] <msg>` to stderr and terminates the process with exit code 1.
+##
+## ## Motivo
+## A panic must reach fd 2 unbuffered and then call `exit(1)`; both are C
+## process-control contracts. The function never returns, which the C signature
+## cannot express through `declare` without an FFI symbol.
+##
+## ## Memoria
+## Allocates nothing. `msg` is a caller-owned view and is not freed, because the
+## process is about to terminate.
+antiquus pengu_panic with msg as string into void:
+    r"""
+fprintf(stderr, "[PANIC] %.*s\n", msg.len, msg.data ? msg.data : "");
+exit(1);
+"""
+
+## Flushes both streams and terminates the process with `code`.
+##
+## ## Motivo
+## `exit(code)` runs the C atexit handlers after flushing stdio. Flushing
+## explicitly first makes the ordering deterministic for output written without a
+## trailing newline, which would otherwise be lost.
+##
+## ## Memoria
+## Allocates nothing. The process terminates, so no PenguScript value is released.
+antiquus pengu_exit with code as int into void:
+    r"""
+fflush(stdout);
+fflush(stderr);
+exit(code);
+"""
 
 # ----------------------------------------------------------------------------
-# Conversions & Length
+# Conversions and length
 # ----------------------------------------------------------------------------
 
-# Returns the number of bytes (characters) in string `s`.
+## Returns the number of bytes in string `s`.
+##
+## ## Parámetros
+## - `s`: the string to measure. May be empty. Must be valid UTF-8 to count
+##   characters, but the result is always the byte length.
+##
+## ## Retorno
+## The byte length as an `int`. The string is borrowed, not consumed.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.len_string with "abc"      # 3
+## calling spark.len_string with ""         # 0
+## ```
 weave len_string with s as string into int:
     return s length
 
-# Converts bool `b` into the string "true" or "false".
+## Converts bool `b` into the string `"true"` or `"false"`.
+##
+## ## Parámetros
+## - `b`: the boolean to render.
+##
+## ## Retorno
+## A borrowed literal (`"true"`/`"false"`); do not `banish` it.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.bool_to_string with true     # "true"
+## calling spark.bool_to_string with false    # "false"
+## ```
 weave bool_to_string with b as bool into string:
     return judge b:
         when true -> "true"
         when false -> "false"
 
+## Identity conversion: returns string `value` unchanged.
+##
+## ## Parámetros
+## - `value`: any string.
+##
+## ## Retorno
+## The same string, borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.str with "x"     # "x"
+## ```
+weave str with value as string into string:
+    return value
+
+## Formats int `value` as its decimal string representation.
+##
+## ## Parámetros
+## - `value`: the integer to format. Negatives keep their leading `-`.
+##
+## ## Retorno
+## A newly allocated owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.str_int with 42       # "42"
+## calling spark.str_int with -7       # "-7"
+## ```
+weave str_int with value as int into string:
+    return value to string
+
+## Formats float `value` with the `%g` conversion, matching `"{value}"`.
+##
+## ## Parámetros
+## - `value`: the floating-point value to format.
+##
+## ## Retorno
+## A newly allocated owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.str_float with 3.5      # "3.5"
+## ```
+weave str_float with value as float into string:
+    return value to string
+
+## Formats bool `value` as the string `"true"` or `"false"`.
+##
+## ## Parámetros
+## - `value`: the boolean to format.
+##
+## ## Retorno
+## A newly allocated owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.str_bool with true      # "true"
+## ```
+weave str_bool with value as bool into string:
+    return value to string
+
 # ----------------------------------------------------------------------------
-# Printing & Console Output
+# Version
 # ----------------------------------------------------------------------------
 
-# Returns the spark API revision string (see `SPARK_VERSION`). This is the
-# revision of the spark core *API*, not the toolchain release: it only changes
-# when a spark signature changes, so it intentionally does not track VERSION.
+## Returns the `spark` API revision string (see `SPARK_VERSION`).
+##
+## ## Retorno
+## A borrowed constant; do not `banish` it. This is the revision of the `spark`
+## *API*, not the toolchain release: it only changes when a `spark` signature
+## changes.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.spark_version     # "0.8.0-spark"
+## ```
 weave spark_version into string:
     return SPARK_VERSION
 
-# Writes `s` to stdout without a trailing newline.
+# ----------------------------------------------------------------------------
+# Output — stdout
+# ----------------------------------------------------------------------------
+
+## Writes `s` to stdout without a trailing newline.
+##
+## ## Parámetros
+## - `s`: the text to write. Borrowed; the caller keeps ownership.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.print with "no newline"
+## ```
 weave print with s as string into void:
     calling pengu_print with s
 
-# Writes `s` to stdout followed by a newline.
+## Writes `s` to stdout followed by a newline.
+##
+## ## Parámetros
+## - `s`: the text to write. Borrowed; the caller keeps ownership.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.println with "hello"
+## ```
 weave println with s as string into void:
     calling pengu_println with s
 
-# Writes `s` to stdout followed by a newline (alias of println).
+## Alias of `println`, kept for compatibility with pre-2.0 code.
+##
+## ## Parámetros
+## - `s`: the text to write. Borrowed; the caller keeps ownership.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.print_line with "hello"
+## ```
 weave print_line with s as string into void:
-    calling pengu_println with s
-
-# Prints `s` plus a newline. Despite the "e" (error) prefix this helper
-# currently routes through println, so it writes to stdout rather than stderr.
-weave eprint_line with s as string into void:
     calling pengu_println with s
 
 ## Writes integer `value` to stdout without a trailing newline.
 ##
-## Signature: print_int(value as int) into void
-## Memory: Takes scalar integer by value; does not allocate heap memory.
+## ## Parámetros
+## - `value`: the integer to write.
+##
+## ## Retorno
+## Nothing. The temporary string is released internally.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.print_int with 42
+## ```
 weave print_int with value as int into void:
     calling pengu_print with (value to string)
 
 ## Writes integer `value` to stdout followed by a newline.
 ##
-## Signature: println_int(value as int) into void
-## Memory: Takes scalar integer by value; does not allocate heap memory.
+## ## Parámetros
+## - `value`: the integer to write.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.println_int with 42
+## ```
 weave println_int with value as int into void:
     calling pengu_println with (value to string)
 
 ## Writes float `value` to stdout without a trailing newline.
 ##
-## Signature: print_float(value as float) into void
-## Memory: Takes scalar float by value; does not allocate heap memory.
+## ## Parámetros
+## - `value`: the floating-point value to write.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.print_float with 3.5
+## ```
 weave print_float with value as float into void:
     calling pengu_print with (value to string)
 
 ## Writes float `value` to stdout followed by a newline.
 ##
-## Signature: println_float(value as float) into void
-## Memory: Takes scalar float by value; does not allocate heap memory.
+## ## Parámetros
+## - `value`: the floating-point value to write.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.println_float with 3.5
+## ```
 weave println_float with value as float into void:
     calling pengu_println with (value to string)
 
-## Writes boolean `value` ("true" or "false") to stdout without a trailing newline.
+## Writes bool `value` (`"true"`/`"false"`) to stdout without a newline.
 ##
-## Signature: print_bool(value as bool) into void
-## Memory: Takes scalar bool by value; does not allocate heap memory.
+## ## Parámetros
+## - `value`: the boolean to write.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.print_bool with true
+## ```
 weave print_bool with value as bool into void:
     calling pengu_print with (calling bool_to_string with value)
 
-## Writes boolean `value` ("true" or "false") to stdout followed by a newline.
+## Writes bool `value` (`"true"`/`"false"`) to stdout followed by a newline.
 ##
-## Signature: println_bool(value as bool) into void
-## Memory: Takes scalar bool by value; does not allocate heap memory.
+## ## Parámetros
+## - `value`: the boolean to write.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.println_bool with false
+## ```
 weave println_bool with value as bool into void:
     calling pengu_println with (calling bool_to_string with value)
 
-## Writes string `s` followed by a newline.
+# ----------------------------------------------------------------------------
+# Output — stderr
+# ----------------------------------------------------------------------------
+
+## Writes `s` to stderr (file descriptor 2) without a trailing newline.
 ##
-## Signature: eprintln(s as string) into void
-## Memory: reads a non-owning view of `s`; never retains or frees the buffer.
-## NOTE: Legacy wrapper. Native stderr redirection is pending runtime C support;
-## this currently routes to stdout via pengu_println.
+## ## Parámetros
+## - `s`: the text to write. Borrowed; the caller keeps ownership.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.eprint with "warning: "
+## ```
+weave eprint with s as string into void:
+    calling pengu_eprint with s
+
+## Writes `s` to stderr (file descriptor 2) followed by a newline.
+##
+## ## Parámetros
+## - `s`: the text to write. Borrowed; the caller keeps ownership.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.eprintln with "something went wrong"
+## ```
 weave eprintln with s as string into void:
-    calling pengu_println with s
+    calling pengu_eprintln with s
+
+## Alias of `eprintln`, kept for compatibility with pre-2.0 code.
+##
+## ## Parámetros
+## - `s`: the text to write. Borrowed; the caller keeps ownership.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.eprint_line with "hello"
+## ```
+weave eprint_line with s as string into void:
+    calling pengu_eprintln with s
 
 # ----------------------------------------------------------------------------
-# Assertions (panicking)
+# Flushing
 # ----------------------------------------------------------------------------
 
-# Aborts with "[PANIC] Assertion failed" when `cond` is false; returns
-# normally when `cond` is true.
+## Flushes the stdout buffer.
+##
+## ## Retorno
+## Nothing. Use it before prompting or before a long-running computation.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.flush
+## ```
+weave flush into void:
+    calling pengu_flush_stdout
+
+## Flushes the stderr buffer.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.eflush
+## ```
+weave eflush into void:
+    calling pengu_flush_stderr
+
+# ----------------------------------------------------------------------------
+# Assertions
+# ----------------------------------------------------------------------------
+
+## Aborts with `"Assertion failed"` when `cond` is false.
+##
+## ## Parámetros
+## - `cond`: the condition to check.
+##
+## ## Retorno
+## Nothing when `cond` is true; panics with exit code 1 otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.assert with (1 + 1 == 2)
+## ```
 weave assert with cond as bool into void:
-    if cond == false:
+    if not cond:
         calling pengu_panic with "Assertion failed"
 
-# Aborts with "[PANIC] <msg>" when `cond` is false; returns normally when
-# `cond` is true.
+## Aborts with `msg` when `cond` is false.
+##
+## ## Parámetros
+## - `cond`: the condition to check.
+## - `msg`: the message passed to `panic`. Borrowed.
+##
+## ## Retorno
+## Nothing when `cond` is true; panics with exit code 1 otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.assert_msg with (n > 0), "n must be positive"
+## ```
 weave assert_msg with cond as bool , msg as string into void:
-    if cond == false:
+    if not cond:
         calling pengu_panic with msg
 
-# Reads one line from stdin after printing `prompt` (no newline); the trailing
-# newline is stripped. Returns the typed line as a fresh owned string - empty
-# on end-of-input (EOF) or an empty line.
+## Checks `cond` only in debug builds; compiled away under `--profile release`.
+##
+## ## Parámetros
+## - `cond`: the condition to check in debug builds.
+##
+## ## Retorno
+## Nothing. In release the call and its argument are removed entirely.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.assert_debug with (calling spark.len_string with s) > 0
+## ```
+weave assert_debug with cond as bool into void:
+    when debug:
+        if not cond:
+            calling pengu_panic with "Assertion failed"
+    else:
+        return
+
+# ----------------------------------------------------------------------------
+# Errors and process control
+# ----------------------------------------------------------------------------
+
+## Prints `[PANIC] <msg>` to stderr and exits with code 1.
+##
+## ## Parámetros
+## - `msg`: the failure message. Borrowed; never freed, the process ends.
+##
+## ## Retorno
+## Never returns.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.panic with "unreachable state"
+## ```
+weave panic with msg as string into void:
+    calling pengu_panic with msg
+
+## Flushes both streams and terminates the process with `code`.
+##
+## ## Parámetros
+## - `code`: the process exit status (0–255 on POSIX).
+##
+## ## Retorno
+## Never returns.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.exit with 42
+## ```
+weave exit with code as int into void:
+    calling pengu_exit with code
+
+## Flushes both streams and terminates the process with status 0.
+##
+## ## Retorno
+## Never returns.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.exit_success
+## ```
+weave exit_success into void:
+    calling pengu_exit with 0
+
+## Flushes both streams and terminates the process with status 1.
+##
+## ## Retorno
+## Never returns.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.exit_failure
+## ```
+weave exit_failure into void:
+    calling pengu_exit with 1
+
+# ----------------------------------------------------------------------------
+# Input — stdin
+# ----------------------------------------------------------------------------
+
+## Writes `prompt` and reads one line from stdin, without the trailing newline.
+##
+## ## Parámetros
+## - `prompt`: text written to stdout (no newline) before reading. Borrowed.
+##
+## ## Retorno
+## A **newly allocated owned** string, empty on end of input. Release it with
+## `banish` (or `defer banish`).
+##
+## ## Ejemplo
+## ```pengu
+## let name as string is calling spark.input with "name: "
+## defer banish name
+## ```
 weave input with prompt as string into string:
     return calling pengu_input with prompt
 
-## Reads one line from stdin without displaying a prompt.
+## Reads one line from stdin with no prompt.
 ##
-## Signature: read_line() into string
-## Memory: Returns a freshly allocated owned string.
-## Edge cases: Trailing newline is stripped; returns an empty string on EOF.
+## ## Retorno
+## A **newly allocated owned** string, empty on end of input. Release it with
+## `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let line as string is calling spark.read_line
+## defer banish line
+## ```
 weave read_line into string:
     return calling pengu_input with ""
 
-# Identity conversion: returns string `value` unchanged.
-weave str with value as string into string:
-    return value
+## Reads a single byte from stdin.
+##
+## ## Retorno
+## `some b` with `b` in 0–255, or `none` at end of input. Release the `maybe`
+## with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let c as maybe int is calling spark.read_char
+## defer banish c
+## ```
+weave read_char into maybe int:
+    return calling pengu_read_char
 
-# Formats int `value` as its decimal string representation.
-weave str_int with value as int into string:
-    return value to string
+## Writes `prompt`, reads a line and parses it as a base-10 integer.
+##
+## ## Parámetros
+## - `prompt`: text written to stdout before reading. Borrowed.
+##
+## ## Retorno
+## `some n` on success or `none` when the line is empty or not entirely numeric.
+## The temporary line is released internally.
+##
+## ## Ejemplo
+## ```pengu
+## let n as maybe int is calling spark.read_int with "count: "
+## ```
+weave read_int with prompt as string into maybe int:
+    var line as string is calling pengu_input with prompt
+    defer banish line
+    return calling pengu_parse_int with line
 
-# Formats float `value` as its string representation.
-weave str_float with value as float into string:
-    return value to string
+## Writes `prompt`, reads a line and parses it as a floating-point number.
+##
+## ## Parámetros
+## - `prompt`: text written to stdout before reading. Borrowed.
+##
+## ## Retorno
+## `some v` on success or `none` when the line is empty or not entirely numeric.
+## The temporary line is released internally.
+##
+## ## Ejemplo
+## ```pengu
+## let x as maybe float is calling spark.read_float with "x: "
+## ```
+weave read_float with prompt as string into maybe float:
+    var line as string is calling pengu_input with prompt
+    defer banish line
+    return calling pengu_parse_float with line
 
-# Formats bool `value` as the string "true" or "false".
-weave str_bool with value as bool into string:
-    return value to string
+## Writes `prompt`, reads a line and parses it as a boolean.
+##
+## ## Parámetros
+## - `prompt`: text written to stdout before reading. Borrowed.
+##
+## ## Retorno
+## `some b` for `true`/`false`/`yes`/`no`/`1`/`0`, or `none` otherwise. The
+## temporary line is released internally.
+##
+## ## Ejemplo
+## ```pengu
+## let ok as maybe bool is calling spark.read_bool with "continue? "
+## ```
+weave read_bool with prompt as string into maybe bool:
+    var line as string is calling pengu_input with prompt
+    defer banish line
+    return calling parse_bool with line
 
-# Parses the whole string `s` as a base-10 integer: some int on success, none
-# when `s` is empty or contains trailing non-digit characters.
+# ----------------------------------------------------------------------------
+# Parsing
+# ----------------------------------------------------------------------------
+
+## Parses the whole string `s` as a base-10 integer.
+##
+## ## Parámetros
+## - `s`: the text to parse. Leading and trailing whitespace is ignored.
+##
+## ## Retorno
+## `some n` on success (`INT32_MIN <= n <= INT32_MAX`) or `none` when `s` is empty,
+## not entirely numeric, or out of range. Release the `maybe` with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let n as maybe int is calling spark.parse_int with "42"
+## ```
 weave parse_int with s as string into maybe int:
     return calling pengu_parse_int with s
 
-# Parses the whole string `s` as a floating-point number: some float on
-# success, none when `s` is empty or not entirely numeric.
+## Parses the whole string `s` as a floating-point number.
+##
+## ## Parámetros
+## - `s`: the text to parse. Leading and trailing whitespace is ignored.
+##
+## ## Retorno
+## `some v` on success or `none` when `s` is empty, not entirely numeric, or out
+## of range. Release the `maybe` with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let x as maybe float is calling spark.parse_float with "3.5"
+## ```
 weave parse_float with s as string into maybe float:
     return calling pengu_parse_float with s
 
-## Prints `prompt` and reads a line from stdin, parsing it as a base-10 integer.
+## Returns a typed empty `maybe bool`.
 ##
-## Signature: read_int(prompt as string) into maybe int
-## Memory: Returns a value `maybe int` container.
-## Edge cases: Returns maybe none if input is empty, non-numeric, or contains trailing characters.
-weave read_int with prompt as string into maybe int:
-    var line as string is calling pengu_input with prompt
-    return calling pengu_parse_int with line
+## ## Retorno
+## `none`. Exists only because a bare `maybe none` inside a `judge` branch has no
+## type context (`E0014`); private to `spark`.
+weave _none_bool into maybe bool:
+    return maybe none
 
-## Prints `prompt` and reads a line from stdin, parsing it as a floating-point number.
+## Parses `s` as a boolean using the documented spellings.
 ##
-## Signature: read_float(prompt as string) into maybe float
-## Memory: Returns a value `maybe float` container.
-## Edge cases: Returns maybe none if input is empty or contains non-numeric characters.
-weave read_float with prompt as string into maybe float:
-    var line as string is calling pengu_input with prompt
-    return calling pengu_parse_float with line
+## ## Parámetros
+## - `s`: one of `true`, `false`, `yes`, `no`, `1`, `0`. Matching is exact and
+##   case-sensitive.
+##
+## ## Retorno
+## `some true`, `some false`, or `none` for anything else. Release the `maybe`
+## with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let ok as maybe bool is calling spark.parse_bool with "yes"
+## ```
+weave parse_bool with s as string into maybe bool:
+    return judge s:
+        when "true" -> some true
+        when "false" -> some false
+        when "yes" -> some true
+        when "no" -> some false
+        when "1" -> some true
+        when "0" -> some false
+        else -> calling _none_bool
+
+## Parses `s` as a hexadecimal (base 16) integer.
+##
+## ## Parámetros
+## - `s`: hexadecimal digits, optionally prefixed with `0x`/`0X`. No whitespace is
+##   allowed.
+##
+## ## Retorno
+## `some n` on success or `none`. Release the `maybe` with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let n as maybe int is calling spark.parse_int_hex with "FF"
+## ```
+weave parse_int_hex with s as string into maybe int:
+    return calling pengu_parse_int_radix with s , 16
+
+## Parses `s` as a binary (base 2) integer.
+##
+## ## Parámetros
+## - `s`: binary digits (`0`/`1`). No whitespace is allowed.
+##
+## ## Retorno
+## `some n` on success or `none`. Release the `maybe` with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let n as maybe int is calling spark.parse_int_bin with "1010"
+## ```
+weave parse_int_bin with s as string into maybe int:
+    return calling pengu_parse_int_radix with s , 2
+
+## Parses `s` as an octal (base 8) integer.
+##
+## ## Parámetros
+## - `s`: octal digits (`0`–`7`). No whitespace is allowed.
+##
+## ## Retorno
+## `some n` on success or `none`. Release the `maybe` with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let n as maybe int is calling spark.parse_int_oct with "17"
+## ```
+weave parse_int_oct with s as string into maybe int:
+    return calling pengu_parse_int_radix with s , 8
 
 # ----------------------------------------------------------------------------
-# Range Generation
+# Range generation
 # ----------------------------------------------------------------------------
 
-# Builds and returns a new list of int holding the half-open progression
-# start, start + step, start + 2*step, ... while the value is < `end_val`
-# (`step` defaults to 1; an empty list results when start >= end_val).
-# `step` must be positive - a zero or negative step with start < end_val
-# would loop forever.
+## Builds a half-open integer progression.
+##
+## ## Parámetros
+## - `start`: first value of the sequence.
+## - `end_val`: exclusive upper bound.
+## - `step`: positive increment (default `1`).
+##
+## ## Retorno
+## A new owned `list of int` holding `start`, `start + step`, … while the value is
+## `< end_val`. Empty when `start >= end_val`. Release it with `banish`.
+##
+## ## Precondiciones
+## `step` must be greater than zero; a zero or negative step with
+## `start < end_val` would never terminate.
+##
+## ## Ejemplo
+## ```pengu
+## let evens as list of int is calling spark.range with 0, 10, 2
+## banish evens
+## ```
 weave range with start as int , end_val as int , step as int is 1 into list of int:
     var result as list of int is list of int with capacity 16
     var i as int is start
@@ -245,19 +1040,37 @@ weave range with start as int , end_val as int , step as int is 1 into list of i
         set i is i + step
     return result
 
-## Builds and returns a new list of integers from 0 up to `end_val` (exclusive) with step 1.
+## Builds the sequence `0, 1, … end_val - 1`.
 ##
-## Signature: range_to(end_val as int) into list of int
-## Memory: Allocates and returns a new list; release it with `banish`.
-## Edge cases: Returns an empty list when end_val <= 0.
+## ## Parámetros
+## - `end_val`: exclusive upper bound.
+##
+## ## Retorno
+## A new owned `list of int`. Empty when `end_val <= 0`. Release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let xs as list of int is calling spark.range_to with 5     # [0, 1, 2, 3, 4]
+## banish xs
+## ```
 weave range_to with end_val as int into list of int:
     return calling range with 0 , end_val , 1
 
-## Builds and returns a new list of integers from `start` through `end_val` (inclusive) with step 1.
+## Builds the closed sequence `start, start + 1, … end_val`.
 ##
-## Signature: range_inclusive(start as int, end_val as int) into list of int
-## Memory: Allocates and returns a new list; release it with `banish`.
-## Edge cases: Returns an empty list when start > end_val.
+## ## Parámetros
+## - `start`: first value, inclusive.
+## - `end_val`: last value, inclusive.
+##
+## ## Retorno
+## A new owned `list of int`. Empty when `start > end_val`. Release it with
+## `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let xs as list of int is calling spark.range_inclusive with 1, 3   # [1, 2, 3]
+## banish xs
+## ```
 weave range_inclusive with start as int , end_val as int into list of int:
     var result as list of int is list of int with capacity 16
     var i as int is start
@@ -266,58 +1079,264 @@ weave range_inclusive with start as int , end_val as int into list of int:
         set i is i + 1
     return result
 
+## Builds a descending half-open integer progression.
+##
+## ## Parámetros
+## - `start`: first value of the sequence.
+## - `end_val`: exclusive lower bound.
+## - `step`: positive decrement (default `1`).
+##
+## ## Retorno
+## A new owned `list of int` holding `start`, `start - step`, … while the value is
+## `> end_val`. Empty when `start <= end_val`. Release it with `banish`.
+##
+## ## Precondiciones
+## `step` must be greater than zero.
+##
+## ## Ejemplo
+## ```pengu
+## let xs as list of int is calling spark.range_down with 5, 0   # [5, 4, 3, 2, 1]
+## banish xs
+## ```
+weave range_down with start as int , end_val as int , step as int is 1 into list of int:
+    var result as list of int is list of int with capacity 16
+    var i as int is start
+    while i > end_val:
+        calling result.push with i
+        set i is i - step
+    return result
+
 # ----------------------------------------------------------------------------
-# Integer Math Utilities
+# Integer math
 # ----------------------------------------------------------------------------
 
-## Returns the smaller of two integers `a` and `b`.
+## Returns the smaller of `a` and `b`.
 ##
-## Signature: min_int(a as int, b as int) into int
-## Memory: Operates purely on scalar integers by value.
-## Edge cases: Returns either value when a == b.
+## ## Parámetros
+## - `a`: first integer.
+## - `b`: second integer.
+##
+## ## Retorno
+## The smaller value, or either one when they are equal.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.min_int with 3, 7      # 3
+## ```
 weave min_int with a as int , b as int into int:
-    return judge a < b:
-        when true -> a
-        when false -> b
+    return if a < b then a else b
 
-## Returns the greater of two integers `a` and `b`.
+## Returns the greater of `a` and `b`.
 ##
-## Signature: max_int(a as int, b as int) into int
-## Memory: Operates purely on scalar integers by value.
-## Edge cases: Returns either value when a == b.
+## ## Parámetros
+## - `a`: first integer.
+## - `b`: second integer.
+##
+## ## Retorno
+## The greater value, or either one when they are equal.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.max_int with 3, 7      # 7
+## ```
 weave max_int with a as int , b as int into int:
-    return judge a > b:
-        when true -> a
-        when false -> b
+    return if a > b then a else b
 
-## Returns the absolute value of integer `v`.
+## Returns the absolute value of `v`.
 ##
-## Signature: abs_int(v as int) into int
-## Memory: Operates purely on scalar integers by value.
-## Edge cases: Returns 0 for 0; returns positive negation for negative integers.
+## ## Parámetros
+## - `v`: any integer.
+##
+## ## Retorno
+## `-v` when `v < 0`, otherwise `v`. `abs_int(INT32_MIN)` overflows by definition.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.abs_int with -5     # 5
+## ```
 weave abs_int with v as int into int:
-    if v < 0:
-        return -v
-    return v
+    return if v < 0 then -v else v
 
-## Clamps integer `v` to the closed interval [`lo`, `hi`].
+## Clamps `v` into the closed interval `[lo, hi]`.
 ##
-## Signature: clamp_int(v as int, lo as int, hi as int) into int
-## Memory: Operates purely on scalar integers by value.
-## Edge cases: Returns lo if v < lo; returns hi if v > hi; assumes lo <= hi.
+## ## Parámetros
+## - `v`: the value to clamp.
+## - `lo`: lower bound, returned when `v < lo`.
+## - `hi`: upper bound, returned when `v > hi`.
+##
+## ## Retorno
+## `lo`, `hi`, or `v` when it is already inside the interval.
+##
+## ## Precondiciones
+## `lo <= hi`.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.clamp_int with 9, 0, 5     # 5
+## ```
 weave clamp_int with v as int , lo as int , hi as int into int:
-    var res as int is v
-    if res < lo:
-        set res is lo
-    if res > hi:
-        set res is hi
-    return res
+    return if v < lo then lo else (if v > hi then hi else v)
 
-# ----------------------------------------------------------------------------
-# Fatal Errors
-# ----------------------------------------------------------------------------
+## Returns the sign of `v` as `-1`, `0` or `1`.
+##
+## ## Parámetros
+## - `v`: any integer.
+##
+## ## Retorno
+## `-1` when negative, `0` when zero, `1` when positive.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.sign_int with -9     # -1
+## ```
+weave sign_int with v as int into int:
+    return if v < 0 then -1 else (if v > 0 then 1 else 0)
 
-# Prints "[PANIC] <msg>" to stderr and terminates the process with exit
-# code 1; it never returns to the caller.
-weave panic with msg as string into void:
-    calling pengu_panic with msg
+## Returns the greatest common divisor of `a` and `b`.
+##
+## ## Parámetros
+## - `a`: first integer, sign ignored.
+## - `b`: second integer, sign ignored.
+##
+## ## Retorno
+## The non-negative GCD, computed with the Euclidean algorithm. `gcd_int(0, 0)` is
+## `0`.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.gcd_int with 48, 18     # 6
+## ```
+weave gcd_int with a as int , b as int into int:
+    var x as int is calling abs_int with a
+    var y as int is calling abs_int with b
+    while y != 0:
+        let t as int is y
+        set y is x % y
+        set x is t
+    return x
+
+## Returns the least common multiple of `a` and `b`.
+##
+## ## Parámetros
+## - `a`: first integer.
+## - `b`: second integer.
+##
+## ## Retorno
+## The non-negative LCM, computed as `|a / gcd(a, b) * b|`. `lcm_int(0, 0)` is `0`.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.lcm_int with 4, 6     # 12
+## ```
+weave lcm_int with a as int , b as int into int:
+    let g as int is calling gcd_int with a , b
+    return if g == 0 then 0 else calling abs_int with ((a / g) * b)
+
+## Raises `base` to the non-negative power `exp` by binary exponentiation.
+##
+## ## Parámetros
+## - `base`: the value to raise.
+## - `exp`: the exponent; must be `>= 0`.
+##
+## ## Retorno
+## `base ** exp`. Uses `O(log exp)` multiplications. Overflow is undefined at the
+## edges of `int32`; debug builds trap it.
+##
+## ## Precondiciones
+## `exp >= 0`.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.pow_int with 2, 10     # 1024
+## ```
+weave pow_int with base as int , exp as int into int:
+    var result as int is 1
+    var b as int is base
+    var e as int is exp
+    while e > 0:
+        if e % 2 == 1:
+            set result is result * b
+        set b is b * b
+        set e is e / 2
+    return result
+
+# --- Tests ---
+
+test "spark_version matches the SPARK_VERSION constant":
+    let v as string is calling spark_version
+    calling assert with (v == SPARK_VERSION)
+    calling assert with ((calling len_string with v) > 0)
+
+test "len_string counts bytes":
+    calling assert with ((calling len_string with "abc") == 3)
+    calling assert with ((calling len_string with "") == 0)
+
+test "bool_to_string maps both boolean values":
+    calling assert with ((calling bool_to_string with true) == "true")
+    calling assert with ((calling bool_to_string with false) == "false")
+
+test "str_int and str_bool format scalars":
+    calling assert with ((calling str_int with -7) == "-7")
+    calling assert with ((calling str_bool with true) == "true")
+    calling assert with ((calling str with "x") == "x")
+
+test "parse_int accepts valid decimals and rejects garbage":
+    let ok as maybe int is calling parse_int with "42"
+    calling assert with ((ok or else -1) == 42)
+    let bad as maybe int is calling parse_int with "abc"
+    calling assert with ((bad or else -1) == -1)
+
+test "parse_int_hex, parse_int_bin and parse_int_oct use their radix":
+    let hex as maybe int is calling parse_int_hex with "FF"
+    calling assert with ((hex or else 0) == 255)
+    let bin as maybe int is calling parse_int_bin with "1010"
+    calling assert with ((bin or else 0) == 10)
+    let oct as maybe int is calling parse_int_oct with "17"
+    calling assert with ((oct or else 0) == 15)
+
+test "parse_bool accepts the documented spellings":
+    let yes as maybe bool is calling parse_bool with "yes"
+    calling assert with (yes or else false)
+    let no as maybe bool is calling parse_bool with "no"
+    calling assert with (not (no or else true))
+    let maybe_ok as maybe bool is calling parse_bool with "maybe"
+    calling assert with (not (maybe_ok or else false))
+
+test "range_to builds a half-open sequence":
+    let xs as list of int is calling range_to with 5
+    defer banish xs
+    calling assert with ((calling xs.len) == 5)
+    calling assert with ((xs at 0) == 0)
+    calling assert with ((xs at 4) == 4)
+
+test "range_inclusive includes both ends":
+    let xs as list of int is calling range_inclusive with 1 , 3
+    defer banish xs
+    calling assert with ((calling xs.len) == 3)
+    calling assert with ((xs at 2) == 3)
+
+test "range_down counts down to the exclusive bound":
+    let xs as list of int is calling range_down with 5 , 0
+    defer banish xs
+    calling assert with ((calling xs.len) == 5)
+    calling assert with ((xs at 0) == 5)
+    calling assert with ((xs at 4) == 1)
+
+test "min_int, max_int and abs_int agree on signs":
+    calling assert with ((calling min_int with 3 , 7) == 3)
+    calling assert with ((calling max_int with 3 , 7) == 7)
+    calling assert with ((calling abs_int with -5) == 5)
+
+test "clamp_int and sign_int respect their bounds":
+    calling assert with ((calling clamp_int with 9 , 0 , 5) == 5)
+    calling assert with ((calling clamp_int with -1 , 0 , 5) == 0)
+    calling assert with ((calling sign_int with -9) == -1)
+    calling assert with ((calling sign_int with 0) == 0)
+
+test "gcd_int and lcm_int satisfy the Euclidean identity":
+    calling assert with ((calling gcd_int with 48 , 18) == 6)
+    calling assert with ((calling lcm_int with 4 , 6) == 12)
+
+test "pow_int uses binary exponentiation":
+    calling assert with ((calling pow_int with 2 , 10) == 1024)
+    calling assert with ((calling pow_int with 5 , 0) == 1)

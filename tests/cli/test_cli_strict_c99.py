@@ -43,6 +43,15 @@ _IMPLICIT_DECL_FLAGS = [
 
 _STD_PROGRAMS = REPO / "tests" / "std_programs"
 
+#: The std 2.0 migration deleted this corpus (Chunk 1): the per-module exercise
+#: programs are replaced by the migration's own `tests/test_<mod>.py` suites.  The
+#: classification below is kept as the record of the F8 measurement, and every
+#: test that consumes the corpus skips while it is absent.
+requires_std_programs = pytest.mark.skipif(
+    not _STD_PROGRAMS.is_dir(),
+    reason="tests/std_programs was removed by the std 2.0 migration (Chunk 1)",
+)
+
 #: Measured with the real toolchain.  The three classes are not guesses: the
 #: counts are the compiler's own `error:` counts for each bundle.
 CLEAN = [  # 0 pedantic errors, 0 hard errors, runs clean
@@ -214,6 +223,7 @@ def test_strict_mode_is_measurably_stricter_than_the_default(tmp_path, compile_c
                 "-D__extension__=; the non-vacuity check was measured with Linux GCC")
 
 
+@requires_std_programs
 def test_every_std_program_is_classified():
     """A new std program must be classified, not silently skipped."""
     on_disk = {p.name for p in _STD_PROGRAMS.glob("test_*.pengu")}
@@ -228,6 +238,7 @@ def test_every_std_program_is_classified():
     assert len(classified) == 56, f"expected the 56 test programs, got {len(classified)}"
 
 
+@requires_std_programs
 @pytest.mark.parametrize("name", CLEAN)
 def test_strict_c99_std_program_is_pedantically_clean(name, tmp_path, compile_c):
     """The 23 programs `--strict-c99` really does emit portable, correct C99 for.
@@ -242,6 +253,7 @@ def test_strict_c99_std_program_is_pedantically_clean(name, tmp_path, compile_c)
     assert run.returncode == 0, f"{name} failed at runtime: rc={run.returncode}\n{run.stderr}"
 
 
+@requires_std_programs
 @pytest.mark.xfail(strict=True, reason=_MISCOMPILE_REASON)
 @pytest.mark.parametrize("name", STRICT_MISCOMPILES)
 def test_strict_c99_std_program_does_not_miscompile(name, tmp_path, compile_c):
@@ -258,6 +270,7 @@ def test_strict_c99_std_program_does_not_miscompile(name, tmp_path, compile_c):
     assert run.returncode == 0, f"{name} failed at runtime: rc={run.returncode}\n{run.stderr}"
 
 
+@requires_std_programs
 @_MEASURED_WITH_LINUX_GCC
 @pytest.mark.xfail(strict=True, reason=_B5_REASON)
 @pytest.mark.parametrize("name", B5_STATEMENT_EXPRESSIONS)
@@ -268,6 +281,7 @@ def test_strict_c99_std_program_blocked_by_b5(name, tmp_path, compile_c):
               syntax_only=True, extra=_IMPLICIT_DECL_FLAGS + ["-fmax-errors=1"])
 
 
+@requires_std_programs
 @pytest.mark.xfail(strict=True, reason=_CODEGEN_REASON)
 @pytest.mark.parametrize("name", STRICT_CODEGEN_UNDECLARED)
 def test_strict_c99_std_program_blocked_by_strict_codegen(name, tmp_path, compile_c):

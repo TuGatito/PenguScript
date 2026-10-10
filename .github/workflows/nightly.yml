@@ -133,9 +133,10 @@ jobs:
   # Two explicit contracts instead of one, because the stdlib leak surface is a
   # tracked product finding (item 8.19): memory safety with the leak verdict OFF
   # and leak freedom with it ON.  A third step keeps the memory-safety coverage
-  # of the std legacy-compat programs, whose leak is the tracked one.  The three
-  # ASan steps and the valgrind step all consume PENGU_SANITIZER_DESELECT, so a
-  # step can never re-run the known leak by accident (Phase 8 / item 8.2, B9).
+  # of the tracked legacy-container leak (reproduced by
+  # tests/test_known_issues.py).  The three ASan steps and the valgrind step all
+  # consume PENGU_SANITIZER_DESELECT, so a step can never re-run the known leak by
+  # accident (Phase 8 / item 8.2, B9).
   # ----------------------------------------------------------------------
   sanitizers:
     name: ASan + UBSan + Valgrind
@@ -145,11 +146,12 @@ jobs:
       contents: read
     env:
       # One line on purpose, expanded UNQUOTED at each call site so the shell
-      # word-splits it into one `--deselect <nodeid>` per entry.  The leaking
-      # program is a corpus case now, so the node id names the batch runner's
-      # parametrisation.
+      # word-splits it into one `--deselect <nodeid>` per entry.  The std 2.0
+      # migration (Chunk 1) deleted the std legacy-compat conformance programs
+      # that used to carry the tracked leak; the same path is reproduced inline
+      # by tests/test_known_issues.py.
       PENGU_SANITIZER_DESELECT: >-
-        tests/test_conformance.py::test_conformance_case[std_programs/backward_compat] tests/test_conformance.py::test_conformance_case[std_programs/compat_data] tests/test_conformance.py::test_conformance_case[std_programs/backward_compat_util]
+        tests/test_known_issues.py::test_known_leak_legacy_containers
       PENGU_CFLAGS: '-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all'
       PENGU_LDFLAGS: '-fsanitize=address,undefined'
       UBSAN_OPTIONS: 'print_stacktrace=1:halt_on_error=1'
@@ -188,22 +190,22 @@ jobs:
           python -m pytest tests/test_known_issues.py -q -p no:cacheprovider --timeout=300 \
             --deselect $PENGU_SANITIZER_DESELECT
 
-      # CONTRACT 1 again, on the std legacy-compat programs: they are the ones
-      # whose leak is tracked, and they must still be free of memory *errors*.
+      # CONTRACT 1 again, on the tracked legacy-container leak: it is the program
+      # whose "storage not released before exit" is documented, and it must still
+      # be free of memory *errors*.  This step deliberately names the test instead
+      # of consuming PENGU_SANITIZER_DESELECT: deselecting it here would make the
+      # step a no-op (that is why the previous, corpus-based version ran nothing).
       # Some tests carry a real sanitizer-only finding and are skipped with the
       # finding named (F8-N10, `stack-use-after-scope` in a variadic call), plus
       # the crash-handler/MSVC-flag tests that cannot hold their premise under
       # instrumentation; `requires_no_sanitizer_reason(...)` attaches the reason.
-      - name: Memory safety on the std legacy-compat programs
+      - name: Memory safety on the tracked legacy-container leak
         env:
           ASAN_OPTIONS: 'detect_leaks=0:abort_on_error=1:halt_on_error=1'
         run: |
           python -m pytest \
-            'tests/test_conformance.py::test_conformance_case[std_programs/backward_compat]' \
-            'tests/test_conformance.py::test_conformance_case[std_programs/compat_data]' \
-            'tests/test_conformance.py::test_conformance_case[std_programs/backward_compat_util]' \
-            -q -p no:cacheprovider --timeout=900 \
-            --deselect $PENGU_SANITIZER_DESELECT
+            'tests/test_known_issues.py::test_known_leak_legacy_containers' \
+            -q -p no:cacheprovider --timeout=900
 
       - name: Install valgrind
         run: |
