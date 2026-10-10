@@ -15,21 +15,28 @@
 
 > [!WARNING]
 >
-> ### 1.0.0 — released, with a declared scope
+> ### 2.0.0 — released, with a declared scope
 >
-> PenguScript **1.0.0** is published. The public surface is frozen for 1.x in
+> PenguScript **2.0.0** is published. The public surface freezes per
 > [`docs/FREEZE.md`](docs/FREEZE.md), and the compatibility contract is pinned by
-> programs that **compile and execute** (`tests/compliance/` for the current
-> language, `tests/migration/` for every published version line). That is what
-> "1.0" means here — it does **not** mean "everything": borrow checking,
-> async/await, closures with capture, AST macros, dynamic dispatch, reflection, a
-> `Result`-only stdlib and `pengu repl` are **not** in 1.0, each with the
-> measurement that deferred it in [`ROADMAP_1.1.md`](ROADMAP_1.1.md). The exact
-> scope, the compiler matrix and the sanitizer/fuzzing coverage actually measured
-> are stated in [`docs/ANNOUNCEMENT_1.0.md`](docs/ANNOUNCEMENT_1.0.md); the
-> verified assessment behind every claim is [`AUDIT_1.0.md`](AUDIT_1.0.md). The
-> older readiness snapshot, which describes an earlier release, is kept as a
-> historical document in [`docs/archive/`](docs/archive/).
+> programs that **compile and execute**: the compliance corpus under
+> `tests/conformance/compliance/` (formerly `tests/compliance/`) for the current
+> language, and `tests/migration/` for every published version line. 2.0 is an
+> **additive** release — no existing `.pengu` program stops compiling; its one
+> genuine contract change is that a source file may now emit C the compiler does
+> **not** type-check (`antiquus`, §9.6).
+>
+> That does **not** mean "everything": borrow checking, async/await, closures
+> with capture, AST macros, dynamic dispatch, reflection, a `Result`-only stdlib,
+> associated types (LANGUAGE.md §11.7), call-site spread (`f(...xs)`, §8.2) and
+> `pengu repl` are **not** in 2.0. Each deferral carries its measurement and an
+> explicit ⏸️ marker in `LANGUAGE.md`; `--strict-c99` remains not functional for
+> programs that import `std` (see *What's new in 2.0*). The exact 1.0 scope, the
+> compiler matrix and the sanitizer/fuzzing coverage actually measured are stated
+> in [`docs/ANNOUNCEMENT_1.0.md`](docs/ANNOUNCEMENT_1.0.md); the verified
+> assessment behind those claims is `AUDIT_1.0.md` (historical). The older
+> readiness snapshot, which describes an earlier release, is kept as a historical
+> document in [`docs/archive/`](docs/archive/).
 >
 > **What you can do today (all verified against the real toolchain)**
 >
@@ -53,6 +60,9 @@
 >   **C variadic declarations** (`declare ... with fmt as ref to frozen char, ... into int`),
 >   **struct literals in array literals**, **pointer indexing** (`p at i`), generic
 >   slice bridging (`ffi.slice_from_ptr shard T`), and **embedded project assets** (`arca`).
+> - Embed **literal C** in a `.pengu` file with `antiquus` (`r"""…"""` bodies,
+>   `@export("c_name")` to pin the emitted symbol) and chain methods in one
+>   `calling` (`calling x.a.b.c`) — see *What's new in 2.0* below.
 >
 > Published measurements: [`BENCHMARKS.md`](BENCHMARKS.md). Operational release steps: [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md). Security policy: [`SECURITY.md`](SECURITY.md).
 >
@@ -73,7 +83,10 @@
 > always-on bounds checking, `unsafe:` opt-out, lockfile verification with
 > `pengu verify`, a binding sandbox, a trust gate for dependency build scripts,
 > deprecation policy with `--deny-deprecated`, and continuous fuzzing) are
-> complete. What remains is P3 ergonomics.
+> complete. The 1.1 ergonomics tier (method chaining, multiple return values,
+> shorthand struct initializers, `@noreturn`/`@export`/`@packed`/`@align`) and the
+> 2.0 `antiquus` tier are documented under **What's new in 2.0** below; what
+> remains are the features explicitly marked ⏸️ in `LANGUAGE.md`.
 >
 > **Now guaranteed:** out-of-bounds access and signed overflow have defined
 > behaviour in *every* profile; the only opt-out is an explicit `unsafe:` block
@@ -82,6 +95,98 @@
 ---
 
 ## 🇬🇧 English
+
+### What's new in 2.0
+
+PenguScript 2.0 is an **additive** release: every 1.x program still compiles, and the highlights below are each verified against the real toolchain.
+
+- **Method chaining** — a single `calling` resolves several `.name` links left to right, each against the type produced by the previous one; a chain may span lines when every continuation begins with `.` ([§24](LANGUAGE.md#24-method-chaining)):
+
+  ```pengu
+  import std.scrolls
+
+  weave shorten with raw as string into string:
+      return calling raw
+          .trim
+          .substring with 0, 2
+  ```
+
+- **Multiple return values** — declare a tuple result with `into (T, U)`, return the values comma-separated, and destructure with `let (q, ok) is …` ([§25](LANGUAGE.md#25-multiple-return-values)):
+
+  ```pengu
+  weave divide with a as int, b as int into (int, bool):
+      if b == 0:
+          return 0, false
+      return (a / b), true
+
+  weave use_div into int:
+      let (q, ok) is calling divide with 10, 2
+      if not ok:
+          return 0
+      return q
+  ```
+
+- **Shorthand struct initializers** — a field whose slot holds a single bare name may omit `is <value>`, so `with name, hp` means `with name is name, hp is hp` ([§26](LANGUAGE.md#26-shorthand-struct-initializers)).
+- **Declaration attributes** — `@noreturn` (a `void` weave that never returns; emits `_Noreturn`), `@export("c_name")` (pins the emitted C symbol and makes the declaration a DCE root), `@packed` (no inter-field padding) and `@align(N)` (a power of two from 1 to 128) ([§27](LANGUAGE.md#27-function-attributes-noreturn-and-export), [§28](LANGUAGE.md#28-layout-attributes-packed-and-alignn)):
+
+  ```pengu
+  @export("pengu_add")
+  weave add with a as int, b as int into int:
+      return a + b
+
+  @packed
+  rune NetHeader:
+      magic as u16
+      version as u8
+      flags as u8
+      length as u32
+  ```
+
+- **Embedded C blocks (`antiquus`)** — a declaration whose body is literal C inside a triple-quoted string; prefer `r"""…"""` when the C contains backslashes. The body is emitted verbatim and is **not** type-checked, which is the one genuine 2.0 contract change ([§9.6](LANGUAGE.md#96-antiquus--embedded-c-blocks)):
+
+  ```pengu
+  antiquus fast_abs with x as int into int:
+      r"""
+      return x < 0 ? -x : x;
+      """
+  ```
+
+- **`cyclus`** — marks an intentionally self-referential type; the cycle must still be broken by pointer indirection (`ref to`, `maybe ref to`, `slice`, `list`, `map`) ([§9.1.1](LANGUAGE.md#911-cyclus--self-referential-types)):
+
+  ```pengu
+  rune Node cyclus shard T:
+      value as T
+      next as maybe ref to Node of T
+  ```
+
+- **`unsafe:` blocks** — the only in-language opt-out from bounds checking; each block always warns `[W0007]` so the opt-out is visible in review ([§5.0](LANGUAGE.md#50-safety-guarantees-and-their-opt-outs)):
+
+  ```pengu
+  weave sum with xs as array of int, n as int into int:
+      var acc as int is 0
+      unsafe:
+          for i from 0 to n:
+              set acc is acc + (xs at i)
+      return acc
+  ```
+
+- **`many T`** — `with xs as many T` makes a `weave` variadic; call sites list the arguments normally and the compiler packs them into a temporary slice ([§8.2](LANGUAGE.md#82-declare--external-c-functions)):
+
+  ```pengu
+  weave count_args with xs as many int into int:
+      return (xs length to int)
+  ```
+
+- **`--strict-c99`** — ⏸️ **not functional for programs that import `std`** (measured: 34 of the 61 programs in `tests/std_programs/` fail `gcc -std=c99 -pedantic-errors`); deferred to 1.1. Do **not** use it as a CI or release portability gate ([§20.2](LANGUAGE.md#202-compilation--build-profiles-pengu-build)).
+- **Cross-compilation** — `pengu build --target x86_64-w64-mingw32 --cc x86_64-w64-mingw32-gcc` selects the target OS from a triple; only **Linux ⇄ Windows** is supported ([§20.2.3](LANGUAGE.md#2023-cross-compilation---target)).
+- **Runtime ABI versioning** — `pengu_runtime.h` defines `PENGU_ABI_VERSION`, the frozen layout of the runtime containers; every bundle references `pengu_abi_version()`, so a `libpengu_runtime.a` built against a different ABI fails at link instead of reinterpreting struct fields ([§20.2.1](LANGUAGE.md#2021-runtime-abi-version)).
+- **JSON diagnostics** — `pengu check --json` and `pengu build --json` emit one `{"type":"diagnostic",…}` object per problem plus a final summary line, and nothing else on stdout ([§20.2.2](LANGUAGE.md#2022-machine-readable-diagnostics---json)):
+
+  ```bash
+  pengu check --json | jq -c 'select(.type=="diagnostic") | {file,line,col,code}'
+  ```
+
+- **Conditional linking** — a native archive is linked only when the `std` module that needs it was imported (`std.regulus` → PCRE2, `std.parchment` → libxml2, `std.precis` → libcurl + libmicrohttpd, `std.seal` → zlib + mbedcrypto); a program with no native imports links only `libpengu_runtime.a`, which is why a stripped `hello_world` is ~14 KiB (see [BENCHMARKS.md](BENCHMARKS.md)).
 
 ### Feature Highlights
 
@@ -98,9 +203,9 @@
 - **Rich standard library** — `std/` ships **52 modules**: 27 implemented in pure PenguScript (I/O, strings, files, math, time, regex, HTTP client/server, concurrency, logging, unit testing, …) plus 25 curated C declaration bindings (`*.d.pengu`) for bundled native libraries (including **raylib**, **raymath**, **rlgl**, **sqlite3**, **webui**, **miniaudio**, and **stb**) ([§19](LANGUAGE.md#19-standard-library)).
 - **Embedded project assets (`arca`)** — embed binary and text assets (textures, shaders, audio, fonts, HTML/JS/CSS, config files) directly into native `.rodata` sections or stream from disk with zero-copy pointer views and slice accessors ([§19.4](LANGUAGE.md#194-embedded-project-assets-arca)).
 - **Language Server (LSP)** — diagnostics with `help:`/`note:`/caret spans, documentation from `#` and `##` doc comments, type & memory-size hovers, module-scoped autocompletion, go-to-definition, formatting, and code actions ([§20.10](LANGUAGE.md#2010-language-server-protocol-pengu-lsp)).
-- **Unified project manager** — the `pengu` CLI creates (`init`), builds (`build`), runs (`run`), tests (`test`), checks (`check`), formats (`fmt`), cleans (`clean`), and documents (`doc`) projects ([§20](LANGUAGE.md#20-tooling--project-layout)).
+- **Unified project manager** — the `pengu` CLI creates (`init`), builds (`build`), runs (`run`), tests (`test`), checks (`check`), formats (`fmt`), cleans (`clean`), documents (`doc`), generates C bindings (`bind`), and launches the language server (`lsp`) ([§20](LANGUAGE.md#20-tooling--project-layout)).
 - **Compile-time features** — `when` conditionals with `else when` / `else`, `defined(...)`, `-D name=value` defines, function `static var` state, and `when main:` guards for dual module/script files ([§16](LANGUAGE.md#16-conditional-compilation-when)).
-- **Robust diagnostics** — comprehensive Rust-style error catalog with codes `E0000`–`E0058` (documented in LANGUAGE.md §22.2) and warnings `W0001` (transmute), `W0002` (echo access), `W0004` (unreachable), `W0005` (shadowing), `W0006` (`@deprecated` use), `W0007` (`unsafe:` block) ([§22](LANGUAGE.md#22-appendix-compiler-diagnostic-catalog)).
+- **Robust diagnostics** — comprehensive Rust-style error catalog with codes `E0000`–`E0065` (documented in LANGUAGE.md §22.2) and warnings `W0001` (transmute), `W0002` (echo access), `W0004` (unreachable), `W0005` (shadowing), `W0006` (`@deprecated` use), `W0007` (`unsafe:` block) ([§22](LANGUAGE.md#22-appendix-compiler-diagnostic-catalog)).
 
 ---
 
@@ -109,7 +214,8 @@
 #### Requirements
 
 - **Python 3.11+** (3.10 also works — `requirements.txt` installs the `tomli` backport automatically there).
-- A **C compiler** (`gcc` or `clang`) and static archiver (`ar`/`llvm-ar`) on your `PATH` — on Windows use MinGW-w64 `gcc`.
+- A **C compiler** (`gcc`, `clang` or `tcc`) and static archiver (`ar`/`llvm-ar`) on your `PATH` — on Windows use MinGW-w64 `gcc`. `gcc`/`clang` are the reference backends; TinyCC (TCC) is the fast development compiler bundled with the releases.
+- **`libpengu_runtime.a`** — the C runtime archive produced in `build/lib` by `python build_runtime.py`. `pengu build` always links it (regardless of `links` in `pengu.toml`), and every bundle references `pengu_abi_version()`, so a missing or ABI-mismatched archive fails with an actionable message instead of an `undefined reference`.
 - **CMake and Ninja** — required for the static builds of libuv, libzip, and libexpat.
 - **Node.js 18+ and npm** — only needed to develop or package the VS Code extension.
 
@@ -162,6 +268,10 @@ pip install -r requirements.txt
 
 # Build the C runtime and bundled static libraries into build/lib
 python build_runtime.py
+
+# Confirm the toolchain version (prints the toolchain version, `pengu 2.0.0`);
+# `pengu --version` is an alias.
+pengu -V
 
 # Run the test-suite (parallel; see AGENT_TESTING.md before adding tests)
 pengu selftest
@@ -232,7 +342,9 @@ pengu lsp                   # stdio language server
 pengu doc -o docs/          # generate module reference
 ```
 
-Projects are configured with `pengu.toml` or `pengu.yaml` (mutually exclusive; if both exist, `pengu.toml` wins; examples in `LANGUAGE.md` §14.4 use YAML for brevity) — entry point, output type/name, includes, links, per-profile `cflags`/`defines`, and compiler selection. Under the `debug` profile (default), automatic bounds checking (`pengu_assert_bounds`) and stack trace frames are active for index access; in `release`, bounds checking carries zero runtime overhead. See [docs/PENGU_BUILD.md](docs/PENGU_BUILD.md) for the full guide.
+The core cycle is `init` → `build` → `run`/`test` → `check` → `fmt` → `doc`/`bind`/`lsp`; `pengu -V` (or `pengu --version`) prints the toolchain version.
+
+Projects are configured with `pengu.toml` or `pengu.yaml` (mutually exclusive; if both exist, `pengu.toml` wins; examples in `LANGUAGE.md` §14.4 use YAML for brevity) — entry point, output type/name, includes, links, per-profile `cflags`/`defines`, and compiler selection. Bounds checking is emitted in **every** profile (`--profile release` cannot trade memory safety for speed): `debug` (default) also keeps `-g` and frame-stack traces, while `release` adds `-O3`. The only opt-outs are an explicit `unsafe:` block or `--release-unsafe` ([§5.0](LANGUAGE.md#50-safety-guarantees-and-their-opt-outs)). See [docs/PENGU_BUILD.md](docs/PENGU_BUILD.md) for the full guide.
 
 #### VS Code extension
 
@@ -431,7 +543,7 @@ plus leak checks; run them with `python -m pytest tests/codegen/test_generics_su
 - **Pure PenguScript modules (27):** `spark` (core I/O, formatted output, typed input, ranges & math helpers), `scrolls` (comprehensive string enchanting algorithms, metrics, casing & three-way string ordering), `oracle` (`Maybe`/`Result` containers with native/legacy interoperability), `compass` (cross-platform paths & pattern matching), `archivum` (files, binary I/O & directory traversal), `cipher` (JSON RFC 8259, Base64/32/Hex & validation), `chronicle` (dates, high-res clocks, timers & duration parsing), `lot` (PRNG, statistical distributions, sampling, shuffling & random strings), `arithmancy` (advanced math), `rites` (OS processes, cross-platform environment & system info), `whisper` (structured leveled logging & `Logger` rune), `ward` (defensive invariants, float/range/container assertions & generic `shard T` tests), `trial` (unit testing), `tally` (functional list operations, reductions, insertion sort & statistics), `atlas` (hash map key-value store, combination, bulk accessors & filters), `coven` (unique `SetString`/`SetInt` collections, ritual constructors & set algebra), `regulus` (PCRE2 regex), `parchment` (libxml2 XML/HTML), `seal` (hashing + compression via Mbed TLS/zlib), `precis` (HTTP client/server & sockets), `filum` (threads, typed channels, mutexes & atomic operations), `loom` (sequence pipelines, windowing & generic algorithms), `invoke` (advanced CLI parsing, subcommands, typed flags, multi-options & typo suggestions), `ffi` (C bridge), `celeris` (profiling), `xlsx` (Excel writing), and `ledger` (CSV/TSV parsing, tabular data & matrix enchantments).
 - **C native declaration bindings (25):** `raylib`, `raymath`, `rlgl`, `rlights`, `raygui`, `sqlite3`, `webui`, `miniaudio`, `tomlum`, `yaml`, `uuid`, `xxhash`, `xlsxio`, `imago`, `typis`, `scriptor`, `perlinum`, `stb_image_resize2`, `stb_herringbone_wang_tile`, `nanosvg`, `nanosvgrast`, `minicoro`, `datastructura`, `fenestra`, and `pactum`.
 
-With the completion of **Batch 6 (FINAL)** (`regulus`, `precis`, `parchment`, `seal`, `ffi`, `arithmancy`), the PenguScript 0.15.0 standard library expansion is **🎉 FEATURE-COMPLETE 🎉** across all six planned batches:
+With the completion of **Batch 6 (FINAL)** (`regulus`, `precis`, `parchment`, `seal`, `ffi`, `arithmancy`), the standard-library expansion that began in 0.15.0 is **🎉 FEATURE-COMPLETE 🎉** across all six planned batches:
 1. **Collections & Data Structures:** `tally`, `atlas`, `coven`
 2. **System & Filesystem:** `chronicle`, `compass`, `archivum`
 3. **Runtime, Concurrency & Logging:** `rites`, `filum`, `whisper`
@@ -439,7 +551,7 @@ With the completion of **Batch 6 (FINAL)** (`regulus`, `precis`, `parchment`, `s
 5. **Testing, CLI & Utilities:** `lot`, `ward`, `invoke`
 6. **Advanced Integration & Math Tier:** `regulus` (PCRE2 regex), `precis` (HTTP client/server), `parchment` (libxml2 XML/HTML DOM), `seal` (HMAC, SHA/MD5 hashing & compression), `ffi` (null-safe generic C bridge), `arithmancy` (game-ready linear algebra: Vec2/3/4, Mat4, Quat)
 
-All 52 modules ship comprehensive documentation (`#`/`##` doc comments, audited by `tests/docs/test_std_docs_completeness.py`), full test coverage across `debug` and `release` compilation profiles, 100% backward compatibility with the previous release, and zero C compiler warnings.
+All 52 modules ship comprehensive documentation (`#`/`##` doc comments, audited by `tests/docs/test_std_docs_completeness.py`), full test coverage across `debug` and `release` compilation profiles, 100% backward compatibility across every published version line (pinned by `tests/migration/`), and zero C compiler warnings.
 
 ---
 
@@ -535,6 +647,10 @@ Additional references:
 | -------------------------------------------------------- | ------------------------------------------------------------- |
 | [LANGUAGE.md](LANGUAGE.md)                               | Comprehensive language specification, stdlib, and diagnostics |
 | [CHEATSHEET.md](CHEATSHEET.md)                           | Full language syntax, keywords, and C-translation reference   |
+| [BENCHMARKS.md](BENCHMARKS.md)                           | Published build/run/artifact-size measurements                |
+| [docs/DEPRECATIONS.md](docs/DEPRECATIONS.md)             | Deprecation policy, `@deprecated` aliases and removal windows |
+| `MIGRATION.md`                                           | Migration guide across published version lines (named; kept alongside the corpus in `tests/migration/`) |
+| [VERSION](VERSION)                                       | The single source of truth for the toolchain version          |
 | [docs/PENGU_BUILD.md](docs/PENGU_BUILD.md)               | `pengu` CLI, project config, and the build system             |
 | [CHANGELOG.md](CHANGELOG.md)                             | Version history and per-release feature log                   |
 | [docs/README_RELEASE.md](docs/README_RELEASE.md)         | The standalone `pengucc_build/` release package               |
@@ -627,6 +743,124 @@ PenguScript is released under the **[MIT License](LICENSE)** — © 2026 TuGatit
 
 ## 🇪🇸 Español
 
+> [!WARNING]
+>
+> ### 2.0.0 — publicada, con un alcance declarado
+>
+> PenguScript **2.0.0** está publicada. La superficie pública se congela según
+> [`docs/FREEZE.md`](docs/FREEZE.md), y el contrato de compatibilidad queda fijado
+> por programas que **compilan y se ejecutan**: el corpus de cumplimiento en
+> `tests/conformance/compliance/` (antes `tests/compliance/`) para el lenguaje
+> actual, y `tests/migration/` para cada línea de versión publicada. La 2.0 es una
+> publicación **aditiva** — ningún programa `.pengu` existente deja de compilar;
+> su único cambio real de contrato es que un fuente puede emitir C que el
+> compilador **no** comprueba (`antiquus`, §9.6).
+>
+> Eso **no** significa "todo": borrow checking, async/await, closures con captura,
+> macros de AST, despacho dinámico, reflexión, una stdlib solo con `Result`, los
+> tipos asociados (LANGUAGE.md §11.7), el spread en el punto de llamada
+> (`f(...xs)`, §8.2) y `pengu repl` **no** están en la 2.0. Cada aplazamiento
+> lleva su medición y un marcador ⏸️ explícito en `LANGUAGE.md`; `--strict-c99`
+> sigue sin ser funcional para programas que importan `std` (ver *Novedades de la
+> 2.0*). El alcance exacto de la 1.0, la matriz de compiladores y la cobertura de
+> sanitizers/fuzzing realmente medidas se detallan en
+> [`docs/ANNOUNCEMENT_1.0.md`](docs/ANNOUNCEMENT_1.0.md); la evaluación verificada
+> detrás de esas afirmaciones es `AUDIT_1.0.md` (histórico). La instantánea de
+> preparación anterior, que describe una publicación más antigua, se conserva como
+> documento histórico en [`docs/archive/`](docs/archive/).
+
+### Novedades de la 2.0
+
+PenguScript 2.0 es una publicación **aditiva**: todo programa de la 1.x sigue compilando, y cada novedad de abajo está verificada contra la cadena de herramientas real.
+
+- **Encadenamiento de métodos** — un único `calling` resuelve varios eslabones `.nombre` de izquierda a derecha, cada uno contra el tipo que produce el anterior; la cadena puede repartirse en varias líneas cuando cada continuación empieza por `.` ([§24](LANGUAGE.md#24-method-chaining)):
+
+  ```pengu
+  import std.scrolls
+
+  weave shorten with raw as string into string:
+      return calling raw
+          .trim
+          .substring with 0, 2
+  ```
+
+- **Retornos múltiples** — declara un resultado tupla con `into (T, U)`, devuelve los valores separados por comas y desestructura con `let (q, ok) is …` ([§25](LANGUAGE.md#25-multiple-return-values)):
+
+  ```pengu
+  weave divide with a as int, b as int into (int, bool):
+      if b == 0:
+          return 0, false
+      return (a / b), true
+
+  weave use_div into int:
+      let (q, ok) is calling divide with 10, 2
+      if not ok:
+          return 0
+      return q
+  ```
+
+- **Inicializadores cortos de struct** — un campo cuyo hueco contiene un único nombre desnudo puede omitir `is <valor>`, así que `with name, hp` equivale a `with name is name, hp is hp` ([§26](LANGUAGE.md#26-shorthand-struct-initializers)).
+- **Atributos de declaración** — `@noreturn` (un `weave` `void` que nunca retorna; emite `_Noreturn`), `@export("c_name")` (fija el símbolo C emitido y hace de la declaración una raíz de DCE), `@packed` (sin relleno entre campos) y `@align(N)` (potencia de dos entre 1 y 128) ([§27](LANGUAGE.md#27-function-attributes-noreturn-and-export), [§28](LANGUAGE.md#28-layout-attributes-packed-and-alignn)):
+
+  ```pengu
+  @export("pengu_add")
+  weave add with a as int, b as int into int:
+      return a + b
+
+  @packed
+  rune NetHeader:
+      magic as u16
+      version as u8
+      flags as u8
+      length as u32
+  ```
+
+- **Bloques de C embebidos (`antiquus`)** — una declaración cuyo cuerpo es C literal dentro de un string de comillas triples; usa `r"""…"""` cuando el C contenga barras invertidas. El cuerpo se emite tal cual y **no** se comprueba de tipos, que es el único cambio real de contrato de la 2.0 ([§9.6](LANGUAGE.md#96-antiquus--embedded-c-blocks)):
+
+  ```pengu
+  antiquus fast_abs with x as int into int:
+      r"""
+      return x < 0 ? -x : x;
+      """
+  ```
+
+- **`cyclus`** — marca un tipo intencionadamente autorreferente; el ciclo debe romperse igualmente con indirección de puntero (`ref to`, `maybe ref to`, `slice`, `list`, `map`) ([§9.1.1](LANGUAGE.md#911-cyclus--self-referential-types)):
+
+  ```pengu
+  rune Node cyclus shard T:
+      value as T
+      next as maybe ref to Node of T
+  ```
+
+- **Bloques `unsafe:`** — la única forma en el lenguaje de renunciar a la verificación de límites; cada bloque avisa siempre `[W0007]` para que la exención sea visible en revisión ([§5.0](LANGUAGE.md#50-safety-guarantees-and-their-opt-outs)):
+
+  ```pengu
+  weave sum with xs as array of int, n as int into int:
+      var acc as int is 0
+      unsafe:
+          for i from 0 to n:
+              set acc is acc + (xs at i)
+      return acc
+  ```
+
+- **`many T`** — `with xs as many T` hace variádico un `weave`; el punto de llamada enumera los argumentos con normalidad y el compilador los empaqueta en un slice temporal ([§8.2](LANGUAGE.md#82-declare--external-c-functions)):
+
+  ```pengu
+  weave count_args with xs as many int into int:
+      return (xs length to int)
+  ```
+
+- **`--strict-c99`** — ⏸️ **no es funcional para programas que importan `std`** (medido: 34 de los 61 programas de `tests/std_programs/` fallan con `gcc -std=c99 -pedantic-errors`); aplazado a la 1.1. **No** lo uses como puerta de portabilidad en CI o en la publicación ([§20.2](LANGUAGE.md#202-compilation--build-profiles-pengu-build)).
+- **Compilación cruzada** — `pengu build --target x86_64-w64-mingw32 --cc x86_64-w64-mingw32-gcc` selecciona el SO destino a partir de un triple; solo se admite **Linux ⇄ Windows** ([§20.2.3](LANGUAGE.md#2023-cross-compilation---target)).
+- **Versionado del ABI del runtime** — `pengu_runtime.h` define `PENGU_ABI_VERSION`, el diseño congelado de los contenedores del runtime; cada bundle referencia `pengu_abi_version()`, así que una `libpengu_runtime.a` compilada contra otro ABI falla al enlazar en lugar de reinterpretar los campos de los structs ([§20.2.1](LANGUAGE.md#2021-runtime-abi-version)).
+- **Diagnósticos JSON** — `pengu check --json` y `pengu build --json` emiten un objeto `{"type":"diagnostic",…}` por problema más una línea final de resumen, y nada más por stdout ([§20.2.2](LANGUAGE.md#2022-machine-readable-diagnostics---json)):
+
+  ```bash
+  pengu check --json | jq -c 'select(.type=="diagnostic") | {file,line,col,code}'
+  ```
+
+- **Enlace condicional** — un archivo nativo solo se enlaza cuando se importó el módulo `std` que lo necesita (`std.regulus` → PCRE2, `std.parchment` → libxml2, `std.precis` → libcurl + libmicrohttpd, `std.seal` → zlib + mbedcrypto); un programa sin importaciones nativas enlaza únicamente `libpengu_runtime.a`, y por eso un `hello_world` sin símbolos pesa ~14 KiB (ver [BENCHMARKS.md](BENCHMARKS.md)).
+
 ### Características destacadas
 
 - **Sintaxis pitónica basada en indentación** — sin puntos y coma ni llaves; los bloques se delimitan con espacios en blanco ([§3](LANGUAGE.md#3-lexical-structure)).
@@ -642,9 +876,9 @@ PenguScript is released under the **[MIT License](LICENSE)** — © 2026 TuGatit
 - **Biblioteca estándar completa** — `std/` incluye **52 módulos**: 27 implementados en PenguScript puro (E/S, cadenas, archivos, matemáticas, tiempo, regex, cliente/servidor HTTP, concurrencia, registro de logs, pruebas unitarias, …) más 25 enlaces de declaraciones de C (`*.d.pengu`) para bibliotecas nativas incluidas (entre ellas **raylib**, **raymath**, **rlgl**, **sqlite3**, **webui**, **miniaudio** y **stb**) ([§19](LANGUAGE.md#19-standard-library)).
 - **Recursos embebidos del proyecto (`arca`)** — incrusta recursos binarios y de texto (texturas, shaders, audio, fuentes, HTML/JS/CSS, archivos de configuración) directamente en secciones `.rodata` nativas o los lee desde disco con vistas de puntero sin copia y accesores de slice ([§19.4](LANGUAGE.md#194-embedded-project-assets-arca)).
 - **Servidor de lenguaje (LSP)** — diagnósticos con `help:`/`note:`/intervalos con cursor, documentación a partir de comentarios `#` y `##`, información emergente de tipos y tamaño en memoria, autocompletado con ámbito de módulo, ir a la definición, formateo y acciones de código ([§20.10](LANGUAGE.md#2010-language-server-protocol-pengu-lsp)).
-- **Gestor de proyectos unificado** — la CLI `pengu` crea (`init`), compila (`build`), ejecuta (`run`), prueba (`test`), verifica (`check`), formatea (`fmt`), limpia (`clean`) y documenta (`doc`) proyectos ([§20](LANGUAGE.md#20-tooling--project-layout)).
+- **Gestor de proyectos unificado** — la CLI `pengu` crea (`init`), compila (`build`), ejecuta (`run`), prueba (`test`), verifica (`check`), formatea (`fmt`), limpia (`clean`), documenta (`doc`), genera enlaces de C (`bind`) y lanza el servidor de lenguaje (`lsp`) ([§20](LANGUAGE.md#20-tooling--project-layout)).
 - **Funciones en tiempo de compilación** — condicionales `when` con `else when` / `else`, `defined(...)`, definiciones `-D name=value`, estado `static var` de función y guardas `when main:` para archivos que sirven como módulo y como script ([§16](LANGUAGE.md#16-conditional-compilation-when)).
-- **Diagnósticos robustos** — catálogo completo de errores al estilo de Rust con códigos `E0000`–`E0058` y advertencias `W0001` (transmute), `W0002` (acceso a echo), `W0004` (código inalcanzable), `W0005` (shadowing), `W0006` (uso de `@deprecated`), `W0007` (bloque `unsafe:`) ([§22](LANGUAGE.md#22-appendix-compiler-diagnostic-catalog)).
+- **Diagnósticos robustos** — catálogo completo de errores al estilo de Rust con códigos `E0000`–`E0065` y advertencias `W0001` (transmute), `W0002` (acceso a echo), `W0004` (código inalcanzable), `W0005` (shadowing), `W0006` (uso de `@deprecated`), `W0007` (bloque `unsafe:`) ([§22](LANGUAGE.md#22-appendix-compiler-diagnostic-catalog)).
 
 ---
 
@@ -653,7 +887,8 @@ PenguScript is released under the **[MIT License](LICENSE)** — © 2026 TuGatit
 #### Requisitos
 
 - **Python 3.11+** (3.10 también funciona — allí `requirements.txt` instala automáticamente el backport `tomli`).
-- Un **compilador de C** (`gcc` o `clang`) y un archivador estático (`ar`/`llvm-ar`) en tu `PATH` — en Windows usa el `gcc` de MinGW-w64.
+- Un **compilador de C** (`gcc`, `clang` o `tcc`) y un archivador estático (`ar`/`llvm-ar`) en tu `PATH` — en Windows usa el `gcc` de MinGW-w64. `gcc`/`clang` son los backends de referencia; TinyCC (TCC) es el compilador rápido de desarrollo incluido en las publicaciones.
+- **`libpengu_runtime.a`** — el archivo del runtime de C que `python build_runtime.py` produce en `build/lib`. `pengu build` lo enlaza siempre (independientemente de `links` en `pengu.toml`), y cada bundle referencia `pengu_abi_version()`, así que un archivo ausente o con ABI incompatible falla con un mensaje accionable en lugar de un `undefined reference`.
 - **CMake y Ninja** — necesarios para las compilaciones estáticas de libuv, libzip y libexpat.
 - **Node.js 18+ y npm** — solo se necesitan para desarrollar o empaquetar la extensión de VS Code.
 
@@ -706,6 +941,10 @@ pip install -r requirements.txt
 
 # Build the C runtime and bundled static libraries into build/lib
 python build_runtime.py
+
+# Confirma la versión de la cadena de herramientas (imprime `pengu 2.0.0`);
+# `pengu --version` es un alias.
+pengu -V
 
 # Run the test-suite (en paralelo; lee AGENT_TESTING.md antes de añadir tests)
 pengu selftest
@@ -776,7 +1015,9 @@ pengu lsp                   # stdio language server
 pengu doc -o docs/          # generate module reference
 ```
 
-Los proyectos se configuran con `pengu.toml` o `pengu.yaml` (mutuamente excluyentes; si existen ambos, gana `pengu.toml`; los ejemplos de la §14.4 de `LANGUAGE.md` usan YAML por brevedad) — punto de entrada, tipo y nombre de salida, includes, links, `cflags`/`defines` por perfil y selección de compilador. Con el perfil `debug` (el predeterminado), la verificación automática de límites (`pengu_assert_bounds`) y los marcos de traza de pila están activos para el acceso por índice; en `release`, la verificación de límites no tiene coste en tiempo de ejecución. Consulta [docs/PENGU_BUILD.md](docs/PENGU_BUILD.md) para la guía completa.
+El ciclo principal es `init` → `build` → `run`/`test` → `check` → `fmt` → `doc`/`bind`/`lsp`; `pengu -V` (o `pengu --version`) imprime la versión de la cadena de herramientas.
+
+Los proyectos se configuran con `pengu.toml` o `pengu.yaml` (mutuamente excluyentes; si existen ambos, gana `pengu.toml`; los ejemplos de la §14.4 de `LANGUAGE.md` usan YAML por brevedad) — punto de entrada, tipo y nombre de salida, includes, links, `cflags`/`defines` por perfil y selección de compilador. La verificación de límites se emite en **todos** los perfiles (`--profile release` no puede canjear seguridad de memoria por velocidad): `debug` (el predeterminado) conserva además `-g` y las trazas de pila, mientras que `release` añade `-O3`. Las únicas exenciones son un bloque `unsafe:` explícito o `--release-unsafe` ([§5.0](LANGUAGE.md#50-safety-guarantees-and-their-opt-outs)). Consulta [docs/PENGU_BUILD.md](docs/PENGU_BUILD.md) para la guía completa.
 
 #### Extensión de VS Code
 
@@ -977,7 +1218,7 @@ característica más comprobaciones de fugas; ejecútalos con
 - **Módulos en PenguScript puro (27):** `spark` (E/S básica, salida formateada, entrada tipada, rangos y ayudas matemáticas), `scrolls` (algoritmos completos de manipulación de cadenas, métricas, capitalización y ordenación de cadenas a tres bandas), `oracle` (contenedores `Maybe`/`Result` con interoperabilidad nativa y heredada), `compass` (rutas multiplataforma y coincidencia de patrones), `archivum` (archivos, E/S binaria y recorrido de directorios), `cipher` (JSON RFC 8259, Base64/32/Hex y validación), `chronicle` (fechas, relojes de alta resolución, temporizadores y análisis de duraciones), `lot` (PRNG, distribuciones estadísticas, muestreo, barajado y cadenas aleatorias), `arithmancy` (matemáticas avanzadas), `rites` (procesos del SO, entorno e información del sistema multiplataforma), `whisper` (registro de logs estructurado por niveles y rune `Logger`), `ward` (invariantes defensivos, aserciones de flotantes/rangos/contenedores y pruebas genéricas `shard T`), `trial` (pruebas unitarias), `tally` (operaciones funcionales sobre listas, reducciones, ordenación por inserción y estadísticas), `atlas` (almacén clave-valor con mapas hash, combinación, accesores masivos y filtros), `coven` (colecciones únicas `SetString`/`SetInt`, constructores rituales y álgebra de conjuntos), `regulus` (regex PCRE2), `parchment` (XML/HTML con libxml2), `seal` (hashing y compresión con Mbed TLS/zlib), `precis` (cliente/servidor HTTP y sockets), `filum` (hilos, canales tipados, mutex y operaciones atómicas), `loom` (pipelines de secuencias, ventanas y algoritmos genéricos), `invoke` (análisis avanzado de CLI, subcomandos, flags tipados, multiopciones y sugerencias ante erratas), `ffi` (puente con C), `celeris` (perfilado), `xlsx` (escritura de Excel) y `ledger` (análisis de CSV/TSV, datos tabulares y encantamientos de matrices).
 - **Enlaces de declaraciones nativas de C (25):** `raylib`, `raymath`, `rlgl`, `rlights`, `raygui`, `sqlite3`, `webui`, `miniaudio`, `tomlum`, `yaml`, `uuid`, `xxhash`, `xlsxio`, `imago`, `typis`, `scriptor`, `perlinum`, `stb_image_resize2`, `stb_herringbone_wang_tile`, `nanosvg`, `nanosvgrast`, `minicoro`, `datastructura`, `fenestra` y `pactum`.
 
-Con la finalización del **Lote 6 (FINAL)** (`regulus`, `precis`, `parchment`, `seal`, `ffi`, `arithmancy`), la ampliación de la biblioteca estándar de PenguScript 0.15.0 está **🎉 COMPLETA 🎉** en los seis lotes previstos:
+Con la finalización del **Lote 6 (FINAL)** (`regulus`, `precis`, `parchment`, `seal`, `ffi`, `arithmancy`), la ampliación de la biblioteca estándar que comenzó en la 0.15.0 está **🎉 COMPLETA 🎉** en los seis lotes previstos:
 1. **Colecciones y estructuras de datos:** `tally`, `atlas`, `coven`
 2. **Sistema y sistema de archivos:** `chronicle`, `compass`, `archivum`
 3. **Runtime, concurrencia y logs:** `rites`, `filum`, `whisper`
@@ -985,7 +1226,7 @@ Con la finalización del **Lote 6 (FINAL)** (`regulus`, `precis`, `parchment`, `
 5. **Pruebas, CLI y utilidades:** `lot`, `ward`, `invoke`
 6. **Integración avanzada y nivel matemático:** `regulus` (regex PCRE2), `precis` (cliente/servidor HTTP), `parchment` (DOM XML/HTML con libxml2), `seal` (HMAC, hashing SHA/MD5 y compresión), `ffi` (puente genérico con C a prueba de nulos), `arithmancy` (álgebra lineal lista para juegos: Vec2/3/4, Mat4, Quat)
 
-Los 52 módulos incluyen documentación completa (docstrings `##`), cobertura de pruebas total en los perfiles de compilación `debug` y `release`, compatibilidad hacia atrás del 100 % con PenguScript 0.14.x y cero advertencias del compilador de C.
+Los 52 módulos incluyen documentación completa (docstrings `##`), cobertura de pruebas total en los perfiles de compilación `debug` y `release`, compatibilidad hacia atrás del 100 % con cada línea de versión publicada (fijada por `tests/migration/`) y cero advertencias del compilador de C.
 
 ---
 
@@ -1081,6 +1322,10 @@ Referencias adicionales:
 | -------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | [LANGUAGE.md](LANGUAGE.md)                               | Especificación completa del lenguaje, biblioteca estándar y diagnósticos      |
 | [CHEATSHEET.md](CHEATSHEET.md)                           | Sintaxis completa del lenguaje, palabras clave y referencia de traducción a C |
+| [BENCHMARKS.md](BENCHMARKS.md)                           | Mediciones publicadas de compilación, ejecución y tamaño de artefacto         |
+| [docs/DEPRECATIONS.md](docs/DEPRECATIONS.md)             | Política de obsolescencia, alias `@deprecated` y ventanas de eliminación      |
+| `MIGRATION.md`                                           | Guía de migración entre líneas de versión publicadas (nombrada; se conserva junto al corpus en `tests/migration/`) |
+| [VERSION](VERSION)                                       | La única fuente de verdad de la versión de la cadena de herramientas          |
 | [docs/PENGU_BUILD.md](docs/PENGU_BUILD.md)               | CLI `pengu`, configuración de proyecto y sistema de compilación               |
 | [CHANGELOG.md](CHANGELOG.md)                             | Historial de versiones y registro de características por publicación          |
 | [docs/README_RELEASE.md](docs/README_RELEASE.md)         | El paquete de publicación independiente `pengucc_build/`                      |

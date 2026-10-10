@@ -13,21 +13,27 @@
 
 ## Tabla de contenidos
 
-1. [Filosofía del código Pengunic](#1-filosofía-del-código-pengunic)
-2. [Nomenclatura](#2-nomenclatura)
-3. [Organización de módulos y archivos](#3-organización-de-módulos-y-archivos)
-4. [Expresiones sobre sentencias](#4-expresiones-sobre-sentencias)
-5. [Optionals, resultados y errores](#5-optionals-resultados-y-errores)
-6. [Enchantments, rituals y concepts](#6-enchantments-rituals-y-concepts)
-7. [Genéricos y bounds](#7-genéricos-y-bounds)
-8. [Gestión manual de memoria](#8-gestión-manual-de-memoria)
-9. [Interoperabilidad con C](#9-interoperabilidad-con-c)
+1.  [Filosofía del código Pengunic](#1-filosofía-del-código-pengunic)
+2.  [Nomenclatura](#2-nomenclatura)
+3.  [Organización de módulos y archivos](#3-organización-de-módulos-y-archivos)
+4.  [Expresiones sobre sentencias](#4-expresiones-sobre-sentencias)
+5.  [Optionals, resultados y errores](#5-optionals-resultados-y-errores)
+6.  [Enchantments, rituals y concepts](#6-enchantments-rituals-y-concepts)
+7.  [Genéricos y bounds](#7-genéricos-y-bounds)
+8.  [Gestión manual de memoria](#8-gestión-manual-de-memoria)
+9.  [Interoperabilidad con C](#9-interoperabilidad-con-c)
 10. [Diseño de APIs](#10-diseño-de-apis)
 11. [Documentación (`##`)](#11-documentación-)
 12. [Pruebas (`test`)](#12-pruebas-test)
 13. [Tabla de traducción C → Pengunic](#13-tabla-de-traducción-c--pengunic)
 14. [Anti-patrones](#14-anti-patrones)
 15. [Excepciones documentadas](#15-excepciones-documentadas)
+16. [Cadenas de métodos](#16-cadenas-de-métodos)
+17. [Múltiples valores de retorno (tuplas)](#17-múltiples-valores-de-retorno-tuplas)
+18. [Inicializadores cortos de struct](#18-inicializadores-cortos-de-struct)
+19. [Atributos de declaración](#19-atributos-de-declaración)
+20. [Bloques C embebidos (`antiquus`)](#20-bloques-c-embebidos-antiquus)
+21. [`cyclus` y tipos recursivos](#21-cyclus-y-tipos-recursivos)
 
 ---
 
@@ -1182,6 +1188,16 @@ test "split handles consecutive separators":
 | `enum { A, B };` | `omen X: A B` | igual con valores explícitos |
 | `strlen(s)` | `calling scrolls.len with s` | `s.length` (postfix) |
 | `strcmp(a,b) < 0` | `calling scrolls.compare with a, b < 0` | igual (¡`<` no existe en strings!) |
+| `x.a(); x.b(); x.c();` | `calling x.a` `calling x.b` `calling x.c` | `calling x.a.b.c` |
+| `x.a().b()` con línea larga | `let y is calling x.a.b` en una línea | cadena multilínea `.a` / `.b` |
+| `struct { int q; bool ok; }` de retorno | `var out as ref to ...` out-param + `bool` | `into (int, bool)` + desestructurar |
+| `r->x = a; r->y = b;` con `a`/`b` locales | `set r->x is a` `set r->y is b` | `with r: set .x is a; set .y is b` |
+| `#define X(a) ...` (macro inline) | (función normal) | `@noreturn` / `@export` / `@packed` / `@align` según el caso |
+| `__attribute__((noreturn))` | (no expresable) | `@noreturn weave … into void` |
+| `__attribute__((packed))` | (no expresable) | `@packed rune …` |
+| `__attribute__((aligned(N)))` | (no expresable) | `@align(N)` |
+| `struct { struct T next; }` (recursivo) | (no compila, `E0050`) | `rune T cyclus:` + `maybe ref to T` |
+| `static inline` con C manual para hot path | `antiquus` sin justificar | `weave inline` primero; `antiquus` solo con benchmark documentado |
 
 ---
 
@@ -1362,6 +1378,148 @@ weave push_if_new with xs as ref to list of int, v as int into bool:
     return true
 ```
 
+### 14.15 Encadenar mutación y lectura
+
+```pengu
+# ❌ Anti-Pengunic
+calling xs.push with 10.reverse.sort_asc
+
+# ✅ Pengunic
+calling xs.push with 10
+calling xs.reverse
+calling xs.sort_asc
+```
+
+### 14.16 Desempaquetar tuplas a mano
+
+```pengu
+# ❌
+var pair as (int, bool) is calling divide with 10, 2
+if pair.v1:
+    return pair.v0
+
+# ✅
+let (q, ok) is calling divide with 10, 2
+if ok:
+    return q
+```
+
+### 14.17 `antiquus` para lógica expresable en PenguScript
+
+```pengu
+# ❌ Anti-Pengunic: C innecesario
+antiquus max_of with a as int, b as int into int:
+    r"""return a > b ? a : b;"""
+
+# ✅ Pengunic
+weave max_of with a as int, b as int into int:
+    if a > b:
+        return a
+    return b
+```
+
+### 14.18 `@noreturn` sin garantía
+
+```pengu
+# ❌ Anti-Pengunic: puede retornar
+@noreturn
+weave maybe_fail into void:
+    if cond:
+        calling spark.exit with 1
+
+# ✅ Pengunic: retorno garantizado
+@noreturn
+weave fail_hard with msg as string into void:
+    calling spark.eprintln with msg
+    calling spark.exit with 1
+```
+
+### 14.19 `@export` sin prefijo de proyecto
+
+```pengu
+# ❌ Anti-Pengunic: colisiona con 'process' de libc
+@export("process")
+weave do_process into void: ...
+
+# ✅ Pengunic: prefijo de proyecto
+@export("pengu_myapp_process")
+weave do_process into void: ...
+```
+
+### 14.20 `@packed` fuera de la frontera binaria
+
+```pengu
+# ❌ Anti-Pengunic
+@packed
+rune Player:
+    name as string
+    hp as int
+
+# ✅ Pengunic: solo cuando el layout importa
+@packed
+rune NetHeader:
+    magic as u16
+    version as u8
+```
+
+### 14.21 `cyclus` decorativo
+
+```pengu
+# ❌ Anti-Pengunic
+rune Point cyclus:
+    x as int
+    y as int
+
+# ✅ Pengunic: solo cuando hay recursión real
+rune TreeNode cyclus:
+    value as int
+    left as maybe ref to TreeNode
+```
+
+### 14.22 Cuerpo C indentado en `antiquus`
+
+```pengu
+# ❌ Anti-Pengunic: el C va indentado dentro del string
+antiquus fast_abs with x as int into int:
+    """
+        return x < 0 ? -x : x;
+    """
+
+# ✅ Pengunic: el C a columna 0
+antiquus fast_abs with x as int into int:
+    r"""
+return x < 0 ? -x : x;
+"""
+```
+
+### 14.23 Cuerpo C sin documentar el motivo
+
+```pengu
+# ❌ Anti-Pengunic: ¿por qué C?
+antiquus fast_abs with x as int into int:
+    r"""return x < 0 ? -x : x;"""
+
+# ✅ Pengunic: motivo medible
+## Devuelve |x| sin ramas; el ternario provoca branch misprediction
+## de ~8 ns/llamada en el bucle interno (bench/scanline.md).
+antiquus fast_abs with x as int into int:
+    r"""return x < 0 ? -x : x;"""
+```
+
+### 14.24 Inicializador corto en struct grande o heterogéneo
+
+```pengu
+# ❌ Anti-Pengunic: ¿qué campos son cortos y cuáles no?
+return with host, port, timeout_ms is 30000, retries is 3
+
+# ✅ Pengunic: explícito cuando los campos no son triviales
+return with
+    host is host,
+    port is 8080,
+    timeout_ms is 30000,
+    retries is 3
+```
+
 ---
 
 ## 15. Excepciones documentadas
@@ -1381,6 +1539,10 @@ derivación completa está en [`AUDIT_1.0_FASE7.md`](AUDIT_1.0_FASE7.md) §7.7.
 | Un local no puede ensombrecer un `weave` global (§2.6) | **Exigida** | `0 W0005` en los 27 módulos escritos a mano de `std/` | `python pengu_project.py check --entry std/<módulo>.pengu` |
 | Sin conversiones inseguras (§9.4) | **Exigida** | `0 W0001` en los 27 módulos y **cero** llamadas a `transmute` en `std/` — la única aparición es un comentario explicativo en `std/ffi.pengu:67`. Si alguna vez hiciera falta, queda confinada a `std/ffi` y `std/filum` y debe ser del mismo tamaño | `python pengu_project.py check --entry std/<módulo>.pengu` |
 | Los nombres y las firmas son consistentes entre módulos (§10.3) | **Relajada — excepción con nombre** | `std.loom` y `std.tally` comparten deliberadamente 15 nombres con contratos *distintos* (`loom.mean([1,2]) == 1.5` frente a `tally.mean([1,2]) == 1`; `loom.mode([])` → `none` frente a `tally.mode([])` → `0`). Son contratos documentados, no deriva | ver [`LANGUAGE.md` §19.1.1](LANGUAGE.md#1911-choosing-between-stdloom-and-stdtally) |
+| Los `antiquus` públicos documentan motivo medible (§20.6) | **En observación** | Sin corpus todavía; primera medición en la próxima fase | `python -m pytest tests/test_antiquus_docs.py -q` (pendiente) |
+| Los `@export` usan prefijo `pengu_<módulo>_` (§19.2) | **En observación** | Sin corpus todavía | `python pengu_project.py check --entry std/<módulo>.pengu` |
+| Las cadenas de métodos no mezclan mutación y lectura (§16.1) | **En observación** | Sin corpus todavía | `pengu fmt --check std/` (regla heurística, no automática) |
+| Los `rune` con `cyclus` documentan la indirección (§21.3) | **En observación** | Sin corpus todavía | `python -m pytest tests/test_std_docs_completeness.py -q` |
 
 Dos consecuencias que conviene decir claramente, porque auditorías anteriores
 afirmaban lo contrario:
@@ -1397,3 +1559,603 @@ afirmaban lo contrario:
 
 Una regla sólo entra en esta tabla con una medición y un comando. Si un cambio
 futuro rompe una fila *Exigida*, eso es una regresión, no una excepción nueva.
+
+> Cuando el corpus exista, estas filas se miden con el mismo estándar que las demás: o pasan a **Exigida** con número, o se acotan, o se relajan con excepción con nombre.
+
+---
+
+## 16. Cadenas de métodos
+
+La sintaxis `calling x.a.b.c` permite encadenar varias llamadas a método sobre un solo receptor. Cada eslabón `.nombre` se resuelve contra el tipo que produce el eslabón anterior. Es **azúcar de composición**, no llamada con paréntesis: el bloque `with` pertenece al **último** eslabón.
+
+### 16.1 Cuándo encadenar
+
+**Encadena cuando la cadena lee como una transformación lineal**, sin ramas ni efectos laterales intermedios:
+
+```pengu
+# ✅ Pengunic: cada paso transforma el valor anterior
+let slug is calling raw.trim.lower.replace with " ", "-"
+
+# ✅ Pengunic: cadena de transformaciones puras sobre colecciones
+let top5 is calling scores.filter_positive.sort_desc.take with 5
+```
+
+**No encadenes cuando:**
+
+| Situación | Qué hacer |
+|---|---|
+| Un eslabón intermedio necesita un nombre propio | Rompe la cadena y nómbralo |
+| La cadena supera 4–5 eslabones | Divide en funciones |
+| Un eslabón muta el receptor (`push`, `set_*`, `clear`) | Separa mutación de lectura |
+| Un eslabón requiere argumentos y no es el último | Rompe la cadena |
+| Un eslabón resuelve a un **campo**, no a un método | No es cadena, es acceso a campo |
+
+```pengu
+# ❌ Anti-Pengunic: mezcla lectura y mutación
+calling xs.push with 10.reverse.sort_asc
+
+# ✅ Pengunic: separa la mutación de la lectura
+calling xs.push with 10
+calling xs.reverse
+calling xs.sort_asc
+```
+
+### 16.2 Cadenas multilínea
+
+Para cadenas largas, una línea de continuación empieza por `.` (o `->`) y se pliega en la línea anterior antes del lexer. El plegado **preserva la numeración de líneas**: un diagnóstico sobre una expresión encadenada señala la línea donde *empieza* la cadena.
+
+```pengu
+# ✅ Pengunic: multilínea, un eslabón por línea
+let slug is calling raw
+    .trim
+    .lower
+    .replace with " ", "-"
+
+# ❌ Anti-Pengunic: línea larga ilegible
+let slug is calling raw.trim.lower.replace with " ", "-"
+```
+
+**Reglas de formato:**
+
+- Un eslabón por línea.
+- Indentación: **un nivel** (4 espacios) respecto a la línea que abre la cadena.
+- El primer eslabón (`.trim`) va en la línea siguiente al receptor.
+- No mezcles `.` y `->` en la misma cadena.
+- Las líneas dentro de un string con comillas triples **nunca** se pliegan.
+
+### 16.3 El bloque `with` pertenece al último eslabón
+
+```pengu
+# ✅ 'with " ", "-"' se aplica a '.replace', no a '.lower'
+let slug is calling raw.trim.lower.replace with " ", "-"
+```
+
+Si un eslabón intermedio necesita argumentos y no es el último, la cadena no se puede escribir; pártela:
+
+```pengu
+# ❌ Anti-Pengunic: no hay forma de dar 'with 0, 4' al 'substring' intermedio
+# let slug is calling raw.trim.substring with 0, 4.lower
+
+# ✅ Pengunic: dos expresiones, nombres explícitos
+let head is calling raw.trim.substring with 0, 4
+let slug is calling head.lower
+```
+
+### 16.4 Cadenas y genéricos
+
+La resolución de cada eslabón es monomorfización bajo demanda: el compilador instancia el método genérico solo para el tipo concreto del eslabón anterior. **No hay sobrecoste en runtime.**
+
+```pengu
+# ✅ Un solo 'calling' encadena métodos genéricos sobre 'map of shard K to shard V'
+let short is calling registry
+    .keys_sorted
+    .first_or with "none"
+
+# ✅ En una cadena, el receptor puede ser un 'ref to T':
+calling self
+    .remove with old_key
+    .put with new_key, val
+```
+
+Cuando el receptor es `self` dentro de un `enchanting`, la cadena funciona igual y es la forma idiomática de aplicar varias mutaciones coordinadas:
+
+```pengu
+enchanting Registry:
+    weave rename_key with old_key as K, new_key as K into bool:
+        if not (calling self.contains with old_key):
+            return false
+        var val as V is self at old_key
+        calling self
+            .remove with old_key
+            .put with new_key, val
+        return true
+```
+
+### 16.5 Anti-patrones
+
+```pengu
+# ❌ Cadena de campos (no es cadena de métodos)
+calling p.address.city.zip_code
+
+# ❌ Cadena con un mutador en medio
+calling xs.push with 10.reverse
+
+# ❌ Cadena de más de 5 eslabones
+calling raw.trim.lower.replace(" ", "-").split("-").filter_nonempty.first_or("none")
+
+# ❌ Mezclar '.' y '->'
+calling self.method1->method2
+
+# ✅ Pengunic equivalente
+let slug is calling raw
+    .trim
+    .lower
+    .replace with " ", "-"
+let first is calling slug.split with "-" . first_or with "none"
+```
+
+---
+
+## 17. Múltiples valores de retorno (tuplas)
+
+Cuando una operación produce varios valores relacionados, **declara una tupla** en lugar de forzar al caller a usar `maybe` + out-params o un `rune` de un solo uso.
+
+### 17.1 Cuándo usar tuplas (y cuándo no)
+
+| Situación | Tipo | Ejemplo |
+|---|---|---|
+| Un valor **y** un indicador de éxito | `(T, bool)` | `divide → (int, bool)` |
+| Un valor **y** metadatos calculados juntos | `(T, U)` | `parse_header → (string, usize)` |
+| Varios valores **con nombre propio** en el dominio | `rune` dedicado | `Point → rune` |
+| Un valor o un fallo detallado | `result of T to E` | §5 |
+| Un valor o nada | `maybe T` | §5 |
+
+**Regla de decisión:**
+
+> Si los valores tienen nombres independientes en el dominio (un `Point` tiene `x` e `y` **como conceptos**), usa un `rune`. Si solo tienen sentido juntos y son efímeros (se desempaquetan inmediatamente), usa una tupla.
+
+### 17.2 Nomenclatura
+
+| Elemento | Convención | Ejemplo |
+|---|---|---|
+| `weave` que devuelve tupla | verbo base, sin sufijo | `divide`, `split_first`, `parse_pair` |
+| Nombres en la desestructuración | `snake_case` descriptivo | `let (q, ok) is …` |
+| Acceso por campo en tuplas anónimas | `v0`, `v1`, … (rara vez) | `pair.v0` |
+
+**Nunca** mezcles tuplas con los prefijos de §2.3:
+
+- Una función que devuelve `(T, bool)` **no** debe llamarse `try_*` ni `parse_*`: esos prefijos implican `maybe`/`result`.
+- Una función que devuelve `(T, bool)` **no** debe llamarse `find_*`: ese prefijo implica `maybe`.
+
+### 17.3 Desestructuración canónica
+
+```pengu
+# ✅ Pengunic: desestructura al recibir, usa los nombres directamente
+weave compute into int:
+    let (q, ok) is calling divide with 10, 2
+    if not ok:
+        return 0
+    return q
+
+# ❌ Anti-Pengunic: desempaquetar a mano
+weave compute into int:
+    var pair as (int, bool) is calling divide with 10, 2
+    if not pair.v1:
+        return 0
+    return pair.v0
+```
+
+- El número de nombres debe coincidir con el número de elementos (`E0017`).
+- Se prefieren las formas **con paréntesis** `let (x, y) is p` en código nuevo; `let x, y is p` es equivalente pero menos visible.
+- Los nombres van en `snake_case` descriptivo, **no** en `v0`/`v1`.
+
+### 17.4 Tuplas y `try` / `or else` / `or:`
+
+Las tuplas **no** componen con `try`, `or else` ni bloques `or:`. Si el resultado puede fallar, usa `result of T to E`:
+
+```pengu
+# ❌ Anti-Pengunic: mezclar tupla y 'try'
+# let (v, ok) is try calling parse_pair with s
+
+# ✅ Pengunic: 'result' cuando puede fallar
+weave parse_pair with s as string into result of (int, int) to string:
+    ...
+```
+
+### 17.5 Anti-patrones
+
+```pengu
+# ❌ Tupla para dos valores con nombre propio
+weave make_point with x as int, y as int into (int, int):
+    return x, y
+# ✅ Esto es un 'rune Point'.
+
+# ❌ Tupla + 'try'
+# let (v, ok) is try calling f with x
+
+# ❌ Nombres v0/v1 en la desestructuración
+let (v0, v1) is calling divide with 10, 2
+```
+
+---
+
+## 18. Inicializadores cortos de struct
+
+Dentro de un literal `with`, un campo puede omitir `is <valor>` y tomar el binding del mismo nombre. La reescritura ocurre **antes de parsear** y nunca añade ni quita líneas, así que `#line` y las posiciones de diagnóstico siguen exactas.
+
+### 18.1 Cuándo usar la forma corta
+
+```pengu
+# ✅ Pengunic: nombre de campo y binding coinciden exactamente
+weave make with name as string, hp as int into Player:
+    return with name, hp
+
+# ✅ equivalente explícito (a veces preferible por claridad)
+weave make with name as string, hp as int into Player:
+    return with name is name, hp is hp
+```
+
+| Situación | ¿Forma corta? |
+|---|---|
+| Campo `name`, binding `name`, mismo tipo | ✅ Sí |
+| Campo `name`, binding `n` (distinto nombre) | ❌ No — `with name is n` |
+| Campo `name`, binding `name` pero tipo convertible (`seal`) | ❌ No — convierte explícitamente |
+| Campo privado `_secret`, binding `_s` | ❌ No — la privacidad y el binding son cosas distintas |
+| Campo `name`, binding local que ensombrece un `weave` global | ❌ No — evita `W0005` |
+
+### 18.2 Mezcla con la forma explícita
+
+```pengu
+var p as Player with:
+    name,                       # forma corta
+    hp is 100,                  # forma explícita
+    _secret_id is 0
+```
+
+Se pueden mezclar sin problema. La única restricción es que cada miembro sea **o** un nombre desnudo **o** `campo is <expr>`; no se admiten nombres con `as` ni expresiones sueltas.
+
+### 18.3 La forma corta **no** convierte tipos
+
+```pengu
+# ❌ Anti-Pengunic: 'name' es 'string' pero el campo espera un 'seal Name'
+weave make with name as string into User:
+    return with name                # E0005
+
+# ✅ Pengunic: convierte explícitamente
+weave make with name as string into User:
+    return with name is (name to Name)
+```
+
+La forma corta es azúcar sintáctico para `campo is campo`; no inserta conversiones.
+
+### 18.4 Anti-patrón: forma corta en structs grandes
+
+```pengu
+# ❌ Anti-Pengunic: ¿qué campos son cortos y cuáles explícitos?
+rune Config:
+    host as string
+    port as int
+    timeout_ms as int
+    retries as int
+
+weave make_default with host as string into Config:
+    let port is 8080
+    return with host, port, timeout_ms is 30000, retries is 3
+
+# ✅ Pengunic: explícito si los campos no son triviales
+weave make_default with host as string into Config:
+    return with
+        host is host,
+        port is 8080,
+        timeout_ms is 30000,
+        retries is 3
+```
+
+**Regla:** la forma corta es aceptable solo cuando **todos los campos del literal son o cortos o explícitos pero simples**, y el struct tiene ≤ 4 campos. En structs grandes o con campos de distinto origen, la forma explícita gana en legibilidad.
+
+---
+
+## 19. Atributos de declaración
+
+PenguScript expone cuatro atributos a nivel de declaración. Cada uno tiene reglas de estilo propias y una justificación concreta.
+
+### 19.1 `@noreturn`
+
+Marca un `weave` que **nunca retorna** a quien lo llamó. El weave debe declararse `into void` (`E0056`).
+
+```pengu
+# ✅ Pengunic: aborto garantizado
+@noreturn
+weave fail_hard with msg as string into void:
+    calling spark.eprintln with msg
+    calling spark.exit with 1
+```
+
+**Reglas:**
+
+- Solo se aplica a `weave`; nunca a `rune`, `omen` ni `declare`.
+- El cuerpo **debe** terminar en una ruta que no retorne (`exit`, `panic`, `abort`, un `antiquus` con `_Noreturn`).
+- **No** marques `@noreturn` una función que solo *probablemente* no retorna; el compilador no lo verifica más allá del contrato de tipo.
+- El C generado lleva `_Noreturn` tanto en el prototipo como en la definición (`__declspec(noreturn)` en MSVC).
+
+### 19.2 `@export("c_name")`
+
+Fija el símbolo C emitido. Es el punto de entrada FFI para consumidores C.
+
+```pengu
+# ✅ Pengunic: nombre C estable con prefijo de proyecto
+@export("pengu_myapp_add")
+weave add with a as int, b as int into int:
+    return a + b
+```
+
+**Reglas de estilo:**
+
+- **Nunca** exportes con el nombre C por defecto (el que emitiría el compilador). Si exportas, **siempre** pasa un nombre C explícito.
+- El nombre C debe empezar por `pengu_<módulo>_` (o el namespace del proyecto). Nunca uses un nombre "desnudo" (`process`, `add`, `read`): colisiona con libc.
+- El nombre C debe ser **estable**: cambiarlo es un **breaking change de ABI**, no de API.
+- Un `weave` exportado es **raíz de DCE**: sobrevive aunque nadie lo llame desde PenguScript. No exportes funciones internas "por si acaso".
+- El nombre en PenguScript **no cambia**: `calling add with 1, 2` sigue siendo el call site.
+
+### 19.3 `@packed`
+
+Elimina el relleno entre campos de un `rune`. Solo debe usarse cuando **el layout binario importa**.
+
+```pengu
+# ✅ Pengunic: struct que mapea un formato en disco o red
+@packed
+rune NetHeader:
+    magic as u16
+    version as u8
+    flags as u8
+    length as u32
+```
+
+**Reglas:**
+
+- **Solo** en `rune` que cruzan una frontera binaria (archivo, red, FFI con `memcpy`).
+- **Nunca** en `rune` de uso general: rompe la alineación natural y penaliza el acceso.
+- Si un `rune` tiene `@packed`, **documéntalo** en el docstring del tipo: es un contrato de layout.
+- `@packed` **no se aplica a `echo`**: una unión de C tiene sus propias reglas.
+
+### 19.4 `@align(N)`
+
+Fija la alineación de un `rune` o de un campo. `N` debe ser potencia de dos entre 1 y 128 (`E0056`).
+
+```pengu
+# ✅ Pengunic: alinear un buffer para SIMD
+@align(32)
+rune AlignedBlock:
+    _data as array of f32 with size 8
+
+# ✅ alinear un campo concreto dentro de su struct
+rune Mixed:
+    a as u8
+    @align(4) b as u32
+    c as u8
+```
+
+**Reglas:**
+
+- **Úsalo** cuando una API C exige una alineación concreta (SIMD, DMA, instrucciones atómicas).
+- **No lo uses** para "optimizar" sin medir: la alineación natural suele ser la correcta.
+- Documenta en el docstring **por qué** se necesita esa alineación, no solo cuál es.
+
+### 19.5 Anti-patrones
+
+```pengu
+# ❌ @noreturn sin garantía de no-retorno
+@noreturn
+weave maybe_fail into void:
+    if cond:
+        calling spark.exit with 1
+    # si 'cond' es falsa, retorna → E0056
+
+# ❌ @export sin prefijo de proyecto
+@export("process")             # colisiona con 'process' de libc
+weave do_process into void: ...
+
+# ❌ @packed en un rune de uso general
+@packed
+rune Player:                   # no cruza ninguna frontera binaria
+    name as string
+    hp as int
+
+# ❌ @align sin documentar el motivo
+@align(64)
+rune Foo:                      # ¿por qué 64? nadie lo sabe
+    x as int
+```
+
+---
+
+## 20. Bloques C embebidos (`antiquus`)
+
+Un `antiquus` declara una función cuyo cuerpo es **C literal**. Es la vía de escape del lenguaje, y por eso mismo **la regla de estilo más importante del documento**: cada `antiquus` es deuda técnica explícita y debe justificarse.
+
+### 20.1 Cuándo **sí** usar `antiquus`
+
+Solo en cuatro casos, en este orden de preferencia:
+
+1. **Primitivas del sistema** que no tienen binding en `std.*`: syscalls, instrucciones de CPU, contadores de hardware.
+2. **Código crítico para el rendimiento ya medido**, donde la diferencia es real y verificable.
+3. **Glue FFI** para una API C que no se puede expresar como `declare` (por ejemplo, callbacks con contexto que exigen macros C).
+4. **Reimplementar helpers del runtime** en el módulo `std` que los usa, para que DCE pueda podarlos.
+
+### 20.2 Cuándo **no** usar `antiquus`
+
+- **Nunca** para lógica que PenguScript ya expresa (bucles, condicionales, manejo de errores, colecciones). Reescribir eso en C pierde type checking y ownership tracking sin ganar nada.
+- **Nunca** para FFI a una biblioteca existente: usa `declare` + `include` + `link`.
+- **Nunca** para "saltarse" el sistema de tipos.
+
+> **Regla mnemotécnica:** si tu `antiquus` tiene un `if` o un `for`, probablemente debería ser un `weave`.
+
+### 20.3 Nomenclatura
+
+| Rol | Nombre | Ejemplo |
+|---|---|---|
+| Primitiva de sistema | verbo + sufijo del sistema | `read_tsc`, `cpu_relax`, `syscall_write` |
+| Helper de bajo nivel | `fast_*`, `raw_*` | `fast_abs`, `raw_memcpy` |
+| Reimplementación de runtime | mismo nombre que el helper | `print_int`, `list_push` |
+| Glue FFI | nombre del símbolo C con prefijo | `cb_register_signal` |
+
+- **Prefijo `pengu_` prohibido** para `antiquus` de usuario (lo usa el compilador).
+- **Prefijo `_`** si es privado del módulo.
+
+### 20.4 `@export` y DCE
+
+Un `antiquus` en un módulo `std/` o `lib/` es **podado por DCE** si nadie lo referencia. Para que sobreviva como punto de entrada FFI:
+
+```pengu
+# ✅ Pengunic: 'antiquus' que debe sobrevivir como símbolo C
+@export("pengu_fast_double")
+antiquus fast_double with x as int into int:
+    r"""
+    return x * 2;
+    """
+```
+
+**Regla:** todo `antiquus` en `std/` o `lib/` que sea punto de entrada FFI **debe** llevar `@export("...")` con prefijo `pengu_<módulo>_`.
+
+### 20.5 El cuerpo C: reglas de estilo
+
+```pengu
+antiquus fast_abs with x as int into int:
+    r"""
+return x < 0 ? -x : x;
+"""
+```
+
+- **Usa `r"""..."""`** cuando el C contiene barras invertidas (`printf`, regex, rutas): evita escapes dobles.
+- **Usa `"""..."""`** cuando no las contiene; es más legible.
+- **Indentación del C:** el cuerpo se emite con `#line 1 "antiquus:<nombre>"`, así que la indentación del C dentro del string es **literal**. Mantén el C a columna 0 dentro del string.
+
+```pengu
+# ❌ Anti-Pengunic: el C queda indentado, ofusca el diagnóstico
+antiquus fast_abs with x as int into int:
+    """
+        return x < 0 ? -x : x;
+    """
+
+# ✅ Pengunic: el C a columna 0
+antiquus fast_abs with x as int into int:
+    r"""
+return x < 0 ? -x : x;
+"""
+```
+
+- **Una sola responsabilidad por `antiquus`:** si el C tiene más de ~10 líneas, divídelo.
+- **Parámetros con nombres C válidos:** `if`, `int`, `while` como parámetros son `E0035`; usa `condition`, `value`, `running`.
+- **`many T` prohibido:** usa `slice of T` y lee `.data` / `.len`.
+
+### 20.6 Documentación obligatoria
+
+Todo `antiquus` público **debe** documentar:
+
+```pengu
+## Devuelve el valor absoluto de `x` sin ramas usando la instrucción de CPU.
+##
+## ## Motivo
+## Se usa en el bucle interno de `render_scanline`, donde la rama del
+## ternario provoca un `branch misprediction` medido de ~8 ns/llamada
+## (ver benchmarks/scanline.md). Un `weave` equivalente es 3× más lento
+## en el mismo perfil.
+##
+## ## Precondiciones
+## - `x` debe ser un `int` de 32 bits.
+##
+## ## Memoria
+## No asigna memoria. No hay nada que liberar.
+antiquus fast_abs with x as int into int:
+    r"""
+    return x < 0 ? -x : x;
+    """
+```
+
+**Secciones obligatorias:**
+
+1. **Resumen** de una línea.
+2. **Motivo:** por qué C y no PenguScript. Debe ser **medible** (benchmark, limitación del lenguaje, contrato de C).
+3. **Precondiciones** si las hay (ownership, alineación, rango de valores).
+4. **Memoria:** quién libera, o "no asigna".
+
+### 20.7 Anti-patrones
+
+```pengu
+# ❌ Anti-Pengunic: lógica que PenguScript ya expresa
+antiquus sum_list with xs as list of int into int:
+    r"""
+    int acc = 0;
+    for (int i = 0; i < xs.len; i++) acc += ((int*)xs.data)[i];
+    return acc;
+    """
+# ✅ Debería ser: weave sum shard T where T: Num ...
+
+# ❌ Anti-Pengunic: sin @export en std/
+antiquus fast_double with x as int into int:
+    r"""return x * 2;"""
+# Será podado por DCE si nadie lo llama.
+
+# ❌ Anti-Pengunic: nombre C de parámetro inválido
+antiquus check with int as int into bool:    # E0035
+    r"""return int > 0;"""
+
+# ❌ Anti-Pengunic: cuerpo con 'many T'
+antiquus count with xs as many int into int: # E0005
+    r"""return xs.len;"""
+```
+
+---
+
+## 21. `cyclus` y tipos recursivos
+
+`cyclus` declara explícitamente que un `rune` es autorreferencial. **No** hace legal el ciclo por valor: el ciclo debe romperse con indirección (`ref to`, `maybe ref to`, `slice`, `list`, `map`).
+
+### 21.1 Cuándo usar `cyclus`
+
+Solo cuando el tipo **realmente se contiene a sí mismo** de forma intencional:
+
+```pengu
+# ✅ Pengunic: árbol recursivo con indirección explícita
+rune Node cyclus shard T:
+    value as T
+    next as maybe ref to Node of T     # 'maybe ref' rompe el ciclo
+    children as list of Node of T      # 'list' rompe el ciclo
+```
+
+### 21.2 Cuándo **no** usar `cyclus`
+
+- **Nunca** en un `rune` sin recursión, ni siquiera "por si acaso". Es ruido.
+- **Nunca** en un `rune` que se contiene **por valor** (`next as Bad`): eso es `E0050` y `cyclus` no lo arregla.
+- **Nunca** en `echo` ni `omen`.
+
+### 21.3 Documentación
+
+Un `rune` con `cyclus` **debe** documentar **dónde** está la indirección:
+
+```pengu
+## Nodo de un árbol binario de enteros.
+##
+## ## Recursión
+## El ciclo se rompe en `left` y `right` mediante `maybe ref to`; el nodo
+## nunca se contiene por valor. Un árbol vacío se representa con
+## `maybe none` en los hijos.
+rune TreeNode cyclus:
+    value as int
+    left as maybe ref to TreeNode
+    right as maybe ref to TreeNode
+```
+
+### 21.4 Anti-patrón: `cyclus` decorativo
+
+```pengu
+# ❌ Anti-Pengunic: 'cyclus' sin recursión real
+rune Point cyclus:
+    x as int
+    y as int
+
+# ❌ Anti-Pengunic: 'cyclus' sin documentar dónde está la indirección
+rune Node cyclus:
+    value as int
+    next as maybe ref to Node
+```

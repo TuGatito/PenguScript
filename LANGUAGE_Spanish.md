@@ -5,8 +5,7 @@
 > PenguScript, así que el documento **normativo** es [`LANGUAGE.md`](LANGUAGE.md).
 > Esta traducción al español es **no normativa**: puede ir por detrás y, donde los dos
 > discrepen, gana `LANGUAGE.md`. La deriva está medida y acotada por
-> `tests/test_language_policy.py`; a fecha de esta revisión faltan por traducir
-> **§5.0**, **§19.0**, **§19.1.1** y **§23.2** (dentro de §23, política de deprecación y estabilidad).
+> `tests/test_language_policy.py`.
 >
 > Esta es la guía definitiva de sintaxis y semántica, escrita a partir de las fuentes
 > del compilador (`pengu_grammar.py`, `pengu_checker.py`, `pengu_codegen.py`,
@@ -274,6 +273,58 @@ PenguScript define structs de contenedor limpios y compatibles con C en `pengu_r
 ---
 
 ## 5. Variables, constantes y ámbito
+
+### 5.0 Garantías de seguridad y sus opt-outs
+
+Tres modos de fallo tienen un comportamiento *definido* por defecto; cada uno tiene
+exactamente una forma explícita de desactivarlo.
+
+| Fallo | Comportamiento por defecto | Opt-out |
+|---|---|---|
+| Acceso `at` fuera de límites | pánico `[PENGU] Index out of bounds` con pila de frames (en todos los perfiles) | un bloque `unsafe:`, o `pengu build --release-unsafe` |
+| Desbordamiento de entero con signo | debug: trap (SIGABRT); release: wrapping en complemento a dos | `--release-unsafe` (restaura el comportamiento indefinido de C) |
+| Memoria insuficiente | `[PENGU] out of memory` + `abort()` | `-DPENGU_OOM_ABORT=0` al empotrar el runtime |
+
+**Las comprobaciones de límites no son un extra de debug.** Se emiten en todos los
+perfiles, así que `--profile release` no puede usarse para cambiar seguridad de
+memoria por velocidad. Usa `unsafe:` allí donde un bucle caliente ya haya probado
+que el índice está en rango:
+
+```pengu
+weave sum with xs as array of int, n as int into int:
+    var acc as int is 0
+    unsafe:                     # emite [W0007]; desactiva las comprobaciones en este bloque
+        for i from 0 to n:
+            set acc is acc + (xs at i)
+    return acc
+```
+
+`unsafe:` es una sentencia (puede envolver varias sentencias y anidarse), solo se
+permite dentro del cuerpo de una función y siempre avisa `[W0007]`, de modo que el
+opt-out es visible en la revisión de código.
+
+**Desbordamiento de enteros.** C deja el desbordamiento con signo como
+comportamiento indefinido, lo que permite a los optimizadores reescribir la
+aritmética. PenguScript fija el comportamiento: las compilaciones debug usan
+`-ftrapv` (aborta al desbordar) y las release usan `-fwrapv` (wrapping módulo 2^N).
+Solo `--release-unsafe` elimina ambos, y eso es una petición deliberada de aceptar
+comportamiento indefinido.
+
+**División por cero.** `x / 0` y `x % 0` son un fallo en runtime: en POSIX el
+proceso recibe `SIGFPE` y termina; PenguScript no produce un valor en silencio. El
+compilador no inserta una comprobación del divisor (costaría una rama en cada
+división), así que protege los divisores cuando puedan ser cero legítimamente:
+
+```pengu-fragment
+if d == 0:
+    return 0
+return n / d
+```
+
+**Memoria insuficiente.** Un fallo de reserva imprime un diagnóstico y aborta en
+lugar de devolver NULL, porque continuar con una reserva NULL corrompe la memoria y
+provoca un fallo lejos de la causa. Los empotradores que instalan su propio
+asignador pueden definir `-DPENGU_OOM_ABORT=0` para recibir NULL en su lugar.
 
 ### 5.1 Declaraciones
 
@@ -2916,6 +2967,30 @@ PenguScript incluye una biblioteca estándar completa compuesta por **52 módulo
 ### `print` integrado
 `print` es un builtin del compilador que se traduce directamente a `printf` según el tipo del argumento (`print "hello"`, `print 42`, etc.). Para impresión estructurada o formateada con más opciones, usa `std.spark.println` o `std.spark.print`.
 
+### 19.0 Política de versionado de la biblioteca estándar
+
+La biblioteca estándar se distribuye **acoplada al compilador** en la serie 1.x
+(decisión D6): un programa compilado con PenguScript 1.4 usa el `std/` que se
+distribuyó con 1.4, y no hay una versión de stdlib separada que resolver. Cada
+módulo puro exporta una constante `<MODULE>_VERSION` (p. ej. `std.ffi` →
+`FFI_VERSION`, `std.archivum` → `ARCHIVUM_VERSION`) con la versión del toolchain a
+la que pertenece, de modo que el código puede comprobar la biblioteca contra la que
+se construyó:
+
+```pengu
+import std.archivum
+
+test "stdlib version":
+    if archivum.ARCHIVUM_VERSION == "":
+        assert false
+```
+
+`tests/test_std_versioning.py` exige que cada módulo escrito a mano de `std/`
+exporte esa constante con la versión actual del toolchain. El uso de espacios de
+nombres ya mantiene cada módulo autocontenido (`std.<module>.<symbol>`), así que
+desacoplar la stdlib en paquetes versionados de forma independiente queda reservado
+para 2.0.
+
 ### 19.1 Módulos de PenguScript puro (27 módulos)
 
 Todos los módulos puros se encuentran en el directorio `std/` y se importan como `import std.<module>`.
@@ -2949,6 +3024,47 @@ Todos los módulos puros se encuentran en el directorio `std/` y se importan com
 | `std.xlsx` | Generación de libros de hojas de cálculo de Excel y extracción de datos de celdas. |
 | `std.ledger` | Datos tabulares, análisis y serialización de CSV/TSV y operaciones con matrices: análisis (`parse_csv`, `parse_tsv`, `parse_line`, `detect_delimiter`, `parse_csv_strict`, `parse_csv_nocomments`, `parse_csv_skip`, `parse_line_strict`, `parse_csv_normalized`), abstracción de tabla `rune CsvTable` (`from_csv`, `from_rows`, `row_count`, `column_count`, `has_column`, `column_index`, `get`, `get_or`, `column`, `row_as_map`, `to_csv`), enchantments de matrices (`list of list of string`: `row_count`, `column_count`, `is_rectangular`, `column`, `transpose`), conversiones a mapas clave-valor (`parse_csv_as_pairs`, `parse_csv_key_value`, `write_key_value_map`), escape (`escape_field`, `escape_field_rfc4180`, `escape_field_backslash`), formateadores (`to_csv_string`, `to_tsv_string`, `to_csv_string_no_trailing_newline`, `to_csv_string_crlf`) y operaciones de archivos (`read_csv`, `read_tsv`, `write_csv`, `write_tsv`, `write_csv_safe`). |
 | `std.arithmancy` | Álgebra lineal y funciones matemáticas avanzadas listas para juegos: constantes (`PI`, `TAU`, `E`, `EPSILON`), funciones escalares (`abs_i`, `abs_f`, `min_i`, `max_i`, `min_f`, `max_f`, `clamp_i`, `clamp_f`, `sqrt_f`, `pow_f`, `sin_f`, `cos_f`, `tan_f`, `asin_f`, `acos_f`, `atan_f`, `atan2_f`, `deg_to_rad`, `rad_to_deg`, `lerp_f`, `smoothstep_f`), vectores 2D (`rune Vec2` con `dot`, `cross`, `length`, `normalize`, `distance`), vectores 3D (`rune Vec3` con `dot`, `cross`, `length`, `normalize`, `distance`), vectores 4D (`rune Vec4`), matrices de transformación 4x4 (`rune Mat4` con `identity`, `translation`, `scaling`, `rotation_x/y/z`, `multiply`, `transpose`, `look_at`, `perspective`, `orthographic`) y cuaterniones (`rune Quat` con `identity`, `from_axis_angle`, `multiply`, `slerp`, `to_mat4`). |
+
+### 19.1.1 Elegir entre `std.loom` y `std.tally`
+
+`std.loom` y `std.tally` operan ambos sobre listas y comparten 15 nombres públicos
+(`mean`, `median`, `mode`, `min_max`, `sum`, `flatten`, `take`, `windowed`,
+`zip_with`, `running_sum`, `scan_left`, `repeat`, `enumerate_pairs`,
+`is_sorted_asc`, `is_sorted_desc`). **No son duplicados**: ningún nombre compartido
+tiene la misma firma. Son dos filosofías de API deliberadas, y la elección la decide
+qué debe significar una entrada vacía o ausente.
+
+| | `std.tally` | `std.loom` |
+|---|---|---|
+| Forma | hace `enchanting` sobre `list of T` (`calling xs.sum`) más funciones de módulo concretas para `list of int` | solo funciones de módulo (`calling loom.sum with xs`); no declara ningún `enchanting` |
+| Entrada vacía | colapsa a un centinela (`0`, `""`, `false`) | señala la ausencia (`maybe none`) |
+| Resultados fraccionarios | truncados a `int` | preservados como `float` (`maybe float` en `median`) |
+| Genéricos | los métodos son genéricos (`T: Num/Ordo/Par/Integrum`); las funciones de compatibilidad son concretas | `shard T` en los núcleos `generic_*`; el resto es `list of int` concreto |
+| Úsalo cuando | el centinela tiene sentido y el llamador no quiere ramas (`sum`, `product_num`, `max_val`, `min_val` sobre recuentos) | la ausencia debe seguir siendo distinguible (`mean` como media real, `median`/`mode` sobre una lista vacía, `min_max` con el significado "no hay elementos") |
+
+Ejemplo concreto de la divergencia:
+
+```pengu
+import std.loom
+import std.tally
+
+weave main into int:
+    var xs as list of int is calling loom.range with 1, 3, 1
+    var exact as float is calling loom.mean with xs      # 1.5
+    var lossy as int is calling tally.mean with xs       # 1
+    var no_median as maybe float is calling loom.median with (list of int)  # none
+    return 0
+```
+
+Regla mnemotécnica: **usa `tally` cuando la operación es una reducción con una
+identidad natural** (`sum` -> 0, `product_num` -> 1, y `max_val` -> 0 es un centinela
+deliberado) y **`loom` cuando una lista vacía no tiene respuesta**, donde devolver un
+centinela ocultaría un bug.
+
+El estado de deprecación de los alias heredados de ambos módulos está catalogado en
+[`docs/DEPRECATIONS.md`](docs/DEPRECATIONS.md); unificar las dos familias queda
+diferido a 1.1 porque cualquiera de las dos direcciones rompe a los llamadores de la
+familia que pierda (ítem 6.5, `AUDIT_1.0_FASE6.md`).
 
 ### 19.2 Módulos de binding nativo de C (25 módulos `.d.pengu`)
 
@@ -3287,11 +3403,12 @@ Compila el proyecto de PenguScript en el destino designado:
 
 ```bash
 pengu build [--profile PROFILE] [--config CONFIG] [--entry ENTRY] [--output OUTPUT] [--test] [--cc CC] [--verbose] [-D DEFINES]
+            [--strict-c99] [--target-compiler {gcc,clang,msvc,tcc}]
 ```
 
 - `--profile, -p`: Selecciona los perfiles de optimización y diagnóstico:
   - `debug` (por defecto): Incluye símbolos de depuración (`-g`), comprobación de límites en runtime (`pengu_assert_bounds`), seguimiento de la pila de llamadas en runtime (`pengu_frame_push`/`pop`) y aserciones.
-  - `release`: Maximiza el rendimiento (`-O3`), omite las comprobaciones de límites y desactiva el seguimiento de la pila de llamadas en runtime para lograr cero sobrecarga.
+  - `release`: Maximiza el rendimiento (`-O3`) y desactiva el seguimiento de la pila de llamadas en runtime para lograr cero sobrecarga. Las comprobaciones de límites y de desbordamiento **se mantienen** en este perfil (roadmap 5.2): el único opt-out es `--release-unsafe` o un bloque `unsafe:` explícito.
   - `small`: Maximiza la reducción de tamaño (`-Os`, sin tablas de unwind, `-fno-ident`, `-fno-plt`) manteniendo el mismo *garbage collection* de secciones que `release`. Pensado para binarios embebidos o para distribución en muchas plataformas.
 - `--test`: Incluye y compila todos los bloques `test` de nivel superior en el bundle del ejecutable.
 - `-D, --define`: Define variables de tiempo de compilación para las condiciones `when` (p. ej. `-D os=linux`, `-D arch=x64`, `-D compiler=clang`, `-D debug`, `-D main`). Se puede repetir.
@@ -3299,6 +3416,55 @@ pengu build [--profile PROFILE] [--config CONFIG] [--entry ENTRY] [--output OUTP
 - `--config, -c`: Ruta a un `pengu.yaml` personalizado o a la raíz del proyecto.
 - `--entry, -e`: Sobrescribe el archivo de punto de entrada raíz (por defecto: `src/main.pengu`).
 - `--output, -o`: Ruta de salida personalizada del destino (p. ej. `build/bundle.c` o `build/game.exe`).
+- `--strict-c99`: Emite código orientado a C99 en lugar de expresiones-sentencia de GNU.
+  Por defecto el C generado usa `__extension__(({ ... }))` (una extensión de
+  GCC/Clang); con este flag los temporales a nivel de expresión se *izan* a la
+  sentencia que los contiene, lo que elimina `__auto_type` del bundle. También puede
+  activarse con `PENGU_STRICT_C99=1` o `build: strict_c99: true` en `pengu.yaml`. La
+  ruta GNU sigue siendo la opción por defecto, así que las compilaciones existentes
+  no se ven afectadas.
+
+  > [!WARNING]
+  > **⏸️ `--strict-c99` no es funcional para programas que importan `std` en
+  > 0.16.0. Diferido a 1.1. No lo uses como puerta de portabilidad en CI o release.**
+  >
+  > Medido: **34 de los 61** programas de `tests/std_programs/` fallan con
+  > `gcc -std=c99 -pedantic-errors`. Tres causas independientes:
+  >
+  > | Causa | Programas | Firma |
+  > |---|---|---|
+  > | Índice izado fuera del bucle que declara su operando | 16 | `'k' undeclared` |
+  > | Expresiones-sentencia `({...})` que quedan en bundles estrictos | 15 | `ISO C forbids braced-groups within expressions` |
+  > | Diagnósticos de cualificadores/casts | 3 | `discards 'const' qualifier`, `casting nonscalar` |
+  >
+  > La reproducción mínima son 4 líneas:
+  >
+  > ```pengu
+  > weave main into int:
+  >   var xs as list of int is [1, 2, 3]
+  >   var ys as list of int is [4, 5, 6]
+  >   var zs as list of int is for k in xs then ((xs at k) + (ys at k))
+  >   return 0
+  > ```
+  >
+  > Emite `int64_t _p_idx_9 = (int64_t)(k);` **antes** del bucle `for` que declara
+  > `k`. `_block_expr` iza al preludio de la sentencia contenedora, lo que en modo
+  > GNU es inocuo porque `({ ... })` crea un ámbito que encierra la variable del
+  > bucle, y en modo estricto queda fuera de ámbito. Ver `AUDIT_1.0_FASE3.md` §6–§7.
+- `--target-compiler`: Selecciona el dialecto de C usado para los atributos y
+  `restrict` (`gcc`, `clang`, `msvc`, `tcc`; por defecto: inferido de `--cc`).
+  También `PENGU_TARGET_COMPILER` o `build: target_compiler:` en `pengu.yaml`.
+
+Mapeo de atributos por destino:
+
+| Atributo Pengu | GCC / Clang / TCC | MSVC (`cl.exe`) |
+| --- | --- | --- |
+| `@inline` | `static inline __attribute__((always_inline))` | `static __forceinline` |
+| `@cold` | `__attribute__((cold))` | omitido (sin equivalente directo) |
+| `@deprecated("m")` | `__attribute__((deprecated("m")))` | `__declspec(deprecated("m"))` |
+| `@packed` | `__attribute__((packed))` | `#pragma pack(push, 1)` … `#pragma pack(pop)` |
+| `@align(N)` | `__attribute__((aligned(N)))` | `__declspec(align(N))` |
+| `restrict` (opt-in) | `restrict` | `__restrict` |
 
 **Tamaño del binario y enlace condicional (2.0).** Los perfiles `release` y
 `small` compilan cada objeto con `-ffunction-sections -fdata-sections` y enlazan
@@ -3335,6 +3501,97 @@ los `#define` que corresponden a los módulos `std.*` importados. Ejemplo medido
 `hello_world` (release, `strip`) pasa de 659.5 KiB a ~14.3 KiB, y el caso
 `cipher_ops` (`std.cipher` + `std.seal`) de 671.5 KiB a 30.4 KiB. Las cifras y
 la atribución por archive están en `BENCHMARKS.md`.
+
+### 20.2.1 Versión del ABI del runtime
+
+`pengu_runtime.h` define `PENGU_ABI_VERSION 2`, el layout congelado de los
+contenedores del runtime (`PenguString`, `PenguSlice`, `PenguList`, `PenguMap`,
+`PenguMaybe`, `PenguResult`, `PenguRange`). Los tamaños y desplazamientos exactos
+para destinos de 64 bits están documentados junto a la macro y verificados por
+`tests/abi/test_abi_layout.c`. Un desajuste significa que un `libpengu_runtime.a`
+precompilado se construyó contra un ABI distinto del que espera el bundle generado.
+
+**`libpengu_runtime.a` es un requisito de build.** `pengu build` lo enlaza siempre
+(al margen de `links` en `pengu.toml`) y todos los bundles referencian
+`pengu_abi_version()`, de modo que un archive construido contra otro ABI falla en el
+enlazado en lugar de reinterpretar los campos de las structs. Si falta el archive, el
+build se detiene antes de invocar el compilador de C con un mensaje accionable
+(`python build_runtime.py`) en vez de un `undefined reference`. La garantía de
+enlazado está verificada con **gcc** y **clang**; **tcc** elimina sus símbolos, así
+que allí el símbolo no puede inspeccionarse — ver [`docs/ABI.md`](docs/ABI.md).
+
+### 20.2.2 Diagnósticos legibles por máquina (`--json`)
+
+`pengu check --json` y `pengu build --json` emiten JSON Lines (nada más en stdout),
+de modo que CI puede analizarlos directamente:
+
+```bash
+pengu check --json | jq -c 'select(.type=="diagnostic") | {file,line,col,code}'
+```
+
+- un objeto `{"type":"diagnostic","file","line","col","code","severity","message",
+  "help","note"}` por problema;
+- un `{"type":"summary","ok":<bool>,"errors":<n>,"duration_ms":<ms>}` final
+  (`build` añade `artifact`, `cached` y `profile`). `check` y `build` salen con
+  código 1 cuando `ok` es falso.
+
+### 20.2.3 Compilación cruzada (`--target`)
+
+```bash
+pengu build --target x86_64-w64-mingw32 --cc x86_64-w64-mingw32-gcc
+```
+
+- `--target <triple>` (`build`, `run`, `test`; o `build: target:` en `pengu.yaml`)
+  selecciona el sistema operativo destino a partir de un triple como
+  `x86_64-w64-mingw32`, `i686-w64-mingw32`, `aarch64-apple-darwin` o
+  `x86_64-unknown-linux-gnu`. En 1.0 solo se admite **Linux ⇄ Windows**.
+- Las extensiones del artefacto siguen al destino (`.exe`, `.dll`, `.dylib`, `.so`)
+  y también lo hacen las bibliotecas de enlazado.
+- Con un destino Windows desde un host que no lo es, el compilador se autodetecta
+  (`<triple>-gcc`, `x86_64-w64-mingw32-gcc`, `i686-w64-mingw32-gcc`); `--cc` gana
+  siempre. Si no hay ninguno instalado, el build falla con un mensaje accionable.
+- El archive del runtime que se distribuye está construido para el host. Generar el
+  bundle de C para otro destino no necesita nada más, pero *enlazar* un ejecutable
+  cruzado requiere un runtime construido para el destino: apunta
+  `PENGU_RUNTIME_CROSS` a su prefijo y el build añade
+  `-L<prefix>/lib -I<prefix>/include`.
+
+### 20.2.4 Formateo (`pengu fmt`)
+
+```bash
+pengu fmt src/ --check        # exit 1 cuando un archivo cambiaría (puerta de CI)
+pengu fmt src/ --diff         # imprime un diff unificado por archivo cambiado
+pengu fmt --stdin < in.pengu  # formatea stdin a stdout
+```
+
+Los ajustes de formateo se leen del `.pengufmt.toml`, `pengu.yaml` o `pengu.toml`
+más cercano (subiendo desde cada archivo), ya sea en la raíz o bajo
+`[formatting]`/`formatting:`. Funcionan las dos grafías, `key = value` (TOML) y
+`key: value` (YAML):
+
+```toml
+[formatting]
+tab_size = 2          # o indent / indent_size
+insert_spaces = true  # o use_tabs / tabs
+blank_lines_max = 1   # colapsa líneas en blanco consecutivas (nunca dentro de literales)
+```
+
+El language server también formatea al escribir: teclear `:` al final de un abridor
+de bloque indenta la línea siguiente un nivel, y un salto de línea tras un abridor
+indenta la línea nueva.
+
+### 20.2.5 Documentación (`pengu doc`)
+
+`pengu doc` genera una referencia Markdown más una página de búsqueda autocontenida:
+
+- las etiquetas Doxygen en los comentarios `##` (`@param`, `@return`, `@see`,
+  `@deprecated`, …) pasan a ser una lista de viñetas estructurada;
+- los símbolos marcados con `@deprecated` muestran una insignia de deprecación y un
+  marcador `[deprecated]` en el índice;
+- `docs/index.md` agrupa cada símbolo por clase (concepts, runes, echoes, omens,
+  seals, aliases, constantes, funciones, declaraciones de C);
+- `docs/index.html` incrusta el índice de símbolos como JSON y ofrece un buscador en
+  el cliente (nombre / clase / módulo / firma / resumen).
 
 ### 20.3 Ejecución y modo script (`pengu run`)
 
@@ -3477,6 +3734,25 @@ pengu clean [--config CONFIG]
 
 - Elimina el directorio `build/`, los objetos compilados, los bundles de C y las cachés temporales.
 
+### 20.12.1 Benchmarks (`pengu benchmark`)
+
+Ejecuta el arnés reproducible de `benches/` e imprime, por caso, el tiempo de
+compilación, el tiempo de ejecución (mejor de N) y el tamaño del artefacto sin
+símbolos, además del bloque de entorno:
+
+```bash
+pengu benchmark [--repeat N] [--csv FILE] [--only CASE]
+```
+
+- Mide el programa PenguScript y, cuando su toolchain está instalado, las líneas
+  base de C/Rust/Zig; un toolchain ausente se informa como `skipped`, nunca como
+  victoria.
+- `--only`: un único caso por nombre (`hello_world`, `fib_40`, `string_ops`,
+  `list_ops`, `stdlib_ops`).
+- `stdlib_ops` es el caso que pasa por `std` (`std.tally` + `std.spark`); los demás
+  miden el lenguaje desnudo a propósito.
+- Las cifras publicadas están en [`BENCHMARKS.md`](BENCHMARKS.md).
+
 ### 20.13 Versionado del toolchain (`pengu -V` / `--version`)
 
 ```bash
@@ -3493,9 +3769,9 @@ El runtime mantiene un búfer circular de frames ligero y thread-local:
 - `pengu_frame_push(fn_name, file, line)` y `pengu_frame_pop()` registran los frames activos de la pila de llamadas hasta `PENGU_MAX_FRAMES` (64 por defecto).
 - Los manejadores de fallos para `SIGSEGV`, `SIGABRT`, `SIGFPE` (división entera por cero), `SIGILL` y `SIGBUS` (y `SetUnhandledExceptionFilter` en Windows) interceptan errores fatales y escriben la pila de llamadas —con los nombres de archivo fuente `.pengu` y los números de línea— directamente en `stderr`. El manejador es **async-signal-safe**: formatea con primitivas propias y solo llama a `write(2)`/`_exit()`, nunca a `snprintf`, `malloc` ni stdio. La expresión devuelta por un `weave` se evalúa *antes* de retirar su frame, de modo que un fallo dentro de ella (p. ej. `return a / b`) se atribuye a ese `weave` y no a su llamador.
 
-#### Comprobación de límites opcional
-- Con el perfil de build `debug`, las operaciones de indexación (`xs at i` y `set xs at i`) emiten aserciones de límites (`pengu_assert_bounds`), que se detienen con un trazado de la pila de llamadas ante un acceso fuera de límites.
-- Con `release`, las comprobaciones de límites se omiten por completo con cero sobrecarga en runtime.
+#### Comprobación de límites (activa en todos los perfiles)
+- Las operaciones de indexación (`xs at i` y `set xs at i`) emiten aserciones de límites (`pengu_assert_bounds`), que se detienen con un trazado de la pila de llamadas ante un acceso fuera de límites. Se emiten en **todos** los perfiles (roadmap 5.2), no solo con `debug`.
+- El único opt-out es un bloque `unsafe:` explícito (que emite `[W0007]`) o `pengu build --release-unsafe`; `--profile release` no las desactiva.
 
 #### Directivas `#line`
 El código C generado incluye directivas `#line` que asignan cada sentencia de C al archivo y la línea de origen `.pengu`. Los diagnósticos del compilador de C y los depuradores GDB/LLDB apuntan directamente al código fuente de PenguScript.
@@ -3769,6 +4045,102 @@ set acc is "{acc}b"
 ```
 
 ---
+
+### 22.5 El corpus de compatibilidad ejecutable
+
+El catálogo anterior describe los diagnósticos; el comportamiento que protegen está
+fijado por dos corpus que **compilan y ejecutan** programas reales, nunca por
+inspeccionar texto (regla de proyecto C1):
+
+- [`tests/conformance/compliance/README.md`](tests/conformance/compliance/README.md) — un programa canónico
+  por sección de este documento, comprobado, compilado y ejecutado por el toolchain
+  real (`pytest tests/test_compliance_corpus.py -q`). Fija el lenguaje **tal y como
+  es hoy**.
+- [`tests/migration/README.md`](tests/migration/README.md) — un programa por línea de
+  versión publicada desde `0.10.0`, con el resultado que `MIGRATION.md` documenta
+  para ella (`pytest tests/test_migration_corpus.py -q`). Fija la sintaxis de todas
+  las versiones que el proyecto ha **publicado**, incluidas las dos formas anteriores
+  a `0.10.0` que el compilador ahora rechaza con `E0000`/`E0005`.
+
+En conjunto son aquello contra lo que se comprueba una afirmación de compatibilidad
+1.x: un cambio que hace que un programa de compliance deje de pasar, o que
+contradice una entrada de migración, es una ruptura según §23 y necesita una release
+MAJOR y una actualización de `MIGRATION.md` — no una edición silenciosa del corpus.
+
+---
+
+## 23. Política de deprecación y estabilidad
+
+PenguScript sigue [Versionado Semántico](https://semver.org) estricto: una versión es
+`MAJOR.MINOR.PATCH`, donde `MAJOR` puede romper la compatibilidad de código fuente,
+`MINOR` añade funcionalidad retrocompatible (y puede deprecar) y `PATCH` solo corrige
+bugs. A partir de 1.0.0 las reglas siguientes son vinculantes.
+
+### 23.1 Qué puede cambiar en una release minor
+
+- **Adiciones**: siempre permitidas: nuevos weaves, nuevos runes, nuevos módulos,
+  nuevos parámetros opcionales con valor por defecto, nuevos códigos de advertencia.
+- **Cambios de comportamiento** en la biblioteca estándar: solo se permiten cuando
+  corrigen un bug, y se anuncian en `CHANGELOG.md` bajo el módulo afectado.
+- **Eliminaciones y cambios de firma**: *nunca* se permiten en una release minor.
+
+### 23.2 Deprecar un símbolo
+
+Marca el símbolo con el atributo `@deprecated("reason")`:
+
+```pengu-fragment
+## Reads a file. Prefer read_file_result for the failure cause.
+## @deprecated use read_file_result to distinguish the failure cause
+@deprecated("use read_file_result to distinguish the failure cause")
+weave read_file_legacy with path as string into maybe string:
+    return calling read_file with path
+```
+
+Usar un símbolo deprecado en cualquier lugar (llamada, referencia de tipo, acceso a
+campo o firma) emite la advertencia `[W0006]`:
+
+```
+main.pengu:4:0 [W0006] Symbol 'read_file_legacy' is deprecated: use read_file_result ...
+```
+
+`@deprecated` se admite en `weave`, `declare`, `rune` y sus campos.
+
+### 23.3 La regla de las dos releases
+
+Un símbolo deprecado debe seguir siendo **plenamente funcional durante al menos dos
+releases minor** antes de poder eliminarse. La secuencia recomendada es:
+
+| Release | Acción |
+|---|---|
+| `1.4.0` | Añadir el reemplazo; marcar el símbolo antiguo con `@deprecated("use <new> instead")`. |
+| `1.5.0` | Mantener ambos; el changelog repite la nota de migración. |
+| `1.6.0` | Puede eliminar el símbolo — esta es la primera release en la que la eliminación es legal. |
+
+Eliminar antes de la ventana de dos releases es un cambio de ruptura y requiere un
+salto de `MAJOR`.
+
+### 23.4 Aplicar la deprecación en CI
+
+`--deny-deprecated` promueve cada `[W0006]` a error y sale con código distinto de
+cero, de modo que un proyecto puede adoptar una política más estricta que la del
+compilador por defecto:
+
+```bash
+pengu check --deny-deprecated        # las advertencias pasan a errores
+pengu build --deny-deprecated        # el build falla ante un uso deprecado
+```
+
+Las advertencias se informan siempre: `pengu check` las imprime (y las cuenta en el
+resumen), y `pengu check --json` las emite como diagnósticos con
+`"severity": "warning"`. Solo las advertencias que un proyecto deniega explícitamente
+pasan a errores.
+
+### 23.5 Estabilidad de la biblioteca estándar
+
+La biblioteca estándar se versiona **junto con el compilador** en la serie 1.x (ver
+§19.0). Un salto de `MAJOR` es, por tanto, el único lugar donde un módulo puede
+reestructurarse; los renombrados de módulos se gestionan con las reglas de
+deprecación anteriores.
 
 ## 24. Encadenamiento de métodos
 

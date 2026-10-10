@@ -18,8 +18,10 @@ What this file enforces:
 4. the lag list and the measured lag agree.
 
 The translation itself (roughly 200 lines of normative prose across §5.0, §19.0,
-§19.1.1 and §23) is tracked as roadmap item 7.14b: it is prose volume, not
-structure, and it is deliberately not guessed at here.
+§19.1.1 and §23) was tracked as roadmap item 7.14b: prose volume, not structure,
+and deliberately not guessed at here. The 2.0.0 documentation sync landed it (plus
+§20.2.1–§20.2.5, §20.12.1 and §22.5), so `UNTRANSLATED` is now **empty** and the
+pair's `pengu` block counts must match exactly, with no itemised lag left to rot.
 """
 
 from __future__ import annotations
@@ -41,15 +43,12 @@ PAIRS = (
 #: ``{spanish_path: {section number: pengu blocks still missing}}``.
 #: A section listed here must still be missing, and must still contribute exactly
 #: this many blocks; that two-way check is what stops the list from rotting.
-UNTRANSLATED: dict[str, dict[str, int]] = {
-    "LANGUAGE_Spanish.md": {
-        "5.0": 1,       # Safety guarantees and their opt-outs
-        "19.0": 1,      # Standard-library versioning policy
-        "19.1.1": 1,    # Choosing between std.loom and std.tally
-        "23.2": 0,      # Deprecating a symbol (the whole of §23 is untranslated;
-                        #          its only example is a `pengu-fragment`)
-    },
-}
+#:
+#: Empty since the 2.0.0 documentation sync translated the last lagging sections
+#: (§5.0, §19.0, §19.1.1 and §23, with §23.2 contributing no `pengu` block). Adding
+#: an entry back means a translation regressed; the block-count ratchet below then
+#: requires the named sections to be missing *and* to account for exactly the lag.
+UNTRANSLATED: dict[str, dict[str, int]] = {}
 
 _BLOCK_RE = re.compile(r"^```pengu\s*$", re.M)
 _HEADING_RE = re.compile(r"^(#{1,4}) ([0-9]+(?:\.[0-9]+)*)\.? ", re.M)
@@ -138,9 +137,21 @@ def test_the_untranslated_list_is_exact():
 
 
 def test_the_spanish_declaration_itemises_the_lag():
-    """The reader of the translation must be told what is missing."""
+    """The reader of the translation must be told what is missing.
+
+    There is nothing to itemise once the lag reaches zero: the header must then
+    stop promising a list of untranslated sections, because a stale "still to
+    translate" sentence is exactly the drift this file exists to prevent.
+    """
     es = (REPO / "LANGUAGE_Spanish.md").read_text(encoding="utf-8")[:2500]
-    for number in UNTRANSLATED["LANGUAGE_Spanish.md"]:
+    lag = UNTRANSLATED.get("LANGUAGE_Spanish.md", {})
+    if not lag:
+        assert "faltan por traducir" not in es, (
+            "LANGUAGE_Spanish.md still announces untranslated sections, but "
+            "UNTRANSLATED lists none"
+        )
+        return
+    for number in lag:
         assert f"§{number}" in es, (
             f"LANGUAGE_Spanish.md does not mention untranslated §{number}"
         )

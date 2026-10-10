@@ -3356,10 +3356,11 @@ pengu build [--profile PROFILE] [--config CONFIG] [--entry ENTRY] [--output OUTP
 
 - `--profile, -p`: Selects optimization and diagnostic profiles:
   - `debug` (default): Includes debug symbols (`-g`), runtime bounds checking (`pengu_assert_bounds`), runtime callstack tracking (`pengu_frame_push`/`pop`), and asserts.
-  - `release`: Maximizes performance (`-O3`), omits bounds checks, disables runtime callstack tracking for zero overhead.
+  - `release`: Maximizes performance (`-O3`) and disables runtime callstack tracking for zero overhead. Bounds and overflow checks **stay on** in this profile (roadmap 5.2): the only opt-out is `--release-unsafe` or an explicit `unsafe:` block.
+  - `small`: Maximizes size reduction (`-Os`, no unwind tables, `-fno-ident`, `-fno-plt`) while keeping the same section garbage collection as `release`. Intended for embedded binaries or for distribution across many platforms.
 - `--test`: Includes and compiles all top-level `test` blocks into the executable bundle.
 - `-D, --define`: Sets compile-time variables for `when` conditions (e.g. `-D os=linux`, `-D arch=x64`, `-D compiler=clang`, `-D debug`, `-D main`). Repeatable.
-- `--verbose`: Emits detailed phase timings, module resolution order, and invoked C compiler commands.
+- `--verbose`: Emits detailed phase timings, module resolution order, and invoked C compiler commands. Since 2.0 it also prints, as `std modules imported:` and `native archives linked:` lines, exactly which `std` modules entered the bundle and which native archives were passed to the linker.
 - `--config, -c`: Path to custom `pengu.yaml` or project root.
 - `--entry, -e`: Overrides root entrypoint file (default: `src/main.pengu`).
 - `--output, -o`: Custom target output path (e.g. `build/bundle.c` or `build/game.exe`).
@@ -3412,9 +3413,44 @@ Attribute mapping per target:
 | `@align(N)` | `__attribute__((aligned(N)))` | `__declspec(align(N))` |
 | `restrict` (opt-in) | `restrict` | `__restrict` |
 
+**Binary size and conditional linking (2.0).** The `release` and `small` profiles
+compile every object with `-ffunction-sections -fdata-sections` and link with
+`-Wl,--gc-sections` (GNU ld / lld) or `-Wl,-dead_strip` (macOS ld64), so the linker
+drops every function the program does not reach. `build_runtime.py` compiles
+`libpengu_runtime.a` and each native dependency with the same flags — without that
+half the *section GC* can prune nothing, because a static archive is resolved per
+*member* (`.o`), not per symbol.
+
+In addition, native dependencies are **linked only when the corresponding `std`
+module was imported**:
+
+| Imported module | Archives linked |
+| --------------- | --------------- |
+| `std.regulus` | PCRE2 (`-lpcre2-8`) |
+| `std.parchment` | libxml2 (`-lxml2`) |
+| `std.precis` | libcurl + libmicrohttpd |
+| `std.seal` | zlib + mbedcrypto |
+
+A program that imports none of them links only `libpengu_runtime.a`. `libz` is the
+exception: it is always linked, costs 0 bytes when unused (section GC drops all its
+sections) and cannot be omitted because libxml2, libcurl and libcrypto depend on
+`libz.so.1`, so the linker looks for it transitively as soon as one of them is on the
+command line. The decision is taken by reading the already-generated `bundle.c` (the
+`pengu_c_regulus_*`, `pengu_c_parchment_*`, … prefixes), so it cannot disagree with
+the C the linker sees. With TCC or MSVC — which cannot prune sections — everything is
+linked, as before 2.0.
+
+`pengu_runtime.h` accompanies the change with the
+`PENGU_ENABLE_{REGEX,XML,NET,CRYPTO,THREADS}` feature gates (default `1`, so a direct
+C consumer still sees the full API); the code generator emits the `#define`s that
+correspond to the imported `std.*` modules. Measured example: `hello_world` (release,
+`strip`) goes from 659.5 KiB to ~14.3 KiB, and the `cipher_ops` case (`std.cipher` +
+`std.seal`) from 671.5 KiB to 30.4 KiB. The figures and the per-archive attribution
+are in `BENCHMARKS.md`.
+
 ### 20.2.1 Runtime ABI version
 
-`pengu_runtime.h` defines `PENGU_ABI_VERSION 1`, the frozen layout of the runtime
+`pengu_runtime.h` defines `PENGU_ABI_VERSION 2`, the frozen layout of the runtime
 containers (`PenguString`, `PenguSlice`, `PenguList`, `PenguMap`, `PenguMaybe`,
 `PenguResult`, `PenguRange`). The exact sizes/offsets for 64-bit targets are
 documented next to the macro and asserted by `tests/abi/test_abi_layout.c`. A
@@ -3677,9 +3713,9 @@ The runtime maintains a lightweight, thread-local circular frame ring buffer:
 - `pengu_frame_push(fn_name, file, line)` and `pengu_frame_pop()` record active callstack frames up to `PENGU_MAX_FRAMES` (64 by default).
 - Crash handlers for `SIGSEGV`, `SIGABRT`, `SIGFPE` (integer division by zero), `SIGILL` and `SIGBUS` (and `SetUnhandledExceptionFilter` on Windows) intercept fatal errors and write the callstack — with `.pengu` source filenames and line numbers — directly to `stderr`. The handler is **async-signal-safe**: it formats with hand-written primitives and calls only `write(2)`/`_exit()`, never `snprintf`, `malloc` or stdio. A weave's returned expression is evaluated *before* its frame is popped, so a fault inside it (e.g. `return a / b`) is attributed to that weave rather than to its caller.
 
-#### Opt-in Bounds Checking
-- Under the `debug` build profile, indexing operations (`xs at i` and `set xs at i`) emit bounds assertions (`pengu_assert_bounds`), halting with a callstack trace on out-of-bounds access.
-- Under `release`, bounds checks are completely omitted with zero runtime overhead.
+#### Bounds Checking (on in every profile)
+- Indexing operations (`xs at i` and `set xs at i`) emit bounds assertions (`pengu_assert_bounds`), halting with a callstack trace on out-of-bounds access. They are emitted in **every** profile (roadmap 5.2), not only under `debug`.
+- The only opt-out is an explicit `unsafe:` block (which emits `[W0007]`) or `pengu build --release-unsafe`; `--profile release` does not disable them.
 
 #### `#line` Directives
 Generated C code carries `#line` directives mapping every C statement back to the originating `.pengu` source file and line. C compiler diagnostics and GDB/LLDB debuggers point directly to the PenguScript source.
@@ -3962,7 +3998,7 @@ The catalogue above describes the diagnostics; the behaviour they protect is
 pinned by two corpora that **compile and execute** real programs, never by
 inspecting text (project rule C1):
 
-- [`tests/compliance/README.md`](tests/compliance/README.md) — one canonical
+- [`tests/conformance/compliance/README.md`](tests/conformance/compliance/README.md) — one canonical
   program per section of this document, checked, built and run by the real
   toolchain (`pytest tests/test_compliance_corpus.py -q`). It pins the language
   **as it is today**.
