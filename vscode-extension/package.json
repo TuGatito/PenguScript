@@ -150,7 +150,7 @@
         "@types/node": "^18.14.6",
         "@types/vscode": "^1.80.0",
         "@vscode/vsce": "^2.22.0",
-        "esbuild": "^0.20.0",
+        "esbuild": "^0.28.2",
         "typescript": "^5.1.6"
     },
     "dependencies": {
