@@ -8,7 +8,7 @@
 
 ### `PRECIS_VERSION`
 
-> const string` = 1.1.0`
+> const string` = 2.0.0`
 
 Module version identifier for std.precis (0.15.0 expansion).
 

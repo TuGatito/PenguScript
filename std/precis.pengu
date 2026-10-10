@@ -47,7 +47,7 @@ import std.cipher
 # ----------------------------------------------------------------------------
 
 ## Module version identifier for std.precis (0.15.0 expansion).
-const PRECIS_VERSION as string is "1.1.0"
+const PRECIS_VERSION as string is "2.0.0"
 
 ## HTTP 200 OK
 const STATUS_OK as int is 200

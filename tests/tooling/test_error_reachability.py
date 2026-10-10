@@ -466,6 +466,13 @@ REACHABLE: Dict[str, Tuple[str, str]] = {
         "    let e is error\n",
         "'error' used outside an 'or:' error-handling block.",
     ),
+    "E0059": (
+        "antiquus empty_antiquus into void:\n"
+        '    """"""\n',
+        "An `antiquus` whose C body is an empty triple-quoted string: emitting "
+        "it would define a function with no body at all, so the declaration is "
+        "rejected instead of compiling to nothing.",
+    ),
     "E0063": (
         "weave f into void:\n"
         "    if true:\n"

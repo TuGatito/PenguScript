@@ -101,6 +101,13 @@
       "expects": "ok",
       "rc": 0,
       "why": "The 1.1.0 line is additive (MIGRATION.md §2: no breaking entry), so this pins the surface projects migrate *to*: `@noreturn`/`@export`, tuple returns with `into (int, bool)` and destructuring, `with a, b` shorthand initialisers, and single-line plus `.`-continued method chains. Required by the coverage gate, which asserts one program per published minor line."
+    },
+    {
+      "file": "2.0.0/antiquus-surface.pengu",
+      "version": "2.0.0",
+      "expects": "ok",
+      "rc": 0,
+      "why": "The 2.0.0 line is additive (MIGRATION.md §2: no breaking entry), so this pins the surface projects migrate *to*: `antiquus` C blocks with weave-style signatures, `@export(\"c_name\")` on one of them, and a generic (`shard T`) antiquus monomorphized at the call site. It also pins the non-breaking half — `antiquus` is a soft keyword, so the rune field named `antiquus` still compiles and no existing project needs a migration. Required by the coverage gate, which asserts one program per published minor line."
     }
   ]
 }

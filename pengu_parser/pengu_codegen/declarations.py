@@ -414,6 +414,13 @@ class CollectMixin:
                 return
             self._collect_weave(stmt, filepath, None, prefix=prefix)
 
+        elif rule == "antiquus_decl":
+            # An `antiquus` is a weave whose body is literal C.  Generic
+            # templates are emitted per instantiation (pass 3), never here.
+            if has_shards:
+                return
+            self._collect_weave(stmt, filepath, None, prefix=prefix)
+
         elif rule == "enchanting_decl":
             type_node = stmt.children[0]
             enchanted_type = ast_to_type(type_node, self._lookup_type_fn)
@@ -512,6 +519,13 @@ class CollectMixin:
             if isinstance(s, Tree):
                 body_stmts.append(s)
 
+        # `antiquus` specialization: keep the literal C body (see _collect_weave).
+        c_body_tok = next(
+            (c for c in node.children if isinstance(c, Token) and c.type == "ANTIQUUS_BODY"),
+            None,
+        )
+        c_body = str(c_body_tok) if c_body_tok is not None else None
+
         c_name = specialized_name
 
         self.fn_info[specialized_name] = {"c_name": c_name, "params": params, "return_type": ret_type, "is_ritual": is_ritual}
@@ -532,6 +546,7 @@ class CollectMixin:
                 "attributes": attrs,
                 "body_stmts": body_stmts,
                 "refs": _dce_collect_refs(body_stmts),
+                "c_body": c_body,
                 "subst_map": subst_map,
                 "filepath": filepath,
                 # Declaration line of the weave in its .pengu source, used for the
@@ -632,6 +647,15 @@ class CollectMixin:
             if isinstance(s, Tree):
                 body_stmts.append(s)
 
+        # `antiquus`: the body is a single ANTIQUUS_BODY token holding literal
+        # C instead of PenguScript statements.  Every weave dictionary carries
+        # the key; None marks an ordinary weave.
+        c_body_tok = next(
+            (c for c in node.children if isinstance(c, Token) and c.type == "ANTIQUUS_BODY"),
+            None,
+        )
+        c_body = str(c_body_tok) if c_body_tok is not None else None
+
         c_name = self._c_ident(name)
         if enchanted_type is not None:
             t_name = getattr(enchanted_type, "name", str(enchanted_type)).replace(" ", "_")
@@ -695,6 +719,7 @@ class CollectMixin:
             "attributes": attrs,
             "body_stmts": body_stmts,
             "refs": _dce_collect_refs(body_stmts),
+            "c_body": c_body,
             # Generic templates are never emitted on their own (their bodies
             # need concrete substitutions), so DCE must leave them alone.
             "is_generic": has_shard_params,

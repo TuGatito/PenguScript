@@ -1,0 +1,29 @@
+# tests/conformance/antiquus/c_preprocessing.pengu
+#
+# The C body is opaque to every textual preprocessing pass:
+#
+#   * `#include` is not a PenguScript comment;
+#   * a line starting with `->` is not a method-chain continuation;
+#   * the word `with` inside a C string is not a short struct initialiser.
+#
+# The body below contains all three. If any pass touched the body the program
+# would not compile, which is exactly the regression this case exists to catch.
+# Expected result: strlen("with 1, 2") == 9, plus probe.x == 4.
+import std.spark
+
+rune AntiquusProbe:
+    x as int
+
+antiquus antiquus_c_probe with p as ref to AntiquusProbe into int:
+    """
+    #include <string.h>
+    const char* label = "with 1, 2";
+    return (int)strlen(label) + p
+    ->x;
+    """
+
+test "antiquus/c_preprocessing":
+    var probe as AntiquusProbe is with x is 4
+    var probe_ptr as ref to AntiquusProbe is sigil of probe
+    let result is calling antiquus_c_probe with probe_ptr
+    calling spark.println with "{result}"

@@ -9,7 +9,8 @@ to report a problem, and what to expect afterwards.
 
 | Version | Supported |
 |---|---|
-| `1.1.x` | ✅ security fixes |
+| `2.x` | ✅ security fixes |
+| `1.1.x` | ⛔ end of support — superseded by `2.0.0` |
 | `0.16.x` | ⛔ end of support — superseded by `1.1.x` |
 | `< 0.16` | ❌ |
 

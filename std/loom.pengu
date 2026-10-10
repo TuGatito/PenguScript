@@ -82,7 +82,7 @@ import std.spark
 # --- Constantes públicas ------------------------------------------------
 
 ## Versión del módulo loom.
-const LOOM_VERSION as string is "1.1.0"
+const LOOM_VERSION as string is "2.0.0"
 
 # --- Generación de secuencias -------------------------------------------
 
@@ -1507,5 +1507,5 @@ test "generic_index_of encuentra o devuelve menos uno":
     var xs as list of string is ["a", "b"]
     calling _expect_eq with (calling generic_index_of of string with xs, "b"), 1, "generic_index_of"
     calling _expect_eq with (calling generic_index_of of string with xs, "z"), -1, "generic_index_of falta"
-test "LOOM_VERSION es la versión 0.15.0":
-    calling _expect with LOOM_VERSION == "0.15.0", "version"
+test "LOOM_VERSION es la versión 2.0.0":
+    calling _expect with LOOM_VERSION == "2.0.0", "version"

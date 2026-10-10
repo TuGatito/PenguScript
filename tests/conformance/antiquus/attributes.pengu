@@ -1,0 +1,19 @@
+# tests/conformance/antiquus/attributes.pengu
+#
+# `antiquus` accepts the same attributes a weave does. `@export` renames the C
+# symbol (and keeps the declaration alive through DCE); `@inline`/`@cold` are
+# emitted on the definition. Calling it proves the attributes do not detach the
+# PenguScript name from the emitted function.
+import std.spark
+
+@export("pengu_antiquus_square")
+@inline
+@cold
+antiquus antiquus_square with x as int into int:
+    """
+    return x * x;
+    """
+
+test "antiquus/attributes":
+    let squared is calling antiquus_square with 7
+    calling spark.println with "{squared}"

@@ -117,6 +117,7 @@
         "'if' condition must be bool, got '{}'",
         "'is not present' cannot be combined with a binding ('{}')",
         "'judge' subject must be an omen, bool, int, or string, got '{}'",
+        "'many' parameters are not allowed in 'antiquus' declarations",
         "'many' parameters are not allowed in 'declare' statements",
         "'or else' fallback type '{}' incompatible with '{}'",
         "'or else' left operand must be maybe or Result, got '{}'",
@@ -705,6 +706,7 @@
         "SemanticError"
       ],
       "conditions": [
+        "Antiquus parameter '{}' collides with a C reserved word",
         "Constant name '{}' is a reserved C keyword or standard identifier",
         "Function name '{}' is a reserved C keyword",
         "Function name '{}' is a reserved standard C function or identifier",
@@ -752,6 +754,7 @@
         "SemanticError"
       ],
       "conditions": [
+        "'main' cannot be an 'antiquus' declaration; use a regular 'weave main' for the entry point",
         "'main' is a reserved compile-time variable"
       ]
     },
@@ -936,6 +939,7 @@
         "UnknownAttributeError"
       ],
       "conditions": [
+        "@noreturn antiquus '{}' must return 'void', got '{}'",
         "@noreturn weave '{}' must return 'void', got '{}'",
         "Attribute '@align' requires 1 integer argument, got {}",
         "Attribute '@align({})' must be a power of 2 between 1 and 128",
@@ -975,6 +979,22 @@
       ],
       "conditions": [
         "'error' is only available inside 'or:' error-handling blocks"
+      ]
+    },
+    "E0059": {
+      "classes": [
+        "AntiquusBodyError"
+      ],
+      "conditions": [
+        "Antiquus '{}' has an empty C body",
+        "Antiquus '{}' has no triple-quoted C body"
+      ],
+      "explanation": "an `antiquus` body is missing, empty, or not a triple-quoted string.\n\nThe C body of an ``antiquus`` declaration is literal text emitted into the\ngenerated ``bundle.c``; it must be delimited by ``\"\"\"…\"\"\"`` or\n``r\"\"\"…\"\"\"`` so the extractor can lift it out before the textual\npreprocessing passes run.  A single-line ``\"…\"`` string cannot hold C line\nstructure and is rejected here rather than silently compiling to an empty\nfunction body.",
+      "guidance": [
+        {
+          "help": "Write the C body as \"\"\"...\"\"\" or r\"\"\"...\"\"\".  The body is emitted literally into the generated C, so it must be delimited by the triple-quote form.",
+          "note": "Antiquus bodies are literal C.  Single-line \"...\" strings are not supported because they cannot hold C line structure."
+        }
       ]
     },
     "E0063": {

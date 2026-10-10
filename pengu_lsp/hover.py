@@ -156,10 +156,19 @@ def format_symbol_hover(
         ret_sz = estimate_size(ret_t, custom_types)
         ret_sz_str = f" /* {ret_sz * 8} bits / {ret_sz} bytes */" if ret_sz > 0 else ""
         decl_kind = "declare" if (kind == "declare" or sym.is_defined_in_c) else "weave"
+        is_antiquus = bool(getattr(sym, "is_antiquus", False))
+        if is_antiquus:
+            decl_kind = "antiquus"
 
         doc_lines.append("```pengus")
         doc_lines.append(f"{decl_kind} {sym.name}{param_str} into {ret_t}{ret_sz_str}")
         doc_lines.append("```")
+
+        if is_antiquus:
+            doc_lines.append(
+                "⚠️ **Unsafe** — the body is literal C emitted verbatim into the "
+                "bundle: it is not type-checked and its ownership is not tracked."
+            )
 
         if decl_kind == "declare" or sym.is_defined_in_c:
             doc_lines.append("*(External C runtime function)*")

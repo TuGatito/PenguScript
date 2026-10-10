@@ -39,7 +39,7 @@ import std.spark
 # ----------------------------------------------------------------------------
 
 ## Version constant for std.rites module.
-const RITES_VERSION as string is "1.1.0"
+const RITES_VERSION as string is "2.0.0"
 
 # ----------------------------------------------------------------------------
 # External C Runtime Declarations (environment, args, process, platform)

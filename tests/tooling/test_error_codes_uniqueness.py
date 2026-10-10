@@ -126,21 +126,24 @@ def test_slice_stack_return_has_its_own_code():
 #: Shapes are normalised, so interpolated values appear as ``{}`` and renaming a
 #: local does not require touching this table.
 CONDITION_SHAPES = {
-    "E0000": 3, "E0001": 1, "E0002": 3, "E0003": 6, "E0004": 15, "E0005": 137, "E0006": 11,
+    "E0000": 3, "E0001": 1, "E0002": 3, "E0003": 6, "E0004": 15, "E0005": 138, "E0006": 11,
     "E0007": 1, "E0008": 15, "E0009": 2, "E0010": 1, "E0011": 1, "E0012": 1, "E0013": 10,
     "E0014": 10, "E0015": 4, "E0016": 1, "E0017": 5, "E0018": 1, "E0019": 3, "E0020": 9,
     "E0021": 1, "E0022": 1, "E0023": 2, "E0024": 2, "E0025": 2, "E0026": 1, "E0027": 1,
     "E0028": 1, "E0029": 3, "E0030": 3, "E0031": 1, "E0032": 4, "E0033": 1, "E0034": 2,
-    "E0035": 4, "E0036": 2, "E0037": 1, "E0038": 1, "E0039": 3, "E0040": 1, "E0041": 9,
+    "E0035": 5, "E0036": 2, "E0037": 1, "E0038": 1, "E0039": 3, "E0040": 2, "E0041": 9,
     "E0042": 3, "E0043": 2, "E0044": 1, "E0045": 4, "E0046": 5,
     "E0049": 8, "E0050": 1, "E0051": 1, "E0052": 2, "E0053": 2, "E0054": 1, "E0055": 1,
-    "E0056": 8, "E0057": 2, "E0058": 1, "E0063": 1, "E0064": 1, "E0065": 1,
+    "E0056": 9, "E0057": 2, "E0058": 1, "E0059": 2, "E0063": 1, "E0064": 1, "E0065": 1,
 }
 
 #: The conditions ``E0035`` is allowed to cover.  Every one of them is "a user
 #: name collides with a C reserved word or standard identifier"; anything else
-#: belongs on its own code.
+#: belongs on its own code.  The `antiquus` parameter entry belongs to the same
+#: family: the C body sees parameter names verbatim, so a name that ``_c_ident``
+#: would escape cannot be written at all, and the declaration is rejected.
 _E0035_FAMILY = (
+    "Antiquus parameter '{}' collides with a C reserved word",
     "Constant name '{}' is a reserved C keyword or standard identifier",
     "Function name '{}' is a reserved C keyword",
     "Function name '{}' is a reserved standard C function or identifier",

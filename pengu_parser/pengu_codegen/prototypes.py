@@ -145,6 +145,26 @@ class ProtoMixin:
             marker = self._line_marker(w.get("line"), w.get("filepath"))
             if marker:
                 lines.append(marker)
+
+            c_body = w.get("c_body")
+            if c_body is not None:
+                # `antiquus`: the body is literal C written by the user.  It is
+                # emitted verbatim, with no frame push/pop and no implicit
+                # return.  The `#line` directives name the antiquus instead of
+                # the bundle, so a C diagnostic inside the body points at
+                #     antiquus:<name>:<line>
+                # which is unambiguous and easy to grep.
+                lines.append(f"{inline_pfx}{noreturn_pfx}{decl} {{")
+                if self.emit_line_markers:
+                    lines.append(f'#line 1 "antiquus:{fn_actual_name}"')
+                lines.append(c_body if c_body else f"/* antiquus {fn_actual_name}: empty C body */")
+                restore = self._line_marker((w.get("line") or 1) + 1, w.get("filepath"))
+                if restore:
+                    lines.append(restore)
+                lines.append("}")
+                lines.append("")
+                continue
+
             lines.append(f"{inline_pfx}{noreturn_pfx}{decl} {{")
             self.indent_level += 1
             push_path = self._display_path(w.get("filepath")) or ""

@@ -5,7 +5,7 @@ test "std_programs/test_regulus_extended":
     calling spark.println with "=== Test Regulus Extended ==="
 
     # 1. Version constant
-    calling spark.assert with (regulus.REGULUS_VERSION == "1.1.0")
+    calling spark.assert with (regulus.REGULUS_VERSION == "2.0.0")
     calling spark.println with "constants: OK"
 
     # 2. Presets and validation predicates

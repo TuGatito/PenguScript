@@ -1,6 +1,6 @@
 # Pengunic Style Guide
 
-> **Covered version:** PenguScript **1.1.0**
+> **Covered version:** PenguScript **2.0.0**
 > **Language policy.** English is canonical: this guide is normative. The Spanish
 > translation [`PenguScriptGuideSpanish.md`](PenguScriptGuideSpanish.md) is
 > **non-normative**; where they disagree, this file wins. `tests/test_language_policy.py`

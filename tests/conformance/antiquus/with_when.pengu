@@ -1,0 +1,25 @@
+# tests/conformance/antiquus/with_when.pengu
+#
+# `antiquus` is a top-level declaration, so it takes part in compile-time
+# conditional compilation: only the `when` branch that is active for the current
+# target is collected and emitted. The assertion is written per platform so the
+# expected stdout stays empty everywhere.
+import std.spark
+
+when os == "linux":
+    antiquus antiquus_platform_tag into int:
+        """
+        return 1;
+        """
+else:
+    antiquus antiquus_platform_tag into int:
+        """
+        return 2;
+        """
+
+test "antiquus/with_when":
+    let tag is calling antiquus_platform_tag
+    when os == "linux":
+        calling spark.assert with (tag == 1)
+    else:
+        calling spark.assert with (tag == 2)

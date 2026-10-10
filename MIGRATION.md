@@ -5,7 +5,7 @@ release to another, and how to verify the move. It is deliberately short: the
 language has exactly **two** breaking changes in its history, and they landed in
 `0.10.0` and `1.0.0`.
 
-> **Current version: 1.1.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 2.0.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
 
@@ -30,6 +30,7 @@ language has exactly **two** breaking changes in its history, and they landed in
 | `0.11.0` – `0.16.0` | **none** | nothing to do |
 | `1.0.0` | the implicit ownership model is removed; memory is manual | delete `borrowed`, add explicit `banish`/`defer banish` — see §4 |
 | `1.1.0` | **none** — additive only | nothing to do; new syntax is opt-in |
+| `2.0.0` | **none** — additive only | nothing to do; `antiquus` is a *soft* keyword, so identifiers named `antiquus` keep compiling. The major number records a change to the language's safety contract (a `.pengu` source can now emit C that the checker does not verify), not a syntax break |
 
 There are no other breaking entries in the changelog. If you find one that is not
 in this table, that is a documentation bug — see §7.

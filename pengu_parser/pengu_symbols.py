@@ -54,6 +54,10 @@ class Symbol:
     concept_bounds: List[str] = field(default_factory=list)
     is_public: bool = False
     attributes: Dict[str, List[Any]] = field(default_factory=dict)
+    #: True when the callable was declared with `antiquus`: its `kind` is still
+    #: "weave" (call resolution is identical) but its body is literal C, so the
+    #: LSP warns instead of presenting it as type-checked PenguScript.
+    is_antiquus: bool = False
 
     def get_c_name(self) -> str:
         """Returns effective C identifier for this symbol."""
