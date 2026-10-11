@@ -1,33 +1,14 @@
-## std/loom.pengu
-## Algoritmos de listas: generación de secuencias, cortes, ventanas, plegados,
-## combinaciones, conjuntos sobre listas ordenadas, búsqueda, edición
-## estructural y estadística.
+## std/loom.pengu — the safe family of list helpers: sequence generation,
+## slicing, windows, folds, combinations, set operations over sorted lists,
+## search, structural editing and statistics.
 ##
-## Todo el módulo son **funciones de módulo** (`calling loom.chunks with xs, 2`);
-## no se declara ningún `enchanting` para no invadir los métodos de `std.tally`.
-## La API concreta de 0.14.x/0.15.0 (`list of int`) se conserva **firma por
-## firma**; las adiciones Pengunic usan `Pair` (`std.oracle`) o un núcleo
-## genérico (`shard T`).
+## Every operation is a **module function** (`calling loom.chunks with xs, 2`):
+## the module declares no `enchanting` block, so it never invades the methods
+## of `std.tally`. The concrete 0.14.x/0.15.0 API (`list of int`) is preserved
+## signature by signature; the Pengunic additions use `Pair` (`std.oracle`) or a
+## generic `shard T` core.
 ##
-## ## Cuándo usar `loom` y cuándo `tally`
-## `loom` es la familia **segura**: una lista vacía se representa como ausencia
-## (`loom.median`, `loom.mode` y `loom.min_max` devuelven `maybe none`) y las
-## estadísticas conservan la fracción (`loom.mean` sobre `[1, 2]` da `1.5`).
-## Es lo que quieres cuando una lista vacía no tiene respuesta y un centinela
-## ocultaría un bug.
-##
-## `std.tally` es la familia de reducciones con **identidad natural**: la lista
-## vacía colapsa a un centinela (`sum` -> 0, `product_num` -> 1, `max_val` -> 0)
-## y las estadísticas fraccionarias se truncan a `int`. Los 15 nombres
-## compartidos **no tienen la misma firma**: no son duplicados, son dos contratos
-## distintos. Ver `LANGUAGE.md` §19.1.1 y `docs/DEPRECATIONS.md`.
-##
-## ## Memory
-## Ninguna función muta ni libera sus entradas: solo las lee y devuelve listas
-## nuevas que el llamante libera con `banish` (o son escalares), incluidas las
-## internas de `chunks`.
-##
-## ## Ejemplo
+## ## Example
 ## ```pengu
 ## import std.loom
 ## import std.spark
@@ -35,43 +16,71 @@
 ## weave main into int:
 ##     var xs as list of int is calling loom.range with 1, 6, 1
 ##     var total as int is calling loom.sum with xs
-##     calling spark.println with "total={total}"
+##     var exact as float is calling loom.mean with xs
+##     calling spark.println with "total={total} mean={exact}"
 ##     return 0
 ## ```
 ##
-## ## Notas de diseño
-## - **Funciones de módulo, no métodos.** La superficie heredada es de funciones
-##   (`calling loom.sum with xs`); los métodos de lista viven en `std.tally`.
-## - **Tipos heredados intactos.** `enumerate`, `pairwise` y `zip_longest`
-##   siguen devolviendo `list of list of int`; las variantes con `Pair` son
-##   nombres **nuevos** (`enumerate_pairs`, `pairwise_pairs`, `min_max`).
-## - **Núcleo genérico.** Los `generic_*` y `flatten_generic` son el núcleo
-##   `shard T`; las concretas delegan en ellos con `of int`. Un cuerpo genérico
-##   no puede invocar a otro: cada núcleo es autocontenido.
-## - **Un único alias.** `flatten` lleva el atributo `@deprecated Use
-##   flat_map_identity instead` (emite `W0006` al usarse; ver
-##   `docs/DEPRECATIONS.md`).
-## - **Tests internos.** El harness `_expect*` usa `spark.panic`; `std.ward`
-##   arrastraría `std.scrolls`/`std.oracle` (en reescritura) a loom.
-## - **Límites del codegen en `test`.** Dentro de un bloque `test` el compilador
-##   no resuelve un `weave` de módulo usado como *valor* (emite el nombre sin
-##   prefijo) ni los nombres que otro módulo del bundle también exporta (p. ej.
-##   `std.tally.flatten`), así que los `test` llaman a núcleos privados `_*_int`
-##   y `scan_left`, `zip_with_op`, `is_partitioned`, `windowed` y `flatten` se
-##   cubren en `tests/std_programs/loom.pengu`.
+## ## Memory
+## No function mutates or frees its inputs: it only reads them and returns new
+## owned lists that the caller releases with `banish` (the scalar results,
+## including `maybe int` / `maybe float` / `maybe Pair`, need no release).
+## `banish` on a list frees only that list's own buffer: for a nested result
+## (`chunks`, `chunk_every`, `windows`, `windowed`, `pairwise`, `zip_longest`,
+## `enumerate`) every inner list is owned by the caller too, so release each
+## inner list and then the outer one. A `list of Pair` (a flat rune) or a
+## `maybe Pair` is released with a single `banish` or not at all.
 ##
-## ## Migración
-## | Antes (0.14.x/0.15.0) | Ahora (0.15.0) |
+## ## Design notes
+## - **Module functions, no `enchanting`.** The inherited surface is functional
+##   (`calling loom.sum with xs`) and the list methods live in `std.tally`. The
+##   absence of an `enchanting` block is deliberate: declaring one here would
+##   collide with `tally`'s methods and merge two contracts that must stay
+##   separate.
+## - **Generic core.** `generic_take`, `generic_take_last`, `generic_reverse`,
+##   `generic_chain`, `generic_index_of`, `first_or`, `flatten_generic` and the
+##   private `_slice_shard`, `_drop_shard` and `_repeat_shard` are the `shard T`
+##   core; the concrete functions delegate to them with `of int`. A generic body
+##   cannot invoke another generic, so each core is self-contained.
+## - **Inherited types intact.** `enumerate`, `pairwise` and `zip_longest` still
+##   return `list of list of int`; the `Pair` variants are **new** names
+##   (`enumerate_pairs`, `pairwise_pairs`, `min_max`).
+## - **One alias, documented only.** `flatten` follows the repository
+##   deprecation convention: a `## @deprecated Use flat_map_identity instead.`
+##   docstring line (no real `@deprecated` attribute, so it emits no `W0006`),
+##   catalogued in `docs/DEPRECATIONS.md`.
+## - **Internal tests.** The `# --- Tests ---` section uses a private `_expect*`
+##   harness built on `spark.panic`, so `loom` keeps no test-only dependency on
+##   `std.ward` (which would drag `std.oracle` into every program that uses it).
+##
+## ## Relationship with std.tally
+## `loom` and `std.tally` intentionally share 15 public names with **different
+## contracts**: `mean`, `median`, `mode`, `min_max`, `sum`, `flatten`, `take`,
+## `windowed`, `zip_with`, `running_sum`, `scan_left`, `repeat`,
+## `enumerate_pairs`, `is_sorted_asc` and `is_sorted_desc`. This is a documented
+## named exception to the cross-module naming rule: see `LANGUAGE.md` §19.1.1 and
+## the style guide (`PenguScriptGuideSpanish.md` §15, "Excepciones
+## documentadas"). `loom` is the **safe** family: an empty list is represented as
+## absence (`median`, `mode` and `min_max` return `maybe none`) and fractional
+## statistics keep the fraction (`calling loom.mean with [1, 2]` is `1.5`).
+## `std.tally` is the reduction family with a natural identity: an empty list
+## collapses to a sentinel (`sum` -> 0, `product_num` -> 1, `max_val` -> 0) and
+## fractional statistics truncate to `int` (`calling tally.mean with [1, 2]` is
+## `1`). Reach for `loom` when an empty list has no answer and a sentinel would
+## hide a bug. The two families are **not** merged and **not** renamed.
+##
+## ## Migration
+## | Before (0.14.x/0.15.0) | Now |
 ## |---|---|
-## | `take` / `skip` / `chain` / `repeat` | iguales; núcleo genérico `calling loom.generic_take of T with xs, n` |
-## | `calling loom.chunks with xs, n` | igual, o `calling loom.chunk_every with xs, n, n` |
-## | `calling loom.windows with xs, n` | igual, o `calling loom.windowed with xs, n` |
-## | `calling loom.pairwise with xs` | igual, o `calling loom.pairwise_pairs with xs` (`Pair`) |
-## | `calling loom.enumerate with xs` | igual, o `calling loom.enumerate_pairs with xs` (`Pair`) |
-## | `calling loom.zip_with with a, b, op` | igual, o `calling loom.zip_with_op with a, b, f` |
-## | `calling loom.flatten` / `min_int` / `max_int` | iguales; nuevos `flat_map_identity` y `min_max` |
-## | `calling loom.range with 5, stop, step` | igual; nuevo `calling loom.unfold_range with 5, count, step` |
-## | (nuevo) | `calling loom.is_partitioned with xs, predicate` |
+## | `take` / `skip` / `chain` / `repeat` | unchanged; generic core `calling loom.generic_take of T with xs, n` |
+## | `calling loom.chunks with xs, n` | unchanged, or `calling loom.chunk_every with xs, n, n` |
+## | `calling loom.windows with xs, n` | unchanged, or `calling loom.windowed with xs, n` |
+## | `calling loom.pairwise with xs` | unchanged, or `calling loom.pairwise_pairs with xs` (`Pair`) |
+## | `calling loom.enumerate with xs` | unchanged, or `calling loom.enumerate_pairs with xs` (`Pair`) |
+## | `calling loom.zip_with with a, b, op` | unchanged, or `calling loom.zip_with_op with a, b, f` |
+## | `calling loom.flatten` / `min_int` / `max_int` | unchanged; new `flat_map_identity` and `min_max` |
+## | `calling loom.range with 5, stop, step` | unchanged; new `calling loom.unfold_range with 5, count, step` |
+## | (new) | `calling loom.is_partitioned with xs, predicate` |
 
 # --- Imports ------------------------------------------------------------
 
@@ -79,14 +88,29 @@ import std.arithmancy
 import std.oracle
 import std.spark
 
-# --- Constantes públicas ------------------------------------------------
+# --- Public constants ---------------------------------------------------
 
-## Versión del módulo loom.
-const LOOM_VERSION as string is "2.0.0"
+## The version of the loom module.
+const LOOM_VERSION as string is "2.1.0"
 
-# --- Generación de secuencias -------------------------------------------
+# --- Sequence generation ------------------------------------------------
 
-## Secuencia `[start, end)` avanzando `step`; `step == 0` devuelve `[]`.
+## Returns the sequence `[start, end)` advancing by `step`; `step == 0` gives `[]`.
+##
+## ## Parámetros
+## - `start`: the first value, included.
+## - `end`: the exclusive bound.
+## - `step`: the increment (default `1`); positive walks up, negative walks down.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`. It stays empty when the
+## sign of `step` never reaches `end`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.range with 1, 5, 1      # [1, 2, 3, 4]
+## calling loom.range with 5, 0, -2     # [5, 3, 1]
+## ```
 weave range with start as int, end as int, step as int is 1 into list of int:
     var out as list of int is list of int
     var current as int is start
@@ -100,13 +124,38 @@ weave range with start as int, end as int, step as int is 1 into list of int:
             set current is current + step
     return out
 
-## `value` repetido `times` veces; `times <= 0` devuelve `[]`.
+## Returns `value` repeated `times` times; `times <= 0` gives `[]`.
+##
+## ## Parámetros
+## - `value`: the value to repeat.
+## - `times`: how many copies to produce; `<= 0` yields an empty list.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.repeat with 7, 3      # [7, 7, 7]
+## ```
 weave repeat with value as int, times as int into list of int:
     return calling _repeat_shard of int with value, times
 
-## Progresión aritmética de `count` elementos (`start, start + step, …`).
+## Returns an arithmetic progression of exactly `count` elements
+## (`start, start + step, ...`).
 ##
-## Cuenta elementos en vez de comparar contra un tope: `count <= 0` da `[]`.
+## ## Parámetros
+## - `start`: the first value.
+## - `count`: how many elements to produce; `count <= 0` yields `[]`.
+## - `step`: the difference between consecutive elements (default `1`).
+##
+## ## Retorno
+## A new owned `list of int` of length `count`; release it with `banish`. Unlike
+## `range`, it counts elements instead of comparing against an upper bound.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.unfold_range with 5, 3, 2      # [5, 7, 9]
+## ```
 weave unfold_range with start as int, count as int, step as int is 1 into list of int:
     var out as list of int is list of int
     var current as int is start
@@ -117,46 +166,176 @@ weave unfold_range with start as int, count as int, step as int is 1 into list o
         set i is i + 1
     return out
 
-# --- Cortes y composición -----------------------------------------------
+# --- Slicing and composition ---------------------------------------------
 
-## Primeros `n` elementos de `items`; `n > len` recorta y `n < 0` da `[]`.
+## Returns the first `n` elements of `items`.
+##
+## ## Parámetros
+## - `items`: the source list; it is only read.
+## - `n`: how many elements to take; `n > len` clamps to the whole list and
+##   `n < 0` yields `[]`.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.take with [1, 2, 3, 4], 2      # [1, 2]
+## ```
 weave take with items as list of int, n as int into list of int:
     return calling generic_take of int with items, n
 
-## Elementos de `items` a partir del índice `n`; `n < 0` equivale a `n == 0`.
+## Returns the elements of `items` from index `n` on.
+##
+## ## Parámetros
+## - `items`: the source list; it is only read.
+## - `n`: the first index to keep; `n < 0` behaves like `n == 0` and
+##   `n > len` yields `[]`.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.skip with [1, 2, 3, 4], 2      # [3, 4]
+## ```
 weave skip with items as list of int, n as int into list of int:
     return calling _drop_shard of int with items, n
 
-## Concatenación de `a` y `b` en una lista nueva.
+## Concatenates `a` and `b` into a new list.
+##
+## ## Parámetros
+## - `a`: the first list, copied first.
+## - `b`: the second list, copied after `a`.
+##
+## ## Retorno
+## A new owned `list of int` with `len(a) + len(b)` elements; release it with
+## `banish`. Both inputs are only read.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.chain with [1, 2], [3, 4]      # [1, 2, 3, 4]
+## ```
 weave chain with a as list of int, b as list of int into list of int:
     return calling generic_chain of int with a, b
 
-# --- Bloques y ventanas -------------------------------------------------
+# --- Blocks and windows --------------------------------------------------
 
-## Bloques consecutivos de hasta `n` elementos; `n <= 0` devuelve `[]`.
+## Splits `items` into consecutive blocks of up to `n` elements.
+##
+## ## Parámetros
+## - `items`: the source list; it is only read.
+## - `n`: the block size; `n <= 0` yields `[]`.
+##
+## ## Retorno
+## A new owned `list of list of int`; the last block may be shorter.
+##
+## ## Memoria
+## Each inner list is a separate owned value: release every inner list and then
+## the outer one. The input list is only read.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.chunks with [1, 2, 3, 4, 5], 2      # [[1, 2], [3, 4], [5]]
+## ```
 weave chunks with items as list of int, n as int into list of list of int:
     return calling _chunk_every_int with items, n, n
 
-## Bloques de hasta `n` elementos tomados cada `step` posiciones.
+## Splits `items` into blocks of up to `n` elements taken every `step` positions.
 ##
-## `step == n` equivale a `chunks`; `step < n` solapa y `step > n` salta.
-## `n <= 0` o `step <= 0` devuelven `[]`.
+## ## Parámetros
+## - `items`: the source list; it is only read.
+## - `n`: the block size; `n <= 0` yields `[]`.
+## - `step`: the distance between block starts (default `1`); `step <= 0` yields
+##   `[]`.
+##
+## ## Retorno
+## A new owned `list of list of int`; `step == n` matches `chunks`, `step < n`
+## overlaps and `step > n` skips elements.
+##
+## ## Memoria
+## Each inner list is a separate owned value: release every inner list and then
+## the outer one. The input list is only read.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.chunk_every with [1, 2, 3, 4], 3, 1      # [[1, 2, 3], [2, 3, 4], [3, 4], [4]]
+## ```
 weave chunk_every with items as list of int, n as int, step as int is 1 into list of list of int:
     return calling _chunk_every_int with items, n, step
 
-## Ventanas contiguas de exactamente `n` elementos; `n <= 0` o `n > len` dan `[]`.
+## Returns the contiguous windows of exactly `n` elements.
+##
+## ## Parámetros
+## - `items`: the source list; it is only read.
+## - `n`: the window size; `n <= 0` or `n > len` yields `[]`.
+##
+## ## Retorno
+## A new owned `list of list of int` with `len - n + 1` complete windows.
+##
+## ## Memoria
+## Each inner list is a separate owned value: release every inner list and then
+## the outer one. The input list is only read.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.windows with [1, 2, 3], 2      # [[1, 2], [2, 3]]
+## ```
 weave windows with items as list of int, n as int into list of list of int:
     return calling _windows_int with items, n
 
-## Nombre Pengunic de `windows`; misma firma y mismo resultado.
+## Pengunic name of `windows`; same signature and same result.
+##
+## ## Parámetros
+## - `items`: the source list; it is only read.
+## - `n`: the window size; `n <= 0` or `n > len` yields `[]`.
+##
+## ## Retorno
+## A new owned `list of list of int`; same result as `windows`.
+##
+## ## Memoria
+## Each inner list is a separate owned value: release every inner list and then
+## the outer one. The input list is only read.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.windowed with [1, 2, 3], 2      # [[1, 2], [2, 3]]
+## ```
 weave windowed with items as list of int, n as int into list of list of int:
     return calling _windows_int with items, n
 
-## Pares adyacentes solapados `[[x0, x1], …]`; `len < 2` → `[]` (ver `pairwise_pairs`).
+## Returns the overlapping adjacent pairs `[[x0, x1], ...]`.
+##
+## ## Parámetros
+## - `items`: the source list; it is only read. `len < 2` yields `[]`.
+##
+## ## Retorno
+## A new owned `list of list of int` of size `len - 1`; `pairwise_pairs` is the
+## `Pair` variant.
+##
+## ## Memoria
+## Each inner list is a separate owned value: release every inner list and then
+## the outer one. The input list is only read.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.pairwise with [1, 2, 3]      # [[1, 2], [2, 3]]
+## ```
 weave pairwise with items as list of int into list of list of int:
     return calling _windows_int with items, 2
 
-## Pares adyacentes solapados como `Pair(first = xi, second = xi+1)`.
+## Returns the overlapping adjacent pairs as `Pair(first = xi, second = xi+1)`.
+##
+## ## Parámetros
+## - `items`: the source list; it is only read. `len < 2` yields `[]`.
+##
+## ## Retorno
+## A new owned `list of Pair of int and int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.pairwise_pairs with [1, 2, 3]      # [Pair(1, 2), Pair(2, 3)]
+## ```
 weave pairwise_pairs with items as list of int into list of Pair of int and int:
     var out as list of Pair of int and int is list of Pair of int and int
     var i as int is 0
@@ -168,17 +347,51 @@ weave pairwise_pairs with items as list of int into list of Pair of int and int:
         set i is i + 1
     return out
 
-# --- Plegados -----------------------------------------------------------
+# --- Folds ---------------------------------------------------------------
 
-## Suma de todos los elementos (`0` si está vacía).
+## Adds every element (`0` for an empty list).
+##
+## ## Parámetros
+## - `nums`: the values to add; the list is only read.
+##
+## ## Retorno
+## The sum as an `int`; nothing to release.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.sum with [1, 2, 3]      # 6
+## ```
 weave sum with nums as list of int into int:
     return calling _sum_int with nums
 
-## Producto de todos los elementos (`1` si está vacía).
+## Multiplies every element (`1` for an empty list).
+##
+## ## Parámetros
+## - `nums`: the values to multiply; the list is only read.
+##
+## ## Retorno
+## The product as an `int`; nothing to release.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.product_num with [2, 3, 4]      # 24
+## ```
 weave product_num with nums as list of int into int:
     return calling _product_int with nums
 
-## Mayor elemento (`0` si está vacía).
+## Returns the greatest element (`0` for an empty list).
+##
+## ## Parámetros
+## - `items`: the values to scan; the list is only read.
+##
+## ## Retorno
+## The maximum as an `int`, or the sentinel `0` when the list is empty. Use
+## `min_max` when an empty list must be distinguishable.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.max_int with [3, 9, 4]      # 9
+## ```
 weave max_int with items as list of int into int:
     var best as int is 0
     if (calling items.len) == 0:
@@ -189,7 +402,19 @@ weave max_int with items as list of int into int:
             set best is x
     return best
 
-## Menor elemento (`0` si está vacía).
+## Returns the smallest element (`0` for an empty list).
+##
+## ## Parámetros
+## - `items`: the values to scan; the list is only read.
+##
+## ## Retorno
+## The minimum as an `int`, or the sentinel `0` when the list is empty. Use
+## `min_max` when an empty list must be distinguishable.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.min_int with [3, 9, 4]      # 3
+## ```
 weave min_int with items as list of int into int:
     var best as int is 0
     if (calling items.len) == 0:
@@ -200,11 +425,23 @@ weave min_int with items as list of int into int:
             set best is x
     return best
 
-## Mínimo y máximo como `Pair(first = min, second = max)`; `[]` → `none`.
+## Returns the minimum and the maximum as `Pair(first = min, second = max)`.
+##
+## ## Parámetros
+## - `items`: the values to scan; the list is only read.
+##
+## ## Retorno
+## `some Pair` with the bounds, or `maybe none` when the list is empty; nothing
+## to release either way.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.min_max with [3, 9, 4]      # some Pair(3, 9)
+## ```
 weave min_max with items as list of int into maybe Pair of int and int:
     return calling _min_max_int with items
 
-## Núcleo de `min_max`.
+## Core of `min_max`.
 weave _min_max_int with items as list of int into maybe Pair of int and int:
     if (calling items.len) == 0:
         return maybe none
@@ -220,30 +457,101 @@ weave _min_max_int with items as list of int into maybe Pair of int and int:
         set .second is hi
     return some out
 
-## Media aritmética como `float` (`0.0` si está vacía).
+## Returns the arithmetic mean as a `float` (`0.0` for an empty list).
+##
+## ## Parámetros
+## - `nums`: the values to average; the list is only read.
+##
+## ## Retorno
+## The mean as a `float`, keeping the fraction (`calling loom.mean with [1, 2]`
+## is `1.5`). Unlike `std.tally.mean`, it is not truncated to `int`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.mean with [1, 2, 3, 4]      # 2.5
+## ```
 weave mean with nums as list of int into float:
     return calling _mean_int with nums
 
-## Suma de los cuadrados de `nums` (`0` si está vacía).
+## Adds the squares of `nums` (`0` for an empty list).
+##
+## ## Parámetros
+## - `nums`: the values whose squares are added; the list is only read.
+##
+## ## Retorno
+## The sum of squares as an `int`; nothing to release.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.sum_squares with [1, 2, 3]      # 14
+## ```
 weave sum_squares with nums as list of int into int:
     var total as int is 0
     for x in nums:
         set total is total + (x * x)
     return total
 
-## Sumas prefijas (misma longitud que `nums`); núcleo privado `_running_sum_int`.
+## Returns the running (prefix) sums, one per element.
+##
+## ## Parámetros
+## - `nums`: the values to accumulate; the list is only read.
+##
+## ## Retorno
+## A new owned `list of int` of the same length as `nums` (`[]` stays `[]`);
+## release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.running_sum with [1, 2, 3]      # [1, 3, 6]
+## ```
 weave running_sum with nums as list of int into list of int:
     return calling _running_sum_int with nums
 
-## Máximos prefijas (misma longitud que `nums`).
+## Returns the running (prefix) maxima, one per element.
+##
+## ## Parámetros
+## - `nums`: the values to accumulate; the list is only read.
+##
+## ## Retorno
+## A new owned `list of int` of the same length as `nums` (`[]` stays `[]`);
+## release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.running_max with [3, 1, 4]      # [3, 3, 4]
+## ```
 weave running_max with nums as list of int into list of int:
     return calling _running_extreme_int with nums, true
 
-## Mínimos prefijas (misma longitud que `nums`).
+## Returns the running (prefix) minima, one per element.
+##
+## ## Parámetros
+## - `nums`: the values to accumulate; the list is only read.
+##
+## ## Retorno
+## A new owned `list of int` of the same length as `nums` (`[]` stays `[]`);
+## release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.running_min with [3, 1, 4]      # [3, 1, 1]
+## ```
 weave running_min with nums as list of int into list of int:
     return calling _running_extreme_int with nums, false
 
-## Diferencias adyacentes `[x1 - x0, x2 - x1, …]` (`len <= 1` → `[]`).
+## Returns the adjacent differences `[x1 - x0, x2 - x1, ...]`.
+##
+## ## Parámetros
+## - `nums`: the values to difference; the list is only read. `len <= 1` yields
+##   `[]`.
+##
+## ## Retorno
+## A new owned `list of int` of size `len - 1`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.differences with [1, 4, 9]      # [3, 5]
+## ```
 weave differences with nums as list of int into list of int:
     var out as list of int is list of int
     if (calling nums.len) <= 1:
@@ -254,9 +562,24 @@ weave differences with nums as list of int into list of int:
         set i is i + 1
     return out
 
-## Escaneo acumulativo con `f`, sembrado con el primer elemento.
+## Returns the running accumulation of `items` with `f`.
 ##
-## Misma longitud que `items` y `out[0] = items[0]`; `[]` devuelve `[]`.
+## Each output slot is `calling f with acc, items[i]`, where `acc` is the
+## previous output and `donum T` (0 for the numeric types) for `i == 0`; with a
+## cumulative operator such as addition that makes `out[0] == items[0]`.
+##
+## ## Parámetros
+## - `items`: the values to scan; `[]` yields `[]`.
+## - `f`: the pure combining weave `(T, T) -> T`.
+##
+## ## Retorno
+## A new owned `list of T` of the same length as `items`; release it with
+## `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.scan_left of int with [4, 6, 8], arithmancy.gcd      # [4, 2, 2]
+## ```
 weave scan_left shard T where T: Num with items as list of T, f as weave with acc as T, x as T into T into list of T:
     var n as int is calling items.len
     if n == 0:
@@ -268,38 +591,119 @@ weave scan_left shard T where T: Num with items as list of T, f as weave with ac
         set i is i + 1
     return out
 
-# --- Predicados ---------------------------------------------------------
+# --- Predicates ----------------------------------------------------------
 
-## True si algún elemento es cero.
+## Returns `true` when some element is zero.
+##
+## ## Parámetros
+## - `nums`: the values to test; the list is only read.
+##
+## ## Retorno
+## `true` when at least one element is `0`, `false` otherwise (also for `[]`).
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.any_zero with [1, 0, 3]      # true
+## ```
 weave any_zero with nums as list of int into bool:
     for x in nums:
         if x == 0:
             return true
     return false
 
-## True si todos los elementos son iguales (`len <= 1` → `true`).
+## Returns `true` when every element is equal.
+##
+## ## Parámetros
+## - `nums`: the values to compare; the list is only read. `len <= 1` yields
+##   `true`.
+##
+## ## Retorno
+## `true` when all elements are equal, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.all_equal with [4, 4, 4]      # true
+## ```
 weave all_equal with nums as list of int into bool:
     return (calling _is_ordered_int with nums, false, true) and (calling _is_ordered_int with nums, false, false)
 
-## True si cada elemento es estrictamente menor que el siguiente.
+## Returns `true` when every element is strictly smaller than the next.
+##
+## ## Parámetros
+## - `nums`: the values to check; the list is only read.
+##
+## ## Retorno
+## `true` for a strictly ascending list (lists of fewer than two elements are
+## ascending), `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.is_strictly_asc with [1, 2, 3]      # true
+## ```
 weave is_strictly_asc with nums as list of int into bool:
     return calling _is_ordered_int with nums, true, true
 
-## True si cada elemento es estrictamente mayor que el siguiente.
+## Returns `true` when every element is strictly greater than the next.
+##
+## ## Parámetros
+## - `nums`: the values to check; the list is only read.
+##
+## ## Retorno
+## `true` for a strictly descending list (lists of fewer than two elements are
+## descending), `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.is_strictly_desc with [3, 2, 1]      # true
+## ```
 weave is_strictly_desc with nums as list of int into bool:
     return calling _is_ordered_int with nums, true, false
 
-## True si `nums` está ordenada de forma no decreciente.
+## Returns `true` when `nums` is sorted in non-decreasing order.
+##
+## ## Parámetros
+## - `nums`: the values to check; the list is only read.
+##
+## ## Retorno
+## `true` when consecutive elements never decrease, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.is_sorted_asc with [1, 1, 2]      # true
+## ```
 weave is_sorted_asc with nums as list of int into bool:
     return calling _is_ordered_int with nums, false, true
 
-## True si `nums` está ordenada de forma no creciente.
+## Returns `true` when `nums` is sorted in non-increasing order.
+##
+## ## Parámetros
+## - `nums`: the values to check; the list is only read.
+##
+## ## Retorno
+## `true` when consecutive elements never increase, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.is_sorted_desc with [3, 3, 1]      # true
+## ```
 weave is_sorted_desc with nums as list of int into bool:
     return calling _is_ordered_int with nums, false, false
 
-## True si los elementos que cumplen `predicate` preceden a los que no.
+## Returns `true` when the elements that satisfy `predicate` precede all the
+## ones that do not.
 ##
-## `[]` y las listas de un elemento devuelven `true`.
+## ## Parámetros
+## - `items`: the values to check; the list is only read. `[]` and one-element
+##   lists yield `true`.
+## - `predicate`: a pure weave `(int) -> bool`.
+##
+## ## Retorno
+## `true` when the list is partitioned, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.is_partitioned with [2, 3, 4], arithmancy.is_prime      # true
+## ```
 weave is_partitioned with items as list of int, predicate as weave with x as int into bool into bool:
     var seen_failing as bool is false
     for x in items:
@@ -310,37 +714,82 @@ weave is_partitioned with items as list of int, predicate as weave with x as int
             set seen_failing is true
     return true
 
-# --- Transformaciones y combinaciones -----------------------------------
+# --- Transformations and combinations ------------------------------------
 
-## Combina `a` y `b` con el operador `op`: `0` suma, `1` resta, `2` producto,
-## `3` mínimo, `4` máximo y cualquier otro valor suma; corta en la lista corta.
+## Combines `a` and `b` with the operator code `op`.
+##
+## ## Parámetros
+## - `a`: the left operands; the list is only read.
+## - `b`: the right operands; the list is only read.
+## - `op`: `0` adds (also the default and the fallback), `1` subtracts, `2`
+##   multiplies, `3` takes the minimum and `4` the maximum.
+##
+## ## Retorno
+## A new owned `list of int` that stops at the shorter input; release it with
+## `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.zip_with with [1, 2], [10, 20], 0      # [11, 22]
+## ```
 weave zip_with with a as list of int, b as list of int, op as int is 0 into list of int:
     return calling _zip_with_int with a, b, op
 
-## Núcleo de `zip_with` (ver su docstring para los códigos de `op`).
+## Core of `zip_with` (see its docstring for the `op` codes).
 weave _zip_with_int with a as list of int, b as list of int, op as int into list of int:
     var out as list of int is list of int
-    var limit as int is calling _pick_len_int with a, b, false
+    let limit as int is calling _pick_len_int with a, b, false
     var i as int is 0
     while i < limit:
         calling out.push with (calling _apply_op_int with (a at i), (b at i), op)
         set i is i + 1
     return out
 
-## Combina `a` y `b` con la función `f`, hasta la lista más corta.
+## Combines `a` and `b` with the weave `f`, up to the shorter list.
+##
+## ## Parámetros
+## - `a`: the left operands; the list is only read.
+## - `b`: the right operands; the list is only read.
+## - `f`: a pure weave `(int, int) -> int`.
+##
+## ## Retorno
+## A new owned `list of int` of size `min(len(a), len(b))`; release it with
+## `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.zip_with_op with [12, 8], [8, 6], arithmancy.gcd      # [4, 2]
+## ```
 weave zip_with_op with a as list of int, b as list of int, f as weave with x as int, y as int into int into list of int:
     var out as list of int is list of int
-    var limit as int is calling _pick_len_int with a, b, false
+    let limit as int is calling _pick_len_int with a, b, false
     var i as int is 0
     while i < limit:
         calling out.push with (calling f with (a at i), (b at i))
         set i is i + 1
     return out
 
-## Pares `[a_i, b_i]` hasta la lista más larga, rellenando con `fill`.
+## Returns the pairs `[a_i, b_i]` up to the longer list, filling with `fill`.
+##
+## ## Parámetros
+## - `a`: the left operands; the list is only read.
+## - `b`: the right operands; the list is only read.
+## - `fill`: the value used where a list is exhausted (default `0`).
+##
+## ## Retorno
+## A new owned `list of list of int` of size `max(len(a), len(b))`.
+##
+## ## Memoria
+## Each inner list is a separate owned value: release every inner list and then
+## the outer one. The input list is only read.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.zip_longest with [1, 2, 3], [9], 7      # [[1, 9], [2, 7], [3, 7]]
+## ```
 weave zip_longest with a as list of int, b as list of int, fill as int is 0 into list of list of int:
     var out as list of list of int is list of list of int
-    var max_len as int is calling _pick_len_int with a, b, true
+    let max_len as int is calling _pick_len_int with a, b, true
     var i as int is 0
     while i < max_len:
         var pair as list of int is list of int
@@ -350,9 +799,26 @@ weave zip_longest with a as list of int, b as list of int, fill as int is 0 into
         set i is i + 1
     return out
 
-## Pares `[índice, valor]` en orden (ver `enumerate_pairs` para la variante `Pair`).
+## Returns the `[index, value]` pairs in order.
+##
+## ## Parámetros
+## - `items`: the values to index; the list is only read.
+##
+## ## Retorno
+## A new owned `list of list of int` with one two-element list per input
+## element. See `enumerate_pairs` for the `Pair` variant.
+##
+## ## Memoria
+## Each inner list is a separate owned value: release every inner list and then
+## the outer one. The input list is only read.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.enumerate with [10, 20]      # [[0, 10], [1, 20]]
+## ```
 weave enumerate with items as list of int into list of list of int:
-    var indexed as list of Pair of int and int is calling _enumerate_pairs_int with items
+    let indexed as list of Pair of int and int is calling _enumerate_pairs_int with items
+    defer banish indexed
     var out as list of list of int is list of list of int
     for entry in indexed:
         var pair as list of int is list of int
@@ -361,11 +827,22 @@ weave enumerate with items as list of int into list of list of int:
         calling out.push with pair
     return out
 
-## Pares `Pair(first = índice, second = valor)` en orden.
+## Returns the `Pair(first = index, second = value)` entries in order.
+##
+## ## Parámetros
+## - `items`: the values to index; the list is only read.
+##
+## ## Retorno
+## A new owned `list of Pair of int and int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.enumerate_pairs with [10, 20]      # [Pair(0, 10), Pair(1, 20)]
+## ```
 weave enumerate_pairs with items as list of int into list of Pair of int and int:
     return calling _enumerate_pairs_int with items
 
-## Núcleo de `enumerate_pairs`.
+## Core of `enumerate_pairs`.
 weave _enumerate_pairs_int with items as list of int into list of Pair of int and int:
     var out as list of Pair of int and int is list of Pair of int and int
     var i as int is 0
@@ -377,10 +854,23 @@ weave _enumerate_pairs_int with items as list of int into list of Pair of int an
         set i is i + 1
     return out
 
-## Alterna elementos de `a` y `b` hasta la lista más corta: `[a0, b0, a1, …]`.
+## Alternates elements of `a` and `b` up to the shorter list: `[a0, b0, a1, ...]`.
+##
+## ## Parámetros
+## - `a`: the first list; the list is only read.
+## - `b`: the second list; the list is only read.
+##
+## ## Retorno
+## A new owned `list of int` of size `2 * min(len(a), len(b))`; release it with
+## `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.interleave with [1, 2], [10]      # [1, 10]
+## ```
 weave interleave with a as list of int, b as list of int into list of int:
     var out as list of int is list of int
-    var limit as int is calling _pick_len_int with a, b, false
+    let limit as int is calling _pick_len_int with a, b, false
     var i as int is 0
     while i < limit:
         calling out.push with (a at i)
@@ -388,31 +878,84 @@ weave interleave with a as list of int, b as list of int into list of int:
         set i is i + 1
     return out
 
-## Reparte por turnos todas las listas de `lists` hasta agotarlas.
+## Takes turns over every list of `lists` until all of them are exhausted.
+##
+## ## Parámetros
+## - `lists`: the lists to interleave; only read.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`. Position `i` is taken
+## from every list that still has `i` elements.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.round_robin with [[1, 2], [10, 11]]      # [1, 10, 2, 11]
+## ```
 weave round_robin with lists as list of list of int into list of int:
     var out as list of int is list of int
     var max_len as int is 0
     for inner in lists:
         if (calling inner.len) > max_len:
             set max_len is calling inner.len
-    for step in (calling range with 0, max_len, 1):
+    let steps as list of int is calling range with 0, max_len, 1
+    defer banish steps
+    for step in steps:
         for inner in lists:
             if step < (calling inner.len):
                 calling out.push with (inner at step)
     return out
 
-## Rota `items` a la izquierda `k` posiciones (acepta `k` negativo).
+## Rotates `items` to the left by `k` positions.
+##
+## ## Parámetros
+## - `items`: the source list; it is only read.
+## - `k`: the number of positions; negative values rotate the other way and
+##   values larger than the length wrap around.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.rotate_left with [10, 20, 30], 1      # [20, 30, 10]
+## ```
 weave rotate_left with items as list of int, k as int into list of int:
     return calling _rotate_left_int with items, k
 
-## Rota `items` a la derecha `k` posiciones (acepta `k` negativo).
+## Rotates `items` to the right by `k` positions.
+##
+## ## Parámetros
+## - `items`: the source list; it is only read.
+## - `k`: the number of positions; negative values rotate the other way and
+##   values larger than the length wrap around.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.rotate_right with [10, 20, 30], 1      # [30, 10, 20]
+## ```
 weave rotate_right with items as list of int, k as int into list of int:
-    var n as int is calling items.len
+    let n as int is calling items.len
     if n == 0:
         return calling _rotate_left_int with items, 0
     return calling _rotate_left_int with items, ((n - (k % n)) % n)
 
-## Inserta `sep` entre cada par de elementos adyacentes.
+## Inserts `sep` between every pair of adjacent elements.
+##
+## ## Parámetros
+## - `items`: the source list; it is only read.
+## - `sep`: the separator inserted between elements.
+##
+## ## Retorno
+## A new owned `list of int` of size `2 * len - 1` for a non-empty input, or the
+## empty list; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.intersperse with [1, 2, 3], 0      # [1, 0, 2, 0, 3]
+## ```
 weave intersperse with items as list of int, sep as int into list of int:
     var out as list of int is list of int
     if (calling items.len) == 0:
@@ -425,19 +968,57 @@ weave intersperse with items as list of int, sep as int into list of int:
         set i is i + 1
     return out
 
-## Aplana un nivel de anidamiento: concatena las listas de `nested`.
+## Flattens one level of nesting: concatenates the inner lists of `nested`.
 ##
-## Delega en el núcleo genérico `flatten_generic`.
+## ## Parámetros
+## - `nested`: the list of lists to flatten; it is only read.
+##
+## ## Retorno
+## A new owned `list of int` with the elements of every inner list, in order;
+## release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let blocks as list of list of int is calling loom.chunks with [1, 2, 3, 4], 2
+## calling loom.flat_map_identity with blocks      # [1, 2, 3, 4]
+## ```
 weave flat_map_identity with nested as list of list of int into list of int:
     return calling flatten_generic of int with nested
 
-## @deprecated Use `flat_map_identity` instead (misma firma y resultado).
+## Flattens one level of nesting: concatenates the inner lists of `nested`.
+##
+## @deprecated Use flat_map_identity instead.
+##
+## ## Parámetros
+## - `nested`: the list of lists to flatten; it is only read.
+##
+## ## Retorno
+## A new owned `list of int`, exactly as `flat_map_identity`; release it with
+## `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.flatten with (calling loom.chunks with [1, 2], 1)      # [1, 2]
+## ```
 weave flatten with nested as list of list of int into list of int:
     return calling flatten_generic of int with nested
 
-## Aplana un nivel de anidamiento para cualquier tipo `T`.
+## Flattens one level of nesting for any type `T`.
 ##
-## Es el núcleo genérico de `flat_map_identity` y `flatten`.
+## It is the generic core of `flat_map_identity` and `flatten`.
+##
+## ## Parámetros
+## - `nested`: the list of lists to flatten; it is only read.
+##
+## ## Retorno
+## A new owned `list of T` with the elements of every inner list, in order;
+## release it with `banish`. The elements are copied, so for element types that
+## own memory the caller keeps the original ownership of the inner payloads.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.flatten_generic of int with (calling loom.chunks with [1, 2, 3], 2)      # [1, 2, 3]
+## ```
 weave flatten_generic shard T with nested as list of list of T into list of T:
     var out as list of T is list of T
     for inner in nested:
@@ -445,36 +1026,114 @@ weave flatten_generic shard T with nested as list of list of T into list of T:
             calling out.push with x
     return out
 
-# --- Conjuntos sobre listas ordenadas -----------------------------------
+# --- Sets over sorted lists ----------------------------------------------
 
-## Unión deduplicada de dos listas ascendentes.
+## Returns the deduplicated union of two ascending lists.
+##
+## ## Parámetros
+## - `a`: the first ascending list; only read.
+## - `b`: the second ascending list; only read.
+##
+## ## Retorno
+## A new owned ascending `list of int` without duplicates; release it with
+## `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.union_sorted with [1, 2], [2, 3]      # [1, 2, 3]
+## ```
 weave union_sorted with a as list of int, b as list of int into list of int:
     return calling _union_sorted_int with a, b
 
-## Intersección deduplicada de dos listas ascendentes.
+## Returns the deduplicated intersection of two ascending lists.
+##
+## ## Parámetros
+## - `a`: the first ascending list; only read.
+## - `b`: the second ascending list; only read.
+##
+## ## Retorno
+## A new owned ascending `list of int` with the values present in both; release
+## it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.intersect_sorted with [1, 2, 3], [2, 3]      # [2, 3]
+## ```
 weave intersect_sorted with a as list of int, b as list of int into list of int:
     return calling _intersect_sorted_int with a, b
 
-## Diferencia deduplicada `a \ b` de dos listas ascendentes.
+## Returns the deduplicated difference `a \ b` of two ascending lists.
+##
+## ## Parámetros
+## - `a`: the first ascending list; only read.
+## - `b`: the second ascending list; only read.
+##
+## ## Retorno
+## A new owned ascending `list of int` with the values of `a` not present in
+## `b`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.difference_sorted with [1, 2, 3], [2, 3]      # [1]
+## ```
 weave difference_sorted with a as list of int, b as list of int into list of int:
     return calling _difference_sorted_int with a, b
 
-## Diferencia simétrica deduplicada de dos listas ascendentes.
+## Returns the deduplicated symmetric difference of two ascending lists.
+##
+## ## Parámetros
+## - `a`: the first ascending list; only read.
+## - `b`: the second ascending list; only read.
+##
+## ## Retorno
+## A new owned ascending `list of int` with the values present in exactly one of
+## the inputs; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.symmetric_difference_sorted with [1, 2], [2, 3]      # [1, 3]
+## ```
 weave symmetric_difference_sorted with a as list of int, b as list of int into list of int:
     var left as list of int is calling _difference_sorted_int with a, b
+    defer banish left
     var right as list of int is calling _difference_sorted_int with b, a
+    defer banish right
     return calling _union_sorted_int with left, right
 
-# --- Búsqueda e índices -------------------------------------------------
+# --- Search and indices --------------------------------------------------
 
-## Índice de la primera aparición de `target` (`maybe none` si no está).
+## Returns the index of the first occurrence of `target`.
+##
+## ## Parámetros
+## - `items`: the values to search; the list is only read.
+## - `target`: the value looked up.
+##
+## ## Retorno
+## `some index` for the first match, or `maybe none` when `target` is absent.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.find_first with [10, 20, 10], 10      # some 0
+## ```
 weave find_first with items as list of int, target as int into maybe int:
-    var found as int is calling generic_index_of of int with items, target
+    let found as int is calling generic_index_of of int with items, target
     if found < 0:
         return maybe none
     return some found
 
-## Índice de la última aparición de `target` (`maybe none` si no está).
+## Returns the index of the last occurrence of `target`.
+##
+## ## Parámetros
+## - `items`: the values to search; the list is only read.
+## - `target`: the value looked up.
+##
+## ## Retorno
+## `some index` for the last match, or `maybe none` when `target` is absent.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.find_last with [10, 20, 10], 10      # some 2
+## ```
 weave find_last with items as list of int, target as int into maybe int:
     var i as int is (calling items.len) - 1
     while i >= 0:
@@ -483,13 +1142,26 @@ weave find_last with items as list of int, target as int into maybe int:
         set i is i - 1
     return maybe none
 
-## Búsqueda binaria en `sorted_items` ascendente (desordenada: indefinido).
+## Searches `sorted_items` (ascending) for `target` with binary search.
+##
+## ## Parámetros
+## - `sorted_items`: an ascending list; the list is only read. On an unsorted
+##   list the result is undefined.
+## - `target`: the value looked up.
+##
+## ## Retorno
+## `some index` when the value is found, `maybe none` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.binary_search with [1, 2, 4, 5], 4      # some 2
+## ```
 weave binary_search with sorted_items as list of int, target as int into maybe int:
     var low as int is 0
     var high as int is (calling sorted_items.len) - 1
     while low <= high:
-        var mid as int is low + ((high - low) / 2)
-        var value as int is sorted_items at mid
+        let mid as int is low + ((high - low) / 2)
+        let value as int is sorted_items at mid
         if value == target:
             return some mid
         if value < target:
@@ -498,7 +1170,18 @@ weave binary_search with sorted_items as list of int, target as int into maybe i
             set high is mid - 1
     return maybe none
 
-## Cuenta los elementos pares (incluye los negativos pares).
+## Counts the even elements (negative even values included).
+##
+## ## Parámetros
+## - `items`: the values to test; the list is only read.
+##
+## ## Retorno
+## How many elements satisfy `x % 2 == 0`, as an `int`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.count_if_even with [-2, 0, 3]      # 2
+## ```
 weave count_if_even with items as list of int into int:
     var count as int is 0
     for x in items:
@@ -506,7 +1189,18 @@ weave count_if_even with items as list of int into int:
             set count is count + 1
     return count
 
-## Cuenta los elementos estrictamente positivos.
+## Counts the strictly positive elements.
+##
+## ## Parámetros
+## - `items`: the values to test; the list is only read.
+##
+## ## Retorno
+## How many elements satisfy `x > 0`, as an `int`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.count_if_positive with [-2, 0, 3]      # 1
+## ```
 weave count_if_positive with items as list of int into int:
     var count as int is 0
     for x in items:
@@ -514,17 +1208,52 @@ weave count_if_positive with items as list of int into int:
             set count is count + 1
     return count
 
-## Índice del primer mínimo (`maybe none` si está vacía).
+## Returns the index of the first minimum.
+##
+## ## Parámetros
+## - `items`: the values to scan; the list is only read.
+##
+## ## Retorno
+## `some index` of the first smallest element, or `maybe none` for `[]`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.index_min with [3, 1, 4, 1]      # some 1
+## ```
 weave index_min with items as list of int into maybe int:
     return calling _index_of_extreme_int with items, false
 
-## Índice del primer máximo (`maybe none` si está vacía).
+## Returns the index of the first maximum.
+##
+## ## Parámetros
+## - `items`: the values to scan; the list is only read.
+##
+## ## Retorno
+## `some index` of the first greatest element, or `maybe none` for `[]`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.index_max with [3, 1, 4, 1]      # some 2
+## ```
 weave index_max with items as list of int into maybe int:
     return calling _index_of_extreme_int with items, true
 
-# --- Edición estructural (pura) -----------------------------------------
+# --- Pure structural editing ---------------------------------------------
 
-## Copia con `value` insertado en `index` (índice recortado a `[0, len]`).
+## Returns a copy with `value` inserted at `index`.
+##
+## ## Parámetros
+## - `items`: the source list; it is only read.
+## - `index`: the insertion position, clamped to `[0, len]`.
+## - `value`: the value to insert.
+##
+## ## Retorno
+## A new owned `list of int` of size `len + 1`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.insert_at with [1, 2, 3], 1, 9      # [1, 9, 2, 3]
+## ```
 weave insert_at with items as list of int, index as int, value as int into list of int:
     var pos as int is index
     if pos < 0:
@@ -532,11 +1261,25 @@ weave insert_at with items as list of int, index as int, value as int into list 
     if pos > (calling items.len):
         set pos is calling items.len
     var head as list of int is calling _slice_shard of int with items, 0, pos
+    defer banish head
     var tail as list of int is calling _slice_shard of int with items, pos, calling items.len
+    defer banish tail
     calling head.push with value
     return calling generic_chain of int with head, tail
 
-## Copia sin el elemento en `index` (índice fuera de rango → copia intacta).
+## Returns a copy without the element at `index`.
+##
+## ## Parámetros
+## - `items`: the source list; it is only read.
+## - `index`: the position to drop; an out-of-range index returns a full copy.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.remove_at with [1, 2, 3], 1      # [1, 3]
+## ```
 weave remove_at with items as list of int, index as int into list of int:
     var out as list of int is list of int
     var i as int is 0
@@ -546,7 +1289,22 @@ weave remove_at with items as list of int, index as int into list of int:
         set i is i + 1
     return out
 
-## Copia con `value` en `index` (índice fuera de rango → copia intacta).
+## Returns a copy with `value` at `index`.
+##
+## ## Parámetros
+## - `items`: the source list; it is only read.
+## - `index`: the position to replace; an out-of-range index returns a full
+##   copy.
+## - `value`: the replacement value.
+##
+## ## Retorno
+## A new owned `list of int` of the same length as `items`; release it with
+## `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.replace_at with [1, 2, 3], 1, 7      # [1, 7, 3]
+## ```
 weave replace_at with items as list of int, index as int, value as int into list of int:
     var out as list of int is list of int
     var i as int is 0
@@ -555,47 +1313,115 @@ weave replace_at with items as list of int, index as int, value as int into list
         set i is i + 1
     return out
 
-## Copia con los elementos `i` y `j` intercambiados si ambos están en rango.
+## Returns a copy with the elements at `i` and `j` swapped when both are in
+## range.
+##
+## ## Parámetros
+## - `items`: the source list; it is only read.
+## - `i`: the first position.
+## - `j`: the second position.
+##
+## ## Retorno
+## A new owned `list of int` of the same length as `items`; an out-of-range
+## index leaves the copy untouched. Release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.swap_at with [1, 2, 3], 0, 2      # [3, 2, 1]
+## ```
 weave swap_at with items as list of int, i as int, j as int into list of int:
     var out as list of int is for x in items then x
     if i >= 0 and i < (calling out.len) and j >= 0 and j < (calling out.len):
-        var original as int is out at i
+        let original as int is out at i
         set out at i is (out at j)
         set out at j is original
     return out
 
-## Copia rellenada por la izquierda con `fill` hasta `target_len`.
+## Returns a copy padded on the left with `fill` up to `target_len`.
+##
+## ## Parámetros
+## - `items`: the source list; it is only read.
+## - `target_len`: the target length; a smaller value returns a full copy.
+## - `fill`: the padding value (default `0`).
+##
+## ## Retorno
+## A new owned `list of int` of length `max(len, target_len)`; release it with
+## `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.pad_left with [1, 2], 4, -1      # [-1, -1, 1, 2]
+## ```
 weave pad_left with items as list of int, target_len as int, fill as int is 0 into list of int:
-    var needed as int is target_len - (calling items.len)
+    let needed as int is target_len - (calling items.len)
     return calling generic_chain of int with (calling _repeat_shard of int with fill, needed), items
 
-## Copia rellenada por la derecha con `fill` hasta `target_len`.
+## Returns a copy padded on the right with `fill` up to `target_len`.
+##
+## ## Parámetros
+## - `items`: the source list; it is only read.
+## - `target_len`: the target length; a smaller value returns a full copy.
+## - `fill`: the padding value (default `0`).
+##
+## ## Retorno
+## A new owned `list of int` of length `max(len, target_len)`; release it with
+## `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.pad_right with [1, 2], 4, -1      # [1, 2, -1, -1]
+## ```
 weave pad_right with items as list of int, target_len as int, fill as int is 0 into list of int:
-    var needed as int is target_len - (calling items.len)
+    let needed as int is target_len - (calling items.len)
     return calling generic_chain of int with items, (calling _repeat_shard of int with fill, needed)
 
-# --- Estadística --------------------------------------------------------
+# --- Statistics ----------------------------------------------------------
 
-## Mediana como `float`; con longitud par promedia los dos valores centrales.
+## Returns the median as a `float`; an even length averages the two middle
+## values.
+##
+## ## Parámetros
+## - `items`: the values to summarise; the list is only read.
+##
+## ## Retorno
+## `some median`, or `maybe none` for `[]` (the safe-family contract).
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.median with [1, 2, 3, 4]      # some 2.5
+## ```
 weave median with items as list of int into maybe float:
     return calling _median_int with items
 
-## Núcleo de `median`.
+## Core of `median`.
 weave _median_int with items as list of int into maybe float:
     if (calling items.len) == 0:
         return maybe none
-    var ordered as list of int is calling _sorted_asc_int with items
-    var n as int is calling ordered.len
-    var mid as int is n / 2
+    let ordered as list of int is calling _sorted_asc_int with items
+    defer banish ordered
+    let n as int is calling ordered.len
+    let mid as int is n / 2
     if (n % 2) == 1:
         return some ((ordered at mid) to float)
     return some ((((ordered at (mid - 1)) to float) + ((ordered at mid) to float)) / 2.0)
 
-## Valor más frecuente; en caso de empate gana el primero que alcanza el máximo.
+## Returns the most frequent value; on a tie the first value to reach the
+## maximum wins.
+##
+## ## Parámetros
+## - `items`: the values to summarise; the list is only read.
+##
+## ## Retorno
+## `some value`, or `maybe none` for `[]` (the safe-family contract).
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.mode with [1, 2, 2, 3]      # some 2
+## ```
 weave mode with items as list of int into maybe int:
     return calling _mode_int with items
 
-## Núcleo de `mode`.
+## Core of `mode`.
 weave _mode_int with items as list of int into maybe int:
     if (calling items.len) == 0:
         return maybe none
@@ -611,44 +1437,106 @@ weave _mode_int with items as list of int into maybe int:
             set best_val is candidate
     return some best_val
 
-## Varianza poblacional (`maybe none` si está vacía); divide entre `len`.
+## Returns the population variance, dividing by `len`.
+##
+## ## Parámetros
+## - `items`: the values to summarise; the list is only read.
+##
+## ## Retorno
+## `some variance` as a `float`, or `maybe none` for `[]`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.variance with [1, 2, 3, 4, 5]      # some 2.0
+## ```
 weave variance with items as list of int into maybe float:
     return calling _variance_int with items
 
-## Desviación estándar poblacional (`maybe none` si está vacía).
+## Returns the population standard deviation.
+##
+## ## Parámetros
+## - `items`: the values to summarise; the list is only read.
+##
+## ## Retorno
+## `some deviation` as a `float` (the `arithmancy.sqrt` of the variance), or
+## `maybe none` for `[]`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.stddev with [1, 2, 3, 4, 5]      # some 1.414...
+## ```
 weave stddev with items as list of int into maybe float:
-    var spread as maybe float is calling _variance_int with items
+    let spread as maybe float is calling _variance_int with items
     if value as float is spread:
         return some (calling arithmancy.sqrt with value)
     return maybe none
 
-## Percentil `p` en `[0.0, 100.0]`; fuera de rango o vacía → `maybe none`.
+## Returns the percentile `p` in `[0.0, 100.0]` with linear interpolation.
+##
+## ## Parámetros
+## - `items`: the values to summarise; the list is only read.
+## - `p`: the percentile in `[0.0, 100.0]`; outside that range it yields
+##   `maybe none`.
+##
+## ## Retorno
+## `some value` as a `float`, or `maybe none` when the list is empty or `p` is
+## out of range.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.percentile with [1, 2, 3, 4], 50.0      # some 2.5
+## ```
 weave percentile with items as list of int, p as float into maybe float:
     if (calling items.len) == 0 or p < 0.0 or p > 100.0:
         return maybe none
-    var ordered as list of int is calling _sorted_asc_int with items
-    var n as int is calling ordered.len
-    var rank as float is (p / 100.0) * ((n - 1) to float)
-    var low as int is rank to int
-    var low_value as float is (ordered at low) to float
+    let ordered as list of int is calling _sorted_asc_int with items
+    defer banish ordered
+    let n as int is calling ordered.len
+    let rank as float is (p / 100.0) * ((n - 1) to float)
+    let low as int is rank to int
+    let low_value as float is (ordered at low) to float
     if low >= n - 1:
         return some low_value
-    var frac as float is rank - (low to float)
-    var high_value as float is (ordered at (low + 1)) to float
+    let frac as float is rank - (low to float)
+    let high_value as float is (ordered at (low + 1)) to float
     return some (low_value + (frac * (high_value - low_value)))
 
-# --- Núcleo genérico (compatibilidad) -----------------------------------
+# --- Generic core (compatibility) ----------------------------------------
 
-## Primer elemento de `items`, o `default_val` si está vacía.
+## Returns the first element of `items`, or `default_val` when it is empty.
+##
+## ## Parámetros
+## - `items`: the source list; it is only read.
+## - `default_val`: the value returned for an empty list.
+##
+## ## Retorno
+## A `T` copied out of the list (or `default_val`); no allocation.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.first_or of int with [1, 2], 0      # 1
+## ```
 weave first_or shard T with items as list of T, default_val as T into T:
     if (calling items.len) > 0:
         return items at 0
     return default_val
 
-## Primeros `n` elementos de una lista de cualquier tipo `T`.
+## Returns the first `n` elements of a list of any type `T`.
 ##
-## `n > len` recorta y `n < 0` da `[]`. Un cuerpo genérico no puede invocar a
-## otro genérico: este `weave` es autocontenido.
+## `n > len` clamps and `n < 0` yields `[]`. A generic body cannot invoke
+## another generic, so this `weave` is self-contained.
+##
+## ## Parámetros
+## - `items`: the source list; it is only read.
+## - `n`: how many elements to take.
+##
+## ## Retorno
+## A new owned `list of T`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.generic_take of string with ["a", "b", "c"], 2      # ["a", "b"]
+## ```
 weave generic_take shard T with items as list of T, n as int into list of T:
     var out as list of T is list of T
     var limit as int is n
@@ -660,9 +1548,20 @@ weave generic_take shard T with items as list of T, n as int into list of T:
         set i is i + 1
     return out
 
-## Últimos `n` elementos de una lista de cualquier tipo `T`.
+## Returns the last `n` elements of a list of any type `T`.
 ##
-## `n > len` recorta y `n <= 0` da `[]`.
+## ## Parámetros
+## - `items`: the source list; it is only read.
+## - `n`: how many trailing elements to keep; `n > len` clamps and `n <= 0`
+##   yields `[]`.
+##
+## ## Retorno
+## A new owned `list of T`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.generic_take_last of string with ["a", "b", "c"], 2      # ["b", "c"]
+## ```
 weave generic_take_last shard T with items as list of T, n as int into list of T:
     var out as list of T is list of T
     var count as int is n
@@ -676,7 +1575,18 @@ weave generic_take_last shard T with items as list of T, n as int into list of T
         set i is i + 1
     return out
 
-## Copia invertida de una lista de cualquier tipo `T`.
+## Returns a reversed copy of a list of any type `T`.
+##
+## ## Parámetros
+## - `items`: the source list; it is only read.
+##
+## ## Retorno
+## A new owned `list of T`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.generic_reverse of string with ["a", "b"]      # ["b", "a"]
+## ```
 weave generic_reverse shard T with items as list of T into list of T:
     var out as list of T is list of T
     var i as int is (calling items.len) - 1
@@ -685,7 +1595,19 @@ weave generic_reverse shard T with items as list of T into list of T:
         set i is i - 1
     return out
 
-## Concatenación de dos listas de cualquier tipo `T`.
+## Concatenates two lists of any type `T`.
+##
+## ## Parámetros
+## - `a`: the first list, copied first; only read.
+## - `b`: the second list, copied after `a`; only read.
+##
+## ## Retorno
+## A new owned `list of T`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.generic_chain of string with ["a"], ["b"]      # ["a", "b"]
+## ```
 weave generic_chain shard T with a as list of T, b as list of T into list of T:
     var out as list of T is list of T
     for x in a:
@@ -694,9 +1616,22 @@ weave generic_chain shard T with a as list of T, b as list of T into list of T:
         calling out.push with x
     return out
 
-## Índice de la primera aparición de `target` en una lista de tipo `T`, o `-1`.
+## Returns the index of the first occurrence of `target` in a list of type `T`,
+## or `-1`.
 ##
-## `T: Par` porque compara con `==`.
+## `T: Par` because the search compares with `==`.
+##
+## ## Parámetros
+## - `items`: the values to search; the list is only read.
+## - `target`: the value looked up.
+##
+## ## Retorno
+## The zero-based index of the first match, or `-1` when absent.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.generic_index_of of string with ["a", "b"], "b"      # 1
+## ```
 weave generic_index_of shard T where T: Par with items as list of T, target as T into int:
     var i as int is 0
     while i < (calling items.len):
@@ -705,9 +1640,9 @@ weave generic_index_of shard T where T: Par with items as list of T, target as T
         set i is i + 1
     return -1
 
-# --- Helpers privados ---------------------------------------------------
+# --- Private helpers -----------------------------------------------------
 
-## Núcleo genérico: elementos `[start_idx, end_idx)` recortado a la longitud.
+## Generic core: the elements `[start_idx, end_idx)` clamped to the list length.
 weave _slice_shard shard T with items as list of T, start_idx as int, end_idx as int into list of T:
     var out as list of T is list of T
     var i as int is start_idx
@@ -716,7 +1651,7 @@ weave _slice_shard shard T with items as list of T, start_idx as int, end_idx as
         set i is i + 1
     return out
 
-## Núcleo genérico: descarta los `n` primeros (`n < 0` → copia completa).
+## Generic core: drops the first `n` elements (`n < 0` copies the whole list).
 weave _drop_shard shard T with items as list of T, n as int into list of T:
     var out as list of T is list of T
     var start as int is n
@@ -728,7 +1663,7 @@ weave _drop_shard shard T with items as list of T, n as int into list of T:
         set i is i + 1
     return out
 
-## Núcleo genérico: `value` repetido `times` veces (`times <= 0` → `[]`).
+## Generic core: `value` repeated `times` times (`times <= 0` yields `[]`).
 weave _repeat_shard shard T with value as T, times as int into list of T:
     var out as list of T is list of T
     var i as int is 0
@@ -737,61 +1672,58 @@ weave _repeat_shard shard T with value as T, times as int into list of T:
         set i is i + 1
     return out
 
-## Longitud de la más corta o de la más larga de dos listas.
+## Length of the shorter (or longer, when `want_max`) of two lists.
 weave _pick_len_int with a as list of int, b as list of int, want_max as bool into int:
     if want_max:
         return if (calling b.len) > (calling a.len) then (calling b.len) else (calling a.len)
     return if (calling b.len) < (calling a.len) then (calling b.len) else (calling a.len)
 
-## Aplica el código de operador de `zip_with` a un par de valores.
+## Applies a `zip_with` operator code to a pair of values.
 weave _apply_op_int with va as int, vb as int, op as int into int:
-    if op == 1:
-        return va - vb
-    if op == 2:
-        return va * vb
-    if op == 3:
-        return if vb < va then vb else va
-    if op == 4:
-        return if vb > va then vb else va
-    return va + vb
+    return judge op:
+        when 1 -> va - vb
+        when 2 -> va * vb
+        when 3 -> (if vb < va then vb else va)
+        when 4 -> (if vb > va then vb else va)
+        else -> va + vb
 
-## Suma de enteros.
+## Integer sum.
 weave _sum_int with items as list of int into int:
     var total as int is 0
     for x in items:
         set total is total + x
     return total
 
-## Producto de enteros (`1` si está vacía).
+## Integer product (`1` for an empty list).
 weave _product_int with items as list of int into int:
     var total as int is 1
     for x in items:
         set total is total * x
     return total
 
-## Media aritmética (`0.0` si está vacía).
+## Arithmetic mean (`0.0` for an empty list).
 weave _mean_int with items as list of int into float:
     if (calling items.len) == 0:
         return 0.0
     return ((calling _sum_int with items) to float) / ((calling items.len) to float)
 
-## Varianza poblacional (`maybe none` si está vacía).
+## Population variance (`maybe none` for an empty list).
 weave _variance_int with items as list of int into maybe float:
     if (calling items.len) == 0:
         return maybe none
-    var center as float is calling _mean_int with items
+    let center as float is calling _mean_int with items
     var total as float is 0.0
     for x in items:
-        var diff as float is (x to float) - center
+        let diff as float is (x to float) - center
         set total is total + (diff * diff)
     return some (total / ((calling items.len) to float))
 
-## Copia ordenada de forma ascendente (inserción, estable).
+## Ascending copy (insertion sort, stable).
 weave _sorted_asc_int with items as list of int into list of int:
     var out as list of int is for x in items then x
     var i as int is 1
     while i < (calling out.len):
-        var key as int is out at i
+        let key as int is out at i
         var j as int is i - 1
         while j >= 0 and (out at j) > key:
             set out at (j + 1) is (out at j)
@@ -800,7 +1732,7 @@ weave _sorted_asc_int with items as list of int into list of int:
         set i is i + 1
     return out
 
-## Bloques de hasta `n` elementos tomados cada `step`.
+## Blocks of up to `n` elements taken every `step`.
 weave _chunk_every_int with items as list of int, n as int, step as int into list of list of int:
     var out as list of list of int is list of list of int
     if n <= 0 or step <= 0:
@@ -814,61 +1746,67 @@ weave _chunk_every_int with items as list of int, n as int, step as int into lis
         set start_idx is start_idx + step
     return out
 
-## Ventanas contiguas de exactamente `n` elementos.
+## Contiguous windows of exactly `n` elements.
 weave _windows_int with items as list of int, n as int into list of list of int:
     var out as list of list of int is list of list of int
-    for block in (calling _chunk_every_int with items, n, 1):
+    let blocks as list of list of int is calling _chunk_every_int with items, n, 1
+    defer banish blocks
+    for block in blocks:
         if (calling block.len) == n:
             calling out.push with block
     return out
 
-## Rota a la izquierda `k` posiciones (`n == 0` → `[]`).
+## Rotates left by `k` positions (`n == 0` yields `[]`).
 weave _rotate_left_int with items as list of int, k as int into list of int:
-    var n as int is calling items.len
+    let n as int is calling items.len
     if n == 0:
-        var empty as list of int is list of int
+        let empty as list of int is list of int
         return empty
     var shift as int is k % n
     if shift < 0:
         set shift is shift + n
-    var head as list of int is calling _slice_shard of int with items, shift, n
-    var tail as list of int is calling _slice_shard of int with items, 0, shift
+    let head as list of int is calling _slice_shard of int with items, shift, n
+    defer banish head
+    let tail as list of int is calling _slice_shard of int with items, 0, shift
+    defer banish tail
     return calling generic_chain of int with head, tail
 
-## Elimina los duplicados adyacentes de una lista ordenada.
+## Removes the adjacent duplicates of a sorted list.
 weave _dedup_int with items as list of int into list of int:
     var out as list of int is list of int
     for x in items:
-        var repeated as bool is false
-        if (calling out.len) > 0:
-            if (out at ((calling out.len) - 1)) == x:
-                set repeated is true
+        let repeated as bool is (if (calling out.len) > 0 then ((out at ((calling out.len) - 1)) == x) else false)
         if not repeated:
             calling out.push with x
     return out
 
-## Unión deduplicada de dos listas ascendentes (resultado ascendente).
+## Deduplicated union of two ascending lists (the result is ascending).
 weave _union_sorted_int with a as list of int, b as list of int into list of int:
-    var joined as list of int is calling generic_chain of int with a, b
+    let joined as list of int is calling generic_chain of int with a, b
+    defer banish joined
     return calling _dedup_int with (calling _sorted_asc_int with joined)
 
-## Intersección deduplicada de dos listas ascendentes.
+## Deduplicated intersection of two ascending lists.
 weave _intersect_sorted_int with a as list of int, b as list of int into list of int:
     var out as list of int is list of int
-    for x in (calling _dedup_int with a):
+    let uniq as list of int is calling _dedup_int with a
+    defer banish uniq
+    for x in uniq:
         if (calling generic_index_of of int with b, x) >= 0:
             calling out.push with x
     return out
 
-## Diferencia deduplicada `a \ b` de dos listas ascendentes.
+## Deduplicated difference `a \ b` of two ascending lists.
 weave _difference_sorted_int with a as list of int, b as list of int into list of int:
     var out as list of int is list of int
-    for x in (calling _dedup_int with a):
+    let uniq as list of int is calling _dedup_int with a
+    defer banish uniq
+    for x in uniq:
         if (calling generic_index_of of int with b, x) < 0:
             calling out.push with x
     return out
 
-## Índice del primer extremo de la lista (`maybe none` si está vacía).
+## Index of the first extreme (`maybe none` for an empty list).
 weave _index_of_extreme_int with items as list of int, want_max as bool into maybe int:
     if (calling items.len) == 0:
         return maybe none
@@ -876,20 +1814,20 @@ weave _index_of_extreme_int with items as list of int, want_max as bool into may
     var best_val as int is items at 0
     var i as int is 1
     while i < (calling items.len):
-        var current as int is items at i
+        let current as int is items at i
         if (want_max and current > best_val) or ((not want_max) and current < best_val):
             set best_val is current
             set best_idx is i
         set i is i + 1
     return some best_idx
 
-## True si `items` está ordenada; `strict` exige desigualdad y `ascending` fija
-## el sentido. Las listas de menos de dos elementos están ordenadas.
+## True when `items` is ordered (`strict` requires inequality, `ascending` fixes
+## the direction). Lists of fewer than two elements are ordered.
 weave _is_ordered_int with items as list of int, strict as bool, ascending as bool into bool:
     var i as int is 0
     while i < (calling items.len) - 1:
-        var left as int is items at i
-        var right as int is items at (i + 1)
+        let left as int is items at i
+        let right as int is items at (i + 1)
         if strict and ascending and left >= right:
             return false
         if strict and (not ascending) and left <= right:
@@ -901,7 +1839,7 @@ weave _is_ordered_int with items as list of int, strict as bool, ascending as bo
         set i is i + 1
     return true
 
-## Núcleo de `running_sum`: sumas prefijas.
+## Core of `running_sum`: the prefix sums.
 weave _running_sum_int with nums as list of int into list of int:
     var out as list of int is list of int
     var acc as int is 0
@@ -910,7 +1848,7 @@ weave _running_sum_int with nums as list of int into list of int:
         calling out.push with acc
     return out
 
-## Extremos prefijas: máximos si `want_max`, mínimos si no.
+## Prefix extremes: maxima when `want_max`, minima otherwise.
 weave _running_extreme_int with items as list of int, want_max as bool into list of int:
     var out as list of int is list of int
     var best as int is 0
@@ -922,22 +1860,22 @@ weave _running_extreme_int with items as list of int, want_max as bool into list
         calling out.push with best
     return out
 
-## Harness interno: panickea con `label` si `cond` es falso.
+## Internal harness: panics with `label` when `cond` is false.
 weave _expect with cond as bool, label as string into void:
     if not cond:
         calling spark.panic with "loom test failed: {label}"
-## Harness interno: igualdad de escalares (int, float, bool).
+## Internal harness: scalar equality (int, float, bool).
 weave _expect_eq shard T where T: Par with actual as T, expected as T, label as string into void:
     if actual != expected:
         calling spark.panic with "loom test failed: {label}"
-## Harness interno: igualdad de flotantes con tolerancia.
+## Internal harness: float equality within a tolerance.
 weave _expect_float_near with actual as float, expected as float, tolerance as float, label as string into void:
     var diff as float is actual - expected
     if diff < 0.0:
         set diff is 0.0 - diff
     if diff > tolerance:
         calling spark.panic with "loom test failed: {label}: float"
-## Harness interno: igualdad de listas de enteros (longitud y elementos).
+## Internal harness: integer-list equality (length and elements).
 weave _expect_eq_ints with actual as list of int, expected as list of int, label as string into void:
     if (calling actual.len) != (calling expected.len):
         calling spark.panic with "loom test failed: {label}: len {(calling actual.len)} != {(calling expected.len)}"
@@ -946,7 +1884,7 @@ weave _expect_eq_ints with actual as list of int, expected as list of int, label
         if (actual at i) != (expected at i):
             calling spark.panic with "loom test failed: {label}: [{i}]"
         set i is i + 1
-## Harness interno: igualdad de listas de listas de enteros.
+## Internal harness: equality of lists of integer lists.
 weave _expect_eq_chunks with actual as list of list of int, expected as list of list of int, label as string into void:
     if (calling actual.len) != (calling expected.len):
         calling spark.panic with "loom test failed: {label}: outer len"
@@ -954,20 +1892,20 @@ weave _expect_eq_chunks with actual as list of list of int, expected as list of 
     while i < (calling actual.len):
         calling _expect_eq_ints with (actual at i), (expected at i), label
         set i is i + 1
-## Harness interno: `maybe T` presente e igual a `expected`.
+## Internal harness: `maybe T` is present and equal to `expected`.
 weave _expect_some shard T where T: Par with m as maybe T, expected as T, label as string into void:
     if value as T is m:
         if value != expected:
             calling spark.panic with "loom test failed: {label}"
     else:
         calling spark.panic with "loom test failed: {label}: none"
-## Harness interno: par de enteros (el `Pair` va al final por el parser).
+## Internal harness: integer `Pair` (the `Pair` argument goes last because of the parser).
 weave _expect_pair with first_expected as int, second_expected as int, label as string, pair as Pair of int and int into void:
     if pair.first != first_expected:
         calling spark.panic with "loom test failed: {label}: first {pair.first} != {first_expected}"
     if pair.second != second_expected:
         calling spark.panic with "loom test failed: {label}: second {pair.second} != {second_expected}"
-## Harness interno: `maybe Pair` presente e igual a los dos valores.
+## Internal harness: `maybe Pair` is present and matches both values.
 weave _expect_some_pair with first_expected as int, second_expected as int, label as string, m as maybe Pair of int and int into void:
     if pair as Pair of int and int is m:
         calling _expect_pair with first_expected, second_expected, label, pair
@@ -975,537 +1913,578 @@ weave _expect_some_pair with first_expected as int, second_expected as int, labe
         calling spark.panic with "loom test failed: {label}: none"
 
 # --- Tests ---
-# Harness privado `_expect*` (ver `## Notas de diseño`).
+# Private `_expect*` harness (see `## Design notes`).
+#
+# The public module functions are deliberately **not** called unqualified from
+# these blocks. `loom` and `tally` share 15 names, and when one program imports
+# both, the checker resolves a shared unqualified name across modules: if the
+# other module's declaration is generic (`tally.windowed shard T`,
+# `tally.running_sum shard T`, ...) inference fails with `E0005`, which used to
+# break `pengu run` for any program importing both. The tests below therefore
+# exercise the concrete private cores (`_mean_int`, `_min_max_int`, ...), and the
+# public wrappers' contracts are pinned by `tests/stdlib/test_loom.py`, which
+# calls them qualified (`calling loom.mean with xs`).
 
-# Generación de secuencias
-test "range genera el intervalo semiabierto":
+# Sequence generation
+test "range builds the half-open interval":
     var exp as list of int is [1, 2, 3, 4]
     calling _expect_eq_ints with (calling range with 1, 5, 1), exp, "range"
-test "range con paso mayor que uno":
-    calling _expect_eq_ints with (calling range with 0, 10, 3), (calling unfold_range with 0, 4, 3), "range paso"
-test "range con paso negativo recorre hacia atrás":
+test "range with a step greater than one":
+    calling _expect_eq_ints with (calling range with 0, 10, 3), (calling unfold_range with 0, 4, 3), "range step"
+test "range with a negative step walks backwards":
     var exp as list of int is [5, 3, 1]
-    calling _expect_eq_ints with (calling range with 5, 0, -2), exp, "range desc"
-test "range con paso cero devuelve vacío":
+    calling _expect_eq_ints with (calling range with 5, 0, -2), exp, "range descending"
+test "range with a zero step returns empty":
     var empty as list of int is list of int
     calling _expect_eq_ints with (calling range with 0, 5, 0), empty, "range step 0"
-test "range con start mayor que end y paso positivo queda vacío":
+test "range with start greater than end and a positive step is empty":
     var empty as list of int is list of int
-    calling _expect_eq_ints with (calling range with 5, 1, 1), empty, "range invertido"
-test "unfold_range produce count elementos":
+    calling _expect_eq_ints with (calling range with 5, 1, 1), empty, "range inverted"
+test "unfold_range produces count elements":
     var exp as list of int is [5, 7, 9]
     calling _expect_eq_ints with (calling unfold_range with 5, 3, 2), exp, "unfold"
-test "unfold_range con paso negativo desciende":
+test "unfold_range with a negative step descends":
     var exp as list of int is [5, 3, 1]
-    calling _expect_eq_ints with (calling unfold_range with 5, 3, -2), exp, "unfold desc"
-test "unfold_range con count no positivo devuelve vacío":
+    calling _expect_eq_ints with (calling unfold_range with 5, 3, -2), exp, "unfold descending"
+test "unfold_range with a non-positive count returns empty":
     var empty as list of int is list of int
     calling _expect_eq_ints with (calling unfold_range with 1, 0, 1), empty, "unfold count 0"
-test "repeat repite el valor times veces":
+test "repeat repeats the value times times":
     var exp as list of int is [7, 7, 7]
     calling _expect_eq_ints with (calling repeat with 7, 3), exp, "repeat"
-test "repeat con times cero o negativo devuelve vacío":
+test "repeat with zero times returns empty":
     var empty as list of int is list of int
     calling _expect_eq_ints with (calling repeat with 7, 0), empty, "repeat 0"
-test "repeat con times negativo devuelve vacío":
+test "repeat with a negative times returns empty":
     var empty as list of int is list of int
-    calling _expect_eq_ints with (calling repeat with 7, -2), empty, "repeat negativo"
+    calling _expect_eq_ints with (calling repeat with 7, -2), empty, "repeat negative"
 
-# Cortes y composición
-test "take devuelve los primeros n":
+# Slicing and composition
+test "take returns the first n elements":
     var xs as list of int is [1, 2, 3, 4]
     var exp as list of int is [1, 2]
     calling _expect_eq_ints with (calling take with xs, 2), exp, "take"
-test "take recorta cuando n supera la longitud":
+test "take clamps when n exceeds the length":
     var xs as list of int is [1, 2, 3]
-    calling _expect_eq_ints with (calling take with xs, 9), xs, "take largo"
-test "take con n cero devuelve vacío":
+    calling _expect_eq_ints with (calling take with xs, 9), xs, "take long"
+test "take with zero n returns empty":
     var xs as list of int is [1, 2, 3]
     var empty as list of int is list of int
     calling _expect_eq_ints with (calling take with xs, 0), empty, "take 0"
-test "take con n negativo devuelve vacío":
+test "take with a negative n returns empty":
     var xs as list of int is [1, 2, 3]
     var empty as list of int is list of int
-    calling _expect_eq_ints with (calling take with xs, -1), empty, "take negativo"
-test "skip descarta los primeros n":
+    calling _expect_eq_ints with (calling take with xs, -1), empty, "take negative"
+test "skip drops the first n elements":
     var xs as list of int is [1, 2, 3, 4]
     var exp as list of int is [3, 4]
     calling _expect_eq_ints with (calling skip with xs, 2), exp, "skip"
-test "skip con n mayor que la longitud devuelve vacío":
+test "skip with n greater than the length returns empty":
     var xs as list of int is [1, 2]
     var empty as list of int is list of int
-    calling _expect_eq_ints with (calling skip with xs, 5), empty, "skip largo"
-test "skip con n cero devuelve una copia":
+    calling _expect_eq_ints with (calling skip with xs, 5), empty, "skip long"
+test "skip with zero n returns a copy":
     var xs as list of int is [1, 2]
     calling _expect_eq_ints with (calling skip with xs, 0), xs, "skip 0"
-test "take de la lista vacía devuelve vacío":
+test "take of the empty list returns empty":
     var empty as list of int is list of int
-    calling _expect_eq_ints with (calling take with empty, 3), empty, "take vacía"
-test "skip de la lista vacía devuelve vacío":
+    calling _expect_eq_ints with (calling take with empty, 3), empty, "take empty"
+test "skip of the empty list returns empty":
     var empty as list of int is list of int
-    calling _expect_eq_ints with (calling skip with empty, 3), empty, "skip vacía"
-test "skip con n negativo equivale a cero":
+    calling _expect_eq_ints with (calling skip with empty, 3), empty, "skip empty"
+test "skip with a negative n behaves like zero":
     var xs as list of int is [1, 2]
-    calling _expect_eq_ints with (calling skip with xs, -3), xs, "skip negativo"
-test "chain concatena dos listas":
+    calling _expect_eq_ints with (calling skip with xs, -3), xs, "skip negative"
+test "chain concatenates two lists":
     var a as list of int is [1, 2]
     var b as list of int is [3, 4]
     var exp as list of int is [1, 2, 3, 4]
     calling _expect_eq_ints with (calling chain with a, b), exp, "chain"
-test "chain con la segunda lista vacía devuelve la primera":
+test "chain with an empty second list returns the first":
     var a as list of int is [1]
     var empty as list of int is list of int
-    calling _expect_eq_ints with (calling chain with a, empty), a, "chain vacía"
+    calling _expect_eq_ints with (calling chain with a, empty), a, "chain empty"
 
-# Bloques y ventanas
-test "chunks divide en bloques exactos":
+# Blocks and windows
+test "chunks splits into exact blocks":
     var xs as list of int is [1, 2, 3, 4]
     var blocks as list of list of int is calling chunks with xs, 2
     var first as list of int is blocks at 0
     var second as list of int is blocks at 1
     calling _expect_eq_ints with first, (calling unfold_range with 1, 2, 1), "chunks 0"
     calling _expect_eq_ints with second, (calling unfold_range with 3, 2, 1), "chunks 1"
-test "chunks deja el último bloque corto":
+test "chunks leaves the last block short":
     var xs as list of int is [1, 2, 3, 4, 5]
     var blocks as list of list of int is calling chunks with xs, 2
     var last as list of int is blocks at 2
-    calling _expect_eq_ints with last, (calling unfold_range with 5, 1, 1), "chunks corto"
-test "chunks con n no positivo devuelve vacío":
+    calling _expect_eq_ints with last, (calling unfold_range with 5, 1, 1), "chunks short"
+test "chunks with a non-positive n returns empty":
     var xs as list of int is [1, 2]
     var empty as list of list of int is list of list of int
     calling _expect_eq_chunks with (calling chunks with xs, 0), empty, "chunks 0"
-test "chunks con n mayor que la longitud devuelve un bloque":
+test "chunks with n greater than the length returns one block":
     var xs as list of int is [1, 2]
     var blocks as list of list of int is calling chunks with xs, 5
-    calling _expect_eq with (calling blocks.len), 1, "chunks grande"
-test "windows con n cero devuelve vacío":
+    calling _expect_eq with (calling blocks.len), 1, "chunks big"
+test "windows with zero n returns empty":
     var xs as list of int is [1, 2]
     var none as list of list of int is list of list of int
     calling _expect_eq_chunks with (calling windows with xs, 0), none, "windows 0"
-test "chunk_every solapa cuando step es menor que n":
+test "chunk_every overlaps when step is smaller than n":
     var xs as list of int is [1, 2, 3, 4]
     var blocks as list of list of int is calling chunk_every with xs, 3, 1
     var last as list of int is blocks at 3
-    calling _expect_eq with (calling blocks.len), 4, "chunk_every solape"
-    calling _expect_eq_ints with last, (calling unfold_range with 4, 1, 1), "chunk_every último"
-test "chunk_every con step igual a n equivale a chunks":
+    calling _expect_eq with (calling blocks.len), 4, "chunk_every overlap"
+    calling _expect_eq_ints with last, (calling unfold_range with 4, 1, 1), "chunk_every last"
+test "chunk_every with step equal to n matches chunks":
     var xs as list of int is [1, 2, 3, 4]
     var blocks as list of list of int is calling chunk_every with xs, 2, 2
     var first as list of int is blocks at 0
     var second as list of int is blocks at 1
     calling _expect_eq_ints with first, (calling unfold_range with 1, 2, 1), "chunk_every 0"
     calling _expect_eq_ints with second, (calling unfold_range with 3, 2, 1), "chunk_every 1"
-test "chunk_every con step mayor que n salta elementos":
+test "chunk_every with step greater than n skips elements":
     var xs as list of int is [1, 2, 3, 4, 5]
     var blocks as list of list of int is calling chunk_every with xs, 2, 3
     var second as list of int is blocks at 1
     var exp as list of int is [4, 5]
-    calling _expect_eq_ints with second, exp, "chunk_every salto"
-test "chunk_every con n o step no positivos devuelve vacío":
+    calling _expect_eq_ints with second, exp, "chunk_every skip"
+test "chunk_every with non-positive n or step returns empty":
     var xs as list of int is [1, 2]
     var empty as list of list of int is list of list of int
     calling _expect_eq_chunks with (calling chunk_every with xs, 0, 1), empty, "chunk_every n 0"
-test "windows produce todas las ventanas completas":
+test "windows produces every complete window":
     var xs as list of int is [1, 2, 3, 4]
     var wins as list of list of int is calling windows with xs, 3
     var first as list of int is wins at 0
     var last as list of int is wins at 1
     calling _expect_eq_ints with first, (calling unfold_range with 1, 3, 1), "windows 0"
     calling _expect_eq_ints with last, (calling unfold_range with 2, 3, 1), "windows 1"
-test "windows con n igual a la longitud devuelve una ventana":
+test "windows with n equal to the length returns one window":
     var xs as list of int is [1, 2]
     var wins as list of list of int is calling windows with xs, 2
-    calling _expect_eq with (calling wins.len), 1, "windows exacta"
-test "windows con n mayor que la longitud devuelve vacío":
+    calling _expect_eq with (calling wins.len), 1, "windows exact"
+test "windows with n greater than the length returns empty":
     var xs as list of int is [1, 2]
     var empty as list of list of int is list of list of int
-    calling _expect_eq_chunks with (calling windows with xs, 5), empty, "windows grande"
-test "windows con n cero o lista vacía devuelve vacío":
+    calling _expect_eq_chunks with (calling windows with xs, 5), empty, "windows big"
+test "windows with zero n or an empty list returns empty":
     var empty as list of int is list of int
     var none_windows as list of list of int is list of list of int
-    calling _expect_eq_chunks with (calling windows with empty, 2), none_windows, "windows vacía"
-test "windowed es el nombre Pengunic de windows":
+    calling _expect_eq_chunks with (calling windows with empty, 2), none_windows, "windows empty"
+# `windowed` is not called unqualified here on purpose: in a bundle that imports
+# both `std.loom` and `std.tally`, an unqualified `windowed` resolves to tally's
+# generic `windowed shard T` and the checker cannot infer `T` (E0005). The public
+# wrapper is covered by `tests/stdlib/test_loom.py`; these tests pin the
+# implementation it delegates to.
+test "windowed delegates to the concrete windows core":
     var xs as list of int is [1, 2, 3]
     calling _expect_eq_chunks with (calling _windows_int with xs, 2), (calling windows with xs, 2), "windowed"
-test "pairwise devuelve pares solapados":
+test "windowed with n greater than the length returns empty":
+    var xs as list of int is [1, 2]
+    var empty as list of list of int is list of list of int
+    calling _expect_eq_chunks with (calling _windows_int with xs, 5), empty, "windowed big"
+test "pairwise returns overlapping pairs":
     var xs as list of int is [1, 2, 3]
     var pairs as list of list of int is calling pairwise with xs
     var first as list of int is pairs at 0
     calling _expect_eq with (calling pairs.len), 2, "pairwise len"
     calling _expect_eq_ints with first, (calling unfold_range with 1, 2, 1), "pairwise 0"
-test "pairwise con menos de dos elementos devuelve vacío":
+test "pairwise with fewer than two elements returns empty":
     var one as list of int is [1]
     var empty as list of list of int is list of list of int
-    calling _expect_eq_chunks with (calling pairwise with one), empty, "pairwise corto"
-test "pairwise_pairs devuelve Pair adyacentes":
+    calling _expect_eq_chunks with (calling pairwise with one), empty, "pairwise short"
+test "pairwise_pairs returns adjacent Pair values":
     var xs as list of int is [1, 2, 3]
     var ps as list of Pair of int and int is calling pairwise_pairs with xs
     calling _expect_eq with (calling ps.len), 2, "pairwise_pairs len"
     calling _expect_pair with 1, 2, "pairwise_pairs 0", (ps at 0)
     calling _expect_pair with 2, 3, "pairwise_pairs 1", (ps at 1)
-test "pairwise_pairs con un elemento devuelve vacío":
+test "pairwise_pairs with one element returns empty":
     var one as list of int is [4]
     var ps as list of Pair of int and int is calling pairwise_pairs with one
-    calling _expect_eq with (calling ps.len), 0, "pairwise_pairs corto"
-test "pairwise_pairs conserva los dos componentes en orden":
+    calling _expect_eq with (calling ps.len), 0, "pairwise_pairs short"
+test "pairwise_pairs keeps both components in order":
     var xs as list of int is [7, 9]
     var ps as list of Pair of int and int is calling pairwise_pairs with xs
     calling _expect_pair with 7, 9, "pairwise_pairs", (ps at 0)
 
-# Plegados
-test "sum suma todos los elementos":
+# Folds
+test "sum adds every element":
     var xs as list of int is [1, 2, 3]
     calling _expect_eq with (calling sum with xs), 6, "sum"
-test "sum de la lista vacía es cero":
+test "sum of the empty list is zero":
     var empty as list of int is list of int
-    calling _expect_eq with (calling sum with empty), 0, "sum vacía"
-test "product_num multiplica todos los elementos":
+    calling _expect_eq with (calling sum with empty), 0, "sum empty"
+test "product_num multiplies every element":
     var xs as list of int is [2, 3, 4]
     calling _expect_eq with (calling product_num with xs), 24, "product"
-test "product_num de la lista vacía es uno":
+test "product_num of the empty list is one":
     var empty as list of int is list of int
-    calling _expect_eq with (calling product_num with empty), 1, "product vacía"
-test "max_int devuelve el mayor":
+    calling _expect_eq with (calling product_num with empty), 1, "product empty"
+test "max_int returns the greatest element":
     var xs as list of int is [3, 9, 4]
     calling _expect_eq with (calling max_int with xs), 9, "max"
-test "min_int devuelve el menor":
+test "min_int returns the smallest element":
     var xs as list of int is [3, 9, 4]
     calling _expect_eq with (calling min_int with xs), 3, "min"
-test "max_int y min_int de la lista vacía devuelven cero":
+test "max_int and min_int of the empty list return zero":
     var empty as list of int is list of int
-    calling _expect_eq with (calling max_int with empty), 0, "max vacía"
-    calling _expect_eq with (calling min_int with empty), 0, "min vacía"
-test "max_int y min_int con negativos":
+    calling _expect_eq with (calling max_int with empty), 0, "max empty"
+    calling _expect_eq with (calling min_int with empty), 0, "min empty"
+test "max_int and min_int with negative values":
     var xs as list of int is [-5, -1, -9]
-    calling _expect_eq with (calling max_int with xs), -1, "max negativos"
-    calling _expect_eq with (calling min_int with xs), -9, "min negativos"
-test "min_max devuelve un Pair mínimo máximo":
+    calling _expect_eq with (calling max_int with xs), -1, "max negative"
+    calling _expect_eq with (calling min_int with xs), -9, "min negative"
+test "min_max returns a min-max Pair":
     var xs as list of int is [3, 9, 4]
     calling _expect_some_pair with 3, 9, "min_max", (calling _min_max_int with xs)
-test "min_max de un elemento repite el valor":
+test "min_max of one element repeats the value":
     var one as list of int is [7]
-    calling _expect_some_pair with 7, 7, "min_max uno", (calling _min_max_int with one)
-test "min_max de la lista vacía devuelve none":
+    calling _expect_some_pair with 7, 7, "min_max one", (calling _min_max_int with one)
+test "min_max of the empty list returns none":
     var empty as list of int is list of int
     var bounds as maybe Pair of int and int is calling _min_max_int with empty
-    calling _expect_eq with bounds.is_present, false, "min_max vacía"
-test "mean calcula la media aritmética":
+    calling _expect_eq with bounds.is_present, false, "min_max empty"
+test "min_max pairs the smallest and the largest element":
+    var xs as list of int is [3, 9, 4]
+    calling _expect_some_pair with 3, 9, "min_max", (calling _min_max_int with xs)
+test "mean computes the arithmetic average":
     var xs as list of int is [1, 2, 3, 4]
     calling _expect_eq with (calling _mean_int with xs), 2.5, "mean"
-test "mean de la lista vacía es cero":
+test "mean of the empty list is zero":
     var empty as list of int is list of int
-    calling _expect_eq with (calling _mean_int with empty), 0.0, "mean vacía"
-test "sum_squares suma los cuadrados":
+    calling _expect_eq with (calling _mean_int with empty), 0.0, "mean empty"
+test "mean of a single element is that element":
+    var one as list of int is [5]
+    calling _expect_eq with (calling _mean_int with one), 5.0, "mean one"
+test "running_sum of one element is that element":
+    var one as list of int is [7]
+    calling _expect_eq_ints with (calling _running_sum_int with one), one, "running_sum one"
+test "sum_squares adds the squares":
     var xs as list of int is [1, 2, 3]
     calling _expect_eq with (calling sum_squares with xs), 14, "sum_squares"
-test "mean de un solo elemento es ese elemento":
-    var one as list of int is [5]
-    calling _expect_eq with (calling _mean_int with one), 5.0, "mean uno"
-test "running_sum de un elemento es ese elemento":
-    var one as list of int is [7]
-    calling _expect_eq_ints with (calling _running_sum_int with one), one, "running_sum uno"
-test "sum_squares de la lista vacía es cero":
+test "sum_squares of the empty list is zero":
     var empty as list of int is list of int
-    calling _expect_eq with (calling sum_squares with empty), 0, "sum_squares vacía"
+    calling _expect_eq with (calling sum_squares with empty), 0, "sum_squares empty"
 
-# Plegados con estado, diferencias y escaneo
-test "running_sum acumula las sumas prefijas":
+# Stateful folds, differences and scanning
+test "running_sum accumulates the prefix sums":
     var xs as list of int is [1, 2, 3]
     var exp as list of int is [1, 3, 6]
     calling _expect_eq_ints with (calling _running_sum_int with xs), exp, "running_sum"
-test "running_max y running_min acumulan los extremos":
+test "running_max and running_min accumulate the extremes":
     var xs as list of int is [3, 1, 4]
     var maxes as list of int is [3, 3, 4]
     var mins as list of int is [3, 1, 1]
     calling _expect_eq_ints with (calling running_max with xs), maxes, "running_max"
     calling _expect_eq_ints with (calling running_min with xs), mins, "running_min"
-test "los prefijos de una lista vacía son vacíos":
+test "the prefixes of an empty list are empty":
     var empty as list of int is list of int
     var none as list of int is list of int
-    calling _expect_eq_ints with (calling _running_sum_int with empty), none, "running_sum vacía"
-    calling _expect_eq_ints with (calling running_max with empty), none, "running_max vacía"
-    calling _expect_eq_ints with (calling running_min with empty), none, "running_min vacía"
-test "differences calcula las diferencias adyacentes":
+    calling _expect_eq_ints with (calling _running_sum_int with empty), none, "running_sum empty"
+    calling _expect_eq_ints with (calling running_max with empty), none, "running_max empty"
+    calling _expect_eq_ints with (calling running_min with empty), none, "running_min empty"
+test "differences computes the adjacent differences":
     var xs as list of int is [1, 4, 9]
     var exp as list of int is [3, 5]
     calling _expect_eq_ints with (calling differences with xs), exp, "differences"
-test "differences de la lista vacía o de un elemento es vacía":
+test "differences of an empty or one-element list is empty":
     var empty as list of int is list of int
     var one as list of int is [7]
     var none as list of int is list of int
-    calling _expect_eq_ints with (calling differences with empty), none, "differences vacía"
-    calling _expect_eq_ints with (calling differences with one), none, "differences uno"
+    calling _expect_eq_ints with (calling differences with empty), none, "differences empty"
+    calling _expect_eq_ints with (calling differences with one), none, "differences one"
+test "scan_left accumulates with a weave value":
+    var xs as list of int is [4, 6, 8]
+    var exp as list of int is [4, 2, 2]
+    calling _expect_eq_ints with (calling scan_left of int with xs, arithmancy.gcd), exp, "scan_left"
 
-# Predicados
-test "any_zero detecta el cero":
+# Predicates
+test "any_zero detects zero":
     var xs as list of int is [1, 0, 3]
     calling _expect_eq with (calling any_zero with xs), true, "any_zero"
-test "any_zero de la lista vacía es false":
+test "any_zero of the empty list is false":
     var empty as list of int is list of int
-    calling _expect_eq with (calling any_zero with empty), false, "any_zero vacía"
-test "all_equal reconoce los elementos repetidos":
+    calling _expect_eq with (calling any_zero with empty), false, "any_zero empty"
+test "all_equal recognises repeated elements":
     var xs as list of int is [4, 4, 4]
     calling _expect_eq with (calling all_equal with xs), true, "all_equal"
-test "all_equal de vacía o de un elemento es true":
+test "all_equal of an empty or one-element list is true":
     var empty as list of int is list of int
     var one as list of int is [1, 1]
-    calling _expect_eq with (calling all_equal with empty), true, "all_equal vacía"
-    calling _expect_eq with (calling all_equal with one), true, "all_equal uno"
-test "los predicados de orden reconocen secuencias estrictas":
+    calling _expect_eq with (calling all_equal with empty), true, "all_equal empty"
+    calling _expect_eq with (calling all_equal with one), true, "all_equal one"
+test "the order predicates recognise strict sequences":
     var asc as list of int is [1, 2, 3]
     var desc as list of int is [3, 2, 1]
     calling _expect_eq with (calling is_strictly_asc with asc), true, "strictly_asc"
     calling _expect_eq with (calling is_strictly_desc with desc), true, "strictly_desc"
-test "los predicados de orden aceptan repetidos y listas cortas":
+test "the order predicates accept ties and short lists":
     var ties as list of int is [1, 1, 2]
     var empty as list of int is list of int
     calling _expect_eq with (calling is_sorted_asc with ties), true, "sorted_asc"
     calling _expect_eq with (calling is_strictly_asc with ties), false, "strictly_asc ties"
-    calling _expect_eq with (calling is_sorted_desc with empty), true, "sorted_desc vacía"
+    calling _expect_eq with (calling is_sorted_desc with empty), true, "sorted_desc empty"
+test "is_partitioned separates the matching prefix":
+    var ok as list of int is [2, 3, 4]
+    var bad as list of int is [2, 4, 3]
+    var empty as list of int is list of int
+    calling _expect_eq with (calling is_partitioned with ok, arithmancy.is_prime), true, "is_partitioned ok"
+    calling _expect_eq with (calling is_partitioned with bad, arithmancy.is_prime), false, "is_partitioned bad"
+    calling _expect_eq with (calling is_partitioned with empty, arithmancy.is_prime), true, "is_partitioned empty"
 
-# Transformaciones y combinaciones
-test "zip_with suma por defecto":
+# Transformations and combinations
+test "zip_with adds by default":
     var a as list of int is [1, 2, 3]
     var b as list of int is [10, 20, 30]
     var exp as list of int is [11, 22, 33]
-    calling _expect_eq_ints with (calling _zip_with_int with a, b, 0), exp, "zip_with suma"
-test "zip_with aplica resta, producto, mínimo y máximo":
+    calling _expect_eq_ints with (calling _zip_with_int with a, b, 0), exp, "zip_with add"
+test "zip_with applies subtraction, product, minimum and maximum":
     var a as list of int is [10, 20]
     var b as list of int is [3, 5]
-    calling _expect_eq_ints with (calling _zip_with_int with a, b, 1), (calling unfold_range with 7, 2, 8), "zip_with resta"
-    calling _expect_eq_ints with (calling _zip_with_int with a, b, 2), (calling unfold_range with 30, 2, 70), "zip_with producto"
-    calling _expect_eq_ints with (calling _zip_with_int with a, b, 3), (calling unfold_range with 3, 2, 2), "zip_with mínimo"
-    calling _expect_eq_ints with (calling _zip_with_int with a, b, 4), (calling unfold_range with 10, 2, 10), "zip_with máximo"
-test "zip_with se detiene en la lista más corta":
+    calling _expect_eq_ints with (calling _zip_with_int with a, b, 1), (calling unfold_range with 7, 2, 8), "zip_with subtract"
+    calling _expect_eq_ints with (calling _zip_with_int with a, b, 2), (calling unfold_range with 30, 2, 70), "zip_with product"
+    calling _expect_eq_ints with (calling _zip_with_int with a, b, 3), (calling unfold_range with 3, 2, 2), "zip_with minimum"
+    calling _expect_eq_ints with (calling _zip_with_int with a, b, 4), (calling unfold_range with 10, 2, 10), "zip_with maximum"
+test "zip_with stops at the shorter list":
     var a as list of int is [1, 2, 3]
     var b as list of int is [10]
     var exp as list of int is [11]
-    calling _expect_eq_ints with (calling _zip_with_int with a, b, 0), exp, "zip_with corta"
-test "zip_with con operador desconocido suma":
+    calling _expect_eq_ints with (calling _zip_with_int with a, b, 0), exp, "zip_with short"
+test "zip_with with an unknown operator adds":
     var a as list of int is [1]
     var b as list of int is [2]
     var exp as list of int is [3]
     calling _expect_eq_ints with (calling _zip_with_int with a, b, 9), exp, "zip_with op 9"
-test "zip_longest rellena con fill hasta la lista más larga":
+test "zip_with_op combines with a weave value":
+    var a as list of int is [12, 8]
+    var b as list of int is [8, 6]
+    var exp as list of int is [4, 2]
+    calling _expect_eq_ints with (calling zip_with_op with a, b, arithmancy.gcd), exp, "zip_with_op"
+test "zip_longest fills with fill up to the longer list":
     var a as list of int is [1, 2, 3]
     var b as list of int is [9]
     var pairs as list of list of int is calling zip_longest with a, b, 7
     var last as list of int is pairs at 2
-    calling _expect_eq_ints with last, (calling unfold_range with 3, 2, 4), "zip_longest relleno"
-test "zip_longest con listas de igual longitud no rellena":
+    calling _expect_eq_ints with last, (calling unfold_range with 3, 2, 4), "zip_longest fill"
+test "zip_longest with equal-length lists does not fill":
     var a as list of int is [1]
     var b as list of int is [2]
     var pairs as list of list of int is calling zip_longest with a, b
     var only as list of int is pairs at 0
-    calling _expect_eq_ints with only, (calling unfold_range with 1, 2, 1), "zip_longest iguales"
-test "enumerate devuelve pares índice valor":
+    calling _expect_eq_ints with only, (calling unfold_range with 1, 2, 1), "zip_longest equal"
+test "enumerate returns index-value pairs":
     var xs as list of int is [10, 20]
     var pairs as list of list of int is calling enumerate with xs
     var second as list of int is pairs at 1
     var exp as list of int is [1, 20]
-    calling _expect_eq_ints with second, exp, "enumerate par"
-test "enumerate_pairs devuelve Pair en orden":
+    calling _expect_eq_ints with second, exp, "enumerate pair"
+test "enumerate_pairs returns Pair values in order":
     var xs as list of int is [10, 20]
     var pairs as list of Pair of int and int is calling _enumerate_pairs_int with xs
     calling _expect_eq with (calling pairs.len), 2, "enumerate_pairs len"
-    calling _expect_pair with 1, 20, "enumerate_pairs par", (pairs at 1)
-test "enumerate y enumerate_pairs de vacía son vacíos":
+    calling _expect_pair with 1, 20, "enumerate_pairs pair", (pairs at 1)
+test "enumerate and enumerate_pairs of an empty list are empty":
     var empty as list of int is list of int
     var none as list of list of int is list of list of int
-    calling _expect_eq_chunks with (calling enumerate with empty), none, "enumerate vacía"
-test "interleave alterna hasta la lista más corta":
+    calling _expect_eq_chunks with (calling enumerate with empty), none, "enumerate empty"
+test "interleave alternates up to the shorter list":
     var a as list of int is [1, 2]
     var b as list of int is [10]
     var out as list of int is calling interleave with a, b
     var exp as list of int is [1, 10]
     calling _expect_eq_ints with out, exp, "interleave"
-test "round_robin reparte por turnos todas las listas":
+test "round_robin takes turns over every list":
     var lists as list of list of int is list of list of int
     calling lists.push with (calling range with 1, 3, 1)
     calling lists.push with (calling range with 10, 12, 1)
     var exp as list of int is [1, 10, 2, 11]
     calling _expect_eq_ints with (calling round_robin with lists), exp, "round_robin"
-test "rotate_left mueve el primer elemento al final":
+test "rotate_left moves the first element to the end":
     var xs as list of int is [10, 20, 30]
     var exp as list of int is [20, 30, 10]
     calling _expect_eq_ints with (calling rotate_left with xs, 1), exp, "rotate_left"
-test "rotate_right mueve el último elemento al principio":
+test "rotate_right moves the last element to the front":
     var xs as list of int is [10, 20, 30]
     var exp as list of int is [30, 10, 20]
     calling _expect_eq_ints with (calling rotate_right with xs, 1), exp, "rotate_right"
-test "las rotaciones dan la vuelta con k grande o negativo":
+test "rotations wrap around with a large or negative k":
     var xs as list of int is [10, 20, 30]
     var empty as list of int is list of int
-    calling _expect_eq_ints with (calling rotate_left with xs, 4), (calling rotate_left with xs, 1), "rotate k grande"
-    calling _expect_eq_ints with (calling rotate_left with xs, -1), (calling rotate_left with xs, 2), "rotate k negativo"
-    calling _expect_eq_ints with (calling rotate_left with empty, 3), empty, "rotate vacía"
-test "intersperse inserta el separador entre elementos":
+    calling _expect_eq_ints with (calling rotate_left with xs, 4), (calling rotate_left with xs, 1), "rotate k big"
+    calling _expect_eq_ints with (calling rotate_left with xs, -1), (calling rotate_left with xs, 2), "rotate k negative"
+    calling _expect_eq_ints with (calling rotate_left with empty, 3), empty, "rotate empty"
+test "intersperse inserts the separator between elements":
     var xs as list of int is [1, 2, 3]
     var exp as list of int is [1, 0, 2, 0, 3]
     calling _expect_eq_ints with (calling intersperse with xs, 0), exp, "intersperse"
-test "intersperse de vacía o de un elemento no añade nada":
+test "intersperse of an empty or one-element list adds nothing":
     var empty as list of int is list of int
     var none as list of int is list of int
     var one as list of int is [5]
-    calling _expect_eq_ints with (calling intersperse with empty, 0), none, "intersperse vacía"
-    calling _expect_eq_ints with (calling intersperse with one, 0), one, "intersperse uno"
-test "flat_map_identity aplana un nivel de anidamiento":
+    calling _expect_eq_ints with (calling intersperse with empty, 0), none, "intersperse empty"
+    calling _expect_eq_ints with (calling intersperse with one, 0), one, "intersperse one"
+test "flat_map_identity flattens one level of nesting":
     var nested as list of list of int is list of list of int
     calling nested.push with (calling range with 1, 3, 1)
     calling nested.push with (calling range with 4, 6, 1)
     var exp as list of int is [1, 2, 4, 5]
     calling _expect_eq_ints with (calling flat_map_identity with nested), exp, "flat_map_identity"
-test "flat_map_identity coincide con el núcleo genérico":
+test "flat_map_identity matches the generic core":
     var nested as list of list of int is list of list of int
     calling nested.push with (calling range with 1, 3, 1)
     calling _expect_eq_ints with (calling flatten_generic of int with nested), (calling flat_map_identity with nested), "flatten"
-test "flatten_generic aplana listas de cualquier tipo":
+test "flatten_generic flattens lists of any type":
     var nested as list of list of string is list of list of string
     var inner as list of string is ["a", "b"]
     calling nested.push with inner
     var flat as list of string is calling flatten_generic of string with nested
     calling _expect_eq with (flat at 1), "b", "flatten_generic"
-test "el núcleo genérico de flatten con listas vacías da vacío":
+test "the generic flatten core with empty lists gives empty":
     var nested as list of list of int is list of list of int
     var empty as list of int is list of int
     calling nested.push with empty
-    calling _expect_eq_ints with (calling flatten_generic of int with nested), empty, "flatten vacía"
+    calling _expect_eq_ints with (calling flatten_generic of int with nested), empty, "flatten empty"
 
-# Conjuntos sobre listas ordenadas
-test "union_sorted une listas ascendentes y deduplica":
+# Sets over sorted lists
+test "union_sorted merges ascending lists and deduplicates":
     var b as list of int is [2, 3]
     calling _expect_eq_ints with (calling union_sorted with (calling unfold_range with 1, 3, 1), b), (calling unfold_range with 1, 3, 1), "union_sorted"
-test "las operaciones de conjuntos con listas vacías son vacías":
+test "the set operations with empty lists are empty":
     var empty as list of int is list of int
-    calling _expect_eq_ints with (calling union_sorted with empty, empty), empty, "union vacía"
-    calling _expect_eq_ints with (calling difference_sorted with empty, empty), empty, "difference vacía"
-test "intersect_sorted conserva lo común":
+    calling _expect_eq_ints with (calling union_sorted with empty, empty), empty, "union empty"
+    calling _expect_eq_ints with (calling difference_sorted with empty, empty), empty, "difference empty"
+test "intersect_sorted keeps the common part":
     var a as list of int is [1, 2, 3]
     var b as list of int is [2, 3]
     calling _expect_eq_ints with (calling intersect_sorted with a, b), b, "intersect_sorted"
-test "difference_sorted y symmetric_difference_sorted conservan lo exclusivo":
+test "difference_sorted and symmetric_difference_sorted keep what is exclusive":
     var a as list of int is [1, 2, 3]
     var b as list of int is [2, 3]
     var only_a as list of int is [1]
     calling _expect_eq_ints with (calling difference_sorted with a, b), only_a, "difference_sorted"
     calling _expect_eq_ints with (calling symmetric_difference_sorted with a, b), only_a, "symmetric_difference"
 
-# Búsqueda e índices
-test "find_first y find_last localizan los extremos":
+# Search and indices
+test "find_first and find_last locate the occurrences":
     var xs as list of int is [10, 20, 10]
     calling _expect_some with (calling find_first with xs, 10), 0, "find_first"
     calling _expect_some with (calling find_last with xs, 10), 2, "find_last"
-test "find y binary_search devuelven none cuando no encuentran":
+test "find and binary_search return none when they miss":
     var xs as list of int is [1, 2, 4]
     var absent as maybe int is calling find_first with xs, 9
     var missed as maybe int is calling binary_search with xs, 3
     calling _expect_eq with absent.is_present, false, "find_first none"
     calling _expect_eq with missed.is_present, false, "binary_search none"
-test "binary_search encuentra el índice en listas ordenadas":
+test "binary_search finds the index in sorted lists":
     var xs as list of int is [1, 2, 4, 5]
     calling _expect_some with (calling binary_search with xs, 4), 2, "binary_search"
-test "count_if_even cuenta los pares, incluidos los negativos":
+test "count_if_even counts the even values, negative ones included":
     var xs as list of int is [-2, 0, 3]
     calling _expect_eq with (calling count_if_even with xs), 2, "count_if_even"
-test "count_if_positive cuenta los estrictamente positivos":
+test "count_if_positive counts the strictly positive values":
     var xs as list of int is [-2, 0, 3]
     calling _expect_eq with (calling count_if_positive with xs), 1, "count_if_positive"
-test "index_min e index_max localizan el primer extremo":
+test "index_min and index_max locate the first extreme":
     var xs as list of int is [3, 1, 4, 1]
     calling _expect_some with (calling index_min with xs), 1, "index_min"
     calling _expect_some with (calling index_max with xs), 2, "index_max"
-test "index_min de la lista vacía devuelve none":
+test "index_min of the empty list returns none":
     var empty as list of int is list of int
     var lowest as maybe int is calling index_min with empty
-    calling _expect_eq with lowest.is_present, false, "index_min vacía"
+    calling _expect_eq with lowest.is_present, false, "index_min empty"
 
-# Edición estructural
-test "insert_at inserta en la posición pedida":
+# Structural editing
+test "insert_at inserts at the requested position":
     var xs as list of int is [1, 2, 3]
     var out as list of int is calling insert_at with xs, 1, 9
     calling _expect_eq with (out at 1), 9, "insert_at"
-test "remove_at quita el elemento indicado":
+test "remove_at removes the given element":
     var xs as list of int is [1, 2, 3]
     var out as list of int is calling remove_at with xs, 1
     calling _expect_eq_ints with out, (calling unfold_range with 1, 2, 2), "remove_at"
-test "remove_at con índice fuera de rango copia la lista":
+test "remove_at with an out-of-range index copies the list":
     var xs as list of int is [1, 2]
-    calling _expect_eq_ints with (calling remove_at with xs, 5), xs, "remove_at fuera"
-test "replace_at con índice fuera de rango copia la lista":
+    calling _expect_eq_ints with (calling remove_at with xs, 5), xs, "remove_at outside"
+test "replace_at with an out-of-range index copies the list":
     var xs as list of int is [1, 2]
-    calling _expect_eq_ints with (calling replace_at with xs, 5, 9), xs, "replace_at fuera"
-test "replace_at sustituye el elemento indicado":
+    calling _expect_eq_ints with (calling replace_at with xs, 5, 9), xs, "replace_at outside"
+test "replace_at replaces the given element":
     var xs as list of int is [1, 2, 3]
     var out as list of int is calling replace_at with xs, 1, 7
     calling _expect_eq with (out at 1), 7, "replace_at"
-test "swap_at intercambia dos posiciones":
+test "swap_at swaps two positions":
     var xs as list of int is [1, 2, 3]
     var out as list of int is calling swap_at with xs, 0, 2
     calling _expect_eq_ints with out, (calling unfold_range with 3, 3, -1), "swap_at"
-test "intersperse de un solo elemento devuelve el elemento":
+test "swap_at with an out-of-range index copies the list":
+    var xs as list of int is [1, 2, 3]
+    calling _expect_eq_ints with (calling swap_at with xs, 0, 9), xs, "swap_at outside"
+test "intersperse of a single element returns the element":
     var one as list of int is [5]
-    calling _expect_eq_ints with (calling intersperse with one, 0), one, "intersperse uno"
-test "pad_left y pad_right rellenan los extremos":
+    calling _expect_eq_ints with (calling intersperse with one, 0), one, "intersperse single"
+test "pad_left and pad_right pad the ends":
     var xs as list of int is [1, 2]
     var left as list of int is calling pad_left with xs, 4, -1
     var right as list of int is calling pad_right with xs, 4, -1
     calling _expect_eq with (left at 0), -1, "pad_left"
     calling _expect_eq with (right at 3), -1, "pad_right"
 
-# Estadística
-test "median con longitud impar":
-    calling _expect_some with (calling _median_int with (calling unfold_range with 1, 5, 1)), 3.0, "median impar"
-test "median con longitud par promedia los centrales":
-    calling _expect_some with (calling _median_int with (calling unfold_range with 1, 4, 1)), 2.5, "median par"
-test "median de la lista vacía es none":
+# Statistics
+test "median with an odd length":
+    calling _expect_some with (calling _median_int with (calling unfold_range with 1, 5, 1)), 3.0, "median odd"
+test "median with an even length averages the middle values":
+    calling _expect_some with (calling _median_int with (calling unfold_range with 1, 4, 1)), 2.5, "median even"
+test "median of the empty list is none":
     var empty as list of int is list of int
     var middle as maybe float is calling _median_int with empty
-    calling _expect_eq with middle.is_present, false, "median vacía"
-test "mode devuelve el valor más frecuente":
+    calling _expect_eq with middle.is_present, false, "median empty"
+test "mode returns the most frequent value":
     var xs as list of int is [1, 2, 2, 3]
     calling _expect_some with (calling _mode_int with xs), 2, "mode"
-test "mode de la lista vacía es none":
+test "mode of the empty list is none":
     var empty as list of int is list of int
     var frequent as maybe int is calling _mode_int with empty
-    calling _expect_eq with frequent.is_present, false, "mode vacía"
-test "variance y stddev miden la dispersión":
+    calling _expect_eq with frequent.is_present, false, "mode empty"
+test "variance and stddev measure the spread":
     var spread as maybe float is calling variance with (calling unfold_range with 1, 5, 1)
     var deviation as maybe float is calling stddev with (calling unfold_range with 1, 5, 1)
     calling _expect_some with spread, 2.0, "variance"
     calling _expect_float_near with deviation.value, 1.4142, 0.001, "stddev"
-test "variance de la lista vacía es none":
+test "variance of the empty list is none":
     var empty as list of int is list of int
     var spread as maybe float is calling variance with empty
-    calling _expect_eq with spread.is_present, false, "variance vacía"
-test "percentile interpola linealmente":
+    calling _expect_eq with spread.is_present, false, "variance empty"
+test "percentile interpolates linearly":
     calling _expect_some with (calling percentile with (calling unfold_range with 1, 4, 1), 50.0), 2.5, "percentile"
-test "percentile fuera de rango devuelve none":
+test "percentile out of range returns none":
     var out as maybe float is calling percentile with (calling unfold_range with 1, 4, 1), 150.0
-    calling _expect_eq with out.is_present, false, "percentile rango"
+    calling _expect_eq with out.is_present, false, "percentile range"
 
-# Núcleo genérico y versión
-test "first_or devuelve el primero o el valor por defecto":
+# Generic core and version
+test "first_or returns the first element or the default":
     var empty as list of int is list of int
     calling _expect_eq with (calling first_or of int with (calling unfold_range with 1, 2, 1), 0), 1, "first_or"
     calling _expect_eq with (calling first_or of int with empty, 5), 5, "first_or default"
-test "first_or es genérico también para strings":
+test "first_or is generic for strings too":
     var words as list of string is ["a", "b"]
     calling _expect_eq with (calling first_or of string with words, "z"), "a", "first_or string"
-test "generic_take y generic_take_last recortan listas de strings":
+test "generic_take and generic_take_last slice string lists":
     var xs as list of string is ["a", "b", "c"]
     var head as list of string is calling generic_take of string with xs, 2
     var tail as list of string is calling generic_take_last of string with xs, 2
     calling _expect_eq with (calling head.len), 2, "generic_take"
     calling _expect_eq with (tail at 0), "b", "generic_take_last"
-test "generic_reverse y generic_chain trabajan con strings":
+test "generic_reverse and generic_chain work with strings":
     var xs as list of string is ["a", "b"]
     var backwards as list of string is calling generic_reverse of string with xs
     var joined as list of string is calling generic_chain of string with backwards, xs
     calling _expect_eq with (backwards at 0), "b", "generic_reverse"
     calling _expect_eq with (calling joined.len), 4, "generic_chain"
-test "generic_index_of encuentra o devuelve menos uno":
+test "generic_index_of finds the target or returns minus one":
     var xs as list of string is ["a", "b"]
     calling _expect_eq with (calling generic_index_of of string with xs, "b"), 1, "generic_index_of"
-    calling _expect_eq with (calling generic_index_of of string with xs, "z"), -1, "generic_index_of falta"
-test "LOOM_VERSION es la versión 2.0.0":
-    calling _expect with LOOM_VERSION == "2.0.0", "version"
+    calling _expect_eq with (calling generic_index_of of string with xs, "z"), -1, "generic_index_of missing"
+test "LOOM_VERSION is version 2.1.0":
+    calling _expect with LOOM_VERSION == "2.1.0", "version"

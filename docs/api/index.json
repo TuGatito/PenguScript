@@ -6163,7 +6163,7 @@
     },
     {
       "deprecated": true,
-      "documented": false,
+      "documented": true,
       "kind": "weave",
       "module": "loom",
       "name": "flatten",
@@ -12386,7 +12386,7 @@
       "signature": "**assert_true**(cond: bool) -> void"
     },
     {
-      "deprecated": false,
+      "deprecated": true,
       "documented": true,
       "kind": "weave",
       "module": "ward",
@@ -12394,7 +12394,7 @@
       "signature": "**check**(cond: bool, msg: string) -> ResultString"
     },
     {
-      "deprecated": false,
+      "deprecated": true,
       "documented": true,
       "kind": "weave",
       "module": "ward",
@@ -12406,11 +12406,27 @@
       "documented": true,
       "kind": "weave",
       "module": "ward",
+      "name": "check_eq_bool_native",
+      "signature": "**check_eq_bool_native**(a: bool, b: bool, msg: string) -> result of string to string"
+    },
+    {
+      "deprecated": true,
+      "documented": true,
+      "kind": "weave",
+      "module": "ward",
       "name": "check_eq_float",
       "signature": "**check_eq_float**(a: float, b: float, msg: string, epsilon: float) -> ResultString"
     },
     {
       "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "ward",
+      "name": "check_eq_float_native",
+      "signature": "**check_eq_float_native**(a: float, b: float, msg: string, epsilon: float) -> result of string to string"
+    },
+    {
+      "deprecated": true,
       "documented": true,
       "kind": "weave",
       "module": "ward",
@@ -12422,11 +12438,35 @@
       "documented": true,
       "kind": "weave",
       "module": "ward",
+      "name": "check_eq_int_native",
+      "signature": "**check_eq_int_native**(a: int, b: int, msg: string) -> result of string to string"
+    },
+    {
+      "deprecated": true,
+      "documented": true,
+      "kind": "weave",
+      "module": "ward",
       "name": "check_eq_string",
       "signature": "**check_eq_string**(a: string, b: string, msg: string) -> ResultString"
     },
     {
       "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "ward",
+      "name": "check_eq_string_native",
+      "signature": "**check_eq_string_native**(a: string, b: string, msg: string) -> result of string to string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "ward",
+      "name": "check_native",
+      "signature": "**check_native**(cond: bool, msg: string) -> result of string to string"
+    },
+    {
+      "deprecated": true,
       "documented": true,
       "kind": "weave",
       "module": "ward",
@@ -12438,11 +12478,19 @@
       "documented": true,
       "kind": "weave",
       "module": "ward",
+      "name": "check_ok_native",
+      "signature": "**check_ok_native**(r: result of T to E, msg: string) -> result of string to string"
+    },
+    {
+      "deprecated": true,
+      "documented": true,
+      "kind": "weave",
+      "module": "ward",
       "name": "check_ok_string",
       "signature": "**check_ok_string**(r: ResultString, msg: string) -> ResultString"
     },
     {
-      "deprecated": false,
+      "deprecated": true,
       "documented": true,
       "kind": "weave",
       "module": "ward",
@@ -12451,6 +12499,14 @@
     },
     {
       "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "ward",
+      "name": "check_present_native",
+      "signature": "**check_present_native**(m: maybe T, msg: string) -> result of string to string"
+    },
+    {
+      "deprecated": true,
       "documented": true,
       "kind": "weave",
       "module": "ward",

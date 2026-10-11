@@ -175,3 +175,30 @@ remaining internal callers are migrated.
 **Reopening criterion:** migrate `std/seal` and `std/ward` to the intrinsic
 constructors, then flip the whole table to `1.x` with removal in 2.0. Until
 then the markers keep warning correctly and no program breaks.
+
+## 5. `std.ward` — legacy `check_*` (non-panicking checks)
+
+The 0.14.x `check_*` family returns an `oracle.ResultString`. The native
+`check_*_native` family added in 2.1.0 returns a `result of string to string`
+built with the `ok_of` / `err_of` intrinsics, so it composes with `std.oracle`
+and the language's `or:` blocks. The legacy functions keep working unchanged and
+are marked with the `## @deprecated Use X instead.` docstring convention.
+
+| Symbol | Replacement | Since | Status |
+| --- | --- | --- | --- |
+| `ward.check` | `ward.check_native` | 2.1.0 | 1.x |
+| `ward.check_eq_int` | `ward.check_eq_int_native` | 2.1.0 | 1.x |
+| `ward.check_eq_string` | `ward.check_eq_string_native` | 2.1.0 | 1.x |
+| `ward.check_eq_bool` | `ward.check_eq_bool_native` | 2.1.0 | 1.x |
+| `ward.check_eq_float` | `ward.check_eq_float_native` | 2.1.0 | 1.x |
+| `ward.check_present_int` | `ward.check_present_native` | 2.1.0 | 1.x |
+| `ward.check_present_string` | `ward.check_present_native` | 2.1.0 | 1.x |
+| `ward.check_ok_int` | `ward.check_ok_native` | 2.1.0 | 1.x |
+| `ward.check_ok_string` | `ward.check_ok_native` | 2.1.0 | 1.x |
+
+The legacy `check_*` functions are the only remaining internal users of
+`oracle.result_ok_string` / `oracle.result_err_string` in `ward`, so they still
+count towards the `std.oracle` "blocked" criterion above. `std.ward` no longer
+imports `std.scrolls`: `_w_fmt_string` and the three string predicates
+(`assert_string_contains`, `assert_string_starts_with`, `assert_string_ends_with`)
+compare native slices instead.

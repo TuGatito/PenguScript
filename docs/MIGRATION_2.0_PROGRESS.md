@@ -79,7 +79,72 @@ Común:
 - [x] `docs/PENGUNIC_CHECKLIST.md` ampliada con las reglas del Chunk 2.
 - [x] `docs/api/` y `tests/_test_policy_baseline.json` regenerados.
 
-### Próximo: Chunk 3 (`std/tally` + `std/loom` + `std/ward`)
+### ✅ Chunk 3: `std.tally` + `std.loom` + `std.ward`
+
+- [x] Reescrito `std/tally.pengu` en Pengunic 2.0 (`TALLY_VERSION = "2.1.0"`):
+      1488 → 3158 líneas; prosa y docstrings en inglés con secciones canónicas
+      (`Parámetros`/`Retorno`/`Ejemplo`); 152 tests internos (antes 111).
+- [x] Reescrito `std/loom.pengu` en Pengunic 2.0 (`LOOM_VERSION = "2.1.0"`):
+      1511 → 2508 líneas; 124 → 130 tests internos (siete de los nuevos se
+      reescribieron sobre los núcleos privados: ver desviación 6). Sigue **sin**
+      declarar `enchanting` (decisión explícita, documentada en el módulo).
+- [x] Reescrito `std/ward.pengu` en Pengunic 2.0 (`WARD_VERSION = "2.1.0"`):
+      674 → 2366 líneas; 42 tests internos (antes 0).
+- [x] `ward` ya no importa `std.scrolls`: `_w_fmt_string` usa el slicing nativo
+      `s at 0 to 77` y los tres predicados de string comparan slices nativos.
+- [x] Añadidas las siete `check_*_native` en `ward`, que devuelven
+      `result of string to string` (`ok_of`/`err_of`); las nueve `check_*`
+      legacy se conservan y quedan deprecadas.
+- [x] `tests/stdlib/test_tally.py` (50 tests), `tests/stdlib/test_loom.py`
+      (51 tests) y `tests/stdlib/test_ward.py` (38 tests) creados; los tres
+      juzgan stdout/stderr/exit code, nunca el C generado.
+- [x] `docs/TALLY_API.md`, `docs/LOOM_API.md` y `docs/WARD_API.md` creados
+      (contratos congelados).
+- [x] Decisión documentada: `loom` y `tally` se mantienen separados
+      (`LANGUAGE.md` §19.1.1; guía de estilo §15). No hay fusión, renombrado ni
+      sufijos `_safe`/`_sentinel`.
+- [x] `docs/api/` regenerado y `docs/DEPRECATIONS.md` ampliado con la sección de
+      los `check_*` legacy de `ward`.
+- [x] `pengu_runtime.h` **sin tocar**: este chunk no mueve código C.
+
+### Próximo: Chunk 4 (`std/atlas` + `std/coven` + `std/compass`)
+
+## Desviaciones y hallazgos de Chunk 3
+
+1. **Los tests externos viven en `tests/stdlib/`, no en la raíz.** El brief pedía
+   `tests/test_{tally,loom,ward}.py`, pero `tests/test_test_policy.py` congela
+   `MAX_ROOT_TEST_FILES = 15` y la raíz ya estaba exactamente llena tras los
+   Chunks 1–2 (`spark`, `scrolls`, `oracle`). Añadirlos habría puesto en rojo
+   `test_the_root_test_set_stays_small` en CI (`pytest tests` corre la suite
+   entera). Decisión del usuario: respetar el tope y usar el paquete de área.
+   La ruta equivalente es `pytest tests/stdlib/test_<mod>.py`.
+2. **Quitar `std.scrolls` de `ward` no bastó con `_w_fmt_string`.** El módulo
+   también usaba los métodos `string.contains` / `starts_with` / `ends_with` que
+   aporta `scrolls` (`E0004` sin el import). Se reescribieron los tres predicados
+   con slices nativos (`at a to b`, fin exclusivo) preservando los mensajes de
+   panic exactos. Coste: un slice temporal por offset candidato, mientras que
+   `scrolls` usaba helpers C `memcmp` sin asignación.
+3. **`defer banish` no acepta `result` ni los contenedores legacy** (`E0008`),
+   aunque `banish` simple sobre los mismos valores sí compila. Los docstrings de
+   los `check_*` recomiendan `banish` (no `defer banish`) para esos contenedores.
+   Es un bug del compilador en `defer`, no del módulo.
+4. **Notas de diseño obsoletas corregidas.** `tally` y `loom` afirmaban que
+   importar `std.ward` crearía un ciclo (`ward -> tally` / `ward -> scrolls`);
+   tras el Chunk 2 `ward` ya no importa `scrolls`, y nunca importó `tally`. La
+   razón real de mantener el harness privado `_expect*` es no arrastrar una
+   dependencia solo-de-test (`oracle`) a todo programa que importe el módulo.
+5. **`judge` solo donde aplica.** `loom` lo usa en el despacho de `_apply_op_int`;
+   `tally` y `ward` no tienen cadenas que comparen un sujeto contra varias
+   constantes, así que no se forzó (la guía pide `judge` "cuando aplique").
+6. **Tests internos de `loom`: 137 → 130.** Siete de los trece tests que el chunk
+   añadió llamaban sin cualificar a nombres compartidos con `tally` y rompían
+   `pengu run` en cuanto un programa importaba los dos módulos (bug del
+   compilador, ver abajo). Se sustituyeron por aserciones sobre los núcleos
+   privados concretos; los wrappers públicos siguen cubiertos por
+   `tests/stdlib/test_loom.py` (comprobado: `mean` 6, `median` 6, `mode` 6,
+   `min_max` 5, `running_sum` 2, `zip_with` 9, `enumerate_pairs` 2, `flatten` 1,
+   `windowed` 1 referencias cualificadas). El balance neto del chunk sigue siendo
+   positivo: 124 → 130 tests internos.
 
 ## Decisiones de estilo tomadas en Chunk 1
 
@@ -232,9 +297,32 @@ bindings C) y `tests/stdlib/test_std_warning_positions.py` (posiciones de W0001)
   Chunk 2, pero hace que `pengu run` sea más lento en programas que usan
   `scrolls`/`oracle`.
 
+## Bugs del compilador encontrados en Chunk 3
+
+- **Resolución de nombres compartidos entre módulos dentro de los bloques
+  `test` (regresión de compilación, no de comportamiento).** El checker tipa
+  también los bloques `test` de los módulos **importados**, en un espacio de
+  nombres compartido. En un bundle que importa `std.tally` y `std.loom`, una
+  llamada sin cualificar desde un `test` de `loom` a uno de los 15 nombres
+  compartidos puede resolverse a la declaración de `tally`; si esa declaración es
+  genérica (`windowed shard T`, `running_sum shard T`, `mean shard T`, …) la
+  inferencia falla con `E0005` y **todo el programa deja de compilar**, aunque el
+  bloque `test` no se ejecute nunca en `run`. Reproducción mínima: cualquier
+  programa con `import std.tally` antes de `import std.loom` (el orden importa)
+  más una llamada a `windowed`/`running_sum`/… desde un `test` de `loom`.
+  Medido contra `HEAD~1`: el smoke del brief (spark + tally + loom + ward) pasa
+  con los módulos pre-migración y fallaba con los migrados, así que el Chunk 3 lo
+  destapó al añadir tests internos nuevos. No se puede esquivar cualificando
+  dentro del propio módulo (`calling loom.mean` da `E0004`: el identificador del
+  módulo no está en scope). Mitigación aplicada: los `test` internos de `loom`
+  usan los núcleos concretos privados (`_mean_int`, `_min_max_int`, `_windows_int`,
+  …) y la superficie pública la cubre `tests/stdlib/test_loom.py`, que llama
+  cualificado. Verificado en ambos órdenes de import y con `ward` delante.
+  Queda como bug abierto del compilador.
+
 ## Bloqueos conocidos
 
-- Ninguno para Chunk 3.
+- Ninguno para Chunk 4.
 - Deuda registrada: las guías Pengunic citan cifras de cobertura de docstrings de
   `std/` que ya no son exactas (Chunk 1, desviación 2).
 - Deuda registrada: temporales de slice sin `banish` en toda la stdlib (hallazgo 5).

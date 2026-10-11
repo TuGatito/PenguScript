@@ -1,35 +1,15 @@
-## std/tally.pengu
-## Algoritmos sobre listas: reducciones, búsqueda, estadística, ordenación,
-## selección, filtrado y transformación, con una API **genérica** (`T: Num`,
-## `T: Ordo`, `T: Par`, `T: Integrum`) y compatibilidad 100% con la API
-## concreta de `list of int` de 0.14.x/0.15.0.
+## std/tally.pengu — algorithms over lists: reductions, search, statistics,
+## sorting, selection, filtering and transformation, with a **generic** API
+## (`T: Num`, `T: Ordo`, `T: Par`, `T: Integrum`) and 100% compatibility with
+## the concrete `list of int` API of 0.14.x/0.15.0.
 ##
-## Cada operación existe dos veces, como método (`calling xs.sum`) y como
-## función de módulo (`calling tally.sum with xs`). Las funciones de módulo
-## de la sección de compatibilidad son concretas (`list of int`), con la firma
-## exacta de siempre, y delegan en los métodos; los métodos genéricos viven en
-## bloques `enchanting` con su propio bound.
+## Every operation exists twice: as a method (`calling xs.sum`) and as a module
+## function (`calling tally.sum with xs`). The module functions in the
+## compatibility section are concrete (`list of int`), keep their exact original
+## signature and delegate to the methods; the generic methods live in
+## `enchanting` blocks with their own bound.
 ##
-## ## Cuándo usar `tally` y cuándo `loom`
-## `tally` es la familia de reducciones con **identidad natural**: una lista
-## vacía colapsa a un centinela (`sum` -> 0, `product_num` -> 1, `max_val` -> 0,
-## `mode` -> 0) y las estadísticas fraccionarias se truncan a `int`
-## (`calling xs.mean` sobre `[1, 2]` da 1). Es lo que quieres cuando el centinela
-## significa algo y no quieres ramificar.
-##
-## `std.loom` es la familia segura: `loom.mean` devuelve `float` (`1.5`) y
-## `loom.median`/`loom.mode`/`loom.min_max` devuelven `maybe` cuando la lista
-## está vacía. Los 15 nombres compartidos **no tienen la misma firma**: no son
-## duplicados, son dos contratos distintos. Usa `loom` cuando una lista vacía no
-## tenga respuesta y devolver un centinela ocultaría un bug.
-## Ver `LANGUAGE.md` §19.1.1 y `docs/DEPRECATIONS.md`.
-##
-## ## Memory
-## Ninguna operación muta ni libera la lista de entrada: solo se lee
-## (`essence of self`) y se devuelve un valor escalar o una **lista nueva**
-## que el llamante libera con `banish`. Las listas de entrada pertenecen al llamador.
-##
-## ## Ejemplo
+## ## Example
 ## ```pengu
 ## import std.tally
 ##
@@ -43,68 +23,136 @@
 ##     return 0
 ## ```
 ##
-## ## Notas de diseño
-## - **Genéricos en métodos, no en funciones de módulo.** Un método no admite
-##   `where`: los bounds viven en bloques `enchanting list of shard T where T:
-##   Num/Ordo/Par/Integrum`. Las funciones de módulo de compatibilidad son
-##   concretas (`l as list of int`), conservan la firma exacta y delegan en el
-##   método; generalizar su nombre rompería `calling xs.nombre`.
-## - **Sin llamadas entre genéricos.** Un cuerpo genérico no puede invocar a
-##   otro `weave`/método genérico (el compilador emite la plantilla `_T`), así
-##   que cada método genérico es autocontenido y los alias (`argmin`,
-##   `average`, `dedup`, `filter_range`) repiten el cuerpo base.
-## - **Construcción de listas genéricas.** En un cuerpo genérico `push`/`pop`
-##   sobre `list of T` no son fiables: las listas nuevas salen de
-##   comprehensions, y el trabajo por índices usa una lista local de índices
-##   (`list of int`, `push` concreto) recorrida con otra comprehension.
-## - **`at_or` y `clamp_all`** necesitan defaults de tipo `int` (un parámetro
-##   genérico no admite default dependiente de `T`), así que viven en el bloque
-##   concreto `list of int`.
-## - **Sin tuplas.** `min_max`, `enumerate_pairs` y `partition_by` devuelven
-##   `list of int`/`list of list of int` para no depender de `std.oracle`.
-## - **Sin `@deprecated` real.** Los alias son `weave` normales cuyo docstring
-##   empieza por `## @deprecated Use X instead.`
-## - **Tests internos.** El harness `_expect*` usa `spark.panic`:
-##   `import std.ward` produciría un ciclo (`ward -> tally`, E0004).
+## ## Memory
+## No operation mutates or frees the input list: it is only read (`essence of
+## self`) and the result is either a scalar or a **new list** that the caller
+## releases with `banish`. Input lists always belong to the caller. The
+## `## ## Memoria` note of an individual symbol repeats this where forgetting it
+## is easy.
 ##
-## ## Migración
-## | Antes (0.14.x) | Ahora (0.15.0) |
+## ## Relationship with std.loom
+## `std.tally` and `std.loom` both operate on lists and share 15 public names,
+## but they are **two deliberate contracts, not duplicates**:
+##
+## - `tally` is the **sentinel** family: an empty list collapses to a natural
+##   identity (`sum` -> 0, `product` -> 1, `max_val` -> 0, `mode` -> 0) and
+##   fractional statistics truncate to `int` (`calling xs.mean` on `[1, 2]` gives
+##   `1`). Reach for it when the sentinel is meaningful and no branching is
+##   wanted.
+## - `loom` is the **safe** family: `loom.mean` returns `float` (`1.5`) and
+##   `loom.median`/`loom.mode`/`loom.min_max` return `maybe` for an empty list.
+##   Reach for it when an empty list has no answer, because a sentinel would hide
+##   a bug.
+##
+## The split is a **documented, named exception**: `LANGUAGE.md` §19.1.1 defines
+## it and §15 of `PenguScriptGuideSpanish.md` records it as a relaxed rule with a
+## named exception. The two families are neither merged nor renamed, and no alias
+## or suffix bridges them: the 15 shared names keep their different signatures on
+## purpose.
+##
+## ## Design notes
+## - **Generics in methods, not in module functions.** A method cannot carry
+##   `where`: the bounds live in `enchanting list of shard T where T:
+##   Num/Ordo/Par/Integrum` blocks. The compatibility module functions are
+##   concrete (`l as list of int`), keep the exact signature and delegate to the
+##   method; generalising their name would break `calling xs.name`.
+## - **No calls between generics.** A generic body cannot call another generic
+##   `weave`/method (the compiler emits the `_T` template), so every generic
+##   method is self-contained and the aliases (`argmin`, `average`, `dedup`,
+##   `filter_range`) repeat the base body.
+## - **Building generic lists.** Inside a generic body `push`/`pop` on
+##   `list of T` is not reliable: new lists come from comprehensions, and
+##   index-based work uses a local `list of int` (`var` plus concrete `push`)
+##   walked by another comprehension.
+## - **`at_or` and `clamp_all`** need `int`-typed defaults (a generic parameter
+##   accepts no `T`-dependent default), so they live in the concrete
+##   `list of int` block.
+## - **No tuples.** `min_max`, `enumerate_pairs` and `partition_by` return
+##   `list of int`/`list of list of int` to avoid depending on `std.oracle`.
+## - **No real `@deprecated`.** The aliases are ordinary `weave`s whose docstring
+##   starts with `## @deprecated Use X instead.`
+## - **Internal tests.** The `_expect*` harness uses `spark.panic`, so the module
+##   keeps its single `std.spark` dependency: importing `std.ward` (which pulls
+##   `std.oracle`) only for tests would load both into every program that uses
+##   `tally`.
+##
+## ## Migration
+## | Before (0.14.x) | Now (0.15.0) |
 ## |---|---|
-## | `calling tally.sum with xs` | igual, o `calling xs.sum` |
-## | `calling tally.sort_asc with xs` | igual, o `calling xs.sort_asc` |
-## | `calling tally.clamp_all with xs, 0, 9` | igual, o `calling xs.clamp_all with 0, 9` |
-## | `calling tally.map_increment with xs, 2` | igual, o `calling xs.map_increment with 2` |
-## | (nuevo) | `zip_with`, `chunk`, `windowed`, `running_sum`, `scan_left` |
-## | (nuevo) | `partition_by`, `enumerate_pairs`, `min_max` |
-## | (nuevo) | `frequencies`, `group_count` |
+## | `calling tally.sum with xs` | same, or `calling xs.sum` |
+## | `calling tally.sort_asc with xs` | same, or `calling xs.sort_asc` |
+## | `calling tally.clamp_all with xs, 0, 9` | same, or `calling xs.clamp_all with 0, 9` |
+## | `calling tally.map_increment with xs, 2` | same, or `calling xs.map_increment with 2` |
+## | (new) | `zip_with`, `chunk`, `windowed`, `running_sum`, `scan_left` |
+## | (new) | `partition_by`, `enumerate_pairs`, `min_max` |
+## | (new) | `frequencies`, `group_count` |
 
 # --- Imports ------------------------------------------------------------
 import std.spark
 
-# --- Constantes públicas ------------------------------------------------
+# --- Public constants ---------------------------------------------------
 
-## Versión del módulo tally.
-const TALLY_VERSION as string is "2.0.0"
+## Version of the `tally` module.
+const TALLY_VERSION as string is "2.1.0"
 
 # --- Enchantings --------------------------------------------------------
 
-## Métodos genéricos que solo requieren valor por defecto (`donum T`):
-## acceso, inversión, aplanado y selección por rango.
+## Generic methods that only need a default value (`donum T`): access,
+## reversal, flattening and selection by range.
 enchanting list of shard T where T: Donum:
-    ## Primer elemento de `self`, o `donum T` si está vacía.
+    ## First element of `self`, or `donum T` when `self` is empty.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the list to read.
+    ##
+    ## ## Retorno
+    ## The first element as `T`, or `donum T` (0 for `int`) when the list is
+    ## empty. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.first    # 3
+    ## ```
     weave first into T:
         if (calling self.len) == 0:
             return donum T
         self at 0
 
-    ## Último elemento de `self`, o `donum T` si está vacía.
+    ## Last element of `self`, or `donum T` when `self` is empty.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the list to read.
+    ##
+    ## ## Retorno
+    ## The last element as `T`, or `donum T` when the list is empty. Borrows the
+    ## receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.last    # 2
+    ## ```
     weave last into T:
-        var n as int is calling self.len
+        let n as int is calling self.len
         if n == 0:
             return donum T
         self at (n - 1)
 
-    ## Elemento en `idx`, o `maybe none` si está fuera de rango.
+    ## Element at `idx`, or `maybe none` when `idx` is out of range.
+    ##
+    ## ## Parámetros
+    ## - `idx`: zero-based position. Negative, or `>= len`, yields `none`.
+    ##
+    ## ## Retorno
+    ## `some v` with the element, or `maybe none`. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.at_safe with 2    # some 2
+    ## calling xs.at_safe with 9    # none
+    ## ```
     weave at_safe with idx as int into maybe T:
         if idx < 0:
             return maybe none
@@ -112,85 +160,181 @@ enchanting list of shard T where T: Donum:
             return maybe none
         some (self at idx)
 
-    ## Copia con los elementos en orden inverso.
+    ## Copy of `self` with the elements in reverse order.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is copied and reversed.
+    ##
+    ## ## Retorno
+    ## A new owned `list of T`; release it with `banish`. `self` is not mutated.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.reverse    # [2, 1, 3]
+    ## ```
     weave reverse into list of T:
         var out as list of T is for x in essence of self then x
-        var n as int is calling out.len
+        let n as int is calling out.len
         var i as int is 0
         while i < (n / 2):
-            var tmp as T is out at i
+            let tmp as T is out at i
             set out at i is (out at (n - 1 - i))
             set out at (n - 1 - i) is tmp
             set i is i + 1
         out
 
-    ## Copia identidad; aplana un nivel de anidamiento lógico.
+    ## Identity copy of `self`; flattens one level of logical nesting.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is copied element by element.
+    ##
+    ## ## Retorno
+    ## A new owned `list of T` with the same elements; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.flatten    # [3, 1, 2]
+    ## ```
     weave flatten into list of T:
         for x in essence of self then x
 
-    ## Primeros `n` elementos (recorta si `n` excede la longitud).
+    ## First `n` elements of `self`, clipped to its length.
+    ##
+    ## ## Parámetros
+    ## - `n`: how many elements to take; defaults to 1. Negative values are
+    ##   clamped to 0 and values above the length to the length.
+    ##
+    ## ## Retorno
+    ## A new owned `list of T`; release it with `banish`. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.take with 2    # [3, 1]
+    ## ```
     weave take with n as int is 1 into list of T:
-        var total as int is calling self.len
-        var limit as int is n
-        if limit > total:
-            set limit is total
-        if limit < 0:
-            set limit is 0
+        let total as int is calling self.len
+        let limit as int is (if n < 0 then 0 else (if n > total then total else n))
         var idxs as list of int is list of int
+        defer banish idxs
         var i as int is 0
         while i < limit:
             calling idxs.push with i
             set i is i + 1
         for j in idxs then (self at j)
 
-    ## Elementos a partir del índice `n`.
+    ## Elements of `self` from index `n` onwards.
+    ##
+    ## ## Parámetros
+    ## - `n`: first index to keep; defaults to 1. Negative values are clamped
+    ##   to 0.
+    ##
+    ## ## Retorno
+    ## A new owned `list of T`; release it with `banish`. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.drop with 1    # [1, 2]
+    ## ```
     weave drop with n as int is 1 into list of T:
-        var total as int is calling self.len
-        var start as int is n
-        if start < 0:
-            set start is 0
+        let total as int is calling self.len
+        let start as int is (if n < 0 then 0 else n)
         var idxs as list of int is list of int
+        defer banish idxs
         var i as int is start
         while i < total:
             calling idxs.push with i
             set i is i + 1
         for j in idxs then (self at j)
 
-    ## Sub-lista `[start, end_idx)`.
+    ## Sub-list `[start, end_idx)` of `self`.
+    ##
+    ## ## Parámetros
+    ## - `start`: first index; negative is clamped to 0.
+    ## - `end_idx`: exclusive end; values above the length are clamped to it.
+    ##
+    ## ## Retorno
+    ## A new owned `list of T`; release it with `banish`. An empty range gives an
+    ## empty list.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.slice_list with 1, 3    # [1, 2]
+    ## ```
     weave slice_list with start as int, end_idx as int into list of T:
-        var total as int is calling self.len
-        var s as int is start
-        if s < 0:
-            set s is 0
-        var e as int is end_idx
-        if e > total:
-            set e is total
+        let total as int is calling self.len
+        let s as int is (if start < 0 then 0 else start)
+        let e as int is (if end_idx > total then total else end_idx)
         var idxs as list of int is list of int
+        defer banish idxs
         var i as int is s
         while i < e:
             calling idxs.push with i
             set i is i + 1
         for j in idxs then (self at j)
 
-## Métodos numéricos genéricos (`+ - * /` y literales).
+## Generic numeric methods (`+ - * /` and literals).
 enchanting list of shard T where T: Num:
-    ## Suma de todos los elementos; la lista vacía devuelve `donum T`.
+    ## Sum of every element; the empty list gives `donum T`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is reduced left to right.
+    ##
+    ## ## Retorno
+    ## The total as `T`, or `donum T` (0 for `int`) when the list is empty.
+    ## Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.sum    # 6
+    ## ```
     weave sum into T:
         var acc as T is donum T
         for x in essence of self:
             set acc is acc + x
         acc
 
-    ## Producto de todos los elementos; la lista vacía devuelve 1.
+    ## Product of every element; the empty list gives 1.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is reduced left to right.
+    ##
+    ## ## Retorno
+    ## The product as `T`; the empty list gives the multiplicative identity `1`.
+    ## Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.product    # 6
+    ## ```
     weave product into T:
         var acc as T is 1
         for x in essence of self:
             set acc is acc * x
         acc
 
-    ## Media aritmética truncada hacia cero; vacía devuelve `donum T`.
+    ## Arithmetic mean truncated towards zero; the empty list gives `donum T`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is summed and divided by its length.
+    ##
+    ## ## Retorno
+    ## The mean as `T`, truncated towards zero (`[1, 2]` gives 1), or `donum T`
+    ## when the list is empty. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 4]
+    ## calling xs.mean    # 2
+    ## ```
     weave mean into T:
-        var n as int is calling self.len
+        let n as int is calling self.len
         if n == 0:
             return donum T
         var acc as T is donum T
@@ -200,9 +344,19 @@ enchanting list of shard T where T: Num:
 
     ## @deprecated Use `mean` instead.
     ##
-    ## Alias de `mean`.
+    ## ## Parámetros
+    ## - None: the receiver is summed and divided by its length.
+    ##
+    ## ## Retorno
+    ## Same as `mean`; kept only for compatibility.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 4]
+    ## calling xs.average    # 2
+    ## ```
     weave average into T:
-        var n as int is calling self.len
+        let n as int is calling self.len
         if n == 0:
             return donum T
         var acc as T is donum T
@@ -210,39 +364,127 @@ enchanting list of shard T where T: Num:
             set acc is acc + x
         acc / n
 
-    ## Suma de los cuadrados de todos los elementos.
+    ## Sum of the squares of every element.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is reduced left to right.
+    ##
+    ## ## Retorno
+    ## The sum of squares as `T`, or `donum T` when the list is empty. Borrows
+    ## the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.sum_of_squares    # 14
+    ## ```
     weave sum_of_squares into T:
         var acc as T is donum T
         for x in essence of self:
             set acc is acc + (x * x)
         acc
 
-    ## Copia con cada elemento multiplicado por 2.
+    ## Copy of `self` with every element multiplied by 2.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is mapped element by element.
+    ##
+    ## ## Retorno
+    ## A new owned `list of T`; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.map_double    # [6, 2, 4]
+    ## ```
     weave map_double into list of T:
         for x in essence of self then (x * 2)
 
-    ## Copia con cada elemento elevado al cuadrado.
+    ## Copy of `self` with every element squared.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is mapped element by element.
+    ##
+    ## ## Retorno
+    ## A new owned `list of T`; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.map_square    # [9, 1, 4]
+    ## ```
     weave map_square into list of T:
         for x in essence of self then (x * x)
 
-    ## Copia con cada elemento negado.
+    ## Copy of `self` with every element negated.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is mapped element by element.
+    ##
+    ## ## Retorno
+    ## A new owned `list of T`; release it with `banish`. Uses `0 - x`, so it
+    ## works for `float` too.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, -1]
+    ## calling xs.map_negate    # [-3, 1]
+    ## ```
     weave map_negate into list of T:
         for x in essence of self then (0 - x)
 
-    ## Copia con el escalar `k` sumado a cada elemento.
+    ## Copy of `self` with the scalar `k` added to every element.
+    ##
+    ## ## Parámetros
+    ## - `k`: the value added to each element.
+    ##
+    ## ## Retorno
+    ## A new owned `list of T`; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1]
+    ## calling xs.map_add_scalar with 10    # [13, 11]
+    ## ```
     weave map_add_scalar with k as T into list of T:
         for x in essence of self then (x + k)
 
-    ## Copia con `delta` sumado a cada elemento (equivale a `map_add_scalar`).
+    ## Copy of `self` with `delta` added to every element (same as
+    ## `map_add_scalar` after converting `delta` to `T`).
+    ##
+    ## ## Parámetros
+    ## - `delta`: the integer added to each element; defaults to 1.
+    ##
+    ## ## Retorno
+    ## A new owned `list of T`; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1]
+    ## calling xs.map_increment    # [4, 2]
+    ## ```
     weave map_increment with delta as int is 1 into list of T:
-        var d as T is delta
+        let d as T is delta
         for x in essence of self then (x + d)
 
-## Métodos de orden (`< <= > >=`); `max_val`/`min_val` usan `donum T`.
+## Ordering methods (`< <= > >=`); `max_val`/`min_val` use `donum T`.
 enchanting list of shard T where T: Ordo:
-    ## Mayor elemento; la lista vacía devuelve `donum T`.
+    ## Largest element; the empty list gives `donum T`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is scanned once.
+    ##
+    ## ## Retorno
+    ## The maximum as `T`, or `donum T` (0 for `int`) when the list is empty.
+    ## Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.max_val    # 3
+    ## ```
     weave max_val into T:
-        var n as int is calling self.len
+        let n as int is calling self.len
         if n == 0:
             return donum T
         var m as T is self at 0
@@ -251,9 +493,22 @@ enchanting list of shard T where T: Ordo:
                 set m is x
         m
 
-    ## Menor elemento; la lista vacía devuelve `donum T`.
+    ## Smallest element; the empty list gives `donum T`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is scanned once.
+    ##
+    ## ## Retorno
+    ## The minimum as `T`, or `donum T` when the list is empty. Borrows the
+    ## receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.min_val    # 1
+    ## ```
     weave min_val into T:
-        var n as int is calling self.len
+        let n as int is calling self.len
         if n == 0:
             return donum T
         var m as T is self at 0
@@ -262,9 +517,22 @@ enchanting list of shard T where T: Ordo:
                 set m is x
         m
 
-    ## Índice del primer máximo, o -1 si está vacía.
+    ## Index of the first maximum, or -1 when the list is empty.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is scanned once.
+    ##
+    ## ## Retorno
+    ## A zero-based `int` index; ties keep the first occurrence and an empty
+    ## list gives -1. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.max_index    # 0
+    ## ```
     weave max_index into int:
-        var n as int is calling self.len
+        let n as int is calling self.len
         if n == 0:
             return -1
         var best_idx as int is 0
@@ -277,9 +545,22 @@ enchanting list of shard T where T: Ordo:
             set idx is idx + 1
         best_idx
 
-    ## Índice del primer mínimo, o -1 si está vacía.
+    ## Index of the first minimum, or -1 when the list is empty.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is scanned once.
+    ##
+    ## ## Retorno
+    ## A zero-based `int` index; ties keep the first occurrence and an empty
+    ## list gives -1. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.min_index    # 1
+    ## ```
     weave min_index into int:
-        var n as int is calling self.len
+        let n as int is calling self.len
         if n == 0:
             return -1
         var best_idx as int is 0
@@ -294,9 +575,19 @@ enchanting list of shard T where T: Ordo:
 
     ## @deprecated Use `min_index` instead.
     ##
-    ## Alias de `min_index`.
+    ## ## Parámetros
+    ## - None: the receiver is scanned once.
+    ##
+    ## ## Retorno
+    ## Same as `min_index`; kept only for compatibility.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.argmin    # 1
+    ## ```
     weave argmin into int:
-        var n as int is calling self.len
+        let n as int is calling self.len
         if n == 0:
             return -1
         var best_idx as int is 0
@@ -311,9 +602,19 @@ enchanting list of shard T where T: Ordo:
 
     ## @deprecated Use `max_index` instead.
     ##
-    ## Alias de `max_index`.
+    ## ## Parámetros
+    ## - None: the receiver is scanned once.
+    ##
+    ## ## Retorno
+    ## Same as `max_index`; kept only for compatibility.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.argmax    # 0
+    ## ```
     weave argmax into int:
-        var n as int is calling self.len
+        let n as int is calling self.len
         if n == 0:
             return -1
         var best_idx as int is 0
@@ -326,41 +627,78 @@ enchanting list of shard T where T: Ordo:
             set idx is idx + 1
         best_idx
 
-    ## Copia ordenada de forma ascendente (inserción, O(n^2)).
+    ## Copy of `self` sorted ascending (insertion sort, O(n^2)).
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is copied and sorted.
+    ##
+    ## ## Retorno
+    ## A new owned `list of T`; release it with `banish`. `self` is not mutated.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.sort_asc    # [1, 2, 3]
+    ## ```
     weave sort_asc into list of T:
         var out as list of T is for x in essence of self then x
-        var n as int is calling out.len
+        let n as int is calling out.len
         var i as int is 0
         while i < n:
             var j as int is i + 1
             while j < n:
                 if (out at j) < (out at i):
-                    var tmp as T is out at i
+                    let tmp as T is out at i
                     set out at i is (out at j)
                     set out at j is tmp
                 set j is j + 1
             set i is i + 1
         out
 
-    ## Copia ordenada de forma descendente (inserción, O(n^2)).
+    ## Copy of `self` sorted descending (insertion sort, O(n^2)).
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is copied and sorted.
+    ##
+    ## ## Retorno
+    ## A new owned `list of T`; release it with `banish`. `self` is not mutated.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.sort_desc    # [3, 2, 1]
+    ## ```
     weave sort_desc into list of T:
         var out as list of T is for x in essence of self then x
-        var n as int is calling out.len
+        let n as int is calling out.len
         var i as int is 0
         while i < n:
             var j as int is i + 1
             while j < n:
                 if (out at j) > (out at i):
-                    var tmp as T is out at i
+                    let tmp as T is out at i
                     set out at i is (out at j)
                     set out at j is tmp
                 set j is j + 1
             set i is i + 1
         out
 
-    ## True si `self` está ordenada de forma no descendente.
+    ## True when `self` is sorted in non-descending order.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is scanned once.
+    ##
+    ## ## Retorno
+    ## `true` for a list of zero or one elements, and whenever adjacent pairs
+    ## never decrease. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [1, 2, 2]
+    ## calling xs.is_sorted_asc    # true
+    ## ```
     weave is_sorted_asc into bool:
-        var n as int is calling self.len
+        let n as int is calling self.len
         if n <= 1:
             return true
         var i as int is 0
@@ -370,9 +708,22 @@ enchanting list of shard T where T: Ordo:
             set i is i + 1
         true
 
-    ## True si `self` está ordenada de forma no ascendente.
+    ## True when `self` is sorted in non-ascending order.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is scanned once.
+    ##
+    ## ## Retorno
+    ## `true` for a list of zero or one elements, and whenever adjacent pairs
+    ## never increase. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 2, 2]
+    ## calling xs.is_sorted_desc    # true
+    ## ```
     weave is_sorted_desc into bool:
-        var n as int is calling self.len
+        let n as int is calling self.len
         if n <= 1:
             return true
         var i as int is 0
@@ -382,76 +733,196 @@ enchanting list of shard T where T: Ordo:
             set i is i + 1
         true
 
-    ## True si todos los elementos son estrictamente positivos.
+    ## True when every element is strictly positive.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is scanned once.
+    ##
+    ## ## Retorno
+    ## `true` when no element is `<= donum T`; the empty list gives `true`.
+    ## Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.all_positive    # true
+    ## ```
     weave all_positive into bool:
-        var zero as T is donum T
+        let zero as T is donum T
         for x in essence of self:
             if x <= zero:
                 return false
         true
 
-    ## True si al menos un elemento es estrictamente negativo.
+    ## True when at least one element is strictly negative.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is scanned once.
+    ##
+    ## ## Retorno
+    ## `true` as soon as an element is `< donum T`; the empty list gives `false`.
+    ## Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, -1]
+    ## calling xs.any_negative    # true
+    ## ```
     weave any_negative into bool:
-        var zero as T is donum T
+        let zero as T is donum T
         for x in essence of self:
             if x < zero:
                 return true
         false
 
-    ## Copia con los elementos estrictamente positivos.
+    ## Copy of `self` with the strictly positive elements.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is filtered element by element.
+    ##
+    ## ## Retorno
+    ## A new owned `list of T`; release it with `banish`. Zero and negatives are
+    ## dropped.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, -1, 0]
+    ## calling xs.filter_positive    # [3]
+    ## ```
     weave filter_positive into list of T:
-        var zero as T is donum T
+        let zero as T is donum T
         for x in essence of self when x > zero then x
 
-    ## Copia con los elementos estrictamente negativos.
+    ## Copy of `self` with the strictly negative elements.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is filtered element by element.
+    ##
+    ## ## Retorno
+    ## A new owned `list of T`; release it with `banish`. Zero is dropped.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, -1, 0]
+    ## calling xs.filter_negative    # [-1]
+    ## ```
     weave filter_negative into list of T:
-        var zero as T is donum T
+        let zero as T is donum T
         for x in essence of self when x < zero then x
 
-    ## Primer elemento estrictamente mayor que `threshold`.
+    ## First element strictly greater than `threshold`.
+    ##
+    ## ## Parámetros
+    ## - `threshold`: exclusive lower bound to beat.
+    ##
+    ## ## Retorno
+    ## `some x` for the first match, or `maybe none` when no element beats it.
+    ## Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.find_first_gt with 2    # some 3
+    ## ```
     weave find_first_gt with threshold as T into maybe T:
         for x in essence of self:
             if x > threshold:
                 return some x
         return maybe none
 
-    ## Primer elemento estrictamente menor que `threshold`.
+    ## First element strictly smaller than `threshold`.
+    ##
+    ## ## Parámetros
+    ## - `threshold`: exclusive upper bound to beat.
+    ##
+    ## ## Retorno
+    ## `some x` for the first match, or `maybe none` when no element beats it.
+    ## Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.find_first_lt with 2    # some 1
+    ## ```
     weave find_first_lt with threshold as T into maybe T:
         for x in essence of self:
             if x < threshold:
                 return some x
         return maybe none
 
-## Métodos que combinan aritmética y orden (valor absoluto, mediana, rangos).
+## Methods that combine arithmetic and ordering (absolute value, median, ranges).
 enchanting list of shard T where T: Num, T: Ordo:
-    ## Copia con el valor absoluto de cada elemento.
+    ## Copy of `self` with the absolute value of every element.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is mapped element by element.
+    ##
+    ## ## Retorno
+    ## A new owned `list of T`; release it with `banish`. Negatives become their
+    ## distance to zero.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [-3, 1, -2]
+    ## calling xs.abs_all    # [3, 1, 2]
+    ## ```
     weave abs_all into list of T:
-        var zero as T is donum T
+        let zero as T is donum T
         for x in essence of self then (if x < zero then (zero - x) else x)
 
-    ## Mediana tras ordenar; vacía devuelve `donum T`. Con longitud par
-    ## promedia los dos valores centrales (división entera hacia cero).
+    ## Median after sorting; the empty list gives `donum T`.
+    ##
+    ## With an even length it averages the two central values (integer division
+    ## towards zero).
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is copied and sorted in place.
+    ##
+    ## ## Retorno
+    ## The median as `T`, or `donum T` when the list is empty. Borrows the
+    ## receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 4]
+    ## calling xs.median    # 3
+    ## ```
     weave median into T:
-        var n as int is calling self.len
+        let n as int is calling self.len
         if n == 0:
             return donum T
         var s as list of T is for x in essence of self then x
+        defer banish s
         var i as int is 0
         while i < n:
             var j as int is i + 1
             while j < n:
                 if (s at j) < (s at i):
-                    var tmp as T is s at i
+                    let tmp as T is s at i
                     set s at i is (s at j)
                     set s at j is tmp
                 set j is j + 1
             set i is i + 1
-        var mid as int is n / 2
+        let mid as int is n / 2
         if (n % 2) == 1:
             return s at mid
         ((s at (mid - 1)) + (s at mid)) / 2
 
-    ## True si todos los elementos caen en `[lo, hi]`.
+    ## True when every element falls in `[lo, hi]`.
+    ##
+    ## ## Parámetros
+    ## - `lo`: inclusive lower bound.
+    ## - `hi`: inclusive upper bound.
+    ##
+    ## ## Retorno
+    ## `true` when no element is outside the span; the empty list gives `true`.
+    ## Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [1, 3, 5]
+    ## calling xs.all_in_range with 1, 5    # true
+    ## ```
     weave all_in_range with lo as T, hi as T into bool:
         for x in essence of self:
             if x < lo:
@@ -460,29 +931,79 @@ enchanting list of shard T where T: Num, T: Ordo:
                 return false
         true
 
-    ## Copia con los elementos que caen en `[lo, hi]`.
+    ## Copy of `self` with the elements inside `[lo, hi]`.
+    ##
+    ## ## Parámetros
+    ## - `lo`: inclusive lower bound.
+    ## - `hi`: inclusive upper bound.
+    ##
+    ## ## Retorno
+    ## A new owned `list of T`; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 4, 1, 5]
+    ## calling xs.filter_in_range with 2, 4    # [3, 4]
+    ## ```
     weave filter_in_range with lo as T, hi as T into list of T:
         for x in essence of self when x >= lo and x <= hi then x
 
     ## @deprecated Use `filter_in_range` instead.
     ##
-    ## Alias de `filter_in_range`.
+    ## ## Parámetros
+    ## - `lo`: inclusive lower bound.
+    ## - `hi`: inclusive upper bound.
+    ##
+    ## ## Retorno
+    ## Same as `filter_in_range`; kept only for compatibility.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 4, 1, 5]
+    ## calling xs.filter_range with 2, 4    # [3, 4]
+    ## ```
     weave filter_range with lo as T, hi as T into list of T:
         for x in essence of self when x >= lo and x <= hi then x
 
-## Métodos que solo comparan por igualdad (`== !=`).
+## Methods that only compare by equality (`== !=`).
 enchanting list of shard T where T: Par:
-    ## True si todos los elementos son iguales a `donum T`.
+    ## True when every element equals `donum T`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is compared element by element.
+    ##
+    ## ## Retorno
+    ## `true` when no element differs from `donum T`; the empty list gives
+    ## `true`. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [0, 0]
+    ## calling xs.all_zero    # true
+    ## ```
     weave all_zero into bool:
-        var zero as T is donum T
+        let zero as T is donum T
         for x in essence of self:
             if x != zero:
                 return false
         true
 
-    ## Valor más frecuente; vacía devuelve `donum T` (empates: el primero).
+    ## Most frequent value; the empty list gives `donum T` (ties: the first).
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is scanned once per element, O(n^2).
+    ##
+    ## ## Retorno
+    ## The value with the highest count as `T`, or `donum T` when the list is
+    ## empty. On a tie the earliest value wins. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 3]
+    ## calling xs.mode    # 3
+    ## ```
     weave mode into T:
-        var n as int is calling self.len
+        let n as int is calling self.len
         if n == 0:
             return donum T
         var best as T is self at 0
@@ -497,10 +1018,23 @@ enchanting list of shard T where T: Par:
                 set best is x
         best
 
-    ## Copia sin duplicados, conservando el orden de primera aparición.
+    ## Copy of `self` without duplicates, keeping first-appearance order.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is compared pairwise, O(n^2).
+    ##
+    ## ## Retorno
+    ## A new owned `list of T`; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 3, 2]
+    ## calling xs.unique    # [3, 1, 2]
+    ## ```
     weave unique into list of T:
-        var n as int is calling self.len
+        let n as int is calling self.len
         var keep as list of int is list of int
+        defer banish keep
         var i as int is 0
         while i < n:
             var dup as bool is false
@@ -516,10 +1050,21 @@ enchanting list of shard T where T: Par:
 
     ## @deprecated Use `unique` instead.
     ##
-    ## Alias de `unique`.
+    ## ## Parámetros
+    ## - None: the receiver is compared pairwise, O(n^2).
+    ##
+    ## ## Retorno
+    ## Same as `unique`; kept only for compatibility.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 3, 2]
+    ## calling xs.dedup    # [3, 1, 2]
+    ## ```
     weave dedup into list of T:
-        var n as int is calling self.len
+        let n as int is calling self.len
         var keep as list of int is list of int
+        defer banish keep
         var i as int is 0
         while i < n:
             var dup as bool is false
@@ -533,7 +1078,19 @@ enchanting list of shard T where T: Par:
             set i is i + 1
         for k in keep then (self at k)
 
-    ## Número de apariciones de `item`.
+    ## Number of occurrences of `item`.
+    ##
+    ## ## Parámetros
+    ## - `item`: the value to count.
+    ##
+    ## ## Retorno
+    ## The count as `int` (0 when absent). Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 3]
+    ## calling xs.count_of with 3    # 2
+    ## ```
     weave count_of with item as T into int:
         var count_n as int is 0
         for x in essence of self:
@@ -541,7 +1098,20 @@ enchanting list of shard T where T: Par:
                 set count_n is count_n + 1
         count_n
 
-    ## Índice de la última aparición de `item`, o -1 si no está.
+    ## Index of the last occurrence of `item`, or -1 when absent.
+    ##
+    ## ## Parámetros
+    ## - `item`: the value to search for.
+    ##
+    ## ## Retorno
+    ## A zero-based `int` index, or -1 when `item` does not occur. Borrows the
+    ## receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 3]
+    ## calling xs.last_index_of with 3    # 2
+    ## ```
     weave last_index_of with item as T into int:
         var i as int is (calling self.len) - 1
         while i >= 0:
@@ -550,53 +1120,169 @@ enchanting list of shard T where T: Par:
             set i is i - 1
         -1
 
-## Métodos que requieren aritmética entera (`%`).
+## Methods that need integer arithmetic (`%`).
 enchanting list of shard T where T: Integrum and T: Par:
-    ## Copia con los elementos pares.
+    ## Copy of `self` with the even elements.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is filtered element by element.
+    ##
+    ## ## Retorno
+    ## A new owned `list of T`; release it with `banish`. Elements with
+    ## `x % 2 == 0` are kept.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 4, 1, 5]
+    ## calling xs.filter_even    # [4]
+    ## ```
     weave filter_even into list of T:
         for x in essence of self when (x % 2) == 0 then x
 
-    ## Copia con los elementos impares.
+    ## Copy of `self` with the odd elements.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is filtered element by element.
+    ##
+    ## ## Retorno
+    ## A new owned `list of T`; release it with `banish`. Elements with
+    ## `x % 2 != 0` are kept.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 4, 1, 5]
+    ## calling xs.filter_odd    # [3, 1, 1, 5]
+    ## ```
     weave filter_odd into list of T:
         for x in essence of self when (x % 2) != 0 then x
 
-## Especializaciones concretas cuyo default depende del tipo `int`.
+## Concrete specialisations whose default depends on the `int` type.
 enchanting list of int:
-    ## Elemento en `idx`, o `default` si está fuera de rango.
+    ## Element at `idx`, or `default` when out of range.
+    ##
+    ## ## Parámetros
+    ## - `idx`: zero-based position. Negative, or `>= len`, yields `default`.
+    ## - `default`: value returned out of range; defaults to 0.
+    ##
+    ## ## Retorno
+    ## The element as `int`, or `default`. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [3, 1, 2]
+    ## calling xs.at_or with 1, -1    # 1
+    ## calling xs.at_or with 9, -1    # -1
+    ## ```
     weave at_or with idx as int, default as int is 0 into int:
-        var n as int is calling self.len
+        let n as int is calling self.len
         if idx < 0:
             return default
         if idx >= n:
             return default
         self at idx
 
-    ## Copia con todos los valores limitados a `[lo, hi]`.
+    ## Copy of `self` with every value clipped to `[lo, hi]`.
+    ##
+    ## ## Parámetros
+    ## - `lo`: inclusive lower bound; defaults to 0.
+    ## - `hi`: inclusive upper bound; defaults to 100.
+    ##
+    ## ## Retorno
+    ## A new owned `list of int`; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [-5, 150]
+    ## calling xs.clamp_all    # [0, 100]
+    ## ```
     weave clamp_all with lo as int is 0, hi as int is 100 into list of int:
         for x in essence of self then (if x < lo then lo else (if x > hi then hi else x))
 
-# --- Funciones de módulo (compatibilidad `list of int`) -----------------
+# --- Module functions (compatibility with `list of int`) -----------------
 
-## True cuando `l` no tiene elementos.
+## Functional form of `is_empty`: true when `l` has no elements.
+##
+## ## Parámetros
+## - `l`: the list to test. Read only.
+##
+## ## Retorno
+## `true` when `l` is empty. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is list of int
+## calling tally.is_empty with xs    # true
+## ```
 weave is_empty with l as list of int into bool:
     return (calling l.len) == 0
 
-## Suma aritmética de todos los elementos; la lista vacía suma 0.
+## Functional form of `sum`: arithmetic total of every element.
+##
+## ## Parámetros
+## - `l`: the list to reduce. Read only.
+##
+## ## Retorno
+## The total as `int`, or 0 when `l` is empty. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.sum with xs    # 6
+## ```
 weave sum with l as list of int into int:
     return calling l.sum
 
-## Mayor elemento; la lista vacía devuelve 0.
+## Functional form of `max_val`: largest element.
+##
+## ## Parámetros
+## - `l`: the list to scan. Read only.
+##
+## ## Retorno
+## The maximum as `int`, or the sentinel 0 when `l` is empty. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.max_val with xs    # 3
+## ```
 weave max_val with l as list of int into int:
     return calling l.max_val
 
-## Menor elemento; la lista vacía devuelve 0.
+## Functional form of `min_val`: smallest element.
+##
+## ## Parámetros
+## - `l`: the list to scan. Read only.
+##
+## ## Retorno
+## The minimum as `int`, or the sentinel 0 when `l` is empty. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.min_val with xs    # 1
+## ```
 weave min_val with l as list of int into int:
     return calling l.min_val
 
-## Concatenación de `a` y `b` en una lista nueva.
+## Concatenation of `a` and `b` into a new list.
+##
+## ## Parámetros
+## - `a`: first list. Read only.
+## - `b`: second list. Read only.
+##
+## ## Retorno
+## A new owned `list of int` with `a` followed by `b`; release it with
+## `banish`. Neither input is mutated.
 ##
 ## ## Memoria
-## Devuelve una lista nueva (libérala con `banish`); no muta `a` ni `b`.
+## The result is a fresh list, so it must be released with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var a as list of int is [3, 1]
+## var b as list of int is [4, 5]
+## calling tally.concat with a, b    # [3, 1, 4, 5]
+## ```
 weave concat with a as list of int, b as list of int into list of int:
     var result as list of int is list of int
     for x in a:
@@ -605,35 +1291,73 @@ weave concat with a as list of int, b as list of int into list of int:
         calling result.push with x
     return result
 
-## Suma elemento a elemento hasta la lista más corta.
+## Element-wise sum up to the shorter list.
+##
+## ## Parámetros
+## - `a`: first list. Read only.
+## - `b`: second list. Read only.
+##
+## ## Retorno
+## A new owned `list of int` as long as the shorter input; release it with
+## `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var a as list of int is [3, 1, 2]
+## var b as list of int is [1, 1, 1]
+## calling tally.zip_sum with a, b    # [4, 2, 3]
+## ```
 weave zip_sum with a as list of int, b as list of int into list of int:
     var result as list of int is list of int
-    var na as int is calling a.len
-    var nb as int is calling b.len
-    var limit as int is na
-    if nb < limit:
-        set limit is nb
+    let na as int is calling a.len
+    let nb as int is calling b.len
+    let limit as int is (if nb < na then nb else na)
     var i as int is 0
     while i < limit:
         calling result.push with ((a at i) + (b at i))
         set i is i + 1
     return result
 
-## Producto escalar de dos vectores enteros.
+## Dot product of two integer vectors.
+##
+## ## Parámetros
+## - `a`: first list. Read only.
+## - `b`: second list. Read only.
+##
+## ## Retorno
+## The dot product as `int`, computed up to the shorter list; 0 when either side
+## is empty. Borrows both inputs.
+##
+## ## Ejemplo
+## ```pengu
+## var a as list of int is [3, 1, 2]
+## var b as list of int is [1, 1, 1]
+## calling tally.dot with a, b    # 6
+## ```
 weave dot with a as list of int, b as list of int into int:
     var total as int is 0
-    var na as int is calling a.len
-    var nb as int is calling b.len
-    var limit as int is na
-    if nb < limit:
-        set limit is nb
+    let na as int is calling a.len
+    let nb as int is calling b.len
+    let limit as int is (if nb < na then nb else na)
     var i as int is 0
     while i < limit:
         set total is total + ((a at i) * (b at i))
         set i is i + 1
     return total
 
-## Lista nueva con `val` repetido `times` veces (`times <= 0` da lista vacía).
+## New list with `val` repeated `times` times.
+##
+## ## Parámetros
+## - `val`: the value to repeat.
+## - `times`: number of copies; `times <= 0` gives an empty list.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling tally.repeat with 7, 3    # [7, 7, 7]
+## ```
 weave repeat with val as int, times as int into list of int:
     var result as list of int is list of int
     var i as int is 0
@@ -642,250 +1366,891 @@ weave repeat with val as int, times as int into list of int:
         set i is i + 1
     return result
 
-## Número de elementos de `l`. Alias del built-in `l.len`.
+## Number of elements in `l`; alias of the built-in `l.len`.
+##
+## ## Parámetros
+## - `l`: the list to measure. Read only.
+##
+## ## Retorno
+## The element count as `int`. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.len with xs    # 3
+## ```
 weave len with l as list of int into int:
     return calling l.len
 
-## Primer elemento de `l`, o 0 si está vacía.
+## Functional form of `first`: first element of `l`.
+##
+## ## Parámetros
+## - `l`: the list to read. Read only.
+##
+## ## Retorno
+## The first element as `int`, or 0 when `l` is empty. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.first with xs    # 3
+## ```
 weave first with l as list of int into int:
     return calling l.first
 
-## Último elemento de `l`, o 0 si está vacía.
+## Functional form of `last`: last element of `l`.
+##
+## ## Parámetros
+## - `l`: the list to read. Read only.
+##
+## ## Retorno
+## The last element as `int`, or 0 when `l` is empty. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.last with xs    # 2
+## ```
 weave last with l as list of int into int:
     return calling l.last
 
-## Elemento en `idx`, o `default` si está fuera de rango.
+## Functional form of `at_or`: element at `idx`, or `default` out of range.
+##
+## ## Parámetros
+## - `l`: the list to index. Read only.
+## - `idx`: zero-based position. Negative, or `>= len`, yields `default`.
+## - `default`: value returned out of range; defaults to 0.
+##
+## ## Retorno
+## The element as `int`, or `default`. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.at_or with xs, 9, -1    # -1
+## ```
 weave at_or with l as list of int, idx as int, default as int is 0 into int:
     return calling l.at_or with idx, default
 
-## `some v` si `idx` está en rango, `maybe none` si no.
+## Functional form of `at_safe`: bounded access as a `maybe`.
+##
+## ## Parámetros
+## - `l`: the list to index. Read only.
+## - `idx`: zero-based position.
+##
+## ## Retorno
+## `some v` when `idx` is in range, `maybe none` otherwise. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.at_safe with xs, 2    # some 2
+## ```
 weave at_safe with l as list of int, idx as int into maybe int:
     return calling l.at_safe with idx
 
-## True si `item` está en `l`. Alias del built-in `l.contains`.
+## True when `item` is in `l`; alias of the built-in `l.contains`.
+##
+## ## Parámetros
+## - `l`: the list to search. Read only.
+## - `item`: the value to look for.
+##
+## ## Retorno
+## `true` when `item` occurs in `l`. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.contains with xs, 1    # true
+## ```
 weave contains with l as list of int, item as int into bool:
     return calling l.contains with item
 
-## Índice de la primera aparición de `item`, o -1 si no está.
+## Index of the first occurrence of `item`, or -1 when absent.
+##
+## ## Parámetros
+## - `l`: the list to search. Read only.
+## - `item`: the value to look for.
+##
+## ## Retorno
+## A zero-based `int` index, or -1. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4, 1]
+## calling tally.index_of with xs, 4    # 2
+## ```
 weave index_of with l as list of int, item as int into int:
     return calling l.index_of with item
 
-## Índice de la última aparición de `item`, o -1 si no está.
+## Index of the last occurrence of `item`, or -1 when absent.
+##
+## ## Parámetros
+## - `l`: the list to search. Read only.
+## - `item`: the value to look for.
+##
+## ## Retorno
+## A zero-based `int` index, or -1. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4, 1]
+## calling tally.last_index_of with xs, 1    # 3
+## ```
 weave last_index_of with l as list of int, item as int into int:
     return calling l.last_index_of with item
 
-## Número de apariciones de `item` en `l`.
+## Number of occurrences of `item` in `l`.
+##
+## ## Parámetros
+## - `l`: the list to scan. Read only.
+## - `item`: the value to count.
+##
+## ## Retorno
+## The count as `int` (0 when absent). Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4, 1]
+## calling tally.count_of with xs, 1    # 2
+## ```
 weave count_of with l as list of int, item as int into int:
     return calling l.count_of with item
 
-## Primer elemento estrictamente mayor que `threshold`.
+## First element of `l` strictly greater than `threshold`.
+##
+## ## Parámetros
+## - `l`: the list to scan. Read only.
+## - `threshold`: exclusive lower bound to beat.
+##
+## ## Retorno
+## `some x` for the first match, or `maybe none`. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4]
+## calling tally.find_first_gt with xs, 3    # some 4
+## ```
 weave find_first_gt with l as list of int, threshold as int into maybe int:
     return calling l.find_first_gt with threshold
 
-## Primer elemento estrictamente menor que `threshold`.
+## First element of `l` strictly smaller than `threshold`.
+##
+## ## Parámetros
+## - `l`: the list to scan. Read only.
+## - `threshold`: exclusive upper bound to beat.
+##
+## ## Retorno
+## `some x` for the first match, or `maybe none`. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4]
+## calling tally.find_first_lt with xs, 2    # some 1
+## ```
 weave find_first_lt with l as list of int, threshold as int into maybe int:
     return calling l.find_first_lt with threshold
 
-## Producto de todos los elementos; la lista vacía devuelve 1.
+## Functional form of `product`: product of every element.
+##
+## ## Parámetros
+## - `l`: the list to reduce. Read only.
+##
+## ## Retorno
+## The product as `int`; the empty list gives the identity 1. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.product with xs    # 6
+## ```
 weave product with l as list of int into int:
     return calling l.product
 
-## Índice del primer máximo, o -1 si está vacía.
+## Functional form of `max_index`: index of the first maximum.
+##
+## ## Parámetros
+## - `l`: the list to scan. Read only.
+##
+## ## Retorno
+## A zero-based `int` index, or -1 when `l` is empty. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4]
+## calling tally.max_index with xs    # 2
+## ```
 weave max_index with l as list of int into int:
     return calling l.max_index
 
-## Índice del primer mínimo, o -1 si está vacía.
+## Functional form of `min_index`: index of the first minimum.
+##
+## ## Parámetros
+## - `l`: the list to scan. Read only.
+##
+## ## Retorno
+## A zero-based `int` index, or -1 when `l` is empty. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4]
+## calling tally.min_index with xs    # 1
+## ```
 weave min_index with l as list of int into int:
     return calling l.min_index
 
 ## @deprecated Use `min_index` instead.
 ##
-## Alias de `min_index`.
+## ## Parámetros
+## - `l`: the list to scan. Read only.
+##
+## ## Retorno
+## Same as `min_index`; kept only for compatibility.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4]
+## calling tally.argmin with xs    # 1
+## ```
 weave argmin with l as list of int into int:
     return calling l.argmin
 
 ## @deprecated Use `max_index` instead.
 ##
-## Alias de `max_index`.
+## ## Parámetros
+## - `l`: the list to scan. Read only.
+##
+## ## Retorno
+## Same as `max_index`; kept only for compatibility.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4]
+## calling tally.argmax with xs    # 2
+## ```
 weave argmax with l as list of int into int:
     return calling l.argmax
 
-## Media aritmética; la lista vacía devuelve 0 (trunca hacia cero).
+## Functional form of `mean`: arithmetic mean truncated towards zero.
+##
+## ## Parámetros
+## - `l`: the list to reduce. Read only.
+##
+## ## Retorno
+## The mean as `int`, truncated towards zero (`[1, 2]` gives 1), or 0 when `l`
+## is empty. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4]
+## calling tally.mean with xs    # 2
+## ```
 weave mean with l as list of int into int:
     return calling l.mean
 
 ## @deprecated Use `mean` instead.
 ##
-## Alias de `mean`.
+## ## Parámetros
+## - `l`: the list to reduce. Read only.
+##
+## ## Retorno
+## Same as `mean`; kept only for compatibility.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4]
+## calling tally.average with xs    # 2
+## ```
 weave average with l as list of int into int:
     return calling l.average
 
-## Suma de los cuadrados de todos los elementos.
+## Functional form of `sum_of_squares`: sum of the squared elements.
+##
+## ## Parámetros
+## - `l`: the list to reduce. Read only.
+##
+## ## Retorno
+## The sum of squares as `int`, or 0 when `l` is empty. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.sum_of_squares with xs    # 14
+## ```
 weave sum_of_squares with l as list of int into int:
     return calling l.sum_of_squares
 
-## Mediana tras ordenar; la lista vacía devuelve 0.
+## Functional form of `median`: median after sorting.
+##
+## ## Parámetros
+## - `l`: the list to reduce. Read only.
+##
+## ## Retorno
+## The median as `int` (even length averages the two central values with integer
+## division), or 0 when `l` is empty. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4]
+## calling tally.median with xs    # 3
+## ```
 weave median with l as list of int into int:
     return calling l.median
 
-## Valor más frecuente; la lista vacía devuelve 0.
+## Functional form of `mode`: most frequent value.
+##
+## ## Parámetros
+## - `l`: the list to reduce. Read only.
+##
+## ## Retorno
+## The most frequent value as `int` (first wins on a tie), or 0 when `l` is
+## empty. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 3]
+## calling tally.mode with xs    # 3
+## ```
 weave mode with l as list of int into int:
     return calling l.mode
 
-## Copia con los elementos en orden inverso.
+## Functional form of `reverse`: copy with the elements reversed.
+##
+## ## Parámetros
+## - `l`: the list to copy. Read only.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`. `l` is not mutated.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.reverse with xs    # [2, 1, 3]
+## ```
 weave reverse with l as list of int into list of int:
     return calling l.reverse
 
-## Copia ordenada de forma ascendente.
+## Functional form of `sort_asc`: ascending copy.
+##
+## ## Parámetros
+## - `l`: the list to copy. Read only.
+##
+## ## Retorno
+## A new owned `list of int` sorted ascending; release it with `banish`. `l` is
+## not mutated.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.sort_asc with xs    # [1, 2, 3]
+## ```
 weave sort_asc with l as list of int into list of int:
     return calling l.sort_asc
 
-## Copia ordenada de forma descendente.
+## Functional form of `sort_desc`: descending copy.
+##
+## ## Parámetros
+## - `l`: the list to copy. Read only.
+##
+## ## Retorno
+## A new owned `list of int` sorted descending; release it with `banish`. `l` is
+## not mutated.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.sort_desc with xs    # [3, 2, 1]
+## ```
 weave sort_desc with l as list of int into list of int:
     return calling l.sort_desc
 
-## Copia sin duplicados, conservando el orden de primera aparición.
+## Functional form of `unique`: copy without duplicates.
+##
+## ## Parámetros
+## - `l`: the list to copy. Read only.
+##
+## ## Retorno
+## A new owned `list of int` keeping first-appearance order; release it with
+## `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 3, 2]
+## calling tally.unique with xs    # [3, 1, 2]
+## ```
 weave unique with l as list of int into list of int:
     return calling l.unique
 
 ## @deprecated Use `unique` instead.
 ##
-## Alias de `unique`.
+## ## Parámetros
+## - `l`: the list to copy. Read only.
+##
+## ## Retorno
+## Same as `unique`; kept only for compatibility.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 3, 2]
+## calling tally.dedup with xs    # [3, 1, 2]
+## ```
 weave dedup with l as list of int into list of int:
     return calling l.dedup
 
-## Copia identidad; aplana un nivel de anidamiento lógico.
+## Functional form of `flatten`: identity copy of `l`.
+##
+## ## Parámetros
+## - `l`: the list to copy. Read only.
+##
+## ## Retorno
+## A new owned `list of int` with the same elements; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.flatten with xs    # [3, 1, 2]
+## ```
 weave flatten with l as list of int into list of int:
     return calling l.flatten
 
-## Copia con el valor absoluto de cada elemento.
+## Functional form of `abs_all`: copy with absolute values.
+##
+## ## Parámetros
+## - `l`: the list to map. Read only.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [-3, 1, -2]
+## calling tally.abs_all with xs    # [3, 1, 2]
+## ```
 weave abs_all with l as list of int into list of int:
     return calling l.abs_all
 
-## Copia con todos los valores limitados a `[lo, hi]`.
+## Functional form of `clamp_all`: copy clipped to `[lo, hi]`.
+##
+## ## Parámetros
+## - `l`: the list to map. Read only.
+## - `lo`: inclusive lower bound; defaults to 0.
+## - `hi`: inclusive upper bound; defaults to 100.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [-5, 150]
+## calling tally.clamp_all with xs, 0, 100    # [0, 100]
+## ```
 weave clamp_all with l as list of int, lo as int is 0, hi as int is 100 into list of int:
     return calling l.clamp_all with lo, hi
 
-## Primeros `n` elementos de `l`.
+## Functional form of `take`: first `n` elements of `l`.
+##
+## ## Parámetros
+## - `l`: the list to slice. Read only.
+## - `n`: how many elements to take; defaults to 1.
+##
+## ## Retorno
+## A new owned `list of int` clipped to the length; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.take with xs, 2    # [3, 1]
+## ```
 weave take with l as list of int, n as int is 1 into list of int:
     return calling l.take with n
 
-## Elementos de `l` a partir del índice `n`.
+## Functional form of `drop`: elements of `l` from index `n` onwards.
+##
+## ## Parámetros
+## - `l`: the list to slice. Read only.
+## - `n`: first index to keep; defaults to 1.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.drop with xs, 1    # [1, 2]
+## ```
 weave drop with l as list of int, n as int is 1 into list of int:
     return calling l.drop with n
 
-## Sub-lista `[start, end_idx)`.
+## Functional form of `slice_list`: sub-list `[start, end_idx)`.
+##
+## ## Parámetros
+## - `l`: the list to slice. Read only.
+## - `start`: first index; negative is clamped to 0.
+## - `end_idx`: exclusive end; values above the length are clipped.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.slice_list with xs, 1, 3    # [1, 2]
+## ```
 weave slice_list with l as list of int, start as int, end_idx as int into list of int:
     return calling l.slice_list with start, end_idx
 
-## True si `l` está ordenada de forma no descendente.
+## Functional form of `is_sorted_asc`: non-descending order test.
+##
+## ## Parámetros
+## - `l`: the list to scan. Read only.
+##
+## ## Retorno
+## `true` when `l` never decreases. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [1, 2, 3]
+## calling tally.is_sorted_asc with xs    # true
+## ```
 weave is_sorted_asc with l as list of int into bool:
     return calling l.is_sorted_asc
 
-## True si `l` está ordenada de forma no ascendente.
+## Functional form of `is_sorted_desc`: non-ascending order test.
+##
+## ## Parámetros
+## - `l`: the list to scan. Read only.
+##
+## ## Retorno
+## `true` when `l` never increases. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 2, 1]
+## calling tally.is_sorted_desc with xs    # true
+## ```
 weave is_sorted_desc with l as list of int into bool:
     return calling l.is_sorted_desc
 
-## True si todos los elementos son estrictamente positivos.
+## Functional form of `all_positive`: strict positivity test.
+##
+## ## Parámetros
+## - `l`: the list to scan. Read only.
+##
+## ## Retorno
+## `true` when every element is `> 0`; the empty list gives `true`. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.all_positive with xs    # true
+## ```
 weave all_positive with l as list of int into bool:
     return calling l.all_positive
 
-## True si todos los elementos son cero.
+## Functional form of `all_zero`: zero-sentinel test.
+##
+## ## Parámetros
+## - `l`: the list to scan. Read only.
+##
+## ## Retorno
+## `true` when every element equals 0; the empty list gives `true`. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [0, 0]
+## calling tally.all_zero with xs    # true
+## ```
 weave all_zero with l as list of int into bool:
     return calling l.all_zero
 
-## True si al menos un elemento es estrictamente negativo.
+## Functional form of `any_negative`: finds at least one negative element.
+##
+## ## Parámetros
+## - `l`: the list to scan. Read only.
+##
+## ## Retorno
+## `true` when some element is `< 0`; the empty list gives `false`. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, -1]
+## calling tally.any_negative with xs    # true
+## ```
 weave any_negative with l as list of int into bool:
     return calling l.any_negative
 
-## True si todos los elementos caen en `[lo, hi]`.
+## Functional form of `all_in_range`: inclusive range test.
+##
+## ## Parámetros
+## - `l`: the list to scan. Read only.
+## - `lo`: inclusive lower bound.
+## - `hi`: inclusive upper bound.
+##
+## ## Retorno
+## `true` when every element falls in `[lo, hi]`. Borrows `l`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [1, 3, 5]
+## calling tally.all_in_range with xs, 1, 5    # true
+## ```
 weave all_in_range with l as list of int, lo as int, hi as int into bool:
     return calling l.all_in_range with lo, hi
 
-## Copia con los elementos pares.
+## Functional form of `filter_even`: copy with the even elements.
+##
+## ## Parámetros
+## - `l`: the list to filter. Read only.
+##
+## ## Retorno
+## A new owned `list of int` with the elements where `x % 2 == 0`; release it
+## with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4, 1, 5]
+## calling tally.filter_even with xs    # [4]
+## ```
 weave filter_even with l as list of int into list of int:
     return calling l.filter_even
 
-## Copia con los elementos impares.
+## Functional form of `filter_odd`: copy with the odd elements.
+##
+## ## Parámetros
+## - `l`: the list to filter. Read only.
+##
+## ## Retorno
+## A new owned `list of int` with the elements where `x % 2 != 0`; release it
+## with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4, 1, 5]
+## calling tally.filter_odd with xs    # [3, 1, 1, 5]
+## ```
 weave filter_odd with l as list of int into list of int:
     return calling l.filter_odd
 
-## Copia con los elementos estrictamente positivos.
+## Functional form of `filter_positive`: copy with the strictly positive
+## elements.
+##
+## ## Parámetros
+## - `l`: the list to filter. Read only.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, -1, 0]
+## calling tally.filter_positive with xs    # [3]
+## ```
 weave filter_positive with l as list of int into list of int:
     return calling l.filter_positive
 
-## Copia con los elementos estrictamente negativos.
+## Functional form of `filter_negative`: copy with the strictly negative
+## elements.
+##
+## ## Parámetros
+## - `l`: the list to filter. Read only.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, -1, 0]
+## calling tally.filter_negative with xs    # [-1]
+## ```
 weave filter_negative with l as list of int into list of int:
     return calling l.filter_negative
 
-## Copia con los elementos que caen en `[lo, hi]`.
+## Functional form of `filter_in_range`: copy with the elements inside
+## `[lo, hi]`.
+##
+## ## Parámetros
+## - `l`: the list to filter. Read only.
+## - `lo`: inclusive lower bound.
+## - `hi`: inclusive upper bound.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4, 1, 5]
+## calling tally.filter_in_range with xs, 2, 4    # [3, 4]
+## ```
 weave filter_in_range with l as list of int, lo as int, hi as int into list of int:
     return calling l.filter_in_range with lo, hi
 
 ## @deprecated Use `filter_in_range` instead.
 ##
-## Alias de `filter_in_range`.
+## ## Parámetros
+## - `l`: the list to filter. Read only.
+## - `lo`: inclusive lower bound.
+## - `hi`: inclusive upper bound.
+##
+## ## Retorno
+## Same as `filter_in_range`; kept only for compatibility.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4, 1, 5]
+## calling tally.filter_range with xs, 2, 4    # [3, 4]
+## ```
 weave filter_range with l as list of int, lo as int, hi as int into list of int:
     return calling l.filter_range with lo, hi
 
-## Copia con cada elemento multiplicado por 2.
+## Functional form of `map_double`: copy with every element doubled.
+##
+## ## Parámetros
+## - `l`: the list to map. Read only.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.map_double with xs    # [6, 2, 4]
+## ```
 weave map_double with l as list of int into list of int:
     return calling l.map_double
 
-## Copia con cada elemento elevado al cuadrado.
+## Functional form of `map_square`: copy with every element squared.
+##
+## ## Parámetros
+## - `l`: the list to map. Read only.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.map_square with xs    # [9, 1, 4]
+## ```
 weave map_square with l as list of int into list of int:
     return calling l.map_square
 
-## Copia con cada elemento negado.
+## Functional form of `map_negate`: copy with every element negated.
+##
+## ## Parámetros
+## - `l`: the list to map. Read only.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, -1]
+## calling tally.map_negate with xs    # [-3, 1]
+## ```
 weave map_negate with l as list of int into list of int:
     return calling l.map_negate
 
-## Copia con el escalar `k` sumado a cada elemento.
+## Functional form of `map_add_scalar`: copy with `k` added to every element.
+##
+## ## Parámetros
+## - `l`: the list to map. Read only.
+## - `k`: the value added to each element.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1]
+## calling tally.map_add_scalar with xs, 10    # [13, 11]
+## ```
 weave map_add_scalar with l as list of int, k as int into list of int:
     return calling l.map_add_scalar with k
 
-## Copia con `delta` sumado a cada elemento.
+## Functional form of `map_increment`: copy with `delta` added to every element.
+##
+## ## Parámetros
+## - `l`: the list to map. Read only.
+## - `delta`: the integer added to each element; defaults to 1.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1]
+## calling tally.map_increment with xs, 2    # [5, 3]
+## ```
 weave map_increment with l as list of int, delta as int is 1 into list of int:
     return calling l.map_increment with delta
 
-# --- API nueva (genérica) ----------------------------------------------
+# --- New API (generic) --------------------------------------------------
 
-## Combina `xs` e `ys` con `f` hasta la lista más corta.
+## Combines `xs` and `ys` with `f` up to the shorter list.
 ##
-## ## Memory
-## `xs` e `ys` solo se leen; el resultado es una lista nueva.
+## ## Parámetros
+## - `xs`: first list. Read only.
+## - `ys`: second list. Read only.
+## - `f`: binary weave `with a as T, b as U into V`.
+##
+## ## Retorno
+## A new owned `list of V`, one element per position of the shorter input;
+## release it with `banish`.
+##
+## ## Memoria
+## `xs` and `ys` are only read; the result is a fresh list that the caller
+## releases with `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## weave add with a as int, b as int into int:
 ##     return a + b
 ##
-## var sums as list of int is calling tally.zip_with with xs, ys, add
+## var xs as list of int is [3, 1]
+## var ys as list of int is [1, 1]
+## calling tally.zip_with with xs, ys, add    # [4, 2]
 ## ```
 weave zip_with shard T and U and V with xs as list of T, ys as list of U, f as weave with a as T, b as U into V into list of V:
-    var na as int is calling xs.len
-    var nb as int is calling ys.len
-    var limit as int is na
-    if nb < limit:
-        set limit is nb
+    let na as int is calling xs.len
+    let nb as int is calling ys.len
+    let limit as int is (if nb < na then nb else na)
     var idxs as list of int is list of int
+    defer banish idxs
     var i as int is 0
     while i < limit:
         calling idxs.push with i
         set i is i + 1
     for k in idxs then (calling f with (xs at k), (ys at k))
 
-## Divide `xs` en tramos consecutivos de `span` elementos; el último puede ser
-## más corto. `span <= 0` devuelve una lista vacía.
+## Splits `xs` into consecutive runs of `span` elements; the last one may be
+## shorter.
+##
+## ## Parámetros
+## - `xs`: the list to split. Read only.
+## - `span`: run length; `span <= 0` gives an empty list.
+##
+## ## Retorno
+## A new owned `list of list of T`; release every inner list and the outer one
+## with `banish`.
+##
+## ## Memoria
+## Each inner list and the outer list are freshly allocated.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4, 1, 5]
+## calling tally.chunk with xs, 2    # [[3, 1], [4, 1], [5]]
+## ```
 weave chunk shard T with xs as list of T, span as int into list of list of T:
-    var n as int is calling xs.len
+    let n as int is calling xs.len
     if span <= 0:
         return for x in xs when false then x
     var ranges as list of list of int is list of list of int
+    defer banish ranges
     var c as int is 0
     while c < n:
         var inner as list of int is list of int
-        var stop as int is (if (c + span) < n then (c + span) else n)
+        let stop as int is (if (c + span) < n then (c + span) else n)
         var i as int is c
         while i < stop:
             calling inner.push with i
@@ -894,17 +2259,32 @@ weave chunk shard T with xs as list of T, span as int into list of list of T:
         set c is stop
     for r in ranges then (for i in r then (xs at i))
 
-## Ventanas deslizantes de ancho `width`; `width <= 0` o mayor que la lista
-## devuelve una lista vacía.
+## Sliding windows of width `width`.
+##
+## ## Parámetros
+## - `xs`: the list to window. Read only.
+## - `width`: window length; `width <= 0`, or greater than the list, gives an
+##   empty list.
+##
+## ## Retorno
+## A new owned `list of list of T`; release every inner list and the outer one
+## with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4]
+## calling tally.windowed with xs, 2    # [[3, 1], [1, 4]]
+## ```
 weave windowed shard T with xs as list of T, width as int into list of list of T:
-    var n as int is calling xs.len
+    let n as int is calling xs.len
     if width <= 0:
         return for x in xs when false then x
     if width > n:
         return for x in xs when false then x
     var ranges as list of list of int is list of list of int
+    defer banish ranges
     var c as int is 0
-    var last_start as int is (n - width)
+    let last_start as int is (n - width)
     while c <= last_start:
         var inner as list of int is list of int
         var j as int is 0
@@ -915,11 +2295,27 @@ weave windowed shard T with xs as list of T, width as int into list of list of T
         set c is c + 1
     for r in ranges then (for i in r then (xs at i))
 
-## Escaneo acumulativo con `f`, sembrado con el primer elemento.
+## Cumulative scan with `f`, seeded with the first element.
 ##
-## El resultado tiene la misma longitud que `xs`; `out[0] = xs[0]`.
+## The result has the same length as `xs` and `out[0] = xs[0]`; every later
+## position is `f(previous, current)`, so `scan_left` with `+` equals
+## `running_sum`.
+##
+## ## Parámetros
+## - `xs`: the list to scan. Read only.
+## - `f`: binary weave `with acc as T, x as T into T`.
+##
+## ## Retorno
+## A new owned `list of T` with the prefix results; release it with `banish`. An
+## empty input gives an empty list.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [1, 2, 3]
+## calling tally.scan_left with xs, (lambda acc as int, x as int into acc + x)    # [1, 3, 6]
+## ```
 weave scan_left shard T where T: Num with xs as list of T, f as weave with acc as T, x as T into T into list of T:
-    var n as int is calling xs.len
+    let n as int is calling xs.len
     if n == 0:
         return for x in xs then x
     var out as list of T is for x in xs then (xs at 0)
@@ -929,9 +2325,22 @@ weave scan_left shard T where T: Num with xs as list of T, f as weave with acc a
         set i is i + 1
     out
 
-## Sumas acumuladas (prefijos) de `xs`.
+## Cumulative (prefix) sums of `xs`.
+##
+## ## Parámetros
+## - `xs`: the list to accumulate. Read only.
+##
+## ## Retorno
+## A new owned `list of T` where position `i` is the sum of `xs[0..i]`; release
+## it with `banish`. An empty input gives an empty list.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 2]
+## calling tally.running_sum with xs    # [3, 4, 6]
+## ```
 weave running_sum shard T where T: Num with xs as list of T into list of T:
-    var n as int is calling xs.len
+    let n as int is calling xs.len
     if n == 0:
         return for x in xs then x
     var out as list of T is for x in xs then (xs at 0)
@@ -941,7 +2350,21 @@ weave running_sum shard T where T: Num with xs as list of T into list of T:
         set i is i + 1
     out
 
-## Mínimo y máximo como lista de dos elementos `[min, max]`; vacía devuelve `[]`.
+## Minimum and maximum as a two-element list `[min, max]`.
+##
+## ## Parámetros
+## - `xs`: the list to scan. Read only.
+##
+## ## Retorno
+## A new owned `list of int` with exactly two elements, or an empty list when
+## `xs` is empty; release it with `banish`. The module uses no tuples, so it
+## does not depend on `std.oracle`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4]
+## calling tally.min_max with xs    # [1, 4]
+## ```
 weave min_max with xs as list of int into list of int:
     var out as list of int is list of int
     if (calling xs.len) == 0:
@@ -957,7 +2380,20 @@ weave min_max with xs as list of int into list of int:
     calling out.push with hi
     return out
 
-## Pares `[índice, valor]` de `xs`, en orden.
+## `[index, value]` pairs of `xs`, in order.
+##
+## ## Parámetros
+## - `xs`: the list to enumerate. Read only.
+##
+## ## Retorno
+## A new owned `list of list of int` with one `[index, value]` pair per element;
+## release every inner list and the outer one with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1]
+## calling tally.enumerate_pairs with xs    # [[0, 3], [1, 1]]
+## ```
 weave enumerate_pairs with xs as list of int into list of list of int:
     var out as list of list of int is list of list of int
     var i as int is 0
@@ -969,7 +2405,21 @@ weave enumerate_pairs with xs as list of int into list of list of int:
         set i is i + 1
     return out
 
-## Particiona `xs` con `predicate`: `[cumplen, no_cumplen]`.
+## Partitions `xs` with `predicate` into `[matching, non_matching]`.
+##
+## ## Parámetros
+## - `xs`: the list to partition. Read only.
+## - `predicate`: unary weave `with x as int into bool`.
+##
+## ## Retorno
+## A new owned `list of list of int` with exactly two lists (either may be
+## empty); release every inner list and the outer one with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 4]
+## calling tally.partition_by with xs, (lambda x as int into (x % 2) == 0)    # [[4], [3, 1]]
+## ```
 weave partition_by with xs as list of int, predicate as weave with x as int into bool into list of list of int:
     var yes as list of int is list of int
     var no as list of int is list of int
@@ -983,7 +2433,20 @@ weave partition_by with xs as list of int, predicate as weave with x as int into
     calling out.push with no
     return out
 
-## Frecuencia de cada valor de `xs` como mapa valor -> conteo.
+## Frequency of every value of `xs` as a value -> count map.
+##
+## ## Parámetros
+## - `xs`: the list to count. Read only.
+##
+## ## Retorno
+## A new owned `map of int to int`; release it with `banish`. The empty list
+## gives an empty map.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [3, 1, 3]
+## calling tally.frequencies with xs    # 3 -> 2, 1 -> 1
+## ```
 weave frequencies with xs as list of int into map of int to int:
     var m as map of int to int is map of int to int
     for x in xs:
@@ -992,496 +2455,705 @@ weave frequencies with xs as list of int into map of int to int:
 
 ## @deprecated Use `frequencies` instead.
 ##
-## Alias de `frequencies`.
+## ## Parámetros
+## - `xs`: the list to count. Read only.
+##
+## ## Retorno
+## Same as `frequencies`; kept only for compatibility.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [2, 2]
+## calling tally.group_count with xs    # 2 -> 2
+## ```
 weave group_count with xs as list of int into map of int to int:
     return calling frequencies with xs
 
-# --- Helpers privados ---------------------------------------------------
+# --- Private helpers ----------------------------------------------------
 
-## Harness interno: panickea con `label` si `cond` es falso.
+## Internal harness: panics with `label` when `cond` is false.
 weave _expect with cond as bool, label as string into void:
     if not cond:
         calling spark.panic with "tally test failed: {label}"
 
-## Harness interno: igualdad de enteros.
+## Internal harness: integer equality.
 weave _expect_eq_int with actual as int, expected as int, label as string into void:
     if actual != expected:
         calling spark.panic with "tally test failed: {label}: {(actual to string)} != {(expected to string)}"
 
-## Harness interno: igualdad de flotantes.
+## Internal harness: float equality.
 weave _expect_eq_float with actual as float, expected as float, label as string into void:
     if actual != expected:
         calling spark.panic with "tally test failed: {label}"
 
-## Harness interno: igualdad de booleanos.
+## Internal harness: boolean equality.
 weave _expect_eq_bool with actual as bool, expected as bool, label as string into void:
     if actual != expected:
         calling spark.panic with "tally test failed: {label}"
 
-
 # --- Tests --------------------------------------------------------------
-test "TALLY_VERSION es la versión 2.0.0":
-    calling _expect with TALLY_VERSION == "2.0.0", "version"
 
-# --- Longitud y acceso ---
-test "is_empty es true para la lista vacía":
-    var _a1 as list of int is list of int
+test "TALLY_VERSION is 2.1.0":
+    calling _expect with TALLY_VERSION == "2.1.0", "version"
+
+# --- Length and access ---
+test "is_empty is true for the empty list":
+    let _a1 as list of int is list of int
     calling _expect_eq_bool with (calling is_empty with _a1), true, "is_empty empty"
-test "is_empty es false con elementos":
-    var _a2 as list of int is [1]
+test "is_empty is false with elements":
+    let _a2 as list of int is [1]
     calling _expect_eq_bool with (calling is_empty with _a2), false, "is_empty one"
-test "len devuelve el número de elementos":
-    var _a3 as list of int is [3, 1, 4, 1, 5]
+test "len returns the number of elements":
+    let _a3 as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling len with _a3), 5, "len"
-test "first devuelve el primer elemento":
-    var _a4 as list of int is [3, 1, 2]
+test "first returns the first element":
+    let _a4 as list of int is [3, 1, 2]
     calling _expect_eq_int with (calling first with _a4), 3, "first"
-test "first devuelve 0 en la lista vacía":
-    var _a5 as list of int is list of int
+test "first returns 0 on the empty list":
+    let _a5 as list of int is list of int
     calling _expect_eq_int with (calling first with _a5), 0, "first empty"
-test "last devuelve el último elemento":
-    var _a6 as list of int is [3, 1, 2]
+test "last returns the last element":
+    let _a6 as list of int is [3, 1, 2]
     calling _expect_eq_int with (calling last with _a6), 2, "last"
-test "last devuelve 0 en la lista vacía":
-    var _a7 as list of int is list of int
+test "last returns 0 on the empty list":
+    let _a7 as list of int is list of int
     calling _expect_eq_int with (calling last with _a7), 0, "last empty"
-test "at_or devuelve el elemento en rango":
-    var _a8 as list of int is [3, 1, 2]
+test "at_or returns the element in range":
+    let _a8 as list of int is [3, 1, 2]
     calling _expect_eq_int with (calling at_or with _a8, 1), 1, "at_or in range"
-test "at_or devuelve el default fuera de rango":
-    var _a9 as list of int is [3, 1, 2]
+test "at_or returns the default out of range":
+    let _a9 as list of int is [3, 1, 2]
     calling _expect_eq_int with (calling at_or with _a9, 9, -1), -1, "at_or default"
-test "at_or devuelve el default con índice negativo":
-    var _a10 as list of int is [3, 1, 2]
+test "at_or returns the default for a negative index":
+    let _a10 as list of int is [3, 1, 2]
     calling _expect_eq_int with (calling at_or with _a10, -1, 7), 7, "at_or negative"
-test "el método at_or usa su default 0":
-    var xs as list of int is [3, 1, 2]
+test "the at_or method uses its default 0":
+    let xs as list of int is [3, 1, 2]
     calling _expect_eq_int with (calling xs.at_or with 99), 0, "method at_or default"
-test "at_safe devuelve some con índice válido":
-    var _a11 as list of int is [3, 1, 2]
-    var m as maybe int is calling at_safe with _a11, 2
+test "at_safe returns some for a valid index":
+    let _a11 as list of int is [3, 1, 2]
+    let m as maybe int is calling at_safe with _a11, 2
     calling _expect_eq_int with m.value, 2, "at_safe present"
-test "at_safe devuelve none fuera de rango":
-    var _a12 as list of int is [3, 1, 2]
-    var m as maybe int is calling at_safe with _a12, 9
+test "at_safe returns none out of range":
+    let _a12 as list of int is [3, 1, 2]
+    let m as maybe int is calling at_safe with _a12, 9
     calling _expect_eq_bool with m.is_present, false, "at_safe none"
-test "el método at_safe rechaza índices negativos":
-    var xs as list of int is [3, 1, 2]
-    var m as maybe int is calling xs.at_safe with -1
+test "the at_safe method rejects negative indices":
+    let xs as list of int is [3, 1, 2]
+    let m as maybe int is calling xs.at_safe with -1
     calling _expect_eq_bool with m.is_present, false, "method at_safe negative"
-test "los métodos first y last funcionan sobre int":
-    var xs as list of int is [3, 1, 2]
+test "the first and last methods work on int":
+    let xs as list of int is [3, 1, 2]
     calling _expect_eq_int with (calling xs.first), 3, "method first"
     calling _expect_eq_int with (calling xs.last), 2, "method last"
-# --- Búsqueda ---
-test "contains encuentra un elemento presente":
-    var _a13 as list of int is [3, 1, 2]
+test "the reverse method matches the module function":
+    let xs as list of int is [3, 1, 2]
+    let by_method as list of int is calling xs.reverse
+    let by_func as list of int is calling reverse with xs
+    calling _expect_eq_int with (by_method at 0), 2, "method reverse first"
+    calling _expect_eq_int with (by_func at 0), 2, "func reverse first"
+test "the flatten method returns an identity copy":
+    let xs as list of int is [3, 1, 2]
+    let out as list of int is calling xs.flatten
+    calling _expect_eq_int with (calling out.len), 3, "method flatten len"
+    calling _expect_eq_int with (out at 1), 1, "method flatten value"
+test "the take method clips and uses its default":
+    let xs as list of int is [3, 1, 4]
+    let one as list of int is calling xs.take
+    let two as list of int is calling xs.take with 2
+    calling _expect_eq_int with (calling one.len), 1, "method take default"
+    calling _expect_eq_int with (two at 1), 1, "method take second"
+test "the drop method skips leading elements":
+    let xs as list of int is [3, 1, 4]
+    let out as list of int is calling xs.drop with 1
+    calling _expect_eq_int with (calling out.len), 2, "method drop len"
+    calling _expect_eq_int with (out at 0), 1, "method drop first"
+test "the slice_list method cuts a generic range":
+    let xs as list of float is [2.5, -1.5, 4.5]
+    let out as list of float is calling xs.slice_list with 1, 3
+    calling _expect_eq_int with (calling out.len), 2, "method slice len"
+    calling _expect_eq_float with (out at 0), -1.5, "method slice first"
+# --- Search ---
+test "contains finds a present element":
+    let _a13 as list of int is [3, 1, 2]
     calling _expect_eq_bool with (calling contains with _a13, 1), true, "contains"
-test "contains es false para un ausente":
-    var _a14 as list of int is [3, 1, 2]
+test "contains is false for an absent element":
+    let _a14 as list of int is [3, 1, 2]
     calling _expect_eq_bool with (calling contains with _a14, 9), false, "not contains"
-test "index_of devuelve la primera posición":
-    var _a15 as list of int is [3, 1, 4, 1, 5]
+test "index_of returns the first position":
+    let _a15 as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling index_of with _a15, 4), 2, "index_of"
-test "index_of devuelve -1 si no está":
-    var _a16 as list of int is [3, 1, 2]
+test "index_of returns -1 when absent":
+    let _a16 as list of int is [3, 1, 2]
     calling _expect_eq_int with (calling index_of with _a16, 9), -1, "index_of missing"
-test "last_index_of devuelve la última posición":
-    var _a17 as list of int is [3, 1, 4, 1, 5]
+test "last_index_of returns the last position":
+    let _a17 as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling last_index_of with _a17, 1), 3, "last_index_of"
-test "last_index_of devuelve -1 si no está":
-    var _a18 as list of int is [3, 1, 2]
+test "last_index_of returns -1 when absent":
+    let _a18 as list of int is [3, 1, 2]
     calling _expect_eq_int with (calling last_index_of with _a18, 9), -1, "last_index_of missing"
-test "count_of cuenta las apariciones":
-    var _a19 as list of int is [3, 1, 4, 1, 5]
+test "count_of counts the occurrences":
+    let _a19 as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling count_of with _a19, 1), 2, "count_of"
-test "find_first_gt devuelve el primer mayor":
-    var _a20 as list of int is [3, 1, 4, 1, 5]
-    var m as maybe int is calling find_first_gt with _a20, 3
+test "find_first_gt returns the first greater element":
+    let _a20 as list of int is [3, 1, 4, 1, 5]
+    let m as maybe int is calling find_first_gt with _a20, 3
     calling _expect_eq_int with m.value, 4, "find_first_gt"
-test "find_first_gt devuelve none si ninguno supera":
-    var _a21 as list of int is [3, 1, 2]
-    var m as maybe int is calling find_first_gt with _a21, 9
+test "find_first_gt returns none when nothing beats it":
+    let _a21 as list of int is [3, 1, 2]
+    let m as maybe int is calling find_first_gt with _a21, 9
     calling _expect_eq_bool with m.is_present, false, "find_first_gt none"
-test "find_first_lt devuelve el primer menor":
-    var _a22 as list of int is [3, 1, 4]
-    var m as maybe int is calling find_first_lt with _a22, 2
+test "find_first_lt returns the first smaller element":
+    let _a22 as list of int is [3, 1, 4]
+    let m as maybe int is calling find_first_lt with _a22, 2
     calling _expect_eq_int with m.value, 1, "find_first_lt"
-test "el método count_of coincide con la función":
-    var xs as list of int is [3, 1, 4, 1, 5]
+test "the count_of method matches the function":
+    let xs as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling xs.count_of with 1), 2, "method count_of"
-test "el método last_index_of coincide con la función":
-    var xs as list of int is [3, 1, 4, 1, 5]
+test "the last_index_of method matches the function":
+    let xs as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling xs.last_index_of with 1), 3, "method last_index_of"
-# --- Reducciones ---
-test "sum suma todos los elementos":
-    var _a23 as list of int is [3, 1, 4, 1, 5]
+test "the find_first methods return maybe":
+    let xs as list of int is [3, 1, 4]
+    let gt as maybe int is calling xs.find_first_gt with 3
+    let lt as maybe int is calling xs.find_first_lt with 2
+    calling _expect_eq_int with gt.value, 4, "method find_first_gt"
+    calling _expect_eq_int with lt.value, 1, "method find_first_lt"
+test "the find_first methods give none when nothing matches":
+    let xs as list of int is [3, 1, 4]
+    let gt as maybe int is calling xs.find_first_gt with 9
+    let lt as maybe int is calling xs.find_first_lt with 0
+    calling _expect_eq_bool with gt.is_present, false, "method find_first_gt none"
+    calling _expect_eq_bool with lt.is_present, false, "method find_first_lt none"
+# --- Reductions ---
+test "sum adds every element":
+    let _a23 as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling sum with _a23), 14, "sum"
-test "sum de la lista vacía es 0":
-    var _a24 as list of int is list of int
+test "sum of the empty list is 0":
+    let _a24 as list of int is list of int
     calling _expect_eq_int with (calling sum with _a24), 0, "sum empty"
-test "el método sum coincide con la función":
-    var xs as list of int is [3, 1, 4, 1, 5]
+test "the sum method matches the function":
+    let xs as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling xs.sum), 14, "method sum"
-test "sum es genérico sobre float":
-    var fs as list of float is [2.5, -1.5, 4.5]
+test "sum is generic over float":
+    let fs as list of float is [2.5, -1.5, 4.5]
     calling _expect_eq_float with (calling fs.sum), 5.5, "float sum"
-test "product multiplica todos los elementos":
-    var _a25 as list of int is [3, 1, 4, 1, 5]
+test "product multiplies every element":
+    let _a25 as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling product with _a25), 60, "product"
-test "product de la lista vacía es 1":
-    var _a26 as list of int is list of int
+test "product of the empty list is 1":
+    let _a26 as list of int is list of int
     calling _expect_eq_int with (calling product with _a26), 1, "product empty"
-test "dot multiplica y suma hasta la lista más corta":
-    var _a27 as list of int is [3, 1, 2]
-    var _a28 as list of int is [1, 1, 1]
+test "dot multiplies and adds up to the shorter list":
+    let _a27 as list of int is [3, 1, 2]
+    let _a28 as list of int is [1, 1, 1]
     calling _expect_eq_int with (calling dot with _a27, _a28), 6, "dot"
-test "dot con longitudes distintas usa la más corta":
-    var _a29 as list of int is [3, 1, 2]
-    var _a30 as list of int is [2, 2]
+test "dot with different lengths uses the shorter one":
+    let _a29 as list of int is [3, 1, 2]
+    let _a30 as list of int is [2, 2]
     calling _expect_eq_int with (calling dot with _a29, _a30), 8, "dot short"
-test "dot de la lista vacía es 0":
-    var _a31 as list of int is list of int
-    var _a32 as list of int is [1, 2]
+test "dot of the empty list is 0":
+    let _a31 as list of int is list of int
+    let _a32 as list of int is [1, 2]
     calling _expect_eq_int with (calling dot with _a31, _a32), 0, "dot empty"
-test "sum_of_squares acumula los cuadrados":
-    var _a33 as list of int is [3, 1, 4, 1, 5]
+test "sum_of_squares accumulates the squares":
+    let _a33 as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling sum_of_squares with _a33), 52, "sum_of_squares"
-# --- Estadística ---
-test "max_val devuelve el mayor":
-    var _a34 as list of int is [3, 1, 4, 1, 5]
+test "the product method multiplies every element":
+    let xs as list of int is [3, 2, 4]
+    calling _expect_eq_int with (calling xs.product), 24, "method product"
+test "the mean method truncates towards zero":
+    let xs as list of int is [3, 1, 4, 1]
+    calling _expect_eq_int with (calling xs.mean), 2, "method mean"
+test "the average method is an alias of mean":
+    let xs as list of int is [3, 1, 4, 1]
+    calling _expect_eq_int with (calling xs.average), 2, "method average"
+test "the sum_of_squares method accumulates squares":
+    let xs as list of int is [3, 1, 2]
+    calling _expect_eq_int with (calling xs.sum_of_squares), 14, "method squares"
+# --- Statistics ---
+test "max_val returns the largest":
+    let _a34 as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling max_val with _a34), 5, "max_val"
-test "max_val de la lista vacía es 0":
-    var _a35 as list of int is list of int
+test "max_val of the empty list is 0":
+    let _a35 as list of int is list of int
     calling _expect_eq_int with (calling max_val with _a35), 0, "max_val empty"
-test "min_val devuelve el menor":
-    var _a36 as list of int is [3, 1, 4, 1, 5]
+test "min_val returns the smallest":
+    let _a36 as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling min_val with _a36), 1, "min_val"
-test "min_val de la lista vacía es 0":
-    var _a37 as list of int is list of int
+test "min_val of the empty list is 0":
+    let _a37 as list of int is list of int
     calling _expect_eq_int with (calling min_val with _a37), 0, "min_val empty"
-test "max_val y min_val son genéricos sobre float":
-    var fs as list of float is [2.5, -1.5, 4.5]
+test "max_val and min_val are generic over float":
+    let fs as list of float is [2.5, -1.5, 4.5]
     calling _expect_eq_float with (calling fs.max_val), 4.5, "float max"
     calling _expect_eq_float with (calling fs.min_val), -1.5, "float min"
-test "max_index devuelve el primer máximo":
-    var _a38 as list of int is [3, 1, 4, 1, 5]
+test "max_index returns the first maximum":
+    let _a38 as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling max_index with _a38), 4, "max_index"
-test "max_index de la lista vacía es -1":
-    var _a39 as list of int is list of int
+test "max_index of the empty list is -1":
+    let _a39 as list of int is list of int
     calling _expect_eq_int with (calling max_index with _a39), -1, "max_index empty"
-test "min_index devuelve el primer mínimo":
-    var _a40 as list of int is [3, 1, 4, 1, 5]
+test "min_index returns the first minimum":
+    let _a40 as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling min_index with _a40), 1, "min_index"
-test "argmin y argmax son alias de min_index y max_index":
-    var _a41 as list of int is [3, 1, 4, 1, 5]
-    var _a42 as list of int is [3, 1, 4, 1, 5]
+test "argmin and argmax are aliases of min_index and max_index":
+    let _a41 as list of int is [3, 1, 4, 1, 5]
+    let _a42 as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling argmin with _a41), 1, "argmin"
     calling _expect_eq_int with (calling argmax with _a42), 4, "argmax"
-test "mean trunca la división hacia cero":
-    var _a43 as list of int is [3, 1, 4, 1, 5]
+test "mean truncates the division towards zero":
+    let _a43 as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling mean with _a43), 2, "mean"
-test "mean de la lista vacía es 0":
-    var _a44 as list of int is list of int
+test "mean of the empty list is 0":
+    let _a44 as list of int is list of int
     calling _expect_eq_int with (calling mean with _a44), 0, "mean empty"
-test "average es alias de mean":
-    var _a45 as list of int is [3, 1, 4, 1, 5]
+test "average is an alias of mean":
+    let _a45 as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling average with _a45), 2, "average"
-test "median con longitud impar devuelve el centro":
-    var _a46 as list of int is [3, 1, 4, 1, 5]
+test "median with odd length returns the centre":
+    let _a46 as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling median with _a46), 3, "median odd"
-test "median con longitud par promedia el centro":
-    var _a47 as list of int is [1, 2, 3, 4]
+test "median with even length averages the centre":
+    let _a47 as list of int is [1, 2, 3, 4]
     calling _expect_eq_int with (calling median with _a47), 2, "median even"
-test "median de la lista vacía es 0":
-    var _a48 as list of int is list of int
+test "median of the empty list is 0":
+    let _a48 as list of int is list of int
     calling _expect_eq_int with (calling median with _a48), 0, "median empty"
-test "mode devuelve el valor más frecuente":
-    var _a49 as list of int is [3, 1, 4, 1, 5]
+test "mode returns the most frequent value":
+    let _a49 as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling mode with _a49), 1, "mode"
-test "mode de la lista vacía es 0":
-    var _a50 as list of int is list of int
+test "mode of the empty list is 0":
+    let _a50 as list of int is list of int
     calling _expect_eq_int with (calling mode with _a50), 0, "mode empty"
-test "el método mode prefiere la primera aparición en empate":
-    var xs as list of int is [7, 1, 2]
+test "the mode method prefers the first appearance on a tie":
+    let xs as list of int is [7, 1, 2]
     calling _expect_eq_int with (calling xs.mode), 7, "method mode tie"
-test "los métodos max_val y min_val coinciden con las funciones":
-    var xs as list of int is [3, 1, 4, 1, 5]
+test "the max_val and min_val methods match the functions":
+    let xs as list of int is [3, 1, 4, 1, 5]
     calling _expect_eq_int with (calling xs.max_val), 5, "method max_val"
     calling _expect_eq_int with (calling xs.min_val), 1, "method min_val"
+test "the max_index and min_index methods match the functions":
+    let xs as list of int is [3, 1, 4, 1, 5]
+    calling _expect_eq_int with (calling xs.max_index), 4, "method max_index"
+    calling _expect_eq_int with (calling xs.min_index), 1, "method min_index"
+test "the argmin and argmax methods are aliases":
+    let xs as list of int is [3, 1, 4, 1, 5]
+    calling _expect_eq_int with (calling xs.argmin), 1, "method argmin"
+    calling _expect_eq_int with (calling xs.argmax), 4, "method argmax"
 
-# --- Transformaciones ---
+# --- Transformations ---
 
-test "reverse devuelve una copia invertida":
-    var _a51 as list of int is [3, 1, 4, 1, 5]
-    var out as list of int is calling reverse with _a51
+test "reverse returns a reversed copy":
+    let _a51 as list of int is [3, 1, 4, 1, 5]
+    let out as list of int is calling reverse with _a51
     calling _expect_eq_int with (out at 0), 5, "reverse first"
-test "sort_asc ordena de menor a mayor sin mutar la entrada":
-    var _a52 as list of int is [3, 1, 4, 1, 5]
-    var out as list of int is calling sort_asc with _a52
+test "sort_asc sorts ascending without mutating the input":
+    let _a52 as list of int is [3, 1, 4, 1, 5]
+    let out as list of int is calling sort_asc with _a52
     calling _expect_eq_int with (out at 0), 1, "sort_asc first"
     calling _expect_eq_int with (_a52 at 0), 3, "sort_asc input intact"
-test "sort_desc ordena de mayor a menor":
-    var _a53 as list of int is [3, 1, 4, 1, 5]
-    var out as list of int is calling sort_desc with _a53
+test "sort_desc sorts descending":
+    let _a53 as list of int is [3, 1, 4, 1, 5]
+    let out as list of int is calling sort_desc with _a53
     calling _expect_eq_int with (out at 0), 5, "sort_desc first"
-test "sort_asc y sort_desc son genéricos sobre float":
-    var fs as list of float is [2.5, -1.5, 4.5]
-    var up as list of float is calling fs.sort_asc
-    var down as list of float is calling fs.sort_desc
+test "sort_asc and sort_desc are generic over float":
+    let fs as list of float is [2.5, -1.5, 4.5]
+    let up as list of float is calling fs.sort_asc
+    let down as list of float is calling fs.sort_desc
     calling _expect_eq_float with (up at 0), -1.5, "float sort_asc"
     calling _expect_eq_float with (down at 0), 4.5, "float sort_desc"
-test "unique elimina duplicados conservando el orden":
-    var _a54 as list of int is [3, 1, 4, 1, 5]
-    var out as list of int is calling unique with _a54
+test "unique removes duplicates keeping the order":
+    let _a54 as list of int is [3, 1, 4, 1, 5]
+    let out as list of int is calling unique with _a54
     calling _expect_eq_int with (calling out.len), 4, "unique len"
     calling _expect_eq_int with (out at 1), 1, "unique second"
-test "dedup es alias de unique":
-    var _a55 as list of int is [1, 2, 1, 2, 3]
-    var out as list of int is calling dedup with _a55
+test "dedup is an alias of unique":
+    let _a55 as list of int is [1, 2, 1, 2, 3]
+    let out as list of int is calling dedup with _a55
     calling _expect_eq_int with (calling out.len), 3, "dedup len"
-test "flatten devuelve una copia identidad":
-    var _a56 as list of int is [3, 1, 2]
-    var out as list of int is calling flatten with _a56
+test "flatten returns an identity copy":
+    let _a56 as list of int is [3, 1, 2]
+    let out as list of int is calling flatten with _a56
     calling _expect_eq_int with (out at 2), 2, "flatten"
-test "abs_all convierte los negativos en positivos":
-    var _a57 as list of int is [-3, 1, -2]
-    var out as list of int is calling abs_all with _a57
+test "abs_all turns negatives into positives":
+    let _a57 as list of int is [-3, 1, -2]
+    let out as list of int is calling abs_all with _a57
     calling _expect_eq_int with (out at 0), 3, "abs first"
     calling _expect_eq_int with (out at 2), 2, "abs last"
-test "clamp_all limita al rango indicado":
-    var _a58 as list of int is [3, 1, 4, 1, 5]
-    var out as list of int is calling clamp_all with _a58, 2, 4
+test "clamp_all clips to the given range":
+    let _a58 as list of int is [3, 1, 4, 1, 5]
+    let out as list of int is calling clamp_all with _a58, 2, 4
     calling _expect_eq_int with (out at 1), 2, "clamp low"
     calling _expect_eq_int with (out at 4), 4, "clamp high"
-test "clamp_all usa el rango por defecto [0, 100]":
-    var _a59 as list of int is [-5, 150]
-    var out as list of int is calling clamp_all with _a59
+test "clamp_all uses the default range [0, 100]":
+    let _a59 as list of int is [-5, 150]
+    let out as list of int is calling clamp_all with _a59
     calling _expect_eq_int with (out at 0), 0, "clamp default low"
     calling _expect_eq_int with (out at 1), 100, "clamp default high"
-test "is_sorted_asc detecta listas desordenadas y ordenadas":
-    var _a60 as list of int is [3, 1, 2]
-    var _a61 as list of int is [1, 2, 3]
+test "is_sorted_asc detects unsorted and sorted lists":
+    let _a60 as list of int is [3, 1, 2]
+    let _a61 as list of int is [1, 2, 3]
     calling _expect_eq_bool with (calling is_sorted_asc with _a60), false, "not sorted asc"
     calling _expect_eq_bool with (calling is_sorted_asc with _a61), true, "sorted asc"
-test "is_sorted_desc detecta el orden descendente":
-    var _a62 as list of int is [3, 2, 1]
+test "is_sorted_desc detects descending order":
+    let _a62 as list of int is [3, 2, 1]
     calling _expect_eq_bool with (calling is_sorted_desc with _a62), true, "sorted desc"
-# --- Selección ---
+test "the map_square, map_negate and map_add_scalar methods transform":
+    let xs as list of int is [3, -1]
+    let sq as list of int is calling xs.map_square
+    let neg as list of int is calling xs.map_negate
+    let add as list of int is calling xs.map_add_scalar with 10
+    calling _expect_eq_int with (sq at 0), 9, "method square"
+    calling _expect_eq_int with (neg at 0), -3, "method negate"
+    calling _expect_eq_int with (add at 0), 13, "method add scalar"
+test "the map_increment method uses delta 1 by default":
+    let xs as list of int is [3, 1]
+    let out as list of int is calling xs.map_increment
+    calling _expect_eq_int with (out at 0), 4, "method increment"
+test "the abs_all method removes signs":
+    let xs as list of int is [-3, 1, -2]
+    let out as list of int is calling xs.abs_all
+    calling _expect_eq_int with (out at 0), 3, "method abs_all"
+test "the median method matches the module function":
+    let xs as list of float is [3.5, 1.5, 2.5]
+    calling _expect_eq_float with (calling xs.median), 2.5, "method median"
+test "the clamp_all method clips to the span":
+    let xs as list of int is [-5, 150]
+    let out as list of int is calling xs.clamp_all
+    calling _expect_eq_int with (out at 0), 0, "method clamp low"
+    calling _expect_eq_int with (out at 1), 100, "method clamp high"
+# --- Selection ---
 
-test "take devuelve los primeros n elementos":
-    var _a64 as list of int is [3, 1, 4, 1, 5]
-    var out as list of int is calling take with _a64, 2
+test "take returns the first n elements":
+    let _a64 as list of int is [3, 1, 4, 1, 5]
+    let out as list of int is calling take with _a64, 2
     calling _expect_eq_int with (calling out.len), 2, "take len"
     calling _expect_eq_int with (out at 1), 1, "take second"
-test "take sin argumento devuelve un elemento":
-    var _a65 as list of int is [3, 1, 4]
-    var out as list of int is calling take with _a65
+test "take without an argument returns one element":
+    let _a65 as list of int is [3, 1, 4]
+    let out as list of int is calling take with _a65
     calling _expect_eq_int with (calling out.len), 1, "take default"
-test "drop omite los primeros n elementos":
-    var _a67 as list of int is [3, 1, 4, 1, 5]
-    var out as list of int is calling drop with _a67, 2
+test "drop skips the first n elements":
+    let _a67 as list of int is [3, 1, 4, 1, 5]
+    let out as list of int is calling drop with _a67, 2
     calling _expect_eq_int with (calling out.len), 3, "drop len"
     calling _expect_eq_int with (out at 0), 4, "drop first"
-test "slice_list devuelve el rango [start, end)":
-    var _a69 as list of int is [3, 1, 4, 1, 5]
-    var out as list of int is calling slice_list with _a69, 1, 3
+test "slice_list returns the [start, end) range":
+    let _a69 as list of int is [3, 1, 4, 1, 5]
+    let out as list of int is calling slice_list with _a69, 1, 3
     calling _expect_eq_int with (calling out.len), 2, "slice len"
     calling _expect_eq_int with (out at 0), 1, "slice first"
-test "take y drop son genéricos sobre float":
-    var fs as list of float is [2.5, -1.5, 4.5]
-    var firsts as list of float is calling fs.take with 2
-    var rest as list of float is calling fs.drop with 1
+test "take and drop are generic over float":
+    let fs as list of float is [2.5, -1.5, 4.5]
+    let firsts as list of float is calling fs.take with 2
+    let rest as list of float is calling fs.drop with 1
     calling _expect_eq_float with (firsts at 0), 2.5, "float take"
     calling _expect_eq_float with (rest at 0), -1.5, "float drop"
-# --- Predicados ---
+test "take clips n above the length":
+    let xs as list of int is [3, 1]
+    let out as list of int is calling take with xs, 9
+    calling _expect_eq_int with (calling out.len), 2, "take clipping"
+test "drop beyond the length is empty":
+    let xs as list of int is [3, 1]
+    let out as list of int is calling drop with xs, 9
+    calling _expect_eq_int with (calling out.len), 0, "drop beyond"
+test "slice_list with start above end is empty":
+    let xs as list of int is [3, 1, 2]
+    let out as list of int is calling slice_list with xs, 2, 1
+    calling _expect_eq_int with (calling out.len), 0, "slice inverted"
+# --- Predicates ---
 
-test "all_positive es true solo con positivos estrictos":
-    var _a72 as list of int is [3, 1, 4]
-    var _a73 as list of int is [3, 0, 4]
+test "all_positive is true only with strict positives":
+    let _a72 as list of int is [3, 1, 4]
+    let _a73 as list of int is [3, 0, 4]
     calling _expect_eq_bool with (calling all_positive with _a72), true, "all positive"
     calling _expect_eq_bool with (calling all_positive with _a73), false, "zero is not positive"
-test "all_zero es true solo si todo es cero":
-    var _a74 as list of int is [0, 0]
-    var _a75 as list of int is [0, 1]
+test "all_zero is true only when everything is zero":
+    let _a74 as list of int is [0, 0]
+    let _a75 as list of int is [0, 1]
     calling _expect_eq_bool with (calling all_zero with _a74), true, "all zero"
     calling _expect_eq_bool with (calling all_zero with _a75), false, "not all zero"
-test "any_negative detecta al menos un negativo":
-    var _a76 as list of int is [-1, 2]
-    var _a77 as list of int is [1, 2]
+test "any_negative detects at least one negative":
+    let _a76 as list of int is [-1, 2]
+    let _a77 as list of int is [1, 2]
     calling _expect_eq_bool with (calling any_negative with _a76), true, "has negative"
     calling _expect_eq_bool with (calling any_negative with _a77), false, "no negative"
-test "all_in_range comprueba el rango inclusivo":
-    var _a78 as list of int is [1, 3, 5]
-    var _a79 as list of int is [1, 9]
+test "all_in_range checks the inclusive range":
+    let _a78 as list of int is [1, 3, 5]
+    let _a79 as list of int is [1, 9]
     calling _expect_eq_bool with (calling all_in_range with _a78, 1, 5), true, "in range"
     calling _expect_eq_bool with (calling all_in_range with _a79, 1, 5), false, "out of range"
-# --- Filtros ---
+test "the is_sorted methods inspect the order":
+    let up as list of int is [1, 2, 3]
+    let down as list of int is [3, 2, 1]
+    calling _expect_eq_bool with (calling up.is_sorted_asc), true, "method sorted asc"
+    calling _expect_eq_bool with (calling down.is_sorted_desc), true, "method sorted desc"
+    calling _expect_eq_bool with (calling up.is_sorted_desc), false, "method not sorted desc"
+test "the all_positive and any_negative methods scan the sign":
+    let pos as list of int is [3, 1]
+    let mixed as list of int is [3, -1]
+    let zeroed as list of int is [0, 0]
+    calling _expect_eq_bool with (calling pos.all_positive), true, "method all positive"
+    calling _expect_eq_bool with (calling zeroed.all_positive), false, "method zero not positive"
+    calling _expect_eq_bool with (calling mixed.any_negative), true, "method any negative"
+test "the all_zero method checks the zero sentinel":
+    let xs as list of int is [0, 0]
+    let ys as list of int is [0, 1]
+    calling _expect_eq_bool with (calling xs.all_zero), true, "method all zero"
+    calling _expect_eq_bool with (calling ys.all_zero), false, "method not all zero"
+test "the all_in_range method checks the inclusive span":
+    let xs as list of int is [1, 3, 5]
+    calling _expect_eq_bool with (calling xs.all_in_range with 1, 5), true, "method in range"
+    calling _expect_eq_bool with (calling xs.all_in_range with 2, 5), false, "method out of range"
+# --- Filters ---
 
-test "filter_even conserva los pares":
-    var _a80 as list of int is [3, 1, 4, 1, 5]
-    var out as list of int is calling filter_even with _a80
+test "filter_even keeps the even elements":
+    let _a80 as list of int is [3, 1, 4, 1, 5]
+    let out as list of int is calling filter_even with _a80
     calling _expect_eq_int with (calling out.len), 1, "evens len"
     calling _expect_eq_int with (out at 0), 4, "evens value"
-test "filter_odd conserva los impares":
-    var _a81 as list of int is [3, 1, 4, 1, 5]
-    var out as list of int is calling filter_odd with _a81
+test "filter_odd keeps the odd elements":
+    let _a81 as list of int is [3, 1, 4, 1, 5]
+    let out as list of int is calling filter_odd with _a81
     calling _expect_eq_int with (calling out.len), 4, "odds len"
-test "filter_positive y filter_negative separan por signo":
-    var _a82 as list of int is [-3, 1, -2, 4]
-    var pos as list of int is calling filter_positive with _a82
-    var neg as list of int is calling filter_negative with _a82
+test "filter_positive and filter_negative split by sign":
+    let _a82 as list of int is [-3, 1, -2, 4]
+    let pos as list of int is calling filter_positive with _a82
+    let neg as list of int is calling filter_negative with _a82
     calling _expect_eq_int with (calling pos.len), 2, "positives"
     calling _expect_eq_int with (calling neg.len), 2, "negatives"
-test "filter_in_range conserva el rango inclusivo":
-    var _a83 as list of int is [3, 1, 4, 1, 5]
-    var out as list of int is calling filter_in_range with _a83, 2, 4
+test "filter_in_range keeps the inclusive range":
+    let _a83 as list of int is [3, 1, 4, 1, 5]
+    let out as list of int is calling filter_in_range with _a83, 2, 4
     calling _expect_eq_int with (calling out.len), 2, "in range len"
-test "filter_range es alias de filter_in_range":
-    var _a84 as list of int is [3, 1, 4, 1, 5]
-    var out as list of int is calling filter_range with _a84, 2, 4
+test "filter_range is an alias of filter_in_range":
+    let _a84 as list of int is [3, 1, 4, 1, 5]
+    let out as list of int is calling filter_range with _a84, 2, 4
     calling _expect_eq_int with (calling out.len), 2, "filter_range"
-test "filter_positive es genérico sobre float":
-    var fs as list of float is [2.5, -1.5, 4.5]
-    var out as list of float is calling fs.filter_positive
+test "filter_positive is generic over float":
+    let fs as list of float is [2.5, -1.5, 4.5]
+    let out as list of float is calling fs.filter_positive
     calling _expect_eq_int with (calling out.len), 2, "float filter positive"
-# --- Mapas ---
+test "the filter_even and filter_odd methods split by parity":
+    let xs as list of int is [3, 1, 4, 2]
+    let evens as list of int is calling xs.filter_even
+    let odds as list of int is calling xs.filter_odd
+    calling _expect_eq_int with (calling evens.len), 2, "method evens"
+    calling _expect_eq_int with (calling odds.len), 2, "method odds"
+test "the filter_negative method keeps negatives":
+    let xs as list of int is [3, -1, 0, -2]
+    let out as list of int is calling xs.filter_negative
+    calling _expect_eq_int with (calling out.len), 2, "method negatives len"
+    calling _expect_eq_int with (out at 0), -1, "method negatives first"
+test "the filter_in_range and filter_range methods agree":
+    let xs as list of int is [3, 1, 4, 1, 5]
+    let a as list of int is calling xs.filter_in_range with 2, 4
+    let b as list of int is calling xs.filter_range with 2, 4
+    calling _expect_eq_int with (calling a.len), 2, "method filter_in_range"
+    calling _expect_eq_int with (calling b.len), 2, "method filter_range"
+test "the unique and dedup methods remove duplicates":
+    let xs as list of int is [3, 1, 3, 2]
+    let a as list of int is calling xs.unique
+    let b as list of int is calling xs.dedup
+    calling _expect_eq_int with (calling a.len), 3, "method unique len"
+    calling _expect_eq_int with (calling b.len), 3, "method dedup len"
+# --- Maps ---
 
-test "map_double duplica cada elemento":
-    var _a86 as list of int is [3, 1, 4]
-    var out as list of int is calling map_double with _a86
+test "map_double doubles every element":
+    let _a86 as list of int is [3, 1, 4]
+    let out as list of int is calling map_double with _a86
     calling _expect_eq_int with (out at 0), 6, "double first"
     calling _expect_eq_int with (out at 2), 8, "double last"
-test "map_square eleva al cuadrado":
-    var _a87 as list of int is [3, 1, 4]
-    var out as list of int is calling map_square with _a87
+test "map_square squares every element":
+    let _a87 as list of int is [3, 1, 4]
+    let out as list of int is calling map_square with _a87
     calling _expect_eq_int with (out at 2), 16, "square"
-test "map_negate cambia el signo":
-    var _a88 as list of int is [3, -1]
-    var out as list of int is calling map_negate with _a88
+test "map_negate flips the sign":
+    let _a88 as list of int is [3, -1]
+    let out as list of int is calling map_negate with _a88
     calling _expect_eq_int with (out at 0), -3, "negate first"
     calling _expect_eq_int with (out at 1), 1, "negate second"
-test "map_add_scalar suma el escalar":
-    var _a89 as list of int is [3, 1, 4]
-    var out as list of int is calling map_add_scalar with _a89, 10
+test "map_add_scalar adds the scalar":
+    let _a89 as list of int is [3, 1, 4]
+    let out as list of int is calling map_add_scalar with _a89, 10
     calling _expect_eq_int with (out at 0), 13, "add scalar"
-test "map_increment usa delta 1 por defecto":
-    var _a90 as list of int is [3, 1, 4]
-    var out as list of int is calling map_increment with _a90
+test "map_increment uses delta 1 by default":
+    let _a90 as list of int is [3, 1, 4]
+    let out as list of int is calling map_increment with _a90
     calling _expect_eq_int with (out at 0), 4, "increment default"
-test "map_double es genérico sobre float":
-    var fs as list of float is [2.5, -1.5]
-    var out as list of float is calling fs.map_double
+test "map_double is generic over float":
+    let fs as list of float is [2.5, -1.5]
+    let out as list of float is calling fs.map_double
     calling _expect_eq_float with (out at 0), 5.0, "float double"
-# --- Combinación ---
+# --- Combination ---
 
-test "concat une dos listas en una nueva":
-    var _a92 as list of int is [3, 1]
-    var _a93 as list of int is [4, 5]
-    var out as list of int is calling concat with _a92, _a93
+test "concat joins two lists into a new one":
+    let _a92 as list of int is [3, 1]
+    let _a93 as list of int is [4, 5]
+    let out as list of int is calling concat with _a92, _a93
     calling _expect_eq_int with (calling out.len), 4, "concat len"
     calling _expect_eq_int with (out at 2), 4, "concat third"
-test "zip_sum suma elemento a elemento":
-    var _a94 as list of int is [3, 1, 2]
-    var _a95 as list of int is [1, 1, 1]
-    var out as list of int is calling zip_sum with _a94, _a95
+test "zip_sum adds element by element":
+    let _a94 as list of int is [3, 1, 2]
+    let _a95 as list of int is [1, 1, 1]
+    let out as list of int is calling zip_sum with _a94, _a95
     calling _expect_eq_int with (out at 0), 4, "zip_sum first"
-test "repeat repite un valor":
-    var out as list of int is calling repeat with 7, 3
+test "repeat repeats a value":
+    let out as list of int is calling repeat with 7, 3
     calling _expect_eq_int with (calling out.len), 3, "repeat len"
     calling _expect_eq_int with (out at 1), 7, "repeat value"
-test "repeat con times no positivo devuelve lista vacía":
-    var out as list of int is calling repeat with 7, 0
+test "repeat with a non-positive times returns an empty list":
+    let out as list of int is calling repeat with 7, 0
     calling _expect_eq_int with (calling out.len), 0, "repeat zero"
 
-# --- API nueva ---
+# --- New API ---
 
-test "zip_with combina dos listas con una función":
-    var _a98 as list of int is [3, 1, 2]
-    var _a99 as list of int is [1, 1, 1]
-    var out as list of int is calling zip_with with _a98, _a99, (lambda a as int, b as int into a + b)
+test "zip_with combines two lists with a function":
+    let _a98 as list of int is [3, 1, 2]
+    let _a99 as list of int is [1, 1, 1]
+    let out as list of int is calling zip_with with _a98, _a99, (lambda a as int, b as int into a + b)
     calling _expect_eq_int with (out at 0), 4, "zip_with sum"
-test "zip_with admite tipos distintos de entrada":
-    var _a100 as list of int is [3, 1]
-    var _a101 as list of float is [0.5, 0.5]
-    var out as list of float is calling zip_with with _a100, _a101, (lambda a as int, b as float into (a to float) + b)
+test "zip_with accepts different input types":
+    let _a100 as list of int is [3, 1]
+    let _a101 as list of float is [0.5, 0.5]
+    let out as list of float is calling zip_with with _a100, _a101, (lambda a as int, b as float into (a to float) + b)
     calling _expect_eq_float with (out at 0), 3.5, "zip_with mixed"
-test "chunk divide en tramos consecutivos":
-    var _a102 as list of int is [3, 1, 4, 1, 5]
-    var out as list of list of int is calling chunk with _a102, 2
+test "chunk splits into consecutive runs":
+    let _a102 as list of int is [3, 1, 4, 1, 5]
+    let out as list of list of int is calling chunk with _a102, 2
     calling _expect_eq_int with (calling out.len), 3, "chunk count"
-    var last as list of int is out at 2
+    let last as list of int is out at 2
     calling _expect_eq_int with (calling last.len), 1, "chunk last len"
-test "chunk con span mayor que la lista da un tramo":
-    var _a104 as list of int is [3, 1, 4]
-    var out as list of list of int is calling chunk with _a104, 9
+test "chunk with a span greater than the list gives one run":
+    let _a104 as list of int is [3, 1, 4]
+    let out as list of list of int is calling chunk with _a104, 9
     calling _expect_eq_int with (calling out.len), 1, "chunk big span"
-test "windowed produce ventanas deslizantes":
-    var _a105 as list of int is [3, 1, 4, 1, 5]
-    var out as list of list of int is calling windowed with _a105, 3
+test "windowed produces sliding windows":
+    let _a105 as list of int is [3, 1, 4, 1, 5]
+    let out as list of list of int is calling windowed with _a105, 3
     calling _expect_eq_int with (calling out.len), 3, "windowed count"
-    var w1 as list of int is out at 1
+    let w1 as list of int is out at 1
     calling _expect_eq_int with (w1 at 0), 1, "windowed second start"
-test "running_sum acumula los prefijos":
-    var _a107 as list of int is [3, 1, 2]
-    var out as list of int is calling running_sum with _a107
+test "running_sum accumulates the prefixes":
+    let _a107 as list of int is [3, 1, 2]
+    let out as list of int is calling running_sum with _a107
     calling _expect_eq_int with (out at 0), 3, "running first"
     calling _expect_eq_int with (out at 2), 6, "running last"
-test "scan_left acumula con la función dada":
-    var _a109 as list of int is [1, 2, 3]
-    var out as list of int is calling scan_left with _a109, (lambda acc as int, x as int into acc + x)
+test "scan_left accumulates with the given function":
+    let _a109 as list of int is [1, 2, 3]
+    let out as list of int is calling scan_left with _a109, (lambda acc as int, x as int into acc + x)
     calling _expect_eq_int with (out at 1), 3, "scan second"
     calling _expect_eq_int with (out at 2), 6, "scan third"
-test "scan_left es genérico sobre float":
-    var fs as list of float is [2.5, -1.5, 4.5]
-    var out as list of float is calling scan_left with fs, (lambda acc as float, x as float into acc + x)
+test "scan_left is generic over float":
+    let fs as list of float is [2.5, -1.5, 4.5]
+    let out as list of float is calling scan_left with fs, (lambda acc as float, x as float into acc + x)
     calling _expect_eq_float with (out at 2), 5.5, "float scan"
-test "min_max devuelve [min, max]":
-    var _a110 as list of int is [3, 1, 4, 1, 5]
-    var out as list of int is calling min_max with _a110
+test "min_max returns [min, max]":
+    let _a110 as list of int is [3, 1, 4, 1, 5]
+    let out as list of int is calling min_max with _a110
     calling _expect_eq_int with (out at 0), 1, "min_max min"
     calling _expect_eq_int with (out at 1), 5, "min_max max"
-test "enumerate_pairs devuelve pares [índice, valor]":
-    var _a112 as list of int is [3, 1]
-    var out as list of list of int is calling enumerate_pairs with _a112
-    var p1 as list of int is out at 1
+test "enumerate_pairs returns [index, value] pairs":
+    let _a112 as list of int is [3, 1]
+    let out as list of list of int is calling enumerate_pairs with _a112
+    let p1 as list of int is out at 1
     calling _expect_eq_int with (p1 at 0), 1, "pair index"
     calling _expect_eq_int with (p1 at 1), 1, "pair value"
-test "partition_by separa según el predicado":
-    var _a114 as list of int is [3, 1, 4, 1, 5]
-    var out as list of list of int is calling partition_by with _a114, (lambda x as int into (x % 2) == 0)
-    var yes as list of int is out at 0
-    var no as list of int is out at 1
+test "partition_by splits according to the predicate":
+    let _a114 as list of int is [3, 1, 4, 1, 5]
+    let out as list of list of int is calling partition_by with _a114, (lambda x as int into (x % 2) == 0)
+    let yes as list of int is out at 0
+    let no as list of int is out at 1
     calling _expect_eq_int with (calling yes.len), 1, "partition yes"
     calling _expect_eq_int with (calling no.len), 4, "partition no"
-test "frequencies cuenta cada valor":
-    var _a115 as list of int is [3, 1, 3]
-    var m as map of int to int is calling frequencies with _a115
+test "frequencies counts every value":
+    let _a115 as list of int is [3, 1, 3]
+    let m as map of int to int is calling frequencies with _a115
     calling _expect_eq_int with (calling m.get with 3), 2, "freq three"
     calling _expect_eq_int with (calling m.get with 1), 1, "freq one"
-test "group_count es alias de frequencies":
-    var _a116 as list of int is [2, 2, 2]
-    var m as map of int to int is calling group_count with _a116
+test "group_count is an alias of frequencies":
+    let _a116 as list of int is [2, 2, 2]
+    let m as map of int to int is calling group_count with _a116
     calling _expect_eq_int with (calling m.get with 2), 3, "group count"
-# --- Casos borde ---
+test "zip_with stops at the shorter list":
+    let xs as list of int is [3, 1, 2]
+    let ys as list of int is [1, 1]
+    let out as list of int is calling zip_with with xs, ys, (lambda a as int, b as int into a + b)
+    calling _expect_eq_int with (calling out.len), 2, "zip_with short len"
+    calling _expect_eq_int with (out at 0), 4, "zip_with short first"
+test "zip_with is generic over float":
+    let xs as list of float is [2.5, -1.5]
+    let ys as list of float is [0.5, 0.5]
+    let out as list of float is calling zip_with with xs, ys, (lambda a as float, b as float into a + b)
+    calling _expect_eq_float with (out at 0), 3.0, "zip_with float"
+test "chunk with a non-positive span is empty":
+    let xs as list of int is [3, 1, 4]
+    let out as list of list of int is calling chunk with xs, 0
+    calling _expect_eq_int with (calling out.len), 0, "chunk zero span"
+test "windowed with a non-positive width is empty":
+    let xs as list of int is [3, 1, 4]
+    let out as list of list of int is calling windowed with xs, 0
+    calling _expect_eq_int with (calling out.len), 0, "windowed zero width"
+test "windowed wider than the list is empty":
+    let xs as list of int is [3, 1]
+    let out as list of list of int is calling windowed with xs, 5
+    calling _expect_eq_int with (calling out.len), 0, "windowed too wide"
+test "running_sum and scan_left of the empty list are empty":
+    let xs as list of int is list of int
+    let a as list of int is calling running_sum with xs
+    let b as list of int is calling scan_left with xs, (lambda acc as int, x as int into acc + x)
+    calling _expect_eq_int with (calling a.len), 0, "running_sum empty"
+    calling _expect_eq_int with (calling b.len), 0, "scan_left empty"
+test "scan_left seeds the accumulator with the first element":
+    let xs as list of int is [3, 1, 2]
+    let out as list of int is calling scan_left with xs, (lambda acc as int, x as int into acc + x)
+    calling _expect_eq_int with (out at 0), 3, "scan seed"
+    calling _expect_eq_int with (out at 2), 6, "scan total"
+test "min_max of the empty list is empty":
+    let xs as list of int is list of int
+    let out as list of int is calling min_max with xs
+    calling _expect_eq_int with (calling out.len), 0, "min_max empty"
+test "min_max of a single element repeats it":
+    let xs as list of int is [7]
+    let out as list of int is calling min_max with xs
+    calling _expect_eq_int with (out at 0), 7, "min_max single min"
+    calling _expect_eq_int with (out at 1), 7, "min_max single max"
+test "enumerate_pairs of the empty list is empty":
+    let xs as list of int is list of int
+    let out as list of list of int is calling enumerate_pairs with xs
+    calling _expect_eq_int with (calling out.len), 0, "enumerate empty"
+test "partition_by of the empty list returns two empty lists":
+    let xs as list of int is list of int
+    let out as list of list of int is calling partition_by with xs, (lambda x as int into x > 0)
+    calling _expect_eq_int with (calling out.len), 2, "partition empty outer"
+    let yes as list of int is out at 0
+    let no as list of int is out at 1
+    calling _expect_eq_int with (calling yes.len), 0, "partition empty yes"
+    calling _expect_eq_int with (calling no.len), 0, "partition empty no"
+test "frequencies of the empty list is an empty map":
+    let xs as list of int is list of int
+    let m as map of int to int is calling frequencies with xs
+    calling _expect_eq_int with (calling m.get with 1), 0, "frequencies empty"
+# --- Edge cases ---
 
-test "una lista de un solo elemento se reduce a sí misma":
-    var _a118 as list of int is [42]
+test "a one-element list reduces to itself":
+    let _a118 as list of int is [42]
     calling _expect_eq_int with (calling sum with _a118), 42, "single sum"
     calling _expect_eq_int with (calling max_val with _a118), 42, "single max"
     calling _expect_eq_int with (calling median with _a118), 42, "single median"
-test "una lista de negativos conserva el signo en las reducciones":
-    var _a119 as list of int is [-3, -1, -2]
+test "a list of negatives keeps its sign in the reductions":
+    let _a119 as list of int is [-3, -1, -2]
     calling _expect_eq_int with (calling sum with _a119), -6, "neg sum"
     calling _expect_eq_int with (calling max_val with _a119), -1, "neg max"
     calling _expect_eq_int with (calling min_val with _a119), -3, "neg min"
-test "los duplicados afectan a count_of y unique":
-    var _a120 as list of int is [1, 2, 1, 2, 3]
+test "duplicates affect count_of and unique":
+    let _a120 as list of int is [1, 2, 1, 2, 3]
     calling _expect_eq_int with (calling count_of with _a120, 2), 2, "dups count"
-    var out as list of int is calling unique with _a120
+    let out as list of int is calling unique with _a120
     calling _expect_eq_int with (calling out.len), 3, "dups unique"
-test "las operaciones sobre la lista vacía son seguras":
-    var _a121 as list of int is list of int
+test "operations on the empty list are safe":
+    let _a121 as list of int is list of int
     calling _expect_eq_int with (calling sum with _a121), 0, "empty sum"
     calling _expect_eq_int with (calling product with _a121), 1, "empty product"
     calling _expect_eq_int with (calling len with _a121), 0, "empty len"

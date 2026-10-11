@@ -49,8 +49,11 @@ chunks restantes.
 
 - [ ] Bloques `test` dentro del `.pengu` (mínimo 5), bajo `# --- Tests ---`
 - [ ] Cada `test` puede correr en aislamiento (sin estado global)
-- [ ] `tests/test_<mod>.py` autocontenido: cada test escribe su programa y lo
-      ejecuta por el pipeline real (Pengu → C → cc → binario)
+- [ ] `tests/stdlib/test_<mod>.py` autocontenido: cada test escribe su programa y
+      lo ejecuta por el pipeline real (Pengu → C → cc → binario). Desde el
+      Chunk 3 la suite vive en `tests/stdlib/`, no en la raíz: `test_test_policy`
+      congela `MAX_ROOT_TEST_FILES = 15` y `spark`/`scrolls`/`oracle` ya la
+      llenaron
 - [ ] Los tests comparan comportamiento (stdout/stderr/exit code), nunca el C
       generado
 - [ ] Tests cubren casos borde y errores documentados
@@ -90,12 +93,32 @@ chunks restantes.
 - [ ] Los tipos legados se mantienen y se marcan con el **docstring**
       `## @deprecated Use X instead.` (no el atributo real, que emite W0006).
 
+## Excepción `loom`/`tally` y módulos de colecciones (Chunk 3)
+
+- [ ] `std.loom` y `std.tally` **no se fusionan**: comparten 15 nombres con
+      contratos distintos (safe vs sentinel), excepción documentada en
+      `LANGUAGE.md` §19.1.1 y `PenguScriptGuideSpanish.md` §15. No se renombran
+      ni se añaden sufijos `_safe`/`_sentinel`.
+- [ ] `loom` **no declara `enchanting`** (no invade los métodos de `tally`); sus
+      operaciones son `weave` de módulo.
+- [ ] Un método dentro de un `enchanting` genérico no puede llamar a otro
+      genérico: cada cuerpo es autocontenido y las listas `list of T` se
+      construyen con comprehensions, no con `push`/`pop`.
+- [ ] Al quitar `import std.scrolls` de un módulo, revisar **todos** los usos de
+      métodos de `string` que aportaba `scrolls` (`contains`, `starts_with`,
+      `ends_with`, `substring`, …): hay que reescribirlos con slicing nativo
+      (`s at a to b`, con el fin **exclusivo**) o conservar la dependencia.
+- [ ] Las comprobaciones no paniqueantes nuevas devuelven el
+      `result of string to string` nativo (`calling ok_of with "ok"` /
+      `calling err_of with msg`); las legacy que devuelven `ResultString` se
+      conservan y se marcan `## @deprecated Use <x>_native instead.`
+
 ## Verificación
 
 - [ ] `pengu check --entry std/<mod>.pengu` pasa (0 errores; W0005 aceptado)
 - [ ] `pengu test --entry std/<mod>.pengu` pasa
 - [ ] `pengu fmt --check std/<mod>.pengu` pasa
-- [ ] `pytest tests/test_<mod>.py -v` pasa
+- [ ] `pytest tests/stdlib/test_<mod>.py -v` pasa
 - [ ] `pengu run` de un programa mínimo imprime por stdout/stderr lo esperado
 - [ ] `git status` sin `.o`, `.pyc`, `build/` ni ficheros sueltos
 - [ ] `git diff pengu_runtime.h` solo elimina los símbolos movidos

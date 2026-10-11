@@ -8,165 +8,381 @@
 
 ### `TALLY_VERSION`
 
-> const string` = 2.0.0`
+> const string` = 2.1.0`
 
-Versión del módulo tally.
+Version of the `tally` module.
 
 
 ### `is_empty`
 
 > **is_empty**(l: list of int) -> bool
 
-True cuando `l` no tiene elementos.
+Functional form of `is_empty`: true when `l` has no elements.
+Parámetros
+- `l`: the list to test. Read only.
+Retorno
+`true` when `l` is empty. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is list of int
+calling tally.is_empty with xs    # true
+```
 
 
 ### `sum`
 
 > **sum**(l: list of int) -> int
 
-Suma aritmética de todos los elementos; la lista vacía suma 0.
+Functional form of `sum`: arithmetic total of every element.
+Parámetros
+- `l`: the list to reduce. Read only.
+Retorno
+The total as `int`, or 0 when `l` is empty. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.sum with xs    # 6
+```
 
 
 ### `max_val`
 
 > **max_val**(l: list of int) -> int
 
-Mayor elemento; la lista vacía devuelve 0.
+Functional form of `max_val`: largest element.
+Parámetros
+- `l`: the list to scan. Read only.
+Retorno
+The maximum as `int`, or the sentinel 0 when `l` is empty. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.max_val with xs    # 3
+```
 
 
 ### `min_val`
 
 > **min_val**(l: list of int) -> int
 
-Menor elemento; la lista vacía devuelve 0.
+Functional form of `min_val`: smallest element.
+Parámetros
+- `l`: the list to scan. Read only.
+Retorno
+The minimum as `int`, or the sentinel 0 when `l` is empty. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.min_val with xs    # 1
+```
 
 
 ### `concat`
 
 > **concat**(a: list of int, b: list of int) -> list of int
 
-Concatenación de `a` y `b` en una lista nueva.
+Concatenation of `a` and `b` into a new list.
+Parámetros
+- `a`: first list. Read only.
+- `b`: second list. Read only.
+Retorno
+A new owned `list of int` with `a` followed by `b`; release it with
+`banish`. Neither input is mutated.
 Memoria
-Devuelve una lista nueva (libérala con `banish`); no muta `a` ni `b`.
+The result is a fresh list, so it must be released with `banish`.
+Ejemplo
+```pengu
+var a as list of int is [3, 1]
+var b as list of int is [4, 5]
+calling tally.concat with a, b    # [3, 1, 4, 5]
+```
 
 
 ### `zip_sum`
 
 > **zip_sum**(a: list of int, b: list of int) -> list of int
 
-Suma elemento a elemento hasta la lista más corta.
+Element-wise sum up to the shorter list.
+Parámetros
+- `a`: first list. Read only.
+- `b`: second list. Read only.
+Retorno
+A new owned `list of int` as long as the shorter input; release it with
+`banish`.
+Ejemplo
+```pengu
+var a as list of int is [3, 1, 2]
+var b as list of int is [1, 1, 1]
+calling tally.zip_sum with a, b    # [4, 2, 3]
+```
 
 
 ### `dot`
 
 > **dot**(a: list of int, b: list of int) -> int
 
-Producto escalar de dos vectores enteros.
+Dot product of two integer vectors.
+Parámetros
+- `a`: first list. Read only.
+- `b`: second list. Read only.
+Retorno
+The dot product as `int`, computed up to the shorter list; 0 when either side
+is empty. Borrows both inputs.
+Ejemplo
+```pengu
+var a as list of int is [3, 1, 2]
+var b as list of int is [1, 1, 1]
+calling tally.dot with a, b    # 6
+```
 
 
 ### `repeat`
 
 > **repeat**(val: int, times: int) -> list of int
 
-Lista nueva con `val` repetido `times` veces (`times <= 0` da lista vacía).
+New list with `val` repeated `times` times.
+Parámetros
+- `val`: the value to repeat.
+- `times`: number of copies; `times <= 0` gives an empty list.
+Retorno
+A new owned `list of int`; release it with `banish`.
+Ejemplo
+```pengu
+calling tally.repeat with 7, 3    # [7, 7, 7]
+```
 
 
 ### `len`
 
 > **len**(l: list of int) -> int
 
-Número de elementos de `l`. Alias del built-in `l.len`.
+Number of elements in `l`; alias of the built-in `l.len`.
+Parámetros
+- `l`: the list to measure. Read only.
+Retorno
+The element count as `int`. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.len with xs    # 3
+```
 
 
 ### `first`
 
 > **first**(l: list of int) -> int
 
-Primer elemento de `l`, o 0 si está vacía.
+Functional form of `first`: first element of `l`.
+Parámetros
+- `l`: the list to read. Read only.
+Retorno
+The first element as `int`, or 0 when `l` is empty. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.first with xs    # 3
+```
 
 
 ### `last`
 
 > **last**(l: list of int) -> int
 
-Último elemento de `l`, o 0 si está vacía.
+Functional form of `last`: last element of `l`.
+Parámetros
+- `l`: the list to read. Read only.
+Retorno
+The last element as `int`, or 0 when `l` is empty. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.last with xs    # 2
+```
 
 
 ### `at_or`
 
 > **at_or**(l: list of int, idx: int, default: int) -> int
 
-Elemento en `idx`, o `default` si está fuera de rango.
+Functional form of `at_or`: element at `idx`, or `default` out of range.
+Parámetros
+- `l`: the list to index. Read only.
+- `idx`: zero-based position. Negative, or `>= len`, yields `default`.
+- `default`: value returned out of range; defaults to 0.
+Retorno
+The element as `int`, or `default`. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.at_or with xs, 9, -1    # -1
+```
 
 
 ### `at_safe`
 
 > **at_safe**(l: list of int, idx: int) -> maybe int
 
-`some v` si `idx` está en rango, `maybe none` si no.
+Functional form of `at_safe`: bounded access as a `maybe`.
+Parámetros
+- `l`: the list to index. Read only.
+- `idx`: zero-based position.
+Retorno
+`some v` when `idx` is in range, `maybe none` otherwise. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.at_safe with xs, 2    # some 2
+```
 
 
 ### `contains`
 
 > **contains**(l: list of int, item: int) -> bool
 
-True si `item` está en `l`. Alias del built-in `l.contains`.
+True when `item` is in `l`; alias of the built-in `l.contains`.
+Parámetros
+- `l`: the list to search. Read only.
+- `item`: the value to look for.
+Retorno
+`true` when `item` occurs in `l`. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.contains with xs, 1    # true
+```
 
 
 ### `index_of`
 
 > **index_of**(l: list of int, item: int) -> int
 
-Índice de la primera aparición de `item`, o -1 si no está.
+Index of the first occurrence of `item`, or -1 when absent.
+Parámetros
+- `l`: the list to search. Read only.
+- `item`: the value to look for.
+Retorno
+A zero-based `int` index, or -1. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 4, 1]
+calling tally.index_of with xs, 4    # 2
+```
 
 
 ### `last_index_of`
 
 > **last_index_of**(l: list of int, item: int) -> int
 
-Índice de la última aparición de `item`, o -1 si no está.
+Index of the last occurrence of `item`, or -1 when absent.
+Parámetros
+- `l`: the list to search. Read only.
+- `item`: the value to look for.
+Retorno
+A zero-based `int` index, or -1. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 4, 1]
+calling tally.last_index_of with xs, 1    # 3
+```
 
 
 ### `count_of`
 
 > **count_of**(l: list of int, item: int) -> int
 
-Número de apariciones de `item` en `l`.
+Number of occurrences of `item` in `l`.
+Parámetros
+- `l`: the list to scan. Read only.
+- `item`: the value to count.
+Retorno
+The count as `int` (0 when absent). Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 4, 1]
+calling tally.count_of with xs, 1    # 2
+```
 
 
 ### `find_first_gt`
 
 > **find_first_gt**(l: list of int, threshold: int) -> maybe int
 
-Primer elemento estrictamente mayor que `threshold`.
+First element of `l` strictly greater than `threshold`.
+Parámetros
+- `l`: the list to scan. Read only.
+- `threshold`: exclusive lower bound to beat.
+Retorno
+`some x` for the first match, or `maybe none`. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 4]
+calling tally.find_first_gt with xs, 3    # some 4
+```
 
 
 ### `find_first_lt`
 
 > **find_first_lt**(l: list of int, threshold: int) -> maybe int
 
-Primer elemento estrictamente menor que `threshold`.
+First element of `l` strictly smaller than `threshold`.
+Parámetros
+- `l`: the list to scan. Read only.
+- `threshold`: exclusive upper bound to beat.
+Retorno
+`some x` for the first match, or `maybe none`. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 4]
+calling tally.find_first_lt with xs, 2    # some 1
+```
 
 
 ### `product`
 
 > **product**(l: list of int) -> int
 
-Producto de todos los elementos; la lista vacía devuelve 1.
+Functional form of `product`: product of every element.
+Parámetros
+- `l`: the list to reduce. Read only.
+Retorno
+The product as `int`; the empty list gives the identity 1. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.product with xs    # 6
+```
 
 
 ### `max_index`
 
 > **max_index**(l: list of int) -> int
 
-Índice del primer máximo, o -1 si está vacía.
+Functional form of `max_index`: index of the first maximum.
+Parámetros
+- `l`: the list to scan. Read only.
+Retorno
+A zero-based `int` index, or -1 when `l` is empty. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 4]
+calling tally.max_index with xs    # 2
+```
 
 
 ### `min_index`
 
 > **min_index**(l: list of int) -> int
 
-Índice del primer mínimo, o -1 si está vacía.
+Functional form of `min_index`: index of the first minimum.
+Parámetros
+- `l`: the list to scan. Read only.
+Retorno
+A zero-based `int` index, or -1 when `l` is empty. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 4]
+calling tally.min_index with xs    # 1
+```
 
 
 ### `argmin`
@@ -178,7 +394,15 @@ _Undocumented function._
 > ⚠️ **Deprecated** — Use `min_index` instead.
 
 - `@deprecated Use \`min_index\` instead.`
-- `Alias de \`min_index\`.`
+- `Parámetros`
+- `- \`l\`: the list to scan. Read only.`
+- `Retorno`
+- `Same as \`min_index\`; kept only for compatibility.`
+- `Ejemplo`
+- `\`\`\`pengu`
+- `var xs as list of int is [3, 1, 4]`
+- `calling tally.argmin with xs    # 1`
+- `\`\`\``
 
 
 ### `argmax`
@@ -190,14 +414,32 @@ _Undocumented function._
 > ⚠️ **Deprecated** — Use `max_index` instead.
 
 - `@deprecated Use \`max_index\` instead.`
-- `Alias de \`max_index\`.`
+- `Parámetros`
+- `- \`l\`: the list to scan. Read only.`
+- `Retorno`
+- `Same as \`max_index\`; kept only for compatibility.`
+- `Ejemplo`
+- `\`\`\`pengu`
+- `var xs as list of int is [3, 1, 4]`
+- `calling tally.argmax with xs    # 2`
+- `\`\`\``
 
 
 ### `mean`
 
 > **mean**(l: list of int) -> int
 
-Media aritmética; la lista vacía devuelve 0 (trunca hacia cero).
+Functional form of `mean`: arithmetic mean truncated towards zero.
+Parámetros
+- `l`: the list to reduce. Read only.
+Retorno
+The mean as `int`, truncated towards zero (`[1, 2]` gives 1), or 0 when `l`
+is empty. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 4]
+calling tally.mean with xs    # 2
+```
 
 
 ### `average`
@@ -209,56 +451,132 @@ _Undocumented function._
 > ⚠️ **Deprecated** — Use `mean` instead.
 
 - `@deprecated Use \`mean\` instead.`
-- `Alias de \`mean\`.`
+- `Parámetros`
+- `- \`l\`: the list to reduce. Read only.`
+- `Retorno`
+- `Same as \`mean\`; kept only for compatibility.`
+- `Ejemplo`
+- `\`\`\`pengu`
+- `var xs as list of int is [3, 1, 4]`
+- `calling tally.average with xs    # 2`
+- `\`\`\``
 
 
 ### `sum_of_squares`
 
 > **sum_of_squares**(l: list of int) -> int
 
-Suma de los cuadrados de todos los elementos.
+Functional form of `sum_of_squares`: sum of the squared elements.
+Parámetros
+- `l`: the list to reduce. Read only.
+Retorno
+The sum of squares as `int`, or 0 when `l` is empty. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.sum_of_squares with xs    # 14
+```
 
 
 ### `median`
 
 > **median**(l: list of int) -> int
 
-Mediana tras ordenar; la lista vacía devuelve 0.
+Functional form of `median`: median after sorting.
+Parámetros
+- `l`: the list to reduce. Read only.
+Retorno
+The median as `int` (even length averages the two central values with integer
+division), or 0 when `l` is empty. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 4]
+calling tally.median with xs    # 3
+```
 
 
 ### `mode`
 
 > **mode**(l: list of int) -> int
 
-Valor más frecuente; la lista vacía devuelve 0.
+Functional form of `mode`: most frequent value.
+Parámetros
+- `l`: the list to reduce. Read only.
+Retorno
+The most frequent value as `int` (first wins on a tie), or 0 when `l` is
+empty. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 3]
+calling tally.mode with xs    # 3
+```
 
 
 ### `reverse`
 
 > **reverse**(l: list of int) -> list of int
 
-Copia con los elementos en orden inverso.
+Functional form of `reverse`: copy with the elements reversed.
+Parámetros
+- `l`: the list to copy. Read only.
+Retorno
+A new owned `list of int`; release it with `banish`. `l` is not mutated.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.reverse with xs    # [2, 1, 3]
+```
 
 
 ### `sort_asc`
 
 > **sort_asc**(l: list of int) -> list of int
 
-Copia ordenada de forma ascendente.
+Functional form of `sort_asc`: ascending copy.
+Parámetros
+- `l`: the list to copy. Read only.
+Retorno
+A new owned `list of int` sorted ascending; release it with `banish`. `l` is
+not mutated.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.sort_asc with xs    # [1, 2, 3]
+```
 
 
 ### `sort_desc`
 
 > **sort_desc**(l: list of int) -> list of int
 
-Copia ordenada de forma descendente.
+Functional form of `sort_desc`: descending copy.
+Parámetros
+- `l`: the list to copy. Read only.
+Retorno
+A new owned `list of int` sorted descending; release it with `banish`. `l` is
+not mutated.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.sort_desc with xs    # [3, 2, 1]
+```
 
 
 ### `unique`
 
 > **unique**(l: list of int) -> list of int
 
-Copia sin duplicados, conservando el orden de primera aparición.
+Functional form of `unique`: copy without duplicates.
+Parámetros
+- `l`: the list to copy. Read only.
+Retorno
+A new owned `list of int` keeping first-appearance order; release it with
+`banish`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 3, 2]
+calling tally.unique with xs    # [3, 1, 2]
+```
 
 
 ### `dedup`
@@ -270,126 +588,302 @@ _Undocumented function._
 > ⚠️ **Deprecated** — Use `unique` instead.
 
 - `@deprecated Use \`unique\` instead.`
-- `Alias de \`unique\`.`
+- `Parámetros`
+- `- \`l\`: the list to copy. Read only.`
+- `Retorno`
+- `Same as \`unique\`; kept only for compatibility.`
+- `Ejemplo`
+- `\`\`\`pengu`
+- `var xs as list of int is [3, 1, 3, 2]`
+- `calling tally.dedup with xs    # [3, 1, 2]`
+- `\`\`\``
 
 
 ### `flatten`
 
 > **flatten**(l: list of int) -> list of int
 
-Copia identidad; aplana un nivel de anidamiento lógico.
+Functional form of `flatten`: identity copy of `l`.
+Parámetros
+- `l`: the list to copy. Read only.
+Retorno
+A new owned `list of int` with the same elements; release it with `banish`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.flatten with xs    # [3, 1, 2]
+```
 
 
 ### `abs_all`
 
 > **abs_all**(l: list of int) -> list of int
 
-Copia con el valor absoluto de cada elemento.
+Functional form of `abs_all`: copy with absolute values.
+Parámetros
+- `l`: the list to map. Read only.
+Retorno
+A new owned `list of int`; release it with `banish`.
+Ejemplo
+```pengu
+var xs as list of int is [-3, 1, -2]
+calling tally.abs_all with xs    # [3, 1, 2]
+```
 
 
 ### `clamp_all`
 
 > **clamp_all**(l: list of int, lo: int, hi: int) -> list of int
 
-Copia con todos los valores limitados a `[lo, hi]`.
+Functional form of `clamp_all`: copy clipped to `[lo, hi]`.
+Parámetros
+- `l`: the list to map. Read only.
+- `lo`: inclusive lower bound; defaults to 0.
+- `hi`: inclusive upper bound; defaults to 100.
+Retorno
+A new owned `list of int`; release it with `banish`.
+Ejemplo
+```pengu
+var xs as list of int is [-5, 150]
+calling tally.clamp_all with xs, 0, 100    # [0, 100]
+```
 
 
 ### `take`
 
 > **take**(l: list of int, n: int) -> list of int
 
-Primeros `n` elementos de `l`.
+Functional form of `take`: first `n` elements of `l`.
+Parámetros
+- `l`: the list to slice. Read only.
+- `n`: how many elements to take; defaults to 1.
+Retorno
+A new owned `list of int` clipped to the length; release it with `banish`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.take with xs, 2    # [3, 1]
+```
 
 
 ### `drop`
 
 > **drop**(l: list of int, n: int) -> list of int
 
-Elementos de `l` a partir del índice `n`.
+Functional form of `drop`: elements of `l` from index `n` onwards.
+Parámetros
+- `l`: the list to slice. Read only.
+- `n`: first index to keep; defaults to 1.
+Retorno
+A new owned `list of int`; release it with `banish`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.drop with xs, 1    # [1, 2]
+```
 
 
 ### `slice_list`
 
 > **slice_list**(l: list of int, start: int, end_idx: int) -> list of int
 
-Sub-lista `[start, end_idx)`.
+Functional form of `slice_list`: sub-list `[start, end_idx)`.
+Parámetros
+- `l`: the list to slice. Read only.
+- `start`: first index; negative is clamped to 0.
+- `end_idx`: exclusive end; values above the length are clipped.
+Retorno
+A new owned `list of int`; release it with `banish`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.slice_list with xs, 1, 3    # [1, 2]
+```
 
 
 ### `is_sorted_asc`
 
 > **is_sorted_asc**(l: list of int) -> bool
 
-True si `l` está ordenada de forma no descendente.
+Functional form of `is_sorted_asc`: non-descending order test.
+Parámetros
+- `l`: the list to scan. Read only.
+Retorno
+`true` when `l` never decreases. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [1, 2, 3]
+calling tally.is_sorted_asc with xs    # true
+```
 
 
 ### `is_sorted_desc`
 
 > **is_sorted_desc**(l: list of int) -> bool
 
-True si `l` está ordenada de forma no ascendente.
+Functional form of `is_sorted_desc`: non-ascending order test.
+Parámetros
+- `l`: the list to scan. Read only.
+Retorno
+`true` when `l` never increases. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 2, 1]
+calling tally.is_sorted_desc with xs    # true
+```
 
 
 ### `all_positive`
 
 > **all_positive**(l: list of int) -> bool
 
-True si todos los elementos son estrictamente positivos.
+Functional form of `all_positive`: strict positivity test.
+Parámetros
+- `l`: the list to scan. Read only.
+Retorno
+`true` when every element is `> 0`; the empty list gives `true`. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.all_positive with xs    # true
+```
 
 
 ### `all_zero`
 
 > **all_zero**(l: list of int) -> bool
 
-True si todos los elementos son cero.
+Functional form of `all_zero`: zero-sentinel test.
+Parámetros
+- `l`: the list to scan. Read only.
+Retorno
+`true` when every element equals 0; the empty list gives `true`. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [0, 0]
+calling tally.all_zero with xs    # true
+```
 
 
 ### `any_negative`
 
 > **any_negative**(l: list of int) -> bool
 
-True si al menos un elemento es estrictamente negativo.
+Functional form of `any_negative`: finds at least one negative element.
+Parámetros
+- `l`: the list to scan. Read only.
+Retorno
+`true` when some element is `< 0`; the empty list gives `false`. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [3, -1]
+calling tally.any_negative with xs    # true
+```
 
 
 ### `all_in_range`
 
 > **all_in_range**(l: list of int, lo: int, hi: int) -> bool
 
-True si todos los elementos caen en `[lo, hi]`.
+Functional form of `all_in_range`: inclusive range test.
+Parámetros
+- `l`: the list to scan. Read only.
+- `lo`: inclusive lower bound.
+- `hi`: inclusive upper bound.
+Retorno
+`true` when every element falls in `[lo, hi]`. Borrows `l`.
+Ejemplo
+```pengu
+var xs as list of int is [1, 3, 5]
+calling tally.all_in_range with xs, 1, 5    # true
+```
 
 
 ### `filter_even`
 
 > **filter_even**(l: list of int) -> list of int
 
-Copia con los elementos pares.
+Functional form of `filter_even`: copy with the even elements.
+Parámetros
+- `l`: the list to filter. Read only.
+Retorno
+A new owned `list of int` with the elements where `x % 2 == 0`; release it
+with `banish`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 4, 1, 5]
+calling tally.filter_even with xs    # [4]
+```
 
 
 ### `filter_odd`
 
 > **filter_odd**(l: list of int) -> list of int
 
-Copia con los elementos impares.
+Functional form of `filter_odd`: copy with the odd elements.
+Parámetros
+- `l`: the list to filter. Read only.
+Retorno
+A new owned `list of int` with the elements where `x % 2 != 0`; release it
+with `banish`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 4, 1, 5]
+calling tally.filter_odd with xs    # [3, 1, 1, 5]
+```
 
 
 ### `filter_positive`
 
 > **filter_positive**(l: list of int) -> list of int
 
-Copia con los elementos estrictamente positivos.
+Functional form of `filter_positive`: copy with the strictly positive
+elements.
+Parámetros
+- `l`: the list to filter. Read only.
+Retorno
+A new owned `list of int`; release it with `banish`.
+Ejemplo
+```pengu
+var xs as list of int is [3, -1, 0]
+calling tally.filter_positive with xs    # [3]
+```
 
 
 ### `filter_negative`
 
 > **filter_negative**(l: list of int) -> list of int
 
-Copia con los elementos estrictamente negativos.
+Functional form of `filter_negative`: copy with the strictly negative
+elements.
+Parámetros
+- `l`: the list to filter. Read only.
+Retorno
+A new owned `list of int`; release it with `banish`.
+Ejemplo
+```pengu
+var xs as list of int is [3, -1, 0]
+calling tally.filter_negative with xs    # [-1]
+```
 
 
 ### `filter_in_range`
 
 > **filter_in_range**(l: list of int, lo: int, hi: int) -> list of int
 
-Copia con los elementos que caen en `[lo, hi]`.
+Functional form of `filter_in_range`: copy with the elements inside
+`[lo, hi]`.
+Parámetros
+- `l`: the list to filter. Read only.
+- `lo`: inclusive lower bound.
+- `hi`: inclusive upper bound.
+Retorno
+A new owned `list of int`; release it with `banish`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 4, 1, 5]
+calling tally.filter_in_range with xs, 2, 4    # [3, 4]
+```
 
 
 ### `filter_range`
@@ -401,56 +895,123 @@ _Undocumented function._
 > ⚠️ **Deprecated** — Use `filter_in_range` instead.
 
 - `@deprecated Use \`filter_in_range\` instead.`
-- `Alias de \`filter_in_range\`.`
+- `Parámetros`
+- `- \`l\`: the list to filter. Read only.`
+- `- \`lo\`: inclusive lower bound.`
+- `- \`hi\`: inclusive upper bound.`
+- `Retorno`
+- `Same as \`filter_in_range\`; kept only for compatibility.`
+- `Ejemplo`
+- `\`\`\`pengu`
+- `var xs as list of int is [3, 1, 4, 1, 5]`
+- `calling tally.filter_range with xs, 2, 4    # [3, 4]`
+- `\`\`\``
 
 
 ### `map_double`
 
 > **map_double**(l: list of int) -> list of int
 
-Copia con cada elemento multiplicado por 2.
+Functional form of `map_double`: copy with every element doubled.
+Parámetros
+- `l`: the list to map. Read only.
+Retorno
+A new owned `list of int`; release it with `banish`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.map_double with xs    # [6, 2, 4]
+```
 
 
 ### `map_square`
 
 > **map_square**(l: list of int) -> list of int
 
-Copia con cada elemento elevado al cuadrado.
+Functional form of `map_square`: copy with every element squared.
+Parámetros
+- `l`: the list to map. Read only.
+Retorno
+A new owned `list of int`; release it with `banish`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.map_square with xs    # [9, 1, 4]
+```
 
 
 ### `map_negate`
 
 > **map_negate**(l: list of int) -> list of int
 
-Copia con cada elemento negado.
+Functional form of `map_negate`: copy with every element negated.
+Parámetros
+- `l`: the list to map. Read only.
+Retorno
+A new owned `list of int`; release it with `banish`.
+Ejemplo
+```pengu
+var xs as list of int is [3, -1]
+calling tally.map_negate with xs    # [-3, 1]
+```
 
 
 ### `map_add_scalar`
 
 > **map_add_scalar**(l: list of int, k: int) -> list of int
 
-Copia con el escalar `k` sumado a cada elemento.
+Functional form of `map_add_scalar`: copy with `k` added to every element.
+Parámetros
+- `l`: the list to map. Read only.
+- `k`: the value added to each element.
+Retorno
+A new owned `list of int`; release it with `banish`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1]
+calling tally.map_add_scalar with xs, 10    # [13, 11]
+```
 
 
 ### `map_increment`
 
 > **map_increment**(l: list of int, delta: int) -> list of int
 
-Copia con `delta` sumado a cada elemento.
+Functional form of `map_increment`: copy with `delta` added to every element.
+Parámetros
+- `l`: the list to map. Read only.
+- `delta`: the integer added to each element; defaults to 1.
+Retorno
+A new owned `list of int`; release it with `banish`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1]
+calling tally.map_increment with xs, 2    # [5, 3]
+```
 
 
 ### `zip_with`
 
 > **zip_with**(xs: list of T, ys: list of U, f: weave with a: T, b: U into V) -> list of V
 
-Combina `xs` e `ys` con `f` hasta la lista más corta.
-Memory
-`xs` e `ys` solo se leen; el resultado es una lista nueva.
+Combines `xs` and `ys` with `f` up to the shorter list.
+Parámetros
+- `xs`: first list. Read only.
+- `ys`: second list. Read only.
+- `f`: binary weave `with a as T, b as U into V`.
+Retorno
+A new owned `list of V`, one element per position of the shorter input;
+release it with `banish`.
+Memoria
+`xs` and `ys` are only read; the result is a fresh list that the caller
+releases with `banish`.
 Ejemplo
 ```pengu
 weave add with a as int, b as int into int:
 return a + b
-var sums as list of int is calling tally.zip_with with xs, ys, add
+var xs as list of int is [3, 1]
+var ys as list of int is [1, 1]
+calling tally.zip_with with xs, ys, add    # [4, 2]
 ```
 
 
@@ -458,59 +1019,148 @@ var sums as list of int is calling tally.zip_with with xs, ys, add
 
 > **chunk**(xs: list of T, span: int) -> list of list of T
 
-Divide `xs` en tramos consecutivos de `span` elementos; el último puede ser
-más corto. `span <= 0` devuelve una lista vacía.
+Splits `xs` into consecutive runs of `span` elements; the last one may be
+shorter.
+Parámetros
+- `xs`: the list to split. Read only.
+- `span`: run length; `span <= 0` gives an empty list.
+Retorno
+A new owned `list of list of T`; release every inner list and the outer one
+with `banish`.
+Memoria
+Each inner list and the outer list are freshly allocated.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 4, 1, 5]
+calling tally.chunk with xs, 2    # [[3, 1], [4, 1], [5]]
+```
 
 
 ### `windowed`
 
 > **windowed**(xs: list of T, width: int) -> list of list of T
 
-Ventanas deslizantes de ancho `width`; `width <= 0` o mayor que la lista
-devuelve una lista vacía.
+Sliding windows of width `width`.
+Parámetros
+- `xs`: the list to window. Read only.
+- `width`: window length; `width <= 0`, or greater than the list, gives an
+empty list.
+Retorno
+A new owned `list of list of T`; release every inner list and the outer one
+with `banish`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 4]
+calling tally.windowed with xs, 2    # [[3, 1], [1, 4]]
+```
 
 
 ### `scan_left`
 
 > **scan_left**(xs: list of T, f: weave with acc: T, x: T into T) -> list of T
 
-Escaneo acumulativo con `f`, sembrado con el primer elemento.
-El resultado tiene la misma longitud que `xs`; `out[0] = xs[0]`.
+Cumulative scan with `f`, seeded with the first element.
+The result has the same length as `xs` and `out[0] = xs[0]`; every later
+position is `f(previous, current)`, so `scan_left` with `+` equals
+`running_sum`.
+Parámetros
+- `xs`: the list to scan. Read only.
+- `f`: binary weave `with acc as T, x as T into T`.
+Retorno
+A new owned `list of T` with the prefix results; release it with `banish`. An
+empty input gives an empty list.
+Ejemplo
+```pengu
+var xs as list of int is [1, 2, 3]
+calling tally.scan_left with xs, (lambda acc as int, x as int into acc + x)    # [1, 3, 6]
+```
 
 
 ### `running_sum`
 
 > **running_sum**(xs: list of T) -> list of T
 
-Sumas acumuladas (prefijos) de `xs`.
+Cumulative (prefix) sums of `xs`.
+Parámetros
+- `xs`: the list to accumulate. Read only.
+Retorno
+A new owned `list of T` where position `i` is the sum of `xs[0..i]`; release
+it with `banish`. An empty input gives an empty list.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 2]
+calling tally.running_sum with xs    # [3, 4, 6]
+```
 
 
 ### `min_max`
 
 > **min_max**(xs: list of int) -> list of int
 
-Mínimo y máximo como lista de dos elementos `[min, max]`; vacía devuelve `[]`.
+Minimum and maximum as a two-element list `[min, max]`.
+Parámetros
+- `xs`: the list to scan. Read only.
+Retorno
+A new owned `list of int` with exactly two elements, or an empty list when
+`xs` is empty; release it with `banish`. The module uses no tuples, so it
+does not depend on `std.oracle`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 4]
+calling tally.min_max with xs    # [1, 4]
+```
 
 
 ### `enumerate_pairs`
 
 > **enumerate_pairs**(xs: list of int) -> list of list of int
 
-Pares `[índice, valor]` de `xs`, en orden.
+`[index, value]` pairs of `xs`, in order.
+Parámetros
+- `xs`: the list to enumerate. Read only.
+Retorno
+A new owned `list of list of int` with one `[index, value]` pair per element;
+release every inner list and the outer one with `banish`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1]
+calling tally.enumerate_pairs with xs    # [[0, 3], [1, 1]]
+```
 
 
 ### `partition_by`
 
 > **partition_by**(xs: list of int, predicate: weave with x: int into bool) -> list of list of int
 
-Particiona `xs` con `predicate`: `[cumplen, no_cumplen]`.
+Partitions `xs` with `predicate` into `[matching, non_matching]`.
+Parámetros
+- `xs`: the list to partition. Read only.
+- `predicate`: unary weave `with x as int into bool`.
+Retorno
+A new owned `list of list of int` with exactly two lists (either may be
+empty); release every inner list and the outer one with `banish`.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 4]
+calling tally.partition_by with xs, (lambda x as int into (x % 2) == 0)    # [[4], [3, 1]]
+```
 
 
 ### `frequencies`
 
 > **frequencies**(xs: list of int) -> map of int to int
 
-Frecuencia de cada valor de `xs` como mapa valor -> conteo.
+Frequency of every value of `xs` as a value -> count map.
+Parámetros
+- `xs`: the list to count. Read only.
+Retorno
+A new owned `map of int to int`; release it with `banish`. The empty list
+gives an empty map.
+Ejemplo
+```pengu
+var xs as list of int is [3, 1, 3]
+calling tally.frequencies with xs    # 3 -> 2, 1 -> 1
+```
 
 
 ### `group_count`
@@ -522,33 +1172,41 @@ _Undocumented function._
 > ⚠️ **Deprecated** — Use `frequencies` instead.
 
 - `@deprecated Use \`frequencies\` instead.`
-- `Alias de \`frequencies\`.`
+- `Parámetros`
+- `- \`xs\`: the list to count. Read only.`
+- `Retorno`
+- `Same as \`frequencies\`; kept only for compatibility.`
+- `Ejemplo`
+- `\`\`\`pengu`
+- `var xs as list of int is [2, 2]`
+- `calling tally.group_count with xs    # 2 -> 2`
+- `\`\`\``
 
 
 ### `_expect`
 
 > **_expect**(cond: bool, label: string) -> void
 
-Harness interno: panickea con `label` si `cond` es falso.
+Internal harness: panics with `label` when `cond` is false.
 
 
 ### `_expect_eq_int`
 
 > **_expect_eq_int**(actual: int, expected: int, label: string) -> void
 
-Harness interno: igualdad de enteros.
+Internal harness: integer equality.
 
 
 ### `_expect_eq_float`
 
 > **_expect_eq_float**(actual: float, expected: float, label: string) -> void
 
-Harness interno: igualdad de flotantes.
+Internal harness: float equality.
 
 
 ### `_expect_eq_bool`
 
 > **_expect_eq_bool**(actual: bool, expected: bool, label: string) -> void
 
-Harness interno: igualdad de booleanos.
+Internal harness: boolean equality.
 

@@ -1,37 +1,94 @@
-# std/ward.pengu - The Ward (Assertions & Invariants)
-# Assertion and expectation helpers for tests and runtime invariants, plus
-# non-panicking check_* helpers that report failure as ResultString values.
-#
-# Model:
-#   * assert_* / expect_* abort the program through spark.panic when the
-#     checked condition fails. All assert_* helpers now produce informative
-#     failure messages including expected and actual values.
-#   * expect_* embeds a caller-supplied message.
-#   * check_* never panic: they return an oracle ResultString (ok with "ok",
-#     or err with the caller message) so the caller can react to failure.
-#   * fail / panic abort directly and unreachable marks code that must never run.
-#
-# Memory model: every helper takes plain values and keeps no handles, so
-# there is nothing to free.
+## std/ward.pengu — assertions, invariants and non-panicking checks for tests and
+## runtime guards.
+##
+## `assert_*` and `expect_*` abort the program through `spark.panic` when the
+## checked condition fails. `assert_*` build an informative message with the
+## expected and actual values; `expect_*` embed a caller-supplied `msg`. The
+## `check_*` family never panics: the legacy functions return an `oracle`
+## `ResultString` (`ok("ok")` or `err(msg)`) and the `check_*_native` family
+## returns a native `result of string to string` built with the `ok_of`/`err_of`
+## intrinsics. `panic`, `fail`, `unreachable` and `fail_unreachable` abort
+## directly.
+##
+## ## Example
+## ```pengu
+## import std.ward
+##
+## weave main into int:
+##     calling ward.assert_eq_int with 2 + 2, 4
+##     let r as result of string to string is calling ward.check_native with false, "boom"
+##     if r.is_ok:
+##         calling ward.fail with "expected the check to fail"
+##     return 0
+## ```
+##
+## ## Memory
+## Every helper takes plain values and keeps no handles: the `int`, `bool`,
+## `float`, `string`, `list`, `map`, `maybe` and `result` parameters are borrowed
+## and never freed, and no helper returns an owned value except the `check_*`
+## functions, whose `ResultString` or native `result` is owned by the caller and
+## must be released with `banish`. The strings built for a panic message are
+## owned temporaries handed to `spark.panic`, which never returns.
+##
+## ## Design notes
+## - **Two result families.** The legacy `check_*` functions return the 0.14.x
+##   `oracle.ResultString` and are kept for callers of that API; the
+##   `check_*_native` functions return the native `result of string to string` and
+##   compose with `std.oracle` (`is_ok`, `is_err`, `unwrap_err`, `map_err`, ...).
+##   The legacy family carries `## @deprecated` docstring markers; the real
+##   `@deprecated` attribute is not used because it would emit `W0006` at every
+##   internal call site.
+## - **No string `+`.** Every composed message uses `"{expr}"` interpolation
+##   (E0005 forbids `+` on strings).
+## - **No `std.scrolls` dependency.** `_w_fmt_string` renders a string as a
+##   quoted literal truncated to 80 bytes with the native `at 0 to 77` slice, and
+##   the three string predicates (`assert_string_contains`,
+##   `assert_string_starts_with`, `assert_string_ends_with`) compare native
+##   slices with `==`, so the module imports only `std.spark` and `std.oracle`.
+##   The predicate scans allocate one temporary slice per candidate offset; the
+##   previous `scrolls` versions ran allocation-free C `memcmp` helpers.
+## - **Internal tests stay panic-free.** The `# --- Tests ---` section uses the
+##   module's own happy paths plus the non-panicking `check_*`/`check_*_native`
+##   families; the panic paths are verified by `tests/stdlib/test_ward.py`. The
+##   module cannot `import std.ward` from itself (cycle E0004), but its tests call
+##   their own helpers directly.
+##
+## ## Relationship with std.trial
+## `std.trial` imports this module and re-exports ten load-bearing signatures:
+## `assert`, `assert_msg`, `assert_eq_int`, `assert_eq_string`, `assert_ne_int`,
+## `assert_ne_string`, `assert_true`, `assert_false`, `assert_present_int` and
+## `assert_ok_int`. Their names, bounds and parameter lists must not move.
+##
+## ## Migration
+## 2.1.0 rewrites the module in Pengunic style with English prose, drops the
+## `std.scrolls` dependency (`_w_fmt_string` and the string predicates now use
+## native slices) and adds the seven native `check_*_native` checks. Every 2.0.0
+## signature and every visible result is preserved; the nine legacy `check_*`
+## functions keep working and are marked deprecated in favour of their native
+## counterparts.
+
+# ----------------------------------------------------------------------------
+# Imports
+# ----------------------------------------------------------------------------
 
 import std.spark
 import std.oracle
-import std.scrolls
 
 # ----------------------------------------------------------------------------
 # Module Metadata
 # ----------------------------------------------------------------------------
 
 ## Standard library ward module version.
-const WARD_VERSION as string is "2.0.0"
+const WARD_VERSION as string is "2.1.0"
 
 # ----------------------------------------------------------------------------
 # Core Internal Formatting Helpers
 # ----------------------------------------------------------------------------
 
+## Renders `s` as a quoted preview, truncated to 80 bytes with a trailing `...`.
 weave _w_fmt_string with s as string into string:
     if s.len > 80:
-        return "\"{(calling scrolls.substring with s , 0 , 77)}...\""
+        return "\"{(s at 0 to 77)}...\""
     return "\"{s}\""
 
 # ----------------------------------------------------------------------------
@@ -40,98 +97,224 @@ weave _w_fmt_string with s as string into string:
 
 ## Panics with "assertion failed" when `cond` is false.
 ##
-## Signature: assert(cond as bool) into void
-## Memory: No allocation.
-## Example: calling ward.assert with x > 0
+## ## Parámetros
+## - `cond`: the condition that must hold.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `cond` is false.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `assertion failed`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert with x > 0
+## ```
 weave assert with cond as bool into void:
     if cond == false:
         calling spark.panic with "assertion failed"
 
 ## Panics with `msg` when `cond` is false.
 ##
-## Signature: assert_msg(cond as bool, msg as string) into void
-## Memory: No allocation.
-## Example: calling ward.assert_msg with x > 0, "x must be positive"
+## ## Parámetros
+## - `cond`: the condition that must hold.
+## - `msg`: the failure message handed to `spark.panic`. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `cond` is false.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `msg`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_msg with x > 0, "x must be positive"
+## ```
 weave assert_msg with cond as bool , msg as string into void:
     if cond == false:
         calling spark.panic with msg
 
 ## Panics with "assertion failed: expected true, got false" when `cond` is false.
 ##
-## Signature: assert_true(cond as bool) into void
-## Memory: No allocation.
-## Message: "assertion failed: expected true, got false"
-## Example: calling ward.assert_true with is_valid
+## ## Parámetros
+## - `cond`: the condition that must be `true`.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `cond` is false.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly
+## `assertion failed: expected true, got false`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_true with is_valid
+## ```
 weave assert_true with cond as bool into void:
     if cond == false:
         calling spark.panic with "assertion failed: expected true, got false"
 
 ## Panics with "assertion failed: expected false, got true" when `cond` is true.
 ##
-## Signature: assert_false(cond as bool) into void
-## Memory: No allocation.
-## Message: "assertion failed: expected false, got true"
-## Example: calling ward.assert_false with is_closed
+## ## Parámetros
+## - `cond`: the condition that must be `false`.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `cond` is true.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly
+## `assertion failed: expected false, got true`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_false with is_closed
+## ```
 weave assert_false with cond as bool into void:
     if cond:
         calling spark.panic with "assertion failed: expected false, got true"
 
 ## Panics when `a` differs from `b`, reporting both values.
 ##
-## Signature: assert_eq_int(a as int, b as int) into void
-## Memory: No allocation.
-## Message: "assertion failed: left != right: expected <b>, got <a>"
-## Example: calling ward.assert_eq_int with 2 + 2, 4
+## ## Parámetros
+## - `a`: the actual value.
+## - `b`: the expected value.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `a != b`.
+##
+## ## Efectos
+## The message is `assertion failed: left != right: expected <b>, got <a>`, where
+## `<a>` and `<b>` are the decimal renderings of the arguments.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_eq_int with 2 + 2, 4
+## ```
 weave assert_eq_int with a as int , b as int into void:
     if a != b:
         calling spark.panic with "assertion failed: left != right: expected {(b to string)}, got {(a to string)}"
 
 ## Panics when string `a` differs from string `b` (exact equality).
 ##
-## Signature: assert_eq_string(a as string, b as string) into void
-## Memory: No allocation.
-## Message: "assertion failed: left != right: expected \"<b>\", got \"<a>\""
-## Example: calling ward.assert_eq_string with name, "Alice"
+## ## Parámetros
+## - `a`: the actual string.
+## - `b`: the expected string.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `a != b`.
+##
+## ## Efectos
+## The message is `assertion failed: left != right: expected "<b>", got "<a>"`,
+## where each string is rendered by the private preview helper and therefore
+## quoted and truncated to 80 bytes.
+##
+## ## Memoria
+## Both strings are borrowed and never freed; the previews are owned temporaries
+## handed to `spark.panic`, which never returns.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_eq_string with name, "Alice"
+## ```
 weave assert_eq_string with a as string , b as string into void:
     if a != b:
         calling spark.panic with "assertion failed: left != right: expected {(calling _w_fmt_string with b)}, got {(calling _w_fmt_string with a)}"
 
 ## Panics when boolean `a` differs from boolean `b`.
 ##
-## Signature: assert_eq_bool(a as bool, b as bool) into void
-## Memory: No allocation.
-## Message: "assertion failed: left != right: expected <b>, got <a>"
-## Example: calling ward.assert_eq_bool with flag, true
+## ## Parámetros
+## - `a`: the actual boolean.
+## - `b`: the expected boolean.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `a != b`.
+##
+## ## Efectos
+## The message is `assertion failed: left != right: expected <b>, got <a>`, where
+## `<a>` and `<b>` render as `true` or `false`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_eq_bool with flag, true
+## ```
 weave assert_eq_bool with a as bool , b as bool into void:
     if a != b:
         calling spark.panic with "assertion failed: left != right: expected {(b to string)}, got {(a to string)}"
 
 ## Panics when integer `a` equals integer `b`.
 ##
-## Signature: assert_ne_int(a as int, b as int) into void
-## Memory: No allocation.
-## Message: "assertion failed: left == right: unexpected <a>"
-## Example: calling ward.assert_ne_int with status, 0
+## ## Parámetros
+## - `a`: the actual value.
+## - `b`: the value that must not match `a`.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `a == b`.
+##
+## ## Efectos
+## The message is `assertion failed: left == right: unexpected <a>` with the
+## decimal rendering of `a`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_ne_int with status, 0
+## ```
 weave assert_ne_int with a as int , b as int into void:
     if a == b:
         calling spark.panic with "assertion failed: left == right: unexpected {(a to string)}"
 
 ## Panics when string `a` equals string `b`.
 ##
-## Signature: assert_ne_string(a as string, b as string) into void
-## Memory: No allocation.
-## Message: "assertion failed: left == right: unexpected \"<a>\""
-## Example: calling ward.assert_ne_string with token, ""
+## ## Parámetros
+## - `a`: the actual string.
+## - `b`: the string that must not match `a`.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `a == b`.
+##
+## ## Efectos
+## The message is `assertion failed: left == right: unexpected "<a>"`, with `a`
+## rendered by the private preview helper (quoted and truncated to 80 bytes).
+##
+## ## Memoria
+## Both strings are borrowed and never freed; the preview is an owned temporary
+## handed to `spark.panic`, which never returns.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_ne_string with token, ""
+## ```
 weave assert_ne_string with a as string , b as string into void:
     if a == b:
         calling spark.panic with "assertion failed: left == right: unexpected {(calling _w_fmt_string with a)}"
 
 ## Panics when boolean `a` equals boolean `b`.
 ##
-## Signature: assert_ne_bool(a as bool, b as bool) into void
-## Memory: No allocation.
-## Message: "assertion failed: left == right: unexpected <a>"
-## Example: calling ward.assert_ne_bool with flag, false
+## ## Parámetros
+## - `a`: the actual boolean.
+## - `b`: the boolean that must not match `a`.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `a == b`.
+##
+## ## Efectos
+## The message is `assertion failed: left == right: unexpected <a>`, with `a`
+## rendering as `true` or `false`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_ne_bool with flag, false
+## ```
 weave assert_ne_bool with a as bool , b as bool into void:
     if a == b:
         calling spark.panic with "assertion failed: left == right: unexpected {(a to string)}"
@@ -142,34 +325,67 @@ weave assert_ne_bool with a as bool , b as bool into void:
 
 ## Panics when the absolute difference between `a` and `b` exceeds `epsilon`.
 ##
-## Signature: assert_eq_float(a as float, b as float, epsilon as float is 0.000001) into void
-## Memory: No allocation.
-## Message: "assertion failed: left != right: expected <b>, got <a> (diff <d> > <eps>)"
-## Example: calling ward.assert_eq_float with 1.000001, 1.0, 0.0001
+## ## Parámetros
+## - `a`: the actual value.
+## - `b`: the expected value.
+## - `epsilon`: the inclusive tolerance. Defaults to `0.000001`.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `|a - b| > epsilon`.
+##
+## ## Efectos
+## The message is
+## `assertion failed: left != right: expected <b>, got <a> (diff <d> > epsilon <e>)`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_eq_float with 1.000001, 1.0, 0.0001
+## ```
 weave assert_eq_float with a as float , b as float , epsilon as float is 0.000001 into void:
-    var diff as float is a - b
-    if diff < 0.0:
-        set diff is 0.0 - diff
+    let diff as float is if (a - b) < 0.0 then (b - a) else (a - b)
     if diff > epsilon:
         calling spark.panic with "assertion failed: left != right: expected {(b to string)}, got {(a to string)} (diff {(diff to string)} > epsilon {(epsilon to string)})"
 
 ## Panics when the absolute difference between `a` and `b` is within `epsilon`.
 ##
-## Signature: assert_ne_float(a as float, b as float, epsilon as float is 0.000001) into void
-## Memory: No allocation.
-## Example: calling ward.assert_ne_float with 1.5, 1.0, 0.0001
+## ## Parámetros
+## - `a`: the actual value.
+## - `b`: the value that must differ from `a`.
+## - `epsilon`: the inclusive tolerance. Defaults to `0.000001`.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `|a - b| <= epsilon`.
+##
+## ## Efectos
+## The message is
+## `assertion failed: left == right: unexpected <a> within epsilon <e>`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_ne_float with 1.5, 1.0, 0.0001
+## ```
 weave assert_ne_float with a as float , b as float , epsilon as float is 0.000001 into void:
-    var diff as float is a - b
-    if diff < 0.0:
-        set diff is 0.0 - diff
+    let diff as float is if (a - b) < 0.0 then (b - a) else (a - b)
     if diff <= epsilon:
         calling spark.panic with "assertion failed: left == right: unexpected {(a to string)} within epsilon {(epsilon to string)}"
 
 ## Alias of assert_eq_float with tolerance comparison.
 ##
-## Signature: assert_almost_eq(a as float, b as float, epsilon as float is 0.000001) into void
-## Memory: No allocation.
-## Example: calling ward.assert_almost_eq with pi_calc, 3.14159, 0.001
+## ## Parámetros
+## - `a`: the actual value.
+## - `b`: the expected value.
+## - `epsilon`: the inclusive tolerance. Defaults to `0.000001`.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It delegates to `assert_eq_float` and
+## therefore aborts with the same message when `|a - b| > epsilon`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_almost_eq with pi_calc, 3.14159, 0.001
+## ```
 weave assert_almost_eq with a as float , b as float , epsilon as float is 0.000001 into void:
     calling assert_eq_float with a , b , epsilon
 
@@ -179,90 +395,212 @@ weave assert_almost_eq with a as float , b as float , epsilon as float is 0.0000
 
 ## Panics unless integer `a` is strictly greater than `b`.
 ##
-## Signature: assert_gt_int(a as int, b as int) into void
-## Memory: No allocation.
-## Example: calling ward.assert_gt_int with count, 0
+## ## Parámetros
+## - `a`: the value expected to be larger.
+## - `b`: the value expected to be smaller.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## unless `a > b`.
+##
+## ## Efectos
+## The message is `assertion failed: expected <a> > <b>`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_gt_int with count, 0
+## ```
 weave assert_gt_int with a as int , b as int into void:
     if a <= b:
         calling spark.panic with "assertion failed: expected {(a to string)} > {(b to string)}"
 
 ## Panics unless integer `a` is greater than or equal to `b`.
 ##
-## Signature: assert_ge_int(a as int, b as int) into void
-## Memory: No allocation.
-## Example: calling ward.assert_ge_int with age, 18
+## ## Parámetros
+## - `a`: the value expected to be larger or equal.
+## - `b`: the lower bound.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## unless `a >= b`.
+##
+## ## Efectos
+## The message is `assertion failed: expected <a> >= <b>`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_ge_int with age, 18
+## ```
 weave assert_ge_int with a as int , b as int into void:
     if a < b:
         calling spark.panic with "assertion failed: expected {(a to string)} >= {(b to string)}"
 
 ## Panics unless integer `a` is strictly less than `b`.
 ##
-## Signature: assert_lt_int(a as int, b as int) into void
-## Memory: No allocation.
-## Example: calling ward.assert_lt_int with index, max_len
+## ## Parámetros
+## - `a`: the value expected to be smaller.
+## - `b`: the value expected to be larger.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## unless `a < b`.
+##
+## ## Efectos
+## The message is `assertion failed: expected <a> < <b>`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_lt_int with index, max_len
+## ```
 weave assert_lt_int with a as int , b as int into void:
     if a >= b:
         calling spark.panic with "assertion failed: expected {(a to string)} < {(b to string)}"
 
 ## Panics unless integer `a` is less than or equal to `b`.
 ##
-## Signature: assert_le_int(a as int, b as int) into void
-## Memory: No allocation.
-## Example: calling ward.assert_le_int with used, total
+## ## Parámetros
+## - `a`: the value expected to be smaller or equal.
+## - `b`: the upper bound.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## unless `a <= b`.
+##
+## ## Efectos
+## The message is `assertion failed: expected <a> <= <b>`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_le_int with used, total
+## ```
 weave assert_le_int with a as int , b as int into void:
     if a > b:
         calling spark.panic with "assertion failed: expected {(a to string)} <= {(b to string)}"
 
 ## Panics unless float `a` is strictly greater than `b`.
 ##
-## Signature: assert_gt_float(a as float, b as float) into void
-## Memory: No allocation.
-## Example: calling ward.assert_gt_float with score, 0.0
+## ## Parámetros
+## - `a`: the value expected to be larger.
+## - `b`: the value expected to be smaller.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## unless `a > b`.
+##
+## ## Efectos
+## The message is `assertion failed: expected <a> > <b>`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_gt_float with score, 0.0
+## ```
 weave assert_gt_float with a as float , b as float into void:
     if a <= b:
         calling spark.panic with "assertion failed: expected {(a to string)} > {(b to string)}"
 
 ## Panics unless float `a` is greater than or equal to `b`.
 ##
-## Signature: assert_ge_float(a as float, b as float) into void
-## Memory: No allocation.
-## Example: calling ward.assert_ge_float with score, 0.0
+## ## Parámetros
+## - `a`: the value expected to be larger or equal.
+## - `b`: the lower bound.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## unless `a >= b`.
+##
+## ## Efectos
+## The message is `assertion failed: expected <a> >= <b>`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_ge_float with score, 0.0
+## ```
 weave assert_ge_float with a as float , b as float into void:
     if a < b:
         calling spark.panic with "assertion failed: expected {(a to string)} >= {(b to string)}"
 
 ## Panics unless float `a` is strictly less than `b`.
 ##
-## Signature: assert_lt_float(a as float, b as float) into void
-## Memory: No allocation.
-## Example: calling ward.assert_lt_float with temp, 100.0
+## ## Parámetros
+## - `a`: the value expected to be smaller.
+## - `b`: the value expected to be larger.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## unless `a < b`.
+##
+## ## Efectos
+## The message is `assertion failed: expected <a> < <b>`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_lt_float with temp, 100.0
+## ```
 weave assert_lt_float with a as float , b as float into void:
     if a >= b:
         calling spark.panic with "assertion failed: expected {(a to string)} < {(b to string)}"
 
 ## Panics unless float `a` is less than or equal to `b`.
 ##
-## Signature: assert_le_float(a as float, b as float) into void
-## Memory: No allocation.
-## Example: calling ward.assert_le_float with ratio, 1.0
+## ## Parámetros
+## - `a`: the value expected to be smaller or equal.
+## - `b`: the upper bound.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## unless `a <= b`.
+##
+## ## Efectos
+## The message is `assertion failed: expected <a> <= <b>`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_le_float with ratio, 1.0
+## ```
 weave assert_le_float with a as float , b as float into void:
     if a > b:
         calling spark.panic with "assertion failed: expected {(a to string)} <= {(b to string)}"
 
 ## Panics when integer `v` is outside inclusive range `[lo, hi]`.
 ##
-## Signature: assert_in_range_int(v as int, lo as int, hi as int) into void
-## Memory: No allocation.
-## Example: calling ward.assert_in_range_int with month, 1, 12
+## ## Parámetros
+## - `v`: the value to test.
+## - `lo`: the inclusive lower bound.
+## - `hi`: the inclusive upper bound.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `v < lo` or `v > hi`.
+##
+## ## Efectos
+## The message is `assertion failed: value <v> not in range [<lo>, <hi>]`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_in_range_int with month, 1, 12
+## ```
 weave assert_in_range_int with v as int , lo as int , hi as int into void:
     if v < lo or v > hi:
         calling spark.panic with "assertion failed: value {(v to string)} not in range [{(lo to string)}, {(hi to string)}]"
 
 ## Panics when float `v` is outside inclusive range `[lo, hi]`.
 ##
-## Signature: assert_in_range_float(v as float, lo as float, hi as float) into void
-## Memory: No allocation.
-## Example: calling ward.assert_in_range_float with prob, 0.0, 1.0
+## ## Parámetros
+## - `v`: the value to test.
+## - `lo`: the inclusive lower bound.
+## - `hi`: the inclusive upper bound.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `v < lo` or `v > hi`.
+##
+## ## Efectos
+## The message is `assertion failed: value <v> not in range [<lo>, <hi>]`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_in_range_float with prob, 0.0, 1.0
+## ```
 weave assert_in_range_float with v as float , lo as float , hi as float into void:
     if v < lo or v > hi:
         calling spark.panic with "assertion failed: value {(v to string)} not in range [{(lo to string)}, {(hi to string)}]"
@@ -273,45 +611,143 @@ weave assert_in_range_float with v as float , lo as float , hi as float into voi
 
 ## Panics unless `haystack` contains substring `needle`.
 ##
-## Signature: assert_string_contains(haystack as string, needle as string) into void
-## Memory: No allocation.
-## Example: calling ward.assert_string_contains with log_line, "ERROR"
+## ## Parámetros
+## - `haystack`: the string to search in. Borrowed.
+## - `needle`: the substring that must appear. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `haystack` does not contain `needle`.
+##
+## ## Efectos
+## The message is `assertion failed: expected <haystack> to contain <needle>`,
+## with both strings quoted and truncated to 80 bytes.
+##
+## ## Memoria
+## Both strings are borrowed and never freed. The scan builds one owned temporary
+## slice per candidate offset (the language has no allocation-free substring
+## view), and the previews are owned temporaries handed to `spark.panic`, which
+## never returns.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_string_contains with log_line, "ERROR"
+## ```
 weave assert_string_contains with haystack as string , needle as string into void:
-    if not (calling haystack.contains with needle):
+    var found as bool is needle.len == 0
+    var i as int is 0
+    while found == false and i + needle.len <= haystack.len:
+        if (haystack at i to (i + needle.len)) == needle:
+            set found is true
+        set i is i + 1
+    if found == false:
         calling spark.panic with "assertion failed: expected {(calling _w_fmt_string with haystack)} to contain {(calling _w_fmt_string with needle)}"
 
 ## Panics unless string `s` starts with prefix `prefix`.
 ##
-## Signature: assert_string_starts_with(s as string, prefix as string) into void
-## Memory: No allocation.
-## Example: calling ward.assert_string_starts_with with url, "https://"
+## ## Parámetros
+## - `s`: the string to test. Borrowed.
+## - `prefix`: the required prefix. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `s` does not start with `prefix`.
+##
+## ## Efectos
+## The message is `assertion failed: expected <s> to start with <prefix>`, with
+## both strings quoted and truncated to 80 bytes.
+##
+## ## Memoria
+## Both strings are borrowed and never freed. The comparison builds one owned
+## temporary slice of `s`, and the previews are owned temporaries handed to
+## `spark.panic`, which never returns.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_string_starts_with with url, "https://"
+## ```
 weave assert_string_starts_with with s as string , prefix as string into void:
-    if not (calling s.starts_with with prefix):
+    var matches as bool is false
+    if s.len >= prefix.len:
+        set matches is (s at 0 to prefix.len) == prefix
+    if matches == false:
         calling spark.panic with "assertion failed: expected {(calling _w_fmt_string with s)} to start with {(calling _w_fmt_string with prefix)}"
 
 ## Panics unless string `s` ends with suffix `suffix`.
 ##
-## Signature: assert_string_ends_with(s as string, suffix as string) into void
-## Memory: No allocation.
-## Example: calling ward.assert_string_ends_with with path, ".pengu"
+## ## Parámetros
+## - `s`: the string to test. Borrowed.
+## - `suffix`: the required suffix. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `s` does not end with `suffix`.
+##
+## ## Efectos
+## The message is `assertion failed: expected <s> to end with <suffix>`, with both
+## strings quoted and truncated to 80 bytes.
+##
+## ## Memoria
+## Both strings are borrowed and never freed. The comparison builds one owned
+## temporary slice of `s`, and the previews are owned temporaries handed to
+## `spark.panic`, which never returns.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_string_ends_with with path, ".pengu"
+## ```
 weave assert_string_ends_with with s as string , suffix as string into void:
-    if not (calling s.ends_with with suffix):
+    var matches as bool is false
+    if s.len >= suffix.len:
+        set matches is (s at (s.len - suffix.len) to s.len) == suffix
+    if matches == false:
         calling spark.panic with "assertion failed: expected {(calling _w_fmt_string with s)} to end with {(calling _w_fmt_string with suffix)}"
 
 ## Panics unless string `s` is empty (length 0).
 ##
-## Signature: assert_string_empty(s as string) into void
-## Memory: No allocation.
-## Example: calling ward.assert_string_empty with err_msg
+## ## Parámetros
+## - `s`: the string that must be empty. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `s.len > 0`.
+##
+## ## Efectos
+## The message is `assertion failed: expected empty string, got "<s>"`, with `s`
+## quoted and truncated to 80 bytes.
+##
+## ## Memoria
+## The string is borrowed and never freed; the preview is an owned temporary
+## handed to `spark.panic`, which never returns.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_string_empty with err_msg
+## ```
 weave assert_string_empty with s as string into void:
     if s.len > 0:
         calling spark.panic with "assertion failed: expected empty string, got {(calling _w_fmt_string with s)}"
 
 ## Panics when string `s` is empty (length 0).
 ##
-## Signature: assert_string_not_empty(s as string) into void
-## Memory: No allocation.
-## Example: calling ward.assert_string_not_empty with name
+## ## Parámetros
+## - `s`: the string that must not be empty. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `s.len == 0`.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly
+## `assertion failed: expected non-empty string, got empty string`.
+##
+## ## Memoria
+## The string is borrowed and never freed.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_string_not_empty with name
+## ```
 weave assert_string_not_empty with s as string into void:
     if s.len == 0:
         calling spark.panic with "assertion failed: expected non-empty string, got empty string"
@@ -322,81 +758,193 @@ weave assert_string_not_empty with s as string into void:
 
 ## Panics unless integer lists `a` and `b` have identical length and elements.
 ##
-## Signature: assert_eq_int_list(a as list of int, b as list of int) into void
-## Memory: No allocation.
-## Example: calling ward.assert_eq_int_list with xs, ys
+## ## Parámetros
+## - `a`: the actual list. Borrowed.
+## - `b`: the expected list. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic` on
+## a length mismatch or at the first index where the elements differ.
+##
+## ## Efectos
+## The message is `assertion failed: list length mismatch: expected <nb>, got <na>`
+## or `assertion failed: element mismatch at index <i>: expected <vb>, got <va>`.
+##
+## ## Memoria
+## Both lists are borrowed and never freed; no element is copied out.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_eq_int_list with xs, ys
+## ```
 weave assert_eq_int_list with a as list of int , b as list of int into void:
-    var na as int is a.len
-    var nb as int is b.len
+    let na as int is a.len
+    let nb as int is b.len
     if na != nb:
         calling spark.panic with "assertion failed: list length mismatch: expected {(nb to string)}, got {(na to string)}"
     var i as int is 0
     while i < na:
-        var va as int is a at i
-        var vb as int is b at i
+        let va as int is a at i
+        let vb as int is b at i
         if va != vb:
             calling spark.panic with "assertion failed: element mismatch at index {(i to string)}: expected {(vb to string)}, got {(va to string)}"
         set i is i + 1
 
 ## Panics unless string lists `a` and `b` have identical length and elements.
 ##
-## Signature: assert_eq_string_list(a as list of string, b as list of string) into void
-## Memory: No allocation.
-## Example: calling ward.assert_eq_string_list with words, expected_words
+## ## Parámetros
+## - `a`: the actual list. Borrowed.
+## - `b`: the expected list. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic` on
+## a length mismatch or at the first index where the strings differ.
+##
+## ## Efectos
+## The message is `assertion failed: list length mismatch: expected <nb>, got <na>`
+## or `assertion failed: element mismatch at index <i>: expected "<vb>", got "<va>"`,
+## with the element previews quoted and truncated to 80 bytes.
+##
+## ## Memoria
+## Both lists and their strings are borrowed and never freed; the element previews
+## are owned temporaries handed to `spark.panic`, which never returns.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_eq_string_list with words, expected_words
+## ```
 weave assert_eq_string_list with a as list of string , b as list of string into void:
-    var na as int is a.len
-    var nb as int is b.len
+    let na as int is a.len
+    let nb as int is b.len
     if na != nb:
         calling spark.panic with "assertion failed: list length mismatch: expected {(nb to string)}, got {(na to string)}"
     var i as int is 0
     while i < na:
-        var va as string is a at i
-        var vb as string is b at i
+        let va as string is a at i
+        let vb as string is b at i
         if va != vb:
             calling spark.panic with "assertion failed: element mismatch at index {(i to string)}: expected {(calling _w_fmt_string with vb)}, got {(calling _w_fmt_string with va)}"
         set i is i + 1
 
 ## Panics unless integer list `l` is empty.
 ##
-## Signature: assert_list_empty_int(l as list of int) into void
-## Memory: No allocation.
-## Example: calling ward.assert_list_empty_int with queue
+## ## Parámetros
+## - `l`: the list that must be empty. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `l.len > 0`.
+##
+## ## Efectos
+## The message is `assertion failed: expected empty list, got len <n>`.
+##
+## ## Memoria
+## The list is borrowed and never freed.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_list_empty_int with queue
+## ```
 weave assert_list_empty_int with l as list of int into void:
     if l.len > 0:
         calling spark.panic with "assertion failed: expected empty list, got len {(l.len to string)}"
 
 ## Panics when integer list `l` is empty.
 ##
-## Signature: assert_list_not_empty_int(l as list of int) into void
-## Memory: No allocation.
-## Example: calling ward.assert_list_not_empty_int with results
+## ## Parámetros
+## - `l`: the list that must not be empty. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `l.len == 0`.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly
+## `assertion failed: expected non-empty list, got len 0`.
+##
+## ## Memoria
+## The list is borrowed and never freed.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_list_not_empty_int with results
+## ```
 weave assert_list_not_empty_int with l as list of int into void:
     if l.len == 0:
         calling spark.panic with "assertion failed: expected non-empty list, got len 0"
 
 ## Panics unless integer list `l` has exact length `expected`.
 ##
-## Signature: assert_list_len_int(l as list of int, expected as int) into void
-## Memory: No allocation.
-## Example: calling ward.assert_list_len_int with items, 3
+## ## Parámetros
+## - `l`: the list to measure. Borrowed.
+## - `expected`: the required element count.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `l.len != expected`.
+##
+## ## Efectos
+## The message is `assertion failed: expected list len <expected>, got <l.len>`.
+##
+## ## Memoria
+## The list is borrowed and never freed.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_list_len_int with items, 3
+## ```
 weave assert_list_len_int with l as list of int , expected as int into void:
     if l.len != expected:
         calling spark.panic with "assertion failed: expected list len {(expected to string)}, got {(l.len to string)}"
 
 ## Panics unless string map `m` contains key `key`.
 ##
-## Signature: assert_map_has_key(m as map of string to string, key as string) into void
-## Memory: No allocation.
-## Example: calling ward.assert_map_has_key with config, "host"
+## ## Parámetros
+## - `m`: the map to inspect. Borrowed.
+## - `key`: the required key. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `m` does not contain `key`.
+##
+## ## Efectos
+## The message is `assertion failed: expected map to contain key "<key>"`, with
+## the key quoted and truncated to 80 bytes.
+##
+## ## Memoria
+## The map and the key are borrowed and never freed; the preview is an owned
+## temporary handed to `spark.panic`, which never returns.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_map_has_key with config, "host"
+## ```
 weave assert_map_has_key with m as map of string to string , key as string into void:
     if not (calling m.contains with key):
         calling spark.panic with "assertion failed: expected map to contain key {(calling _w_fmt_string with key)}"
 
 ## Panics when string map `m` contains key `key`.
 ##
-## Signature: assert_map_not_has_key(m as map of string to string, key as string) into void
-## Memory: No allocation.
-## Example: calling ward.assert_map_not_has_key with config, "secret"
+## ## Parámetros
+## - `m`: the map to inspect. Borrowed.
+## - `key`: the key that must be absent. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `m` contains `key`.
+##
+## ## Efectos
+## The message is `assertion failed: unexpected key "<key>" in map`, with the key
+## quoted and truncated to 80 bytes.
+##
+## ## Memoria
+## The map and the key are borrowed and never freed; the preview is an owned
+## temporary handed to `spark.panic`, which never returns.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_map_not_has_key with config, "secret"
+## ```
 weave assert_map_not_has_key with m as map of string to string , key as string into void:
     if calling m.contains with key:
         calling spark.panic with "assertion failed: unexpected key {(calling _w_fmt_string with key)} in map"
@@ -407,54 +955,148 @@ weave assert_map_not_has_key with m as map of string to string , key as string i
 
 ## Panics unless native maybe container `m` holds a value.
 ##
-## Signature: assert_maybe_present shard T(m as maybe T) into void
-## Memory: Generic value unwrap; no extra allocation.
-## Example: calling ward.assert_maybe_present with user_opt
+## ## Parámetros
+## - `m`: the optional to inspect. Borrowed, not consumed.
+## - `T`: the payload type of the optional.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `m` is `none`.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly
+## `assertion failed: expected maybe to be present, got none`.
+##
+## ## Memoria
+## The optional is borrowed and never banished; the check only inspects it.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_maybe_present with user_opt
+## ```
 weave assert_maybe_present shard T with m as maybe T into void:
     if m is not present:
         calling spark.panic with "assertion failed: expected maybe to be present, got none"
 
 ## Panics when native maybe container `m` holds a value.
 ##
-## Signature: assert_maybe_none shard T(m as maybe T) into void
-## Memory: Generic inspection; no extra allocation.
-## Example: calling ward.assert_maybe_none with missing_opt
+## ## Parámetros
+## - `m`: the optional to inspect. Borrowed, not consumed.
+## - `T`: the payload type of the optional.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `m` is present.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly
+## `assertion failed: expected maybe to be none, got present`.
+##
+## ## Memoria
+## The optional is borrowed and never banished; the check only inspects it.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_maybe_none with missing_opt
+## ```
 weave assert_maybe_none shard T with m as maybe T into void:
     if m is present:
         calling spark.panic with "assertion failed: expected maybe to be none, got present"
 
 ## Panics unless native result container `r` is successful (is_ok).
 ##
-## Signature: assert_result_ok shard T and E(r as result of T to E) into void
-## Memory: Generic inspection; no extra allocation.
-## Example: calling ward.assert_result_ok with op_result
+## ## Parámetros
+## - `r`: the result to inspect. Borrowed, not consumed.
+## - `T`: the success payload type.
+## - `E`: the error payload type.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `r.is_ok` is false.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly
+## `assertion failed: expected result to be ok, got err`.
+##
+## ## Memoria
+## The result is borrowed and never banished; the check only inspects it.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_result_ok with op_result
+## ```
 weave assert_result_ok shard T and E with r as result of T to E into void:
     if r.is_ok == false:
         calling spark.panic with "assertion failed: expected result to be ok, got err"
 
 ## Panics when native result container `r` is successful (is_ok).
 ##
-## Signature: assert_result_err shard T and E(r as result of T to E) into void
-## Memory: Generic inspection; no extra allocation.
-## Example: calling ward.assert_result_err with failed_result
+## ## Parámetros
+## - `r`: the result to inspect. Borrowed, not consumed.
+## - `T`: the success payload type.
+## - `E`: the error payload type.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `r.is_ok` is true.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly
+## `assertion failed: expected result to be err, got ok`.
+##
+## ## Memoria
+## The result is borrowed and never banished; the check only inspects it.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_result_err with failed_result
+## ```
 weave assert_result_err shard T and E with r as result of T to E into void:
     if r.is_ok:
         calling spark.panic with "assertion failed: expected result to be err, got ok"
 
 ## Panics unless native result of int to string is ok, reporting the error string.
 ##
-## Signature: assert_result_ok_int(r as result of int to string) into void
-## Memory: No allocation.
-## Example: calling ward.assert_result_ok_int with res
+## ## Parámetros
+## - `r`: the result to inspect. Borrowed, not consumed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `r.is_ok` is false.
+##
+## ## Efectos
+## The message is `assertion failed: result is error: <r.error>`.
+##
+## ## Memoria
+## The result and its error string are borrowed and never freed.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_result_ok_int with res
+## ```
 weave assert_result_ok_int with r as result of int to string into void:
     if r.is_ok == false:
         calling spark.panic with "assertion failed: result is error: {r.error}"
 
 ## Panics when native result of int to string is ok, reporting the unexpected value.
 ##
-## Signature: assert_result_err_int(r as result of int to string) into void
-## Memory: No allocation.
-## Example: calling ward.assert_result_err_int with res
+## ## Parámetros
+## - `r`: the result to inspect. Borrowed, not consumed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `r.is_ok` is true.
+##
+## ## Efectos
+## The message is `assertion failed: result is ok: unexpected value <r.value>`.
+##
+## ## Memoria
+## The result is borrowed and never freed; the value is read, not moved.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_result_err_int with res
+## ```
 weave assert_result_err_int with r as result of int to string into void:
     if r.is_ok:
         calling spark.panic with "assertion failed: result is ok: unexpected value {(r.value to string)}"
@@ -464,41 +1106,196 @@ weave assert_result_err_int with r as result of int to string into void:
 # ----------------------------------------------------------------------------
 
 ## Panics with "assertion failed: maybe is none" when the MaybeInt `m` is empty.
+##
+## ## Parámetros
+## - `m`: the legacy optional to inspect. Borrowed, not consumed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `m.is_present` is false.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly
+## `assertion failed: maybe is none`.
+##
+## ## Memoria
+## The legacy container is borrowed and never banished.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_present_int with maybe_count
+## ```
 weave assert_present_int with m as MaybeInt into void:
     if m.is_present == false:
         calling spark.panic with "assertion failed: maybe is none"
 
 ## Panics with "assertion failed: maybe is none" when the MaybeString `m` is empty.
+##
+## ## Parámetros
+## - `m`: the legacy optional to inspect. Borrowed, not consumed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `m.is_present` is false.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly
+## `assertion failed: maybe is none`.
+##
+## ## Memoria
+## The legacy container is borrowed and never banished; its string field is only
+## inspected.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_present_string with maybe_name
+## ```
 weave assert_present_string with m as MaybeString into void:
     if m.is_present == false:
         calling spark.panic with "assertion failed: maybe is none"
 
 ## Panics with "assertion failed: maybe is present" when the MaybeInt `m` holds a value.
+##
+## ## Parámetros
+## - `m`: the legacy optional to inspect. Borrowed, not consumed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `m.is_present` is true.
+##
+## ## Efectos
+## The message is
+## `assertion failed: maybe is present: unexpected value <m.value>`.
+##
+## ## Memoria
+## The legacy container is borrowed and never banished; the value is read, not moved.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_none_int with maybe_missing
+## ```
 weave assert_none_int with m as MaybeInt into void:
     if m.is_present:
         calling spark.panic with "assertion failed: maybe is present: unexpected value {(m.value to string)}"
 
 ## Panics with "assertion failed: maybe is present" when the MaybeString `m` holds a value.
+##
+## ## Parámetros
+## - `m`: the legacy optional to inspect. Borrowed, not consumed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `m.is_present` is true.
+##
+## ## Efectos
+## The message is
+## `assertion failed: maybe is present: unexpected value "<m.value>"`, with the
+## value quoted and truncated to 80 bytes.
+##
+## ## Memoria
+## The legacy container is borrowed and never banished; the preview is an owned
+## temporary handed to `spark.panic`, which never returns.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_none_string with maybe_name
+## ```
 weave assert_none_string with m as MaybeString into void:
     if m.is_present:
         calling spark.panic with "assertion failed: maybe is present: unexpected value {(calling _w_fmt_string with m.value)}"
 
 ## Panics with "assertion failed: result is error" when the ResultInt `r` is err.
+##
+## ## Parámetros
+## - `r`: the legacy result to inspect. Borrowed, not consumed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `r.is_ok` is false.
+##
+## ## Efectos
+## The message is `assertion failed: result is error: <r.error_msg>`.
+##
+## ## Memoria
+## The legacy container is borrowed and never banished.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_ok_int with parsed
+## ```
 weave assert_ok_int with r as ResultInt into void:
     if r.is_ok == false:
         calling spark.panic with "assertion failed: result is error: {r.error_msg}"
 
 ## Panics with "assertion failed: result is error" when the ResultString `r` is err.
+##
+## ## Parámetros
+## - `r`: the legacy result to inspect. Borrowed, not consumed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `r.is_ok` is false.
+##
+## ## Efectos
+## The message is `assertion failed: result is error: <r.error_msg>`.
+##
+## ## Memoria
+## The legacy container is borrowed and never banished; its string field is only
+## inspected.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_ok_string with decoded
+## ```
 weave assert_ok_string with r as ResultString into void:
     if r.is_ok == false:
         calling spark.panic with "assertion failed: result is error: {r.error_msg}"
 
 ## Panics with "assertion failed: result is ok" when the ResultInt `r` is ok.
+##
+## ## Parámetros
+## - `r`: the legacy result to inspect. Borrowed, not consumed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `r.is_ok` is true.
+##
+## ## Efectos
+## The message is `assertion failed: result is ok: unexpected value <r.value>`.
+##
+## ## Memoria
+## The legacy container is borrowed and never banished; the value is read, not moved.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_err_int with parsed
+## ```
 weave assert_err_int with r as ResultInt into void:
     if r.is_ok:
         calling spark.panic with "assertion failed: result is ok: unexpected value {(r.value to string)}"
 
 ## Panics with "assertion failed: result is ok" when the ResultString `r` is ok.
+##
+## ## Parámetros
+## - `r`: the legacy result to inspect. Borrowed, not consumed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `r.is_ok` is true.
+##
+## ## Efectos
+## The message is
+## `assertion failed: result is ok: unexpected value "<r.value>"`, with the value
+## quoted and truncated to 80 bytes.
+##
+## ## Memoria
+## The legacy container is borrowed and never banished; the preview is an owned
+## temporary handed to `spark.panic`, which never returns.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.assert_err_string with decoded
+## ```
 weave assert_err_string with r as ResultString into void:
     if r.is_ok:
         calling spark.panic with "assertion failed: result is ok: unexpected value {(calling _w_fmt_string with r.value)}"
@@ -508,79 +1305,376 @@ weave assert_err_string with r as ResultString into void:
 # ----------------------------------------------------------------------------
 
 ## Panics with `msg` when `cond` is false.
+##
+## ## Parámetros
+## - `cond`: the condition that must hold.
+## - `msg`: the caller's failure message. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `cond` is false.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `msg`.
+##
+## ## Memoria
+## The message is borrowed and never freed; the process ends in `spark.panic`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.expect with port > 0, "port must be positive"
+## ```
 weave expect with cond as bool , msg as string into void:
     if cond == false:
         calling spark.panic with msg
 
 ## Panics with `msg` when `a` differs from `b`.
+##
+## ## Parámetros
+## - `a`: the actual value.
+## - `b`: the expected value.
+## - `msg`: the caller's failure message. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `a != b`.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `msg`; the values are not
+## rendered.
+##
+## ## Memoria
+## The message is borrowed and never freed; the process ends in `spark.panic`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.expect_eq_int with retries, 3, "unexpected retry count"
+## ```
 weave expect_eq_int with a as int , b as int , msg as string into void:
     if a != b:
         calling spark.panic with msg
 
 ## Panics with `msg` when `a` differs from `b` (exact string comparison).
+##
+## ## Parámetros
+## - `a`: the actual string. Borrowed.
+## - `b`: the expected string. Borrowed.
+## - `msg`: the caller's failure message. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `a != b`.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `msg`.
+##
+## ## Memoria
+## All three strings are borrowed and never freed; the process ends in
+## `spark.panic`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.expect_eq_string with name, "Alice", "unexpected name"
+## ```
 weave expect_eq_string with a as string , b as string , msg as string into void:
     if a != b:
         calling spark.panic with msg
 
 ## Panics with `msg` when absolute difference between floats exceeds `epsilon`.
+##
+## ## Parámetros
+## - `a`: the actual value.
+## - `b`: the expected value.
+## - `msg`: the caller's failure message. Borrowed.
+## - `epsilon`: the inclusive tolerance. Defaults to `0.000001`.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `|a - b| > epsilon`.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `msg`.
+##
+## ## Memoria
+## The message is borrowed and never freed; the process ends in `spark.panic`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.expect_eq_float with measurement, 9.81, "unexpected gravity", 0.01
+## ```
 weave expect_eq_float with a as float , b as float , msg as string , epsilon as float is 0.000001 into void:
-    var diff as float is a - b
-    if diff < 0.0:
-        set diff is 0.0 - diff
+    let diff as float is if (a - b) < 0.0 then (b - a) else (a - b)
     if diff > epsilon:
         calling spark.panic with msg
 
 ## Panics with `msg` when integer `a` equals `b`.
+##
+## ## Parámetros
+## - `a`: the actual value.
+## - `b`: the value that must not match `a`.
+## - `msg`: the caller's failure message. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `a == b`.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `msg`.
+##
+## ## Memoria
+## The message is borrowed and never freed; the process ends in `spark.panic`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.expect_ne_int with status, 0, "status must not be zero"
+## ```
 weave expect_ne_int with a as int , b as int , msg as string into void:
     if a == b:
         calling spark.panic with msg
 
 ## Panics with `msg` when string `a` equals `b`.
+##
+## ## Parámetros
+## - `a`: the actual string. Borrowed.
+## - `b`: the string that must not match `a`. Borrowed.
+## - `msg`: the caller's failure message. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `a == b`.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `msg`.
+##
+## ## Memoria
+## All three strings are borrowed and never freed; the process ends in
+## `spark.panic`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.expect_ne_string with token, "", "token must not be empty"
+## ```
 weave expect_ne_string with a as string , b as string , msg as string into void:
     if a == b:
         calling spark.panic with msg
 
 ## Panics with `msg` when boolean `a` equals `b`.
+##
+## ## Parámetros
+## - `a`: the actual boolean.
+## - `b`: the boolean that must not match `a`.
+## - `msg`: the caller's failure message. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `a == b`.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `msg`.
+##
+## ## Memoria
+## The message is borrowed and never freed; the process ends in `spark.panic`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.expect_ne_bool with flag, false, "flag must be true"
+## ```
 weave expect_ne_bool with a as bool , b as bool , msg as string into void:
     if a == b:
         calling spark.panic with msg
 
 ## Panics with `msg` unless `a > b`.
+##
+## ## Parámetros
+## - `a`: the value expected to be larger.
+## - `b`: the value expected to be smaller.
+## - `msg`: the caller's failure message. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## unless `a > b`.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `msg`.
+##
+## ## Memoria
+## The message is borrowed and never freed; the process ends in `spark.panic`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.expect_gt_int with width, 0, "width must be positive"
+## ```
 weave expect_gt_int with a as int , b as int , msg as string into void:
     if a <= b:
         calling spark.panic with msg
 
 ## Panics with `msg` unless `a >= b`.
+##
+## ## Parámetros
+## - `a`: the value expected to be larger or equal.
+## - `b`: the lower bound.
+## - `msg`: the caller's failure message. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## unless `a >= b`.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `msg`.
+##
+## ## Memoria
+## The message is borrowed and never freed; the process ends in `spark.panic`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.expect_ge_int with age, 18, "not old enough"
+## ```
 weave expect_ge_int with a as int , b as int , msg as string into void:
     if a < b:
         calling spark.panic with msg
 
 ## Panics with `msg` unless `a < b`.
+##
+## ## Parámetros
+## - `a`: the value expected to be smaller.
+## - `b`: the value expected to be larger.
+## - `msg`: the caller's failure message. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## unless `a < b`.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `msg`.
+##
+## ## Memoria
+## The message is borrowed and never freed; the process ends in `spark.panic`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.expect_lt_int with index, max_len, "index out of bounds"
+## ```
 weave expect_lt_int with a as int , b as int , msg as string into void:
     if a >= b:
         calling spark.panic with msg
 
 ## Panics with `msg` unless `a <= b`.
+##
+## ## Parámetros
+## - `a`: the value expected to be smaller or equal.
+## - `b`: the upper bound.
+## - `msg`: the caller's failure message. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## unless `a <= b`.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `msg`.
+##
+## ## Memoria
+## The message is borrowed and never freed; the process ends in `spark.panic`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.expect_le_int with used, total, "used more than total"
+## ```
 weave expect_le_int with a as int , b as int , msg as string into void:
     if a > b:
         calling spark.panic with msg
 
 ## Panics with `msg` when MaybeInt is empty.
+##
+## ## Parámetros
+## - `m`: the legacy optional to inspect. Borrowed, not consumed.
+## - `msg`: the caller's failure message. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `m.is_present` is false.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `msg`.
+##
+## ## Memoria
+## The legacy container and the message are borrowed and never freed.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.expect_present_int with maybe_count, "missing count"
+## ```
 weave expect_present_int with m as MaybeInt , msg as string into void:
     if m.is_present == false:
         calling spark.panic with msg
 
 ## Panics with `msg` when MaybeString is empty.
+##
+## ## Parámetros
+## - `m`: the legacy optional to inspect. Borrowed, not consumed.
+## - `msg`: the caller's failure message. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `m.is_present` is false.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `msg`.
+##
+## ## Memoria
+## The legacy container and the message are borrowed and never freed.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.expect_present_string with maybe_name, "missing name"
+## ```
 weave expect_present_string with m as MaybeString , msg as string into void:
     if m.is_present == false:
         calling spark.panic with msg
 
 ## Panics with `msg` when ResultInt is error.
+##
+## ## Parámetros
+## - `r`: the legacy result to inspect. Borrowed, not consumed.
+## - `msg`: the caller's failure message. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `r.is_ok` is false.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `msg`.
+##
+## ## Memoria
+## The legacy container and the message are borrowed and never freed.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.expect_ok_int with parsed, "parse failed"
+## ```
 weave expect_ok_int with r as ResultInt , msg as string into void:
     if r.is_ok == false:
         calling spark.panic with msg
 
 ## Panics with `msg` when ResultString is error.
+##
+## ## Parámetros
+## - `r`: the legacy result to inspect. Borrowed, not consumed.
+## - `msg`: the caller's failure message. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## when `r.is_ok` is false.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `msg`.
+##
+## ## Memoria
+## The legacy container and the message are borrowed and never freed.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.expect_ok_string with decoded, "decode failed"
+## ```
 weave expect_ok_string with r as ResultString , msg as string into void:
     if r.is_ok == false:
         calling spark.panic with msg
@@ -590,26 +1684,90 @@ weave expect_ok_string with r as ResultString , msg as string into void:
 # ----------------------------------------------------------------------------
 
 ## Aborts the program with `msg` (delegates to spark.panic). Never returns.
+##
+## ## Parámetros
+## - `msg`: the failure message. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `msg`.
+##
+## ## Memoria
+## The message is borrowed and never freed; the process ends in `spark.panic`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.panic with "invalid state"
+## ```
 weave panic with msg as string into void:
     calling spark.panic with msg
 
 ## Aborts the program with `msg`. Ergonomic alias of panic.
 ##
-## Signature: fail(msg as string) into void
-## Memory: No allocation.
-## Example: calling ward.fail with "invalid state"
+## ## Parámetros
+## - `msg`: the failure message. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `msg`.
+##
+## ## Memoria
+## The message is borrowed and never freed; the process ends in `spark.panic`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.fail with "invalid state"
+## ```
 weave fail with msg as string into void:
     calling spark.panic with msg
 
 ## Marks code that must never execute: panics with `msg` when reached.
+##
+## ## Parámetros
+## - `msg`: the failure message. Defaults to `internal error: unreachable code`.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## whenever it is called, because it is only meant to mark dead code.
+##
+## ## Efectos
+## The message passed to `spark.panic` is exactly `msg`.
+##
+## ## Memoria
+## The message is borrowed and never freed; the process ends in `spark.panic`.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.unreachable with "unhandled judge branch"
+## ```
 weave unreachable with msg as string is "internal error: unreachable code" into void:
     calling spark.panic with msg
 
 ## Explicit alias of unreachable with failure prefix.
 ##
-## Signature: fail_unreachable(msg as string is "unreachable") into void
-## Memory: No allocation.
-## Example: calling ward.fail_unreachable with "unhandled judge branch"
+## ## Parámetros
+## - `msg`: the detail appended to the prefix. Defaults to `unreachable`.
+##
+## ## Retorno
+## Nothing; the helper returns `void`. It aborts the program via `spark.panic`
+## whenever it is called.
+##
+## ## Efectos
+## The message passed to `spark.panic` is `internal error: <msg>`; the string is
+## built by interpolation, so it is an owned temporary.
+##
+## ## Memoria
+## The message is borrowed and never freed; the interpolated string is handed to
+## `spark.panic`, which never returns.
+##
+## ## Ejemplo
+## ```pengu
+## calling ward.fail_unreachable with "unhandled judge branch"
+## ```
 weave fail_unreachable with msg as string is "unreachable" into void:
     calling spark.panic with "internal error: {msg}"
 
@@ -618,58 +1776,591 @@ weave fail_unreachable with msg as string is "unreachable" into void:
 # ----------------------------------------------------------------------------
 
 ## Returns ok("ok") when `cond` is true, otherwise err(`msg`). Never panics.
+## @deprecated Use `check_native` instead.
+##
+## ## Parámetros
+## - `cond`: the condition to check.
+## - `msg`: the error payload used when `cond` is false. Borrowed.
+##
+## ## Retorno
+## The legacy `oracle.ResultString` (owned by the caller): `ok("ok")` when `cond`
+## holds, `err(msg)` otherwise.
+##
+## ## Memoria
+## The returned `ResultString` owns its string field; release it with `banish`.
+## The parameters are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let r as ResultString is calling ward.check with x > 0, "x must be positive"
+## ```
 weave check with cond as bool , msg as string into ResultString:
     if cond:
         return calling oracle.result_ok_string with "ok"
     return calling oracle.result_err_string with msg
 
 ## Returns ok("ok") when `a` equals `b`, otherwise err(`msg`). Never panics.
+## @deprecated Use `check_eq_int_native` instead.
+##
+## ## Parámetros
+## - `a`: the actual value.
+## - `b`: the expected value.
+## - `msg`: the error payload used when the values differ. Borrowed.
+##
+## ## Retorno
+## The legacy `oracle.ResultString` (owned by the caller): `ok("ok")` when
+## `a == b`, `err(msg)` otherwise.
+##
+## ## Memoria
+## The returned `ResultString` owns its string field; release it with `banish`.
+## The parameters are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let r as ResultString is calling ward.check_eq_int with 2 + 2, 4, "bad sum"
+## ```
 weave check_eq_int with a as int , b as int , msg as string into ResultString:
     if a == b:
         return calling oracle.result_ok_string with "ok"
     return calling oracle.result_err_string with msg
 
 ## Returns ok("ok") when `a` equals `b` (exact string comparison), otherwise err(`msg`).
+## @deprecated Use `check_eq_string_native` instead.
+##
+## ## Parámetros
+## - `a`: the actual string. Borrowed.
+## - `b`: the expected string. Borrowed.
+## - `msg`: the error payload used when the strings differ. Borrowed.
+##
+## ## Retorno
+## The legacy `oracle.ResultString` (owned by the caller): `ok("ok")` when
+## `a == b`, `err(msg)` otherwise.
+##
+## ## Memoria
+## The returned `ResultString` owns its string field; release it with `banish`.
+## The parameters are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let r as ResultString is calling ward.check_eq_string with name, "Alice", "bad name"
+## ```
 weave check_eq_string with a as string , b as string , msg as string into ResultString:
     if a == b:
         return calling oracle.result_ok_string with "ok"
     return calling oracle.result_err_string with msg
 
 ## Returns ok("ok") when boolean `a` equals `b`, otherwise err(`msg`).
+## @deprecated Use `check_eq_bool_native` instead.
+##
+## ## Parámetros
+## - `a`: the actual boolean.
+## - `b`: the expected boolean.
+## - `msg`: the error payload used when the booleans differ. Borrowed.
+##
+## ## Retorno
+## The legacy `oracle.ResultString` (owned by the caller): `ok("ok")` when
+## `a == b`, `err(msg)` otherwise.
+##
+## ## Memoria
+## The returned `ResultString` owns its string field; release it with `banish`.
+## The parameters are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let r as ResultString is calling ward.check_eq_bool with flag, true, "flag must be true"
+## ```
 weave check_eq_bool with a as bool , b as bool , msg as string into ResultString:
     if a == b:
         return calling oracle.result_ok_string with "ok"
     return calling oracle.result_err_string with msg
 
 ## Returns ok("ok") when float difference is within `epsilon`, otherwise err(`msg`).
+## @deprecated Use `check_eq_float_native` instead.
+##
+## ## Parámetros
+## - `a`: the actual value.
+## - `b`: the expected value.
+## - `msg`: the error payload used when the values differ. Borrowed.
+## - `epsilon`: the inclusive tolerance. Defaults to `0.000001`.
+##
+## ## Retorno
+## The legacy `oracle.ResultString` (owned by the caller): `ok("ok")` when
+## `|a - b| <= epsilon`, `err(msg)` otherwise.
+##
+## ## Memoria
+## The returned `ResultString` owns its string field; release it with `banish`.
+## The parameters are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let r as ResultString is calling ward.check_eq_float with 1.0, 1.0, "not equal"
+## ```
 weave check_eq_float with a as float , b as float , msg as string , epsilon as float is 0.000001 into ResultString:
-    var diff as float is a - b
-    if diff < 0.0:
-        set diff is 0.0 - diff
+    let diff as float is if (a - b) < 0.0 then (b - a) else (a - b)
     if diff <= epsilon:
         return calling oracle.result_ok_string with "ok"
     return calling oracle.result_err_string with msg
 
 ## Returns ok("ok") when MaybeInt holds a value, otherwise err(`msg`).
+## @deprecated Use `check_present_native` instead.
+##
+## ## Parámetros
+## - `m`: the legacy optional to inspect. Borrowed, not consumed.
+## - `msg`: the error payload used when the optional is empty. Borrowed.
+##
+## ## Retorno
+## The legacy `oracle.ResultString` (owned by the caller): `ok("ok")` when
+## `m.is_present` is true, `err(msg)` otherwise.
+##
+## ## Memoria
+## The returned `ResultString` owns its string field; release it with `banish`.
+## The parameters are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let r as ResultString is calling ward.check_present_int with maybe_count, "missing count"
+## ```
 weave check_present_int with m as MaybeInt , msg as string into ResultString:
     if m.is_present:
         return calling oracle.result_ok_string with "ok"
     return calling oracle.result_err_string with msg
 
 ## Returns ok("ok") when MaybeString holds a value, otherwise err(`msg`).
+## @deprecated Use `check_present_native` instead.
+##
+## ## Parámetros
+## - `m`: the legacy optional to inspect. Borrowed, not consumed.
+## - `msg`: the error payload used when the optional is empty. Borrowed.
+##
+## ## Retorno
+## The legacy `oracle.ResultString` (owned by the caller): `ok("ok")` when
+## `m.is_present` is true, `err(msg)` otherwise.
+##
+## ## Memoria
+## The returned `ResultString` owns its string field; release it with `banish`.
+## The parameters are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let r as ResultString is calling ward.check_present_string with maybe_name, "missing name"
+## ```
 weave check_present_string with m as MaybeString , msg as string into ResultString:
     if m.is_present:
         return calling oracle.result_ok_string with "ok"
     return calling oracle.result_err_string with msg
 
 ## Returns ok("ok") when ResultInt is ok, otherwise err(`msg`).
+## @deprecated Use `check_ok_native` instead.
+##
+## ## Parámetros
+## - `r`: the legacy result to inspect. Borrowed, not consumed.
+## - `msg`: the error payload used when the result is err. Borrowed.
+##
+## ## Retorno
+## The legacy `oracle.ResultString` (owned by the caller): `ok("ok")` when
+## `r.is_ok` is true, `err(msg)` otherwise.
+##
+## ## Memoria
+## The returned `ResultString` owns its string field; release it with `banish`.
+## The parameters are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let r as ResultString is calling ward.check_ok_int with parsed, "parse failed"
+## ```
 weave check_ok_int with r as ResultInt , msg as string into ResultString:
     if r.is_ok:
         return calling oracle.result_ok_string with "ok"
     return calling oracle.result_err_string with msg
 
 ## Returns ok("ok") when ResultString is ok, otherwise err(`msg`).
+## @deprecated Use `check_ok_native` instead.
+##
+## ## Parámetros
+## - `r`: the legacy result to inspect. Borrowed, not consumed.
+## - `msg`: the error payload used when the result is err. Borrowed.
+##
+## ## Retorno
+## The legacy `oracle.ResultString` (owned by the caller): `ok("ok")` when
+## `r.is_ok` is true, `err(msg)` otherwise.
+##
+## ## Memoria
+## The returned `ResultString` owns its string field; release it with `banish`.
+## The parameters are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let r as ResultString is calling ward.check_ok_string with decoded, "decode failed"
+## ```
 weave check_ok_string with r as ResultString , msg as string into ResultString:
     if r.is_ok:
         return calling oracle.result_ok_string with "ok"
     return calling oracle.result_err_string with msg
+
+# ----------------------------------------------------------------------------
+# Native Result Checks (oracle-compatible)
+# ----------------------------------------------------------------------------
+# These seven checks return the native `result of string to string` built with
+# the `ok_of` / `err_of` intrinsics, so they compose with `std.oracle`
+# (`is_ok`, `is_err`, `unwrap_err`, `map_err`, ...). They are the canonical
+# replacements named by the `## @deprecated` markers of the legacy block above.
+
+## Returns ok("ok") when `cond` is true, otherwise err(`msg`). Never panics.
+##
+## ## Parámetros
+## - `cond`: the condition to check.
+## - `msg`: the error payload used when `cond` is false. Borrowed.
+##
+## ## Retorno
+## A native `result of string to string`, owned by the caller: `ok("ok")` when
+## `cond` holds, `err(msg)` otherwise.
+##
+## ## Memoria
+## The returned `result` owns its payload; release it with `banish`. The
+## parameters are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of string to string is calling ward.check_native with x > 0, "x must be positive"
+## ```
+weave check_native with cond as bool , msg as string into result of string to string:
+    if cond:
+        return calling ok_of with "ok"
+    return calling err_of with msg
+
+## Returns ok("ok") when `a` equals `b`, otherwise err(`msg`). Never panics.
+##
+## ## Parámetros
+## - `a`: the actual value.
+## - `b`: the expected value.
+## - `msg`: the error payload used when the values differ. Borrowed.
+##
+## ## Retorno
+## A native `result of string to string`, owned by the caller: `ok("ok")` when
+## `a == b`, `err(msg)` otherwise.
+##
+## ## Memoria
+## The returned `result` owns its payload; release it with `banish`. The
+## parameters are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of string to string is calling ward.check_eq_int_native with 2 + 2, 4, "bad sum"
+## ```
+weave check_eq_int_native with a as int , b as int , msg as string into result of string to string:
+    if a == b:
+        return calling ok_of with "ok"
+    return calling err_of with msg
+
+## Returns ok("ok") when `a` equals `b` (exact string comparison), otherwise err(`msg`).
+##
+## ## Parámetros
+## - `a`: the actual string. Borrowed.
+## - `b`: the expected string. Borrowed.
+## - `msg`: the error payload used when the strings differ. Borrowed.
+##
+## ## Retorno
+## A native `result of string to string`, owned by the caller: `ok("ok")` when
+## `a == b`, `err(msg)` otherwise.
+##
+## ## Memoria
+## The returned `result` owns its payload; release it with `banish`. The
+## parameters are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of string to string is calling ward.check_eq_string_native with name, "Alice", "bad name"
+## ```
+weave check_eq_string_native with a as string , b as string , msg as string into result of string to string:
+    if a == b:
+        return calling ok_of with "ok"
+    return calling err_of with msg
+
+## Returns ok("ok") when boolean `a` equals `b`, otherwise err(`msg`).
+##
+## ## Parámetros
+## - `a`: the actual boolean.
+## - `b`: the expected boolean.
+## - `msg`: the error payload used when the booleans differ. Borrowed.
+##
+## ## Retorno
+## A native `result of string to string`, owned by the caller: `ok("ok")` when
+## `a == b`, `err(msg)` otherwise.
+##
+## ## Memoria
+## The returned `result` owns its payload; release it with `banish`. The
+## parameters are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of string to string is calling ward.check_eq_bool_native with flag, true, "flag must be true"
+## ```
+weave check_eq_bool_native with a as bool , b as bool , msg as string into result of string to string:
+    if a == b:
+        return calling ok_of with "ok"
+    return calling err_of with msg
+
+## Returns ok("ok") when float difference is within `epsilon`, otherwise err(`msg`).
+##
+## ## Parámetros
+## - `a`: the actual value.
+## - `b`: the expected value.
+## - `msg`: the error payload used when the values differ. Borrowed.
+## - `epsilon`: the inclusive tolerance. Defaults to `0.000001`.
+##
+## ## Retorno
+## A native `result of string to string`, owned by the caller: `ok("ok")` when
+## `|a - b| <= epsilon`, `err(msg)` otherwise.
+##
+## ## Memoria
+## The returned `result` owns its payload; release it with `banish`. The
+## parameters are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of string to string is calling ward.check_eq_float_native with 1.0, 1.0, "not equal"
+## ```
+weave check_eq_float_native with a as float , b as float , msg as string , epsilon as float is 0.000001 into result of string to string:
+    let diff as float is if (a - b) < 0.0 then (b - a) else (a - b)
+    if diff <= epsilon:
+        return calling ok_of with "ok"
+    return calling err_of with msg
+
+## Returns ok("ok") when native maybe container `m` holds a value, otherwise err(`msg`).
+##
+## ## Parámetros
+## - `m`: the optional to inspect. Borrowed, not consumed.
+## - `msg`: the error payload used when the optional is empty. Borrowed.
+## - `T`: the payload type of the optional.
+##
+## ## Retorno
+## A native `result of string to string`, owned by the caller: `ok("ok")` when
+## `m` is present, `err(msg)` otherwise.
+##
+## ## Memoria
+## The returned `result` owns its payload; release it with `banish`. The optional
+## is borrowed and never banished.
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of string to string is calling ward.check_present_native with user_opt, "missing user"
+## ```
+weave check_present_native shard T with m as maybe T , msg as string into result of string to string:
+    if m is present:
+        return calling ok_of with "ok"
+    return calling err_of with msg
+
+## Returns ok("ok") when native result `r` is ok, otherwise err(`msg`).
+##
+## ## Parámetros
+## - `r`: the result to inspect. Borrowed, not consumed.
+## - `msg`: the error payload used when the result is err. Borrowed.
+## - `T`: the success payload type.
+## - `E`: the error payload type.
+##
+## ## Retorno
+## A native `result of string to string`, owned by the caller: `ok("ok")` when
+## `r.is_ok` is true, `err(msg)` otherwise.
+##
+## ## Memoria
+## The returned `result` owns its payload; release it with `banish`. The inspected
+## result is borrowed and never banished.
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of string to string is calling ward.check_ok_native with parsed, "parse failed"
+## ```
+weave check_ok_native shard T and E with r as result of T to E , msg as string into result of string to string:
+    if r.is_ok:
+        return calling ok_of with "ok"
+    return calling err_of with msg
+
+# ----------------------------------------------------------------------------
+# Tests
+# ----------------------------------------------------------------------------
+# These tests never panic: they exercise the happy paths of `assert_*` /
+# `expect_*` and the full classification of the non-panicking `check_*` families.
+# The panic paths themselves are verified by `tests/stdlib/test_ward.py`.
+
+test "assert_true accepts a true condition":
+    calling assert_true with true
+test "assert_false accepts a false condition":
+    calling assert_false with false
+test "assert and assert_msg accept true conditions":
+    calling assert with true
+    calling assert_msg with true, "never shown"
+test "assert_eq_int and assert_ne_int accept matching values":
+    calling assert_eq_int with 2 + 2, 4
+    calling assert_ne_int with 3, 4
+test "assert_eq_bool and assert_ne_bool accept matching values":
+    calling assert_eq_bool with true, true
+    calling assert_ne_bool with true, false
+test "assert_eq_string and assert_ne_string accept matching values":
+    calling assert_eq_string with "ping", "ping"
+    calling assert_ne_string with "ping", "pong"
+test "assert_eq_float accepts values within epsilon":
+    calling assert_eq_float with 1.0000001, 1.0, 0.001
+test "assert_ne_float accepts values outside epsilon":
+    calling assert_ne_float with 2.0, 1.0, 0.001
+test "assert_almost_eq accepts values within epsilon":
+    calling assert_almost_eq with 3.14159, 3.1416, 0.001
+test "assert_gt_int and assert_ge_int accept increasing values":
+    calling assert_gt_int with 5, 3
+    calling assert_ge_int with 4, 4
+test "assert_lt_int and assert_le_int accept decreasing values":
+    calling assert_lt_int with 3, 5
+    calling assert_le_int with 4, 4
+test "assert_gt_float and assert_ge_float accept increasing values":
+    calling assert_gt_float with 2.5, 1.5
+    calling assert_ge_float with 1.5, 1.5
+test "assert_lt_float and assert_le_float accept decreasing values":
+    calling assert_lt_float with 1.5, 2.5
+    calling assert_le_float with 1.5, 1.5
+test "assert_in_range_int accepts inclusive bounds":
+    calling assert_in_range_int with 1, 1, 12
+    calling assert_in_range_int with 12, 1, 12
+test "assert_in_range_float accepts inclusive bounds":
+    calling assert_in_range_float with 0.0, 0.0, 1.0
+    calling assert_in_range_float with 1.0, 0.0, 1.0
+test "assert_string_contains accepts a substring":
+    calling assert_string_contains with "hello world", "world"
+test "assert_string_starts_with and assert_string_ends_with accept affixes":
+    calling assert_string_starts_with with "https://example.org", "https://"
+    calling assert_string_ends_with with "main.pengu", ".pengu"
+test "assert_string_empty and assert_string_not_empty accept matching lengths":
+    calling assert_string_empty with ""
+    calling assert_string_not_empty with "text"
+test "assert_eq_int_list accepts identical lists":
+    let xs as list of int is [1, 2, 3]
+    defer banish xs
+    let ys as list of int is [1, 2, 3]
+    defer banish ys
+    calling assert_eq_int_list with xs, ys
+test "assert_eq_string_list accepts identical lists":
+    let xs as list of string is ["alpha", "beta"]
+    defer banish xs
+    let ys as list of string is ["alpha", "beta"]
+    defer banish ys
+    calling assert_eq_string_list with xs, ys
+test "assert_list_len_int and assert_list_not_empty_int accept non-empty lists":
+    let xs as list of int is [7, 8]
+    defer banish xs
+    calling assert_list_len_int with xs, 2
+    calling assert_list_not_empty_int with xs
+test "assert_list_empty_int accepts an empty list":
+    let xs as list of int is list of int
+    defer banish xs
+    calling assert_list_empty_int with xs
+test "assert_map_has_key and assert_map_not_has_key classify keys":
+    var config as map of string to string is map of string to string
+    defer banish config
+    calling config.put with "host", "localhost"
+    calling assert_map_has_key with config, "host"
+    calling assert_map_not_has_key with config, "secret"
+test "assert_maybe_present and assert_maybe_none accept the matching shape":
+    let present as maybe int is some 7
+    calling assert_maybe_present with present
+    let missing as maybe int is maybe none
+    calling assert_maybe_none with missing
+test "assert_result_ok and assert_result_err accept the matching status":
+    let good as result of int to string is calling ok_of with 1
+    calling assert_result_ok with good
+    let bad as result of int to string is calling err_of with "boom"
+    calling assert_result_err with bad
+test "assert_result_ok_int and assert_result_err_int accept the matching status":
+    let good as result of int to string is calling ok_of with 5
+    calling assert_result_ok_int with good
+    let bad as result of int to string is calling err_of with "boom"
+    calling assert_result_err_int with bad
+test "legacy assert_present_int and assert_none_int accept matching optionals":
+    let present as MaybeInt is calling oracle.maybe_some_int with 5
+    calling assert_present_int with present
+    let missing as MaybeInt is calling oracle.maybe_none_int
+    calling assert_none_int with missing
+test "legacy assert_ok_int and assert_err_int accept matching results":
+    let good as ResultInt is calling oracle.result_ok_int with 3
+    calling assert_ok_int with good
+    let bad as ResultInt is calling oracle.result_err_int with "boom"
+    calling assert_err_int with bad
+test "legacy assert_present_string and assert_ok_string accept matching containers":
+    let present as MaybeString is calling oracle.maybe_some_string with "hi"
+    calling assert_present_string with present
+    let good as ResultString is calling oracle.result_ok_string with "hi"
+    calling assert_ok_string with good
+test "expect helpers accept satisfied conditions":
+    calling expect with true, "never shown"
+    calling expect_eq_int with 4, 4, "never shown"
+    calling expect_eq_string with "same", "same", "never shown"
+    calling expect_ne_int with 1, 2, "never shown"
+    calling expect_ne_string with "left", "right", "never shown"
+    calling expect_ne_bool with true, false, "never shown"
+test "expect float and order helpers accept satisfied conditions":
+    calling expect_eq_float with 1.0, 1.0, "never shown"
+    calling expect_gt_int with 2, 1, "never shown"
+    calling expect_ge_int with 2, 2, "never shown"
+    calling expect_lt_int with 1, 2, "never shown"
+    calling expect_le_int with 2, 2, "never shown"
+test "expect container helpers accept satisfied conditions":
+    let present_i as MaybeInt is calling oracle.maybe_some_int with 1
+    calling expect_present_int with present_i, "never shown"
+    let present_s as MaybeString is calling oracle.maybe_some_string with "x"
+    calling expect_present_string with present_s, "never shown"
+    let ok_r as ResultInt is calling oracle.result_ok_int with 1
+    calling expect_ok_int with ok_r, "never shown"
+    let ok_s as ResultString is calling oracle.result_ok_string with "x"
+    calling expect_ok_string with ok_s, "never shown"
+test "check_native returns ok for a true condition":
+    let r as result of string to string is calling check_native with true, "boom"
+    calling assert_true with r.is_ok
+test "check_native returns err carrying the message":
+    let r as result of string to string is calling check_native with false, "boom"
+    calling assert_true with r.is_ok == false
+    calling assert_eq_string with r.error, "boom"
+test "check_eq_int_native classifies equality":
+    let same as result of string to string is calling check_eq_int_native with 2 + 2, 4, "bad sum"
+    calling assert_true with same.is_ok
+    let diff as result of string to string is calling check_eq_int_native with 3, 4, "bad sum"
+    calling assert_true with diff.is_ok == false
+    calling assert_eq_string with diff.error, "bad sum"
+test "check_eq_string_native classifies equality":
+    let same as result of string to string is calling check_eq_string_native with "ping", "ping", "bad string"
+    calling assert_true with same.is_ok
+    let diff as result of string to string is calling check_eq_string_native with "ping", "pong", "bad string"
+    calling assert_true with diff.is_ok == false
+    calling assert_eq_string with diff.error, "bad string"
+test "check_eq_bool_native classifies equality":
+    let same as result of string to string is calling check_eq_bool_native with true, true, "bad bool"
+    calling assert_true with same.is_ok
+    let diff as result of string to string is calling check_eq_bool_native with true, false, "bad bool"
+    calling assert_true with diff.is_ok == false
+    calling assert_eq_string with diff.error, "bad bool"
+test "check_eq_float_native honours epsilon":
+    let near as result of string to string is calling check_eq_float_native with 1.0000001, 1.0, "far apart"
+    calling assert_true with near.is_ok
+    let far as result of string to string is calling check_eq_float_native with 2.0, 1.0, "far apart", 0.001
+    calling assert_true with far.is_ok == false
+    calling assert_eq_string with far.error, "far apart"
+test "check_present_native classifies a maybe":
+    let present as maybe int is some 7
+    let found as result of string to string is calling check_present_native with present, "missing"
+    calling assert_true with found.is_ok
+    let missing as maybe int is maybe none
+    let lost as result of string to string is calling check_present_native with missing, "missing"
+    calling assert_true with lost.is_ok == false
+    calling assert_eq_string with lost.error, "missing"
+test "check_ok_native classifies a result":
+    let good as result of int to string is calling ok_of with 1
+    let accepted as result of string to string is calling check_ok_native with good, "rejected"
+    calling assert_true with accepted.is_ok
+    let bad as result of int to string is calling err_of with "boom"
+    let rejected as result of string to string is calling check_ok_native with bad, "rejected"
+    calling assert_true with rejected.is_ok == false
+    calling assert_eq_string with rejected.error, "rejected"
+test "legacy check helpers still return ResultString":
+    let ok_r as ResultString is calling check with true, "nope"
+    calling assert_true with ok_r.is_ok
+    let err_r as ResultString is calling check_eq_int with 1, 2, "mismatch"
+    calling assert_false with err_r.is_ok
+    calling assert_eq_string with err_r.error_msg, "mismatch"
+test "WARD_VERSION is 2.1.0":
+    calling assert_eq_string with WARD_VERSION, "2.1.0"
