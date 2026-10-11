@@ -50,63 +50,11 @@ static int failures = 0;
 #define CHECK(cond, msg) do { if (!(cond)) { printf("FAIL: %s\n", msg); failures++; } } while (0)
 
 int main(void) {
-    /* 1. replace with to.len < from.len */
-    {
-        PenguString s = pengu_string_from_cstr("hello world");
-        PenguString from = pengu_string_from_cstr("world");
-        PenguString to = pengu_string_from_cstr("!");
-        PenguString res = pengu_string_replace(s, from, to);
-        CHECK(res.len == 7 && strcmp(res.data, "hello !") == 0, "replace('hello world', 'world', '!')");
-        pengu_banish_string(&res);
-
-        PenguString s2 = pengu_string_from_cstr("aaa");
-        PenguString from2 = pengu_string_from_cstr("a");
-        PenguString to2 = pengu_string_from_cstr("");
-        PenguString res2 = pengu_string_replace(s2, from2, to2);
-        CHECK(res2.len == 0 && strcmp(res2.data, "") == 0, "replace('aaa', 'a', '')");
-        pengu_banish_string(&res2);
-
-        PenguString s3 = pengu_string_from_cstr("abcabc");
-        PenguString from3 = pengu_string_from_cstr("abc");
-        PenguString to3 = pengu_string_from_cstr("x");
-        PenguString res3 = pengu_string_replace(s3, from3, to3);
-        CHECK(res3.len == 2 && strcmp(res3.data, "xx") == 0, "replace('abcabc', 'abc', 'x')");
-        pengu_banish_string(&res3);
-    }
-
-    /* 2. replace with to.len >= from.len */
-    {
-        PenguString s = pengu_string_from_cstr("abc");
-        PenguString from = pengu_string_from_cstr("abc");
-        PenguString to = pengu_string_from_cstr("xyz");
-        PenguString res = pengu_string_replace(s, from, to);
-        CHECK(res.len == 3 && strcmp(res.data, "xyz") == 0, "replace('abc', 'abc', 'xyz')");
-        pengu_banish_string(&res);
-
-        PenguString s2 = pengu_string_from_cstr("a b");
-        PenguString from2 = pengu_string_from_cstr(" ");
-        PenguString to2 = pengu_string_from_cstr("---");
-        PenguString res2 = pengu_string_replace(s2, from2, to2);
-        CHECK(res2.len == 5 && strcmp(res2.data, "a---b") == 0, "replace('a b', ' ', '---')");
-        pengu_banish_string(&res2);
-    }
-
-    /* 3. repeat with normal and overflow */
-    {
-        PenguString s = pengu_string_from_cstr("ab");
-        PenguString res = pengu_string_repeat(s, 3);
-        CHECK(res.len == 6 && strcmp(res.data, "ababab") == 0, "repeat('ab', 3)");
-        pengu_banish_string(&res);
-
-        /* repeat with SIZE_MAX / 2 should not overflow or crash */
-        PenguString res_ovf = pengu_string_repeat(s, (int)(SIZE_MAX / 2));
-        CHECK(res_ovf.len == 0 && res_ovf.data != NULL && res_ovf.data[0] == '\0', "repeat overflow");
-        pengu_banish_string(&res_ovf);
-
-        PenguString res_neg = pengu_string_repeat(s, -1);
-        CHECK(res_neg.len == 0 && res_neg.data != NULL, "repeat negative");
-        pengu_banish_string(&res_neg);
-    }
+    /* 1-3. pengu_string_replace / pengu_string_repeat moved to std/scrolls.pengu
+     * (Chunk 2 of the 2.0 migration): the header no longer defines them, so a
+     * driver that only includes pengu_runtime.h cannot call them.  Their range,
+     * overflow, embedded-NUL and malloc-failure behaviour is asserted
+     * end-to-end by tests/test_scrolls.py. */
 
     /* 4. concat with normal and simulated malloc failure */
     {
@@ -162,34 +110,10 @@ int main(void) {
             PenguString cat = pengu_string_concat(a, b);
             CHECK(cat.len == 0 && cat.data != NULL && cat.data[0] == '\0', "concat('', '') len 0");
             pengu_banish_string(&cat);
-
-            PenguString src = pengu_string_from_cstr("abc");
-            PenguString from = pengu_string_from_cstr("abc");
-            PenguString to = pengu_string_from_cstr("");
-            PenguString rep = pengu_string_replace(src, from, to);
-            CHECK(rep.len == 0 && rep.data != NULL && rep.data[0] == '\0', "replace('abc','abc','') len 0");
-            pengu_banish_string(&rep);
         }
     }
 
-    /* 8. index_of with embedded NULs and edge cases */
-    {
-        char raw_a[4] = {'a', '\0', 'b', '\0'};
-        PenguString a = {raw_a, 3};
-        PenguString sub_b = pengu_string_from_cstr("b");
-        int idx = pengu_string_index_of(a, sub_b);
-        CHECK(idx == 2, "index_of({'a\\0b', 3}, 'b') == 2");
-
-        PenguString s = pengu_string_from_cstr("abcabc");
-        PenguString sub_bc = pengu_string_from_cstr("bc");
-        CHECK(pengu_string_index_of(s, sub_bc) == 1, "index_of('abcabc', 'bc') == 1");
-
-        PenguString hello = pengu_string_from_cstr("hello");
-        PenguString empty = pengu_string_from_cstr("");
-        PenguString z = pengu_string_from_cstr("z");
-        CHECK(pengu_string_index_of(hello, empty) == 0, "index_of('hello', '') == 0");
-        CHECK(pengu_string_index_of(hello, z) == -1, "index_of('hello', 'z') == -1");
-    }
+    /* 8. index_of moved to std/scrolls.pengu (Chunk 2); see tests/test_scrolls.py. */
 
     /* 9. split with empty segments */
     {
@@ -240,51 +164,15 @@ int main(void) {
         }
     }
 
-    /* 11. replace preserves embedded NULs on no-match and no-op (B21) */
-    {
-        char raw_nul[4] = {'a', '\0', 'b', '\0'};
-        PenguString s_bin = {raw_nul, 3};
-        PenguString empty_from = pengu_string_from_cstr("");
-        PenguString rep_to = pengu_string_from_cstr("x");
-        PenguString res_noop = pengu_string_replace(s_bin, empty_from, rep_to);
-        CHECK(res_noop.len == 3 && memcmp(res_noop.data, "a\0b", 3) == 0, "replace with empty from preserves NULs");
-        pengu_banish_string(&res_noop);
-
-        PenguString nomatch_from = pengu_string_from_cstr("z");
-        PenguString res_nomatch = pengu_string_replace(s_bin, nomatch_from, rep_to);
-        CHECK(res_nomatch.len == 3 && memcmp(res_nomatch.data, "a\0b", 3) == 0, "replace with no-match preserves NULs");
-        pengu_banish_string(&res_nomatch);
-    }
+    /* 11. pengu_string_replace embedded-NUL preservation (B21) moved to
+     * std/scrolls.pengu; see tests/test_scrolls.py. */
 
     /* 12-13. parse_float ERANGE (B22) and parse_int/parse_float whitespace
      * trimming (B23) moved to std/spark.pengu with the functions themselves; see
      * tests/test_spark.py. */
 
-    /* 14. pengu_string_contains with embedded NULs (B24) */
-    {
-        char raw_bin[4] = {'a', '\0', 'b', '\0'};
-        PenguString s_bin = {raw_bin, 3};
-        PenguString sub_b = pengu_string_from_cstr("b");
-        PenguString sub_z = pengu_string_from_cstr("z");
-        PenguString sub_empty = pengu_string_from_cstr("");
-        CHECK(pengu_string_contains(s_bin, sub_b), "contains('a\\0b', 'b') is true");
-        CHECK(!pengu_string_contains(s_bin, sub_z), "contains('a\\0b', 'z') is false");
-        CHECK(pengu_string_contains(s_bin, sub_empty), "contains('a\\0b', '') is true");
-    }
-
-    /* 15. pengu_string_starts_with with embedded NULs (B25) */
-    {
-        char raw_x[4] = {'a', '\0', 'X', '\0'};
-        char raw_y[4] = {'a', '\0', 'Y', '\0'};
-        PenguString s_x = {raw_x, 3};
-        PenguString s_y = {raw_y, 3};
-        CHECK(!pengu_string_starts_with(s_x, s_y), "starts_with('a\\0X', 'a\\0Y') is false");
-        CHECK(pengu_string_starts_with(s_x, s_x), "starts_with('a\\0X', 'a\\0X') is true");
-
-        PenguString s_abc = pengu_string_from_cstr("abc");
-        PenguString s_ab = pengu_string_from_cstr("ab");
-        CHECK(pengu_string_starts_with(s_abc, s_ab), "starts_with('abc', 'ab') is true");
-    }
+    /* 14-15. pengu_string_contains (B24) and pengu_string_starts_with (B25)
+     * moved to std/scrolls.pengu; see tests/test_scrolls.py. */
 
     /* 16. pengu_string_concat overflow guard (A14) */
     {
@@ -296,38 +184,9 @@ int main(void) {
         pengu_banish_string(&res);
     }
 
-    /* 17. pengu_string_repeat overflow guard (A15) */
-    {
-        char dummy[4] = "abc";
-        PenguString s = {dummy, 3};
-        PenguString res = pengu_string_repeat(s, (int)((size_t)INT_MAX / 2 + 10));
-        CHECK(res.len == 0, "repeat overflow returns empty string");
-        pengu_banish_string(&res);
-    }
-
-    /* 18. pengu_string_replace overflow guard (A16) */
-    {
-        char src[3] = "aa";
-        PenguString s = {src, 2};
-        PenguString from = pengu_string_from_cstr("a");
-        PenguString to = {(char *)"x", INT_MAX};
-        PenguString res = pengu_string_replace(s, from, to);
-        CHECK(res.len == 0, "replace overflow returns empty string");
-        pengu_banish_string(&res);
-    }
-
-    /* 19. pengu_string_replace with embedded NUL in from/s (B26) */
-    {
-        char raw_s[8] = {'x', ' ', 'a', '\0', 'b', ' ', 'y', '\0'};
-        char raw_from[4] = {'a', '\0', 'b', '\0'};
-        PenguString s = {raw_s, 7};
-        PenguString from = {raw_from, 3};
-        PenguString to = pengu_string_from_cstr("ZZZ");
-        PenguString res = pengu_string_replace(s, from, to);
-        CHECK(res.len == 7, "replace embedded NUL result len is 7");
-        CHECK(res.data != NULL && memcmp(res.data, "x ZZZ y", 7) == 0, "replace embedded NUL replaced full 3 bytes");
-        pengu_banish_string(&res);
-    }
+    /* 17-19. pengu_string_repeat (A15) and pengu_string_replace (A16/B26)
+     * overflow and embedded-NUL guards moved to std/scrolls.pengu; see
+     * tests/test_scrolls.py. */
 
     /* 20. pengu_string_split with embedded NUL in delim (B27) */
     {
@@ -386,17 +245,8 @@ int main(void) {
         pengu_banish_string(&fc_null);
     }
 
-    /* 15. pengu_string_replace overflow defense with int64 (A21) */
-    {
-        PenguString s = pengu_string_from_cstr("aa");
-        PenguString from = pengu_string_from_cstr("a");
-        PenguString to;
-        to.data = "x";
-        to.len = INT_MAX / 2 + 10;
-        PenguString res = pengu_string_replace(s, from, to);
-        CHECK(res.len == 0 && strcmp(res.data, "") == 0, "replace with count*delta exceeding INT_MAX returns empty string");
-        pengu_banish_string(&res);
-    }
+    /* 15. pengu_string_replace int64 overflow defense (A21) moved to
+     * std/scrolls.pengu; see tests/test_scrolls.py. */
 
     /* 16. parse_int / parse_float NUL-awareness and non-NUL views (N1a, N1b)
      * moved to std/spark.pengu; see tests/test_spark.py. */

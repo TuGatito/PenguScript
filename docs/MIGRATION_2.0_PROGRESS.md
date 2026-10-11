@@ -30,7 +30,56 @@ y deja su contrato congelado en un `docs/<MOD>_API.md`.
 - [x] `SPARK_VERSION` subido de `"0.7.0-spark"` a `"0.8.0-spark"`.
 - [x] `docs/SPARK_API.md` y `docs/PENGUNIC_CHECKLIST.md` creados.
 
-### Próximo: Chunk 2 (`std/scrolls` + `std/oracle`)
+### ✅ Chunk 2: `std.scrolls` + `std.oracle`
+
+`std/scrolls`:
+
+- [x] Reescrito `std/scrolls.pengu` completo en Pengunic 2.0 (1594 → 3731 líneas,
+      casi todo docstrings en inglés).
+- [x] 14 bloques `antiquus` añadidos: 6 clasificadores ASCII (`_char_is_space`,
+      `_char_is_digit`, `_char_is_upper`, `_char_is_lower`, `_char_is_alpha`,
+      `_char_is_alnum`) y 8 helpers de string movidos desde `pengu_runtime.h`
+      (`pengu_string_contains`, `pengu_string_starts_with`,
+      `pengu_string_ends_with`, `pengu_string_index_of`,
+      `pengu_string_last_index_of`, `pengu_string_replace`,
+      `pengu_string_repeat`, `pengu_string_reverse`).
+- [x] 9 weaves Pengu redundantes eliminados (regla del C-block): los 6
+      `_char_is_*`, `_index_of_from`, `_last_index_of_from` y `_has_prefix_at`.
+      Sus llamantes pasan por los C-blocks o por `pengu__find_sub`.
+- [x] `pengu__find_sub` **no se mueve**: lo usan `pengu_string_split` y el matcher
+      de globs; `scrolls` lo `declare` (antes de `insignia pengu_`, ver bugs).
+- [x] 10 símbolos públicos nuevos: `strip`, `splitn`, `rsplit`,
+      `starts_with_any`, `ends_with_any` (método + función de módulo).
+- [x] 137 símbolos públicos previos preservados; 23 marcadores
+      `## @deprecated` intactos.
+- [x] 135 bloques `test` internos (124 traducidos + 11 nuevos).
+- [x] `tests/test_scrolls.py`: 28 tests end-to-end.
+
+`std/oracle`:
+
+- [x] Reescrito `std/oracle.pengu` completo en Pengunic 2.0 (1506 → 2394 líneas).
+- [x] 156/156 declaraciones preservadas con firmas idénticas (152 públicas + 4
+      helpers `_expect*`); 0 símbolos añadidos o eliminados.
+- [x] Invariante de reconstrucción de contenedores mantenido y documentado
+      (`return some v` / `maybe none` / `ok_of` / `err_of`; nunca `return m`).
+- [x] 50 marcadores `## @deprecated` mantenidos; la prosa en español de los 5
+      runes legados traducida al inglés.
+- [x] 125 bloques `test` internos, traducidos al inglés.
+- [x] `tests/test_oracle.py`: 42 tests end-to-end.
+- [x] Ningún `static inline` movido: `pengu_maybe_*` / `pengu_result_*` los emite
+      el codegen en todos los bundles.
+
+Común:
+
+- [x] `pengu_runtime.h`: 4860 → 4673 líneas (−187) al quitar los 8 helpers de
+      string.
+- [x] `tests/runtime/test_runtime_strings.py` recortado (sus secciones movidas
+      pasan a `tests/test_scrolls.py`).
+- [x] `docs/SCROLLS_API.md` y `docs/ORACLE_API.md` creados.
+- [x] `docs/PENGUNIC_CHECKLIST.md` ampliada con las reglas del Chunk 2.
+- [x] `docs/api/` y `tests/_test_policy_baseline.json` regenerados.
+
+### Próximo: Chunk 3 (`std/tally` + `std/loom` + `std/ward`)
 
 ## Decisiones de estilo tomadas en Chunk 1
 
@@ -138,20 +187,72 @@ bindings C) y `tests/stdlib/test_std_warning_positions.py` (posiciones de W0001)
    `pengu_string_from_cstr` + `stdio`. La prosa de la guía queda desactualizada en
    ese ejemplo concreto, y el brief prohíbe editarla.
 
+## Desviaciones y hallazgos de Chunk 2
+
+1. **`declare` se manglea bajo `insignia`.** Un `declare pengu__find_sub` colocado
+   *después* de `insignia pengu_` emite `pengu_pengu__find_sub` (símbolo sin
+   definir) y falla al enlazar. En `scrolls` la declaración va **antes** de
+   `insignia`, con un comentario que lo explica. No afecta a los `antiquus`, que
+   sí llevan el prefijo (`pengu_pengu_string_*`) sin colisionar.
+2. **Regla del C-block aplicada a 9 weaves.** Los 6 `_char_is_*` y los 3 helpers
+   de búsqueda (`_index_of_from`, `_last_index_of_from`, `_has_prefix_at`) se
+   eliminaron; sus llamantes usan los `antiquus` o `pengu__find_sub`. No queda
+   doble implementación en `scrolls`.
+3. **`rsplit` sin `n` es equivalente a `split`.** Se implementó con un escaneo
+   hacia delante que no asigna substrings temporales; el resultado es idéntico al
+   de `split` (como en Python sin `maxsplit`). Documentado en el propio símbolo.
+4. **Los helpers opcionales de `oracle` se descartaron a propósito.**
+   `maybe.map_or`, `maybe.inspect`, `result.inspect`, `result.inspect_err` y
+   `result.map_or` compilan, pero su sola presencia rompe llamadas existentes:
+   `filter`, `map` y `map_err` pasan a resolver al símbolo C de `map_or`
+   (`maybe_int_map_or_int` con 2 de 3 argumentos) y el bundle no compila. Es un
+   bug del compilador (resolución de métodos por prefijo), no del módulo; se
+   verificó con el programa de ejercicio pre-migración. Queda registrado abajo.
+5. **Temporales de slice sin `banish`.** El patrón `let x is s at a to b` asigna
+   un buffer nuevo y no lo libera; es ubicuo en toda la stdlib preexistente
+   (`rites`, `precis`, `compass`, `ledger`, …) y también estaba en el `scrolls`
+   original. Se dejó como estaba para no cambiar el comportamiento del módulo ni
+   arriesgar un doble free fuera de alcance; el código **nuevo** (`rsplit`) sí
+   evita la asignación. Candidato a limpieza global en un chunk dedicado.
+
+## Bugs del compilador encontrados en Chunk 2
+
+- **Resolución de métodos por prefijo (bloqueante para la API opcional de
+  `oracle`).** Con un método `map_or` definido en `enchanting maybe shard T`, las
+  llamadas `m.map` / `m.filter` de código existente resuelven al símbolo de
+  `map_or` en el C generado, con el número de argumentos equivocado. Reproducción
+  mínima: añadir `map_or` a `std/oracle.pengu` y compilar el antiguo
+  `tests/std_programs/oracle.pengu` (hoy borrado; se usó `git show f9aa84a^:…`).
+- **`declare` + `insignia`** (ver hallazgo 1): el `declare` hereda el prefijo de
+  módulo, lo que impide declarar un símbolo C existente con su nombre exacto si el
+  módulo tiene `insignia`.
+- **`__auto_type` bajo tcc.** La indexación con comprobación de límites emite
+  `__extension__({ __auto_type … })`; el compilador de desarrollo (tcc) falla y la
+  CLI reintenta con gcc. Es preexistente (roadmap 3.3) y no lo introduce el
+  Chunk 2, pero hace que `pengu run` sea más lento en programas que usan
+  `scrolls`/`oracle`.
+
 ## Bloqueos conocidos
 
-- Ninguno para Chunk 2.
+- Ninguno para Chunk 3.
 - Deuda registrada: las guías Pengunic citan cifras de cobertura de docstrings de
-  `std/` que ya no son exactas (punto 2 de desviaciones).
+  `std/` que ya no son exactas (Chunk 1, desviación 2).
+- Deuda registrada: temporales de slice sin `banish` en toda la stdlib (hallazgo 5).
+- Deuda registrada: bug de resolución de métodos por prefijo (bloquea añadir
+  `map_or`/`inspect` a `oracle`).
 
-## Notas para Chunk 2
+## Notas para Chunk 3
 
-- `scrolls` y `oracle` deben importar `std.spark` (como ya hacen).
-- `oracle` gestiona `maybe`/`result`; igual que `spark` movió sus helpers de I/O,
-  `oracle` puede moverse `pengu_maybe_*`/`pengu_result_*` desde el runtime si se
-  confirma que nadie más los usa.
-- Antes de mover cualquier `static inline` del runtime, comprobar si
-  `tests/runtime/` lo llama directamente desde C: esos tests solo incluyen
-  `pengu_runtime.h` y no ven los `antiquus` de un módulo.
+- `tally`, `loom` y `ward` importan `std.spark` (y `ward` además `oracle` y
+  `scrolls`); no crear ciclos (E0004): el harness de tests interno debe ser
+  privado (`_expect*`), no `ward`.
+- Antes de mover cualquier `static inline` del runtime, `grep` en `std/`,
+  `pengu_parser/` y `tests/runtime/`: esos tests solo incluyen
+  `pengu_runtime.h` y no ven los `antiquus` de un módulo. El codegen emite
+  `pengu_string_char_at`, `pengu_string_substring`, `pengu_string_equal`,
+  `pengu_string_compare`, `pengu_string_split` y `pengu__find_sub`: no se mueven.
 - Mantener el patrón: `insignia <mod>_` cuando un weave pueda colisionar con un
-  símbolo de la libc (`exit`, `assert`, `printf`, …).
+  símbolo de la libc, y colocar los `declare` **antes** de `insignia`.
+- Los cuerpos `antiquus` van a columna 0 (todas las líneas), o `pengu fmt`
+  reindenta el archivo entero.
+- No renombrar ni eliminar símbolos públicos: la API es superset.

@@ -1337,22 +1337,13 @@ extern "C"
     return -1;
   }
 
-  static inline int pengu_string_index_of(PenguString a, PenguString sub);
-
-  /**
-   * @brief Checks if string a contains substring b.
-   * @param a Haystack string.
-   * @param b Needle string.
-   * @return True if substring is found, false otherwise.
-   */
-  static inline bool pengu_string_contains(PenguString a, PenguString b)
-  {
-    if (!a.data || !b.data)
-      return false;
-    if (b.len == 0)
-      return true;
-    return pengu_string_index_of(a, b) != -1;
-  }
+  /* pengu_string_contains, pengu_string_starts_with, pengu_string_ends_with,
+   * pengu_string_index_of, pengu_string_last_index_of, pengu_string_replace,
+   * pengu_string_repeat and pengu_string_reverse moved to std/scrolls.pengu
+   * (Chunk 2, 2.0 migration) as `antiquus` blocks: scrolls was their only
+   * consumer. pengu__find_sub stays here because pengu_string_split and the glob
+   * matcher use it, and pengu_string_substring / pengu_string_char_at stay
+   * because the code generator emits them. */
 
   /**
    * @brief Removes leading and trailing whitespace from a string.
@@ -1434,76 +1425,8 @@ extern "C"
     return (PenguString){buf, len, 1};
   }
 
-  /**
-   * @brief Checks if string a starts with prefix string.
-   * @param a Haystack string.
-   * @param prefix Prefix string.
-   * @return True if a starts with prefix, false otherwise.
-   */
-  static inline bool pengu_string_starts_with(PenguString a, PenguString prefix)
-  {
-    if (!a.data || !prefix.data)
-      return false;
-    if (prefix.len == 0)
-      return true;
-    if (a.len < prefix.len)
-      return false;
-    return memcmp(a.data, prefix.data, (size_t)prefix.len) == 0;
-  }
-
-  /**
-   * @brief Checks if string a ends with suffix string.
-   * @param a Haystack string.
-   * @param suffix Suffix string.
-   * @return True if a ends with suffix, false otherwise.
-   */
-  static inline bool pengu_string_ends_with(PenguString a, PenguString suffix)
-  {
-    if (!a.data || !suffix.data)
-      return false;
-    if (suffix.len == 0)
-      return true;
-    if (a.len < suffix.len)
-      return false;
-    return memcmp(a.data + a.len - suffix.len, suffix.data, (size_t)suffix.len) == 0;
-  }
-
-  /**
-   * @brief Returns the 0-based index of the first occurrence of sub in a, or -1 if not found.
-   * @param a Haystack string.
-   * @param sub Substring to search for.
-   * @return 0-based index or -1.
-   */
-  static inline int pengu_string_index_of(PenguString a, PenguString sub)
-  {
-    if (!a.data || !sub.data || a.len < sub.len)
-      return -1;
-    if (sub.len == 0)
-      return 0;
-    return pengu__find_sub(a, sub, 0);
-  }
-
-  /**
-   * @brief Returns the 0-based index of the last occurrence of sub in a, or -1 if not found.
-   * @param a Haystack string.
-   * @param sub Substring to search for.
-   * @return 0-based index or -1.
-   */
-  static inline int pengu_string_last_index_of(PenguString a, PenguString sub)
-  {
-    if (!a.data || !sub.data || a.len < sub.len)
-      return -1;
-    if (sub.len == 0)
-      return a.len;
-    for (int i = a.len - sub.len; i >= 0; --i)
-    {
-      if (memcmp(a.data + i, sub.data, (size_t)sub.len) == 0)
-      {
-        return i;
-      }
-    }
-    return -1;
-  }
+  /* pengu_string_starts_with and pengu_string_ends_with moved to
+   * std/scrolls.pengu (see the note above). */
 
   /**
    * @brief Extracts a substring from start index (inclusive) to end index (exclusive).
@@ -1531,118 +1454,8 @@ extern "C"
     return (PenguString){buf, len, 1};
   }
 
-  /**
-   * @brief Replaces all occurrences of from with to in string s.
-   * @note Semántica binaria exacta NUL-aware: no trunca en bytes NUL ni en `s` ni en `from`/`to`.
-   *       Strings con longitud resultante > INT_MAX se rechazan (retornan vacío).
-   * @param s Source string.
-   * @param from Substring to be replaced.
-   * @param to Replacement substring.
-   * @return Newly allocated string with replacements applied.
-   */
-  static inline PenguString pengu_string_replace(PenguString s, PenguString from, PenguString to)
-  {
-    if (!s.data)
-      return pengu_string_from_cstr("");
-    if (!from.data || from.len <= 0)
-      return pengu_string_copy(s);
-
-    int count = 0;
-    int pos = 0;
-    while ((pos = pengu__find_sub(s, from, pos)) != -1)
-    {
-      count++;
-      pos += from.len;
-    }
-    if (count == 0)
-      return pengu_string_copy(s);
-
-    int64_t delta = (int64_t)to.len - (int64_t)from.len;
-    int64_t new_len_64 = (int64_t)s.len + (int64_t)count * delta;
-    if (new_len_64 < 0 || new_len_64 > (int64_t)INT_MAX)
-      return pengu_string_from_cstr("");
-    size_t new_len = (size_t)new_len_64;
-    if (new_len == 0)
-      return pengu_string_from_cstr("");
-    char *buf = (char *)malloc(new_len + 1);
-    if (!buf)
-      return pengu_string_from_cstr("");
-
-    char *dst = buf;
-    int src_idx = 0;
-    int next_match = 0;
-    while ((next_match = pengu__find_sub(s, from, src_idx)) != -1)
-    {
-      int seg = next_match - src_idx;
-      if (seg > 0)
-      {
-        memcpy(dst, s.data + src_idx, (size_t)seg);
-        dst += seg;
-      }
-      if (to.len > 0 && to.data)
-      {
-        memcpy(dst, to.data, (size_t)to.len);
-        dst += to.len;
-      }
-      src_idx = next_match + from.len;
-    }
-    int rem = s.len - src_idx;
-    if (rem > 0)
-    {
-      memcpy(dst, s.data + src_idx, (size_t)rem);
-      dst += rem;
-    }
-    *dst = '\0';
-    return (PenguString){buf, (int)new_len, 1};
-  }
-
-  /**
-   * @brief Repeats string s count times.
-   * @note Strings con longitud resultante > INT_MAX se rechazan (retornan vacío)
-   *       para prevenir truncación de longitud y desbordamientos.
-   * @param s String to repeat.
-   * @param times Number of repetitions.
-   * @return Repeated PenguString.
-   */
-  static inline PenguString pengu_string_repeat(PenguString s, int times)
-  {
-    if (times <= 0 || !s.data || s.len <= 0)
-      return pengu_string_from_cstr("");
-    if ((size_t)s.len > SIZE_MAX / (size_t)times)
-      return pengu_string_from_cstr("");
-    size_t total_len = (size_t)s.len * (size_t)times;
-    if (total_len > (size_t)INT_MAX || total_len + 1 > SIZE_MAX / 2)
-      return pengu_string_from_cstr("");
-    char *buf = (char *)malloc(total_len + 1);
-    if (!buf)
-      return pengu_string_from_cstr("");
-    for (int i = 0; i < times; ++i)
-    {
-      memcpy(buf + ((size_t)i * (size_t)s.len), s.data, (size_t)s.len);
-    }
-    buf[total_len] = '\0';
-    return (PenguString){buf, (int)total_len, 1};
-  }
-
-  /**
-   * @brief Returns a reversed copy of string s.
-   * @param s Source string.
-   * @return Reversed PenguString.
-   */
-  static inline PenguString pengu_string_reverse(PenguString s)
-  {
-    if (!s.data || s.len <= 0)
-      return pengu_string_from_cstr("");
-    char *buf = (char *)malloc((size_t)s.len + 1);
-    if (!buf)
-      return pengu_string_from_cstr("");
-    for (int i = 0; i < s.len; ++i)
-    {
-      buf[i] = s.data[s.len - 1 - i];
-    }
-    buf[s.len] = '\0';
-    return (PenguString){buf, s.len, 1};
-  }
+  /* pengu_string_replace, pengu_string_repeat and pengu_string_reverse moved to
+   * std/scrolls.pengu (see the note above). */
 
   /**
    * @brief Returns single character at index idx as a new PenguString.

@@ -60,6 +60,36 @@ chunks restantes.
 - [ ] Si el módulo tenía tests solo-std, borrarlos y reparar los tests que los
       importaban o consumían como corpus
 
+## Migración de `static inline` del runtime (Chunk 2+)
+
+- [ ] Antes de mover nada: `grep` del símbolo en `std/`, `pengu_parser/`,
+      `tests/runtime/` y `tests/conformance/`. Solo se mueve si **ningún otro
+      módulo ni el codegen** lo usa.
+- [ ] El codegen emite `pengu_string_char_at`, `pengu_string_substring`,
+      `pengu_string_equal`, `pengu_string_compare`, `pengu_string_split` y
+      `pengu__find_sub`: **no se mueven**.
+- [ ] Cuidado con los nombres: con `insignia <mod>_`, un `antiquus _find_sub`
+      colisiona con el `pengu__find_sub` de la cabecera. Usa un nombre distinto
+      o un `declare` del helper que se queda.
+- [ ] Regla del C-block redundante: si el C-block y un `weave` Pengu hacen lo
+      mismo, se queda el C-block y **se borra el weave**. Nada de dos
+      implementaciones.
+- [ ] Si el módulo mueve helpers que `tests/runtime/test_runtime_strings.py`
+      llama desde C, recortar esas secciones del driver y anotar que su cobertura
+      pasa al `tests/test_<mod>.py`.
+
+## Contenedores (`oracle`, `trial`, …)
+
+- [ ] **Invariante de reconstrucción:** nunca `return m` / `return self` para un
+      parámetro o receptor contenedor; se reconstruye (`some v`, `maybe none`,
+      `calling ok_of with v`, `calling err_of with e`). Evita el doble free.
+- [ ] En un `enchanting` con `shard`, `self` es `ref to T`: leer el valor con
+      `essence of self`, no `self`.
+- [ ] `where` no existe en métodos: los bounds viven en los `weave shard T
+      where T: ...` de módulo.
+- [ ] Los tipos legados se mantienen y se marcan con el **docstring**
+      `## @deprecated Use X instead.` (no el atributo real, que emite W0006).
+
 ## Verificación
 
 - [ ] `pengu check --entry std/<mod>.pengu` pasa (0 errores; W0005 aceptado)

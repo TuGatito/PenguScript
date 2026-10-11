@@ -1,27 +1,19 @@
-## std/scrolls.pengu
-## Operaciones sobre strings: consulta, búsqueda, corte, recorte, reemplazo,
-## división, unión, alineación, clasificación ASCII, comparación y parseo.
+## std/scrolls.pengu — string operations: querying, searching, slicing, trimming,
+## replacing, splitting, joining, padding, ASCII classification, comparison and
+## parsing.
 ##
-## Cada operación existe dos veces: como método (`calling s.trim`) y como
-## función de módulo (`calling scrolls.trim with s`), que delega en el método.
-## `join` solo es función de módulo; `parse_int`/`parse_float`, solo métodos.
+## Every operation exists twice: as a method (`calling s.trim`) and as a module
+## function (`calling scrolls.trim with s`) that delegates to the method.
+## `join` only exists as a module function; `parse_int`/`parse_float` only as
+## methods.
 ##
-## ## Memory
-## Un `string` es un valor: nada muta `self`. El texto y los `list` devueltos
-## son nuevos y los libera el llamante con `banish`; los parámetros nunca se banishean.
-##
-## ## ASCII y bytes
-## El módulo es ASCII y trabaja a nivel de byte: `len`, los índices, `chars`,
-## `bytes` y los cortes cuentan bytes, no puntos de código UTF-8; un carácter
-## multi-byte se ve como varios bytes y `char_at` o `reverse` pueden partirlo.
-##
-## ## Ejemplo
+## ## Example
 ## ```pengu
 ## import std.scrolls
 ## import std.spark
 ##
 ## weave main into int:
-##     var raw as string is "  Hello, World  "
+##     let raw as string is "  Hello, World  "
 ##     var clean as string is calling raw.trim
 ##     var parts as list of string is calling clean.split with ", "
 ##     var joined as string is calling scrolls.join with parts, "|"
@@ -29,35 +21,51 @@
 ##     return 0
 ## ```
 ##
-## ## Notas de diseño
-## - **Sin `+` para strings** (E0005): la única composición es la interpolación
-##   `"{expr}"`; `_concat` es el único punto de acumulación del módulo.
-## - **Deprecación documental, no aplicada.** El toolchain *sí* soporta el
-##   atributo real `@deprecated("Use X instead")` (emite `W0006`, y
-##   `--deny-deprecated` lo promueve a error), pero estos alias usan por ahora
-##   la convención de docstring `## @deprecated Use X instead.` y por tanto
-##   **no** emiten aviso. Convertirlos en atributos reales obligaría además a
-##   migrar los usos internos (`find`/`rfind` en `std.invoke`/`std.precis`) y a
-##   sacar los alias de los bloques `test`, porque cualquier uso dispara el
-##   aviso. Está planificado para 1.1; el inventario con reemplazo y versión de
-##   retirada vive en `docs/DEPRECATIONS.md`.
-## - **Forma funcional.** Cada método tiene su `weave` de módulo, que solo
-##   añade el receptor `s` y delega; su contrato es el del método ya
-##   documentado arriba (no se repite la misma línea 68 veces).
-## - **Tests internos sin `std.ward`** (`ward` importa `scrolls`, E0004): la
-##   sección `# --- Tests ---` usa un harness privado sobre `spark.panic`.
-## - **`compare`** devuelve -1/0/1 por el prefijo común y, si empata, la
-##   longitud; `is_space` es false para "" (legado) e `is_blank` es true.
-## - **`parse_int`** delega en `spark.parse_int` (acepta espacios, rechaza el
-##   desbordamiento); **`parse_float`** calcula dígito a dígito y no acepta
-##   exponentes. Ninguno tiene forma funcional: `insignia pengu_` los emitiría
-##   como los intrínsecos `pengu_parse_int`/`pengu_parse_float`.
+## ## Memory
+## A `string` is a value: nothing mutates `self`. The text and the `list`s
+## returned are freshly allocated and the caller releases them with `banish`;
+## parameters are never banished. The slicing methods (`substring`, `char_at`,
+## `trim_start`, `trim_end`, `removeprefix`, `removesuffix`) also allocate a fresh
+## owned string, so release those results with `banish` too.
 ##
-## ## Migración
+## ## ASCII and bytes
+## The module is ASCII-oriented and works at the byte level: `len`, the indices,
+## `chars`, `bytes` and the slices count bytes, not UTF-8 code points; a
+## multi-byte character appears as several bytes and `char_at` or `reverse` may
+## split it.
 ##
-## Los nombres antiguos siguen funcionando como alias que delegan.
+## ## Design notes
+## - **No `+` for strings** (E0005): the only composition is `"{expr}"`
+##   interpolation; `_concat` is the module's single accumulation point.
+## - **Documentation-only deprecation.** The toolchain *does* support the real
+##   `@deprecated("Use X instead")` attribute (it emits `W0006`, and
+##   `--deny-deprecated` promotes it to an error), but these aliases still use the
+##   `## @deprecated Use X instead.` docstring convention and therefore emit no
+##   warning. Turning them into real attributes would also require migrating the
+##   internal uses (`find`/`rfind` in `std.invoke`/`std.precis`) and removing the
+##   aliases from the `test` blocks, because any use would trigger the warning. It
+##   is planned for 1.1; the inventory with replacements and retirement versions
+##   lives in `docs/DEPRECATIONS.md`.
+## - **Functional form.** Every method has its module `weave`, which only adds the
+##   `s` receiver and delegates; its contract is the method documented above.
+## - **C bridges.** The byte-level primitives of `string` live in `antiquus`
+##   blocks because they need `char *`/`.len` access the language does not expose.
+##   `pengu fmt` keeps every raw-string body at column 0, so those bodies never
+##   carry indentation.
+## - **Internal tests without `std.ward`** (`ward` imports `scrolls`, E0004): the
+##   `# --- Tests ---` section uses a private harness on top of `spark.panic`.
+## - **`compare`** returns -1/0/1 for the common prefix and falls back to length;
+##   `is_space` is false for "" (legacy) while `is_blank` is true.
+## - **`parse_int`** delegates to `spark.parse_int` (accepts whitespace, rejects
+##   overflow); **`parse_float`** computes digit by digit and rejects exponents.
+##   Neither has a functional form: `insignia pengu_` would emit them as the
+##   `pengu_parse_int`/`pengu_parse_float` intrinsics.
 ##
-## | Antiguo | Canónico |
+## ## Migration
+##
+## The old names keep working as delegating aliases.
+##
+## | Old | Canonical |
 ## |---|---|
 ## | `calling s.to_lower` / `s.to_upper` | `calling s.lower` / `s.upper` |
 ## | `calling s.title_case` | `calling s.title` |
@@ -67,10 +75,19 @@
 ## | `calling s.is_whitespace` | `calling s.is_space` |
 ## | `calling s.pad_left` / `s.pad_right` | `calling s.rjust` / `calling s.ljust` |
 ##
-## Nuevas: `words`, `lines`, `pascal_case`, `snake_case`, `kebab_case`,
-## `is_blank`, `is_numeric`, `parse_int`, `parse_float`, `repeat_join`.
+## New: `words`, `lines`, `pascal_case`, `snake_case`, `kebab_case`, `is_blank`,
+## `is_numeric`, `parse_int`, `parse_float`, `repeat_join`, `strip`, `splitn`,
+## `rsplit`, `starts_with_any`, `ends_with_any`.
 
-# --- Directivas de módulo ------------------------------------------------
+# --- Runtime declarations -----------------------------------------------
+# `pengu__find_sub` stays in `pengu_runtime.h` as a `static inline` helper, so it
+# is *declared* here rather than redefined (an `antiquus _find_sub` would emit a
+# second definition and collide). This declaration must come before
+# `insignia pengu_`: the insignia prefixes every later top-level name, which
+# would mangle the C symbol into `pengu_pengu__find_sub` and fail to link.
+declare pengu__find_sub with hay as string, needle as string, from_idx as int into int
+
+# --- Module directives --------------------------------------------------
 const SCROLLS_VERSION as string is "2.0.0"
 
 insignia pengu_
@@ -78,119 +95,675 @@ insignia pengu_
 # --- Imports ------------------------------------------------------------
 import std.spark
 
+# --- Embedded C bridges (`antiquus`) ------------------------------------
+# The byte-level primitives used by the string methods. They inspect
+# `PenguString.data`/`.len` directly and allocate owned buffers; expressing them
+# in PenguScript would need one-byte slices per position and would lose the
+# NUL-safe, binary-exact behaviour. Each one explains its `## ## Motivo`.
+
+## True when `ch` is exactly one ASCII whitespace byte: space, tab, LF, CR, VT or FF.
+##
+## ## Motivo
+## The test reads the single raw byte of the `PenguString` (`ch.len != 1` rejects
+## empty and multi-byte inputs without allocating a slice per call).
+##
+## ## Memoria
+## Allocates nothing. `ch` is borrowed and never freed.
+antiquus _char_is_space with ch as string into bool:
+    r"""
+if (!ch.data || ch.len != 1) return false;
+char c = ch.data[0];
+return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
+"""
+
+## True when `ch` is exactly one ASCII decimal digit (`0`-`9`).
+##
+## ## Motivo
+## A range check on the raw byte is branch-free, allocation-free and cannot be
+## confused by a multi-byte slice.
+##
+## ## Memoria
+## Allocates nothing. `ch` is borrowed and never freed.
+antiquus _char_is_digit with ch as string into bool:
+    r"""
+if (!ch.data || ch.len != 1) return false;
+char c = ch.data[0];
+return c >= '0' && c <= '9';
+"""
+
+## True when `ch` is exactly one ASCII uppercase letter (`A`-`Z`).
+##
+## ## Motivo
+## A byte range check replaces `ord` plus comparisons and rejects non-single-byte
+## inputs explicitly.
+##
+## ## Memoria
+## Allocates nothing. `ch` is borrowed and never freed.
+antiquus _char_is_upper with ch as string into bool:
+    r"""
+if (!ch.data || ch.len != 1) return false;
+char c = ch.data[0];
+return c >= 'A' && c <= 'Z';
+"""
+
+## True when `ch` is exactly one ASCII lowercase letter (`a`-`z`).
+##
+## ## Motivo
+## Same raw-byte range check as `_char_is_upper`, mirrored for the lower range.
+##
+## ## Memoria
+## Allocates nothing. `ch` is borrowed and never freed.
+antiquus _char_is_lower with ch as string into bool:
+    r"""
+if (!ch.data || ch.len != 1) return false;
+char c = ch.data[0];
+return c >= 'a' && c <= 'z';
+"""
+
+## True when `ch` is exactly one ASCII letter (`A`-`Z` or `a`-`z`).
+##
+## ## Motivo
+## Combining both byte ranges avoids two Pengu calls per character while keeping
+## the classification byte-exact.
+##
+## ## Memoria
+## Allocates nothing. `ch` is borrowed and never freed.
+antiquus _char_is_alpha with ch as string into bool:
+    r"""
+if (!ch.data || ch.len != 1) return false;
+char c = ch.data[0];
+return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+"""
+
+## True when `ch` is exactly one ASCII letter or digit.
+##
+## ## Motivo
+## One byte dispatch for the alphanumeric class, used by the identifier-style
+## helpers.
+##
+## ## Memoria
+## Allocates nothing. `ch` is borrowed and never freed.
+antiquus _char_is_alnum with ch as string into bool:
+    r"""
+if (!ch.data || ch.len != 1) return false;
+char c = ch.data[0];
+return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+"""
+
+## True when substring `b` occurs anywhere in `a`.
+##
+## ## Motivo
+## The search runs through `pengu__find_sub`, a binary-exact, NUL-safe `memcmp`
+## scan. A Pengu loop would rebuild one-byte slices for every candidate position
+## and would not be O(n*m) in C.
+##
+## ## Memoria
+## Allocates nothing. Both strings are borrowed and never freed.
+antiquus pengu_string_contains with a as string, b as string into bool:
+    r"""
+if (!a.data || !b.data) return false;
+if (b.len == 0) return true;
+return pengu__find_sub(a, b, 0) != -1;
+"""
+
+## True when `a` begins with `prefix` (an empty prefix always matches).
+##
+## ## Motivo
+## Prefix comparison is a single `memcmp` over the shared length; the length guard
+## rules out reading past the end of `a`.
+##
+## ## Memoria
+## Allocates nothing. Both strings are borrowed and never freed.
+antiquus pengu_string_starts_with with a as string, prefix as string into bool:
+    r"""
+if (!a.data || !prefix.data) return false;
+if (prefix.len == 0) return true;
+if (a.len < prefix.len) return false;
+return memcmp(a.data, prefix.data, (size_t)prefix.len) == 0;
+"""
+
+## True when `a` ends with `suffix` (an empty suffix always matches).
+##
+## ## Motivo
+## The suffix is compared in place at `a.data + a.len - suffix.len`, which needs
+## pointer arithmetic over the raw buffer.
+##
+## ## Memoria
+## Allocates nothing. Both strings are borrowed and never freed.
+antiquus pengu_string_ends_with with a as string, suffix as string into bool:
+    r"""
+if (!a.data || !suffix.data) return false;
+if (suffix.len == 0) return true;
+if (a.len < suffix.len) return false;
+return memcmp(a.data + a.len - suffix.len, suffix.data, (size_t)suffix.len) == 0;
+"""
+
+## Index of the first occurrence of `sub` in `a`, or -1.
+##
+## ## Motivo
+## Delegates the scan to `pengu__find_sub` and normalises the legacy edges: an
+## empty `sub` matches at 0, a `sub` longer than `a` never matches.
+##
+## ## Memoria
+## Allocates nothing. Both strings are borrowed and never freed.
+antiquus pengu_string_index_of with a as string, sub as string into int:
+    r"""
+if (!a.data || !sub.data || a.len < sub.len) return -1;
+if (sub.len == 0) return 0;
+return pengu__find_sub(a, sub, 0);
+"""
+
+## Index of the last occurrence of `sub` in `a`, or -1.
+##
+## ## Motivo
+## The backward scan compares raw bytes with `memcmp`; an empty `sub` matches at
+## `a.len`, preserving the documented legacy edge.
+##
+## ## Memoria
+## Allocates nothing. Both strings are borrowed and never freed.
+antiquus pengu_string_last_index_of with a as string, sub as string into int:
+    r"""
+if (!a.data || !sub.data || a.len < sub.len) return -1;
+if (sub.len == 0) return a.len;
+for (int i = a.len - sub.len; i >= 0; --i)
+{
+if (memcmp(a.data + i, sub.data, (size_t)sub.len) == 0)
+return i;
+}
+return -1;
+"""
+
+## Copy of `s` with every non-overlapping occurrence of `from` replaced by `to`.
+##
+## ## Motivo
+## The replacement needs a pre-counted pass, a single `malloc` of the exact final
+## size and `memcpy` of the untouched spans; that is raw-buffer plumbing with an
+## ownership flag the language does not expose.
+##
+## ## Memoria
+## Returns a freshly allocated owned `PenguString`. Release it with `banish`.
+## `s`, `from` and `to` are borrowed and never freed. On allocation failure or
+## overflow it returns an empty string (never `NULL`).
+antiquus pengu_string_replace with s as string, from as string, to as string into string:
+    r"""
+if (!s.data)
+return pengu_string_from_cstr("");
+if (!from.data || from.len <= 0)
+return pengu_string_copy(s);
+int count = 0;
+int pos = 0;
+while ((pos = pengu__find_sub(s, from, pos)) != -1)
+{
+count++;
+pos += from.len;
+}
+if (count == 0)
+return pengu_string_copy(s);
+int64_t delta = (int64_t)to.len - (int64_t)from.len;
+int64_t new_len_64 = (int64_t)s.len + (int64_t)count * delta;
+if (new_len_64 < 0 || new_len_64 > (int64_t)INT_MAX)
+return pengu_string_from_cstr("");
+size_t new_len = (size_t)new_len_64;
+if (new_len == 0)
+return pengu_string_from_cstr("");
+char *buf = (char *)malloc(new_len + 1);
+if (!buf)
+return pengu_string_from_cstr("");
+char *dst = buf;
+int src_idx = 0;
+int next_match = 0;
+while ((next_match = pengu__find_sub(s, from, src_idx)) != -1)
+{
+int seg = next_match - src_idx;
+if (seg > 0)
+{
+memcpy(dst, s.data + src_idx, (size_t)seg);
+dst += seg;
+}
+if (to.len > 0 && to.data)
+{
+memcpy(dst, to.data, (size_t)to.len);
+dst += to.len;
+}
+src_idx = next_match + from.len;
+}
+int rem = s.len - src_idx;
+if (rem > 0)
+{
+memcpy(dst, s.data + src_idx, (size_t)rem);
+dst += rem;
+}
+*dst = '\0';
+return (PenguString){buf, (int)new_len, 1};
+"""
+
+## Copy of `s` repeated `times` times.
+##
+## ## Motivo
+## A single `malloc` of `s.len * times` bytes plus one repetition loop avoids
+## building an intermediate `list of string` and concatenating it in Pengu.
+##
+## ## Memoria
+## Returns a freshly allocated owned `PenguString`, or an empty string when
+## `times <= 0`, `s` is empty or the size overflows. Release it with `banish`.
+antiquus pengu_string_repeat with s as string, times as int into string:
+    r"""
+if (times <= 0 || !s.data || s.len <= 0)
+return pengu_string_from_cstr("");
+if ((size_t)s.len > SIZE_MAX / (size_t)times)
+return pengu_string_from_cstr("");
+size_t total_len = (size_t)s.len * (size_t)times;
+if (total_len > (size_t)INT_MAX || total_len + 1 > SIZE_MAX / 2)
+return pengu_string_from_cstr("");
+char *buf = (char *)malloc(total_len + 1);
+if (!buf)
+return pengu_string_from_cstr("");
+for (int i = 0; i < times; ++i)
+{
+memcpy(buf + ((size_t)i * (size_t)s.len), s.data, (size_t)s.len);
+}
+buf[total_len] = '\0';
+return (PenguString){buf, (int)total_len, 1};
+"""
+
+## Copy of `s` with its bytes in reverse order.
+##
+## ## Motivo
+## Reversing writes byte by byte into a freshly allocated buffer; a Pengu version
+## would allocate one single-byte string per position.
+##
+## ## Memoria
+## Returns a freshly allocated owned `PenguString`, or an empty string when `s` is
+## empty. Release it with `banish`. `s` is borrowed and never freed.
+antiquus pengu_string_reverse with s as string into string:
+    r"""
+if (!s.data || s.len <= 0)
+return pengu_string_from_cstr("");
+char *buf = (char *)malloc((size_t)s.len + 1);
+if (!buf)
+return pengu_string_from_cstr("");
+for (int i = 0; i < s.len; ++i)
+{
+buf[i] = s.data[s.len - 1 - i];
+}
+buf[s.len] = '\0';
+return (PenguString){buf, s.len, 1};
+"""
+
 # --- Enchantings --------------------------------------------------------
-## Métodos de `string`: consulta, transformación, predicados y parseo.
+## String methods: query, transformation, predicates and parsing.
 enchanting string:
-    # --- Longitud e iteración ------------------------------------------
-    ## Número de bytes del string.
+    # --- Length and iteration -------------------------------------------
+    ## Number of bytes in the string.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the string to measure.
+    ##
+    ## ## Retorno
+    ## The byte length as an `int` (`"café"` is 5, not 4). Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "abc".len    # 3
+    ## ```
     weave len into int:
         let sv is essence of self
         return sv length
-    ## True cuando el string está vacío (longitud 0).
+    ## True when the string has zero bytes.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the string to test.
+    ##
+    ## ## Retorno
+    ## `true` for the empty string, `false` otherwise.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "".is_empty      # true
+    ## calling "x".is_empty     # false
+    ## ```
     weave is_empty into bool:
         let sv is essence of self
         return sv length == 0
-    ## Lista con cada byte como un string de un carácter.
+    ## List with each byte as a one-character string.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is split byte by byte.
+    ##
+    ## ## Retorno
+    ## A new owned `list of string`; release it with `banish`. A multi-byte UTF-8
+    ## character becomes several one-byte elements.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "ab".chars    # ["a", "b"]
+    ## ```
     weave chars into list of string:
         let sv is essence of self
         let parts is for ch in sv then ch
         return parts
-    ## Lista con el código numérico de cada byte.
+    ## List with the numeric code of each byte.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is read byte by byte.
+    ##
+    ## ## Retorno
+    ## A new owned `list of int` with the byte values (`ord`); release it with
+    ## `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "AB".bytes    # [65, 66]
+    ## ```
     weave bytes into list of int:
         let sv is essence of self
         let codes is for ch in sv then ord ch
         return codes
 
-    # --- Búsqueda -------------------------------------------------------
-    ## True cuando `sub` aparece en alguna posición del string.
+    # --- Search ---------------------------------------------------------
+    ## True when `sub` occurs anywhere in the string.
+    ##
+    ## ## Parámetros
+    ## - `sub`: the substring to look for; may be empty.
+    ##
+    ## ## Retorno
+    ## `true` when `sub` is found (an empty `sub` always matches).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "abc".contains with "bc"    # true
+    ## ```
     weave contains with sub as string into bool:
         let sv is essence of self
-        return (calling _index_of_from with sv, sub, 0) >= 0
-    ## True cuando el string empieza por `prefix` (un `prefix` vacío encaja).
+        return calling pengu_string_contains with sv, sub
+    ## True when the string starts with `prefix`.
+    ##
+    ## ## Parámetros
+    ## - `prefix`: the prefix to test; an empty prefix always matches.
+    ##
+    ## ## Retorno
+    ## `true` when the first `prefix` bytes are equal to `prefix`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "abc".starts_with with "ab"    # true
+    ## ```
     weave starts_with with prefix as string into bool:
         let sv is essence of self
-        return calling _has_prefix_at with sv, prefix, 0
-    ## True cuando el string termina en `suffix` (un `suffix` vacío encaja).
+        return calling pengu_string_starts_with with sv, prefix
+    ## True when any of `prefixes` matches the start of the string.
+    ##
+    ## ## Parámetros
+    ## - `prefixes`: the candidate prefixes; an empty list never matches.
+    ##
+    ## ## Retorno
+    ## `true` at the first matching prefix; `false` when the list is empty or none
+    ## matches. Borrows the list and every element.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "abc".starts_with_any with ["x", "ab"]    # true
+    ## ```
+    weave starts_with_any with prefixes as list of string into bool:
+        let sv is essence of self
+        for prefix in prefixes:
+            if calling pengu_string_starts_with with sv, prefix:
+                return true
+        return false
+    ## True when the string ends in `suffix`.
+    ##
+    ## ## Parámetros
+    ## - `suffix`: the suffix to test; an empty suffix always matches.
+    ##
+    ## ## Retorno
+    ## `true` when the last `suffix` bytes are equal to `suffix`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "abc".ends_with with "bc"    # true
+    ## ```
     weave ends_with with suffix as string into bool:
         let sv is essence of self
-        let sl as int is suffix length
-        let ll as int is sv length
-        if sl > ll:
-            return false
-        return calling _has_prefix_at with sv, suffix, ll - sl
-    ## Índice de la primera aparición de `sub`, o -1 si no está.
-    ## Edge cases: Un `sub` vacío devuelve 0.
+        return calling pengu_string_ends_with with sv, suffix
+    ## True when any of `suffixes` matches the end of the string.
+    ##
+    ## ## Parámetros
+    ## - `suffixes`: the candidate suffixes; an empty list never matches.
+    ##
+    ## ## Retorno
+    ## `true` at the first matching suffix; `false` when the list is empty or none
+    ## matches. Borrows the list and every element.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "abc".ends_with_any with ["x", "bc"]    # true
+    ## ```
+    weave ends_with_any with suffixes as list of string into bool:
+        let sv is essence of self
+        for suffix in suffixes:
+            if calling pengu_string_ends_with with sv, suffix:
+                return true
+        return false
+    ## Index of the first occurrence of `sub`, or -1.
+    ##
+    ## ## Parámetros
+    ## - `sub`: the substring to look for; may be empty.
+    ##
+    ## ## Retorno
+    ## The 0-based byte index, `0` for an empty `sub`, or -1 when absent.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "abracadabra".index_of with "cad"    # 4
+    ## ```
     weave index_of with sub as string into int:
         let sv is essence of self
-        return calling _index_of_from with sv, sub, 0
-    ## Índice de la última aparición de `sub`, o -1 si no está.
-    ## Edge cases: Un `sub` vacío devuelve la longitud del string.
+        return calling pengu_string_index_of with sv, sub
+    ## Index of the last occurrence of `sub`, or -1.
+    ##
+    ## ## Parámetros
+    ## - `sub`: the substring to look for; may be empty.
+    ##
+    ## ## Retorno
+    ## The 0-based byte index of the last match, the string length for an empty
+    ## `sub`, or -1 when absent.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "abracadabra".last_index_of with "abra"    # 7
+    ## ```
     weave last_index_of with sub as string into int:
         let sv is essence of self
-        return calling _last_index_of_from with sv, sub, (sv length) - (sub length)
+        return calling pengu_string_last_index_of with sv, sub
     ## @deprecated Use index_of instead.
+    ##
+    ## ## Parámetros
+    ## - `sub`: the substring to look for.
+    ##
+    ## ## Retorno
+    ## Same as `index_of`; kept only for compatibility.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "abc".find with "b"    # 1
+    ## ```
     weave find with sub as string into int:
         return calling self.index_of with sub
     ## @deprecated Use last_index_of instead.
+    ##
+    ## ## Parámetros
+    ## - `sub`: the substring to look for.
+    ##
+    ## ## Retorno
+    ## Same as `last_index_of`; kept only for compatibility.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "abca".rfind with "a"    # 3
+    ## ```
     weave rfind with sub as string into int:
         return calling self.last_index_of with sub
-    ## Cuenta las apariciones **no solapadas** de `sub`.
-    ## Edge cases: Devuelve 0 cuando `sub` está vacío o es más largo.
+    ## Count the **non-overlapping** occurrences of `sub`.
+    ##
+    ## ## Parámetros
+    ## - `sub`: the substring to count; an empty `sub` is ignored.
+    ##
+    ## ## Retorno
+    ## The number of non-overlapping matches (`"aaaa".count with "aa"` is 2).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "abracadabra".count with "a"    # 5
+    ## ```
     weave count with sub as string into int:
         let sv is essence of self
         let sl as int is sub length
         if sl == 0:
             return 0
         var found as int is 0
-        var hit as int is calling _index_of_from with sv, sub, 0
+        var hit as int is calling pengu__find_sub with sv, sub, 0
         while hit >= 0:
             set found is found + 1
-            set hit is calling _index_of_from with sv, sub, hit + sl
+            set hit is calling pengu__find_sub with sv, sub, hit + sl
         return found
     ## @deprecated Use count instead.
+    ##
+    ## ## Parámetros
+    ## - `sub`: the substring to count.
+    ##
+    ## ## Retorno
+    ## Same as `count`; kept only for compatibility.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "aaaa".count_matches with "aa"    # 2
+    ## ```
     weave count_matches with sub as string into int:
         return calling self.count with sub
 
-    # --- Corte ----------------------------------------------------------
-    ## Substring desde `start_pos` (incluido) hasta `end_pos` (excluido).
-    ## Edge cases: `start_pos == end_pos` devuelve ""; los índices van tal cual al runtime.
+    # --- Slicing --------------------------------------------------------
+    ## Substring from `start_pos` (inclusive) to `end_pos` (exclusive).
+    ##
+    ## ## Parámetros
+    ## - `start_pos`: first byte index to keep.
+    ## - `end_pos`: byte index to stop at.
+    ##
+    ## ## Retorno
+    ## A new owned string; release it with `banish`. The runtime clamps
+    ## out-of-range indices, and `start_pos == end_pos` yields "".
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "abcdef".substring with 1, 4    # "bcd"
+    ## ```
     weave substring with start_pos as int, end_pos as int into string:
         let sv is essence of self
         return sv at start_pos to end_pos
-    ## El byte en `idx` como un string de un carácter.
+    ## The byte at `idx` as a one-character string.
+    ##
+    ## ## Parámetros
+    ## - `idx`: the byte position to read.
+    ##
+    ## ## Retorno
+    ## A new owned one-byte string (may split a UTF-8 character); release it with
+    ## `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "abc".char_at with 1    # "b"
+    ## ```
     weave char_at with idx as int into string:
         let sv is essence of self
         return sv at idx to (idx + 1)
-    ## Copia con los bytes en orden inverso.
+    ## Copy of the string with its bytes in reverse order.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is reversed byte by byte.
+    ##
+    ## ## Retorno
+    ## A new owned string; release it with `banish`. "" stays "".
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "pengu".reverse    # "ugnep"
+    ## ```
     weave reverse into string:
         let sv is essence of self
-        let ll as int is sv length
-        var parts as list of string is list of string with capacity ll
-        var i as int is ll - 1
-        while i >= 0:
-            calling parts.push with (sv at i to (i + 1))
-            set i is i - 1
-        return calling _concat with parts
+        return calling pengu_string_reverse with sv
 
-    # --- Mayúsculas y minúsculas ---------------------------------------
-    ## Copia con las letras ASCII A-Z convertidas a minúsculas.
+    # --- Case -----------------------------------------------------------
+    ## Copy with the ASCII letters A-Z lowered.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is transformed byte by byte.
+    ##
+    ## ## Retorno
+    ## A new owned string; non-ASCII bytes are copied unchanged.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "Hello!".lower    # "hello!"
+    ## ```
     weave lower into string:
         let sv is essence of self
         let parts is for ch in sv then calling _lower_char with ch
         return calling _concat with parts
-    ## Copia con las letras ASCII a-z convertidas a mayúsculas.
+    ## Copy with the ASCII letters a-z uppercased.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is transformed byte by byte.
+    ##
+    ## ## Retorno
+    ## A new owned string; non-ASCII bytes are copied unchanged.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "abc".upper    # "ABC"
+    ## ```
     weave upper into string:
         let sv is essence of self
         let parts is for ch in sv then calling _upper_char with ch
         return calling _concat with parts
     ## @deprecated Use lower instead.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is transformed.
+    ##
+    ## ## Retorno
+    ## Same as `lower`; kept only for compatibility.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "AbC".to_lower    # "abc"
+    ## ```
     weave to_lower into string:
         return calling self.lower
     ## @deprecated Use upper instead.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is transformed.
+    ##
+    ## ## Retorno
+    ## Same as `upper`; kept only for compatibility.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "AbC".to_upper    # "ABC"
+    ## ```
     weave to_upper into string:
         return calling self.upper
-    ## Copia con la primera letra en mayúscula y el resto en minúsculas.
-    ## Edge cases: Devuelve "" para el string vacío.
+    ## Copy with the first letter uppercased and the rest lowercased.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is capitalized as a whole.
+    ##
+    ## ## Retorno
+    ## A new owned string; "" stays "" and a leading non-letter is untouched.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "hELLO".capitalize    # "Hello"
+    ## ```
     weave capitalize into string:
         let sv is essence of self
         let ll as int is sv length
@@ -200,7 +773,19 @@ enchanting string:
         let lowered is for ch in (sv at 1 to ll) then calling _lower_char with ch
         let tail is calling _concat with lowered
         return "{head}{tail}"
-    ## Copia con la inicial de cada palabra en mayúscula y el resto en minúsculas.
+    ## Copy with the initial of every word uppercased and the rest lowercased.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is title-cased word by word.
+    ##
+    ## ## Retorno
+    ## A new owned string; the original spacing is preserved (a space byte starts
+    ## a new word).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "hello world".title    # "Hello World"
+    ## ```
     weave title into string:
         let sv is essence of self
         var parts as list of string is list of string with capacity (sv length)
@@ -210,22 +795,54 @@ enchanting string:
                 calling parts.push with ch
                 set at_word_start is true
             else:
-                if at_word_start:
-                    calling parts.push with (calling _upper_char with ch)
-                else:
-                    calling parts.push with (calling _lower_char with ch)
+                let cased is if at_word_start then (calling _upper_char with ch) else (calling _lower_char with ch)
+                calling parts.push with cased
                 set at_word_start is false
         return calling _concat with parts
     ## @deprecated Use title instead.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is title-cased.
+    ##
+    ## ## Retorno
+    ## Same as `title`; kept only for compatibility.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "hello world".title_case    # "Hello World"
+    ## ```
     weave title_case into string:
         return calling self.title
-    ## Copia con cada letra ASCII cambiada de caja; el resto no cambia.
+    ## Copy with every ASCII letter case-swapped.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is transformed byte by byte.
+    ##
+    ## ## Retorno
+    ## A new owned string; non-letters keep their byte.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "a1B".swap_case    # "A1b"
+    ## ```
     weave swap_case into string:
         let sv is essence of self
         let parts is for ch in sv then calling _swap_char with ch
         return calling _concat with parts
-    ## Copia en `snake_case`: separa camelCase y normaliza los separadores a `_`.
-    ## Edge cases: Colapsa separadores repetidos; "" devuelve "".
+    ## Copy converted to `snake_case`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is split on `camelCase` boundaries and on the ` `,
+    ##   `-` and `_` separators.
+    ##
+    ## ## Retorno
+    ## A new owned string in `snake_case`; repeated separators collapse and ""
+    ## stays "".
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "HTTPServer".to_snake_case    # "http_server"
+    ## ```
     weave to_snake_case into string:
         let sv is essence of self
         var parts as list of string is list of string with capacity (sv length)
@@ -250,27 +867,81 @@ enchanting string:
                 else:
                     calling parts.push with ch
         return calling _concat with parts
-    ## Copia en `kebab-case`: `to_snake_case` con `_` cambiado por `-`.
+    ## Copy converted to `kebab-case`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is run through `to_snake_case` first.
+    ##
+    ## ## Retorno
+    ## A new owned string with `_` replaced by `-`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "HelloWorld".to_kebab_case    # "hello-world"
+    ## ```
     weave to_kebab_case into string:
-        var snake as string is calling self.to_snake_case
+        let snake as string is calling self.to_snake_case
         return calling snake.replace_all with "_", "-"
-    ## Forma corta de `to_snake_case`.
+    ## Short form of `to_snake_case`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is converted.
+    ##
+    ## ## Retorno
+    ## The same string `to_snake_case` would return.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "helloWorld".snake_case    # "hello_world"
+    ## ```
     weave snake_case into string:
         return calling self.to_snake_case
-    ## Forma corta de `to_kebab_case`.
+    ## Short form of `to_kebab_case`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is converted.
+    ##
+    ## ## Retorno
+    ## The same string `to_kebab_case` would return.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "helloWorld".kebab_case    # "hello-world"
+    ## ```
     weave kebab_case into string:
         return calling self.to_kebab_case
-    ## Copia en `PascalCase`: cada palabra de `snake_case` capitalizada.
-    ## Edge cases: "" devuelve "".
+    ## Copy converted to `PascalCase`: every `snake_case` word capitalized.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is run through `snake_case` first.
+    ##
+    ## ## Retorno
+    ## A new owned string; "" stays "".
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "hello_world".pascal_case    # "HelloWorld"
+    ## ```
     weave pascal_case into string:
-        var snake as string is calling self.snake_case
+        let snake as string is calling self.snake_case
         let words_list is calling snake.split with "_"
         var parts as list of string is list of string with capacity (words_list length)
         for word in words_list:
-            var piece as string is word
-            calling parts.push with (calling piece.capitalize)
+            calling parts.push with (calling word.capitalize)
         return calling _concat with parts
-    ## True cuando todos los bytes son letras ASCII y hay al menos uno.
+    ## True when every byte is an ASCII letter and there is at least one.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is classified.
+    ##
+    ## ## Retorno
+    ## `false` for "" and `true` only for `[A-Za-z]+`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "aB".is_alpha    # true
+    ## calling "a1".is_alpha    # false
+    ## ```
     weave is_alpha into bool:
         let sv is essence of self
         if (sv length) == 0:
@@ -279,7 +950,18 @@ enchanting string:
             if not (calling _char_is_alpha with ch):
                 return false
         return true
-    ## True cuando todos los bytes son dígitos ASCII y hay al menos uno.
+    ## True when every byte is an ASCII digit and there is at least one.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is classified.
+    ##
+    ## ## Retorno
+    ## `false` for "" and `true` only for `[0-9]+`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "123".is_digit    # true
+    ## ```
     weave is_digit into bool:
         let sv is essence of self
         if (sv length) == 0:
@@ -288,7 +970,18 @@ enchanting string:
             if not (calling _char_is_digit with ch):
                 return false
         return true
-    ## True cuando todos los bytes son letras o dígitos ASCII y hay al menos uno.
+    ## True when every byte is an ASCII letter or digit and there is at least one.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is classified.
+    ##
+    ## ## Retorno
+    ## `false` for "" and `true` only for `[A-Za-z0-9]+`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "a1".is_alnum    # true
+    ## ```
     weave is_alnum into bool:
         let sv is essence of self
         if (sv length) == 0:
@@ -297,7 +990,18 @@ enchanting string:
             if not (calling _char_is_alnum with ch):
                 return false
         return true
-    ## True cuando no hay mayúsculas y hay al menos una minúscula.
+    ## True when there is no uppercase ASCII letter and at least one lowercase.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is classified.
+    ##
+    ## ## Retorno
+    ## `false` for `"A1"` and `"1"`; `true` for `"a1"`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "a1".is_lower    # true
+    ## ```
     weave is_lower into bool:
         let sv is essence of self
         var has_lower as bool is false
@@ -307,7 +1011,18 @@ enchanting string:
             if calling _char_is_lower with ch:
                 set has_lower is true
         return has_lower
-    ## True cuando no hay minúsculas y hay al menos una mayúscula.
+    ## True when there is no lowercase ASCII letter and at least one uppercase.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is classified.
+    ##
+    ## ## Retorno
+    ## `false` for `"a1"` and `"1"`; `true` for `"A1"`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "A1".is_upper    # true
+    ## ```
     weave is_upper into bool:
         let sv is essence of self
         var has_upper as bool is false
@@ -317,8 +1032,19 @@ enchanting string:
             if calling _char_is_upper with ch:
                 set has_upper is true
         return has_upper
-    ## True cuando el string se lee igual al derecho y al revés.
-    ## Edge cases: Los strings de longitud 0 o 1 son palíndromos.
+    ## True when the string reads the same forwards and backwards.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is compared with its reverse.
+    ##
+    ## ## Retorno
+    ## `true` for byte palindromes; the empty string and single bytes are
+    ## palindromes.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "racecar".is_palindrome    # true
+    ## ```
     weave is_palindrome into bool:
         let sv is essence of self
         let ll as int is sv length
@@ -327,12 +1053,48 @@ enchanting string:
                 return false
         return true
 
-    # --- Espacios -------------------------------------------------------
-    ## Copia sin espacios ASCII al principio ni al final.
+    # --- Whitespace -----------------------------------------------------
+    ## Copy without ASCII whitespace at either end.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is trimmed on both sides.
+    ##
+    ## ## Retorno
+    ## A new owned string; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "  x  ".trim    # "x"
+    ## ```
     weave trim into string:
-        var started as string is calling self.trim_start
+        let started as string is calling self.trim_start
         return calling started.trim_end
-    ## Copia sin espacios ASCII al principio.
+    ## Alias of `trim` (both ends).
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is trimmed on both sides.
+    ##
+    ## ## Retorno
+    ## A new owned string; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "  x  ".strip    # "x"
+    ## ```
+    weave strip into string:
+        return calling self.trim
+    ## Copy without ASCII whitespace at the start.
+    ##
+    ## ## Parámetros
+    ## - None: only the leading whitespace is removed.
+    ##
+    ## ## Retorno
+    ## A new owned string; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "  x  ".trim_start    # "x  "
+    ## ```
     weave trim_start into string:
         let sv is essence of self
         let ll as int is sv length
@@ -343,7 +1105,18 @@ enchanting string:
             else:
                 break
         return sv at start to ll
-    ## Copia sin espacios ASCII al final.
+    ## Copy without ASCII whitespace at the end.
+    ##
+    ## ## Parámetros
+    ## - None: only the trailing whitespace is removed.
+    ##
+    ## ## Retorno
+    ## A new owned string; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "  x  ".trim_end    # "  x"
+    ## ```
     weave trim_end into string:
         let sv is essence of self
         var end as int is (sv length) - 1
@@ -354,13 +1127,45 @@ enchanting string:
                 break
         return sv at 0 to (end + 1)
     ## @deprecated Use trim_start instead.
+    ##
+    ## ## Parámetros
+    ## - None: only the leading whitespace is removed.
+    ##
+    ## ## Retorno
+    ## Same as `trim_start`; kept only for compatibility.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling " x".lstrip    # "x"
+    ## ```
     weave lstrip into string:
         return calling self.trim_start
     ## @deprecated Use trim_end instead.
+    ##
+    ## ## Parámetros
+    ## - None: only the trailing whitespace is removed.
+    ##
+    ## ## Retorno
+    ## Same as `trim_end`; kept only for compatibility.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "x ".rstrip    # "x"
+    ## ```
     weave rstrip into string:
         return calling self.trim_end
-    ## True cuando el string no está vacío y todos sus bytes son espacios.
-    ## Edge cases: Devuelve false para "" (ver `is_blank`).
+    ## True when the string is non-empty and every byte is ASCII whitespace.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is classified.
+    ##
+    ## ## Retorno
+    ## `false` for "" (legacy; see `is_blank`), `true` for `" \t"`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "   ".is_space    # true
+    ## ```
     weave is_space into bool:
         let sv is essence of self
         if (sv length) == 0:
@@ -370,17 +1175,50 @@ enchanting string:
                 return false
         return true
     ## @deprecated Use is_space instead.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is classified.
+    ##
+    ## ## Retorno
+    ## Same as `is_space`; kept only for compatibility.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "\t\n".is_whitespace    # true
+    ## ```
     weave is_whitespace into bool:
         return calling self.is_space
-    ## True cuando el string está vacío o todos sus bytes son espacios.
+    ## True when the string is empty or every byte is ASCII whitespace.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is classified.
+    ##
+    ## ## Retorno
+    ## `true` for "" and for strings of only whitespace; `false` otherwise.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "".is_blank    # true
+    ## ```
     weave is_blank into bool:
         let sv is essence of self
         for ch in sv:
             if not (calling _char_is_space with ch):
                 return false
         return true
-    ## Lista de palabras separadas por runs de espacios ASCII.
-    ## Edge cases: ignora espacios extremos; "" o solo espacios dan lista vacía.
+    ## List of words separated by runs of ASCII whitespace.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is split on any run of whitespace.
+    ##
+    ## ## Retorno
+    ## A new owned `list of string`; release it with `banish`. Leading and
+    ## trailing whitespace is ignored, and "" or only whitespace yields [].
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "  a  b ".split_whitespace    # ["a", "b"]
+    ## ```
     weave split_whitespace into list of string:
         let sv is essence of self
         var parts as list of string is list of string
@@ -396,55 +1234,141 @@ enchanting string:
         if start >= 0:
             calling parts.push with (sv at start to (sv length))
         return parts
-    ## Nombre corto de `split_whitespace`.
+    ## Short name of `split_whitespace`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is split on whitespace runs.
+    ##
+    ## ## Retorno
+    ## The same list `split_whitespace` would return.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "a\tb\nc".words    # ["a", "b", "c"]
+    ## ```
     weave words into list of string:
         return calling self.split_whitespace
-    ## Lista de líneas separadas por `\n`.
-    ## Edge cases: "" da lista vacía; un `\n` final añade una línea vacía.
+    ## List of lines separated by `\n`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is split on LF, keeping any CR as a byte.
+    ##
+    ## ## Retorno
+    ## A new owned `list of string`; "" yields [] and a trailing `\n` adds one
+    ## empty line.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "a\r\nb".split_lines    # ["a\r", "b"]
+    ## ```
     weave split_lines into list of string:
-        var sv as string is essence of self
+        let sv as string is essence of self
         if (sv length) == 0:
             return list of string
-        let parts is calling sv.split with "\n"
-        return parts
-    ## Número de líneas separadas por `\n`.
-    ## Edge cases: 0 para ""; 1 para un string sin `\n`.
+        return calling sv.split with "\n"
+    ## Number of `\n`-separated lines.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is measured.
+    ##
+    ## ## Retorno
+    ## 0 for "" and 1 for a string without `\n`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "a\nb".line_count    # 2
+    ## ```
     weave line_count into int:
         let parts is calling self.split_lines
         return parts length
-    ## Número de palabras separadas por espacios ASCII.
+    ## Number of whitespace-separated words.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is measured.
+    ##
+    ## ## Retorno
+    ## The element count of `words`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "a b".word_count    # 2
+    ## ```
     weave word_count into int:
         let parts is calling self.words
         return parts length
-    ## Lista de líneas con el `\r` final de cada una eliminado (CRLF).
-    ## Edge cases: "" da lista vacía; un `\n` final añade una línea vacía.
+    ## List of lines with the trailing `\r` of each line removed (CRLF-safe).
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is split on `\n` and each line is suffix-trimmed.
+    ##
+    ## ## Retorno
+    ## A new owned `list of string`; "" yields [] and a trailing `\n` adds one
+    ## empty line.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "a\r\nb".lines    # ["a", "b"]
+    ## ```
     weave lines into list of string:
         let raw is calling self.split_lines
         var parts as list of string is list of string with capacity (raw length)
         for line in raw:
-            var clean_line as string is line
-            calling parts.push with (calling clean_line.removesuffix with "\r")
+            calling parts.push with (calling line.removesuffix with "\r")
         return parts
 
-    # --- Reemplazo y división ------------------------------------------
-    ## Copia con la primera aparición de `from_str` sustituida por `to_str`.
-    ## Edge cases: un `from_str` vacío inserta `to_str` al principio (legado).
+    # --- Replacing and splitting ----------------------------------------
+    ## Copy with the first occurrence of `from_str` replaced by `to_str`.
+    ##
+    ## ## Parámetros
+    ## - `from_str`: the text to replace; may be empty.
+    ## - `to_str`: the replacement text.
+    ##
+    ## ## Retorno
+    ## A new owned string; release it with `banish`. An empty `from_str` inserts
+    ## `to_str` at the start (legacy behaviour).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "cat, cat".replace with "cat", "dog"    # "dog, cat"
+    ## ```
     weave replace with from_str as string, to_str as string into string:
         let sv is essence of self
-        let hit as int is calling _index_of_from with sv, from_str, 0
+        let hit as int is calling pengu__find_sub with sv, from_str, 0
         if hit < 0:
             return sv
         let fl as int is from_str length
         let head is sv at 0 to hit
         let tail is sv at (hit + fl) to (sv length)
         return "{head}{to_str}{tail}"
-    ## Copia con **todas** las apariciones no solapadas de `from_str`
-    ## Edge cases: Un `from_str` vacío devuelve el string sin cambios.
+    ## Copy with **every** non-overlapping occurrence of `from_str` replaced.
+    ##
+    ## ## Parámetros
+    ## - `from_str`: the text to replace; an empty `from_str` changes nothing.
+    ## - `to_str`: the replacement text.
+    ##
+    ## ## Retorno
+    ## A new owned string; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "cat, cat".replace_all with "cat", "dog"    # "dog, dog"
+    ## ```
     weave replace_all with from_str as string, to_str as string into string:
-        let parts is calling self.split with from_str
-        return calling _join_parts with parts, to_str
-    ## Divide por cada aparición de `delim`.
-    ## Edge cases: Un `delim` vacío devuelve una lista con el string entero.
+        let sv is essence of self
+        return calling pengu_string_replace with sv, from_str, to_str
+    ## Split on every occurrence of `delim`.
+    ##
+    ## ## Parámetros
+    ## - `delim`: the separator; an empty `delim` keeps the whole string.
+    ##
+    ## ## Retorno
+    ## A new owned `list of string`; release it with `banish`. An absent
+    ## delimiter yields one element.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "a,,b".split with ","    # ["a", "", "b"]
+    ## ```
     weave split with delim as string into list of string:
         let sv is essence of self
         let dl as int is delim length
@@ -453,19 +1377,100 @@ enchanting string:
             calling parts.push with sv
             return parts
         var start as int is 0
-        var hit as int is calling _index_of_from with sv, delim, start
+        var hit as int is calling pengu__find_sub with sv, delim, start
         while hit >= 0:
             calling parts.push with (sv at start to hit)
             set start is hit + dl
-            set hit is calling _index_of_from with sv, delim, start
+            set hit is calling pengu__find_sub with sv, delim, start
         calling parts.push with (sv at start to (sv length))
         return parts
-    ## Divide en la **primera** aparición de `sep`: `[antes, sep, después]`.
-    ## Edge cases: si `sep` falta o está vacío devuelve `[self, "", ""]`.
+    ## Split into **at most** `n` parts on `delim`.
+    ##
+    ## ## Parámetros
+    ## - `delim`: the separator; an empty `delim` keeps the whole string.
+    ## - `n`: maximum number of parts; `n <= 0` performs no split at all.
+    ##
+    ## ## Retorno
+    ## A new owned `list of string`; release it with `banish`. The last element
+    ## keeps the remaining delimiters.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "a,b,c".splitn with ",", 2    # ["a", "b,c"]
+    ## ```
+    weave splitn with delim as string, n as int into list of string:
+        let sv is essence of self
+        let dl as int is delim length
+        var parts as list of string is list of string
+        if n <= 0 or dl == 0:
+            calling parts.push with sv
+            return parts
+        var start as int is 0
+        var left as int is n
+        while left > 1:
+            let hit as int is calling pengu__find_sub with sv, delim, start
+            if hit < 0:
+                break
+            calling parts.push with (sv at start to hit)
+            set start is hit + dl
+            set left is left - 1
+        calling parts.push with (sv at start to (sv length))
+        return parts
+    ## Split on `delim` into the same parts `split` produces.
+    ##
+    ## ## Parámetros
+    ## - `delim`: the separator; an empty `delim` keeps the whole string.
+    ##
+    ## ## Retorno
+    ## A new owned `list of string` in left-to-right order; release it with
+    ## `banish`. Without a part limit the result is identical to `split`'s; the
+    ## name exists so code that reads a right-hand variant stays expressive.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "a:b:c".rsplit with ":"    # ["a", "b", "c"]
+    ## ```
+    weave rsplit with delim as string into list of string:
+        let sv is essence of self
+        let dl as int is delim length
+        var parts as list of string is list of string
+        if dl == 0:
+            calling parts.push with sv
+            return parts
+        var hits as list of int is list of int
+        defer banish hits
+        var start as int is 0
+        var hit as int is calling pengu__find_sub with sv, delim, start
+        while hit >= 0:
+            calling hits.push with hit
+            set start is hit + dl
+            set hit is calling pengu__find_sub with sv, delim, start
+        var prev as int is 0
+        var j as int is 0
+        while j < (hits length):
+            let pos as int is hits at j
+            calling parts.push with (sv at prev to pos)
+            set prev is pos + dl
+            set j is j + 1
+        calling parts.push with (sv at prev to (sv length))
+        return parts
+    ## Split on the **first** occurrence of `sep`: `[before, sep, after]`.
+    ##
+    ## ## Parámetros
+    ## - `sep`: the separator; when absent or empty no split happens.
+    ##
+    ## ## Retorno
+    ## A new owned 3-element `list of string`; release it with `banish`. When
+    ## `sep` is missing it returns `[self, "", ""]`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "a=b=c".partition with "="    # ["a", "=", "b=c"]
+    ## ```
     weave partition with sep as string into list of string:
         let sv is essence of self
         var parts as list of string is list of string with capacity 3
-        let hit as int is calling _index_of_from with sv, sep, 0
+        let hit as int is calling pengu__find_sub with sv, sep, 0
         if hit < 0 or (sep length) == 0:
             calling parts.push with sv
             calling parts.push with ""
@@ -476,18 +1481,36 @@ enchanting string:
         calling parts.push with sep
         calling parts.push with (sv at (hit + sl) to (sv length))
         return parts
-    ## Copia repetida `count` veces.
-    ## Edge cases: `count <= 0` o string vacío devuelven "".
+    ## Copy repeated `count` times.
+    ##
+    ## ## Parámetros
+    ## - `count`: the number of copies.
+    ##
+    ## ## Retorno
+    ## A new owned string; release it with `banish`. `count <= 0` or an empty
+    ## receiver yields "".
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "ha".repeat with 3    # "hahaha"
+    ## ```
     weave repeat with count as int into string:
         let sv is essence of self
-        if count <= 0 or (sv length) == 0:
-            return ""
-        var parts as list of string is list of string with capacity count
-        for i from 0 to count:
-            calling parts.push with sv
-        return calling _concat with parts
-    ## Copia repetida `count` veces y unida con `sep`.
-    ## Edge cases: `count <= 0` o string vacío devuelven "".
+        return calling pengu_string_repeat with sv, count
+    ## Copy repeated `count` times and joined with `sep`.
+    ##
+    ## ## Parámetros
+    ## - `count`: the number of copies.
+    ## - `sep`: the text placed between copies.
+    ##
+    ## ## Retorno
+    ## A new owned string; release it with `banish`. `count <= 0` or an empty
+    ## receiver yields "".
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "ab".repeat_join with 3, ", "    # "ab, ab, ab"
+    ## ```
     weave repeat_join with count as int, sep as string into string:
         let sv is essence of self
         if count <= 0 or (sv length) == 0:
@@ -497,9 +1520,21 @@ enchanting string:
             calling parts.push with sv
         return calling _join_parts with parts, sep
 
-    # --- Alineación -----------------------------------------------------
-    ## Alinea a la izquierda en `width`, rellenando por la derecha con `pad_char`.
-    ## Edge cases: si ya cabe o `pad_char` está vacío no cambia; se recorta a `width`.
+    # --- Alignment ------------------------------------------------------
+    ## Left-align in `width`, padding on the right with `pad_char`.
+    ##
+    ## ## Parámetros
+    ## - `width`: the target byte width.
+    ## - `pad_char`: the padding text (default `" "`); empty means no padding.
+    ##
+    ## ## Retorno
+    ## A new owned string; release it with `banish`. Values that already fit are
+    ## returned unchanged and the result is truncated to `width`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "ab".ljust with 4, "."    # "ab.."
+    ## ```
     weave ljust with width as int, pad_char as string is " " into string:
         let sv is essence of self
         let ll as int is sv length
@@ -511,7 +1546,20 @@ enchanting string:
         if (padded length) > width:
             return padded at 0 to width
         return padded
-    ## Alinea a la derecha en `width`, rellenando por la izquierda con `pad_char`.
+    ## Right-align in `width`, padding on the left with `pad_char`.
+    ##
+    ## ## Parámetros
+    ## - `width`: the target byte width.
+    ## - `pad_char`: the padding text (default `" "`); empty means no padding.
+    ##
+    ## ## Retorno
+    ## A new owned string; release it with `banish`. Values that already fit are
+    ## returned unchanged and the result is truncated to `width`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "42".rjust with 5, "0"    # "00042"
+    ## ```
     weave rjust with width as int, pad_char as string is " " into string:
         let sv is essence of self
         let ll as int is sv length
@@ -524,28 +1572,74 @@ enchanting string:
             return padded at ((padded length) - width) to (padded length)
         return padded
     ## @deprecated Use rjust instead.
+    ##
+    ## ## Parámetros
+    ## - `width`: the target byte width.
+    ## - `pad_char`: the padding text (default `" "`).
+    ##
+    ## ## Retorno
+    ## Same as `rjust`; kept only for compatibility.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "42".pad_left with 5, "0"    # "00042"
+    ## ```
     weave pad_left with width as int, pad_char as string is " " into string:
         return calling self.rjust with width, pad_char
     ## @deprecated Use ljust instead.
+    ##
+    ## ## Parámetros
+    ## - `width`: the target byte width.
+    ## - `pad_char`: the padding text (default `" "`).
+    ##
+    ## ## Retorno
+    ## Same as `ljust`; kept only for compatibility.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "ab".pad_right with 4, "."    # "ab.."
+    ## ```
     weave pad_right with width as int, pad_char as string is " " into string:
         return calling self.ljust with width, pad_char
-    ## Rellena con ceros por la izquierda hasta `width`, conservando el signo.
+    ## Zero-pad on the left up to `width`, preserving a leading sign.
+    ##
+    ## ## Parámetros
+    ## - `width`: the target byte width.
+    ##
+    ## ## Retorno
+    ## A new owned string; release it with `banish`. `-`/`+` stays first and a
+    ## value that already fits is returned unchanged.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "-42".zfill with 6    # "-00042"
+    ## ```
     weave zfill with width as int into string:
         let sv is essence of self
         if (sv length) >= width:
             return sv
-        var sign as string is ""
-        var rest as string is sv
-        if (sv length) > 0:
-            let first is sv at 0 to 1
-            if first == "-" or first == "+":
-                set sign is first
-                set rest is sv at 1 to (sv length)
+        let has_bytes as bool is (sv length) > 0
+        let first is if has_bytes then (sv at 0 to 1) else ""
+        let signed as bool is has_bytes and (first == "-" or first == "+")
+        let sign as string is if signed then first else ""
+        let rest as string is if signed then (sv at 1 to (sv length)) else sv
         let zeros as int is width - (rest length) - (sign length)
         let padded is calling _pad_left with rest, zeros, "0"
         return "{sign}{padded}"
-    ## Centra en un campo de `width` rellenando con `pad_char`.
-    ## Edge cases: con relleno impar la izquierda recibe la mitad menor (Python).
+    ## Center in a field of `width`, padding both sides with `pad_char`.
+    ##
+    ## ## Parámetros
+    ## - `width`: the target byte width.
+    ## - `pad_char`: the padding text (default `" "`); empty means no padding.
+    ##
+    ## ## Retorno
+    ## A new owned string; release it with `banish`. With an odd amount of
+    ## padding the left side gets the smaller half (Python's rule).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "ab".center with 5, "-"    # "-ab--"
+    ## ```
     weave center with width as int, pad_char as string is " " into string:
         let sv is essence of self
         let ll as int is sv length
@@ -558,25 +1652,59 @@ enchanting string:
         let right_pad is calling _pad_right with "", right_count, pad_char
         return "{left_pad}{sv}{right_pad}"
 
-    # --- Prefijos y sufijos --------------------------------------------
-    ## Copia con `prefix` eliminado del principio si está presente.
+    # --- Prefixes and suffixes ------------------------------------------
+    ## Copy with `prefix` removed from the start when present.
+    ##
+    ## ## Parámetros
+    ## - `prefix`: the prefix to strip; empty leaves the string unchanged.
+    ##
+    ## ## Retorno
+    ## A new owned string; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "Hello".removeprefix with "He"    # "llo"
+    ## ```
     weave removeprefix with prefix as string into string:
         let sv is essence of self
-        if calling _has_prefix_at with sv, prefix, 0:
+        if calling pengu_string_starts_with with sv, prefix:
             return sv at (prefix length) to (sv length)
         return sv
-    ## Copia con `suffix` eliminado del final si está presente.
+    ## Copy with `suffix` removed from the end when present.
+    ##
+    ## ## Parámetros
+    ## - `suffix`: the suffix to strip; empty leaves the string unchanged.
+    ##
+    ## ## Retorno
+    ## A new owned string; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "Hello".removesuffix with "lo"    # "Hel"
+    ## ```
     weave removesuffix with suffix as string into string:
         let sv is essence of self
         let ll as int is sv length
         let sl as int is suffix length
-        if sl <= ll:
-            if calling _has_prefix_at with sv, suffix, ll - sl:
-                return sv at 0 to (ll - sl)
+        if calling pengu_string_ends_with with sv, suffix:
+            return sv at 0 to (ll - sl)
         return sv
 
-    # --- Comparación ----------------------------------------------------
-    ## Compara byte a byte con `other` y devuelve -1, 0 o 1.
+    # --- Comparison -----------------------------------------------------
+    ## Compare byte by byte against `other` and return -1, 0 or 1.
+    ##
+    ## ## Parámetros
+    ## - `other`: the string to compare against.
+    ##
+    ## ## Retorno
+    ## -1 when `self` sorts first, 1 when it sorts last, 0 when equal. Ties on the
+    ## common prefix fall back to length. Comparison is byte-ordered, so uppercase
+    ## sorts before lowercase.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "apple".compare with "banana"    # -1
+    ## ```
     weave compare with other as string into int:
         let sv is essence of self
         let l1 as int is sv length
@@ -587,10 +1715,25 @@ enchanting string:
             let c2 as int is ord (other at i)
             if c1 != c2:
                 return if c1 < c2 then -1 else 1
-        return if l1 < l2 then -1 else (if l1 > l2 then 1 else 0)
-    # --- Truncado -------------------------------------------------------
-    ## Recorta a `max_len` bytes añadiendo `suffix` si hubo recorte.
-    ## Edge cases: `max_len <= len(suffix)` recorta sin sufijo; `max_len <= 0` da "".
+        return judge (l1 == l2):
+            when true -> 0
+            when false -> (if l1 < l2 then -1 else 1)
+
+    # --- Truncation -----------------------------------------------------
+    ## Cut to `max_len` bytes, appending `suffix` when anything was cut.
+    ##
+    ## ## Parámetros
+    ## - `max_len`: the maximum result length in bytes.
+    ## - `suffix`: the marker appended after a cut (e.g. `"..."`).
+    ##
+    ## ## Retorno
+    ## A new owned string; `max_len <= len(suffix)` cuts without the marker and
+    ## `max_len <= 0` yields "".
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "Hello, World!".truncate with 10, "..."    # "Hello, ..."
+    ## ```
     weave truncate with max_len as int, suffix as string into string:
         let sv is essence of self
         let ll as int is sv length
@@ -603,289 +1746,1193 @@ enchanting string:
             return sv at 0 to max_len
         let head is sv at 0 to (max_len - sl)
         return "{head}{suffix}"
-    ## Recorta a `max_len` bytes añadiendo "..." si hubo recorte.
+    ## Cut to `max_len` bytes, appending "..." when anything was cut.
+    ##
+    ## ## Parámetros
+    ## - `max_len`: the maximum result length in bytes.
+    ##
+    ## ## Retorno
+    ## A new owned string; the short form of `truncate` with `"..."`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "abcdef".ellipsis with 4    # "a..."
+    ## ```
     weave ellipsis with max_len as int into string:
         return calling self.truncate with max_len, "..."
 
-    # --- Parseo ---------------------------------------------------------
-    ## Interpreta el string como entero (con espacios y signo opcionales).
+    # --- Parsing --------------------------------------------------------
+    ## Interpret the string as an integer (optional whitespace and sign).
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is parsed in base 10.
+    ##
+    ## ## Retorno
+    ## `some value`, or `none` for garbage or overflow. The boxed payload lives in
+    ## a heap `maybe`; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling " 42 ".parse_int    # some 42
+    ## ```
     weave parse_int into maybe int:
         let sv is essence of self
         return calling spark.parse_int with sv
-    ## True cuando el string es un literal numérico exacto: signo y `.` opcionales.
+    ## True when the string is an exact numeric literal: optional sign and `.`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is validated.
+    ##
+    ## ## Retorno
+    ## `true` for `[+-]?digits[.digits]?` with at least one digit; `false` for
+    ## whitespace, exponents or repeated dots.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "-3.5".is_numeric    # true
+    ## ```
     weave is_numeric into bool:
         let sv is essence of self
         var has_digit as bool is false
         var has_dot as bool is false
         for i, ch in sv:
-            if ch == "+" or ch == "-":
-                if i != 0:
-                    return false
-            else:
+            let is_sign as bool is ch == "+" or ch == "-"
+            if is_sign and i != 0:
+                return false
+            if not is_sign:
                 if ch == ".":
                     if has_dot:
                         return false
                     set has_dot is true
                 else:
-                    if calling _char_is_digit with ch:
-                        set has_digit is true
-                    else:
+                    if not (calling _char_is_digit with ch):
                         return false
+                    set has_digit is true
         return has_digit
-    ## Interpreta el string como decimal (con espacios; sin exponentes).
+    ## Interpret the string as a decimal (optional whitespace, no exponents).
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is trimmed and then validated by `is_numeric`.
+    ##
+    ## ## Retorno
+    ## `some value`, or `none` when `is_numeric` rejects it. The boxed payload
+    ## lives in a heap `maybe`; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling "3.5".parse_float    # some 3.5
+    ## ```
     weave parse_float into maybe float:
-        var sv as string is essence of self
-        var trimmed as string is calling sv.trim
+        let sv as string is essence of self
+        let trimmed as string is calling sv.trim
         if not (calling trimmed.is_numeric):
             return maybe none
         return some (calling _float_from_literal with trimmed)
-# --- Funciones de módulo ------------------------------------------------
-# Forma funcional de cada método: el receptor pasa a ser el primer
-# parámetro `s` y el `weave` delega en el método homónimo, que está
-# documentado arriba. El contrato y los bordes son idénticos.
+
+# --- Module functions ---------------------------------------------------
+# Functional form of every method: the receiver becomes the first parameter `s`
+# and the `weave` delegates to the method of the same name, documented above.
+# The contract and the edge cases are identical.
+
+## Functional form of `len`: number of bytes in `s`.
+##
+## ## Parámetros
+## - `s`: the string to measure.
+##
+## ## Retorno
+## The byte length as an `int`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.len with "abc"    # 3
+## ```
 weave len with s as string into int:
     return calling s.len
-## True cuando el string está vacío (longitud 0).
+## Functional form of `is_empty`: true when `s` has zero bytes.
+##
+## ## Parámetros
+## - `s`: the string to test.
+##
+## ## Retorno
+## `true` for "" and `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.is_empty with ""    # true
+## ```
 weave is_empty with s as string into bool:
     return calling s.is_empty
-# --- Búsqueda -------------------------------------------------------
-## True cuando `sub` aparece en alguna posición del string.
+
+# --- Search -------------------------------------------------------------
+## Functional form of `contains`: true when `sub` occurs in `s`.
+##
+## ## Parámetros
+## - `s`: the haystack.
+## - `sub`: the needle; may be empty.
+##
+## ## Retorno
+## `true` when `sub` is found.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.contains with "abc", "b"    # true
+## ```
 weave contains with s as string, sub as string into bool:
     return calling s.contains with sub
-## True cuando el string empieza por `prefix` (un `prefix` vacío encaja).
+## Functional form of `starts_with`: true when `s` starts with `prefix`.
+##
+## ## Parámetros
+## - `s`: the string to test.
+## - `prefix`: the prefix; empty always matches.
+##
+## ## Retorno
+## `true` when the prefix matches.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.starts_with with "abc", "ab"    # true
+## ```
 weave starts_with with s as string, prefix as string into bool:
     return calling s.starts_with with prefix
-## True cuando el string termina en `suffix` (un `suffix` vacío encaja).
+## Functional form of `starts_with_any`: true when any prefix matches.
+##
+## ## Parámetros
+## - `s`: the string to test.
+## - `prefixes`: the candidate prefixes; empty never matches.
+##
+## ## Retorno
+## `true` at the first match, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.starts_with_any with "abc", ["x", "ab"]    # true
+## ```
+weave starts_with_any with s as string, prefixes as list of string into bool:
+    return calling s.starts_with_any with prefixes
+## Functional form of `ends_with`: true when `s` ends with `suffix`.
+##
+## ## Parámetros
+## - `s`: the string to test.
+## - `suffix`: the suffix; empty always matches.
+##
+## ## Retorno
+## `true` when the suffix matches.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.ends_with with "abc", "bc"    # true
+## ```
 weave ends_with with s as string, suffix as string into bool:
     return calling s.ends_with with suffix
-## Índice de la primera aparición de `sub`, o -1 si no está.
-## Edge cases: Un `sub` vacío devuelve 0.
+## Functional form of `ends_with_any`: true when any suffix matches.
+##
+## ## Parámetros
+## - `s`: the string to test.
+## - `suffixes`: the candidate suffixes; empty never matches.
+##
+## ## Retorno
+## `true` at the first match, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.ends_with_any with "abc", ["x", "bc"]    # true
+## ```
+weave ends_with_any with s as string, suffixes as list of string into bool:
+    return calling s.ends_with_any with suffixes
+## Functional form of `index_of`: first index of `sub`, or -1.
+##
+## ## Parámetros
+## - `s`: the haystack.
+## - `sub`: the needle; may be empty.
+##
+## ## Retorno
+## The 0-based byte index, or -1.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.index_of with "abc", "c"    # 2
+## ```
 weave index_of with s as string, sub as string into int:
     return calling s.index_of with sub
-## Índice de la última aparición de `sub`, o -1 si no está.
-## Edge cases: Un `sub` vacío devuelve la longitud del string.
+## Functional form of `last_index_of`: last index of `sub`, or -1.
+##
+## ## Parámetros
+## - `s`: the haystack.
+## - `sub`: the needle; may be empty.
+##
+## ## Retorno
+## The 0-based byte index of the last match, or -1.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.last_index_of with "abca", "a"    # 3
+## ```
 weave last_index_of with s as string, sub as string into int:
     return calling s.last_index_of with sub
-# --- Corte ----------------------------------------------------------
-## Substring desde `start_pos` (incluido) hasta `end_pos` (excluido).
-## Edge cases: `start_pos == end_pos` devuelve ""; los índices van tal cual al runtime.
+
+# --- Slicing ------------------------------------------------------------
+## Functional form of `substring`: bytes from `start_pos` to `end_pos`.
+##
+## ## Parámetros
+## - `s`: the source string.
+## - `start_pos`: first byte index to keep.
+## - `end_pos`: byte index to stop at.
+##
+## ## Retorno
+## A new owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.substring with "abcdef", 1, 3    # "bc"
+## ```
 weave substring with s as string, start_pos as int, end_pos as int into string:
     return calling s.substring with start_pos, end_pos
-## El byte en `idx` como un string de un carácter.
+## Functional form of `char_at`: the byte at `idx` as a one-byte string.
+##
+## ## Parámetros
+## - `s`: the source string.
+## - `idx`: the byte position.
+##
+## ## Retorno
+## A new owned one-byte string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.char_at with "abc", 1    # "b"
+## ```
 weave char_at with s as string, idx as int into string:
     return calling s.char_at with idx
-# --- Mayúsculas y minúsculas ---------------------------------------
-## Copia con las letras ASCII A-Z convertidas a minúsculas.
+
+# --- Case ---------------------------------------------------------------
+## Functional form of `lower`: ASCII A-Z lowered.
+##
+## ## Parámetros
+## - `s`: the string to transform.
+##
+## ## Retorno
+## A new owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.lower with "Ab"    # "ab"
+## ```
 weave lower with s as string into string:
     return calling s.lower
-## Copia con las letras ASCII a-z convertidas a mayúsculas.
+## Functional form of `upper`: ASCII a-z uppercased.
+##
+## ## Parámetros
+## - `s`: the string to transform.
+##
+## ## Retorno
+## A new owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.upper with "Ab"    # "AB"
+## ```
 weave upper with s as string into string:
     return calling s.upper
 ## @deprecated Use lower instead.
+##
+## ## Parámetros
+## - `s`: the string to transform.
+##
+## ## Retorno
+## Same as `lower`; kept only for compatibility.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.to_lower with "AbC"    # "abc"
+## ```
 weave to_lower with s as string into string:
     return calling s.to_lower
 ## @deprecated Use upper instead.
+##
+## ## Parámetros
+## - `s`: the string to transform.
+##
+## ## Retorno
+## Same as `upper`; kept only for compatibility.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.to_upper with "AbC"    # "ABC"
+## ```
 weave to_upper with s as string into string:
     return calling s.to_upper
-# --- Espacios -------------------------------------------------------
-## Copia sin espacios ASCII al principio ni al final.
+
+# --- Whitespace ---------------------------------------------------------
+## Functional form of `trim`: strip whitespace from both ends.
+##
+## ## Parámetros
+## - `s`: the string to trim.
+##
+## ## Retorno
+## A new owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.trim with "  a  "    # "a"
+## ```
 weave trim with s as string into string:
     return calling s.trim
-## Copia sin espacios ASCII al principio.
+## Functional form of `strip`: alias of `trim`.
+##
+## ## Parámetros
+## - `s`: the string to trim.
+##
+## ## Retorno
+## A new owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.strip with "  a  "    # "a"
+## ```
+weave strip with s as string into string:
+    return calling s.strip
+## Functional form of `trim_start`: strip leading whitespace.
+##
+## ## Parámetros
+## - `s`: the string to trim.
+##
+## ## Retorno
+## A new owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.trim_start with " a"    # "a"
+## ```
 weave trim_start with s as string into string:
     return calling s.trim_start
-## Copia sin espacios ASCII al final.
+## Functional form of `trim_end`: strip trailing whitespace.
+##
+## ## Parámetros
+## - `s`: the string to trim.
+##
+## ## Retorno
+## A new owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.trim_end with "a "    # "a"
+## ```
 weave trim_end with s as string into string:
     return calling s.trim_end
-# --- Reemplazo y división ------------------------------------------
-## Copia con la primera aparición de `from_str` sustituida por `to_str`.
-## Edge cases: un `from_str` vacío inserta `to_str` al principio (legado).
+
+# --- Replacing and splitting --------------------------------------------
+## Functional form of `replace`: replace the first occurrence.
+##
+## ## Parámetros
+## - `s`: the source string.
+## - `from_str`: the text to replace.
+## - `to_str`: the replacement text.
+##
+## ## Retorno
+## A new owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.replace with "abc", "b", "X"    # "aXc"
+## ```
 weave replace with s as string, from_str as string, to_str as string into string:
     return calling s.replace with from_str, to_str
-## Copia con **todas** las apariciones no solapadas de `from_str`
-## Edge cases: Un `from_str` vacío devuelve el string sin cambios.
+## Functional form of `replace_all`: replace every non-overlapping occurrence.
+##
+## ## Parámetros
+## - `s`: the source string.
+## - `from_str`: the text to replace; empty changes nothing.
+## - `to_str`: the replacement text.
+##
+## ## Retorno
+## A new owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.replace_all with "aaa", "a", "b"    # "bbb"
+## ```
 weave replace_all with s as string, from_str as string, to_str as string into string:
     return calling s.replace_all with from_str, to_str
-## Divide por cada aparición de `delim`.
-## Edge cases: Un `delim` vacío devuelve una lista con el string entero.
+## Functional form of `split`: split on every delimiter.
+##
+## ## Parámetros
+## - `s`: the source string.
+## - `delim`: the separator; empty keeps the whole string.
+##
+## ## Retorno
+## A new owned `list of string`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.split with "a,b", ","    # ["a", "b"]
+## ```
 weave split with s as string, delim as string into list of string:
     return calling s.split with delim
-## Copia repetida `count` veces.
-## Edge cases: `count <= 0` o string vacío devuelven "".
+## Functional form of `splitn`: split into at most `n` parts.
+##
+## ## Parámetros
+## - `s`: the source string.
+## - `delim`: the separator; empty keeps the whole string.
+## - `n`: maximum number of parts; `n <= 0` performs no split.
+##
+## ## Retorno
+## A new owned `list of string`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.splitn with "a,b,c", ",", 2    # ["a", "b,c"]
+## ```
+weave splitn with s as string, delim as string, n as int into list of string:
+    return calling s.splitn with delim, n
+## Functional form of `rsplit`: split scanning from the right.
+##
+## ## Parámetros
+## - `s`: the source string.
+## - `delim`: the separator; empty keeps the whole string.
+##
+## ## Retorno
+## A new owned `list of string` in left-to-right order; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.rsplit with "a:b:c", ":"    # ["a", "b", "c"]
+## ```
+weave rsplit with s as string, delim as string into list of string:
+    return calling s.rsplit with delim
+## Functional form of `repeat`: repeat `s` `count` times.
+##
+## ## Parámetros
+## - `s`: the string to repeat.
+## - `count`: the number of copies.
+##
+## ## Retorno
+## A new owned string; `count <= 0` or empty `s` yields "". Release it with
+## `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.repeat with "ab", 2    # "abab"
+## ```
 weave repeat with s as string, count as int into string:
     return calling s.repeat with count
-## Copia repetida `count` veces y unida con `sep`.
-## Edge cases: `count <= 0` o string vacío devuelven "".
+## Functional form of `repeat_join`: repeat `s` and join with `sep`.
+##
+## ## Parámetros
+## - `s`: the string to repeat.
+## - `count`: the number of copies.
+## - `sep`: the text placed between copies.
+##
+## ## Retorno
+## A new owned string; `count <= 0` or empty `s` yields "". Release it with
+## `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.repeat_join with "ab", 2, "-"    # "ab-ab"
+## ```
 weave repeat_join with s as string, count as int, sep as string into string:
     return calling s.repeat_join with count, sep
-## Copia con los bytes en orden inverso.
+## Functional form of `reverse`: bytes in reverse order.
+##
+## ## Parámetros
+## - `s`: the string to reverse.
+##
+## ## Retorno
+## A new owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.reverse with "abc"    # "cba"
+## ```
 weave reverse with s as string into string:
     return calling s.reverse
-## True cuando todos los bytes son letras ASCII y hay al menos uno.
+## Functional form of `is_alpha`: true for one or more ASCII letters.
+##
+## ## Parámetros
+## - `s`: the string to classify.
+##
+## ## Retorno
+## `true` only for `[A-Za-z]+`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.is_alpha with "aB"    # true
+## ```
 weave is_alpha with s as string into bool:
     return calling s.is_alpha
-## True cuando todos los bytes son dígitos ASCII y hay al menos uno.
+## Functional form of `is_digit`: true for one or more ASCII digits.
+##
+## ## Parámetros
+## - `s`: the string to classify.
+##
+## ## Retorno
+## `true` only for `[0-9]+`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.is_digit with "12"    # true
+## ```
 weave is_digit with s as string into bool:
     return calling s.is_digit
-## True cuando todos los bytes son letras o dígitos ASCII y hay al menos uno.
+## Functional form of `is_alnum`: true for one or more ASCII letters or digits.
+##
+## ## Parámetros
+## - `s`: the string to classify.
+##
+## ## Retorno
+## `true` only for `[A-Za-z0-9]+`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.is_alnum with "a1"    # true
+## ```
 weave is_alnum with s as string into bool:
     return calling s.is_alnum
-## Copia con la primera letra en mayúscula y el resto en minúsculas.
-## Edge cases: Devuelve "" para el string vacío.
+## Functional form of `capitalize`: first letter upper, rest lower.
+##
+## ## Parámetros
+## - `s`: the string to capitalize.
+##
+## ## Retorno
+## A new owned string; "" stays "".
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.capitalize with "hOLA"    # "Hola"
+## ```
 weave capitalize with s as string into string:
     return calling s.capitalize
-## Copia con la inicial de cada palabra en mayúscula y el resto en minúsculas.
+## Functional form of `title`: every word capitalized.
+##
+## ## Parámetros
+## - `s`: the string to title-case.
+##
+## ## Retorno
+## A new owned string; the original spacing is preserved.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.title with "a b"    # "A B"
+## ```
 weave title with s as string into string:
     return calling s.title
 ## @deprecated Use title instead.
+##
+## ## Parámetros
+## - `s`: the string to title-case.
+##
+## ## Retorno
+## Same as `title`; kept only for compatibility.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.title_case with "a b"    # "A B"
+## ```
 weave title_case with s as string into string:
     return calling s.title_case
-## Copia con cada letra ASCII cambiada de caja; el resto no cambia.
+## Functional form of `swap_case`: swap the case of every ASCII letter.
+##
+## ## Parámetros
+## - `s`: the string to transform.
+##
+## ## Retorno
+## A new owned string; non-letters keep their byte.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.swap_case with "aB"    # "Ab"
+## ```
 weave swap_case with s as string into string:
     return calling s.swap_case
-## Copia en `snake_case`: separa camelCase y normaliza los separadores a `_`.
-## Edge cases: Colapsa separadores repetidos; "" devuelve "".
+## Functional form of `to_snake_case`: convert to `snake_case`.
+##
+## ## Parámetros
+## - `s`: the string to convert.
+##
+## ## Retorno
+## A new owned string; "" stays "".
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.to_snake_case with "aB"    # "a_b"
+## ```
 weave to_snake_case with s as string into string:
     return calling s.to_snake_case
-## Copia en `kebab-case`: `to_snake_case` con `_` cambiado por `-`.
+## Functional form of `to_kebab_case`: convert to `kebab-case`.
+##
+## ## Parámetros
+## - `s`: the string to convert.
+##
+## ## Retorno
+## A new owned string; "" stays "".
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.to_kebab_case with "aB"    # "a-b"
+## ```
 weave to_kebab_case with s as string into string:
     return calling s.to_kebab_case
-## Forma corta de `to_snake_case`.
+## Functional form of `snake_case`: short `to_snake_case`.
+##
+## ## Parámetros
+## - `s`: the string to convert.
+##
+## ## Retorno
+## The same string `to_snake_case` would return.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.snake_case with "aB"    # "a_b"
+## ```
 weave snake_case with s as string into string:
     return calling s.snake_case
-## Forma corta de `to_kebab_case`.
+## Functional form of `kebab_case`: short `to_kebab_case`.
+##
+## ## Parámetros
+## - `s`: the string to convert.
+##
+## ## Retorno
+## The same string `to_kebab_case` would return.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.kebab_case with "aB"    # "a-b"
+## ```
 weave kebab_case with s as string into string:
     return calling s.kebab_case
-## Copia en `PascalCase`: cada palabra de `snake_case` capitalizada.
-## Edge cases: "" devuelve "".
+## Functional form of `pascal_case`: convert to `PascalCase`.
+##
+## ## Parámetros
+## - `s`: the string to convert.
+##
+## ## Retorno
+## A new owned string; "" stays "".
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.pascal_case with "a_b"    # "AB"
+## ```
 weave pascal_case with s as string into string:
     return calling s.pascal_case
+
 ## @deprecated Use index_of instead.
+##
+## ## Parámetros
+## - `s`: the haystack.
+## - `sub`: the needle.
+##
+## ## Retorno
+## Same as `index_of`; kept only for compatibility.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.find with "abc", "b"    # 1
+## ```
 weave find with s as string, sub as string into int:
     return calling s.find with sub
 ## @deprecated Use last_index_of instead.
+##
+## ## Parámetros
+## - `s`: the haystack.
+## - `sub`: the needle.
+##
+## ## Retorno
+## Same as `last_index_of`; kept only for compatibility.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.rfind with "abca", "a"    # 3
+## ```
 weave rfind with s as string, sub as string into int:
     return calling s.rfind with sub
-## Cuenta las apariciones **no solapadas** de `sub`.
-## Edge cases: Devuelve 0 cuando `sub` está vacío o es más largo.
+## Functional form of `count`: non-overlapping occurrences of `sub`.
+##
+## ## Parámetros
+## - `s`: the haystack.
+## - `sub`: the needle; empty returns 0.
+##
+## ## Retorno
+## The number of non-overlapping matches.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.count with "aaaa", "aa"    # 2
+## ```
 weave count with s as string, sub as string into int:
     return calling s.count with sub
 ## @deprecated Use count instead.
+##
+## ## Parámetros
+## - `s`: the haystack.
+## - `sub`: the needle.
+##
+## ## Retorno
+## Same as `count`; kept only for compatibility.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.count_matches with "aaaa", "aa"    # 2
+## ```
 weave count_matches with s as string, sub as string into int:
     return calling s.count_matches with sub
 ## @deprecated Use trim_start instead.
+##
+## ## Parámetros
+## - `s`: the string to trim.
+##
+## ## Retorno
+## Same as `trim_start`; kept only for compatibility.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.lstrip with " a"    # "a"
+## ```
 weave lstrip with s as string into string:
     return calling s.lstrip
 ## @deprecated Use trim_end instead.
+##
+## ## Parámetros
+## - `s`: the string to trim.
+##
+## ## Retorno
+## Same as `trim_end`; kept only for compatibility.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.rstrip with "a "    # "a"
+## ```
 weave rstrip with s as string into string:
     return calling s.rstrip
-## True cuando el string no está vacío y todos sus bytes son espacios.
-## Edge cases: Devuelve false para "" (ver `is_blank`).
+## Functional form of `is_space`: non-empty and only ASCII whitespace.
+##
+## ## Parámetros
+## - `s`: the string to classify.
+##
+## ## Retorno
+## `false` for "" (legacy), `true` for whitespace-only strings.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.is_space with "   "    # true
+## ```
 weave is_space with s as string into bool:
     return calling s.is_space
 ## @deprecated Use is_space instead.
+##
+## ## Parámetros
+## - `s`: the string to classify.
+##
+## ## Retorno
+## Same as `is_space`; kept only for compatibility.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.is_whitespace with " "    # true
+## ```
 weave is_whitespace with s as string into bool:
     return calling s.is_whitespace
-## True cuando el string está vacío o todos sus bytes son espacios.
+## Functional form of `is_blank`: empty or only ASCII whitespace.
+##
+## ## Parámetros
+## - `s`: the string to classify.
+##
+## ## Retorno
+## `true` for "" and whitespace-only strings.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.is_blank with ""    # true
+## ```
 weave is_blank with s as string into bool:
     return calling s.is_blank
-## Lista de palabras separadas por runs de espacios ASCII.
-## Edge cases: ignora espacios extremos; "" o solo espacios dan lista vacía.
+## Functional form of `split_whitespace`: split on whitespace runs.
+##
+## ## Parámetros
+## - `s`: the string to split.
+##
+## ## Retorno
+## A new owned `list of string`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.split_whitespace with "a b"    # ["a", "b"]
+## ```
 weave split_whitespace with s as string into list of string:
     return calling s.split_whitespace
-## Nombre corto de `split_whitespace`.
+## Functional form of `words`: short `split_whitespace`.
+##
+## ## Parámetros
+## - `s`: the string to split.
+##
+## ## Retorno
+## A new owned `list of string`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.words with "a b"    # ["a", "b"]
+## ```
 weave words with s as string into list of string:
     return calling s.words
-## Lista de líneas separadas por `\n`.
-## Edge cases: "" da lista vacía; un `\n` final añade una línea vacía.
+## Functional form of `split_lines`: split on `\n`, keeping CR bytes.
+##
+## ## Parámetros
+## - `s`: the string to split.
+##
+## ## Retorno
+## A new owned `list of string`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.split_lines with "a\nb"    # ["a", "b"]
+## ```
 weave split_lines with s as string into list of string:
     return calling s.split_lines
-## Lista de líneas con el `\r` final de cada una eliminado (CRLF).
-## Edge cases: "" da lista vacía; un `\n` final añade una línea vacía.
+## Functional form of `lines`: split on `\n` and drop a trailing `\r`.
+##
+## ## Parámetros
+## - `s`: the string to split.
+##
+## ## Retorno
+## A new owned `list of string`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.lines with "a\r\nb"    # ["a", "b"]
+## ```
 weave lines with s as string into list of string:
     return calling s.lines
-## Número de líneas separadas por `\n`.
-## Edge cases: 0 para ""; 1 para un string sin `\n`.
+## Functional form of `line_count`: number of `\n`-separated lines.
+##
+## ## Parámetros
+## - `s`: the string to measure.
+##
+## ## Retorno
+## 0 for "" and 1 for a string without `\n`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.line_count with "a\nb"    # 2
+## ```
 weave line_count with s as string into int:
     return calling s.line_count
-## Número de palabras separadas por espacios ASCII.
+## Functional form of `word_count`: number of whitespace-separated words.
+##
+## ## Parámetros
+## - `s`: the string to measure.
+##
+## ## Retorno
+## The element count of `words`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.word_count with "a b"    # 2
+## ```
 weave word_count with s as string into int:
     return calling s.word_count
-# --- Alineación -----------------------------------------------------
-## Alinea a la izquierda en `width`, rellenando por la derecha con `pad_char`.
-## Edge cases: si ya cabe o `pad_char` está vacío no cambia; se recorta a `width`.
+
+# --- Alignment ----------------------------------------------------------
+## Functional form of `ljust`: pad on the right to `width`.
+##
+## ## Parámetros
+## - `s`: the string to align.
+## - `width`: the target byte width.
+## - `pad_char`: the padding text (default `" "`).
+##
+## ## Retorno
+## A new owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.ljust with "ab", 4    # "ab  "
+## ```
 weave ljust with s as string, width as int, pad_char as string is " " into string:
     return calling s.ljust with width, pad_char
-## Alinea a la derecha en `width`, rellenando por la izquierda con `pad_char`.
+## Functional form of `rjust`: pad on the left to `width`.
+##
+## ## Parámetros
+## - `s`: the string to align.
+## - `width`: the target byte width.
+## - `pad_char`: the padding text (default `" "`).
+##
+## ## Retorno
+## A new owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.rjust with "ab", 4    # "  ab"
+## ```
 weave rjust with s as string, width as int, pad_char as string is " " into string:
     return calling s.rjust with width, pad_char
 ## @deprecated Use rjust instead.
+##
+## ## Parámetros
+## - `s`: the string to align.
+## - `width`: the target byte width.
+## - `pad_char`: the padding text (default `" "`).
+##
+## ## Retorno
+## Same as `rjust`; kept only for compatibility.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.pad_left with "42", 5, "0"    # "00042"
+## ```
 weave pad_left with s as string, width as int, pad_char as string is " " into string:
     return calling s.pad_left with width, pad_char
 ## @deprecated Use ljust instead.
+##
+## ## Parámetros
+## - `s`: the string to align.
+## - `width`: the target byte width.
+## - `pad_char`: the padding text (default `" "`).
+##
+## ## Retorno
+## Same as `ljust`; kept only for compatibility.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.pad_right with "ab", 4, "."    # "ab.."
+## ```
 weave pad_right with s as string, width as int, pad_char as string is " " into string:
     return calling s.pad_right with width, pad_char
-## Rellena con ceros por la izquierda hasta `width`, conservando el signo.
+## Functional form of `zfill`: zero-pad on the left, preserving the sign.
+##
+## ## Parámetros
+## - `s`: the string to pad.
+## - `width`: the target byte width.
+##
+## ## Retorno
+## A new owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.zfill with "7", 3    # "007"
+## ```
 weave zfill with s as string, width as int into string:
     return calling s.zfill with width
-## Centra en un campo de `width` rellenando con `pad_char`.
-## Edge cases: con relleno impar la izquierda recibe la mitad menor (Python).
+## Functional form of `center`: pad both sides to `width`.
+##
+## ## Parámetros
+## - `s`: the string to align.
+## - `width`: the target byte width.
+## - `pad_char`: the padding text (default `" "`).
+##
+## ## Retorno
+## A new owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.center with "a", 3, "."    # ".a."
+## ```
 weave center with s as string, width as int, pad_char as string is " " into string:
     return calling s.center with width, pad_char
-# --- Prefijos y sufijos --------------------------------------------
-## Copia con `prefix` eliminado del principio si está presente.
+
+# --- Prefixes and suffixes ----------------------------------------------
+## Functional form of `removeprefix`: drop `prefix` when present.
+##
+## ## Parámetros
+## - `s`: the source string.
+## - `prefix`: the prefix to strip.
+##
+## ## Retorno
+## A new owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.removeprefix with "abc", "a"    # "bc"
+## ```
 weave removeprefix with s as string, prefix as string into string:
     return calling s.removeprefix with prefix
-## Copia con `suffix` eliminado del final si está presente.
+## Functional form of `removesuffix`: drop `suffix` when present.
+##
+## ## Parámetros
+## - `s`: the source string.
+## - `suffix`: the suffix to strip.
+##
+## ## Retorno
+## A new owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.removesuffix with "abc", "c"    # "ab"
+## ```
 weave removesuffix with s as string, suffix as string into string:
     return calling s.removesuffix with suffix
-## Divide en la **primera** aparición de `sep`: `[antes, sep, después]`.
-## Edge cases: si `sep` falta o está vacío devuelve `[s, "", ""]`.
+## Functional form of `partition`: `[before, sep, after]`.
+##
+## ## Parámetros
+## - `s`: the source string.
+## - `sep`: the separator; absent or empty returns `[s, "", ""]`.
+##
+## ## Retorno
+## A new owned 3-element `list of string`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.partition with "a=b", "="    # ["a", "=", "b"]
+## ```
 weave partition with s as string, sep as string into list of string:
     return calling s.partition with sep
-## True cuando no hay mayúsculas y hay al menos una minúscula.
+## Functional form of `is_lower`: no uppercase and at least one lowercase.
+##
+## ## Parámetros
+## - `s`: the string to classify.
+##
+## ## Retorno
+## `true` for `"a1"`, `false` for `"A1"`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.is_lower with "a1"    # true
+## ```
 weave is_lower with s as string into bool:
     return calling s.is_lower
-## True cuando no hay minúsculas y hay al menos una mayúscula.
+## Functional form of `is_upper`: no lowercase and at least one uppercase.
+##
+## ## Parámetros
+## - `s`: the string to classify.
+##
+## ## Retorno
+## `true` for `"A1"`, `false` for `"a1"`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.is_upper with "A1"    # true
+## ```
 weave is_upper with s as string into bool:
     return calling s.is_upper
-## True cuando el string se lee igual al derecho y al revés.
-## Edge cases: Los strings de longitud 0 o 1 son palíndromos.
+## Functional form of `is_palindrome`: reads the same both ways.
+##
+## ## Parámetros
+## - `s`: the string to test.
+##
+## ## Retorno
+## `true` for byte palindromes; "" and one-byte strings qualify.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.is_palindrome with "ab"    # false
+## ```
 weave is_palindrome with s as string into bool:
     return calling s.is_palindrome
-# --- Comparación ----------------------------------------------------
-## Compara byte a byte con `other` y devuelve -1, 0 o 1.
+
+# --- Comparison and iteration -------------------------------------------
+## Functional form of `compare`: byte-lexicographic order.
+##
+## ## Parámetros
+## - `a`: the left operand.
+## - `b`: the right operand.
+##
+## ## Retorno
+## -1 when `a < b`, 0 when equal, 1 when `a > b` (byte order).
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.compare with "a", "b"    # -1
+## ```
 weave compare with a as string, b as string into int:
     return calling a.compare with b
-## Lista con cada byte como un string de un carácter.
+## Functional form of `chars`: bytes as one-character strings.
+##
+## ## Parámetros
+## - `s`: the string to split.
+##
+## ## Retorno
+## A new owned `list of string`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.chars with "ab"    # ["a", "b"]
+## ```
 weave chars with s as string into list of string:
     return calling s.chars
-## Lista con el código numérico de cada byte.
+## Functional form of `bytes`: numeric code of each byte.
+##
+## ## Parámetros
+## - `s`: the string to read.
+##
+## ## Retorno
+## A new owned `list of int`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.bytes with "A"    # [65]
+## ```
 weave bytes with s as string into list of int:
     return calling s.bytes
-# --- Truncado -------------------------------------------------------
-## Recorta a `max_len` bytes añadiendo `suffix` si hubo recorte.
-## Edge cases: `max_len <= len(suffix)` recorta sin sufijo; `max_len <= 0` da "".
+
+# --- Truncation ---------------------------------------------------------
+## Functional form of `truncate`: cut to `max_len` with a suffix.
+##
+## ## Parámetros
+## - `s`: the source string.
+## - `max_len`: the maximum result length in bytes.
+## - `suffix`: the marker appended after a cut.
+##
+## ## Retorno
+## A new owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.truncate with "abcdef", 4, ".."    # "ab.."
+## ```
 weave truncate with s as string, max_len as int, suffix as string into string:
     return calling s.truncate with max_len, suffix
-## Recorta a `max_len` bytes añadiendo "..." si hubo recorte.
+## Functional form of `ellipsis`: cut to `max_len` with "...".
+##
+## ## Parámetros
+## - `s`: the source string.
+## - `max_len`: the maximum result length in bytes.
+##
+## ## Retorno
+## A new owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.ellipsis with "abcdef", 4    # "a..."
+## ```
 weave ellipsis with s as string, max_len as int into string:
     return calling s.ellipsis with max_len
-## True cuando el string es un literal numérico exacto: signo y `.` opcionales.
+## Functional form of `is_numeric`: exact numeric literal test.
+##
+## ## Parámetros
+## - `s`: the string to validate.
+##
+## ## Retorno
+## `true` for `[+-]?digits[.digits]?` with at least one digit.
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.is_numeric with "42"    # true
+## ```
 weave is_numeric with s as string into bool:
     return calling s.is_numeric
 
-## Une los elementos de `parts` con `sep` entre ellos.
+## Join the elements of `parts` with `sep` between them.
 ##
-## ## Memoria
-## Devuelve un `string` nuevo; libéralo con `banish`.
+## ## Parámetros
+## - `parts`: the pieces to join; an empty list yields "".
+## - `sep`: the text placed between pieces.
 ##
-## Edge cases: Una lista vacía devuelve "".
+## ## Retorno
+## A new owned string; release it with `banish`. The empty pieces are preserved
+## (`["", "x", ""]` joined with `"|"` is `"|x|"`).
+##
+## ## Ejemplo
+## ```pengu
+## calling scrolls.join with ["a", "b"], "-"    # "a-b"
+## ```
 weave join with parts as list of string, sep as string into string:
     return calling _join_parts with parts, sep
 
-# --- Helpers privados ----------------------------------------------------
-## Une `parts` con `sep` entre elementos (cuerpo real de `join`).
+# --- Private helpers ----------------------------------------------------
+## Join `parts` with `sep` between elements (the real body of `join`).
+##
+## ## Parámetros
+## - `parts`: the pieces to join.
+## - `sep`: the text between pieces.
+##
+## ## Retorno
+## A new owned string; the caller releases it with `banish`.
 weave _join_parts with parts as list of string, sep as string into string:
     let ll as int is parts length
     if ll == 0:
@@ -897,89 +2944,62 @@ weave _join_parts with parts as list of string, sep as string into string:
         calling pieces.push with "{sep}{parts at i}"
         set i is i + 1
     return calling _concat with pieces
-## Único punto de acumulación de strings del módulo: une `parts` tal cual.
+## The module's single string accumulation point: concatenate `parts` as they are.
+##
+## ## Parámetros
+## - `parts`: the pieces to concatenate, in order.
+##
+## ## Retorno
+## A new owned string; the caller releases it with `banish`.
 weave _concat with parts as list of string into string:
     var out as string is ""
     for part in parts:
         set out is "{out}{part}"
     return out
-## True cuando `ch` es un espacio ASCII: espacio, tab, LF, CR, VT o FF.
-weave _char_is_space with ch as string into bool:
-    return ch == " " or ch == "\t" or ch == "\n" or ch == "\r" or ch == "\v" or ch == "\f"
-## True cuando `ch` es un dígito ASCII (0-9).
-weave _char_is_digit with ch as string into bool:
-    let code as int is ord ch
-    return code >= 48 and code <= 57
-## True cuando `ch` es una letra ASCII mayúscula (A-Z).
-weave _char_is_upper with ch as string into bool:
-    let code as int is ord ch
-    return code >= 65 and code <= 90
-## True cuando `ch` es una letra ASCII minúscula (a-z).
-weave _char_is_lower with ch as string into bool:
-    let code as int is ord ch
-    return code >= 97 and code <= 122
-## True cuando `ch` es una letra ASCII (A-Z o a-z).
-weave _char_is_alpha with ch as string into bool:
-    if calling _char_is_upper with ch:
-        return true
-    return calling _char_is_lower with ch
-## True cuando `ch` es una letra o un dígito ASCII.
-weave _char_is_alnum with ch as string into bool:
-    if calling _char_is_alpha with ch:
-        return true
-    return calling _char_is_digit with ch
-## Copia de `ch` en minúscula si es una letra ASCII mayúscula.
+## Copy of `ch` lowercased when it is an ASCII uppercase letter.
+##
+## ## Parámetros
+## - `ch`: the one-byte string to transform.
+##
+## ## Retorno
+## A new owned string; the caller releases it with `banish`.
 weave _lower_char with ch as string into string:
     if calling _char_is_upper with ch:
         return chr ((ord ch) + 32)
     return ch
-## Copia de `ch` en mayúscula si es una letra ASCII minúscula.
+## Copy of `ch` uppercased when it is an ASCII lowercase letter.
+##
+## ## Parámetros
+## - `ch`: the one-byte string to transform.
+##
+## ## Retorno
+## A new owned string; the caller releases it with `banish`.
 weave _upper_char with ch as string into string:
     if calling _char_is_lower with ch:
         return chr ((ord ch) - 32)
     return ch
-## Copia de `ch` con la caja ASCII cambiada.
+## Copy of `ch` with its ASCII case swapped.
+##
+## ## Parámetros
+## - `ch`: the one-byte string to transform.
+##
+## ## Retorno
+## A new owned string; the caller releases it with `banish`.
 weave _swap_char with ch as string into string:
     if calling _char_is_upper with ch:
         return chr ((ord ch) + 32)
     if calling _char_is_lower with ch:
         return chr ((ord ch) - 32)
     return ch
-## True cuando `s` contiene `prefix` a partir de la posición `pos`.
-weave _has_prefix_at with s as string, prefix as string, pos as int into bool:
-    let pl as int is prefix length
-    if pos < 0:
-        return false
-    if (pos + pl) > (s length):
-        return false
-    return (s at pos to (pos + pl)) == prefix
-## Primera posición de `sub` en `s` a partir de `from_pos` (incluido), o -1.
-weave _index_of_from with s as string, sub as string, from_pos as int into int:
-    let ll as int is s length
-    let sl as int is sub length
-    if sl == 0:
-        return 0
-    if sl > ll:
-        return -1
-    var i as int is from_pos
-    if i < 0:
-        set i is 0
-    while i <= ll - sl:
-        if calling _has_prefix_at with s, sub, i:
-            return i
-        set i is i + 1
-    return -1
-## Última posición de `sub` en `s` en o antes de `from_pos`, o -1.
-weave _last_index_of_from with s as string, sub as string, from_pos as int into int:
-    if (sub length) == 0:
-        return s length
-    var i as int is from_pos
-    while i >= 0:
-        if calling _has_prefix_at with s, sub, i:
-            return i
-        set i is i - 1
-    return -1
-## Copia de `s` con `count` copias de `pad_char` delante.
+## Copy of `s` with `count` copies of `pad_char` in front.
+##
+## ## Parámetros
+## - `s`: the base string.
+## - `count`: how many copies of `pad_char` to prepend.
+## - `pad_char`: the padding text.
+##
+## ## Retorno
+## A new owned string; the caller releases it with `banish`.
 weave _pad_left with s as string, count as int, pad_char as string into string:
     if count <= 0:
         return s
@@ -988,7 +3008,15 @@ weave _pad_left with s as string, count as int, pad_char as string into string:
         calling parts.push with pad_char
     calling parts.push with s
     return calling _concat with parts
-## Copia de `s` con `count` copias de `pad_char` detrás.
+## Copy of `s` with `count` copies of `pad_char` behind.
+##
+## ## Parámetros
+## - `s`: the base string.
+## - `count`: how many copies of `pad_char` to append.
+## - `pad_char`: the padding text.
+##
+## ## Retorno
+## A new owned string; the caller releases it with `banish`.
 weave _pad_right with s as string, count as int, pad_char as string into string:
     if count <= 0:
         return s
@@ -997,7 +3025,13 @@ weave _pad_right with s as string, count as int, pad_char as string into string:
     for i from 0 to count:
         calling parts.push with pad_char
     return calling _concat with parts
-## Valor decimal de un literal numérico válido (precondición: `is_numeric`).
+## Decimal value of a valid numeric literal (precondition: `is_numeric`).
+##
+## ## Parámetros
+## - `s`: a literal accepted by `is_numeric`.
+##
+## ## Retorno
+## The `float` value; exponents are not supported.
 weave _float_from_literal with s as string into float:
     var int_val as float is 0.0
     var frac_val as float is 0.0
@@ -1018,473 +3052,536 @@ weave _float_from_literal with s as string into float:
     if (s at 0 to 1) == "-":
         set sign is -1.0
     return sign * (int_val + (frac_val / scale))
-## Harness privado de tests: panickea con `label` cuando `cond` es falso.
+## Private test harness: panic with `label` when `cond` is false.
+##
+## ## Parámetros
+## - `cond`: the condition that must hold.
+## - `label`: the message reported on failure.
+##
+## ## Retorno
+## Nothing; it panics through `spark.panic` on failure.
 weave _expect with cond as bool, label as string into void:
     if not cond:
         calling spark.panic with "scrolls test failed: {label}"
-## Harness privado de tests: igualdad de enteros.
+## Private test harness: integer equality.
+##
+## ## Parámetros
+## - `actual`: the observed value.
+## - `expected`: the required value.
+## - `label`: the message reported on failure.
+##
+## ## Retorno
+## Nothing; it panics through `spark.panic` on mismatch.
 weave _expect_eq_int with actual as int, expected as int, label as string into void:
     if actual != expected:
         calling spark.panic with "scrolls test failed: {label}: {(actual to string)} != {(expected to string)}"
-## Harness privado de tests: igualdad de strings.
+## Private test harness: string equality.
+##
+## ## Parámetros
+## - `actual`: the observed value.
+## - `expected`: the required value.
+## - `label`: the message reported on failure.
+##
+## ## Retorno
+## Nothing; it panics through `spark.panic` on mismatch.
 weave _expect_eq_string with actual as string, expected as string, label as string into void:
     if actual != expected:
         calling spark.panic with "scrolls test failed: {label}: {actual} != {expected}"
-## Harness privado de tests: igualdad de booleanos.
+## Private test harness: boolean equality.
+##
+## ## Parámetros
+## - `actual`: the observed value.
+## - `expected`: the required value.
+## - `label`: the message reported on failure.
+##
+## ## Retorno
+## Nothing; it panics through `spark.panic` on mismatch.
 weave _expect_eq_bool with actual as bool, expected as bool, label as string into void:
     if actual != expected:
         calling spark.panic with "scrolls test failed: {label}"
-# --- Tests ---
-# Harness privado en `_expect*` (ver `## Notas de diseño`).
 
-# Longitud e iteración
-test "len cuenta bytes, también en UTF-8":
+# --- Tests ---
+# Private harness in `_expect*` (see `## Design notes`).
+
+# Length and iteration
+test "len counts bytes, also in UTF-8":
     var s as string is "café"
     calling _expect_eq_int with (calling s.len), 5, "len"
-    calling _expect_eq_int with (calling len with "abc"), 3, "len func"
-test "is_empty distingue el string vacío":
-    var vacio as string is ""
-    calling _expect_eq_bool with (calling vacio.is_empty), true, "is_empty"
-    calling _expect_eq_bool with (calling is_empty with "x"), false, "is_empty func"
-test "chars devuelve un string de un byte por elemento":
+    calling _expect_eq_int with (calling len with "abc"), 3, "functional len"
+test "is_empty distinguishes the empty string":
+    var empty_s as string is ""
+    calling _expect_eq_bool with (calling empty_s.is_empty), true, "is_empty"
+    calling _expect_eq_bool with (calling is_empty with "x"), false, "functional is_empty"
+test "chars returns a one-byte string per element":
     var s as string is "abc"
-    var partes as list of string is calling s.chars
-    calling _expect_eq_int with (partes length), 3, "chars"
-    var letras as list of string is calling chars with s
-    calling _expect_eq_string with (letras at 1), "b", "chars func"
-test "bytes devuelve los códigos ASCII":
+    var parts as list of string is calling s.chars
+    calling _expect_eq_int with (parts length), 3, "chars"
+    var letters as list of string is calling chars with s
+    calling _expect_eq_string with (letters at 1), "b", "functional chars"
+test "bytes returns the ASCII codes":
     var s as string is "AB"
-    var codigos as list of int is calling s.bytes
-    calling _expect_eq_int with (codigos at 0), 65, "bytes"
-    var codigos_func as list of int is calling bytes with s
-    calling _expect_eq_int with (codigos_func at 1), 66, "bytes func"
+    var codes as list of int is calling s.bytes
+    calling _expect_eq_int with (codes at 0), 65, "bytes"
+    var func_codes as list of int is calling bytes with s
+    calling _expect_eq_int with (func_codes at 1), 66, "functional bytes"
 
-# Búsqueda
-test "contains encuentra y descarta substrings":
+# Search
+test "contains finds and discards substrings":
     var s as string is "abc"
     calling _expect_eq_bool with (calling s.contains with "bc"), true, "contains"
-    calling _expect_eq_bool with (calling contains with s, "z"), false, "contains func"
-test "starts_with acepta el prefijo vacío":
+    calling _expect_eq_bool with (calling contains with s, "z"), false, "functional contains"
+test "starts_with accepts the empty prefix":
     var s as string is "abc"
-    calling _expect_eq_bool with (calling s.starts_with with ""), true, "prefijo vacío"
-    calling _expect_eq_bool with (calling starts_with with s, "bc"), false, "prefijo erróneo"
-test "ends_with reconoce sufijos":
+    calling _expect_eq_bool with (calling s.starts_with with ""), true, "empty prefix"
+    calling _expect_eq_bool with (calling starts_with with s, "bc"), false, "wrong prefix"
+test "ends_with recognises suffixes":
     var s as string is "abc"
     calling _expect_eq_bool with (calling s.ends_with with "bc"), true, "ends_with"
-    calling _expect_eq_bool with (calling ends_with with s, "abcd"), false, "sufijo largo"
-test "index_of devuelve la primera posición":
+    calling _expect_eq_bool with (calling ends_with with s, "abcd"), false, "long suffix"
+test "index_of returns the first position":
     var s as string is "abracadabra"
     calling _expect_eq_int with (calling s.index_of with "cad"), 4, "index_of"
-    calling _expect_eq_int with (calling index_of with s, ""), 0, "sub vacío"
-test "index_of devuelve -1 cuando no encuentra":
+    calling _expect_eq_int with (calling index_of with s, ""), 0, "empty sub"
+test "index_of returns -1 when it does not find":
     var s as string is "abc"
-    calling _expect_eq_int with (calling s.index_of with "z"), -1, "ausente"
-    calling _expect_eq_int with (calling s.index_of with "abcd"), -1, "más largo"
-test "last_index_of devuelve la última posición":
+    calling _expect_eq_int with (calling s.index_of with "z"), -1, "absent"
+    calling _expect_eq_int with (calling s.index_of with "abcd"), -1, "longer"
+test "last_index_of returns the last position":
     var s as string is "abracadabra"
     calling _expect_eq_int with (calling s.last_index_of with "abra"), 7, "last_index_of"
-    calling _expect_eq_int with (calling last_index_of with s, "z"), -1, "ausente"
-test "last_index_of con sub vacío devuelve la longitud":
+    calling _expect_eq_int with (calling last_index_of with s, "z"), -1, "absent"
+test "last_index_of with an empty sub returns the length":
     var s as string is "abc"
-    calling _expect_eq_int with (calling s.last_index_of with ""), 3, "sub vacío"
-test "count cuenta apariciones no solapadas":
+    calling _expect_eq_int with (calling s.last_index_of with ""), 3, "empty sub"
+test "count counts non-overlapping occurrences":
     var s as string is "abracadabra"
     calling _expect_eq_int with (calling s.count with "a"), 5, "count"
-    calling _expect_eq_int with (calling count with s, "abra"), 2, "count func"
-test "count ignora el sub vacío y el sub más largo":
+    calling _expect_eq_int with (calling count with s, "abra"), 2, "functional count"
+test "count ignores the empty sub and the longer sub":
     var s as string is "abc"
-    calling _expect_eq_int with (calling s.count with ""), 0, "vacío"
-    var repetido as string is "aaaa"
-    calling _expect_eq_int with (calling repetido.count with "aa"), 2, "no solapado"
-test "find, rfind y count_matches siguen funcionando":
+    calling _expect_eq_int with (calling s.count with ""), 0, "empty"
+    var repeated as string is "aaaa"
+    calling _expect_eq_int with (calling repeated.count with "aa"), 2, "non-overlapping"
+test "find, rfind and count_matches still work":
     var s as string is "abracadabra"
     calling _expect_eq_int with (calling s.find with "cad"), 4, "find"
     calling _expect_eq_int with (calling s.rfind with "abra"), 7, "rfind"
     calling _expect_eq_int with (calling s.count_matches with "a"), 5, "count_matches"
-test "formas funcionales de consulta":
+test "functional query forms":
     calling _expect_eq_bool with (calling contains with "abc", "b"), true, "contains"
     calling _expect_eq_bool with (calling starts_with with "abc", "ab"), true, "starts_with"
     calling _expect_eq_bool with (calling ends_with with "abc", "bc"), true, "ends_with"
-test "formas funcionales de posición y recuento":
+test "functional position and count forms":
     calling _expect_eq_int with (calling index_of with "abc", "c"), 2, "index_of"
     calling _expect_eq_int with (calling last_index_of with "abca", "a"), 3, "last_index_of"
     calling _expect_eq_int with (calling count_matches with "aaaa", "aa"), 2, "count_matches"
 
-# Corte
-test "substring corta el rango pedido":
+# Slicing
+test "substring cuts the requested range":
     var s as string is "abcdef"
     calling _expect_eq_string with (calling s.substring with 1, 4), "bcd", "substring"
-    calling _expect_eq_string with (calling substring with s, 0, 0), "", "rango vacío"
-test "char_at devuelve un byte como string":
+    calling _expect_eq_string with (calling substring with s, 0, 0), "", "empty range"
+test "char_at returns one byte as a string":
     var s as string is "abc"
     calling _expect_eq_string with (calling s.char_at with 1), "b", "char_at"
-    calling _expect_eq_string with (calling char_at with s, 2), "c", "char_at func"
-test "reverse invierte el orden de los bytes":
+    calling _expect_eq_string with (calling char_at with s, 2), "c", "functional char_at"
+test "reverse flips the byte order":
     var s as string is "pengu"
     calling _expect_eq_string with (calling s.reverse), "ugnep", "reverse"
-    calling _expect_eq_string with (calling reverse with s), "ugnep", "reverse func"
-test "reverse del string vacío devuelve vacío":
-    var vacio as string is ""
-    calling _expect_eq_string with (calling vacio.reverse), "", "reverse vacío"
+    calling _expect_eq_string with (calling reverse with s), "ugnep", "functional reverse"
+test "reverse of the empty string is empty":
+    var empty_s as string is ""
+    calling _expect_eq_string with (calling empty_s.reverse), "", "empty reverse"
 
-# Caja
-test "lower convierte A-Z y no toca el resto":
+# Case
+test "lower converts A-Z and leaves the rest alone":
     var s as string is "Hello, World!"
     calling _expect_eq_string with (calling s.lower), "hello, world!", "lower"
-    calling _expect_eq_string with (calling lower with s), "hello, world!", "lower func"
-test "upper convierte a-z a mayúsculas":
+    calling _expect_eq_string with (calling lower with s), "hello, world!", "functional lower"
+test "upper converts a-z to uppercase":
     var s as string is "abc"
     calling _expect_eq_string with (calling s.upper), "ABC", "upper"
-    calling _expect_eq_string with (calling upper with s), "ABC", "upper func"
-test "to_lower y to_upper siguen funcionando":
+    calling _expect_eq_string with (calling upper with s), "ABC", "functional upper"
+test "to_lower and to_upper still work":
     var s as string is "AbC"
     calling _expect_eq_string with (calling s.to_lower), "abc", "to_lower"
-    calling _expect_eq_string with (calling to_upper with s), "ABC", "to_upper func"
-test "lower deja intactos los bytes UTF-8":
+    calling _expect_eq_string with (calling to_upper with s), "ABC", "functional to_upper"
+test "lower leaves UTF-8 bytes untouched":
     var s as string is "CAFé"
     calling _expect_eq_string with (calling s.lower), "café", "UTF-8"
-test "capitalize deja solo la primera letra en mayúscula":
+test "capitalize keeps only the first letter uppercase":
     var s as string is "hELLO world"
     calling _expect_eq_string with (calling s.capitalize), "Hello world", "capitalize"
-    calling _expect_eq_string with (calling capitalize with "1abc"), "1abc", "dígito inicial"
-test "capitalize del string vacío devuelve vacío":
-    var vacio as string is ""
-    calling _expect_eq_string with (calling vacio.capitalize), "", "capitalize vacío"
-test "title capitaliza la inicial de cada palabra":
+    calling _expect_eq_string with (calling capitalize with "1abc"), "1abc", "leading digit"
+test "capitalize of the empty string is empty":
+    var empty_s as string is ""
+    calling _expect_eq_string with (calling empty_s.capitalize), "", "empty capitalize"
+test "title capitalizes the initial of every word":
     var s as string is "hello world"
     calling _expect_eq_string with (calling s.title), "Hello World", "title"
-    calling _expect_eq_string with (calling title with s), "Hello World", "title func"
-test "title conserva el espaciado original":
+    calling _expect_eq_string with (calling title with s), "Hello World", "functional title"
+test "title preserves the original spacing":
     var s as string is "  a  b "
-    calling _expect_eq_string with (calling s.title), "  A  B ", "espacios"
-test "title_case sigue funcionando":
+    calling _expect_eq_string with (calling s.title), "  A  B ", "spaces"
+test "title_case still works":
     var s as string is "hello world"
     calling _expect_eq_string with (calling s.title_case), "Hello World", "title_case"
-test "swap_case cambia la caja de cada letra":
+test "swap_case flips the case of every letter":
     var s as string is "Hello, World!"
     calling _expect_eq_string with (calling s.swap_case), "hELLO, wORLD!", "swap_case"
-    calling _expect_eq_string with (calling swap_case with "a1B"), "A1b", "no letras"
-test "to_snake_case separa camelCase y PascalCase":
+    calling _expect_eq_string with (calling swap_case with "a1B"), "A1b", "non-letters"
+test "to_snake_case splits camelCase and PascalCase":
     var s as string is "helloWorld"
     calling _expect_eq_string with (calling s.to_snake_case), "hello_world", "camel"
-    calling _expect_eq_string with (calling to_snake_case with "HTTPServer"), "http_server", "siglas"
-test "to_snake_case normaliza separadores":
+    calling _expect_eq_string with (calling to_snake_case with "HTTPServer"), "http_server", "acronym"
+test "to_snake_case normalises separators":
     var s as string is "hello--world"
-    calling _expect_eq_string with (calling s.to_snake_case), "hello_world", "guiones"
-    calling _expect_eq_string with (calling to_snake_case with ""), "", "vacío"
-test "to_kebab_case usa guiones":
+    calling _expect_eq_string with (calling s.to_snake_case), "hello_world", "dashes"
+    calling _expect_eq_string with (calling to_snake_case with ""), "", "empty"
+test "to_kebab_case uses dashes":
     var s as string is "HelloWorld"
     calling _expect_eq_string with (calling s.to_kebab_case), "hello-world", "kebab"
-    calling _expect_eq_string with (calling to_kebab_case with s), "hello-world", "kebab func"
-test "snake_case y kebab_case son formas cortas":
+    calling _expect_eq_string with (calling to_kebab_case with s), "hello-world", "functional kebab"
+test "snake_case and kebab_case are short forms":
     var s as string is "helloWorld"
     calling _expect_eq_string with (calling s.snake_case), "hello_world", "snake_case"
-    calling _expect_eq_string with (calling kebab_case with s), "hello-world", "kebab_case func"
-test "pascal_case capitaliza cada palabra":
+    calling _expect_eq_string with (calling kebab_case with s), "hello-world", "functional kebab_case"
+test "pascal_case capitalizes every word":
     var s as string is "hello_world"
-    calling _expect_eq_string with (calling s.pascal_case), "HelloWorld", "snake a pascal"
-    calling _expect_eq_string with (calling pascal_case with "helloWorld"), "HelloWorld", "func"
-test "is_alpha exige solo letras ASCII":
+    calling _expect_eq_string with (calling s.pascal_case), "HelloWorld", "snake to pascal"
+    calling _expect_eq_string with (calling pascal_case with "helloWorld"), "HelloWorld", "functional"
+test "is_alpha demands ASCII letters only":
     var s as string is "aB"
     calling _expect_eq_bool with (calling s.is_alpha), true, "is_alpha"
-    calling _expect_eq_bool with (calling is_alpha with "a1"), false, "con dígito"
-test "is_digit exige solo dígitos ASCII":
+    calling _expect_eq_bool with (calling is_alpha with "a1"), false, "with digit"
+test "is_digit demands ASCII digits only":
     var s as string is "123"
     calling _expect_eq_bool with (calling s.is_digit), true, "is_digit"
-    calling _expect_eq_bool with (calling is_digit with "12a"), false, "con letra"
-test "is_alnum acepta letras y dígitos":
+    calling _expect_eq_bool with (calling is_digit with "12a"), false, "with letter"
+test "is_alnum accepts letters and digits":
     var s as string is "a1"
     calling _expect_eq_bool with (calling s.is_alnum), true, "is_alnum"
-    calling _expect_eq_bool with (calling is_alnum with "a 1"), false, "con espacio"
-test "is_lower e is_upper ignoran lo no alfabético":
+    calling _expect_eq_bool with (calling is_alnum with "a 1"), false, "with space"
+test "is_lower and is_upper ignore non-alphabetic bytes":
     var s as string is "a1"
     calling _expect_eq_bool with (calling s.is_lower), true, "is_lower"
     calling _expect_eq_bool with (calling is_upper with "A1"), true, "is_upper"
-test "is_palindrome detecta palíndromos":
+test "is_palindrome detects palindromes":
     var s as string is "racecar"
-    calling _expect_eq_bool with (calling s.is_palindrome), true, "palíndromo"
-    calling _expect_eq_bool with (calling is_palindrome with "ab"), false, "no palíndromo"
-test "formas funcionales de caja":
+    calling _expect_eq_bool with (calling s.is_palindrome), true, "palindrome"
+    calling _expect_eq_bool with (calling is_palindrome with "ab"), false, "not a palindrome"
+test "functional case forms":
     calling _expect_eq_string with (calling capitalize with "hOLA"), "Hola", "capitalize"
     calling _expect_eq_string with (calling title with "a b"), "A B", "title"
     calling _expect_eq_string with (calling swap_case with "aB"), "Ab", "swap_case"
-test "formas funcionales de conversión de estilo":
+test "functional style-conversion forms":
     calling _expect_eq_string with (calling to_snake_case with "aB"), "a_b", "to_snake_case"
     calling _expect_eq_string with (calling to_kebab_case with "aB"), "a-b", "to_kebab_case"
     calling _expect_eq_string with (calling snake_case with "aB"), "a_b", "snake_case"
     calling _expect_eq_string with (calling pascal_case with "a_b"), "AB", "pascal_case"
-test "formas funcionales de caja antigua":
+test "functional legacy case forms":
     calling _expect_eq_string with (calling to_lower with "AbC"), "abc", "to_lower"
     calling _expect_eq_string with (calling to_upper with "AbC"), "ABC", "to_upper"
     calling _expect_eq_string with (calling title_case with "a b"), "A B", "title_case"
 
-# Espacios
-test "trim quita espacios ASCII de los extremos":
+# Whitespace
+test "trim removes ASCII whitespace from both ends":
     var s as string is "\t\n x \r\v\f "
     calling _expect_eq_string with (calling s.trim), "x", "trim"
-    calling _expect_eq_string with (calling trim with "  a  "), "a", "trim func"
-test "trim_start quita solo el principio":
+    calling _expect_eq_string with (calling trim with "  a  "), "a", "functional trim"
+test "strip is an alias of trim":
+    var s as string is "  a  "
+    calling _expect_eq_string with (calling s.strip), "a", "strip"
+    calling _expect_eq_string with (calling strip with "\tx\t"), "x", "functional strip"
+test "trim_start removes only the leading side":
     var s as string is "  a  "
     calling _expect_eq_string with (calling s.trim_start), "a  ", "trim_start"
-test "trim_end quita solo el final":
+test "trim_end removes only the trailing side":
     var s as string is "  a  "
     calling _expect_eq_string with (calling s.trim_end), "  a", "trim_end"
-test "lstrip y rstrip siguen funcionando":
+test "lstrip and rstrip still work":
     var s as string is "  a  "
     calling _expect_eq_string with (calling s.lstrip), "a  ", "lstrip"
-    calling _expect_eq_string with (calling rstrip with s), "  a", "rstrip func"
-test "is_space es false para el string vacío":
-    var vacio as string is ""
-    calling _expect_eq_bool with (calling vacio.is_space), false, "vacío"
-    calling _expect_eq_bool with (calling is_space with "   "), true, "solo espacios"
-test "is_whitespace sigue funcionando":
+    calling _expect_eq_string with (calling rstrip with s), "  a", "functional rstrip"
+test "is_space is false for the empty string":
+    var empty_s as string is ""
+    calling _expect_eq_bool with (calling empty_s.is_space), false, "empty"
+    calling _expect_eq_bool with (calling is_space with "   "), true, "only spaces"
+test "is_whitespace still works":
     var s as string is "\t\n"
     calling _expect_eq_bool with (calling s.is_whitespace), true, "is_whitespace"
-    calling _expect_eq_bool with (calling is_whitespace with " x"), false, "con texto"
-test "is_blank es true para vacío o solo espacios":
-    var vacio as string is ""
-    calling _expect_eq_bool with (calling vacio.is_blank), true, "vacío"
-    calling _expect_eq_bool with (calling is_blank with "a"), false, "con texto"
-test "split_whitespace ignora espacios repetidos":
+    calling _expect_eq_bool with (calling is_whitespace with " x"), false, "with text"
+test "is_blank is true for empty or whitespace-only":
+    var empty_s as string is ""
+    calling _expect_eq_bool with (calling empty_s.is_blank), true, "empty"
+    calling _expect_eq_bool with (calling is_blank with "a"), false, "with text"
+test "split_whitespace ignores repeated spaces":
     var s as string is "  a  b "
-    var partes as list of string is calling s.split_whitespace
-    calling _expect_eq_int with (partes length), 2, "split_whitespace"
-    var palabras_func as list of string is calling split_whitespace with s
-    calling _expect_eq_string with (palabras_func at 0), "a", "func"
-test "words es la forma corta de split_whitespace":
+    var parts as list of string is calling s.split_whitespace
+    calling _expect_eq_int with (parts length), 2, "split_whitespace"
+    var func_words as list of string is calling split_whitespace with s
+    calling _expect_eq_string with (func_words at 0), "a", "functional"
+test "words is the short form of split_whitespace":
     var s as string is "a\tb\nc"
     calling _expect_eq_int with ((calling s.words) length), 3, "words"
-    calling _expect_eq_int with ((calling words with "   ") length), 0, "solo espacios"
-test "split_lines divide por salto de línea y conserva el CR":
+    calling _expect_eq_int with ((calling words with "   ") length), 0, "only spaces"
+test "split_lines splits on LF and keeps the CR":
     var s as string is "a\r\nb"
-    var partes as list of string is calling s.split_lines
-    calling _expect_eq_int with (partes length), 2, "split_lines"
-    var lineas_func as list of string is calling split_lines with s
-    calling _expect_eq_string with (lineas_func at 0), "a\r", "func"
-test "lines elimina el CR final de cada línea":
+    var parts as list of string is calling s.split_lines
+    calling _expect_eq_int with (parts length), 2, "split_lines"
+    var func_lines as list of string is calling split_lines with s
+    calling _expect_eq_string with (func_lines at 0), "a\r", "functional"
+test "lines drops the trailing CR of every line":
     var s as string is "a\r\nb\nc"
-    var partes as list of string is calling s.lines
-    calling _expect_eq_int with (partes length), 3, "lines"
-    var limpias_func as list of string is calling lines with s
-    calling _expect_eq_string with (limpias_func at 0), "a", "func"
-test "line_count cuenta líneas separadas por LF":
+    var parts as list of string is calling s.lines
+    calling _expect_eq_int with (parts length), 3, "lines"
+    var func_clean as list of string is calling lines with s
+    calling _expect_eq_string with (func_clean at 0), "a", "functional"
+test "line_count counts LF-separated lines":
     var s as string is "a\nb\nc"
     calling _expect_eq_int with (calling s.line_count), 3, "line_count"
-    calling _expect_eq_int with (calling line_count with ""), 0, "vacío"
-test "word_count cuenta palabras separadas por espacios":
+    calling _expect_eq_int with (calling line_count with ""), 0, "empty"
+test "word_count counts whitespace-separated words":
     var s as string is "  a  b "
     calling _expect_eq_int with (calling s.word_count), 2, "word_count"
-    calling _expect_eq_int with (calling word_count with "abc"), 1, "una palabra"
-test "formas funcionales de espacios":
+    calling _expect_eq_int with (calling word_count with "abc"), 1, "one word"
+test "functional whitespace forms":
     calling _expect_eq_string with (calling trim_start with " a"), "a", "trim_start"
     calling _expect_eq_string with (calling trim_end with "a "), "a", "trim_end"
     calling _expect_eq_string with (calling lstrip with " a"), "a", "lstrip"
     calling _expect_eq_string with (calling rstrip with "a "), "a", "rstrip"
-test "formas funcionales de división por espacios":
+test "functional whitespace-splitting forms":
     calling _expect_eq_int with ((calling split_whitespace with "a b") length), 2, "split_whitespace"
     calling _expect_eq_int with ((calling words with "a b") length), 2, "words"
     calling _expect_eq_int with ((calling lines with "a\nb") length), 2, "lines"
     calling _expect_eq_int with ((calling split_lines with "a\nb") length), 2, "split_lines"
-test "formas funcionales de recuento de líneas y palabras":
+test "functional line and word count forms":
     calling _expect_eq_int with (calling line_count with "a\nb"), 2, "line_count"
     calling _expect_eq_int with (calling word_count with "a b"), 2, "word_count"
     calling _expect_eq_bool with (calling is_whitespace with " "), true, "is_whitespace"
     calling _expect_eq_bool with (calling is_blank with ""), true, "is_blank"
 
-# Reemplazo y división
-test "replace sustituye solo la primera aparición":
+# Replacing and splitting
+test "replace substitutes only the first occurrence":
     var s as string is "cat, dog, cat"
     calling _expect_eq_string with (calling s.replace with "cat", "bird"), "bird, dog, cat", "replace"
-    calling _expect_eq_string with (calling replace with s, "cat", "bird"), "bird, dog, cat", "func"
-test "replace sin coincidencia no cambia el string":
+    calling _expect_eq_string with (calling replace with s, "cat", "bird"), "bird, dog, cat", "functional"
+test "replace without a match leaves the string alone":
     var s as string is "abc"
-    calling _expect_eq_string with (calling s.replace with "z", "x"), "abc", "sin coincidencia"
-test "replace con from_str vacío inserta al principio":
+    calling _expect_eq_string with (calling s.replace with "z", "x"), "abc", "no match"
+test "replace with an empty from_str inserts at the start":
     var s as string is "abc"
-    calling _expect_eq_string with (calling s.replace with "", "X"), "Xabc", "legado"
-test "replace_all sustituye todas las apariciones":
+    calling _expect_eq_string with (calling s.replace with "", "X"), "Xabc", "legacy"
+test "replace_all substitutes every occurrence":
     var s as string is "cat, dog, cat"
     calling _expect_eq_string with (calling s.replace_all with "cat", "bird"), "bird, dog, bird", "replace_all"
-    calling _expect_eq_string with (calling replace_all with s, "cat", "bird"), "bird, dog, bird", "func"
-test "replace_all con from_str vacío no cambia":
+    calling _expect_eq_string with (calling replace_all with s, "cat", "bird"), "bird, dog, bird", "functional"
+test "replace_all with an empty from_str changes nothing":
     var s as string is "abc"
-    calling _expect_eq_string with (calling s.replace_all with "", "X"), "abc", "vacío"
-test "split divide por cada delimitador":
+    calling _expect_eq_string with (calling s.replace_all with "", "X"), "abc", "empty"
+test "split divides on every delimiter":
     var s as string is "a,,b"
-    var partes as list of string is calling s.split with ","
-    calling _expect_eq_int with (partes length), 3, "split"
-    var trozos_func as list of string is calling split with s, ","
-    calling _expect_eq_string with (trozos_func at 1), "", "func"
-test "split con delimitador vacío devuelve el string entero":
+    var parts as list of string is calling s.split with ","
+    calling _expect_eq_int with (parts length), 3, "split"
+    var func_chunks as list of string is calling split with s, ","
+    calling _expect_eq_string with (func_chunks at 1), "", "functional"
+test "split with an empty delimiter returns the whole string":
     var s as string is "abc"
-    var partes as list of string is calling s.split with ""
-    calling _expect_eq_int with (partes length), 1, "split vacío"
-    calling _expect_eq_string with (partes at 0), "abc", "contenido"
-test "split con delimitador ausente devuelve un elemento":
+    var parts as list of string is calling s.split with ""
+    calling _expect_eq_int with (parts length), 1, "empty split"
+    calling _expect_eq_string with (parts at 0), "abc", "content"
+test "split with an absent delimiter returns one element":
     var s as string is "abc"
-    var partes as list of string is calling s.split with "::"
-    calling _expect_eq_int with (partes length), 1, "ausente"
-test "split acepta delimitadores multi-byte":
+    var parts as list of string is calling s.split with "::"
+    calling _expect_eq_int with (parts length), 1, "absent"
+test "split accepts multi-byte delimiters":
     var s as string is "a::b::c"
-    var partes as list of string is calling s.split with "::"
-    calling _expect_eq_int with (partes length), 3, "multi-char"
-test "partition devuelve antes, separador y después":
+    var parts as list of string is calling s.split with "::"
+    calling _expect_eq_int with (parts length), 3, "multi-char"
+test "splitn keeps the remaining delimiters in the last part":
+    var s as string is "a,b,c,d"
+    var parts as list of string is calling s.splitn with ",", 3
+    calling _expect_eq_int with (parts length), 3, "splitn"
+    calling _expect_eq_string with (parts at 2), "c,d", "last part"
+    var single as list of string is calling splitn with s, ",", 1
+    calling _expect_eq_int with (single length), 1, "functional one part"
+    calling _expect_eq_string with (single at 0), "a,b,c,d", "functional whole"
+test "splitn with n <= 0 does not split":
+    var s as string is "a,b"
+    var parts as list of string is calling s.splitn with ",", 0
+    calling _expect_eq_int with (parts length), 1, "no split"
+    calling _expect_eq_string with (parts at 0), "a,b", "whole string"
+test "rsplit scans from the right and preserves the order":
+    var s as string is "a:b:c"
+    var parts as list of string is calling s.rsplit with ":"
+    calling _expect_eq_int with (parts length), 3, "rsplit"
+    calling _expect_eq_string with (parts at 0), "a", "first"
+    calling _expect_eq_string with (parts at 2), "c", "last"
+    var func_parts as list of string is calling rsplit with s, ":"
+    calling _expect_eq_int with (func_parts length), 3, "functional rsplit"
+test "rsplit keeps empty pieces and handles an empty delimiter":
+    var s as string is "a::b"
+    var parts as list of string is calling s.rsplit with ":"
+    calling _expect_eq_string with (parts at 1), "", "empty piece"
+    var whole as list of string is calling s.rsplit with ""
+    calling _expect_eq_int with (whole length), 1, "empty delimiter"
+test "partition returns before, separator and after":
     var s as string is "a=b=c"
-    var partes as list of string is calling s.partition with "="
-    calling _expect_eq_int with (partes length), 3, "partition"
-    var partes_func as list of string is calling partition with s, "="
-    calling _expect_eq_string with (partes_func at 2), "b=c", "func"
-test "partition sin separador devuelve el string y dos vacíos":
+    var parts as list of string is calling s.partition with "="
+    calling _expect_eq_int with (parts length), 3, "partition"
+    var func_parts as list of string is calling partition with s, "="
+    calling _expect_eq_string with (func_parts at 2), "b=c", "functional"
+test "partition without a separator returns the string and two empties":
     var s as string is "abc"
-    var partes as list of string is calling s.partition with "="
-    calling _expect_eq_string with (partes at 0), "abc", "sin sep"
-    calling _expect_eq_string with (partes at 1), "", "vacío"
-test "repeat repite el string count veces":
+    var parts as list of string is calling s.partition with "="
+    calling _expect_eq_string with (parts at 0), "abc", "no sep"
+    calling _expect_eq_string with (parts at 1), "", "empty"
+test "repeat repeats the string count times":
     var s as string is "ha"
     calling _expect_eq_string with (calling s.repeat with 3), "hahaha", "repeat"
-    calling _expect_eq_string with (calling repeat with s, 1), "ha", "repeat func"
-test "repeat con count no positivo devuelve vacío":
+    calling _expect_eq_string with (calling repeat with s, 1), "ha", "functional repeat"
+test "repeat with a non-positive count is empty":
     var s as string is "ha"
-    calling _expect_eq_string with (calling s.repeat with 0), "", "cero"
-    calling _expect_eq_string with (calling s.repeat with -1), "", "negativo"
-test "repeat_join une las repeticiones con el separador":
+    calling _expect_eq_string with (calling s.repeat with 0), "", "zero"
+    calling _expect_eq_string with (calling s.repeat with -1), "", "negative"
+test "repeat_join joins the repetitions with the separator":
     var s as string is "ab"
     calling _expect_eq_string with (calling s.repeat_join with 3, ", "), "ab, ab, ab", "repeat_join"
-    calling _expect_eq_string with (calling repeat_join with s, 1, ","), "ab", "una copia"
-test "formas funcionales de reemplazo y división":
+    calling _expect_eq_string with (calling repeat_join with s, 1, ","), "ab", "one copy"
+test "functional replacement and splitting forms":
     calling _expect_eq_string with (calling replace with "abc", "b", "X"), "aXc", "replace"
     calling _expect_eq_string with (calling replace_all with "abc", "", "X"), "abc", "replace_all"
     calling _expect_eq_int with ((calling split with "a,b", ",") length), 2, "split"
     calling _expect_eq_int with ((calling partition with "a=b", "=") length), 3, "partition"
 
-# Alineación
-test "ljust rellena por la derecha":
+# Alignment
+test "ljust pads on the right":
     var s as string is "ab"
     calling _expect_eq_string with (calling s.ljust with 4, "."), "ab..", "ljust"
-    calling _expect_eq_string with (calling ljust with s, 4, "."), "ab..", "ljust func"
-test "ljust no cambia lo que ya cabe y respeta pad_char vacío":
+    calling _expect_eq_string with (calling ljust with s, 4, "."), "ab..", "functional ljust"
+test "ljust leaves what already fits and respects an empty pad_char":
     var s as string is "abc"
-    calling _expect_eq_string with (calling s.ljust with 2, "."), "abc", "ya cabe"
-    calling _expect_eq_string with (calling s.ljust with 5, ""), "abc", "pad vacío"
-test "ljust recorta cuando el relleno multi-carácter se pasa":
+    calling _expect_eq_string with (calling s.ljust with 2, "."), "abc", "already fits"
+    calling _expect_eq_string with (calling s.ljust with 5, ""), "abc", "empty pad"
+test "ljust truncates when a multi-character pad overflows":
     var s as string is "ab"
-    calling _expect_eq_string with (calling s.ljust with 5, "xy"), "abxyx", "recorte"
-test "rjust rellena por la izquierda":
+    calling _expect_eq_string with (calling s.ljust with 5, "xy"), "abxyx", "truncation"
+test "rjust pads on the left":
     var s as string is "42"
     calling _expect_eq_string with (calling s.rjust with 5, "0"), "00042", "rjust"
-    calling _expect_eq_string with (calling rjust with s, 5, "0"), "00042", "rjust func"
-test "rjust recorta cuando el relleno multi-carácter se pasa":
+    calling _expect_eq_string with (calling rjust with s, 5, "0"), "00042", "functional rjust"
+test "rjust truncates when a multi-character pad overflows":
     var s as string is "ab"
-    calling _expect_eq_string with (calling s.rjust with 5, "xy"), "yxyab", "recorte"
-test "pad_left y pad_right siguen funcionando":
+    calling _expect_eq_string with (calling s.rjust with 5, "xy"), "yxyab", "truncation"
+test "pad_left and pad_right still work":
     var s as string is "42"
     calling _expect_eq_string with (calling s.pad_left with 5, "0"), "00042", "pad_left"
     calling _expect_eq_string with (calling pad_right with "ab", 4, "."), "ab..", "pad_right"
-test "zfill rellena con ceros por la izquierda":
+test "zfill pads with zeros on the left":
     var s as string is "42"
     calling _expect_eq_string with (calling s.zfill with 5), "00042", "zfill"
-    calling _expect_eq_string with (calling zfill with s, 5), "00042", "zfill func"
-test "zfill conserva el signo y no toca lo que ya cabe":
+    calling _expect_eq_string with (calling zfill with s, 5), "00042", "functional zfill"
+test "zfill preserves the sign and leaves what already fits":
     var a as string is "-42"
     var b as string is "+42"
-    calling _expect_eq_string with (calling a.zfill with 6), "-00042", "negativo"
-    calling _expect_eq_string with (calling b.zfill with 5), "+0042", "positivo"
-test "center reparte el relleno a ambos lados":
+    calling _expect_eq_string with (calling a.zfill with 6), "-00042", "negative"
+    calling _expect_eq_string with (calling b.zfill with 5), "+0042", "positive"
+test "center spreads the padding on both sides":
     var s as string is "42"
     calling _expect_eq_string with (calling s.center with 6, "-"), "--42--", "center"
-    calling _expect_eq_string with (calling center with s, 6, "-"), "--42--", "center func"
-test "center deja la mitad menor a la izquierda":
+    calling _expect_eq_string with (calling center with s, 6, "-"), "--42--", "functional center"
+test "center gives the smaller half to the left":
     var s as string is "ab"
-    calling _expect_eq_string with (calling s.center with 5, "-"), "-ab--", "impar"
-test "center con pad multi-carácter no recorta":
+    calling _expect_eq_string with (calling s.center with 5, "-"), "-ab--", "odd"
+test "center with a multi-character pad does not truncate":
     var s as string is "ab"
     calling _expect_eq_string with (calling s.center with 6, "xy"), "xyxyabxyxy", "multi-char"
-test "formas funcionales de alineación":
+test "functional alignment forms":
     calling _expect_eq_string with (calling ljust with "ab", 4), "ab  ", "ljust"
     calling _expect_eq_string with (calling rjust with "ab", 4), "  ab", "rjust"
     calling _expect_eq_string with (calling zfill with "7", 3), "007", "zfill"
     calling _expect_eq_string with (calling center with "a", 3, "."), ".a.", "center"
 
-# Prefijos y sufijos
-test "removeprefix quita el prefijo si está":
+# Prefixes and suffixes
+test "removeprefix drops the prefix when present":
     var s as string is "Hello"
     calling _expect_eq_string with (calling s.removeprefix with "He"), "llo", "removeprefix"
-    calling _expect_eq_string with (calling removeprefix with s, ""), "Hello", "prefijo vacío"
-test "removeprefix no cambia si no coincide":
+    calling _expect_eq_string with (calling removeprefix with s, ""), "Hello", "empty prefix"
+test "removeprefix leaves the string alone when it does not match":
     var s as string is "Hello"
-    calling _expect_eq_string with (calling s.removeprefix with "x"), "Hello", "sin coincidencia"
-    calling _expect_eq_string with (calling s.removeprefix with "Hello!"), "Hello", "más largo"
-test "removesuffix quita el sufijo si está":
+    calling _expect_eq_string with (calling s.removeprefix with "x"), "Hello", "no match"
+    calling _expect_eq_string with (calling s.removeprefix with "Hello!"), "Hello", "longer"
+test "removesuffix drops the suffix when present":
     var s as string is "Hello"
     calling _expect_eq_string with (calling s.removesuffix with "lo"), "Hel", "removesuffix"
-    calling _expect_eq_string with (calling removesuffix with s, ""), "Hello", "sufijo vacío"
-test "removesuffix no cambia si no coincide":
+    calling _expect_eq_string with (calling removesuffix with s, ""), "Hello", "empty suffix"
+test "removesuffix leaves the string alone when it does not match":
     var s as string is "Hello"
-    calling _expect_eq_string with (calling s.removesuffix with "x"), "Hello", "sin coincidencia"
-    calling _expect_eq_string with (calling s.removesuffix with "Hello!"), "Hello", "más largo"
+    calling _expect_eq_string with (calling s.removesuffix with "x"), "Hello", "no match"
+    calling _expect_eq_string with (calling s.removesuffix with "Hello!"), "Hello", "longer"
 
-# Comparación
-test "compare ordena lexicográficamente por byte":
+# Comparison
+test "compare orders lexicographically by byte":
     var a as string is "apple"
     var b as string is "banana"
-    calling _expect_eq_int with (calling a.compare with b), -1, "menor"
-    calling _expect_eq_int with (calling compare with b, a), 1, "func mayor"
-test "compare usa la longitud como desempate":
+    calling _expect_eq_int with (calling a.compare with b), -1, "smaller"
+    calling _expect_eq_int with (calling compare with b, a), 1, "functional larger"
+test "compare uses the length as a tie-break":
     var a as string is "ab"
-    calling _expect_eq_int with (calling a.compare with "abc"), -1, "prefijo menor"
-    calling _expect_eq_int with (calling a.compare with ""), 1, "contra vacío"
-test "compare devuelve 0 para strings iguales":
+    calling _expect_eq_int with (calling a.compare with "abc"), -1, "shorter prefix"
+    calling _expect_eq_int with (calling a.compare with ""), 1, "against empty"
+test "compare returns 0 for equal strings":
     var a as string is "abc"
-    calling _expect_eq_int with (calling a.compare with "abc"), 0, "iguales"
-    calling _expect_eq_int with (calling compare with "", ""), 0, "vacíos"
-test "compare distingue mayúsculas de minúsculas":
+    calling _expect_eq_int with (calling a.compare with "abc"), 0, "equal"
+    calling _expect_eq_int with (calling compare with "", ""), 0, "both empty"
+test "compare distinguishes uppercase from lowercase":
     var a as string is "a"
-    calling _expect_eq_int with (calling a.compare with "A"), 1, "byte mayor"
+    calling _expect_eq_int with (calling a.compare with "A"), 1, "larger byte"
 
-# Truncado
-test "truncate añade el sufijo al recortar":
+# Truncation
+test "truncate appends the suffix when it cuts":
     var s as string is "Hello, PenguScript!"
     calling _expect_eq_string with (calling s.truncate with 10, "..."), "Hello, ...", "truncate"
-    calling _expect_eq_string with (calling truncate with s, 10, "..."), "Hello, ...", "func"
-test "truncate no cambia lo que ya cabe":
+    calling _expect_eq_string with (calling truncate with s, 10, "..."), "Hello, ...", "functional"
+test "truncate leaves what already fits":
     var s as string is "abc"
-    calling _expect_eq_string with (calling s.truncate with 10, "..."), "abc", "sin recorte"
-test "truncate con max_len pequeño corta sin sufijo":
+    calling _expect_eq_string with (calling s.truncate with 10, "..."), "abc", "no cut"
+test "truncate with a small max_len cuts without the suffix":
     var s as string is "abcdef"
-    calling _expect_eq_string with (calling s.truncate with 3, "..."), "abc", "sin sufijo"
-    calling _expect_eq_string with (calling s.truncate with 0, "..."), "", "cero"
-test "ellipsis recorta añadiendo puntos suspensivos":
+    calling _expect_eq_string with (calling s.truncate with 3, "..."), "abc", "no suffix"
+    calling _expect_eq_string with (calling s.truncate with 0, "..."), "", "zero"
+test "ellipsis cuts adding an ellipsis":
     var s as string is "Hello, PenguScript!"
     calling _expect_eq_string with (calling s.ellipsis with 10), "Hello, ...", "ellipsis"
-    calling _expect_eq_string with (calling ellipsis with "abcdef", 3), "abc", "func"
-test "formas funcionales de truncado y prefijos":
+    calling _expect_eq_string with (calling ellipsis with "abcdef", 3), "abc", "functional"
+test "functional truncation and prefix forms":
     calling _expect_eq_string with (calling truncate with "abcdef", 4, ".."), "ab..", "truncate"
     calling _expect_eq_string with (calling ellipsis with "abcdef", 4), "a...", "ellipsis"
     calling _expect_eq_string with (calling removeprefix with "abc", "a"), "bc", "removeprefix"
     calling _expect_eq_string with (calling removesuffix with "abc", "c"), "ab", "removesuffix"
 
-# Parseo
-test "parse_int interpreta enteros con espacios y signo":
+# Parsing
+test "parse_int reads integers with spaces and sign":
     var s as string is " 42 "
     var m as maybe int is calling s.parse_int
-    calling _expect_eq_bool with (m.is_present), true, "presente"
+    calling _expect_eq_bool with (m.is_present), true, "present"
     if v as int is m:
-        calling _expect_eq_int with v, 42, "valor"
-test "parse_int rechaza basura y desbordamiento":
+        calling _expect_eq_int with v, 42, "value"
+test "parse_int rejects garbage and overflow":
     var s as string is "4x"
     var m as maybe int is calling s.parse_int
-    calling _expect_eq_bool with (m.is_present), false, "basura"
-    var grande as string is "99999999999999999999"
-    var g as maybe int is calling grande.parse_int
-    calling _expect_eq_bool with (g.is_present), false, "desbordamiento"
-test "parse_float calcula el valor decimal":
+    calling _expect_eq_bool with (m.is_present), false, "garbage"
+    var big as string is "99999999999999999999"
+    var g as maybe int is calling big.parse_int
+    calling _expect_eq_bool with (g.is_present), false, "overflow"
+test "parse_float computes the decimal value":
     var s as string is "3.5"
     var m as maybe float is calling s.parse_float
     if v as float is m:
         calling _expect with (v > 3.4 and v < 3.6), "3.5"
     else:
-        calling _expect with false, "3.5 presente"
-test "parse_float acepta signo, punto inicial y espacios":
+        calling _expect with false, "3.5 present"
+test "parse_float accepts a sign, a leading dot and spaces":
     var a as string is "-0.25"
     var b as string is ".5"
     var c as string is " 2 "
@@ -1494,101 +3591,141 @@ test "parse_float acepta signo, punto inicial y espacios":
         calling _expect with (vb > 0.4 and vb < 0.6), ".5"
     if vc as float is (calling c.parse_float):
         calling _expect with (vc > 1.9 and vc < 2.1), " 2 "
-test "parse_float rechaza vacío, basura y exponentes":
-    var vacio as string is ""
-    var basura as string is "abc"
-    var expo as string is "1e3"
-    calling _expect_eq_bool with ((calling vacio.parse_float).is_present), false, "vacío"
-    calling _expect_eq_bool with ((calling basura.parse_float).is_present), false, "basura"
-    calling _expect_eq_bool with ((calling expo.parse_float).is_present), false, "exponente"
-test "is_numeric acepta literales exactos":
+test "parse_float rejects empty, garbage and exponents":
+    var empty_s as string is ""
+    var garbage as string is "abc"
+    var exponent as string is "1e3"
+    calling _expect_eq_bool with ((calling empty_s.parse_float).is_present), false, "empty"
+    calling _expect_eq_bool with ((calling garbage.parse_float).is_present), false, "garbage"
+    calling _expect_eq_bool with ((calling exponent.parse_float).is_present), false, "exponent"
+test "is_numeric accepts exact literals":
     var a as string is "-3.5"
     var b as string is ".5"
-    calling _expect_eq_bool with (calling a.is_numeric), true, "negativo"
-    calling _expect_eq_bool with (calling b.is_numeric), true, "punto inicial"
-    calling _expect_eq_bool with (calling is_numeric with "42"), true, "func"
-test "is_numeric rechaza espacios, exponentes y basura":
+    calling _expect_eq_bool with (calling a.is_numeric), true, "negative"
+    calling _expect_eq_bool with (calling b.is_numeric), true, "leading dot"
+    calling _expect_eq_bool with (calling is_numeric with "42"), true, "functional"
+test "is_numeric rejects spaces, exponents and garbage":
     var s as string is " 1"
-    calling _expect_eq_bool with (calling s.is_numeric), false, "espacio"
-    var expo as string is "1e3"
-    var doble as string is "1.2.3"
-    calling _expect_eq_bool with (calling expo.is_numeric), false, "exponente"
-    calling _expect_eq_bool with (calling doble.is_numeric), false, "dos puntos"
+    calling _expect_eq_bool with (calling s.is_numeric), false, "space"
+    var exponent as string is "1e3"
+    var double_dot as string is "1.2.3"
+    calling _expect_eq_bool with (calling exponent.is_numeric), false, "exponent"
+    calling _expect_eq_bool with (calling double_dot.is_numeric), false, "two dots"
 
 # join
-test "join une los elementos con el separador":
-    var partes as list of string is ["alpha", "beta", "gamma"]
-    calling _expect_eq_string with (calling join with partes, ", "), "alpha, beta, gamma", "join"
-    calling _expect_eq_string with (calling join with partes, "|"), "alpha|beta|gamma", "otro sep"
-test "join de una lista vacía devuelve vacío":
-    var partes as list of string is list of string
-    calling _expect_eq_string with (calling join with partes, ","), "", "vacía"
-test "join de un elemento no añade separador":
-    var partes as list of string is ["x"]
-    calling _expect_eq_string with (calling join with partes, ","), "x", "un elemento"
-test "join conserva los elementos vacíos":
-    var partes as list of string is ["", "x", ""]
-    calling _expect_eq_string with (calling join with partes, "|"), "|x|", "vacíos"
+test "join connects the elements with the separator":
+    var parts as list of string is ["alpha", "beta", "gamma"]
+    calling _expect_eq_string with (calling join with parts, ", "), "alpha, beta, gamma", "join"
+    calling _expect_eq_string with (calling join with parts, "|"), "alpha|beta|gamma", "other sep"
+test "join of an empty list is empty":
+    var parts as list of string is list of string
+    calling _expect_eq_string with (calling join with parts, ","), "", "empty"
+test "join of one element adds no separator":
+    var parts as list of string is ["x"]
+    calling _expect_eq_string with (calling join with parts, ","), "x", "one element"
+test "join preserves the empty elements":
+    var parts as list of string is ["", "x", ""]
+    calling _expect_eq_string with (calling join with parts, "|"), "|x|", "empties"
 
-# Formas funcionales y bordes
-test "formas funcionales de longitud y corte":
+# Functional forms and edges
+test "functional length and slicing forms":
     calling _expect_eq_int with (calling len with "abcd"), 4, "len"
     calling _expect_eq_string with (calling substring with "abcdef", 1, 3), "bc", "substring"
     calling _expect_eq_string with (calling char_at with "abc", 1), "b", "char_at"
-test "formas funcionales de chars y bytes":
+test "functional chars and bytes forms":
     calling _expect_eq_int with ((calling chars with "ab") length), 2, "chars"
-    var letra_a as string is "A"
-    var codigos_a as list of int is calling bytes with letra_a
-    calling _expect_eq_int with (codigos_a at 0), 65, "bytes"
+    var letter_a as string is "A"
+    var codes_a as list of int is calling bytes with letter_a
+    calling _expect_eq_int with (codes_a at 0), 65, "bytes"
     calling _expect_eq_bool with (calling is_empty with ""), true, "is_empty"
-test "los métodos no mutan el receptor":
+test "the methods do not mutate the receiver":
     var s as string is "  hola  "
     var t as string is calling s.trim
-    calling _expect_eq_string with s, "  hola  ", "receptor intacto"
-    calling _expect_eq_string with t, "hola", "resultado"
-test "chars y bytes del string vacío están vacíos":
-    var vacio as string is ""
-    calling _expect_eq_int with ((calling vacio.chars) length), 0, "chars"
-    calling _expect_eq_int with ((calling bytes with vacio) length), 0, "bytes"
-test "los predicados de contenido son false con vacío":
-    var vacio as string is ""
-    calling _expect_eq_bool with (calling vacio.is_alpha), false, "is_alpha"
-    calling _expect_eq_bool with (calling vacio.is_digit), false, "is_digit"
-    calling _expect_eq_bool with (calling vacio.is_alnum), false, "is_alnum"
-test "formas funcionales de predicados":
+    calling _expect_eq_string with s, "  hola  ", "receiver intact"
+    calling _expect_eq_string with t, "hola", "result"
+test "chars and bytes of the empty string are empty":
+    var empty_s as string is ""
+    calling _expect_eq_int with ((calling empty_s.chars) length), 0, "chars"
+    calling _expect_eq_int with ((calling bytes with empty_s) length), 0, "bytes"
+test "the content predicates are false for the empty string":
+    var empty_s as string is ""
+    calling _expect_eq_bool with (calling empty_s.is_alpha), false, "is_alpha"
+    calling _expect_eq_bool with (calling empty_s.is_digit), false, "is_digit"
+    calling _expect_eq_bool with (calling empty_s.is_alnum), false, "is_alnum"
+test "functional predicate forms":
     calling _expect_eq_bool with (calling is_alpha with "aB"), true, "is_alpha"
     calling _expect_eq_bool with (calling is_digit with "12"), true, "is_digit"
     calling _expect_eq_bool with (calling is_alnum with "a1"), true, "is_alnum"
     calling _expect_eq_bool with (calling is_lower with "a1"), true, "is_lower"
-test "to_snake_case separa letras de dígitos":
+test "to_snake_case separates letters from digits":
     var s as string is "a1B"
-    calling _expect_eq_string with (calling s.to_snake_case), "a1_b", "dígito"
-test "parse_int del string vacío devuelve none":
-    var vacio as string is ""
-    var m as maybe int is calling vacio.parse_int
-    calling _expect_eq_bool with (m.is_present), false, "vacío"
-test "index_of y last_index_of con sub vacío en vacío":
-    var vacio as string is ""
-    calling _expect_eq_int with (calling vacio.index_of with ""), 0, "index_of"
-    calling _expect_eq_int with (calling vacio.last_index_of with ""), 0, "last_index_of"
-test "repeat_join con separador vacío":
+    calling _expect_eq_string with (calling s.to_snake_case), "a1_b", "digit"
+test "parse_int of the empty string is none":
+    var empty_s as string is ""
+    var m as maybe int is calling empty_s.parse_int
+    calling _expect_eq_bool with (m.is_present), false, "empty"
+test "index_of and last_index_of with an empty sub on empty":
+    var empty_s as string is ""
+    calling _expect_eq_int with (calling empty_s.index_of with ""), 0, "index_of"
+    calling _expect_eq_int with (calling empty_s.last_index_of with ""), 0, "last_index_of"
+test "repeat_join with an empty separator":
     var s as string is "ab"
-    calling _expect_eq_string with (calling s.repeat_join with 2, ""), "abab", "sin separador"
-test "lines con LF final añade una línea vacía":
+    calling _expect_eq_string with (calling s.repeat_join with 2, ""), "abab", "no separator"
+test "lines with a trailing LF adds an empty line":
     var s as string is "a\n"
-    var partes as list of string is calling s.lines
-    calling _expect_eq_int with (partes length), 2, "dos líneas"
-    calling _expect_eq_string with (partes at 1), "", "última vacía"
-test "is_numeric rechaza un signo suelto":
+    var parts as list of string is calling s.lines
+    calling _expect_eq_int with (parts length), 2, "two lines"
+    calling _expect_eq_string with (parts at 1), "", "last empty"
+test "is_numeric rejects a lone sign":
     var s as string is "+"
-    calling _expect_eq_bool with (calling s.is_numeric), false, "signo solo"
-    var cinco as string is "5."
-    calling _expect_eq_bool with (calling cinco.is_numeric), true, "punto final"
-test "compare con prefijo común y longitudes distintas":
+    calling _expect_eq_bool with (calling s.is_numeric), false, "sign only"
+    var five as string is "5."
+    calling _expect_eq_bool with (calling five.is_numeric), true, "trailing dot"
+test "compare with a common prefix and different lengths":
     var a as string is "abc"
-    calling _expect_eq_int with (calling a.compare with "ab"), 1, "más largo"
-    var corto as string is "ab"
-    calling _expect_eq_int with (calling corto.compare with "abc"), -1, "más corto"
-test "formas funcionales de reverse y repetición":
+    calling _expect_eq_int with (calling a.compare with "ab"), 1, "longer"
+    var short_s as string is "ab"
+    calling _expect_eq_int with (calling short_s.compare with "abc"), -1, "shorter"
+test "functional reverse and repetition forms":
     calling _expect_eq_string with (calling reverse with "abc"), "cba", "reverse"
     calling _expect_eq_string with (calling repeat with "ab", 2), "abab", "repeat"
+
+# New in 2.0: strip, splitn, rsplit and the any-prefix/any-suffix predicates
+test "starts_with_any matches any prefix":
+    var s as string is "abc"
+    var some_prefixes as list of string is ["x", "ab"]
+    var no_prefixes as list of string is list of string
+    var other_prefixes as list of string is ["x"]
+    calling _expect_eq_bool with (calling s.starts_with_any with some_prefixes), true, "match"
+    calling _expect_eq_bool with (calling s.starts_with_any with no_prefixes), false, "empty list"
+    calling _expect_eq_bool with (calling starts_with_any with s, other_prefixes), false, "functional"
+test "ends_with_any matches any suffix":
+    var s as string is "abc"
+    var some_suffixes as list of string is ["x", "bc"]
+    var no_suffixes as list of string is list of string
+    var other_suffixes as list of string is ["x"]
+    calling _expect_eq_bool with (calling s.ends_with_any with some_suffixes), true, "match"
+    calling _expect_eq_bool with (calling s.ends_with_any with no_suffixes), false, "empty list"
+    calling _expect_eq_bool with (calling ends_with_any with s, other_suffixes), false, "functional"
+test "starts_with_any and ends_with_any accept the empty pattern":
+    var s as string is "abc"
+    var empty_prefixes as list of string is [""]
+    var empty_suffixes as list of string is [""]
+    calling _expect_eq_bool with (calling s.starts_with_any with empty_prefixes), true, "empty prefix"
+    calling _expect_eq_bool with (calling s.ends_with_any with empty_suffixes), true, "empty suffix"
+test "strip is the module alias of trim":
+    calling _expect_eq_string with (calling strip with "  x  "), "x", "strip"
+    var raw as string is "\n x \t"
+    calling _expect_eq_string with (calling raw.strip), "x", "method strip"
+test "splitn splits into at most n parts":
+    var s as string is "a,b,c"
+    var parts as list of string is calling s.splitn with ",", 2
+    calling _expect_eq_int with (parts length), 2, "two parts"
+    calling _expect_eq_string with (parts at 1), "b,c", "remainder"
+    var func_parts as list of string is calling splitn with s, ",", 4
+    calling _expect_eq_int with (func_parts length), 3, "functional"
+test "rsplit agrees with split on a simple string":
+    var s as string is "a-b-c"
+    var parts as list of string is calling s.rsplit with "-"
+    calling _expect_eq_int with (parts length), 3, "rsplit"
+    calling _expect_eq_string with (parts at 1), "b", "middle"
