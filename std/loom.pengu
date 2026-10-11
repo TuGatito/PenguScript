@@ -4,9 +4,14 @@
 ##
 ## Every operation is a **module function** (`calling loom.chunks with xs, 2`):
 ## the module declares no `enchanting` block, so it never invades the methods
-## of `std.tally`. The concrete 0.14.x/0.15.0 API (`list of int`) is preserved
-## signature by signature; the Pengunic additions use `Pair` (`std.oracle`) or a
-## generic `shard T` core.
+## of `std.tally`. Since 2.2.0 the entry points are **generic over the element
+## type** (`weave chunks shard T with items as list of T, n as int`): a
+## `list of int` call still behaves exactly as in 0.14.x/0.15.0, while `float`,
+## `i64`, `string` and bound `seal`/`rune` element types work wherever the
+## operation is meaningful. Ordering operations are bounded `where T: Ordered`
+## (`std.atlas`) and compare with `calling a.cmp with b`, because `>` inside a
+## generic body has no `PenguString` translation; equality works generically, so
+## the predicate group needs no ordering concept.
 ##
 ## ## Example
 ## ```pengu
@@ -37,14 +42,37 @@
 ##   absence of an `enchanting` block is deliberate: declaring one here would
 ##   collide with `tally`'s methods and merge two contracts that must stay
 ##   separate.
-## - **Generic core.** `generic_take`, `generic_take_last`, `generic_reverse`,
-##   `generic_chain`, `generic_index_of`, `first_or`, `flatten_generic` and the
-##   private `_slice_shard`, `_drop_shard` and `_repeat_shard` are the `shard T`
-##   core; the concrete functions delegate to them with `of int`. A generic body
-##   cannot invoke another generic, so each core is self-contained.
-## - **Inherited types intact.** `enumerate`, `pairwise` and `zip_longest` still
-##   return `list of list of int`; the `Pair` variants are **new** names
-##   (`enumerate_pairs`, `pairwise_pairs`, `min_max`).
+## - **Generic core.** The public entry points are themselves `shard T` since
+##   2.2.0. A generic weave body cannot call another generic weave or method, so
+##   every body is implemented directly; the older typed cores (`generic_take`,
+##   `generic_take_last`, `generic_reverse`, `generic_chain`,
+##   `generic_index_of`, `first_or`, `flatten_generic`, `_slice_shard`,
+##   `_drop_shard`, `_repeat_shard`) survive for explicit `of T` calls. The
+##   `int`-specific helpers (`_mean_int`, `_variance_int`, ...) stay because the
+##   internal tests pin the concrete contract through them.
+## - **Ordering needs a concept.** `>` inside a generic body lowers to a raw C
+##   `>` that does not compile for `PenguString`, so every ordering entry point
+##   is bounded `where T: Ordered` and compares with `calling a.cmp with b`
+##   (`std.atlas`). Equality is fine generically, so the `Par` group carries no
+##   extra concept.
+## - **Bounds by group.** No bound: slicing, windows, rotations, structural
+##   editing and the `generic_*` cores. `T: Num`: the arithmetic folds.
+##   `T: Ordered`: extremes, search, order predicates and the sorted-set
+##   operations. `T: Par`: predicates and searches that only compare for
+##   equality. `T: Num and T: Ordo`: the statistics, which both order and
+##   convert to `float`.
+## - **`enumerate` is numeric.** Its row is homogeneous (`[index, value]`), so
+##   the index shares the element type and the weave is bounded `T: Num`;
+##   `enumerate_pairs` is the unconstrained `Pair of int and T` variant.
+## - **No `T`-dependent defaults.** `pad_left`, `pad_right` and `zip_longest`
+##   keep the concrete `list of int` signature: their `fill` parameter has the
+##   element type, a generic parameter cannot carry a default value that depends
+##   on `T`, and dropping the default would break existing two-argument call
+##   sites.
+## - **Pair variants.** `enumerate`, `pairwise`, `pairwise_pairs`, `enumerate_pairs`
+##   and `min_max` keep their 0.15.0 names; the `Pair`-shaped ones
+##   (`enumerate_pairs`, `pairwise_pairs`, `min_max`) are documented beside their
+##   list-of-lists counterparts.
 ## - **One alias, documented only.** `flatten` follows the repository
 ##   deprecation convention: a `## @deprecated Use flat_map_identity instead.`
 ##   docstring line (no real `@deprecated` attribute, so it emits no `W0006`),
@@ -67,7 +95,10 @@
 ## collapses to a sentinel (`sum` -> 0, `product_num` -> 1, `max_val` -> 0) and
 ## fractional statistics truncate to `int` (`calling tally.mean with [1, 2]` is
 ## `1`). Reach for `loom` when an empty list has no answer and a sentinel would
-## hide a bug. The two families are **not** merged and **not** renamed.
+## hide a bug. The two families are **not** merged and **not** renamed. Since
+## 2.2.0 both are generic over the element type (`shard T` with the bound each
+## operation needs), and the contracts above hold for `float`, `i64`, `string`
+## and bound `seal`/`rune` elements too.
 ##
 ## ## Migration
 ## | Before (0.14.x/0.15.0) | Now |
@@ -81,17 +112,22 @@
 ## | `calling loom.flatten` / `min_int` / `max_int` | unchanged; new `flat_map_identity` and `min_max` |
 ## | `calling loom.range with 5, stop, step` | unchanged; new `calling loom.unfold_range with 5, count, step` |
 ## | (new) | `calling loom.is_partitioned with xs, predicate` |
+## | `list of int` entry points | generic since 2.2.0: `calling loom.sum with floats`, `calling loom.min_max with words`, ... |
+## | `calling loom.take of int with xs, n` | unchanged; the generic core also works as `calling loom.generic_take of T with xs, n` |
 
 # --- Imports ------------------------------------------------------------
 
 import std.arithmancy
+import std.atlas
 import std.oracle
 import std.spark
+
+insignia loom_
 
 # --- Public constants ---------------------------------------------------
 
 ## The version of the loom module.
-const LOOM_VERSION as string is "2.1.0"
+const LOOM_VERSION as string is "2.2.0"
 
 # --- Sequence generation ------------------------------------------------
 
@@ -137,8 +173,13 @@ weave range with start as int, end as int, step as int is 1 into list of int:
 ## ```pengu
 ## calling loom.repeat with 7, 3      # [7, 7, 7]
 ## ```
-weave repeat with value as int, times as int into list of int:
-    return calling _repeat_shard of int with value, times
+weave repeat shard T with value as T, times as int into list of T:
+    var out as list of T is list of T
+    var i as int is 0
+    while i < times:
+        calling out.push with value
+        set i is i + 1
+    return out
 
 ## Returns an arithmetic progression of exactly `count` elements
 ## (`start, start + step, ...`).
@@ -168,7 +209,7 @@ weave unfold_range with start as int, count as int, step as int is 1 into list o
 
 # --- Slicing and composition ---------------------------------------------
 
-## Returns the first `n` elements of `items`.
+## Returns the first `n` elements of `items` for any element type `T`.
 ##
 ## ## Parámetros
 ## - `items`: the source list; it is only read.
@@ -176,16 +217,25 @@ weave unfold_range with start as int, count as int, step as int is 1 into list o
 ##   `n < 0` yields `[]`.
 ##
 ## ## Retorno
-## A new owned `list of int`; release it with `banish`.
+## A new owned `list of T`; release it with `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
-## calling loom.take with [1, 2, 3, 4], 2      # [1, 2]
+## calling loom.take with [1, 2, 3, 4], 2         # [1, 2]
+## calling loom.take with ["a", "b", "c"], 1     # ["a"]
 ## ```
-weave take with items as list of int, n as int into list of int:
-    return calling generic_take of int with items, n
+weave take shard T with items as list of T, n as int into list of T:
+    var out as list of T is list of T
+    var limit as int is n
+    if limit > (calling items.len):
+        set limit is calling items.len
+    var i as int is 0
+    while i < limit:
+        calling out.push with (items at i)
+        set i is i + 1
+    return out
 
-## Returns the elements of `items` from index `n` on.
+## Returns the elements of `items` from index `n` on, for any element type `T`.
 ##
 ## ## Parámetros
 ## - `items`: the source list; it is only read.
@@ -193,42 +243,57 @@ weave take with items as list of int, n as int into list of int:
 ##   `n > len` yields `[]`.
 ##
 ## ## Retorno
-## A new owned `list of int`; release it with `banish`.
+## A new owned `list of T`; release it with `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
-## calling loom.skip with [1, 2, 3, 4], 2      # [3, 4]
+## calling loom.skip with [1, 2, 3, 4], 2        # [3, 4]
+## calling loom.skip with ["a", "b", "c"], 1     # ["b", "c"]
 ## ```
-weave skip with items as list of int, n as int into list of int:
-    return calling _drop_shard of int with items, n
+weave skip shard T with items as list of T, n as int into list of T:
+    var out as list of T is list of T
+    var start as int is n
+    if start < 0:
+        set start is 0
+    var i as int is start
+    while i < (calling items.len):
+        calling out.push with (items at i)
+        set i is i + 1
+    return out
 
-## Concatenates `a` and `b` into a new list.
+## Concatenates `a` and `b` into a new list of any element type `T`.
 ##
 ## ## Parámetros
 ## - `a`: the first list, copied first.
 ## - `b`: the second list, copied after `a`.
 ##
 ## ## Retorno
-## A new owned `list of int` with `len(a) + len(b)` elements; release it with
+## A new owned `list of T` with `len(a) + len(b)` elements; release it with
 ## `banish`. Both inputs are only read.
 ##
 ## ## Ejemplo
 ## ```pengu
-## calling loom.chain with [1, 2], [3, 4]      # [1, 2, 3, 4]
+## calling loom.chain with [1, 2], [3, 4]        # [1, 2, 3, 4]
+## calling loom.chain with ["a"], ["b"]          # ["a", "b"]
 ## ```
-weave chain with a as list of int, b as list of int into list of int:
-    return calling generic_chain of int with a, b
+weave chain shard T with a as list of T, b as list of T into list of T:
+    var out as list of T is list of T
+    for x in a:
+        calling out.push with x
+    for x in b:
+        calling out.push with x
+    return out
 
 # --- Blocks and windows --------------------------------------------------
 
-## Splits `items` into consecutive blocks of up to `n` elements.
+## Splits `items` into consecutive blocks of up to `n` elements, for any `T`.
 ##
 ## ## Parámetros
 ## - `items`: the source list; it is only read.
 ## - `n`: the block size; `n <= 0` yields `[]`.
 ##
 ## ## Retorno
-## A new owned `list of list of int`; the last block may be shorter.
+## A new owned `list of list of T`; the last block may be shorter.
 ##
 ## ## Memoria
 ## Each inner list is a separate owned value: release every inner list and then
@@ -236,10 +301,26 @@ weave chain with a as list of int, b as list of int into list of int:
 ##
 ## ## Ejemplo
 ## ```pengu
-## calling loom.chunks with [1, 2, 3, 4, 5], 2      # [[1, 2], [3, 4], [5]]
+## calling loom.chunks with [1, 2, 3, 4, 5], 2          # [[1, 2], [3, 4], [5]]
+## calling loom.chunks with ["a", "b", "c"], 2          # [["a", "b"], ["c"]]
 ## ```
-weave chunks with items as list of int, n as int into list of list of int:
-    return calling _chunk_every_int with items, n, n
+weave chunks shard T with items as list of T, n as int into list of list of T:
+    var out as list of list of T is list of list of T
+    if n <= 0:
+        return out
+    var start_idx as int is 0
+    while start_idx < (calling items.len):
+        var end_idx as int is start_idx + n
+        if end_idx > (calling items.len):
+            set end_idx is calling items.len
+        var block as list of T is list of T
+        var i as int is start_idx
+        while i < end_idx:
+            calling block.push with (items at i)
+            set i is i + 1
+        calling out.push with block
+        set start_idx is start_idx + n
+    return out
 
 ## Splits `items` into blocks of up to `n` elements taken every `step` positions.
 ##
@@ -250,7 +331,7 @@ weave chunks with items as list of int, n as int into list of list of int:
 ##   `[]`.
 ##
 ## ## Retorno
-## A new owned `list of list of int`; `step == n` matches `chunks`, `step < n`
+## A new owned `list of list of T`; `step == n` matches `chunks`, `step < n`
 ## overlaps and `step > n` skips elements.
 ##
 ## ## Memoria
@@ -259,19 +340,34 @@ weave chunks with items as list of int, n as int into list of list of int:
 ##
 ## ## Ejemplo
 ## ```pengu
-## calling loom.chunk_every with [1, 2, 3, 4], 3, 1      # [[1, 2, 3], [2, 3, 4], [3, 4], [4]]
+## calling loom.chunk_every with [1, 2, 3, 4], 3, 1     # [[1, 2, 3], [2, 3, 4], [3, 4], [4]]
 ## ```
-weave chunk_every with items as list of int, n as int, step as int is 1 into list of list of int:
-    return calling _chunk_every_int with items, n, step
+weave chunk_every shard T with items as list of T, n as int, step as int is 1 into list of list of T:
+    var out as list of list of T is list of list of T
+    if n <= 0 or step <= 0:
+        return out
+    var start_idx as int is 0
+    while start_idx < (calling items.len):
+        var end_idx as int is start_idx + n
+        if end_idx > (calling items.len):
+            set end_idx is calling items.len
+        var block as list of T is list of T
+        var i as int is start_idx
+        while i < end_idx:
+            calling block.push with (items at i)
+            set i is i + 1
+        calling out.push with block
+        set start_idx is start_idx + step
+    return out
 
-## Returns the contiguous windows of exactly `n` elements.
+## Returns the contiguous windows of exactly `n` elements, for any `T`.
 ##
 ## ## Parámetros
 ## - `items`: the source list; it is only read.
 ## - `n`: the window size; `n <= 0` or `n > len` yields `[]`.
 ##
 ## ## Retorno
-## A new owned `list of list of int` with `len - n + 1` complete windows.
+## A new owned `list of list of T` with `len - n + 1` complete windows.
 ##
 ## ## Memoria
 ## Each inner list is a separate owned value: release every inner list and then
@@ -279,19 +375,32 @@ weave chunk_every with items as list of int, n as int, step as int is 1 into lis
 ##
 ## ## Ejemplo
 ## ```pengu
-## calling loom.windows with [1, 2, 3], 2      # [[1, 2], [2, 3]]
+## calling loom.windows with [1, 2, 3], 2          # [[1, 2], [2, 3]]
+## calling loom.windows with ["a", "b"], 2         # [["a", "b"]]
 ## ```
-weave windows with items as list of int, n as int into list of list of int:
-    return calling _windows_int with items, n
+weave windows shard T with items as list of T, n as int into list of list of T:
+    var out as list of list of T is list of list of T
+    if n <= 0 or n > (calling items.len):
+        return out
+    var start_idx as int is 0
+    while start_idx + n <= (calling items.len):
+        var window as list of T is list of T
+        var i as int is 0
+        while i < n:
+            calling window.push with (items at (start_idx + i))
+            set i is i + 1
+        calling out.push with window
+        set start_idx is start_idx + 1
+    return out
 
-## Pengunic name of `windows`; same signature and same result.
+## Pengunic name of `windows`; same signature and same result for any `T`.
 ##
 ## ## Parámetros
 ## - `items`: the source list; it is only read.
 ## - `n`: the window size; `n <= 0` or `n > len` yields `[]`.
 ##
 ## ## Retorno
-## A new owned `list of list of int`; same result as `windows`.
+## A new owned `list of list of T`; same result as `windows`.
 ##
 ## ## Memoria
 ## Each inner list is a separate owned value: release every inner list and then
@@ -299,18 +408,31 @@ weave windows with items as list of int, n as int into list of list of int:
 ##
 ## ## Ejemplo
 ## ```pengu
-## calling loom.windowed with [1, 2, 3], 2      # [[1, 2], [2, 3]]
+## calling loom.windowed with [1, 2, 3], 2          # [[1, 2], [2, 3]]
+## calling loom.windowed with ["a", "b"], 2         # [["a", "b"]]
 ## ```
-weave windowed with items as list of int, n as int into list of list of int:
-    return calling _windows_int with items, n
+weave windowed shard T with items as list of T, n as int into list of list of T:
+    var out as list of list of T is list of list of T
+    if n <= 0 or n > (calling items.len):
+        return out
+    var start_idx as int is 0
+    while start_idx + n <= (calling items.len):
+        var window as list of T is list of T
+        var i as int is 0
+        while i < n:
+            calling window.push with (items at (start_idx + i))
+            set i is i + 1
+        calling out.push with window
+        set start_idx is start_idx + 1
+    return out
 
-## Returns the overlapping adjacent pairs `[[x0, x1], ...]`.
+## Returns the overlapping adjacent pairs `[[x0, x1], ...]`, for any `T`.
 ##
 ## ## Parámetros
 ## - `items`: the source list; it is only read. `len < 2` yields `[]`.
 ##
 ## ## Retorno
-## A new owned `list of list of int` of size `len - 1`; `pairwise_pairs` is the
+## A new owned `list of list of T` of size `len - 1`; `pairwise_pairs` is the
 ## `Pair` variant.
 ##
 ## ## Memoria
@@ -319,28 +441,38 @@ weave windowed with items as list of int, n as int into list of list of int:
 ##
 ## ## Ejemplo
 ## ```pengu
-## calling loom.pairwise with [1, 2, 3]      # [[1, 2], [2, 3]]
+## calling loom.pairwise with [1, 2, 3]            # [[1, 2], [2, 3]]
+## calling loom.pairwise with ["a", "b"]           # [["a", "b"]]
 ## ```
-weave pairwise with items as list of int into list of list of int:
-    return calling _windows_int with items, 2
+weave pairwise shard T with items as list of T into list of list of T:
+    var out as list of list of T is list of list of T
+    var i as int is 0
+    while i + 1 < (calling items.len):
+        var pair as list of T is list of T
+        calling pair.push with (items at i)
+        calling pair.push with (items at (i + 1))
+        calling out.push with pair
+        set i is i + 1
+    return out
 
-## Returns the overlapping adjacent pairs as `Pair(first = xi, second = xi+1)`.
+## Returns the adjacent pairs as `Pair(first = xi, second = xi+1)` for any `T`.
 ##
 ## ## Parámetros
 ## - `items`: the source list; it is only read. `len < 2` yields `[]`.
 ##
 ## ## Retorno
-## A new owned `list of Pair of int and int`; release it with `banish`.
+## A new owned `list of Pair of T and T`; release it with `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.pairwise_pairs with [1, 2, 3]      # [Pair(1, 2), Pair(2, 3)]
+## calling loom.pairwise_pairs with ["a", "b"]     # [Pair("a", "b")]
 ## ```
-weave pairwise_pairs with items as list of int into list of Pair of int and int:
-    var out as list of Pair of int and int is list of Pair of int and int
+weave pairwise_pairs shard T with items as list of T into list of Pair of T and T:
+    var out as list of Pair of T and T is list of Pair of T and T
     var i as int is 0
     while i + 1 < (calling items.len):
-        var pair as Pair of int and int with:
+        var pair as Pair of T and T with:
             set .first is items at i
             set .second is items at (i + 1)
         calling out.push with pair
@@ -349,79 +481,88 @@ weave pairwise_pairs with items as list of int into list of Pair of int and int:
 
 # --- Folds ---------------------------------------------------------------
 
-## Adds every element (`0` for an empty list).
+## Adds every element of `nums` for any numeric `T` (`0` for an empty list).
 ##
 ## ## Parámetros
 ## - `nums`: the values to add; the list is only read.
 ##
 ## ## Retorno
-## The sum as an `int`; nothing to release.
+## The sum as a `T` (`0` for an empty list); nothing to release.
 ##
 ## ## Ejemplo
 ## ```pengu
-## calling loom.sum with [1, 2, 3]      # 6
+## calling loom.sum with [1, 2, 3]           # 6
+## calling loom.sum with [1.5, 2.5]          # 4.0
 ## ```
-weave sum with nums as list of int into int:
-    return calling _sum_int with nums
+weave sum shard T where T: Num with nums as list of T into T:
+    var total as T is donum T
+    for x in nums:
+        set total is total + x
+    return total
 
-## Multiplies every element (`1` for an empty list).
+## Multiplies every element for any numeric `T` (`1` for an empty list).
 ##
 ## ## Parámetros
 ## - `nums`: the values to multiply; the list is only read.
 ##
 ## ## Retorno
-## The product as an `int`; nothing to release.
+## The product as a `T` (`1` for an empty list); nothing to release.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.product_num with [2, 3, 4]      # 24
 ## ```
-weave product_num with nums as list of int into int:
-    return calling _product_int with nums
+weave product_num shard T where T: Num with nums as list of T into T:
+    var total as T is 1
+    for x in nums:
+        set total is total * x
+    return total
 
-## Returns the greatest element (`0` for an empty list).
+## Returns the greatest element for any ordered `T` (`0` for an empty list).
 ##
 ## ## Parámetros
 ## - `items`: the values to scan; the list is only read.
 ##
 ## ## Retorno
-## The maximum as an `int`, or the sentinel `0` when the list is empty. Use
-## `min_max` when an empty list must be distinguishable.
+## The maximum as a `T`, or `donum T` (`0` for the numeric types) when the list
+## is empty. Use `min_max` when an empty list must be distinguishable.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.max_int with [3, 9, 4]      # 9
+## calling loom.max_int with ["a", "c"]     # "c"
 ## ```
-weave max_int with items as list of int into int:
-    var best as int is 0
+weave max_int shard T where T: Ordered and T: Donum with items as list of T into T:
+    var best as T is donum T
     if (calling items.len) == 0:
         return best
     set best is items at 0
     for x in items:
-        if x > best:
+        if (calling x.cmp with best) > 0:
             set best is x
     return best
 
-## Returns the smallest element (`0` for an empty list).
+## Returns the smallest element for any ordered `T` (`0` for an empty list).
 ##
 ## ## Parámetros
 ## - `items`: the values to scan; the list is only read.
 ##
 ## ## Retorno
-## The minimum as an `int`, or the sentinel `0` when the list is empty. Use
-## `min_max` when an empty list must be distinguishable.
+## The minimum as a `T`, or `donum T` (`0` for the numeric types) when the list
+## is empty. Use `min_max` when an empty list must be distinguishable.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.min_int with [3, 9, 4]      # 3
+## calling loom.min_int with ["a", "c"]     # "a"
 ## ```
-weave min_int with items as list of int into int:
-    var best as int is 0
+weave min_int shard T where T: Ordered and T: Donum with items as list of T into T:
+    var best as T is donum T
     if (calling items.len) == 0:
         return best
     set best is items at 0
     for x in items:
-        if x < best:
+        if (calling x.cmp with best) < 0:
             set best is x
     return best
 
@@ -431,15 +572,28 @@ weave min_int with items as list of int into int:
 ## - `items`: the values to scan; the list is only read.
 ##
 ## ## Retorno
-## `some Pair` with the bounds, or `maybe none` when the list is empty; nothing
-## to release either way.
+## `some Pair` with the bounds for any ordered `T`, or `maybe none` when the
+## list is empty; nothing to release either way.
 ##
 ## ## Ejemplo
 ## ```pengu
-## calling loom.min_max with [3, 9, 4]      # some Pair(3, 9)
+## calling loom.min_max with [3, 9, 4]          # some Pair(3, 9)
+## calling loom.min_max with ["b", "a"]         # some Pair("a", "b")
 ## ```
-weave min_max with items as list of int into maybe Pair of int and int:
-    return calling _min_max_int with items
+weave min_max shard T where T: Ordered with items as list of T into maybe Pair of T and T:
+    if (calling items.len) == 0:
+        return maybe none
+    var lo as T is items at 0
+    var hi as T is items at 0
+    for x in items:
+        if (calling x.cmp with lo) < 0:
+            set lo is x
+        if (calling x.cmp with hi) > 0:
+            set hi is x
+    var out as Pair of T and T with:
+        set .first is lo
+        set .second is hi
+    return some out
 
 ## Core of `min_max`.
 weave _min_max_int with items as list of int into maybe Pair of int and int:
@@ -469,91 +623,120 @@ weave _min_max_int with items as list of int into maybe Pair of int and int:
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.mean with [1, 2, 3, 4]      # 2.5
+## calling loom.mean with [1.5, 2.5]        # 2.0
 ## ```
-weave mean with nums as list of int into float:
-    return calling _mean_int with nums
+weave mean shard T where T: Num with nums as list of T into float:
+    if (calling nums.len) == 0:
+        return 0.0
+    var total as T is donum T
+    for x in nums:
+        set total is total + x
+    return (total to float) / ((calling nums.len) to float)
 
-## Adds the squares of `nums` (`0` for an empty list).
+## Adds the squares of `nums` (`0` for an empty list) for any numeric `T`.
 ##
 ## ## Parámetros
 ## - `nums`: the values whose squares are added; the list is only read.
 ##
 ## ## Retorno
-## The sum of squares as an `int`; nothing to release.
+## The sum of squares as a `T`; nothing to release.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.sum_squares with [1, 2, 3]      # 14
 ## ```
-weave sum_squares with nums as list of int into int:
-    var total as int is 0
+weave sum_squares shard T where T: Num with nums as list of T into T:
+    var total as T is donum T
     for x in nums:
         set total is total + (x * x)
     return total
 
-## Returns the running (prefix) sums, one per element.
+## Returns the running (prefix) sums, one per element, for any numeric `T`.
 ##
 ## ## Parámetros
 ## - `nums`: the values to accumulate; the list is only read.
 ##
 ## ## Retorno
-## A new owned `list of int` of the same length as `nums` (`[]` stays `[]`);
+## A new owned `list of T` of the same length as `nums` (`[]` stays `[]`);
 ## release it with `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.running_sum with [1, 2, 3]      # [1, 3, 6]
 ## ```
-weave running_sum with nums as list of int into list of int:
-    return calling _running_sum_int with nums
+weave running_sum shard T where T: Num with nums as list of T into list of T:
+    var out as list of T is list of T
+    var acc as T is donum T
+    for x in nums:
+        set acc is acc + x
+        calling out.push with acc
+    return out
 
-## Returns the running (prefix) maxima, one per element.
+## Returns the running (prefix) maxima, one per element, for any ordered `T`.
 ##
 ## ## Parámetros
 ## - `nums`: the values to accumulate; the list is only read.
 ##
 ## ## Retorno
-## A new owned `list of int` of the same length as `nums` (`[]` stays `[]`);
+## A new owned `list of T` of the same length as `nums` (`[]` stays `[]`);
 ## release it with `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.running_max with [3, 1, 4]      # [3, 3, 4]
+## calling loom.running_max with ["b", "a"]     # ["b", "b"]
 ## ```
-weave running_max with nums as list of int into list of int:
-    return calling _running_extreme_int with nums, true
+weave running_max shard T where T: Ordered with nums as list of T into list of T:
+    var out as list of T is list of T
+    if (calling nums.len) == 0:
+        return out
+    var best as T is nums at 0
+    for x in nums:
+        if (calling x.cmp with best) > 0:
+            set best is x
+        calling out.push with best
+    return out
 
-## Returns the running (prefix) minima, one per element.
+## Returns the running (prefix) minima, one per element, for any ordered `T`.
 ##
 ## ## Parámetros
 ## - `nums`: the values to accumulate; the list is only read.
 ##
 ## ## Retorno
-## A new owned `list of int` of the same length as `nums` (`[]` stays `[]`);
+## A new owned `list of T` of the same length as `nums` (`[]` stays `[]`);
 ## release it with `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.running_min with [3, 1, 4]      # [3, 1, 1]
+## calling loom.running_min with ["b", "a"]     # ["b", "a"]
 ## ```
-weave running_min with nums as list of int into list of int:
-    return calling _running_extreme_int with nums, false
+weave running_min shard T where T: Ordered with nums as list of T into list of T:
+    var out as list of T is list of T
+    if (calling nums.len) == 0:
+        return out
+    var best as T is nums at 0
+    for x in nums:
+        if (calling x.cmp with best) < 0:
+            set best is x
+        calling out.push with best
+    return out
 
-## Returns the adjacent differences `[x1 - x0, x2 - x1, ...]`.
+## Returns the adjacent differences `[x1 - x0, x2 - x1, ...]` for numeric `T`.
 ##
 ## ## Parámetros
 ## - `nums`: the values to difference; the list is only read. `len <= 1` yields
 ##   `[]`.
 ##
 ## ## Retorno
-## A new owned `list of int` of size `len - 1`; release it with `banish`.
+## A new owned `list of T` of size `len - 1`; release it with `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.differences with [1, 4, 9]      # [3, 5]
 ## ```
-weave differences with nums as list of int into list of int:
-    var out as list of int is list of int
+weave differences shard T where T: Num with nums as list of T into list of T:
+    var out as list of T is list of T
     if (calling nums.len) <= 1:
         return out
     var i as int is 0
@@ -593,21 +776,23 @@ weave scan_left shard T where T: Num with items as list of T, f as weave with ac
 
 # --- Predicates ----------------------------------------------------------
 
-## Returns `true` when some element is zero.
+## Returns `true` when some element is equal to the zero of `T`.
 ##
 ## ## Parámetros
 ## - `nums`: the values to test; the list is only read.
 ##
 ## ## Retorno
-## `true` when at least one element is `0`, `false` otherwise (also for `[]`).
+## `true` when at least one element equals `donum T`, `false` otherwise (also
+## for `[]`).
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.any_zero with [1, 0, 3]      # true
 ## ```
-weave any_zero with nums as list of int into bool:
+weave any_zero shard T where T: Par with nums as list of T into bool:
+    let zero as T is donum T
     for x in nums:
-        if x == 0:
+        if x == zero:
             return true
     return false
 
@@ -623,9 +808,16 @@ weave any_zero with nums as list of int into bool:
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.all_equal with [4, 4, 4]      # true
+## calling loom.all_equal with ["x", "x"]      # true
 ## ```
-weave all_equal with nums as list of int into bool:
-    return (calling _is_ordered_int with nums, false, true) and (calling _is_ordered_int with nums, false, false)
+weave all_equal shard T where T: Par with nums as list of T into bool:
+    if (calling nums.len) <= 1:
+        return true
+    let first as T is nums at 0
+    for x in nums:
+        if x != first:
+            return false
+    return true
 
 ## Returns `true` when every element is strictly smaller than the next.
 ##
@@ -639,9 +831,17 @@ weave all_equal with nums as list of int into bool:
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.is_strictly_asc with [1, 2, 3]      # true
+## calling loom.is_strictly_asc with ["a", "b"]     # true
 ## ```
-weave is_strictly_asc with nums as list of int into bool:
-    return calling _is_ordered_int with nums, true, true
+weave is_strictly_asc shard T where T: Ordered with nums as list of T into bool:
+    var i as int is 0
+    while i < (calling nums.len) - 1:
+        let left as T is nums at i
+        let right as T is nums at (i + 1)
+        if (calling right.cmp with left) <= 0:
+            return false
+        set i is i + 1
+    return true
 
 ## Returns `true` when every element is strictly greater than the next.
 ##
@@ -656,8 +856,15 @@ weave is_strictly_asc with nums as list of int into bool:
 ## ```pengu
 ## calling loom.is_strictly_desc with [3, 2, 1]      # true
 ## ```
-weave is_strictly_desc with nums as list of int into bool:
-    return calling _is_ordered_int with nums, true, false
+weave is_strictly_desc shard T where T: Ordered with nums as list of T into bool:
+    var i as int is 0
+    while i < (calling nums.len) - 1:
+        let left as T is nums at i
+        let right as T is nums at (i + 1)
+        if (calling right.cmp with left) >= 0:
+            return false
+        set i is i + 1
+    return true
 
 ## Returns `true` when `nums` is sorted in non-decreasing order.
 ##
@@ -670,9 +877,17 @@ weave is_strictly_desc with nums as list of int into bool:
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.is_sorted_asc with [1, 1, 2]      # true
+## calling loom.is_sorted_asc with ["a", "a", "b"]      # true
 ## ```
-weave is_sorted_asc with nums as list of int into bool:
-    return calling _is_ordered_int with nums, false, true
+weave is_sorted_asc shard T where T: Ordered with nums as list of T into bool:
+    var i as int is 0
+    while i < (calling nums.len) - 1:
+        let left as T is nums at i
+        let right as T is nums at (i + 1)
+        if (calling right.cmp with left) < 0:
+            return false
+        set i is i + 1
+    return true
 
 ## Returns `true` when `nums` is sorted in non-increasing order.
 ##
@@ -686,8 +901,15 @@ weave is_sorted_asc with nums as list of int into bool:
 ## ```pengu
 ## calling loom.is_sorted_desc with [3, 3, 1]      # true
 ## ```
-weave is_sorted_desc with nums as list of int into bool:
-    return calling _is_ordered_int with nums, false, false
+weave is_sorted_desc shard T where T: Ordered with nums as list of T into bool:
+    var i as int is 0
+    while i < (calling nums.len) - 1:
+        let left as T is nums at i
+        let right as T is nums at (i + 1)
+        if (calling right.cmp with left) > 0:
+            return false
+        set i is i + 1
+    return true
 
 ## Returns `true` when the elements that satisfy `predicate` precede all the
 ## ones that do not.
@@ -695,7 +917,7 @@ weave is_sorted_desc with nums as list of int into bool:
 ## ## Parámetros
 ## - `items`: the values to check; the list is only read. `[]` and one-element
 ##   lists yield `true`.
-## - `predicate`: a pure weave `(int) -> bool`.
+## - `predicate`: a pure weave `(T) -> bool`.
 ##
 ## ## Retorno
 ## `true` when the list is partitioned, `false` otherwise.
@@ -704,7 +926,7 @@ weave is_sorted_desc with nums as list of int into bool:
 ## ```pengu
 ## calling loom.is_partitioned with [2, 3, 4], arithmancy.is_prime      # true
 ## ```
-weave is_partitioned with items as list of int, predicate as weave with x as int into bool into bool:
+weave is_partitioned shard T with items as list of T, predicate as weave with x as T into bool into bool:
     var seen_failing as bool is false
     for x in items:
         if calling predicate with x:
@@ -716,7 +938,8 @@ weave is_partitioned with items as list of int, predicate as weave with x as int
 
 # --- Transformations and combinations ------------------------------------
 
-## Combines `a` and `b` with the operator code `op`.
+## Combines `a` and `b` with the operator code `op`, for any numeric and ordered
+## `T`.
 ##
 ## ## Parámetros
 ## - `a`: the left operands; the list is only read.
@@ -725,15 +948,30 @@ weave is_partitioned with items as list of int, predicate as weave with x as int
 ##   multiplies, `3` takes the minimum and `4` the maximum.
 ##
 ## ## Retorno
-## A new owned `list of int` that stops at the shorter input; release it with
+## A new owned `list of T` that stops at the shorter input; release it with
 ## `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.zip_with with [1, 2], [10, 20], 0      # [11, 22]
+## calling loom.zip_with with [1.5, 2.5], [1.0, 1.0], 1      # [0.5, 1.5]
 ## ```
-weave zip_with with a as list of int, b as list of int, op as int is 0 into list of int:
-    return calling _zip_with_int with a, b, op
+weave zip_with shard T where T: Num and T: Ordered with a as list of T, b as list of T, op as int is 0 into list of T:
+    var out as list of T is list of T
+    let limit as int is (if (calling b.len) < (calling a.len) then (calling b.len) else (calling a.len))
+    var i as int is 0
+    while i < limit:
+        let va as T is a at i
+        let vb as T is b at i
+        var combined as T is judge op:
+            when 1 -> va - vb
+            when 2 -> va * vb
+            when 3 -> (if (calling vb.cmp with va) < 0 then vb else va)
+            when 4 -> (if (calling vb.cmp with va) > 0 then vb else va)
+            else -> va + vb
+        calling out.push with combined
+        set i is i + 1
+    return out
 
 ## Core of `zip_with` (see its docstring for the `op` codes).
 weave _zip_with_int with a as list of int, b as list of int, op as int into list of int:
@@ -745,24 +983,24 @@ weave _zip_with_int with a as list of int, b as list of int, op as int into list
         set i is i + 1
     return out
 
-## Combines `a` and `b` with the weave `f`, up to the shorter list.
+## Combines `a` and `b` with the weave `f`, up to the shorter list, for any `T`.
 ##
 ## ## Parámetros
 ## - `a`: the left operands; the list is only read.
 ## - `b`: the right operands; the list is only read.
-## - `f`: a pure weave `(int, int) -> int`.
+## - `f`: a pure weave `(T, T) -> T`.
 ##
 ## ## Retorno
-## A new owned `list of int` of size `min(len(a), len(b))`; release it with
+## A new owned `list of T` of size `min(len(a), len(b))`; release it with
 ## `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.zip_with_op with [12, 8], [8, 6], arithmancy.gcd      # [4, 2]
 ## ```
-weave zip_with_op with a as list of int, b as list of int, f as weave with x as int, y as int into int into list of int:
-    var out as list of int is list of int
-    let limit as int is calling _pick_len_int with a, b, false
+weave zip_with_op shard T with a as list of T, b as list of T, f as weave with x as T, y as T into T into list of T:
+    var out as list of T is list of T
+    let limit as int is (if (calling b.len) < (calling a.len) then (calling b.len) else (calling a.len))
     var i as int is 0
     while i < limit:
         calling out.push with (calling f with (a at i), (b at i))
@@ -770,6 +1008,10 @@ weave zip_with_op with a as list of int, b as list of int, f as weave with x as 
     return out
 
 ## Returns the pairs `[a_i, b_i]` up to the longer list, filling with `fill`.
+##
+## The signature stays concrete (`list of int`): `fill` has the element type and
+## a generic parameter cannot carry a default value that depends on `T` (E0005),
+## while dropping the default would break the two-argument call sites.
 ##
 ## ## Parámetros
 ## - `a`: the left operands; the list is only read.
@@ -799,14 +1041,16 @@ weave zip_longest with a as list of int, b as list of int, fill as int is 0 into
         set i is i + 1
     return out
 
-## Returns the `[index, value]` pairs in order.
+## Returns the `[index, value]` pairs in order for any numeric `T`.
+##
+## The row is homogeneous, so the index shares the element type and the weave is
+## bounded `T: Num`; use `enumerate_pairs` for the unconstrained `Pair` variant.
 ##
 ## ## Parámetros
 ## - `items`: the values to index; the list is only read.
 ##
 ## ## Retorno
-## A new owned `list of list of int` with one two-element list per input
-## element. See `enumerate_pairs` for the `Pair` variant.
+## A new owned `list of list of T` with one two-element list per input element.
 ##
 ## ## Memoria
 ## Each inner list is a separate owned value: release every inner list and then
@@ -816,31 +1060,41 @@ weave zip_longest with a as list of int, b as list of int, fill as int is 0 into
 ## ```pengu
 ## calling loom.enumerate with [10, 20]      # [[0, 10], [1, 20]]
 ## ```
-weave enumerate with items as list of int into list of list of int:
-    let indexed as list of Pair of int and int is calling _enumerate_pairs_int with items
-    defer banish indexed
-    var out as list of list of int is list of list of int
-    for entry in indexed:
-        var pair as list of int is list of int
-        calling pair.push with entry.first
-        calling pair.push with entry.second
+weave enumerate shard T where T: Num with items as list of T into list of list of T:
+    var out as list of list of T is list of list of T
+    var idx as T is 0
+    for x in items:
+        var pair as list of T is list of T
+        calling pair.push with idx
+        calling pair.push with x
         calling out.push with pair
+        set idx is idx + 1
     return out
 
-## Returns the `Pair(first = index, second = value)` entries in order.
+## Returns the `Pair(first = index, second = value)` entries in order for any
+## element type `T`.
 ##
 ## ## Parámetros
 ## - `items`: the values to index; the list is only read.
 ##
 ## ## Retorno
-## A new owned `list of Pair of int and int`; release it with `banish`.
+## A new owned `list of Pair of int and T`; release it with `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.enumerate_pairs with [10, 20]      # [Pair(0, 10), Pair(1, 20)]
+## calling loom.enumerate_pairs with ["a"]         # [Pair(0, "a")]
 ## ```
-weave enumerate_pairs with items as list of int into list of Pair of int and int:
-    return calling _enumerate_pairs_int with items
+weave enumerate_pairs shard T with items as list of T into list of Pair of int and T:
+    var out as list of Pair of int and T is list of Pair of int and T
+    var i as int is 0
+    for x in items:
+        var pair as Pair of int and T with:
+            set .first is i
+            set .second is x
+        calling out.push with pair
+        set i is i + 1
+    return out
 
 ## Core of `enumerate_pairs`.
 weave _enumerate_pairs_int with items as list of int into list of Pair of int and int:
@@ -861,16 +1115,17 @@ weave _enumerate_pairs_int with items as list of int into list of Pair of int an
 ## - `b`: the second list; the list is only read.
 ##
 ## ## Retorno
-## A new owned `list of int` of size `2 * min(len(a), len(b))`; release it with
+## A new owned `list of T` of size `2 * min(len(a), len(b))`; release it with
 ## `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.interleave with [1, 2], [10]      # [1, 10]
+## calling loom.interleave with ["a"], ["b"]      # ["a", "b"]
 ## ```
-weave interleave with a as list of int, b as list of int into list of int:
-    var out as list of int is list of int
-    let limit as int is calling _pick_len_int with a, b, false
+weave interleave shard T with a as list of T, b as list of T into list of T:
+    var out as list of T is list of T
+    let limit as int is (if (calling b.len) < (calling a.len) then (calling b.len) else (calling a.len))
     var i as int is 0
     while i < limit:
         calling out.push with (a at i)
@@ -884,28 +1139,28 @@ weave interleave with a as list of int, b as list of int into list of int:
 ## - `lists`: the lists to interleave; only read.
 ##
 ## ## Retorno
-## A new owned `list of int`; release it with `banish`. Position `i` is taken
+## A new owned `list of T`; release it with `banish`. Position `i` is taken
 ## from every list that still has `i` elements.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.round_robin with [[1, 2], [10, 11]]      # [1, 10, 2, 11]
 ## ```
-weave round_robin with lists as list of list of int into list of int:
-    var out as list of int is list of int
+weave round_robin shard T with lists as list of list of T into list of T:
+    var out as list of T is list of T
     var max_len as int is 0
     for inner in lists:
         if (calling inner.len) > max_len:
             set max_len is calling inner.len
-    let steps as list of int is calling range with 0, max_len, 1
-    defer banish steps
-    for step in steps:
+    var turn as int is 0
+    while turn < max_len:
         for inner in lists:
-            if step < (calling inner.len):
-                calling out.push with (inner at step)
+            if turn < (calling inner.len):
+                calling out.push with (inner at turn)
+        set turn is turn + 1
     return out
 
-## Rotates `items` to the left by `k` positions.
+## Rotates `items` to the left by `k` positions, for any element type `T`.
 ##
 ## ## Parámetros
 ## - `items`: the source list; it is only read.
@@ -913,16 +1168,32 @@ weave round_robin with lists as list of list of int into list of int:
 ##   values larger than the length wrap around.
 ##
 ## ## Retorno
-## A new owned `list of int`; release it with `banish`.
+## A new owned `list of T`; release it with `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.rotate_left with [10, 20, 30], 1      # [20, 30, 10]
+## calling loom.rotate_left with ["a", "b"], 1        # ["b", "a"]
 ## ```
-weave rotate_left with items as list of int, k as int into list of int:
-    return calling _rotate_left_int with items, k
+weave rotate_left shard T with items as list of T, k as int into list of T:
+    var out as list of T is list of T
+    let n as int is calling items.len
+    if n == 0:
+        return out
+    var shift as int is k % n
+    if shift < 0:
+        set shift is shift + n
+    var i as int is shift
+    while i < n:
+        calling out.push with (items at i)
+        set i is i + 1
+    var j as int is 0
+    while j < shift:
+        calling out.push with (items at j)
+        set j is j + 1
+    return out
 
-## Rotates `items` to the right by `k` positions.
+## Rotates `items` to the right by `k` positions, for any element type `T`.
 ##
 ## ## Parámetros
 ## - `items`: the source list; it is only read.
@@ -930,34 +1201,48 @@ weave rotate_left with items as list of int, k as int into list of int:
 ##   values larger than the length wrap around.
 ##
 ## ## Retorno
-## A new owned `list of int`; release it with `banish`.
+## A new owned `list of T`; release it with `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.rotate_right with [10, 20, 30], 1      # [30, 10, 20]
 ## ```
-weave rotate_right with items as list of int, k as int into list of int:
+weave rotate_right shard T with items as list of T, k as int into list of T:
+    var out as list of T is list of T
     let n as int is calling items.len
     if n == 0:
-        return calling _rotate_left_int with items, 0
-    return calling _rotate_left_int with items, ((n - (k % n)) % n)
+        return out
+    var shift as int is k % n
+    if shift < 0:
+        set shift is shift + n
+    let cut as int is (n - shift) % n
+    var i as int is cut
+    while i < n:
+        calling out.push with (items at i)
+        set i is i + 1
+    var j as int is 0
+    while j < cut:
+        calling out.push with (items at j)
+        set j is j + 1
+    return out
 
-## Inserts `sep` between every pair of adjacent elements.
+## Inserts `sep` between every pair of adjacent elements, for any `T`.
 ##
 ## ## Parámetros
 ## - `items`: the source list; it is only read.
 ## - `sep`: the separator inserted between elements.
 ##
 ## ## Retorno
-## A new owned `list of int` of size `2 * len - 1` for a non-empty input, or the
+## A new owned `list of T` of size `2 * len - 1` for a non-empty input, or the
 ## empty list; release it with `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.intersperse with [1, 2, 3], 0      # [1, 0, 2, 0, 3]
+## calling loom.intersperse with ["a", "b"], "-"   # ["a", "-", "b"]
 ## ```
-weave intersperse with items as list of int, sep as int into list of int:
-    var out as list of int is list of int
+weave intersperse shard T with items as list of T, sep as T into list of T:
+    var out as list of T is list of T
     if (calling items.len) == 0:
         return out
     calling out.push with (items at 0)
@@ -974,7 +1259,7 @@ weave intersperse with items as list of int, sep as int into list of int:
 ## - `nested`: the list of lists to flatten; it is only read.
 ##
 ## ## Retorno
-## A new owned `list of int` with the elements of every inner list, in order;
+## A new owned `list of T` with the elements of every inner list, in order;
 ## release it with `banish`.
 ##
 ## ## Ejemplo
@@ -982,8 +1267,12 @@ weave intersperse with items as list of int, sep as int into list of int:
 ## let blocks as list of list of int is calling loom.chunks with [1, 2, 3, 4], 2
 ## calling loom.flat_map_identity with blocks      # [1, 2, 3, 4]
 ## ```
-weave flat_map_identity with nested as list of list of int into list of int:
-    return calling flatten_generic of int with nested
+weave flat_map_identity shard T with nested as list of list of T into list of T:
+    var out as list of T is list of T
+    for inner in nested:
+        for x in inner:
+            calling out.push with x
+    return out
 
 ## Flattens one level of nesting: concatenates the inner lists of `nested`.
 ##
@@ -993,15 +1282,19 @@ weave flat_map_identity with nested as list of list of int into list of int:
 ## - `nested`: the list of lists to flatten; it is only read.
 ##
 ## ## Retorno
-## A new owned `list of int`, exactly as `flat_map_identity`; release it with
+## A new owned `list of T`, exactly as `flat_map_identity`; release it with
 ## `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.flatten with (calling loom.chunks with [1, 2], 1)      # [1, 2]
 ## ```
-weave flatten with nested as list of list of int into list of int:
-    return calling flatten_generic of int with nested
+weave flatten shard T with nested as list of list of T into list of T:
+    var out as list of T is list of T
+    for inner in nested:
+        for x in inner:
+            calling out.push with x
+    return out
 
 ## Flattens one level of nesting for any type `T`.
 ##
@@ -1028,22 +1321,50 @@ weave flatten_generic shard T with nested as list of list of T into list of T:
 
 # --- Sets over sorted lists ----------------------------------------------
 
-## Returns the deduplicated union of two ascending lists.
+## Returns the deduplicated union of two ascending lists of any ordered `T`.
 ##
 ## ## Parámetros
 ## - `a`: the first ascending list; only read.
 ## - `b`: the second ascending list; only read.
 ##
 ## ## Retorno
-## A new owned ascending `list of int` without duplicates; release it with
+## A new owned ascending `list of T` without duplicates; release it with
 ## `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.union_sorted with [1, 2], [2, 3]      # [1, 2, 3]
+## calling loom.union_sorted with ["a", "b"], ["b"]   # ["a", "b"]
 ## ```
-weave union_sorted with a as list of int, b as list of int into list of int:
-    return calling _union_sorted_int with a, b
+weave union_sorted shard T where T: Ordered with a as list of T, b as list of T into list of T:
+    var joined as list of T is list of T
+    for x in a:
+        calling joined.push with x
+    for x in b:
+        calling joined.push with x
+    var i as int is 1
+    while i < (calling joined.len):
+        let key as T is joined at i
+        var j as int is i - 1
+        var placed as bool is false
+        while j >= 0 and not placed:
+            let current as T is joined at j
+            if (calling current.cmp with key) > 0:
+                set joined at (j + 1) is current
+                set j is j - 1
+            else:
+                set placed is true
+        set joined at (j + 1) is key
+        set i is i + 1
+    var out as list of T is list of T
+    for x in joined:
+        if (calling out.len) == 0:
+            calling out.push with x
+        else:
+            let prev as T is out at ((calling out.len) - 1)
+            if (calling x.cmp with prev) != 0:
+                calling out.push with x
+    return out
 
 ## Returns the deduplicated intersection of two ascending lists.
 ##
@@ -1052,15 +1373,31 @@ weave union_sorted with a as list of int, b as list of int into list of int:
 ## - `b`: the second ascending list; only read.
 ##
 ## ## Retorno
-## A new owned ascending `list of int` with the values present in both; release
+## A new owned ascending `list of T` with the values present in both; release
 ## it with `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.intersect_sorted with [1, 2, 3], [2, 3]      # [2, 3]
 ## ```
-weave intersect_sorted with a as list of int, b as list of int into list of int:
-    return calling _intersect_sorted_int with a, b
+weave intersect_sorted shard T where T: Ordered with a as list of T, b as list of T into list of T:
+    var uniq as list of T is list of T
+    for x in a:
+        if (calling uniq.len) == 0:
+            calling uniq.push with x
+        else:
+            let prev as T is uniq at ((calling uniq.len) - 1)
+            if (calling x.cmp with prev) != 0:
+                calling uniq.push with x
+    var out as list of T is list of T
+    for x in uniq:
+        var found as bool is false
+        for y in b:
+            if (calling x.cmp with y) == 0:
+                set found is true
+        if found:
+            calling out.push with x
+    return out
 
 ## Returns the deduplicated difference `a \ b` of two ascending lists.
 ##
@@ -1069,15 +1406,31 @@ weave intersect_sorted with a as list of int, b as list of int into list of int:
 ## - `b`: the second ascending list; only read.
 ##
 ## ## Retorno
-## A new owned ascending `list of int` with the values of `a` not present in
+## A new owned ascending `list of T` with the values of `a` not present in
 ## `b`; release it with `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.difference_sorted with [1, 2, 3], [2, 3]      # [1]
 ## ```
-weave difference_sorted with a as list of int, b as list of int into list of int:
-    return calling _difference_sorted_int with a, b
+weave difference_sorted shard T where T: Ordered with a as list of T, b as list of T into list of T:
+    var uniq as list of T is list of T
+    for x in a:
+        if (calling uniq.len) == 0:
+            calling uniq.push with x
+        else:
+            let prev as T is uniq at ((calling uniq.len) - 1)
+            if (calling x.cmp with prev) != 0:
+                calling uniq.push with x
+    var out as list of T is list of T
+    for x in uniq:
+        var found as bool is false
+        for y in b:
+            if (calling x.cmp with y) == 0:
+                set found is true
+        if not found:
+            calling out.push with x
+    return out
 
 ## Returns the deduplicated symmetric difference of two ascending lists.
 ##
@@ -1086,19 +1439,52 @@ weave difference_sorted with a as list of int, b as list of int into list of int
 ## - `b`: the second ascending list; only read.
 ##
 ## ## Retorno
-## A new owned ascending `list of int` with the values present in exactly one of
+## A new owned ascending `list of T` with the values present in exactly one of
 ## the inputs; release it with `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.symmetric_difference_sorted with [1, 2], [2, 3]      # [1, 3]
 ## ```
-weave symmetric_difference_sorted with a as list of int, b as list of int into list of int:
-    var left as list of int is calling _difference_sorted_int with a, b
-    defer banish left
-    var right as list of int is calling _difference_sorted_int with b, a
-    defer banish right
-    return calling _union_sorted_int with left, right
+weave symmetric_difference_sorted shard T where T: Ordered with a as list of T, b as list of T into list of T:
+    var joined as list of T is list of T
+    for x in a:
+        var in_b as bool is false
+        for y in b:
+            if (calling x.cmp with y) == 0:
+                set in_b is true
+        if not in_b:
+            calling joined.push with x
+    for x in b:
+        var in_a as bool is false
+        for y in a:
+            if (calling x.cmp with y) == 0:
+                set in_a is true
+        if not in_a:
+            calling joined.push with x
+    var i as int is 1
+    while i < (calling joined.len):
+        let key as T is joined at i
+        var j as int is i - 1
+        var placed as bool is false
+        while j >= 0 and not placed:
+            let current as T is joined at j
+            if (calling current.cmp with key) > 0:
+                set joined at (j + 1) is current
+                set j is j - 1
+            else:
+                set placed is true
+        set joined at (j + 1) is key
+        set i is i + 1
+    var out as list of T is list of T
+    for x in joined:
+        if (calling out.len) == 0:
+            calling out.push with x
+        else:
+            let prev as T is out at ((calling out.len) - 1)
+            if (calling x.cmp with prev) != 0:
+                calling out.push with x
+    return out
 
 # --- Search and indices --------------------------------------------------
 
@@ -1115,11 +1501,13 @@ weave symmetric_difference_sorted with a as list of int, b as list of int into l
 ## ```pengu
 ## calling loom.find_first with [10, 20, 10], 10      # some 0
 ## ```
-weave find_first with items as list of int, target as int into maybe int:
-    let found as int is calling generic_index_of of int with items, target
-    if found < 0:
-        return maybe none
-    return some found
+weave find_first shard T where T: Par with items as list of T, target as T into maybe int:
+    var i as int is 0
+    while i < (calling items.len):
+        if (items at i) == target:
+            return some i
+        set i is i + 1
+    return maybe none
 
 ## Returns the index of the last occurrence of `target`.
 ##
@@ -1134,7 +1522,7 @@ weave find_first with items as list of int, target as int into maybe int:
 ## ```pengu
 ## calling loom.find_last with [10, 20, 10], 10      # some 2
 ## ```
-weave find_last with items as list of int, target as int into maybe int:
+weave find_last shard T where T: Par with items as list of T, target as T into maybe int:
     var i as int is (calling items.len) - 1
     while i >= 0:
         if (items at i) == target:
@@ -1142,7 +1530,7 @@ weave find_last with items as list of int, target as int into maybe int:
         set i is i - 1
     return maybe none
 
-## Searches `sorted_items` (ascending) for `target` with binary search.
+## Searches `sorted_items` (ascending, any ordered `T`) with binary search.
 ##
 ## ## Parámetros
 ## - `sorted_items`: an ascending list; the list is only read. On an unsorted
@@ -1155,22 +1543,24 @@ weave find_last with items as list of int, target as int into maybe int:
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.binary_search with [1, 2, 4, 5], 4      # some 2
+## calling loom.binary_search with ["a", "c"], "c"      # some 1
 ## ```
-weave binary_search with sorted_items as list of int, target as int into maybe int:
+weave binary_search shard T where T: Ordered with sorted_items as list of T, target as T into maybe int:
     var low as int is 0
     var high as int is (calling sorted_items.len) - 1
     while low <= high:
         let mid as int is low + ((high - low) / 2)
-        let value as int is sorted_items at mid
-        if value == target:
+        let value as T is sorted_items at mid
+        let order as int is calling value.cmp with target
+        if order == 0:
             return some mid
-        if value < target:
+        if order < 0:
             set low is mid + 1
         else:
             set high is mid - 1
     return maybe none
 
-## Counts the even elements (negative even values included).
+## Counts the even elements (negative even values included) for integer `T`.
 ##
 ## ## Parámetros
 ## - `items`: the values to test; the list is only read.
@@ -1182,14 +1572,14 @@ weave binary_search with sorted_items as list of int, target as int into maybe i
 ## ```pengu
 ## calling loom.count_if_even with [-2, 0, 3]      # 2
 ## ```
-weave count_if_even with items as list of int into int:
-    var count as int is 0
+weave count_if_even shard T where T: Integrum and T: Par with items as list of T into int:
+    var hits as int is 0
     for x in items:
         if (x % 2) == 0:
-            set count is count + 1
-    return count
+            set hits is hits + 1
+    return hits
 
-## Counts the strictly positive elements.
+## Counts the strictly positive elements for numeric and ordered `T`.
 ##
 ## ## Parámetros
 ## - `items`: the values to test; the list is only read.
@@ -1201,14 +1591,15 @@ weave count_if_even with items as list of int into int:
 ## ```pengu
 ## calling loom.count_if_positive with [-2, 0, 3]      # 1
 ## ```
-weave count_if_positive with items as list of int into int:
-    var count as int is 0
+weave count_if_positive shard T where T: Num and T: Ordo with items as list of T into int:
+    let zero as T is donum T
+    var hits as int is 0
     for x in items:
-        if x > 0:
-            set count is count + 1
-    return count
+        if x > zero:
+            set hits is hits + 1
+    return hits
 
-## Returns the index of the first minimum.
+## Returns the index of the first minimum, for any ordered `T`.
 ##
 ## ## Parámetros
 ## - `items`: the values to scan; the list is only read.
@@ -1220,10 +1611,21 @@ weave count_if_positive with items as list of int into int:
 ## ```pengu
 ## calling loom.index_min with [3, 1, 4, 1]      # some 1
 ## ```
-weave index_min with items as list of int into maybe int:
-    return calling _index_of_extreme_int with items, false
+weave index_min shard T where T: Ordered with items as list of T into maybe int:
+    if (calling items.len) == 0:
+        return maybe none
+    var best_idx as int is 0
+    var best_val as T is items at 0
+    var i as int is 1
+    while i < (calling items.len):
+        let current as T is items at i
+        if (calling current.cmp with best_val) < 0:
+            set best_val is current
+            set best_idx is i
+        set i is i + 1
+    return some best_idx
 
-## Returns the index of the first maximum.
+## Returns the index of the first maximum, for any ordered `T`.
 ##
 ## ## Parámetros
 ## - `items`: the values to scan; the list is only read.
@@ -1235,12 +1637,23 @@ weave index_min with items as list of int into maybe int:
 ## ```pengu
 ## calling loom.index_max with [3, 1, 4, 1]      # some 2
 ## ```
-weave index_max with items as list of int into maybe int:
-    return calling _index_of_extreme_int with items, true
+weave index_max shard T where T: Ordered with items as list of T into maybe int:
+    if (calling items.len) == 0:
+        return maybe none
+    var best_idx as int is 0
+    var best_val as T is items at 0
+    var i as int is 1
+    while i < (calling items.len):
+        let current as T is items at i
+        if (calling current.cmp with best_val) > 0:
+            set best_val is current
+            set best_idx is i
+        set i is i + 1
+    return some best_idx
 
 # --- Pure structural editing ---------------------------------------------
 
-## Returns a copy with `value` inserted at `index`.
+## Returns a copy with `value` inserted at `index`, for any element type `T`.
 ##
 ## ## Parámetros
 ## - `items`: the source list; it is only read.
@@ -1248,40 +1661,45 @@ weave index_max with items as list of int into maybe int:
 ## - `value`: the value to insert.
 ##
 ## ## Retorno
-## A new owned `list of int` of size `len + 1`; release it with `banish`.
+## A new owned `list of T` of size `len + 1`; release it with `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.insert_at with [1, 2, 3], 1, 9      # [1, 9, 2, 3]
+## calling loom.insert_at with ["a"], 1, "b"        # ["a", "b"]
 ## ```
-weave insert_at with items as list of int, index as int, value as int into list of int:
+weave insert_at shard T with items as list of T, index as int, value as T into list of T:
     var pos as int is index
     if pos < 0:
         set pos is 0
     if pos > (calling items.len):
         set pos is calling items.len
-    var head as list of int is calling _slice_shard of int with items, 0, pos
-    defer banish head
-    var tail as list of int is calling _slice_shard of int with items, pos, calling items.len
-    defer banish tail
-    calling head.push with value
-    return calling generic_chain of int with head, tail
+    var out as list of T is list of T
+    var i as int is 0
+    while i < (calling items.len):
+        if i == pos:
+            calling out.push with value
+        calling out.push with (items at i)
+        set i is i + 1
+    if pos >= (calling items.len):
+        calling out.push with value
+    return out
 
-## Returns a copy without the element at `index`.
+## Returns a copy without the element at `index`, for any element type `T`.
 ##
 ## ## Parámetros
 ## - `items`: the source list; it is only read.
 ## - `index`: the position to drop; an out-of-range index returns a full copy.
 ##
 ## ## Retorno
-## A new owned `list of int`; release it with `banish`.
+## A new owned `list of T`; release it with `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.remove_at with [1, 2, 3], 1      # [1, 3]
 ## ```
-weave remove_at with items as list of int, index as int into list of int:
-    var out as list of int is list of int
+weave remove_at shard T with items as list of T, index as int into list of T:
+    var out as list of T is list of T
     var i as int is 0
     while i < (calling items.len):
         if i != index:
@@ -1289,7 +1707,7 @@ weave remove_at with items as list of int, index as int into list of int:
         set i is i + 1
     return out
 
-## Returns a copy with `value` at `index`.
+## Returns a copy with `value` at `index`, for any element type `T`.
 ##
 ## ## Parámetros
 ## - `items`: the source list; it is only read.
@@ -1298,15 +1716,15 @@ weave remove_at with items as list of int, index as int into list of int:
 ## - `value`: the replacement value.
 ##
 ## ## Retorno
-## A new owned `list of int` of the same length as `items`; release it with
+## A new owned `list of T` of the same length as `items`; release it with
 ## `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.replace_at with [1, 2, 3], 1, 7      # [1, 7, 3]
 ## ```
-weave replace_at with items as list of int, index as int, value as int into list of int:
-    var out as list of int is list of int
+weave replace_at shard T with items as list of T, index as int, value as T into list of T:
+    var out as list of T is list of T
     var i as int is 0
     while i < (calling items.len):
         calling out.push with (if i == index then value else (items at i))
@@ -1322,22 +1740,26 @@ weave replace_at with items as list of int, index as int, value as int into list
 ## - `j`: the second position.
 ##
 ## ## Retorno
-## A new owned `list of int` of the same length as `items`; an out-of-range
+## A new owned `list of T` of the same length as `items`; an out-of-range
 ## index leaves the copy untouched. Release it with `banish`.
 ##
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.swap_at with [1, 2, 3], 0, 2      # [3, 2, 1]
 ## ```
-weave swap_at with items as list of int, i as int, j as int into list of int:
-    var out as list of int is for x in items then x
+weave swap_at shard T with items as list of T, i as int, j as int into list of T:
+    var out as list of T is for x in items then x
     if i >= 0 and i < (calling out.len) and j >= 0 and j < (calling out.len):
-        let original as int is out at i
+        let original as T is out at i
         set out at i is (out at j)
         set out at j is original
     return out
 
 ## Returns a copy padded on the left with `fill` up to `target_len`.
+##
+## The signature stays concrete (`list of int`): `fill` has the element type and
+## a generic parameter cannot carry a default value that depends on `T` (E0005),
+## while dropping the default would break the two-argument call sites.
 ##
 ## ## Parámetros
 ## - `items`: the source list; it is only read.
@@ -1357,6 +1779,10 @@ weave pad_left with items as list of int, target_len as int, fill as int is 0 in
     return calling generic_chain of int with (calling _repeat_shard of int with fill, needed), items
 
 ## Returns a copy padded on the right with `fill` up to `target_len`.
+##
+## The signature stays concrete (`list of int`): `fill` has the element type and
+## a generic parameter cannot carry a default value that depends on `T` (E0005),
+## while dropping the default would break the two-argument call sites.
 ##
 ## ## Parámetros
 ## - `items`: the source list; it is only read.
@@ -1389,9 +1815,31 @@ weave pad_right with items as list of int, target_len as int, fill as int is 0 i
 ## ## Ejemplo
 ## ```pengu
 ## calling loom.median with [1, 2, 3, 4]      # some 2.5
+## calling loom.median with [1.5, 2.5]        # some 2.0
 ## ```
-weave median with items as list of int into maybe float:
-    return calling _median_int with items
+weave median shard T where T: Num and T: Ordo with items as list of T into maybe float:
+    if (calling items.len) == 0:
+        return maybe none
+    var ordered as list of T is for x in items then x
+    var i as int is 1
+    while i < (calling ordered.len):
+        let key as T is ordered at i
+        var j as int is i - 1
+        var placed as bool is false
+        while j >= 0 and not placed:
+            let current as T is ordered at j
+            if current > key:
+                set ordered at (j + 1) is current
+                set j is j - 1
+            else:
+                set placed is true
+        set ordered at (j + 1) is key
+        set i is i + 1
+    let n as int is calling ordered.len
+    let mid as int is n / 2
+    if (n % 2) == 1:
+        return some ((ordered at mid) to float)
+    return some ((((ordered at (mid - 1)) to float) + ((ordered at mid) to float)) / 2.0)
 
 ## Core of `median`.
 weave _median_int with items as list of int into maybe float:
@@ -1418,22 +1866,34 @@ weave _median_int with items as list of int into maybe float:
 ## ```pengu
 ## calling loom.mode with [1, 2, 2, 3]      # some 2
 ## ```
-weave mode with items as list of int into maybe int:
-    return calling _mode_int with items
+weave mode shard T where T: Num and T: Ordo with items as list of T into maybe T:
+    if (calling items.len) == 0:
+        return maybe none
+    var best_val as T is items at 0
+    var best_hits as int is 0
+    for candidate in items:
+        var hits as int is 0
+        for x in items:
+            if x <= candidate and candidate <= x:
+                set hits is hits + 1
+        if hits > best_hits:
+            set best_hits is hits
+            set best_val is candidate
+    return some best_val
 
 ## Core of `mode`.
 weave _mode_int with items as list of int into maybe int:
     if (calling items.len) == 0:
         return maybe none
     var best_val as int is items at 0
-    var best_count as int is 0
+    var best_hits as int is 0
     for candidate in items:
-        var count as int is 0
+        var hits as int is 0
         for x in items:
             if x == candidate:
-                set count is count + 1
-        if count > best_count:
-            set best_count is count
+                set hits is hits + 1
+        if hits > best_hits:
+            set best_hits is hits
             set best_val is candidate
     return some best_val
 
@@ -1449,8 +1909,18 @@ weave _mode_int with items as list of int into maybe int:
 ## ```pengu
 ## calling loom.variance with [1, 2, 3, 4, 5]      # some 2.0
 ## ```
-weave variance with items as list of int into maybe float:
-    return calling _variance_int with items
+weave variance shard T where T: Num and T: Ordo with items as list of T into maybe float:
+    if (calling items.len) == 0:
+        return maybe none
+    var total as T is donum T
+    for x in items:
+        set total is total + x
+    let mid_value as float is (total to float) / ((calling items.len) to float)
+    var acc as float is 0.0
+    for x in items:
+        let diff as float is (x to float) - mid_value
+        set acc is acc + (diff * diff)
+    return some (acc / ((calling items.len) to float))
 
 ## Returns the population standard deviation.
 ##
@@ -1465,11 +1935,18 @@ weave variance with items as list of int into maybe float:
 ## ```pengu
 ## calling loom.stddev with [1, 2, 3, 4, 5]      # some 1.414...
 ## ```
-weave stddev with items as list of int into maybe float:
-    let spread as maybe float is calling _variance_int with items
-    if value as float is spread:
-        return some (calling arithmancy.sqrt with value)
-    return maybe none
+weave stddev shard T where T: Num and T: Ordo with items as list of T into maybe float:
+    if (calling items.len) == 0:
+        return maybe none
+    var total as T is donum T
+    for x in items:
+        set total is total + x
+    let mid_value as float is (total to float) / ((calling items.len) to float)
+    var acc as float is 0.0
+    for x in items:
+        let diff as float is (x to float) - mid_value
+        set acc is acc + (diff * diff)
+    return some (calling arithmancy.sqrt with (acc / ((calling items.len) to float)))
 
 ## Returns the percentile `p` in `[0.0, 100.0]` with linear interpolation.
 ##
@@ -1486,11 +1963,24 @@ weave stddev with items as list of int into maybe float:
 ## ```pengu
 ## calling loom.percentile with [1, 2, 3, 4], 50.0      # some 2.5
 ## ```
-weave percentile with items as list of int, p as float into maybe float:
+weave percentile shard T where T: Num and T: Ordo with items as list of T, p as float into maybe float:
     if (calling items.len) == 0 or p < 0.0 or p > 100.0:
         return maybe none
-    let ordered as list of int is calling _sorted_asc_int with items
-    defer banish ordered
+    var ordered as list of T is for x in items then x
+    var i as int is 1
+    while i < (calling ordered.len):
+        let key as T is ordered at i
+        var j as int is i - 1
+        var placed as bool is false
+        while j >= 0 and not placed:
+            let current as T is ordered at j
+            if current > key:
+                set ordered at (j + 1) is current
+                set j is j - 1
+            else:
+                set placed is true
+        set ordered at (j + 1) is key
+        set i is i + 1
     let n as int is calling ordered.len
     let rank as float is (p / 100.0) * ((n - 1) to float)
     let low as int is rank to int
@@ -1564,12 +2054,12 @@ weave generic_take shard T with items as list of T, n as int into list of T:
 ## ```
 weave generic_take_last shard T with items as list of T, n as int into list of T:
     var out as list of T is list of T
-    var count as int is n
-    if count > (calling items.len):
-        set count is calling items.len
-    if count <= 0:
+    var kept as int is n
+    if kept > (calling items.len):
+        set kept is calling items.len
+    if kept <= 0:
         return out
-    var i as int is (calling items.len) - count
+    var i as int is (calling items.len) - kept
     while i < (calling items.len):
         calling out.push with (items at i)
         set i is i + 1
@@ -1711,10 +2201,10 @@ weave _mean_int with items as list of int into float:
 weave _variance_int with items as list of int into maybe float:
     if (calling items.len) == 0:
         return maybe none
-    let center as float is calling _mean_int with items
+    let center_value as float is calling _mean_int with items
     var total as float is 0.0
     for x in items:
-        let diff as float is (x to float) - center
+        let diff as float is (x to float) - center_value
         set total is total + (diff * diff)
     return some (total / ((calling items.len) to float))
 
@@ -1892,6 +2382,15 @@ weave _expect_eq_chunks with actual as list of list of int, expected as list of 
     while i < (calling actual.len):
         calling _expect_eq_ints with (actual at i), (expected at i), label
         set i is i + 1
+## Internal harness: equality of lists of any comparable `T` (length and elements).
+weave _expect_eq_shard_list shard T where T: Par with actual as list of T, expected as list of T, label as string into void:
+    if (calling actual.len) != (calling expected.len):
+        calling spark.panic with "loom test failed: {label}: len {(calling actual.len)} != {(calling expected.len)}"
+    var i as int is 0
+    while i < (calling actual.len):
+        if (actual at i) != (expected at i):
+            calling spark.panic with "loom test failed: {label}: [{i}]"
+        set i is i + 1
 ## Internal harness: `maybe T` is present and equal to `expected`.
 weave _expect_some shard T where T: Par with m as maybe T, expected as T, label as string into void:
     if value as T is m:
@@ -1911,6 +2410,24 @@ weave _expect_some_pair with first_expected as int, second_expected as int, labe
         calling _expect_pair with first_expected, second_expected, label, pair
     else:
         calling spark.panic with "loom test failed: {label}: none"
+
+# --- Test-only orderable type ---------------------------------------------
+
+## A sealed integer used by the ordering tests of this module.
+##
+## The unqualified `bind` below gives it atlas' `Ordered` so that the generic
+## ordering entry points accept `list of LoomUserId`.
+seal LoomUserId as int
+
+bind LoomUserId with Ordered:
+    weave cmp with other as LoomUserId into int:
+        var me as int is (essence of self) to int
+        var you as int is other to int
+        if me > you:
+            return 1
+        if me < you:
+            return -1
+        return 0
 
 # --- Tests ---
 # Private `_expect*` harness (see `## Design notes`).
@@ -1951,13 +2468,13 @@ test "unfold_range with a non-positive count returns empty":
     calling _expect_eq_ints with (calling unfold_range with 1, 0, 1), empty, "unfold count 0"
 test "repeat repeats the value times times":
     var exp as list of int is [7, 7, 7]
-    calling _expect_eq_ints with (calling repeat with 7, 3), exp, "repeat"
+    calling _expect_eq_ints with (calling repeat of int with 7, 3), exp, "repeat"
 test "repeat with zero times returns empty":
     var empty as list of int is list of int
-    calling _expect_eq_ints with (calling repeat with 7, 0), empty, "repeat 0"
+    calling _expect_eq_ints with (calling repeat of int with 7, 0), empty, "repeat 0"
 test "repeat with a negative times returns empty":
     var empty as list of int is list of int
-    calling _expect_eq_ints with (calling repeat with 7, -2), empty, "repeat negative"
+    calling _expect_eq_ints with (calling repeat of int with 7, -2), empty, "repeat negative"
 
 # Slicing and composition
 test "take returns the first n elements":
@@ -2486,5 +3003,125 @@ test "generic_index_of finds the target or returns minus one":
     var xs as list of string is ["a", "b"]
     calling _expect_eq with (calling generic_index_of of string with xs, "b"), 1, "generic_index_of"
     calling _expect_eq with (calling generic_index_of of string with xs, "z"), -1, "generic_index_of missing"
-test "LOOM_VERSION is version 2.1.0":
-    calling _expect with LOOM_VERSION == "2.1.0", "version"
+
+# Widened element types (2.2.0)
+test "product_num multiplies float lists":
+    var xs as list of float is [1.5, 2.0, 3.0]
+    calling _expect_eq with (calling product_num with xs), 9.0, "product float"
+test "sum_squares and differences widen to float lists":
+    var xs as list of float is [1.0, 2.0, 3.0]
+    var want as list of float is [1.0, 1.0]
+    calling _expect_eq with (calling sum_squares with xs), 14.0, "sum_squares float"
+    calling _expect_eq_shard_list of float with (calling differences with xs), want, "differences float"
+test "max_int and min_int order float lists":
+    var xs as list of float is [2.5, 1.5, 3.5]
+    calling _expect_eq with (calling max_int with xs), 3.5, "max float"
+    calling _expect_eq with (calling min_int with xs), 1.5, "min float"
+test "running_max and running_min widen to float lists":
+    var xs as list of float is [2.5, 1.5, 3.5]
+    var highs as list of float is [2.5, 2.5, 3.5]
+    var lows as list of float is [2.5, 1.5, 1.5]
+    calling _expect_eq_shard_list of float with (calling running_max with xs), highs, "running_max float"
+    calling _expect_eq_shard_list of float with (calling running_min with xs), lows, "running_min float"
+test "chunks and rotate_left work with strings":
+    var ws as list of string is ["a", "b", "c"]
+    var want_first as list of string is ["a", "b"]
+    var want_left as list of string is ["b", "c", "a"]
+    var want_right as list of string is ["c", "a", "b"]
+    var blocks as list of list of string is calling chunks with ws, 2
+    calling _expect_eq with (calling blocks.len), 2, "chunks string rows"
+    var first as list of string is blocks at 0
+    calling _expect_eq_shard_list of string with first, want_first, "chunks string first"
+    calling _expect_eq_shard_list of string with (calling rotate_left with ws, 1), want_left, "rotate_left string"
+    calling _expect_eq_shard_list of string with (calling rotate_right with ws, 1), want_right, "rotate_right string"
+test "windows and chunk_every widen to float lists":
+    var xs as list of float is [1.0, 2.0, 3.0]
+    var want_first as list of float is [1.0, 2.0]
+    var wins as list of list of float is calling windows with xs, 2
+    calling _expect_eq with (calling wins.len), 2, "windows float rows"
+    var first as list of float is wins at 0
+    calling _expect_eq_shard_list of float with first, want_first, "windows float first"
+    var blocks as list of list of float is calling chunk_every with xs, 2, 2
+    calling _expect_eq with (calling blocks.len), 2, "chunk_every float rows"
+test "enumerate keeps the element type of a float list":
+    var xs as list of float is [1.5, 2.5]
+    var want_second as list of float is [1.0, 2.5]
+    var rows as list of list of float is calling enumerate with xs
+    var second as list of float is rows at 1
+    calling _expect_eq_shard_list of float with second, want_second, "enumerate float"
+test "pairwise_pairs and intersperse work with strings":
+    var ws as list of string is ["a", "b"]
+    var want as list of string is ["a", "-", "b"]
+    var pairs as list of Pair of string and string is calling pairwise_pairs with ws
+    var first_pair as Pair of string and string is pairs at 0
+    calling _expect_eq with first_pair.first, "a", "pairwise_pairs string first"
+    calling _expect_eq with first_pair.second, "b", "pairwise_pairs string second"
+    calling _expect_eq_shard_list of string with (calling intersperse with ws, "-"), want, "intersperse string"
+test "insert_at and replace_at work with strings":
+    var ws as list of string is ["a", "c"]
+    var want_inserted as list of string is ["a", "b", "c"]
+    var want_replaced as list of string is ["a", "z"]
+    var want_removed as list of string is ["c"]
+    calling _expect_eq_shard_list of string with (calling insert_at with ws, 1, "b"), want_inserted, "insert_at string"
+    calling _expect_eq_shard_list of string with (calling replace_at with ws, 1, "z"), want_replaced, "replace_at string"
+    calling _expect_eq_shard_list of string with (calling remove_at with ws, 0), want_removed, "remove_at string"
+test "union_sorted and intersect_sorted merge string lists":
+    var a as list of string is ["a", "c"]
+    var b as list of string is ["b", "c"]
+    var want_union as list of string is ["a", "b", "c"]
+    var want_common as list of string is ["c"]
+    var want_only_a as list of string is ["a"]
+    var want_outer as list of string is ["a", "b"]
+    calling _expect_eq_shard_list of string with (calling union_sorted with a, b), want_union, "union string"
+    calling _expect_eq_shard_list of string with (calling intersect_sorted with a, b), want_common, "intersect string"
+    calling _expect_eq_shard_list of string with (calling difference_sorted with a, b), want_only_a, "difference string"
+    calling _expect_eq_shard_list of string with (calling symmetric_difference_sorted with a, b), want_outer, "symmetric_difference string"
+test "binary_search and the order predicates accept strings":
+    var ws as list of string is ["a", "c", "e"]
+    var backward as list of string is calling generic_reverse of string with ws
+    calling _expect_some with (calling binary_search with ws, "c"), 1, "binary_search string"
+    calling _expect_eq with (calling is_strictly_asc with ws), true, "is_strictly_asc string"
+    calling _expect_eq with (calling is_strictly_desc with backward), true, "is_strictly_desc string"
+test "find_first and all_equal compare strings":
+    var ws as list of string is ["a", "b", "a"]
+    var same as list of string is ["x", "x"]
+    calling _expect_some with (calling find_first with ws, "a"), 0, "find_first string"
+    calling _expect_some with (calling find_last with ws, "a"), 2, "find_last string"
+    calling _expect_eq with (calling all_equal with same), true, "all_equal string"
+test "index_min and index_max accept strings":
+    var ws as list of string is ["b", "a", "c"]
+    calling _expect_some with (calling index_min with ws), 1, "index_min string"
+    calling _expect_some with (calling index_max with ws), 2, "index_max string"
+test "count_if_even and count_if_positive accept i64 lists":
+    var xs as list of i64 is list of i64
+    calling xs.push with (2 to i64)
+    calling xs.push with (3 to i64)
+    calling xs.push with (-4 to i64)
+    calling _expect_eq with (calling count_if_even with xs), 2, "count_if_even i64"
+    calling _expect_eq with (calling count_if_positive with xs), 2, "count_if_positive i64"
+    calling _expect_eq with (calling max_int with xs), (3 to i64), "max i64"
+test "the generic helpers widen to i64 lists":
+    var xs as list of i64 is list of i64
+    calling xs.push with (5 to i64)
+    calling xs.push with (1 to i64)
+    var backward as list of i64 is list of i64
+    calling backward.push with (1 to i64)
+    calling backward.push with (5 to i64)
+    calling _expect_eq_shard_list of i64 with (calling generic_reverse of i64 with xs), backward, "generic_reverse i64"
+    calling _expect_some with (calling index_min with xs), 1, "index_min i64"
+    calling _expect_eq with (calling first_or of i64 with xs, (0 to i64)), (5 to i64), "first_or i64"
+test "a bound seal orders through the Ordered concept":
+    var xs as list of LoomUserId is list of LoomUserId
+    calling xs.push with (7 to LoomUserId)
+    calling xs.push with (3 to LoomUserId)
+    calling xs.push with (5 to LoomUserId)
+    var merged as list of LoomUserId is calling union_sorted with xs, xs
+    calling _expect_eq with (calling merged.len), 3, "seal union_sorted"
+    calling _expect_some with (calling binary_search of LoomUserId with merged, (5 to LoomUserId)), 1, "seal binary_search"
+    calling _expect_some with (calling index_min of LoomUserId with xs), 1, "seal index_min"
+    calling _expect_some with (calling index_max of LoomUserId with xs), 0, "seal index_max"
+    calling _expect_eq with (calling is_strictly_asc with xs), false, "seal is_strictly_asc"
+    var first_low as LoomUserId is merged at 0
+    calling _expect_eq with (first_low to int), 3, "seal order"
+test "LOOM_VERSION is version 2.2.0":
+    calling _expect with LOOM_VERSION == "2.2.0", "version"

@@ -140,6 +140,26 @@ chunks restantes.
       declarado de la variable (`E0005`): expón `calling Set.empty of T` y/o
       constructores concretos.
 
+## Retrofit de tipos en funciones de módulo (Chunk 5)
+
+- [ ] Al generalizar una función de módulo de `list of int` a
+      `list of shard T where T: <bound>`, **el nombre, el orden de parámetros y
+      la semántica no cambian**: solo se ensancha el dominio de tipos.
+- [ ] El cuerpo de un `weave shard T` es **autocontenido**: no puede delegar en
+      otro `weave`/método genérico (`return calling l.sum` genera aritmética de
+      `void *`). Se escribe el bucle directo.
+- [ ] Los módulos con funciones de módulo genéricas llevan `insignia <mod>_`:
+      es lo que hace fiable la resolución de `calling mod.fn` cuando el programa
+      usa varias monomorfizaciones del mismo genérico.
+- [ ] Las operaciones de **orden** con `T` genérico usan el `concept Ordered` de
+      `std.atlas` (`calling a.cmp with b`): `>` no compila para `PenguString` en
+      un cuerpo genérico (y `E0005` en código concreto), mientras que `==` sí
+      funciona genéricamente. Las operaciones `Par` no necesitan concepto.
+- [ ] Los defaults de tipo concreto (`tally.at_or`, `tally.clamp_all`) **no** se
+      cambian: se añade una variante `*_shard` sin default.
+- [ ] `tests/stdlib/test_<mod>.py` sigue verde **sin tocarlo** y los módulos
+      consumidores siguen compilando.
+
 ## Verificación
 
 - [ ] `pengu check --entry std/<mod>.pengu` pasa (0 errores; W0005 aceptado)

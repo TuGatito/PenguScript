@@ -1,12 +1,69 @@
-# std/archivum.pengu - The Archive (File System Operations)
-# Provides comprehensive file system manipulation: reading, writing, copying, moving,
-# deleting, listing, metadata, and search.
-#
-# Typical usage:
-#   import std.archivum
-#   var text as maybe string is calling archivum.read_file with "notes.txt"
-#   if text.is_present:
-#       calling spark.println with text.value
+## std/archivum.pengu — file-system operations: reading, writing, copying,
+## moving, deleting, listing, metadata and searching.
+##
+## Every operation delegates to a `declare`d C runtime primitive; the module
+## itself adds the ergonomics (`maybe`/`bool` answers plus `result` variants that
+## report *why* an operation failed) and the recursive helpers (`copy_tree`,
+## `walk`, `list_files_recursive`, `dir_size`, `find_*`).
+##
+## ## Example
+## ```pengu
+## import std.archivum
+## import std.spark
+##
+## weave main into int:
+##     let path as string is "/tmp/archivum_demo.txt"
+##     if calling archivum.write_file with path, "hello\nworld\n":
+##         let text as maybe string is calling archivum.read_file with path
+##         if text.is_present:
+##             calling spark.println with text.value
+##     calling archivum.delete_file with path
+##     return 0
+## ```
+##
+## ## Memory
+## A `string` is a value: inputs are borrowed and never banished by this module.
+## Every returned `string`, `list`, `map` and `result` payload is freshly
+## allocated and owned by the caller, so release it with `banish` (and the
+## elements of a returned `list of string` individually) when it is no longer
+## needed. The `result` variants rebuild their container instead of returning a
+## parameter: `calling ok_of with v` / `calling err_of with e`.
+##
+## ## Design notes
+## - **Two answers per question.** The `maybe`/`bool` weaves answer "is it
+##   there?" and stay the right tool for that. The `*_result` weaves answer "it
+##   failed, and why", with `IoError` as the error type; they are built with
+##   `calling ok_of` / `calling err_of`.
+## - **No `+` on strings** (E0005): every composition uses `"{expr}"`
+##   interpolation, including the byte-count loops.
+## - **Directory entry names only.** `read_dir` mirrors the runtime primitive and
+##   returns bare names; `read_dir_full` is the convenience weave that joins each
+##   entry with the directory with `std.compass.join`.
+## - **Recursion is explicit.** `copy_tree`, `walk`, `find_dirs`,
+##   `list_files_recursive` and `dir_size` keep their own stack/list instead of
+##   calling themselves, which keeps the generated C flat.
+## - **Permissions are checked through `metadata`.** `is_readable`/`is_writable`
+##   require `exists and is_file` and then inspect the POSIX mode bits reported by
+##   `permissions` (read: `0400 | 0040 | 0004`, write: `0200 | 0020 | 0002`).
+## - **External `enchanting`.** The optional `enchanting compass.Path` block adds
+##   filesystem methods to `compass.Path`; it delegates through `self->raw` and
+##   never touches `std/compass.pengu`.
+## - **Internal tests without `std.ward`** (`ward` would create an import cycle):
+##   the `# --- Tests ---` section uses a private harness on top of `spark.panic`.
+##
+## ## Migration
+##
+## `2.0.0` → `2.1.0` is additive: no symbol was removed, renamed or given new
+## bounds/behaviour.
+##
+## | Added | Purpose |
+## |---|---|
+## | `read_text` / `write_text` | explicit aliases of `read_file` / `write_file` |
+## | `read_last_n_lines` | tail of a file, complementing `read_first_n_lines` |
+## | `read_dir_full` | `read_dir` entries already joined with the directory |
+## | `is_readable` / `is_writable` | existence + regular file + mode check |
+## | `read_lines_result`, `write_lines_result`, `read_dir_result`, `create_dir_result`, `remove_dir_result`, `copy_file_result`, `copy_tree_result`, `append_lines_result`, `touch_result`, `symlink_result`, `metadata_result` | `result of T to IoError` variants of the weaves above |
+## | `enchanting compass.Path` | `read_text`, `write_text`, `read_lines`, `append_text`, `delete`, `mkdir`, `rmdir`, `iter_dir`, `stat` |
 
 import std.spark
 import std.oracle
@@ -20,7 +77,7 @@ import std.rites
 # ----------------------------------------------------------------------------
 
 ## Module version identifier for std.archivum.
-const ARCHIVUM_VERSION as string is "2.0.0"
+const ARCHIVUM_VERSION as string is "2.1.0"
 
 # ----------------------------------------------------------------------------
 # External C Runtime Declarations
@@ -69,23 +126,108 @@ declare pengu_c_archivum_read_symlink with path as string into maybe string
 # Runtime primitive: canonicalizes `path` to an absolute path.
 declare pengu_c_archivum_realpath with path as string into maybe string
 
+# The `insignia` prefixes every top-level C name of this module, so the weaves
+# `rename`, `symlink` and `realpath` do not collide with the libc functions of
+# the same name when `std/archivum.pengu` is the bundle entry. It sits after the
+# `declare`s, which already carry their own `pengu_c_` prefix.
+insignia archivum_
+
 # ----------------------------------------------------------------------------
 # Core File Operations
 # ----------------------------------------------------------------------------
 
-## Reads the whole file at `path` as UTF-8 text. Returns some string or none on failure.
+## Reads the whole file at `path` as UTF-8 text.
+##
+## ## Parámetros
+## - `path`: the file to read. It is borrowed, not consumed.
+##
+## ## Retorno
+## `some` with the owned file text, or `maybe none` when the file is missing or
+## cannot be read. Release the text with `banish` when it is an owned copy.
+##
+## ## Ejemplo
+## ```pengu
+## let text as maybe string is calling archivum.read_file with "notes.txt"
+## ```
 weave read_file with path as string into maybe string:
     return calling pengu_c_archivum_read_file with path
 
+## Reads the whole file at `path` as UTF-8 text (alias of `read_file`).
+##
+## ## Parámetros
+## - `path`: the file to read. It is borrowed, not consumed.
+##
+## ## Retorno
+## `some` with the owned text, or `maybe none` on failure.
+##
+## ## Ejemplo
+## ```pengu
+## let text as maybe string is calling archivum.read_text with "notes.txt"
+## ```
+weave read_text with path as string into maybe string:
+    return calling read_file with path
+
 ## Reads file bytes as an owned string buffer. Alias of read_file.
+##
+## ## Parámetros
+## - `path`: the file to read. It is borrowed, not consumed.
+##
+## ## Retorno
+## `some` with the owned byte buffer, or `maybe none` on failure. No UTF-8
+## decoding is performed; the buffer is the raw bytes.
+##
+## ## Ejemplo
+## ```pengu
+## let data as maybe string is calling archivum.read_bytes with "logo.png"
+## ```
 weave read_bytes with path as string into maybe string:
     return calling pengu_c_archivum_read_file with path
 
 ## Writes `content` verbatim to `path`, creating or truncating the file. Returns true on success.
+##
+## ## Parámetros
+## - `path`: destination file. Missing parent directories are not created.
+## - `content`: the exact text to store. It is borrowed.
+##
+## ## Retorno
+## `true` when the runtime wrote the file, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.write_file with "notes.txt", "hello"
+## ```
 weave write_file with path as string, content as string into bool:
     return calling pengu_c_archivum_write_file with path, content
 
+## Writes `content` verbatim to `path` (alias of `write_file`).
+##
+## ## Parámetros
+## - `path`: destination file.
+## - `content`: the exact text to store. It is borrowed.
+##
+## ## Retorno
+## `true` on success, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.write_text with "notes.txt", "hello"
+## ```
+weave write_text with path as string, content as string into bool:
+    return calling write_file with path, content
+
 ## Writes binary data buffer to `path`. Alias of write_file.
+##
+## ## Parámetros
+## - `path`: destination file.
+## - `data`: the raw bytes to store. It is borrowed.
+##
+## ## Retorno
+## `true` on success, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.write_bytes with "blob.bin", payload
+## ```
 weave write_bytes with path as string, data as string into bool:
     return calling pengu_c_archivum_write_file with path, data
 
@@ -106,6 +248,23 @@ omen IoError:
     Unknown
 
 ## Reads the whole file at `path` as UTF-8, reporting the failure cause.
+##
+## ## Parámetros
+## - `path`: the file to read. It is borrowed, not consumed.
+##
+## ## Retorno
+## `ok` with the owned text, or `err` with the `IoError` cause. The result owns
+## its payload; release it with `banish` when it is a `string`.
+##
+## ## Efectos
+## Returns `err(IoError.IsADirectory)` for a directory, `err(IoError.NotFound)`
+## when the entry does not exist and `err(IoError.Unknown)` for any other
+## failure.
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of string to archivum.IoError is calling archivum.read_file_result with "notes.txt"
+## ```
 weave read_file_result with path as string into result of string to IoError:
     # Check the directory case first: opening a directory for reading succeeds
     # on POSIX but yields no bytes, which would otherwise be reported as an
@@ -121,6 +280,22 @@ weave read_file_result with path as string into result of string to IoError:
 
 ## Writes `content` to `path`, reporting the failure cause. `result of int to
 ## IoError` succeeds with 0 (bytes written is not exposed by the runtime).
+##
+## ## Parámetros
+## - `path`: destination file. It is borrowed, not consumed.
+## - `content`: the exact text to store. It is borrowed.
+##
+## ## Retorno
+## `ok(0)` on success, or `err` with the `IoError` cause.
+##
+## ## Efectos
+## Returns `err(IoError.IsADirectory)` when `path` names a directory and
+## `err(IoError.Unknown)` for any other write failure.
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of int to archivum.IoError is calling archivum.write_file_result with "notes.txt", "hi"
+## ```
 weave write_file_result with path as string, content as string into result of int to IoError:
     if calling is_dir with path:
         return calling err_of with IoError.IsADirectory
@@ -130,6 +305,22 @@ weave write_file_result with path as string, content as string into result of in
     return calling err_of with IoError.Unknown
 
 ## Deletes the entry at `path`, reporting the failure cause.
+##
+## ## Parámetros
+## - `path`: the entry to delete. It is borrowed, not consumed.
+##
+## ## Retorno
+## `ok(0)` on success, or `err` with the `IoError` cause.
+##
+## ## Efectos
+## Returns `err(IoError.NotFound)` when the entry does not exist,
+## `err(IoError.IsADirectory)` for a directory and `err(IoError.Unknown)`
+## otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of int to archivum.IoError is calling archivum.delete_file_result with "notes.txt"
+## ```
 weave delete_file_result with path as string into result of int to IoError:
     if not calling exists with path:
         return calling err_of with IoError.NotFound
@@ -141,6 +332,18 @@ weave delete_file_result with path as string into result of int to IoError:
     return calling err_of with IoError.Unknown
 
 ## Returns the human-readable message of an `IoError`.
+##
+## ## Parámetros
+## - `e`: the error value to describe. It is a value type, copied in.
+##
+## ## Retorno
+## An owned `string` with a short English message; release it with `banish`. The
+## text is the same for every platform.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.describe_error with archivum.IoError.NotFound     # "no such file or directory"
+## ```
 weave describe_error with e as IoError into string:
     judge e:
         when IoError.NotFound -> "no such file or directory"
@@ -149,62 +352,310 @@ weave describe_error with e as IoError into string:
         when IoError.Permission -> "permission denied"
         else -> "unknown I/O error"
 
+# ----------------------------------------------------------------------------
+# Extended File Operations
+# ----------------------------------------------------------------------------
+
 ## Appends `content` to the end of `path`, creating it when missing. Returns true on success.
+##
+## ## Parámetros
+## - `path`: destination file.
+## - `content`: the exact text to append. It is borrowed.
+##
+## ## Retorno
+## `true` when the runtime appended the text, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.append_file with "notes.txt", "more\n"
+## ```
 weave append_file with path as string, content as string into bool:
     return calling pengu_c_archivum_append_file with path, content
 
 ## Appends binary data buffer to `path`. Alias of append_file.
+##
+## ## Parámetros
+## - `path`: destination file.
+## - `data`: the raw bytes to append. It is borrowed.
+##
+## ## Retorno
+## `true` on success, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.append_bytes with "blob.bin", extra
+## ```
 weave append_bytes with path as string, data as string into bool:
     return calling pengu_c_archivum_append_file with path, data
 
 ## Deletes the entry (file, empty dir or symlink) at `path`. Returns true on success.
+##
+## ## Parámetros
+## - `path`: the entry to delete. It is borrowed, not consumed.
+##
+## ## Retorno
+## `true` when the runtime removed the entry, `false` otherwise. Use `remove_dir`
+## for a non-empty directory.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.delete_file with "notes.txt"
+## ```
 weave delete_file with path as string into bool:
     return calling pengu_c_archivum_delete_file with path
 
 ## Returns true when any file system entry exists at `path`.
+##
+## ## Parámetros
+## - `path`: the path to probe. It is borrowed, not consumed.
+##
+## ## Retorno
+## `true` for a file, directory or symlink; `false` when nothing is there.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.exists with "notes.txt"     # true
+## ```
 weave exists with path as string into bool:
     return calling pengu_c_archivum_exists with path
 
 ## Returns true when the entry at `path` is a regular file.
+##
+## ## Parámetros
+## - `path`: the path to probe. It is borrowed, not consumed.
+##
+## ## Retorno
+## `true` only for a regular file; `false` for a directory, a symlink to a
+## directory or a missing path.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.is_file with "notes.txt"     # true
+## ```
 weave is_file with path as string into bool:
     return calling pengu_c_archivum_is_file with path
 
 ## Returns true when the entry at `path` is a directory.
+##
+## ## Parámetros
+## - `path`: the path to probe. It is borrowed, not consumed.
+##
+## ## Retorno
+## `true` only for a directory; `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.is_dir with "/tmp"     # true
+## ```
 weave is_dir with path as string into bool:
     return calling pengu_c_archivum_is_dir with path
 
 ## Returns true when the entry at `path` is a symbolic link.
+##
+## ## Parámetros
+## - `path`: the path to probe. It is borrowed, not consumed.
+##
+## ## Retorno
+## `true` when the entry itself is a symlink (the link is not followed).
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.is_symlink with "latest"     # true
+## ```
 weave is_symlink with path as string into bool:
     return calling pengu_c_archivum_is_symlink with path
 
+## Returns true when `path` exists, is a regular file and carries read permission.
+##
+## ## Parámetros
+## - `path`: the file to probe. It is borrowed, not consumed.
+##
+## ## Retorno
+## `true` when the entry exists, is a regular file and its POSIX mode has at
+## least one read bit (`0400`, `0040` or `0004`); `false` otherwise.
+##
+## ## Efectos
+## The check is advisory: it reads the mode bits reported by `metadata`, so an
+## access-control list or a read-only mount can still deny the actual read.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.is_readable with "notes.txt"     # true
+## ```
+weave is_readable with path as string into bool:
+    return calling _has_mode_bit with path, 292
+
+## Returns true when `path` exists, is a regular file and carries write permission.
+##
+## ## Parámetros
+## - `path`: the file to probe. It is borrowed, not consumed.
+##
+## ## Retorno
+## `true` when the entry exists, is a regular file and its POSIX mode has at
+## least one write bit (`0200`, `0020` or `0002`); `false` otherwise.
+##
+## ## Efectos
+## The check is advisory, like `is_readable`: a read-only mount can still deny
+## the actual write.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.is_writable with "notes.txt"     # true
+## ```
+weave is_writable with path as string into bool:
+    return calling _has_mode_bit with path, 146
+
+# ----------------------------------------------------------------------------
+# Directories
+# ----------------------------------------------------------------------------
+
 ## Creates the directory at `path`. When `parents` is true, creates missing ancestors.
+##
+## ## Parámetros
+## - `path`: the directory to create. It is borrowed, not consumed.
+## - `parents`: when `true`, missing ancestors are created as well (default
+##   `false`).
+##
+## ## Retorno
+## `true` when the directory exists after the call, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.create_dir with "/tmp/a/b", true
+## ```
 weave create_dir with path as string, parents as bool is false into bool:
     return calling pengu_c_archivum_create_dir with path, parents
 
 ## Removes directory at `path`. When `recursive` is true, deletes directory and its contents.
+##
+## ## Parámetros
+## - `path`: the directory to remove. It is borrowed, not consumed.
+## - `recursive`: when `true`, the directory is deleted with all of its contents
+##   (default `false`).
+##
+## ## Retorno
+## `true` when the runtime removed the directory, `false` otherwise.
+##
+## ## Efectos
+## With `recursive` the deletion is immediate and irreversible; there is no
+## trash can.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.remove_dir with "/tmp/a", true
+## ```
 weave remove_dir with path as string, recursive as bool is false into bool:
     return calling pengu_c_archivum_remove_dir with path, recursive
 
 ## Lists the direct entry names inside `path` (excluding "." and "..").
+##
+## ## Parámetros
+## - `path`: the directory to list. It is borrowed, not consumed.
+##
+## ## Retorno
+## `some` with an owned `list of string` of bare entry names, or `maybe none`
+## when `path` is not a readable directory. Release the list and its elements
+## with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let names as maybe list of string is calling archivum.read_dir with "/tmp"
+## ```
 weave read_dir with path as string into maybe list of string:
     return calling pengu_c_archivum_read_dir with path
 
+## Lists the direct entries inside `path` with `path` joined to each name.
+##
+## ## Parámetros
+## - `path`: the directory to list. It is borrowed, not consumed.
+##
+## ## Retorno
+## A new owned `list of string`; it is empty when `path` is not a readable
+## directory. Each element is `calling compass.join` of `path` and the entry
+## name, so it can be passed straight back to `is_file`, `metadata`, etc.
+## Release the list and its elements with `banish`.
+##
+## ## Memoria
+## The list owns both its element buffer and the freshly joined strings.
+##
+## ## Ejemplo
+## ```pengu
+## let paths as list of string is calling archivum.read_dir_full with "/tmp"
+## ```
+weave read_dir_full with path as string into list of string:
+    var out as list of string is list of string
+    let entries as maybe list of string is calling read_dir with path
+    if entries.is_present:
+        let names as list of string is entries.value
+        var i as int is 0
+        while i < names.len:
+            let parts as list of string is [path, names at i]
+            calling out.push with (calling compass.join with parts)
+            set i is i + 1
+    return out
+
 ## Copies file `src` to `dst`. When `overwrite` is false, an existing `dst` makes copy fail.
+##
+## ## Parámetros
+## - `src`: the source file. It is borrowed, not consumed.
+## - `dst`: the destination file. It is borrowed, not consumed.
+## - `overwrite`: when `true`, an existing `dst` is replaced (default `false`).
+##
+## ## Retorno
+## `true` when the runtime copied the file, `false` otherwise. The directory tree
+## is never created: the parent of `dst` must exist.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.copy_file with "a.txt", "b.txt", true
+## ```
 weave copy_file with src as string, dst as string, overwrite as bool is false into bool:
     return calling pengu_c_archivum_copy_file with src, dst, overwrite
 
 ## Moves file `src` to `dst`. When `overwrite` is false, an existing `dst` makes move fail.
+##
+## ## Parámetros
+## - `src`: the source file. It is borrowed, not consumed.
+## - `dst`: the destination file. It is borrowed, not consumed.
+## - `overwrite`: when `true`, an existing `dst` is replaced (default `false`).
+##
+## ## Retorno
+## `true` when the runtime moved the file, `false` otherwise. A cross-device move
+## is reported as a plain failure.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.move_file with "a.txt", "b.txt", false
+## ```
 weave move_file with src as string, dst as string, overwrite as bool is false into bool:
     return calling pengu_c_archivum_move_file with src, dst, overwrite
 
 ## Renames entry `old` to `new` (an existing `new` is overwritten).
+##
+## ## Parámetros
+## - `old`: the current path. It is borrowed, not consumed.
+## - `new`: the new path. It is borrowed, not consumed.
+##
+## ## Retorno
+## `true` when the runtime renamed the entry, `false` otherwise. Unlike
+## `move_file`, an existing `new` is overwritten unconditionally.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.rename with "a.txt", "b.txt"
+## ```
 weave rename with old as string, new as string into bool:
     return calling pengu_c_archivum_rename with old, new
 
 ## Reads metadata of entry `path` into an owned map of string to string.
 ##
-## Contract of returned map keys and values:
-## - "size": decimal string representation of file size in bytes (e.g. "1024").
+## ## Parámetros
+## - `path`: the entry to stat. It is borrowed, not consumed.
+##
+## ## Retorno
+## `some` with an owned map of `string` to `string`, or `maybe none` when the
+## entry does not exist or `stat` fails. Contract of the returned map keys:
+## - "size": decimal string of file size in bytes (e.g. "1024").
 ## - "is_file": boolean string ("true" or "false").
 ## - "is_dir": boolean string ("true" or "false").
 ## - "is_symlink": boolean string ("true" or "false").
@@ -213,11 +664,36 @@ weave rename with old as string, new as string into bool:
 ## - "accessed": decimal string of Unix epoch timestamp in seconds.
 ## - "permissions": decimal string of POSIX permission mode bits (st_mode & 0777).
 ##
-## Returns maybe none if `path` does not exist or stat fails.
+## ## Memoria
+## The map and its key/value strings are owned by the caller; release the buffer
+## with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let md as maybe map of string to string is calling archivum.metadata with "notes.txt"
+## ```
 weave metadata with path as string into maybe map of string to string:
     return calling pengu_c_archivum_metadata with path
 
+# ----------------------------------------------------------------------------
+# Lines and Text Helpers
+# ----------------------------------------------------------------------------
+
 ## Reads file and splits text on newline into an owned list of lines.
+##
+## ## Parámetros
+## - `path`: the file to read. It is borrowed, not consumed.
+##
+## ## Retorno
+## `some` with an owned `list of string`, or `maybe none` when the file cannot be
+## read. The split is on "\n" only, so a trailing newline yields a final empty
+## element and "\r\n" keeps the "\r". Release the list and its elements with
+## `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let lines as maybe list of string is calling archivum.read_lines with "notes.txt"
+## ```
 weave read_lines with path as string into maybe list of string:
     var content as maybe string is calling read_file with path
     if content.is_present:
@@ -227,6 +703,20 @@ weave read_lines with path as string into maybe list of string:
     return maybe none
 
 ## Reads at most `n` lines from `path`.
+##
+## ## Parámetros
+## - `path`: the file to read. It is borrowed, not consumed.
+## - `n`: maximum number of lines to take. A non-positive `n` gives an empty
+##   list.
+##
+## ## Retorno
+## `some` with an owned `list of string` of up to `n` leading lines, or
+## `maybe none` when the file cannot be read.
+##
+## ## Ejemplo
+## ```pengu
+## let head as maybe list of string is calling archivum.read_first_n_lines with "notes.txt", 3
+## ```
 weave read_first_n_lines with path as string, n as int into maybe list of string:
     var lines_opt as maybe list of string is calling read_lines with path
     if lines_opt.is_present:
@@ -239,7 +729,51 @@ weave read_first_n_lines with path as string, n as int into maybe list of string
         return some out
     return maybe none
 
+## Reads the last `n` lines of `path`.
+##
+## ## Parámetros
+## - `path`: the file to read. It is borrowed, not consumed.
+## - `n`: maximum number of trailing lines to take. A non-positive `n` gives an
+##   empty list; when the file has fewer than `n` lines, every line is returned.
+##
+## ## Retorno
+## `some` with an owned `list of string` of at most `n` trailing elements, or
+## `maybe none` when the file cannot be read. The semantics mirror `read_lines`:
+## the split is on "\n" and a trailing newline counts as one more (empty) line.
+##
+## ## Ejemplo
+## ```pengu
+## let tail as maybe list of string is calling archivum.read_last_n_lines with "notes.txt", 2
+## ```
+weave read_last_n_lines with path as string, n as int into maybe list of string:
+    var lines_opt as maybe list of string is calling read_lines with path
+    if lines_opt.is_present:
+        var all_l as list of string is lines_opt.value
+        var out as list of string is list of string
+        var start_at as int is all_l.len - n
+        if start_at < 0:
+            set start_at is 0
+        var i as int is start_at
+        while i < all_l.len:
+            calling out.push with (all_l at i)
+            set i is i + 1
+        return some out
+    return maybe none
+
 ## Returns the total number of lines in file `path`.
+##
+## ## Parámetros
+## - `path`: the file to measure. It is borrowed, not consumed.
+##
+## ## Retorno
+## `some` with the number of "\n"-separated elements, or `maybe none` when the
+## file cannot be read. A file ending in a newline therefore counts one extra
+## empty line, matching `read_lines`.
+##
+## ## Ejemplo
+## ```pengu
+## let total as maybe int is calling archivum.count_lines with "notes.txt"
+## ```
 weave count_lines with path as string into maybe int:
     var lines_opt as maybe list of string is calling read_lines with path
     if lines_opt.is_present:
@@ -248,6 +782,18 @@ weave count_lines with path as string into maybe int:
     return maybe none
 
 ## Joins `lines` with "\n", appends a trailing "\n", and writes to `path`.
+##
+## ## Parámetros
+## - `path`: destination file.
+## - `lines`: the lines to store. The list is borrowed, not consumed.
+##
+## ## Retorno
+## `true` on success, `false` otherwise. An empty list writes a single "\n".
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.write_lines with "notes.txt", ["a", "b"]
+## ```
 weave write_lines with path as string, lines as list of string into bool:
     var out as string is ""
     var i as int is 0
@@ -259,6 +805,18 @@ weave write_lines with path as string, lines as list of string into bool:
     return calling write_file with path, ("{out}\n")
 
 ## Joins `lines` with "\n", appends a trailing "\n", and appends to `path`.
+##
+## ## Parámetros
+## - `path`: destination file; it is created when missing.
+## - `lines`: the lines to append. The list is borrowed, not consumed.
+##
+## ## Retorno
+## `true` on success, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.append_lines with "notes.txt", ["c"]
+## ```
 weave append_lines with path as string, lines as list of string into bool:
     var out as string is ""
     var i as int is 0
@@ -269,27 +827,416 @@ weave append_lines with path as string, lines as list of string into bool:
         set i is i + 1
     return calling append_file with path, ("{out}\n")
 
+# ----------------------------------------------------------------------------
+# Result Variants of the Line and Directory Helpers
+# ----------------------------------------------------------------------------
+
+## Reads file and splits text on newline, reporting the failure cause.
+##
+## ## Parámetros
+## - `path`: the file to read. It is borrowed, not consumed.
+##
+## ## Retorno
+## `ok` with the owned `list of string`, or `err` with the `IoError` cause.
+##
+## ## Efectos
+## Returns `err(IoError.IsADirectory)` for a directory and
+## `err(IoError.Unknown)` for any other read failure.
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of list of string to archivum.IoError is calling archivum.read_lines_result with "notes.txt"
+## ```
+weave read_lines_result with path as string into result of list of string to IoError:
+    if calling is_dir with path:
+        return calling err_of with IoError.IsADirectory
+    var line_list as maybe list of string is calling read_lines with path
+    if line_list.is_present:
+        return calling ok_of with (line_list or else list of string)
+    return calling err_of with IoError.Unknown
+
+## Writes `lines` joined by "\n" with a trailing "\n", reporting the failure cause.
+##
+## ## Parámetros
+## - `path`: destination file. It is borrowed, not consumed.
+## - `lines`: the lines to store. The list is borrowed, not consumed.
+##
+## ## Retorno
+## `ok(0)` on success, or `err` with the `IoError` cause.
+##
+## ## Efectos
+## Inherits the cause reported by `write_file_result`
+## (`err(IoError.IsADirectory)` for a directory, `err(IoError.Unknown)`
+## otherwise).
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of int to archivum.IoError is calling archivum.write_lines_result with "notes.txt", ["a"]
+## ```
+weave write_lines_result with path as string, lines as list of string into result of int to IoError:
+    var out as string is ""
+    var i as int is 0
+    while i < lines.len:
+        if i > 0:
+            set out is "{out}\n"
+        set out is "{out}{(lines at i)}"
+        set i is i + 1
+    return calling write_file_result with path, ("{out}\n")
+
+## Appends `lines` joined by "\n" with a trailing "\n", reporting the failure cause.
+##
+## ## Parámetros
+## - `path`: destination file. It is borrowed, not consumed.
+## - `lines`: the lines to append. The list is borrowed, not consumed.
+##
+## ## Retorno
+## `ok(0)` on success, or `err` with the `IoError` cause.
+##
+## ## Efectos
+## Returns `err(IoError.IsADirectory)` when `path` is a directory and
+## `err(IoError.Unknown)` for any other append failure.
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of int to archivum.IoError is calling archivum.append_lines_result with "notes.txt", ["b"]
+## ```
+weave append_lines_result with path as string, lines as list of string into result of int to IoError:
+    if calling is_dir with path:
+        return calling err_of with IoError.IsADirectory
+    var out as string is ""
+    var i as int is 0
+    while i < lines.len:
+        if i > 0:
+            set out is "{out}\n"
+        set out is "{out}{(lines at i)}"
+        set i is i + 1
+    var appended as bool is calling append_file with path, ("{out}\n")
+    if appended:
+        return calling ok_of with 0
+    return calling err_of with IoError.Unknown
+
+## Lists the direct entry names inside `path`, reporting the failure cause.
+##
+## ## Parámetros
+## - `path`: the directory to list. It is borrowed, not consumed.
+##
+## ## Retorno
+## `ok` with the owned `list of string` of bare entry names, or `err` with the
+## `IoError` cause.
+##
+## ## Efectos
+## Returns `err(IoError.NotFound)` when `path` does not exist and
+## `err(IoError.NotAFile)` when it exists but is not a directory.
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of list of string to archivum.IoError is calling archivum.read_dir_result with "/tmp"
+## ```
+weave read_dir_result with path as string into result of list of string to IoError:
+    if not (calling is_dir with path):
+        return calling err_of with (calling _missing_dir_error with path)
+    var entries as maybe list of string is calling read_dir with path
+    if entries.is_present:
+        return calling ok_of with (entries or else list of string)
+    return calling err_of with IoError.Unknown
+
+## Creates the directory at `path`, reporting the failure cause.
+##
+## ## Parámetros
+## - `path`: the directory to create. It is borrowed, not consumed.
+## - `parents`: when `true`, missing ancestors are created as well (default
+##   `false`).
+##
+## ## Retorno
+## `ok(true)` when the directory exists after the call, or `err` with the
+## `IoError` cause.
+##
+## ## Efectos
+## Returns `err(IoError.IsADirectory)` when a regular file already occupies
+## `path` and `err(IoError.Unknown)` for any other failure.
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of bool to archivum.IoError is calling archivum.create_dir_result with "/tmp/a", true
+## ```
+weave create_dir_result with path as string, parents as bool is false into result of bool to IoError:
+    if calling is_file with path:
+        return calling err_of with IoError.IsADirectory
+    var made as bool is calling create_dir with path, parents
+    if made:
+        return calling ok_of with true
+    return calling err_of with IoError.Unknown
+
+## Removes the directory at `path`, reporting the failure cause.
+##
+## ## Parámetros
+## - `path`: the directory to remove. It is borrowed, not consumed.
+## - `recursive`: when `true`, the contents are removed as well (default
+##   `false`).
+##
+## ## Retorno
+## `ok(true)` on success, or `err` with the `IoError` cause.
+##
+## ## Efectos
+## Returns `err(IoError.NotFound)` when `path` does not exist,
+## `err(IoError.NotAFile)` when it exists but is not a directory and
+## `err(IoError.Unknown)` for any other failure (for example a non-empty
+## directory with `recursive` false).
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of bool to archivum.IoError is calling archivum.remove_dir_result with "/tmp/a", true
+## ```
+weave remove_dir_result with path as string, recursive as bool is false into result of bool to IoError:
+    if not calling exists with path:
+        return calling err_of with IoError.NotFound
+    if not (calling is_dir with path):
+        return calling err_of with IoError.NotAFile
+    var removed as bool is calling remove_dir with path, recursive
+    if removed:
+        return calling ok_of with true
+    return calling err_of with IoError.Unknown
+
+## Copies file `src` to `dst`, reporting the failure cause.
+##
+## ## Parámetros
+## - `src`: the source file. It is borrowed, not consumed.
+## - `dst`: the destination file. It is borrowed, not consumed.
+## - `overwrite`: when `false`, an existing `dst` makes the copy fail (default
+##   `false`).
+##
+## ## Retorno
+## `ok(true)` on success, or `err` with the `IoError` cause.
+##
+## ## Efectos
+## Returns `err(IoError.NotFound)` when `src` does not exist,
+## `err(IoError.IsADirectory)` when `src` is a directory and
+## `err(IoError.Unknown)` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of bool to archivum.IoError is calling archivum.copy_file_result with "a.txt", "b.txt"
+## ```
+weave copy_file_result with src as string, dst as string, overwrite as bool is false into result of bool to IoError:
+    if not calling exists with src:
+        return calling err_of with IoError.NotFound
+    if calling is_dir with src:
+        return calling err_of with IoError.IsADirectory
+    var copied as bool is calling copy_file with src, dst, overwrite
+    if copied:
+        return calling ok_of with true
+    return calling err_of with IoError.Unknown
+
+## Recursively copies a directory tree from `src` to `dst`, reporting the failure
+## cause.
+##
+## ## Parámetros
+## - `src`: the source directory. It is borrowed, not consumed.
+## - `dst`: the destination directory. It is borrowed, not consumed.
+##
+## ## Retorno
+## `ok(true)` on success, or `err` with the `IoError` cause.
+##
+## ## Efectos
+## Returns `err(IoError.NotFound)` when `src` does not exist,
+## `err(IoError.IsADirectory)` when `src` exists but is a regular file and
+## `err(IoError.Unknown)` otherwise. The copy is non-transactional, exactly like
+## `copy_tree`.
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of bool to archivum.IoError is calling archivum.copy_tree_result with "src_dir", "dst_dir"
+## ```
+weave copy_tree_result with src as string, dst as string into result of bool to IoError:
+    if not calling exists with src:
+        return calling err_of with IoError.NotFound
+    if calling is_file with src:
+        return calling err_of with IoError.IsADirectory
+    var copied as bool is calling copy_tree with src, dst
+    if copied:
+        return calling ok_of with true
+    return calling err_of with IoError.Unknown
+
+## Updates the modification time of `path` to now, reporting the failure cause.
+##
+## ## Parámetros
+## - `path`: the entry to touch. It is borrowed, not consumed.
+##
+## ## Retorno
+## `ok(true)` on success, or `err` with the `IoError` cause.
+##
+## ## Efectos
+## Returns `err(IoError.IsADirectory)` when `path` is a directory and
+## `err(IoError.Unknown)` for any other failure.
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of bool to archivum.IoError is calling archivum.touch_result with "notes.txt"
+## ```
+weave touch_result with path as string into result of bool to IoError:
+    if calling is_dir with path:
+        return calling err_of with IoError.IsADirectory
+    var touched as bool is calling touch with path
+    if touched:
+        return calling ok_of with true
+    return calling err_of with IoError.Unknown
+
+## Creates symbolic link `link` pointing at `target`, reporting the failure cause.
+##
+## ## Parámetros
+## - `target`: the link target. It is borrowed, not consumed and need not exist.
+## - `link`: the link path to create. It is borrowed, not consumed.
+##
+## ## Retorno
+## `ok(true)` on success, or `err` with the `IoError` cause.
+##
+## ## Efectos
+## Returns `err(IoError.Unknown)` when the runtime cannot create the link (for
+## example an existing `link`).
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of bool to archivum.IoError is calling archivum.symlink_result with "a.txt", "latest"
+## ```
+weave symlink_result with target as string, link as string into result of bool to IoError:
+    var linked as bool is calling symlink with target, link
+    if linked:
+        return calling ok_of with true
+    return calling err_of with IoError.Unknown
+
+## Reads metadata of entry `path`, reporting the failure cause.
+##
+## ## Parámetros
+## - `path`: the entry to stat. It is borrowed, not consumed.
+##
+## ## Retorno
+## `ok` with the owned map (same keys as `metadata`), or `err` with the
+## `IoError` cause. The map and its strings are owned by the caller.
+##
+## ## Efectos
+## Returns `err(IoError.NotFound)` when `path` does not exist and
+## `err(IoError.Unknown)` for any other `stat` failure.
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of map of string to string to archivum.IoError is calling archivum.metadata_result with "notes.txt"
+## ```
+weave metadata_result with path as string into result of map of string to string to IoError:
+    if not calling exists with path:
+        return calling err_of with IoError.NotFound
+    var md as maybe map of string to string is calling metadata with path
+    if md.is_present:
+        return calling ok_of with (md or else map of string to string)
+    return calling err_of with IoError.Unknown
+
+# ----------------------------------------------------------------------------
+# Search Helpers
+# ----------------------------------------------------------------------------
+
 ## Globs `pattern` starting from the working directory.
+##
+## Paths are collected from the working directory downwards and reported as
+## `./<relative path>`, so an absolute `pattern` (one starting with `/`) never
+## matches.
+##
+## ## Parámetros
+## - `pattern`: the pattern to match. `*` or `**` alone matches every entry,
+##   `*.ext` matches by extension, and any other text matches as a substring of
+##   the `./<relative path>` or exactly the entry name. `?` is **not** a
+##   wildcard.
+##
+## ## Retorno
+## A new owned `list of string` of matching paths, empty when nothing matches.
+## Release the list and its elements with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let found as list of string is calling archivum.glob with "*.txt"
+## ```
 weave glob with pattern as string into list of string:
     return calling pengu_c_archivum_glob with pattern
 
 ## Walks `root` depth-first and returns an owned nested list.
+##
+## ## Parámetros
+## - `root`: the directory to walk. It is borrowed, not consumed.
+##
+## ## Retorno
+## A new owned `list of list of string`; each inner list starts with the
+## directory it describes followed by that directory's direct entry names (no
+## paths, only basenames). The first inner list describes `root`, and each
+## subdirectory then contributes its own inner list in depth-first order, so
+## `walk` is not a level-by-level traversal. The outer list is empty when `root`
+## is not a directory. Release the nested buffers with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let levels as list of list of string is calling archivum.walk with "/tmp"
+## ```
 weave walk with root as string into list of list of string:
     return calling pengu_c_archivum_walk with root
 
 ## Updates modification time of `path` to now, creating an empty file when missing.
+##
+## ## Parámetros
+## - `path`: the entry to touch. It is borrowed, not consumed.
+##
+## ## Retorno
+## `true` when the timestamp was updated, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.touch with "notes.txt"
+## ```
 weave touch with path as string into bool:
     return calling pengu_c_archivum_touch with path
 
 ## Creates symbolic link `link` pointing at `target`.
+##
+## ## Parámetros
+## - `target`: the link target. It is borrowed and need not exist.
+## - `link`: the link path to create. It is borrowed.
+##
+## ## Retorno
+## `true` when the link was created, `false` otherwise (for example an existing
+## `link`).
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.symlink with "a.txt", "latest"
+## ```
 weave symlink with target as string, link as string into bool:
     return calling pengu_c_archivum_symlink with target, link
 
 ## Reads target of symbolic link at `path`.
+##
+## ## Parámetros
+## - `path`: the symlink to read. It is borrowed, not consumed.
+##
+## ## Retorno
+## `some` with the owned link target (relative targets stay relative), or
+## `maybe none` when `path` is not a symlink.
+##
+## ## Ejemplo
+## ```pengu
+## let target as maybe string is calling archivum.read_symlink with "latest"
+## ```
 weave read_symlink with path as string into maybe string:
     return calling pengu_c_archivum_read_symlink with path
 
 ## Resolves `path` to a canonical absolute path.
+##
+## ## Parámetros
+## - `path`: the path to resolve. It is borrowed, not consumed.
+##
+## ## Retorno
+## `some` with the owned absolute path (symlinks and "." / ".." resolved), or
+## `maybe none` when the entry does not exist.
+##
+## ## Ejemplo
+## ```pengu
+## let abs_path as maybe string is calling archivum.realpath with "notes.txt"
+## ```
 weave realpath with path as string into maybe string:
     return calling pengu_c_archivum_realpath with path
 
@@ -297,17 +1244,64 @@ weave realpath with path as string into maybe string:
 # Extended Size, Time & Permission Helpers
 # ----------------------------------------------------------------------------
 
-## Returns the size of file `path` in bytes, or none if file does not exist.
-weave file_size with path as string into maybe int:
+# Returns the `int` stored under `key` in metadata `md`, or `maybe none`.
+weave _metadata_int with path as string, key as string into maybe int:
     var m as maybe map of string to string is calling metadata with path
     if m.is_present:
         var md as map of string to string is m.value
-        if calling md.contains with "size":
-            var val_str as string is calling md.get with "size"
+        if calling md.contains with key:
+            var val_str as string is calling md.get with key
             return calling spark.parse_int with val_str
     return maybe none
 
+# True when `path` is a regular file whose mode has any bit of `mask` set.
+weave _has_mode_bit with path as string, mask as int into bool:
+    if not (calling exists with path):
+        return false
+    if not (calling is_file with path):
+        return false
+    let perm_mode as maybe int is calling permissions with path
+    if perm_mode.is_present:
+        return (perm_mode.value & mask) != 0
+    return false
+
+# IoError for a path that should be a directory but is missing or not one.
+weave _missing_dir_error with path as string into IoError:
+    if not calling exists with path:
+        return IoError.NotFound
+    return IoError.NotAFile
+
+## Returns the size of file `path` in bytes, or none if file does not exist.
+##
+## ## Parámetros
+## - `path`: the file to measure. It is borrowed, not consumed.
+##
+## ## Retorno
+## `some` with the size from the "size" metadata key, or `maybe none` when the
+## entry does not exist or the key is not a parseable integer.
+##
+## ## Ejemplo
+## ```pengu
+## let bytes as maybe int is calling archivum.file_size with "notes.txt"
+## ```
+weave file_size with path as string into maybe int:
+    return calling _metadata_int with path, "size"
+
 ## Returns the total size in bytes of files in directory `path`.
+##
+## ## Parámetros
+## - `path`: the directory to measure. It is borrowed, not consumed.
+## - `recursive`: when `true`, subdirectories are summed too (default `false`).
+##
+## ## Retorno
+## `some` with the summed byte size of the regular files, or `maybe none` when
+## `path` is not a directory. Empty files contribute 0; unreadable entries are
+## skipped.
+##
+## ## Ejemplo
+## ```pengu
+## let total as maybe int is calling archivum.dir_size with "/tmp/a", true
+## ```
 weave dir_size with path as string, recursive as bool is false into maybe int:
     if not (calling is_dir with path):
         return maybe none
@@ -337,52 +1331,91 @@ weave dir_size with path as string, recursive as bool is false into maybe int:
     return maybe none
 
 ## Returns the last modification time of `path` as a Unix timestamp float.
+##
+## ## Parámetros
+## - `path`: the entry to inspect. It is borrowed, not consumed.
+##
+## ## Retorno
+## `some` with the "modified" epoch seconds converted to `float`, or
+## `maybe none` when unavailable.
+##
+## ## Ejemplo
+## ```pengu
+## let t as maybe float is calling archivum.modified_time with "notes.txt"
+## ```
 weave modified_time with path as string into maybe float:
-    var m as maybe map of string to string is calling metadata with path
-    if m.is_present:
-        var md as map of string to string is m.value
-        if calling md.contains with "modified":
-            var val_str as string is calling md.get with "modified"
-            var i_val as maybe int is calling spark.parse_int with val_str
-            if i_val.is_present:
-                return some ((i_val.value) to float)
+    var i_val as maybe int is calling _metadata_int with path, "modified"
+    if i_val.is_present:
+        return some ((i_val.value) to float)
     return maybe none
 
 ## Returns the creation time of `path` as a Unix timestamp float.
+##
+## ## Parámetros
+## - `path`: the entry to inspect. It is borrowed, not consumed.
+##
+## ## Retorno
+## `some` with the "created" epoch seconds converted to `float`, or
+## `maybe none` when unavailable (some file systems do not record it).
+##
+## ## Ejemplo
+## ```pengu
+## let t as maybe float is calling archivum.created_time with "notes.txt"
+## ```
 weave created_time with path as string into maybe float:
-    var m as maybe map of string to string is calling metadata with path
-    if m.is_present:
-        var md as map of string to string is m.value
-        if calling md.contains with "created":
-            var val_str as string is calling md.get with "created"
-            var i_val as maybe int is calling spark.parse_int with val_str
-            if i_val.is_present:
-                return some ((i_val.value) to float)
+    var i_val as maybe int is calling _metadata_int with path, "created"
+    if i_val.is_present:
+        return some ((i_val.value) to float)
     return maybe none
 
 ## Returns the last access time of `path` as a Unix timestamp float.
+##
+## ## Parámetros
+## - `path`: the entry to inspect. It is borrowed, not consumed.
+##
+## ## Retorno
+## `some` with the "accessed" epoch seconds converted to `float`, or
+## `maybe none` when unavailable.
+##
+## ## Ejemplo
+## ```pengu
+## let t as maybe float is calling archivum.accessed_time with "notes.txt"
+## ```
 weave accessed_time with path as string into maybe float:
-    var m as maybe map of string to string is calling metadata with path
-    if m.is_present:
-        var md as map of string to string is m.value
-        if calling md.contains with "accessed":
-            var val_str as string is calling md.get with "accessed"
-            var i_val as maybe int is calling spark.parse_int with val_str
-            if i_val.is_present:
-                return some ((i_val.value) to float)
+    var i_val as maybe int is calling _metadata_int with path, "accessed"
+    if i_val.is_present:
+        return some ((i_val.value) to float)
     return maybe none
 
 ## Returns the file mode/permissions of `path` as an octal integer mode.
+##
+## ## Parámetros
+## - `path`: the entry to inspect. It is borrowed, not consumed.
+##
+## ## Retorno
+## `some` with the decimal value of the POSIX mode bits (`st_mode & 0777`, so
+## 0644 is reported as 420), or `maybe none` when unavailable.
+##
+## ## Ejemplo
+## ```pengu
+## let mode as maybe int is calling archivum.permissions with "notes.txt"
+## ```
 weave permissions with path as string into maybe int:
-    var m as maybe map of string to string is calling metadata with path
-    if m.is_present:
-        var md as map of string to string is m.value
-        if calling md.contains with "permissions":
-            var val_str as string is calling md.get with "permissions"
-            return calling spark.parse_int with val_str
-    return maybe none
+    return calling _metadata_int with path, "permissions"
 
 ## True when `path` exists, is a regular file, and has a size of 0 bytes.
+##
+## ## Parámetros
+## - `path`: the entry to probe. It is borrowed, not consumed.
+##
+## ## Retorno
+## `true` only for an existing regular file of size 0; `false` for a directory,
+## a missing path or a non-empty file.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.is_empty_file with "empty.txt"     # true
+## ```
 weave is_empty_file with path as string into bool:
     if not (calling is_file with path):
         return false
@@ -392,6 +1425,18 @@ weave is_empty_file with path as string into bool:
     return false
 
 ## True when `path` is an existing directory containing zero entries.
+##
+## ## Parámetros
+## - `path`: the directory to probe. It is borrowed, not consumed.
+##
+## ## Retorno
+## `true` only for an existing directory with no entries; `false` for a file, a
+## missing path or a directory with at least one entry.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.is_empty_dir with "/tmp/a"     # true
+## ```
 weave is_empty_dir with path as string into bool:
     if not (calling is_dir with path):
         return false
@@ -401,12 +1446,24 @@ weave is_empty_dir with path as string into bool:
         return l.len == 0
     return false
 
-
 # ----------------------------------------------------------------------------
 # Search & Find Helpers
 # ----------------------------------------------------------------------------
 
 ## Returns list of all regular files in directory `root`.
+##
+## ## Parámetros
+## - `root`: the directory to search. It is borrowed, not consumed.
+## - `recursive`: when `true`, subdirectories are searched too (default `true`).
+##
+## ## Retorno
+## A new owned `list of string` of file paths; empty when `root` is not a
+## directory. Release the list and its elements with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let files as list of string is calling archivum.find_files with "/tmp/a", true
+## ```
 weave find_files with root as string, recursive as bool is true into list of string:
     if recursive:
         return calling list_files_recursive with root
@@ -423,6 +1480,19 @@ weave find_files with root as string, recursive as bool is true into list of str
     return out
 
 ## Returns list of all subdirectories in directory `root`.
+##
+## ## Parámetros
+## - `root`: the directory to search. It is borrowed, not consumed.
+## - `recursive`: when `true`, subdirectories of subdirectories are included
+##   (default `true`). `root` itself is never included.
+##
+## ## Retorno
+## A new owned `list of string` of directory paths; empty when there is none.
+##
+## ## Ejemplo
+## ```pengu
+## let dirs as list of string is calling archivum.find_dirs with "/tmp/a", true
+## ```
 weave find_dirs with root as string, recursive as bool is true into list of string:
     var out as list of string is list of string
     var stack as list of string is list of string
@@ -444,6 +1514,20 @@ weave find_dirs with root as string, recursive as bool is true into list of stri
     return out
 
 ## Finds files under `root` whose basename exactly matches `target_name`.
+##
+## ## Parámetros
+## - `root`: the directory to search. It is borrowed, not consumed.
+## - `target_name`: the exact basename to match (case-sensitive).
+## - `recursive`: when `true`, subdirectories are searched too (default `true`).
+##
+## ## Retorno
+## A new owned `list of string` of matching file paths; empty when nothing
+## matches. Release the list and its elements with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let hits as list of string is calling archivum.find_by_name with "/tmp/a", "notes.txt"
+## ```
 weave find_by_name with root as string, target_name as string, recursive as bool is true into list of string:
     var files as list of string is calling find_files with root, recursive
     var out as list of string is list of string
@@ -456,6 +1540,21 @@ weave find_by_name with root as string, target_name as string, recursive as bool
     return out
 
 ## Finds files under `root` whose extension matches `extension` (e.g. ".log" or "log").
+##
+## ## Parámetros
+## - `root`: the directory to search. It is borrowed, not consumed.
+## - `extension`: the extension to match, with or without the leading dot
+##   (case-sensitive).
+## - `recursive`: when `true`, subdirectories are searched too (default `true`).
+##
+## ## Retorno
+## A new owned `list of string` of matching file paths; empty when nothing
+## matches. Release the list and its elements with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let logs as list of string is calling archivum.find_by_ext with "/tmp/a", ".log"
+## ```
 weave find_by_ext with root as string, extension as string, recursive as bool is true into list of string:
     var ext_target as string is extension
     if ext_target length > 0:
@@ -476,6 +1575,15 @@ weave find_by_ext with root as string, extension as string, recursive as bool is
 # ----------------------------------------------------------------------------
 
 ## Returns the system temporary directory path as a string.
+##
+## ## Retorno
+## An owned `string` with the directory path: `$TEMP`/`$TMP` (or "C:\\Temp") on
+## Windows, `$TMPDIR` (or "/tmp") elsewhere. The directory is not created here.
+##
+## ## Ejemplo
+## ```pengu
+## let tmp as string is calling archivum.temp_dir
+## ```
 weave temp_dir into string:
     when os == "windows":
         var t1 as maybe string is calling rites.getenv with "TEMP"
@@ -492,6 +1600,22 @@ weave temp_dir into string:
         return "/tmp"
 
 ## Generates a unique temporary file path within the system temporary directory.
+##
+## ## Parámetros
+## - `prefix`: the filename prefix (default `"pengu"`).
+##
+## ## Retorno
+## An owned `string` with the path of a not-yet-existing file. The file is *not*
+## created; the caller decides what to write.
+##
+## ## Efectos
+## The candidate name embeds the process id and a counter; after 10000 occupied
+## candidates it falls back to `"{temp_dir}/{prefix}.tmp"` without checking.
+##
+## ## Ejemplo
+## ```pengu
+## let tmp_path as string is calling archivum.temp_file with "notes"
+## ```
 weave temp_file with prefix as string is "pengu" into string:
     var tdir as string is calling temp_dir
     var pid as int is calling rites.getpid
@@ -517,14 +1641,30 @@ rune FsCopyTask:
     d as string
 
 ## Recursively copies a directory tree from `src` to `dst`. Returns true on success.
-## Note: This operation is non-transactional; any partially created files or subdirectories
-## remain on disk if a subsequent step encounters an error.
+##
+## ## Parámetros
+## - `src`: the source directory. It is borrowed, not consumed.
+## - `dst`: the destination directory; it is created when missing.
+##
+## ## Retorno
+## `true` when every entry was copied, `false` as soon as one step fails. An
+## existing `dst` is merged into, and existing files are overwritten.
+##
+## ## Efectos
+## Note: This operation is non-transactional; any partially created files or
+## subdirectories remain on disk if a subsequent step encounters an error.
+## Symlinks and special files are skipped.
+##
+## ## Ejemplo
+## ```pengu
+## calling archivum.copy_tree with "src_dir", "dst_dir"
+## ```
 weave copy_tree with src as string, dst as string into bool:
     var src_is_dir as bool is calling is_dir with src
-    if src_is_dir == false:
+    if not src_is_dir:
         return false
     var made_root as bool is calling create_dir with dst, true
-    if made_root == false:
+    if not made_root:
         return false
     var stack as list of FsCopyTask is list of FsCopyTask
     var seed as FsCopyTask is with s is src, d is dst
@@ -542,22 +1682,35 @@ weave copy_tree with src as string, dst as string into bool:
                 var dp as string is "{last_task.d}/{name}"
                 if calling is_dir with sp:
                     var made_sub as bool is calling create_dir with dp, true
-                    if made_sub == false:
+                    if not made_sub:
                         return false
                     var task as FsCopyTask is with s is sp, d is dp
                     calling stack.push with task
                 else:
                     if calling is_file with sp:
                         var content as maybe string is calling read_file with sp
-                        if content.is_present == false:
+                        if not content.is_present:
                             return false
                         var wrote as bool is calling write_file with dp, content.value
-                        if wrote == false:
+                        if not wrote:
                             return false
                 set i is i + 1
     return true
 
 ## Recursively lists every file below root.
+##
+## ## Parámetros
+## - `root`: the directory to scan. It is borrowed, not consumed.
+##
+## ## Retorno
+## A new owned `list of string` with every regular file below `root` (in
+## depth-first order, unlike `walk`); empty when there is none. Release the list
+## and its elements with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let files as list of string is calling archivum.list_files_recursive with "/tmp/a"
+## ```
 weave list_files_recursive with root as string into list of string:
     var out as list of string is list of string
     var dirs as list of string is list of string
@@ -579,3 +1732,654 @@ weave list_files_recursive with root as string into list of string:
                         calling out.push with p
                 set i is i + 1
     return out
+
+# ----------------------------------------------------------------------------
+# Path Methods (external enchanting)
+# ----------------------------------------------------------------------------
+# Filesystem methods for `compass.Path`, the owned path rune of `std.compass`.
+# They delegate to the module functions above through `self->raw`; `std/compass.pengu`
+# is not modified.
+
+enchanting compass.Path:
+    ## Reads the whole file at this path as UTF-8 text.
+    ##
+    ## ## Retorno
+    ## `some` with the owned file text, or `maybe none` on failure.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## let text as maybe string is calling p.read_text
+    ## ```
+    weave read_text into maybe string:
+        return calling read_file with self->raw
+
+    ## Writes `content` to this path, creating or truncating the file.
+    ##
+    ## ## Parámetros
+    ## - `content`: the exact text to store. It is borrowed.
+    ##
+    ## ## Retorno
+    ## `true` on success, `false` otherwise.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.write_text with "hello"
+    ## ```
+    weave write_text with content as string into bool:
+        return calling write_file with self->raw, content
+
+    ## Reads this file and splits it on "\n" into lines.
+    ##
+    ## ## Retorno
+    ## `some` with the owned `list of string`, or `maybe none` on failure.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## let lines as maybe list of string is calling p.read_lines
+    ## ```
+    weave read_lines into maybe list of string:
+        return calling read_lines with self->raw
+
+    ## Appends `content` to this file, creating it when missing.
+    ##
+    ## ## Parámetros
+    ## - `content`: the exact text to append. It is borrowed.
+    ##
+    ## ## Retorno
+    ## `true` on success, `false` otherwise.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.append_text with "more\n"
+    ## ```
+    weave append_text with content as string into bool:
+        return calling append_file with self->raw, content
+
+    ## Deletes the file, empty directory or symlink at this path.
+    ##
+    ## ## Retorno
+    ## `true` on success, `false` otherwise. Use `rmdir` for a directory.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.delete
+    ## ```
+    weave delete into bool:
+        return calling delete_file with self->raw
+
+    ## Creates this directory.
+    ##
+    ## ## Parámetros
+    ## - `parents`: when `true`, missing ancestors are created too (default
+    ##   `false`).
+    ##
+    ## ## Retorno
+    ## `true` when the directory exists after the call, `false` otherwise.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.mkdir with true
+    ## ```
+    weave mkdir with parents as bool is false into bool:
+        return calling create_dir with self->raw, parents
+
+    ## Removes this directory.
+    ##
+    ## ## Parámetros
+    ## - `recursive`: when `true`, the contents are removed too (default `false`).
+    ##
+    ## ## Retorno
+    ## `true` on success, `false` otherwise.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.rmdir with true
+    ## ```
+    weave rmdir with recursive as bool is false into bool:
+        return calling remove_dir with self->raw, recursive
+
+    ## Lists this directory's direct entries joined with the directory.
+    ##
+    ## ## Retorno
+    ## A new owned `list of string`; empty when the directory cannot be read.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## let entries as list of string is calling p.iter_dir
+    ## ```
+    weave iter_dir into list of string:
+        return calling read_dir_full with self->raw
+
+    ## Reads the metadata map of this path.
+    ##
+    ## ## Retorno
+    ## `some` with the owned map (same keys as `archivum.metadata`), or
+    ## `maybe none` when `stat` fails.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## let md as maybe map of string to string is calling p.stat
+    ## ```
+    weave stat into maybe map of string to string:
+        return calling metadata with self->raw
+
+# --- Tests ---
+# The harness is private and panics through `std.spark`; `std.ward` cannot be
+# imported from a standard-library module without creating an import cycle.
+# Every test builds a directory unique to its name under the system temporary
+# directory and removes it again at the end of the block.
+
+## Aborts the current test with `label` when `got != want`.
+weave _arch_expect_int with got as int, want as int, label as string into void:
+    if got != want:
+        calling spark.println with "FAIL {label}: got {got}, want {want}"
+        calling spark.panic with "archivum: test failed"
+
+## Aborts the current test with `label` when `got != want`.
+weave _arch_expect_str with got as string, want as string, label as string into void:
+    if got != want:
+        calling spark.println with "FAIL {label}: got [{got}], want [{want}]"
+        calling spark.panic with "archivum: test failed"
+
+## Aborts the current test with `label` when `cond` is false.
+weave _arch_expect_true with cond as bool, label as string into void:
+    if not cond:
+        calling spark.println with "FAIL {label}"
+        calling spark.panic with "archivum: test failed"
+
+## Joins `base` and `name` into a test path with the module separator.
+weave _arch_path with base as string, name as string into string:
+    let parts as list of string is [base, name]
+    return calling compass.join with parts
+
+## Removes any leftover `base` and recreates it empty; returns `base`.
+weave _arch_fresh_dir with base as string into string:
+    if calling exists with base:
+        calling remove_dir with base, true
+    calling create_dir with base, true
+    return base
+
+## Removes the test directory `base` and everything below it.
+weave _arch_cleanup with base as string into void:
+    if calling exists with base:
+        calling remove_dir with base, true
+
+## Builds the unique test directory `/tmp/pengu_arch_test_<pid>_<name>`.
+weave _arch_base with name as string into string:
+    let pid as int is calling rites.getpid
+    return "/tmp/pengu_arch_test_{(pid to string)}_{name}"
+
+test "ARCHIVUM_VERSION is 2.1.0":
+    calling _arch_expect_str with ARCHIVUM_VERSION, "2.1.0", "version"
+
+test "write_file then read_file round-trips the content":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "roundtrip")
+    let path as string is calling _arch_path with base, "a.txt"
+    calling _arch_expect_true with (calling write_file with path, "hello world"), "write_file"
+    let got as maybe string is calling read_file with path
+    calling _arch_expect_true with (got.is_present), "read_file present"
+    if got.is_present:
+        calling _arch_expect_str with (got.value), "hello world", "round-trip text"
+    calling _arch_cleanup with base
+
+test "read_text and write_text alias read_file and write_file":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "aliases")
+    let path as string is calling _arch_path with base, "alias.txt"
+    calling _arch_expect_true with (calling write_text with path, "alias"), "write_text"
+    let got as maybe string is calling read_text with path
+    calling _arch_expect_true with (got.is_present), "read_text present"
+    if got.is_present:
+        calling _arch_expect_str with (got.value), "alias", "alias text"
+    calling _arch_cleanup with base
+
+test "append_file adds to the existing content":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "append")
+    let path as string is calling _arch_path with base, "a.txt"
+    calling write_file with path, "one"
+    calling _arch_expect_true with (calling append_file with path, "two"), "append_file"
+    let got as maybe string is calling read_file with path
+    if got.is_present:
+        calling _arch_expect_str with (got.value), "onetwo", "appended text"
+    calling _arch_cleanup with base
+
+test "read_lines splits the file on newline":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "readlines")
+    let path as string is calling _arch_path with base, "a.txt"
+    calling write_file with path, "a\nb\nc"
+    let got as maybe list of string is calling read_lines with path
+    calling _arch_expect_true with (got.is_present), "read_lines present"
+    if got.is_present:
+        let lines as list of string is got.value
+        calling _arch_expect_int with (lines.len), 3, "read_lines len"
+        if lines.len == 3:
+            calling _arch_expect_str with (lines at 0), "a", "line 0"
+            calling _arch_expect_str with (lines at 2), "c", "line 2"
+    calling _arch_cleanup with base
+
+test "read_first_n_lines takes the head":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "head")
+    let path as string is calling _arch_path with base, "a.txt"
+    calling write_file with path, "a\nb\nc\nd"
+    let got as maybe list of string is calling read_first_n_lines with path, 2
+    calling _arch_expect_true with (got.is_present), "head present"
+    if got.is_present:
+        let head as list of string is got.value
+        calling _arch_expect_int with (head.len), 2, "head len"
+        if head.len == 2:
+            calling _arch_expect_str with (head at 0), "a", "head 0"
+            calling _arch_expect_str with (head at 1), "b", "head 1"
+    calling _arch_cleanup with base
+
+test "read_last_n_lines takes the tail":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "tail")
+    let path as string is calling _arch_path with base, "a.txt"
+    calling write_file with path, "a\nb\nc\nd"
+    let got as maybe list of string is calling read_last_n_lines with path, 2
+    calling _arch_expect_true with (got.is_present), "tail present"
+    if got.is_present:
+        let tail as list of string is got.value
+        calling _arch_expect_int with (tail.len), 2, "tail len"
+        if tail.len == 2:
+            calling _arch_expect_str with (tail at 0), "c", "tail 0"
+            calling _arch_expect_str with (tail at 1), "d", "tail 1"
+    let all_opt as maybe list of string is calling read_last_n_lines with path, 9
+    if all_opt.is_present:
+        calling _arch_expect_int with (all_opt.value.len), 4, "tail overflow"
+    calling _arch_cleanup with base
+
+test "count_lines counts the split elements":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "count")
+    let path as string is calling _arch_path with base, "a.txt"
+    calling write_file with path, "a\nb\nc\n"
+    let got as maybe int is calling count_lines with path
+    calling _arch_expect_true with (got.is_present), "count present"
+    if got.is_present:
+        calling _arch_expect_int with (got.value), 4, "count value"
+    calling _arch_cleanup with base
+
+test "write_lines and append_lines add a trailing newline":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "writelines")
+    let path as string is calling _arch_path with base, "a.txt"
+    let first as list of string is ["one", "two"]
+    calling _arch_expect_true with (calling write_lines with path, first), "write_lines"
+    let got as maybe string is calling read_file with path
+    if got.is_present:
+        calling _arch_expect_str with (got.value), "one\ntwo\n", "write_lines text"
+    let more as list of string is ["three"]
+    calling _arch_expect_true with (calling append_lines with path, more), "append_lines"
+    let got2 as maybe string is calling read_file with path
+    if got2.is_present:
+        calling _arch_expect_str with (got2.value), "one\ntwo\nthree\n", "append_lines text"
+    calling _arch_cleanup with base
+
+test "exists and is_file and is_dir classify the entries":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "classify")
+    let path as string is calling _arch_path with base, "a.txt"
+    calling write_file with path, "x"
+    calling _arch_expect_true with (calling exists with path), "exists file"
+    calling _arch_expect_true with (calling is_file with path), "is_file"
+    calling _arch_expect_true with (not (calling is_dir with path)), "file not dir"
+    calling _arch_expect_true with (calling is_dir with base), "is_dir base"
+    let empty as string is calling _arch_path with base, "empty"
+    calling _arch_expect_true with (calling create_dir with empty, false), "create_dir"
+    calling _arch_expect_true with (calling exists with empty), "created dir exists"
+    calling _arch_expect_true with (calling is_empty_dir with empty), "is_empty_dir"
+    let inside as string is calling _arch_path with empty, "f.txt"
+    calling write_file with inside, "x"
+    calling _arch_expect_true with (not (calling is_empty_dir with empty)), "non-empty dir"
+    calling _arch_cleanup with base
+
+test "create_dir with parents builds nested directories":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "mkdir")
+    let deep as string is calling _arch_path with base, "x"
+    let deep2 as string is calling _arch_path with deep, "y"
+    let deep3 as string is calling _arch_path with deep2, "z"
+    calling _arch_expect_true with (calling create_dir with deep3, false) == false, "no parents"
+    calling _arch_expect_true with (calling create_dir with deep3, true), "with parents"
+    calling _arch_expect_true with (calling is_dir with deep3), "deep is_dir"
+    calling _arch_cleanup with base
+
+test "remove_dir removes a tree recursively":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "rmdir")
+    let sub as string is calling _arch_path with base, "sub"
+    calling create_dir with sub, true
+    let path as string is calling _arch_path with sub, "a.txt"
+    calling write_file with path, "x"
+    calling _arch_expect_true with (calling remove_dir with base, true), "remove_dir"
+    calling _arch_expect_true with (not (calling exists with base)), "tree gone"
+
+test "copy_file duplicates a file and copy_tree duplicates a tree":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "copy")
+    let src as string is calling _arch_path with base, "a.txt"
+    let dst as string is calling _arch_path with base, "b.txt"
+    calling write_file with src, "payload"
+    calling _arch_expect_true with (calling copy_file with src, dst, false), "copy_file"
+    let got as maybe string is calling read_file with dst
+    if got.is_present:
+        calling _arch_expect_str with (got.value), "payload", "copied text"
+    let src_dir as string is calling _arch_path with base, "src_dir"
+    let dst_dir as string is calling _arch_path with base, "dst_dir"
+    calling create_dir with src_dir, true
+    let nested as string is calling _arch_path with src_dir, "n.txt"
+    calling write_file with nested, "nested"
+    calling _arch_expect_true with (calling copy_tree with src_dir, dst_dir), "copy_tree"
+    let copied as string is calling _arch_path with dst_dir, "n.txt"
+    let got2 as maybe string is calling read_file with copied
+    calling _arch_expect_true with (got2.is_present), "tree file copied"
+    calling _arch_cleanup with base
+
+test "move_file and rename relocate an entry":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "move")
+    let a as string is calling _arch_path with base, "a.txt"
+    let b as string is calling _arch_path with base, "b.txt"
+    let c as string is calling _arch_path with base, "c.txt"
+    calling write_file with a, "data"
+    calling _arch_expect_true with (calling move_file with a, b, false), "move_file"
+    calling _arch_expect_true with (not (calling exists with a)), "source gone"
+    calling _arch_expect_true with (calling exists with b), "dest there"
+    calling _arch_expect_true with (calling rename with b, c), "rename"
+    calling _arch_expect_true with (calling exists with c), "renamed there"
+    calling _arch_cleanup with base
+
+test "metadata reports the file size":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "meta")
+    let path as string is calling _arch_path with base, "a.txt"
+    calling write_file with path, "1234567890"
+    let byte_count as maybe int is calling file_size with path
+    calling _arch_expect_true with (byte_count.is_present), "size present"
+    if byte_count.is_present:
+        calling _arch_expect_int with (byte_count.value), 10, "file_size"
+    let md_opt as maybe map of string to string is calling metadata with path
+    calling _arch_expect_true with (md_opt.is_present), "metadata present"
+    if md_opt.is_present:
+        let md as map of string to string is md_opt.value
+        calling _arch_expect_true with (calling md.contains with "size"), "size key"
+        calling _arch_expect_str with (calling md.get with "size"), "10", "size value"
+    calling _arch_cleanup with base
+
+test "is_empty_file distinguishes empty from non-empty":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "emptyfile")
+    let empty as string is calling _arch_path with base, "empty.txt"
+    let full as string is calling _arch_path with base, "full.txt"
+    calling write_file with empty, ""
+    calling write_file with full, "x"
+    calling _arch_expect_true with (calling is_empty_file with empty), "empty is empty"
+    calling _arch_expect_true with (not (calling is_empty_file with full)), "full not empty"
+    calling _arch_cleanup with base
+
+test "permissions are readable and writable for a fresh file":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "perm")
+    let path as string is calling _arch_path with base, "a.txt"
+    calling write_file with path, "x"
+    let perm_mode as maybe int is calling permissions with path
+    calling _arch_expect_true with (perm_mode.is_present), "permissions present"
+    if perm_mode.is_present:
+        calling _arch_expect_true with ((perm_mode.value) & 256) != 0, "owner read bit"
+        calling _arch_expect_true with ((perm_mode.value) & 128) != 0, "owner write bit"
+    calling _arch_cleanup with base
+
+test "is_readable and is_writable answer for files and missing paths":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "rw")
+    let path as string is calling _arch_path with base, "a.txt"
+    let missing as string is calling _arch_path with base, "missing.txt"
+    calling write_file with path, "x"
+    calling _arch_expect_true with (calling is_readable with path), "is_readable"
+    calling _arch_expect_true with (calling is_writable with path), "is_writable"
+    calling _arch_expect_true with (not (calling is_readable with missing)), "missing not readable"
+    calling _arch_expect_true with (not (calling is_writable with missing)), "missing not writable"
+    calling _arch_expect_true with (not (calling is_readable with base)), "dir not readable"
+    calling _arch_cleanup with base
+
+test "read_bytes and write_bytes round-trip a byte buffer":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "bytes")
+    let path as string is calling _arch_path with base, "b.bin"
+    calling _arch_expect_true with (calling write_bytes with path, "abc\ndef"), "write_bytes"
+    let got as maybe string is calling read_bytes with path
+    calling _arch_expect_true with (got.is_present), "read_bytes present"
+    if got.is_present:
+        calling _arch_expect_str with (got.value), "abc\ndef", "bytes text"
+    calling _arch_expect_true with (calling append_bytes with path, "!"), "append_bytes"
+    let got2 as maybe string is calling read_bytes with path
+    if got2.is_present:
+        calling _arch_expect_str with (got2.value), "abc\ndef!", "appended bytes"
+    calling _arch_cleanup with base
+
+test "touch creates a file and delete_file removes it":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "touch")
+    let path as string is calling _arch_path with base, "new.txt"
+    calling _arch_expect_true with (calling touch with path), "touch"
+    calling _arch_expect_true with (calling exists with path), "touched exists"
+    calling _arch_expect_true with (calling delete_file with path), "delete_file"
+    calling _arch_expect_true with (not (calling exists with path)), "deleted gone"
+    calling _arch_cleanup with base
+
+test "read_file_result is err for a missing file and ok for a present one":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "rfr")
+    let path as string is calling _arch_path with base, "a.txt"
+    let missing as string is calling _arch_path with base, "missing.txt"
+    calling write_file with path, "content"
+    let bad as result of string to IoError is calling read_file_result with missing
+    calling _arch_expect_true with (not (bad.is_ok)), "missing is err"
+    let e as IoError is bad.error
+    calling _arch_expect_str with (calling describe_error with e), "no such file or directory", "missing error"
+    let good as result of string to IoError is calling read_file_result with path
+    calling _arch_expect_true with (good.is_ok), "present is ok"
+    if good.is_ok:
+        calling _arch_expect_str with (good.value), "content", "result text"
+    calling _arch_cleanup with base
+
+test "the result variants report the ok path":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "okpath")
+    let path as string is calling _arch_path with base, "a.txt"
+    let lines as list of string is ["x", "y"]
+    let wr as result of int to IoError is calling write_lines_result with path, lines
+    calling _arch_expect_true with (wr.is_ok), "write_lines_result ok"
+    let rr as result of list of string to IoError is calling read_lines_result with path
+    calling _arch_expect_true with (rr.is_ok), "read_lines_result ok"
+    if rr.is_ok:
+        calling _arch_expect_int with (rr.value.len), 3, "read_lines_result len"
+    let ar as result of int to IoError is calling append_lines_result with path, lines
+    calling _arch_expect_true with (ar.is_ok), "append_lines_result ok"
+    let dr as result of list of string to IoError is calling read_dir_result with base
+    calling _arch_expect_true with (dr.is_ok), "read_dir_result ok"
+    let cr as result of bool to IoError is calling create_dir_result with (calling _arch_path with base, "sub"), true
+    calling _arch_expect_true with (cr.is_ok), "create_dir_result ok"
+    let tr as result of bool to IoError is calling touch_result with (calling _arch_path with base, "t.txt")
+    calling _arch_expect_true with (tr.is_ok), "touch_result ok"
+    let mr as result of map of string to string to IoError is calling metadata_result with path
+    calling _arch_expect_true with (mr.is_ok), "metadata_result ok"
+    let xr as result of bool to IoError is calling remove_dir_result with (calling _arch_path with base, "sub"), true
+    calling _arch_expect_true with (xr.is_ok), "remove_dir_result ok"
+    calling _arch_cleanup with base
+
+test "the result variants report the error path":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "errpath")
+    let missing as string is calling _arch_path with base, "missing.txt"
+    let file_path as string is calling _arch_path with base, "f.txt"
+    calling write_file with file_path, "x"
+    let dir_bad as result of list of string to IoError is calling read_dir_result with missing
+    calling _arch_expect_true with (not (dir_bad.is_ok)), "read_dir_result missing"
+    calling _arch_expect_str with (calling describe_error with (dir_bad.error)), "no such file or directory", "dir error text"
+    let file_bad as result of list of string to IoError is calling read_dir_result with file_path
+    calling _arch_expect_true with (not (file_bad.is_ok)), "read_dir_result on file"
+    let cf as result of bool to IoError is calling copy_file_result with missing, file_path, false
+    calling _arch_expect_true with (not (cf.is_ok)), "copy_file_result missing"
+    let ct as result of bool to IoError is calling copy_tree_result with missing, base
+    calling _arch_expect_true with (not (ct.is_ok)), "copy_tree_result missing"
+    let tl as result of list of string to IoError is calling read_lines_result with base
+    calling _arch_expect_true with (not (tl.is_ok)), "read_lines_result on dir"
+    calling _arch_expect_str with (calling describe_error with (tl.error)), "is a directory", "dir error"
+    let md_bad as result of map of string to string to IoError is calling metadata_result with missing
+    calling _arch_expect_true with (not (md_bad.is_ok)), "metadata_result missing"
+    let dd as result of bool to IoError is calling create_dir_result with file_path, false
+    calling _arch_expect_true with (not (dd.is_ok)), "create_dir_result on file"
+    let rd as result of bool to IoError is calling remove_dir_result with missing, true
+    calling _arch_expect_true with (not (rd.is_ok)), "remove_dir_result missing"
+    let td as result of int to IoError is calling delete_file_result with missing
+    calling _arch_expect_true with (not (td.is_ok)), "delete_file_result missing"
+    calling _arch_cleanup with base
+
+test "describe_error names every IoError variant":
+    calling _arch_expect_str with (calling describe_error with IoError.NotFound), "no such file or directory", "NotFound"
+    calling _arch_expect_str with (calling describe_error with IoError.IsADirectory), "is a directory", "IsADirectory"
+    calling _arch_expect_str with (calling describe_error with IoError.NotAFile), "not a regular file", "NotAFile"
+    calling _arch_expect_str with (calling describe_error with IoError.Permission), "permission denied", "Permission"
+    calling _arch_expect_str with (calling describe_error with IoError.Unknown), "unknown I/O error", "Unknown"
+
+test "read_dir lists entries and read_dir_full joins them":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "readdir")
+    let path as string is calling _arch_path with base, "a.txt"
+    calling write_file with path, "x"
+    let names as maybe list of string is calling read_dir with base
+    calling _arch_expect_true with (names.is_present), "read_dir present"
+    if names.is_present:
+        calling _arch_expect_int with (names.value.len), 1, "read_dir len"
+        if names.value.len == 1:
+            calling _arch_expect_str with ((names.value) at 0), "a.txt", "read_dir name"
+    let full as list of string is calling read_dir_full with base
+    calling _arch_expect_int with (full.len), 1, "read_dir_full len"
+    if full.len == 1:
+        calling _arch_expect_str with (full at 0), path, "read_dir_full path"
+    let no_dir as list of string is calling read_dir_full with (calling _arch_path with base, "nope")
+    calling _arch_expect_int with (no_dir.len), 0, "read_dir_full missing"
+    calling _arch_cleanup with base
+
+test "find_files and find_dirs and find_by_name and find_by_ext":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "find")
+    let sub as string is calling _arch_path with base, "sub"
+    calling create_dir with sub, true
+    let f1 as string is calling _arch_path with base, "one.txt"
+    let f2 as string is calling _arch_path with sub, "two.log"
+    let f3 as string is calling _arch_path with sub, "one.txt"
+    calling write_file with f1, "1"
+    calling write_file with f2, "2"
+    calling write_file with f3, "3"
+    let files as list of string is calling find_files with base, true
+    calling _arch_expect_int with (files.len), 3, "find_files recursive"
+    let shallow as list of string is calling find_files with base, false
+    calling _arch_expect_int with (shallow.len), 1, "find_files shallow"
+    let dirs as list of string is calling find_dirs with base, true
+    calling _arch_expect_int with (dirs.len), 1, "find_dirs"
+    let by_name as list of string is calling find_by_name with base, "one.txt", true
+    calling _arch_expect_int with (by_name.len), 2, "find_by_name"
+    let by_ext as list of string is calling find_by_ext with base, "log", true
+    calling _arch_expect_int with (by_ext.len), 1, "find_by_ext"
+    if by_ext.len == 1:
+        calling _arch_expect_str with (by_ext at 0), f2, "find_by_ext path"
+    calling _arch_cleanup with base
+
+test "list_files_recursive and walk visit the tree":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "walk")
+    let sub as string is calling _arch_path with base, "sub"
+    calling create_dir with sub, true
+    let f1 as string is calling _arch_path with base, "top.txt"
+    let f2 as string is calling _arch_path with sub, "deep.txt"
+    calling write_file with f1, "1"
+    calling write_file with f2, "2"
+    let all as list of string is calling list_files_recursive with base
+    calling _arch_expect_int with (all.len), 2, "list_files_recursive"
+    let levels as list of list of string is calling walk with base
+    calling _arch_expect_true with (levels.len) >= 2, "walk levels"
+    if levels.len >= 1:
+        calling _arch_expect_true with ((levels at 0).len) >= 2, "walk root level"
+    calling _arch_cleanup with base
+
+test "glob finds the fixture inside its own directory":
+    # `glob` always starts from the process working directory, so the test
+    # changes into its unique directory, writes its own fixture there and
+    # restores the original directory on every exit path.
+    let here as maybe string is calling rites.getcwd
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "globtest")
+    calling _arch_expect_true with (calling rites.chdir with base), "glob chdir"
+    let pattern as string is "pengu_arch_glob_fixture"
+    let path as string is calling _arch_path with base, "pengu_arch_glob_fixture.txt"
+    calling _arch_expect_true with (calling write_file with path, "x"), "glob fixture write"
+    let hits as list of string is calling glob with pattern
+    calling _arch_expect_int with hits.len, 1, "glob hits"
+    if hits.len == 1:
+        calling _arch_expect_true with (calling compass.basename with (hits at 0)) == "pengu_arch_glob_fixture.txt", "glob name"
+    calling _arch_expect_true with (calling delete_file with path), "glob fixture delete"
+    calling _arch_cleanup with base
+    if here.is_present:
+        calling _arch_expect_true with (calling rites.chdir with here.value), "glob chdir back"
+        banish here.value
+
+test "dir_size sums the top-level files":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "dirsize")
+    let f1 as string is calling _arch_path with base, "a.txt"
+    let f2 as string is calling _arch_path with base, "b.txt"
+    calling write_file with f1, "12345"
+    calling write_file with f2, "123"
+    let total as maybe int is calling dir_size with base, false
+    calling _arch_expect_true with (total.is_present), "dir_size present"
+    if total.is_present:
+        calling _arch_expect_int with (total.value), 8, "dir_size value"
+    let no_dir as maybe int is calling dir_size with f1, false
+    calling _arch_expect_true with not (no_dir.is_present), "dir_size on file"
+    calling _arch_cleanup with base
+
+test "time helpers read the metadata timestamps":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "times")
+    let path as string is calling _arch_path with base, "a.txt"
+    calling write_file with path, "x"
+    let mtime as maybe float is calling modified_time with path
+    calling _arch_expect_true with (mtime.is_present), "modified_time present"
+    let ctime as maybe float is calling created_time with path
+    calling _arch_expect_true with (ctime.is_present), "created_time present"
+    let atime as maybe float is calling accessed_time with path
+    calling _arch_expect_true with (atime.is_present), "accessed_time present"
+    let no_time as maybe float is calling modified_time with (calling _arch_path with base, "nope")
+    calling _arch_expect_true with not (no_time.is_present), "missing time none"
+    calling _arch_cleanup with base
+
+test "symlink and read_symlink work and realpath resolves":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "link")
+    let path as string is calling _arch_path with base, "a.txt"
+    let link_path as string is calling _arch_path with base, "latest"
+    calling write_file with path, "x"
+    calling _arch_expect_true with (calling symlink with path, link_path), "symlink"
+    calling _arch_expect_true with (calling is_symlink with link_path), "is_symlink"
+    let target as maybe string is calling read_symlink with link_path
+    calling _arch_expect_true with (target.is_present), "read_symlink present"
+    if target.is_present:
+        calling _arch_expect_str with (target.value), path, "link target"
+    let abs_path as maybe string is calling realpath with path
+    calling _arch_expect_true with (abs_path.is_present), "realpath present"
+    if abs_path.is_present:
+        calling _arch_expect_true with ((abs_path.value) length) > 0, "realpath text"
+    let sr as result of bool to IoError is calling symlink_result with path, link_path
+    calling _arch_expect_true with (not (sr.is_ok)), "second symlink is err"
+    calling _arch_cleanup with base
+
+test "temp_dir and temp_file name a usable location":
+    let tmp as string is calling temp_dir
+    calling _arch_expect_true with (calling is_dir with tmp), "temp_dir exists"
+    let cand as string is calling temp_file with "archivum_test"
+    calling _arch_expect_true with (cand length) > 0, "temp_file text"
+    calling _arch_expect_true with not (calling exists with cand), "temp_file free"
+    calling _arch_expect_true with (calling write_file with cand, "tmp"), "temp_file write"
+    calling _arch_expect_true with (calling delete_file with cand), "temp_file delete"
+
+test "Path enchanting exposes the filesystem methods":
+    let base as string is calling _arch_fresh_dir with (calling _arch_base with "path")
+    let p as compass.Path is with raw is (calling _arch_path with base, "p.txt")
+    calling _arch_expect_true with (calling p.write_text with "path text"), "write_text"
+    let got as maybe string is calling p.read_text
+    calling _arch_expect_true with (got.is_present), "read_text present"
+    if got.is_present:
+        calling _arch_expect_str with (got.value), "path text", "path text"
+    let lines as maybe list of string is calling p.read_lines
+    calling _arch_expect_true with (lines.is_present), "path read_lines"
+    let dir as compass.Path is with raw is base
+    let entries as list of string is calling dir.iter_dir
+    calling _arch_expect_int with (entries.len), 1, "path iter_dir"
+    let md as maybe map of string to string is calling p.stat
+    calling _arch_expect_true with (md.is_present), "path stat"
+    let sub as compass.Path is with raw is (calling _arch_path with base, "psub")
+    calling _arch_expect_true with (calling sub.mkdir with true), "path mkdir"
+    let sub_file as compass.Path is with raw is (calling _arch_path with base, "psubfile.txt")
+    calling _arch_expect_true with (calling sub_file.write_text with "x"), "path sub write"
+    calling _arch_expect_true with (calling sub.rmdir with true), "path rmdir"
+    calling _arch_expect_true with (calling p.delete), "path delete"
+    calling _arch_expect_true with not (calling p.exists), "path deleted"
+    calling _arch_cleanup with base

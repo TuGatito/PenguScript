@@ -1,149 +1,288 @@
-# std/chronicle.pengu - The Chronicle (Time)
-# Provides time, dates, timestamps, monotonic clocks, calendar calculations,
-# and high-resolution stopwatch timers.
-#
-# All timestamps are Unix seconds expressed as float (double) values. The
-# utc_* getters interpret a timestamp in Coordinated Universal Time; the
-# local_* getters interpret it in the process's local time zone. `time` is a
-# wall clock (subject to system adjustments); `monotonic` is a steady clock
-# suited for measuring intervals and elapsed times.
-#
-# Typical usage:
-#   import std.chronicle
-#   var now as float is calling chronicle.time
-#   calling spark.println with calling chronicle.format_now with "%Y-%m-%d %H:%M:%S"
-#   calling chronicle.sleep with 0.25
-#   var year as int is calling chronicle.utc_year with now
-#   var dt as chronicle.DateTime is calling chronicle.datetime_utc with now
-#   calling spark.println with calling dt.to_iso
-#
-# Memory model:
-#   Clocks, delays and calendar-field getters are plain scalar bridges that
-#   own nothing. `format`/`format_now` return freshly formatted strings and
-#   `parse` returns a maybe float (none on failure): results are fresh owned
-#   values with normal PenguScript value lifetime. Nothing returned aliases
-#   input or caller-owned memory, and no argument is retained after the call.
+## std/chronicle.pengu — the clock: wall-clock time, monotonic timers, Unix
+## timestamps, UTC and local calendar fields, a decomposed `DateTime` value rune,
+## calendar boundaries, formatting/parsing and a `Stopwatch`.
+##
+## All timestamps are Unix seconds expressed as `float`. `float` is 32-bit in
+## Pengunic, so at modern epochs (about 1.7e9 s) the resolution is already
+## ~128 s: prefer whole-hour helpers, and treat sub-minute arithmetic after 1970
+## as approximate. The `f64` variants of the runtime bridges are exact, but the
+## public surface of this module keeps the historical `float` type.
+##
+## `utc_*` getters interpret a timestamp in Coordinated Universal Time; the
+## `local_*` getters interpret it in the process's local time zone. `time` is a
+## wall clock (subject to system adjustments); `monotonic` is a steady clock
+## suited for measuring intervals and elapsed times.
+##
+## ## Example
+## ```pengu
+## import std.chronicle
+## import std.spark
+##
+## weave main into int:
+##     let ts as float is 1700000000.0
+##     let dt as chronicle.DateTime is calling chronicle.datetime_utc with ts
+##     calling spark.println with calling dt.to_iso                    # 2023-11-14T22:13:20Z
+##     calling spark.println with calling chronicle.weekday_name with ts    # Tuesday
+##     calling spark.println with calling chronicle.format_duration with 9045.0  # 2h 30m 45s
+##     calling spark.println with calling chronicle.to_date_string with ts   # 2023-11-14
+##     return 0
+## ```
+##
+## ## Memory
+## Every timestamp, calendar field, `DateTime` and `Stopwatch` is a plain scalar
+## value: they own no heap memory and never need `banish`. The weaves that return
+## a `string` (`format`, `format_now`, `now_*`, `to_iso`, `from_iso`'s inverse,
+## `to_*_string`, `format_duration`, `weekday_name`, `month_name`) allocate a
+## fresh owned string that the caller releases with `banish`; the string
+## parameters (`fmt`, `s`) are borrowed and never freed. `parse`,
+## `parse_duration` and `from_iso` return a `maybe float` that owns nothing, and
+## `seconds_to_hms` returns an `oracle.Pair` of `int`s that owns nothing either.
+## No returned value aliases an argument and no argument is retained after the
+## call.
+##
+## ## Design notes
+## - **Two clocks.** `time` follows the system wall clock and can jump backwards;
+##   `monotonic` only moves forward and is the clock behind every interval and
+##   `Stopwatch` measurement.
+## - **UTC versus local.** The `utc_*` getters and `datetime_utc` never apply a
+##   time-zone offset, so `utc_is_dst` is always `false`; the `local_*` getters
+##   and `datetime_local` delegate that decision to the C runtime.
+## - **C bridges only.** Every primitive is a `declare` linked to the runtime;
+##   this module has no `antiquus` blocks and moves no runtime code.
+## - **One arithmetic path.** The `DateTime.plus_*` methods read `to_timestamp`,
+##   delegate to the module `add_*` weave and rebuild the record with
+##   `datetime_utc`, so the unit constants live in exactly one place.
+## - **Shared names without recursion.** `DateTime.weekday_name`,
+##   `DateTime.month_name` and `DateTime.is_leap_year` share their names with
+##   module functions, so each method maps its decomposed field through the
+##   private `_weekday_label` / `_month_label` / `_is_leap_year` helper instead of
+##   calling the same-named module function.
+## - **Absolute distances.** `days_between` and `hours_between` are non-negative,
+##   unlike the signed `diff_seconds` and `diff_days`.
+## - **Internal tests without `std.ward`** (`ward` imports `chronicle`, E0004):
+##   the `# --- Tests ---` section uses a private harness on top of `spark.panic`
+##   and fixed timestamps, so the suite is deterministic.
+##
+## ## Migration
+## 2.1.0 adds a date/time API and removes or renames nothing; the 24 C bindings
+## are byte-identical to 2.0.0.
+##
+## | New in 2.1.0 | Purpose |
+## |---|---|
+## | `calling dt.to_timestamp` | inverse of `datetime_utc` |
+## | `calling dt.plus_seconds` … `plus_weeks` | calendar arithmetic on a `DateTime` |
+## | `calling dt.is_before` / `is_after` / `is_same_day` | comparisons on a `DateTime` |
+## | `calling dt.weekday_name` / `month_name` | "Monday" … / "January" … |
+## | `calling dt.is_weekend` / `is_leap_year` | calendar predicates |
+## | `calling chronicle.weekday_name` / `month_name` | labels from a Unix timestamp |
+## | `calling chronicle.start_of_week` / `start_of_quarter` / `end_of_month` | boundaries |
+## | `calling chronicle.days_between` / `hours_between` | non-negative distances |
+## | `calling chronicle.seconds_to_hms` | hours plus a `Pair` of minutes/seconds |
 
 import std.spark
 import std.scrolls
+import std.oracle
 
 # ----------------------------------------------------------------------------
 # Version constant
 # ----------------------------------------------------------------------------
 
 ## Chronicle module version constant.
-const CHRONICLE_VERSION as string is "2.0.0"
+const CHRONICLE_VERSION as string is "2.1.0"
 
 # ----------------------------------------------------------------------------
 # External C Runtime Declarations (time, sleep, formatting, calendar fields)
 # ----------------------------------------------------------------------------
 
-# C bridge for time(): wall-clock seconds since the Unix epoch (UTC-based).
+## C bridge for `time()`: wall-clock seconds since the Unix epoch (UTC-based).
 declare pengu_c_time into float
 
-# C bridge for a high-resolution monotonic clock, in seconds.
+## C bridge for a high-resolution monotonic clock, in seconds.
 declare pengu_c_time_monotonic into float
 
-# C bridge that sleeps the current thread for `ms` milliseconds.
+## C bridge that sleeps the current thread for `ms` milliseconds.
 declare pengu_c_sleep_ms with ms as int into void
 
-# C bridge that sleeps the current thread for `sec` fractional seconds.
+## C bridge that sleeps the current thread for `sec` fractional seconds.
 declare pengu_c_sleep_sec with sec as float into void
 
-# C bridge that formats `timestamp` with a strftime `fmt` pattern (UTC) into a
-# new string; an empty fmt falls back to "%Y-%m-%d %H:%M:%S".
+## C bridge that formats `timestamp` with a strftime `fmt` pattern (UTC) into a
+## new string; an empty `fmt` falls back to "%Y-%m-%d %H:%M:%S".
 declare pengu_c_strftime with fmt as string, timestamp as float into string
 
-# C bridge that parses a date/time string into Unix seconds; returns a maybe
-# float holding none when the text does not match a supported pattern.
-declare pengu_c_strptime with s as string, fmt as string into maybe float
+## C bridge that parses a date/time string into Unix seconds; returns a `maybe
+## float` holding `none` when the text does not match a supported pattern.
+declare pengu_c_strptime with s as string, fmt as string into maybe f64
 
-# C bridge returning the UTC year of a timestamp (e.g. 2026).
+## C bridge returning the UTC year of a timestamp (e.g. 2026).
 declare pengu_c_get_utc_year with ts as float into int
 
-# C bridge returning the UTC month of a timestamp, 1..12.
+## C bridge returning the UTC month of a timestamp, 1..12.
 declare pengu_c_get_utc_month with ts as float into int
 
-# C bridge returning the UTC day-of-month of a timestamp, 1..31.
+## C bridge returning the UTC day-of-month of a timestamp, 1..31.
 declare pengu_c_get_utc_day with ts as float into int
 
-# C bridge returning the UTC hour of a timestamp, 0..23.
+## C bridge returning the UTC hour of a timestamp, 0..23.
 declare pengu_c_get_utc_hour with ts as float into int
 
-# C bridge returning the UTC minute of a timestamp, 0..59.
+## C bridge returning the UTC minute of a timestamp, 0..59.
 declare pengu_c_get_utc_minute with ts as float into int
 
-# C bridge returning the UTC second of a timestamp, 0..60.
+## C bridge returning the UTC second of a timestamp, 0..60.
 declare pengu_c_get_utc_second with ts as float into int
 
-# C bridge returning the UTC weekday of a timestamp, 0 = Sunday .. 6 = Saturday.
+## C bridge returning the UTC weekday of a timestamp, 0 = Sunday .. 6 = Saturday.
 declare pengu_c_get_utc_weekday with ts as float into int
 
-# C bridge returning the UTC day-of-year of a timestamp, 0..365.
+## C bridge returning the UTC day-of-year of a timestamp, 0..365.
 declare pengu_c_get_utc_yearday with ts as float into int
 
-# C bridge reporting daylight-saving time for a timestamp in UTC (always false,
-# since UTC itself never observes DST).
+## C bridge reporting daylight-saving time for a timestamp in UTC (always false,
+## since UTC itself never observes DST).
 declare pengu_c_get_utc_is_dst with ts as float into bool
 
-# C bridge returning the local-timezone year of a timestamp (e.g. 2026).
+## C bridge returning the local-timezone year of a timestamp (e.g. 2026).
 declare pengu_c_get_local_year with ts as float into int
 
-# C bridge returning the local-timezone month of a timestamp, 1..12.
+## C bridge returning the local-timezone month of a timestamp, 1..12.
 declare pengu_c_get_local_month with ts as float into int
 
-# C bridge returning the local-timezone day-of-month of a timestamp, 1..31.
+## C bridge returning the local-timezone day-of-month of a timestamp, 1..31.
 declare pengu_c_get_local_day with ts as float into int
 
-# C bridge returning the local-timezone hour of a timestamp, 0..23.
+## C bridge returning the local-timezone hour of a timestamp, 0..23.
 declare pengu_c_get_local_hour with ts as float into int
 
-# C bridge returning the local-timezone minute of a timestamp, 0..59.
+## C bridge returning the local-timezone minute of a timestamp, 0..59.
 declare pengu_c_get_local_minute with ts as float into int
 
-# C bridge returning the local-timezone second of a timestamp, 0..60.
+## C bridge returning the local-timezone second of a timestamp, 0..60.
 declare pengu_c_get_local_second with ts as float into int
 
-# C bridge returning the local-timezone weekday of a timestamp,
-# 0 = Sunday .. 6 = Saturday.
+## C bridge returning the local-timezone weekday of a timestamp,
+## 0 = Sunday .. 6 = Saturday.
 declare pengu_c_get_local_weekday with ts as float into int
 
-# C bridge returning the local-timezone day-of-year of a timestamp, 0..365.
+## C bridge returning the local-timezone day-of-year of a timestamp, 0..365.
 declare pengu_c_get_local_yearday with ts as float into int
 
-# C bridge reporting whether daylight-saving time is in effect for a timestamp
-# in the local time zone.
+## C bridge reporting whether daylight-saving time is in effect for a timestamp
+## in the local time zone.
 declare pengu_c_get_local_is_dst with ts as float into bool
 
 # ----------------------------------------------------------------------------
 # Clocks & Delays
 # ----------------------------------------------------------------------------
 
-## Returns the current wall-clock time as Unix seconds (float). No parameters.
+## Returns the current wall-clock time as Unix seconds.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## The current Unix timestamp as a `float`, resolution set by the platform. The
+## value follows the system clock and may jump forwards or backwards; use
+## `monotonic` to measure intervals.
+##
+## ## Ejemplo
+## ```pengu
+## let now as float is calling chronicle.time
+## ```
 weave time into float:
     return calling pengu_c_time
 
-## Returns a high-resolution monotonic clock reading in seconds (float).
+## Returns a high-resolution monotonic clock reading in seconds.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## A `float` that only ever moves forward. Its origin is unspecified, so only
+## differences between two readings are meaningful.
+##
+## ## Ejemplo
+## ```pengu
+## let t0 as float is calling chronicle.monotonic
+## ```
 weave monotonic into float:
     return calling pengu_c_time_monotonic
 
 ## Suspends the current thread for `ms` milliseconds.
+##
+## ## Parámetros
+## - `ms`: the delay in milliseconds. Zero or negative returns immediately.
+##
+## ## Retorno
+## Nothing; the weave returns `void`. The call blocks and never aborts.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.sleep_ms with 250
+## ```
 weave sleep_ms with ms as int into void:
     calling pengu_c_sleep_ms with ms
 
 ## Suspends the current thread for `sec` fractional seconds.
+##
+## ## Parámetros
+## - `sec`: the delay in seconds; the fractional part is honoured.
+##
+## ## Retorno
+## Nothing; the weave returns `void`. The call blocks and never aborts.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.sleep with 0.25
+## ```
 weave sleep with sec as float into void:
     calling pengu_c_sleep_sec with sec
 
 ## Returns the current wall-clock time in milliseconds since the Unix epoch.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## The current Unix time truncated to whole milliseconds as an `int`. Derived
+## from `time`, so it inherits the wall-clock behaviour.
+##
+## ## Ejemplo
+## ```pengu
+## let ms as int is calling chronicle.now_ms
+## ```
 weave now_ms into int:
     return ((calling time) * 1000.0) to int
 
 ## Alias of `now_ms`.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## The current Unix time in whole milliseconds as an `int`; identical to
+## `now_ms`.
+##
+## ## Ejemplo
+## ```pengu
+## let ms as int is calling chronicle.time_ms
+## ```
 weave time_ms into int:
     return ((calling time) * 1000.0) to int
 
-## Returns high-resolution monotonic clock in milliseconds.
+## Returns the monotonic clock in milliseconds.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## The monotonic reading truncated to whole milliseconds as an `int`. Use it for
+## elapsed-time arithmetic that must never jump.
+##
+## ## Ejemplo
+## ```pengu
+## let ms as int is calling chronicle.monotonic_ms
+## ```
 weave monotonic_ms into int:
     return ((calling monotonic) * 1000.0) to int
 
@@ -152,38 +291,137 @@ weave monotonic_ms into int:
 # ----------------------------------------------------------------------------
 
 ## Returns the UTC year of timestamp `ts` (e.g. 2026).
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## The four-digit year as an `int`. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.utc_year with 1700000000.0    # 2023
+## ```
 weave utc_year with ts as float into int:
     return calling pengu_c_get_utc_year with ts
 
 ## Returns the UTC month of timestamp `ts`, 1..12.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## The month as an `int`, 1 = January. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.utc_month with 1700000000.0    # 11
+## ```
 weave utc_month with ts as float into int:
     return calling pengu_c_get_utc_month with ts
 
 ## Returns the UTC day-of-month of timestamp `ts`, 1..31.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## The day of the month as an `int`. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.utc_day with 1700000000.0    # 14
+## ```
 weave utc_day with ts as float into int:
     return calling pengu_c_get_utc_day with ts
 
 ## Returns the UTC hour of timestamp `ts`, 0..23.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## The hour as an `int` in 24-hour form. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.utc_hour with 1700000000.0    # 22
+## ```
 weave utc_hour with ts as float into int:
     return calling pengu_c_get_utc_hour with ts
 
 ## Returns the UTC minute of timestamp `ts`, 0..59.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## The minute as an `int`. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.utc_minute with 1700000000.0    # 13
+## ```
 weave utc_minute with ts as float into int:
     return calling pengu_c_get_utc_minute with ts
 
 ## Returns the UTC second of timestamp `ts`, 0..60.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## The second as an `int`; the range allows for a leap second. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.utc_second with 1700000000.0    # 20
+## ```
 weave utc_second with ts as float into int:
     return calling pengu_c_get_utc_second with ts
 
 ## Returns the UTC day-of-week of timestamp `ts` (0 = Sunday .. 6 = Saturday).
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## The weekday index as an `int`, 0 = Sunday. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.utc_weekday with 1700000000.0    # 2 (Tuesday)
+## ```
 weave utc_weekday with ts as float into int:
     return calling pengu_c_get_utc_weekday with ts
 
 ## Returns the UTC day-of-year of timestamp `ts`, 0..365.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## The zero-based day of the year as an `int`. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.utc_yearday with 1700000000.0    # 317
+## ```
 weave utc_yearday with ts as float into int:
     return calling pengu_c_get_utc_yearday with ts
 
 ## Reports daylight-saving time for a timestamp in UTC (always false).
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## `false` for every `ts`, because UTC never observes DST. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.utc_is_dst with 1700000000.0    # false
+## ```
 weave utc_is_dst with ts as float into bool:
     return calling pengu_c_get_utc_is_dst with ts
 
@@ -192,38 +430,138 @@ weave utc_is_dst with ts as float into bool:
 # ----------------------------------------------------------------------------
 
 ## Returns the local-timezone year of timestamp `ts` (e.g. 2026).
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in the process's local time zone.
+##
+## ## Retorno
+## The four-digit year as an `int`. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let y as int is calling chronicle.local_year with 1700000000.0
+## ```
 weave local_year with ts as float into int:
     return calling pengu_c_get_local_year with ts
 
 ## Returns the local-timezone month of timestamp `ts`, 1..12.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in the local time zone.
+##
+## ## Retorno
+## The month as an `int`, 1 = January. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let m as int is calling chronicle.local_month with 1700000000.0
+## ```
 weave local_month with ts as float into int:
     return calling pengu_c_get_local_month with ts
 
 ## Returns the local-timezone day-of-month of timestamp `ts`, 1..31.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in the local time zone.
+##
+## ## Retorno
+## The day of the month as an `int`. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let d as int is calling chronicle.local_day with 1700000000.0
+## ```
 weave local_day with ts as float into int:
     return calling pengu_c_get_local_day with ts
 
 ## Returns the local-timezone hour of timestamp `ts`, 0..23.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in the local time zone.
+##
+## ## Retorno
+## The hour as an `int` in 24-hour form. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let h as int is calling chronicle.local_hour with 1700000000.0
+## ```
 weave local_hour with ts as float into int:
     return calling pengu_c_get_local_hour with ts
 
 ## Returns the local-timezone minute of timestamp `ts`, 0..59.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in the local time zone.
+##
+## ## Retorno
+## The minute as an `int`. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let mi as int is calling chronicle.local_minute with 1700000000.0
+## ```
 weave local_minute with ts as float into int:
     return calling pengu_c_get_local_minute with ts
 
 ## Returns the local-timezone second of timestamp `ts`, 0..60.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in the local time zone.
+##
+## ## Retorno
+## The second as an `int`; the range allows for a leap second. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let s as int is calling chronicle.local_second with 1700000000.0
+## ```
 weave local_second with ts as float into int:
     return calling pengu_c_get_local_second with ts
 
 ## Returns the local-timezone day-of-week of timestamp `ts` (0 = Sunday .. 6 = Saturday).
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in the local time zone.
+##
+## ## Retorno
+## The weekday index as an `int`, 0 = Sunday. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let wd as int is calling chronicle.local_weekday with 1700000000.0
+## ```
 weave local_weekday with ts as float into int:
     return calling pengu_c_get_local_weekday with ts
 
 ## Returns the local-timezone day-of-year of timestamp `ts`, 0..365.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in the local time zone.
+##
+## ## Retorno
+## The zero-based day of the year as an `int`. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let yd as int is calling chronicle.local_yearday with 1700000000.0
+## ```
 weave local_yearday with ts as float into int:
     return calling pengu_c_get_local_yearday with ts
 
 ## Reports whether daylight-saving time is in effect for `ts` in the local time zone.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in the local time zone.
+##
+## ## Retorno
+## `true` while the local zone is observing DST, `false` otherwise. `ts` is
+## borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let dst as bool is calling chronicle.local_is_dst with 1700000000.0
+## ```
 weave local_is_dst with ts as float into bool:
     return calling pengu_c_get_local_is_dst with ts
 
@@ -232,6 +570,36 @@ weave local_is_dst with ts as float into bool:
 # ----------------------------------------------------------------------------
 
 ## Represents a decomposed date and time with individual calendar components.
+##
+## ## Parámetros
+## - `year`: the civil year (e.g. 2026).
+## - `month`: the month, 1..12.
+## - `day`: the day of the month, 1..31.
+## - `hour`: the hour, 0..23.
+## - `minute`: the minute, 0..59.
+## - `second`: the second, 0..60.
+## - `weekday`: the day of the week, 0 = Sunday .. 6 = Saturday.
+## - `yearday`: the zero-based day of the year, 0..365.
+## - `is_dst`: whether DST is in effect at the source timestamp.
+##
+## ## Retorno
+## A value rune of nine scalar fields; it owns no heap memory, so it never needs
+## `banish`. `datetime_utc` leaves `is_dst` at `false`; `datetime_local` fills it
+## from the local zone.
+##
+## ## Ejemplo
+## ```pengu
+## var dt as chronicle.DateTime with:
+##     set .year is 2024
+##     set .month is 2
+##     set .day is 29
+##     set .hour is 12
+##     set .minute is 0
+##     set .second is 0
+##     set .weekday is 4
+##     set .yearday is 59
+##     set .is_dst is false
+## ```
 rune DateTime:
     year as int
     month as int
@@ -243,59 +611,325 @@ rune DateTime:
     yearday as int
     is_dst as bool
 
+## Methods of the `DateTime` value rune: formatting, Unix conversion, calendar
+## arithmetic and comparisons.
 enchanting DateTime:
     ## Formats this DateTime into a "YYYY-MM-DD" string.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver supplies `year`, `month` and `day`.
+    ##
+    ## ## Retorno
+    ## A new owned `string`; release it with `banish`. Years are not padded, so
+    ## year 5 renders as "5".
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling dt.to_date    # "2023-11-14"
+    ## ```
     weave to_date into string:
-        var yr as string is (self->year) to string
-        var mo as string is (self->month) to string
-        if self->month < 10:
-            set mo is "0{mo}"
-        var da as string is (self->day) to string
-        if self->day < 10:
-            set da is "0{da}"
+        let yr as string is (self->year) to string
+        let mo as string is calling _pad2 with self->month
+        let da as string is calling _pad2 with self->day
         return "{yr}-{mo}-{da}"
 
     ## Formats this DateTime into an "HH:MM:SS" string.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver supplies `hour`, `minute` and `second`.
+    ##
+    ## ## Retorno
+    ## A new owned `string`; release it with `banish`. Every field is zero-padded
+    ## to two digits.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling dt.to_time    # "22:13:20"
+    ## ```
     weave to_time into string:
-        var hr as string is (self->hour) to string
-        if self->hour < 10:
-            set hr is "0{hr}"
-        var mn as string is (self->minute) to string
-        if self->minute < 10:
-            set mn is "0{mn}"
-        var sc as string is (self->second) to string
-        if self->second < 10:
-            set sc is "0{sc}"
+        let hr as string is calling _pad2 with self->hour
+        let mn as string is calling _pad2 with self->minute
+        let sc as string is calling _pad2 with self->second
         return "{hr}:{mn}:{sc}"
 
     ## Formats this DateTime into an ISO 8601 "YYYY-MM-DDTHH:MM:SSZ" string.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver supplies every date and time field.
+    ##
+    ## ## Retorno
+    ## A new owned `string` ending in `Z`; release it with `banish`. The record is
+    ## always rendered as if it were UTC.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling dt.to_iso    # "2023-11-14T22:13:20Z"
+    ## ```
     weave to_iso into string:
         return "{(calling self.to_date)}T{(calling self.to_time)}Z"
 
+    ## Converts this DateTime back into Unix seconds, the inverse of `datetime_utc`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver supplies the UTC date and time fields.
+    ##
+    ## ## Retorno
+    ## The Unix timestamp as a `float`, exact to the second. A record built by
+    ## `datetime_utc` round-trips exactly; the field `weekday`, `yearday` and
+    ## `is_dst` are ignored, and years below 1970 are outside the documented
+    ## range.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling (calling chronicle.datetime_utc with 1700000000.0).to_timestamp    # 1700000000.0
+    ## ```
+    weave to_timestamp into float:
+        let days as int is calling _epoch_days with self->year, self->month, self->day
+        let secs as int is (days * 86400) + (self->hour * 3600) + (self->minute * 60) + self->second
+        return secs to float
+
+    ## Adds `n` seconds and returns the resulting UTC DateTime.
+    ##
+    ## ## Parámetros
+    ## - `n`: whole seconds to add; may be negative.
+    ##
+    ## ## Retorno
+    ## A fresh `DateTime` built by `datetime_utc`, so `is_dst` is `false`; it owns
+    ## no heap memory. The receiver is borrowed and not modified.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling dt.plus_seconds with 90
+    ## ```
+    weave plus_seconds with n as int into DateTime:
+        return calling datetime_utc with ((calling self.to_timestamp) + (n to float))
+
+    ## Adds `n` minutes and returns the resulting UTC DateTime.
+    ##
+    ## ## Parámetros
+    ## - `n`: whole minutes to add (60 seconds each); may be negative.
+    ##
+    ## ## Retorno
+    ## A fresh `DateTime` built by `datetime_utc`; it owns no heap memory. The
+    ## receiver is borrowed and not modified.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling dt.plus_minutes with -30
+    ## ```
+    weave plus_minutes with n as int into DateTime:
+        return calling datetime_utc with (calling add_minutes with (calling self.to_timestamp), n)
+
+    ## Adds `n` hours and returns the resulting UTC DateTime.
+    ##
+    ## ## Parámetros
+    ## - `n`: whole hours to add (3600 seconds each); may be negative.
+    ##
+    ## ## Retorno
+    ## A fresh `DateTime` built by `datetime_utc`; it owns no heap memory. The
+    ## receiver is borrowed and not modified.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling dt.plus_hours with 1
+    ## ```
+    weave plus_hours with n as int into DateTime:
+        return calling datetime_utc with (calling add_hours with (calling self.to_timestamp), n)
+
+    ## Adds `n` days and returns the resulting UTC DateTime.
+    ##
+    ## ## Parámetros
+    ## - `n`: whole days to add (86400 seconds each); may be negative.
+    ##
+    ## ## Retorno
+    ## A fresh `DateTime` built by `datetime_utc`; it owns no heap memory. The
+    ## receiver is borrowed and not modified.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling dt.plus_days with 7
+    ## ```
+    weave plus_days with n as int into DateTime:
+        return calling datetime_utc with (calling add_days with (calling self.to_timestamp), n)
+
+    ## Adds `n` weeks and returns the resulting UTC DateTime.
+    ##
+    ## ## Parámetros
+    ## - `n`: whole weeks to add (604800 seconds each); may be negative.
+    ##
+    ## ## Retorno
+    ## A fresh `DateTime` built by `datetime_utc`; it owns no heap memory. The
+    ## receiver is borrowed and not modified.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling dt.plus_weeks with 2
+    ## ```
+    weave plus_weeks with n as int into DateTime:
+        return calling datetime_utc with (calling add_weeks with (calling self.to_timestamp), n)
+
+    ## Reports whether this DateTime is strictly earlier than `other`.
+    ##
+    ## ## Parámetros
+    ## - `other`: the DateTime to compare against.
+    ##
+    ## ## Retorno
+    ## `true` when the receiver's Unix second is strictly less than `other`'s.
+    ## Both records are borrowed.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling a.is_before with b
+    ## ```
+    weave is_before with other as DateTime into bool:
+        return (calling self.to_timestamp) < (calling other.to_timestamp)
+
+    ## Reports whether this DateTime is strictly later than `other`.
+    ##
+    ## ## Parámetros
+    ## - `other`: the DateTime to compare against.
+    ##
+    ## ## Retorno
+    ## `true` when the receiver's Unix second is strictly greater than `other`'s.
+    ## Both records are borrowed.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling a.is_after with b
+    ## ```
+    weave is_after with other as DateTime into bool:
+        return (calling self.to_timestamp) > (calling other.to_timestamp)
+
+    ## Reports whether both DateTimes fall on the same UTC calendar day.
+    ##
+    ## ## Parámetros
+    ## - `other`: the DateTime to compare against.
+    ##
+    ## ## Retorno
+    ## `true` when `start_of_day` of both timestamps is equal, whatever the time
+    ## of day. Both records are borrowed.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling a.is_same_day with b
+    ## ```
+    weave is_same_day with other as DateTime into bool:
+        let a as float is calling start_of_day with (calling self.to_timestamp)
+        let b as float is calling start_of_day with (calling other.to_timestamp)
+        return a == b
+
+    ## Returns the English name of this DateTime's weekday.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver supplies `weekday`.
+    ##
+    ## ## Retorno
+    ## A new owned `string` ("Sunday" .. "Saturday"); release it with `banish`.
+    ## An out-of-range `weekday` yields the empty string.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling dt.weekday_name    # "Tuesday"
+    ## ```
+    weave weekday_name into string:
+        return calling _weekday_label with self->weekday
+
+    ## Returns the English name of this DateTime's month.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver supplies `month`.
+    ##
+    ## ## Retorno
+    ## A new owned `string` ("January" .. "December"); release it with `banish`.
+    ## An out-of-range `month` yields the empty string.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling dt.month_name    # "November"
+    ## ```
+    weave month_name into string:
+        return calling _month_label with self->month
+
+    ## Reports whether this DateTime falls on a Saturday or a Sunday.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver supplies `weekday`.
+    ##
+    ## ## Retorno
+    ## `true` when `weekday` is 0 (Sunday) or 6 (Saturday), `false` otherwise.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling dt.is_weekend    # false on a Tuesday
+    ## ```
+    weave is_weekend into bool:
+        return (self->weekday == 0) or (self->weekday == 6)
+
+    ## Reports whether this DateTime's `year` is a leap year.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver supplies `year`.
+    ##
+    ## ## Retorno
+    ## `true` for a Gregorian leap year, using the same rule as the module
+    ## function `is_leap_year` (divisible by 4, except centuries not divisible by
+    ## 400).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling dt.is_leap_year    # true for 2024
+    ## ```
+    weave is_leap_year into bool:
+        return calling _is_leap_year with self->year
+
 ## Builds a DateTime record from `ts` interpreted in UTC.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## A fresh `DateTime` whose `is_dst` is always `false`. It owns no heap memory,
+## so it never needs `banish`; `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let dt as chronicle.DateTime is calling chronicle.datetime_utc with 1700000000.0
+## ```
 weave datetime_utc with ts as float into DateTime:
-    var yr as int is calling utc_year with ts
-    var mo as int is calling utc_month with ts
-    var da as int is calling utc_day with ts
-    var hr as int is calling utc_hour with ts
-    var mn as int is calling utc_minute with ts
-    var sc as int is calling utc_second with ts
-    var wd as int is calling utc_weekday with ts
-    var yd as int is calling utc_yearday with ts
-    var dst as bool is calling utc_is_dst with ts
+    let yr as int is calling utc_year with ts
+    let mo as int is calling utc_month with ts
+    let da as int is calling utc_day with ts
+    let hr as int is calling utc_hour with ts
+    let mn as int is calling utc_minute with ts
+    let sc as int is calling utc_second with ts
+    let wd as int is calling utc_weekday with ts
+    let yd as int is calling utc_yearday with ts
+    let dst as bool is calling utc_is_dst with ts
     return with year is yr, month is mo, day is da, hour is hr, minute is mn, second is sc, weekday is wd, yearday is yd, is_dst is dst
 
 ## Builds a DateTime record from `ts` interpreted in the local time zone.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in the process's local time zone.
+##
+## ## Retorno
+## A fresh `DateTime` whose fields come from the `local_*` getters and whose
+## `is_dst` reflects the local zone. It owns no heap memory; `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let dt as chronicle.DateTime is calling chronicle.datetime_local with 1700000000.0
+## ```
 weave datetime_local with ts as float into DateTime:
-    var yr as int is calling local_year with ts
-    var mo as int is calling local_month with ts
-    var da as int is calling local_day with ts
-    var hr as int is calling local_hour with ts
-    var mn as int is calling local_minute with ts
-    var sc as int is calling local_second with ts
-    var wd as int is calling local_weekday with ts
-    var yd as int is calling local_yearday with ts
-    var dst as bool is calling local_is_dst with ts
+    let yr as int is calling local_year with ts
+    let mo as int is calling local_month with ts
+    let da as int is calling local_day with ts
+    let hr as int is calling local_hour with ts
+    let mn as int is calling local_minute with ts
+    let sc as int is calling local_second with ts
+    let wd as int is calling local_weekday with ts
+    let yd as int is calling local_yearday with ts
+    let dst as bool is calling local_is_dst with ts
     return with year is yr, month is mo, day is da, hour is hr, minute is mn, second is sc, weekday is wd, yearday is yd, is_dst is dst
 
 # ----------------------------------------------------------------------------
@@ -303,177 +937,523 @@ weave datetime_local with ts as float into DateTime:
 # ----------------------------------------------------------------------------
 
 ## Returns true if `y` is a leap year in the Gregorian calendar.
+##
+## ## Parámetros
+## - `y`: the civil year to test.
+##
+## ## Retorno
+## `true` when `y` is divisible by 400, or divisible by 4 but not by 100;
+## `false` otherwise. The rule is shared with `DateTime.is_leap_year`.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.is_leap_year with 2024    # true
+## ```
 weave is_leap_year with y as int into bool:
-    if (y % 400) == 0:
-        return true
-    if (y % 100) == 0:
-        return false
-    if (y % 4) == 0:
-        return true
-    return false
+    return calling _is_leap_year with y
 
 ## Returns the number of days in month `m` for year `y`.
 ##
-## `m` is 1-based (1 = January). An out-of-range `m` returns 0 rather than
-## silently reported as a 31-day month, so callers can validate input with
+## ## Parámetros
+## - `y`: the civil year, used only to resolve February.
+## - `m`: the month, 1-based (1 = January).
+##
+## ## Retorno
+## The day count as an `int` (28..31). An out-of-range `m` returns 0 rather than
+## silently reporting a 31-day month, so callers can validate input with
 ## `if calling days_in_month with y, m == 0`.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.days_in_month with 2024, 2    # 29
+## ```
 weave days_in_month with y as int, m as int into int:
     if m < 1:
         return 0
     if m > 12:
         return 0
-    if m == 2:
-        return judge (calling is_leap_year with y):
-            when true -> 29
-            when false -> 28
-    if m == 4:
-        return 30
-    if m == 6:
-        return 30
-    if m == 9:
-        return 30
-    if m == 11:
-        return 30
-    return 31
+    return judge m:
+        when 2 -> (if calling _is_leap_year with y then 29 else 28)
+        when 4 -> 30
+        when 6 -> 30
+        when 9 -> 30
+        when 11 -> 30
+        else -> 31
 
 ## Returns the number of days in year `y` (366 for leap years, 365 otherwise).
+##
+## ## Parámetros
+## - `y`: the civil year to measure.
+##
+## ## Retorno
+## `366` for a Gregorian leap year, `365` otherwise, as an `int`.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.days_in_year with 2024    # 366
+## ```
 weave days_in_year with y as int into int:
-    return judge (calling is_leap_year with y):
+    return judge (calling _is_leap_year with y):
         when true -> 366
         when false -> 365
 
 ## Returns timestamp rounded down to the start of the UTC day (00:00:00 UTC).
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## The timestamp of 00:00:00 UTC on the same UTC day as `ts`, as a `float`.
+## Negative `ts` is normalised to the correct day. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.start_of_day with 1700000000.0    # 1699920000.0
+## ```
 weave start_of_day with ts as float into float:
-    var sec as int is ts to int
+    let sec as int is ts to int
     var rem as int is sec % 86400
     if rem < 0:
         set rem is rem + 86400
     return (sec - rem) to float
 
 ## Returns timestamp of the end of the UTC day (23:59:59 UTC).
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## The timestamp of 23:59:59 UTC on the same UTC day as `ts`, as a `float`
+## (`start_of_day` plus 86399 seconds). `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.end_of_day with 1700000000.0    # 1700006400.0 (float32)
+## ```
 weave end_of_day with ts as float into float:
     return (calling start_of_day with ts) + 86399.0
 
 ## Returns the start of the current UTC day (00:00:00 UTC).
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## A `float` derived from `time`, so it follows the wall clock and is not
+## suitable for deterministic tests.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.println with calling chronicle.to_date_string with (calling chronicle.today)
+## ```
 weave today into float:
     return calling start_of_day with (calling time)
 
 ## Returns the start of yesterday in UTC.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## `today` minus 86400 seconds, as a `float`.
+##
+## ## Ejemplo
+## ```pengu
+## let t as float is calling chronicle.yesterday
+## ```
 weave yesterday into float:
     return (calling today) - 86400.0
 
 ## Returns the start of tomorrow in UTC.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## `today` plus 86400 seconds, as a `float`.
+##
+## ## Ejemplo
+## ```pengu
+## let t as float is calling chronicle.tomorrow
+## ```
 weave tomorrow into float:
     return (calling today) + 86400.0
 
 ## Returns the start of the month in UTC (00:00:00 UTC on the 1st of the month).
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## The timestamp of midnight on day 1 of the same UTC month, as a `float`. `ts`
+## is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.start_of_month with 1700000000.0    # 1698796800.0
+## ```
 weave start_of_month with ts as float into float:
-    var d as int is calling utc_day with ts
-    var h as int is calling utc_hour with ts
-    var m as int is calling utc_minute with ts
-    var s as int is calling utc_second with ts
-    var elapsed as int is ((d - 1) * 86400) + (h * 3600) + (m * 60) + s
+    let d as int is calling utc_day with ts
+    let h as int is calling utc_hour with ts
+    let m as int is calling utc_minute with ts
+    let s as int is calling utc_second with ts
+    let elapsed as int is ((d - 1) * 86400) + (h * 3600) + (m * 60) + s
     return ts - (elapsed to float)
 
 ## Returns the start of the year in UTC (00:00:00 UTC on January 1st).
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## The timestamp of midnight on January 1st of the same UTC year, as a `float`.
+## `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.start_of_year with 1700000000.0    # 1672531200.0
+## ```
 weave start_of_year with ts as float into float:
-    var yd as int is calling utc_yearday with ts
-    var h as int is calling utc_hour with ts
-    var m as int is calling utc_minute with ts
-    var s as int is calling utc_second with ts
-    var elapsed as int is (yd * 86400) + (h * 3600) + (m * 60) + s
+    let yd as int is calling utc_yearday with ts
+    let h as int is calling utc_hour with ts
+    let m as int is calling utc_minute with ts
+    let s as int is calling utc_second with ts
+    let elapsed as int is (yd * 86400) + (h * 3600) + (m * 60) + s
     return ts - (elapsed to float)
+
+## Returns the start of the week in UTC: Monday 00:00:00 UTC.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## The timestamp of the Monday on or before `ts`, at 00:00:00 UTC, as a `float`.
+## Weeks start on Monday, following ISO 8601. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.start_of_week with 1700000000.0    # 1699833600.0 (Monday)
+## ```
+weave start_of_week with ts as float into float:
+    let wd as int is calling utc_weekday with ts
+    let back as int is (wd + 6) % 7
+    return (calling start_of_day with ts) - ((back to float) * 86400.0)
+
+## Returns the start of the quarter in UTC.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC, with a year of 1970 or later.
+##
+## ## Retorno
+## The timestamp of 00:00:00 UTC on the first day of the calendar quarter
+## (January, April, July or October) containing `ts`, as a `float`. `ts` is
+## borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.start_of_quarter with 1700000000.0    # 1696118400.0 (Q4)
+## ```
+weave start_of_quarter with ts as float into float:
+    let y as int is calling utc_year with ts
+    let m as int is calling utc_month with ts
+    let qm as int is (((m - 1) / 3) * 3) + 1
+    let days as int is calling _epoch_days with y, qm, 1
+    return (days * 86400) to float
+
+## Returns the end of the month in UTC (23:59:59 UTC on the last day).
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC, with a year of 1970 or later.
+##
+## ## Retorno
+## The timestamp of 23:59:59 UTC on the last day of the same UTC month, as a
+## `float`, honouring leap Februaries. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.end_of_month with 1706745600.0    # 1709251200.0 (float32) (Feb 2024)
+## ```
+weave end_of_month with ts as float into float:
+    let y as int is calling utc_year with ts
+    let m as int is calling utc_month with ts
+    let d as int is calling days_in_month with y, m
+    let days as int is calling _epoch_days with y, m, d
+    return ((days * 86400) + 86399) to float
+
+# ----------------------------------------------------------------------------
+# Calendar Labels (English names of weekday and month numbers)
+# ----------------------------------------------------------------------------
+
+## Maps a weekday index (0 = Sunday .. 6 = Saturday) to its English name.
+weave _weekday_label with idx as int into string:
+    return judge idx:
+        when 0 -> "Sunday"
+        when 1 -> "Monday"
+        when 2 -> "Tuesday"
+        when 3 -> "Wednesday"
+        when 4 -> "Thursday"
+        when 5 -> "Friday"
+        when 6 -> "Saturday"
+        else -> ""
+
+## Maps a month number (1 = January .. 12 = December) to its English name.
+weave _month_label with idx as int into string:
+    return judge idx:
+        when 1 -> "January"
+        when 2 -> "February"
+        when 3 -> "March"
+        when 4 -> "April"
+        when 5 -> "May"
+        when 6 -> "June"
+        when 7 -> "July"
+        when 8 -> "August"
+        when 9 -> "September"
+        when 10 -> "October"
+        when 11 -> "November"
+        when 12 -> "December"
+        else -> ""
+
+## Returns the English name of the UTC weekday of timestamp `ts`.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## A new owned `string` ("Sunday" .. "Saturday"); release it with `banish`. `ts`
+## is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.weekday_name with 0.0    # "Thursday"
+## ```
+weave weekday_name with ts as float into string:
+    return calling _weekday_label with (calling utc_weekday with ts)
+
+## Returns the English name of the UTC month of timestamp `ts`.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## A new owned `string` ("January" .. "December"); release it with `banish`. `ts`
+## is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.month_name with 1700000000.0    # "November"
+## ```
+weave month_name with ts as float into string:
+    return calling _month_label with (calling utc_month with ts)
 
 # ----------------------------------------------------------------------------
 # Formatting & Parsing
 # ----------------------------------------------------------------------------
 
 ## Formats `timestamp` (Unix seconds) with a strftime `fmt` pattern in UTC.
+##
+## ## Parámetros
+## - `fmt`: the strftime pattern; an empty pattern falls back to
+##   "%Y-%m-%d %H:%M:%S".
+## - `timestamp`: the Unix seconds to render, interpreted in UTC.
+##
+## ## Retorno
+## A new owned `string`; release it with `banish`. Both arguments are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.format with "%Y-%m-%d", 0.0    # "1970-01-01"
+## ```
 weave format with fmt as string, timestamp as float into string:
     return calling pengu_c_strftime with fmt, timestamp
 
 ## Formats the current wall-clock time with a strftime `fmt` pattern in UTC.
+##
+## ## Parámetros
+## - `fmt`: the strftime pattern.
+##
+## ## Retorno
+## A new owned `string`; release it with `banish`. Derived from `time`, so it is
+## not deterministic.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.format_now with "%Y-%m-%d %H:%M:%S"
+## ```
 weave format_now with fmt as string into string:
-    var now as float is calling time
+    let now as float is calling time
     return calling format with fmt, now
 
 ## Parses `s` into Unix seconds, returning a maybe float.
+##
+## ## Parámetros
+## - `s`: the text to parse, in the layout described by `fmt`.
+## - `fmt`: the strptime pattern.
+##
+## ## Retorno
+## `some ts` with the parsed Unix seconds, or `maybe none` when `s` does not
+## match `fmt`. The `maybe` owns nothing; both arguments are borrowed.
+##
+## ## Motivo
+## The parser is anchored on the runtime's ISO-like bridge: it accepts
+## `YYYY-MM-DD`, optionally followed by `THH:MM:SS`, and resolves the result in
+## the process's local time zone. `fmt` is accepted so the signature stays
+## stable, but the bridge does not honour an arbitrary pattern yet. A trailing
+## time that cannot be read is taken as midnight rather than rejected.
+##
+## ## Ejemplo
+## ```pengu
+## let ts as maybe float is calling chronicle.parse with "1970-01-01", "%Y-%m-%d"
+## ```
 weave parse with s as string, fmt as string into maybe float:
-    return calling pengu_c_strptime with s, fmt
+    let parsed as maybe f64 is calling pengu_c_strptime with s, fmt
+    if parsed.is_present:
+        return some (parsed.value to float)
+    return maybe none
 
 ## Formats the current UTC time as an ISO 8601 string (e.g. "2026-09-25T14:30:00Z").
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## A new owned `string`; release it with `banish`. Derived from `time`, so it is
+## not deterministic.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.println with calling chronicle.now_utc_iso
+## ```
 weave now_utc_iso into string:
     return calling format with "%Y-%m-%dT%H:%M:%SZ", (calling time)
 
 ## Formats the current local time as an ISO 8601 string (e.g. "2026-09-25T14:30:00").
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## A new owned `string` without a trailing zone marker; release it with
+## `banish`. Derived from `time`, so it is not deterministic.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.println with calling chronicle.now_local_iso
+## ```
 weave now_local_iso into string:
-    var dt as DateTime is calling datetime_local with (calling time)
+    let dt as DateTime is calling datetime_local with (calling time)
     return "{(calling dt.to_date)}T{(calling dt.to_time)}"
 
 ## Formats the current local date as "YYYY-MM-DD".
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## A new owned `string`; release it with `banish`. Derived from `time`, so it is
+## not deterministic.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.println with calling chronicle.now_date
+## ```
 weave now_date into string:
-    var dt as DateTime is calling datetime_local with (calling time)
+    let dt as DateTime is calling datetime_local with (calling time)
     return calling dt.to_date
 
 ## Formats the current local time as "HH:MM:SS".
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## A new owned `string`; release it with `banish`. Derived from `time`, so it is
+## not deterministic.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.println with calling chronicle.now_time
+## ```
 weave now_time into string:
-    var dt as DateTime is calling datetime_local with (calling time)
+    let dt as DateTime is calling datetime_local with (calling time)
     return calling dt.to_time
 
 ## Formats `ts` (Unix seconds) as an ISO 8601 UTC string (e.g. "2026-09-25T14:30:00Z").
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## A new owned `string`; release it with `banish`. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.to_iso with 0.0    # "1970-01-01T00:00:00Z"
+## ```
 weave to_iso with ts as float into string:
     return calling format with "%Y-%m-%dT%H:%M:%SZ", ts
 
-## Parses an ISO 8601 date or datetime string (e.g. "2026-09-25T14:30:24Z",
-## "2026-09-25T14:30:24", "2026-09-25 14:30:24", or "2026-09-25") into UTC Unix seconds.
-## Round-trip with to_iso(ts) is guaranteed exact to the second.
+## Parses an ISO 8601 date or datetime string into UTC Unix seconds.
+##
+## ## Parámetros
+## - `s`: "2026-09-25T14:30:24Z", "2026-09-25T14:30:24",
+##   "2026-09-25 14:30:24" or "2026-09-25"; surrounding whitespace is trimmed.
+##
+## ## Retorno
+## `some ts` with the UTC Unix seconds, or `maybe none` when the text is not a
+## valid date in 1970.. with an optional valid time. Round-trip with `to_iso(ts)`
+## is guaranteed exact to the second. The result owns nothing; `s` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let ts as maybe float is calling chronicle.from_iso with "1970-01-01T00:00:00Z"
+## ```
 weave from_iso with s as string into maybe float:
-    var text as string is calling s.trim
-    var tl as int is calling text.len
-    if tl < 10:
+    let text as string is calling s.trim
+    defer banish text
+    let raw_len as int is calling text.len
+    if raw_len < 10:
         return maybe none
-    if (calling text.ends_with with "Z"):
-        set text is calling text.substring with 0, (tl - 1)
-        set tl is calling text.len
+    let has_z as bool is calling text.ends_with with "Z"
+    let tl as int is if has_z then (raw_len - 1) else raw_len
     if (text at 4) != "-":
         return maybe none
     if (text at 7) != "-":
         return maybe none
-    var y_opt as maybe int is calling spark.parse_int with (calling text.substring with 0, 4)
-    var m_opt as maybe int is calling spark.parse_int with (calling text.substring with 5, 7)
-    var d_opt as maybe int is calling spark.parse_int with (calling text.substring with 8, 10)
+    let y_opt as maybe int is calling _parse_slice with text, 0, 4
+    let m_opt as maybe int is calling _parse_slice with text, 5, 7
+    let d_opt as maybe int is calling _parse_slice with text, 8, 10
     if y_opt is not present:
         return maybe none
     if m_opt is not present:
         return maybe none
     if d_opt is not present:
         return maybe none
-    var y as int is y_opt.value
-    var m as int is m_opt.value
-    var d as int is d_opt.value
+    let y as int is y_opt.value
+    let m as int is m_opt.value
+    let d as int is d_opt.value
     if y < 1970:
         return maybe none
     if (m < 1) or (m > 12):
         return maybe none
     if d < 1:
         return maybe none
-    var max_d as int is calling days_in_month with y, m
+    let max_d as int is calling days_in_month with y, m
     if d > max_d:
         return maybe none
     var h as int is 0
-    var min as int is 0
-    var sec as int is 0
+    var mi as int is 0
+    var se as int is 0
     if tl >= 19:
-        var sep_t as string is text at 10
+        let sep_t as string is text at 10
         if (sep_t != "T") and (sep_t != " "):
             return maybe none
         if (text at 13) != ":":
             return maybe none
         if (text at 16) != ":":
             return maybe none
-        var h_opt as maybe int is calling spark.parse_int with (calling text.substring with 11, 13)
-        var min_opt as maybe int is calling spark.parse_int with (calling text.substring with 14, 16)
-        var sec_opt as maybe int is calling spark.parse_int with (calling text.substring with 17, 19)
+        let h_opt as maybe int is calling _parse_slice with text, 11, 13
+        let min_opt as maybe int is calling _parse_slice with text, 14, 16
+        let sec_opt as maybe int is calling _parse_slice with text, 17, 19
         if h_opt is not present:
             return maybe none
         if min_opt is not present:
@@ -481,14 +1461,492 @@ weave from_iso with s as string into maybe float:
         if sec_opt is not present:
             return maybe none
         set h is h_opt.value
-        set min is min_opt.value
-        set sec is sec_opt.value
+        set mi is min_opt.value
+        set se is sec_opt.value
         if (h < 0) or (h > 23):
             return maybe none
-        if (min < 0) or (min > 59):
+        if (mi < 0) or (mi > 59):
             return maybe none
-        if (sec < 0) or (sec > 60):
+        if (se < 0) or (se > 60):
             return maybe none
+    let days as int is calling _epoch_days with y, m, d
+    let total as float is ((days to float) * 86400.0) + ((h to float) * 3600.0) + ((mi to float) * 60.0) + (se to float)
+    return some total
+
+## Formats `ts` as a date string "YYYY-MM-DD" in UTC.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## A new owned `string`; release it with `banish`. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.to_date_string with 0.0    # "1970-01-01"
+## ```
+weave to_date_string with ts as float into string:
+    return calling format with "%Y-%m-%d", ts
+
+## Formats `ts` as a time string "HH:MM:SS" in UTC.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## A new owned `string`; release it with `banish`. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.to_time_string with 3661.0    # "01:01:01"
+## ```
+weave to_time_string with ts as float into string:
+    return calling format with "%H:%M:%S", ts
+
+## Formats `ts` as a datetime string "YYYY-MM-DD HH:MM:SS" in UTC.
+##
+## ## Parámetros
+## - `ts`: Unix seconds interpreted in UTC.
+##
+## ## Retorno
+## A new owned `string`; release it with `banish`. `ts` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.to_datetime_string with 0.0    # "1970-01-01 00:00:00"
+## ```
+weave to_datetime_string with ts as float into string:
+    return calling format with "%Y-%m-%d %H:%M:%S", ts
+
+# ----------------------------------------------------------------------------
+# Arithmetic & Comparisons
+# ----------------------------------------------------------------------------
+
+## Adds `n` seconds to `ts`.
+##
+## ## Parámetros
+## - `ts`: the starting Unix timestamp.
+## - `n`: whole seconds to add; defaults to 1.
+##
+## ## Retorno
+## The new timestamp as a `float`. `ts` is borrowed and not modified.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.add_seconds with 1700000000.0, 30
+## ```
+weave add_seconds with ts as float, n as int is 1 into float:
+    return ts + (n to float)
+
+## Adds `n` minutes (60s each) to `ts`.
+##
+## ## Parámetros
+## - `ts`: the starting Unix timestamp.
+## - `n`: whole minutes to add; defaults to 1.
+##
+## ## Retorno
+## The new timestamp as a `float`. `ts` is borrowed and not modified.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.add_minutes with 1700000000.0, 15
+## ```
+weave add_minutes with ts as float, n as int is 1 into float:
+    return ts + ((n to float) * 60.0)
+
+## Adds `n` hours (3600s each) to `ts`.
+##
+## ## Parámetros
+## - `ts`: the starting Unix timestamp.
+## - `n`: whole hours to add; defaults to 1.
+##
+## ## Retorno
+## The new timestamp as a `float`. `ts` is borrowed and not modified.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.add_hours with 1700000000.0, 2
+## ```
+weave add_hours with ts as float, n as int is 1 into float:
+    return ts + ((n to float) * 3600.0)
+
+## Adds `n` days (86400s each) to `ts`.
+##
+## ## Parámetros
+## - `ts`: the starting Unix timestamp.
+## - `n`: whole days to add; defaults to 1.
+##
+## ## Retorno
+## The new timestamp as a `float`. `ts` is borrowed and not modified.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.add_days with 1700000000.0, 7
+## ```
+weave add_days with ts as float, n as int is 1 into float:
+    return ts + ((n to float) * 86400.0)
+
+## Adds `n` weeks (604800s each) to `ts`.
+##
+## ## Parámetros
+## - `ts`: the starting Unix timestamp.
+## - `n`: whole weeks to add; defaults to 1.
+##
+## ## Retorno
+## The new timestamp as a `float`. `ts` is borrowed and not modified.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.add_weeks with 1700000000.0, 2
+## ```
+weave add_weeks with ts as float, n as int is 1 into float:
+    return ts + ((n to float) * 604800.0)
+
+## Returns the difference in seconds between two timestamps (`a - b`).
+##
+## ## Parámetros
+## - `a`: the minuend timestamp.
+## - `b`: the subtrahend timestamp.
+##
+## ## Retorno
+## `a - b` as a `float`, negative when `a` is earlier. Both are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.diff_seconds with 10.0, 4.0    # 6.0
+## ```
+weave diff_seconds with a as float, b as float into float:
+    return a - b
+
+## Returns the difference in whole days between two timestamps (`(a - b) / 86400`).
+##
+## ## Parámetros
+## - `a`: the minuend timestamp.
+## - `b`: the subtrahend timestamp.
+##
+## ## Retorno
+## The signed day count as an `int`, truncated towards zero. Both are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.diff_days with 259200.0, 0.0    # 3
+## ```
+weave diff_days with a as float, b as float into int:
+    return ((a - b) / 86400.0) to int
+
+## Returns the non-negative number of whole days between two timestamps.
+##
+## ## Parámetros
+## - `a`: the first timestamp.
+## - `b`: the second timestamp.
+##
+## ## Retorno
+## The absolute distance as an `int`, truncated towards zero, so the result does
+## not depend on the argument order. Unlike `diff_days`, it is never negative.
+## Both are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.days_between with 0.0, 259200.0    # 3
+## ```
+weave days_between with a as float, b as float into int:
+    let delta as float is if a >= b then (a - b) else (b - a)
+    return (delta / 86400.0) to int
+
+## Returns the non-negative number of whole hours between two timestamps.
+##
+## ## Parámetros
+## - `a`: the first timestamp.
+## - `b`: the second timestamp.
+##
+## ## Retorno
+## The absolute distance as an `int`, truncated towards zero, so the result does
+## not depend on the argument order. Both are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.hours_between with 0.0, 7200.0    # 2
+## ```
+weave hours_between with a as float, b as float into int:
+    let delta as float is if a >= b then (a - b) else (b - a)
+    return (delta / 3600.0) to int
+
+## Returns true if timestamp `a` occurs strictly before `b`.
+##
+## ## Parámetros
+## - `a`: the first timestamp.
+## - `b`: the second timestamp.
+##
+## ## Retorno
+## `true` when `a < b`, `false` otherwise. Both are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.is_before with 1.0, 2.0    # true
+## ```
+weave is_before with a as float, b as float into bool:
+    return a < b
+
+## Returns true if timestamp `a` occurs strictly after `b`.
+##
+## ## Parámetros
+## - `a`: the first timestamp.
+## - `b`: the second timestamp.
+##
+## ## Retorno
+## `true` when `a > b`, `false` otherwise. Both are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.is_after with 2.0, 1.0    # true
+## ```
+weave is_after with a as float, b as float into bool:
+    return a > b
+
+## Returns true if `ts` falls within `[lo, hi]` inclusive.
+##
+## ## Parámetros
+## - `ts`: the timestamp to test.
+## - `lo`: the inclusive lower bound.
+## - `hi`: the inclusive upper bound.
+##
+## ## Retorno
+## `true` when `lo <= ts <= hi`, `false` otherwise. All three are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.is_between with 5.0, 5.0, 5.0    # true
+## ```
+weave is_between with ts as float, lo as float, hi as float into bool:
+    return (ts >= lo) and (ts <= hi)
+
+# ----------------------------------------------------------------------------
+# Duration Formatting & Parsing
+# ----------------------------------------------------------------------------
+
+## Formats duration in seconds into human-readable text (e.g. "2h 30m 45s", "15m 30s", "10s").
+##
+## ## Parámetros
+## - `sec`: the duration in seconds; the fractional part is truncated.
+##
+## ## Retorno
+## A new owned `string`; release it with `banish`. Zero and negative durations
+## render as "0s". `sec` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling chronicle.format_duration with 9045.0    # "2h 30m 45s"
+## ```
+weave format_duration with sec as float into string:
+    let total as int is sec to int
+    if total <= 0:
+        return "0s"
+    let h as int is total / 3600
+    let rem as int is total % 3600
+    let m as int is rem / 60
+    let s as int is rem % 60
+    if h > 0:
+        return "{(h to string)}h {(m to string)}m {(s to string)}s"
+    if m > 0:
+        return "{(m to string)}m {(s to string)}s"
+    return "{(s to string)}s"
+
+## Parses human duration string ("45s", "30m", "2h", "7d", or raw seconds "45") into seconds.
+##
+## ## Parámetros
+## - `s`: the duration text; surrounding whitespace is trimmed. A trailing "s",
+##   "m", "h" or "d" selects the unit, and a bare integer counts as seconds.
+##
+## ## Retorno
+## `some sec` with the duration in seconds, or `maybe none` when the text is not
+## a supported duration. The `maybe` owns nothing; `s` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let d as maybe float is calling chronicle.parse_duration with "30m"
+## ```
+weave parse_duration with s as string into maybe float:
+    let trimmed as string is calling s.trim
+    defer banish trimmed
+    let n as int is calling trimmed.len
+    if n == 0:
+        return maybe none
+    # A purely numeric string is a count of seconds.
+    let num_only as maybe int is calling spark.parse_int with trimmed
+    if num_only is present:
+        return some ((num_only.value) to float)
+    if n < 2:
+        return maybe none
+    let last_c as string is calling trimmed.char_at with (n - 1)
+    defer banish last_c
+    let num_part as string is calling trimmed.substring with 0, (n - 1)
+    defer banish num_part
+    let cleaned as string is calling num_part.trim
+    defer banish cleaned
+    let val_opt as maybe int is calling spark.parse_int with cleaned
+    if val_opt is not present:
+        return maybe none
+    let val as float is (val_opt.value) to float
+    let factor as int is judge last_c:
+        when "s" -> 1
+        when "m" -> 60
+        when "h" -> 3600
+        when "d" -> 86400
+        else -> 0
+    if factor == 0:
+        return maybe none
+    return some (val * (factor to float))
+
+## Splits a whole number of seconds into hours, minutes and seconds.
+##
+## ## Parámetros
+## - `sec`: the number of seconds; its absolute value is used.
+##
+## ## Retorno
+## An `oracle.Pair` whose `first` is the whole hours and whose `second` is an
+## `oracle.Pair` of the remaining minutes (`second.first`) and seconds
+## (`second.second`). It owns no heap memory; `sec` is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let p as oracle.Pair of int and oracle.Pair of int and int is calling chronicle.seconds_to_hms with 3661
+## calling spark.println with (p.first) to string            # 1
+## calling spark.println with (p.second.first) to string     # 1
+## calling spark.println with (p.second.second) to string    # 1
+## ```
+weave seconds_to_hms with sec as int into oracle.Pair of int and oracle.Pair of int and int:
+    let total as int is if sec < 0 then (0 - sec) else sec
+    let h as int is total / 3600
+    let rem as int is total % 3600
+    let m as int is rem / 60
+    let s as int is rem % 60
+    var inner as oracle.Pair of int and int with:
+        set .first is m
+        set .second is s
+    var outer as oracle.Pair of int and oracle.Pair of int and int with:
+        set .first is h
+        set .second is inner
+    return outer
+
+# ----------------------------------------------------------------------------
+# Stopwatch
+# ----------------------------------------------------------------------------
+
+## High-resolution monotonic elapsed time measurement.
+##
+## ## Parámetros
+## - `started_at`: a `monotonic` reading captured by `ritual new` or `reset`.
+##
+## ## Retorno
+## A value rune holding one `float`; it owns no heap memory, so it never needs
+## `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var sw as chronicle.Stopwatch is calling chronicle.new_stopwatch
+## ```
+rune Stopwatch:
+    started_at as float
+
+## Methods of the `Stopwatch` value rune: creation, elapsed readings and reset.
+enchanting Stopwatch:
+    ## Creates and starts a new Stopwatch using monotonic clock.
+    ##
+    ## ## Parámetros
+    ## - None.
+    ##
+    ## ## Retorno
+    ## A fresh `Stopwatch` whose `started_at` is the current `monotonic` reading;
+    ## it owns no heap memory.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var sw as chronicle.Stopwatch is calling chronicle.Stopwatch.new
+    ## ```
+    weave ritual new into Stopwatch:
+        let t as float is calling monotonic
+        return with started_at is t
+
+    ## Returns elapsed seconds since stopwatch was created or reset.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver supplies `started_at`.
+    ##
+    ## ## Retorno
+    ## The elapsed monotonic seconds as a non-negative `float`. The receiver is
+    ## borrowed and not modified.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## let sec as float is calling sw.elapsed_sec
+    ## ```
+    weave elapsed_sec into float:
+        let now as float is calling monotonic
+        return now - self->started_at
+
+    ## Returns elapsed milliseconds since stopwatch was created or reset.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver supplies `started_at`.
+    ##
+    ## ## Retorno
+    ## The elapsed monotonic milliseconds truncated as a non-negative `int`. The
+    ## receiver is borrowed and not modified.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## let ms as int is calling sw.elapsed_ms
+    ## ```
+    weave elapsed_ms into int:
+        let sec as float is calling self.elapsed_sec
+        return (sec * 1000.0) to int
+
+    ## Resets the stopwatch start time to now.
+    ##
+    ## ## Parámetros
+    ## - None.
+    ##
+    ## ## Retorno
+    ## Nothing; the weave returns `void`. It overwrites `started_at` with the
+    ## current `monotonic` reading and never aborts.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sw.reset
+    ## ```
+    weave reset into void:
+        set self->started_at is calling monotonic
+
+## Creates and starts a new Stopwatch using monotonic clock.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## A fresh `Stopwatch`; it owns no heap memory. Equivalent to
+## `calling Stopwatch.new`.
+##
+## ## Ejemplo
+## ```pengu
+## var sw as chronicle.Stopwatch is calling chronicle.new_stopwatch
+## ```
+weave new_stopwatch into Stopwatch:
+    return calling Stopwatch.new
+
+# ----------------------------------------------------------------------------
+# Private helpers
+# ----------------------------------------------------------------------------
+
+## True when `y` is a Gregorian leap year (divisible by 4, not by 100 unless by 400).
+weave _is_leap_year with y as int into bool:
+    if (y % 400) == 0:
+        return true
+    if (y % 100) == 0:
+        return false
+    return (y % 4) == 0
+
+## Whole days between 1970-01-01 and the civil date `y`-`m`-`d`, all in UTC.
+weave _epoch_days with y as int, m as int, d as int into int:
     var days as int is 0
     var cur_y as int is 1970
     while cur_y < y:
@@ -498,146 +1956,370 @@ weave from_iso with s as string into maybe float:
     while cur_m < m:
         set days is days + (calling days_in_month with y, cur_m)
         set cur_m is cur_m + 1
-    set days is days + (d - 1)
-    var total_sec as float is ((days to float) * 86400.0) + ((h to float) * 3600.0) + ((min to float) * 60.0) + (sec to float)
-    return some total_sec
+    return days + (d - 1)
 
-## Formats `ts` as a date string "YYYY-MM-DD" in UTC.
-weave to_date_string with ts as float into string:
-    return calling format with "%Y-%m-%d", ts
+## Parses the `[from_i, to_i)` slice of `text` as a decimal int, freeing the slice.
+weave _parse_slice with text as string, from_i as int, to_i as int into maybe int:
+    let part as string is calling text.substring with from_i, to_i
+    defer banish part
+    return calling spark.parse_int with part
 
-## Formats `ts` as a time string "HH:MM:SS" in UTC.
-weave to_time_string with ts as float into string:
-    return calling format with "%H:%M:%S", ts
-
-## Formats `ts` as a datetime string "YYYY-MM-DD HH:MM:SS" in UTC.
-weave to_datetime_string with ts as float into string:
-    return calling format with "%Y-%m-%d %H:%M:%S", ts
+## Zero-pads `n` to two digits when it is below 10.
+weave _pad2 with n as int into string:
+    return if n < 10 then "0{(n) to string}" else (n) to string
 
 # ----------------------------------------------------------------------------
-# Arithmetic & Comparisons
+# Tests
 # ----------------------------------------------------------------------------
 
-## Adds `n` seconds to `ts`.
-weave add_seconds with ts as float, n as int is 1 into float:
-    return ts + (n to float)
+## Aborts via `spark.panic` unless `cond` holds.
+weave _chr_expect with cond as bool, label as string into void:
+    if not cond:
+        calling spark.panic with "expectation failed: {label}"
 
-## Adds `n` minutes (60s each) to `ts`.
-weave add_minutes with ts as float, n as int is 1 into float:
-    return ts + ((n to float) * 60.0)
+## Aborts via `spark.panic` unless `got` equals `want`.
+weave _chr_expect_eq_int with got as int, want as int, label as string into void:
+    if got != want:
+        calling spark.panic with "{label}: expected {(want to string)}, got {(got to string)}"
 
-## Adds `n` hours (3600s each) to `ts`.
-weave add_hours with ts as float, n as int is 1 into float:
-    return ts + ((n to float) * 3600.0)
+## Aborts via `spark.panic` unless the two strings are byte-equal.
+weave _chr_expect_eq_string with got as string, want as string, label as string into void:
+    if got != want:
+        calling spark.panic with "{label}: expected \"{want}\", got \"{got}\""
 
-## Adds `n` days (86400s each) to `ts`.
-weave add_days with ts as float, n as int is 1 into float:
-    return ts + ((n to float) * 86400.0)
+## Aborts via `spark.panic` unless `got` and `want` differ by less than 0.000001.
+weave _chr_expect_close with got as float, want as float, label as string into void:
+    let diff as float is if got >= want then (got - want) else (want - got)
+    if diff > 0.000001:
+        calling spark.panic with "{label}: float mismatch"
 
-## Adds `n` weeks (604800s each) to `ts`.
-weave add_weeks with ts as float, n as int is 1 into float:
-    return ts + ((n to float) * 604800.0)
+## Aborts via `spark.panic` unless `opt` holds a value close to `want`.
+weave _chr_expect_maybe_float with opt as maybe float, want as float, label as string into void:
+    if opt is not present:
+        calling spark.panic with "{label}: expected a value, got none"
+    calling _chr_expect_close with opt.value, want, label
 
-## Returns the difference in seconds between two timestamps (`a - b`).
-weave diff_seconds with a as float, b as float into float:
-    return a - b
+test "chronicle_version matches the CHRONICLE_VERSION constant":
+    calling _chr_expect with (CHRONICLE_VERSION == "2.1.0"), "version literal"
 
-## Returns the difference in whole days between two timestamps (`(a - b) / 86400`).
-weave diff_days with a as float, b as float into int:
-    return ((a - b) / 86400.0) to int
+test "pad2 zero-pads single digits and keeps two-digit values":
+    let one as string is calling _pad2 with 3
+    defer banish one
+    let two as string is calling _pad2 with 12
+    defer banish two
+    calling _chr_expect_eq_string with one, "03", "pad2(3)"
+    calling _chr_expect_eq_string with two, "12", "pad2(12)"
 
-## Returns true if timestamp `a` occurs strictly before `b`.
-weave is_before with a as float, b as float into bool:
-    return a < b
+test "DateTime.to_date and to_time format a constructed record":
+    var dt as DateTime with:
+        set .year is 1970
+        set .month is 1
+        set .day is 2
+        set .hour is 3
+        set .minute is 4
+        set .second is 5
+        set .weekday is 5
+        set .yearday is 1
+        set .is_dst is false
+    let date_text as string is calling dt.to_date
+    defer banish date_text
+    let time_text as string is calling dt.to_time
+    defer banish time_text
+    calling _chr_expect_eq_string with date_text, "1970-01-02", "to_date"
+    calling _chr_expect_eq_string with time_text, "03:04:05", "to_time"
 
-## Returns true if timestamp `a` occurs strictly after `b`.
-weave is_after with a as float, b as float into bool:
-    return a > b
+test "to_iso and DateTime.to_iso format the epoch in UTC":
+    let via_module as string is calling to_iso with 0.0
+    defer banish via_module
+    var dt as DateTime is calling datetime_utc with 0.0
+    let via_method as string is calling dt.to_iso
+    defer banish via_method
+    calling _chr_expect_eq_string with via_module, "1970-01-01T00:00:00Z", "to_iso(0)"
+    calling _chr_expect_eq_string with via_method, "1970-01-01T00:00:00Z", "dt.to_iso"
 
-## Returns true if `ts` falls within `[lo, hi]` inclusive.
-weave is_between with ts as float, lo as float, hi as float into bool:
-    if ts < lo:
-        return false
-    if ts > hi:
-        return false
-    return true
+test "from_iso round-trips to_iso for fixed timestamps":
+    let epoch_iso as string is calling to_iso with 0.0
+    defer banish epoch_iso
+    let epoch_back as maybe float is calling from_iso with epoch_iso
+    calling _chr_expect_maybe_float with epoch_back, 0.0, "epoch round-trip"
+    let day_iso as string is calling to_iso with 86400.0
+    defer banish day_iso
+    let day_back as maybe float is calling from_iso with day_iso
+    calling _chr_expect_maybe_float with day_back, 86400.0, "day round-trip"
+    let famous_iso as string is calling to_iso with 1700000000.0
+    defer banish famous_iso
+    let famous_back as maybe float is calling from_iso with famous_iso
+    calling _chr_expect_maybe_float with famous_back, 1700000000.0, "famous round-trip"
 
-# ----------------------------------------------------------------------------
-# Duration Formatting & Parsing
-# ----------------------------------------------------------------------------
+test "from_iso accepts a space separator and a date-only form":
+    let with_space as maybe float is calling from_iso with "2023-11-14 22:13:20"
+    calling _chr_expect_maybe_float with with_space, 1700000000.0, "space separator"
+    let date_only as maybe float is calling from_iso with "2023-11-14"
+    calling _chr_expect_maybe_float with date_only, 1699920000.0, "date only"
+    let padded as maybe float is calling from_iso with "  1970-01-01T00:00:00Z  "
+    calling _chr_expect_maybe_float with padded, 0.0, "trimmed"
 
-## Formats duration in seconds into human-readable text (e.g. "2h 30m 45s", "15m 30s", "10s").
-weave format_duration with sec as float into string:
-    var total as int is sec to int
-    if total <= 0:
-        return "0s"
-    var h as int is total / 3600
-    var rem as int is total % 3600
-    var m as int is rem / 60
-    var s as int is rem % 60
-    if h > 0:
-        return "{(h to string)}h {(m to string)}m {(s to string)}s"
-    if m > 0:
-        return "{(m to string)}m {(s to string)}s"
-    return "{(s to string)}s"
+test "from_iso rejects malformed input with none":
+    let too_short as maybe float is calling from_iso with "abc"
+    calling _chr_expect with (not (too_short is present)), "short text"
+    let bad_sep as maybe float is calling from_iso with "2024/01/01"
+    calling _chr_expect with (not (bad_sep is present)), "bad separator"
+    let bad_month as maybe float is calling from_iso with "2024-13-01"
+    calling _chr_expect with (not (bad_month is present)), "month 13"
+    let bad_day as maybe float is calling from_iso with "2024-02-30"
+    calling _chr_expect with (not (bad_day is present)), "Feb 30"
+    let bad_hour as maybe float is calling from_iso with "2024-01-01T99:00:00"
+    calling _chr_expect with (not (bad_hour is present)), "hour 99"
+    let pre_epoch as maybe float is calling from_iso with "1969-12-31"
+    calling _chr_expect with (not (pre_epoch is present)), "year below 1970"
 
-## Parses human duration string ("45s", "30m", "2h", "7d", or raw seconds "45") into seconds.
-weave parse_duration with s as string into maybe float:
-    var trimmed as string is calling s.trim
-    var n as int is calling trimmed.len
-    if n == 0:
-        return maybe none
-    # Direct integer seconds if string is purely numeric
-    var num_only as maybe int is calling spark.parse_int with trimmed
-    if num_only is present:
-        return some ((num_only.value) to float)
-    if n < 2:
-        return maybe none
-    var last_c as string is calling trimmed.char_at with (n - 1)
-    var num_part as string is calling trimmed.substring with 0, (n - 1)
-    var val_opt as maybe int is calling spark.parse_int with (calling num_part.trim)
-    if val_opt is not present:
-        return maybe none
-    var val as float is (val_opt.value) to float
-    if last_c == "s":
-        return some val
-    if last_c == "m":
-        return some (val * 60.0)
-    if last_c == "h":
-        return some (val * 3600.0)
-    if last_c == "d":
-        return some (val * 86400.0)
-    return maybe none
+test "to_timestamp inverts datetime_utc for fixed timestamps":
+    var epoch_dt as DateTime is calling datetime_utc with 0.0
+    calling _chr_expect_close with (calling epoch_dt.to_timestamp), 0.0, "to_timestamp(0)"
+    var day_dt as DateTime is calling datetime_utc with 86400.0
+    calling _chr_expect_close with (calling day_dt.to_timestamp), 86400.0, "to_timestamp(86400)"
+    var famous as DateTime is calling datetime_utc with 1700000000.0
+    calling _chr_expect_close with (calling famous.to_timestamp), 1700000000.0, "to_timestamp(famous)"
 
-# ----------------------------------------------------------------------------
-# Stopwatch
-# ----------------------------------------------------------------------------
+test "to_timestamp handles a leap day":
+    var leap as DateTime is calling datetime_utc with 1709164800.0
+    calling _chr_expect_eq_int with leap.year, 2024, "leap year"
+    calling _chr_expect_eq_int with leap.month, 2, "leap month"
+    calling _chr_expect_eq_int with leap.day, 29, "leap day"
+    calling _chr_expect_close with (calling leap.to_timestamp), 1709164800.0, "leap round-trip"
 
-## High-resolution monotonic elapsed time measurement.
-rune Stopwatch:
-    started_at as float
+test "plus_seconds and plus_minutes move a DateTime forward":
+    var base as DateTime is calling datetime_utc with 0.0
+    var by_sec as DateTime is calling base.plus_seconds with 90
+    calling _chr_expect_close with (calling by_sec.to_timestamp), 90.0, "plus_seconds"
+    var by_min as DateTime is calling base.plus_minutes with 2
+    calling _chr_expect_close with (calling by_min.to_timestamp), 120.0, "plus_minutes"
+    var back as DateTime is calling by_min.plus_minutes with -1
+    calling _chr_expect_close with (calling back.to_timestamp), 60.0, "plus negative"
 
-enchanting Stopwatch:
-    ## Creates and starts a new Stopwatch using monotonic clock.
-    weave ritual new into Stopwatch:
-        var t as float is calling monotonic
-        return with started_at is t
+test "plus_hours, plus_days and plus_weeks use their unit":
+    var base as DateTime is calling datetime_utc with 1700000000.0
+    var by_hour as DateTime is calling base.plus_hours with 1
+    calling _chr_expect_close with (calling by_hour.to_timestamp), 1700003600.0, "plus_hours"
+    var by_day as DateTime is calling base.plus_days with 1
+    calling _chr_expect_close with (calling by_day.to_timestamp), 1700086400.0, "plus_days"
+    var by_week as DateTime is calling base.plus_weeks with 1
+    calling _chr_expect_close with (calling by_week.to_timestamp), 1700604800.0, "plus_weeks"
 
+test "DateTime.is_before and is_after compare timestamps":
+    var early as DateTime is calling datetime_utc with 0.0
+    var late as DateTime is calling datetime_utc with 86400.0
+    calling _chr_expect with (calling early.is_before with late), "early before late"
+    calling _chr_expect with (not (calling early.is_after with late)), "early not after late"
+    calling _chr_expect with (calling late.is_after with early), "late after early"
 
-    ## Returns elapsed seconds since stopwatch was created or reset.
-    weave elapsed_sec into float:
-        var now as float is calling monotonic
-        return now - self->started_at
+test "DateTime.is_same_day ignores the time of day":
+    var with_time as DateTime is calling datetime_utc with 1700000000.0
+    var midnight as DateTime is calling datetime_utc with 1699920000.0
+    var previous as DateTime is calling datetime_utc with 1699833600.0
+    calling _chr_expect with (calling with_time.is_same_day with midnight), "same day"
+    calling _chr_expect with (not (calling with_time.is_same_day with previous)), "previous day"
 
-    ## Returns elapsed milliseconds since stopwatch was created or reset.
-    weave elapsed_ms into int:
-        var sec as float is calling self.elapsed_sec
-        return (sec * 1000.0) to int
+test "DateTime.weekday_name labels known epochs":
+    var thursday as DateTime is calling datetime_utc with 0.0
+    var friday as DateTime is calling datetime_utc with 86400.0
+    var tuesday as DateTime is calling datetime_utc with 1700000000.0
+    let a as string is calling thursday.weekday_name
+    defer banish a
+    let b as string is calling friday.weekday_name
+    defer banish b
+    let c as string is calling tuesday.weekday_name
+    defer banish c
+    calling _chr_expect_eq_string with a, "Thursday", "1970-01-01"
+    calling _chr_expect_eq_string with b, "Friday", "1970-01-02"
+    calling _chr_expect_eq_string with c, "Tuesday", "2023-11-14"
 
-    ## Resets the stopwatch start time to now.
-    weave reset into void:
-        set self->started_at is calling monotonic
+test "DateTime.month_name labels known epochs":
+    var january as DateTime is calling datetime_utc with 0.0
+    var november as DateTime is calling datetime_utc with 1700000000.0
+    var february as DateTime is calling datetime_utc with 1709164800.0
+    let a as string is calling january.month_name
+    defer banish a
+    let b as string is calling november.month_name
+    defer banish b
+    let c as string is calling february.month_name
+    defer banish c
+    calling _chr_expect_eq_string with a, "January", "epoch"
+    calling _chr_expect_eq_string with b, "November", "2023-11-14"
+    calling _chr_expect_eq_string with c, "February", "2024-02-29"
 
-## Creates and starts a new Stopwatch using monotonic clock.
-weave new_stopwatch into Stopwatch:
-    return calling Stopwatch.new
+test "module weekday_name and month_name label known epochs":
+    let wd as string is calling weekday_name with 0.0
+    defer banish wd
+    let mo as string is calling month_name with 1700000000.0
+    defer banish mo
+    calling _chr_expect_eq_string with wd, "Thursday", "weekday_name(0)"
+    calling _chr_expect_eq_string with mo, "November", "month_name(1700000000)"
+
+test "DateTime.is_weekend is true on Saturday and Sunday":
+    var saturday as DateTime is calling datetime_utc with 172800.0
+    var sunday as DateTime is calling datetime_utc with 259200.0
+    var monday as DateTime is calling datetime_utc with 345600.0
+    calling _chr_expect with (calling saturday.is_weekend), "Saturday"
+    calling _chr_expect with (calling sunday.is_weekend), "Sunday"
+    calling _chr_expect with (not (calling monday.is_weekend)), "Monday"
+
+test "DateTime.is_leap_year and the module is_leap_year agree":
+    var leap as DateTime is calling datetime_utc with 1704067200.0
+    var plain as DateTime is calling datetime_utc with 1672531200.0
+    calling _chr_expect with (calling leap.is_leap_year), "2024 method"
+    calling _chr_expect with (not (calling plain.is_leap_year)), "2023 method"
+    calling _chr_expect with (calling is_leap_year with 2000), "2000"
+    calling _chr_expect with (not (calling is_leap_year with 1900)), "1900"
+    calling _chr_expect with (not (calling is_leap_year with 2023)), "2023"
+
+test "days_in_month and days_in_year count a leap year":
+    calling _chr_expect_eq_int with (calling days_in_month with 2024, 2), 29, "Feb 2024"
+    calling _chr_expect_eq_int with (calling days_in_month with 2023, 2), 28, "Feb 2023"
+    calling _chr_expect_eq_int with (calling days_in_month with 2024, 4), 30, "April"
+    calling _chr_expect_eq_int with (calling days_in_month with 2024, 0), 0, "month 0"
+    calling _chr_expect_eq_int with (calling days_in_month with 2024, 13), 0, "month 13"
+    calling _chr_expect_eq_int with (calling days_in_year with 2024), 366, "leap year"
+    calling _chr_expect_eq_int with (calling days_in_year with 2023), 365, "plain year"
+
+test "start_of_day and end_of_day bound the UTC day":
+    calling _chr_expect_close with (calling start_of_day with 1700000000.0), 1699920000.0, "start_of_day"
+    calling _chr_expect_close with (calling end_of_day with 1700000000.0), 1700006399.0, "end_of_day"
+    calling _chr_expect_close with (calling start_of_day with 0.0), 0.0, "epoch start"
+
+test "start_of_month and start_of_year truncate to boundaries":
+    calling _chr_expect_close with (calling start_of_month with 1700000000.0), 1698796800.0, "start_of_month"
+    calling _chr_expect_close with (calling start_of_year with 1700000000.0), 1672531200.0, "start_of_year"
+    calling _chr_expect_close with (calling start_of_year with 0.0), 0.0, "epoch start_of_year"
+
+test "start_of_week returns the Monday midnight":
+    calling _chr_expect_close with (calling start_of_week with 1700000000.0), 1699833600.0, "Tuesday"
+    calling _chr_expect_close with (calling start_of_week with 1699833600.0), 1699833600.0, "already Monday"
+    calling _chr_expect_eq_int with (calling utc_weekday with 1699833600.0), 1, "Monday index"
+
+test "start_of_quarter returns the first day of the quarter":
+    calling _chr_expect_close with (calling start_of_quarter with 1700000000.0), 1696118400.0, "Q4 2023"
+    calling _chr_expect_close with (calling start_of_quarter with 1672531200.0), 1672531200.0, "Q1 2023"
+    calling _chr_expect_close with (calling start_of_quarter with 1709164800.0), 1704067200.0, "Q1 2024"
+
+test "end_of_month returns the last second of the month":
+    calling _chr_expect_close with (calling end_of_month with 1706745600.0), 1709251199.0, "Feb 2024"
+    calling _chr_expect_close with (calling end_of_month with 1700000000.0), 1701388799.0, "Nov 2023"
+
+test "days_between and hours_between are non-negative":
+    calling _chr_expect_eq_int with (calling days_between with 0.0, 259200.0), 3, "forward"
+    calling _chr_expect_eq_int with (calling days_between with 259200.0, 0.0), 3, "backward"
+    calling _chr_expect_eq_int with (calling hours_between with 0.0, 7200.0), 2, "hours forward"
+    calling _chr_expect_eq_int with (calling hours_between with 7200.0, 0.0), 2, "hours backward"
+
+test "diff_seconds and diff_days are signed":
+    calling _chr_expect_close with (calling diff_seconds with 10.0, 4.0), 6.0, "forward seconds"
+    calling _chr_expect_close with (calling diff_seconds with 4.0, 10.0), -6.0, "backward seconds"
+    calling _chr_expect_eq_int with (calling diff_days with 259200.0, 0.0), 3, "forward days"
+    calling _chr_expect_eq_int with (calling diff_days with 0.0, 259200.0), -3, "backward days"
+
+test "add_seconds through add_weeks use their unit and default of one":
+    calling _chr_expect_close with (calling add_seconds with 100.0), 101.0, "default second"
+    calling _chr_expect_close with (calling add_seconds with 100.0, 5), 105.0, "five seconds"
+    calling _chr_expect_close with (calling add_minutes with 0.0, 2), 120.0, "minutes"
+    calling _chr_expect_close with (calling add_hours with 0.0, 1), 3600.0, "hours"
+    calling _chr_expect_close with (calling add_days with 0.0, 1), 86400.0, "days"
+    calling _chr_expect_close with (calling add_weeks with 0.0, 1), 604800.0, "weeks"
+
+test "is_before, is_after and is_between on timestamps":
+    calling _chr_expect with (calling is_before with 1.0, 2.0), "before"
+    calling _chr_expect with (not (calling is_before with 2.0, 2.0)), "equal is not before"
+    calling _chr_expect with (calling is_after with 2.0, 1.0), "after"
+    calling _chr_expect with (calling is_between with 5.0, 5.0, 5.0), "single point"
+    calling _chr_expect with (not (calling is_between with 4.0, 5.0, 6.0)), "below range"
+
+test "format_duration renders hours, minutes and seconds":
+    let zero as string is calling format_duration with 0.0
+    defer banish zero
+    let negative as string is calling format_duration with -5.0
+    defer banish negative
+    let seconds as string is calling format_duration with 45.0
+    defer banish seconds
+    let minutes as string is calling format_duration with 930.0
+    defer banish minutes
+    let hours as string is calling format_duration with 9045.0
+    defer banish hours
+    calling _chr_expect_eq_string with zero, "0s", "zero"
+    calling _chr_expect_eq_string with negative, "0s", "negative"
+    calling _chr_expect_eq_string with seconds, "45s", "seconds"
+    calling _chr_expect_eq_string with minutes, "15m 30s", "minutes"
+    calling _chr_expect_eq_string with hours, "2h 30m 45s", "hours"
+
+test "parse_duration accepts suffixes and raw seconds":
+    let raw as maybe float is calling parse_duration with "45"
+    calling _chr_expect_maybe_float with raw, 45.0, "raw seconds"
+    let sec as maybe float is calling parse_duration with "10s"
+    calling _chr_expect_maybe_float with sec, 10.0, "suffix s"
+    let minutes as maybe float is calling parse_duration with "30m"
+    calling _chr_expect_maybe_float with minutes, 1800.0, "suffix m"
+    let hours as maybe float is calling parse_duration with "2h"
+    calling _chr_expect_maybe_float with hours, 7200.0, "suffix h"
+    let days as maybe float is calling parse_duration with "7d"
+    calling _chr_expect_maybe_float with days, 604800.0, "suffix d"
+    let empty as maybe float is calling parse_duration with ""
+    calling _chr_expect with (not (empty is present)), "empty text"
+    let bad_unit as maybe float is calling parse_duration with "5x"
+    calling _chr_expect with (not (bad_unit is present)), "bad unit"
+
+test "seconds_to_hms splits into hours, minutes and seconds":
+    let p as oracle.Pair of int and oracle.Pair of int and int is calling seconds_to_hms with 3661
+    calling _chr_expect_eq_int with p.first, 1, "hours"
+    calling _chr_expect_eq_int with p.second.first, 1, "minutes"
+    calling _chr_expect_eq_int with p.second.second, 1, "seconds"
+    let q as oracle.Pair of int and oracle.Pair of int and int is calling seconds_to_hms with 0
+    calling _chr_expect_eq_int with q.first, 0, "zero hours"
+    calling _chr_expect_eq_int with q.second.second, 0, "zero seconds"
+    let r as oracle.Pair of int and oracle.Pair of int and int is calling seconds_to_hms with -61
+    calling _chr_expect_eq_int with r.first, 0, "negative hours"
+    calling _chr_expect_eq_int with r.second.first, 1, "negative minutes"
+    calling _chr_expect_eq_int with r.second.second, 1, "negative seconds"
+
+test "format and the to_*_string helpers agree on UTC":
+    let date_text as string is calling format with "%Y-%m-%d", 0.0
+    defer banish date_text
+    let time_text as string is calling to_time_string with 3661.0
+    defer banish time_text
+    let datetime_text as string is calling to_datetime_string with 0.0
+    defer banish datetime_text
+    let short_date as string is calling to_date_string with 0.0
+    defer banish short_date
+    calling _chr_expect_eq_string with date_text, "1970-01-01", "format"
+    calling _chr_expect_eq_string with time_text, "01:01:01", "to_time_string"
+    calling _chr_expect_eq_string with datetime_text, "1970-01-01 00:00:00", "to_datetime_string"
+    calling _chr_expect_eq_string with short_date, "1970-01-01", "to_date_string"
+
+test "utc_* getters read the reviewed fields":
+    calling _chr_expect_eq_int with (calling utc_year with 1700000000.0), 2023, "year"
+    calling _chr_expect_eq_int with (calling utc_month with 1700000000.0), 11, "month"
+    calling _chr_expect_eq_int with (calling utc_day with 1700000000.0), 14, "day"
+    calling _chr_expect_eq_int with (calling utc_hour with 1700000000.0), 22, "hour"
+    calling _chr_expect_eq_int with (calling utc_minute with 1700000000.0), 13, "minute"
+    calling _chr_expect_eq_int with (calling utc_second with 1700000000.0), 20, "second"
+    calling _chr_expect_eq_int with (calling utc_weekday with 1700000000.0), 2, "weekday"
+    calling _chr_expect_eq_int with (calling utc_yearday with 1700000000.0), 317, "yearday"
+    calling _chr_expect with (not (calling utc_is_dst with 1700000000.0)), "utc is never DST"
+
+test "datetime_local mirrors the local_* getters":
+    let ts as float is 1700000000.0
+    var dt as DateTime is calling datetime_local with ts
+    calling _chr_expect_eq_int with dt.year, (calling local_year with ts), "year"
+    calling _chr_expect_eq_int with dt.month, (calling local_month with ts), "month"
+    calling _chr_expect_eq_int with dt.day, (calling local_day with ts), "day"
+    calling _chr_expect_eq_int with dt.hour, (calling local_hour with ts), "hour"
+    calling _chr_expect_eq_int with dt.minute, (calling local_minute with ts), "minute"
+    calling _chr_expect_eq_int with dt.second, (calling local_second with ts), "second"
+    calling _chr_expect_eq_int with dt.weekday, (calling local_weekday with ts), "weekday"
+    calling _chr_expect_eq_int with dt.yearday, (calling local_yearday with ts), "yearday"
+    calling _chr_expect with (dt.is_dst == (calling local_is_dst with ts)), "is_dst"
+
+test "Stopwatch reports non-negative elapsed time and resets":
+    var sw as Stopwatch is calling new_stopwatch
+    calling _chr_expect with ((calling sw.elapsed_sec) >= 0.0), "elapsed_sec"
+    calling _chr_expect with ((calling sw.elapsed_ms) >= 0), "elapsed_ms"
+    calling sw.reset
+    calling _chr_expect with ((calling sw.elapsed_sec) >= 0.0), "after reset"

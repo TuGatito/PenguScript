@@ -2679,7 +2679,16 @@ class TypeInferrer:
                         fn_name = f"{first_name}_{m_name}"
                     elif (first_name, m_name) in self.symbols.generic_methods and method_self_type is None:
                         fn_name = f"{first_name}_{m_name}"
-                    elif m_name in self.symbols.generic_functions:
+                    elif m_name in self.symbols.generic_functions and method_self_type is None:
+                        # Fallback for a generic function reached through a type or
+                        # module name. It must NOT fire for a value receiver whose
+                        # own type provides the method: a generic free weave
+                        # (`weave sum shard T with l as list of T`) and a generic
+                        # enchanting method (`enchanting list of shard T: weave
+                        # sum`) can share a name, and adopting the bare generic
+                        # function here made `calling xs.sum` resolve to the free
+                        # function and fail with "could not infer type parameter(s)
+                        # T" even though the method inference was unambiguous.
                         fn_name = m_name
                     else:
                         method_name = m_name

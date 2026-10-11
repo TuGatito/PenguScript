@@ -150,6 +150,68 @@ class ExprMixin:
             return self._translate_expr_impl(node, expected_type)
         finally:
             self._expr_depth -= 1
+
+    def _resolve_monomorphized_call(self, base_names, m_name, arg_nodes):
+        """Resolve the exact monomorphized C name of a generic call.
+
+        A generic specialization is mangled from its *type parameters*
+        (`sum_int`, `sum_float`, ...), not from the argument types, so the
+        declared parameter types are unified against the inferred argument types
+        to recover the substitution. The previous prefix heuristic only worked
+        while exactly one specialization existed, which broke `mod.generic`
+        calls as soon as two element types were used in the same program.
+        """
+        mono = getattr(self.symbols, "monomorphized_functions", None) or {}
+        if not mono:
+            return None
+        bases = [b for b in base_names if b]
+        for b in bases:
+            if b in mono:
+                return b
+        matches = sorted({m for m in mono for b in bases if m.startswith(f"{b}_")})
+        if len(matches) == 1:
+            return matches[0]
+
+        decl_fn = None
+        for cand in (m_name, *bases):
+            decl_fn = self.symbols.functions.get(cand)
+            if decl_fn is not None:
+                break
+        type_params = list(getattr(decl_fn, "type_params", None) or []) if decl_fn else []
+        if decl_fn and type_params and arg_nodes:
+            arg_types = []
+            inferrer = None
+            try:
+                inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
+                for lv_k, lv_v in self.local_vars.items():
+                    inferrer.symbols.define(Symbol(name=lv_k, type=lv_v, kind="var"))
+                arg_types = [inferrer.infer(n) for n in arg_nodes]
+            except Exception:
+                arg_types = []
+            if inferrer is not None and 0 < len(arg_types) <= len(decl_fn.params):
+                # A trailing parameter with a default may be omitted at the call
+                # site (`calling zip_with with a, b`), so the argument list can be
+                # a strict prefix of the declared parameters. Unify only the
+                # supplied prefix: the defaulted tail cannot contribute type
+                # parameters, and requiring equal lengths left the call with the
+                # unspecialized symbol (`loom_zip_with`).
+                subst: Dict[str, Type] = {}
+                for (_, p_type), arg_t in zip(decl_fn.params, arg_types):
+                    try:
+                        inferrer._unify_type(p_type, arg_t, subst)
+                    except Exception:
+                        pass
+                if all(tp in subst for tp in type_params):
+                    suffix = "_".join(subst[tp].get_mangled_name() for tp in type_params)
+                    for b in bases:
+                        cand = f"{b}_{suffix}"
+                        if cand in mono:
+                            return cand
+                    c_matches = [m for m in mono if m.endswith(f"_{suffix}")]
+                    if len(c_matches) == 1:
+                        return c_matches[0]
+        return None
+
     def _translate_expr_impl(self, node: Any, expected_type: Optional[Type] = None) -> str:
         """Translates expression node into C99 expression string."""
         if node is None:
@@ -772,12 +834,10 @@ class ExprMixin:
                         elif alias_prefixed in self.fn_info:
                             prefixed = alias_prefixed
                         elif hasattr(self.symbols, "monomorphized_functions"):
-                            m_matches = [m for m in self.symbols.monomorphized_functions if m.startswith(f"{prefixed}_") or m.startswith(f"{alias_prefixed}_")]
-                            if not m_matches:
-                                m_matches = [m for m, entry in self.symbols.monomorphized_functions.items()
-                                             if m.startswith(f"{m_name}_") and get_generic_ast_name(entry[0]) == m_name]
-                            if len(m_matches) == 1:
-                                prefixed = m_matches[0]
+                            resolved = self._resolve_monomorphized_call(
+                                (prefixed, alias_prefixed, m_name), m_name, raw_arg_nodes)
+                            if resolved:
+                                prefixed = resolved
                         # Prefer the unambiguous module-scoped C name when the code
                         # generator registered it (avoids collisions when another
                         # module exports a function with the same source name).

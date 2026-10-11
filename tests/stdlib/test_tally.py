@@ -97,10 +97,10 @@ def _run_main(body: str, helpers: str = "") -> subprocess.CompletedProcess:
 # ---------------------------------------------------------------------------
 
 def test_version_constant_is_2_1_0():
-    """``TALLY_VERSION`` reports the migrated module version ``2.1.0``."""
+    """``TALLY_VERSION`` reports the migrated module version ``2.2.0``."""
     res = _run_main("calling spark.println with tally.TALLY_VERSION")
     assert res.returncode == 0, res.stderr
-    assert res.stdout == "2.1.0\n"
+    assert res.stdout == "2.2.0\n"
 
 
 # ---------------------------------------------------------------------------
@@ -754,3 +754,118 @@ def test_sortedness_and_map_helpers():
     ''', helpers=_DUMP_INT_LIST)
     assert res.returncode == 0, res.stderr
     assert res.stdout == "true\ntrue\n14\n6\n2\n4\n"
+
+
+# ---------------------------------------------------------------------------
+# Widened element types: the 2.2.0 signatures accept float, i64 and string lists
+# ---------------------------------------------------------------------------
+
+#: Printers for the element types the widened signatures accept.
+_WIDENED_DUMP = """
+weave dump_float with xs as list of float into void:
+    for x in xs:
+        calling spark.println with calling spark.str_float with x
+
+weave dump_i64 with xs as list of i64 into void:
+    for x in xs:
+        calling spark.println with "{x}"
+
+weave dump_words with xs as list of string into void:
+    for x in xs:
+        calling spark.println with x
+"""
+
+
+def test_widened_float_sum_and_mean_keep_the_fraction():
+    """``tally.sum``/``tally.mean`` over ``list of float`` do not truncate."""
+    res = _run_main('''
+        var xs as list of float is [1.0, 2.0]
+        calling spark.println with calling spark.str_float with (calling tally.sum with xs)
+        calling spark.println with calling spark.str_float with (calling xs.sum)
+        calling spark.println with calling spark.str_float with (calling tally.mean with xs)
+        calling spark.println with calling spark.str_float with (calling xs.mean)
+    ''')
+    assert res.returncode == 0, res.stderr
+    assert res.stdout == "3\n3\n1.5\n1.5\n"
+
+
+def test_widened_i64_reductions_keep_64_bit_values():
+    """``tally.sum``/``max_val``/``min_val`` on ``list of i64`` exceed 32 bits."""
+    res = _run_main('''
+        var xs as list of i64 is [5000000000, 1, -5000000000]
+        let module_sum as i64 is calling tally.sum with xs
+        let method_sum as i64 is calling xs.sum
+        let module_max as i64 is calling tally.max_val with xs
+        let method_max as i64 is calling xs.max_val
+        let module_min as i64 is calling tally.min_val with xs
+        let method_min as i64 is calling xs.min_val
+        calling spark.println with "{module_sum}"
+        calling spark.println with "{method_sum}"
+        calling spark.println with "{module_max}"
+        calling spark.println with "{method_max}"
+        calling spark.println with "{module_min}"
+        calling spark.println with "{method_min}"
+    ''')
+    assert res.returncode == 0, res.stderr
+    assert res.stdout == "1\n1\n5000000000\n5000000000\n-5000000000\n-5000000000\n"
+
+
+def test_widened_float_product_and_bounds():
+    """``product``, ``max_val`` and ``min_val`` widen to ``list of float``."""
+    res = _run_main('''
+        var xs as list of float is [3.5, 1.25, 2.0]
+        calling spark.println with calling spark.str_float with (calling tally.product with xs)
+        calling spark.println with calling spark.str_float with (calling tally.max_val with xs)
+        calling spark.println with calling spark.str_float with (calling xs.max_val)
+        calling spark.println with calling spark.str_float with (calling tally.min_val with xs)
+        calling spark.println with calling spark.str_float with (calling xs.min_val)
+    ''')
+    assert res.returncode == 0, res.stderr
+    assert res.stdout == "8.75\n3.5\n3.5\n1.25\n1.25\n"
+
+
+def test_widened_string_sort_asc_and_sort_desc():
+    """``tally.sort_asc``/``sort_desc`` order ``list of string`` lexicographically."""
+    res = _run_main('''
+        var words as list of string is ["pear", "apple", "fig"]
+        let asc as list of string is calling tally.sort_asc with words
+        calling dump_words with asc
+        calling spark.println with "|"
+        let desc as list of string is calling tally.sort_desc with words
+        calling dump_words with desc
+        calling spark.println with "|"
+        let method_asc as list of string is calling words.sort_asc
+        calling dump_words with method_asc
+    ''', helpers=_WIDENED_DUMP)
+    assert res.returncode == 0, res.stderr
+    assert res.stdout == "apple\nfig\npear\n|\npear\nfig\napple\n|\napple\nfig\npear\n"
+
+
+def test_widened_string_unique_and_contains():
+    """``tally.unique`` (module and method) and ``tally.contains`` work on text."""
+    res = _run_main('''
+        var words as list of string is ["b", "a", "b", "c"]
+        let module_unique as list of string is calling tally.unique with words
+        calling dump_words with module_unique
+        calling spark.println with "|"
+        let method_unique as list of string is calling words.unique
+        calling dump_words with method_unique
+        calling spark.println with "|"
+        calling spark.println with calling spark.str_bool with (calling tally.contains with words, "a")
+        calling spark.println with calling spark.str_bool with (calling tally.contains with words, "z")
+    ''', helpers=_WIDENED_DUMP)
+    assert res.returncode == 0, res.stderr
+    assert res.stdout == "b\na\nc\n|\nb\na\nc\n|\ntrue\nfalse\n"
+
+
+def test_widened_string_bounds_via_method_and_module():
+    """``max_val``/``min_val`` order strings through the same ``Ordered`` path."""
+    res = _run_main('''
+        var words as list of string is ["pear", "apple", "fig"]
+        calling spark.println with (calling words.max_val)
+        calling spark.println with (calling words.min_val)
+        calling spark.println with (calling tally.max_val with words)
+        calling spark.println with (calling tally.min_val with words)
+    ''')
+    assert res.returncode == 0, res.stderr
+    assert res.stdout == "pear\napple\npear\napple\n"

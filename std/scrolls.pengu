@@ -1621,11 +1621,11 @@ enchanting string:
         let has_bytes as bool is (sv length) > 0
         let first is if has_bytes then (sv at 0 to 1) else ""
         let signed as bool is has_bytes and (first == "-" or first == "+")
-        let sign as string is if signed then first else ""
+        let sign_text as string is if signed then first else ""
         let rest as string is if signed then (sv at 1 to (sv length)) else sv
-        let zeros as int is width - (rest length) - (sign length)
+        let zeros as int is width - (rest length) - (sign_text length)
         let padded is calling _pad_left with rest, zeros, "0"
-        return "{sign}{padded}"
+        return "{sign_text}{padded}"
     ## Center in a field of `width`, padding both sides with `pad_char`.
     ##
     ## ## Parámetros
@@ -3048,10 +3048,10 @@ weave _float_from_literal with s as string into float:
                     set frac_val is (frac_val * 10.0) + digit
                 else:
                     set int_val is (int_val * 10.0) + digit
-    var sign as float is 1.0
+    var sign_factor as float is 1.0
     if (s at 0 to 1) == "-":
-        set sign is -1.0
-    return sign * (int_val + (frac_val / scale))
+        set sign_factor is -1.0
+    return sign_factor * (int_val + (frac_val / scale))
 ## Private test harness: panic with `label` when `cond` is false.
 ##
 ## ## Parámetros

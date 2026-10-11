@@ -199,7 +199,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "accessed_time",
-      "signature": "**accessed_time**(path: string) -> maybe float"
+      "signature": "**archivum_accessed_time**(path: string) -> maybe float"
     },
     {
       "deprecated": false,
@@ -207,7 +207,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "append_bytes",
-      "signature": "**append_bytes**(path: string, data: string) -> bool"
+      "signature": "**archivum_append_bytes**(path: string, data: string) -> bool"
     },
     {
       "deprecated": false,
@@ -215,7 +215,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "append_file",
-      "signature": "**append_file**(path: string, content: string) -> bool"
+      "signature": "**archivum_append_file**(path: string, content: string) -> bool"
     },
     {
       "deprecated": false,
@@ -223,7 +223,15 @@
       "kind": "weave",
       "module": "archivum",
       "name": "append_lines",
-      "signature": "**append_lines**(path: string, lines: list of string) -> bool"
+      "signature": "**archivum_append_lines**(path: string, lines: list of string) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "archivum",
+      "name": "append_lines_result",
+      "signature": "**archivum_append_lines_result**(path: string, lines: list of string) -> result of int to IoError"
     },
     {
       "deprecated": false,
@@ -231,7 +239,15 @@
       "kind": "weave",
       "module": "archivum",
       "name": "copy_file",
-      "signature": "**copy_file**(src: string, dst: string, overwrite: bool) -> bool"
+      "signature": "**archivum_copy_file**(src: string, dst: string, overwrite: bool) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "archivum",
+      "name": "copy_file_result",
+      "signature": "**archivum_copy_file_result**(src: string, dst: string, overwrite: bool) -> result of bool to IoError"
     },
     {
       "deprecated": false,
@@ -239,7 +255,15 @@
       "kind": "weave",
       "module": "archivum",
       "name": "copy_tree",
-      "signature": "**copy_tree**(src: string, dst: string) -> bool"
+      "signature": "**archivum_copy_tree**(src: string, dst: string) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "archivum",
+      "name": "copy_tree_result",
+      "signature": "**archivum_copy_tree_result**(src: string, dst: string) -> result of bool to IoError"
     },
     {
       "deprecated": false,
@@ -247,7 +271,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "count_lines",
-      "signature": "**count_lines**(path: string) -> maybe int"
+      "signature": "**archivum_count_lines**(path: string) -> maybe int"
     },
     {
       "deprecated": false,
@@ -255,7 +279,15 @@
       "kind": "weave",
       "module": "archivum",
       "name": "create_dir",
-      "signature": "**create_dir**(path: string, parents: bool) -> bool"
+      "signature": "**archivum_create_dir**(path: string, parents: bool) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "archivum",
+      "name": "create_dir_result",
+      "signature": "**archivum_create_dir_result**(path: string, parents: bool) -> result of bool to IoError"
     },
     {
       "deprecated": false,
@@ -263,7 +295,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "created_time",
-      "signature": "**created_time**(path: string) -> maybe float"
+      "signature": "**archivum_created_time**(path: string) -> maybe float"
     },
     {
       "deprecated": false,
@@ -271,7 +303,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "delete_file",
-      "signature": "**delete_file**(path: string) -> bool"
+      "signature": "**archivum_delete_file**(path: string) -> bool"
     },
     {
       "deprecated": false,
@@ -279,7 +311,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "delete_file_result",
-      "signature": "**delete_file_result**(path: string) -> result of int to IoError"
+      "signature": "**archivum_delete_file_result**(path: string) -> result of int to IoError"
     },
     {
       "deprecated": false,
@@ -287,7 +319,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "describe_error",
-      "signature": "**describe_error**(e: IoError) -> string"
+      "signature": "**archivum_describe_error**(e: IoError) -> string"
     },
     {
       "deprecated": false,
@@ -295,7 +327,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "dir_size",
-      "signature": "**dir_size**(path: string, recursive: bool) -> maybe int"
+      "signature": "**archivum_dir_size**(path: string, recursive: bool) -> maybe int"
     },
     {
       "deprecated": false,
@@ -303,7 +335,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "exists",
-      "signature": "**exists**(path: string) -> bool"
+      "signature": "**archivum_exists**(path: string) -> bool"
     },
     {
       "deprecated": false,
@@ -311,7 +343,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "file_size",
-      "signature": "**file_size**(path: string) -> maybe int"
+      "signature": "**archivum_file_size**(path: string) -> maybe int"
     },
     {
       "deprecated": false,
@@ -319,7 +351,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "find_by_ext",
-      "signature": "**find_by_ext**(root: string, extension: string, recursive: bool) -> list of string"
+      "signature": "**archivum_find_by_ext**(root: string, extension: string, recursive: bool) -> list of string"
     },
     {
       "deprecated": false,
@@ -327,7 +359,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "find_by_name",
-      "signature": "**find_by_name**(root: string, target_name: string, recursive: bool) -> list of string"
+      "signature": "**archivum_find_by_name**(root: string, target_name: string, recursive: bool) -> list of string"
     },
     {
       "deprecated": false,
@@ -335,7 +367,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "find_dirs",
-      "signature": "**find_dirs**(root: string, recursive: bool) -> list of string"
+      "signature": "**archivum_find_dirs**(root: string, recursive: bool) -> list of string"
     },
     {
       "deprecated": false,
@@ -343,7 +375,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "find_files",
-      "signature": "**find_files**(root: string, recursive: bool) -> list of string"
+      "signature": "**archivum_find_files**(root: string, recursive: bool) -> list of string"
     },
     {
       "deprecated": false,
@@ -351,7 +383,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "glob",
-      "signature": "**glob**(pattern: string) -> list of string"
+      "signature": "**archivum_glob**(pattern: string) -> list of string"
     },
     {
       "deprecated": false,
@@ -359,7 +391,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "is_dir",
-      "signature": "**is_dir**(path: string) -> bool"
+      "signature": "**archivum_is_dir**(path: string) -> bool"
     },
     {
       "deprecated": false,
@@ -367,7 +399,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "is_empty_dir",
-      "signature": "**is_empty_dir**(path: string) -> bool"
+      "signature": "**archivum_is_empty_dir**(path: string) -> bool"
     },
     {
       "deprecated": false,
@@ -375,7 +407,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "is_empty_file",
-      "signature": "**is_empty_file**(path: string) -> bool"
+      "signature": "**archivum_is_empty_file**(path: string) -> bool"
     },
     {
       "deprecated": false,
@@ -383,7 +415,15 @@
       "kind": "weave",
       "module": "archivum",
       "name": "is_file",
-      "signature": "**is_file**(path: string) -> bool"
+      "signature": "**archivum_is_file**(path: string) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "archivum",
+      "name": "is_readable",
+      "signature": "**archivum_is_readable**(path: string) -> bool"
     },
     {
       "deprecated": false,
@@ -391,7 +431,15 @@
       "kind": "weave",
       "module": "archivum",
       "name": "is_symlink",
-      "signature": "**is_symlink**(path: string) -> bool"
+      "signature": "**archivum_is_symlink**(path: string) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "archivum",
+      "name": "is_writable",
+      "signature": "**archivum_is_writable**(path: string) -> bool"
     },
     {
       "deprecated": false,
@@ -399,7 +447,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "list_files_recursive",
-      "signature": "**list_files_recursive**(root: string) -> list of string"
+      "signature": "**archivum_list_files_recursive**(root: string) -> list of string"
     },
     {
       "deprecated": false,
@@ -407,7 +455,15 @@
       "kind": "weave",
       "module": "archivum",
       "name": "metadata",
-      "signature": "**metadata**(path: string) -> maybe map of string to string"
+      "signature": "**archivum_metadata**(path: string) -> maybe map of string to string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "archivum",
+      "name": "metadata_result",
+      "signature": "**archivum_metadata_result**(path: string) -> result of map of string to string to IoError"
     },
     {
       "deprecated": false,
@@ -415,7 +471,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "modified_time",
-      "signature": "**modified_time**(path: string) -> maybe float"
+      "signature": "**archivum_modified_time**(path: string) -> maybe float"
     },
     {
       "deprecated": false,
@@ -423,7 +479,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "move_file",
-      "signature": "**move_file**(src: string, dst: string, overwrite: bool) -> bool"
+      "signature": "**archivum_move_file**(src: string, dst: string, overwrite: bool) -> bool"
     },
     {
       "deprecated": false,
@@ -431,7 +487,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "permissions",
-      "signature": "**permissions**(path: string) -> maybe int"
+      "signature": "**archivum_permissions**(path: string) -> maybe int"
     },
     {
       "deprecated": false,
@@ -439,7 +495,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "read_bytes",
-      "signature": "**read_bytes**(path: string) -> maybe string"
+      "signature": "**archivum_read_bytes**(path: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -447,7 +503,23 @@
       "kind": "weave",
       "module": "archivum",
       "name": "read_dir",
-      "signature": "**read_dir**(path: string) -> maybe list of string"
+      "signature": "**archivum_read_dir**(path: string) -> maybe list of string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "archivum",
+      "name": "read_dir_full",
+      "signature": "**archivum_read_dir_full**(path: string) -> list of string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "archivum",
+      "name": "read_dir_result",
+      "signature": "**archivum_read_dir_result**(path: string) -> result of list of string to IoError"
     },
     {
       "deprecated": false,
@@ -455,7 +527,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "read_file",
-      "signature": "**read_file**(path: string) -> maybe string"
+      "signature": "**archivum_read_file**(path: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -463,7 +535,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "read_file_result",
-      "signature": "**read_file_result**(path: string) -> result of string to IoError"
+      "signature": "**archivum_read_file_result**(path: string) -> result of string to IoError"
     },
     {
       "deprecated": false,
@@ -471,7 +543,15 @@
       "kind": "weave",
       "module": "archivum",
       "name": "read_first_n_lines",
-      "signature": "**read_first_n_lines**(path: string, n: int) -> maybe list of string"
+      "signature": "**archivum_read_first_n_lines**(path: string, n: int) -> maybe list of string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "archivum",
+      "name": "read_last_n_lines",
+      "signature": "**archivum_read_last_n_lines**(path: string, n: int) -> maybe list of string"
     },
     {
       "deprecated": false,
@@ -479,7 +559,15 @@
       "kind": "weave",
       "module": "archivum",
       "name": "read_lines",
-      "signature": "**read_lines**(path: string) -> maybe list of string"
+      "signature": "**archivum_read_lines**(path: string) -> maybe list of string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "archivum",
+      "name": "read_lines_result",
+      "signature": "**archivum_read_lines_result**(path: string) -> result of list of string to IoError"
     },
     {
       "deprecated": false,
@@ -487,7 +575,15 @@
       "kind": "weave",
       "module": "archivum",
       "name": "read_symlink",
-      "signature": "**read_symlink**(path: string) -> maybe string"
+      "signature": "**archivum_read_symlink**(path: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "archivum",
+      "name": "read_text",
+      "signature": "**archivum_read_text**(path: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -495,7 +591,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "realpath",
-      "signature": "**realpath**(path: string) -> maybe string"
+      "signature": "**archivum_realpath**(path: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -503,7 +599,15 @@
       "kind": "weave",
       "module": "archivum",
       "name": "remove_dir",
-      "signature": "**remove_dir**(path: string, recursive: bool) -> bool"
+      "signature": "**archivum_remove_dir**(path: string, recursive: bool) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "archivum",
+      "name": "remove_dir_result",
+      "signature": "**archivum_remove_dir_result**(path: string, recursive: bool) -> result of bool to IoError"
     },
     {
       "deprecated": false,
@@ -511,7 +615,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "rename",
-      "signature": "**rename**(old: string, new: string) -> bool"
+      "signature": "**archivum_rename**(old: string, new: string) -> bool"
     },
     {
       "deprecated": false,
@@ -519,7 +623,15 @@
       "kind": "weave",
       "module": "archivum",
       "name": "symlink",
-      "signature": "**symlink**(target: string, link: string) -> bool"
+      "signature": "**archivum_symlink**(target: string, link: string) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "archivum",
+      "name": "symlink_result",
+      "signature": "**archivum_symlink_result**(target: string, link: string) -> result of bool to IoError"
     },
     {
       "deprecated": false,
@@ -527,7 +639,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "temp_dir",
-      "signature": "**temp_dir**() -> string"
+      "signature": "**archivum_temp_dir**() -> string"
     },
     {
       "deprecated": false,
@@ -535,7 +647,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "temp_file",
-      "signature": "**temp_file**(prefix: string) -> string"
+      "signature": "**archivum_temp_file**(prefix: string) -> string"
     },
     {
       "deprecated": false,
@@ -543,7 +655,15 @@
       "kind": "weave",
       "module": "archivum",
       "name": "touch",
-      "signature": "**touch**(path: string) -> bool"
+      "signature": "**archivum_touch**(path: string) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "archivum",
+      "name": "touch_result",
+      "signature": "**archivum_touch_result**(path: string) -> result of bool to IoError"
     },
     {
       "deprecated": false,
@@ -551,7 +671,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "walk",
-      "signature": "**walk**(root: string) -> list of list of string"
+      "signature": "**archivum_walk**(root: string) -> list of list of string"
     },
     {
       "deprecated": false,
@@ -559,7 +679,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "write_bytes",
-      "signature": "**write_bytes**(path: string, data: string) -> bool"
+      "signature": "**archivum_write_bytes**(path: string, data: string) -> bool"
     },
     {
       "deprecated": false,
@@ -567,7 +687,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "write_file",
-      "signature": "**write_file**(path: string, content: string) -> bool"
+      "signature": "**archivum_write_file**(path: string, content: string) -> bool"
     },
     {
       "deprecated": false,
@@ -575,7 +695,7 @@
       "kind": "weave",
       "module": "archivum",
       "name": "write_file_result",
-      "signature": "**write_file_result**(path: string, content: string) -> result of int to IoError"
+      "signature": "**archivum_write_file_result**(path: string, content: string) -> result of int to IoError"
     },
     {
       "deprecated": false,
@@ -583,7 +703,23 @@
       "kind": "weave",
       "module": "archivum",
       "name": "write_lines",
-      "signature": "**write_lines**(path: string, lines: list of string) -> bool"
+      "signature": "**archivum_write_lines**(path: string, lines: list of string) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "archivum",
+      "name": "write_lines_result",
+      "signature": "**archivum_write_lines_result**(path: string, lines: list of string) -> result of int to IoError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "archivum",
+      "name": "write_text",
+      "signature": "**archivum_write_text**(path: string, content: string) -> bool"
     },
     {
       "deprecated": false,
@@ -2879,7 +3015,7 @@
       "kind": "declare",
       "module": "chronicle",
       "name": "pengu_c_strptime",
-      "signature": "**pengu_c_strptime**(s: string, fmt: string) -> maybe float"
+      "signature": "**pengu_c_strptime**(s: string, fmt: string) -> maybe f64"
     },
     {
       "deprecated": false,
@@ -2974,6 +3110,14 @@
       "documented": true,
       "kind": "weave",
       "module": "chronicle",
+      "name": "days_between",
+      "signature": "**days_between**(a: float, b: float) -> int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "chronicle",
       "name": "days_in_month",
       "signature": "**days_in_month**(y: int, m: int) -> int"
     },
@@ -3014,6 +3158,14 @@
       "documented": true,
       "kind": "weave",
       "module": "chronicle",
+      "name": "end_of_month",
+      "signature": "**end_of_month**(ts: float) -> float"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "chronicle",
       "name": "format",
       "signature": "**format**(fmt: string, timestamp: float) -> string"
     },
@@ -3040,6 +3192,14 @@
       "module": "chronicle",
       "name": "from_iso",
       "signature": "**from_iso**(s: string) -> maybe float"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "chronicle",
+      "name": "hours_between",
+      "signature": "**hours_between**(a: float, b: float) -> int"
     },
     {
       "deprecated": false,
@@ -3166,6 +3326,14 @@
       "documented": true,
       "kind": "weave",
       "module": "chronicle",
+      "name": "month_name",
+      "signature": "**month_name**(ts: float) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "chronicle",
       "name": "new_stopwatch",
       "signature": "**new_stopwatch**() -> Stopwatch"
     },
@@ -3230,6 +3398,14 @@
       "documented": true,
       "kind": "weave",
       "module": "chronicle",
+      "name": "seconds_to_hms",
+      "signature": "**seconds_to_hms**(sec: int) -> Pair_int_Pair_int_int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "chronicle",
       "name": "sleep",
       "signature": "**sleep**(sec: float) -> void"
     },
@@ -3256,6 +3432,22 @@
       "module": "chronicle",
       "name": "start_of_month",
       "signature": "**start_of_month**(ts: float) -> float"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "chronicle",
+      "name": "start_of_quarter",
+      "signature": "**start_of_quarter**(ts: float) -> float"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "chronicle",
+      "name": "start_of_week",
+      "signature": "**start_of_week**(ts: float) -> float"
     },
     {
       "deprecated": false,
@@ -3400,6 +3592,14 @@
       "module": "chronicle",
       "name": "utc_yearday",
       "signature": "**utc_yearday**(ts: float) -> int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "chronicle",
+      "name": "weekday_name",
+      "signature": "**weekday_name**(ts: float) -> string"
     },
     {
       "deprecated": false,
@@ -4566,8 +4766,24 @@
       "documented": true,
       "kind": "weave",
       "module": "coven",
+      "name": "new_i64_set",
+      "signature": "**new_i64_set**() -> Set_i64"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "coven",
       "name": "new_int_set",
       "signature": "**new_int_set**() -> Set_int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "coven",
+      "name": "new_isize_set",
+      "signature": "**new_isize_set**() -> Set_isize"
     },
     {
       "deprecated": false,
@@ -4592,6 +4808,22 @@
       "module": "coven",
       "name": "new_string_set",
       "signature": "**new_string_set**() -> Set_string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "coven",
+      "name": "new_u64_set",
+      "signature": "**new_u64_set**() -> Set_u64"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "coven",
+      "name": "new_usize_set",
+      "signature": "**new_usize_set**() -> Set_usize"
     },
     {
       "deprecated": false,
@@ -6124,10 +6356,18 @@
     {
       "deprecated": false,
       "documented": true,
+      "kind": "seal",
+      "module": "loom",
+      "name": "LoomUserId",
+      "signature": "**LoomUserId** : LoomUserId"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
       "kind": "weave",
       "module": "loom",
       "name": "all_equal",
-      "signature": "**all_equal**(nums: list of int) -> bool"
+      "signature": "**loom_all_equal**(nums: list of T) -> bool"
     },
     {
       "deprecated": false,
@@ -6135,7 +6375,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "any_zero",
-      "signature": "**any_zero**(nums: list of int) -> bool"
+      "signature": "**loom_any_zero**(nums: list of T) -> bool"
     },
     {
       "deprecated": false,
@@ -6143,7 +6383,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "binary_search",
-      "signature": "**binary_search**(sorted_items: list of int, target: int) -> maybe int"
+      "signature": "**loom_binary_search**(sorted_items: list of T, target: T) -> maybe int"
     },
     {
       "deprecated": false,
@@ -6151,7 +6391,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "chain",
-      "signature": "**chain**(a: list of int, b: list of int) -> list of int"
+      "signature": "**loom_chain**(a: list of T, b: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -6159,7 +6399,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "chunk_every",
-      "signature": "**chunk_every**(items: list of int, n: int, step: int) -> list of list of int"
+      "signature": "**loom_chunk_every**(items: list of T, n: int, step: int) -> list of list of T"
     },
     {
       "deprecated": false,
@@ -6167,7 +6407,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "chunks",
-      "signature": "**chunks**(items: list of int, n: int) -> list of list of int"
+      "signature": "**loom_chunks**(items: list of T, n: int) -> list of list of T"
     },
     {
       "deprecated": false,
@@ -6175,7 +6415,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "count_if_even",
-      "signature": "**count_if_even**(items: list of int) -> int"
+      "signature": "**loom_count_if_even**(items: list of T) -> int"
     },
     {
       "deprecated": false,
@@ -6183,7 +6423,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "count_if_positive",
-      "signature": "**count_if_positive**(items: list of int) -> int"
+      "signature": "**loom_count_if_positive**(items: list of T) -> int"
     },
     {
       "deprecated": false,
@@ -6191,7 +6431,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "difference_sorted",
-      "signature": "**difference_sorted**(a: list of int, b: list of int) -> list of int"
+      "signature": "**loom_difference_sorted**(a: list of T, b: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -6199,7 +6439,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "differences",
-      "signature": "**differences**(nums: list of int) -> list of int"
+      "signature": "**loom_differences**(nums: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -6207,7 +6447,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "enumerate",
-      "signature": "**enumerate**(items: list of int) -> list of list of int"
+      "signature": "**loom_enumerate**(items: list of T) -> list of list of T"
     },
     {
       "deprecated": false,
@@ -6215,7 +6455,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "enumerate_pairs",
-      "signature": "**enumerate_pairs**(items: list of int) -> list of Pair_int_int"
+      "signature": "**loom_enumerate_pairs**(items: list of T) -> list of Pair"
     },
     {
       "deprecated": false,
@@ -6223,7 +6463,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "find_first",
-      "signature": "**find_first**(items: list of int, target: int) -> maybe int"
+      "signature": "**loom_find_first**(items: list of T, target: T) -> maybe int"
     },
     {
       "deprecated": false,
@@ -6231,7 +6471,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "find_last",
-      "signature": "**find_last**(items: list of int, target: int) -> maybe int"
+      "signature": "**loom_find_last**(items: list of T, target: T) -> maybe int"
     },
     {
       "deprecated": false,
@@ -6239,7 +6479,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "first_or",
-      "signature": "**first_or**(items: list of T, default_val: T) -> T"
+      "signature": "**loom_first_or**(items: list of T, default_val: T) -> T"
     },
     {
       "deprecated": false,
@@ -6247,7 +6487,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "flat_map_identity",
-      "signature": "**flat_map_identity**(nested: list of list of int) -> list of int"
+      "signature": "**loom_flat_map_identity**(nested: list of list of T) -> list of T"
     },
     {
       "deprecated": true,
@@ -6255,7 +6495,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "flatten",
-      "signature": "**flatten**(nested: list of list of int) -> list of int"
+      "signature": "**loom_flatten**(nested: list of list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -6263,7 +6503,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "flatten_generic",
-      "signature": "**flatten_generic**(nested: list of list of T) -> list of T"
+      "signature": "**loom_flatten_generic**(nested: list of list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -6271,7 +6511,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "generic_chain",
-      "signature": "**generic_chain**(a: list of T, b: list of T) -> list of T"
+      "signature": "**loom_generic_chain**(a: list of T, b: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -6279,7 +6519,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "generic_index_of",
-      "signature": "**generic_index_of**(items: list of T, target: T) -> int"
+      "signature": "**loom_generic_index_of**(items: list of T, target: T) -> int"
     },
     {
       "deprecated": false,
@@ -6287,7 +6527,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "generic_reverse",
-      "signature": "**generic_reverse**(items: list of T) -> list of T"
+      "signature": "**loom_generic_reverse**(items: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -6295,7 +6535,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "generic_take",
-      "signature": "**generic_take**(items: list of T, n: int) -> list of T"
+      "signature": "**loom_generic_take**(items: list of T, n: int) -> list of T"
     },
     {
       "deprecated": false,
@@ -6303,7 +6543,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "generic_take_last",
-      "signature": "**generic_take_last**(items: list of T, n: int) -> list of T"
+      "signature": "**loom_generic_take_last**(items: list of T, n: int) -> list of T"
     },
     {
       "deprecated": false,
@@ -6311,7 +6551,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "index_max",
-      "signature": "**index_max**(items: list of int) -> maybe int"
+      "signature": "**loom_index_max**(items: list of T) -> maybe int"
     },
     {
       "deprecated": false,
@@ -6319,7 +6559,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "index_min",
-      "signature": "**index_min**(items: list of int) -> maybe int"
+      "signature": "**loom_index_min**(items: list of T) -> maybe int"
     },
     {
       "deprecated": false,
@@ -6327,7 +6567,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "insert_at",
-      "signature": "**insert_at**(items: list of int, index: int, value: int) -> list of int"
+      "signature": "**loom_insert_at**(items: list of T, index: int, value: T) -> list of T"
     },
     {
       "deprecated": false,
@@ -6335,7 +6575,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "interleave",
-      "signature": "**interleave**(a: list of int, b: list of int) -> list of int"
+      "signature": "**loom_interleave**(a: list of T, b: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -6343,7 +6583,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "intersect_sorted",
-      "signature": "**intersect_sorted**(a: list of int, b: list of int) -> list of int"
+      "signature": "**loom_intersect_sorted**(a: list of T, b: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -6351,7 +6591,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "intersperse",
-      "signature": "**intersperse**(items: list of int, sep: int) -> list of int"
+      "signature": "**loom_intersperse**(items: list of T, sep: T) -> list of T"
     },
     {
       "deprecated": false,
@@ -6359,7 +6599,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "is_partitioned",
-      "signature": "**is_partitioned**(items: list of int, predicate: weave with x: int into bool) -> bool"
+      "signature": "**loom_is_partitioned**(items: list of T, predicate: weave with x: T into bool) -> bool"
     },
     {
       "deprecated": false,
@@ -6367,7 +6607,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "is_sorted_asc",
-      "signature": "**is_sorted_asc**(nums: list of int) -> bool"
+      "signature": "**loom_is_sorted_asc**(nums: list of T) -> bool"
     },
     {
       "deprecated": false,
@@ -6375,7 +6615,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "is_sorted_desc",
-      "signature": "**is_sorted_desc**(nums: list of int) -> bool"
+      "signature": "**loom_is_sorted_desc**(nums: list of T) -> bool"
     },
     {
       "deprecated": false,
@@ -6383,7 +6623,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "is_strictly_asc",
-      "signature": "**is_strictly_asc**(nums: list of int) -> bool"
+      "signature": "**loom_is_strictly_asc**(nums: list of T) -> bool"
     },
     {
       "deprecated": false,
@@ -6391,7 +6631,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "is_strictly_desc",
-      "signature": "**is_strictly_desc**(nums: list of int) -> bool"
+      "signature": "**loom_is_strictly_desc**(nums: list of T) -> bool"
     },
     {
       "deprecated": false,
@@ -6399,7 +6639,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "max_int",
-      "signature": "**max_int**(items: list of int) -> int"
+      "signature": "**loom_max_int**(items: list of T) -> T"
     },
     {
       "deprecated": false,
@@ -6407,7 +6647,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "mean",
-      "signature": "**mean**(nums: list of int) -> float"
+      "signature": "**loom_mean**(nums: list of T) -> float"
     },
     {
       "deprecated": false,
@@ -6415,7 +6655,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "median",
-      "signature": "**median**(items: list of int) -> maybe float"
+      "signature": "**loom_median**(items: list of T) -> maybe float"
     },
     {
       "deprecated": false,
@@ -6423,7 +6663,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "min_int",
-      "signature": "**min_int**(items: list of int) -> int"
+      "signature": "**loom_min_int**(items: list of T) -> T"
     },
     {
       "deprecated": false,
@@ -6431,7 +6671,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "min_max",
-      "signature": "**min_max**(items: list of int) -> maybe Pair_int_int"
+      "signature": "**loom_min_max**(items: list of T) -> maybe Pair"
     },
     {
       "deprecated": false,
@@ -6439,7 +6679,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "mode",
-      "signature": "**mode**(items: list of int) -> maybe int"
+      "signature": "**loom_mode**(items: list of T) -> maybe T"
     },
     {
       "deprecated": false,
@@ -6447,7 +6687,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "pad_left",
-      "signature": "**pad_left**(items: list of int, target_len: int, fill: int) -> list of int"
+      "signature": "**loom_pad_left**(items: list of int, target_len: int, fill: int) -> list of int"
     },
     {
       "deprecated": false,
@@ -6455,7 +6695,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "pad_right",
-      "signature": "**pad_right**(items: list of int, target_len: int, fill: int) -> list of int"
+      "signature": "**loom_pad_right**(items: list of int, target_len: int, fill: int) -> list of int"
     },
     {
       "deprecated": false,
@@ -6463,7 +6703,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "pairwise",
-      "signature": "**pairwise**(items: list of int) -> list of list of int"
+      "signature": "**loom_pairwise**(items: list of T) -> list of list of T"
     },
     {
       "deprecated": false,
@@ -6471,7 +6711,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "pairwise_pairs",
-      "signature": "**pairwise_pairs**(items: list of int) -> list of Pair_int_int"
+      "signature": "**loom_pairwise_pairs**(items: list of T) -> list of Pair"
     },
     {
       "deprecated": false,
@@ -6479,7 +6719,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "percentile",
-      "signature": "**percentile**(items: list of int, p: float) -> maybe float"
+      "signature": "**loom_percentile**(items: list of T, p: float) -> maybe float"
     },
     {
       "deprecated": false,
@@ -6487,7 +6727,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "product_num",
-      "signature": "**product_num**(nums: list of int) -> int"
+      "signature": "**loom_product_num**(nums: list of T) -> T"
     },
     {
       "deprecated": false,
@@ -6495,7 +6735,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "range",
-      "signature": "**range**(start: int, end: int, step: int) -> list of int"
+      "signature": "**loom_range**(start: int, end: int, step: int) -> list of int"
     },
     {
       "deprecated": false,
@@ -6503,7 +6743,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "remove_at",
-      "signature": "**remove_at**(items: list of int, index: int) -> list of int"
+      "signature": "**loom_remove_at**(items: list of T, index: int) -> list of T"
     },
     {
       "deprecated": false,
@@ -6511,7 +6751,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "repeat",
-      "signature": "**repeat**(value: int, times: int) -> list of int"
+      "signature": "**loom_repeat**(value: T, times: int) -> list of T"
     },
     {
       "deprecated": false,
@@ -6519,7 +6759,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "replace_at",
-      "signature": "**replace_at**(items: list of int, index: int, value: int) -> list of int"
+      "signature": "**loom_replace_at**(items: list of T, index: int, value: T) -> list of T"
     },
     {
       "deprecated": false,
@@ -6527,7 +6767,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "rotate_left",
-      "signature": "**rotate_left**(items: list of int, k: int) -> list of int"
+      "signature": "**loom_rotate_left**(items: list of T, k: int) -> list of T"
     },
     {
       "deprecated": false,
@@ -6535,7 +6775,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "rotate_right",
-      "signature": "**rotate_right**(items: list of int, k: int) -> list of int"
+      "signature": "**loom_rotate_right**(items: list of T, k: int) -> list of T"
     },
     {
       "deprecated": false,
@@ -6543,7 +6783,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "round_robin",
-      "signature": "**round_robin**(lists: list of list of int) -> list of int"
+      "signature": "**loom_round_robin**(lists: list of list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -6551,7 +6791,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "running_max",
-      "signature": "**running_max**(nums: list of int) -> list of int"
+      "signature": "**loom_running_max**(nums: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -6559,7 +6799,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "running_min",
-      "signature": "**running_min**(nums: list of int) -> list of int"
+      "signature": "**loom_running_min**(nums: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -6567,7 +6807,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "running_sum",
-      "signature": "**running_sum**(nums: list of int) -> list of int"
+      "signature": "**loom_running_sum**(nums: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -6575,7 +6815,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "scan_left",
-      "signature": "**scan_left**(items: list of T, f: weave with acc: T, x: T into T) -> list of T"
+      "signature": "**loom_scan_left**(items: list of T, f: weave with acc: T, x: T into T) -> list of T"
     },
     {
       "deprecated": false,
@@ -6583,7 +6823,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "skip",
-      "signature": "**skip**(items: list of int, n: int) -> list of int"
+      "signature": "**loom_skip**(items: list of T, n: int) -> list of T"
     },
     {
       "deprecated": false,
@@ -6591,7 +6831,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "stddev",
-      "signature": "**stddev**(items: list of int) -> maybe float"
+      "signature": "**loom_stddev**(items: list of T) -> maybe float"
     },
     {
       "deprecated": false,
@@ -6599,7 +6839,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "sum",
-      "signature": "**sum**(nums: list of int) -> int"
+      "signature": "**loom_sum**(nums: list of T) -> T"
     },
     {
       "deprecated": false,
@@ -6607,7 +6847,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "sum_squares",
-      "signature": "**sum_squares**(nums: list of int) -> int"
+      "signature": "**loom_sum_squares**(nums: list of T) -> T"
     },
     {
       "deprecated": false,
@@ -6615,7 +6855,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "swap_at",
-      "signature": "**swap_at**(items: list of int, i: int, j: int) -> list of int"
+      "signature": "**loom_swap_at**(items: list of T, i: int, j: int) -> list of T"
     },
     {
       "deprecated": false,
@@ -6623,7 +6863,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "symmetric_difference_sorted",
-      "signature": "**symmetric_difference_sorted**(a: list of int, b: list of int) -> list of int"
+      "signature": "**loom_symmetric_difference_sorted**(a: list of T, b: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -6631,7 +6871,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "take",
-      "signature": "**take**(items: list of int, n: int) -> list of int"
+      "signature": "**loom_take**(items: list of T, n: int) -> list of T"
     },
     {
       "deprecated": false,
@@ -6639,7 +6879,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "unfold_range",
-      "signature": "**unfold_range**(start: int, count: int, step: int) -> list of int"
+      "signature": "**loom_unfold_range**(start: int, count: int, step: int) -> list of int"
     },
     {
       "deprecated": false,
@@ -6647,7 +6887,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "union_sorted",
-      "signature": "**union_sorted**(a: list of int, b: list of int) -> list of int"
+      "signature": "**loom_union_sorted**(a: list of T, b: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -6655,7 +6895,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "variance",
-      "signature": "**variance**(items: list of int) -> maybe float"
+      "signature": "**loom_variance**(items: list of T) -> maybe float"
     },
     {
       "deprecated": false,
@@ -6663,7 +6903,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "windowed",
-      "signature": "**windowed**(items: list of int, n: int) -> list of list of int"
+      "signature": "**loom_windowed**(items: list of T, n: int) -> list of list of T"
     },
     {
       "deprecated": false,
@@ -6671,7 +6911,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "windows",
-      "signature": "**windows**(items: list of int, n: int) -> list of list of int"
+      "signature": "**loom_windows**(items: list of T, n: int) -> list of list of T"
     },
     {
       "deprecated": false,
@@ -6679,7 +6919,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "zip_longest",
-      "signature": "**zip_longest**(a: list of int, b: list of int, fill: int) -> list of list of int"
+      "signature": "**loom_zip_longest**(a: list of int, b: list of int, fill: int) -> list of list of int"
     },
     {
       "deprecated": false,
@@ -6687,7 +6927,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "zip_with",
-      "signature": "**zip_with**(a: list of int, b: list of int, op: int) -> list of int"
+      "signature": "**loom_zip_with**(a: list of T, b: list of T, op: int) -> list of T"
     },
     {
       "deprecated": false,
@@ -6695,7 +6935,7 @@
       "kind": "weave",
       "module": "loom",
       "name": "zip_with_op",
-      "signature": "**zip_with_op**(a: list of int, b: list of int, f: weave with x: int, y: int into int) -> list of int"
+      "signature": "**loom_zip_with_op**(a: list of T, b: list of T, f: weave with x: T, y: T into T) -> list of T"
     },
     {
       "deprecated": false,
@@ -9431,7 +9671,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "arg_at_or",
-      "signature": "**arg_at_or**(idx: int, default: string) -> string"
+      "signature": "**rites_arg_at_or**(idx: int, default: string) -> string"
     },
     {
       "deprecated": false,
@@ -9439,7 +9679,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "cache_dir",
-      "signature": "**cache_dir**() -> maybe string"
+      "signature": "**rites_cache_dir**() -> maybe string"
     },
     {
       "deprecated": false,
@@ -9447,7 +9687,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "chdir",
-      "signature": "**chdir**(path: string) -> bool"
+      "signature": "**rites_chdir**(path: string) -> bool"
     },
     {
       "deprecated": false,
@@ -9455,7 +9695,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "clear_env",
-      "signature": "**clear_env**() -> int"
+      "signature": "**rites_clear_env**() -> int"
     },
     {
       "deprecated": false,
@@ -9463,7 +9703,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "config_dir",
-      "signature": "**config_dir**() -> maybe string"
+      "signature": "**rites_config_dir**() -> maybe string"
     },
     {
       "deprecated": false,
@@ -9471,7 +9711,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "current_user",
-      "signature": "**current_user**() -> maybe string"
+      "signature": "**rites_current_user**() -> maybe string"
     },
     {
       "deprecated": false,
@@ -9479,7 +9719,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "data_dir",
-      "signature": "**data_dir**() -> maybe string"
+      "signature": "**rites_data_dir**() -> maybe string"
     },
     {
       "deprecated": false,
@@ -9487,7 +9727,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "env_substitute",
-      "signature": "**env_substitute**(s: string) -> string"
+      "signature": "**rites_env_substitute**(s: string) -> string"
     },
     {
       "deprecated": false,
@@ -9495,7 +9735,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "exec",
-      "signature": "**exec**(cmd: string, args: list of string) -> int"
+      "signature": "**rites_exec**(cmd: string, args: list of string) -> int"
     },
     {
       "deprecated": false,
@@ -9503,7 +9743,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "exec_ok",
-      "signature": "**exec_ok**(cmd: string, args: list of string) -> bool"
+      "signature": "**rites_exec_ok**(cmd: string, args: list of string) -> bool"
     },
     {
       "deprecated": false,
@@ -9511,7 +9751,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "exec_or_panic",
-      "signature": "**exec_or_panic**(cmd: string, args: list of string) -> void"
+      "signature": "**rites_exec_or_panic**(cmd: string, args: list of string) -> void"
     },
     {
       "deprecated": false,
@@ -9519,7 +9759,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "exit",
-      "signature": "**exit**(code: int) -> void"
+      "signature": "**rites_exit**(code: int) -> void"
     },
     {
       "deprecated": false,
@@ -9527,7 +9767,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "expand_env",
-      "signature": "**expand_env**(s: string) -> string"
+      "signature": "**rites_expand_env**(s: string) -> string"
     },
     {
       "deprecated": false,
@@ -9535,7 +9775,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "get_argc",
-      "signature": "**get_argc**() -> int"
+      "signature": "**rites_get_argc**() -> int"
     },
     {
       "deprecated": false,
@@ -9543,7 +9783,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "get_args",
-      "signature": "**get_args**() -> list of string"
+      "signature": "**rites_get_args**() -> list of string"
     },
     {
       "deprecated": false,
@@ -9551,7 +9791,15 @@
       "kind": "weave",
       "module": "rites",
       "name": "get_argv",
-      "signature": "**get_argv**(idx: int) -> string"
+      "signature": "**rites_get_argv**(idx: int) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "rites",
+      "name": "get_egid",
+      "signature": "**rites_get_egid**() -> maybe int"
     },
     {
       "deprecated": false,
@@ -9559,7 +9807,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "get_env_keys",
-      "signature": "**get_env_keys**() -> list of string"
+      "signature": "**rites_get_env_keys**() -> list of string"
     },
     {
       "deprecated": false,
@@ -9567,7 +9815,15 @@
       "kind": "weave",
       "module": "rites",
       "name": "get_env_map",
-      "signature": "**get_env_map**() -> map of string to string"
+      "signature": "**rites_get_env_map**() -> map of string to string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "rites",
+      "name": "get_euid",
+      "signature": "**rites_get_euid**() -> maybe int"
     },
     {
       "deprecated": false,
@@ -9575,7 +9831,23 @@
       "kind": "weave",
       "module": "rites",
       "name": "get_flag_value",
-      "signature": "**get_flag_value**(name: string) -> maybe string"
+      "signature": "**rites_get_flag_value**(name: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "rites",
+      "name": "get_gid",
+      "signature": "**rites_get_gid**() -> maybe int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "rites",
+      "name": "get_uid",
+      "signature": "**rites_get_uid**() -> maybe int"
     },
     {
       "deprecated": false,
@@ -9583,7 +9855,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "getcwd",
-      "signature": "**getcwd**() -> maybe string"
+      "signature": "**rites_getcwd**() -> maybe string"
     },
     {
       "deprecated": false,
@@ -9591,7 +9863,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "getenv",
-      "signature": "**getenv**(name: string) -> maybe string"
+      "signature": "**rites_getenv**(name: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -9599,7 +9871,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "getenv_bool",
-      "signature": "**getenv_bool**(name: string) -> maybe bool"
+      "signature": "**rites_getenv_bool**(name: string) -> maybe bool"
     },
     {
       "deprecated": false,
@@ -9607,7 +9879,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "getenv_float",
-      "signature": "**getenv_float**(name: string) -> maybe float"
+      "signature": "**rites_getenv_float**(name: string) -> maybe float"
     },
     {
       "deprecated": false,
@@ -9615,7 +9887,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "getenv_int",
-      "signature": "**getenv_int**(name: string) -> maybe int"
+      "signature": "**rites_getenv_int**(name: string) -> maybe int"
     },
     {
       "deprecated": false,
@@ -9623,7 +9895,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "getenv_or",
-      "signature": "**getenv_or**(name: string, default: string) -> string"
+      "signature": "**rites_getenv_or**(name: string, default: string) -> string"
     },
     {
       "deprecated": false,
@@ -9631,7 +9903,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "getpid",
-      "signature": "**getpid**() -> int"
+      "signature": "**rites_getpid**() -> int"
     },
     {
       "deprecated": false,
@@ -9639,7 +9911,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "getppid",
-      "signature": "**getppid**() -> int"
+      "signature": "**rites_getppid**() -> int"
     },
     {
       "deprecated": false,
@@ -9647,7 +9919,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "has_env",
-      "signature": "**has_env**(name: string) -> bool"
+      "signature": "**rites_has_env**(name: string) -> bool"
     },
     {
       "deprecated": false,
@@ -9655,7 +9927,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "has_flag",
-      "signature": "**has_flag**(name: string) -> bool"
+      "signature": "**rites_has_flag**(name: string) -> bool"
     },
     {
       "deprecated": false,
@@ -9663,7 +9935,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "home_dir",
-      "signature": "**home_dir**() -> maybe string"
+      "signature": "**rites_home_dir**() -> maybe string"
     },
     {
       "deprecated": false,
@@ -9671,7 +9943,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "hostname",
-      "signature": "**hostname**() -> string"
+      "signature": "**rites_hostname**() -> string"
     },
     {
       "deprecated": false,
@@ -9679,7 +9951,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "is_linux",
-      "signature": "**is_linux**() -> bool"
+      "signature": "**rites_is_linux**() -> bool"
     },
     {
       "deprecated": false,
@@ -9687,7 +9959,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "is_macos",
-      "signature": "**is_macos**() -> bool"
+      "signature": "**rites_is_macos**() -> bool"
     },
     {
       "deprecated": false,
@@ -9695,7 +9967,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "is_unix",
-      "signature": "**is_unix**() -> bool"
+      "signature": "**rites_is_unix**() -> bool"
     },
     {
       "deprecated": false,
@@ -9703,7 +9975,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "is_windows",
-      "signature": "**is_windows**() -> bool"
+      "signature": "**rites_is_windows**() -> bool"
     },
     {
       "deprecated": false,
@@ -9711,7 +9983,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "os_arch",
-      "signature": "**os_arch**() -> string"
+      "signature": "**rites_os_arch**() -> string"
     },
     {
       "deprecated": false,
@@ -9719,7 +9991,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "os_family",
-      "signature": "**os_family**() -> string"
+      "signature": "**rites_os_family**() -> string"
     },
     {
       "deprecated": false,
@@ -9727,7 +9999,39 @@
       "kind": "weave",
       "module": "rites",
       "name": "parse_flags",
-      "signature": "**parse_flags**() -> map of string to string"
+      "signature": "**rites_parse_flags**() -> map of string to string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "rites",
+      "name": "run_capture",
+      "signature": "**rites_run_capture**(cmd: string, args: list of string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "rites",
+      "name": "run_capture_lines",
+      "signature": "**rites_run_capture_lines**(cmd: string, args: list of string) -> maybe list of string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "rites",
+      "name": "run_capture_result",
+      "signature": "**rites_run_capture_result**(cmd: string, args: list of string) -> result of string to string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "rites",
+      "name": "run_capture_stderr",
+      "signature": "**rites_run_capture_stderr**(cmd: string, args: list of string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -9735,7 +10039,15 @@
       "kind": "weave",
       "module": "rites",
       "name": "run_shell",
-      "signature": "**run_shell**(cmdline: string) -> int"
+      "signature": "**rites_run_shell**(cmdline: string) -> int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "rites",
+      "name": "run_shell_capture",
+      "signature": "**rites_run_shell_capture**(cmdline: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -9743,7 +10055,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "set_env_map",
-      "signature": "**set_env_map**(m: map of string to string) -> int"
+      "signature": "**rites_set_env_map**(m: map of string to string) -> int"
     },
     {
       "deprecated": false,
@@ -9751,7 +10063,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "setenv",
-      "signature": "**setenv**(name: string, value: string, overwrite: bool) -> bool"
+      "signature": "**rites_setenv**(name: string, value: string, overwrite: bool) -> bool"
     },
     {
       "deprecated": false,
@@ -9759,7 +10071,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "shell_escape",
-      "signature": "**shell_escape**(s: string) -> string"
+      "signature": "**rites_shell_escape**(s: string) -> string"
     },
     {
       "deprecated": false,
@@ -9767,7 +10079,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "spawn",
-      "signature": "**spawn**(cmd: string, args: list of string) -> int"
+      "signature": "**rites_spawn**(cmd: string, args: list of string) -> int"
     },
     {
       "deprecated": false,
@@ -9775,7 +10087,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "temp_dir",
-      "signature": "**temp_dir**() -> maybe string"
+      "signature": "**rites_temp_dir**() -> maybe string"
     },
     {
       "deprecated": false,
@@ -9783,7 +10095,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "uname",
-      "signature": "**uname**() -> string"
+      "signature": "**rites_uname**() -> string"
     },
     {
       "deprecated": false,
@@ -9791,7 +10103,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "unsetenv",
-      "signature": "**unsetenv**(name: string) -> bool"
+      "signature": "**rites_unsetenv**(name: string) -> bool"
     },
     {
       "deprecated": false,
@@ -9799,7 +10111,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "which",
-      "signature": "**which**(cmd: string) -> maybe string"
+      "signature": "**rites_which**(cmd: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -9807,7 +10119,7 @@
       "kind": "weave",
       "module": "rites",
       "name": "which_all",
-      "signature": "**which_all**(cmd: string) -> list of string"
+      "signature": "**rites_which_all**(cmd: string) -> list of string"
     },
     {
       "deprecated": false,
@@ -11415,7 +11727,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "abs_all",
-      "signature": "**abs_all**(l: list of int) -> list of int"
+      "signature": "**tally_abs_all**(l: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11423,7 +11735,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "all_in_range",
-      "signature": "**all_in_range**(l: list of int, lo: int, hi: int) -> bool"
+      "signature": "**tally_all_in_range**(l: list of T, lo: T, hi: T) -> bool"
     },
     {
       "deprecated": false,
@@ -11431,7 +11743,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "all_positive",
-      "signature": "**all_positive**(l: list of int) -> bool"
+      "signature": "**tally_all_positive**(l: list of T) -> bool"
     },
     {
       "deprecated": false,
@@ -11439,7 +11751,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "all_zero",
-      "signature": "**all_zero**(l: list of int) -> bool"
+      "signature": "**tally_all_zero**(l: list of T) -> bool"
     },
     {
       "deprecated": false,
@@ -11447,7 +11759,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "any_negative",
-      "signature": "**any_negative**(l: list of int) -> bool"
+      "signature": "**tally_any_negative**(l: list of T) -> bool"
     },
     {
       "deprecated": true,
@@ -11455,7 +11767,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "argmax",
-      "signature": "**argmax**(l: list of int) -> int"
+      "signature": "**tally_argmax**(l: list of T) -> int"
     },
     {
       "deprecated": true,
@@ -11463,7 +11775,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "argmin",
-      "signature": "**argmin**(l: list of int) -> int"
+      "signature": "**tally_argmin**(l: list of T) -> int"
     },
     {
       "deprecated": false,
@@ -11471,7 +11783,15 @@
       "kind": "weave",
       "module": "tally",
       "name": "at_or",
-      "signature": "**at_or**(l: list of int, idx: int, default: int) -> int"
+      "signature": "**tally_at_or**(l: list of int, idx: int, default: int) -> int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "tally",
+      "name": "at_or_shard",
+      "signature": "**tally_at_or_shard**(l: list of T, idx: int, default: T) -> T"
     },
     {
       "deprecated": false,
@@ -11479,7 +11799,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "at_safe",
-      "signature": "**at_safe**(l: list of int, idx: int) -> maybe int"
+      "signature": "**tally_at_safe**(l: list of T, idx: int) -> maybe T"
     },
     {
       "deprecated": true,
@@ -11487,7 +11807,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "average",
-      "signature": "**average**(l: list of int) -> int"
+      "signature": "**tally_average**(l: list of T) -> T"
     },
     {
       "deprecated": false,
@@ -11495,7 +11815,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "chunk",
-      "signature": "**chunk**(xs: list of T, span: int) -> list of list of T"
+      "signature": "**tally_chunk**(xs: list of T, span: int) -> list of list of T"
     },
     {
       "deprecated": false,
@@ -11503,7 +11823,15 @@
       "kind": "weave",
       "module": "tally",
       "name": "clamp_all",
-      "signature": "**clamp_all**(l: list of int, lo: int, hi: int) -> list of int"
+      "signature": "**tally_clamp_all**(l: list of int, lo: int, hi: int) -> list of int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "tally",
+      "name": "clamp_all_shard",
+      "signature": "**tally_clamp_all_shard**(l: list of T, lo: T, hi: T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11511,7 +11839,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "concat",
-      "signature": "**concat**(a: list of int, b: list of int) -> list of int"
+      "signature": "**tally_concat**(a: list of T, b: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11519,7 +11847,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "contains",
-      "signature": "**contains**(l: list of int, item: int) -> bool"
+      "signature": "**tally_contains**(l: list of T, item: T) -> bool"
     },
     {
       "deprecated": false,
@@ -11527,7 +11855,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "count_of",
-      "signature": "**count_of**(l: list of int, item: int) -> int"
+      "signature": "**tally_count_of**(l: list of T, item: T) -> int"
     },
     {
       "deprecated": true,
@@ -11535,7 +11863,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "dedup",
-      "signature": "**dedup**(l: list of int) -> list of int"
+      "signature": "**tally_dedup**(l: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11543,7 +11871,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "dot",
-      "signature": "**dot**(a: list of int, b: list of int) -> int"
+      "signature": "**tally_dot**(a: list of T, b: list of T) -> T"
     },
     {
       "deprecated": false,
@@ -11551,7 +11879,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "drop",
-      "signature": "**drop**(l: list of int, n: int) -> list of int"
+      "signature": "**tally_drop**(l: list of T, n: int) -> list of T"
     },
     {
       "deprecated": false,
@@ -11559,7 +11887,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "enumerate_pairs",
-      "signature": "**enumerate_pairs**(xs: list of int) -> list of list of int"
+      "signature": "**tally_enumerate_pairs**(xs: list of int) -> list of list of int"
     },
     {
       "deprecated": false,
@@ -11567,7 +11895,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "filter_even",
-      "signature": "**filter_even**(l: list of int) -> list of int"
+      "signature": "**tally_filter_even**(l: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11575,7 +11903,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "filter_in_range",
-      "signature": "**filter_in_range**(l: list of int, lo: int, hi: int) -> list of int"
+      "signature": "**tally_filter_in_range**(l: list of T, lo: T, hi: T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11583,7 +11911,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "filter_negative",
-      "signature": "**filter_negative**(l: list of int) -> list of int"
+      "signature": "**tally_filter_negative**(l: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11591,7 +11919,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "filter_odd",
-      "signature": "**filter_odd**(l: list of int) -> list of int"
+      "signature": "**tally_filter_odd**(l: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11599,7 +11927,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "filter_positive",
-      "signature": "**filter_positive**(l: list of int) -> list of int"
+      "signature": "**tally_filter_positive**(l: list of T) -> list of T"
     },
     {
       "deprecated": true,
@@ -11607,7 +11935,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "filter_range",
-      "signature": "**filter_range**(l: list of int, lo: int, hi: int) -> list of int"
+      "signature": "**tally_filter_range**(l: list of T, lo: T, hi: T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11615,7 +11943,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "find_first_gt",
-      "signature": "**find_first_gt**(l: list of int, threshold: int) -> maybe int"
+      "signature": "**tally_find_first_gt**(l: list of T, threshold: T) -> maybe T"
     },
     {
       "deprecated": false,
@@ -11623,7 +11951,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "find_first_lt",
-      "signature": "**find_first_lt**(l: list of int, threshold: int) -> maybe int"
+      "signature": "**tally_find_first_lt**(l: list of T, threshold: T) -> maybe T"
     },
     {
       "deprecated": false,
@@ -11631,7 +11959,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "first",
-      "signature": "**first**(l: list of int) -> int"
+      "signature": "**tally_first**(l: list of T) -> T"
     },
     {
       "deprecated": false,
@@ -11639,7 +11967,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "flatten",
-      "signature": "**flatten**(l: list of int) -> list of int"
+      "signature": "**tally_flatten**(l: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11647,7 +11975,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "frequencies",
-      "signature": "**frequencies**(xs: list of int) -> map of int to int"
+      "signature": "**tally_frequencies**(xs: list of T) -> map of T to int"
     },
     {
       "deprecated": true,
@@ -11655,7 +11983,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "group_count",
-      "signature": "**group_count**(xs: list of int) -> map of int to int"
+      "signature": "**tally_group_count**(xs: list of T) -> map of T to int"
     },
     {
       "deprecated": false,
@@ -11663,7 +11991,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "index_of",
-      "signature": "**index_of**(l: list of int, item: int) -> int"
+      "signature": "**tally_index_of**(l: list of T, item: T) -> int"
     },
     {
       "deprecated": false,
@@ -11671,7 +11999,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "is_empty",
-      "signature": "**is_empty**(l: list of int) -> bool"
+      "signature": "**tally_is_empty**(l: list of T) -> bool"
     },
     {
       "deprecated": false,
@@ -11679,7 +12007,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "is_sorted_asc",
-      "signature": "**is_sorted_asc**(l: list of int) -> bool"
+      "signature": "**tally_is_sorted_asc**(l: list of T) -> bool"
     },
     {
       "deprecated": false,
@@ -11687,7 +12015,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "is_sorted_desc",
-      "signature": "**is_sorted_desc**(l: list of int) -> bool"
+      "signature": "**tally_is_sorted_desc**(l: list of T) -> bool"
     },
     {
       "deprecated": false,
@@ -11695,7 +12023,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "last",
-      "signature": "**last**(l: list of int) -> int"
+      "signature": "**tally_last**(l: list of T) -> T"
     },
     {
       "deprecated": false,
@@ -11703,7 +12031,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "last_index_of",
-      "signature": "**last_index_of**(l: list of int, item: int) -> int"
+      "signature": "**tally_last_index_of**(l: list of T, item: T) -> int"
     },
     {
       "deprecated": false,
@@ -11711,7 +12039,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "len",
-      "signature": "**len**(l: list of int) -> int"
+      "signature": "**tally_len**(l: list of T) -> int"
     },
     {
       "deprecated": false,
@@ -11719,7 +12047,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "map_add_scalar",
-      "signature": "**map_add_scalar**(l: list of int, k: int) -> list of int"
+      "signature": "**tally_map_add_scalar**(l: list of T, k: T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11727,7 +12055,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "map_double",
-      "signature": "**map_double**(l: list of int) -> list of int"
+      "signature": "**tally_map_double**(l: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11735,7 +12063,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "map_increment",
-      "signature": "**map_increment**(l: list of int, delta: int) -> list of int"
+      "signature": "**tally_map_increment**(l: list of T, delta: int) -> list of T"
     },
     {
       "deprecated": false,
@@ -11743,7 +12071,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "map_negate",
-      "signature": "**map_negate**(l: list of int) -> list of int"
+      "signature": "**tally_map_negate**(l: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11751,7 +12079,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "map_square",
-      "signature": "**map_square**(l: list of int) -> list of int"
+      "signature": "**tally_map_square**(l: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11759,7 +12087,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "max_index",
-      "signature": "**max_index**(l: list of int) -> int"
+      "signature": "**tally_max_index**(l: list of T) -> int"
     },
     {
       "deprecated": false,
@@ -11767,7 +12095,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "max_val",
-      "signature": "**max_val**(l: list of int) -> int"
+      "signature": "**tally_max_val**(l: list of T) -> T"
     },
     {
       "deprecated": false,
@@ -11775,7 +12103,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "mean",
-      "signature": "**mean**(l: list of int) -> int"
+      "signature": "**tally_mean**(l: list of T) -> T"
     },
     {
       "deprecated": false,
@@ -11783,7 +12111,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "median",
-      "signature": "**median**(l: list of int) -> int"
+      "signature": "**tally_median**(l: list of T) -> T"
     },
     {
       "deprecated": false,
@@ -11791,7 +12119,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "min_index",
-      "signature": "**min_index**(l: list of int) -> int"
+      "signature": "**tally_min_index**(l: list of T) -> int"
     },
     {
       "deprecated": false,
@@ -11799,7 +12127,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "min_max",
-      "signature": "**min_max**(xs: list of int) -> list of int"
+      "signature": "**tally_min_max**(xs: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11807,7 +12135,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "min_val",
-      "signature": "**min_val**(l: list of int) -> int"
+      "signature": "**tally_min_val**(l: list of T) -> T"
     },
     {
       "deprecated": false,
@@ -11815,7 +12143,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "mode",
-      "signature": "**mode**(l: list of int) -> int"
+      "signature": "**tally_mode**(l: list of T) -> T"
     },
     {
       "deprecated": false,
@@ -11823,7 +12151,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "partition_by",
-      "signature": "**partition_by**(xs: list of int, predicate: weave with x: int into bool) -> list of list of int"
+      "signature": "**tally_partition_by**(xs: list of int, predicate: weave with x: int into bool) -> list of list of int"
     },
     {
       "deprecated": false,
@@ -11831,7 +12159,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "product",
-      "signature": "**product**(l: list of int) -> int"
+      "signature": "**tally_product**(l: list of T) -> T"
     },
     {
       "deprecated": false,
@@ -11839,7 +12167,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "repeat",
-      "signature": "**repeat**(val: int, times: int) -> list of int"
+      "signature": "**tally_repeat**(val: T, times: int) -> list of T"
     },
     {
       "deprecated": false,
@@ -11847,7 +12175,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "reverse",
-      "signature": "**reverse**(l: list of int) -> list of int"
+      "signature": "**tally_reverse**(l: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11855,7 +12183,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "running_sum",
-      "signature": "**running_sum**(xs: list of T) -> list of T"
+      "signature": "**tally_running_sum**(xs: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11863,7 +12191,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "scan_left",
-      "signature": "**scan_left**(xs: list of T, f: weave with acc: T, x: T into T) -> list of T"
+      "signature": "**tally_scan_left**(xs: list of T, f: weave with acc: T, x: T into T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11871,7 +12199,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "slice_list",
-      "signature": "**slice_list**(l: list of int, start: int, end_idx: int) -> list of int"
+      "signature": "**tally_slice_list**(l: list of T, start: int, end_idx: int) -> list of T"
     },
     {
       "deprecated": false,
@@ -11879,7 +12207,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "sort_asc",
-      "signature": "**sort_asc**(l: list of int) -> list of int"
+      "signature": "**tally_sort_asc**(l: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11887,7 +12215,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "sort_desc",
-      "signature": "**sort_desc**(l: list of int) -> list of int"
+      "signature": "**tally_sort_desc**(l: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11895,7 +12223,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "sum",
-      "signature": "**sum**(l: list of int) -> int"
+      "signature": "**tally_sum**(l: list of T) -> T"
     },
     {
       "deprecated": false,
@@ -11903,7 +12231,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "sum_of_squares",
-      "signature": "**sum_of_squares**(l: list of int) -> int"
+      "signature": "**tally_sum_of_squares**(l: list of T) -> T"
     },
     {
       "deprecated": false,
@@ -11911,7 +12239,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "take",
-      "signature": "**take**(l: list of int, n: int) -> list of int"
+      "signature": "**tally_take**(l: list of T, n: int) -> list of T"
     },
     {
       "deprecated": false,
@@ -11919,7 +12247,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "unique",
-      "signature": "**unique**(l: list of int) -> list of int"
+      "signature": "**tally_unique**(l: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11927,7 +12255,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "windowed",
-      "signature": "**windowed**(xs: list of T, width: int) -> list of list of T"
+      "signature": "**tally_windowed**(xs: list of T, width: int) -> list of list of T"
     },
     {
       "deprecated": false,
@@ -11935,7 +12263,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "zip_sum",
-      "signature": "**zip_sum**(a: list of int, b: list of int) -> list of int"
+      "signature": "**tally_zip_sum**(a: list of T, b: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -11943,7 +12271,7 @@
       "kind": "weave",
       "module": "tally",
       "name": "zip_with",
-      "signature": "**zip_with**(xs: list of T, ys: list of U, f: weave with a: T, b: U into V) -> list of V"
+      "signature": "**tally_zip_with**(xs: list of T, ys: list of U, f: weave with a: T, b: U into V) -> list of V"
     },
     {
       "deprecated": false,

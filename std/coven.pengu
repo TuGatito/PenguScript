@@ -9,7 +9,8 @@
 ## - `SetInt` holds `int` elements under their decimal string key (legacy
 ##   0.14.x API).
 ## - `Set of T` is the generic set: `items as map of T to int`, so `T` may be
-##   any hashable type — `int`, `string`, `float`, `bool`, `char`, `i64`, `u64`
+##   any hashable type — every integer width (`int`, `i8`..`i64`, `u8`..`u64`,
+##   `byte`, `usize`, `isize`), `float`/`f32`/`f64`, `char`, `bool`, `string`
 ##   or a `rune ... derive Par, Vinculum`. The backing map enforces the
 ##   `Vinculum` requirement when the set is instantiated.
 ##
@@ -40,17 +41,18 @@
 ## stored twice. The caller keeps ownership of the value it passed.
 ##
 ## Every constructor (`new_set_string`, `new_set_int`, `make_set shard T`,
-## `from_items_set shard T` and the five concrete generic constructors) returns a
+## `from_items_set shard T` and the nine concrete generic constructors) returns a
 ## fresh set owned by the caller. Methods that answer with a new set (`union`,
 ## `intersect`, `difference`, `symmetric_difference`, `clone`, `filter_*`)
 ## allocate it for the caller; methods that answer with a `list` (`to_list`,
 ## `to_list_int`) allocate that list. Release a returned `list` with `banish`, and
 ## never release a set received as a parameter.
 ##
-## A set value is a rune, so the compiler emits no `banish` entry point for it.
-## To release a set explicitly, free its backing map with `defer banish s.items`;
-## the compiler-owned temporary lists and strings returned by the methods are
-## released the usual way.
+## A set value is a rune, so the compiler emits no cleanup entry point for it:
+## `banish s` fails at the C stage with an implicit declaration of
+## `_pengu_cleanup_Set_<T>`. To release a set explicitly, free its backing map
+## with `defer banish s.items`; the compiler-owned temporary lists and strings
+## returned by the methods are released the usual way.
 ##
 ## ## Design notes
 ## - **No `where` on a rune.** `rune_decl` has no `where` clause, so
@@ -63,23 +65,33 @@
 ##   therefore reaches the `items` map of the receiver and of its value
 ##   parameters directly and never calls another `Set` method.
 ## - **No generic `ritual` constructor.** A type-qualified generic ritual
-##   (`Set.empty of T`) is accepted by the checker but miscompiles or misbinds
-##   as soon as the bundle holds more than one `Set of T` specialisation — and
-##   that is always the case here, because these very `test` blocks instantiate
-##   `Set of string`, `Set of float` and `Set of _TestPlayer`. `calling
-##   Set.empty` alone cannot infer `T` (`E0005`), and bare `Set.empty` is
-##   deliberately NOT offered. Element types are created with the generic module
-##   functions `make_set shard T` / `from_items_set shard T with xs`, which keep
-##   working with several specialisations, or with the concrete constructors
+##   (`Set.empty of T`) is accepted by the checker but miscompiles as soon as the
+##   bundle holds more than one `Set of T` specialisation: the C compiler stops
+##   with an invalid-initializer error at the second call site. That is always
+##   the case here, because these very `test` blocks instantiate `Set of
+##   string`, `Set of float` and `Set of _TestPlayer`. `calling Set.empty` alone
+##   cannot infer `T` (`E0005`), and bare `Set.empty` is deliberately NOT
+##   offered. Element types are created with the generic module functions
+##   `make_set shard T` / `from_items_set shard T with xs`, which keep working
+##   with several specialisations, or with the concrete constructors
 ##   (`new_int_set`, `new_string_set`, `new_float_set`, `new_bool_set`,
-##   `new_char_set`). `T` must still be named at the call site
+##   `new_char_set`, `new_i64_set`, `new_u64_set`, `new_usize_set`,
+##   `new_isize_set`). `T` must still be named at the call site
 ##   (`calling make_set of int`).
 ## - **Why `make_set` and not `new_set`.** A generic function specialisation is
-##   mangled as `<name>_<element type>`, so `new_set of string` would emit
-##   `new_set_string` and hijack the legacy module constructor of that exact
-##   name (observed: the concrete call then fails with `E0005`). The
-##   collision-free name `make_set` is used instead; `from_items_set` mangles to
+##   mangled as `<name>_<element type>`, so `new_set of string` and the legacy
+##   `new_set_string` collapse onto the same C symbol. Under the current
+##   compiler this no longer fails with `E0005`; instead one body silently wins
+##   for both call sites (verified in the emitted C), which is the same
+##   misbinding hazard with a quieter symptom. The collision-free name
+##   `make_set` is used instead; `from_items_set` mangles to
 ##   `from_items_set_<type>`, which collides with nothing.
+## - **Element types.** `Set of T` was verified for `int`, `i8`..`i64`,
+##   `u8`..`u64`, `byte`, `usize`, `isize`, `float`, `f32`, `f64`, `char`,
+##   `bool`, `string` and a user `rune ... derive Par, Vinculum`; the element is
+##   stored as the map key, so a narrow width is not widened to `int`. The one
+##   behavioural sharp edge is `Set of float`: keys compare by bit pattern, so
+##   `0.0` and `-0.0` are two distinct elements even though `0.0 == -0.0`.
 ## - **Legacy storage.** `SetInt` stringifies each element (`item to string`) and
 ##   stores it under the decimal key; the generic `Set of int` stores the `int`
 ##   itself as the key. Both deduplicate, but they are different types.
@@ -88,14 +100,16 @@
 ##   available.
 ##
 ## ## Migration
-## 2.1.0 adds the generic `Set of T`, its `enchanting` and the constructors
+## 2.1.0 added the generic `Set of T`, its `enchanting` and the constructors
 ## `make_set shard T`, `from_items_set shard T`, `new_int_set`, `new_string_set`,
-## `new_float_set`, `new_bool_set` and `new_char_set`. Nothing is removed and no
-## signature changes: `SetString` and `SetInt` remain fully supported and keep
-## their exact 0.14.x/2.0.0 behaviour. The generic type has no `Set.empty`
-## ritual (type-qualified generic rituals miscompile); use `make_set of T`.
-## New code should use `Set of T`; the legacy types stay for programs written
-## against the older API.
+## `new_float_set`, `new_bool_set` and `new_char_set`. 2.2.0 adds the concrete
+## constructors `new_i64_set`, `new_u64_set`, `new_usize_set` and
+## `new_isize_set`, and records the verified element-type matrix. Nothing is
+## removed and no signature changes: `SetString` and `SetInt` remain fully
+## supported and keep their exact 0.14.x/2.0.0 behaviour. The generic type has no
+## `Set.empty` ritual (type-qualified generic rituals miscompile); use
+## `make_set of T`. New code should use `Set of T`; the legacy types stay for
+## programs written against the older API.
 
 import std.spark
 import std.atlas
@@ -108,8 +122,10 @@ import std.scrolls
 ## Revision of the `coven` API.
 ##
 ## Deliberately not the toolchain version: it moves only when a `coven`
-## signature changes. 2.1.0 adds the generic `Set of T`.
-const COVEN_VERSION as string is "2.1.0"
+## signature changes. 2.1.0 added the generic `Set of T`; 2.2.0 adds the wide
+## integer constructors (`new_i64_set`, `new_u64_set`, `new_usize_set`,
+## `new_isize_set`).
+const COVEN_VERSION as string is "2.2.0"
 
 # ----------------------------------------------------------------------------
 # Value types
@@ -159,12 +175,14 @@ rune SetInt:
 ## A generic set of unique `T` elements, backed by `map of T to int`.
 ##
 ## `T` must implement `Vinculum` (the map-key contract); the backing field
-## enforces it when the set is instantiated. `int`, `string`, `float`, `bool`,
-## `char`, `i64`, `u64` and any `rune ... derive Par, Vinculum` are valid.
+## enforces it when the set is instantiated. Every integer width (`int`,
+## `i8`..`i64`, `u8`..`u64`, `byte`, `usize`, `isize`), `float`/`f32`/`f64`,
+## `char`, `bool`, `string` and any `rune ... derive Par, Vinculum` are valid.
 ##
 ## Create one with the generic module functions `make_set of T` /
 ## `from_items_set of T with xs`, or with the concrete constructors `new_int_set`,
-## `new_string_set`, `new_float_set`, `new_bool_set` and `new_char_set`. There is
+## `new_string_set`, `new_float_set`, `new_bool_set`, `new_char_set`,
+## `new_i64_set`, `new_u64_set`, `new_usize_set` and `new_isize_set`. There is
 ## no `Set.empty` ritual (see the module design notes).
 ##
 ## ## Example
@@ -1744,6 +1762,81 @@ weave ritual new_char_set into Set of char:
         set .items is map of char to int
     return s
 
+## Creates an empty `Set of i64`.
+##
+## The backing map keys on the full 64-bit value, so elements above the `int`
+## range are neither truncated nor merged.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## An owned empty `Set of i64`. Release its backing map with `banish s.items`.
+##
+## ## Ejemplo
+## ```pengu
+## var s as Set of i64 is calling new_i64_set
+## calling s.add with 5000000000
+## ```
+weave ritual new_i64_set into Set of i64:
+    var s as Set of i64 with:
+        set .items is map of i64 to int
+    return s
+
+## Creates an empty `Set of u64`.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## An owned empty `Set of u64`. Release its backing map with `banish s.items`.
+##
+## ## Ejemplo
+## ```pengu
+## var s as Set of u64 is calling new_u64_set
+## calling s.add with 12000000000
+## ```
+weave ritual new_u64_set into Set of u64:
+    var s as Set of u64 with:
+        set .items is map of u64 to int
+    return s
+
+## Creates an empty `Set of usize`.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## An owned empty `Set of usize`. Release its backing map with `banish s.items`.
+##
+## ## Ejemplo
+## ```pengu
+## var s as Set of usize is calling new_usize_set
+## calling s.add with 9000000000
+## ```
+weave ritual new_usize_set into Set of usize:
+    var s as Set of usize with:
+        set .items is map of usize to int
+    return s
+
+## Creates an empty `Set of isize`.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## An owned empty `Set of isize`. Release its backing map with `banish s.items`.
+##
+## ## Ejemplo
+## ```pengu
+## var s as Set of isize is calling new_isize_set
+## calling s.add with -9000000000
+## ```
+weave ritual new_isize_set into Set of isize:
+    var s as Set of isize with:
+        set .items is map of isize to int
+    return s
+
 # ----------------------------------------------------------------------------
 # Private helpers
 # ----------------------------------------------------------------------------
@@ -2290,5 +2383,176 @@ test "concrete bool and char constructors build sets":
     banish b.items
     banish c.items
 
-test "coven version is 2.1.0":
-    calling _expect_coven_eq_string with COVEN_VERSION, "2.1.0", "version"
+test "generic set of i64 keys on the full 64-bit value":
+    var s as Set of i64 is calling make_set of i64
+    calling s.add with 5000000000
+    calling s.add with -5000000000
+    calling s.add with 5000000000
+    calling _expect_coven_eq_int with (calling s.len), 2, "i64 len"
+    calling _expect_coven with (calling s.contains with 5000000000), "i64 positive contains"
+    calling _expect_coven with (calling s.contains with -5000000000), "i64 negative contains"
+    calling _expect_coven with ((calling s.contains with 705032704) == false), "i64 not truncated to int32"
+    var removed as bool is calling s.remove with -5000000000
+    calling _expect_coven_eq_bool with removed, true, "i64 remove"
+    banish s.items
+
+test "new_i64_set and new_u64_set build working sets":
+    var a as Set of i64 is calling new_i64_set
+    var b as Set of u64 is calling new_u64_set
+    calling _expect_coven with (calling a.is_empty), "i64 set empty"
+    calling a.add with 12000000000
+    calling b.add with 12000000000
+    calling b.add with 12000000000
+    calling _expect_coven_eq_int with (calling b.len), 1, "u64 dedupe"
+    calling _expect_coven with (calling a.contains with 12000000000), "i64 contains"
+    calling _expect_coven with (calling b.contains with 12000000000), "u64 contains"
+    banish a.items
+    banish b.items
+
+test "new_usize_set and new_isize_set handle wide and negative keys":
+    var a as Set of usize is calling new_usize_set
+    var b as Set of isize is calling new_isize_set
+    calling _expect_coven with (calling a.is_empty), "usize set empty"
+    calling a.add with 9000000000
+    calling b.add with -9000000000
+    calling _expect_coven_eq_int with (calling a.len), 1, "usize len"
+    calling _expect_coven_eq_int with (calling b.len), 1, "isize len"
+    calling _expect_coven with (calling a.contains with 9000000000), "usize contains"
+    calling _expect_coven with (calling b.contains with -9000000000), "isize contains"
+    banish a.items
+    banish b.items
+
+test "generic set of usize supports set algebra":
+    var a as Set of usize is calling new_usize_set
+    var b as Set of usize is calling new_usize_set
+    calling a.add with 1
+    calling a.add with 2
+    calling b.add with 2
+    calling b.add with 3
+    var u as Set of usize is calling a.union with b
+    var i as Set of usize is calling a.intersect with b
+    calling _expect_coven_eq_int with (calling u.len), 3, "usize union len"
+    calling _expect_coven_eq_int with (calling i.len), 1, "usize intersect len"
+    calling _expect_coven with (calling i.contains with 2), "usize intersect 2"
+    banish u.items
+    banish i.items
+    banish a.items
+    banish b.items
+
+test "from_items_set of isize round-trips through to_list":
+    var xs as list of isize is list of isize
+    calling xs.push with -5
+    calling xs.push with -5
+    calling xs.push with 7
+    var s as Set of isize is calling from_items_set of isize with xs
+    calling _expect_coven_eq_int with (calling s.len), 2, "isize from_items len"
+    var out as list of isize is calling s.to_list
+    calling _expect_coven_eq_int with (calling out.len), 2, "isize to_list len"
+    var back as Set of isize is calling from_items_set of isize with out
+    calling _expect_coven with (calling back.equals with s), "isize round-trip"
+    banish out
+    banish back.items
+    banish s.items
+    banish xs
+
+test "narrow integer and byte element types work":
+    var a as Set of i8 is calling make_set of i8
+    var b as Set of i16 is calling make_set of i16
+    var c as Set of i32 is calling make_set of i32
+    var d as Set of u8 is calling make_set of u8
+    var e as Set of u16 is calling make_set of u16
+    var f as Set of u32 is calling make_set of u32
+    var g as Set of byte is calling make_set of byte
+    calling a.add with 1
+    calling a.add with 1
+    calling b.add with 1
+    calling c.add with 1
+    calling d.add with 1
+    calling e.add with 1
+    calling f.add with 1
+    calling g.add with 1
+    calling _expect_coven_eq_int with (calling a.len), 1, "i8 dedupe"
+    calling _expect_coven_eq_int with (calling b.len), 1, "i16 len"
+    calling _expect_coven_eq_int with (calling c.len), 1, "i32 len"
+    calling _expect_coven_eq_int with (calling d.len), 1, "u8 len"
+    calling _expect_coven_eq_int with (calling e.len), 1, "u16 len"
+    calling _expect_coven_eq_int with (calling f.len), 1, "u32 len"
+    calling _expect_coven_eq_int with (calling g.len), 1, "byte len"
+    banish a.items
+    banish b.items
+    banish c.items
+    banish d.items
+    banish e.items
+    banish f.items
+    banish g.items
+
+test "f32 and f64 element types work":
+    var a as Set of f32 is calling make_set of f32
+    var b as Set of f64 is calling make_set of f64
+    calling a.add with 1.5
+    calling a.add with 1.5
+    calling b.add with 2.5
+    calling b.add with 2.5
+    calling _expect_coven_eq_int with (calling a.len), 1, "f32 dedupe"
+    calling _expect_coven_eq_int with (calling b.len), 1, "f64 dedupe"
+    calling _expect_coven with (calling a.contains with 1.5), "f32 contains"
+    calling _expect_coven with (calling b.contains with 2.5), "f64 contains"
+    banish a.items
+    banish b.items
+
+test "generic set of float keys 0.0 and -0.0 separately":
+    var s as Set of float is calling new_float_set
+    calling s.add with 0.0
+    calling s.add with -0.0
+    calling s.add with 0.0
+    calling _expect_coven_eq_int with (calling s.len), 2, "signed zero keys"
+    calling _expect_coven with (calling s.contains with 0.0), "positive zero present"
+    calling _expect_coven with (calling s.contains with -0.0), "negative zero present"
+    banish s.items
+
+test "empty string is a valid set element":
+    var s as Set of string is calling new_string_set
+    calling s.add with ""
+    calling s.add with ""
+    calling s.add with "x"
+    calling _expect_coven_eq_int with (calling s.len), 2, "empty string len"
+    calling _expect_coven with (calling s.contains with ""), "empty string contains"
+    var removed as bool is calling s.remove with ""
+    calling _expect_coven_eq_bool with removed, true, "empty string remove"
+    banish s.items
+
+test "generic union and intersect deduplicate shared elements":
+    var a as Set of string is calling new_string_set
+    var b as Set of string is calling new_string_set
+    calling a.add with "shared"
+    calling a.add with "left"
+    calling b.add with "shared"
+    calling b.add with "right"
+    var u as Set of string is calling a.union with b
+    var i as Set of string is calling a.intersect with b
+    calling _expect_coven_eq_int with (calling u.len), 3, "union shared once"
+    calling _expect_coven_eq_int with (calling i.len), 1, "intersect shared once"
+    calling _expect_coven with (calling i.contains with "shared"), "intersect shared"
+    calling _expect_coven with ((calling i.contains with "left") == false), "intersect excludes left"
+    banish u.items
+    banish i.items
+    banish a.items
+    banish b.items
+
+test "custom rune elements deduplicate by derived value equality":
+    var s as Set of _TestPlayer is calling make_set of _TestPlayer
+    var a as _TestPlayer with:
+        set .id is 7
+    var b as _TestPlayer with:
+        set .id is 7
+    var c as _TestPlayer with:
+        set .id is 8
+    calling s.add with a
+    calling s.add with b
+    calling s.add with c
+    calling _expect_coven_eq_int with (calling s.len), 2, "rune value dedupe"
+    calling _expect_coven with (calling s.contains with b), "rune equal value contains"
+    banish s.items
+
+test "coven version is 2.2.0":
+    calling _expect_coven_eq_string with COVEN_VERSION, "2.2.0", "version"

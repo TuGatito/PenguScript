@@ -7,7 +7,7 @@ program's own stdout, stderr and exit code.  Nothing inspects the emitted C: the
 contract under test is behaviour, and the compiler is free to change how it gets
 there.
 
-``coven`` is the set module.  Revision 2.1.0 keeps the two legacy concrete runes
+``coven`` is the set module.  Revision 2.2.0 keeps the two legacy concrete runes
 ``SetString`` and ``SetInt`` (both backed by a ``map of string to int``) and adds
 a generic ``rune Set shard T`` backed by ``map of T to int``.  The generic rune
 deliberately has no ``Set.empty`` ritual -- a type-qualified generic ritual
@@ -101,11 +101,11 @@ def run_coven(body: str, prelude: str = "") -> subprocess.CompletedProcess:
 # ---------------------------------------------------------------------------
 
 
-def test_coven_version_is_2_1_0():
-    """The migrated module reports COVEN_VERSION 2.1.0."""
+def test_coven_version_is_2_2_0():
+    """The migrated module reports COVEN_VERSION 2.2.0."""
     res = run_coven('calling spark.println with coven.COVEN_VERSION')
     assert res.returncode == 0, res.stderr
-    assert res.stdout == "2.1.0\n"
+    assert res.stdout == "2.2.0\n"
 
 
 # ---------------------------------------------------------------------------
@@ -898,3 +898,90 @@ def test_generic_set_of_custom_rune():
     ''')
     assert res.returncode == 0, res.stderr
     assert res.stdout == "2|true|true|true|1|false\n"
+
+
+# ---------------------------------------------------------------------------
+# Widened element types: the 2.2.0 generic Set accepts wide integers and floats
+# ---------------------------------------------------------------------------
+
+def test_generic_make_set_of_i64_keys_on_64_bit_values():
+    """``make_set of i64`` keys 5000000000 and -5000000000, not their int32 tails."""
+    res = run_coven('''
+        var s as Set of i64 is calling coven.make_set of i64
+        calling s.add with 5000000000
+        calling s.add with -5000000000
+        calling s.add with 5000000000
+        let n as int is calling s.len
+        let has_pos as bool is calling s.contains with 5000000000
+        let has_neg as bool is calling s.contains with -5000000000
+        let has_tail as bool is calling s.contains with 705032704
+        let has_pos_s as string is calling spark.str_bool with has_pos
+        let has_neg_s as string is calling spark.str_bool with has_neg
+        let has_tail_s as string is calling spark.str_bool with has_tail
+        calling spark.println with "{n}|{has_pos_s}|{has_neg_s}|{has_tail_s}"
+        banish s.items
+    ''')
+    assert res.returncode == 0, res.stderr
+    assert res.stdout == "2|true|true|false\n"
+
+
+def test_generic_new_i64_and_u64_sets():
+    """``new_i64_set`` and ``new_u64_set`` build working wide-integer sets."""
+    res = run_coven('''
+        var a as Set of i64 is calling coven.new_i64_set
+        var b as Set of u64 is calling coven.new_u64_set
+        calling a.add with 12000000000
+        calling b.add with 12000000000
+        calling b.add with 12000000000
+        let alen as int is calling a.len
+        let blen as int is calling b.len
+        let ahas as bool is calling a.contains with 12000000000
+        let bhas as bool is calling b.contains with 12000000000
+        let ahas_s as string is calling spark.str_bool with ahas
+        let bhas_s as string is calling spark.str_bool with bhas
+        calling spark.println with "{alen}|{blen}|{ahas_s}|{bhas_s}"
+        banish a.items
+        banish b.items
+    ''')
+    assert res.returncode == 0, res.stderr
+    assert res.stdout == "1|1|true|true\n"
+
+
+def test_generic_make_set_of_isize_with_a_negative_key():
+    """``make_set of isize`` keeps a negative key distinct from its magnitude."""
+    res = run_coven('''
+        var s as Set of isize is calling coven.make_set of isize
+        calling s.add with -9000000000
+        calling s.add with -9000000000
+        calling s.add with 9000000000
+        let n as int is calling s.len
+        let has_neg as bool is calling s.contains with -9000000000
+        let has_pos as bool is calling s.contains with 9000000000
+        let has_off as bool is calling s.contains with -9000000001
+        let has_neg_s as string is calling spark.str_bool with has_neg
+        let has_pos_s as string is calling spark.str_bool with has_pos
+        let has_off_s as string is calling spark.str_bool with has_off
+        calling spark.println with "{n}|{has_neg_s}|{has_pos_s}|{has_off_s}"
+        banish s.items
+    ''')
+    assert res.returncode == 0, res.stderr
+    assert res.stdout == "2|true|true|false\n"
+
+
+def test_generic_set_of_float_keeps_signed_zero_keys_distinct():
+    """``0.0`` and ``-0.0`` hash to different keys of a ``Set of float``."""
+    res = run_coven('''
+        var s as Set of float is calling coven.make_set of float
+        calling s.add with 0.0
+        calling s.add with -0.0
+        calling s.add with 0.0
+        let n as int is calling s.len
+        let has_pos as bool is calling s.contains with 0.0
+        let has_neg as bool is calling s.contains with -0.0
+        let has_pos_s as string is calling spark.str_bool with has_pos
+        let has_neg_s as string is calling spark.str_bool with has_neg
+        calling spark.println with "{n}|{has_pos_s}|{has_neg_s}"
+        banish s.items
+    ''')
+    assert res.returncode == 0, res.stderr
+    assert res.stdout == "2|true|true\n"

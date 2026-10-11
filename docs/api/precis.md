@@ -6,6 +6,14 @@
 
 ---
 
+### `put`
+
+> **put**(url: string, headers: map of string to string, body: string) -> maybe ClientResponse
+
+Sends an HTTP PUT of `body` to `url` with the given request `headers`.
+Memory and none semantics are identical to get.
+
+
 ### `PRECIS_VERSION`
 
 > const string` = 2.0.0`
@@ -338,14 +346,6 @@ error statuses still arrive as a present response with the status code set.
 > **post**(url: string, headers: map of string to string, body: string) -> maybe ClientResponse
 
 Sends an HTTP POST of `body` to `url` with the given request `headers`.
-Memory and none semantics are identical to get.
-
-
-### `put`
-
-> **put**(url: string, headers: map of string to string, body: string) -> maybe ClientResponse
-
-Sends an HTTP PUT of `body` to `url` with the given request `headers`.
 Memory and none semantics are identical to get.
 
 

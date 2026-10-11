@@ -5,7 +5,7 @@
 > against. A change to a signature here is a breaking change and must bump
 > `COVEN_VERSION`.
 >
-> Module revision: **`2.1.0`**.
+> Module revision: **`2.2.0`**.
 > Source: [`std/coven.pengu`](../std/coven.pengu).
 
 `coven` owns unique-element collections. Every set is a rune whose single field
@@ -26,8 +26,9 @@ new code should use `Set of T`.
 All three types share one method vocabulary (`add`, `contains`, `remove`, `len`,
 `clear`, `is_empty`, the set algebra, `clone`, `to_list`, …). The generic set adds
 the generic module functions `make_set shard T` / `from_items_set shard T` and the
-concrete constructors `new_int_set`, `new_string_set`, `new_float_set`,
-`new_bool_set`, `new_char_set`. There is deliberately no `Set.empty` (see below).
+nine concrete constructors `new_int_set`, `new_string_set`, `new_float_set`,
+`new_bool_set`, `new_char_set`, `new_i64_set`, `new_u64_set`, `new_usize_set` and
+`new_isize_set`. There is deliberately no `Set.empty` (see below).
 
 ## Ownership model
 
@@ -52,7 +53,7 @@ concrete constructors `new_int_set`, `new_string_set`, `new_float_set`,
 
 | Symbol | Type | Value | Notes |
 |---|---|---|---|
-| `COVEN_VERSION` | `string` | `"2.1.0"` | Revision of the **coven API**, not of the toolchain. 2.1.0 added the generic `Set of T`; it bumps only when a signature on this page changes. |
+| `COVEN_VERSION` | `string` | `"2.2.0"` | Revision of the **coven API**, not of the toolchain. 2.1.0 added the generic `Set of T`; 2.2.0 adds the wide-integer constructors (`new_i64_set`, `new_u64_set`, `new_usize_set`, `new_isize_set`) and records the verified element-type matrix. It bumps only when a signature on this page changes. |
 
 ## Legacy `SetString`
 
@@ -145,11 +146,15 @@ rune Set shard T:
     items as map of T to int
 ```
 
-`T` may be any hashable type: `int`, `string`, `float`, `bool`, `char`, `i64`,
-`u64` or a user `rune ... derive Par, Vinculum`. A `rune` has no `where` clause,
-so `rune Set shard T` cannot spell `where T: Vinculum`; the requirement is
+`T` may be any hashable type: every integer width (`int`, `i8`..`i64`,
+`u8`..`u64`, `byte`, `usize`, `isize`), `float`/`f32`/`f64`, `char`, `bool`,
+`string`, or a user `rune ... derive Par, Vinculum`. The element is stored as the
+map key, so a narrow width is **not** widened to `int`. A `rune` has no `where`
+clause, so `rune Set shard T` cannot spell `where T: Vinculum`; the requirement is
 enforced by the backing field `items as map of T to int`, which only
-instantiates for a `Vinculum` key type.
+instantiates for a `Vinculum` key type. One behavioural sharp edge: `Set of float`
+compares keys by bit pattern, so `0.0` and `-0.0` are two distinct elements even
+though `0.0 == -0.0`.
 
 ### Constructor functions
 
@@ -162,6 +167,15 @@ instantiates for a `Vinculum` key type.
 | `new_float_set` | `() -> Set of float` | Concrete `ritual` constructor for `Set of float`. |
 | `new_bool_set` | `() -> Set of bool` | Concrete `ritual` constructor for `Set of bool`. |
 | `new_char_set` | `() -> Set of char` | Concrete `ritual` constructor for `Set of char`. |
+| `new_i64_set` | `() -> Set of i64` | Concrete `ritual` constructor for `Set of i64` (added in `2.2.0`). |
+| `new_u64_set` | `() -> Set of u64` | Concrete `ritual` constructor for `Set of u64` (added in `2.2.0`). |
+| `new_usize_set` | `() -> Set of usize` | Concrete `ritual` constructor for `Set of usize` (added in `2.2.0`). |
+| `new_isize_set` | `() -> Set of isize` | Concrete `ritual` constructor for `Set of isize` (added in `2.2.0`; negative keys stay distinct). |
+
+The nine concrete constructors are ordinary module-level `weave ritual`s; they
+are the safe way to build a set of a widely-used element type without naming `T`
+at the call site. For any other `T` use `make_set of T` /
+`from_items_set of T with xs`, which keep working with several specialisations.
 
 ### Instance methods
 
@@ -196,7 +210,7 @@ soon as the bundle holds more than one `Set of T` specialisation — always the
 case in a real program — because the ritual is emitted once for the
 unspecialised `T`. This is a compiler bug found in this chunk, not a design
 choice that documentation can lift. Use `make_set of T` /
-`from_items_set of T with xs`, or one of the five concrete `new_*_set`
+`from_items_set of T with xs`, or one of the nine concrete `new_*_set`
 constructors. (`make_set` is named that way on purpose: `new_set of string`
 would mangle to `new_set_string` and hijack the legacy module constructor of
 that exact name, which then fails with `E0005`.)
@@ -232,16 +246,19 @@ concrete runes are unaffected: their methods may call each other by name.
   ``## @deprecated Use the generic `Set of <T>` instead.`` — the docstring
   convention only. They carry no real `@deprecated(...)` attribute, so they emit
   no `W0006`. See [`DEPRECATIONS.md`](DEPRECATIONS.md).
-* 2.1.0 is purely additive: the generic `rune Set shard T`, its `enchanting`,
-  `make_set`, `from_items_set` and the five concrete constructors. Nothing is
+* `2.1.0` is purely additive: the generic `rune Set shard T`, its `enchanting`,
+  `make_set`, `from_items_set` and five concrete constructors. `2.2.0` adds four
+  more concrete constructors (`new_i64_set`, `new_u64_set`, `new_usize_set`,
+  `new_isize_set`) and documents the verified element-type matrix. Nothing is
   removed and no existing signature changes. `SetString` and `SetInt` are
   different types from `Set of string` / `Set of int` and convert only through
   `to_set_int` / `to_set_string` (or by rebuilding from a list).
 
-| Before (0.14.x/0.15.0) | Now (`2.1.0`) |
+| Before (0.14.x/0.15.0) | Now (`2.2.0`) |
 |---|---|
 | `calling new_set_string` + `s.add "x"` | `calling make_set of string` or `calling new_string_set` |
 | `calling new_set_int` + `s.add 7` | `calling make_set of int` or `calling new_int_set` |
+| (new in `2.2.0`) | `calling new_i64_set`, `new_u64_set`, `new_usize_set` or `new_isize_set`, or `calling make_set of i64` |
 | `calling from_list_string with xs` | `calling from_items_set of string with xs` |
 | `calling SetString.empty` | `calling new_string_set` (no `Set.empty`) |
 | `calling s.to_list_int` | `calling s.to_list` on `Set of int` |

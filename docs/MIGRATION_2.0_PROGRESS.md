@@ -147,7 +147,170 @@ Común:
       `docs/PENGUNIC_CHECKLIST.md` con las reglas de colecciones genéricas.
 - [x] `pengu_runtime.h` **sin tocar**: este chunk no mueve código C.
 
-### Próximo: Chunk 5 (`std/archivum` + `std/rites` + `std/chronicle`)
+### ✅ Chunk 5: `std.archivum` + `std.rites` + `std.chronicle` (+ retrofit de `std.tally` / `std.loom` / `std.coven`)
+
+`std/archivum` (`ARCHIVUM_VERSION = "2.1.0"`):
+
+- [x] Reescrito `std/archivum.pengu` completo en Pengunic 2.0 (FS: lectura,
+      escritura, copia, borrado, listado, metadatos y búsqueda).
+- [x] **+23 nombres públicos**, 0 eliminados o renombrados: `read_text`,
+      `write_text`, `read_last_n_lines`, `read_dir_full`, `is_readable`,
+      `is_writable`, las 11 variantes `*_result` (`read_lines_result`,
+      `write_lines_result`, `read_dir_result`, `create_dir_result`,
+      `remove_dir_result`, `copy_file_result`, `copy_tree_result`,
+      `append_lines_result`, `touch_result`, `symlink_result`,
+      `metadata_result`) y los métodos del `enchanting compass.Path`
+      (`append_text`, `delete`, `mkdir`, `rmdir`, `iter_dir`, `stat`; `read_text`
+      y `write_text` ya contaban).
+- [x] 0 → **33 tests internos**.
+- [x] `docs/ARCHIVUM_API.md` creado (contrato congelado 2.1.0).
+
+`std/rites` (`RITES_VERSION = "2.1.0"`):
+
+- [x] Reescrito `std/rites.pengu` completo en Pengunic 2.0 (entorno, argumentos,
+      identidad de proceso, directorios estándar, detección de plataforma,
+      búsqueda de ejecutables y captura de shell).
+- [x] **+9 nombres públicos**, 0 eliminados: la API de captura
+      (`run_capture`, `run_capture_result`, `run_capture_lines`,
+      `run_capture_stderr`, `run_shell_capture`) y las credenciales POSIX
+      (`get_uid`, `get_gid`, `get_euid`, `get_egid`). Los `antiquus`
+      `_rites_capture`, `_rites_run_status` y `_rites_id` son privados y no
+      aparecen en el contrato.
+- [x] 0 → **49 tests internos**.
+- [x] `pengu_runtime.h` **no gana ningún símbolo**: los `declare pengu_c_*`
+      siguen apuntando a los `static inline` existentes y las dos capacidades
+      nuevas viven en cuerpos `antiquus` de `rites`.
+- [x] `docs/RITES_API.md` creado (contrato congelado 2.1.0).
+
+`std/chronicle` (`CHRONICLE_VERSION = "2.1.0"`):
+
+- [x] Reescrito `std/chronicle.pengu` completo en Pengunic 2.0 (reloj de pared,
+      reloj monótono, timestamps, campos de calendario UTC/local, el rune
+      `DateTime`, fronteras de calendario, formato/parseo y `Stopwatch`).
+- [x] **+16 nombres públicos**, 0 eliminados o renombrados: `to_timestamp`,
+      `plus_seconds`/`plus_minutes`/`plus_hours`/`plus_days`/`plus_weeks`,
+      `is_same_day`, `weekday_name`, `month_name`, `is_weekend`,
+      `start_of_week`, `start_of_quarter`, `end_of_month`, `days_between`,
+      `hours_between`, `seconds_to_hms`.
+- [x] 0 → **35 tests internos**, todos con timestamps fijos (deterministas).
+- [x] Los 24 `declare` C son byte-idénticos a 2.0.0; el módulo no tiene
+      `antiquus` y no mueve código del runtime.
+- [x] `docs/CHRONICLE_API.md` creado (contrato congelado 2.1.0).
+
+Retrofit `std.tally` / `std.loom` / `std.coven`:
+
+- [x] `std/tally.pengu` (`TALLY_VERSION = "2.2.0"`): 152 → **170 tests
+      internos**. Todas las funciones de módulo se ensanchan a
+      `list of shard T where T: <bound>` (antes `list of int`); **+2 nombres
+      públicos**: `at_or_shard shard T where T: Donum` y
+      `clamp_all_shard shard T where T: Num and T: Ordo`.
+- [x] `at_or` y `clamp_all` conservan **a propósito** su firma concreta
+      `list of int` y sus defaults `int`: un parámetro genérico no admite un
+      default dependiente de `T` (`default as int is 0`, `lo as int is 0`,
+      `hi as int is 100`). El camino genérico son `at_or_shard` /
+      `clamp_all_shard`, con el default/bounds explícitos.
+- [x] `std/loom.pengu` (`LOOM_VERSION = "2.2.0"`): 130 → **146 tests
+      internos**. Todas las entradas públicas pasan a `shard T` con el bound
+      que cada cuerpo necesita; **0 nombres nuevos de API** (el `seal
+      LoomUserId` + su `bind LoomUserId with Ordered:` son solo de test y
+      quedan documentados como tales). `range`, `unfold_range`, `pad_left`,
+      `pad_right` y `zip_longest` siguen concretas porque su default depende
+      del tipo de elemento.
+- [x] `std/coven.pengu` (`COVEN_VERSION = "2.2.0"`): 44 → **55 tests
+      internos**. **+4 nombres públicos**: los constructores concretos
+      `new_i64_set`, `new_u64_set`, `new_usize_set` y `new_isize_set`; la
+      matriz de tipos de elemento de `Set of T` (`int`, `i8`..`i64`,
+      `u8`..`u64`, `byte`, `usize`, `isize`, `float`/`f32`/`f64`, `char`,
+      `bool`, `string` y `rune derive Par, Vinculum`) queda verificada y
+      documentada.
+- [x] **`insignia tally_` e `insignia loom_`.** Las funciones de módulo se
+      emiten con prefijo C (`tally_sum`, `loom_min_max`, …). Eso es
+      exactamente lo que hace fiable la resolución de una llamada genérica
+      cualificada (`calling tally.sum with floats`) cuando el bundle contiene
+      varias monomorfizaciones: se elige el símbolo mangleado exacto en vez de
+      la heurística "solo hay una coincidencia" (ver Bug 2).
+- [x] Ordenación y strings: las operaciones de orden pasan por
+      `T: Ordered` (concepto de `std.atlas`, con `bind` para `int`, `i32`,
+      `i64`, `float`, `f32`, `f64` y `string`); la igualdad (`==`) sí es
+      genérica, así que el grupo `Par` no necesita concepto.
+- [x] `docs/TALLY_API.md`, `docs/LOOM_API.md` y `docs/COVEN_API.md`
+      actualizados a 2.2.0 de forma **aditiva**: cada símbolo ya documentado
+      sigue en la página, con la firma ensanchada y el bound explícito.
+- [x] `tests/stdlib/test_tally.py`, `tests/stdlib/test_loom.py` y
+      `tests/stdlib/test_coven.py` ampliados (float, `i64`, string y `seal`
+      tanto por función de módulo como por método).
+- [x] `tests/stdlib/test_archivum.py` (30+), `tests/stdlib/test_rites.py`
+      (25+) y `tests/stdlib/test_chronicle.py` (25+) creados; juzgan
+      stdout/stderr/exit code, nunca el C generado.
+- [x] `pengu_runtime.h` **sin tocar** en el retrofit.
+
+Recuento de tests internos de Chunk 5: `tally` **170**, `loom` **146**,
+`coven` **55**, `chronicle` **35**, `rites` **49**, `archivum` **33**.
+
+Deltas de nombres públicos de Chunk 5 (todos aditivos, cero eliminaciones o
+renombrados): `archivum` **+23**, `chronicle` **+16**, `rites` **+9**,
+`coven` **+4**, `tally` **+2**, `loom` **+0** de API.
+
+### Bugs del compilador arreglados en Chunk 5
+
+1. **Una `weave` genérica libre secuestraba un método genérico homónimo**
+   (`pengu_parser/pengu_infer.py`). Con `weave sum shard T where T: Num with l
+   as list of T into T` y `enchanting list of shard T where T: Num: weave sum`,
+   la llamada `calling xs.sum` fallaba con `E0005 Could not infer type
+   parameter(s) T for generic function 'sum'`: la resolución adoptaba la
+   función libre en lugar del método, también cuando ambos vivían en módulos
+   distintos. Arreglado exigiendo `method_self_type is None` antes de adoptar
+   una función genérica desnuda.
+2. **Una llamada genérica cualificada a un módulo resolvía el símbolo C
+   equivocado** (`pengu_parser/pengu_codegen/exprs.py`). `calling mod.generic
+   with xs` emitía un `sum` desnudo en cuanto existían dos especializaciones
+   (heurística `len(m_matches) == 1`). Arreglado con
+   `_resolve_monomorphized_call`, que unifica los tipos declarados de los
+   parámetros con los tipos inferidos de los argumentos para construir el
+   nombre manglado exacto. Es la razón por la que `tally` y `loom` llevan
+   `insignia`: el prefijo C `tally_`/`loom_` es lo que da a cada
+   monomorfización un símbolo distinto y resoluble.
+3. **Bug 3** (`pengu_parser/pengu_codegen/exprs.py`,
+   `_resolve_monomorphized_call`): a qualified generic module call that omits a
+   parameter with a default (`calling loom.zip_with with a, b` where
+   `op as int is 0`) emitted the unspecialized C symbol `loom_zip_with`
+   (`implicit declaration of function 'loom_zip_with'; did you mean
+   'loom_zip_with_int'?`). Fixed by unifying only the supplied argument prefix
+   against the declared parameters instead of requiring
+   `len(args) == len(params)`.
+
+### Desviaciones y hallazgos de Chunk 5
+
+1. **`Set.empty` sigue sin existir.** Un `ritual` genérico sigue
+   miscompilando en cuanto el bundle contiene dos especializaciones `Set of T`
+   (`invalid initializer`; el ritual se emite para la `T` sin especializar), y
+   un `Set.empty` sin `of T` no infiere (`E0005`). El smoke de Chunk 5 usa por
+   eso `coven.make_set of float` (y los constructores concretos
+   `new_i64_set`/`new_u64_set`/`new_usize_set`/`new_isize_set`); la limitación
+   queda registrada como deuda.
+2. **La ordenación de strings va por `atlas.Ordered`.** `>` sobre `PenguString`
+   dentro de un cuerpo genérico emite un `>` crudo de C que no compila, y una
+   string concreta lo rechaza con `E0005`; por eso `tally` importa `std.atlas`
+   y las operaciones de orden se acotan `where T: Ordered` comparando con
+   `calling a.cmp with b`. `==` sí funciona genéricamente en strings.
+3. **`std/scrolls.pengu`: dos locales `W0005` preexistentes renombrados.** El
+   nuevo `import std.atlas` de `loom` arrastra `scrolls` (vía `atlas`) a su
+   grafo transitivo, y el gate de Chunk 5 exige cero warnings. Los locales
+   `sign` se renombran a `sign_text` / `sign_factor` para eliminar el
+   `W0005` preexistente. No cambia ninguna firma ni comportamiento.
+4. **Los tests internos nuevos usan receptores cualificados.** La `weave`
+   genérica de `loom`/`tally` comparte 15 nombres: dentro de los bloques `test`
+   se prefiere el receptor con punto (`calling xs.sum`) o un núcleo privado
+   concreto para no depender del espacio de nombres compartido entre módulos
+   importados (ver Chunk 3, bug de nombres compartidos).
+5. **`std/scrolls.pengu` was the only out-of-scope module edit of Chunk 5.** The
+   `sign` → `sign_text`/`sign_factor` rename was the only change made outside
+   the chunk's modules, and it was needed to keep the six-module gate at zero
+   warnings after `std/loom` started importing `std.atlas` (which pulls
+   `scrolls` into the transitive graph); no other out-of-scope module was
+   touched.
+
+### Próximo: Chunk 6 (`std/lot` + `std/whisper`)
 
 ## Desviaciones y hallazgos de Chunk 4
 
@@ -450,6 +613,32 @@ bindings C) y `tests/stdlib/test_std_warning_positions.py` (posiciones de W0001)
 - Deuda registrada: temporales de slice sin `banish` en toda la stdlib (hallazgo 5).
 - Deuda registrada: bug de resolución de métodos por prefijo (bloquea añadir
   `map_or`/`inspect` a `oracle`).
+- Deuda registrada: un `ritual` genérico con dos especializaciones sigue
+  miscompilando, así que `Set.empty` no existe; usar `coven.make_set of T` o los
+  constructores concretos (Chunk 5, desviación 1).
+- Deuda registrada: `std/chronicle.pengu` timestamps are 32-bit `float` while
+  the runtime bridges are `double`, so at modern epochs the resolution is ~128 s
+  (`add_seconds(1700000000.0, 1)` returns the same value). The public surface
+  keeps `float` for compatibility and the module docstring now states the
+  limitation; switching the timestamps to `f64` is the correct fix and is
+  deferred.
+- Deuda registrada: `pengu_c_strptime` (runtime) ignores `fmt`, resolves in the
+  process's **local** time zone with `mktime` and zeroes unparsed time fields.
+  `chronicle.parse` was mis-declaring the bridge as `maybe float` while the
+  bridge allocates a `double` payload, so `.value` was garbage; the declare is
+  now `maybe f64` with an explicit `to float` conversion, and the docstring
+  records the zone/`fmt` limitation.
+- Deuda registrada: `chronicle.now_ms`/`time_ms` return 32-bit `int`
+  milliseconds (overflows after 1970); they should be `i64`. Deferred because it
+  is a pre-existing public signature.
+- Deuda registrada: `chronicle` pre-1970 round-trips are silently wrong
+  (`_epoch_days` starts at 1970).
+- Deuda registrada: `std/archivum.pengu`: `glob` is rooted at the process
+  working directory, reports `./<path>` entries, never matches absolute patterns
+  and treats `?` as a literal; the docstring now says so.
+- Deuda registrada: `result.is_err` / `result.is_ok` are `std.oracle`
+  enchantings, not core fields: `*_result` callers must `import std.oracle` and
+  use `calling r.is_err`.
 
 ## Notas para Chunk 3
 

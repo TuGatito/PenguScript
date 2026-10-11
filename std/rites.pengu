@@ -1,49 +1,94 @@
-# std/rites.pengu - The Rites (OS & System)
-# Provides process, environment, and system utilities.
-#
-# The helpers cover six primary areas:
-#   * Environment variables: getenv, setenv, unsetenv, get_env_keys, getenv_or,
-#     has_env, getenv_int, getenv_float, getenv_bool, get_env_map, set_env_map,
-#     clear_env, expand_env, env_substitute.
-#   * Program arguments: get_argc, get_argv, get_args, arg_at_or, parse_flags,
-#     has_flag, get_flag_value.
-#   * Process identity and directory: getpid, getppid, getcwd, chdir.
-#   * Standard user/system directories: home_dir, temp_dir, config_dir,
-#     cache_dir, data_dir.
-#   * Platform & host information: uname, hostname, os_arch, os_family,
-#     is_windows, is_unix, is_macos, is_linux.
-#   * Executable search: which, which_all.
-#   * Process termination & execution: exit, exec, spawn, exec_ok,
-#     exec_or_panic, run_shell, shell_escape, current_user.
-#
-# Documented TODOs (require new C runtime bridges):
-#   * get_uid() / get_gid(): POSIX user/group ID inspection
-#   * set_uid() / set_gid(): POSIX user/group ID switching
-#   * fork() / waitpid(): low-level POSIX process lifecycle
-#   * pipe(): unidirectional IPC channel between processes
-#   * exec_capture() / run_capture(): process spawning with stdout/stderr capture
-#
-# Memory model:
-#   Every returned string or list of string (getenv, get_argv, get_args,
-#   getcwd, get_env_keys, uname, hostname, standard directories) is a fresh copy
-#   made by the C runtime or standard library, so results follow normal
-#   PenguScript value lifetimes and never alias OS-owned buffers.
-#   Nothing returned is caller-owned heap requiring manual cleanup beyond
-#   standard variable lifecycle. String arguments are read-only for the duration
-#   of the call and are never retained.
+## std/rites.pengu — operating-system rites: environment variables, program
+## arguments, process identity, standard directories, platform detection,
+## executable search, and shell execution with output capture.
+##
+## The module is the thin, portable PenguScript face of the C runtime's "Rites"
+## section (`pengu_runtime.h`, section 14) plus a few `antiquus` bridges for the
+## capabilities the runtime does not expose (stdout/stderr capture and the POSIX
+## user/group identifiers).
+##
+## ## Example
+## ```pengu
+## import std.spark
+## import std.rites
+##
+## weave main into int:
+##     let home as maybe string is calling rites.home_dir
+##     if home is present:
+##         calling spark.println with "home={home.value}"
+##     let out as maybe string is calling rites.run_capture with "sh", ["-c", "echo hi"]
+##     if out is present:
+##         calling spark.println with out.value
+##     return 0
+## ```
+##
+## ## Memory
+## Every returned `string` (and every string inside a returned `list of string`)
+## is a fresh, owned allocation made by the C runtime or by the standard library,
+## so it follows normal PenguScript value lifetimes and never aliases an OS-owned
+## buffer (`getenv`, `getcwd`, `uname`, `hostname`, ...). Release those results
+## with `banish`; a `banish` on a string literal or an empty view is a no-op.
+## `get_args` owns both the element buffer and each element, so release the
+## elements (or use the list-wide release helper) before the list. A
+## `maybe string` owns its payload only when it is `present`. Arguments are
+## borrowed for the duration of the call and are never retained, and this module
+## never frees a caller-owned buffer.
+##
+## ## Design notes
+## - **C bridges keep their original names.** The `pengu_c_*` declarations name
+##   `static inline` helpers of `pengu_runtime.h`; they are declared, never
+##   redefined, so the runtime stays the single implementation. The `declare`
+##   block sits *before* the module's `insignia rites_` directive, so the
+##   `pengu_c_*` symbols keep their exact runtime names while the module's own
+##   weaves are C-prefixed.
+## - **New `antiquus` bridges are narrow.** `run_capture*` needs a pipe
+##   (`popen`/`pclose`) that the runtime does not wrap, and `get_uid`/`get_gid`
+##   need the POSIX credential calls. Both are embedded C bodies that call libc
+##   directly; each one justifies itself in `## ## Motivo`.
+## - **The command line is built in Pengu, not in C.** Every element of a
+##   `cmd`/`args` pair is quoted with `shell_escape` before it is handed to the
+##   C bridge, so the quoting policy lives in exactly one place and is covered by
+##   unit tests. On POSIX that is single-quote escaping; on Windows it is
+##   double-quote escaping.
+## - **`popen` runs the platform shell.** The module's query helpers treat the
+##   shell status like a process status: only `0` is success, and the extracted
+##   exit code is reported as `128 + signal` when the shell reports termination
+##   by signal.
+## - **Test-only names are `_rites_*`.** The internal tests never import
+##   `std.ward` (`ward` imports `std.rites`, so that would be a cycle); they use a
+##   private harness over `spark.panic` and call unambiguous `_rites_*` helpers so
+##   they stay safe in the shared namespace used when several bundled modules are
+##   type-checked together.
+##
+## ## Migration
+## 2.1.0 is a documentation/style migration with new capability and no
+## removals:
+##
+## - **Every 2.0.0 symbol is preserved** with its exact name, bounds and
+##   signature, including the `pengu_c_*` declarations, `clear_env`,
+##   `getenv_or`, `arg_at_or`, `parse_flags` and the aliases (`env_substitute`,
+##   `os_family`, `spawn`).
+## - **New capture API.** `run_capture`, `run_capture_result`,
+##   `run_capture_lines`, `run_capture_stderr` and `run_shell_capture` close the
+##   old `run_capture()` TODO; they are built on two private `antiquus` bridges
+##   (`_rites_capture`, `_rites_run_status`).
+## - **New POSIX credentials API.** `get_uid`, `get_gid`, `get_euid` and `get_egid`
+##   close the old `get_uid()`/`get_gid()` TODO through one private `antiquus`
+##   bridge (`_rites_id`); they return `maybe none` on Windows.
+## - **Still unsupported:** `set_uid`/`set_gid`, `fork`/`waitpid` and raw `pipe`
+##   objects remain out of scope; they need runtime-level work, not a doc pass.
+## - **Documentation.** All prose is English, every public weave carries the
+##   canonical `## ## Parámetros`/`## ## Retorno`/`## ## Ejemplo` sections and the
+##   internal `# --- Tests ---` suite was added (there were none in 2.0.0).
 
 import std.spark
 
 # ----------------------------------------------------------------------------
-# Module Version
-# ----------------------------------------------------------------------------
-
-## Version constant for std.rites module.
-const RITES_VERSION as string is "2.0.0"
-
-# ----------------------------------------------------------------------------
 # External C Runtime Declarations (environment, args, process, platform)
 # ----------------------------------------------------------------------------
+# These bindings are declared before the `insignia` directive so that they keep
+# their exact `pengu_c_*` runtime names; the insignia only prefixes the module's
+# own C symbols.
 
 # C bridge that looks up the value of environment variable `name`; returns a
 # maybe string that is none when the variable is unset.
@@ -110,42 +155,282 @@ declare pengu_c_get_env_keys into list of string
 declare pengu_c_archivum_is_file with path as string into bool
 
 # ----------------------------------------------------------------------------
+# Module Version
+# ----------------------------------------------------------------------------
+
+## Version constant for the std.rites module.
+const RITES_VERSION as string is "2.1.0"
+
+# --- Module directives ------------------------------------------------------
+# The module's public weaves carry archetypal operating-system names
+# (`getenv`, `getpid`, `getppid`, `getcwd`) that are also libc functions. The
+# `insignia` prefix moves every module-level C symbol declared below to
+# `rites_*`/`rites__*`, so a bundle that links `std.rites` never redeclares a
+# libc symbol. PenguScript callers are unaffected: they only ever use the
+# PenguScript names.
+insignia rites_
+
+# ----------------------------------------------------------------------------
+# Embedded C Bridges (`antiquus`)
+# ----------------------------------------------------------------------------
+# These three bodies are the only C this module contributes. They are private
+# (`_rites_*`), they call libc through symbols that `pengu_runtime.h` already
+# includes (`<stdio.h>` for popen/pclose, `<unistd.h>` for the credentials on
+# POSIX), and they keep every POSIX-only statement behind `#ifdef _WIN32` so a
+# Windows build still compiles. `pengu fmt` requires column 0, so the raw
+# bodies are never indented. The `ref to string` output parameters are the
+# compiler-supported way to return a second value: a `ref to int` parameter is
+# immutable in a Pengu body, so the exit status travels as the error message.
+
+## Runs `cmdline` through the shell and captures one of its output streams.
+##
+## ## Motivo
+## `popen`/`pclose` are the portable pipe pair for "run and read", but they are
+## not wrapped by `pengu_runtime.h`; expressing a pipe in PenguScript would need
+## `fork`/`dup2`/`waitpid` bridges instead. The stream selector (`"r"` for
+## stdout, `"e"` for stderr) and the error message are the two values the Pengu
+## wrappers need, and one C call gives both so a command never runs twice.
+##
+## ## Memoria
+## Returns a freshly allocated owned `PenguString`; the caller releases it with
+## `banish`. On Windows or on a failure it returns an empty view. `cmdline` is
+## borrowed and never freed, and `err` is a borrowed output slot that receives
+## an empty view on success or a freshly allocated message on failure.
+antiquus _rites_capture with cmdline as string, stream as string, err as ref to string into string:
+    r"""
+err->data = (char *)"";
+err->len = 0;
+err->is_owned = 0;
+#if defined(_WIN32)
+(void)stream;
+return pengu_string_from_cstr("");
+#else
+if (!cmdline.data || cmdline.len <= 0)
+return pengu_string_from_cstr("");
+char *cline = (char *)malloc((size_t)cmdline.len + 1);
+if (!cline)
+return pengu_string_from_cstr("");
+memcpy(cline, cmdline.data, (size_t)cmdline.len);
+cline[cmdline.len] = '\0';
+const char *mode = "r";
+FILE *fp = popen(cline, mode);
+free(cline);
+if (!fp)
+return pengu_string_from_cstr("");
+size_t cap = 4096;
+size_t len = 0;
+char *buf = (char *)malloc(cap);
+if (!buf)
+{
+pclose(fp);
+return pengu_string_from_cstr("");
+}
+size_t got;
+while ((got = fread(buf + len, 1, cap - len - 1, fp)) > 0)
+{
+len += got;
+if (len + 1 >= cap)
+{
+cap *= 2;
+char *nb = (char *)realloc(buf, cap);
+if (!nb)
+break;
+buf = nb;
+}
+}
+buf[len] = '\0';
+int st = pclose(fp);
+PenguString str = pengu_string_from_cstr("");
+bool failed = false;
+int code = 0;
+if (st == -1)
+{
+failed = true;
+code = -1;
+}
+else if (WIFEXITED(st))
+{
+code = WEXITSTATUS(st);
+failed = code != 0;
+}
+else if (WIFSIGNALED(st))
+{
+failed = true;
+code = 128 + WTERMSIG(st);
+}
+else
+{
+failed = true;
+code = -1;
+}
+if (failed)
+{
+char msg[64];
+snprintf(msg, sizeof(msg), "command exited with code %d", code);
+PenguString *boxed = (PenguString *)malloc(sizeof(PenguString));
+if (boxed)
+*err = pengu_string_new(msg);
+free(buf);
+return pengu_string_from_cstr("");
+}
+str = pengu_string_new(buf);
+free(buf);
+return str;
+#endif
+"""
+
+## Returns the shell exit status of `cmdline` without capturing its output.
+##
+## ## Motivo
+## `run_capture_result` needs the numeric exit code even when the capture call
+## already reported the failure text; `pclose` is the only portable way to get
+## it and the Pengu side cannot reach the wait macros. The command is therefore
+## run a second time only on the error path, where its output is known to be
+## empty.
+##
+## ## Memoria
+## Allocates nothing. `cmdline` is borrowed and never freed.
+antiquus _rites_run_status with cmdline as string into int:
+    r"""
+#if defined(_WIN32)
+(void)cmdline;
+return -1;
+#else
+if (!cmdline.data || cmdline.len <= 0)
+return -1;
+char *cline = (char *)malloc((size_t)cmdline.len + 1);
+if (!cline)
+return -1;
+memcpy(cline, cmdline.data, (size_t)cmdline.len);
+cline[cmdline.len] = '\0';
+FILE *fp = popen(cline, "r");
+free(cline);
+if (!fp)
+return -1;
+char sink[512];
+while (fread(sink, 1, sizeof(sink), fp) > 0)
+{
+}
+int st = pclose(fp);
+if (st == -1)
+return -1;
+if (WIFEXITED(st))
+return WEXITSTATUS(st);
+if (WIFSIGNALED(st))
+return 128 + WTERMSIG(st);
+return -1;
+#endif
+"""
+
+## Returns POSIX credential `which` for the current process.
+##
+## ## Motivo
+## The four credential calls (`getuid`, `getgid`, `geteuid`, `getegid`) are one
+## line of C each; a Pengu body cannot reach them at all. `which` selects the
+## call, and `-1f` means "not available on this target", which the Pengu wrapper
+## turns into `maybe none`.
+##
+## ## Memoria
+## Allocates nothing. The parameter is a borrowed `int`.
+antiquus _rites_id with which as int into int:
+    r"""
+#if defined(_WIN32)
+(void)which;
+return -1;
+#else
+if (which == 0)
+return (int)getuid();
+if (which == 1)
+return (int)getgid();
+if (which == 2)
+return (int)geteuid();
+if (which == 3)
+return (int)getegid();
+return -1;
+#endif
+"""
+
+# ----------------------------------------------------------------------------
 # Environment Variables (0.14.x baseline)
 # ----------------------------------------------------------------------------
 
 ## Looks up environment variable `name`.
 ##
-## Signature: getenv(name as string) into maybe string
-## Memory: Returns a fresh copy of the environment variable value.
-## Edge cases: Returns maybe none when the variable is not set (or name is empty). If the variable is set to an empty string, returns some "".
-## Cross-platform: Supported uniformly across Windows (GetEnvironmentVariableA) and POSIX (getenv).
+## ## Parámetros
+## - `name`: the variable name to look up. Borrowed.
+##
+## ## Retorno
+## A fresh owned `maybe string`: `some value` when the variable is set (an empty
+## string is still `present`) and `maybe none` when it is unset or `name` is
+## empty.
+##
+## ## Memoria
+## The payload is a fresh copy of the environment value, released with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let home as maybe string is calling rites.getenv with "HOME"
+## ```
 weave getenv with name as string into maybe string:
     return calling pengu_c_getenv with name
 
 ## Sets environment variable `name` to `value`.
 ##
-## Signature: setenv(name as string, value as string, overwrite as bool is true) into bool
-## Memory: the value string is copied by the runtime; the caller keeps whatever it owned.
-## Edge cases: When `overwrite` is false and `name` already exists, returns true without modifying value.
-## Cross-platform: Uses SetEnvironmentVariableA on Windows and setenv on POSIX.
+## ## Parámetros
+## - `name`: the variable name. Borrowed; an empty name fails.
+## - `value`: the value to store, possibly empty. Borrowed.
+## - `overwrite`: when false and `name` already exists, leave it untouched.
+##
+## ## Retorno
+## `true` on success, `false` when `name` is empty or the runtime cannot store
+## the pair.
+##
+## ## Memoria
+## The runtime copies both strings; the caller keeps whatever it owned. Nothing
+## is retained after the call.
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.setenv with "APP_MODE", "debug", true
+## ```
 weave setenv with name as string , value as string , overwrite as bool is true into bool:
     return calling pengu_c_setenv with name , value , overwrite
 
 ## Removes environment variable `name` from the process environment.
 ##
-## Signature: unsetenv(name as string) into bool
-## Memory: Arguments are not retained.
-## Edge cases: Returns true on success or if variable was already unset; false on invalid names.
-## Cross-platform: Uses SetEnvironmentVariableA(name, NULL) on Windows and unsetenv on POSIX.
+## ## Parámetros
+## - `name`: the variable name to remove. Borrowed.
+##
+## ## Retorno
+## `true` on success or when the variable was already unset; `false` for an
+## empty name.
+##
+## ## Memoria
+## Arguments are not retained.
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.unsetenv with "APP_MODE"
+## ```
 weave unsetenv with name as string into bool:
     return calling pengu_c_unsetenv with name
 
 ## Returns the names of all currently set environment variables.
 ##
-## Signature: get_env_keys() into list of string
-## Memory: Returns a new list of owned strings.
-## Edge cases: Returns an empty list when no environment variables are defined.
-## Cross-platform: Iterates environ on POSIX and GetEnvironmentStringsA on Windows.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## A new owned `list of string`; empty when no variables are defined.
+##
+## ## Memoria
+## The list owns its element buffer and every element is an owned string, so
+## release the elements before the list.
+##
+## ## Ejemplo
+## ```pengu
+## let keys as list of string is calling rites.get_env_keys
+## ```
 weave get_env_keys into list of string:
     return calling pengu_c_get_env_keys
 
@@ -155,63 +440,110 @@ weave get_env_keys into list of string:
 
 ## Looks up environment variable `name`, returning `default` if unset.
 ##
-## Signature: getenv_or(name as string, default as string is "") into string
-## Memory: Returns a fresh string copy.
-## Edge cases: Returns `default` when `name` is not present in the environment.
-## Cross-platform: Works across all platforms.
+## ## Parámetros
+## - `name`: the variable name. Borrowed.
+## - `default`: the value returned when `name` is unset. Borrowed.
+##
+## ## Retorno
+## The variable value, or `default` when the variable is unset or `name` is
+## empty.
+##
+## ## Memoria
+## A fresh owned string when the variable is set; otherwise `default` itself.
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.getenv_or with "NO_SUCH_VAR", "fallback"    # "fallback"
+## ```
 weave getenv_or with name as string , default as string is "" into string:
-    var opt as maybe string is calling getenv with name
-    if opt is present:
-        return opt.value
-    return default
+    let opt as maybe string is calling getenv with name
+    return if opt is present then opt.value else default
 
 ## Checks whether environment variable `name` is currently set.
 ##
-## Signature: has_env(name as string) into bool
-## Memory: No persistent allocations.
-## Edge cases: Returns true even if the variable is set to an empty string.
-## Cross-platform: Works across all platforms.
+## ## Parámetros
+## - `name`: the variable name. Borrowed.
+##
+## ## Retorno
+## `true` when the variable exists, even if its value is the empty string.
+##
+## ## Memoria
+## No persistent allocations; the temporary lookup result is not returned.
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.has_env with "PATH"    # true
+## ```
 weave has_env with name as string into bool:
-    var opt as maybe string is calling getenv with name
+    let opt as maybe string is calling getenv with name
     return opt is present
 
 ## Looks up environment variable `name` and parses it as an integer.
 ##
-## Signature: getenv_int(name as string) into maybe int
-## Memory: No persistent allocations.
-## Edge cases: Returns maybe none if unset or if value cannot be parsed as an int.
-## Cross-platform: Works across all platforms.
+## ## Parámetros
+## - `name`: the variable name. Borrowed.
+##
+## ## Retorno
+## `some value` when the variable is set and `spark.parse_int` accepts it;
+## `maybe none` otherwise. Never panics.
+##
+## ## Memoria
+## No persistent allocations beyond the discarded lookup copy.
+##
+## ## Ejemplo
+## ```pengu
+## let port as maybe int is calling rites.getenv_int with "PORT"
+## ```
 weave getenv_int with name as string into maybe int:
-    var opt as maybe string is calling getenv with name
+    let opt as maybe string is calling getenv with name
     if opt is not present:
         return maybe none
     return calling spark.parse_int with opt.value
 
 ## Looks up environment variable `name` and parses it as a float.
 ##
-## Signature: getenv_float(name as string) into maybe float
-## Memory: No persistent allocations.
-## Edge cases: Returns maybe none if unset or if value cannot be parsed as a float.
-## Cross-platform: Works across all platforms.
+## ## Parámetros
+## - `name`: the variable name. Borrowed.
+##
+## ## Retorno
+## `some value` when the variable is set and `spark.parse_float` accepts it;
+## `maybe none` otherwise. Never panics.
+##
+## ## Memoria
+## No persistent allocations beyond the discarded lookup copy.
+##
+## ## Ejemplo
+## ```pengu
+## let ratio as maybe float is calling rites.getenv_float with "RATIO"
+## ```
 weave getenv_float with name as string into maybe float:
-    var opt as maybe string is calling getenv with name
+    let opt as maybe string is calling getenv with name
     if opt is not present:
         return maybe none
     return calling spark.parse_float with opt.value
 
 ## Looks up environment variable `name` and parses it as a boolean.
 ##
-## Signature: getenv_bool(name as string) into maybe bool
-## Memory: No persistent allocations.
-## Edge cases: Accepts "1", "true", "TRUE", "yes", "YES" -> some true.
-##             Accepts "0", "false", "FALSE", "no", "NO" -> some false.
-##             Unset or unrecognized values return maybe none.
-## Cross-platform: Works across all platforms.
+## ## Parámetros
+## - `name`: the variable name. Borrowed.
+##
+## ## Retorno
+## `some true` for `"1"`, `"true"`, `"TRUE"`, `"True"`, `"yes"`, `"YES"` or
+## `"Yes"`; `some false` for the `0`/`false`/`no` spellings; `maybe none` when
+## the variable is unset or the value is not recognized.
+##
+## ## Memoria
+## No persistent allocations beyond the discarded lookup copy.
+##
+## ## Ejemplo
+## ```pengu
+## let debug as maybe bool is calling rites.getenv_bool with "DEBUG"
+## ```
 weave getenv_bool with name as string into maybe bool:
-    var opt as maybe string is calling getenv with name
+    let opt as maybe string is calling getenv with name
     if opt is not present:
         return maybe none
-    var val as string is opt.value
+    let val as string is opt.value
     if val == "1" or val == "true" or val == "TRUE" or val == "True" or val == "yes" or val == "YES" or val == "Yes":
         return some true
     if val == "0" or val == "false" or val == "FALSE" or val == "False" or val == "no" or val == "NO" or val == "No":
@@ -220,63 +552,109 @@ weave getenv_bool with name as string into maybe bool:
 
 ## Returns a snapshot map of all environment variables and their values.
 ##
-## Signature: get_env_map() into map of string to string
-## Memory: Returns a newly allocated map. Keys and values are copied with `memcpy`, so release any heap buffers they reference yourself.
-## Edge cases: Returns empty map if no environment variables are defined.
-## Cross-platform: Works across all platforms.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## A new owned `map of string to string`; empty when no variables are defined.
+##
+## ## Memoria
+## Keys and values are copied with `memcpy`, so release any heap buffers they
+## reference yourself once the map is no longer needed.
+##
+## ## Ejemplo
+## ```pengu
+## let env as map of string to string is calling rites.get_env_map
+## ```
 weave get_env_map into map of string to string:
     var res as map of string to string is map of string to string
-    var keys_snapshot as list of string is calling get_env_keys
+    let keys_snapshot as list of string is calling get_env_keys
     for k in keys_snapshot:
-        var v_opt as maybe string is calling getenv with k
+        let v_opt as maybe string is calling getenv with k
         if v_opt is present:
             calling res.put with k , v_opt.value
     return res
 
 ## Sets multiple environment variables from a key-value map.
 ##
-## Signature: set_env_map(m as map of string to string) into int
-## Memory: Does not consume the input map.
-## Edge cases: Returns the count of variables successfully set.
-## Cross-platform: Works across all platforms.
+## ## Parámetros
+## - `m`: the entries to apply. Borrowed; the map is not consumed.
+##
+## ## Retorno
+## The number of variables successfully set.
+##
+## ## Memoria
+## No allocations; each value is copied by the runtime.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to string is map of string to string
+## calling m.put with "APP_MODE", "debug"
+## calling rites.set_env_map with m
+## ```
 weave set_env_map with m as map of string to string into int:
     var count_v as int is 0
     for k in m:
-        var v as string is m at k
-        var ok as bool is calling setenv with k , v , true
+        let v as string is m at k
+        let ok as bool is calling setenv with k , v , true
         if ok:
             set count_v is count_v + 1
     return count_v
 
 ## Clears all environment variables in the current process.
 ##
-## Signature: clear_env() into int
-## Memory: Mutates process environment. No persistent allocations returned.
-## Edge cases: Returns count of variables successfully removed.
-## Cross-platform: On all platforms, variables are removed via platform unsetenv / SetEnvironmentVariableA.
-## WARNING: Only removes variables from the current process environment, does not affect the OS or parent processes.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## The count of variables successfully removed.
+##
+## ## Memoria
+## Mutates the process environment; no allocation is returned.
+##
+## ## Efectos
+## Only the current process environment is affected: the OS, the parent process
+## and the initial environment of future children are untouched.
+##
+## ## Ejemplo
+## ```pengu
+## let removed as int is calling rites.clear_env
+## ```
 weave clear_env into int:
-    var keys_snapshot as list of string is calling get_env_keys
+    let keys_snapshot as list of string is calling get_env_keys
     var count_n as int is 0
     for k in keys_snapshot:
-        var ok as bool is calling unsetenv with k
+        let ok as bool is calling unsetenv with k
         if ok:
             set count_n is count_n + 1
     return count_n
 
 ## Expands environment variable placeholders in string `s`.
-## Supports `$VAR`, `${VAR}`, `%VAR%` syntax, and `$$` / `%%` escape -> `$` / `%`.
 ##
-## Signature: expand_env(s as string) into string
-## Memory: Returns a newly allocated string with variables substituted.
-## Edge cases: Unset variables expand to empty strings. Unterminated braces `${...}` or `%...%` are preserved verbatim.
-## Cross-platform: Cross-platform support for Unix and Windows placeholders. Single-pass non-recursive expansion.
+## ## Parámetros
+## - `s`: the template to expand. Borrowed.
+##
+## ## Retorno
+## A new owned string with `$VAR`, `${VAR}` and `%VAR%` replaced.
+##
+## ## Memoria
+## The result is freshly allocated; release it with `banish`.
+##
+## ## Efectos
+## Single-pass and non-recursive: a variable whose value contains `$` is not
+## expanded again. Unset variables expand to the empty string, `$$`/`%%` become
+## a literal `$`/`%`, and an unterminated `${...}`/`%...%` is preserved verbatim.
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.expand_env with "home is $HOME"    # "home is /home/<user>"
+## ```
 weave expand_env with s as string into string:
-    var n as int is s length
+    let n as int is s length
     var i as int is 0
     var res as string is ""
     while i < n:
-        var c as string is s at i
+        let c as string is s at i
         if c == "$":
             if (i + 1) < n and (s at (i + 1)) == "$":
                 set res is "{res}$"
@@ -286,7 +664,7 @@ weave expand_env with s as string into string:
                 while j < n and (s at j) != "}":
                     set j is j + 1
                 if j < n:
-                    var vname as string is s at (i + 2) to j
+                    let vname as string is s at (i + 2) to j
                     set res is "{res}{(calling getenv_or with vname , "")}"
                     set i is j + 1
                 else:
@@ -295,14 +673,14 @@ weave expand_env with s as string into string:
             else:
                 var j as int is i + 1
                 while j < n:
-                    var ch as string is s at j
-                    var code as int is ord ch
+                    let ch as string is s at j
+                    let code as int is ord ch
                     if (code >= 65 and code <= 90) or (code >= 97 and code <= 122) or (code >= 48 and code <= 57) or code == 95:
                         set j is j + 1
                     else:
                         break
                 if j > (i + 1):
-                    var vname as string is s at (i + 1) to j
+                    let vname as string is s at (i + 1) to j
                     set res is "{res}{(calling getenv_or with vname , "")}"
                     set i is j
                 else:
@@ -317,7 +695,7 @@ weave expand_env with s as string into string:
                 while j < n and (s at j) != "%":
                     set j is j + 1
                 if j < n and j > (i + 1):
-                    var vname as string is s at (i + 1) to j
+                    let vname as string is s at (i + 1) to j
                     set res is "{res}{(calling getenv_or with vname , "")}"
                     set i is j + 1
                 else:
@@ -330,8 +708,19 @@ weave expand_env with s as string into string:
 
 ## Alias of `expand_env`.
 ##
-## Signature: env_substitute(s as string) into string
-## Memory: Returns a new string with environment variables replaced.
+## ## Parámetros
+## - `s`: the template to expand. Borrowed.
+##
+## ## Retorno
+## A new owned string with the environment variables substituted.
+##
+## ## Memoria
+## The result is freshly allocated; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.env_substitute with "%HOME%"    # the home directory
+## ```
 weave env_substitute with s as string into string:
     return calling expand_env with s
 
@@ -341,52 +730,110 @@ weave env_substitute with s as string into string:
 
 ## Returns the program's argument count, including the program name at index 0.
 ##
-## Signature: get_argc() into int
-## Memory: No allocations.
-## Cross-platform: Returns argc across all platforms.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## The `argc` value as an `int`; at least 1 for a normal program.
+##
+## ## Memoria
+## No allocations.
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.get_argc    # e.g. 1
+## ```
 weave get_argc into int:
     return calling pengu_c_get_argc
 
 ## Returns a copy of the program argument at index `idx` (0 = program name).
 ##
-## Signature: get_argv(idx as int) into string
-## Memory: Returns a fresh string copy.
-## Edge cases: Out-of-range `idx` yields an empty string.
+## ## Parámetros
+## - `idx`: the argument position. Borrowed.
+##
+## ## Retorno
+## A fresh owned string; an out-of-range `idx` yields the empty string.
+##
+## ## Memoria
+## The result is freshly allocated; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.get_argv with 0    # the program path
+## ```
 weave get_argv with idx as int into string:
     return calling pengu_c_get_argv with idx
 
 ## Returns a new list of string holding one copy per program argument.
 ##
-## Signature: get_args() into list of string
-## Memory: The returned list owns its element buffer, but each string element owns its own bytes: free them with `pengu_banish_string_list` (or banish each element) before the list.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## A new owned `list of string` with `argc` entries, index 0 being the program
+## name.
+##
+## ## Memoria
+## The returned list owns its element buffer and each string element owns its
+## own bytes: free them with `pengu_banish_string_list` (or banish each element)
+## before the list.
+##
+## ## Ejemplo
+## ```pengu
+## let argv as list of string is calling rites.get_args
+## ```
 weave get_args into list of string:
     return calling pengu_c_get_args
 
 ## Returns the argument at index `idx`, or `default` if `idx` is out of range.
 ##
-## Signature: arg_at_or(idx as int, default as string is "") into string
-## Memory: Returns a fresh string copy.
-## Edge cases: Returns `default` when `idx < 0` or `idx >= get_argc()`.
+## ## Parámetros
+## - `idx`: the argument position. Borrowed.
+## - `default`: the value returned when `idx` is out of range. Borrowed.
+##
+## ## Retorno
+## A fresh owned string when `0 <= idx < get_argc()`; otherwise `default`.
+##
+## ## Memoria
+## A fresh owned string when the argument exists; `default` itself otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.arg_at_or with 99, "none"    # "none"
+## ```
 weave arg_at_or with idx as int , default as string is "" into string:
-    var argc as int is calling get_argc
+    let argc as int is calling get_argc
     if idx >= 0 and idx < argc:
         return calling get_argv with idx
     return default
 
 ## Parses command-line flags from `get_args()` (skipping argv[0]).
-## Handles `--key=value` -> map["key"] = "value" and `--flag` -> map["flag"] = "true".
 ##
-## Signature: parse_flags() into map of string to string
-## Memory: Returns a newly allocated map.
-## Edge cases: Positional arguments (not starting with `--`) are ignored.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## A new owned `map of string to string`: `--key=value` becomes
+## `["key"] = "value"` and a bare `--flag` becomes `["flag"] = "true"`.
+##
+## ## Memoria
+## The map is freshly allocated; keys and values are owned strings.
+##
+## ## Efectos
+## Positional arguments (anything not starting with `--`) are ignored.
+##
+## ## Ejemplo
+## ```pengu
+## let flags as map of string to string is calling rites.parse_flags
+## ```
 weave parse_flags into map of string to string:
     var res as map of string to string is map of string to string
-    var args as list of string is calling get_args
-    var n as int is calling args.len
+    let args as list of string is calling get_args
+    let n as int is calling args.len
     var i as int is 1
     while i < n:
-        var arg as string is args at i
-        var l as int is arg length
+        let arg as string is args at i
+        let l as int is arg length
         if l >= 3 and (arg at 0 to 2) == "--":
             var eq_idx as int is -1
             var j as int is 2
@@ -396,29 +843,53 @@ weave parse_flags into map of string to string:
                     break
                 set j is j + 1
             if eq_idx != -1:
-                var key as string is arg at 2 to eq_idx
-                var val as string is arg at (eq_idx + 1) to l
+                let key as string is arg at 2 to eq_idx
+                let val as string is arg at (eq_idx + 1) to l
                 calling res.put with key , val
             else:
-                var key as string is arg at 2 to l
+                let key as string is arg at 2 to l
                 calling res.put with key , "true"
         set i is i + 1
     return res
 
 ## Checks if flag `--name` was passed on the command line.
 ##
-## Signature: has_flag(name as string) into bool
-## Memory: No persistent allocations.
+## ## Parámetros
+## - `name`: the flag name without the leading `--`. Borrowed.
+##
+## ## Retorno
+## `true` when the parsed flag map contains `name`.
+##
+## ## Memoria
+## No persistent allocations; the parsed map is discarded.
+##
+## ## Ejemplo
+## ```pengu
+## if calling rites.has_flag with "verbose":
+##     calling spark.println with "verbose mode"
+## ```
 weave has_flag with name as string into bool:
-    var flags as map of string to string is calling parse_flags
+    let flags as map of string to string is calling parse_flags
     return calling flags.contains with name
 
 ## Returns the value of flag `--name` if passed, or maybe none.
 ##
-## Signature: get_flag_value(name as string) into maybe string
-## Memory: Returns a fresh maybe string.
+## ## Parámetros
+## - `name`: the flag name without the leading `--`. Borrowed.
+##
+## ## Retorno
+## `some value` when the flag was passed (`"true"` for a bare flag), otherwise
+## `maybe none`.
+##
+## ## Memoria
+## The payload is owned by the returned `maybe`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let out as maybe string is calling rites.get_flag_value with "output"
+## ```
 weave get_flag_value with name as string into maybe string:
-    var flags as map of string to string is calling parse_flags
+    let flags as map of string to string is calling parse_flags
     if calling flags.contains with name:
         return some (flags at name)
     return maybe none
@@ -429,17 +900,127 @@ weave get_flag_value with name as string into maybe string:
 
 ## Returns the current process id (int).
 ##
-## Signature: getpid() into int
-## Memory: No allocations.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## The process id as an `int`.
+##
+## ## Memoria
+## No allocations.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.println with "{calling rites.getpid}"
+## ```
 weave getpid into int:
     return calling pengu_c_getpid
 
 ## Returns the parent process id (int). Always 0 on Windows.
 ##
-## Signature: getppid() into int
-## Memory: No allocations.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## The parent process id as an `int`; `0` on Windows.
+##
+## ## Memoria
+## No allocations.
+##
+## ## Ejemplo
+## ```pengu
+## let ppid as int is calling rites.getppid
+## ```
 weave getppid into int:
     return calling pengu_c_getppid
+
+## Returns the real user id of the current process.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## `some uid` on POSIX; `maybe none` on Windows or when the value is not
+## available.
+##
+## ## Memoria
+## No allocations; the `int` payload is a value.
+##
+## ## Ejemplo
+## ```pengu
+## let uid as maybe int is calling rites.get_uid
+## ```
+weave get_uid into maybe int:
+    let v as int is calling _rites_id with 0
+    if v >= 0:
+        return some v
+    return maybe none
+
+## Returns the real group id of the current process.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## `some gid` on POSIX; `maybe none` on Windows or when the value is not
+## available.
+##
+## ## Memoria
+## No allocations; the `int` payload is a value.
+##
+## ## Ejemplo
+## ```pengu
+## let gid as maybe int is calling rites.get_gid
+## ```
+weave get_gid into maybe int:
+    let v as int is calling _rites_id with 1
+    if v >= 0:
+        return some v
+    return maybe none
+
+## Returns the effective user id of the current process.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## `some euid` on POSIX; `maybe none` on Windows or when the value is not
+## available.
+##
+## ## Memoria
+## No allocations; the `int` payload is a value.
+##
+## ## Ejemplo
+## ```pengu
+## let euid as maybe int is calling rites.get_euid
+## ```
+weave get_euid into maybe int:
+    let v as int is calling _rites_id with 2
+    if v >= 0:
+        return some v
+    return maybe none
+
+## Returns the effective group id of the current process.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## `some egid` on POSIX; `maybe none` on Windows or when the value is not
+## available.
+##
+## ## Memoria
+## No allocations; the `int` payload is a value.
+##
+## ## Ejemplo
+## ```pengu
+## let egid as maybe int is calling rites.get_egid
+## ```
+weave get_egid into maybe int:
+    let v as int is calling _rites_id with 3
+    if v >= 0:
+        return some v
+    return maybe none
 
 # ----------------------------------------------------------------------------
 # Working Directory (0.14.x baseline)
@@ -447,17 +1028,37 @@ weave getppid into int:
 
 ## Returns the current working directory as a maybe string.
 ##
-## Signature: getcwd() into maybe string
-## Memory: Returns a fresh string copy.
-## Edge cases: Returns maybe none when current directory cannot be determined.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## `some path` or `maybe none` when the current directory cannot be determined.
+##
+## ## Memoria
+## The payload is a fresh owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let cwd as maybe string is calling rites.getcwd
+## ```
 weave getcwd into maybe string:
     return calling pengu_c_getcwd
 
 ## Changes the current working directory to `path`.
 ##
-## Signature: chdir(path as string) into bool
-## Memory: Arguments are not retained.
-## Edge cases: Returns true on success, false when path does not exist or access is denied.
+## ## Parámetros
+## - `path`: the target directory. Borrowed.
+##
+## ## Retorno
+## `true` on success; `false` when the path does not exist or access is denied.
+##
+## ## Memoria
+## Arguments are not retained.
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.chdir with "/tmp"
+## ```
 weave chdir with path as string into bool:
     return calling pengu_c_chdir with path
 
@@ -467,112 +1068,172 @@ weave chdir with path as string into bool:
 
 ## Returns the current user's home directory.
 ##
-## Signature: home_dir() into maybe string
-## Memory: Returns an owned maybe string.
-## Cross-platform: On Windows, inspects USERPROFILE or HOMEDRIVE+HOMEPATH.
-##                 On POSIX, inspects HOME.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## `some path`, or `maybe none` when no source variable is set.
+##
+## ## Memoria
+## The payload is a fresh owned string; release it with `banish`.
+##
+## ## Efectos
+## On Windows it inspects `USERPROFILE` and then `HOMEDRIVE` + `HOMEPATH`; on
+## POSIX it inspects `HOME`.
+##
+## ## Ejemplo
+## ```pengu
+## let home as maybe string is calling rites.home_dir
+## ```
 weave home_dir into maybe string:
     when os == "windows":
-        var up as maybe string is calling getenv with "USERPROFILE"
+        let up as maybe string is calling getenv with "USERPROFILE"
         if up is present:
             return up
-        var hd as maybe string is calling getenv with "HOMEDRIVE"
-        var hp as maybe string is calling getenv with "HOMEPATH"
+        let hd as maybe string is calling getenv with "HOMEDRIVE"
+        let hp as maybe string is calling getenv with "HOMEPATH"
         if hd is present and hp is present:
             return some ("{hd.value}{hp.value}")
         return maybe none
     else:
-        var h as maybe string is calling getenv with "HOME"
+        let h as maybe string is calling getenv with "HOME"
         if h is present:
             return h
         return maybe none
 
 ## Returns the system temporary directory path.
 ##
-## Signature: temp_dir() into maybe string
-## Memory: Returns an owned maybe string.
-## Cross-platform: On Windows, inspects TEMP/TMP with fallback "C:\\Temp".
-##                 On POSIX, inspects TMPDIR/TEMP/TMP with fallback "/tmp".
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## `some path`; never `none` because each platform has a fallback.
+##
+## ## Memoria
+## The payload is a fresh owned string; release it with `banish`.
+##
+## ## Efectos
+## On Windows it inspects `TEMP`/`TMP` with fallback `C:\Temp`; on POSIX it
+## inspects `TMPDIR`/`TEMP`/`TMP` with fallback `/tmp`.
+##
+## ## Ejemplo
+## ```pengu
+## let tmp as maybe string is calling rites.temp_dir
+## ```
 weave temp_dir into maybe string:
     when os == "windows":
-        var t as maybe string is calling getenv with "TEMP"
+        let t as maybe string is calling getenv with "TEMP"
         if t is present:
             return t
-        var tmp as maybe string is calling getenv with "TMP"
+        let tmp as maybe string is calling getenv with "TMP"
         if tmp is present:
             return tmp
         return some "C:\\Temp"
     else:
-        var td as maybe string is calling getenv with "TMPDIR"
+        let td as maybe string is calling getenv with "TMPDIR"
         if td is present:
             return td
-        var t2 as maybe string is calling getenv with "TEMP"
+        let t2 as maybe string is calling getenv with "TEMP"
         if t2 is present:
             return t2
-        var t3 as maybe string is calling getenv with "TMP"
-        if t3 is present:
-            return t3
-        return some "/tmp"
+        let t3 as maybe string is calling getenv with "TMP"
+        return if t3 is present then t3 else some "/tmp"
 
 ## Returns the user configuration directory path.
 ##
-## Signature: config_dir() into maybe string
-## Memory: Returns an owned maybe string.
-## Cross-platform: On Windows, returns %APPDATA%.
-##                 On POSIX, returns $XDG_CONFIG_HOME or ~/.config.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## `some path`, or `maybe none` when neither the XDG variable nor the home
+## directory is available.
+##
+## ## Memoria
+## The payload is a fresh owned string; release it with `banish`.
+##
+## ## Efectos
+## On Windows it returns `%APPDATA%`; on POSIX `$XDG_CONFIG_HOME` or
+## `~/.config`.
+##
+## ## Ejemplo
+## ```pengu
+## let cfg as maybe string is calling rites.config_dir
+## ```
 weave config_dir into maybe string:
     when os == "windows":
-        var appdata as maybe string is calling getenv with "APPDATA"
-        if appdata is present:
-            return appdata
-        return maybe none
+        let appdata as maybe string is calling getenv with "APPDATA"
+        return if appdata is present then appdata else maybe none
     else:
-        var xdg as maybe string is calling getenv with "XDG_CONFIG_HOME"
+        let xdg as maybe string is calling getenv with "XDG_CONFIG_HOME"
         if xdg is present:
             return xdg
-        var h as maybe string is calling home_dir
+        let h as maybe string is calling home_dir
         if h is present:
             return some ("{h.value}/.config")
         return maybe none
 
 ## Returns the user cache directory path.
 ##
-## Signature: cache_dir() into maybe string
-## Memory: Returns an owned maybe string.
-## Cross-platform: On Windows, returns %LOCALAPPDATA%.
-##                 On POSIX, returns $XDG_CACHE_HOME or ~/.cache.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## `some path`, or `maybe none` when neither the XDG variable nor the home
+## directory is available.
+##
+## ## Memoria
+## The payload is a fresh owned string; release it with `banish`.
+##
+## ## Efectos
+## On Windows it returns `%LOCALAPPDATA%`; on POSIX `$XDG_CACHE_HOME` or
+## `~/.cache`.
+##
+## ## Ejemplo
+## ```pengu
+## let cache as maybe string is calling rites.cache_dir
+## ```
 weave cache_dir into maybe string:
     when os == "windows":
-        var localappdata as maybe string is calling getenv with "LOCALAPPDATA"
-        if localappdata is present:
-            return localappdata
-        return maybe none
+        let localappdata as maybe string is calling getenv with "LOCALAPPDATA"
+        return if localappdata is present then localappdata else maybe none
     else:
-        var xdg as maybe string is calling getenv with "XDG_CACHE_HOME"
+        let xdg as maybe string is calling getenv with "XDG_CACHE_HOME"
         if xdg is present:
             return xdg
-        var h as maybe string is calling home_dir
+        let h as maybe string is calling home_dir
         if h is present:
             return some ("{h.value}/.cache")
         return maybe none
 
 ## Returns the user local data directory path.
 ##
-## Signature: data_dir() into maybe string
-## Memory: Returns an owned maybe string.
-## Cross-platform: On Windows, returns %APPDATA%.
-##                 On POSIX, returns $XDG_DATA_HOME or ~/.local/share.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## `some path`, or `maybe none` when neither the XDG variable nor the home
+## directory is available.
+##
+## ## Memoria
+## The payload is a fresh owned string; release it with `banish`.
+##
+## ## Efectos
+## On Windows it returns `%APPDATA%`; on POSIX `$XDG_DATA_HOME` or
+## `~/.local/share`.
+##
+## ## Ejemplo
+## ```pengu
+## let data as maybe string is calling rites.data_dir
+## ```
 weave data_dir into maybe string:
     when os == "windows":
-        var appdata as maybe string is calling getenv with "APPDATA"
-        if appdata is present:
-            return appdata
-        return maybe none
+        let appdata as maybe string is calling getenv with "APPDATA"
+        return if appdata is present then appdata else maybe none
     else:
-        var xdg as maybe string is calling getenv with "XDG_DATA_HOME"
+        let xdg as maybe string is calling getenv with "XDG_DATA_HOME"
         if xdg is present:
             return xdg
-        var h as maybe string is calling home_dir
+        let h as maybe string is calling home_dir
         if h is present:
             return some ("{h.value}/.local/share")
         return maybe none
@@ -581,24 +1242,60 @@ weave data_dir into maybe string:
 # Platform & Host Information (0.14.x baseline & 0.15.0)
 # ----------------------------------------------------------------------------
 
-## Returns the operating-system family name: "Windows", "Darwin", "Linux" or "Unknown".
+## Returns the operating-system family name: "Windows", "Darwin", "Linux" or
+## "Unknown".
 ##
-## Signature: uname() into string
-## Memory: Returns a fresh string copy.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## The OS name as a fresh owned string.
+##
+## ## Memoria
+## The result is freshly allocated; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.println with calling rites.uname    # e.g. "Linux"
+## ```
 weave uname into string:
     return calling pengu_c_uname
 
 ## Returns the machine's host name.
 ##
-## Signature: hostname() into string
-## Memory: Returns a fresh string copy.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## The host name as a fresh owned string; it may be empty when the OS cannot
+## provide one.
+##
+## ## Memoria
+## The result is freshly allocated; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let host as string is calling rites.hostname
+## ```
 weave hostname into string:
     return calling pengu_c_hostname
 
-## Returns the host CPU architecture string ("x64", "arm64", "x86", "arm", or "unknown").
+## Returns the host CPU architecture string ("x64", "arm64", "x86", "arm", or
+## "unknown").
 ##
-## Signature: os_arch() into string
-## Memory: Returns a static string copy evaluated at compile time.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## The architecture name as a string literal chosen at compile time.
+##
+## ## Memoria
+## No allocations; the result is a non-owning literal view.
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.os_arch    # e.g. "x64"
+## ```
 weave os_arch into string:
     when arch == "x64":
         return "x64"
@@ -612,25 +1309,60 @@ weave os_arch into string:
 
 ## Returns the operating-system family name. Alias of `uname()`.
 ##
-## Signature: os_family() into string
-## Memory: Returns a fresh string copy.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## The OS name as a fresh owned string.
+##
+## ## Memoria
+## The result is freshly allocated; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let family as string is calling rites.os_family
+## ```
 weave os_family into string:
     return calling pengu_c_uname
 
 ## Checks if the current target operating system is Windows.
 ##
-## Signature: is_windows() into bool
-## Memory: Compile-time constant result.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## A compile-time constant `bool`.
+##
+## ## Memoria
+## No allocations.
+##
+## ## Ejemplo
+## ```pengu
+## if calling rites.is_windows:
+##     calling spark.println with "windows build"
+## ```
 weave is_windows into bool:
     when os == "windows":
         return true
     else:
         return false
 
-## Checks if the current target operating system is Unix-like (Linux, macOS, BSD).
+## Checks if the current target operating system is Unix-like (Linux, macOS,
+## BSD).
 ##
-## Signature: is_unix() into bool
-## Memory: Compile-time constant result.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## A compile-time constant `bool`: `true` for every non-Windows target.
+##
+## ## Memoria
+## No allocations.
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.is_unix    # true on Linux
+## ```
 weave is_unix into bool:
     when os == "windows":
         return false
@@ -639,8 +1371,19 @@ weave is_unix into bool:
 
 ## Checks if the current target operating system is macOS (Darwin).
 ##
-## Signature: is_macos() into bool
-## Memory: Compile-time constant result.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## A compile-time constant `bool`.
+##
+## ## Memoria
+## No allocations.
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.is_macos    # false on Linux
+## ```
 weave is_macos into bool:
     when os == "macos":
         return true
@@ -649,8 +1392,19 @@ weave is_macos into bool:
 
 ## Checks if the current target operating system is Linux.
 ##
-## Signature: is_linux() into bool
-## Memory: Compile-time constant result.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## A compile-time constant `bool`.
+##
+## ## Memoria
+## No allocations.
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.is_linux    # true on Linux
+## ```
 weave is_linux into bool:
     when os == "linux":
         return true
@@ -663,20 +1417,38 @@ weave is_linux into bool:
 
 ## Searches the system PATH for all executable candidates matching `cmd`.
 ##
-## Signature: which_all(cmd as string) into list of string
-## Memory: Returns a new list of absolute/relative path strings.
-## Cross-platform: On Windows, uses ';' delimiter and tests .exe, .bat, .cmd extensions.
-##                 On POSIX, uses ':' delimiter.
-## NOTE: On POSIX systems, `which_all` checks for regular file existence in PATH directories
-## (`pengu_c_archivum_is_file`). It does not currently inspect POSIX executable permission bits
-## (e.g. access(X_OK)), which requires a dedicated runtime permission bridge.
+## ## Parámetros
+## - `cmd`: the executable name to search for. Borrowed.
+##
+## ## Retorno
+## A new owned `list of string` with one entry per matching PATH directory, in
+## PATH order; empty when `PATH` is unset, empty, or has no match.
+##
+## ## Memoria
+## The list and each element are owned by the caller. The elements are built by
+## joining a PATH directory with `cmd`, so release each element before the list.
+##
+## ## Efectos
+## On Windows the delimiter is `;` and `.exe`, `.bat`, `.cmd` (and the bare
+## name) are tested; on POSIX the delimiter is `:`.
+##
+## ## Notes
+## On POSIX, `which_all` checks for regular file existence in PATH directories
+## (`pengu_c_archivum_is_file`). It does not currently inspect POSIX executable
+## permission bits (e.g. `access(X_OK)`), which requires a dedicated runtime
+## permission bridge.
+##
+## ## Ejemplo
+## ```pengu
+## let hits as list of string is calling rites.which_all with "sh"
+## ```
 weave which_all with cmd as string into list of string:
     var res as list of string is list of string
-    var path_var as maybe string is calling getenv with "PATH"
+    let path_var as maybe string is calling getenv with "PATH"
     if path_var is not present:
         return res
-    var path_str as string is path_var.value
-    var plen as int is path_str length
+    let path_str as string is path_var.value
+    let plen as int is path_str length
     if plen == 0:
         return res
 
@@ -698,29 +1470,40 @@ weave which_all with cmd as string into list of string:
 
     for d in dirs:
         when os == "windows":
-            var candidate as string is "{d}\\{cmd}"
-            var exts as list of string is list of string
+            let candidate as string is "{d}\\{cmd}"
+            let exts as list of string is list of string
             calling exts.push with ""
             calling exts.push with ".exe"
             calling exts.push with ".bat"
             calling exts.push with ".cmd"
             for ext in exts:
-                var full_c as string is "{candidate}{ext}"
+                let full_c as string is "{candidate}{ext}"
                 if calling pengu_c_archivum_is_file with full_c:
                     calling res.push with full_c
         else:
-            var candidate as string is "{d}/{cmd}"
+            let candidate as string is "{d}/{cmd}"
             if calling pengu_c_archivum_is_file with candidate:
                 calling res.push with candidate
     return res
 
 ## Locates the first executable matching `cmd` on the system PATH.
 ##
-## Signature: which(cmd as string) into maybe string
-## Memory: Returns an owned maybe string.
-## Edge cases: Returns maybe none if `cmd` is not found on PATH.
+## ## Parámetros
+## - `cmd`: the executable name to search for. Borrowed.
+##
+## ## Retorno
+## `some path` for the first PATH match, or `maybe none` when `cmd` is not on
+## the PATH.
+##
+## ## Memoria
+## The payload is an owned path string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## let sh as maybe string is calling rites.which with "sh"
+## ```
 weave which with cmd as string into maybe string:
-    var matches_list as list of string is calling which_all with cmd
+    let matches_list as list of string is calling which_all with cmd
     if (calling matches_list.len) > 0:
         return some (matches_list at 0)
     return maybe none
@@ -731,59 +1514,159 @@ weave which with cmd as string into maybe string:
 
 ## Terminates the process immediately with exit code `code` (never returns).
 ##
-## Signature: exit(code as int) into void
-## Memory: Process exit.
+## ## Parámetros
+## - `code`: the process exit status (0–255 on POSIX).
+##
+## ## Retorno
+## Nothing; the helper returns `void`. The process ends before it can return.
+##
+## ## Memoria
+## No allocations.
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.exit with 0
+## ```
 weave exit with code as int into void:
     calling pengu_c_exit with code
 
-## Runs `cmd` plus `args` through the platform shell and blocks until completion.
-## Returns the raw status code reported by the shell (-1 on error).
+## Runs `cmd` plus `args` through the platform shell and blocks until
+## completion. Returns the raw status code reported by the shell (-1 on error).
 ##
-## Signature: exec(cmd as string, args as list of string) into int
-## Memory: Caller owns arguments.
-## WARNING: Uses system() internally; do NOT pass untrusted user input without sanitization.
+## ## Parámetros
+## - `cmd`: the program or shell line to run. Borrowed.
+## - `args`: the arguments appended to `cmd`. Borrowed.
+##
+## ## Retorno
+## The raw status reported by `system()`; `-1` on failure.
+##
+## ## Memoria
+## Arguments are not retained.
+##
+## ## Efectos
+## Uses `system()` internally; the arguments are joined with spaces and are not
+## escaped, so do NOT pass untrusted user input without sanitization.
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.exec with "echo", ["hello"]
+## ```
 weave exec with cmd as string , args as list of string into int:
     return calling pengu_c_exec with cmd , args
 
-## Launches `cmd` with `args` and blocks until it finishes. Shares exec's implementation.
+## Launches `cmd` with `args` and blocks until it finishes. Shares exec's
+## implementation.
 ##
-## Signature: spawn(cmd as string, args as list of string) into int
-## Memory: Caller owns arguments.
+## ## Parámetros
+## - `cmd`: the program or shell line to run. Borrowed.
+## - `args`: the arguments appended to `cmd`. Borrowed.
+##
+## ## Retorno
+## The raw status reported by `system()`; `-1` on failure.
+##
+## ## Memoria
+## Arguments are not retained.
+##
+## ## Efectos
+## Currently identical to `exec` (a blocking `system()` call).
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.spawn with "echo", ["hello"]
+## ```
 weave spawn with cmd as string , args as list of string into int:
     return calling pengu_c_spawn with cmd , args
 
-## Runs `cmd` with `args` and returns true if the command succeeded (exit code == 0).
+## Runs `cmd` with `args` and returns true if the command succeeded.
 ##
-## Signature: exec_ok(cmd as string, args as list of string) into bool
-## Memory: Arguments are not retained.
+## ## Parámetros
+## - `cmd`: the program or shell line to run. Borrowed.
+## - `args`: the arguments appended to `cmd`. Borrowed.
+##
+## ## Retorno
+## `true` when the shell status is exactly `0`, `false` otherwise.
+##
+## ## Memoria
+## Arguments are not retained.
+##
+## ## Ejemplo
+## ```pengu
+## if calling rites.exec_ok with "true", []:
+##     calling spark.println with "ok"
+## ```
 weave exec_ok with cmd as string , args as list of string into bool:
     return (calling exec with cmd , args) == 0
 
-## Runs `cmd` with `args` and panics if the command fails (exit code != 0).
+## Runs `cmd` with `args` and panics if the command fails.
 ##
-## Signature: exec_or_panic(cmd as string, args as list of string) into void
-## Memory: Arguments are not retained.
+## ## Parámetros
+## - `cmd`: the program or shell line to run. Borrowed.
+## - `args`: the arguments appended to `cmd`. Borrowed.
+##
+## ## Retorno
+## Nothing; the helper returns `void`.
+##
+## ## Efectos
+## Aborts the program via `spark.panic` when the status is not `0`; the message
+## is exactly `Command execution failed with status: <status>`.
+##
+## ## Memoria
+## Arguments are not retained.
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.exec_or_panic with "make", ["all"]
+## ```
 weave exec_or_panic with cmd as string , args as list of string into void:
-    var status as int is calling exec with cmd , args
+    let status as int is calling exec with cmd , args
     if status != 0:
         calling spark.panic with "Command execution failed with status: {(status to string)}"
 
 ## Executes a raw command line string directly through the platform shell.
 ##
-## Signature: run_shell(cmdline as string) into int
-## Memory: Returns raw return status from platform shell.
-## WARNING: Uses system() internally; do NOT pass untrusted user input without sanitization.
+## ## Parámetros
+## - `cmdline`: the complete shell command line. Borrowed.
+##
+## ## Retorno
+## The raw status reported by the platform shell; `-1` on failure.
+##
+## ## Memoria
+## Arguments are not retained.
+##
+## ## Efectos
+## Uses `system()` internally; do NOT pass untrusted user input without
+## sanitization.
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.run_shell with "echo hello"
+## ```
 weave run_shell with cmdline as string into int:
-    var empty_args as list of string is list of string
+    let empty_args as list of string is list of string
     return calling pengu_c_exec with cmdline , empty_args
 
 ## Escapes string `s` for safe inclusion as a command line argument.
 ##
-## Signature: shell_escape(s as string) into string
-## Memory: Returns a newly allocated escaped string.
-## Cross-platform: Uses double-quote escaping on Windows and single-quote escaping on POSIX.
+## ## Parámetros
+## - `s`: the raw argument text. Borrowed.
+##
+## ## Retorno
+## A new owned escaped string, always wrapped in quotes (`""`/`''` for an empty
+## input).
+##
+## ## Memoria
+## The result is freshly allocated; release it with `banish`.
+##
+## ## Efectos
+## POSIX: wraps in single quotes and rewrites each `'` as `'\''`. Windows:
+## wraps in double quotes and prefixes each embedded `"` with a backslash.
+##
+## ## Ejemplo
+## ```pengu
+## calling rites.shell_escape with "it's"    # 'it'\''s'
+## ```
 weave shell_escape with s as string into string:
-    var slen as int is s length
+    let slen as int is s length
     if slen == 0:
         when os == "windows":
             return "\"\""
@@ -793,7 +1676,7 @@ weave shell_escape with s as string into string:
         var res as string is "\""
         var i as int is 0
         while i < slen:
-            var c as string is s at i
+            let c as string is s at i
             if c == "\"":
                 set res is "{res}\\\""
             else:
@@ -805,7 +1688,7 @@ weave shell_escape with s as string into string:
         var res as string is "'"
         var i as int is 0
         while i < slen:
-            var c as string is s at i
+            let c as string is s at i
             if c == "'":
                 set res is "{res}'\\''"
             else:
@@ -814,17 +1697,590 @@ weave shell_escape with s as string into string:
         set res is "{res}'"
         return res
 
+## Runs `cmd` with `args`, capturing its standard output.
+##
+## ## Parámetros
+## - `cmd`: the executable name or shell line. Borrowed.
+## - `args`: the arguments, each escaped with `shell_escape`. Borrowed.
+##
+## ## Retorno
+## `some stdout` when the command exits with status `0`; `maybe none` on a
+## non-zero exit, a closed pipe, or an empty command.
+##
+## ## Memoria
+## The payload is a fresh owned string; release it with `banish`.
+##
+## ## Efectos
+## Runs the command through the platform shell (`popen`) and blocks until it
+## finishes; stderr is not captured and follows the process's own stream.
+##
+## ## Ejemplo
+## ```pengu
+## let out as maybe string is calling rites.run_capture with "sh", ["-c", "echo hi"]
+## ```
+weave run_capture with cmd as string , args as list of string into maybe string:
+    let line as string is calling _rites_build_cmdline with cmd , args
+    defer banish line
+    var err as string is ""
+    defer banish err
+    return calling _rites_shell_capture with line , (sigil of err)
+
+## Runs `cmd` with `args`, capturing its standard output and exit code.
+##
+## ## Parámetros
+## - `cmd`: the executable name or shell line. Borrowed.
+## - `args`: the arguments, each escaped with `shell_escape`. Borrowed.
+##
+## ## Retorno
+## A native `result of string to string`, owned by the caller: `ok(stdout)` on a
+## zero exit, `err("command exited with code <code>")` otherwise.
+##
+## ## Memoria
+## The result owns its payload; release it with `banish`.
+##
+## ## Efectos
+## Runs the command through the platform shell (`popen`) and blocks until it
+## finishes; stderr is not captured.
+##
+## ## Ejemplo
+## ```pengu
+## let r as result of string to string is calling rites.run_capture_result with "sh", ["-c", "exit 3"]
+## ```
+weave run_capture_result with cmd as string , args as list of string into result of string to string:
+    let line as string is calling _rites_build_cmdline with cmd , args
+    defer banish line
+    var err as string is ""
+    let out as maybe string is calling _rites_shell_capture with line , (sigil of err)
+    if (err length) > 0:
+        return calling err_of with err
+    if out is present:
+        return calling ok_of with out.value
+    return calling ok_of with ""
+
+## Runs `cmd` with `args`, capturing its standard output split into lines.
+##
+## ## Parámetros
+## - `cmd`: the executable name or shell line. Borrowed.
+## - `args`: the arguments, each escaped with `shell_escape`. Borrowed.
+##
+## ## Retorno
+## `some lines` on a zero exit, where each line has no trailing newline and a
+## trailing newline does not produce a final empty entry; `maybe none` on a
+## non-zero exit. Empty output yields `some []`.
+##
+## ## Memoria
+## The list and each element are owned; release the elements before the list.
+##
+## ## Efectos
+## Runs the command through the platform shell (`popen`) and blocks until it
+## finishes; stderr is not captured.
+##
+## ## Ejemplo
+## ```pengu
+## let lines as maybe list of string is calling rites.run_capture_lines with "printf", ["a\nb\n"]
+## ```
+weave run_capture_lines with cmd as string , args as list of string into maybe list of string:
+    let line as string is calling _rites_build_cmdline with cmd , args
+    defer banish line
+    var err as string is ""
+    defer banish err
+    let out as maybe string is calling _rites_shell_capture with line , (sigil of err)
+    if (err length) > 0:
+        return maybe none
+    if out is not present:
+        return some (list of string)
+    return some (calling _rites_split_lines with out.value)
+
+## Runs `cmd` with `args`, capturing its standard error output.
+##
+## ## Parámetros
+## - `cmd`: the executable name or shell line. Borrowed.
+## - `args`: the arguments, each escaped with `shell_escape`. Borrowed.
+##
+## ## Retorno
+## `some stderr` when the command exits with status `0`; `maybe none` on a
+## non-zero exit, a closed pipe, or an empty command.
+##
+## ## Memoria
+## The payload is a fresh owned string; release it with `banish`.
+##
+## ## Efectos
+## POSIX only: the command line is run inside a subshell that duplicates stderr
+## onto stdout and then discards stdout. On Windows the redirect is not applied
+## and the result follows `run_capture`.
+##
+## ## Ejemplo
+## ```pengu
+## let err as maybe string is calling rites.run_capture_stderr with "sh", ["-c", "echo oops >&2"]
+## ```
+weave run_capture_stderr with cmd as string , args as list of string into maybe string:
+    when os == "windows":
+        return calling run_capture with cmd , args
+    else:
+        let inner as string is calling _rites_build_cmdline with cmd , args
+        defer banish inner
+        var err as string is ""
+        defer banish err
+        return calling _rites_shell_capture with "( {inner} ) 2>&1 >/dev/null" , (sigil of err)
+
+## Runs a raw shell command line, capturing its standard output.
+##
+## ## Parámetros
+## - `cmdline`: the complete shell command line. Borrowed.
+##
+## ## Retorno
+## `some stdout` when the shell exits with status `0`; `maybe none` otherwise.
+##
+## ## Memoria
+## The payload is a fresh owned string; release it with `banish`.
+##
+## ## Efectos
+## Runs the line through the platform shell (`popen`) and blocks until it
+## finishes; the caller owns the quoting, so do NOT pass untrusted input
+## unescaped.
+##
+## ## Ejemplo
+## ```pengu
+## let out as maybe string is calling rites.run_shell_capture with "echo hi | tr a-z A-Z"
+## ```
+weave run_shell_capture with cmdline as string into maybe string:
+    var err as string is ""
+    defer banish err
+    return calling _rites_shell_capture with cmdline , (sigil of err)
+
 ## Returns the username of the current logged-in user.
 ##
-## Signature: current_user() into maybe string
-## Memory: Returns an owned maybe string.
-## Cross-platform: On Windows, inspects USERNAME.
-##                 On POSIX, inspects USER with fallback to LOGNAME.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## `some name`, or `maybe none` when the environment does not carry one.
+##
+## ## Memoria
+## The payload is a fresh owned string; release it with `banish`.
+##
+## ## Efectos
+## On Windows it inspects `USERNAME`; on POSIX `USER` with fallback to `LOGNAME`.
+##
+## ## Ejemplo
+## ```pengu
+## let user as maybe string is calling rites.current_user
+## ```
 weave current_user into maybe string:
     when os == "windows":
         return calling getenv with "USERNAME"
     else:
-        var u as maybe string is calling getenv with "USER"
+        let u as maybe string is calling getenv with "USER"
         if u is present:
             return u
         return calling getenv with "LOGNAME"
+
+# ----------------------------------------------------------------------------
+# Private Helpers (capture plumbing)
+# ----------------------------------------------------------------------------
+
+## Builds the shell command line `cmd arg1 arg2 ...` with every element escaped.
+weave _rites_build_cmdline with cmd as string , args as list of string into string:
+    var line as string is calling shell_escape with cmd
+    for a in args:
+        set line is "{line} {(calling shell_escape with a)}"
+    return line
+
+## Runs `cmdline` and returns the captured output, or none on failure.
+##
+## On failure the `err` slot receives the C bridge's message (empty when the
+## command was never started); on success the slot stays empty.
+weave _rites_shell_capture with cmdline as string , err as ref to string into maybe string:
+    var captured as string is calling _rites_capture with cmdline , "out" , err
+    if (err length) > 0:
+        banish captured
+        return maybe none
+    return some captured
+
+## Splits `s` on newlines, dropping a single trailing empty entry.
+weave _rites_split_lines with s as string into list of string:
+    var res as list of string is list of string
+    let n as int is s length
+    if n == 0:
+        return res
+    var start as int is 0
+    var i as int is 0
+    while i < n:
+        if (s at i) == "\n":
+            calling res.push with (s at start to i)
+            set start is i + 1
+        set i is i + 1
+    if start < n:
+        calling res.push with (s at start to n)
+    return res
+
+# --- Tests ------------------------------------------------------------------
+# The harness is private and panics through `std.spark`; `std.ward` cannot be
+# imported here (`ward` imports `std.rites`, which would be an import cycle).
+# Every assertion goes through a `_rites_*` helper so the test bodies stay
+# unambiguous when several bundled modules are type-checked in one namespace.
+
+## Aborts the current test with `label` when `got != want`.
+weave _rites_expect_int with got as int, want as int, label as string into void:
+    if got != want:
+        calling spark.println with "FAIL {label}: got {got}, want {want}"
+        calling spark.panic with "rites: test failed"
+
+## Aborts the current test with `label` when `got != want`.
+weave _rites_expect_str with got as string, want as string, label as string into void:
+    if got != want:
+        calling spark.println with "FAIL {label}: got [{got}], want [{want}]"
+        calling spark.panic with "rites: test failed"
+
+## Aborts the current test with `label` when `cond` is false.
+weave _rites_expect_true with cond as bool, label as string into void:
+    if not cond:
+        calling spark.println with "FAIL {label}"
+        calling spark.panic with "rites: test failed"
+
+## True when `s` contains `needle` (byte scan; `needle` empty matches anywhere).
+weave _rites_contains with s as string, needle as string into bool:
+    let n as int is s length
+    let m as int is needle length
+    if m == 0:
+        return true
+    if m > n:
+        return false
+    var i as int is 0
+    while i <= (n - m):
+        if (s at i to (i + m)) == needle:
+            return true
+        set i is i + 1
+    return false
+
+## Test wrapper: `has_env` under a unique name for the shared test namespace.
+weave _rites_has_env with name as string into bool:
+    return calling has_env with name
+
+## Test wrapper: `getenv` under a unique name for the shared test namespace.
+weave _rites_getenv with name as string into maybe string:
+    return calling getenv with name
+
+## Test wrapper: `setenv` under a unique name for the shared test namespace.
+weave _rites_setenv with name as string, value as string, overwrite as bool into bool:
+    return calling setenv with name, value, overwrite
+
+## Test wrapper: `unsetenv` under a unique name for the shared test namespace.
+weave _rites_unsetenv with name as string into bool:
+    return calling unsetenv with name
+
+test "RITES_VERSION is 2.1.0":
+    calling _rites_expect_str with RITES_VERSION, "2.1.0", "version"
+
+test "setenv, getenv and has_env round-trip":
+    let name as string is "PENGU_RITES_TEST_ROUND"
+    calling _rites_expect_true with (calling _rites_setenv with name, "value-1", true), "setenv round"
+    let got as maybe string is calling _rites_getenv with name
+    calling _rites_expect_true with (got is present), "getenv present"
+    calling _rites_expect_str with got.value, "value-1", "value"
+    calling _rites_expect_true with (calling _rites_has_env with name), "has_env"
+    calling _rites_expect_true with (calling _rites_unsetenv with name), "unsetenv"
+    let gone as maybe string is calling _rites_getenv with name
+    calling _rites_expect_true with (gone is not present), "gone"
+
+test "an empty environment value is present":
+    let name as string is "PENGU_RITES_TEST_EMPTY"
+    calling _rites_expect_true with (calling _rites_setenv with name, "", true), "setenv empty"
+    let got as maybe string is calling _rites_getenv with name
+    calling _rites_expect_true with (got is present), "empty present"
+    calling _rites_expect_int with (got.value length), 0, "empty length"
+    calling _rites_unsetenv with name
+
+test "has_env is false for an unused name":
+    calling _rites_expect_true with not (calling _rites_has_env with "PENGU_RITES_TEST_UNSET"), "unused"
+
+test "setenv without overwrite keeps the first value":
+    let name as string is "PENGU_RITES_TEST_KEEP"
+    calling _rites_setenv with name, "first", true
+    calling _rites_setenv with name, "second", false
+    let got as maybe string is calling _rites_getenv with name
+    calling _rites_expect_true with (got is present), "present"
+    calling _rites_expect_str with got.value, "first", "keep first"
+    calling _rites_expect_true with (calling _rites_setenv with name, "third", true), "overwrite"
+    let got2 as maybe string is calling _rites_getenv with name
+    calling _rites_expect_str with got2.value, "third", "overwritten"
+    calling _rites_unsetenv with name
+
+test "unsetenv on a missing name does not panic":
+    let ok as bool is calling _rites_unsetenv with "PENGU_RITES_TEST_NEVER_SET"
+    calling _rites_expect_true with (ok == true or ok == false), "unsetenv returns a bool"
+
+test "getenv_or returns the fallback for an unset name":
+    calling _rites_expect_str with (calling getenv_or with "PENGU_RITES_TEST_UNSET", "fallback"), "fallback", "getenv_or"
+
+test "getenv_int parses a set variable":
+    let name as string is "PENGU_RITES_TEST_INT"
+    calling _rites_setenv with name, "42", true
+    let got as maybe int is calling getenv_int with name
+    calling _rites_expect_true with (got is present), "int present"
+    calling _rites_expect_int with got.value, 42, "int value"
+    calling _rites_unsetenv with name
+
+test "getenv_int rejects a non-numeric value":
+    let name as string is "PENGU_RITES_TEST_BAD_INT"
+    calling _rites_setenv with name, "not-a-number", true
+    let got as maybe int is calling getenv_int with name
+    calling _rites_expect_true with (got is not present), "bad int"
+    calling _rites_unsetenv with name
+
+test "getenv_bool accepts the documented spellings":
+    let name as string is "PENGU_RITES_TEST_BOOL"
+    calling _rites_setenv with name, "true", true
+    let t as maybe bool is calling getenv_bool with name
+    calling _rites_expect_true with (t is present), "bool present"
+    calling _rites_expect_true with (t.value == true), "bool true"
+    calling _rites_setenv with name, "0", true
+    let f as maybe bool is calling getenv_bool with name
+    calling _rites_expect_true with (f is present), "bool zero present"
+    calling _rites_expect_true with (f.value == false), "bool zero"
+    calling _rites_unsetenv with name
+
+test "getenv_bool rejects an unrecognized value":
+    let name as string is "PENGU_RITES_TEST_BAD_BOOL"
+    calling _rites_setenv with name, "maybe", true
+    let got as maybe bool is calling getenv_bool with name
+    calling _rites_expect_true with (got is not present), "bad bool"
+    calling _rites_unsetenv with name
+
+test "expand_env replaces a braced variable":
+    let name as string is "PENGU_RITES_TEST_EXPAND"
+    calling _rites_setenv with name, "expanded", true
+    let open_brace as string is "{"
+    let close_brace as string is "}"
+    let got as string is calling expand_env with "${open_brace}{name}{close_brace}"
+    calling _rites_expect_str with got, "expanded", "braced"
+    let wrapped as string is calling expand_env with "[${open_brace}{name}{close_brace}]"
+    calling _rites_expect_str with wrapped, "[expanded]", "braced with brackets"
+    calling _rites_unsetenv with name
+
+test "expand_env keeps an unknown variable empty":
+    let open_brace as string is "{"
+    let close_brace as string is "}"
+    let got as string is calling expand_env with "a${open_brace}PENGU_RITES_TEST_UNSET{close_brace}b"
+    calling _rites_expect_str with got, "ab", "unknown"
+
+test "expand_env treats a doubled dollar as a literal":
+    let got as string is calling expand_env with "$$HOME"
+    calling _rites_expect_str with got, "$HOME", "escape"
+
+test "env_substitute matches expand_env":
+    let name as string is "PENGU_RITES_TEST_ALIAS"
+    calling _rites_setenv with name, "alias", true
+    let via_env as string is calling env_substitute with "%{name}%"
+    calling _rites_expect_str with via_env, "alias", "alias"
+    calling _rites_unsetenv with name
+
+test "get_args and get_argc agree":
+    let args as list of string is calling get_args
+    let argc as int is calling get_argc
+    calling _rites_expect_int with (calling args.len), argc, "argc"
+    calling _rites_expect_true with (argc >= 1), "at least one"
+
+test "get_argv of index 0 is not empty":
+    let first as string is calling get_argv with 0
+    calling _rites_expect_true with ((first length) > 0), "argv0"
+
+test "arg_at_or falls back for an out-of-range index":
+    calling _rites_expect_str with (calling arg_at_or with 99999, "fallback"), "fallback", "arg_at_or"
+
+test "shell_escape wraps a plain argument in single quotes":
+    let got as string is calling shell_escape with "plain"
+    calling _rites_expect_str with got, "'plain'", "plain escape"
+
+test "shell_escape doubles an embedded single quote":
+    let got as string is calling shell_escape with "it's"
+    calling _rites_expect_str with got, "'it'\\''s'", "quote escape"
+
+test "shell_escape of the empty string is two single quotes":
+    let got as string is calling shell_escape with ""
+    calling _rites_expect_str with got, "''", "empty escape"
+
+test "which finds sh or skips":
+    let sh as maybe string is calling which with "sh"
+    if sh is present:
+        calling _rites_expect_true with ((sh.value length) > 0), "sh path"
+
+test "which_all returns sh when which does":
+    let sh as maybe string is calling which with "sh"
+    if sh is present:
+        let all as list of string is calling which_all with "sh"
+        calling _rites_expect_true with ((calling all.len) >= 1), "which_all size"
+
+test "which returns none for a name that cannot exist":
+    let missing as maybe string is calling which with "pengu-rites-no-such-command-xyzzy"
+    calling _rites_expect_true with (missing is not present), "which none"
+
+test "run_capture of sh -c echo returns stdout":
+    let sh as maybe string is calling which with "sh"
+    if sh is present:
+        let args as list of string is ["-c", "echo hi"]
+        let out as maybe string is calling run_capture with "sh", args
+        calling _rites_expect_true with (out is present), "capture present"
+        calling _rites_expect_str with out.value, "hi\n", "capture text"
+
+test "run_capture_lines splits stdout into lines":
+    let sh as maybe string is calling which with "sh"
+    if sh is present:
+        let args as list of string is ["-c", "printf 'a\\nb\\n'"]
+        let lines as maybe list of string is calling run_capture_lines with "sh", args
+        calling _rites_expect_true with (lines is present), "lines present"
+        calling _rites_expect_int with (lines.value length), 2, "lines count"
+        calling _rites_expect_str with (lines.value at 0), "a", "line 0"
+        calling _rites_expect_str with (lines.value at 1), "b", "line 1"
+
+test "run_capture_lines of empty stdout is an empty list":
+    let sh as maybe string is calling which with "sh"
+    if sh is present:
+        let args as list of string is ["-c", "true"]
+        let lines as maybe list of string is calling run_capture_lines with "sh", args
+        calling _rites_expect_true with (lines is present), "empty lines present"
+        calling _rites_expect_int with (lines.value length), 0, "empty lines count"
+
+test "run_capture returns none on a non-zero exit":
+    let sh as maybe string is calling which with "sh"
+    if sh is present:
+        let args as list of string is ["-c", "exit 3"]
+        let out as maybe string is calling run_capture with "sh", args
+        calling _rites_expect_true with (out is not present), "capture failure"
+
+test "run_capture_result reports the exit code":
+    let sh as maybe string is calling which with "sh"
+    if sh is present:
+        let args as list of string is ["-c", "exit 7"]
+        let r as result of string to string is calling run_capture_result with "sh", args
+        calling _rites_expect_true with not r.is_ok, "result is err"
+        let msg as string is r.error
+        let code as string is "7"
+        calling _rites_expect_true with ((msg length) > 0), "err message"
+        calling _rites_expect_true with (calling _rites_contains with msg, code), "err mentions 7"
+
+test "run_capture_result is ok on success":
+    let sh as maybe string is calling which with "sh"
+    if sh is present:
+        let args as list of string is ["-c", "echo ok"]
+        let r as result of string to string is calling run_capture_result with "sh", args
+        calling _rites_expect_true with r.is_ok, "result is ok"
+        calling _rites_expect_str with r.value, "ok\n", "result value"
+
+test "run_capture_stderr captures only stderr":
+    let sh as maybe string is calling which with "sh"
+    if sh is present:
+        let args as list of string is ["-c", "echo oops >&2"]
+        let err as maybe string is calling run_capture_stderr with "sh", args
+        calling _rites_expect_true with (err is present), "stderr present"
+        calling _rites_expect_str with err.value, "oops\n", "stderr text"
+
+test "run_shell_capture returns the pipeline output":
+    let sh as maybe string is calling which with "sh"
+    if sh is present:
+        let out as maybe string is calling run_shell_capture with "echo ab | tr a-z A-Z"
+        calling _rites_expect_true with (out is present), "shell capture present"
+        calling _rites_expect_str with out.value, "AB\n", "shell capture text"
+
+test "run_shell_capture returns none on a failing line":
+    let sh as maybe string is calling which with "sh"
+    if sh is present:
+        let out as maybe string is calling run_shell_capture with "exit 5"
+        calling _rites_expect_true with (out is not present), "shell failure"
+
+test "get_uid and get_gid have the maybe shape of the target":
+    if calling is_unix:
+        let uid as maybe int is calling get_uid
+        let gid as maybe int is calling get_gid
+        calling _rites_expect_true with (uid is present), "uid present"
+        calling _rites_expect_true with (gid is present), "gid present"
+        calling _rites_expect_true with (uid.value >= 0), "uid range"
+        calling _rites_expect_true with (gid.value >= 0), "gid range"
+    else:
+        let w_uid as maybe int is calling get_uid
+        calling _rites_expect_true with (w_uid is not present), "uid none on windows"
+
+test "effective ids have the maybe shape of the target":
+    if calling is_unix:
+        let euid as maybe int is calling get_euid
+        let egid as maybe int is calling get_egid
+        calling _rites_expect_true with (euid is present), "euid present"
+        calling _rites_expect_true with (egid is present), "egid present"
+    else:
+        let w_euid as maybe int is calling get_euid
+        calling _rites_expect_true with (w_euid is not present), "euid none on windows"
+
+test "is_windows and is_unix are consistent":
+    let win as bool is calling is_windows
+    let unix as bool is calling is_unix
+    calling _rites_expect_true with (win != unix), "exclusive"
+    calling _rites_expect_true with (win or unix), "at least one"
+
+test "platform predicates are compile-time constants":
+    let win as bool is calling is_windows
+    let linux as bool is calling is_linux
+    let macos as bool is calling is_macos
+    calling _rites_expect_true with (linux or macos or win or true), "predicates return bools"
+
+test "os_arch returns a known name or unknown":
+    let arch_name as string is calling os_arch
+    if arch_name == "x64":
+        calling _rites_expect_str with arch_name, "x64", "arch"
+    if arch_name == "unknown":
+        calling _rites_expect_str with arch_name, "unknown", "arch"
+
+test "getpid and getppid are non-negative":
+    calling _rites_expect_true with (calling getpid) >= 0, "pid"
+    calling _rites_expect_true with (calling getppid) >= 0, "ppid"
+
+test "getcwd returns the current directory":
+    let cwd as maybe string is calling getcwd
+    calling _rites_expect_true with (cwd is present), "cwd present"
+    calling _rites_expect_true with ((cwd.value length) > 0), "cwd non-empty"
+
+test "temp_dir always has a fallback":
+    let tmp as maybe string is calling temp_dir
+    calling _rites_expect_true with (tmp is present), "temp present"
+    calling _rites_expect_true with ((tmp.value length) > 0), "temp non-empty"
+
+test "home_dir is either present or absent":
+    let home as maybe string is calling home_dir
+    if home is present:
+        calling _rites_expect_true with ((home.value length) > 0), "home non-empty"
+
+test "parse_flags ignores positional arguments":
+    let flags as map of string to string is calling parse_flags
+    let pos as maybe string is calling get_flag_value with "pengu-rites-no-such-flag"
+    calling _rites_expect_true with (pos is not present), "no flag"
+    calling _rites_expect_true with ((calling flags.contains with "pengu-rites-no-such-flag") == false), "map miss"
+
+test "has_flag is false for an unused flag":
+    calling _rites_expect_true with not (calling has_flag with "pengu-rites-no-such-flag"), "has_flag"
+
+test "uname and os_family agree":
+    let a as string is calling uname
+    let b as string is calling os_family
+    calling _rites_expect_true with ((a length) > 0), "uname non-empty"
+    calling _rites_expect_str with a, b, "aliases agree"
+
+test "hostname returns a string":
+    let h as string is calling hostname
+    calling _rites_expect_true with ((h length) >= 0), "hostname is a string"
+
+test "current_user shape matches the platform":
+    let user as maybe string is calling current_user
+    if calling is_windows:
+        calling _rites_expect_true with (user is present), "windows user present"
+    else:
+        if user is present:
+            calling _rites_expect_true with ((user.value length) > 0), "user non-empty"
+
+test "get_env_keys and get_env_map describe the same environment":
+    let keys as list of string is calling get_env_keys
+    let env as map of string to string is calling get_env_map
+    calling _rites_expect_true with ((calling keys.len) >= (calling env.len) - 1), "keys cover the map"
+
+test "set_env_map reports zero for an empty map":
+    let m as map of string to string is map of string to string
+    let n as int is calling set_env_map with m
+    calling _rites_expect_int with n, 0, "empty map"

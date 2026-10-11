@@ -919,7 +919,88 @@ def test_generic_index_of():
 # ---------------------------------------------------------------------------
 
 def test_loom_version_constant():
-    """`LOOM_VERSION` is the migrated 2.1.0 revision."""
+    """`LOOM_VERSION` is the migrated 2.2.0 revision."""
     check('''
         calling spark.println with "version={loom.LOOM_VERSION}"
-    ''', "version=2.1.0\n")
+    ''', "version=2.2.0\n")
+
+
+# ---------------------------------------------------------------------------
+# Widened element types: the 2.2.0 signatures accept float, i64 and string lists
+# ---------------------------------------------------------------------------
+
+def test_widened_sum_and_mean_accept_floats():
+    """`loom.sum` and `loom.mean` accept a `list of float` without truncating."""
+    check('''
+        var xs as list of float is [1.5, 2.5]
+        var total as float is calling loom.sum with xs
+        calling spark.println with "total={total}"
+        var ys as list of float is [1.0, 2.0]
+        var average as float is calling loom.mean with ys
+        calling spark.println with "mean={average}"
+        var empty as list of float is list of float
+        var zero as float is calling loom.sum with empty
+        calling spark.println with "empty={zero}"
+    ''', "total=4\nmean=1.5\nempty=0\n")
+
+
+def test_widened_repeat_accepts_a_string():
+    """`loom.repeat of string` copies a string value `times` times."""
+    check('''
+        var out as list of string is calling loom.repeat of string with "ha", 3
+        for word in out:
+            calling spark.println with word
+        var none_out as list of string is calling loom.repeat of string with "ha", 0
+        calling spark.println with "n={none_out.len}"
+        var blank as list of string is calling loom.repeat of string with "", 2
+        calling spark.println with "blank={blank.len}"
+    ''', "ha\nha\nha\nn=0\nblank=2\n")
+
+
+def test_widened_chunks_accept_strings():
+    """`loom.chunks` splits a `list of string` into consecutive runs."""
+    check('''
+        var words as list of string is ["a", "b", "c"]
+        var blocks as list of list of string is calling loom.chunks with words, 2
+        for block in blocks:
+            for word in block:
+                calling spark.print with word
+                calling spark.print with ","
+            calling spark.println with ""
+        var empty as list of string is list of string
+        var none_blocks as list of list of string is calling loom.chunks with empty, 2
+        calling spark.println with "n={none_blocks.len}"
+        var zero as list of list of string is calling loom.chunks with words, 0
+        calling spark.println with "z={zero.len}"
+    ''', "a,b,\nc,\nn=0\nz=0\n")
+
+
+def test_widened_union_sorted_dedupes_strings_by_equality():
+    """`loom.union_sorted` merges string lists and drops duplicate values."""
+    check('''
+        var a as list of string is ["a", "b"]
+        var b as list of string is ["a", "b", "c"]
+        var merged as list of string is calling loom.union_sorted with a, b
+        for word in merged:
+            calling spark.println with word
+        var common as list of string is calling loom.intersect_sorted with a, b
+        calling spark.println with "common={common.len}"
+        var only_a as list of string is calling loom.difference_sorted with a, b
+        calling spark.println with "only_a={only_a.len}"
+    ''', "a\nb\nc\ncommon=2\nonly_a=0\n")
+
+
+def test_widened_min_max_accepts_ints_and_i64():
+    """`loom.min_max` orders `list of int` and `list of i64` through `Ordered`."""
+    check('''
+        var xs as list of int is [3, 9, 4]
+        var mm as maybe Pair of int and int is calling loom.min_max with xs
+        calling show_pair with mm.value
+        var ls as list of i64 is [5000000000, -5000000000, 1]
+        var lm as maybe Pair of i64 and i64 is calling loom.min_max with ls
+        calling spark.println with "lo={lm.value.first}"
+        calling spark.println with "hi={lm.value.second}"
+        var empty as list of i64 is list of i64
+        var none_mm as maybe Pair of i64 and i64 is calling loom.min_max with empty
+        calling spark.println with "none={none_mm.is_present}"
+    ''', "3:9\nlo=-5000000000\nhi=5000000000\nnone=false\n")
