@@ -202,3 +202,24 @@ count towards the `std.oracle` "blocked" criterion above. `std.ward` no longer
 imports `std.scrolls`: `_w_fmt_string` and the three string predicates
 (`assert_string_contains`, `assert_string_starts_with`, `assert_string_ends_with`)
 compare native slices instead.
+
+## 6. `std.coven` — legacy concrete set runes
+
+2.1.0 added the generic `rune Set shard T`, which stores its elements as the keys
+of a `map of T to int` and therefore works for every `Vinculum` type instead of
+just strings and ints. The two 0.14.x runes stay exactly as they were (same
+fields, same methods, same constructors) and are marked with the docstring
+convention.
+
+| Symbol | Replacement | Since | Status |
+| --- | --- | --- | --- |
+| `coven.SetString` | `Set of string` (`calling make_set of string`) | 2.1.0 | 1.x |
+| `coven.SetInt` | `Set of int` (`calling make_set of int`) | 2.1.0 | 1.x |
+
+`SetInt` used to stringify every element (`item to string`) to reuse a
+`map of string to int`; the generic set keys the backing map by `T` directly.
+There is no `Set.empty`: a `ritual` constructor on a generic rune miscompiles once
+several `Set of T` specialisations exist, so the constructors are the module
+functions `make_set` / `from_items_set` (with an explicit `of T`) plus the
+concrete `new_int_set` / `new_string_set` / `new_float_set` / `new_bool_set` /
+`new_char_set`.

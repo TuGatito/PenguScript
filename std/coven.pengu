@@ -1,22 +1,101 @@
-# std/coven.pengu - The Coven (Sets)
-# Dynamic unique set collections over the built-in hash map: SetString holds
-# distinct strings, SetInt holds distinct ints. Fully backward compatible
-# with 0.14.x.
-#
-# Memory model:
-#   * A set OWNS its elements: `add` deep-copies the item (as the key of the
-#     backing map), so later changes to the caller's value never leak into
-#     the set and no element is ever stored twice.
-#   * A set is a rune value record with an `items` backing map of string to int.
-#   * Methods that return a new set (`union`, `intersect`, `difference`,
-#     `symmetric_difference`, `clone`, `filter_*`) allocate a fresh set owned
-#     by the caller; release it with `banish` (or `defer banish`) when done.
-#     The compiler never releases it for you.
-#   * NEVER banish the input set from inside a helper.
-#
-# Implementation note: both types store elements as keys of a
-# `map of string to int`. SetInt stringifies each int with `item to string`,
-# preserving uniqueness with O(1) average lookup and insertion.
+## std/coven.pengu — unique-element collections: the legacy concrete sets
+## (`SetString`, `SetInt`) and the generic `Set of T`.
+##
+## A set stores each element at most once and answers membership in average
+## O(1). All three types share the same core: a rune with a single
+## `items as map of ... to int` field, where the elements are the map keys.
+##
+## - `SetString` holds `string` elements (legacy 0.14.x API).
+## - `SetInt` holds `int` elements under their decimal string key (legacy
+##   0.14.x API).
+## - `Set of T` is the generic set: `items as map of T to int`, so `T` may be
+##   any hashable type — `int`, `string`, `float`, `bool`, `char`, `i64`, `u64`
+##   or a `rune ... derive Par, Vinculum`. The backing map enforces the
+##   `Vinculum` requirement when the set is instantiated.
+##
+## `SetString` and `SetInt` keep every name, signature and observable result of
+## the 0.14.x line; new code should prefer `Set of T`.
+##
+## ## Example
+## ```pengu
+## import std.coven
+## import std.spark
+##
+## weave main into int:
+##     var ids as coven.Set of int is calling coven.new_int_set
+##     calling ids.add with 7
+##     calling ids.add with 7              # duplicate: no-op
+##     var names as coven.Set of string is calling coven.new_string_set
+##     calling names.add with "ada"
+##     var total as int is (calling ids.len) + (calling names.len)
+##     calling spark.println with "size={total}"
+##     defer banish ids.items
+##     defer banish names.items
+##     return 0
+## ```
+##
+## ## Memory
+## A set OWNS its elements: `add` copies the element into the backing map, so a
+## later change to the caller's value never leaks into the set and no element is
+## stored twice. The caller keeps ownership of the value it passed.
+##
+## Every constructor (`new_set_string`, `new_set_int`, `make_set shard T`,
+## `from_items_set shard T` and the five concrete generic constructors) returns a
+## fresh set owned by the caller. Methods that answer with a new set (`union`,
+## `intersect`, `difference`, `symmetric_difference`, `clone`, `filter_*`)
+## allocate it for the caller; methods that answer with a `list` (`to_list`,
+## `to_list_int`) allocate that list. Release a returned `list` with `banish`, and
+## never release a set received as a parameter.
+##
+## A set value is a rune, so the compiler emits no `banish` entry point for it.
+## To release a set explicitly, free its backing map with `defer banish s.items`;
+## the compiler-owned temporary lists and strings returned by the methods are
+## released the usual way.
+##
+## ## Design notes
+## - **No `where` on a rune.** `rune_decl` has no `where` clause, so
+##   `rune Set shard T` cannot spell `where T: Vinculum`. The requirement is
+##   enforced by the backing field `items as map of T to int`, which only
+##   instantiates for types implementing `Vinculum`.
+## - **Generic bodies are self-contained.** When a method of a generic rune
+##   calls another method of that same rune, the compiler emits the
+##   unspecialised `_T` template and the C compilation fails. Every method below
+##   therefore reaches the `items` map of the receiver and of its value
+##   parameters directly and never calls another `Set` method.
+## - **No generic `ritual` constructor.** A type-qualified generic ritual
+##   (`Set.empty of T`) is accepted by the checker but miscompiles or misbinds
+##   as soon as the bundle holds more than one `Set of T` specialisation — and
+##   that is always the case here, because these very `test` blocks instantiate
+##   `Set of string`, `Set of float` and `Set of _TestPlayer`. `calling
+##   Set.empty` alone cannot infer `T` (`E0005`), and bare `Set.empty` is
+##   deliberately NOT offered. Element types are created with the generic module
+##   functions `make_set shard T` / `from_items_set shard T with xs`, which keep
+##   working with several specialisations, or with the concrete constructors
+##   (`new_int_set`, `new_string_set`, `new_float_set`, `new_bool_set`,
+##   `new_char_set`). `T` must still be named at the call site
+##   (`calling make_set of int`).
+## - **Why `make_set` and not `new_set`.** A generic function specialisation is
+##   mangled as `<name>_<element type>`, so `new_set of string` would emit
+##   `new_set_string` and hijack the legacy module constructor of that exact
+##   name (observed: the concrete call then fails with `E0005`). The
+##   collision-free name `make_set` is used instead; `from_items_set` mangles to
+##   `from_items_set_<type>`, which collides with nothing.
+## - **Legacy storage.** `SetInt` stringifies each element (`item to string`) and
+##   stores it under the decimal key; the generic `Set of int` stores the `int`
+##   itself as the key. Both deduplicate, but they are different types.
+## - **`is_empty`** reads the backing map (`calling self->items.is_empty`); the
+##   equivalent `(calling self->items.len) == 0` is used where a map method is not
+##   available.
+##
+## ## Migration
+## 2.1.0 adds the generic `Set of T`, its `enchanting` and the constructors
+## `make_set shard T`, `from_items_set shard T`, `new_int_set`, `new_string_set`,
+## `new_float_set`, `new_bool_set` and `new_char_set`. Nothing is removed and no
+## signature changes: `SetString` and `SetInt` remain fully supported and keep
+## their exact 0.14.x/2.0.0 behaviour. The generic type has no `Set.empty`
+## ritual (type-qualified generic rituals miscompile); use `make_set of T`.
+## New code should use `Set of T`; the legacy types stay for programs written
+## against the older API.
 
 import std.spark
 import std.atlas
@@ -26,35 +105,116 @@ import std.scrolls
 # Version constant
 # ----------------------------------------------------------------------------
 
-## Coven module version constant.
-const COVEN_VERSION as string is "2.0.0"
+## Revision of the `coven` API.
+##
+## Deliberately not the toolchain version: it moves only when a `coven`
+## signature changes. 2.1.0 adds the generic `Set of T`.
+const COVEN_VERSION as string is "2.1.0"
 
 # ----------------------------------------------------------------------------
 # Value types
 # ----------------------------------------------------------------------------
 
-# A set of unique string elements: inserting a string that is already
-# present is a no-op. Use the SetString methods (add, contains, remove,
-# len, clear, is_empty) to manipulate it; create one with new_set_string.
+## A set of unique `string` elements: inserting a string already present is a
+## no-op. Create one with `new_set_string` (or `empty_set_string`) and use the
+## `SetString` methods (`add`, `contains`, `remove`, `len`, `clear`,
+## `is_empty`, the set algebra and the `filter_*` helpers).
+##
+## @deprecated Use the generic `Set of string` instead.
+##
+## ## Example
+## ```pengu
+## var s as SetString is calling new_set_string
+## calling s.add with "ada"
+## calling s.add with "ada"          # no-op
+## var n as int is calling s.len      # 1
+## ```
+##
+## ## Memoria
+## The rune owns its backing map. Release it with `banish s.items`; a set
+## received as a parameter is borrowed and never released by these methods.
 rune SetString:
     items as map of string to int
 
-# A set of unique int elements with the same behaviour as SetString. Values
-# are stored under their decimal string key (unique per int). Use the SetInt
-# methods below; create one with new_set_int.
+## A set of unique `int` elements with the same behaviour as `SetString`.
+## Values are stored under their decimal string key (unique per `int`). Create
+## one with `new_set_int` (or `empty_set_int`) and use the `SetInt` methods.
+##
+## @deprecated Use the generic `Set of int` instead.
+##
+## ## Example
+## ```pengu
+## var s as SetInt is calling new_set_int
+## calling s.add with 7
+## calling s.add with 7              # no-op
+## var n as int is calling s.len      # 1
+## ```
+##
+## ## Memoria
+## The rune owns its backing map. Release it with `banish s.items`; a set
+## received as a parameter is borrowed and never released by these methods.
 rune SetInt:
     items as map of string to int
+
+## A generic set of unique `T` elements, backed by `map of T to int`.
+##
+## `T` must implement `Vinculum` (the map-key contract); the backing field
+## enforces it when the set is instantiated. `int`, `string`, `float`, `bool`,
+## `char`, `i64`, `u64` and any `rune ... derive Par, Vinculum` are valid.
+##
+## Create one with the generic module functions `make_set of T` /
+## `from_items_set of T with xs`, or with the concrete constructors `new_int_set`,
+## `new_string_set`, `new_float_set`, `new_bool_set` and `new_char_set`. There is
+## no `Set.empty` ritual (see the module design notes).
+##
+## ## Example
+## ```pengu
+## var s as Set of int is calling make_set of int
+## calling s.add with 7
+## calling s.add with 7              # no-op
+## var n as int is calling s.len      # 1
+## ```
+##
+## ## Memoria
+## The rune owns its backing map. Release it with `banish s.items`; a set
+## received as a parameter is borrowed and never released by these methods.
+rune Set shard T:
+    items as map of T to int
 
 # ----------------------------------------------------------------------------
 # Pre-existing constructors (kept verbatim for backward compatibility)
 # ----------------------------------------------------------------------------
 
-# Builds a new, empty SetString ready to receive `add` calls.
+## Builds a new, empty `SetString` ready to receive `add` calls.
+##
+## ## Parámetros
+## - None: the backing map is created empty.
+##
+## ## Retorno
+## An owned empty `SetString`. Release its backing map with `banish s.items`.
+##
+## ## Ejemplo
+## ```pengu
+## var s as SetString is calling new_set_string
+## calling s.add with "a"
+## ```
 weave new_set_string into SetString:
     var m as map of string to int is map of string to int
     return with items is m
 
-# Builds a new, empty SetInt ready to receive `add` calls.
+## Builds a new, empty `SetInt` ready to receive `add` calls.
+##
+## ## Parámetros
+## - None: the backing map is created empty.
+##
+## ## Retorno
+## An owned empty `SetInt`. Release its backing map with `banish s.items`.
+##
+## ## Ejemplo
+## ```pengu
+## var s as SetInt is calling new_set_int
+## calling s.add with 1
+## ```
 weave new_set_int into SetInt:
     var m as map of string to int is map of string to int
     return with items is m
@@ -63,24 +223,51 @@ weave new_set_int into SetInt:
 # Ritual constructors (module-level)
 # ----------------------------------------------------------------------------
 
-## Creates an empty SetString. Alias of `new_set_string`.
+## Creates an empty `SetString`. Alias of `new_set_string`.
 ##
-## Signature: empty_set_string() into SetString
-## Memory: Returns an owned fresh SetString.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## An owned empty `SetString`. Release its backing map with `banish s.items`.
+##
+## ## Ejemplo
+## ```pengu
+## var s as SetString is calling empty_set_string
+## ```
 weave ritual empty_set_string into SetString:
     return calling new_set_string
 
-## Creates an empty SetInt. Alias of `new_set_int`.
+## Creates an empty `SetInt`. Alias of `new_set_int`.
 ##
-## Signature: empty_set_int() into SetInt
-## Memory: Returns an owned fresh SetInt.
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## An owned empty `SetInt`. Release its backing map with `banish s.items`.
+##
+## ## Ejemplo
+## ```pengu
+## var s as SetInt is calling empty_set_int
+## ```
 weave ritual empty_set_int into SetInt:
     return calling new_set_int
 
-## Builds a SetString from a list of strings, automatically deduplicating items.
+## Builds a `SetString` from a list of strings, automatically deduplicating
+## items.
 ##
-## Signature: from_list_string(items as list of string) into SetString
-## Memory: Returns an owned fresh SetString.
+## ## Parámetros
+## - `items`: the source list of strings. It is borrowed and never modified.
+##
+## ## Retorno
+## An owned `SetString` holding each distinct element of `items` once. Release
+## its backing map with `banish s.items`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of string is ["a", "a", "b"]
+## var s as SetString is calling from_list_string with xs
+## ```
 weave ritual from_list_string with items as list of string into SetString:
     var s as SetString is calling new_set_string
     var n as int is calling items.len
@@ -90,10 +277,20 @@ weave ritual from_list_string with items as list of string into SetString:
         set i is i + 1
     return s
 
-## Builds a SetInt from a list of ints, automatically deduplicating items.
+## Builds a `SetInt` from a list of ints, automatically deduplicating items.
 ##
-## Signature: from_list_int(items as list of int) into SetInt
-## Memory: Returns an owned fresh SetInt.
+## ## Parámetros
+## - `items`: the source list of integers. It is borrowed and never modified.
+##
+## ## Retorno
+## An owned `SetInt` holding each distinct element of `items` once. Release its
+## backing map with `banish s.items`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [1, 1, 2]
+## var s as SetInt is calling from_list_int with xs
+## ```
 weave ritual from_list_int with items as list of int into SetInt:
     var s as SetInt is calling new_set_int
     var n as int is calling items.len
@@ -112,11 +309,35 @@ enchanting SetString:
     # Static ritual constructors attached to type
     # ------------------------------------------------------------------------
 
-    ## Creates an empty SetString.
+    ## Creates an empty `SetString`.
+    ##
+    ## ## Parámetros
+    ## - None.
+    ##
+    ## ## Retorno
+    ## An owned empty `SetString`. Release its backing map with `banish s.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetString is calling SetString.empty
+    ## ```
     weave ritual empty into SetString:
         return calling new_set_string
 
-    ## Builds a SetString from a list of strings.
+    ## Builds a `SetString` from a list of strings.
+    ##
+    ## ## Parámetros
+    ## - `items`: the source list of strings; borrowed, never modified.
+    ##
+    ## ## Retorno
+    ## An owned `SetString` with each distinct element once. Release its backing
+    ## map with `banish s.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of string is ["a", "b"]
+    ## var s as SetString is calling SetString.from_items with xs
+    ## ```
     weave ritual from_items with items as list of string into SetString:
         return calling from_list_string with items
 
@@ -124,29 +345,109 @@ enchanting SetString:
     # Pre-existing instance methods (kept verbatim)
     # ------------------------------------------------------------------------
 
-    # Inserts `item` into the set. Inserting a string that is already
-    # present is a no-op, because a set stores each element at most once.
+    ## Inserts `item` into the set. Inserting a string already present is a
+    ## no-op, because a set stores each element at most once.
+    ##
+    ## ## Parámetros
+    ## - `item`: the string to insert; it is copied into the backing map.
+    ##
+    ## ## Retorno
+    ## Nothing; the method returns `void` and mutates the receiver in place.
+    ##
+    ## ## Memoria
+    ## The caller keeps ownership of `item`; the set stores its own copy.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetString is calling new_set_string
+    ## calling s.add with "ada"
+    ## ```
     weave add with item as string into void:
         calling self->items.put with item , 1
 
-    # Returns true when `item` is currently a member of the set.
+    ## Returns true when `item` is currently a member of the set.
+    ##
+    ## ## Parámetros
+    ## - `item`: the string to look up; borrowed, never modified.
+    ##
+    ## ## Retorno
+    ## `true` when the set holds `item`, `false` otherwise. Reads only.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetString is calling new_set_string
+    ## calling s.add with "ada"
+    ## var found as bool is calling s.contains with "ada"    # true
+    ## ```
     weave contains with item as string into bool:
         return calling self->items.contains with item
 
-    # Removes `item` from the set. Returns true when it was present (and has
-    # been removed); returns false when the set did not contain it.
+    ## Removes `item` from the set. Returns true when it was present (and has
+    ## been removed); returns false when the set did not contain it.
+    ##
+    ## ## Parámetros
+    ## - `item`: the string to remove; borrowed, never modified.
+    ##
+    ## ## Retorno
+    ## `true` when the element was present and has been removed, `false` when it
+    ## was absent.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetString is calling new_set_string
+    ## calling s.add with "ada"
+    ## var removed as bool is calling s.remove with "ada"    # true
+    ## ```
     weave remove with item as string into bool:
         return calling self->items.remove with item
 
-    # Returns the number of distinct elements currently stored in the set.
+    ## Returns the number of distinct elements currently stored in the set.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is measured.
+    ##
+    ## ## Retorno
+    ## The element count as an `int`. Reads only.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetString is calling new_set_string
+    ## calling s.add with "ada"
+    ## var n as int is calling s.len    # 1
+    ## ```
     weave len into int:
         return calling self->items.len
 
-    # Removes every element, leaving the set empty.
+    ## Removes every element, leaving the set empty.
+    ##
+    ## ## Parámetros
+    ## - None.
+    ##
+    ## ## Retorno
+    ## Nothing; the method returns `void` and mutates the receiver in place.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetString is calling new_set_string
+    ## calling s.add with "ada"
+    ## calling s.clear
+    ## ```
     weave clear into void:
         calling self->items.clear
 
-    # Returns true when the set holds no elements at all.
+    ## Returns true when the set holds no elements at all.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is inspected.
+    ##
+    ## ## Retorno
+    ## `true` for an empty set, `false` otherwise. Reads only.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetString is calling new_set_string
+    ## var empty as bool is calling s.is_empty    # true
+    ## ```
     weave is_empty into bool:
         return calling self->items.is_empty
 
@@ -154,10 +455,23 @@ enchanting SetString:
     # Set algebra & operations
     # ------------------------------------------------------------------------
 
-    ## Returns a fresh SetString containing every element present in `self` or `other`.
+    ## Returns a fresh `SetString` containing every element present in `self` or
+    ## `other`.
     ##
-    ## Signature: union(other as SetString) into SetString
-    ## Memory: Returns an owned fresh SetString.
+    ## ## Parámetros
+    ## - `other`: the second set; borrowed, never modified or released.
+    ##
+    ## ## Retorno
+    ## An owned fresh `SetString`. Release its backing map with `banish u.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as SetString is calling new_set_string
+    ## var b as SetString is calling new_set_string
+    ## calling a.add with "x"
+    ## calling b.add with "y"
+    ## var u as SetString is calling a.union with b
+    ## ```
     weave union with other as SetString into SetString:
         var result as SetString is calling new_set_string
         for k in self->items:
@@ -166,10 +480,23 @@ enchanting SetString:
             calling result.add with k
         return result
 
-    ## Returns a fresh SetString containing only elements present in both `self` and `other`.
+    ## Returns a fresh `SetString` containing only elements present in both
+    ## `self` and `other`.
     ##
-    ## Signature: intersect(other as SetString) into SetString
-    ## Memory: Returns an owned fresh SetString.
+    ## ## Parámetros
+    ## - `other`: the second set; borrowed, never modified or released.
+    ##
+    ## ## Retorno
+    ## An owned fresh `SetString`. Release its backing map with `banish i.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as SetString is calling new_set_string
+    ## var b as SetString is calling new_set_string
+    ## calling a.add with "x"
+    ## calling b.add with "x"
+    ## var i as SetString is calling a.intersect with b
+    ## ```
     weave intersect with other as SetString into SetString:
         var result as SetString is calling new_set_string
         for k in self->items:
@@ -177,10 +504,22 @@ enchanting SetString:
                 calling result.add with k
         return result
 
-    ## Returns a fresh SetString with elements present in `self` but absent from `other`.
+    ## Returns a fresh `SetString` with elements present in `self` but absent
+    ## from `other`.
     ##
-    ## Signature: difference(other as SetString) into SetString
-    ## Memory: Returns an owned fresh SetString.
+    ## ## Parámetros
+    ## - `other`: the second set; borrowed, never modified or released.
+    ##
+    ## ## Retorno
+    ## An owned fresh `SetString`. Release its backing map with `banish d.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as SetString is calling new_set_string
+    ## var b as SetString is calling new_set_string
+    ## calling a.add with "x"
+    ## var d as SetString is calling a.difference with b
+    ## ```
     weave difference with other as SetString into SetString:
         var result as SetString is calling new_set_string
         for k in self->items:
@@ -188,10 +527,23 @@ enchanting SetString:
                 calling result.add with k
         return result
 
-    ## Returns a fresh SetString with elements in either `self` or `other`, but not both.
+    ## Returns a fresh `SetString` with elements in either `self` or `other`,
+    ## but not both.
     ##
-    ## Signature: symmetric_difference(other as SetString) into SetString
-    ## Memory: Returns an owned fresh SetString.
+    ## ## Parámetros
+    ## - `other`: the second set; borrowed, never modified or released.
+    ##
+    ## ## Retorno
+    ## An owned fresh `SetString`. Release its backing map with `banish x.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as SetString is calling new_set_string
+    ## var b as SetString is calling new_set_string
+    ## calling a.add with "x"
+    ## calling b.add with "y"
+    ## var x as SetString is calling a.symmetric_difference with b
+    ## ```
     weave symmetric_difference with other as SetString into SetString:
         var a_minus_b as SetString is calling self.difference with other
         var b_minus_a as SetString is calling other.difference with (essence of self)
@@ -199,8 +551,20 @@ enchanting SetString:
 
     ## Returns true if every element in `self` is also present in `other`.
     ##
-    ## Signature: is_subset(other as SetString) into bool
-    ## Memory: Reads sets; returns scalar boolean.
+    ## ## Parámetros
+    ## - `other`: the candidate superset; borrowed, never modified.
+    ##
+    ## ## Retorno
+    ## `true` when `self` is a subset of `other`, `false` otherwise. Reads only.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as SetString is calling new_set_string
+    ## var b as SetString is calling new_set_string
+    ## calling a.add with "x"
+    ## calling b.add with "x"
+    ## var sub as bool is calling a.is_subset with b    # true
+    ## ```
     weave is_subset with other as SetString into bool:
         for k in self->items:
             if (calling other.contains with k) == false:
@@ -209,25 +573,63 @@ enchanting SetString:
 
     ## Returns true if every element in `other` is also present in `self`.
     ##
-    ## Signature: is_superset(other as SetString) into bool
-    ## Memory: Reads sets; returns scalar boolean.
+    ## ## Parámetros
+    ## - `other`: the candidate subset; borrowed, never modified.
+    ##
+    ## ## Retorno
+    ## `true` when `self` is a superset of `other`, `false` otherwise. Reads only.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as SetString is calling new_set_string
+    ## var b as SetString is calling new_set_string
+    ## calling a.add with "x"
+    ## calling b.add with "x"
+    ## var sup as bool is calling a.is_superset with b    # true
+    ## ```
     weave is_superset with other as SetString into bool:
         return calling other.is_subset with (essence of self)
 
     ## Returns true if `self` and `other` have no elements in common.
     ##
-    ## Signature: is_disjoint(other as SetString) into bool
-    ## Memory: Reads sets; returns scalar boolean.
+    ## ## Parámetros
+    ## - `other`: the second set; borrowed, never modified.
+    ##
+    ## ## Retorno
+    ## `true` when the sets are disjoint, `false` otherwise. Reads only.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as SetString is calling new_set_string
+    ## var b as SetString is calling new_set_string
+    ## calling a.add with "x"
+    ## calling b.add with "y"
+    ## var d as bool is calling a.is_disjoint with b    # true
+    ## ```
     weave is_disjoint with other as SetString into bool:
         for k in self->items:
             if calling other.contains with k:
                 return false
         return true
 
-    ## Returns true if `self` and `other` contain exactly the same set of elements.
+    ## Returns true if `self` and `other` contain exactly the same set of
+    ## elements.
     ##
-    ## Signature: equals(other as SetString) into bool
-    ## Memory: Reads sets; returns scalar boolean.
+    ## ## Parámetros
+    ## - `other`: the set to compare against; borrowed, never modified.
+    ##
+    ## ## Retorno
+    ## `true` when both sets have the same members, `false` otherwise. Reads
+    ## only; the insertion order is irrelevant.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as SetString is calling new_set_string
+    ## var b as SetString is calling new_set_string
+    ## calling a.add with "x"
+    ## calling b.add with "x"
+    ## var same as bool is calling a.equals with b    # true
+    ## ```
     weave equals with other as SetString into bool:
         if (calling self.len) != (calling other.len):
             return false
@@ -235,29 +637,62 @@ enchanting SetString:
 
     ## Returns a fresh independent copy of `self`.
     ##
-    ## Signature: clone() into SetString
-    ## Memory: Returns an owned fresh SetString.
+    ## ## Parámetros
+    ## - None: the receiver is copied.
+    ##
+    ## ## Retorno
+    ## An owned fresh `SetString`. Release its backing map with `banish c.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetString is calling new_set_string
+    ## calling s.add with "x"
+    ## var c as SetString is calling s.clone
+    ## ```
     weave clone into SetString:
         var result as SetString is calling new_set_string
         for k in self->items:
             calling result.add with k
         return result
 
-    ## Returns a fresh list containing all elements of `self` in internal hash order.
+    ## Returns a fresh list containing all elements of `self` in internal hash
+    ## order.
     ##
-    ## Signature: to_list() into list of string
-    ## Memory: Returns an owned fresh list of string elements.
+    ## ## Parámetros
+    ## - None: the receiver is listed.
+    ##
+    ## ## Retorno
+    ## An owned fresh `list of string`; release it with `banish`. The order is
+    ## hash order, not insertion order.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetString is calling new_set_string
+    ## calling s.add with "x"
+    ## var xs as list of string is calling s.to_list
+    ## ```
     weave to_list into list of string:
         var result as list of string is list of string
         for k in self->items:
             calling result.push with k
         return result
 
-    ## Converts this SetString to a SetInt, parsing each element with `std.spark.parse_int`.
-    ## Elements that cannot be parsed are skipped.
+    ## Converts this `SetString` to a `SetInt`, parsing each element with
+    ## `std.spark.parse_int`. Elements that cannot be parsed are skipped.
     ##
-    ## Signature: to_set_int() into SetInt
-    ## Memory: Returns an owned fresh SetInt.
+    ## ## Parámetros
+    ## - None: the receiver is converted.
+    ##
+    ## ## Retorno
+    ## An owned fresh `SetInt` with the parseable elements. Release its backing
+    ## map with `banish s.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetString is calling new_set_string
+    ## calling s.add with "7"
+    ## var ints as SetInt is calling s.to_set_int
+    ## ```
     weave to_set_int into SetInt:
         var result as SetInt is calling new_set_int
         for k in self->items:
@@ -266,10 +701,22 @@ enchanting SetString:
                 calling result.add with opt.value
         return result
 
-    ## Returns a fresh SetString containing only elements that start with `prefix`.
+    ## Returns a fresh `SetString` containing only elements that start with
+    ## `prefix`.
     ##
-    ## Signature: filter_starts_with(prefix as string) into SetString
-    ## Memory: Returns an owned fresh SetString.
+    ## ## Parámetros
+    ## - `prefix`: the required prefix; borrowed, never modified.
+    ##
+    ## ## Retorno
+    ## An owned fresh `SetString` with the matching elements. Release its backing
+    ## map with `banish r.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetString is calling new_set_string
+    ## calling s.add with "alpha"
+    ## var r as SetString is calling s.filter_starts_with with "al"
+    ## ```
     weave filter_starts_with with prefix as string into SetString:
         var result as SetString is calling new_set_string
         for k in self->items:
@@ -277,10 +724,22 @@ enchanting SetString:
                 calling result.add with k
         return result
 
-    ## Returns a fresh SetString containing only elements with string length >= `n`.
+    ## Returns a fresh `SetString` containing only elements with string length
+    ## greater than or equal to `n`.
     ##
-    ## Signature: filter_length_ge(n as int) into SetString
-    ## Memory: Returns an owned fresh SetString.
+    ## ## Parámetros
+    ## - `n`: the minimum byte length; elements shorter than `n` are dropped.
+    ##
+    ## ## Retorno
+    ## An owned fresh `SetString` with the matching elements. Release its backing
+    ## map with `banish r.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetString is calling new_set_string
+    ## calling s.add with "abc"
+    ## var r as SetString is calling s.filter_length_ge with 3
+    ## ```
     weave filter_length_ge with n as int into SetString:
         var result as SetString is calling new_set_string
         for k in self->items:
@@ -297,11 +756,35 @@ enchanting SetInt:
     # Static ritual constructors attached to type
     # ------------------------------------------------------------------------
 
-    ## Creates an empty SetInt.
+    ## Creates an empty `SetInt`.
+    ##
+    ## ## Parámetros
+    ## - None.
+    ##
+    ## ## Retorno
+    ## An owned empty `SetInt`. Release its backing map with `banish s.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetInt is calling SetInt.empty
+    ## ```
     weave ritual empty into SetInt:
         return calling new_set_int
 
-    ## Builds a SetInt from a list of ints.
+    ## Builds a `SetInt` from a list of ints.
+    ##
+    ## ## Parámetros
+    ## - `items`: the source list of integers; borrowed, never modified.
+    ##
+    ## ## Retorno
+    ## An owned `SetInt` with each distinct element once. Release its backing map
+    ## with `banish s.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var xs as list of int is [1, 2]
+    ## var s as SetInt is calling SetInt.from_items with xs
+    ## ```
     weave ritual from_items with items as list of int into SetInt:
         return calling from_list_int with items
 
@@ -309,29 +792,109 @@ enchanting SetInt:
     # Pre-existing instance methods (kept verbatim)
     # ------------------------------------------------------------------------
 
-    # Inserts `item` into the set, storing it under the decimal string of
-    # the int. Inserting an int that is already present is a no-op.
+    ## Inserts `item` into the set, storing it under the decimal string of the
+    ## int. Inserting an int already present is a no-op.
+    ##
+    ## ## Parámetros
+    ## - `item`: the integer to insert; it is stringified into the backing map.
+    ##
+    ## ## Retorno
+    ## Nothing; the method returns `void` and mutates the receiver in place.
+    ##
+    ## ## Memoria
+    ## The key string is owned by the backing map; the caller's `int` is a value.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetInt is calling new_set_int
+    ## calling s.add with 7
+    ## ```
     weave add with item as int into void:
         calling self->items.put with (item to string) , 1
 
-    # Returns true when `item` is currently a member of the set.
+    ## Returns true when `item` is currently a member of the set.
+    ##
+    ## ## Parámetros
+    ## - `item`: the integer to look up.
+    ##
+    ## ## Retorno
+    ## `true` when the set holds `item`, `false` otherwise. Reads only.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetInt is calling new_set_int
+    ## calling s.add with 7
+    ## var found as bool is calling s.contains with 7    # true
+    ## ```
     weave contains with item as int into bool:
         return calling self->items.contains with (item to string)
 
-    # Removes `item` from the set. Returns true when it was present (and has
-    # been removed); returns false when the set did not contain it.
+    ## Removes `item` from the set. Returns true when it was present (and has
+    ## been removed); returns false when the set did not contain it.
+    ##
+    ## ## Parámetros
+    ## - `item`: the integer to remove.
+    ##
+    ## ## Retorno
+    ## `true` when the element was present and has been removed, `false` when it
+    ## was absent.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetInt is calling new_set_int
+    ## calling s.add with 7
+    ## var removed as bool is calling s.remove with 7    # true
+    ## ```
     weave remove with item as int into bool:
         return calling self->items.remove with (item to string)
 
-    # Returns the number of distinct elements currently stored in the set.
+    ## Returns the number of distinct elements currently stored in the set.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is measured.
+    ##
+    ## ## Retorno
+    ## The element count as an `int`. Reads only.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetInt is calling new_set_int
+    ## calling s.add with 7
+    ## var n as int is calling s.len    # 1
+    ## ```
     weave len into int:
         return calling self->items.len
 
-    # Removes every element, leaving the set empty.
+    ## Removes every element, leaving the set empty.
+    ##
+    ## ## Parámetros
+    ## - None.
+    ##
+    ## ## Retorno
+    ## Nothing; the method returns `void` and mutates the receiver in place.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetInt is calling new_set_int
+    ## calling s.add with 7
+    ## calling s.clear
+    ## ```
     weave clear into void:
         calling self->items.clear
 
-    # Returns true when the set holds no elements at all.
+    ## Returns true when the set holds no elements at all.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is inspected.
+    ##
+    ## ## Retorno
+    ## `true` for an empty set, `false` otherwise. Reads only.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetInt is calling new_set_int
+    ## var empty as bool is calling s.is_empty    # true
+    ## ```
     weave is_empty into bool:
         return calling self->items.is_empty
 
@@ -339,10 +902,23 @@ enchanting SetInt:
     # Set algebra & operations
     # ------------------------------------------------------------------------
 
-    ## Returns a fresh SetInt containing every element present in `self` or `other`.
+    ## Returns a fresh `SetInt` containing every element present in `self` or
+    ## `other`.
     ##
-    ## Signature: union(other as SetInt) into SetInt
-    ## Memory: Returns an owned fresh SetInt.
+    ## ## Parámetros
+    ## - `other`: the second set; borrowed, never modified or released.
+    ##
+    ## ## Retorno
+    ## An owned fresh `SetInt`. Release its backing map with `banish u.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as SetInt is calling new_set_int
+    ## var b as SetInt is calling new_set_int
+    ## calling a.add with 1
+    ## calling b.add with 2
+    ## var u as SetInt is calling a.union with b
+    ## ```
     weave union with other as SetInt into SetInt:
         var result as SetInt is calling new_set_int
         for k in self->items:
@@ -351,10 +927,23 @@ enchanting SetInt:
             calling result.items.put with k, 1
         return result
 
-    ## Returns a fresh SetInt containing only elements present in both `self` and `other`.
+    ## Returns a fresh `SetInt` containing only elements present in both `self`
+    ## and `other`.
     ##
-    ## Signature: intersect(other as SetInt) into SetInt
-    ## Memory: Returns an owned fresh SetInt.
+    ## ## Parámetros
+    ## - `other`: the second set; borrowed, never modified or released.
+    ##
+    ## ## Retorno
+    ## An owned fresh `SetInt`. Release its backing map with `banish i.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as SetInt is calling new_set_int
+    ## var b as SetInt is calling new_set_int
+    ## calling a.add with 1
+    ## calling b.add with 1
+    ## var i as SetInt is calling a.intersect with b
+    ## ```
     weave intersect with other as SetInt into SetInt:
         var result as SetInt is calling new_set_int
         for k in self->items:
@@ -362,10 +951,22 @@ enchanting SetInt:
                 calling result.items.put with k, 1
         return result
 
-    ## Returns a fresh SetInt with elements present in `self` but absent from `other`.
+    ## Returns a fresh `SetInt` with elements present in `self` but absent from
+    ## `other`.
     ##
-    ## Signature: difference(other as SetInt) into SetInt
-    ## Memory: Returns an owned fresh SetInt.
+    ## ## Parámetros
+    ## - `other`: the second set; borrowed, never modified or released.
+    ##
+    ## ## Retorno
+    ## An owned fresh `SetInt`. Release its backing map with `banish d.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as SetInt is calling new_set_int
+    ## var b as SetInt is calling new_set_int
+    ## calling a.add with 1
+    ## var d as SetInt is calling a.difference with b
+    ## ```
     weave difference with other as SetInt into SetInt:
         var result as SetInt is calling new_set_int
         for k in self->items:
@@ -373,10 +974,23 @@ enchanting SetInt:
                 calling result.items.put with k, 1
         return result
 
-    ## Returns a fresh SetInt with elements in either `self` or `other`, but not both.
+    ## Returns a fresh `SetInt` with elements in either `self` or `other`, but
+    ## not both.
     ##
-    ## Signature: symmetric_difference(other as SetInt) into SetInt
-    ## Memory: Returns an owned fresh SetInt.
+    ## ## Parámetros
+    ## - `other`: the second set; borrowed, never modified or released.
+    ##
+    ## ## Retorno
+    ## An owned fresh `SetInt`. Release its backing map with `banish x.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as SetInt is calling new_set_int
+    ## var b as SetInt is calling new_set_int
+    ## calling a.add with 1
+    ## calling b.add with 2
+    ## var x as SetInt is calling a.symmetric_difference with b
+    ## ```
     weave symmetric_difference with other as SetInt into SetInt:
         var a_minus_b as SetInt is calling self.difference with other
         var b_minus_a as SetInt is calling other.difference with (essence of self)
@@ -384,8 +998,20 @@ enchanting SetInt:
 
     ## Returns true if every element in `self` is also present in `other`.
     ##
-    ## Signature: is_subset(other as SetInt) into bool
-    ## Memory: Reads sets; returns scalar boolean.
+    ## ## Parámetros
+    ## - `other`: the candidate superset; borrowed, never modified.
+    ##
+    ## ## Retorno
+    ## `true` when `self` is a subset of `other`, `false` otherwise. Reads only.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as SetInt is calling new_set_int
+    ## var b as SetInt is calling new_set_int
+    ## calling a.add with 1
+    ## calling b.add with 1
+    ## var sub as bool is calling a.is_subset with b    # true
+    ## ```
     weave is_subset with other as SetInt into bool:
         for k in self->items:
             if (calling other.items.contains with k) == false:
@@ -394,25 +1020,63 @@ enchanting SetInt:
 
     ## Returns true if every element in `other` is also present in `self`.
     ##
-    ## Signature: is_superset(other as SetInt) into bool
-    ## Memory: Reads sets; returns scalar boolean.
+    ## ## Parámetros
+    ## - `other`: the candidate subset; borrowed, never modified.
+    ##
+    ## ## Retorno
+    ## `true` when `self` is a superset of `other`, `false` otherwise. Reads only.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as SetInt is calling new_set_int
+    ## var b as SetInt is calling new_set_int
+    ## calling a.add with 1
+    ## calling b.add with 1
+    ## var sup as bool is calling a.is_superset with b    # true
+    ## ```
     weave is_superset with other as SetInt into bool:
         return calling other.is_subset with (essence of self)
 
     ## Returns true if `self` and `other` have no elements in common.
     ##
-    ## Signature: is_disjoint(other as SetInt) into bool
-    ## Memory: Reads sets; returns scalar boolean.
+    ## ## Parámetros
+    ## - `other`: the second set; borrowed, never modified.
+    ##
+    ## ## Retorno
+    ## `true` when the sets are disjoint, `false` otherwise. Reads only.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as SetInt is calling new_set_int
+    ## var b as SetInt is calling new_set_int
+    ## calling a.add with 1
+    ## calling b.add with 2
+    ## var d as bool is calling a.is_disjoint with b    # true
+    ## ```
     weave is_disjoint with other as SetInt into bool:
         for k in self->items:
             if calling other.items.contains with k:
                 return false
         return true
 
-    ## Returns true if `self` and `other` contain exactly the same set of elements.
+    ## Returns true if `self` and `other` contain exactly the same set of
+    ## elements.
     ##
-    ## Signature: equals(other as SetInt) into bool
-    ## Memory: Reads sets; returns scalar boolean.
+    ## ## Parámetros
+    ## - `other`: the set to compare against; borrowed, never modified.
+    ##
+    ## ## Retorno
+    ## `true` when both sets have the same members, `false` otherwise. Reads
+    ## only; the insertion order is irrelevant.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as SetInt is calling new_set_int
+    ## var b as SetInt is calling new_set_int
+    ## calling a.add with 1
+    ## calling b.add with 1
+    ## var same as bool is calling a.equals with b    # true
+    ## ```
     weave equals with other as SetInt into bool:
         if (calling self.len) != (calling other.len):
             return false
@@ -420,8 +1084,18 @@ enchanting SetInt:
 
     ## Returns a fresh independent copy of `self`.
     ##
-    ## Signature: clone() into SetInt
-    ## Memory: Returns an owned fresh SetInt.
+    ## ## Parámetros
+    ## - None: the receiver is copied.
+    ##
+    ## ## Retorno
+    ## An owned fresh `SetInt`. Release its backing map with `banish c.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetInt is calling new_set_int
+    ## calling s.add with 1
+    ## var c as SetInt is calling s.clone
+    ## ```
     weave clone into SetInt:
         var result as SetInt is calling new_set_int
         for k in self->items:
@@ -430,8 +1104,19 @@ enchanting SetInt:
 
     ## Returns a fresh list containing all parsed integer elements of `self`.
     ##
-    ## Signature: to_list_int() into list of int
-    ## Memory: Returns an owned fresh list of integers.
+    ## ## Parámetros
+    ## - None: the receiver is listed.
+    ##
+    ## ## Retorno
+    ## An owned fresh `list of int`; release it with `banish`. Order is hash
+    ## order, not insertion order.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetInt is calling new_set_int
+    ## calling s.add with 7
+    ## var xs as list of int is calling s.to_list_int
+    ## ```
     weave to_list_int into list of int:
         var result as list of int is list of int
         for k in self->items:
@@ -442,8 +1127,19 @@ enchanting SetInt:
 
     ## Returns the arithmetic sum of all integers in `self`. Returns 0 if empty.
     ##
-    ## Signature: sum_ints() into int
-    ## Memory: Reads set; returns scalar integer.
+    ## ## Parámetros
+    ## - None: the receiver is reduced.
+    ##
+    ## ## Retorno
+    ## The sum as an `int`; the empty set collapses to the identity `0`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetInt is calling new_set_int
+    ## calling s.add with 2
+    ## calling s.add with 3
+    ## var total as int is calling s.sum_ints    # 5
+    ## ```
     weave sum_ints into int:
         var total as int is 0
         for k in self->items:
@@ -454,8 +1150,19 @@ enchanting SetInt:
 
     ## Returns the minimum integer in `self`. Returns 0 if empty.
     ##
-    ## Signature: min_int() into int
-    ## Memory: Reads set; returns scalar integer.
+    ## ## Parámetros
+    ## - None: the receiver is reduced.
+    ##
+    ## ## Retorno
+    ## The smallest element as an `int`; the empty set collapses to `0`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetInt is calling new_set_int
+    ## calling s.add with 5
+    ## calling s.add with -2
+    ## var lo as int is calling s.min_int    # -2
+    ## ```
     weave min_int into int:
         var n as int is calling self.len
         if n == 0:
@@ -475,8 +1182,19 @@ enchanting SetInt:
 
     ## Returns the maximum integer in `self`. Returns 0 if empty.
     ##
-    ## Signature: max_int() into int
-    ## Memory: Reads set; returns scalar integer.
+    ## ## Parámetros
+    ## - None: the receiver is reduced.
+    ##
+    ## ## Retorno
+    ## The largest element as an `int`; the empty set collapses to `0`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetInt is calling new_set_int
+    ## calling s.add with 5
+    ## calling s.add with 9
+    ## var hi as int is calling s.max_int    # 9
+    ## ```
     weave max_int into int:
         var n as int is calling self.len
         if n == 0:
@@ -494,12 +1212,1083 @@ enchanting SetInt:
                         set hi is opt.value
         return hi
 
-    ## Converts this SetInt to an equivalent SetString with stringified keys.
+    ## Converts this `SetInt` to an equivalent `SetString` with stringified
+    ## keys.
     ##
-    ## Signature: to_set_string() into SetString
-    ## Memory: Returns an owned fresh SetString.
+    ## ## Parámetros
+    ## - None: the receiver is converted.
+    ##
+    ## ## Retorno
+    ## An owned fresh `SetString`. Release its backing map with `banish s.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetInt is calling new_set_int
+    ## calling s.add with 7
+    ## var t as SetString is calling s.to_set_string
+    ## ```
     weave to_set_string into SetString:
         var result as SetString is calling new_set_string
         for k in self->items:
             calling result.add with k
         return result
+
+# ----------------------------------------------------------------------------
+# Generic Set enchanting methods
+# ----------------------------------------------------------------------------
+
+enchanting Set shard T:
+    # ------------------------------------------------------------------------
+    # Note: no generic `ritual` constructor
+    # ------------------------------------------------------------------------
+    # A type-qualified generic ritual (`Set.empty of T`) miscompiles or misbinds
+    # as soon as the bundle holds more than one `Set of T` specialisation, which
+    # is always the case for this module (its own tests instantiate several).
+    # Element types are therefore built with the generic module functions
+    # `make_set shard T` / `from_items_set shard T` or with the concrete
+    # constructors (`new_int_set`, ...); see the module design notes.
+
+    # ------------------------------------------------------------------------
+    # Instance methods
+    # ------------------------------------------------------------------------
+
+    ## Inserts `item` into the set. Inserting an element already present is a
+    ## no-op, because a set stores each element at most once.
+    ##
+    ## ## Parámetros
+    ## - `item`: the element to insert; it is copied into the backing map.
+    ##
+    ## ## Retorno
+    ## Nothing; the method returns `void` and mutates the receiver in place.
+    ##
+    ## ## Memoria
+    ## The caller keeps ownership of `item`; the set stores its own copy.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as Set of int is calling new_int_set
+    ## calling s.add with 7
+    ## ```
+    weave add with item as T into void:
+        calling self->items.put with item, 1
+
+    ## Returns true when `item` is currently a member of the set.
+    ##
+    ## ## Parámetros
+    ## - `item`: the element to look up; borrowed, never modified.
+    ##
+    ## ## Retorno
+    ## `true` when the set holds `item`, `false` otherwise. Reads only.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as Set of int is calling new_int_set
+    ## calling s.add with 7
+    ## var found as bool is calling s.contains with 7    # true
+    ## ```
+    weave contains with item as T into bool:
+        return calling self->items.contains with item
+
+    ## Removes `item` from the set. Returns true when it was present (and has
+    ## been removed); returns false when the set did not contain it.
+    ##
+    ## ## Parámetros
+    ## - `item`: the element to remove; borrowed, never modified.
+    ##
+    ## ## Retorno
+    ## `true` when the element was present and has been removed, `false` when it
+    ## was absent.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as Set of int is calling new_int_set
+    ## calling s.add with 7
+    ## var removed as bool is calling s.remove with 7    # true
+    ## ```
+    weave remove with item as T into bool:
+        return calling self->items.remove with item
+
+    ## Returns the number of distinct elements currently stored in the set.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is measured.
+    ##
+    ## ## Retorno
+    ## The element count as an `int`. Reads only.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as Set of int is calling new_int_set
+    ## calling s.add with 7
+    ## var n as int is calling s.len    # 1
+    ## ```
+    weave len into int:
+        return calling self->items.len
+
+    ## Removes every element, leaving the set empty.
+    ##
+    ## ## Parámetros
+    ## - None.
+    ##
+    ## ## Retorno
+    ## Nothing; the method returns `void` and mutates the receiver in place.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as Set of int is calling new_int_set
+    ## calling s.add with 7
+    ## calling s.clear
+    ## ```
+    weave clear into void:
+        calling self->items.clear
+
+    ## Returns true when the set holds no elements at all.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is inspected.
+    ##
+    ## ## Retorno
+    ## `true` for an empty set, `false` otherwise. Reads only.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as Set of int is calling new_int_set
+    ## var empty as bool is calling s.is_empty    # true
+    ## ```
+    weave is_empty into bool:
+        return calling self->items.is_empty
+
+    ## Returns a fresh `Set of T` containing every element present in `self` or
+    ## `other`.
+    ##
+    ## ## Parámetros
+    ## - `other`: the second set; borrowed, never modified or released.
+    ##
+    ## ## Retorno
+    ## An owned fresh `Set of T`. Release its backing map with `banish u.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as Set of int is calling new_int_set
+    ## var b as Set of int is calling new_int_set
+    ## calling a.add with 1
+    ## calling b.add with 2
+    ## var u as Set of int is calling a.union with b
+    ## ```
+    weave union with other as Set of T into Set of T:
+        var result as Set of T with:
+            set .items is map of T to int
+        for k in self->items:
+            calling result.items.put with k, 1
+        for k in other.items:
+            calling result.items.put with k, 1
+        return result
+
+    ## Returns a fresh `Set of T` containing only elements present in both
+    ## `self` and `other`.
+    ##
+    ## ## Parámetros
+    ## - `other`: the second set; borrowed, never modified or released.
+    ##
+    ## ## Retorno
+    ## An owned fresh `Set of T`. Release its backing map with `banish i.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as Set of int is calling new_int_set
+    ## var b as Set of int is calling new_int_set
+    ## calling a.add with 1
+    ## calling b.add with 1
+    ## var i as Set of int is calling a.intersect with b
+    ## ```
+    weave intersect with other as Set of T into Set of T:
+        var result as Set of T with:
+            set .items is map of T to int
+        for k in self->items:
+            if calling other.items.contains with k:
+                calling result.items.put with k, 1
+        return result
+
+    ## Returns a fresh `Set of T` with elements present in `self` but absent from
+    ## `other`.
+    ##
+    ## ## Parámetros
+    ## - `other`: the second set; borrowed, never modified or released.
+    ##
+    ## ## Retorno
+    ## An owned fresh `Set of T`. Release its backing map with `banish d.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as Set of int is calling new_int_set
+    ## var b as Set of int is calling new_int_set
+    ## calling a.add with 1
+    ## var d as Set of int is calling a.difference with b
+    ## ```
+    weave difference with other as Set of T into Set of T:
+        var result as Set of T with:
+            set .items is map of T to int
+        for k in self->items:
+            if (calling other.items.contains with k) == false:
+                calling result.items.put with k, 1
+        return result
+
+    ## Returns a fresh `Set of T` with elements in either `self` or `other`, but
+    ## not both.
+    ##
+    ## ## Parámetros
+    ## - `other`: the second set; borrowed, never modified or released.
+    ##
+    ## ## Retorno
+    ## An owned fresh `Set of T`. Release its backing map with `banish x.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as Set of int is calling new_int_set
+    ## var b as Set of int is calling new_int_set
+    ## calling a.add with 1
+    ## calling b.add with 2
+    ## var x as Set of int is calling a.symmetric_difference with b
+    ## ```
+    weave symmetric_difference with other as Set of T into Set of T:
+        var result as Set of T with:
+            set .items is map of T to int
+        for k in self->items:
+            if (calling other.items.contains with k) == false:
+                calling result.items.put with k, 1
+        for k in other.items:
+            if (calling self->items.contains with k) == false:
+                calling result.items.put with k, 1
+        return result
+
+    ## Returns true if every element in `self` is also present in `other`.
+    ##
+    ## ## Parámetros
+    ## - `other`: the candidate superset; borrowed, never modified.
+    ##
+    ## ## Retorno
+    ## `true` when `self` is a subset of `other`, `false` otherwise. Reads only.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as Set of int is calling new_int_set
+    ## var b as Set of int is calling new_int_set
+    ## calling a.add with 1
+    ## calling b.add with 1
+    ## var sub as bool is calling a.is_subset with b    # true
+    ## ```
+    weave is_subset with other as Set of T into bool:
+        for k in self->items:
+            if (calling other.items.contains with k) == false:
+                return false
+        return true
+
+    ## Returns true if every element in `other` is also present in `self`.
+    ##
+    ## ## Parámetros
+    ## - `other`: the candidate subset; borrowed, never modified.
+    ##
+    ## ## Retorno
+    ## `true` when `self` is a superset of `other`, `false` otherwise. Reads only.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as Set of int is calling new_int_set
+    ## var b as Set of int is calling new_int_set
+    ## calling a.add with 1
+    ## calling b.add with 1
+    ## var sup as bool is calling a.is_superset with b    # true
+    ## ```
+    weave is_superset with other as Set of T into bool:
+        for k in other.items:
+            if (calling self->items.contains with k) == false:
+                return false
+        return true
+
+    ## Returns true if `self` and `other` have no elements in common.
+    ##
+    ## ## Parámetros
+    ## - `other`: the second set; borrowed, never modified.
+    ##
+    ## ## Retorno
+    ## `true` when the sets are disjoint, `false` otherwise. Reads only.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as Set of int is calling new_int_set
+    ## var b as Set of int is calling new_int_set
+    ## calling a.add with 1
+    ## calling b.add with 2
+    ## var d as bool is calling a.is_disjoint with b    # true
+    ## ```
+    weave is_disjoint with other as Set of T into bool:
+        for k in self->items:
+            if calling other.items.contains with k:
+                return false
+        return true
+
+    ## Returns true if `self` and `other` contain exactly the same set of
+    ## elements.
+    ##
+    ## ## Parámetros
+    ## - `other`: the set to compare against; borrowed, never modified.
+    ##
+    ## ## Retorno
+    ## `true` when both sets have the same members, `false` otherwise. Reads
+    ## only; the insertion order is irrelevant.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as Set of int is calling new_int_set
+    ## var b as Set of int is calling new_int_set
+    ## calling a.add with 1
+    ## calling b.add with 1
+    ## var same as bool is calling a.equals with b    # true
+    ## ```
+    weave equals with other as Set of T into bool:
+        if (calling self->items.len) != (calling other.items.len):
+            return false
+        for k in self->items:
+            if (calling other.items.contains with k) == false:
+                return false
+        return true
+
+    ## Returns a fresh independent copy of `self`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is copied.
+    ##
+    ## ## Retorno
+    ## An owned fresh `Set of T`. Release its backing map with `banish c.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as Set of int is calling new_int_set
+    ## calling s.add with 1
+    ## var c as Set of int is calling s.clone
+    ## ```
+    weave clone into Set of T:
+        var result as Set of T with:
+            set .items is map of T to int
+        for k in self->items:
+            calling result.items.put with k, 1
+        return result
+
+    ## Returns a fresh list containing all elements of `self` in internal hash
+    ## order.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is listed.
+    ##
+    ## ## Retorno
+    ## An owned fresh `list of T`; release it with `banish`. The order is hash
+    ## order, not insertion order.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as Set of int is calling new_int_set
+    ## calling s.add with 1
+    ## var xs as list of int is calling s.to_list
+    ## ```
+    weave to_list into list of T:
+        var out as list of T is list of T
+        for k in self->items:
+            calling out.push with k
+        return out
+
+# ----------------------------------------------------------------------------
+# Generic set constructors
+# ----------------------------------------------------------------------------
+
+## Creates an empty `Set of T`.
+##
+## `T` is named explicitly at the call site (`calling make_set of int`) because it
+## cannot be inferred. Unlike a generic `ritual` constructor, this module
+## function keeps working when the bundle holds several `Set of T`
+## specialisations.
+##
+## ## Parámetros
+## - None: the backing map is created empty.
+##
+## ## Retorno
+## An owned empty `Set of T`. Release its backing map with `banish s.items`.
+##
+## ## Ejemplo
+## ```pengu
+## var s as Set of int is calling make_set of int
+## calling s.add with 7
+## ```
+weave make_set shard T into Set of T:
+    var s as Set of T with:
+        set .items is map of T to int
+    return s
+
+## Builds a `Set of T` from a list of `T`, automatically deduplicating items.
+##
+## ## Parámetros
+## - `items`: the source list; borrowed, never modified. `T` is named at the
+##   call site.
+##
+## ## Retorno
+## An owned `Set of T` holding each distinct element of `items` once. Release its
+## backing map with `banish s.items`.
+##
+## ## Ejemplo
+## ```pengu
+## var xs as list of int is [1, 1, 2]
+## var s as Set of int is calling from_items_set of int with xs
+## ```
+weave from_items_set shard T with items as list of T into Set of T:
+    var s as Set of T with:
+        set .items is map of T to int
+    for x in items:
+        calling s.items.put with x, 1
+    return s
+
+# ----------------------------------------------------------------------------
+# Concrete generic constructors
+# ----------------------------------------------------------------------------
+
+## Creates an empty `Set of int`.
+##
+## The concrete constructors spell the element type for the common cases; they
+## and the generic module functions (`make_set`, `from_items_set`) are the
+## supported way to start a generic set, because a type-qualified generic
+## `ritual` constructor miscompiles (see the module design notes).
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## An owned empty `Set of int`. Release its backing map with `banish s.items`.
+##
+## ## Ejemplo
+## ```pengu
+## var s as Set of int is calling new_int_set
+## calling s.add with 7
+## ```
+weave ritual new_int_set into Set of int:
+    var s as Set of int with:
+        set .items is map of int to int
+    return s
+
+## Creates an empty `Set of string`.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## An owned empty `Set of string`. Release its backing map with `banish s.items`.
+##
+## ## Ejemplo
+## ```pengu
+## var s as Set of string is calling new_string_set
+## calling s.add with "ada"
+## ```
+weave ritual new_string_set into Set of string:
+    var s as Set of string with:
+        set .items is map of string to int
+    return s
+
+## Creates an empty `Set of float`.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## An owned empty `Set of float`. Release its backing map with `banish s.items`.
+##
+## ## Ejemplo
+## ```pengu
+## var s as Set of float is calling new_float_set
+## calling s.add with 1.5
+## ```
+weave ritual new_float_set into Set of float:
+    var s as Set of float with:
+        set .items is map of float to int
+    return s
+
+## Creates an empty `Set of bool`.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## An owned empty `Set of bool`. Release its backing map with `banish s.items`.
+##
+## ## Ejemplo
+## ```pengu
+## var s as Set of bool is calling new_bool_set
+## calling s.add with true
+## ```
+weave ritual new_bool_set into Set of bool:
+    var s as Set of bool with:
+        set .items is map of bool to int
+    return s
+
+## Creates an empty `Set of char`.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## An owned empty `Set of char`. Release its backing map with `banish s.items`.
+##
+## ## Ejemplo
+## ```pengu
+## var s as Set of char is calling new_char_set
+## calling s.add with (65 to char)
+## ```
+weave ritual new_char_set into Set of char:
+    var s as Set of char with:
+        set .items is map of char to int
+    return s
+
+# ----------------------------------------------------------------------------
+# Private helpers
+# ----------------------------------------------------------------------------
+
+## Test harness: panics with `label` when `cond` is false.
+weave _expect_coven with cond as bool, label as string into void:
+    if not cond:
+        calling spark.panic with "coven test failed: {label}"
+
+## Test harness: int equality.
+weave _expect_coven_eq_int with actual as int, expected as int, label as string into void:
+    if actual != expected:
+        calling spark.panic with "coven test failed: {label}"
+
+## Test harness: string equality.
+weave _expect_coven_eq_string with actual as string, expected as string, label as string into void:
+    if actual != expected:
+        calling spark.panic with "coven test failed: {label}"
+
+## Test harness: bool equality.
+weave _expect_coven_eq_bool with actual as bool, expected as bool, label as string into void:
+    if actual != expected:
+        calling spark.panic with "coven test failed: {label}"
+
+# --- Tests ---
+
+## Test-only value type used to exercise `Set of T` with a user `rune`.
+rune _TestPlayer derive Par, Vinculum:
+    id as int
+
+# The generic module functions `make_set of T` / `from_items_set of T` are the
+# supported constructors: unlike a type-qualified generic ritual they keep
+# working when the bundle holds several `Set of T` specialisations. See the
+# design notes.
+test "generic set of custom rune deduplicates":
+    var s as Set of _TestPlayer is calling make_set of _TestPlayer
+    var p as _TestPlayer with:
+        set .id is 7
+    calling s.add with p
+    calling s.add with p
+    calling _expect_coven_eq_int with (calling s.len), 1, "player dedupe"
+    calling _expect_coven with (calling s.contains with p), "player contains"
+    banish s.items
+
+test "make_set of int builds an empty set":
+    var s as Set of int is calling make_set of int
+    calling _expect_coven with (calling s.is_empty), "make_set int empty"
+    calling s.add with 3
+    calling s.add with 3
+    calling _expect_coven_eq_int with (calling s.len), 1, "make_set int dedupe"
+    banish s.items
+
+test "make_set of string builds an empty set":
+    var s as Set of string is calling make_set of string
+    calling s.add with "ada"
+    calling s.add with "ada"
+    calling _expect_coven_eq_int with (calling s.len), 1, "make_set string dedupe"
+    calling _expect_coven with (calling s.contains with "ada"), "make_set string contains"
+    banish s.items
+
+test "make_set of float builds an empty set":
+    var s as Set of float is calling make_set of float
+    calling _expect_coven with (calling s.is_empty), "make_set float empty"
+    calling s.add with 1.5
+    calling _expect_coven_eq_int with (calling s.len), 1, "make_set float len"
+    banish s.items
+
+test "from_items_set deduplicates for int and string":
+    var ints as list of int is list of int
+    calling ints.push with 4
+    calling ints.push with 4
+    calling ints.push with 5
+    var si as Set of int is calling from_items_set of int with ints
+    var names as list of string is list of string
+    calling names.push with "a"
+    calling names.push with "a"
+    var ss as Set of string is calling from_items_set of string with names
+    calling _expect_coven_eq_int with (calling si.len), 2, "from_items_set int"
+    calling _expect_coven_eq_int with (calling ss.len), 1, "from_items_set string"
+    banish si.items
+    banish ss.items
+    banish ints
+    banish names
+
+test "set_string.add deduplicates elements":
+    var s as SetString is calling new_set_string
+    calling s.add with "ada"
+    calling s.add with "ada"
+    calling _expect_coven_eq_int with (calling s.len), 1, "add dedupe"
+    calling _expect_coven with (calling s.contains with "ada"), "contains ada"
+    banish s.items
+
+test "set_string.remove reports membership":
+    var s as SetString is calling new_set_string
+    calling s.add with "a"
+    calling s.add with "b"
+    var first as bool is calling s.remove with "a"
+    var second as bool is calling s.remove with "a"
+    calling _expect_coven_eq_bool with first, true, "remove present"
+    calling _expect_coven_eq_bool with second, false, "remove absent"
+    calling _expect_coven_eq_int with (calling s.len), 1, "remove len"
+    banish s.items
+
+test "set_string.clear empties the set":
+    var s as SetString is calling new_set_string
+    calling s.add with "a"
+    calling s.clear
+    calling _expect_coven_eq_int with (calling s.len), 0, "clear len"
+    calling _expect_coven with (calling s.is_empty), "clear is_empty"
+    banish s.items
+
+test "set_string.union merges both sets":
+    var a as SetString is calling new_set_string
+    var b as SetString is calling new_set_string
+    calling a.add with "x"
+    calling b.add with "y"
+    var u as SetString is calling a.union with b
+    calling _expect_coven_eq_int with (calling u.len), 2, "union len"
+    calling _expect_coven with (calling u.contains with "x"), "union x"
+    calling _expect_coven with (calling u.contains with "y"), "union y"
+    banish u.items
+    banish a.items
+    banish b.items
+
+test "set_string.intersect keeps common elements":
+    var a as SetString is calling new_set_string
+    var b as SetString is calling new_set_string
+    calling a.add with "x"
+    calling a.add with "y"
+    calling b.add with "y"
+    calling b.add with "z"
+    var i as SetString is calling a.intersect with b
+    calling _expect_coven_eq_int with (calling i.len), 1, "intersect len"
+    calling _expect_coven with (calling i.contains with "y"), "intersect y"
+    banish i.items
+    banish a.items
+    banish b.items
+
+test "set_string.difference keeps only the left side":
+    var a as SetString is calling new_set_string
+    var b as SetString is calling new_set_string
+    calling a.add with "x"
+    calling a.add with "y"
+    calling b.add with "y"
+    var d as SetString is calling a.difference with b
+    calling _expect_coven_eq_int with (calling d.len), 1, "difference len"
+    calling _expect_coven with (calling d.contains with "x"), "difference x"
+    banish d.items
+    banish a.items
+    banish b.items
+
+test "set_string.symmetric_difference keeps elements in exactly one set":
+    var a as SetString is calling new_set_string
+    var b as SetString is calling new_set_string
+    calling a.add with "x"
+    calling a.add with "y"
+    calling b.add with "y"
+    calling b.add with "z"
+    var x as SetString is calling a.symmetric_difference with b
+    calling _expect_coven_eq_int with (calling x.len), 2, "symmetric len"
+    calling _expect_coven with (calling x.contains with "x"), "symmetric x"
+    calling _expect_coven with (calling x.contains with "z"), "symmetric z"
+    banish x.items
+    banish a.items
+    banish b.items
+
+test "set_string.is_subset and is_superset":
+    var a as SetString is calling new_set_string
+    var b as SetString is calling new_set_string
+    calling a.add with "x"
+    calling b.add with "x"
+    calling b.add with "y"
+    var sub as bool is calling a.is_subset with b
+    var sup as bool is calling b.is_superset with a
+    calling _expect_coven_eq_bool with sub, true, "subset"
+    calling _expect_coven_eq_bool with sup, true, "superset"
+    banish a.items
+    banish b.items
+
+test "set_string.is_disjoint detects shared elements":
+    var a as SetString is calling new_set_string
+    var b as SetString is calling new_set_string
+    var c as SetString is calling new_set_string
+    calling a.add with "x"
+    calling b.add with "x"
+    calling c.add with "y"
+    var shared as bool is calling a.is_disjoint with b
+    var apart as bool is calling a.is_disjoint with c
+    calling _expect_coven_eq_bool with shared, false, "shared"
+    calling _expect_coven_eq_bool with apart, true, "apart"
+    banish a.items
+    banish b.items
+    banish c.items
+
+test "set_string.equals compares membership":
+    var a as SetString is calling new_set_string
+    var b as SetString is calling new_set_string
+    var c as SetString is calling new_set_string
+    calling a.add with "x"
+    calling a.add with "y"
+    calling b.add with "y"
+    calling b.add with "x"
+    calling c.add with "x"
+    var same as bool is calling a.equals with b
+    var different as bool is calling a.equals with c
+    calling _expect_coven_eq_bool with same, true, "equals same"
+    calling _expect_coven_eq_bool with different, false, "equals different"
+    banish a.items
+    banish b.items
+    banish c.items
+
+test "set_string.clone is independent":
+    var a as SetString is calling new_set_string
+    calling a.add with "a"
+    var c as SetString is calling a.clone
+    calling c.add with "b"
+    calling _expect_coven_eq_int with (calling a.len), 1, "clone original len"
+    calling _expect_coven_eq_int with (calling c.len), 2, "clone copy len"
+    banish a.items
+    banish c.items
+
+test "set_string.to_list lists every element":
+    var s as SetString is calling new_set_string
+    calling s.add with "a"
+    calling s.add with "b"
+    var xs as list of string is calling s.to_list
+    calling _expect_coven_eq_int with (calling xs.len), 2, "to_list len"
+    banish xs
+    banish s.items
+
+test "set_string.to_set_int parses numeric elements":
+    var s as SetString is calling new_set_string
+    calling s.add with "1"
+    calling s.add with "2"
+    calling s.add with "x"
+    var ints as SetInt is calling s.to_set_int
+    calling _expect_coven_eq_int with (calling ints.len), 2, "parsed len"
+    calling _expect_coven with (calling ints.contains with 1), "parsed 1"
+    banish ints.items
+    banish s.items
+
+test "set_string.filter_starts_with keeps the prefix":
+    var s as SetString is calling new_set_string
+    calling s.add with "alpha"
+    calling s.add with "alps"
+    calling s.add with "beta"
+    var r as SetString is calling s.filter_starts_with with "al"
+    calling _expect_coven_eq_int with (calling r.len), 2, "starts_with len"
+    calling _expect_coven with (calling r.contains with "alpha"), "starts_with alpha"
+    calling _expect_coven with ((calling r.contains with "beta") == false), "starts_with beta absent"
+    banish r.items
+    banish s.items
+
+test "set_string.filter_length_ge keeps long elements":
+    var s as SetString is calling new_set_string
+    calling s.add with "a"
+    calling s.add with "abc"
+    calling s.add with "abcde"
+    var r as SetString is calling s.filter_length_ge with 3
+    calling _expect_coven_eq_int with (calling r.len), 2, "length_ge len"
+    calling _expect_coven with (calling r.contains with "abc"), "length_ge abc"
+    banish r.items
+    banish s.items
+
+test "empty_set_string and from_list_string deduplicate":
+    var e as SetString is calling empty_set_string
+    calling _expect_coven with (calling e.is_empty), "empty_set_string"
+    var xs as list of string is list of string
+    calling xs.push with "a"
+    calling xs.push with "a"
+    calling xs.push with "b"
+    var s as SetString is calling from_list_string with xs
+    calling _expect_coven_eq_int with (calling s.len), 2, "from_list_string dedupe"
+    banish e.items
+    banish s.items
+    banish xs
+
+test "set_string.from_items builds a set from a list":
+    var xs as list of string is list of string
+    calling xs.push with "p"
+    calling xs.push with "q"
+    var s as SetString is calling SetString.from_items with xs
+    calling _expect_coven_eq_int with (calling s.len), 2, "from_items len"
+    calling _expect_coven with (calling s.contains with "q"), "from_items q"
+    banish s.items
+    banish xs
+
+test "set_string.empty ritual builds an empty set":
+    var s as SetString is calling SetString.empty
+    calling _expect_coven with (calling s.is_empty), "SetString.empty"
+    banish s.items
+
+test "set_int.add deduplicates elements":
+    var s as SetInt is calling new_set_int
+    calling s.add with 7
+    calling s.add with 7
+    calling _expect_coven_eq_int with (calling s.len), 1, "int add dedupe"
+    calling _expect_coven with (calling s.contains with 7), "int contains"
+    banish s.items
+
+test "set_int.remove and is_empty":
+    var s as SetInt is calling new_set_int
+    calling s.add with 3
+    var removed as bool is calling s.remove with 3
+    var missing as bool is calling s.remove with 3
+    calling _expect_coven_eq_bool with removed, true, "int remove present"
+    calling _expect_coven_eq_bool with missing, false, "int remove absent"
+    calling _expect_coven with (calling s.is_empty), "int is_empty"
+    banish s.items
+
+test "set_int.union merges both sets":
+    var a as SetInt is calling new_set_int
+    var b as SetInt is calling new_set_int
+    calling a.add with 1
+    calling b.add with 2
+    var u as SetInt is calling a.union with b
+    calling _expect_coven_eq_int with (calling u.len), 2, "int union len"
+    calling _expect_coven with (calling u.contains with 2), "int union 2"
+    banish u.items
+    banish a.items
+    banish b.items
+
+test "set_int.intersect and difference":
+    var a as SetInt is calling new_set_int
+    var b as SetInt is calling new_set_int
+    calling a.add with 1
+    calling a.add with 2
+    calling b.add with 2
+    calling b.add with 3
+    var i as SetInt is calling a.intersect with b
+    var d as SetInt is calling a.difference with b
+    calling _expect_coven_eq_int with (calling i.len), 1, "int intersect len"
+    calling _expect_coven with (calling i.contains with 2), "int intersect 2"
+    calling _expect_coven_eq_int with (calling d.len), 1, "int difference len"
+    calling _expect_coven with (calling d.contains with 1), "int difference 1"
+    banish i.items
+    banish d.items
+    banish a.items
+    banish b.items
+
+test "set_int.symmetric_difference":
+    var a as SetInt is calling new_set_int
+    var b as SetInt is calling new_set_int
+    calling a.add with 1
+    calling a.add with 2
+    calling b.add with 2
+    calling b.add with 3
+    var x as SetInt is calling a.symmetric_difference with b
+    calling _expect_coven_eq_int with (calling x.len), 2, "int symmetric len"
+    calling _expect_coven with (calling x.contains with 1), "int symmetric 1"
+    calling _expect_coven with (calling x.contains with 3), "int symmetric 3"
+    banish x.items
+    banish a.items
+    banish b.items
+
+test "set_int.is_subset is_superset and is_disjoint":
+    var a as SetInt is calling new_set_int
+    var b as SetInt is calling new_set_int
+    var c as SetInt is calling new_set_int
+    calling a.add with 1
+    calling b.add with 1
+    calling b.add with 2
+    calling c.add with 9
+    var sub as bool is calling a.is_subset with b
+    var sup as bool is calling b.is_superset with a
+    var shared as bool is calling a.is_disjoint with b
+    var apart as bool is calling a.is_disjoint with c
+    calling _expect_coven_eq_bool with sub, true, "int subset"
+    calling _expect_coven_eq_bool with sup, true, "int superset"
+    calling _expect_coven_eq_bool with shared, false, "int shared"
+    calling _expect_coven_eq_bool with apart, true, "int apart"
+    banish a.items
+    banish b.items
+    banish c.items
+
+test "set_int.equals and clone":
+    var a as SetInt is calling new_set_int
+    var b as SetInt is calling new_set_int
+    calling a.add with 1
+    calling a.add with 2
+    calling b.add with 2
+    calling b.add with 1
+    var same as bool is calling a.equals with b
+    var c as SetInt is calling a.clone
+    calling c.add with 5
+    calling _expect_coven_eq_bool with same, true, "int equals"
+    calling _expect_coven_eq_int with (calling a.len), 2, "int clone original"
+    calling _expect_coven_eq_int with (calling c.len), 3, "int clone copy"
+    banish a.items
+    banish b.items
+    banish c.items
+
+test "set_int.to_list_int and sum_ints":
+    var s as SetInt is calling new_set_int
+    calling s.add with 2
+    calling s.add with 3
+    var xs as list of int is calling s.to_list_int
+    var total as int is calling s.sum_ints
+    calling _expect_coven_eq_int with (calling xs.len), 2, "to_list_int len"
+    calling _expect_coven_eq_int with total, 5, "sum_ints"
+    banish xs
+    banish s.items
+
+test "set_int.min_int and max_int":
+    var s as SetInt is calling new_set_int
+    var e as SetInt is calling new_set_int
+    calling s.add with 5
+    calling s.add with -2
+    calling s.add with 9
+    calling _expect_coven_eq_int with (calling s.min_int), -2, "min_int"
+    calling _expect_coven_eq_int with (calling s.max_int), 9, "max_int"
+    calling _expect_coven_eq_int with (calling e.min_int), 0, "empty min_int"
+    calling _expect_coven_eq_int with (calling e.max_int), 0, "empty max_int"
+    banish s.items
+    banish e.items
+
+test "set_int.to_set_string roundtrips":
+    var s as SetInt is calling new_set_int
+    calling s.add with 7
+    var t as SetString is calling s.to_set_string
+    calling _expect_coven_eq_int with (calling t.len), 1, "to_set_string len"
+    calling _expect_coven with (calling t.contains with "7"), "to_set_string 7"
+    banish t.items
+    banish s.items
+
+test "empty_set_int and from_list_int":
+    var e as SetInt is calling empty_set_int
+    calling _expect_coven with (calling e.is_empty), "empty_set_int"
+    var xs as list of int is list of int
+    calling xs.push with 4
+    calling xs.push with 4
+    calling xs.push with 5
+    var s as SetInt is calling from_list_int with xs
+    calling _expect_coven_eq_int with (calling s.len), 2, "from_list_int dedupe"
+    banish e.items
+    banish s.items
+    banish xs
+
+test "set_int.from_items builds a set from a list":
+    var xs as list of int is list of int
+    calling xs.push with 8
+    calling xs.push with 9
+    var s as SetInt is calling SetInt.from_items with xs
+    calling _expect_coven_eq_int with (calling s.len), 2, "int from_items len"
+    calling _expect_coven with (calling s.contains with 9), "int from_items 9"
+    banish s.items
+    banish xs
+
+test "set_int.empty ritual builds an empty set":
+    var s as SetInt is calling SetInt.empty
+    calling _expect_coven with (calling s.is_empty), "SetInt.empty"
+    banish s.items
+
+test "generic set of int deduplicates and removes":
+    var s as Set of int is calling new_int_set
+    calling s.add with 7
+    calling s.add with 7
+    calling _expect_coven_eq_int with (calling s.len), 1, "generic int dedupe"
+    calling _expect_coven with (calling s.contains with 7), "generic int contains"
+    var removed as bool is calling s.remove with 7
+    calling _expect_coven_eq_bool with removed, true, "generic int remove"
+    calling _expect_coven with (calling s.is_empty), "generic int is_empty"
+    banish s.items
+
+test "generic set of int set algebra":
+    var a as Set of int is calling new_int_set
+    var b as Set of int is calling new_int_set
+    calling a.add with 1
+    calling a.add with 2
+    calling b.add with 2
+    calling b.add with 3
+    var u as Set of int is calling a.union with b
+    var i as Set of int is calling a.intersect with b
+    var d as Set of int is calling a.difference with b
+    var x as Set of int is calling a.symmetric_difference with b
+    calling _expect_coven_eq_int with (calling u.len), 3, "generic union len"
+    calling _expect_coven_eq_int with (calling i.len), 1, "generic intersect len"
+    calling _expect_coven with (calling i.contains with 2), "generic intersect 2"
+    calling _expect_coven_eq_int with (calling d.len), 1, "generic difference len"
+    calling _expect_coven with (calling d.contains with 1), "generic difference 1"
+    calling _expect_coven_eq_int with (calling x.len), 2, "generic symmetric len"
+    banish u.items
+    banish i.items
+    banish d.items
+    banish x.items
+    banish a.items
+    banish b.items
+
+test "generic set of int subset superset disjoint equals clone":
+    var a as Set of int is calling new_int_set
+    var b as Set of int is calling new_int_set
+    calling a.add with 1
+    calling b.add with 1
+    calling b.add with 2
+    var sub as bool is calling a.is_subset with b
+    var sup as bool is calling b.is_superset with a
+    var shared as bool is calling a.is_disjoint with b
+    var copy as Set of int is calling b.clone
+    var same as bool is calling b.equals with copy
+    calling _expect_coven_eq_bool with sub, true, "generic subset"
+    calling _expect_coven_eq_bool with sup, true, "generic superset"
+    calling _expect_coven_eq_bool with shared, false, "generic not disjoint"
+    calling _expect_coven_eq_bool with same, true, "generic equals clone"
+    banish a.items
+    banish b.items
+    banish copy.items
+
+test "generic set of string stores and lists strings":
+    var s as Set of string is calling new_string_set
+    calling s.add with "alpha"
+    calling s.add with "alpha"
+    var out as list of string is calling s.to_list
+    calling _expect_coven_eq_int with (calling s.len), 1, "string set len"
+    calling _expect_coven_eq_int with (calling out.len), 1, "string to_list len"
+    calling _expect_coven_eq_string with (out at 0), "alpha", "string element"
+    banish out
+    banish s.items
+
+test "generic set of string clear and is_empty":
+    var s as Set of string is calling new_string_set
+    calling s.add with "a"
+    calling s.clear
+    calling _expect_coven with (calling s.is_empty), "generic clear is_empty"
+    calling _expect_coven_eq_int with (calling s.len), 0, "generic clear len"
+    banish s.items
+
+test "generic set of float stores floats":
+    var s as Set of float is calling new_float_set
+    calling s.add with 1.5
+    calling s.add with 1.5
+    calling s.add with 2.5
+    calling _expect_coven_eq_int with (calling s.len), 2, "float set len"
+    calling _expect_coven with (calling s.contains with 1.5), "float contains"
+    banish s.items
+
+test "concrete bool and char constructors build sets":
+    var b as Set of bool is calling new_bool_set
+    calling b.add with true
+    calling b.add with true
+    calling _expect_coven_eq_int with (calling b.len), 1, "bool dedupe"
+    var c as Set of char is calling new_char_set
+    calling c.add with (65 to char)
+    calling _expect_coven with (calling c.contains with (65 to char)), "char contains"
+    banish b.items
+    banish c.items
+
+test "coven version is 2.1.0":
+    calling _expect_coven_eq_string with COVEN_VERSION, "2.1.0", "version"

@@ -1,20 +1,63 @@
-# std/compass.pengu - The Compass (Path Manipulation)
-# File-path manipulation implemented in pure PenguScript.
-#
-# High-level path logic (separator detection, basename/dirname, extension
-# handling, normalization, joining, relative paths, glob matching, and
-# Path rune manipulation) lives here in PenguScript.
-#
-# Internal helpers use the 'cp_' prefix so they never collide with the
-# enchanting Path methods or module-level member names in the code generator's
-# function registry.
-#
-# Usage:
-#   import std.compass
-#   var p as string is calling compass.join with parts
-#   var norm as string is calling compass.normalize with p
-#   var obj as compass.Path is calling compass.new_path with "/tmp/notes.txt"
-#   calling spark.println with calling obj.name
+## std/compass.pengu — path manipulation: joining, splitting, normalizing and
+## querying filesystem paths.
+##
+## The module owns the pure PenguScript half of path handling: separator and drive
+## detection, `basename`/`dirname`/`ext`/`stem`, normalization, joining, relative
+## paths, glob matching and the `Path` rune. The filesystem itself is reached only
+## through the five native `declare`s at the top of the file (`pengu_c_getcwd`,
+## `pengu_c_getenv`, `pengu_c_archivum_exists`, `pengu_c_archivum_is_file`,
+## `pengu_c_archivum_is_dir`); they are frozen and are provided by
+## `std.archivum`/`std.rites` in a later chunk. This file never touches
+## `pengu_runtime.h`.
+##
+## ## Example
+## ```pengu
+## import std.spark
+## import std.compass
+##
+## weave main into int:
+##     let p as compass.Path is calling compass.new_path with "/tmp/notes.txt"
+##     calling spark.println with calling p.name       # "notes.txt"
+##     calling spark.println with calling p.stem       # "notes"
+##     calling spark.println with calling p.suffix     # ".txt"
+##     let dir as string is calling compass.dirname with "/tmp/notes.txt"
+##     calling spark.println with dir                  # "/tmp"
+##     return 0
+## ```
+##
+## ## Memory
+## Path queries return owned values. A `string` result is a fresh heap copy:
+## release it with `banish`. A `list of string` result owns its element buffer
+## (release it with `banish`) and its component strings are owned as well, so
+## release each one with `banish (xs at i)` while iterating when you need to
+## reclaim them. A `maybe string` result is released with `banish`. Empty results
+## and string literals are non-owning views and `banish` is a no-op on them. The
+## `Path` rune keeps the `string` handed to it in its `raw` field without copying
+## it, so the rune owns that buffer.
+##
+## ## Design notes
+## - **Private `cp_*` helpers.** Every building block is a module-private `weave`
+##   named `cp_<thing>`; the public functions are thin delegations to them. The
+##   prefix keeps the helpers apart from the `Path` enchanting methods and from
+##   the code generator's function registry.
+## - **One platform flag.** `cp_win` folds `when os == "windows"` at compile time,
+##   so `separator`, `drive`, `is_absolute` and `normalize` need no runtime branch
+##   on the target OS: every helper reads `cp_win`.
+## - **`Path` is a single-field rune.** `Path` deliberately stays a plain
+##   `raw as string` rune. Its methods are pure transformations that return new
+##   runes, so no aliasing rules are needed.
+## - **Byte-oriented glob matching.** `cp_glob_match` is an `antiquus` pointer
+##   matcher (see its `## ## Motivo`). `matches` normalizes the whole path when the
+##   pattern contains a separator and matches against the basename otherwise.
+##
+## ## Migration
+## 2.1.0 is a documentation/style migration with one C block: every comment and
+## docstring is now English, every public weave and every `Path` method carries the
+## canonical `## ## Parámetros`/`## ## Retorno`/`## ## Ejemplo` sections, the glob
+## matcher moved from a Pengu loop to `antiquus cp_glob_match` with identical
+## results, and the internal `# --- Tests ---` suite was added. All 2.0.0 symbols,
+## bounds and signatures are preserved and the five native `declare`s are
+## untouched.
 
 import std.spark
 import std.oracle
@@ -25,7 +68,7 @@ import std.scrolls
 # ----------------------------------------------------------------------------
 
 ## Module version identifier for std.compass.
-const COMPASS_VERSION as string is "2.0.0"
+const COMPASS_VERSION as string is "2.1.0"
 
 # ----------------------------------------------------------------------------
 # External C Runtime Declarations
@@ -41,143 +84,123 @@ declare pengu_c_archivum_is_dir with path as string into bool
 # Internal helpers (cp_*)
 # ----------------------------------------------------------------------------
 
-# Compile-time platform flag: baked from the target 'os' variable.
+## Compile-time platform flag: true when `os` is "windows".
 weave cp_win into bool:
     when os == "windows":
         return true
     else:
         return false
 
-# True when c is a path separator: "/" or a backslash.
+## True when `c` is a path separator: "/" or a backslash.
 weave cp_is_sep with c as string into bool:
-    if c == "/":
-        return true
-    if c == "\\":
-        return true
-    return false
+    return judge c:
+        when "/" -> true
+        when "\\" -> true
+        else -> false
 
-# True when c is an ASCII letter (A-Z or a-z); used to detect Windows drive letters.
+## True when `c` is an ASCII letter (A-Z or a-z); detects Windows drive letters.
 weave cp_is_letter with c as string into bool:
-    var code as int is ord c
-    if code >= 65:
-        if code <= 90:
-            return true
-    if code >= 97:
-        if code <= 122:
-            return true
-    return false
+    let code as int is ord c
+    return ((code >= 65) and (code <= 90)) or ((code >= 97) and (code <= 122))
 
-# Preferred separator for this platform: "\\" on Windows, "/" elsewhere.
+## Preferred separator for this platform: "\\" on Windows, "/" elsewhere.
 weave cp_sep into string:
-    if calling cp_win:
-        return "\\"
-    return "/"
+    return if calling cp_win then "\\" else "/"
 
-# True when path is absolute.
+## True when `path` is absolute.
 weave cp_is_abs with path as string into bool:
-    var pl as int is path length
+    let pl as int is path length
     if pl == 0:
         return false
     if calling cp_win:
         if pl >= 2:
-            var d0 as string is path at 0
-            var d1 as string is path at 1
-            if calling cp_is_letter with d0:
-                if d1 == ":":
-                    return true
-        var c0 as string is path at 0
+            let d0 as string is path at 0
+            let d1 as string is path at 1
+            if (calling cp_is_letter with d0) and (d1 == ":"):
+                return true
+        let c0 as string is path at 0
         if calling cp_is_sep with c0:
             return true
         return false
-    var c0p as string is path at 0
+    let c0p as string is path at 0
     if c0p == "/":
         return true
     return false
 
-# True when path is exactly a filesystem root.
+## True when `path` is exactly a filesystem root.
 weave cp_is_root with path as string into bool:
-    var pl as int is path length
+    let pl as int is path length
     if pl == 0:
         return false
     if pl == 1:
-        var c0 as string is path at 0
+        let c0 as string is path at 0
         if calling cp_is_sep with c0:
             return true
     if calling cp_win:
         if pl == 2:
-            var d0 as string is path at 0
-            var d1 as string is path at 1
-            if calling cp_is_letter with d0:
-                if d1 == ":":
-                    return true
+            let d0 as string is path at 0
+            let d1 as string is path at 1
+            if (calling cp_is_letter with d0) and (d1 == ":"):
+                return true
         if pl == 3:
-            var e0 as string is path at 0
-            var e1 as string is path at 1
-            var e2 as string is path at 2
-            if calling cp_is_letter with e0:
-                if e1 == ":":
-                    if calling cp_is_sep with e2:
-                        return true
+            let e0 as string is path at 0
+            let e1 as string is path at 1
+            let e2 as string is path at 2
+            if (calling cp_is_letter with e0) and (e1 == ":") and (calling cp_is_sep with e2):
+                return true
     return false
 
-# Windows drive prefix of path (e.g. "C:"), or "" when path has none.
+## Windows drive prefix of `path` (e.g. "C:"), or "" when there is none.
 weave cp_drive with path as string into string:
-    var pl as int is path length
+    let pl as int is path length
     if calling cp_win:
         if pl >= 2:
-            var d0 as string is path at 0
-            var d1 as string is path at 1
-            if calling cp_is_letter with d0:
-                if d1 == ":":
-                    return "{d0}:"
+            let d0 as string is path at 0
+            let d1 as string is path at 1
+            if (calling cp_is_letter with d0) and (d1 == ":"):
+                return "{d0}:"
     return ""
 
-# Final component of path; "" for an empty path or one that ends in separators.
+## Final component of `path`; "" when `path` is empty or only separators.
 weave cp_basename with path as string into string:
-    var pl as int is path length
+    let pl as int is path length
     if pl == 0:
         return ""
     var e as int is pl - 1
     while e > 0:
-        var ec as string is path at e
-        if calling cp_is_sep with ec:
+        if calling cp_is_sep with (path at e):
             set e is e - 1
         else:
             break
     if e == 0:
-        var c0 as string is path at 0
-        if calling cp_is_sep with c0:
+        if calling cp_is_sep with (path at 0):
             return ""
     var s as int is e
     while true:
         if s < 0:
             break
-        var sc as string is path at s
-        if calling cp_is_sep with sc:
+        if calling cp_is_sep with (path at s):
             break
         if calling cp_win:
             if s == 1:
-                var w1 as string is path at 1
-                var w0 as string is path at 0
-                if w1 == ":":
-                    if calling cp_is_letter with w0:
+                if (path at 1) == ":":
+                    if calling cp_is_letter with (path at 0):
                         break
         set s is s - 1
     set s is s + 1
-    var bl as int is e - s + 1
+    let bl as int is e - s + 1
     if bl <= 0:
         return ""
     return path at s to (e + 1)
 
-# Directory portion of path without a trailing separator; "" when path has no parent directory.
+## Directory portion of `path` without a trailing separator; "" when there is none.
 weave cp_dirname with path as string into string:
-    var pl as int is path length
+    let pl as int is path length
     if pl == 0:
         return ""
     var e as int is pl - 1
     while e > 0:
-        var ec as string is path at e
-        if calling cp_is_sep with ec:
+        if calling cp_is_sep with (path at e):
             set e is e - 1
         else:
             break
@@ -186,16 +209,13 @@ weave cp_dirname with path as string into string:
         if e < 0:
             set skip is false
         else:
-            var ec2 as string is path at e
-            if calling cp_is_sep with ec2:
+            if calling cp_is_sep with (path at e):
                 set skip is false
             else:
                 if calling cp_win:
                     if e == 1:
-                        var w1 as string is path at 1
-                        var w0 as string is path at 0
-                        if w1 == ":":
-                            if calling cp_is_letter with w0:
+                        if (path at 1) == ":":
+                            if calling cp_is_letter with (path at 0):
                                 set skip is false
                 if skip:
                     set e is e - 1
@@ -206,14 +226,11 @@ weave cp_dirname with path as string into string:
         if e <= 0:
             set skip2 is false
         else:
-            var ec3 as string is path at e
-            if calling cp_is_sep with ec3:
+            if calling cp_is_sep with (path at e):
                 if calling cp_win:
                     if e == 2:
-                        var w1b as string is path at 1
-                        var w0b as string is path at 0
-                        if w1b == ":":
-                            if calling cp_is_letter with w0b:
+                        if (path at 1) == ":":
+                            if calling cp_is_letter with (path at 0):
                                 set skip2 is false
                 if skip2:
                     set e is e - 1
@@ -221,17 +238,17 @@ weave cp_dirname with path as string into string:
                 set skip2 is false
     return path at 0 to (e + 1)
 
-# Extension of the basename, dot included (e.g. ".txt"); "" when there is none.
+## Extension of the basename, dot included (e.g. ".txt"); "" when there is none.
 weave cp_ext with path as string into string:
-    var base as string is calling cp_basename with path
-    var bl as int is base length
+    let base as string is calling cp_basename with path
+    defer banish base
+    let bl as int is base length
     if bl == 0:
         return ""
     var last_dot as int is -1
     var i as int is bl - 1
     while i >= 0:
-        var ic as string is base at i
-        if ic == ".":
+        if (base at i) == ".":
             set last_dot is i
             break
         set i is i - 1
@@ -239,50 +256,53 @@ weave cp_ext with path as string into string:
         return ""
     return base at last_dot to bl
 
-# Basename without its final extension.
+## Basename without its final extension.
 weave cp_stem with path as string into string:
-    var base as string is calling cp_basename with path
-    var bl as int is base length
+    let base as string is calling cp_basename with path
+    let bl as int is base length
     if bl == 0:
         return ""
     var last_dot as int is -1
     var i as int is bl - 1
     while i >= 0:
-        var ic as string is base at i
-        if ic == ".":
+        if (base at i) == ".":
             set last_dot is i
             break
         set i is i - 1
     if last_dot <= 0:
         return base
-    return base at 0 to last_dot
+    let st as string is base at 0 to last_dot
+    banish base
+    return st
 
-# True when the basename has an extension.
+## True when the basename has an extension.
 weave cp_has_ext with path as string into bool:
-    var ex as string is calling cp_ext with path
+    let ex as string is calling cp_ext with path
+    defer banish ex
     return (ex length) > 0
 
-# True when the tail of path equals suffix.
+## True when the tail of `path` equals `suffix`.
 weave cp_has_suffix with path as string, suffix as string into bool:
-    var sl as int is path length
-    var xl as int is suffix length
+    let sl as int is path length
+    let xl as int is suffix length
     if xl > sl:
         return false
-    var st as int is sl - xl
-    var tail as string is path at st to sl
+    let st as int is sl - xl
+    let tail as string is path at st to sl
+    defer banish tail
     return tail == suffix
 
-# Suffixes of the basename split at dots, e.g. "a.tar.gz" gives ["tar", "gz"].
+## Suffixes of the basename split at dots, e.g. "a.tar.gz" gives ["tar", "gz"].
 weave cp_suffixes with path as string into list of string:
     var out as list of string is list of string
-    var base as string is calling cp_basename with path
-    var bl as int is base length
+    let base as string is calling cp_basename with path
+    defer banish base
+    let bl as int is base length
     if bl == 0:
         return out
     var i as int is 1
     while i < bl:
-        var ic as string is base at i
-        if ic == ".":
+        if (base at i) == ".":
             var j as int is i + 1
             var nd as int is bl
             var look as bool is true
@@ -290,42 +310,39 @@ weave cp_suffixes with path as string into list of string:
                 if j >= bl:
                     set look is false
                 else:
-                    var jc as string is base at j
-                    if jc == ".":
+                    if (base at j) == ".":
                         set nd is j
                         set look is false
                     else:
                         set j is j + 1
-            var slen as int is nd - (i + 1)
+            let slen as int is nd - (i + 1)
             if slen > 0:
-                var piece as string is base at (i + 1) to nd
-                calling out.push with piece
+                calling out.push with (base at (i + 1) to nd)
         set i is i + 1
     return out
 
-# Collapses redundant separators and resolves "." and ".." segments.
+## Collapses redundant separators and resolves "." and ".." segments.
 weave cp_normalize with path as string into string:
-    var pl as int is path length
+    let pl as int is path length
     if pl == 0:
         return "."
-    var sep as string is calling cp_sep
+    let sep as string is calling cp_sep
     var drv as string is ""
     var p_idx as int is 0
     if calling cp_win:
         if pl >= 2:
-            var d0 as string is path at 0
-            var d1 as string is path at 1
-            if calling cp_is_letter with d0:
-                if d1 == ":":
-                    set drv is "{d0}:"
-                    set p_idx is 2
+            let d0 as string is path at 0
+            let d1 as string is path at 1
+            if (calling cp_is_letter with d0) and (d1 == ":"):
+                set drv is "{d0}:"
+                set p_idx is 2
     var is_abs as bool is false
     if p_idx < pl:
-        var c as string is path at p_idx
-        if calling cp_is_sep with c:
+        if calling cp_is_sep with (path at p_idx):
             set is_abs is true
             set p_idx is p_idx + 1
     var stack as list of string is list of string
+    defer banish stack
     var cur_start as int is p_idx
     var i as int is p_idx
     while i <= pl:
@@ -333,23 +350,23 @@ weave cp_normalize with path as string into string:
         if i == pl:
             set at_end is true
         else:
-            var ic as string is path at i
-            if calling cp_is_sep with ic:
+            if calling cp_is_sep with (path at i):
                 set at_end is true
         if at_end:
-            var seg_len as int is i - cur_start
+            let seg_len as int is i - cur_start
             if seg_len > 0:
-                var seg as string is path at cur_start to i
+                let seg as string is path at cur_start to i
                 if seg != ".":
                     if seg == "..":
-                        var stl as int is stack.len
+                        let stl as int is stack.len
                         if stl > 0:
-                            var last_seg as string is stack at (stl - 1)
+                            let last_seg as string is stack at (stl - 1)
                             if last_seg == "..":
                                 if is_abs == false:
                                     calling stack.push with seg
                             else:
-                                var popped as string is calling stack.pop
+                                let popped as string is calling stack.pop
+                                banish popped
                         else:
                             if is_abs == false:
                                 calling stack.push with seg
@@ -370,40 +387,38 @@ weave cp_normalize with path as string into string:
             if is_abs == false:
                 if out length > 0:
                     set out is "{out}{sep}"
-        var item as string is stack at k
+        let item as string is stack at k
         set out is "{out}{item}"
         set k is k + 1
     if out length == 0:
         set out is "."
     return out
 
-# Parent directory of path as maybe string.
+## Parent directory of `path` as maybe string.
 weave cp_parent with path as string into maybe string:
     if calling cp_is_root with path:
         return maybe none
-    var dir as string is calling cp_dirname with path
+    let dir as string is calling cp_dirname with path
     if dir length == 0:
         return maybe none
     return some dir
 
-# Splits path into components: optional drive prefix, root separator, and segments.
+## Splits `path` into components: optional drive prefix, root separator and segments.
 weave cp_split with path as string into list of string:
     var out as list of string is list of string
-    var pl as int is path length
+    let pl as int is path length
     if pl == 0:
         return out
     var p_idx as int is 0
     if calling cp_win:
         if pl >= 2:
-            var d0 as string is path at 0
-            var d1 as string is path at 1
-            if calling cp_is_letter with d0:
-                if d1 == ":":
-                    calling out.push with ("{d0}:")
-                    set p_idx is 2
+            let d0 as string is path at 0
+            let d1 as string is path at 1
+            if (calling cp_is_letter with d0) and (d1 == ":"):
+                calling out.push with ("{d0}:")
+                set p_idx is 2
     if p_idx < pl:
-        var pc as string is path at p_idx
-        if calling cp_is_sep with pc:
+        if calling cp_is_sep with (path at p_idx):
             calling out.push with (calling cp_sep)
             set p_idx is p_idx + 1
     var cur_start as int is p_idx
@@ -413,74 +428,78 @@ weave cp_split with path as string into list of string:
         if i == pl:
             set at_end is true
         else:
-            var ic as string is path at i
-            if calling cp_is_sep with ic:
+            if calling cp_is_sep with (path at i):
                 set at_end is true
         if at_end:
-            var seg_len as int is i - cur_start
+            let seg_len as int is i - cur_start
             if seg_len > 0:
-                var seg as string is path at cur_start to i
-                calling out.push with seg
+                calling out.push with (path at cur_start to i)
             set cur_start is i + 1
         set i is i + 1
     return out
 
-# Joins parts with the platform separator and normalizes the result.
+## Joins `parts` with the platform separator and normalizes the result.
 weave cp_join with parts as list of string into string:
     if parts.len == 0:
         return ""
-    var sep as string is calling cp_sep
+    let sep as string is calling cp_sep
     var buf as string is ""
+    defer banish buf
     var i as int is 0
     while i < parts.len:
-        var p as string is parts at i
+        let p as string is parts at i
         if p length > 0:
             if calling cp_is_abs with p:
                 set buf is p
             else:
                 if buf length > 0:
-                    var last_c as string is buf at (buf length - 1)
-                    if not (calling cp_is_sep with last_c):
+                    if not (calling cp_is_sep with (buf at (buf length - 1))):
                         set buf is "{buf}{sep}"
                 set buf is "{buf}{p}"
         set i is i + 1
     return calling cp_normalize with buf
 
-# Replaces the extension of path with new_ext.
+## Replaces the extension of `path` with `new_ext`.
 weave cp_change_ext with path as string, new_ext as string into string:
-    var dir as string is calling cp_dirname with path
-    var st as string is calling cp_stem with path
+    let dir as string is calling cp_dirname with path
+    defer banish dir
+    let st as string is calling cp_stem with path
+    defer banish st
     var buf as string is ""
     if dir length > 0:
-        var sd as string is calling cp_sep
-        set buf is "{dir}{sd}{st}"
+        set buf is "{dir}{calling cp_sep}{st}"
     else:
-        set buf is st
+        # A fresh owned copy, never `st` itself: `defer banish st` would
+        # otherwise free the very buffer this function is about to return
+        # (use-after-free for a bare filename when `new_ext` is empty).
+        set buf is "{st}"
     if new_ext length > 0:
-        var n0 as string is new_ext at 0
-        if n0 == ".":
+        if (new_ext at 0) == ".":
             set buf is "{buf}{new_ext}"
         else:
             set buf is "{buf}.{new_ext}"
     return buf
 
-# Appends ext to path only when path has no extension yet.
+## Appends `ext` to `path` only when `path` has no extension yet.
 weave cp_add_ext with path as string, ext as string into string:
     if calling cp_has_ext with path:
         return path
     if ext length == 0:
         return path
-    var e0 as string is ext at 0
-    if e0 == ".":
+    if (ext at 0) == ".":
         return "{path}{ext}"
     return "{path}.{ext}"
 
-# Relative path from base to target.
+## Relative path from `base` to `target`.
 weave cp_relative_to with target as string, base as string into maybe string:
-    var nt as string is calling cp_normalize with target
-    var nb as string is calling cp_normalize with base
-    var tp as list of string is calling cp_split with nt
-    var bp as list of string is calling cp_split with nb
+    let nt as string is calling cp_normalize with target
+    defer banish nt
+    let nb as string is calling cp_normalize with base
+    defer banish nb
+    let tp as list of string is calling cp_split with nt
+    defer banish tp
+    let bp as list of string is calling cp_split with nb
+    defer banish bp
     if tp.len == 0:
         return maybe none
     if bp.len == 0:
@@ -494,9 +513,7 @@ weave cp_relative_to with target as string, base as string into maybe string:
             if common >= bp.len:
                 set cm is false
             else:
-                var p1 as string is tp at common
-                var p2 as string is bp at common
-                if p1 == p2:
+                if (tp at common) == (bp at common):
                     set common is common + 1
                 else:
                     set cm is false
@@ -504,66 +521,75 @@ weave cp_relative_to with target as string, base as string into maybe string:
         if calling cp_is_abs with nt:
             return maybe none
     var res as list of string is list of string
+    defer banish res
     var i as int is common
     while i < bp.len:
         calling res.push with ".."
         set i is i + 1
     var j as int is common
     while j < tp.len:
-        var tj as string is tp at j
-        calling res.push with tj
+        calling res.push with (tp at j)
         set j is j + 1
-    var joined as string is calling cp_join with res
+    let joined as string is calling cp_join with res
     return some joined
 
-# Glob pattern matcher (* and ?).
-weave cp_glob_match with s as string, p as string into bool:
-    var sl as int is s length
-    var pl as int is p length
-    var si as int is 0
-    var pi as int is 0
-    var star_idx as int is -1
-    var match_idx as int is 0
-    while si < sl:
-        if pi < pl:
-            var pc as string is p at pi
-            var sc as string is s at si
-            if (pc == "?") or (pc == sc):
-                set si is si + 1
-                set pi is pi + 1
-            else:
-                if pc == "*":
-                    set star_idx is pi
-                    set match_idx is si
-                    set pi is pi + 1
-                else:
-                    if star_idx != -1:
-                        set pi is star_idx + 1
-                        set match_idx is match_idx + 1
-                        set si is match_idx
-                    else:
-                        return false
-        else:
-            if star_idx != -1:
-                set pi is star_idx + 1
-                set match_idx is match_idx + 1
-                set si is match_idx
-            else:
-                return false
-    while pi < pl:
-        var p_tail as string is p at pi
-        if p_tail != "*":
-            return false
-        set pi is pi + 1
-    return true
+## Glob pattern matcher (`*` matches any sequence, `?` matches one byte).
+##
+## ## Motivo
+## A pointer scan walks both buffers in place, so the matcher indexes no
+## substrings and allocates nothing per step; the backtracking state is three raw
+## pointers. The Pengu loop rebuilt one-byte slices for every comparison.
+##
+## ## Memoria
+## Allocates nothing. Both strings are borrowed and never freed.
+antiquus cp_glob_match with s as string, p as string into bool:
+    r"""
+const char *sp = s.data ? s.data : "";
+const char *pp = p.data ? p.data : "";
+const char *send = sp + (s.data ? s.len : 0);
+const char *pend = pp + (p.data ? p.len : 0);
+const char *star = NULL;
+const char *retry = NULL;
+while (sp < send)
+{
+    if (pp < pend && (*pp == '?' || *pp == *sp))
+    {
+        ++sp;
+        ++pp;
+    }
+    else if (pp < pend && *pp == '*')
+    {
+        star = pp;
+        retry = sp;
+        ++pp;
+    }
+    else if (star)
+    {
+        pp = star + 1;
+        sp = ++retry;
+    }
+    else
+    {
+        return false;
+    }
+}
+while (pp < pend && *pp == '*')
+{
+    ++pp;
+}
+return pp == pend;
+"""
 
-# Splits normalized path into components.
+## Splits normalized `path` into components.
 weave cp_components with path as string into list of string:
-    return calling cp_split with (calling cp_normalize with path)
+    let norm as string is calling cp_normalize with path
+    defer banish norm
+    return calling cp_split with norm
 
-# True when any component of `path` matches `name`.
+## True when any component of `path` matches `name`.
 weave cp_has_component with path as string, name as string into bool:
-    var comps as list of string is calling cp_components with path
+    let comps as list of string is calling cp_components with path
+    defer banish comps
     var i as int is 0
     while i < comps.len:
         if (comps at i) == name:
@@ -571,38 +597,36 @@ weave cp_has_component with path as string, name as string into bool:
         set i is i + 1
     return false
 
-# True when path starts with a dot and is not "." or "..".
+## True when `path` starts with a dot and is not "." or "..".
 weave cp_is_hidden with path as string into bool:
-    var b as string is calling cp_basename with path
+    let b as string is calling cp_basename with path
+    defer banish b
     if b length == 0:
         return false
     if b == ".":
         return false
     if b == "..":
         return false
-    var first as string is b at 0
-    return first == "."
+    return (b at 0) == "."
 
-# True when path is a Universal Naming Convention (UNC) path.
+## True when `path` is a Universal Naming Convention (UNC) path.
 weave cp_is_unc with path as string into bool:
-    var pl as int is path length
+    let pl as int is path length
     if pl < 3:
         return false
-    var c0 as string is path at 0
-    var c1 as string is path at 1
-    if calling cp_is_sep with c0:
-        if calling cp_is_sep with c1:
-            var c2 as string is path at 2
-            if not (calling cp_is_sep with c2):
-                return true
+    let c0 as string is path at 0
+    let c1 as string is path at 1
+    if (calling cp_is_sep with c0) and (calling cp_is_sep with c1):
+        if not (calling cp_is_sep with (path at 2)):
+            return true
     return false
 
-# True when path contains glob wildcards (* or ?).
+## True when `path` contains glob wildcards (`*` or `?`).
 weave cp_has_wildcard with path as string into bool:
-    var pl as int is path length
+    let pl as int is path length
     var i as int is 0
     while i < pl:
-        var c as string is path at i
+        let c as string is path at i
         if c == "*":
             return true
         if c == "?":
@@ -610,77 +634,82 @@ weave cp_has_wildcard with path as string into bool:
         set i is i + 1
     return false
 
-# Tests if filename or path matches a wildcard pattern.
+## Tests if `path` matches a wildcard `pattern`.
 weave cp_matches with path as string, pattern as string into bool:
     var has_sep as bool is false
     var i as int is 0
-    var pl as int is pattern length
+    let pl as int is pattern length
     while i < pl:
         if calling cp_is_sep with (pattern at i):
             set has_sep is true
             break
         set i is i + 1
-    if has_sep:
-        return calling cp_glob_match with (calling cp_normalize with path), pattern
-    return calling cp_glob_match with (calling cp_basename with path), pattern
+    let subject as string is if has_sep then (calling cp_normalize with path) else (calling cp_basename with path)
+    defer banish subject
+    return calling cp_glob_match with subject, pattern
 
-# Returns current working directory as an owned string.
+## Returns the current working directory as an owned string.
 weave cp_cwd into string:
-    var m as maybe string is calling pengu_c_getcwd
+    let m as maybe string is calling pengu_c_getcwd
     if m is present:
         return m.value
     return "."
 
-# Expands user home directory.
+## Expands a leading `~` or `~/...` to the user home directory.
 weave cp_expand_user with path as string into string:
-    var pl as int is path length
+    let pl as int is path length
     if pl == 0:
         return path
-    var c0 as string is path at 0
-    if c0 != "~":
+    if (path at 0) != "~":
         return path
     var home as string is ""
     if calling cp_win:
-        var u_opt as maybe string is calling pengu_c_getenv with "USERPROFILE"
+        let u_opt as maybe string is calling pengu_c_getenv with "USERPROFILE"
         if u_opt is present:
             set home is u_opt.value
         else:
-            var h_opt as maybe string is calling pengu_c_getenv with "HOME"
+            let h_opt as maybe string is calling pengu_c_getenv with "HOME"
             if h_opt is present:
                 set home is h_opt.value
     else:
-        var h_opt2 as maybe string is calling pengu_c_getenv with "HOME"
+        let h_opt2 as maybe string is calling pengu_c_getenv with "HOME"
         if h_opt2 is present:
             set home is h_opt2.value
     if home length == 0:
         return path
     if pl == 1:
         return home
-    var c1 as string is path at 1
-    if calling cp_is_sep with c1:
-        var rest as string is path at 2 to pl
+    if calling cp_is_sep with (path at 1):
+        let rest as string is path at 2 to pl
         var parts as list of string is list of string
         calling parts.push with home
         calling parts.push with rest
-        return calling cp_join with parts
+        let joined as string is calling cp_join with parts
+        banish rest
+        banish parts
+        return joined
     return path
 
-# Returns the normalized absolute path.
+## Returns the normalized absolute path.
 weave cp_absolute with path as string into string:
     if calling cp_is_abs with path:
         return calling cp_normalize with path
-    var cur as string is calling cp_cwd
+    let cur as string is calling cp_cwd
+    defer banish cur
     var parts as list of string is list of string
+    defer banish parts
     calling parts.push with cur
     calling parts.push with path
     return calling cp_join with parts
 
-# Replaces final component (basename) of path with new_name.
+## Replaces the final component (basename) of `path` with `new_name`.
 weave cp_with_filename with path as string, new_name as string into string:
-    var p as string is calling cp_dirname with path
+    let p as string is calling cp_dirname with path
+    defer banish p
     if p length == 0:
         return new_name
     var parts as list of string is list of string
+    defer banish parts
     calling parts.push with p
     calling parts.push with new_name
     return calling cp_join with parts
@@ -690,275 +719,986 @@ weave cp_with_filename with path as string, new_name as string into string:
 # ----------------------------------------------------------------------------
 
 ## Joins path parts with the platform separator and normalizes the result.
+##
+## ## Parámetros
+## - `parts`: the segments to join, in order. Empty segments are skipped.
+##
+## ## Retorno
+## The normalized joined path, as a new owned `string`; release it with
+## `banish`. An empty `parts` list yields a borrowed empty string.
+##
+## ## Memoria
+## The result is a fresh heap copy; the `parts` list and its elements are
+## borrowed and never freed.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.join with ["a", "b"]     # "a/b"
+## ```
 weave join with parts as list of string into string:
     return calling cp_join with parts
 
-## Joins path parts with the platform separator and normalizes the result; twin of join.
+## Joins path parts with the platform separator and normalizes the result; twin of
+## `join`.
+##
+## ## Parámetros
+## - `parts`: the segments to join, in order. Empty segments are skipped.
+##
+## ## Retorno
+## The normalized joined path, as a new owned `string`; release it with
+## `banish`.
+##
+## ## Memoria
+## The result is a fresh heap copy; the `parts` list and its elements are
+## borrowed and never freed.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.join_all with ["a", "b"]     # "a/b"
+## ```
 weave join_all with parts as list of string into string:
     return calling cp_join with parts
 
-## Final component of path (filename), or "" when there is none.
+## Final component of `path` (filename), or "" when there is none.
+##
+## ## Parámetros
+## - `path`: the path to inspect. May be empty or end in separators.
+##
+## ## Retorno
+## A new owned `string` with the last segment, or a borrowed empty string when
+## `path` is empty or consists only of separators. Trailing separators after a
+## name are skipped, so `"a/"` still yields `"a"`. Release an owned result with
+## `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.basename with "/tmp/a.txt"     # "a.txt"
+## ```
 weave basename with path as string into string:
     return calling cp_basename with path
 
-## Alias of basename: returns the final component of `path`.
+## Alias of `basename`: returns the final component of `path`.
+##
+## ## Parámetros
+## - `path`: the path to inspect.
+##
+## ## Retorno
+## A new owned `string` with the last segment; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.filename with "/tmp/a.txt"     # "a.txt"
+## ```
 weave filename with path as string into string:
     return calling cp_basename with path
 
-## Directory portion of path without a trailing separator, or "" when there is none.
+## Directory portion of `path` without a trailing separator, or "" when there is
+## none.
+##
+## ## Parámetros
+## - `path`: the path to inspect.
+##
+## ## Retorno
+## A new owned `string` with the directory part, or a borrowed empty string when
+## `path` has no parent. Release an owned result with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.dirname with "/tmp/a.txt"     # "/tmp"
+## ```
 weave dirname with path as string into string:
     return calling cp_dirname with path
 
-## Extension of the basename including the dot (e.g. ".txt"), or "" when there is none.
+## Extension of the basename including the dot (e.g. ".txt"), or "" when there is
+## none.
+##
+## ## Parámetros
+## - `path`: the path to inspect.
+##
+## ## Retorno
+## A new owned `string` with the extension and its dot, or a borrowed empty string
+## when the basename has no extension. A leading dot is not an extension. Release
+## an owned result with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.ext with "a.tar.gz"     # ".gz"
+## ```
 weave ext with path as string into string:
     return calling cp_ext with path
 
 ## Basename without its final extension.
+##
+## ## Parámetros
+## - `path`: the path to inspect.
+##
+## ## Retorno
+## A new owned `string` with the basename minus its last extension; release it
+## with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.stem with "/tmp/a.tar.gz"     # "a.tar"
+## ```
 weave stem with path as string into string:
     return calling cp_stem with path
 
-## Alias of stem: returns basename without its final extension.
+## Alias of `stem`: returns the basename without its final extension.
+##
+## ## Parámetros
+## - `path`: the path to inspect.
+##
+## ## Retorno
+## A new owned `string`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.file_stem with "/tmp/a.txt"     # "a"
+## ```
 weave file_stem with path as string into string:
     return calling cp_stem with path
 
-## True when path is absolute (drive prefix on Windows, or a leading separator).
+## True when `path` is absolute (a drive prefix on Windows, or a leading separator).
+##
+## ## Parámetros
+## - `path`: the path to test.
+##
+## ## Retorno
+## `true` when the path is absolute, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.is_absolute with "/tmp"     # true
+## ```
 weave is_absolute with path as string into bool:
     return calling cp_is_abs with path
 
-## True when path is not absolute.
+## True when `path` is not absolute.
+##
+## ## Parámetros
+## - `path`: the path to test.
+##
+## ## Retorno
+## `true` when the path is relative, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.is_relative with "a/b"     # true
+## ```
 weave is_relative with path as string into bool:
     return not (calling cp_is_abs with path)
 
 ## Collapses redundant separators and resolves "." and ".." segments.
+##
+## ## Parámetros
+## - `path`: the path to normalize. An empty string normalizes to `"."`.
+##
+## ## Retorno
+## The normalized path as a new owned `string`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.normalize with "a//b/./c/../d"     # "a/b/d"
+## ```
 weave normalize with path as string into string:
     return calling cp_normalize with path
 
-## Parent directory as maybe string; none when path is a root or has no parent directory.
+## Parent directory as `maybe string`; `none` when `path` is a root or has no
+## parent directory.
+##
+## ## Parámetros
+## - `path`: the path to inspect.
+##
+## ## Retorno
+## `some dir` with an owned `string` when there is a parent, `maybe none`
+## otherwise. Release the result with `banish`.
+##
+## ## Memoria
+## The payload is a fresh heap copy; the input is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.parent with "/tmp/a.txt"     # some "/tmp"
+## ```
 weave parent with path as string into maybe string:
     return calling cp_parent with path
 
-## Splits path into its drive, root separator and segment components.
+## Splits `path` into its drive, root separator and segment components.
+##
+## ## Parámetros
+## - `path`: the path to split. An empty path yields an empty list.
+##
+## ## Retorno
+## A new owned `list of string` holding the drive prefix (Windows only), the root
+## separator and the segments. Release the buffer with `banish` and each component
+## with `banish (xs at i)` when you need to reclaim it.
+##
+## ## Memoria
+## The list owns its element buffer and its freshly built component strings.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.split with "/a/b"     # ["/", "a", "b"]
+## ```
 weave split with path as string into list of string:
     return calling cp_split with path
 
-## Splits normalized path into components.
+## Splits `path` into components after normalizing it.
+##
+## ## Parámetros
+## - `path`: the path to split.
+##
+## ## Retorno
+## A new owned `list of string` with the normalized components; release the buffer
+## with `banish` and each component with `banish (xs at i)` when you need to
+## reclaim it.
+##
+## ## Memoria
+## The list owns its element buffer and its freshly built component strings.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.components with "a//b"     # ["a", "b"]
+## ```
 weave components with path as string into list of string:
     return calling cp_components with path
 
 ## True when any component of `path` matches `name`.
+##
+## ## Parámetros
+## - `path`: the path to search.
+## - `name`: the exact component to look for.
+##
+## ## Retorno
+## `true` when some normalized component equals `name`, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.has_component with "/a/b/c", "b"     # true
+## ```
 weave has_component with path as string, name as string into bool:
     return calling cp_has_component with path, name
 
 ## True when the basename has an extension.
+##
+## ## Parámetros
+## - `path`: the path to inspect.
+##
+## ## Retorno
+## `true` when `ext` would return a non-empty string, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.has_ext with "a.txt"     # true
+## ```
 weave has_ext with path as string into bool:
     return calling cp_has_ext with path
 
 ## Preferred path separator for this platform ("\\" on Windows, "/" elsewhere).
+##
+## ## Retorno
+## A borrowed one-character literal; do not `banish` it.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.separator     # "/" on Unix, "\\" on Windows
+## ```
 weave separator into string:
     return calling cp_sep
 
-## Alternate path separator: some "/" on Windows, none on other platforms.
+## Alternate path separator: `some "/"` on Windows, `none` on other platforms.
+##
+## ## Retorno
+## `some "/"` on Windows or `maybe none` elsewhere; release `some` with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.alt_separator     # none on Unix
+## ```
 weave alt_separator into maybe string:
     if calling cp_win:
         return some "/"
     return maybe none
 
-## True when path is exactly a filesystem root.
+## True when `path` is exactly a filesystem root.
+##
+## ## Parámetros
+## - `path`: the path to test.
+##
+## ## Retorno
+## `true` for `"/"`, `"C:"` or `"C:\\"` (the last two on Windows), `false`
+## otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.is_root with "/"     # true
+## ```
 weave is_root with path as string into bool:
     return calling cp_is_root with path
 
-## Windows drive prefix of path (e.g. "C:"), or "" when there is none.
+## Windows drive prefix of `path` (e.g. "C:"), or "" when there is none.
+##
+## ## Parámetros
+## - `path`: the path to inspect.
+##
+## ## Retorno
+## A new owned `string` with the drive prefix, or a borrowed empty string when
+## there is none. Release an owned result with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.drive with "C:/a"     # "C:" on Windows, "" on Unix
+## ```
 weave drive with path as string into string:
     return calling cp_drive with path
 
-## Replaces the extension of path with new_ext (dot added when missing; "" removes extension).
+## Replaces the extension of `path` with `new_ext` (the dot is added when missing;
+## an empty `new_ext` removes the extension).
+##
+## ## Parámetros
+## - `path`: the path to rewrite.
+## - `new_ext`: the new extension, with or without its leading dot.
+##
+## ## Retorno
+## A new owned `string`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.change_ext with "a.txt", ".md"     # "a.md"
+## ```
 weave change_ext with path as string, new_ext as string into string:
     return calling cp_change_ext with path, new_ext
 
-## Replaces the extension of path with new_ext.
+## Replaces the extension of `path` with `new_ext`.
+##
+## ## Parámetros
+## - `path`: the path to rewrite.
+## - `new_ext`: the new extension, with or without its leading dot.
+##
+## ## Retorno
+## A new owned `string`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.with_extension with "a.txt", "md"     # "a.md"
+## ```
 weave with_extension with path as string, new_ext as string into string:
     return calling cp_change_ext with path, new_ext
 
-## Returns path without its final extension.
+## Returns `path` without its final extension.
+##
+## ## Parámetros
+## - `path`: the path to rewrite.
+##
+## ## Retorno
+## A new owned `string`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.without_extension with "/tmp/a.txt"     # "/tmp/a"
+## ```
 weave without_extension with path as string into string:
     return calling cp_change_ext with path, ""
 
-## Replaces final component (basename) of path with new_name.
+## Replaces the final component (basename) of `path` with `new_name`.
+##
+## ## Parámetros
+## - `path`: the path to rewrite.
+## - `new_name`: the replacement basename.
+##
+## ## Retorno
+## A new owned `string`; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.with_filename with "/tmp/a.txt", "b.md"     # "/tmp/b.md"
+## ```
 weave with_filename with path as string, new_name as string into string:
     return calling cp_with_filename with path, new_name
 
-## Appends ext only when path has no extension yet.
+## Appends `ext` only when `path` has no extension yet.
+##
+## ## Parámetros
+## - `path`: the path to extend.
+## - `ext`: the extension to append, with or without its leading dot.
+##
+## ## Retorno
+## The unchanged borrowed `path` when it already has an extension or `ext` is
+## empty, otherwise a new owned `string`. `banish` is safe either way.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.add_ext with "a", ".txt"     # "a.txt"
+## ```
 weave add_ext with path as string, ext as string into string:
     return calling cp_add_ext with path, ext
 
-## Relative path from base to target, using ".." segments when needed.
+## Relative path from `base` to `target`, using ".." segments when needed.
+##
+## ## Parámetros
+## - `target`: the destination path.
+## - `base`: the directory the result is relative to.
+##
+## ## Retorno
+## `some rel` with an owned `string` when a relative path exists, or `maybe none`
+## when `target` is absolute and shares no leading component with `base`. Release
+## the result with `banish`.
+##
+## ## Memoria
+## The payload is a fresh heap copy; both arguments are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.relative_to with "/a/b/c", "/a/b"     # some "c"
+## ```
 weave relative_to with target as string, base as string into maybe string:
     return calling cp_relative_to with target, base
 
-## True when the tail of path equals suffix.
+## True when the tail of `path` equals `suffix`.
+##
+## ## Parámetros
+## - `path`: the path to test.
+## - `suffix`: the suffix to compare; the empty suffix always matches.
+##
+## ## Retorno
+## `true` when `path` ends with `suffix`, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.has_suffix with "a.tar.gz", ".gz"     # true
+## ```
 weave has_suffix with path as string, suffix as string into bool:
     return calling cp_has_suffix with path, suffix
 
 ## The dotted suffixes of the basename, e.g. "a.tar.gz" gives ["tar", "gz"].
+##
+## ## Parámetros
+## - `path`: the path to inspect.
+##
+## ## Retorno
+## A new owned `list of string` with the non-empty suffixes between dots. Release
+## the buffer with `banish` and each element with `banish (xs at i)` when you need
+## to reclaim it.
+##
+## ## Memoria
+## The list owns its element buffer and its freshly built component strings.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.suffixes with "a.tar.gz"     # ["tar", "gz"]
+## ```
 weave suffixes with path as string into list of string:
     return calling cp_suffixes with path
 
-## True when path starts with a dot and is not "." or "..".
+## True when `path` starts with a dot and is not "." or "..".
+##
+## ## Parámetros
+## - `path`: the path to test.
+##
+## ## Retorno
+## `true` for a dotfile such as ".bashrc", `false` for ".", ".." and regular
+## names.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.is_hidden with ".bashrc"     # true
+## ```
 weave is_hidden with path as string into bool:
     return calling cp_is_hidden with path
 
-## True when path is a Universal Naming Convention (UNC) path (e.g. "\\server\share").
+## True when `path` is a Universal Naming Convention (UNC) path (e.g.
+## "\\\\server\\share").
+##
+## ## Parámetros
+## - `path`: the path to test.
+##
+## ## Retorno
+## `true` when `path` starts with two separators followed by a non-separator,
+## `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.is_unc with "//server/share"     # true
+## ```
 weave is_unc with path as string into bool:
     return calling cp_is_unc with path
 
-## True when path contains glob wildcards (* or ?).
+## True when `path` contains glob wildcards (`*` or `?`).
+##
+## ## Parámetros
+## - `path`: the string to scan.
+##
+## ## Retorno
+## `true` when a `*` or `?` byte occurs anywhere in `path`, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.has_wildcard with "*.pengu"     # true
+## ```
 weave has_wildcard with path as string into bool:
     return calling cp_has_wildcard with path
 
 ## Tests if filename or path matches a wildcard pattern.
+##
+## ## Parámetros
+## - `path`: the path to test.
+## - `pattern`: the glob pattern; `*` matches any sequence and `?` one byte.
+##
+## ## Retorno
+## `true` when the pattern matches. When `pattern` contains a separator the whole
+## normalized `path` is matched, otherwise only its basename is.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.matches with "dir/a.txt", "*.txt"     # true
+## ```
 weave matches with path as string, pattern as string into bool:
     return calling cp_matches with path, pattern
 
 ## Returns the current working directory as an owned string.
+##
+## ## Retorno
+## A new owned `string`; release it with `banish`. Falls back to `"."` when the
+## native `getcwd` fails.
+##
+## ## Ejemplo
+## ```pengu
+## let here as string is calling compass.cwd
+## defer banish here
+## ```
 weave cwd into string:
     return calling cp_cwd
 
-## Expands leading '~' or '~/...' to user home directory.
-## Note: Named user expansions ('~username') are not supported and are returned unchanged.
+## Expands a leading `~` or `~/...` to the user home directory.
+##
+## ## Parámetros
+## - `path`: the path to expand. A path that does not start with `~` is returned
+##   unchanged.
+##
+## ## Retorno
+## A new owned `string` when the expansion happened, or the borrowed input
+## unchanged. Named-user expansions (`~username`) are not supported and are
+## returned unchanged. `banish` is safe either way.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.expand_user with "~/notes"     # "/home/user/notes"
+## ```
 weave expand_user with path as string into string:
     return calling cp_expand_user with path
 
 ## Returns the normalized absolute path.
+##
+## ## Parámetros
+## - `path`: the path to make absolute. An already absolute path is only
+##   normalized.
+##
+## ## Retorno
+## A new owned `string`; release it with `banish`. Relative inputs are resolved
+## against `cwd`.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.absolute with "notes.txt"     # "/current/dir/notes.txt"
+## ```
 weave absolute with path as string into string:
     return calling cp_absolute with path
 
 ## True when this build targets Windows.
+##
+## ## Retorno
+## `true` on a Windows target, `false` everywhere else.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.is_windows     # false on Unix
+## ```
 weave is_windows into bool:
     return calling cp_win
 
 ## True when this build targets a Unix-like platform (not Windows).
+##
+## ## Retorno
+## `true` on a non-Windows target, `false` on Windows.
+##
+## ## Ejemplo
+## ```pengu
+## calling compass.is_unix     # true on Unix
+## ```
 weave is_unix into bool:
-    if calling cp_win:
-        return false
-    return true
+    return not (calling cp_win)
 
 # ----------------------------------------------------------------------------
 # Path value type
 # ----------------------------------------------------------------------------
 
-## An owned wrapper around a raw path string exposing chainable query and transform methods.
+## An owned wrapper around a raw path string exposing chainable query and
+## transform methods.
+##
+## ## Memoria
+## The rune stores the `string` in its `raw` field without copying it; the rune
+## owns that buffer and releasing it is the caller's responsibility.
 rune Path:
     raw as string
 
-## Method implementations for Path.
+## Method implementations for the `Path` rune.
 enchanting Path:
-    ## Ritual constructor creating a Path from a raw string.
+    ## Ritual constructor creating a `Path` from a raw string.
+    ##
+    ## ## Parámetros
+    ## - `s`: the path text to wrap. Moved into the rune.
+    ##
+    ## ## Retorno
+    ## A new `Path` whose `raw` field holds `s`.
+    ##
+    ## ## Memoria
+    ## The rune takes ownership of `s` as-is; do not `banish` the argument
+    ## separately.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## let p as compass.Path is calling compass.Path.from_str with "a/b.txt"
+    ## ```
     weave ritual from_str with s as string into Path:
         return with raw is s
 
-    ## Ritual constructor returning the current working directory as a Path.
+    ## Ritual constructor returning the current working directory as a `Path`.
+    ##
+    ## ## Retorno
+    ## A new `Path` whose `raw` is an owned copy of `cwd`.
+    ##
+    ## ## Memoria
+    ## The rune owns the freshly built `raw` string.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## let here as compass.Path is calling compass.Path.cwd
+    ## ```
     weave ritual cwd into Path:
-        var cur as string is calling cp_cwd
+        let cur as string is calling cp_cwd
         return with raw is cur
 
     ## The underlying raw path as a plain string.
+    ##
+    ## ## Retorno
+    ## The rune's `raw` string, borrowed: do not `banish` it.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.to_string     # "a/b.txt"
+    ## ```
     weave to_string into string:
         return self->raw
 
     ## Final component of the path (basename), "" when there is none.
+    ##
+    ## ## Retorno
+    ## A new owned `string`; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.name     # "b.txt"
+    ## ```
     weave name into string:
         return calling cp_basename with self->raw
 
-    ## Directory of the path as maybe string; none when it is a root or has no parent directory.
+    ## Directory of the path as `maybe string`; `none` when it is a root or has no
+    ## parent directory.
+    ##
+    ## ## Retorno
+    ## `some dir` with an owned `string`, or `maybe none`. Release the result with
+    ## `banish`.
+    ##
+    ## ## Memoria
+    ## The payload is a fresh heap copy; `raw` is borrowed.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.parent     # some "a"
+    ## ```
     weave parent into maybe string:
         return calling cp_parent with self->raw
 
     ## Basename without the final extension.
+    ##
+    ## ## Retorno
+    ## A new owned `string`; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.stem     # "b"
+    ## ```
     weave stem into string:
         return calling cp_stem with self->raw
 
     ## Extension including the dot, "" when there is none.
+    ##
+    ## ## Retorno
+    ## A new owned `string`; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.suffix     # ".txt"
+    ## ```
     weave suffix into string:
         return calling cp_ext with self->raw
 
     ## Dotted suffixes of the basename, e.g. "a.tar.gz" gives ["tar", "gz"].
+    ##
+    ## ## Retorno
+    ## A new owned `list of string`; release the buffer with `banish` and each
+    ## element with `banish (xs at i)` when you need to reclaim it.
+    ##
+    ## ## Memoria
+    ## The list owns its element buffer and its freshly built component strings.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.suffixes     # ["tar", "gz"]
+    ## ```
     weave suffixes into list of string:
         return calling cp_suffixes with self->raw
 
     ## Windows drive prefix, "" when there is none.
+    ##
+    ## ## Retorno
+    ## A new owned `string`; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.drive     # "" on Unix
+    ## ```
     weave drive into string:
         return calling cp_drive with self->raw
 
     ## Path split into drive, root separator and segment components.
+    ##
+    ## ## Retorno
+    ## A new owned `list of string`; release the buffer with `banish` and each
+    ## element with `banish (xs at i)` when you need to reclaim it.
+    ##
+    ## ## Memoria
+    ## The list owns its element buffer and its freshly built component strings.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.parts     # ["/", "a", "b.txt"]
+    ## ```
     weave parts into list of string:
         return calling cp_split with self->raw
 
     ## Normalized path components.
+    ##
+    ## ## Retorno
+    ## A new owned `list of string`; release the buffer with `banish` and each
+    ## element with `banish (xs at i)` when you need to reclaim it.
+    ##
+    ## ## Memoria
+    ## The list owns its element buffer and its freshly built component strings.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.components     # ["a", "b.txt"]
+    ## ```
     weave components into list of string:
         return calling cp_components with self->raw
 
     ## True when the path is absolute.
+    ##
+    ## ## Retorno
+    ## `true` when `raw` is absolute, `false` otherwise.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.is_absolute     # false
+    ## ```
     weave is_absolute into bool:
         return calling cp_is_abs with self->raw
 
     ## True when the path is relative (not absolute).
+    ##
+    ## ## Retorno
+    ## `true` when `raw` is not absolute, `false` otherwise.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.is_relative     # true
+    ## ```
     weave is_relative into bool:
         return not (calling cp_is_abs with self->raw)
 
     ## True when the path is exactly a filesystem root.
+    ##
+    ## ## Retorno
+    ## `true` when `raw` is a root, `false` otherwise.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.is_root     # false
+    ## ```
     weave is_root into bool:
         return calling cp_is_root with self->raw
 
     ## True when the basename carries an extension.
+    ##
+    ## ## Retorno
+    ## `true` when `suffix` would be non-empty, `false` otherwise.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.has_suffix     # true
+    ## ```
     weave has_suffix into bool:
         return calling cp_has_ext with self->raw
 
     ## True when the tail of the path equals the given suffix.
+    ##
+    ## ## Parámetros
+    ## - `suffix`: the suffix to compare; the empty suffix always matches.
+    ##
+    ## ## Retorno
+    ## `true` when `raw` ends with `suffix`, `false` otherwise.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.has_suffix_with with ".txt"     # true
+    ## ```
     weave has_suffix_with with suffix as string into bool:
         return calling cp_has_suffix with self->raw, suffix
 
     ## True when the wrapped path is the empty string.
+    ##
+    ## ## Retorno
+    ## `true` when `raw` has zero bytes, `false` otherwise.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.is_empty     # false
+    ## ```
     weave is_empty into bool:
         return self->raw == ""
 
-    ## True when path starts with a dot and is not "." or "..".
+    ## True when the path starts with a dot and is not "." or "..".
+    ##
+    ## ## Retorno
+    ## `true` for a dotfile, `false` otherwise.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.is_hidden     # false
+    ## ```
     weave is_hidden into bool:
         return calling cp_is_hidden with self->raw
 
     ## True when the path matches the given wildcard pattern.
+    ##
+    ## ## Parámetros
+    ## - `pattern`: the glob pattern; `*` matches any sequence and `?` one byte.
+    ##
+    ## ## Retorno
+    ## `true` when the pattern matches, `false` otherwise.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.matches with "*.txt"     # true
+    ## ```
     weave matches with pattern as string into bool:
         return calling cp_matches with self->raw, pattern
 
     ## True when the entry exists on the filesystem.
+    ##
+    ## ## Retorno
+    ## `true` when the native `archivum` probe finds the entry, `false` otherwise.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.exists     # true when the file is there
+    ## ```
     weave exists into bool:
         return calling pengu_c_archivum_exists with self->raw
 
     ## True when the entry is a regular file.
+    ##
+    ## ## Retorno
+    ## `true` when the native `archivum` probe reports a regular file, `false`
+    ## otherwise.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.is_file     # true for a regular file
+    ## ```
     weave is_file into bool:
         return calling pengu_c_archivum_is_file with self->raw
 
     ## True when the entry is a directory.
+    ##
+    ## ## Retorno
+    ## `true` when the native `archivum` probe reports a directory, `false`
+    ## otherwise.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.is_dir     # true for a directory
+    ## ```
     weave is_dir into bool:
         return calling pengu_c_archivum_is_dir with self->raw
 
-    ## Returns a new Path with normalized absolute path.
+    ## Returns a new `Path` with the normalized absolute path.
+    ##
+    ## ## Retorno
+    ## A new `Path`; the rune owns its `raw` string.
+    ##
+    ## ## Memoria
+    ## The returned rune owns the freshly built path; the receiver is borrowed.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## let abs_p as compass.Path is calling p.to_absolute
+    ## ```
     weave to_absolute into Path:
-        var abs_str as string is calling cp_absolute with self->raw
+        let abs_str as string is calling cp_absolute with self->raw
         return with raw is abs_str
 
-    ## Returns a new Path with expanded user directory.
+    ## Returns a new `Path` with the user directory expanded.
+    ##
+    ## ## Retorno
+    ## A new `Path`; the rune owns its `raw` string.
+    ##
+    ## ## Memoria
+    ## The returned rune owns the resulting path, which may alias the receiver's
+    ## `raw` when no expansion happened.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## let home_p as compass.Path is calling p.expand_user
+    ## ```
     weave expand_user into Path:
-        var exp_str as string is calling cp_expand_user with self->raw
+        let exp_str as string is calling cp_expand_user with self->raw
         return with raw is exp_str
 
-    ## Converts path to a file:// URI (best effort: backslashes normalized to '/', spaces encoded as '%20').
+    ## Converts the path to a `file://` URI (backslashes become `/`, spaces become
+    ## `%20`).
+    ##
+    ## ## Retorno
+    ## A new owned `string`; release it with `banish`.
+    ##
+    ## ## Memoria
+    ## The intermediate normalized path and the byte buffer are owned temporaries,
+    ## released before the function returns.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.to_uri     # "file:///a/b.txt"
+    ## ```
     weave to_uri into string:
-        var norm as string is calling cp_normalize with self->raw
+        let norm as string is calling cp_normalize with self->raw
+        defer banish norm
         var buf as string is ""
+        defer banish buf
         var i as int is 0
-        var nl as int is norm length
+        let nl as int is norm length
         while i < nl:
-            var c as string is norm at i
+            let c as string is norm at i
             if c == "\\":
                 set buf is "{buf}/"
             else:
@@ -971,58 +1711,584 @@ enchanting Path:
             return "file://{buf}"
         return "file:///{buf}"
 
-    ## A new Path with redundant separators and "." / ".." segments resolved.
+    ## A new `Path` with redundant separators and "." / ".." segments resolved.
+    ##
+    ## ## Retorno
+    ## A new `Path`; the rune owns its `raw` string.
+    ##
+    ## ## Memoria
+    ## The returned rune owns the freshly built path; the receiver is borrowed.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## let clean as compass.Path is calling p.normalize
+    ## ```
     weave normalize into Path:
-        var res as string is calling cp_normalize with self->raw
+        let res as string is calling cp_normalize with self->raw
         return with raw is res
 
-    ## Relative path from base to this path as maybe string.
+    ## Relative path from `base` to this path as `maybe string`.
+    ##
+    ## ## Parámetros
+    ## - `base`: the directory the result is relative to.
+    ##
+    ## ## Retorno
+    ## `some rel` with an owned `string`, or `maybe none`. Release the result with
+    ## `banish`.
+    ##
+    ## ## Memoria
+    ## The payload is a fresh heap copy; the receiver and `base` are borrowed.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling p.relative_to with "/a"     # some "b.txt"
+    ## ```
     weave relative_to with base as string into maybe string:
         return calling cp_relative_to with self->raw, base
 
-    ## A new Path whose extension is replaced by new_ext.
+    ## A new `Path` whose extension is replaced by `new_ext`.
+    ##
+    ## ## Parámetros
+    ## - `new_ext`: the new extension, with or without its leading dot.
+    ##
+    ## ## Retorno
+    ## A new `Path`; the rune owns its `raw` string.
+    ##
+    ## ## Memoria
+    ## The returned rune owns the freshly built path; the receiver is borrowed.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## let md as compass.Path is calling p.with_suffix with ".md"
+    ## ```
     weave with_suffix with new_ext as string into Path:
-        var res as string is calling cp_change_ext with self->raw, new_ext
+        let res as string is calling cp_change_ext with self->raw, new_ext
         return with raw is res
 
-    ## A new Path with its final component replaced by new_name.
+    ## A new `Path` with its final component replaced by `new_name`.
+    ##
+    ## ## Parámetros
+    ## - `new_name`: the replacement basename.
+    ##
+    ## ## Retorno
+    ## A new `Path`; the rune owns its `raw` string.
+    ##
+    ## ## Memoria
+    ## The returned rune owns the freshly built path; the receiver is borrowed.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## let renamed as compass.Path is calling p.with_name with "c.md"
+    ## ```
     weave with_name with new_name as string into Path:
-        var parent_str as string is calling cp_dirname with self->raw
+        let parent_str as string is calling cp_dirname with self->raw
         if parent_str == "":
             return with raw is new_name
         var parts as list of string is list of string
+        defer banish parts
         calling parts.push with parent_str
         calling parts.push with new_name
-        var res as string is calling cp_join with parts
+        let res as string is calling cp_join with parts
         return with raw is res
 
-    ## A new Path with ext appended when it has no extension yet, unchanged otherwise.
+    ## A new `Path` with `ext` appended when it has no extension yet, unchanged
+    ## otherwise.
+    ##
+    ## ## Parámetros
+    ## - `ext`: the extension to append, with or without its leading dot.
+    ##
+    ## ## Retorno
+    ## A new `Path`; the rune owns its `raw` string, which may alias the receiver's
+    ## when nothing changed.
+    ##
+    ## ## Memoria
+    ## The returned rune owns the resulting path.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## let full as compass.Path is calling p.add_suffix with ".txt"
+    ## ```
     weave add_suffix with ext as string into Path:
-        var res as string is calling cp_add_ext with self->raw, ext
+        let res as string is calling cp_add_ext with self->raw, ext
         return with raw is res
 
-    ## A new Path without its final extension.
+    ## A new `Path` without its final extension.
+    ##
+    ## ## Retorno
+    ## A new `Path`; the rune owns its `raw` string.
+    ##
+    ## ## Memoria
+    ## The returned rune owns the freshly built path; the receiver is borrowed.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## let bare as compass.Path is calling p.without_suffix
+    ## ```
     weave without_suffix into Path:
-        var res as string is calling cp_change_ext with self->raw, ""
+        let res as string is calling cp_change_ext with self->raw, ""
         return with raw is res
 
 # ----------------------------------------------------------------------------
 # Path Constructors & Wrappers
 # ----------------------------------------------------------------------------
 
-## Builds an owned Path value from a raw path string.
+## Builds an owned `Path` value from a raw path string.
+##
+## ## Parámetros
+## - `raw`: the path text to wrap. Moved into the rune.
+##
+## ## Retorno
+## A new `Path` whose `raw` field holds the same string.
+##
+## ## Memoria
+## The rune takes ownership of `raw` as-is (no copy); do not `banish` the argument
+## separately.
+##
+## ## Ejemplo
+## ```pengu
+## let p as compass.Path is calling compass.path with "a/b.txt"
+## ```
 weave path with raw as string into Path:
     return with raw is raw
 
-## Builds an owned Path value from a raw path string (alias of Path.from_str).
+## Builds an owned `Path` value from a raw path string (alias of
+## `Path.from_str`).
+##
+## ## Parámetros
+## - `s`: the path text to wrap. Moved into the rune.
+##
+## ## Retorno
+## A new `Path` whose `raw` field holds `s`.
+##
+## ## Memoria
+## The rune takes ownership of `s` as-is (no copy).
+##
+## ## Ejemplo
+## ```pengu
+## let p as compass.Path is calling compass.new_path with "/tmp/notes.txt"
+## ```
 weave new_path with s as string into Path:
     return calling Path.from_str with s
 
-## Returns the current working directory as an owned Path.
+## Returns the current working directory as an owned `Path`.
+##
+## ## Retorno
+## A new `Path` whose `raw` is an owned copy of the working directory.
+##
+## ## Memoria
+## The rune owns the freshly built path.
+##
+## ## Ejemplo
+## ```pengu
+## let here as compass.Path is calling compass.current_dir
+## ```
 weave current_dir into Path:
     return calling Path.cwd
 
-## Builds an owned Path by joining parts with the platform separator and normalizing.
+## Builds an owned `Path` by joining `parts` with the platform separator and
+## normalizing.
+##
+## ## Parámetros
+## - `parts`: the segments to join, in order. Empty segments are skipped.
+##
+## ## Retorno
+## A new `Path` whose `raw` is the joined, normalized path.
+##
+## ## Memoria
+## The rune owns the freshly built path; the `parts` list is borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## let p as compass.Path is calling compass.path_join with ["a", "b.txt"]
+## ```
 weave path_join with parts as list of string into Path:
-    var joined as string is calling cp_join with parts
+    let joined as string is calling cp_join with parts
     return with raw is joined
+
+# --- Tests ---
+# The harness is private and panics through `std.spark`; `std.ward` cannot be
+# imported from a standard-library module without creating an import cycle.
+# `_cp_test_join` keeps the compass `join` out of the shared test namespace,
+# where `std.scrolls` also exports a `join` (with a different signature).
+
+## Test-only compass join; avoids the `scrolls.join` name in the test namespace.
+weave _cp_test_join with parts as list of string into string:
+    return calling cp_join with parts
+
+## Aborts the current test with `label` when `got != want`.
+weave _cp_expect_int with got as int, want as int, label as string into void:
+    if got != want:
+        calling spark.println with "FAIL {label}: got {got}, want {want}"
+        calling spark.panic with "compass: test failed"
+
+## Aborts the current test with `label` when `got != want`.
+weave _cp_expect_str with got as string, want as string, label as string into void:
+    if got != want:
+        calling spark.println with "FAIL {label}: got [{got}], want [{want}]"
+        calling spark.panic with "compass: test failed"
+
+## Aborts the current test with `label` when `cond` is false.
+weave _cp_expect_true with cond as bool, label as string into void:
+    if not cond:
+        calling spark.println with "FAIL {label}"
+        calling spark.panic with "compass: test failed"
+
+test "COMPASS_VERSION is 2.1.0":
+    calling _cp_expect_str with COMPASS_VERSION, "2.1.0", "version"
+
+test "separator is a single character":
+    let sep as string is calling separator
+    calling _cp_expect_int with (sep length), 1, "separator length"
+
+test "join combines two segments":
+    let sep as string is calling separator
+    let parts as list of string is ["a", "b"]
+    calling _cp_expect_str with (calling _cp_test_join with parts), "a{sep}b", "join"
+
+test "join skips empty segments":
+    let sep as string is calling separator
+    let parts as list of string is ["a", "", "b"]
+    calling _cp_expect_str with (calling _cp_test_join with parts), "a{sep}b", "join empties"
+
+test "join_all behaves like join":
+    let sep as string is calling separator
+    let parts as list of string is ["a", "b"]
+    calling _cp_expect_str with (calling join_all with parts), "a{sep}b", "join_all"
+
+test "join of an empty list is the empty string":
+    let empty as list of string is list of string
+    calling _cp_expect_str with (calling _cp_test_join with empty), "", "empty join"
+
+test "join keeps an absolute first part":
+    let sep as string is calling separator
+    let parts as list of string is ["{sep}a", "b"]
+    calling _cp_expect_str with (calling _cp_test_join with parts), "{sep}a{sep}b", "absolute first"
+
+test "basename returns the last segment":
+    calling _cp_expect_str with (calling basename with "/tmp/a.txt"), "a.txt", "basename"
+
+test "basename skips a trailing separator":
+    let sep as string is calling separator
+    calling _cp_expect_str with (calling basename with "a{sep}"), "a", "basename trailing"
+
+test "basename of separators only is empty":
+    let sep as string is calling separator
+    calling _cp_expect_str with (calling basename with "{sep}{sep}"), "", "basename seps"
+
+test "basename of the root is empty":
+    let sep as string is calling separator
+    calling _cp_expect_str with (calling basename with sep), "", "basename root"
+
+test "filename is an alias of basename":
+    calling _cp_expect_str with (calling filename with "/tmp/a.txt"), "a.txt", "filename"
+
+test "dirname drops the final segment":
+    calling _cp_expect_str with (calling dirname with "/tmp/a.txt"), "/tmp", "dirname"
+
+test "dirname of a bare name is empty":
+    calling _cp_expect_str with (calling dirname with "a.txt"), "", "dirname bare"
+
+test "dirname of the root keeps the root":
+    let sep as string is calling separator
+    calling _cp_expect_str with (calling dirname with sep), sep, "dirname root"
+
+test "ext returns the dotted extension":
+    calling _cp_expect_str with (calling ext with "a.txt"), ".txt", "ext"
+
+test "ext ignores a leading dot":
+    calling _cp_expect_str with (calling ext with ".bashrc"), "", "ext dotfile"
+
+test "ext keeps only the last dot":
+    calling _cp_expect_str with (calling ext with "a.tar.gz"), ".gz", "ext last"
+
+test "stem drops the final extension":
+    calling _cp_expect_str with (calling stem with "/tmp/a.tar.gz"), "a.tar", "stem"
+
+test "file_stem is an alias of stem":
+    calling _cp_expect_str with (calling file_stem with "a.txt"), "a", "file_stem"
+
+test "has_ext detects an extension":
+    calling _cp_expect_true with (calling has_ext with "a.txt"), "has ext"
+    calling _cp_expect_true with (not (calling has_ext with "a")), "no ext"
+
+test "normalize collapses redundant separators":
+    let sep as string is calling separator
+    calling _cp_expect_str with (calling normalize with "a{sep}{sep}b"), "a{sep}b", "normalize seps"
+
+test "normalize resolves dot segments":
+    let sep as string is calling separator
+    calling _cp_expect_str with (calling normalize with "a{sep}.{sep}b"), "a{sep}b", "normalize dot"
+
+test "normalize resolves parent segments":
+    let sep as string is calling separator
+    calling _cp_expect_str with (calling normalize with "a{sep}b{sep}..{sep}c"), "a{sep}c", "normalize parent"
+
+test "normalize keeps unresolvable parent segments":
+    let sep as string is calling separator
+    calling _cp_expect_str with (calling normalize with "..{sep}.."), "..{sep}..", "normalize leading parents"
+
+test "normalize of an empty path is a dot":
+    calling _cp_expect_str with (calling normalize with ""), ".", "normalize empty"
+
+test "normalize keeps an absolute root":
+    let sep as string is calling separator
+    calling _cp_expect_str with (calling normalize with sep), sep, "normalize root"
+
+test "is_absolute accepts a leading separator":
+    let sep as string is calling separator
+    calling _cp_expect_true with (calling is_absolute with "{sep}a"), "absolute"
+
+test "is_absolute rejects a bare name":
+    calling _cp_expect_true with (not (calling is_absolute with "a")), "relative"
+
+test "is_relative negates is_absolute":
+    calling _cp_expect_true with (calling is_relative with "a"), "relative yes"
+    calling _cp_expect_true with (not (calling is_relative with "/a")), "relative no"
+
+test "absolute of a relative path is absolute":
+    let abs_p as string is calling absolute with "notes.txt"
+    calling _cp_expect_true with (calling is_absolute with abs_p), "absolute result"
+
+test "relative_to computes a child path":
+    let sep as string is calling separator
+    let rel as maybe string is calling relative_to with "{sep}a{sep}b{sep}c", "{sep}a{sep}b"
+    calling _cp_expect_true with (rel is present), "child present"
+    calling _cp_expect_str with (rel.value), "c", "child value"
+
+test "relative_to walks up with parent segments":
+    let sep as string is calling separator
+    let rel as maybe string is calling relative_to with "{sep}a{sep}b", "{sep}a{sep}c"
+    calling _cp_expect_true with (rel is present), "sibling present"
+    calling _cp_expect_str with (rel.value), "..{sep}b", "sibling value"
+
+test "relative_to of an absolute target under a relative base is none":
+    let sep as string is calling separator
+    let rel as maybe string is calling relative_to with "{sep}x{sep}y", "a{sep}b"
+    calling _cp_expect_true with (not (rel is present)), "none"
+
+test "components includes the root separator":
+    let sep as string is calling separator
+    let comps as list of string is calling components with "{sep}a{sep}b"
+    calling _cp_expect_int with (comps.len), 3, "components count"
+    calling _cp_expect_str with (comps at 0), sep, "components root"
+    calling _cp_expect_str with (comps at 1), "a", "components a"
+    calling _cp_expect_str with (comps at 2), "b", "components b"
+
+test "components splits a relative path":
+    let sep as string is calling separator
+    let comps as list of string is calling components with "a{sep}b"
+    calling _cp_expect_int with (comps.len), 2, "components count"
+    calling _cp_expect_str with (comps at 1), "b", "components b"
+
+test "has_component finds a segment":
+    let sep as string is calling separator
+    calling _cp_expect_true with (calling has_component with "{sep}a{sep}b{sep}c", "b"), "present"
+    calling _cp_expect_true with (not (calling has_component with "{sep}a{sep}b", "z")), "absent"
+
+test "has_suffix compares the tail":
+    calling _cp_expect_true with (calling has_suffix with "a.tar.gz", ".gz"), "suffix"
+    calling _cp_expect_true with (calling has_suffix with "a", ""), "empty suffix"
+    calling _cp_expect_true with (not (calling has_suffix with "a", "b")), "no suffix"
+
+test "suffixes lists the dotted suffixes":
+    let sfx as list of string is calling suffixes with "a.tar.gz"
+    calling _cp_expect_int with (sfx.len), 2, "suffixes count"
+    calling _cp_expect_str with (sfx at 0), "tar", "first"
+    calling _cp_expect_str with (sfx at 1), "gz", "second"
+
+test "suffixes of a dotfile is empty":
+    let sfx as list of string is calling suffixes with ".bashrc"
+    calling _cp_expect_int with (sfx.len), 0, "suffixes dotfile"
+
+test "drive has no prefix on a posix-style path":
+    calling _cp_expect_str with (calling drive with "/a/b"), "", "drive posix"
+    calling _cp_expect_str with (calling drive with ""), "", "drive empty"
+
+test "is_root accepts the separator":
+    let sep as string is calling separator
+    calling _cp_expect_true with (calling is_root with sep), "root"
+    calling _cp_expect_true with (not (calling is_root with "a")), "not root"
+
+test "is_hidden accepts a dotfile":
+    calling _cp_expect_true with (calling is_hidden with ".bashrc"), "hidden"
+    calling _cp_expect_true with (not (calling is_hidden with ".")), "dot"
+    calling _cp_expect_true with (not (calling is_hidden with "a.txt")), "visible"
+
+test "is_unc accepts a double-separator prefix":
+    let sep as string is calling separator
+    calling _cp_expect_true with (calling is_unc with "{sep}{sep}server{sep}share"), "unc"
+    calling _cp_expect_true with (not (calling is_unc with "{sep}a")), "not unc"
+
+test "has_wildcard detects star and question":
+    calling _cp_expect_true with (calling has_wildcard with "a*c"), "star"
+    calling _cp_expect_true with (calling has_wildcard with "a?c"), "question"
+    calling _cp_expect_true with (not (calling has_wildcard with "abc")), "plain"
+    calling _cp_expect_true with (not (calling has_wildcard with "")), "empty"
+
+test "matches accepts an exact pattern":
+    calling _cp_expect_true with (calling matches with "a.txt", "a.txt"), "exact"
+    calling _cp_expect_true with (not (calling matches with "a.txt", "a.md")), "mismatch"
+
+test "matches honours the star wildcard":
+    calling _cp_expect_true with (calling matches with "a.txt", "*.txt"), "star suffix"
+    calling _cp_expect_true with (calling matches with "abc", "*"), "star all"
+    calling _cp_expect_true with (not (calling matches with "a.txt", "*.md")), "star no"
+
+test "matches honours the question wildcard":
+    calling _cp_expect_true with (calling matches with "abc", "a?c"), "question"
+    calling _cp_expect_true with (not (calling matches with "abc", "a?")), "question short"
+    calling _cp_expect_true with (calling matches with "abc", "???"), "question all"
+
+test "matches is case sensitive":
+    calling _cp_expect_true with (not (calling matches with "ABC", "abc")), "case"
+
+test "matches anchors the pattern":
+    calling _cp_expect_true with (not (calling matches with "abc", "*d*")), "anchored"
+    calling _cp_expect_true with (calling matches with "abc", "*b*"), "inside"
+
+test "matches an empty pattern only against an empty string":
+    calling _cp_expect_true with (calling matches with "", ""), "empty empty"
+    calling _cp_expect_true with (not (calling matches with "a", "")), "empty pattern"
+    calling _cp_expect_true with (calling matches with "", "*"), "empty string"
+
+test "matches a literal star against a literal star":
+    calling _cp_expect_true with (calling matches with "a*b", "a*b"), "literal star"
+    calling _cp_expect_true with (calling matches with "*", "**"), "star pair"
+    calling _cp_expect_true with (not (calling matches with "**", "*")), "star quirk"
+
+test "matches uses the basename when the pattern has no separator":
+    let sep as string is calling separator
+    calling _cp_expect_true with (calling matches with "dir{sep}a.txt", "*.txt"), "basename"
+    calling _cp_expect_true with (not (calling matches with "dir{sep}a.txt", "b.txt")), "basename no"
+
+test "matches uses the whole path when the pattern has a separator":
+    let sep as string is calling separator
+    calling _cp_expect_true with (calling matches with "{sep}a", "{sep}*"), "whole path"
+    calling _cp_expect_true with (calling matches with "a{sep}b", "*{sep}b"), "path pattern"
+
+test "Path from_str round-trips":
+    let p as Path is calling Path.from_str with "a/b.txt"
+    calling _cp_expect_str with (calling p.to_string), "a/b.txt", "to_string"
+
+test "Path new_path and path agree":
+    let a as Path is calling new_path with "/a/b"
+    let b as Path is calling path with "/a/b"
+    calling _cp_expect_str with (calling a.to_string), (calling b.to_string), "same raw"
+    calling _cp_expect_true with (calling a.is_absolute), "absolute"
+    calling _cp_expect_true with (calling b.is_relative == false), "not relative"
+
+test "Path name stem and suffix":
+    let p as Path is calling new_path with "/tmp/notes.txt"
+    calling _cp_expect_str with (calling p.name), "notes.txt", "name"
+    calling _cp_expect_str with (calling p.stem), "notes", "stem"
+    calling _cp_expect_str with (calling p.suffix), ".txt", "suffix"
+    calling _cp_expect_true with (calling p.has_suffix), "has_suffix"
+
+test "Path parent of a nested file":
+    let p as Path is calling new_path with "/tmp/notes.txt"
+    let par as maybe string is calling p.parent
+    calling _cp_expect_true with (par is present), "parent present"
+    calling _cp_expect_str with (par.value), "/tmp", "parent value"
+
+test "Path parent of a root is none":
+    let p as Path is calling new_path with (calling separator)
+    let par as maybe string is calling p.parent
+    calling _cp_expect_true with (not (par is present)), "root parent none"
+    calling _cp_expect_true with (calling p.is_root), "root"
+
+test "Path is_empty detects the empty path":
+    let empty_p as Path is calling new_path with ""
+    let named as Path is calling new_path with "a"
+    calling _cp_expect_true with (calling empty_p.is_empty), "empty"
+    calling _cp_expect_true with (not (calling named.is_empty)), "named"
+
+test "Path normalize resolves segments":
+    let sep as string is calling separator
+    let p as Path is calling new_path with "a{sep}{sep}b{sep}.{sep}..{sep}c"
+    let n as Path is calling p.normalize
+    calling _cp_expect_str with (calling n.to_string), "a{sep}c", "normalize"
+
+test "Path components splits the raw path":
+    let sep as string is calling separator
+    let p as Path is calling new_path with "a{sep}b"
+    let comps as list of string is calling p.components
+    calling _cp_expect_int with (comps.len), 2, "components count"
+    calling _cp_expect_str with (comps at 0), "a", "first"
+
+test "Path matches a glob":
+    let p as Path is calling new_path with "a.txt"
+    calling _cp_expect_true with (calling p.matches with "*.txt"), "matches"
+    calling _cp_expect_true with (not (calling p.matches with "*.md")), "no match"
+
+test "Path with_suffix replaces the extension":
+    let p as Path is calling new_path with "a.txt"
+    let q as Path is calling p.with_suffix with ".md"
+    calling _cp_expect_str with (calling q.to_string), "a.md", "with_suffix"
+
+test "Path without_suffix removes the extension":
+    let p as Path is calling new_path with "/tmp/a.txt"
+    let q as Path is calling p.without_suffix
+    calling _cp_expect_str with (calling q.to_string), "/tmp/a", "without_suffix"
+
+test "Path add_suffix only fills a missing extension":
+    let bare as Path is calling new_path with "a"
+    let full as Path is calling bare.add_suffix with ".txt"
+    let kept as Path is calling full.add_suffix with ".md"
+    calling _cp_expect_str with (calling full.to_string), "a.txt", "add_suffix"
+    calling _cp_expect_str with (calling kept.to_string), "a.txt", "add_suffix keeps"
+
+test "Path with_name replaces the basename":
+    let sep as string is calling separator
+    let p as Path is calling new_path with "{sep}a{sep}b.txt"
+    let q as Path is calling p.with_name with "c.md"
+    calling _cp_expect_str with (calling q.to_string), "{sep}a{sep}c.md", "with_name"
+
+test "Path has_suffix_with compares the tail":
+    let p as Path is calling new_path with "a.txt"
+    calling _cp_expect_true with (calling p.has_suffix_with with ".txt"), "suffix yes"
+    calling _cp_expect_true with (not (calling p.has_suffix_with with ".md")), "suffix no"
+
+test "Path relative_to finds a child":
+    let sep as string is calling separator
+    let p as Path is calling new_path with "{sep}a{sep}b{sep}c"
+    let rel as maybe string is calling p.relative_to with "{sep}a{sep}b"
+    calling _cp_expect_true with (rel is present), "relative present"
+    calling _cp_expect_str with (rel.value), "c", "relative value"
+
+test "Path to_uri renders an absolute path":
+    let p as Path is calling new_path with "/tmp/notes.txt"
+    calling _cp_expect_str with (calling p.to_uri), "file:///tmp/notes.txt", "to_uri"
+
+test "Path to_uri encodes spaces":
+    let p as Path is calling new_path with "/tmp/my docs/a.txt"
+    calling _cp_expect_str with (calling p.to_uri), "file:///tmp/my%20docs/a.txt", "to_uri spaces"
+
+test "Path to_absolute produces an absolute path":
+    let p as Path is calling new_path with "notes.txt"
+    let q as Path is calling p.to_absolute
+    calling _cp_expect_true with (calling q.is_absolute), "absolute"
+
+test "Path expand_user keeps a usable path":
+    let p as Path is calling new_path with "~/notes.txt"
+    let q as Path is calling p.expand_user
+    let s as string is calling q.to_string
+    calling _cp_expect_true with ((s length) > 0), "expand_user non-empty"
+
+test "the filesystem root exists":
+    let p as Path is calling new_path with (calling separator)
+    calling _cp_expect_true with (calling p.exists), "root exists"
+
+test "cwd is a non-empty string":
+    let c as string is calling cwd
+    calling _cp_expect_true with ((c length) > 0), "cwd non-empty"
+
+test "expand_user of a tilde path is non-empty":
+    let e as string is calling expand_user with "~/notes"
+    calling _cp_expect_true with ((e length) > 0), "expand_user non-empty"
+
+test "alt_separator is a forward slash or absent":
+    let alt as maybe string is calling alt_separator
+    if alt is present:
+        calling _cp_expect_str with (alt.value), "/", "alt separator"
+    else:
+        calling _cp_expect_true with true, "no alt separator"

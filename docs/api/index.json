@@ -1500,6 +1500,14 @@
     {
       "deprecated": false,
       "documented": true,
+      "kind": "concept",
+      "module": "atlas",
+      "name": "Ordered",
+      "signature": "**Ordered** : Ordered"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
       "kind": "const",
       "module": "atlas",
       "name": "ATLAS_VERSION",
@@ -2008,6 +2016,14 @@
       "module": "atlas",
       "name": "map_clear",
       "signature": "**atlas_map_clear**(m: map of K to V) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "atlas",
+      "name": "map_filter_values_contains",
+      "signature": "**atlas_map_filter_values_contains**(m: map of K to string, sub: string) -> map of K to string"
     },
     {
       "deprecated": false,
@@ -2584,6 +2600,14 @@
       "module": "atlas",
       "name": "values_sorted_of",
       "signature": "**atlas_values_sorted_of**(m: map of K to V) -> list of V"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "atlas",
+      "name": "values_sorted_sf",
+      "signature": "**atlas_values_sorted_sf**(m: map of string to float) -> list of float"
     },
     {
       "deprecated": false,
@@ -4446,11 +4470,19 @@
       "documented": true,
       "kind": "rune",
       "module": "coven",
+      "name": "Set",
+      "signature": "**Set** : Set"
+    },
+    {
+      "deprecated": true,
+      "documented": true,
+      "kind": "rune",
+      "module": "coven",
       "name": "SetInt",
       "signature": "**SetInt** : SetInt"
     },
     {
-      "deprecated": false,
+      "deprecated": true,
       "documented": true,
       "kind": "rune",
       "module": "coven",
@@ -4478,6 +4510,14 @@
       "documented": true,
       "kind": "weave",
       "module": "coven",
+      "name": "from_items_set",
+      "signature": "**from_items_set**(items: list of T) -> Set"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "coven",
       "name": "from_list_int",
       "signature": "**from_list_int**(items: list of int) -> SetInt"
     },
@@ -4494,6 +4534,46 @@
       "documented": true,
       "kind": "weave",
       "module": "coven",
+      "name": "make_set",
+      "signature": "**make_set**() -> Set"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "coven",
+      "name": "new_bool_set",
+      "signature": "**new_bool_set**() -> Set_bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "coven",
+      "name": "new_char_set",
+      "signature": "**new_char_set**() -> Set_char"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "coven",
+      "name": "new_float_set",
+      "signature": "**new_float_set**() -> Set_float"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "coven",
+      "name": "new_int_set",
+      "signature": "**new_int_set**() -> Set_int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "coven",
       "name": "new_set_int",
       "signature": "**new_set_int**() -> SetInt"
     },
@@ -4504,6 +4584,14 @@
       "module": "coven",
       "name": "new_set_string",
       "signature": "**new_set_string**() -> SetString"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "coven",
+      "name": "new_string_set",
+      "signature": "**new_string_set**() -> Set_string"
     },
     {
       "deprecated": false,

@@ -113,6 +113,33 @@ chunks restantes.
       `calling err_of with msg`); las legacy que devuelven `ResultString` se
       conservan y se marcan `## @deprecated Use <x>_native instead.`
 
+## Colecciones genéricas y `antiquus` de contenedores (Chunk 4)
+
+- [ ] `antiquus` con un parámetro `list of T`: el parámetro llega **por valor**
+      como `PenguList`; usa `xs.data` / `xs.len` (nunca `->`). Mutar el buffer muta
+      la lista del llamante.
+- [ ] Tamaños de elemento en C: `int` = `int32_t` (4 bytes), `float` = `float`
+      (32 bits, **no** `double`), `f64`/`double` = 8, `string` = `PenguString`. Un
+      `qsort` con el `sizeof` equivocado corrompe el heap (SIGABRT).
+- [ ] Los `antiquus` que ordenan llevan `## ## Motivo` + `## ## Memoria` y
+      sustituyen al bucle Pengu equivalente (regla del C-block redundante).
+- [ ] Los **bounds de un `enchanting` genérico no se comprueban** al resolver el
+      método: la operación se monomorfiza para cualquier receptor con el que se
+      llame. Por eso una comparación genérica `a > b` rompe `map of string to *`
+      (C no define `>` para `PenguString`), aunque el bound sea `K: Ordo`.
+- [ ] Para ordenar de verdad genéricamente hace falta un `concept` propio con un
+      `bind` por tipo (`concept Ordered shard T: weave cmp with other as T into
+      int`) y llamar `calling a.cmp with b` en el cuerpo. `alias` se desenvuelve
+      al tipo base; `seal`/`rune` necesitan su propio `bind`.
+- [ ] Un `enchanting map of string to shard V` **no** sirve: el compilador no
+      infiere `V` para un método que lo devuelve. Usa bloques concretos o una
+      función de módulo genérica (que sí infiere de sus argumentos).
+- [ ] Un `rune` genérico no admite cláusula `where` (`rune_decl` no la tiene):
+      escribe `rune Set shard T:` y documenta el bound implícito del campo.
+- [ ] Un constructor `ritual` genérico no infiere sus parámetros desde el tipo
+      declarado de la variable (`E0005`): expón `calling Set.empty of T` y/o
+      constructores concretos.
+
 ## Verificación
 
 - [ ] `pengu check --entry std/<mod>.pengu` pasa (0 errores; W0005 aceptado)

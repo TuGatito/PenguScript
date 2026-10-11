@@ -6,6 +6,7 @@ under '## [0.15.0] - Unreleased -> Compiler bugs found (documented, not fixed)'.
 Each test targets ONE bug and fails without the corresponding fix.
 """
 from pathlib import Path
+import re
 import pytest
 from tests.conftest import (
     compile_run,
@@ -17,6 +18,17 @@ from tests.conftest import (
 )
 
 STD_PROGRAMS = REPO / "tests" / "std_programs"
+
+
+def _std_test_names(module: str) -> list:
+    """The `test "..."` names declared by ``std/<module>.pengu``.
+
+    Read from the source instead of hard-coded: the 2.0 migration rewrote and
+    translated these blocks, and a literal name or count here would pin the
+    migration's prose rather than the bundling behaviour under test.
+    """
+    src = (REPO / "std" / f"{module}.pengu").read_text(encoding="utf-8")
+    return re.findall(r'^test "([^"]+)"', src, re.M)
 
 
 # ─── Bug 7 — Global symbol shadows local in `set` target ───────────────
@@ -270,7 +282,7 @@ test "my unique user test":
             bundle_path, _ = builder.bundle(output_file=str(d / "bundle.c"))
             content = Path(bundle_path).read_text(encoding="utf-8")
             assert "my unique user test" in content
-            assert "len cuenta bytes" not in content
+            assert not any(name in content for name in _std_test_names("scrolls"))
             assert "pengu_test_names[1]" in content
             check_c_syntax(content)
         finally:
@@ -282,6 +294,8 @@ test "my unique user test":
         import shutil
         from pengu_project import PenguBuilder, ProjectConfig
         from tests.conftest import BUILD_DIR
+        own_tests = _std_test_names("scrolls")
+        assert own_tests, "std/scrolls.pengu declares no test blocks"
         d = Path(tempfile.mkdtemp(prefix="bug6_std_", dir=BUILD_DIR))
         try:
             cfg = ProjectConfig(entry="std/scrolls.pengu", base_dir=".", profile="debug", output="c")
@@ -289,8 +303,8 @@ test "my unique user test":
             builder.is_test_mode = True
             bundle_path, _ = builder.bundle(output_file=str(d / "bundle.c"))
             content = Path(bundle_path).read_text(encoding="utf-8")
-            assert "len cuenta bytes" in content
-            assert "pengu_test_names[124]" in content
+            assert own_tests[0] in content
+            assert f"pengu_test_names[{len(own_tests)}]" in content
             check_c_syntax(content)
         finally:
             shutil.rmtree(d, ignore_errors=True)

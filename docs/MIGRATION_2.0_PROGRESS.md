@@ -107,7 +107,129 @@ Común:
       los `check_*` legacy de `ward`.
 - [x] `pengu_runtime.h` **sin tocar**: este chunk no mueve código C.
 
-### Próximo: Chunk 4 (`std/atlas` + `std/coven` + `std/compass`)
+### ✅ Chunk 4: `std.atlas` + `std.coven` + `std.compass`
+
+- [x] Reescrito `std/atlas.pengu` en Pengunic 2.0 (`ATLAS_VERSION = "2.1.0"`):
+      1614 → 4551 líneas; 126 → 153 tests internos.
+- [x] Generalizado con un `concept Ordered shard T` (+ `bind` de `int`, `i32`,
+      `i64`, `float`, `f32`, `f64`, `string`): un único `keys_sorted`
+      (`K: Ordered, V: Par`) y un único `values_sorted` (`K: Par, V: Ordered`)
+      cubren string y numéricos. `keys_sorted_of`/`values_sorted_of` pasan de
+      `Ordo` a `Ordered`.
+- [x] `count_true`/`count_false` generalizados a `map of shard K to bool`.
+- [x] Eliminados los bloques concretos redundantes: `enchanting map of int to
+      int:` entero y todos los `keys_sorted`/`values_sorted` concretos. Ningún
+      símbolo público desaparece (solo cambian de bloque).
+- [x] Seis `antiquus` de ordenación (`qsort` para `int32`, `float` y
+      `PenguString` con `memcmp`) usados por los wrappers de compatibilidad y
+      `_sort_strings`; los comparadores llevan `@export` porque el DCE poda los
+      `weave` referenciados solo desde C.
+- [x] Reescrito `std/coven.pengu` en Pengunic 2.0 (`COVEN_VERSION = "2.1.0"`):
+      505 → 2260 líneas; 0 → 44 tests internos.
+- [x] Añadido `rune Set shard T` genérico (16 métodos) y constructores
+      `make_set shard T` / `from_items_set shard T` + los concretos
+      `new_int_set`/`new_string_set`/`new_float_set`/`new_bool_set`/`new_char_set`.
+      `SetString`/`SetInt` intactos (marcados `## @deprecated`).
+- [x] Reescrito `std/compass.pengu` en Pengunic 2.0 (`COMPASS_VERSION =
+      "2.1.0"`): 1028 → 2293 líneas; 0 → 77 tests internos.
+- [x] `cp_glob_match` convertido en `antiquus` (matcher de wildcards con
+      punteros); resultados idénticos verificados con 55 casos. Los cinco
+      `declare` al runtime y el rune `Path` no se tocan.
+- [x] **Bug de memoria corregido en `compass`:** `cp_change_ext` devolvía un
+      buffer ya liberado (`defer banish st` + `set buf is st` en la rama sin
+      directorio), lo que hacía basura no determinista en
+      `without_extension("a.txt")`, `change_ext("a.txt", "")` y
+      `Path.without_suffix`; ahora copia con `"{st}"`.
+- [x] `tests/stdlib/test_atlas.py` (50 tests), `test_coven.py` (30) y
+      `test_compass.py` (37+) creados.
+- [x] `docs/ATLAS_API.md`, `docs/COVEN_API.md` y `docs/COMPASS_API.md` creados.
+- [x] `docs/DEPRECATIONS.md` ampliado (`SetString`/`SetInt`) y
+      `docs/PENGUNIC_CHECKLIST.md` con las reglas de colecciones genéricas.
+- [x] `pengu_runtime.h` **sin tocar**: este chunk no mueve código C.
+
+### Próximo: Chunk 5 (`std/archivum` + `std/rites` + `std/chronicle`)
+
+## Desviaciones y hallazgos de Chunk 4
+
+1. **`atlas` estaba incompleto por construcción, y arreglarlo exigió una
+   característica del lenguaje.** `keys_sorted`/`values_sorted` vivían solo en
+   bloques concretos de string/int. El plan del brief (un bloque genérico
+   `K: Ordo`) **no puede funcionar**: los bounds de un `enchanting` no se
+   comprueban al resolver el método, y un cuerpo genérico emite un `>` crudo de C
+   que no compila para `PenguString`. Medido: añadir un `keys_sorted` genérico
+   `K: Ordo` rompe `m.keys_sorted` sobre `map of string to int` **aunque exista
+   un override concreto** (el genérico se monomorfiza igual). La solución es un
+   `concept Ordered shard T` propio con un `bind` por tipo y `calling a.cmp with
+   b` en el cuerpo. Es el primer uso de `concept`/`bind` en `std/`.
+2. **Solo algunos nombres primitivos admiten `bind`.** Aceptan `int`, `i32`,
+   `i64`, `float`, `f32`, `f64`, `string`, `bool`; rechazan `i8`, `i16`,
+   `u8`…`u64`, `usize`, `isize`, `char`, `double`, `byte` y las grafías C
+   (`int32_t`, …) con `E0004`. Por tanto `keys_sorted`/`values_sorted` cubren
+   `{int, i32, i64, float, f32, f64, string}`, los `alias` de esos tipos y
+   cualquier `seal`/`rune` que añada su propio `bind`; los enteros estrechos/sin
+   signo y `char` quedan fuera de alcance.
+3. **Un `bind` no puede tener un destino privado ni un concept cualificado.**
+   `seal _X as int` + `bind _X` da `E0004 Undefined type ''`, y
+   `bind X with atlas.Ordered:` da `E0004 Undefined concept 'atlas.Ordered'`.
+   La receta para el usuario es `import std.atlas` y luego
+   `bind <Type> with Ordered:` **sin cualificar**. Esto obligó a retirar los
+   fixtures `AtlasTest*` que se habían usado en los tests internos para no
+   publicar tipos solo-de-test (la cobertura de tipos de usuario vive ahora en
+   `tests/stdlib/test_atlas.py`).
+4. **Los bounds de un `enchanting` son decorativos.** Un `map of string to int`
+   acepta un método declarado en `where K: Integrum` (verificado). Como
+   consecuencia, un método puede monomorfizarse para tipos que no cumplen su
+   bound: los bounds no son la única red de seguridad.
+5. **Un `enchanting` mixto genérico/concreto no infiere el parámetro genérico
+   cuando aparece en el retorno.** `enchanting map of string to shard V` no sirve
+   para `filter_keys_contains -> map of string to V` (`E0005`); un método que
+   devuelve `int` sí funciona, pero el bloque `count_true`/`count_false` necesitó
+   además un segundo parámetro `shard` en el destino
+   (`enchanting map of shard K to bool shard K and V where …`) porque con uno
+   solo el compilador no resuelve la llamada. Los filtros de string siguen
+   concretos.
+6. **Tamaños de elemento y ABI en `antiquus`.** `int` = `int32_t` (4 bytes),
+   `float` = `float` (32 bits, **no** `double`), `f64`/`double` = 8, `string` =
+   `PenguString`. Un parámetro `list of T` llega **por valor** como `PenguList`
+   (`xs.data`, `xs.len`, sin `->`). Un `qsort` con `sizeof(int64_t)` sobre una
+   `list of int` corrompe el heap (SIGABRT) — medido antes de corregirlo.
+7. **`rune` no admite cláusula `where`** (el `rune_decl` de la gramática no la
+   tiene): `rune Set shard T:` y el campo `map of T to int` impone `T: Vinculum`
+   al instanciar.
+8. **Un constructor `ritual` genérico no es utilizable.** `Set.empty` sobre un
+   rune genérico se resuelve por sufijo y se enlaza con el símbolo equivocado
+   (`Set_int_is_empty`) en cuanto el bundle contiene más de una especialización
+   `Set of T` (y las propias `test` del módulo las contienen), o directamente no
+   compila (`invalid initializer`). Se retiraron `Set.empty`/`Set.from_items` y se
+   sustituyeron por las funciones de módulo `make_set`/`from_items_set` (con
+   `of T` explícito) y los constructores concretos. Además, `new_set` tuvo que
+   renombrarse a `make_set`: su especialización `new_set of string` se manglea a
+   `new_set_string` y secuestra el `coven.new_set_string` legacy.
+9. **`atlas` arrastra un defecto preexistente de mutación por valor.** Un
+   parámetro `map`/`list` se pasa **por valor** como copia de struct
+   (`PenguMap m`, no `PenguMap*`); por eso ninguna función de módulo que reciba
+   `m as map of K to V` y devuelva `void` puede mutar el mapa del llamante
+   (`map_put`, `put*`, `map_remove`, `remove*`, `map_clear`, `clear*`, `update`,
+   `rename_key`). Medido: `/tmp/c4/probe_byvalue.pengu` imprime
+   `nongeneric=0 generic=0 list=2`; las formas de **método** sí funcionan porque
+   `self` es `ref to map` (`calling m.clear` deja el mapa a 0). El fallo estaba
+   oculto porque la suite interna de `atlas` se detenía antes en
+   `filter_keys_contains` (roto desde antiguo), así que los tests de mutación
+   posteriores no se ejecutaban. Este chunk **no** cambia firmas (haría falta
+   `ref to map` y `sigil of` en cada llamada, o un cambio en el compilador, que
+   está fuera de alcance): los tests internos ejercitan las formas de método y la
+   limitación queda documentada como deuda.
+10. **Un `bag` de tests rojo ocultaba fallos en cadena.** Además de
+    `filter_keys_contains` (esperaba 2 claves con `"a"` en `{alpha, beta,
+    gamma}`: son 3) y del test de bundling de `scrolls` (Chunk 2, arreglado aquí
+    en `tests/compiler/test_compiler_bugfixes_v0150.py`), el propio `compass`
+    tenía el use-after-free de `cp_change_ext` descrito arriba, introducido al
+    añadir `defer banish st` en la migración sobre un `set buf is st` que
+    aliasaba el buffer.
+11. **`defer` es de ámbito de función en el C generado.** Un `defer banish x`
+    sobre una variable declarada dentro de un `if`/`else` no compila
+    (`'x' was not declared`); los temporales owned van al nivel superior de la
+    función o se liberan con `banish` explícito dentro del bloque.
 
 ## Desviaciones y hallazgos de Chunk 3
 

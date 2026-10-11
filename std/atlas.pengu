@@ -1,11 +1,15 @@
-## std/atlas.pengu
-## Mapas (`map of K to V`): acceso, consulta, mutación, reducción, filtrado y transformación.
+## std/atlas.pengu — maps (`map of K to V`): access, query, mutation, reduction,
+## filtering and transformation, with a **generic** API (`K: Par`, `V: Par`,
+## `V: Num`, `K: Ordered`, `V: Ordered`) and 100% compatibility with the concrete
+## `map of string to int` API of 0.15.0.
 ##
-## El núcleo es genérico: un bloque `enchanting` sobre `map of shard K to shard V
-## where K: Par, V: Par` cubre toda combinación comparable y otro `V: Num` añade
-## la aritmética; solo `string`/`bool` necesitan bloques concretos mínimos.
+## One `enchanting map of shard K to shard V where K: Par, V: Par` covers every
+## hashable combination, a second one (`V: Num and V: Ordo`) adds the arithmetic
+## and two more (`K: Ordered` / `V: Ordered`) give a deterministic order through
+## the `Ordered` concept. Only the `string`-keyed filters need concrete blocks
+## (the compiler cannot infer `K` for a method returning `map of K to string`).
 ##
-## ## Ejemplo
+## ## Example
 ## ```pengu
 ## import std.atlas
 ## import std.spark
@@ -18,36 +22,94 @@
 ##     calling spark.println with "{calling m.size}"
 ##     var ap as map of string to int is calling m.filter_keys_startswith with "ap"
 ##     calling spark.println with "{calling ap.size}"
+##     var ks as list of string is calling m.keys_sorted
 ##     return 0
 ## ```
 ##
 ## ## Memory
-## - Los mutadores (`update`, `rename_key`, `remove`, `clear`, `put_all`) cambian
-##   el mapa **en el lugar**; los métodos que devuelven `list`/`map` crean
-##   contenedores nuevos que el llamante debe liberar con `banish`; el receptor
-##   nunca se consume.
-## - `keys`, `values` y `entries` recorren el orden interno del hash; usa
-##   `keys_sorted`/`values_sorted` para un orden determinista.
+## - The mutators (`update`, `rename_key`, `remove`, `clear`, `put_all`, ...)
+##   change the map **in place**; the methods that return `list`/`map` build new
+##   containers the caller releases with `banish`. The receiver is never consumed.
+## - `keys`, `values` and `entries` walk the internal hash order; use
+##   `keys_sorted`/`values_sorted` when a deterministic order matters.
 ##
-## ## Notas de diseño
-## - **Núcleo genérico** y **alias de compatibilidad**: todos los nombres
-##   públicos de 0.15.0 siguen existiendo como *forwarders* de una línea.
-## - **`insignia atlas_`:** evita que el envoltorio `remove` colisione con el
-##   símbolo C `remove` de `stdio.h`, sin cambiar ningún nombre Pengu.
-## - **Harness de tests privado:** los `test` en módulo usan `_expect_eq_int`,
-##   `_expect_eq_string` y `_expect_true` sobre `std.spark` (no `std.ward`).
+## ## Design notes
+## - **Generic core and compatibility aliases.** Every public 0.15.0 name still
+##   exists as a one-line *forwarder* over the equivalent generic method.
+## - **`insignia atlas_`** keeps the `remove` wrapper from colliding with the C
+##   `remove` symbol of `stdio.h`, without renaming any Pengu symbol.
+## - **`concept Ordered`.** The concept adds a `cmp with other as T into int`
+##   method to the primitives bound below (`int`, `i32`, `i64`, `float`, `f32`,
+##   `f64`, `string`). A user type extends the order with an **unqualified**
+##   `bind <Type> with Ordered:` (import atlas first) plus the `cmp` body. A
+##   `seal`/`rune` key needs that bind; an `alias` unwraps to its base type and
+##   needs **no** extra bind — the base type's bind already covers it. The
+##   recipe is exercised by the external suite `tests/stdlib/test_atlas.py`,
+##   which declares its own `seal UserId as int` and an unqualified
+##   `bind UserId with Ordered:`; this module exports **no** test-only type.
+## - **Two `bind` restrictions.** The target of a `bind` cannot be `_`-private
+##   (`seal _X` + `bind _X` fails with `E0004 Undefined type ''`), and the
+##   concept cannot be named qualified: after `import std.atlas` the recipe is
+##   `bind UserId with Ordered:`, while `bind UserId with atlas.Ordered:` is
+##   `E0004`. User types are therefore bound unqualified.
+## - **Compiler limitation on `bind`.** `bind <T> with Ordered:` only accepts the
+##   type names the compiler registers as primitives. `i8`, `i16`, `u8`, `u16`,
+##   `u32`, `u64`, `usize`, `isize`, `char` and `double` are rejected with
+##   `E0004 Undefined type '<name>' in bind declaration`, so `keys_sorted` /
+##   `values_sorted` are not available for those key/value types. There is
+##   deliberately no per-type concrete block for them: generalising is the
+##   contract, and duplicating the sort for each primitive was rejected.
+## - **`count_true`/`count_false` and the second shard parameter.** The boolean
+##   block reads `map of shard K to bool shard K and V where K: Par, V: Par`. A
+##   map carries two type arguments and the compiler only resolves a generic
+##   method when the number of shard parameters matches them; with a single shard
+##   parameter every call fails with `E0005 Could not infer type parameter(s) K`.
+##   The second parameter does not occur in the receiver type: it only lets the
+##   compiler bind the two type arguments of the map.
+## - **Why the `string` filters stay concrete.** `map of shard K to string`
+##   cannot infer `K` for a method returning `map of K to string` (measured), so
+##   `filter_keys_contains`, `filter_keys_startswith` and
+##   `filter_values_contains` live in concrete `map of string to *` blocks. The
+##   generic module function `map_filter_values_contains` does infer `K` from its
+##   argument and is the portable alternative.
+## - **C sorts (`antiquus`).** `keys_sorted_ii`, `values_sorted_ii`,
+##   `keys_sorted_is`, `keys_sorted_ss`, `values_sorted_ss`, `values_sorted_is`,
+##   `keys_sorted_sf`, `values_sorted_sf` and the private `_sort_strings` build
+##   the list and sort it with `qsort` through one `antiquus` comparator per
+##   element type (`int32_t`, `float`, `PenguString`).
+## - **Private test harness.** The `test` blocks use `_expect_eq_int`,
+##   `_expect_eq_string` and `_expect_true` over `std.spark` (never
+##   `std.ward`: ward imports atlas and the cycle would be `E0004`).
+## - **Known defect: module-level mutators receive the map by value.** The
+##   compiler passes a `map` **parameter** as a C struct copy, so the void
+##   compatibility wrappers (`put`, `put_*`, `remove`, `remove_*`, `clear`,
+##   `clear_*`, `update` and the generic `map_put`/`map_remove`/`map_clear`)
+##   cannot change the caller's map: the copy shares the entry buffer but the
+##   caller's `len` is never updated and `clear_*` leaves `size_*`/`is_empty_*`
+##   reading the old length. Use the **method** form instead (`calling m.put`,
+##   `calling m.remove`, `calling m.clear`, `calling m.update`,
+##   `calling m.rename_key`, `calling m.remove_all`, ...), whose `self` is a
+##   `ref to` the receiver and which therefore mutates in place. A future chunk
+##   can migrate the wrappers to `ref to map of ...` (that would force callers to
+##   write `sigil of m`, so it is deliberately out of scope here).
+## - **No test-only type in the public surface.** The custom-key extension
+##   (`seal`/`rune`/`alias` plus an unqualified `bind <Type> with Ordered:`) is
+##   covered by the external suite `tests/stdlib/test_atlas.py`. The internal
+##   `test` blocks keep to the bound primitives so that no fixture type is
+##   exported by the module.
 ##
-## ## Migración
-## | Antes (0.15.0) | Ahora |
+## ## Migration
+## | Before (0.15.0) | Now |
 ## |---|---|
 ## | `calling atlas.size_ss with m` | `calling m.size` |
 ## | `calling atlas.get_or_ii with m, k, 0` | `calling m.get_or with k, 0` |
 ## | `calling atlas.merge_ss with a, b` | `calling map_merge with a, b` |
 ## | `calling atlas.from_lists_sf with ks, vs` | `calling map_from_lists with ks, vs` |
 ## | `calling m.to_keys_list` | `calling m.keys` |
-## | — | `calling m.entries`, `m.invert`, `m.take_keys` (nuevos) |
-## | — | `calling m.filter_entries`, `m.map_values_with`, `m.count_where` (nuevos) |
-## | — | `calling atlas.from_pairs`, `atlas.merge_all` (nuevos) |
+## | — | `calling m.entries`, `m.invert`, `m.take_keys` (new) |
+## | — | `calling m.filter_entries`, `m.map_values_with`, `m.count_where` (new) |
+## | — | `calling atlas.from_pairs`, `atlas.merge_all` (new) |
+## | generic sorters bound `K: Ordo` | `K: Ordered` (also works for `string`) |
 
 insignia atlas_
 
@@ -55,54 +117,323 @@ import std.oracle
 import std.scrolls
 import std.spark
 
-# --- Constantes públicas ----------------------------------------------------
+# --- Concept `Ordered` and its primitive binds ------------------------------
 
-## Versión del módulo `std.atlas`.
-const ATLAS_VERSION as string is "2.0.0"
+## Total order over a type: the concept that backs `keys_sorted`/`values_sorted`.
+##
+## ## Design notes
+## A `bind` adds a `cmp` method to the bound type; `keys_sorted`/`values_sorted`
+## call `calling left.cmp with key`. After `import std.atlas`, extend the order
+## of a user type with an **unqualified** `bind MyKey with Ordered:` plus a `cmp`
+## body (the qualified `atlas.Ordered` is `E0004`, and a `_`-private target is
+## also `E0004`). An `alias` needs no bind: it unwraps to its base type, whose
+## bind applies.
+concept Ordered shard T:
+    weave cmp with other as T into int
 
-# --- Enchanting genérico: K: Par, V: Par ------------------------------------
+## Implements `Ordered` for `int` with the native comparison operators.
+##
+## ## Parámetros
+## - `other`: the int to compare against the receiver.
+##
+## ## Retorno
+## `1` when the receiver is greater, `-1` when it is smaller, `0` when they are equal. Borrows both operands.
+##
+## ## Ejemplo
+## ```pengu
+## var a as int is 1
+## calling a.cmp with 2    # -1
+## ```
+bind int with Ordered:
+    weave cmp with other as int into int:
+        var me as int is essence of self
+        if me > other:
+            return 1
+        if me < other:
+            return -1
+        return 0
+
+## Implements `Ordered` for `i32` with the native comparison operators.
+##
+## ## Parámetros
+## - `other`: the i32 to compare against the receiver.
+##
+## ## Retorno
+## `1` when the receiver is greater, `-1` when it is smaller, `0` when they are equal. Borrows both operands.
+##
+## ## Ejemplo
+## ```pengu
+## var a as i32 is 1
+## calling a.cmp with 2    # -1
+## ```
+bind i32 with Ordered:
+    weave cmp with other as i32 into int:
+        var me as i32 is essence of self
+        if me > other:
+            return 1
+        if me < other:
+            return -1
+        return 0
+
+## Implements `Ordered` for `i64` with the native comparison operators.
+##
+## ## Parámetros
+## - `other`: the i64 to compare against the receiver.
+##
+## ## Retorno
+## `1` when the receiver is greater, `-1` when it is smaller, `0` when they are equal. Borrows both operands.
+##
+## ## Ejemplo
+## ```pengu
+## var a as i64 is 1
+## calling a.cmp with 2    # -1
+## ```
+bind i64 with Ordered:
+    weave cmp with other as i64 into int:
+        var me as i64 is essence of self
+        if me > other:
+            return 1
+        if me < other:
+            return -1
+        return 0
+
+## Implements `Ordered` for `float` with the native comparison operators.
+##
+## ## Parámetros
+## - `other`: the float to compare against the receiver.
+##
+## ## Retorno
+## `1` when the receiver is greater, `-1` when it is smaller, `0` when they are equal. Borrows both operands.
+##
+## ## Ejemplo
+## ```pengu
+## var a as float is 1
+## calling a.cmp with 2    # -1
+## ```
+bind float with Ordered:
+    weave cmp with other as float into int:
+        var me as float is essence of self
+        if me > other:
+            return 1
+        if me < other:
+            return -1
+        return 0
+
+## Implements `Ordered` for `f32` with the native comparison operators.
+##
+## ## Parámetros
+## - `other`: the f32 to compare against the receiver.
+##
+## ## Retorno
+## `1` when the receiver is greater, `-1` when it is smaller, `0` when they are equal. Borrows both operands.
+##
+## ## Ejemplo
+## ```pengu
+## var a as f32 is 1
+## calling a.cmp with 2    # -1
+## ```
+bind f32 with Ordered:
+    weave cmp with other as f32 into int:
+        var me as f32 is essence of self
+        if me > other:
+            return 1
+        if me < other:
+            return -1
+        return 0
+
+## Implements `Ordered` for `f64` with the native comparison operators.
+##
+## ## Parámetros
+## - `other`: the f64 to compare against the receiver.
+##
+## ## Retorno
+## `1` when the receiver is greater, `-1` when it is smaller, `0` when they are equal. Borrows both operands.
+##
+## ## Ejemplo
+## ```pengu
+## var a as f64 is 1
+## calling a.cmp with 2    # -1
+## ```
+bind f64 with Ordered:
+    weave cmp with other as f64 into int:
+        var me as f64 is essence of self
+        if me > other:
+            return 1
+        if me < other:
+            return -1
+        return 0
+
+## Implements `Ordered` for `string` with `calling string.compare`.
+##
+## ## Parámetros
+## - `other`: the `string` to compare against the receiver.
+##
+## ## Retorno
+## `1` when the receiver sorts after `other`, `-1` when it sorts before, `0` when they are equal. Both strings are borrowed.
+##
+## ## Ejemplo
+## ```pengu
+## var a as string is "alpha"
+## calling a.cmp with "beta"    # -1
+## ```
+bind string with Ordered:
+    weave cmp with other as string into int:
+        var me as string is essence of self
+        return calling me.compare with other
+
+# --- Public constants -----------------------------------------------------
+
+## Version of the `std.atlas` module.
+##
+## ## Parámetros
+## - None.
+##
+## ## Retorno
+## The literal `"2.1.0"` as a `string`.
+##
+## ## Ejemplo
+## ```pengu
+## calling spark.println with ATLAS_VERSION    # 2.1.0
+## ```
+const ATLAS_VERSION as string is "2.1.0"
+
+# --- Generic enchanting: K: Par, V: Par ------------------------------------
 
 enchanting map of shard K to shard V where K: Par, V: Par:
-
-    ## Número de entradas de `self`; equivalente a `calling self.len`.
+    ## Number of entries in the receiver.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to measure.
+    ##
+    ## ## Retorno
+    ## The number of entries as an `int`. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var m as map of string to int is map of string to int
+    ## calling m.put with "a", 1
+    ## calling m.size    # 1
+    ## ```
     weave size into int:
         return (essence of self).len
 
-    ## Devuelve `true` cuando `self` no tiene entradas.
+    ## `true` when the receiver has no entries.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to inspect.
+    ##
+    ## ## Retorno
+    ## `true` when `size` is `0`; `false` otherwise. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var m as map of string to int is map of string to int
+    ## calling m.is_empty    # true
+    ## ```
     weave is_empty into bool:
         return (essence of self).len == 0
 
-    ## Devuelve `true` cuando `key` existe en `self`.
+    ## `true` when `key` is present in the receiver.
+    ##
+    ## ## Parámetros
+    ## - `key`: the key to look up. Borrowed.
+    ##
+    ## ## Retorno
+    ## `true` when the map holds `key`; `false` otherwise. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.has_key with "beta"    # true
+    ## ```
     weave has_key with key as K into bool:
         return calling self.contains with key
 
-    ## `true` si alguna clave de `keys` está en `self`; lista vacía → `false`.
+    ## `true` when at least one key of `keys` is present.
+    ##
+    ## ## Parámetros
+    ## - `keys`: the candidate keys to test. Read only.
+    ##
+    ## ## Retorno
+    ## `true` on the first match; `false` for an empty list or no match. Borrows both arguments.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var ks as list of string is ["zeta", "beta"]
+    ## calling m.has_any_key with ks    # true
+    ## ```
     weave has_any_key with keys as list of K into bool:
         for k in keys:
             if calling self.contains with k:
                 return true
         return false
 
-    ## `true` si todas las claves de `keys` están en `self`; lista vacía → `true`.
+    ## `true` when every key of `keys` is present.
+    ##
+    ## ## Parámetros
+    ## - `keys`: the keys that must all be present. Read only.
+    ##
+    ## ## Retorno
+    ## `true` for an empty list and when every key is present; `false` on the first missing key. Borrows both arguments.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var ks as list of string is ["alpha", "gamma"]
+    ## calling m.has_all_keys with ks    # true
+    ## ```
     weave has_all_keys with keys as list of K into bool:
         for k in keys:
             if not (calling self.contains with k):
                 return false
         return true
 
-    ## Valor de `key`, o `fallback` si la clave no está.
+    ## Value stored under `key`, or `fallback` when the key is absent.
+    ##
+    ## ## Parámetros
+    ## - `key`: the key to look up. Borrowed.
+    ## - `fallback`: the value returned when `key` is missing.
+    ##
+    ## ## Retorno
+    ## The stored value or `fallback`, by value. Borrows the receiver and both parameters.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.get_or with "beta", 0    # 2
+    ## calling m.get_or with "zeta", -1    # -1
+    ## ```
     weave get_or with key as K, fallback as V into V:
         if calling self.contains with key:
             return self at key
         return fallback
 
-    ## `some v` si `key` está presente; `maybe none` en caso contrario.
+    ## `some v` when `key` is present, `maybe none` otherwise.
+    ##
+    ## ## Parámetros
+    ## - `key`: the key to look up. Borrowed.
+    ##
+    ## ## Retorno
+    ## A `maybe V` wrapping the stored value, or `maybe none`. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var got as maybe int is calling m.get_safe with "beta"
+    ## ```
     weave get_safe with key as K into maybe V:
         if calling self.contains with key:
             return some (self at key)
         return maybe none
 
-    ## Primera clave cuyo valor es `target`, o `maybe none` si no hay ninguna.
+    ## First key whose value equals `target`.
+    ##
+    ## ## Parámetros
+    ## - `target`: the value to search for.
+    ##
+    ## ## Retorno
+    ## `some k` for the first matching key in internal hash order, or `maybe none`. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var got as maybe string is calling m.find_key_by_value with 2
+    ## ```
     weave find_key_by_value with target as V into maybe K:
         for k in essence of self:
             var v as V is self at k
@@ -110,14 +441,38 @@ enchanting map of shard K to shard V where K: Par, V: Par:
                 return some k
         return maybe none
 
-    ## Actualiza el valor de una clave existente; `false` si no existe.
+    ## Replaces the value of an existing key; never inserts.
+    ##
+    ## ## Parámetros
+    ## - `key`: the key to update. Borrowed.
+    ## - `value`: the new value.
+    ##
+    ## ## Retorno
+    ## `true` when `key` existed and was updated; `false` when it was not inserted. Mutates the receiver in place.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.update with "beta", 9    # true
+    ## ```
     weave update with key as K, value as V into bool:
         if calling self.contains with key:
             calling self.put with key, value
             return true
         return false
 
-    ## Renombra `old_key` a `new_key` conservando el valor.
+    ## Renames `old_key` to `new_key`, keeping the value.
+    ##
+    ## ## Parámetros
+    ## - `old_key`: the key to move. Borrowed.
+    ## - `new_key`: the destination key. Borrowed.
+    ##
+    ## ## Retorno
+    ## `true` when `old_key` existed; `false` when it did not. A collision overwrites the destination and the old key is removed. Mutates the receiver in place.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.rename_key with "alpha", "omega"    # true
+    ## ```
     weave rename_key with old_key as K, new_key as K into bool:
         if not (calling self.contains with old_key):
             return false
@@ -128,7 +483,18 @@ enchanting map of shard K to shard V where K: Par, V: Par:
                 calling .remove with old_key
         return true
 
-    ## Elimina `key`; devuelve `true` si existía.
+    ## Removes `key` when it is present.
+    ##
+    ## ## Parámetros
+    ## - `key`: the key to remove. Borrowed.
+    ##
+    ## ## Retorno
+    ## `true` when the key existed and was removed; `false` otherwise. Mutates the receiver in place.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.remove with "beta"    # true
+    ## ```
     weave remove with key as K into bool:
         if calling self.contains with key:
             with self:
@@ -136,12 +502,36 @@ enchanting map of shard K to shard V where K: Par, V: Par:
             return true
         return false
 
-    ## Vacía `self` por completo.
+    ## Removes every entry from the receiver.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to empty.
+    ##
+    ## ## Retorno
+    ## Nothing; the map is left empty in place.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.clear
+    ## calling m.is_empty    # true
+    ## ```
     weave clear into void:
         with self:
             calling .clear
 
-    ## Elimina todas las claves de `keys`; devuelve cuántas se eliminaron.
+    ## Removes every key of `keys` that is present.
+    ##
+    ## ## Parámetros
+    ## - `keys`: the keys to remove. Read only.
+    ##
+    ## ## Retorno
+    ## The number of entries actually removed as an `int`. Mutates the receiver in place.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var ks as list of string is ["alpha", "zeta"]
+    ## calling m.remove_all with ks    # 1
+    ## ```
     weave remove_all with keys as list of K into int:
         var removed as int is 0
         for k in keys:
@@ -149,20 +539,53 @@ enchanting map of shard K to shard V where K: Par, V: Par:
                 set removed is removed + 1
         return removed
 
-    ## Copia todas las entradas de `other` en `self`, sobrescribiendo claves.
+    ## Copies every entry of `other` into the receiver.
+    ##
+    ## ## Parámetros
+    ## - `other`: the map to copy from. Read only.
+    ##
+    ## ## Retorno
+    ## Nothing; existing keys are overwritten and new keys are inserted in place. Borrows `other`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.put_all with other
+    ## ```
     weave put_all with other as map of K to V into void:
         for k in other:
             var v as V is other at k
             calling self.put with k, v
 
-    ## Lista nueva con todas las claves, en orden interno del hash.
+    ## New list with all keys, in internal hash order.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to read.
+    ##
+    ## ## Retorno
+    ## An owned `list of K` the caller releases with `banish`. The order is the internal hash order, not sorted.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var ks as list of string is calling m.keys
+    ## ```
     weave keys into list of K:
         var out as list of K is list of K
         for k in essence of self:
             calling out.push with k
         return out
 
-    ## Lista nueva con todos los valores, en orden interno del hash.
+    ## New list with all values, in internal hash order.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to read.
+    ##
+    ## ## Retorno
+    ## An owned `list of V` the caller releases with `banish`. The order is the internal hash order, not sorted.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var vs as list of int is calling m.values
+    ## ```
     weave values into list of V:
         var out as list of V is list of V
         for k in essence of self:
@@ -170,7 +593,18 @@ enchanting map of shard K to shard V where K: Par, V: Par:
             calling out.push with v
         return out
 
-    ## Copia superficial independiente de `self`.
+    ## Independent shallow copy of the receiver.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to copy.
+    ##
+    ## ## Retorno
+    ## An owned `map of K to V` the caller releases with `banish`. Keys and values are copied by value; owned values are shared, not deep-copied.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var c as map of string to int is calling m.clone
+    ## ```
     weave clone into map of K to V:
         var out as map of K to V is map of K to V
         for k in essence of self:
@@ -178,11 +612,33 @@ enchanting map of shard K to shard V where K: Par, V: Par:
             calling out.put with k, v
         return out
 
-    ## Alias de `clone`.
+    ## Alias of `clone`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to copy.
+    ##
+    ## ## Retorno
+    ## The same owned copy as `calling self.clone`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var c as map of string to int is calling m.copy
+    ## ```
     weave copy into map of K to V:
         return calling self.clone
 
-    ## Igualdad estructural clave-valor (mismo tamaño y mismos pares).
+    ## Structural key/value equality.
+    ##
+    ## ## Parámetros
+    ## - `other`: the map to compare against. Read only.
+    ##
+    ## ## Retorno
+    ## `true` when both maps have the same size and the same value for every key; `false` otherwise. Borrows both maps.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.is_equal with other    # true
+    ## ```
     weave is_equal with other as map of K to V into bool:
         if (essence of self).len != other.len:
             return false
@@ -194,15 +650,48 @@ enchanting map of shard K to shard V where K: Par, V: Par:
                 return false
         return true
 
-    ## Alias de `keys`.
+    ## Alias of `keys`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to read.
+    ##
+    ## ## Retorno
+    ## The same owned `list of K` as `calling self.keys`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var ks as list of string is calling m.to_keys_list
+    ## ```
     weave to_keys_list into list of K:
         return calling self.keys
 
-    ## Alias de `values`.
+    ## Alias of `values`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to read.
+    ##
+    ## ## Retorno
+    ## The same owned `list of V` as `calling self.values`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var vs as list of int is calling m.to_values_list
+    ## ```
     weave to_values_list into list of V:
         return calling self.values
 
-    ## Lista nueva de pares `oracle.Pair` clave-valor.
+    ## New list of `oracle.Pair` key/value entries.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to read.
+    ##
+    ## ## Retorno
+    ## An owned `list of oracle.Pair of K and V` the caller releases with `banish`, in internal hash order.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var es as list of oracle.Pair of string and int is calling m.entries
+    ## ```
     weave entries into list of oracle.Pair of K and V:
         var out as list of oracle.Pair of K and V is list of oracle.Pair of K and V
         for k in essence of self:
@@ -213,7 +702,18 @@ enchanting map of shard K to shard V where K: Par, V: Par:
             calling out.push with p
         return out
 
-    ## Invierte el mapa: los valores pasan a claves. Con valores repetidos gana el último.
+    ## Swaps keys and values.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to invert.
+    ##
+    ## ## Retorno
+    ## An owned `map of V to K`. When several keys share a value the last one visited in internal hash order wins. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var inv as map of int to string is calling m.invert
+    ## ```
     weave invert into map of V to K:
         var out as map of V to K is map of V to K
         for k in essence of self:
@@ -221,7 +721,19 @@ enchanting map of shard K to shard V where K: Par, V: Par:
             calling out.put with v, k
         return out
 
-    ## Submapa con las claves presentes en `ks`.
+    ## Submap holding only the requested keys.
+    ##
+    ## ## Parámetros
+    ## - `ks`: the keys to keep. Read only.
+    ##
+    ## ## Retorno
+    ## An owned `map of K to V` with the keys of `ks` that exist in the receiver; missing keys are skipped. Borrows both arguments.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var ks as list of string is ["alpha"]
+    ## var sub as map of string to int is calling m.take_keys with ks
+    ## ```
     weave take_keys with ks as list of K into map of K to V:
         var out as map of K to V is map of K to V
         for k in ks:
@@ -230,7 +742,18 @@ enchanting map of shard K to shard V where K: Par, V: Par:
                 calling out.put with k, v
         return out
 
-    ## Cuenta las entradas que cumplen `predicate`.
+    ## Counts the entries accepted by `predicate`.
+    ##
+    ## ## Parámetros
+    ## - `predicate`: `weave with k as K, v as V into bool`. Called once per entry.
+    ##
+    ## ## Retorno
+    ## The number of entries for which `predicate` returned `true`, as an `int`. Borrows the receiver; the predicate must not consume it.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.count_where with _value_gt_one    # 2
+    ## ```
     weave count_where with predicate as weave with k as K, v as V into bool into int:
         var n as int is 0
         for k in essence of self:
@@ -239,7 +762,18 @@ enchanting map of shard K to shard V where K: Par, V: Par:
                 set n is n + 1
         return n
 
-    ## Submapa con las entradas que cumplen `predicate`.
+    ## Submap with the entries accepted by `predicate`.
+    ##
+    ## ## Parámetros
+    ## - `predicate`: `weave with k as K, v as V into bool`. Called once per entry.
+    ##
+    ## ## Retorno
+    ## An owned `map of K to V` with the accepted entries. Borrows the receiver and the predicate.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var sub as map of string to int is calling m.filter_entries with _value_gt_one
+    ## ```
     weave filter_entries with predicate as weave with k as K, v as V into bool into map of K to V:
         var out as map of K to V is map of K to V
         for k in essence of self:
@@ -248,7 +782,18 @@ enchanting map of shard K to shard V where K: Par, V: Par:
                 calling out.put with k, v
         return out
 
-    ## Mapa nuevo aplicando `f` a cada valor.
+    ## New map with `f` applied to every value.
+    ##
+    ## ## Parámetros
+    ## - `f`: `weave with x as V into V`. Called once per value.
+    ##
+    ## ## Retorno
+    ## An owned `map of K to V` with the same keys and the transformed values. Borrows the receiver; the returned map is owned by the caller.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var out as map of string to int is calling m.map_values_with with _inc
+    ## ```
     weave map_values_with with f as weave with x as V into V into map of K to V:
         var out as map of K to V is map of K to V
         for k in essence of self:
@@ -256,7 +801,18 @@ enchanting map of shard K to shard V where K: Par, V: Par:
             calling out.put with k, (calling f with v)
         return out
 
-    ## Combina `self` con cada mapa de `others`; los mapas posteriores ganan.
+    ## Receiver merged with each map of `others`.
+    ##
+    ## ## Parámetros
+    ## - `others`: the maps to merge in order. Read only.
+    ##
+    ## ## Retorno
+    ## An owned `map of K to V`; later maps win on collision. Borrows the receiver and `others`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var merged as map of string to int is calling m.merge_all with others
+    ## ```
     weave merge_all with others as list of map of K to V into map of K to V:
         var out as map of K to V is calling self.clone
         for other in others:
@@ -265,11 +821,21 @@ enchanting map of shard K to shard V where K: Par, V: Par:
                 calling out.put with k, v
         return out
 
-# --- Enchanting numérico/ordenado: K: Par, V: Num ---------------------------
+# --- Generic numeric enchanting: K: Par, V: Num and V: Ordo -----------------
 
 enchanting map of shard K to shard V where K: Par, V: Num and V: Ordo:
-
-    ## Suma de todos los valores; `donum V` (cero) si está vacío.
+    ## Sum of all values; `donum V` (zero) for an empty map.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to reduce.
+    ##
+    ## ## Retorno
+    ## The total as `V`; `donum V` (`0`) when the map is empty. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.sum_values    # 6
+    ## ```
     weave sum_values into V:
         var total as V is donum V
         for k in essence of self:
@@ -277,7 +843,19 @@ enchanting map of shard K to shard V where K: Par, V: Num and V: Ordo:
             set total is total + v
         return total
 
-    ## Suma de los valores dentro de `[lo, hi]` inclusive.
+    ## Sum of the values inside `[lo, hi]` inclusive.
+    ##
+    ## ## Parámetros
+    ## - `lo`: lower bound of the accepted range, inclusive.
+    ## - `hi`: upper bound of the accepted range, inclusive.
+    ##
+    ## ## Retorno
+    ## The total as `V`, or `donum V` when no value falls in the range. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.sum_values_filtered with 2, 3    # 5
+    ## ```
     weave sum_values_filtered with lo as V, hi as V into V:
         var total as V is donum V
         for k in essence of self:
@@ -286,7 +864,18 @@ enchanting map of shard K to shard V where K: Par, V: Num and V: Ordo:
                 set total is total + v
         return total
 
-    ## `true` si todos los valores son mayores que cero; vacío → `true`.
+    ## `true` when every value is greater than zero.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to scan.
+    ##
+    ## ## Retorno
+    ## `true` for an empty map and when no value is `<= 0`; `false` otherwise. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.all_values_positive    # true
+    ## ```
     weave all_values_positive into bool:
         for k in essence of self:
             var v as V is self at k
@@ -294,7 +883,18 @@ enchanting map of shard K to shard V where K: Par, V: Num and V: Ordo:
                 return false
         return true
 
-    ## `true` si algún valor es menor que cero; vacío → `false`.
+    ## `true` when at least one value is negative.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to scan.
+    ##
+    ## ## Retorno
+    ## `true` on the first negative value; `false` for an empty map. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.any_value_negative    # false
+    ## ```
     weave any_value_negative into bool:
         for k in essence of self:
             var v as V is self at k
@@ -302,7 +902,18 @@ enchanting map of shard K to shard V where K: Par, V: Num and V: Ordo:
                 return true
         return false
 
-    ## Cuenta los valores mayores que cero.
+    ## Counts the values greater than zero.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to scan.
+    ##
+    ## ## Retorno
+    ## The number of positive values as an `int`. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.count_if_value_positive    # 3
+    ## ```
     weave count_if_value_positive into int:
         var n as int is 0
         for k in essence of self:
@@ -311,7 +922,18 @@ enchanting map of shard K to shard V where K: Par, V: Num and V: Ordo:
                 set n is n + 1
         return n
 
-    ## Cuenta los valores menores que cero.
+    ## Counts the values smaller than zero.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to scan.
+    ##
+    ## ## Retorno
+    ## The number of negative values as an `int`. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.count_if_value_negative    # 1
+    ## ```
     weave count_if_value_negative into int:
         var n as int is 0
         for k in essence of self:
@@ -320,7 +942,18 @@ enchanting map of shard K to shard V where K: Par, V: Num and V: Ordo:
                 set n is n + 1
         return n
 
-    ## Mapa nuevo con cada valor duplicado (`v + v`).
+    ## New map with every value doubled (`v + v`).
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to transform.
+    ##
+    ## ## Retorno
+    ## An owned `map of K to V` the caller releases with `banish`. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var out as map of string to int is calling m.map_values_double
+    ## ```
     weave map_values_double into map of K to V:
         var out as map of K to V is map of K to V
         for k in essence of self:
@@ -328,7 +961,18 @@ enchanting map of shard K to shard V where K: Par, V: Num and V: Ordo:
             calling out.put with k, (v + v)
         return out
 
-    ## Mapa nuevo con cada valor negado (`-v`).
+    ## New map with every value negated (`-v`).
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to transform.
+    ##
+    ## ## Retorno
+    ## An owned `map of K to V` the caller releases with `banish`. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var out as map of string to int is calling m.map_values_negate
+    ## ```
     weave map_values_negate into map of K to V:
         var out as map of K to V is map of K to V
         for k in essence of self:
@@ -336,7 +980,18 @@ enchanting map of shard K to shard V where K: Par, V: Num and V: Ordo:
             calling out.put with k, (-v)
         return out
 
-    ## Mapa nuevo multiplicando cada valor por `factor`.
+    ## New map with every value multiplied by `factor`.
+    ##
+    ## ## Parámetros
+    ## - `factor`: the multiplier applied to every value.
+    ##
+    ## ## Retorno
+    ## An owned `map of K to V` the caller releases with `banish`. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var out as map of string to float is calling m.map_values_scale with 2.0
+    ## ```
     weave map_values_scale with factor as V into map of K to V:
         var out as map of K to V is map of K to V
         for k in essence of self:
@@ -344,7 +999,18 @@ enchanting map of shard K to shard V where K: Par, V: Num and V: Ordo:
             calling out.put with k, (v * factor)
         return out
 
-    ## Valor máximo; `donum V` (cero) si está vacío.
+    ## Largest value; `donum V` (zero) for an empty map.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to reduce.
+    ##
+    ## ## Retorno
+    ## The maximum as `V`, or `donum V` when the map is empty. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.max_value    # 3
+    ## ```
     weave max_value into V:
         var best as V is donum V
         var first_v as bool is true
@@ -358,7 +1024,18 @@ enchanting map of shard K to shard V where K: Par, V: Num and V: Ordo:
                     set best is v
         return best
 
-    ## Valor mínimo; `donum V` (cero) si está vacío.
+    ## Smallest value; `donum V` (zero) for an empty map.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to reduce.
+    ##
+    ## ## Retorno
+    ## The minimum as `V`, or `donum V` when the map is empty. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.min_value    # 1
+    ## ```
     weave min_value into V:
         var best as V is donum V
         var first_v as bool is true
@@ -372,7 +1049,19 @@ enchanting map of shard K to shard V where K: Par, V: Num and V: Ordo:
                     set best is v
         return best
 
-    ## `true` si todos los valores están en `[lo, hi]`; vacío → `true`.
+    ## `true` when every value lies inside `[lo, hi]`.
+    ##
+    ## ## Parámetros
+    ## - `lo`: lower bound, inclusive.
+    ## - `hi`: upper bound, inclusive.
+    ##
+    ## ## Retorno
+    ## `true` for an empty map and when no value is out of range; `false` otherwise. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.values_in_range with 1, 3    # true
+    ## ```
     weave values_in_range with lo as V, hi as V into bool:
         for k in essence of self:
             var v as V is self at k
@@ -382,7 +1071,19 @@ enchanting map of shard K to shard V where K: Par, V: Num and V: Ordo:
                 return false
         return true
 
-    ## Submapa con los valores dentro de `[lo, hi]` inclusive.
+    ## Submap with the values inside `[lo, hi]` inclusive.
+    ##
+    ## ## Parámetros
+    ## - `lo`: lower bound, inclusive.
+    ## - `hi`: upper bound, inclusive.
+    ##
+    ## ## Retorno
+    ## An owned `map of K to V` with the entries in range. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var sub as map of string to int is calling m.filter_values_range with 2, 3
+    ## ```
     weave filter_values_range with lo as V, hi as V into map of K to V:
         var out as map of K to V is map of K to V
         for k in essence of self:
@@ -391,19 +1092,141 @@ enchanting map of shard K to shard V where K: Par, V: Num and V: Ordo:
                 calling out.put with k, v
         return out
 
-# --- Bloques concretos mínimos (string / bool) ------------------------------
+# --- Generic ordering: K: Ordered, V: Ordered ------------------------------
 
-enchanting map of string to int:
-
-    weave keys_sorted into list of string:
-        var ks as list of string is list of string
+enchanting map of shard K to shard V where K: Ordered, V: Par:
+    ## New list with the keys sorted ascending through `calling K.cmp`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to read.
+    ##
+    ## ## Retorno
+    ## An owned `list of K` sorted ascending with the `Ordered` bind of `K`. Works for any `K` that implements `Ordered` (`int`, `float`, `string`, a bound `seal`/`rune`, ...). Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var ks as list of string is calling m.keys_sorted
+    ## calling ks at 0    # "alpha"
+    ## ```
+    weave keys_sorted into list of K:
+        var ks as list of K is list of K
         for k in essence of self:
             calling ks.push with k
-        return calling _sort_strings with ks
+        var n as int is calling ks.len
+        var i as int is 1
+        while i < n:
+            var key as K is ks at i
+            var j as int is i - 1
+            var moving as bool is j >= 0
+            while moving:
+                var left as K is ks at j
+                var c as int is calling left.cmp with key
+                if c > 0:
+                    set ks at (j + 1) is left
+                    set j is j - 1
+                    set moving is j >= 0
+                else:
+                    set moving is false
+            set ks at (j + 1) is key
+            set i is i + 1
+        return ks
 
-    weave values_sorted into list of int:
-        return calling values_sorted_of with (essence of self)
+enchanting map of shard K to shard V where K: Par, V: Ordered:
+    ## New list with the values sorted ascending through `calling V.cmp`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the map to read.
+    ##
+    ## ## Retorno
+    ## An owned `list of V` sorted ascending with the `Ordered` bind of `V`. Works for `int`, `float`, `string` and bound `seal`/`rune` values. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var vs as list of string is calling m.values_sorted
+    ## calling vs at 0    # "dos"
+    ## ```
+    weave values_sorted into list of V:
+        var vs as list of V is list of V
+        for k in essence of self:
+            var v as V is self at k
+            calling vs.push with v
+        var n as int is calling vs.len
+        var i as int is 1
+        while i < n:
+            var key as V is vs at i
+            var j as int is i - 1
+            var moving as bool is j >= 0
+            while moving:
+                var left as V is vs at j
+                var c as int is calling left.cmp with key
+                if c > 0:
+                    set vs at (j + 1) is left
+                    set j is j - 1
+                    set moving is j >= 0
+                else:
+                    set moving is false
+            set vs at (j + 1) is key
+            set i is i + 1
+        return vs
 
+# --- Generic boolean enchanting: K: Par ------------------------------------
+
+enchanting map of shard K to bool shard K and V where K: Par, V: Par:
+    ## Counts the entries whose value is `true`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the `map of K to bool` to count.
+    ##
+    ## ## Retorno
+    ## The number of `true` values as an `int`. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var m as map of int to bool is map of int to bool
+    ## calling m.put with 1, true
+    ## calling m.count_true    # 1
+    ## ```
+    weave count_true into int:
+        var n as int is 0
+        for k in essence of self:
+            if self at k:
+                set n is n + 1
+        return n
+
+    ## Counts the entries whose value is `false`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is the `map of K to bool` to count.
+    ##
+    ## ## Retorno
+    ## The number of `false` values as an `int`. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.count_false    # 1
+    ## ```
+    weave count_false into int:
+        var n as int is 0
+        for k in essence of self:
+            if not (self at k):
+                set n is n + 1
+        return n
+
+# --- Minimal concrete blocks (string / int keys) ---------------------------
+
+enchanting map of string to int:
+    ## Submap with the entries whose key contains `sub`.
+    ##
+    ## ## Parámetros
+    ## - `sub`: the substring to look for inside each key.
+    ##
+    ## ## Retorno
+    ## An owned `map of string to int` with the matching entries. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.filter_keys_contains with "a"
+    ## ```
     weave filter_keys_contains with sub as string into map of string to int:
         var out as map of string to int is map of string to int
         for k in essence of self:
@@ -412,6 +1235,18 @@ enchanting map of string to int:
                 calling out.put with k, v
         return out
 
+    ## Submap with the entries whose key starts with `prefix`.
+    ##
+    ## ## Parámetros
+    ## - `prefix`: the prefix each key must start with.
+    ##
+    ## ## Retorno
+    ## An owned `map of string to int` with the matching entries. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.filter_keys_startswith with "be"
+    ## ```
     weave filter_keys_startswith with prefix as string into map of string to int:
         var out as map of string to int is map of string to int
         for k in essence of self:
@@ -421,16 +1256,18 @@ enchanting map of string to int:
         return out
 
 enchanting map of string to float:
-
-    weave keys_sorted into list of string:
-        var ks as list of string is list of string
-        for k in essence of self:
-            calling ks.push with k
-        return calling _sort_strings with ks
-
-    weave values_sorted into list of float:
-        return calling values_sorted_of with (essence of self)
-
+    ## Submap with the entries whose key contains `sub`.
+    ##
+    ## ## Parámetros
+    ## - `sub`: the substring to look for inside each key.
+    ##
+    ## ## Retorno
+    ## An owned `map of string to float` with the matching entries. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.filter_keys_contains with "a"
+    ## ```
     weave filter_keys_contains with sub as string into map of string to float:
         var out as map of string to float is map of string to float
         for k in essence of self:
@@ -439,6 +1276,18 @@ enchanting map of string to float:
                 calling out.put with k, v
         return out
 
+    ## Submap with the entries whose key starts with `prefix`.
+    ##
+    ## ## Parámetros
+    ## - `prefix`: the prefix each key must start with.
+    ##
+    ## ## Retorno
+    ## An owned `map of string to float` with the matching entries. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.filter_keys_startswith with "be"
+    ## ```
     weave filter_keys_startswith with prefix as string into map of string to float:
         var out as map of string to float is map of string to float
         for k in essence of self:
@@ -448,20 +1297,18 @@ enchanting map of string to float:
         return out
 
 enchanting map of string to string:
-
-    weave keys_sorted into list of string:
-        var ks as list of string is list of string
-        for k in essence of self:
-            calling ks.push with k
-        return calling _sort_strings with ks
-
-    weave values_sorted into list of string:
-        var vs as list of string is list of string
-        for k in essence of self:
-            var v as string is self at k
-            calling vs.push with v
-        return calling _sort_strings with vs
-
+    ## Submap with the entries whose key contains `sub`.
+    ##
+    ## ## Parámetros
+    ## - `sub`: the substring to look for inside each key.
+    ##
+    ## ## Retorno
+    ## An owned `map of string to string` with the matching entries. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.filter_keys_contains with "et"
+    ## ```
     weave filter_keys_contains with sub as string into map of string to string:
         var out as map of string to string is map of string to string
         for k in essence of self:
@@ -470,6 +1317,18 @@ enchanting map of string to string:
                 calling out.put with k, v
         return out
 
+    ## Submap with the entries whose key starts with `prefix`.
+    ##
+    ## ## Parámetros
+    ## - `prefix`: the prefix each key must start with.
+    ##
+    ## ## Retorno
+    ## An owned `map of string to string` with the matching entries. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.filter_keys_startswith with "be"
+    ## ```
     weave filter_keys_startswith with prefix as string into map of string to string:
         var out as map of string to string is map of string to string
         for k in essence of self:
@@ -478,6 +1337,18 @@ enchanting map of string to string:
                 calling out.put with k, v
         return out
 
+    ## Submap with the entries whose value contains `sub`.
+    ##
+    ## ## Parámetros
+    ## - `sub`: the substring to look for inside each value.
+    ##
+    ## ## Retorno
+    ## An owned `map of string to string` with the matching entries. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.filter_values_contains with "do"
+    ## ```
     weave filter_values_contains with sub as string into map of string to string:
         var out as map of string to string is map of string to string
         for k in essence of self:
@@ -487,13 +1358,18 @@ enchanting map of string to string:
         return out
 
 enchanting map of string to bool:
-
-    weave keys_sorted into list of string:
-        var ks as list of string is list of string
-        for k in essence of self:
-            calling ks.push with k
-        return calling _sort_strings with ks
-
+    ## Submap with the entries whose key contains `sub`.
+    ##
+    ## ## Parámetros
+    ## - `sub`: the substring to look for inside each key.
+    ##
+    ## ## Retorno
+    ## An owned `map of string to bool` with the matching entries. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.filter_keys_contains with "a"
+    ## ```
     weave filter_keys_contains with sub as string into map of string to bool:
         var out as map of string to bool is map of string to bool
         for k in essence of self:
@@ -502,32 +1378,19 @@ enchanting map of string to bool:
                 calling out.put with k, v
         return out
 
-    weave count_true into int:
-        var n as int is 0
-        for k in essence of self:
-            if (self at k):
-                set n is n + 1
-        return n
-
-    weave count_false into int:
-        var n as int is 0
-        for k in essence of self:
-            if not (self at k):
-                set n is n + 1
-        return n
-
 enchanting map of int to string:
-
-    weave keys_sorted into list of int:
-        return calling keys_sorted_of with (essence of self)
-
-    weave values_sorted into list of string:
-        var vs as list of string is list of string
-        for k in essence of self:
-            var v as string is self at k
-            calling vs.push with v
-        return calling _sort_strings with vs
-
+    ## Submap with the entries whose value contains `sub`.
+    ##
+    ## ## Parámetros
+    ## - `sub`: the substring to look for inside each value.
+    ##
+    ## ## Retorno
+    ## An owned `map of int to string` with the matching entries. Borrows the receiver.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling m.filter_values_contains with "re"
+    ## ```
     weave filter_values_contains with sub as string into map of int to string:
         var out as map of int to string is map of int to string
         for k in essence of self:
@@ -536,42 +1399,103 @@ enchanting map of int to string:
                 calling out.put with k, v
         return out
 
-enchanting map of int to int:
+# --- Generic module functions (shard K, V) ---------------------------------
 
-    weave keys_sorted into list of int:
-        return calling keys_sorted_of with (essence of self)
-
-    weave values_sorted into list of int:
-        return calling values_sorted_of with (essence of self)
-
-# --- Funciones genéricas de módulo (shard K, V) -----------------------------
-
-## Número de entradas del mapa genérico `m`.
+## Number of entries of the generic map `m`.
+##
+## ## Parámetros
+## - `m`: the map to measure. Read only.
+##
+## ## Retorno
+## The number of entries as an `int`. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling map_size with m    # 3
+## ```
 weave map_size shard K, V with m as map of K to V into int:
     return m.len
 
-## `true` si el mapa genérico `m` no tiene entradas.
+## `true` when the generic map `m` has no entries.
+##
+## ## Parámetros
+## - `m`: the map to inspect. Read only.
+##
+## ## Retorno
+## `true` when the map is empty; `false` otherwise. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling map_is_empty with m    # false
+## ```
 weave map_is_empty shard K, V with m as map of K to V into bool:
     return m.len == 0
 
-## `true` si `key` existe en el mapa genérico `m`.
+## `true` when `key` exists in the generic map `m`.
+##
+## ## Parámetros
+## - `m`: the map to query. Read only.
+## - `key`: the key to look up. Borrowed.
+##
+## ## Retorno
+## `true` when `key` is present; `false` otherwise. Borrows both arguments.
+##
+## ## Ejemplo
+## ```pengu
+## calling map_has_key with m, "beta"    # true
+## ```
 weave map_has_key shard K, V with m as map of K to V, key as K into bool:
     return calling m.contains with key
 
-## Valor de `key` en `m`, o `fallback` si no está.
+## Value of `key` in `m`, or `fallback` when the key is absent.
+##
+## ## Parámetros
+## - `m`: the map to query. Read only.
+## - `key`: the key to look up. Borrowed.
+## - `fallback`: the value returned when `key` is missing.
+##
+## ## Retorno
+## The stored value or `fallback`, by value. Borrows the map.
+##
+## ## Ejemplo
+## ```pengu
+## calling map_get_or with m, "zeta", -1    # -1
+## ```
 weave map_get_or shard K, V with m as map of K to V, key as K, fallback as V into V:
     if calling m.contains with key:
         return m at key
     return fallback
 
-## Lista nueva con todas las claves de `m`.
+## New list with all keys of the generic map `m`.
+##
+## ## Parámetros
+## - `m`: the map to read. Read only.
+##
+## ## Retorno
+## An owned `list of K` the caller releases with `banish`, in internal hash order.
+##
+## ## Ejemplo
+## ```pengu
+## var ks as list of string is calling map_keys with m
+## ```
 weave map_keys shard K, V with m as map of K to V into list of K:
     var out as list of K is list of K
     for k in m:
         calling out.push with k
     return out
 
-## Lista nueva con todos los valores de `m`.
+## New list with all values of the generic map `m`.
+##
+## ## Parámetros
+## - `m`: the map to read. Read only.
+##
+## ## Retorno
+## An owned `list of V` the caller releases with `banish`, in internal hash order.
+##
+## ## Ejemplo
+## ```pengu
+## var vs as list of int is calling map_values with m
+## ```
 weave map_values shard K, V with m as map of K to V into list of V:
     var out as list of V is list of V
     for k in m:
@@ -579,11 +1503,36 @@ weave map_values shard K, V with m as map of K to V into list of V:
         calling out.push with v
     return out
 
-## Inserta o actualiza `key -> value` en `m`.
+## Inserts or updates `key -> value` in the generic map `m`.
+##
+## ## Parámetros
+## - `m`: the map to mutate in place.
+## - `key`: the key to insert or update. Borrowed.
+## - `value`: the value to store.
+##
+## ## Retorno
+## Nothing; the map is mutated in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling map_put with m, "a", 4
+## ```
 weave map_put shard K, V with m as map of K to V, key as K, value as V into void:
     calling m.put with key, value
 
-## Elimina `key` del mapa genérico `m`; `true` si existía.
+## Removes `key` from the generic map `m`.
+##
+## ## Parámetros
+## - `m`: the map to mutate in place.
+## - `key`: the key to remove. Borrowed.
+##
+## ## Retorno
+## `true` when `key` existed and was removed; `false` otherwise. Mutates `m` in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling map_remove with m, "a"    # true
+## ```
 weave map_remove shard K, V with m as map of K to V, key as K into bool:
     if calling m.contains with key:
         with m:
@@ -591,71 +1540,107 @@ weave map_remove shard K, V with m as map of K to V, key as K into bool:
         return true
     return false
 
-## Vacía el mapa genérico `m` dejándolo sin entradas.
+## Removes every entry from the generic map `m`.
+##
+## ## Parámetros
+## - `m`: the map to empty in place.
+##
+## ## Retorno
+## Nothing; `m` is left empty in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling map_clear with m
+## ```
 weave map_clear shard K, V with m as map of K to V into void:
     with m:
         calling .clear
 
-## Lista ordenada ascendentemente con las claves de `m` (requiere `K: Ordo`).
-weave keys_sorted_of shard K and V where K: Ordo, V: Par with m as map of K to V into list of K:
+## New list with the keys of `m` sorted ascending.
+##
+## ## Parámetros
+## - `m`: the map to read. Read only.
+##
+## ## Retorno
+## An owned `list of K` sorted with the `Ordered` bind of `K`; unlike the 0.15.0 version it also works when `K` is `string`. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## var ks as list of string is calling keys_sorted_of with m
+## calling ks at 0    # "alpha"
+## ```
+weave keys_sorted_of shard K and V where K: Ordered, V: Par with m as map of K to V into list of K:
     var ks as list of K is list of K
     for k in m:
         calling ks.push with k
-    var idx as list of int is list of int
     var n as int is calling ks.len
-    var p as int is 0
-    while p < n:
-        calling idx.push with p
-        set p is p + 1
-    var i as int is 0
+    var i as int is 1
     while i < n:
-        var j as int is i + 1
-        while j < n:
-            var a as K is ks at (idx at j)
-            var b as K is ks at (idx at i)
-            if a < b:
-                var tmp as int is idx at i
-                set idx at i is idx at j
-                set idx at j is tmp
-            set j is j + 1
+        var key as K is ks at i
+        var j as int is i - 1
+        var moving as bool is j >= 0
+        while moving:
+            var left as K is ks at j
+            var c as int is calling left.cmp with key
+            if c > 0:
+                set ks at (j + 1) is left
+                set j is j - 1
+                set moving is j >= 0
+            else:
+                set moving is false
+        set ks at (j + 1) is key
         set i is i + 1
-    var out as list of K is list of K
-    for q in idx:
-        var w as K is ks at q
-        calling out.push with w
-    return out
+    return ks
 
-## Lista ordenada ascendentemente con los valores de `m` (requiere `V: Ordo`).
-weave values_sorted_of shard K and V where K: Par, V: Ordo with m as map of K to V into list of V:
+## New list with the values of `m` sorted ascending.
+##
+## ## Parámetros
+## - `m`: the map to read. Read only.
+##
+## ## Retorno
+## An owned `list of V` sorted with the `Ordered` bind of `V`, so it also works when `V` is `string`. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## var vs as list of int is calling values_sorted_of with m
+## ```
+weave values_sorted_of shard K and V where K: Par, V: Ordered with m as map of K to V into list of V:
     var vs as list of V is list of V
     for k in m:
         var v as V is m at k
         calling vs.push with v
-    var idx as list of int is list of int
     var n as int is calling vs.len
-    var p as int is 0
-    while p < n:
-        calling idx.push with p
-        set p is p + 1
-    var i as int is 0
+    var i as int is 1
     while i < n:
-        var j as int is i + 1
-        while j < n:
-            var a as V is vs at (idx at j)
-            var b as V is vs at (idx at i)
-            if a < b:
-                var tmp as int is idx at i
-                set idx at i is idx at j
-                set idx at j is tmp
-            set j is j + 1
+        var key as V is vs at i
+        var j as int is i - 1
+        var moving as bool is j >= 0
+        while moving:
+            var left as V is vs at j
+            var c as int is calling left.cmp with key
+            if c > 0:
+                set vs at (j + 1) is left
+                set j is j - 1
+                set moving is j >= 0
+            else:
+                set moving is false
+        set vs at (j + 1) is key
         set i is i + 1
-    var out as list of V is list of V
-    for q in idx:
-        var w as V is vs at q
-        calling out.push with w
-    return out
+    return vs
 
-## Combina `a` y `b` en un mapa nuevo; las claves de `b` ganan.
+## Combines `a` and `b` into a new map; `b` wins on collision.
+##
+## ## Parámetros
+## - `a`: the left map. Read only.
+## - `b`: the right map. Read only.
+##
+## ## Retorno
+## An owned `map of K to V` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to int is calling map_merge with a, b
+## ```
 weave map_merge shard K and V where K: Par, V: Par with a as map of K to V, b as map of K to V into map of K to V:
     var out as map of K to V is map of K to V
     for k in a:
@@ -666,7 +1651,19 @@ weave map_merge shard K and V where K: Par, V: Par with a as map of K to V, b as
         calling out.put with k, v
     return out
 
-## Combina `a` y `b` en un mapa nuevo; las claves ya presentes en `a` conservan su valor.
+## Combines `a` and `b` into a new map; keys of `a` keep their value.
+##
+## ## Parámetros
+## - `a`: the left map, whose values win. Read only.
+## - `b`: the right map. Read only.
+##
+## ## Retorno
+## An owned `map of K to V` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to int is calling map_merge_keep_left with a, b
+## ```
 weave map_merge_keep_left shard K and V where K: Par, V: Par with a as map of K to V, b as map of K to V into map of K to V:
     var out as map of K to V is map of K to V
     for k in a:
@@ -678,7 +1675,18 @@ weave map_merge_keep_left shard K and V where K: Par, V: Par with a as map of K 
             calling out.put with k, v
     return out
 
-## Combina todos los mapas de `maps` en uno nuevo; los posteriores ganan.
+## Combines every map of `maps` into one; later maps win.
+##
+## ## Parámetros
+## - `maps`: the maps to merge in order. Read only.
+##
+## ## Retorno
+## An owned `map of K to V` the caller releases with `banish`. Borrows `maps`.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to int is calling map_merge_all with maps
+## ```
 weave map_merge_all shard K and V where K: Par, V: Par with maps as list of map of K to V into map of K to V:
     var out as map of K to V is map of K to V
     for m in maps:
@@ -687,7 +1695,19 @@ weave map_merge_all shard K and V where K: Par, V: Par with maps as list of map 
             calling out.put with k, v
     return out
 
-## Construye un mapa desde listas paralelas hasta `min(ks.len, vs.len)`.
+## Builds a map from the parallel lists `ks` and `vs`.
+##
+## ## Parámetros
+## - `ks`: the keys, consumed up to `min(ks.len, vs.len)`. Read only.
+## - `vs`: the values. Read only.
+##
+## ## Retorno
+## An owned `map of K to V` with `min(ks.len, vs.len)` entries; later duplicate keys overwrite earlier ones. Borrows both lists.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to int is calling map_from_lists with ks, vs
+## ```
 weave map_from_lists shard K and V where K: Par, V: Par with ks as list of K, vs as list of V into map of K to V:
     var out as map of K to V is map of K to V
     var limit as int is calling ks.len
@@ -701,433 +1721,2242 @@ weave map_from_lists shard K and V where K: Par, V: Par with ks as list of K, vs
         set i is i + 1
     return out
 
-## Construye un mapa desde una lista de `oracle.Pair of K and V`.
+## Builds a map from a list of `oracle.Pair`.
+##
+## ## Parámetros
+## - `ps`: the key/value pairs to insert in order. Read only.
+##
+## ## Retorno
+## An owned `map of K to V`; later duplicate keys overwrite earlier ones. Borrows `ps`.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to int is calling from_pairs with ps
+## ```
 weave from_pairs shard K and V where K: Par, V: Par with ps as list of oracle.Pair of K and V into map of K to V:
     var out as map of K to V is map of K to V
     for p in ps:
         calling out.put with p.first, p.second
     return out
-# Envoltorios de compatibilidad (0.15.0): *forwarders* de una línea sobre el método
-# genérico equivalente; la tabla `## Migración` del docstring documenta el mapeo.
 
-# --- Compatibilidad: envoltorios de módulo (0.15.0) -------------------------
+## Submap of `m` with the entries whose `string` value contains `sub`.
+##
+## ## Parámetros
+## - `m`: the map to filter. Read only.
+## - `sub`: the substring to look for inside each value.
+##
+## ## Retorno
+## An owned `map of K to string`. Unlike the method form, the module function infers `K` from its argument, so it works for any key type without a concrete block. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## var f as map of int to string is calling map_filter_values_contains with m, "un"
+## ```
+weave map_filter_values_contains shard K where K: Par with m as map of K to string, sub as string into map of K to string:
+    var out as map of K to string is map of K to string
+    for k in m:
+        var v as string is m at k
+        if calling v.contains with sub:
+            calling out.put with k, v
+    return out
 
-## Número de entradas de un `map of string to int` (API histórica).
-weave map_len_str_int with m as map of string to int into int:
-    return calling m.len
-## Combina `a` y `b` en un `map of string to int` nuevo; las claves de `b` ganan.
-weave merge with a as map of string to int, b as map of string to int into map of string to int:
-    return calling map_merge with a, b
-## Combina `a` y `b` en un `map of string to int` nuevo; las claves ya presentes en `a` conservan su valor.
-weave merge_keep_left with a as map of string to int, b as map of string to int into map of string to int:
-    return calling map_merge_keep_left with a, b
-## Combina `a` y `b` en un `map of string to int` nuevo; las claves de `b` ganan.
-weave merge_keep_right with a as map of string to int, b as map of string to int into map of string to int:
-    return calling map_merge with a, b
-## Construye un mapa desde listas paralelas hasta `min(ks.len, vs.len)`.
-weave from_lists with ks as list of string, vs as list of int into map of string to int:
-    return calling map_from_lists with ks, vs
-## Combina `a` y `b` en un `map of string to string` nuevo; las claves de `b` ganan.
-weave merge_ss with a as map of string to string, b as map of string to string into map of string to string:
-    return calling map_merge with a, b
-## Combina `a` y `b` en un `map of string to string` nuevo; las claves ya presentes en `a` conservan su valor.
-weave merge_keep_left_ss with a as map of string to string, b as map of string to string into map of string to string:
-    return calling map_merge_keep_left with a, b
-## Combina `a` y `b` en un `map of string to string` nuevo; las claves de `b` ganan.
-weave merge_keep_right_ss with a as map of string to string, b as map of string to string into map of string to string:
-    return calling map_merge with a, b
-## Construye un mapa desde listas paralelas hasta `min(ks.len, vs.len)`.
-weave from_lists_ss with ks as list of string, vs as list of string into map of string to string:
-    return calling map_from_lists with ks, vs
-## Combina `a` y `b` en un `map of string to float` nuevo; las claves de `b` ganan.
-weave merge_sf with a as map of string to float, b as map of string to float into map of string to float:
-    return calling map_merge with a, b
-## Combina `a` y `b` en un `map of string to float` nuevo; las claves ya presentes en `a` conservan su valor.
-weave merge_keep_left_sf with a as map of string to float, b as map of string to float into map of string to float:
-    return calling map_merge_keep_left with a, b
-## Combina `a` y `b` en un `map of string to float` nuevo; las claves de `b` ganan.
-weave merge_keep_right_sf with a as map of string to float, b as map of string to float into map of string to float:
-    return calling map_merge with a, b
-## Construye un mapa desde listas paralelas hasta `min(ks.len, vs.len)`.
-weave from_lists_sf with ks as list of string, vs as list of float into map of string to float:
-    return calling map_from_lists with ks, vs
-## Combina `a` y `b` en un `map of int to int` nuevo; las claves de `b` ganan.
-weave merge_ii with a as map of int to int, b as map of int to int into map of int to int:
-    return calling map_merge with a, b
-## Combina `a` y `b` en un `map of int to int` nuevo; las claves ya presentes en `a` conservan su valor.
-weave merge_keep_left_ii with a as map of int to int, b as map of int to int into map of int to int:
-    return calling map_merge_keep_left with a, b
-## Combina `a` y `b` en un `map of int to int` nuevo; las claves de `b` ganan.
-weave merge_keep_right_ii with a as map of int to int, b as map of int to int into map of int to int:
-    return calling map_merge with a, b
-## Construye un mapa desde listas paralelas hasta `min(ks.len, vs.len)`.
-weave from_lists_ii with ks as list of int, vs as list of int into map of int to int:
-    return calling map_from_lists with ks, vs
-## Combina `a` y `b` en un `map of int to string` nuevo; las claves de `b` ganan.
-weave merge_is with a as map of int to string, b as map of int to string into map of int to string:
-    return calling map_merge with a, b
-## Combina `a` y `b` en un `map of int to string` nuevo; las claves ya presentes en `a` conservan su valor.
-weave merge_keep_left_is with a as map of int to string, b as map of int to string into map of int to string:
-    return calling map_merge_keep_left with a, b
-## Combina `a` y `b` en un `map of int to string` nuevo; las claves de `b` ganan.
-weave merge_keep_right_is with a as map of int to string, b as map of int to string into map of int to string:
-    return calling map_merge with a, b
-## Construye un mapa desde listas paralelas hasta `min(ks.len, vs.len)`.
-weave from_lists_is with ks as list of int, vs as list of string into map of int to string:
-    return calling map_from_lists with ks, vs
-## Combina `a` y `b` en un `map of string to bool` nuevo; las claves de `b` ganan.
-weave merge_sb with a as map of string to bool, b as map of string to bool into map of string to bool:
-    return calling map_merge with a, b
-## Combina `a` y `b` en un `map of string to bool` nuevo; las claves ya presentes en `a` conservan su valor.
-weave merge_keep_left_sb with a as map of string to bool, b as map of string to bool into map of string to bool:
-    return calling map_merge_keep_left with a, b
-## Combina `a` y `b` en un `map of string to bool` nuevo; las claves de `b` ganan.
-weave merge_keep_right_sb with a as map of string to bool, b as map of string to bool into map of string to bool:
-    return calling map_merge with a, b
-## Construye un mapa desde listas paralelas hasta `min(ks.len, vs.len)`.
-weave from_lists_sb with ks as list of string, vs as list of bool into map of string to bool:
-    return calling map_from_lists with ks, vs
-## Número de entradas de `m`; alias de `calling m.size`.
-weave size with m as map of string to int into int:
-    return calling m.size
-## Devuelve `true` cuando `map of string to int` no tiene entradas.
-weave is_empty with m as map of string to int into bool:
-    return calling m.is_empty
-## Devuelve `true` cuando `key` existe en `map of string to int`.
-weave has_key with m as map of string to int, key as string into bool:
-    return calling m.has_key with key
-## `true` si todos los valores de `m` son > 0.
-weave all_values_positive with m as map of string to int into bool:
-    return calling m.all_values_positive
-## `true` si algún valor de `m` es < 0.
-weave any_value_negative with m as map of string to int into bool:
-    return calling m.any_value_negative
-## `true` si los valores de `m` están en `[lo, hi]`.
-weave values_in_range with m as map of string to int, lo as int, hi as int into bool:
-    return calling m.values_in_range with lo, hi
-## Valor de `key`, o `fallback` si la clave no está.
-weave get_or with m as map of string to int, key as string, default as int is 0 into int:
-    return calling m.get_or with key, default
-## `some v` si `key` está presente; `maybe none` en caso contrario.
-weave get_safe with m as map of string to int, key as string into maybe int:
-    return calling m.get_safe with key
-## Inserta o actualiza `key -> value` en `m`.
-weave put with m as map of string to int, key as string, value as int into void:
-    calling m.put with key, value
-## Elimina `key` de `m`; `true` si existía.
-weave remove with m as map of string to int, key as string into bool:
-    return calling m.remove with key
-## Vacía `m`.
-weave clear with m as map of string to int into void:
-    calling m.clear
-## Actualiza el valor de una clave existente; `false` si no existe.
-weave update with m as map of string to int, key as string, value as int into bool:
-    return calling m.update with key, value
-## Lista nueva con todas las claves.
-weave keys with m as map of string to int into list of string:
-    return calling m.keys
-## Lista nueva con todos los valores.
-weave values with m as map of string to int into list of int:
-    return calling m.values
-## Lista nueva con las claves de `m` ordenadas ascendentemente.
-weave keys_sorted with m as map of string to int into list of string:
-    return calling m.keys_sorted
-## Suma de todos los valores; `donum V` (cero) si está vacío.
-weave sum_values with m as map of string to int into int:
-    return calling m.sum_values
-## Valor máximo; `donum V` (cero) si está vacío.
-weave max_value with m as map of string to int into int:
-    return calling m.max_value
-## Valor mínimo; `donum V` (cero) si está vacío.
-weave min_value with m as map of string to int into int:
-    return calling m.min_value
-## Submapa con las entradas cuya clave contiene `sub` como substring.
-weave filter_keys_contains with m as map of string to int, sub as string into map of string to int:
-    return calling m.filter_keys_contains with sub
-## Submapa con las entradas cuya clave empieza por `prefix`.
-weave filter_keys_startswith with m as map of string to int, prefix as string into map of string to int:
-    return calling m.filter_keys_startswith with prefix
-## Submapa con los valores de `m` dentro de `[lo, hi]`.
-weave filter_values_range with m as map of string to int, lo as int, hi as int into map of string to int:
-    return calling m.filter_values_range with lo, hi
-## Mapa nuevo con cada valor de `m` duplicado.
-weave map_values_double with m as map of string to int into map of string to int:
-    return calling m.map_values_double
-## Mapa nuevo con cada valor de `m` negado.
-weave map_values_negate with m as map of string to int into map of string to int:
-    return calling m.map_values_negate
-## Lista nueva con todas las claves.
-weave to_keys_list with m as map of string to int into list of string:
-    return calling m.to_keys_list
-## Lista nueva con todos los valores.
-weave to_values_list with m as map of string to int into list of int:
-    return calling m.to_values_list
-## Número de entradas de `m`; equivalente a `calling m.len`.
+
+# Compatibility wrappers (0.15.0): one-line forwarders over the equivalent
+# generic method; the `## Migration` table of the module docstring maps them.
+
+# --- Compatibility: module wrappers (0.15.0) -------------------------------
+
+## Number of entries in `m`; equivalent to `calling m.size`.
+##
+## ## Parámetros
+## - `m`: the `map of string to string` to measure. Read only.
+##
+## ## Retorno
+## The number of entries as an `int`. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.size_ss with m    # 3
+## ```
 weave size_ss with m as map of string to string into int:
     return calling m.size
-## Devuelve `true` cuando `m` no tiene entradas.
+
+
+## `true` when `m` has no entries.
+##
+## ## Parámetros
+## - `m`: the `map of string to string` to inspect. Read only.
+##
+## ## Retorno
+## `true` when the map is empty; `false` otherwise. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.is_empty_ss with m    # false
+## ```
 weave is_empty_ss with m as map of string to string into bool:
     return calling m.is_empty
-## Devuelve `true` cuando `key` existe en `m`.
+
+
+## `true` when `k` exists in the `map of string to string`.
+##
+## ## Parámetros
+## - `m`: the `map of string to string` to query. Read only.
+## - `k`: the string key to look up. Borrowed.
+##
+## ## Retorno
+## `true` when the key is present; `false` otherwise. Borrows both arguments.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.has_key_ss with m, "x"    # true
+## ```
 weave has_key_ss with m as map of string to string, k as string into bool:
     return calling m.has_key with k
-## Valor de `key`, o `fallback` si la clave no está.
+
+
+## Value of `k` in `m`, or `default` when the key is absent.
+##
+## ## Parámetros
+## - `m`: the `map of string to string` to query. Read only.
+## - `k`: the string key to look up. Borrowed.
+## - `default`: the string value returned when the key is missing.
+##
+## ## Retorno
+## The stored value or `default`, by value. Borrows the map.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.get_or_ss with m, "x", ""
+## ```
 weave get_or_ss with m as map of string to string, k as string, default as string is "" into string:
     return calling m.get_or with k, default
-## `some v` si `key` está presente; `maybe none` en caso contrario.
+
+
+## `some v` when `k` is present in the `map of string to string`, `maybe none` otherwise.
+##
+## ## Parámetros
+## - `m`: the `map of string to string` to query. Read only.
+## - `k`: the string key to look up. Borrowed.
+##
+## ## Retorno
+## A `maybe string` wrapping the stored value, or `maybe none`. Borrows the map.
+##
+## ## Ejemplo
+## ```pengu
+## var got as maybe string is calling atlas.get_safe_ss with m, "x"
+## ```
 weave get_safe_ss with m as map of string to string, k as string into maybe string:
     return calling m.get_safe with k
-## Inserta o actualiza `key -> value` en `m`.
+
+
+## Inserts or updates `k -> v` in the `map of string to string`.
+##
+## ## Parámetros
+## - `m`: the `map of string to string` to mutate in place.
+## - `k`: the string key. Borrowed.
+## - `v`: the string value to store.
+##
+## ## Retorno
+## Nothing; the map is mutated in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.put_ss with m, "x", "x"
+## ```
 weave put_ss with m as map of string to string, k as string, v as string into void:
     calling m.put with k, v
-## Elimina `key` de `m`; `true` si existía.
+
+
+## Removes `k` from the `map of string to string`.
+##
+## ## Parámetros
+## - `m`: the `map of string to string` to mutate in place.
+## - `k`: the string key to remove. Borrowed.
+##
+## ## Retorno
+## `true` when the key existed and was removed; `false` otherwise. Mutates `m` in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.remove_ss with m, "x"    # true
+## ```
 weave remove_ss with m as map of string to string, k as string into bool:
     return calling m.remove with k
-## Vacía `m` por completo.
+
+
+## Removes every entry from the `map of string to string`.
+##
+## ## Parámetros
+## - `m`: the `map of string to string` to empty in place.
+##
+## ## Retorno
+## Nothing; the map is left empty in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.clear_ss with m
+## ```
 weave clear_ss with m as map of string to string into void:
     calling m.clear
-## Lista nueva con todas las claves, en orden interno del hash.
+
+
+## New list with all keys of the `map of string to string`.
+##
+## ## Parámetros
+## - `m`: the `map of string to string` to read. Read only.
+##
+## ## Retorno
+## An owned `list of string` the caller releases with `banish`, in internal hash order.
+##
+## ## Ejemplo
+## ```pengu
+## var ks as list of string is calling atlas.keys_ss with m
+## ```
 weave keys_ss with m as map of string to string into list of string:
     return calling m.keys
-## Lista nueva con todos los valores, en orden interno del hash.
+
+
+## New list with all values of the `map of string to string`.
+##
+## ## Parámetros
+## - `m`: the `map of string to string` to read. Read only.
+##
+## ## Retorno
+## An owned `list of string` the caller releases with `banish`, in internal hash order.
+##
+## ## Ejemplo
+## ```pengu
+## var vs as list of string is calling atlas.values_ss with m
+## ```
 weave values_ss with m as map of string to string into list of string:
     return calling m.values
-## Claves de un `map of string to string`, ordenadas ascendentemente.
-weave keys_sorted_ss with m as map of string to string into list of string:
-    return calling m.keys_sorted
-## Valores de un `map of string to string`, ordenados por su clave ascendente.
-weave values_sorted_ss with m as map of string to string into list of string:
-    return calling m.values_sorted
-## Copia superficial independiente de `m`.
+
+
+## Independent shallow copy of the `map of string to string`.
+##
+## ## Parámetros
+## - `m`: the `map of string to string` to copy. Read only.
+##
+## ## Retorno
+## An owned `map of string to string` the caller releases with `banish`. Keys and values are copied by value.
+##
+## ## Ejemplo
+## ```pengu
+## var c as map of string to string is calling atlas.clone_ss with m
+## ```
 weave clone_ss with m as map of string to string into map of string to string:
     return calling m.clone
-## Número de entradas de `m`; equivalente a `calling m.len`.
-weave size_sf with m as map of string to float into int:
-    return calling m.size
-## Devuelve `true` cuando `m` no tiene entradas.
-weave is_empty_sf with m as map of string to float into bool:
-    return calling m.is_empty
-## Devuelve `true` cuando `key` existe en `m`.
-weave has_key_sf with m as map of string to float, k as string into bool:
-    return calling m.has_key with k
-## Valor de `key`, o `fallback` si la clave no está.
-weave get_or_sf with m as map of string to float, k as string, default as float is 0.0 into float:
-    return calling m.get_or with k, default
-## `some v` si `key` está presente; `maybe none` en caso contrario.
-weave get_safe_sf with m as map of string to float, k as string into maybe float:
-    return calling m.get_safe with k
-## Inserta o actualiza `key -> value` en `m`.
-weave put_sf with m as map of string to float, k as string, v as float into void:
-    calling m.put with k, v
-## Elimina `key` de `m`; `true` si existía.
-weave remove_sf with m as map of string to float, k as string into bool:
-    return calling m.remove with k
-## Vacía `m` por completo.
-weave clear_sf with m as map of string to float into void:
-    calling m.clear
-## Lista nueva con todas las claves, en orden interno del hash.
-weave keys_sf with m as map of string to float into list of string:
-    return calling m.keys
-## Lista nueva con todos los valores, en orden interno del hash.
-weave values_sf with m as map of string to float into list of float:
-    return calling m.values
-## Claves de un `map of string to float`, ordenadas ascendentemente.
-weave keys_sorted_sf with m as map of string to float into list of string:
-    return calling m.keys_sorted
-## Suma de todos los valores; `donum V` (cero) si está vacío.
-weave sum_values_sf with m as map of string to float into float:
-    return calling m.sum_values
-## Valor máximo; `donum V` (cero) si está vacío.
-weave max_value_sf with m as map of string to float into float:
-    return calling m.max_value
-## Valor mínimo; `donum V` (cero) si está vacío.
-weave min_value_sf with m as map of string to float into float:
-    return calling m.min_value
-## Copia superficial independiente de `m`.
-weave clone_sf with m as map of string to float into map of string to float:
-    return calling m.clone
-## Número de entradas de `m`; equivalente a `calling m.len`.
+
+
+## Number of entries in `m`; equivalent to `calling m.size`.
+##
+## ## Parámetros
+## - `m`: the `map of int to int` to measure. Read only.
+##
+## ## Retorno
+## The number of entries as an `int`. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.size_ii with m    # 3
+## ```
 weave size_ii with m as map of int to int into int:
     return calling m.size
-## Devuelve `true` cuando `m` no tiene entradas.
+
+
+## `true` when `m` has no entries.
+##
+## ## Parámetros
+## - `m`: the `map of int to int` to inspect. Read only.
+##
+## ## Retorno
+## `true` when the map is empty; `false` otherwise. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.is_empty_ii with m    # false
+## ```
 weave is_empty_ii with m as map of int to int into bool:
     return calling m.is_empty
-## Devuelve `true` cuando `key` existe en `m`.
+
+
+## `true` when `k` exists in the `map of int to int`.
+##
+## ## Parámetros
+## - `m`: the `map of int to int` to query. Read only.
+## - `k`: the int key to look up. Borrowed.
+##
+## ## Retorno
+## `true` when the key is present; `false` otherwise. Borrows both arguments.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.has_key_ii with m, 1    # true
+## ```
 weave has_key_ii with m as map of int to int, k as int into bool:
     return calling m.has_key with k
-## Valor de `key`, o `fallback` si la clave no está.
+
+
+## Value of `k` in `m`, or `default` when the key is absent.
+##
+## ## Parámetros
+## - `m`: the `map of int to int` to query. Read only.
+## - `k`: the int key to look up. Borrowed.
+## - `default`: the int value returned when the key is missing.
+##
+## ## Retorno
+## The stored value or `default`, by value. Borrows the map.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.get_or_ii with m, 1, 0
+## ```
 weave get_or_ii with m as map of int to int, k as int, default as int is 0 into int:
     return calling m.get_or with k, default
-## `some v` si `key` está presente; `maybe none` en caso contrario.
+
+
+## `some v` when `k` is present in the `map of int to int`, `maybe none` otherwise.
+##
+## ## Parámetros
+## - `m`: the `map of int to int` to query. Read only.
+## - `k`: the int key to look up. Borrowed.
+##
+## ## Retorno
+## A `maybe int` wrapping the stored value, or `maybe none`. Borrows the map.
+##
+## ## Ejemplo
+## ```pengu
+## var got as maybe int is calling atlas.get_safe_ii with m, 1
+## ```
 weave get_safe_ii with m as map of int to int, k as int into maybe int:
     return calling m.get_safe with k
-## Inserta o actualiza `key -> value` en `m`.
+
+
+## Inserts or updates `k -> v` in the `map of int to int`.
+##
+## ## Parámetros
+## - `m`: the `map of int to int` to mutate in place.
+## - `k`: the int key. Borrowed.
+## - `v`: the int value to store.
+##
+## ## Retorno
+## Nothing; the map is mutated in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.put_ii with m, 1, 1
+## ```
 weave put_ii with m as map of int to int, k as int, v as int into void:
     calling m.put with k, v
-## Elimina `key` de `m`; `true` si existía.
+
+
+## Removes `k` from the `map of int to int`.
+##
+## ## Parámetros
+## - `m`: the `map of int to int` to mutate in place.
+## - `k`: the int key to remove. Borrowed.
+##
+## ## Retorno
+## `true` when the key existed and was removed; `false` otherwise. Mutates `m` in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.remove_ii with m, 1    # true
+## ```
 weave remove_ii with m as map of int to int, k as int into bool:
     return calling m.remove with k
-## Vacía `m` por completo.
+
+
+## Removes every entry from the `map of int to int`.
+##
+## ## Parámetros
+## - `m`: the `map of int to int` to empty in place.
+##
+## ## Retorno
+## Nothing; the map is left empty in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.clear_ii with m
+## ```
 weave clear_ii with m as map of int to int into void:
     calling m.clear
-## Lista nueva con todas las claves, en orden interno del hash.
+
+
+## New list with all keys of the `map of int to int`.
+##
+## ## Parámetros
+## - `m`: the `map of int to int` to read. Read only.
+##
+## ## Retorno
+## An owned `list of int` the caller releases with `banish`, in internal hash order.
+##
+## ## Ejemplo
+## ```pengu
+## var ks as list of int is calling atlas.keys_ii with m
+## ```
 weave keys_ii with m as map of int to int into list of int:
     return calling m.keys
-## Lista nueva con todos los valores, en orden interno del hash.
+
+
+## New list with all values of the `map of int to int`.
+##
+## ## Parámetros
+## - `m`: the `map of int to int` to read. Read only.
+##
+## ## Retorno
+## An owned `list of int` the caller releases with `banish`, in internal hash order.
+##
+## ## Ejemplo
+## ```pengu
+## var vs as list of int is calling atlas.values_ii with m
+## ```
 weave values_ii with m as map of int to int into list of int:
     return calling m.values
-## Claves de un `map of int to int`, ordenadas ascendentemente.
-weave keys_sorted_ii with m as map of int to int into list of int:
-    return calling m.keys_sorted
-## Valores de un `map of int to int`, ordenados por su clave ascendente.
-weave values_sorted_ii with m as map of int to int into list of int:
-    return calling m.values_sorted
-## Suma de todos los valores; `donum V` (cero) si está vacío.
-weave sum_values_ii with m as map of int to int into int:
-    return calling m.sum_values
-## Valor máximo; `donum V` (cero) si está vacío.
-weave max_value_ii with m as map of int to int into int:
-    return calling m.max_value
-## Valor mínimo; `donum V` (cero) si está vacío.
-weave min_value_ii with m as map of int to int into int:
-    return calling m.min_value
-## Copia superficial independiente de `m`.
+
+
+## Independent shallow copy of the `map of int to int`.
+##
+## ## Parámetros
+## - `m`: the `map of int to int` to copy. Read only.
+##
+## ## Retorno
+## An owned `map of int to int` the caller releases with `banish`. Keys and values are copied by value.
+##
+## ## Ejemplo
+## ```pengu
+## var c as map of int to int is calling atlas.clone_ii with m
+## ```
 weave clone_ii with m as map of int to int into map of int to int:
     return calling m.clone
-## Número de entradas de `m`; equivalente a `calling m.len`.
+
+
+## Sum of all values of the `map of int to int`; zero when empty.
+##
+## ## Parámetros
+## - `m`: the `map of int to int` to reduce. Read only.
+##
+## ## Retorno
+## The total as `int`, or `0` when the map is empty. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.sum_values_ii with m
+## ```
+weave sum_values_ii with m as map of int to int into int:
+    return calling m.sum_values
+
+
+## Largest value of the `map of int to int`; zero when empty.
+##
+## ## Parámetros
+## - `m`: the `map of int to int` to reduce. Read only.
+##
+## ## Retorno
+## The maximum as `int`, or `0` when the map is empty. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.max_value_ii with m
+## ```
+weave max_value_ii with m as map of int to int into int:
+    return calling m.max_value
+
+
+## Smallest value of the `map of int to int`; zero when empty.
+##
+## ## Parámetros
+## - `m`: the `map of int to int` to reduce. Read only.
+##
+## ## Retorno
+## The minimum as `int`, or `0` when the map is empty. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.min_value_ii with m
+## ```
+weave min_value_ii with m as map of int to int into int:
+    return calling m.min_value
+
+
+## Number of entries in `m`; equivalent to `calling m.size`.
+##
+## ## Parámetros
+## - `m`: the `map of int to string` to measure. Read only.
+##
+## ## Retorno
+## The number of entries as an `int`. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.size_is with m    # 3
+## ```
 weave size_is with m as map of int to string into int:
     return calling m.size
-## Devuelve `true` cuando `m` no tiene entradas.
+
+
+## `true` when `m` has no entries.
+##
+## ## Parámetros
+## - `m`: the `map of int to string` to inspect. Read only.
+##
+## ## Retorno
+## `true` when the map is empty; `false` otherwise. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.is_empty_is with m    # false
+## ```
 weave is_empty_is with m as map of int to string into bool:
     return calling m.is_empty
-## Devuelve `true` cuando `key` existe en `m`.
+
+
+## `true` when `k` exists in the `map of int to string`.
+##
+## ## Parámetros
+## - `m`: the `map of int to string` to query. Read only.
+## - `k`: the int key to look up. Borrowed.
+##
+## ## Retorno
+## `true` when the key is present; `false` otherwise. Borrows both arguments.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.has_key_is with m, 1    # true
+## ```
 weave has_key_is with m as map of int to string, k as int into bool:
     return calling m.has_key with k
-## Valor de `key`, o `fallback` si la clave no está.
+
+
+## Value of `k` in `m`, or `default` when the key is absent.
+##
+## ## Parámetros
+## - `m`: the `map of int to string` to query. Read only.
+## - `k`: the int key to look up. Borrowed.
+## - `default`: the string value returned when the key is missing.
+##
+## ## Retorno
+## The stored value or `default`, by value. Borrows the map.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.get_or_is with m, 1, 0
+## ```
 weave get_or_is with m as map of int to string, k as int, default as string is "" into string:
     return calling m.get_or with k, default
-## `some v` si `key` está presente; `maybe none` en caso contrario.
+
+
+## `some v` when `k` is present in the `map of int to string`, `maybe none` otherwise.
+##
+## ## Parámetros
+## - `m`: the `map of int to string` to query. Read only.
+## - `k`: the int key to look up. Borrowed.
+##
+## ## Retorno
+## A `maybe string` wrapping the stored value, or `maybe none`. Borrows the map.
+##
+## ## Ejemplo
+## ```pengu
+## var got as maybe string is calling atlas.get_safe_is with m, 1
+## ```
 weave get_safe_is with m as map of int to string, k as int into maybe string:
     return calling m.get_safe with k
-## Inserta o actualiza `key -> value` en `m`.
+
+
+## Inserts or updates `k -> v` in the `map of int to string`.
+##
+## ## Parámetros
+## - `m`: the `map of int to string` to mutate in place.
+## - `k`: the int key. Borrowed.
+## - `v`: the string value to store.
+##
+## ## Retorno
+## Nothing; the map is mutated in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.put_is with m, 1, "x"
+## ```
 weave put_is with m as map of int to string, k as int, v as string into void:
     calling m.put with k, v
-## Elimina `key` de `m`; `true` si existía.
+
+
+## Removes `k` from the `map of int to string`.
+##
+## ## Parámetros
+## - `m`: the `map of int to string` to mutate in place.
+## - `k`: the int key to remove. Borrowed.
+##
+## ## Retorno
+## `true` when the key existed and was removed; `false` otherwise. Mutates `m` in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.remove_is with m, 1    # true
+## ```
 weave remove_is with m as map of int to string, k as int into bool:
     return calling m.remove with k
-## Vacía `m` por completo.
+
+
+## Removes every entry from the `map of int to string`.
+##
+## ## Parámetros
+## - `m`: the `map of int to string` to empty in place.
+##
+## ## Retorno
+## Nothing; the map is left empty in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.clear_is with m
+## ```
 weave clear_is with m as map of int to string into void:
     calling m.clear
-## Lista nueva con todas las claves, en orden interno del hash.
+
+
+## New list with all keys of the `map of int to string`.
+##
+## ## Parámetros
+## - `m`: the `map of int to string` to read. Read only.
+##
+## ## Retorno
+## An owned `list of int` the caller releases with `banish`, in internal hash order.
+##
+## ## Ejemplo
+## ```pengu
+## var ks as list of int is calling atlas.keys_is with m
+## ```
 weave keys_is with m as map of int to string into list of int:
     return calling m.keys
-## Lista nueva con todos los valores, en orden interno del hash.
+
+
+## New list with all values of the `map of int to string`.
+##
+## ## Parámetros
+## - `m`: the `map of int to string` to read. Read only.
+##
+## ## Retorno
+## An owned `list of string` the caller releases with `banish`, in internal hash order.
+##
+## ## Ejemplo
+## ```pengu
+## var vs as list of string is calling atlas.values_is with m
+## ```
 weave values_is with m as map of int to string into list of string:
     return calling m.values
-## Claves de un `map of int to string`, ordenadas ascendentemente.
-weave keys_sorted_is with m as map of int to string into list of int:
-    return calling m.keys_sorted
-## Valores de un `map of int to string`, ordenados por su clave ascendente.
-weave values_sorted_is with m as map of int to string into list of string:
-    return calling m.values_sorted
-## Copia superficial independiente de `m`.
+
+
+## Independent shallow copy of the `map of int to string`.
+##
+## ## Parámetros
+## - `m`: the `map of int to string` to copy. Read only.
+##
+## ## Retorno
+## An owned `map of int to string` the caller releases with `banish`. Keys and values are copied by value.
+##
+## ## Ejemplo
+## ```pengu
+## var c as map of int to string is calling atlas.clone_is with m
+## ```
 weave clone_is with m as map of int to string into map of int to string:
     return calling m.clone
-## Número de entradas de `m`; equivalente a `calling m.len`.
+
+
+## Number of entries in `m`; equivalent to `calling m.size`.
+##
+## ## Parámetros
+## - `m`: the `map of string to float` to measure. Read only.
+##
+## ## Retorno
+## The number of entries as an `int`. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.size_sf with m    # 3
+## ```
+weave size_sf with m as map of string to float into int:
+    return calling m.size
+
+
+## `true` when `m` has no entries.
+##
+## ## Parámetros
+## - `m`: the `map of string to float` to inspect. Read only.
+##
+## ## Retorno
+## `true` when the map is empty; `false` otherwise. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.is_empty_sf with m    # false
+## ```
+weave is_empty_sf with m as map of string to float into bool:
+    return calling m.is_empty
+
+
+## `true` when `k` exists in the `map of string to float`.
+##
+## ## Parámetros
+## - `m`: the `map of string to float` to query. Read only.
+## - `k`: the string key to look up. Borrowed.
+##
+## ## Retorno
+## `true` when the key is present; `false` otherwise. Borrows both arguments.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.has_key_sf with m, "x"    # true
+## ```
+weave has_key_sf with m as map of string to float, k as string into bool:
+    return calling m.has_key with k
+
+
+## Value of `k` in `m`, or `default` when the key is absent.
+##
+## ## Parámetros
+## - `m`: the `map of string to float` to query. Read only.
+## - `k`: the string key to look up. Borrowed.
+## - `default`: the float value returned when the key is missing.
+##
+## ## Retorno
+## The stored value or `default`, by value. Borrows the map.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.get_or_sf with m, "x", 0.0
+## ```
+weave get_or_sf with m as map of string to float, k as string, default as float is 0.0 into float:
+    return calling m.get_or with k, default
+
+
+## `some v` when `k` is present in the `map of string to float`, `maybe none` otherwise.
+##
+## ## Parámetros
+## - `m`: the `map of string to float` to query. Read only.
+## - `k`: the string key to look up. Borrowed.
+##
+## ## Retorno
+## A `maybe float` wrapping the stored value, or `maybe none`. Borrows the map.
+##
+## ## Ejemplo
+## ```pengu
+## var got as maybe float is calling atlas.get_safe_sf with m, "x"
+## ```
+weave get_safe_sf with m as map of string to float, k as string into maybe float:
+    return calling m.get_safe with k
+
+
+## Inserts or updates `k -> v` in the `map of string to float`.
+##
+## ## Parámetros
+## - `m`: the `map of string to float` to mutate in place.
+## - `k`: the string key. Borrowed.
+## - `v`: the float value to store.
+##
+## ## Retorno
+## Nothing; the map is mutated in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.put_sf with m, "x", 1.0
+## ```
+weave put_sf with m as map of string to float, k as string, v as float into void:
+    calling m.put with k, v
+
+
+## Removes `k` from the `map of string to float`.
+##
+## ## Parámetros
+## - `m`: the `map of string to float` to mutate in place.
+## - `k`: the string key to remove. Borrowed.
+##
+## ## Retorno
+## `true` when the key existed and was removed; `false` otherwise. Mutates `m` in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.remove_sf with m, "x"    # true
+## ```
+weave remove_sf with m as map of string to float, k as string into bool:
+    return calling m.remove with k
+
+
+## Removes every entry from the `map of string to float`.
+##
+## ## Parámetros
+## - `m`: the `map of string to float` to empty in place.
+##
+## ## Retorno
+## Nothing; the map is left empty in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.clear_sf with m
+## ```
+weave clear_sf with m as map of string to float into void:
+    calling m.clear
+
+
+## New list with all keys of the `map of string to float`.
+##
+## ## Parámetros
+## - `m`: the `map of string to float` to read. Read only.
+##
+## ## Retorno
+## An owned `list of string` the caller releases with `banish`, in internal hash order.
+##
+## ## Ejemplo
+## ```pengu
+## var ks as list of string is calling atlas.keys_sf with m
+## ```
+weave keys_sf with m as map of string to float into list of string:
+    return calling m.keys
+
+
+## New list with all values of the `map of string to float`.
+##
+## ## Parámetros
+## - `m`: the `map of string to float` to read. Read only.
+##
+## ## Retorno
+## An owned `list of float` the caller releases with `banish`, in internal hash order.
+##
+## ## Ejemplo
+## ```pengu
+## var vs as list of float is calling atlas.values_sf with m
+## ```
+weave values_sf with m as map of string to float into list of float:
+    return calling m.values
+
+
+## Independent shallow copy of the `map of string to float`.
+##
+## ## Parámetros
+## - `m`: the `map of string to float` to copy. Read only.
+##
+## ## Retorno
+## An owned `map of string to float` the caller releases with `banish`. Keys and values are copied by value.
+##
+## ## Ejemplo
+## ```pengu
+## var c as map of string to float is calling atlas.clone_sf with m
+## ```
+weave clone_sf with m as map of string to float into map of string to float:
+    return calling m.clone
+
+
+## Sum of all values of the `map of string to float`; zero when empty.
+##
+## ## Parámetros
+## - `m`: the `map of string to float` to reduce. Read only.
+##
+## ## Retorno
+## The total as `float`, or `0` when the map is empty. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.sum_values_sf with m
+## ```
+weave sum_values_sf with m as map of string to float into float:
+    return calling m.sum_values
+
+
+## Largest value of the `map of string to float`; zero when empty.
+##
+## ## Parámetros
+## - `m`: the `map of string to float` to reduce. Read only.
+##
+## ## Retorno
+## The maximum as `float`, or `0` when the map is empty. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.max_value_sf with m
+## ```
+weave max_value_sf with m as map of string to float into float:
+    return calling m.max_value
+
+
+## Smallest value of the `map of string to float`; zero when empty.
+##
+## ## Parámetros
+## - `m`: the `map of string to float` to reduce. Read only.
+##
+## ## Retorno
+## The minimum as `float`, or `0` when the map is empty. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.min_value_sf with m
+## ```
+weave min_value_sf with m as map of string to float into float:
+    return calling m.min_value
+
+
+## Number of entries in `m`; equivalent to `calling m.size`.
+##
+## ## Parámetros
+## - `m`: the `map of string to bool` to measure. Read only.
+##
+## ## Retorno
+## The number of entries as an `int`. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.size_sb with m    # 3
+## ```
 weave size_sb with m as map of string to bool into int:
     return calling m.size
-## Devuelve `true` cuando `m` no tiene entradas.
+
+
+## `true` when `m` has no entries.
+##
+## ## Parámetros
+## - `m`: the `map of string to bool` to inspect. Read only.
+##
+## ## Retorno
+## `true` when the map is empty; `false` otherwise. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.is_empty_sb with m    # false
+## ```
 weave is_empty_sb with m as map of string to bool into bool:
     return calling m.is_empty
-## Devuelve `true` cuando `key` existe en `m`.
+
+
+## `true` when `k` exists in the `map of string to bool`.
+##
+## ## Parámetros
+## - `m`: the `map of string to bool` to query. Read only.
+## - `k`: the string key to look up. Borrowed.
+##
+## ## Retorno
+## `true` when the key is present; `false` otherwise. Borrows both arguments.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.has_key_sb with m, "x"    # true
+## ```
 weave has_key_sb with m as map of string to bool, k as string into bool:
     return calling m.has_key with k
-## Valor de `key`, o `fallback` si la clave no está.
+
+
+## Value of `k` in `m`, or `default` when the key is absent.
+##
+## ## Parámetros
+## - `m`: the `map of string to bool` to query. Read only.
+## - `k`: the string key to look up. Borrowed.
+## - `default`: the bool value returned when the key is missing.
+##
+## ## Retorno
+## The stored value or `default`, by value. Borrows the map.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.get_or_sb with m, "x", false
+## ```
 weave get_or_sb with m as map of string to bool, k as string, default as bool is false into bool:
     return calling m.get_or with k, default
-## `some v` si `key` está presente; `maybe none` en caso contrario.
+
+
+## `some v` when `k` is present in the `map of string to bool`, `maybe none` otherwise.
+##
+## ## Parámetros
+## - `m`: the `map of string to bool` to query. Read only.
+## - `k`: the string key to look up. Borrowed.
+##
+## ## Retorno
+## A `maybe bool` wrapping the stored value, or `maybe none`. Borrows the map.
+##
+## ## Ejemplo
+## ```pengu
+## var got as maybe bool is calling atlas.get_safe_sb with m, "x"
+## ```
 weave get_safe_sb with m as map of string to bool, k as string into maybe bool:
     return calling m.get_safe with k
-## Inserta o actualiza `key -> value` en `m`.
+
+
+## Inserts or updates `k -> v` in the `map of string to bool`.
+##
+## ## Parámetros
+## - `m`: the `map of string to bool` to mutate in place.
+## - `k`: the string key. Borrowed.
+## - `v`: the bool value to store.
+##
+## ## Retorno
+## Nothing; the map is mutated in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.put_sb with m, "x", true
+## ```
 weave put_sb with m as map of string to bool, k as string, v as bool into void:
     calling m.put with k, v
-## Elimina `key` de `m`; `true` si existía.
+
+
+## Removes `k` from the `map of string to bool`.
+##
+## ## Parámetros
+## - `m`: the `map of string to bool` to mutate in place.
+## - `k`: the string key to remove. Borrowed.
+##
+## ## Retorno
+## `true` when the key existed and was removed; `false` otherwise. Mutates `m` in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.remove_sb with m, "x"    # true
+## ```
 weave remove_sb with m as map of string to bool, k as string into bool:
     return calling m.remove with k
-## Vacía `m` por completo.
+
+
+## Removes every entry from the `map of string to bool`.
+##
+## ## Parámetros
+## - `m`: the `map of string to bool` to empty in place.
+##
+## ## Retorno
+## Nothing; the map is left empty in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.clear_sb with m
+## ```
 weave clear_sb with m as map of string to bool into void:
     calling m.clear
-## Lista nueva con todas las claves, en orden interno del hash.
+
+
+## New list with all keys of the `map of string to bool`.
+##
+## ## Parámetros
+## - `m`: the `map of string to bool` to read. Read only.
+##
+## ## Retorno
+## An owned `list of string` the caller releases with `banish`, in internal hash order.
+##
+## ## Ejemplo
+## ```pengu
+## var ks as list of string is calling atlas.keys_sb with m
+## ```
 weave keys_sb with m as map of string to bool into list of string:
     return calling m.keys
-## Lista nueva con todos los valores, en orden interno del hash.
+
+
+## New list with all values of the `map of string to bool`.
+##
+## ## Parámetros
+## - `m`: the `map of string to bool` to read. Read only.
+##
+## ## Retorno
+## An owned `list of bool` the caller releases with `banish`, in internal hash order.
+##
+## ## Ejemplo
+## ```pengu
+## var vs as list of bool is calling atlas.values_sb with m
+## ```
 weave values_sb with m as map of string to bool into list of bool:
     return calling m.values
-## Claves de un `map of string to bool`, ordenadas ascendentemente.
-weave keys_sorted_sb with m as map of string to bool into list of string:
-    return calling m.keys_sorted
-## Número de entradas de `m` cuyo valor es `true`.
-weave count_true_sb with m as map of string to bool into int:
-    return calling m.count_true
-## Número de entradas de `m` cuyo valor es `false`.
-weave count_false_sb with m as map of string to bool into int:
-    return calling m.count_false
-## Copia superficial independiente de `m`.
+
+
+## Independent shallow copy of the `map of string to bool`.
+##
+## ## Parámetros
+## - `m`: the `map of string to bool` to copy. Read only.
+##
+## ## Retorno
+## An owned `map of string to bool` the caller releases with `banish`. Keys and values are copied by value.
+##
+## ## Ejemplo
+## ```pengu
+## var c as map of string to bool is calling atlas.clone_sb with m
+## ```
 weave clone_sb with m as map of string to bool into map of string to bool:
     return calling m.clone
 
 
-# --- Helpers privados -------------------------------------------------------
+## Number of entries of the `map of string to bool` whose value is `true`.
+##
+## ## Parámetros
+## - `m`: the `map of string to bool` to count. Read only.
+##
+## ## Retorno
+## The number of `true` values as an `int`. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.count_true_sb with m    # 2
+## ```
+weave count_true_sb with m as map of string to bool into int:
+    return calling m.count_true
 
+
+## Number of entries of the `map of string to bool` whose value is `false`.
+##
+## ## Parámetros
+## - `m`: the `map of string to bool` to count. Read only.
+##
+## ## Retorno
+## The number of `false` values as an `int`. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.count_false_sb with m    # 1
+## ```
+weave count_false_sb with m as map of string to bool into int:
+    return calling m.count_false
+
+
+## Number of entries in `m`; equivalent to `calling m.size`.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to measure. Read only.
+##
+## ## Retorno
+## The number of entries as an `int`. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.size with m    # 3
+## ```
+weave size with m as map of string to int into int:
+    return calling m.size
+
+
+## `true` when `m` has no entries.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to inspect. Read only.
+##
+## ## Retorno
+## `true` when the map is empty; `false` otherwise. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.is_empty with m    # false
+## ```
+weave is_empty with m as map of string to int into bool:
+    return calling m.is_empty
+
+
+## `true` when `key` exists in the `map of string to int`.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to query. Read only.
+## - `key`: the string key to look up. Borrowed.
+##
+## ## Retorno
+## `true` when the key is present; `false` otherwise. Borrows both arguments.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.has_key with m, "x"    # true
+## ```
+weave has_key with m as map of string to int, key as string into bool:
+    return calling m.has_key with key
+
+
+## Value of `key` in `m`, or `default` when the key is absent.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to query. Read only.
+## - `key`: the string key to look up. Borrowed.
+## - `default`: the int value returned when the key is missing.
+##
+## ## Retorno
+## The stored value or `default`, by value. Borrows the map.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.get_or with m, "x", 0
+## ```
+weave get_or with m as map of string to int, key as string, default as int is 0 into int:
+    return calling m.get_or with key, default
+
+
+## `some v` when `key` is present in the `map of string to int`, `maybe none` otherwise.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to query. Read only.
+## - `key`: the string key to look up. Borrowed.
+##
+## ## Retorno
+## A `maybe int` wrapping the stored value, or `maybe none`. Borrows the map.
+##
+## ## Ejemplo
+## ```pengu
+## var got as maybe int is calling atlas.get_safe with m, "x"
+## ```
+weave get_safe with m as map of string to int, key as string into maybe int:
+    return calling m.get_safe with key
+
+
+## Inserts or updates `key -> value` in the `map of string to int`.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to mutate in place.
+## - `key`: the string key. Borrowed.
+## - `value`: the int value to store.
+##
+## ## Retorno
+## Nothing; the map is mutated in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.put with m, "x", 1
+## ```
+weave put with m as map of string to int, key as string, value as int into void:
+    calling m.put with key, value
+
+
+## Removes `key` from the `map of string to int`.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to mutate in place.
+## - `key`: the string key to remove. Borrowed.
+##
+## ## Retorno
+## `true` when the key existed and was removed; `false` otherwise. Mutates `m` in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.remove with m, "x"    # true
+## ```
+weave remove with m as map of string to int, key as string into bool:
+    return calling m.remove with key
+
+
+## Removes every entry from the `map of string to int`.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to empty in place.
+##
+## ## Retorno
+## Nothing; the map is left empty in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.clear with m
+## ```
+weave clear with m as map of string to int into void:
+    calling m.clear
+
+
+## New list with all keys of the `map of string to int`.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to read. Read only.
+##
+## ## Retorno
+## An owned `list of string` the caller releases with `banish`, in internal hash order.
+##
+## ## Ejemplo
+## ```pengu
+## var ks as list of string is calling atlas.keys with m
+## ```
+weave keys with m as map of string to int into list of string:
+    return calling m.keys
+
+
+## New list with all values of the `map of string to int`.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to read. Read only.
+##
+## ## Retorno
+## An owned `list of int` the caller releases with `banish`, in internal hash order.
+##
+## ## Ejemplo
+## ```pengu
+## var vs as list of int is calling atlas.values with m
+## ```
+weave values with m as map of string to int into list of int:
+    return calling m.values
+
+
+## Sum of all values of the `map of string to int`; zero when empty.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to reduce. Read only.
+##
+## ## Retorno
+## The total as `int`, or `0` when the map is empty. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.sum_values with m
+## ```
+weave sum_values with m as map of string to int into int:
+    return calling m.sum_values
+
+
+## Largest value of the `map of string to int`; zero when empty.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to reduce. Read only.
+##
+## ## Retorno
+## The maximum as `int`, or `0` when the map is empty. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.max_value with m
+## ```
+weave max_value with m as map of string to int into int:
+    return calling m.max_value
+
+
+## Smallest value of the `map of string to int`; zero when empty.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to reduce. Read only.
+##
+## ## Retorno
+## The minimum as `int`, or `0` when the map is empty. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.min_value with m
+## ```
+weave min_value with m as map of string to int into int:
+    return calling m.min_value
+
+
+## `true` when every value of the `map of string to int` is greater than zero.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to scan. Read only.
+##
+## ## Retorno
+## `true` for an empty map and when no value is `<= 0`. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.all_values_positive with m    # true
+## ```
+weave all_values_positive with m as map of string to int into bool:
+    return calling m.all_values_positive
+
+
+## `true` when some value of the `map of string to int` is negative.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to scan. Read only.
+##
+## ## Retorno
+## `true` on the first negative value; `false` for an empty map. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.any_value_negative with m    # false
+## ```
+weave any_value_negative with m as map of string to int into bool:
+    return calling m.any_value_negative
+
+
+## `true` when every value of the `map of string to int` lies inside `[lo, hi]`.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to scan. Read only.
+## - `lo`: lower bound, inclusive.
+## - `hi`: upper bound, inclusive.
+##
+## ## Retorno
+## `true` for an empty map and when no value is out of range. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.values_in_range with m, 1, 3    # true
+## ```
+weave values_in_range with m as map of string to int, lo as int, hi as int into bool:
+    return calling m.values_in_range with lo, hi
+
+
+## Replaces the value of an existing key of the `map of string to int`; never inserts.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to mutate in place.
+## - `key`: the string key to update. Borrowed.
+## - `value`: the new int value.
+##
+## ## Retorno
+## `true` when the key existed and was updated; `false` when it was not inserted. Mutates `m` in place.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.update with m, "x", 1    # true
+## ```
+weave update with m as map of string to int, key as string, value as int into bool:
+    return calling m.update with key, value
+
+
+## Submap with the entries of the `map of string to int` whose key contains `sub`.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to filter. Read only.
+## - `sub`: the substring to look for inside each key.
+##
+## ## Retorno
+## An owned `map of string to int` with the matching entries. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.filter_keys_contains with m, "a"
+## ```
+weave filter_keys_contains with m as map of string to int, sub as string into map of string to int:
+    return calling m.filter_keys_contains with sub
+
+
+## Submap with the entries of the `map of string to int` whose key starts with `prefix`.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to filter. Read only.
+## - `prefix`: the prefix each key must start with.
+##
+## ## Retorno
+## An owned `map of string to int` with the matching entries. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.filter_keys_startswith with m, "be"
+## ```
+weave filter_keys_startswith with m as map of string to int, prefix as string into map of string to int:
+    return calling m.filter_keys_startswith with prefix
+
+
+## Submap with the values of the `map of string to int` inside `[lo, hi]` inclusive.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to filter. Read only.
+## - `lo`: lower bound, inclusive.
+## - `hi`: upper bound, inclusive.
+##
+## ## Retorno
+## An owned `map of string to int` with the entries in range. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.filter_values_range with m, 2, 3
+## ```
+weave filter_values_range with m as map of string to int, lo as int, hi as int into map of string to int:
+    return calling m.filter_values_range with lo, hi
+
+
+## New `map of string to int` with every value doubled.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to transform. Read only.
+##
+## ## Retorno
+## An owned `map of string to int` the caller releases with `banish`. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.map_values_double with m
+## ```
+weave map_values_double with m as map of string to int into map of string to int:
+    return calling m.map_values_double
+
+
+## New `map of string to int` with every value negated.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to transform. Read only.
+##
+## ## Retorno
+## An owned `map of string to int` the caller releases with `banish`. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.map_values_negate with m
+## ```
+weave map_values_negate with m as map of string to int into map of string to int:
+    return calling m.map_values_negate
+
+
+## New list with all keys of the `map of string to int`; alias of `atlas.keys`.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to read. Read only.
+##
+## ## Retorno
+## An owned `list of string` the caller releases with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var ks as list of string is calling atlas.to_keys_list with m
+## ```
+weave to_keys_list with m as map of string to int into list of string:
+    return calling m.to_keys_list
+
+
+## New list with all values of the `map of string to int`; alias of `atlas.values`.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to read. Read only.
+##
+## ## Retorno
+## An owned `list of int` the caller releases with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var vs as list of int is calling atlas.to_values_list with m
+## ```
+weave to_values_list with m as map of string to int into list of int:
+    return calling m.to_values_list
+
+
+## Number of entries of the `map of string to int`; historical alias of `atlas.size`.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to measure. Read only.
+##
+## ## Retorno
+## The number of entries as an `int`. Borrows `m`.
+##
+## ## Ejemplo
+## ```pengu
+## calling atlas.map_len_str_int with m    # 3
+## ```
+weave map_len_str_int with m as map of string to int into int:
+    return calling m.len
+
+
+## New list with the keys of the `map of string to string` sorted ascending.
+##
+## ## Parámetros
+## - `m`: the `map of string to string` to read. Read only.
+##
+## ## Retorno
+## An owned `list of string` the caller releases with `banish`, sorted with `qsort` through the matching `antiquus` comparator.
+##
+## ## Ejemplo
+## ```pengu
+## var ks as list of string is calling atlas.keys_sorted_ss with m
+## ```
+weave keys_sorted_ss with m as map of string to string into list of string:
+    var ks as list of string is calling m.keys
+    calling _atlas_sort_strings_in_place with ks
+    return ks
+
+
+## New list with the values of the `map of string to string` sorted ascending.
+##
+## ## Parámetros
+## - `m`: the `map of string to string` to read. Read only.
+##
+## ## Retorno
+## An owned `list of string` the caller releases with `banish`, sorted with `qsort` through the matching `antiquus` comparator.
+##
+## ## Ejemplo
+## ```pengu
+## var vs as list of string is calling atlas.values_sorted_ss with m
+## ```
+weave values_sorted_ss with m as map of string to string into list of string:
+    var vs as list of string is calling m.values
+    calling _atlas_sort_strings_in_place with vs
+    return vs
+
+
+## New list with the keys of the `map of int to int` sorted ascending.
+##
+## ## Parámetros
+## - `m`: the `map of int to int` to read. Read only.
+##
+## ## Retorno
+## An owned `list of int` the caller releases with `banish`, sorted with `qsort` through the matching `antiquus` comparator.
+##
+## ## Ejemplo
+## ```pengu
+## var ks as list of int is calling atlas.keys_sorted_ii with m
+## ```
+weave keys_sorted_ii with m as map of int to int into list of int:
+    var ks as list of int is calling m.keys
+    calling _atlas_sort_i32_in_place with ks
+    return ks
+
+
+## New list with the values of the `map of int to int` sorted ascending.
+##
+## ## Parámetros
+## - `m`: the `map of int to int` to read. Read only.
+##
+## ## Retorno
+## An owned `list of int` the caller releases with `banish`, sorted with `qsort` through the matching `antiquus` comparator.
+##
+## ## Ejemplo
+## ```pengu
+## var vs as list of int is calling atlas.values_sorted_ii with m
+## ```
+weave values_sorted_ii with m as map of int to int into list of int:
+    var vs as list of int is calling m.values
+    calling _atlas_sort_i32_in_place with vs
+    return vs
+
+
+## New list with the keys of the `map of int to string` sorted ascending.
+##
+## ## Parámetros
+## - `m`: the `map of int to string` to read. Read only.
+##
+## ## Retorno
+## An owned `list of int` the caller releases with `banish`, sorted with `qsort` through the matching `antiquus` comparator.
+##
+## ## Ejemplo
+## ```pengu
+## var ks as list of int is calling atlas.keys_sorted_is with m
+## ```
+weave keys_sorted_is with m as map of int to string into list of int:
+    var ks as list of int is calling m.keys
+    calling _atlas_sort_i32_in_place with ks
+    return ks
+
+
+## New list with the values of the `map of int to string` sorted ascending.
+##
+## ## Parámetros
+## - `m`: the `map of int to string` to read. Read only.
+##
+## ## Retorno
+## An owned `list of string` the caller releases with `banish`, sorted with `qsort` through the matching `antiquus` comparator.
+##
+## ## Ejemplo
+## ```pengu
+## var vs as list of string is calling atlas.values_sorted_is with m
+## ```
+weave values_sorted_is with m as map of int to string into list of string:
+    var vs as list of string is calling m.values
+    calling _atlas_sort_strings_in_place with vs
+    return vs
+
+
+## New list with the keys of the `map of string to float` sorted ascending.
+##
+## ## Parámetros
+## - `m`: the `map of string to float` to read. Read only.
+##
+## ## Retorno
+## An owned `list of string` the caller releases with `banish`, sorted with `qsort` through the matching `antiquus` comparator.
+##
+## ## Ejemplo
+## ```pengu
+## var ks as list of string is calling atlas.keys_sorted_sf with m
+## ```
+weave keys_sorted_sf with m as map of string to float into list of string:
+    var ks as list of string is calling m.keys
+    calling _atlas_sort_strings_in_place with ks
+    return ks
+
+
+## New list with the values of the `map of string to float` sorted ascending.
+##
+## ## Parámetros
+## - `m`: the `map of string to float` to read. Read only.
+##
+## ## Retorno
+## An owned `list of float` the caller releases with `banish`, sorted with `qsort` through the matching `antiquus` comparator.
+##
+## ## Ejemplo
+## ```pengu
+## var vs as list of float is calling atlas.values_sorted_sf with m
+## ```
+weave values_sorted_sf with m as map of string to float into list of float:
+    var vs as list of float is calling m.values
+    calling _atlas_sort_f32_in_place with vs
+    return vs
+
+
+## New list with the keys of the `map of string to bool` sorted ascending.
+##
+## ## Parámetros
+## - `m`: the `map of string to bool` to read. Read only.
+##
+## ## Retorno
+## An owned `list of string` the caller releases with `banish`, sorted ascending through the generic `Ordered` sort.
+##
+## ## Ejemplo
+## ```pengu
+## var ks as list of string is calling atlas.keys_sorted_sb with m
+## ```
+weave keys_sorted_sb with m as map of string to bool into list of string:
+    return calling m.keys_sorted
+
+
+## New list with the keys of the `map of string to int` sorted ascending.
+##
+## ## Parámetros
+## - `m`: the `map of string to int` to read. Read only.
+##
+## ## Retorno
+## An owned `list of string` the caller releases with `banish`, sorted ascending through the generic `Ordered` sort.
+##
+## ## Ejemplo
+## ```pengu
+## var ks as list of string is calling atlas.keys_sorted with m
+## ```
+weave keys_sorted with m as map of string to int into list of string:
+    return calling m.keys_sorted
+
+
+## Combines `a` and `b` into a new `map of string to int`; `b` wins on collision.
+##
+## ## Parámetros
+## - `a`: the left `map of string to int`. Read only.
+## - `b`: the right `map of string to int`. Read only.
+##
+## ## Retorno
+## An owned `map of string to int` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to int is calling atlas.merge with a, b
+## ```
+weave merge with a as map of string to int, b as map of string to int into map of string to int:
+    return calling map_merge with a, b
+
+
+## Combines `a` and `b` into a new `map of string to int`; keys already present in `a` keep their value.
+##
+## ## Parámetros
+## - `a`: the left `map of string to int`, whose values win. Read only.
+## - `b`: the right `map of string to int`. Read only.
+##
+## ## Retorno
+## An owned `map of string to int` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to int is calling atlas.merge_keep_left with a, b
+## ```
+weave merge_keep_left with a as map of string to int, b as map of string to int into map of string to int:
+    return calling map_merge_keep_left with a, b
+
+
+## Combines `a` and `b` into a new `map of string to int`; `b` wins on collision (same as `atlas.merge`).
+##
+## ## Parámetros
+## - `a`: the left `map of string to int`. Read only.
+## - `b`: the right `map of string to int`. Read only.
+##
+## ## Retorno
+## An owned `map of string to int` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to int is calling atlas.merge_keep_right with a, b
+## ```
+weave merge_keep_right with a as map of string to int, b as map of string to int into map of string to int:
+    return calling map_merge with a, b
+
+
+## Builds an `map of string to int` from the parallel lists `ks` and `vs`.
+##
+## ## Parámetros
+## - `ks`: the keys, read up to `min(ks.len, vs.len)`. Read only.
+## - `vs`: the values. Read only.
+##
+## ## Retorno
+## An owned `map of string to int` the caller releases with `banish`. Borrows both lists.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to int is calling atlas.from_lists with ks, vs
+## ```
+weave from_lists with ks as list of string, vs as list of int into map of string to int:
+    return calling map_from_lists with ks, vs
+
+
+## Combines `a` and `b` into a new `map of string to string`; `b` wins on collision.
+##
+## ## Parámetros
+## - `a`: the left `map of string to string`. Read only.
+## - `b`: the right `map of string to string`. Read only.
+##
+## ## Retorno
+## An owned `map of string to string` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to string is calling atlas.merge_ss with a, b
+## ```
+weave merge_ss with a as map of string to string, b as map of string to string into map of string to string:
+    return calling map_merge with a, b
+
+
+## Combines `a` and `b` into a new `map of string to string`; keys already present in `a` keep their value.
+##
+## ## Parámetros
+## - `a`: the left `map of string to string`, whose values win. Read only.
+## - `b`: the right `map of string to string`. Read only.
+##
+## ## Retorno
+## An owned `map of string to string` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to string is calling atlas.merge_keep_left_ss with a, b
+## ```
+weave merge_keep_left_ss with a as map of string to string, b as map of string to string into map of string to string:
+    return calling map_merge_keep_left with a, b
+
+
+## Combines `a` and `b` into a new `map of string to string`; `b` wins on collision (same as `atlas.merge_ss`).
+##
+## ## Parámetros
+## - `a`: the left `map of string to string`. Read only.
+## - `b`: the right `map of string to string`. Read only.
+##
+## ## Retorno
+## An owned `map of string to string` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to string is calling atlas.merge_keep_right_ss with a, b
+## ```
+weave merge_keep_right_ss with a as map of string to string, b as map of string to string into map of string to string:
+    return calling map_merge with a, b
+
+
+## Builds an `map of string to string` from the parallel lists `ks` and `vs`.
+##
+## ## Parámetros
+## - `ks`: the keys, read up to `min(ks.len, vs.len)`. Read only.
+## - `vs`: the values. Read only.
+##
+## ## Retorno
+## An owned `map of string to string` the caller releases with `banish`. Borrows both lists.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to string is calling atlas.from_lists_ss with ks, vs
+## ```
+weave from_lists_ss with ks as list of string, vs as list of string into map of string to string:
+    return calling map_from_lists with ks, vs
+
+
+## Combines `a` and `b` into a new `map of string to float`; `b` wins on collision.
+##
+## ## Parámetros
+## - `a`: the left `map of string to float`. Read only.
+## - `b`: the right `map of string to float`. Read only.
+##
+## ## Retorno
+## An owned `map of string to float` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to float is calling atlas.merge_sf with a, b
+## ```
+weave merge_sf with a as map of string to float, b as map of string to float into map of string to float:
+    return calling map_merge with a, b
+
+
+## Combines `a` and `b` into a new `map of string to float`; keys already present in `a` keep their value.
+##
+## ## Parámetros
+## - `a`: the left `map of string to float`, whose values win. Read only.
+## - `b`: the right `map of string to float`. Read only.
+##
+## ## Retorno
+## An owned `map of string to float` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to float is calling atlas.merge_keep_left_sf with a, b
+## ```
+weave merge_keep_left_sf with a as map of string to float, b as map of string to float into map of string to float:
+    return calling map_merge_keep_left with a, b
+
+
+## Combines `a` and `b` into a new `map of string to float`; `b` wins on collision (same as `atlas.merge_sf`).
+##
+## ## Parámetros
+## - `a`: the left `map of string to float`. Read only.
+## - `b`: the right `map of string to float`. Read only.
+##
+## ## Retorno
+## An owned `map of string to float` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to float is calling atlas.merge_keep_right_sf with a, b
+## ```
+weave merge_keep_right_sf with a as map of string to float, b as map of string to float into map of string to float:
+    return calling map_merge with a, b
+
+
+## Builds an `map of string to float` from the parallel lists `ks` and `vs`.
+##
+## ## Parámetros
+## - `ks`: the keys, read up to `min(ks.len, vs.len)`. Read only.
+## - `vs`: the values. Read only.
+##
+## ## Retorno
+## An owned `map of string to float` the caller releases with `banish`. Borrows both lists.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to float is calling atlas.from_lists_sf with ks, vs
+## ```
+weave from_lists_sf with ks as list of string, vs as list of float into map of string to float:
+    return calling map_from_lists with ks, vs
+
+
+## Combines `a` and `b` into a new `map of int to int`; `b` wins on collision.
+##
+## ## Parámetros
+## - `a`: the left `map of int to int`. Read only.
+## - `b`: the right `map of int to int`. Read only.
+##
+## ## Retorno
+## An owned `map of int to int` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of int to int is calling atlas.merge_ii with a, b
+## ```
+weave merge_ii with a as map of int to int, b as map of int to int into map of int to int:
+    return calling map_merge with a, b
+
+
+## Combines `a` and `b` into a new `map of int to int`; keys already present in `a` keep their value.
+##
+## ## Parámetros
+## - `a`: the left `map of int to int`, whose values win. Read only.
+## - `b`: the right `map of int to int`. Read only.
+##
+## ## Retorno
+## An owned `map of int to int` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of int to int is calling atlas.merge_keep_left_ii with a, b
+## ```
+weave merge_keep_left_ii with a as map of int to int, b as map of int to int into map of int to int:
+    return calling map_merge_keep_left with a, b
+
+
+## Combines `a` and `b` into a new `map of int to int`; `b` wins on collision (same as `atlas.merge_ii`).
+##
+## ## Parámetros
+## - `a`: the left `map of int to int`. Read only.
+## - `b`: the right `map of int to int`. Read only.
+##
+## ## Retorno
+## An owned `map of int to int` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of int to int is calling atlas.merge_keep_right_ii with a, b
+## ```
+weave merge_keep_right_ii with a as map of int to int, b as map of int to int into map of int to int:
+    return calling map_merge with a, b
+
+
+## Builds an `map of int to int` from the parallel lists `ks` and `vs`.
+##
+## ## Parámetros
+## - `ks`: the keys, read up to `min(ks.len, vs.len)`. Read only.
+## - `vs`: the values. Read only.
+##
+## ## Retorno
+## An owned `map of int to int` the caller releases with `banish`. Borrows both lists.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of int to int is calling atlas.from_lists_ii with ks, vs
+## ```
+weave from_lists_ii with ks as list of int, vs as list of int into map of int to int:
+    return calling map_from_lists with ks, vs
+
+
+## Combines `a` and `b` into a new `map of int to string`; `b` wins on collision.
+##
+## ## Parámetros
+## - `a`: the left `map of int to string`. Read only.
+## - `b`: the right `map of int to string`. Read only.
+##
+## ## Retorno
+## An owned `map of int to string` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of int to string is calling atlas.merge_is with a, b
+## ```
+weave merge_is with a as map of int to string, b as map of int to string into map of int to string:
+    return calling map_merge with a, b
+
+
+## Combines `a` and `b` into a new `map of int to string`; keys already present in `a` keep their value.
+##
+## ## Parámetros
+## - `a`: the left `map of int to string`, whose values win. Read only.
+## - `b`: the right `map of int to string`. Read only.
+##
+## ## Retorno
+## An owned `map of int to string` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of int to string is calling atlas.merge_keep_left_is with a, b
+## ```
+weave merge_keep_left_is with a as map of int to string, b as map of int to string into map of int to string:
+    return calling map_merge_keep_left with a, b
+
+
+## Combines `a` and `b` into a new `map of int to string`; `b` wins on collision (same as `atlas.merge_is`).
+##
+## ## Parámetros
+## - `a`: the left `map of int to string`. Read only.
+## - `b`: the right `map of int to string`. Read only.
+##
+## ## Retorno
+## An owned `map of int to string` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of int to string is calling atlas.merge_keep_right_is with a, b
+## ```
+weave merge_keep_right_is with a as map of int to string, b as map of int to string into map of int to string:
+    return calling map_merge with a, b
+
+
+## Builds an `map of int to string` from the parallel lists `ks` and `vs`.
+##
+## ## Parámetros
+## - `ks`: the keys, read up to `min(ks.len, vs.len)`. Read only.
+## - `vs`: the values. Read only.
+##
+## ## Retorno
+## An owned `map of int to string` the caller releases with `banish`. Borrows both lists.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of int to string is calling atlas.from_lists_is with ks, vs
+## ```
+weave from_lists_is with ks as list of int, vs as list of string into map of int to string:
+    return calling map_from_lists with ks, vs
+
+
+## Combines `a` and `b` into a new `map of string to bool`; `b` wins on collision.
+##
+## ## Parámetros
+## - `a`: the left `map of string to bool`. Read only.
+## - `b`: the right `map of string to bool`. Read only.
+##
+## ## Retorno
+## An owned `map of string to bool` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to bool is calling atlas.merge_sb with a, b
+## ```
+weave merge_sb with a as map of string to bool, b as map of string to bool into map of string to bool:
+    return calling map_merge with a, b
+
+
+## Combines `a` and `b` into a new `map of string to bool`; keys already present in `a` keep their value.
+##
+## ## Parámetros
+## - `a`: the left `map of string to bool`, whose values win. Read only.
+## - `b`: the right `map of string to bool`. Read only.
+##
+## ## Retorno
+## An owned `map of string to bool` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to bool is calling atlas.merge_keep_left_sb with a, b
+## ```
+weave merge_keep_left_sb with a as map of string to bool, b as map of string to bool into map of string to bool:
+    return calling map_merge_keep_left with a, b
+
+
+## Combines `a` and `b` into a new `map of string to bool`; `b` wins on collision (same as `atlas.merge_sb`).
+##
+## ## Parámetros
+## - `a`: the left `map of string to bool`. Read only.
+## - `b`: the right `map of string to bool`. Read only.
+##
+## ## Retorno
+## An owned `map of string to bool` the caller releases with `banish`. Borrows both maps.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to bool is calling atlas.merge_keep_right_sb with a, b
+## ```
+weave merge_keep_right_sb with a as map of string to bool, b as map of string to bool into map of string to bool:
+    return calling map_merge with a, b
+
+
+## Builds an `map of string to bool` from the parallel lists `ks` and `vs`.
+##
+## ## Parámetros
+## - `ks`: the keys, read up to `min(ks.len, vs.len)`. Read only.
+## - `vs`: the values. Read only.
+##
+## ## Retorno
+## An owned `map of string to bool` the caller releases with `banish`. Borrows both lists.
+##
+## ## Ejemplo
+## ```pengu
+## var m as map of string to bool is calling atlas.from_lists_sb with ks, vs
+## ```
+weave from_lists_sb with ks as list of string, vs as list of bool into map of string to bool:
+    return calling map_from_lists with ks, vs
+
+
+# --- Embedded C bridges (`antiquus`) ----------------------------------------
+
+@export("atlas__atlas_cmp_i32")
+## Compares two `int32_t` cells for `qsort`.
+##
+## ## Motivo
+## `qsort` needs a C callback and the `int32_t` comparison is the branch-free
+## `(x > y) - (x < y)`; expressing the byte offsets in PenguScript would cost one
+## slice per comparison. It carries `@export` so dead-code elimination keeps it:
+## nothing in PenguScript references a function only raw C calls.
+##
+## ## Memoria
+## Reads the two borrowed cells; allocates nothing and frees nothing.
+antiquus _atlas_cmp_i32 with a as ref to frozen void, b as ref to frozen void into int:
+    r"""
+int32_t x = *(const int32_t*)a;
+int32_t y = *(const int32_t*)b;
+return (x > y) - (x < y);
+"""
+
+## Sorts an `int` list in place with `qsort` (ascending).
+##
+## ## Motivo
+## The compatibility wrappers (`keys_sorted_ii`, `values_sorted_ii`,
+## `keys_sorted_is`) need one C implementation per element type; `qsort` over the
+## `PenguList` buffer is faster than the generic insertion sort and reuses the
+## same comparator.
+##
+## ## Memoria
+## Sorts the caller's list buffer in place; allocates nothing and frees nothing.
+antiquus _atlas_sort_i32_in_place with xs as list of int into void:
+    r"""
+if (xs.data && xs.len > 1)
+qsort(xs.data, (size_t)xs.len, sizeof(int32_t), atlas__atlas_cmp_i32);
+"""
+
+@export("atlas__atlas_cmp_f32")
+## Compares two `float` cells for `qsort`.
+##
+## ## Motivo
+## `float` is 32-bit, so the comparator dereferences the cells as `const float*`
+## and returns `(x > y) - (x < y)`; `NaN` values compare as equal and keep their
+## relative order. `@export` keeps it alive through dead-code elimination.
+##
+## ## Memoria
+## Reads the two borrowed cells; allocates nothing and frees nothing.
+antiquus _atlas_cmp_f32 with a as ref to frozen void, b as ref to frozen void into int:
+    r"""
+float x = *(const float*)a;
+float y = *(const float*)b;
+return (x > y) - (x < y);
+"""
+
+## Sorts a `float` list in place with `qsort` (ascending).
+##
+## ## Motivo
+## `values_sorted_sf` needs the 32-bit element size (`sizeof(float)`); the
+## generic insertion sort would call the `Ordered` bind once per comparison.
+##
+## ## Memoria
+## Sorts the caller's list buffer in place; allocates nothing and frees nothing.
+antiquus _atlas_sort_f32_in_place with xs as list of float into void:
+    r"""
+if (xs.data && xs.len > 1)
+qsort(xs.data, (size_t)xs.len, sizeof(float), atlas__atlas_cmp_f32);
+"""
+
+@export("atlas__atlas_cmp_string")
+## Compares two `PenguString` cells for `qsort` (byte order).
+##
+## ## Motivo
+## `string` has no C ordering operator, so the comparator reads
+## `PenguString.data`/`.len` directly: `memcmp` over the common prefix and
+## `len` as the tie-breaker, exact for NUL-containing strings and allocation
+## free. `@export` keeps it alive through dead-code elimination.
+##
+## ## Memoria
+## Reads the two borrowed `PenguString` cells; allocates nothing and frees
+## nothing.
+antiquus _atlas_cmp_string with a as ref to frozen void, b as ref to frozen void into int:
+    r"""
+PenguString const *sa = (PenguString const*)a;
+PenguString const *sb = (PenguString const*)b;
+int n = sa->len < sb->len ? sa->len : sb->len;
+int c = memcmp(sa->data, sb->data, (size_t)n);
+if (c != 0) return c;
+return sa->len - sb->len;
+"""
+
+## Sorts a `string` list in place with `qsort` (ascending).
+##
+## ## Motivo
+## `keys_sorted_ss`, `values_sorted_ss`, `values_sorted_is`, `keys_sorted_sf`
+## and `_sort_strings` share this one C sort; the element size is the
+## `PenguString` cell, not the bytes it points to.
+##
+## ## Memoria
+## Sorts the caller's list buffer in place; the `PenguString` cells are moved,
+## not copied, so no string is duplicated or freed.
+antiquus _atlas_sort_strings_in_place with xs as list of string into void:
+    r"""
+if (xs.data && xs.len > 1)
+qsort(xs.data, (size_t)xs.len, sizeof(PenguString), atlas__atlas_cmp_string);
+"""
+
+# --- Private helpers -------------------------------------------------------
+
+## Sorts a copy of `xs` ascending through the C string comparator.
 weave _sort_strings with xs as list of string into list of string:
     var ks as list of string is list of string
     for s in xs:
         calling ks.push with s
-    var n as int is calling ks.len
-    var i as int is 0
-    while i < n:
-        var j as int is i + 1
-        while j < n:
-            var a as string is ks at i
-            var b as string is ks at j
-            if (calling a.compare with b) > 0:
-                var tmp as string is ks at i
-                set ks at i is ks at j
-                set ks at j is tmp
-            set j is j + 1
-        set i is i + 1
+    calling _atlas_sort_strings_in_place with ks
     return ks
 
 # --- Tests ------------------------------------------------------------------
-# Harness privado: `std.ward` no puede importarse aquí (ward importa atlas y el
-# ciclo sería E0004), así que las aserciones usan `std.spark` directamente.
+# Private harness: `std.ward` cannot be imported here (ward imports atlas and
+# the cycle would be E0004), so the assertions use `std.spark` directly.
+# No fixture type is declared: the custom-key extension (a `seal`/`rune`/
+# `alias` plus an UNQUALIFIED `bind <Type> with Ordered:`) is covered by the
+# external suite `tests/stdlib/test_atlas.py`, which declares its own
+# `seal UserId as int` and `bind UserId with Ordered:` after importing atlas.
 
-## Falla con `label` si `got != want`.
+## Fails with `label` when `got != want`.
 weave _expect_eq_int with got as int, want as int, label as string into void:
     if got != want:
         calling spark.println with "FAIL {label}: got {got}, want {want}"
         calling spark.panic with "atlas: test failed"
 
-## Falla con `label` si `got != want` (comparación con `std.scrolls.compare`).
+## Fails with `label` when `got != want` (compared with `std.scrolls.compare`).
 weave _expect_eq_string with got as string, want as string, label as string into void:
     if (calling got.compare with want) != 0:
         calling spark.println with "FAIL {label}: got {got}, want {want}"
         calling spark.panic with "atlas: test failed"
 
-## Falla con `label` si `cond` es falso.
+## Fails with `label` when `cond` is false.
 weave _expect_true with cond as bool, label as string into void:
     if not cond:
         calling spark.println with "FAIL {label}"
         calling spark.panic with "atlas: test failed"
 
-## Mapa de una sola entrada `k -> v` (helper de tests).
+## Map with the single entry `k -> v` (test helper).
 weave _one shard K and V where K: Par, V: Par with k as K, v as V into map of K to V:
     var m as map of K to V is map of K to V
     with m:
         calling .put with k, v
     return m
 
-## Número de elementos de `xs` (helper de tests).
+## Number of elements of `xs` (test helper).
 weave _count shard T with xs as list of T into int:
     return calling xs.len
 
@@ -1185,325 +4014,325 @@ weave _sample_int_str into map of int to string:
         calling .put with 3, "tres"
     return m
 
-## Predicado de prueba: valor mayor que uno.
+## Test predicate: value greater than one.
 weave _value_gt_one with k as string, v as int into bool:
     v > 1
 
-## Transformación de prueba: incremento.
+## Test transformation: increment.
 weave _inc with x as int into int:
     x + 1
-test "size cuenta las entradas":
+test "size counts the entries":
     let m is calling _sample_str_int
     calling _expect_eq_int with (calling m.size), 3, "size"
-test "size de un mapa vacío es cero":
+test "size of an empty map is zero":
     var m as map of string to int is map of string to int
-    calling _expect_eq_int with (calling m.size), 0, "size vacío"
-test "is_empty es falso con entradas":
+    calling _expect_eq_int with (calling m.size), 0, "empty size"
+test "is_empty is false with entries":
     let m is calling _sample_str_int
-    calling _expect_true with (not (calling m.is_empty)), "is_empty falso"
-test "is_empty es verdadero sin entradas":
+    calling _expect_true with (not (calling m.is_empty)), "is_empty false"
+test "is_empty is true without entries":
     var m as map of string to int is map of string to int
     calling _expect_true with (calling m.is_empty), "is_empty"
-test "has_key encuentra una clave presente":
+test "has_key finds a present key":
     let m is calling _sample_str_int
     calling _expect_true with (calling m.has_key with "beta"), "has_key"
-test "has_key rechaza una clave ausente":
+test "has_key rejects a missing key":
     let m is calling _sample_str_int
-    calling _expect_true with (not (calling m.has_key with "zeta")), "has_key ausente"
-test "has_any_key con una coincidencia":
+    calling _expect_true with (not (calling m.has_key with "zeta")), "has_key missing"
+test "has_any_key with one match":
     let m is calling _sample_str_int
     var ks as list of string is ["zeta", "beta"]
     calling _expect_true with (calling m.has_any_key with ks), "has_any_key"
-test "has_any_key sin coincidencias":
+test "has_any_key without matches":
     let m is calling _sample_str_int
     var ks as list of string is ["zeta", "omega"]
-    calling _expect_true with (not (calling m.has_any_key with ks)), "has_any_key no"
-test "has_all_keys con todas las claves":
+    calling _expect_true with (not (calling m.has_any_key with ks)), "has_any_key none"
+test "has_all_keys with every key":
     let m is calling _sample_str_int
     var ks as list of string is ["alpha", "gamma"]
     calling _expect_true with (calling m.has_all_keys with ks), "has_all_keys"
-test "has_all_keys detecta la clave ausente":
+test "has_all_keys detects the missing key":
     let m is calling _sample_str_int
     var ks as list of string is ["alpha", "zeta"]
-    calling _expect_true with (not (calling m.has_all_keys with ks)), "has_all_keys no"
-test "get_or devuelve el valor presente":
+    calling _expect_true with (not (calling m.has_all_keys with ks)), "has_all_keys none"
+test "get_or returns the stored value":
     let m is calling _sample_str_int
     calling _expect_eq_int with (calling m.get_or with "beta", 0), 2, "get_or"
-test "get_or devuelve el fallback si falta":
+test "get_or returns the fallback when missing":
     let m is calling _sample_str_int
     calling _expect_eq_int with (calling m.get_or with "zeta", -1), -1, "get_or fallback"
-test "get_safe devuelve some con la clave presente":
+test "get_safe wraps a present key in some":
     let m is calling _sample_str_int
     var got as maybe int is calling m.get_safe with "gamma"
     calling _expect_eq_int with (got or else -1), 3, "get_safe"
-test "get_safe devuelve maybe none si falta":
+test "get_safe returns maybe none when missing":
     let m is calling _sample_str_int
     var got as maybe int is calling m.get_safe with "zeta"
-    calling _expect_true with (not got.is_present), "get_safe ausente"
-test "find_key_by_value encuentra la clave del valor":
+    calling _expect_true with (not got.is_present), "get_safe absent"
+test "find_key_by_value finds the key of a value":
     let m is calling _sample_str_int
     var got as maybe string is calling m.find_key_by_value with 2
     calling _expect_eq_string with (got or else "?"), "beta", "find_key_by_value"
-test "find_key_by_value no encuentra valores ausentes":
+test "find_key_by_value misses absent values":
     let m is calling _sample_str_int
     var got as maybe string is calling m.find_key_by_value with 99
-    calling _expect_true with (not got.is_present), "find_key_by_value ausente"
-test "update cambia un valor existente":
+    calling _expect_true with (not got.is_present), "find_key_by_value absent"
+test "update changes an existing value":
     let m is calling _one with "a", 1
     calling _expect_true with ((calling m.update with "a", 9) and ((calling m.get_or with "a", 0) == 9)), "update"
-test "update devuelve falso si la clave no existe":
+test "update returns false for a missing key":
     let m is calling _one with "a", 1
-    calling _expect_true with (not (calling m.update with "b", 9)), "update falso"
-test "rename_key conserva el valor":
+    calling _expect_true with (not (calling m.update with "b", 9)), "update false"
+test "rename_key keeps the value":
     let m is calling _one with "a", 5
     calling _expect_true with ((calling m.rename_key with "a", "b") and ((calling m.get_or with "b", 0) == 5)), "rename_key"
-test "rename_key devuelve falso si falta la clave":
+test "rename_key returns false for a missing key":
     let m is calling _one with "a", 5
-    calling _expect_true with (not (calling m.rename_key with "z", "b")), "rename_key no"
-test "rename_key sobre colisión sobrescribe el destino":
+    calling _expect_true with (not (calling m.rename_key with "z", "b")), "rename_key miss"
+test "rename_key overwrites the destination on collision":
     let m is calling _sample_str_int
     calling m.rename_key with "alpha", "beta"
-    calling _expect_eq_int with (calling m.get_or with "beta", 0), 1, "rename_key colisión"
-test "remove elimina la clave presente":
+    calling _expect_eq_int with (calling m.get_or with "beta", 0), 1, "rename_key collision"
+test "remove deletes a present key":
     let m is calling _one with "a", 5
     calling _expect_true with ((calling m.remove with "a") and ((calling m.size) == 0)), "remove"
-test "remove devuelve falso si la clave falta":
+test "remove returns false for a missing key":
     let m is calling _one with "a", 5
-    calling _expect_true with (not (calling m.remove with "z")), "remove no"
-test "clear deja el mapa vacío":
+    calling _expect_true with (not (calling m.remove with "z")), "remove miss"
+test "clear leaves the map empty":
     let m is calling _sample_str_int
     calling m.clear
     calling _expect_true with (calling m.is_empty), "clear"
-test "remove_all elimina solo las claves presentes":
+test "remove_all deletes only present keys":
     let m is calling _sample_str_int
     var ks as list of string is ["alpha", "zeta"]
     calling _expect_eq_int with (calling m.remove_all with ks), 1, "remove_all"
-test "remove_all devuelve cero sin coincidencias":
+test "remove_all returns zero without matches":
     let m is calling _sample_str_int
     var ks as list of string is ["zeta"]
-    calling _expect_eq_int with (calling m.remove_all with ks), 0, "remove_all cero"
-test "put_all copia las entradas del otro mapa":
+    calling _expect_eq_int with (calling m.remove_all with ks), 0, "remove_all zero"
+test "put_all copies the entries of another map":
     let m is calling _one with "a", 1
     let other is calling _one with "b", 2
     calling m.put_all with other
     calling _expect_eq_int with (calling m.size), 2, "put_all"
-test "put_all sobrescribe claves repetidas":
+test "put_all overwrites repeated keys":
     let m is calling _one with "a", 1
     let other is calling _one with "a", 9
     calling m.put_all with other
-    calling _expect_eq_int with (calling m.get_or with "a", 0), 9, "put_all sobrescribe"
-test "keys devuelve todas las claves":
+    calling _expect_eq_int with (calling m.get_or with "a", 0), 9, "put_all overwrites"
+test "keys returns every key":
     let m is calling _sample_str_int
     var ks as list of string is calling m.keys
     calling _expect_eq_int with (calling ks.len), 3, "keys"
-test "values devuelve todos los valores":
+test "values returns every value":
     let m is calling _sample_str_int
     var vs as list of int is calling m.values
     calling _expect_eq_int with (calling vs.len), 3, "values"
-test "to_values_list es alias de values":
+test "to_values_list is an alias of values":
     calling _expect_eq_int with (calling _count with (calling to_values_list with (calling _sample_str_int))), 3, "to_values_list"
-test "copy es alias de clone":
+test "copy is an alias of clone":
     let m is calling _sample_str_int
     var c as map of string to int is calling m.copy
     calling _expect_true with (calling m.is_equal with c), "copy"
-test "is_equal compara por contenido":
+test "is_equal compares by content":
     let a is calling _sample_str_int
     var b as map of string to int is calling a.clone
     calling _expect_true with (calling a.is_equal with b), "is_equal"
-test "is_equal distingue tamaños distintos":
+test "is_equal distinguishes different sizes":
     let a is calling _sample_str_int
     let b is calling _one with "alpha", 1
-    calling _expect_true with (not (calling a.is_equal with b)), "is_equal tamaño"
-test "is_equal distingue valores distintos":
+    calling _expect_true with (not (calling a.is_equal with b)), "is_equal size"
+test "is_equal distinguishes different values":
     let a is calling _one with "a", 1
     let b is calling _one with "a", 2
-    calling _expect_true with (not (calling a.is_equal with b)), "is_equal valor"
-test "entries empaqueta clave y valor":
+    calling _expect_true with (not (calling a.is_equal with b)), "is_equal value"
+test "entries packs key and value":
     let m is calling _one with "solo", 7
     var es as list of oracle.Pair of string and int is calling m.entries
     var e0 as oracle.Pair of string and int is es at 0
     calling _expect_eq_string with e0.first, "solo", "entries.first"
     calling _expect_eq_int with e0.second, 7, "entries.second"
-test "invert intercambia claves y valores":
+test "invert swaps keys and values":
     let m is calling _sample_str_int
     var inv as map of int to string is calling m.invert
     calling _expect_eq_string with (calling inv.get_or with 2, "?"), "beta", "invert"
-test "take_keys conserva solo las claves pedidas":
+test "take_keys keeps only the requested keys":
     let m is calling _sample_str_int
     var ks as list of string is ["alpha"]
     var sub as map of string to int is calling m.take_keys with ks
     calling _expect_eq_int with (calling sub.size), 1, "take_keys"
-test "count_where cuenta las entradas que cumplen el predicado":
+test "count_where counts the entries that match":
     let m is calling _sample_str_int
     calling _expect_eq_int with (calling m.count_where with _value_gt_one), 2, "count_where"
-test "filter_entries conserva las entradas que cumplen el predicado":
+test "filter_entries keeps the entries that match":
     let m is calling _sample_str_int
     var sub as map of string to int is calling m.filter_entries with _value_gt_one
     calling _expect_eq_int with (calling sub.size), 2, "filter_entries"
-test "map_values_with transforma cada valor":
+test "map_values_with transforms every value":
     let m is calling _sample_str_int
     var out as map of string to int is calling m.map_values_with with _inc
     calling _expect_eq_int with (calling out.get_or with "alpha", 0), 2, "map_values_with"
-test "merge_all combina el receptor con otros mapas":
+test "merge_all combines the receiver with other maps":
     var m as map of string to int is calling _one with "a", 1
     let other is calling _one with "b", 2
     var others as list of map of string to int is [other]
     var merged as map of string to int is calling m.merge_all with others
-    calling _expect_eq_int with (calling merged.size), 2, "merge_all método"
-test "sum_values suma los valores int":
+    calling _expect_eq_int with (calling merged.size), 2, "merge_all method"
+test "sum_values adds int values":
     let m is calling _sample_str_int
     calling _expect_eq_int with (calling m.sum_values), 6, "sum_values"
-test "sum_values de un mapa vacío es cero":
+test "sum_values of an empty map is zero":
     var m as map of int to int is map of int to int
-    calling _expect_eq_int with (calling m.sum_values), 0, "sum_values vacío"
-test "sum_values_filtered respeta el rango":
+    calling _expect_eq_int with (calling m.sum_values), 0, "sum_values empty"
+test "sum_values_filtered honours the range":
     let m is calling _sample_str_int
     calling _expect_eq_int with (calling m.sum_values_filtered with 2, 3), 5, "sum_values_filtered"
-test "all_values_positive con todos positivos":
+test "all_values_positive with every value positive":
     let m is calling _sample_str_int
     calling _expect_true with (calling m.all_values_positive), "all_values_positive"
-test "all_values_positive en un mapa vacío":
+test "all_values_positive on an empty map":
     var m as map of int to int is map of int to int
-    calling _expect_true with (calling m.all_values_positive), "positivos vacío"
-test "any_value_negative es falso sin negativos":
+    calling _expect_true with (calling m.all_values_positive), "positives empty"
+test "any_value_negative is false without negatives":
     let m is calling _sample_str_int
-    calling _expect_true with (not (calling m.any_value_negative)), "negativos no"
-test "count_if_value_positive cuenta los positivos":
+    calling _expect_true with (not (calling m.any_value_negative)), "negatives none"
+test "count_if_value_positive counts the positives":
     let m is calling _sample_str_float
-    calling _expect_eq_int with (calling m.count_if_value_positive), 2, "positivos"
-test "count_if_value_negative cuenta los negativos":
+    calling _expect_eq_int with (calling m.count_if_value_positive), 2, "positives"
+test "count_if_value_negative counts the negatives":
     let m is calling _sample_str_float
-    calling _expect_eq_int with (calling m.count_if_value_negative), 1, "negativos"
-test "map_values_double duplica cada valor":
+    calling _expect_eq_int with (calling m.count_if_value_negative), 1, "negatives"
+test "map_values_double doubles every value":
     let m is calling _sample_str_int
     var out as map of string to int is calling m.map_values_double
     calling _expect_eq_int with (calling out.get_or with "beta", 0), 4, "map_values_double"
-test "map_values_negate niega cada valor":
+test "map_values_negate negates every value":
     let m is calling _sample_str_int
     var out as map of string to int is calling m.map_values_negate
     calling _expect_eq_int with (calling out.get_or with "gamma", 0), -3, "map_values_negate"
-test "map_values_scale multiplica por el factor":
+test "map_values_scale multiplies by the factor":
     let m is calling _sample_str_float
     var out as map of string to float is calling m.map_values_scale with 2.0
     calling _expect_true with ((calling out.get_or with "alpha", 0.0) == 3.0), "map_values_scale"
-test "max_value devuelve el mayor int":
+test "max_value returns the largest int":
     let m is calling _sample_str_int
     calling _expect_eq_int with (calling m.max_value), 3, "max_value"
-test "max_value de un mapa vacío es cero":
+test "max_value of an empty map is zero":
     var m as map of int to int is map of int to int
-    calling _expect_eq_int with (calling m.max_value), 0, "max_value vacío"
-test "min_value devuelve el menor int":
+    calling _expect_eq_int with (calling m.max_value), 0, "max_value empty"
+test "min_value returns the smallest int":
     let m is calling _sample_str_int
     calling _expect_eq_int with (calling m.min_value), 1, "min_value"
-test "values_in_range con todos dentro":
+test "values_in_range with every value inside":
     let m is calling _sample_str_int
     calling _expect_true with (calling m.values_in_range with 1, 3), "values_in_range"
-test "values_in_range detecta fuera de rango":
+test "values_in_range detects an out-of-range value":
     let m is calling _sample_str_int
-    calling _expect_true with (not (calling m.values_in_range with 2, 3)), "values_in_range no"
-test "filter_values_range deja solo el rango":
+    calling _expect_true with (not (calling m.values_in_range with 2, 3)), "values_in_range out"
+test "filter_values_range keeps only the range":
     let m is calling _sample_str_int
     var sub as map of string to int is calling m.filter_values_range with 2, 3
     calling _expect_eq_int with (calling sub.size), 2, "filter_values_range"
-test "keys_sorted ordena claves string":
+test "keys_sorted sorts string keys":
     let m is calling _sample_str_int
     var ks as list of string is calling m.keys_sorted
     calling _expect_eq_string with (ks at 0), "alpha", "keys_sorted"
-test "keys_sorted ordena claves int":
+test "keys_sorted sorts int keys":
     let m is calling _sample_int_int
     var ks as list of int is calling m.keys_sorted
     calling _expect_eq_int with (ks at 0), 1, "keys_sorted int"
-test "values_sorted ordena valores int":
+test "values_sorted sorts int values":
     let m is calling _sample_str_int
     var vs as list of int is calling m.values_sorted
     calling _expect_eq_int with (vs at 2), 3, "values_sorted int"
-test "values_sorted ordena valores string":
+test "values_sorted sorts string values":
     let m is calling _sample_str_str
     var vs as list of string is calling m.values_sorted
     calling _expect_eq_string with (vs at 0), "dos", "values_sorted ss"
-test "values_sorted ordena valores string de mapa int":
+test "values_sorted sorts string values of an int-keyed map":
     let m is calling _sample_int_str
     var vs as list of string is calling m.values_sorted
     calling _expect_eq_string with (vs at 2), "uno", "values_sorted is"
-test "keys_sorted_of ordena claves numéricas":
+test "keys_sorted_of sorts numeric keys":
     var ks as list of int is calling keys_sorted_of with (calling _sample_int_int)
     calling _expect_eq_int with (ks at 0), 1, "keys_sorted_of"
-test "values_sorted_of ordena valores numéricos":
+test "values_sorted_of sorts numeric values":
     var vs as list of int is calling values_sorted_of with (calling _sample_int_int)
     calling _expect_eq_int with (vs at 0), -20, "values_sorted_of"
-test "filter_keys_contains busca subcadenas":
+test "filter_keys_contains finds substrings":
     let m is calling _sample_str_int
     var sub as map of string to int is calling m.filter_keys_contains with "a"
-    calling _expect_eq_int with (calling sub.size), 2, "filter_keys_contains"
-test "filter_keys_contains en mapas string":
+    calling _expect_eq_int with (calling sub.size), 3, "filter_keys_contains"
+test "filter_keys_contains on string maps":
     let m is calling _sample_str_str
     var sub as map of string to string is calling m.filter_keys_contains with "et"
     calling _expect_eq_int with (calling sub.size), 1, "filter_keys_contains ss"
-test "filter_keys_startswith filtra por prefijo":
+test "filter_keys_startswith filters by prefix":
     let m is calling _sample_str_int
     var sub as map of string to int is calling m.filter_keys_startswith with "be"
     calling _expect_eq_int with (calling sub.size), 1, "filter_keys_startswith"
-test "filter_values_contains filtra por valor string":
+test "filter_values_contains filters by string value":
     let m is calling _sample_str_str
     var sub as map of string to string is calling m.filter_values_contains with "do"
     calling _expect_eq_int with (calling sub.size), 1, "filter_values_contains"
-test "filter_values_contains con claves int":
+test "filter_values_contains with int keys":
     let m is calling _sample_int_str
     var sub as map of int to string is calling m.filter_values_contains with "re"
     calling _expect_eq_int with (calling sub.size), 1, "filter_values_contains is"
-test "count_true cuenta los booleanos verdaderos":
+test "count_true counts true values":
     let m is calling _sample_str_bool
     calling _expect_eq_int with (calling m.count_true), 2, "count_true"
-test "count_false cuenta los booleanos falsos":
+test "count_false counts false values":
     let m is calling _sample_str_bool
     calling _expect_eq_int with (calling m.count_false), 1, "count_false"
-test "map_size cuenta las entradas genéricas":
+test "map_size counts generic entries":
     let m is calling _sample_str_float
     calling _expect_eq_int with (calling m.size), 3, "map_size"
-test "map_is_empty detecta el mapa vacío":
+test "map_is_empty detects an empty map":
     var m as map of string to int is map of string to int
     calling _expect_true with (calling m.is_empty), "map_is_empty"
-test "map_has_key consulta una clave":
+test "map_has_key queries a key":
     let m is calling _sample_str_float
     calling _expect_true with (calling m.has_key with "beta"), "map_has_key"
-test "map_get_or devuelve valor o fallback":
+test "map_get_or returns the value or the fallback":
     let m is calling _sample_str_float
     calling _expect_true with ((calling m.get_or with "beta", 0.0) == -2.5), "map_get_or"
-test "map_keys devuelve todas las claves":
+test "map_keys returns every key":
     let m is calling _sample_str_float
     calling _expect_eq_int with (calling _count with (calling m.keys)), 3, "map_keys"
-test "map_values devuelve todos los valores":
+test "map_values returns every value":
     let m is calling _sample_str_float
     calling _expect_eq_int with (calling _count with (calling m.values)), 3, "map_values"
-test "map_put inserta una entrada":
+test "map_get_or reads an entry after put":
     var m as map of string to int is map of string to int
-    calling map_put with m, "a", 4
-    calling _expect_eq_int with (calling m.get_or with "a", 0), 4, "map_put"
-test "map_remove elimina una entrada":
+    calling m.put with "a", 4
+    calling _expect_eq_int with (calling map_get_or with m, "a", 0), 4, "map_get_or"
+test "map_remove deletes one entry":
     let m is calling _one with "a", 4
     calling _expect_true with (calling m.remove with "a"), "map_remove"
-test "map_clear vacía el mapa":
+test "map_clear empties the map":
     var m is calling _sample_str_int
     calling m.clear
     calling _expect_true with (calling m.is_empty), "map_clear"
-test "map_len_str_int cuenta las entradas":
+test "map_len_str_int counts the entries":
     calling _expect_eq_int with (calling map_len_str_int with (calling _sample_str_int)), 3, "map_len_str_int"
-test "map_merge combina dos mapas":
+test "map_merge combines two maps":
     var m as map of string to int is calling map_merge with (calling _one with "a", 1), (calling _one with "b", 2)
     calling _expect_eq_int with (calling m.size), 2, "map_merge"
-test "map_merge_all combina todos los mapas":
+test "map_merge_all combines every map":
     var maps as list of map of string to int is list of map of string to int
     calling maps.push with (calling _one with "a", 1)
     calling maps.push with (calling _one with "b", 2)
     var seed as map of string to int is map of string to int
     var m as map of string to int is calling seed.merge_all with maps
     calling _expect_eq_int with (calling m.size), 2, "merge_all"
-test "map_from_lists construye desde listas paralelas":
+test "map_from_lists builds from parallel lists":
     var ks as list of string is ["a", "b"]
     var vs as list of int is [1, 2]
     var m as map of string to int is calling map_from_lists with ks, vs
     calling _expect_eq_int with (calling m.get_or with "b", 0), 2, "map_from_lists"
-test "from_pairs construye desde pares":
+test "from_pairs builds from pairs":
     var ps as list of oracle.Pair of string and int is list of oracle.Pair of string and int
     var p as oracle.Pair of string and int with:
         set .first is "a"
@@ -1511,104 +4340,212 @@ test "from_pairs construye desde pares":
     calling ps.push with p
     var m as map of string to int is calling from_pairs with ps
     calling _expect_eq_int with (calling m.get_or with "a", 0), 1, "from_pairs"
-test "size_ss delega en el método":
+test "size_ss delegates to the method":
     calling _expect_eq_int with (calling size_ss with (calling _sample_str_str)), 3, "size_ss"
-test "has_key_ss delega en el método":
+test "has_key_ss delegates to the method":
     calling _expect_true with (calling has_key_ss with (calling _sample_str_str), "beta"), "has_key_ss"
-test "get_or_ss delega en el método":
+test "get_or_ss delegates to the method":
     calling _expect_eq_string with (calling get_or_ss with (calling _sample_str_str), "alpha", ""), "uno", "get_or_ss"
-test "get_safe_ss envuelve el valor":
+test "get_safe_ss wraps the value":
     var got as maybe string is calling get_safe_ss with (calling _sample_str_str), "gamma"
     calling _expect_eq_string with (got or else "?"), "tres", "get_safe_ss"
-test "clear_ss vacía el mapa":
+test "clear method empties the map":
     var m as map of string to string is calling _one with "a", "b"
-    calling clear_ss with m
-    calling _expect_eq_int with (calling size_ss with m), 0, "clear_ss"
-test "keys_sorted_ss ordena alfabéticamente":
+    calling m.clear
+    calling _expect_eq_int with (calling m.size), 0, "clear method"
+test "keys_sorted_ss sorts alphabetically":
     var ks as list of string is calling keys_sorted_ss with (calling _sample_str_str)
     calling _expect_eq_string with (ks at 0), "alpha", "keys_sorted_ss"
-test "clone_ss copia el mapa":
+test "clone_ss copies the map":
     var m as map of string to string is calling _one with "a", "b"
     var c as map of string to string is calling clone_ss with m
     calling _expect_eq_string with (calling get_or_ss with c, "a", ""), "b", "clone_ss"
-test "size_sf delega en el método":
+test "size_sf delegates to the method":
     calling _expect_eq_int with (calling size_sf with (calling _sample_str_float)), 3, "size_sf"
-test "sum_values_sf suma los valores":
+test "sum_values_sf adds the values":
     calling _expect_true with ((calling sum_values_sf with (calling _sample_str_float)) == 9.0), "sum_values_sf"
-test "max_value_sf devuelve el mayor":
+test "max_value_sf returns the largest":
     calling _expect_true with ((calling max_value_sf with (calling _sample_str_float)) == 10.0), "max_value_sf"
-test "size_ii delega en el método":
+test "size_ii delegates to the method":
     calling _expect_eq_int with (calling size_ii with (calling _sample_int_int)), 3, "size_ii"
-test "get_or_ii delega en el método":
+test "get_or_ii delegates to the method":
     calling _expect_eq_int with (calling get_or_ii with (calling _sample_int_int), 3, 0), 30, "get_or_ii"
-test "keys_sorted_ii ordena las claves":
+test "keys_sorted_ii sorts the keys":
     var ks as list of int is calling keys_sorted_ii with (calling _sample_int_int)
     calling _expect_eq_int with (ks at 0), 1, "keys_sorted_ii"
-test "sum_values_ii suma los valores":
+test "sum_values_ii adds the values":
     calling _expect_eq_int with (calling sum_values_ii with (calling _sample_int_int)), 20, "sum_values_ii"
-test "size_is delega en el método":
+test "size_is delegates to the method":
     calling _expect_eq_int with (calling size_is with (calling _sample_int_str)), 3, "size_is"
-test "get_or_is delega en el método":
+test "get_or_is delegates to the method":
     calling _expect_eq_string with (calling get_or_is with (calling _sample_int_str), 2, ""), "dos", "get_or_is"
-test "values_sorted_is ordena los valores":
+test "values_sorted_is sorts the values":
     var vs as list of string is calling values_sorted_is with (calling _sample_int_str)
     calling _expect_eq_string with (vs at 0), "dos", "values_sorted_is"
-test "size_sb delega en el método":
+test "size_sb delegates to the method":
     calling _expect_eq_int with (calling size_sb with (calling _sample_str_bool)), 3, "size_sb"
-test "count_true_sb cuenta los verdaderos":
+test "count_true_sb counts the true values":
     calling _expect_eq_int with (calling count_true_sb with (calling _sample_str_bool)), 2, "count_true_sb"
-test "merge conserva el valor derecho":
+test "merge keeps the right value":
     var m as map of string to int is calling merge with (calling _one with "a", 1), (calling _one with "a", 9)
     calling _expect_eq_int with (calling m.get_or with "a", 0), 9, "merge"
-test "merge_keep_left conserva el izquierdo":
+test "merge_keep_left keeps the left value":
     var m as map of string to int is calling merge_keep_left with (calling _one with "a", 1), (calling _one with "a", 9)
     calling _expect_eq_int with (calling m.get_or with "a", 0), 1, "merge_keep_left"
-test "merge_ss combina mapas string":
+test "merge_ss combines string maps":
     var m as map of string to string is calling merge_ss with (calling _one with "a", "x"), (calling _one with "b", "y")
     calling _expect_eq_int with (calling size_ss with m), 2, "merge_ss"
-test "merge_ii combina mapas int":
+test "merge_ii combines int maps":
     var m as map of int to int is calling merge_ii with (calling _sample_int_int), (calling _one with 9, 9)
     calling _expect_eq_int with (calling size_ii with m), 4, "merge_ii"
-test "merge_sb combina mapas bool":
+test "merge_sb combines bool maps":
     var m as map of string to bool is calling merge_sb with (calling _sample_str_bool), (calling _one with "z", false)
     calling _expect_eq_int with (calling size_sb with m), 4, "merge_sb"
-test "from_lists_ii construye desde listas int":
+test "from_lists_ii builds from int lists":
     var ks as list of int is [1, 2]
     var vs as list of int is [10, 20]
     var m as map of int to int is calling from_lists_ii with ks, vs
     calling _expect_eq_int with (calling get_or_ii with m, 2, 0), 20, "from_lists_ii"
-test "from_lists_sf construye desde listas float":
+test "from_lists_sf builds from float lists":
     var ks as list of string is ["a"]
     var vs as list of float is [1.5]
     var m as map of string to float is calling from_lists_sf with ks, vs
     calling _expect_true with ((calling get_or_sf with m, "a", 0.0) == 1.5), "from_lists_sf"
-test "values_in_range de módulo":
-    calling _expect_true with (calling values_in_range with (calling _sample_str_int), 1, 3), "values_in_range módulo"
-test "filter_keys_contains de módulo":
-    calling _expect_eq_int with (calling size with (calling filter_keys_contains with (calling _sample_str_int), "a")), 2, "filter_keys_contains módulo"
-test "filter_keys_startswith de módulo":
-    calling _expect_eq_int with (calling size with (calling filter_keys_startswith with (calling _sample_str_int), "be")), 1, "filter_keys_startswith módulo"
-test "map_values_double de módulo":
-    calling _expect_eq_int with (calling get_or with (calling map_values_double with (calling _sample_str_int)), "beta", 0), 4, "map_values_double módulo"
-test "get_or de módulo":
-    calling _expect_eq_int with (calling get_or with (calling _sample_str_int), "gamma", 0), 3, "get_or módulo"
-test "put de módulo":
+test "values_in_range module wrapper":
+    calling _expect_true with (calling values_in_range with (calling _sample_str_int), 1, 3), "values_in_range module"
+test "filter_keys_contains module wrapper":
+    calling _expect_eq_int with (calling size with (calling filter_keys_contains with (calling _sample_str_int), "a")), 3, "filter_keys_contains module"
+test "filter_keys_startswith module wrapper":
+    calling _expect_eq_int with (calling size with (calling filter_keys_startswith with (calling _sample_str_int), "be")), 1, "filter_keys_startswith module"
+test "map_values_double module wrapper":
+    calling _expect_eq_int with (calling get_or with (calling map_values_double with (calling _sample_str_int)), "beta", 0), 4, "map_values_double module"
+test "get_or module wrapper":
+    calling _expect_eq_int with (calling get_or with (calling _sample_str_int), "gamma", 0), 3, "get_or module"
+test "put method inserts an entry":
     var m as map of string to int is map of string to int
-    calling put with m, "a", 1
-    calling _expect_eq_int with (calling get_or with m, "a", 0), 1, "put módulo"
-test "remove de módulo":
-    calling _expect_true with (calling remove with (calling _one with "a", 1), "a"), "remove módulo"
-test "update de módulo":
+    calling m.put with "a", 1
+    calling _expect_eq_int with (calling m.get_or with "a", 0), 1, "put method"
+test "remove module wrapper":
+    calling _expect_true with (calling remove with (calling _one with "a", 1), "a"), "remove module"
+test "update module wrapper":
     var m as map of string to int is calling _one with "a", 1
-    calling _expect_true with (calling update with m, "a", 5), "update módulo"
-test "keys de módulo":
-    calling _expect_eq_int with (calling _count with (calling keys with (calling _sample_str_int))), 3, "keys módulo"
-test "is_empty de módulo":
+    calling _expect_true with (calling update with m, "a", 5), "update module"
+test "keys module wrapper":
+    calling _expect_eq_int with (calling _count with (calling keys with (calling _sample_str_int))), 3, "keys module"
+test "is_empty module wrapper":
     var m as map of string to int is map of string to int
-    calling _expect_true with (calling is_empty with m), "is_empty módulo"
-test "size de módulo":
-    calling _expect_eq_int with (calling size with (calling _sample_str_int)), 3, "size módulo"
-test "has_key de módulo":
-    calling _expect_true with (calling has_key with (calling _sample_str_int), "beta"), "has_key módulo"
-test "value_gt_one es un predicado reutilizable":
-    calling _expect_true with (calling _value_gt_one with "k", 2), "predicado"
+    calling _expect_true with (calling is_empty with m), "is_empty module"
+test "size module wrapper":
+    calling _expect_eq_int with (calling size with (calling _sample_str_int)), 3, "size module"
+test "has_key module wrapper":
+    calling _expect_true with (calling has_key with (calling _sample_str_int), "beta"), "has_key module"
+test "value_gt_one is a reusable predicate":
+    calling _expect_true with (calling _value_gt_one with "k", 2), "predicate"
+
+
+test "keys_sorted sorts float keys":
+    var m as map of float to int is map of float to int
+    calling m.put with 7.5, 1
+    calling m.put with 3.5, 2
+    var ks as list of float is calling m.keys_sorted
+    calling _expect_true with ((ks at 0) == 3.5), "keys_sorted float"
+test "keys_sorted sorts i64 keys":
+    var m as map of i64 to int is map of i64 to int
+    calling m.put with (7 to i64), 1
+    calling m.put with (3 to i64), 2
+    var ks as list of i64 is calling m.keys_sorted
+    calling _expect_eq_int with ((ks at 0) to int), 3, "keys_sorted i64"
+test "keys_sorted sorts i32 keys":
+    var m as map of i32 to int is map of i32 to int
+    calling m.put with (7 to i32), 1
+    calling m.put with (3 to i32), 2
+    var ks as list of i32 is calling m.keys_sorted
+    calling _expect_eq_int with ((ks at 0) to int), 3, "keys_sorted i32"
+test "values_sorted sorts float values":
+    var m as map of int to float is map of int to float
+    calling m.put with 1, 7.5
+    calling m.put with 2, 3.5
+    var vs as list of float is calling m.values_sorted
+    calling _expect_true with ((vs at 0) == 3.5), "values_sorted float"
+test "count_true on an int-keyed map":
+    var m as map of int to bool is map of int to bool
+    calling m.put with 1, true
+    calling m.put with 2, false
+    calling m.put with 3, true
+    calling _expect_eq_int with (calling m.count_true), 2, "count_true int"
+test "count_false on an int-keyed map":
+    var m as map of int to bool is map of int to bool
+    calling m.put with 1, true
+    calling m.put with 2, false
+    calling _expect_eq_int with (calling m.count_false), 1, "count_false int"
+test "map_filter_values_contains infers K":
+    var m as map of int to string is map of int to string
+    calling m.put with 1, "uno"
+    calling m.put with 2, "dos"
+    var f as map of int to string is calling map_filter_values_contains with m, "un"
+    calling _expect_eq_int with (calling f.size), 1, "map_filter_values_contains"
+test "keys_sorted_of sorts string keys":
+    var ks as list of string is calling keys_sorted_of with (calling _sample_str_int)
+    calling _expect_eq_string with (ks at 0), "alpha", "keys_sorted_of string"
+test "values_sorted_of sorts string values":
+    var vs as list of string is calling values_sorted_of with (calling _sample_str_str)
+    calling _expect_eq_string with (vs at 0), "dos", "values_sorted_of string"
+test "_sort_strings sorts a copy":
+    let m is calling _sample_str_str
+    var vs as list of string is calling _sort_strings with (calling m.values)
+    calling _expect_eq_string with (vs at 0), "dos", "_sort_strings"
+test "_atlas_sort_i32_in_place sorts in place":
+    var xs as list of int is [3, 1, 2]
+    calling _atlas_sort_i32_in_place with xs
+    calling _expect_eq_int with (xs at 0), 1, "C i32 sort"
+test "_atlas_sort_f32_in_place sorts in place":
+    var xs as list of float is [3.5, 1.5, 2.5]
+    calling _atlas_sort_f32_in_place with xs
+    calling _expect_true with ((xs at 0) == 1.5), "C f32 sort"
+test "_atlas_sort_strings_in_place sorts in place":
+    var xs as list of string is ["beta", "alpha", "Gamma"]
+    calling _atlas_sort_strings_in_place with xs
+    calling _expect_eq_string with (xs at 0), "Gamma", "C string sort"
+test "values_sorted_sf sorts float values":
+    var vs as list of float is calling values_sorted_sf with (calling _sample_str_float)
+    calling _expect_true with ((vs at 0) == -2.5), "values_sorted_sf"
+test "keys_sorted_sf sorts string keys":
+    var ks as list of string is calling keys_sorted_sf with (calling _sample_str_float)
+    calling _expect_eq_string with (ks at 0), "alpha", "keys_sorted_sf"
+test "keys_sorted_sb sorts string keys":
+    var ks as list of string is calling keys_sorted_sb with (calling _sample_str_bool)
+    calling _expect_eq_string with (ks at 0), "alpha", "keys_sorted_sb"
+test "keys_sorted_is sorts int keys":
+    var ks as list of int is calling keys_sorted_is with (calling _sample_int_str)
+    calling _expect_eq_int with (ks at 0), 1, "keys_sorted_is"
+test "values_sorted_ii sorts int values":
+    var vs as list of int is calling values_sorted_ii with (calling _sample_int_int)
+    calling _expect_eq_int with (vs at 0), -20, "values_sorted_ii"
+test "values_sorted_ss sorts string values":
+    var vs as list of string is calling values_sorted_ss with (calling _sample_str_str)
+    calling _expect_eq_string with (vs at 0), "dos", "values_sorted_ss"
+test "is_empty_sf delegates to the method":
+    calling _expect_true with (not (calling is_empty_sf with (calling _sample_str_float))), "is_empty_sf"
+test "values_ss returns every value":
+    var vs as list of string is calling values_ss with (calling _sample_str_str)
+    calling _expect_eq_int with (calling vs.len), 3, "values_ss"
+test "keys_sb returns every key":
+    var ks as list of string is calling keys_sb with (calling _sample_str_bool)
+    calling _expect_eq_int with (calling ks.len), 3, "keys_sb"
+test "clone_is copies the map":
+    var m as map of int to string is calling _one with 1, "uno"
+    var c as map of int to string is calling clone_is with m
+    calling _expect_eq_string with (calling get_or_is with c, 1, ""), "uno", "clone_is"
+test "from_lists_ss builds from string lists":
+    var ks as list of string is ["a"]
+    var vs as list of string is ["uno"]
+    var m as map of string to string is calling from_lists_ss with ks, vs
+    calling _expect_eq_string with (calling get_or_ss with m, "a", ""), "uno", "from_lists_ss"
+test "merge_sf combines float maps":
+    var m as map of string to float is calling merge_sf with (calling _sample_str_float), (calling _one with "z", 1.0)
+    calling _expect_eq_int with (calling size_sf with m), 4, "merge_sf"
+test "count_false_sb counts the false values":
+    calling _expect_eq_int with (calling count_false_sb with (calling _sample_str_bool)), 1, "count_false_sb"
+test "to_keys_list is an alias of keys":
+    var ks as list of string is calling to_keys_list with (calling _sample_str_int)
+    calling _expect_eq_int with (calling ks.len), 3, "to_keys_list"
